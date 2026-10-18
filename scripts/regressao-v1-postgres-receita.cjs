@@ -24,7 +24,7 @@
  *           migrations do atendimento (076–078 com evidência datada; 079 sem evidência datada; estado real só por E2a novo).
  *   079-sem-065 — inventário até a 079 sem a 065 (060 presente): o estado misto possível do staging.
  *   082   — inventário inteiro até a 082: atendimento completo (060, 065, 080, 081, 082) na ordem do inventário.
- *   084   — inventário inteiro até a 084: Marketing (083) e automações de Marketing (084), goal local de 14/10/2026.
+ *   085   — inventário inteiro até a 085: Marketing (084) e automações de Marketing (085), goal local de 14/10/2026.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -74,8 +74,8 @@ const MODELOS = {
   "079-sem-065": { banco: "kidmais_v1_modelo_079_sem_065", ate: "079", sem: ["065"] },
   // Atendimento completo na ordem do inventário (060 antes da 061, 065 antes da 064, 080–082 depois da 079).
   "082": { banco: "kidmais_v1_modelo_082", ate: "082", sem: [] },
-  // Marketing (goal local 14/10/2026): 083 (base) e 084 (automações) com prechecks e postchecks do inventário.
-  "084": { banco: "kidmais_v1_modelo_084", ate: "084", sem: [] },
+  // Marketing (goal local 14/10/2026): 084 (base) e 085 (automações) com prechecks e postchecks do inventário.
+  "085": { banco: "kidmais_v1_modelo_085", ate: "085", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

@@ -163,20 +163,20 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
   "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
-  // Marketing (goal local 14/10/2026): 083/084 aplicadas pela suíte sobre a 082 (ordem, reaplicação, gatilhos, rollback).
-  "lib/marketing/migration-083-084.postgres.test.ts": { descartavel: "082" },
-  // Entrega A no modelo 084: site, formulário, atribuição até contrato, painel, isolamento A×B, domínio simulado.
-  "lib/marketing/marketing-a.postgres.test.ts": { descartavel: "084" },
-  // Entrega B no modelo 084: planejamento idempotente, supressões, falha recuperável, retorno e concorrência.
-  "lib/marketing/automacoes/automacoes-b.postgres.test.ts": { descartavel: "084" },
+  // Marketing (goal local 14/10/2026): 084/085 aplicadas pela suíte sobre a 082 (ordem, reaplicação, gatilhos, rollback).
+  "lib/marketing/migration-084-085.postgres.test.ts": { descartavel: "082" },
+  // Entrega A no modelo 085: site, formulário, atribuição até contrato, painel, isolamento A×B, domínio simulado.
+  "lib/marketing/marketing-a.postgres.test.ts": { descartavel: "085" },
+  // Entrega B no modelo 085: planejamento idempotente, supressões, falha recuperável, retorno e concorrência.
+  "lib/marketing/automacoes/automacoes-b.postgres.test.ts": { descartavel: "085" },
   // Correções R1–R4 da revisão de bc379ad (15/10/2026): autorização por destino, aptidão da empresa no worker,
   // receita desconhecida e planejamento além de 500 alvos.
-  "lib/marketing/correcoes-r1-r4.postgres.test.ts": { descartavel: "084" },
+  "lib/marketing/correcoes-r1-r4.postgres.test.ts": { descartavel: "085" },
   // Observações O1/O2 da revisão de 64fcd09 (15/10/2026): número que sai do cadastro revoga a autorização; evidência
   // de confirmação congelada.
-  "lib/marketing/correcoes-o1-o2.postgres.test.ts": { descartavel: "084" },
+  "lib/marketing/correcoes-o1-o2.postgres.test.ts": { descartavel: "085" },
   // F1 da revisão de f917f98 (15/10/2026): formulário × saída do número em transações concorrentes (3 conexões).
-  "lib/marketing/correcao-f1.postgres.test.ts": { descartavel: "084" },
+  "lib/marketing/correcao-f1.postgres.test.ts": { descartavel: "085" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

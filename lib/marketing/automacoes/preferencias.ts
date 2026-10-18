@@ -3,14 +3,14 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { MarketingError } from "../erros.ts";
 
 /**
- * Descadastro e autorização de mensagens do Marketing (084, com a correção R1 de 15/10/2026).
+ * Descadastro e autorização de mensagens do Marketing (085, com a correção R1 de 15/10/2026).
  *
  * Autorização é POR DESTINO: o número normalizado que a pessoa autorizou, com origem (formulário do site ou equipe) e
  * evidência (contato captado, registro da equipe). Regras:
  *   - só autorização CONFIRMADA de um número que AINDA está no cadastro do cliente permite mensagem; o motor envia
  *     exatamente para esse número (nunca para outro número do mesmo cliente);
  *   - mudança de número no cadastro não herda autorização antiga; número que SAI do cadastro perde as autorizações vivas
- *     (gatilho marketing_aut_numero_saiu da 084, decisão O1 de 15/10/2026) — se voltar, precisa de nova autorização;
+ *     (gatilho marketing_aut_numero_saiu da 085, decisão O1 de 15/10/2026) — se voltar, precisa de nova autorização;
  *   - a evidência de confirmação (quando, quem, como) é gravada uma vez e fica congelada, inclusive na revogação (O2);
  *   - reaproveitar cadastro sem o número informado (ex.: mesmo e-mail, outro telefone) NÃO prova o destino: a autorização
  *     fica PENDENTE até a equipe confirmar; o CRM não é alterado e o número fica guardado no contato e na autorização;

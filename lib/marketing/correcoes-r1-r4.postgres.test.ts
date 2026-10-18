@@ -8,7 +8,7 @@ import {
 } from "./harness-postgres.ts";
 
 /**
- * Correções R1–R4 da revisão de bc379ad no PostgreSQL descartável (modelo 084), com TRANSPORTE SIMULADO gravando o
+ * Correções R1–R4 da revisão de bc379ad no PostgreSQL descartável (modelo 085), com TRANSPORTE SIMULADO gravando o
  * destino efetivamente escolhido pelo motor. Dados 100% sintéticos (telefones 551197777xxxx/55119666xxxxx).
  *   R1 — autorização por destino: e-mail reaproveitado com número diferente; telefone ≠ WhatsApp; 55; cliente novo;
  *        caixa desmarcada; descadastro anterior; troca de número; confirmação pela equipe; isolamento entre empresas.

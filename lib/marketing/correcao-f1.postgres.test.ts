@@ -6,7 +6,7 @@ import { carregarComBanco, cod, comercial, empresa, executor, fechamento, porTra
 
 /**
  * F1 da revisão de f917f98 (15/10/2026): corrida entre o formulário do site (autorização de WhatsApp) e a saída do
- * número do cadastro. PostgreSQL descartável (modelo 084), TRÊS conexões reais (formulário, edição, observador), dados
+ * número do cadastro. PostgreSQL descartável (modelo 085), TRÊS conexões reais (formulário, edição, observador), dados
  * COMMITADOS e barreiras explícitas:
  *   - a pausa do formulário acontece no executor, exatamente antes do INSERT da autorização (depois das leituras);
  *   - "a outra transação está bloqueada" é observado no próprio servidor (pg_stat_activity.wait_event_type = 'Lock' e

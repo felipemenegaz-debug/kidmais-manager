@@ -9,7 +9,7 @@ import type { ProvedorDominio } from "./provedor.ts";
  * Domínio personalizado (fluxo futuro, exercitado só com provedor SIMULADO):
  *   solicitar → PENDENTE_DNS (instruções TXT + A/CNAME) → verificar no provedor → VERIFICADO → provisionar → ATIVO
  *   remover → REMOVIDO (imediato, irreversível; o host fica livre para nova verificação, nunca para servir sem DNS).
- * Exclusividade: um host não REMOVIDO pertence a um único site de uma única empresa (índice único da 083).
+ * Exclusividade: um host não REMOVIDO pertence a um único site de uma única empresa (índice único da 084).
  * Domínio já em uso por outra empresa: a mesma recusa genérica de host indisponível, sem dizer de quem é.
  * Compra, renovação e DNS são do cliente: o sistema só mostra instruções e confere.
  */

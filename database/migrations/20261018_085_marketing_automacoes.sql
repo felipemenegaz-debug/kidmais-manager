@@ -1,9 +1,9 @@
--- 084 — Marketing (Entrega B): automações por regras pré-definidas (proposta parada, pós-festa, recompra, datas vagas
+-- 085 — Marketing (Entrega B): automações por regras pré-definidas (proposta parada, pós-festa, recompra, datas vagas
 --       como sugestão), execuções agendadas idempotentes, histórico, preferências de contato e descadastro, tarefas
 --       internas e caixa de saída do transporte SIMULADO.
 --
 -- NÃO APLICADA em banco persistente. Goal "Marketing local" (14/10/2026): só banco descartável local com autorização
--- própria; staging e produção exigem autorização explícita de Felipe (docs/OPERACAO_AGENTES.md). Exige a 083.
+-- própria; staging e produção exigem autorização explícita de Felipe (docs/OPERACAO_AGENTES.md). Exige a 084.
 --
 -- Regras de execução (docs/MARKETING_LOCAL_20261014.md):
 --   * uma execução por (empresa, chave de idempotência) — repetir o planejamento não duplica nada;
@@ -16,7 +16,7 @@
 --   * transporte real NÃO existe neste goal: só a caixa de saída simulada (marketing_transporte_simulado).
 -- Rollback operacional: MARKETING_AUTOMACOES_ENABLED diferente de "true" para o processamento. O down recusa enquanto
 -- houver execução, tarefa ou preferência registrada (evidências de envio e consentimento não são apagadas).
--- Postcheck: database/checks/20261014_084_postcheck.sql. Rollback: database/rollback/20261014_084_marketing_automacoes_down.sql.
+-- Postcheck: database/checks/20261018_085_postcheck.sql. Rollback: database/rollback/20261018_085_marketing_automacoes_down.sql.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -24,13 +24,13 @@ SET LOCAL search_path = public, pg_catalog;
 
 DO $$ BEGIN
   IF to_regclass('public.marketing_campanhas') IS NULL OR to_regclass('public.marketing_atribuicoes') IS NULL THEN
-    RAISE EXCEPTION '084 exige a 083.';
+    RAISE EXCEPTION '085 exige a 084.';
   END IF;
   IF to_regclass('public.marketing_automacao_regras') IS NOT NULL OR to_regclass('public.marketing_automacao_execucoes') IS NOT NULL
      OR to_regclass('public.marketing_contato_preferencias') IS NOT NULL OR to_regclass('public.marketing_tarefas') IS NOT NULL
-     OR to_regclass('public.marketing_contato_autorizacoes') IS NOT NULL OR to_regprocedure('public.kidmais084_destino(text)') IS NOT NULL
+     OR to_regclass('public.marketing_contato_autorizacoes') IS NOT NULL OR to_regprocedure('public.kidmais085_destino(text)') IS NOT NULL
      OR to_regclass('public.marketing_transporte_simulado') IS NOT NULL THEN
-    RAISE EXCEPTION '084 já aplicada (total ou parcialmente).';
+    RAISE EXCEPTION '085 já aplicada (total ou parcialmente).';
   END IF;
 END $$;
 
@@ -131,30 +131,30 @@ CREATE INDEX marketing_exec_regra_idx ON marketing_automacao_execucoes (empresa_
 CREATE UNIQUE INDEX marketing_exec_provedor_uk ON marketing_automacao_execucoes (provedor_mensagem_id) WHERE provedor_mensagem_id IS NOT NULL;
 
 -- Integridade: cliente e negociação da mesma empresa da execução.
-CREATE FUNCTION kidmais084_execucao_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_execucao_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 DECLARE dono uuid;
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: execução de automação não é apagada; cancele.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: execução de automação não é apagada; cancele.'; END IF;
   IF TG_OP = 'UPDATE' AND (NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.regra_id IS DISTINCT FROM OLD.regra_id
      OR NEW.cliente_id IS DISTINCT FROM OLD.cliente_id OR NEW.chave_idempotencia IS DISTINCT FROM OLD.chave_idempotencia
      OR NEW.alvo_id IS DISTINCT FROM OLD.alvo_id OR NEW.acao IS DISTINCT FROM OLD.acao) THEN
-    RAISE EXCEPTION '084: identidade da execução é imutável.';
+    RAISE EXCEPTION '085: identidade da execução é imutável.';
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.estado IN ('TAREFA_CRIADA', 'ENTREGUE', 'SUPRIMIDA', 'CANCELADA') THEN
-    RAISE EXCEPTION '084: execução concluída não muda (%).', OLD.estado;
+    RAISE EXCEPTION '085: execução concluída não muda (%).', OLD.estado;
   END IF;
   IF TG_OP = 'INSERT' THEN
     SELECT empresa_id INTO dono FROM clientes WHERE id = NEW.cliente_id;
-    IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: cliente da execução é de outra empresa.'; END IF;
+    IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: cliente da execução é de outra empresa.'; END IF;
     IF NEW.fechamento_id IS NOT NULL THEN
       SELECT empresa_id INTO dono FROM fechamentos WHERE id = NEW.fechamento_id;
-      IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: negociação da execução é de outra empresa.'; END IF;
+      IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: negociação da execução é de outra empresa.'; END IF;
     END IF;
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_exec_tenant BEFORE INSERT OR UPDATE OR DELETE ON marketing_automacao_execucoes
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_execucao_tenant();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_execucao_tenant();
 
 CREATE TABLE marketing_automacao_eventos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -169,7 +169,7 @@ CREATE TABLE marketing_automacao_eventos (
 );
 CREATE INDEX marketing_eventos_exec_idx ON marketing_automacao_eventos (execucao_id, criado_em);
 CREATE TRIGGER marketing_automacao_eventos_imutavel BEFORE UPDATE OR DELETE ON marketing_automacao_eventos
-  FOR EACH ROW EXECUTE FUNCTION kidmais083_somente_insercao();
+  FOR EACH ROW EXECUTE FUNCTION kidmais084_somente_insercao();
 
 -- =============================================================================
 -- 3. Descadastro (por cliente) e autorizações de mensagem POR DESTINO (correção R1, 15/10/2026).
@@ -203,20 +203,20 @@ CREATE TABLE marketing_contato_preferencias_eventos (
 );
 CREATE INDEX marketing_pref_eventos_idx ON marketing_contato_preferencias_eventos (empresa_id, cliente_id, registrado_em);
 CREATE TRIGGER marketing_pref_eventos_imutavel BEFORE UPDATE OR DELETE ON marketing_contato_preferencias_eventos
-  FOR EACH ROW EXECUTE FUNCTION kidmais083_somente_insercao();
+  FOR EACH ROW EXECUTE FUNCTION kidmais084_somente_insercao();
 
-CREATE FUNCTION kidmais084_preferencia_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_preferencia_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 DECLARE dono uuid;
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: preferência de contato não é apagada.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: preferência de contato não é apagada.'; END IF;
   SELECT empresa_id INTO dono FROM clientes WHERE id = NEW.cliente_id;
-  IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: cliente da preferência é de outra empresa.'; END IF;
+  IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: cliente da preferência é de outra empresa.'; END IF;
   INSERT INTO marketing_contato_preferencias_eventos (empresa_id, cliente_id, descadastrado, origem, observacao, registrado_por)
   VALUES (NEW.empresa_id, NEW.cliente_id, NEW.descadastrado_em IS NOT NULL, COALESCE(NEW.descadastro_origem, 'EQUIPE'), NEW.observacao, NEW.atualizado_por);
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_pref_tenant BEFORE INSERT OR UPDATE OR DELETE ON marketing_contato_preferencias
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_preferencia_tenant();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_preferencia_tenant();
 
 CREATE TABLE marketing_contato_autorizacoes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -260,40 +260,40 @@ CREATE TABLE marketing_contato_autorizacoes (
 CREATE UNIQUE INDEX marketing_aut_viva_uk ON marketing_contato_autorizacoes (empresa_id, cliente_id, canal, destino) WHERE estado <> 'REVOGADA';
 CREATE INDEX marketing_aut_cliente_idx ON marketing_contato_autorizacoes (empresa_id, cliente_id, estado);
 
-CREATE FUNCTION kidmais084_autorizacao_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_autorizacao_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 DECLARE dono uuid;
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: autorização de contato não é apagada; revogue.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: autorização de contato não é apagada; revogue.'; END IF;
   IF TG_OP = 'INSERT' THEN
     SELECT empresa_id INTO dono FROM clientes WHERE id = NEW.cliente_id;
-    IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: cliente da autorização é de outra empresa.'; END IF;
-    IF NEW.estado = 'REVOGADA' THEN RAISE EXCEPTION '084: autorização não nasce revogada.'; END IF;
+    IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: cliente da autorização é de outra empresa.'; END IF;
+    IF NEW.estado = 'REVOGADA' THEN RAISE EXCEPTION '085: autorização não nasce revogada.'; END IF;
     RETURN NEW;
   END IF;
   IF NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.cliente_id IS DISTINCT FROM OLD.cliente_id OR NEW.canal IS DISTINCT FROM OLD.canal
      OR NEW.destino IS DISTINCT FROM OLD.destino OR NEW.origem IS DISTINCT FROM OLD.origem OR NEW.contato_id IS DISTINCT FROM OLD.contato_id
      OR NEW.evidencia IS DISTINCT FROM OLD.evidencia OR NEW.criado_em IS DISTINCT FROM OLD.criado_em OR NEW.criado_por IS DISTINCT FROM OLD.criado_por THEN
-    RAISE EXCEPTION '084: destino, origem e evidência da autorização são imutáveis.';
+    RAISE EXCEPTION '085: destino, origem e evidência da autorização são imutáveis.';
   END IF;
   -- Transições: PENDENTE → CONFIRMADA | REVOGADA; CONFIRMADA → REVOGADA. Revogada é final.
   IF NOT ((OLD.estado = 'PENDENTE' AND NEW.estado IN ('CONFIRMADA', 'REVOGADA')) OR (OLD.estado = 'CONFIRMADA' AND NEW.estado = 'REVOGADA')) THEN
-    RAISE EXCEPTION '084: transição de autorização inválida (% → %).', OLD.estado, NEW.estado;
+    RAISE EXCEPTION '085: transição de autorização inválida (% → %).', OLD.estado, NEW.estado;
   END IF;
   -- Evidências de confirmação (O2, 15/10/2026): só são gravadas na passagem PENDENTE → CONFIRMADA; em qualquer outra
   -- transição (inclusive a revogação) ficam exatamente como estavam — a própria linha é o histórico.
   IF NOT (OLD.estado = 'PENDENTE' AND NEW.estado = 'CONFIRMADA')
      AND (NEW.confirmada_em IS DISTINCT FROM OLD.confirmada_em OR NEW.confirmada_por IS DISTINCT FROM OLD.confirmada_por
           OR NEW.confirmacao IS DISTINCT FROM OLD.confirmacao) THEN
-    RAISE EXCEPTION '084: evidências de confirmação da autorização são imutáveis.';
+    RAISE EXCEPTION '085: evidências de confirmação da autorização são imutáveis.';
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_aut_controle BEFORE INSERT OR UPDATE OR DELETE ON marketing_contato_autorizacoes
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_autorizacao_controle();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_autorizacao_controle();
 
 -- Destino canônico em SQL: mesma regra de normalizarDestino (lib/marketing/automacoes/preferencias.ts) — só dígitos;
 -- 10/11 dígitos ganham o DDI 55; 12–15 dígitos ficam como estão; o resto não é destino.
-CREATE FUNCTION kidmais084_destino(valor text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE
+CREATE FUNCTION kidmais085_destino(valor text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE
   SET search_path = public, pg_catalog, pg_temp AS $$
   SELECT CASE WHEN d ~ '^[0-9]{10,11}$' THEN '55' || d WHEN d ~ '^[0-9]{12,15}$' THEN d END
     FROM (SELECT regexp_replace(COALESCE(valor, ''), '[^0-9]', '', 'g') AS d) x
@@ -303,19 +303,19 @@ $$;
 -- vivas (pendente ou confirmada) desse número, na mesma transação da alteração — vale para edição na tela, importação,
 -- mescla ou SQL direto. Se o número voltar ao cadastro, precisa de nova autorização (equipe ou formulário); a revogada
 -- fica como histórico. Troca só de formatação (mesmo destino normalizado) não revoga nada.
-CREATE FUNCTION kidmais084_numero_saiu_do_cadastro() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_numero_saiu_do_cadastro() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 BEGIN
   UPDATE marketing_contato_autorizacoes a
      SET estado = 'REVOGADA', revogada_em = clock_timestamp(), atualizado_em = clock_timestamp(),
          motivo_revogacao = 'NUMERO_SAIU_DO_CADASTRO: o número deixou o cadastro do cliente; nova autorização é necessária.'
    WHERE a.empresa_id = OLD.empresa_id AND a.cliente_id = OLD.id AND a.canal = 'WHATSAPP' AND a.estado <> 'REVOGADA'
-     AND a.destino IN (kidmais084_destino(OLD.whatsapp), kidmais084_destino(OLD.telefone))
-     AND a.destino IS DISTINCT FROM kidmais084_destino(NEW.whatsapp) AND a.destino IS DISTINCT FROM kidmais084_destino(NEW.telefone);
+     AND a.destino IN (kidmais085_destino(OLD.whatsapp), kidmais085_destino(OLD.telefone))
+     AND a.destino IS DISTINCT FROM kidmais085_destino(NEW.whatsapp) AND a.destino IS DISTINCT FROM kidmais085_destino(NEW.telefone);
   RETURN NULL;
 END $$;
 CREATE TRIGGER marketing_aut_numero_saiu AFTER UPDATE OF whatsapp, telefone ON clientes
   FOR EACH ROW WHEN (OLD.whatsapp IS DISTINCT FROM NEW.whatsapp OR OLD.telefone IS DISTINCT FROM NEW.telefone)
-  EXECUTE FUNCTION kidmais084_numero_saiu_do_cadastro();
+  EXECUTE FUNCTION kidmais085_numero_saiu_do_cadastro();
 
 -- =============================================================================
 -- 4. Tarefas internas (sem provedor externo) e caixa de saída do transporte simulado.

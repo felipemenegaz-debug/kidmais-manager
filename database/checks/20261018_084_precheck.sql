@@ -1,4 +1,4 @@
--- Precheck da 083 (Marketing): somente leitura. Confirma dependências e que nada da 083 existe.
+-- Precheck da 084 (Marketing): somente leitura. Confirma dependências e que nada da 084 existe.
 BEGIN TRANSACTION READ ONLY;
 SELECT
   to_regclass('public.empresas') IS NOT NULL AS tem_empresas,
