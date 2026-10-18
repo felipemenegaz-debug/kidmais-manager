@@ -538,12 +538,12 @@ test('SEM Navigation API — depois de "Continuar", gesto da pessoa (±1…±5, 
   t.diagnostic(JSON.stringify(contagem));
   assert.deepEqual(Object.keys(contagem).filter((k) => k !== 'OK' && k !== 'SAIU_PELA_PESSOA'), [], exemplos.join(' | '));
 });
-test('SEM Navigation API — "Sair" com um movimento nosso ainda na fila espera ele assentar (e ser desfeito) e não move nada depois', async () => {
+test('SEM Navigation API — "Sair" depois de "Continuar" e de uma travessia da pessoa: sai na entrada que ela escolheu e não move nada depois', async () => {
   const { c, desproteger } = await prepararPassos(HISTORICOS.B);
   c.amb.avancar(100);
-  c.m.continuarEditando(); c.amb.avancar(0); // a volta pede o salto agora (atendido em 1 ms)
-  c.amb.humano(-1);                           // a pessoa atravessa antes do atendimento do salto
-  c.amb.avancar(2);                           // chega ela; o salto (na fila) é resolvido a partir dela e chega depois
+  c.m.continuarEditando(); c.amb.avancar(0); // entrada nova do editor (nenhum movimento do guardião)
+  c.amb.humano(-1);                           // a pessoa atravessa
+  c.amb.avancar(2);                           // chega ela: o pedido reabre ali
   assert.ok(c.pedidos.at(-1) && c.pedidos.at(-1)!.tipo === 'aqui', 'pedido reaberto');
   const escolhida = c.amb.chegadasHumanas.at(-1)!.pos;
   c.liberar(); desproteger();
@@ -553,18 +553,19 @@ test('SEM Navigation API — "Sair" com um movimento nosso ainda na fila espera 
   assert.equal(mostrou, c.amb.entradas[escolhida].url, 'sai na entrada que ela escolheu');
   assert.equal(c.amb.posicao(), escolhida); assert.equal(tentativaDe(c), null);
 });
-test('SEM Navigation API — O-2: saída por link durante a volta pedida ("Continuar") espera chegar ao editor e segue dali; nada depois dela', async () => {
+test('SEM Navigation API — O-2: saída por link depois de "Continuar" parte da entrada do editor (nenhum movimento do guardião a esperar); nada depois dela', async () => {
   const { c, desproteger } = await prepararPassos(HISTORICOS.rvI1);
   c.amb.avancar(100);
   c.m.continuarEditando(); c.amb.avancar(0);
   let posNaSaida = -1;
   c.liberar();
-  c.m.executarSaida(() => { posNaSaida = c.amb.posicao(); desproteger(); c.amb.janela.history.pushState({ __NA: true }, '', '/saida-escolhida'); });
+  // Como o hook: a saída por link segue direto (não há volta a esperar).
+  posNaSaida = c.amb.posicao(); desproteger(); c.amb.janela.history.pushState({ __NA: true }, '', '/saida-escolhida');
   c.amb.avancar(3000);
   assert.equal(c.amb.entradas[posNaSaida].url, '/editor', 'a saída parte da entrada do editor');
   assert.equal(c.amb.url(), '/saida-escolhida'); assert.equal(tentativaDe(c), null);
 });
-test('SEM Navigation API — O-2 direto (saída fora do hook com um movimento antigo na fila, durante a volta pedida): o movimento antigo é desfeito e a URL termina na saída escolhida', async () => {
+test('SEM Navigation API — O-2 direto (saída fora do hook logo depois de "Continuar"): nenhum movimento do guardião; a URL termina na saída escolhida', async () => {
   const { c, desproteger } = await prepararPassos(HISTORICOS.rvI1);
   c.amb.avancar(100);
   c.m.continuarEditando(); c.amb.avancar(0);
@@ -581,7 +582,7 @@ test('SEM Navigation API — H1-R2: com o pedido aberto, a pessoa vai à 1ª ent
   desproteger();
 });
 
-test('SEM Navigation API — representação: entrada criada a partir de posição incerta não duplica índice; a volta (Continuar) usa passos e não passa do editor', async () => {
+test('SEM Navigation API — representação: entrada criada a partir de posição incerta não duplica índice; Continuar termina na página do editor', async () => {
   const c = await preparar(false, ['/a', '/b', '/c']);
   c.amb.fragmento('#f');
   c.amb.janela.history.go(-3); c.amb.avancar(10);
@@ -597,7 +598,7 @@ test('SEM Navigation API — representação: entrada criada a partir de posiç�
   assert.equal(c.amb.url(), '/c'); assert.equal(tentativaDe(c), null);
   off();
 });
-test('SEM Navigation API — salvaguarda: índices duplicados herdados (premissa quebrada) → Continuar ainda termina no editor', async () => {
+test('SEM Navigation API — índices duplicados herdados (premissa quebrada) → Continuar ainda termina no editor', async () => {
   const c = await preparar(false, ['/a', '/b', '/editor', '/c']);
   c.amb.entradas[4].state = { __NA: true, __kidmaisIdx: 1 };
   c.amb.janela.history.go(-1); c.amb.avancar(10);

@@ -4,6 +4,78 @@
 **Base:** `cda9464` (árvore `ae4cff5`), REPROVADA em `revisao-marketing-historico-a1a2-cda9464-parecer-20261017/PARECER.md` (manifesto 181, `7a03ceea…`) por C1/P2, C2/P2 e O-a/P3.
 **Branch:** `codex/marketing-continuar-c1c2oa-20261017`. Commits: `3851e3f` com a correção de O-a, e o seguinte com a **integração do α2**, aprovada por Felipe (seção 0). Só local, sem push.
 
+## L. Limpeza da volta ativa inalcançável (18/10/2026, sobre 7d299a2)
+
+**Autorização:** Felipe aprovou a remoção **como proposta**, depois do parecer independente de `7d299a2`: APROVADO, com F-1 P3 latente na contingência, em `revisao-marketing-historico-continuar-7d299a2-parecer-20261017/PARECER.md`. Proposta e provas: `ambientes-locais/marketing-limpeza-volta-20261017/PROPOSTA-LIMPEZA-VOLTA-ATIVA.md`.
+
+**O que saiu de `protecao-saida.ts` (821 → 466 linhas):**
+- **Volta ativa:** modo `voltando`, `avancar`, `armarVigia`, `semMovimento`, `concluirRetorno`, `noEditor`, `direcaoProvavel`, `semDestinoCerto`, `primeiraDaAba`.
+- **Saltos e conferência:** `saltoSemIndice`, `saltoAmbiguo`, `possivel`, `chegadaDe`, `casa`, `possivelAPartirDe`, `semFragmentosEntre`, `cadeia`.
+- **Compensação** (`desfazendo`/`compensando`), **abandono em voo** (`abandonada`), a espera de `saida` e `executarSaida` (O-2 com volta).
+- **Estado sem leitor:** `contiguo`, `instalacao`, `Pos.candidatos`, `ASSENTAR_MS`, `VIGIA_MS`.
+- A tentativa ficou `{ a }`.
+
+**O que ficou igual:**
+- o caminho com Navigation API;
+- "decisão primeiro";
+- "Sair" sem travessia;
+- O-a (`abandonarTentativa`, agora só encerra);
+- o pushState do α2 e a sua contingência (inclusive o F-1, fora deste escopo);
+- o registro de índices e fragmentos que a proteção usa.
+
+**Por que era inalcançável (leitura):**
+- A tentativa nasce sem movimento, e nada além de `voltando` cria movimento.
+- `voltando` só era alcançado sem estado do editor **e** sem o pushState próprio.
+- Isso exige uma Navigation API presente na instalação e ausente depois, o que não ocorre num documento.
+
+**Única mudança de comportamento:** nesse caso inalcançável, "Continuar" agora encerra a tentativa sem travessia.
+
+**Suíte do guardião:**
+- o teste O-2 chama a saída direto: sem volta, o hook navega direto, e não há `executarSaida` para esperar. A intenção se mantém e continua asserida: a saída parte da entrada do editor e nada se move depois;
+- 5 títulos/comentários que descreviam a volta foram corrigidos;
+- nenhuma asserção mudou, e a contagem é a mesma.
+
+**Provas:**
+
+| Prova | Resultado |
+|---|---|
+| Instrumentação de 7d299a2 (36 marcadores nas regiões removidas, 11 controles em caminhos vivos) — suíte do guardião | 52/52; **0** marcas removidas; 11/11 controles |
+| — controle por injeção (sem pushState próprio e sem estado) | as marcas removidas aparecem (o canal detecta) |
+| — bateria Chrome completa (48 execuções, roteiros e parâmetros da integrada + B-5) | **0** marcas removidas; 9/11 controles; 48/48 vereditos iguais aos da integrada |
+| Cópia limpa: guardião / não-PG (15 arquivos) / `tsc` / ESLint / `check:v1:static` com build | **52/52** / **127/127** (0 skip/todo) / 0 / 0 / **PASS** |
+| Cópia limpa: bateria principal (48 execuções, mesmos roteiros/parâmetros da integrada + B-5) | **48/48** status 0; vereditos **48/48 iguais** a 7d299a2 (resumo e classe por linha; custo por classes, histórico com IDs CDP relativos e sondas) |
+| Cópia limpa: fase extra (15 roteiros da revisão de 7d299a2: custo A/AT/B/B2/B5/A2T, contingências, 2º Continuar normal, erro de save, órfã pós-Continuar, telas do F-1) | **15/15** status 0; **14/15 iguais** às linhas "candidata" da revisora, na linha inteira; em `orfa-pos-continuar` diferem só `tentativa.modo`/`abandonada`, campos removidos |
+| A/B dirigido de `fila` (3 roteiros × 2 rodadas × base 7d299a2/limpa, alternados) | 12/12 status 0; classes idênticas em todas (OK 35 + 2 GESTO_DESCARTADO_PELO_PUSH) |
+
+**Comparação estrita (linha inteira, só tempos removidos):**
+- **Ruído de execução:** instantes `@t`, `timeOrigin` e IDs CDP absolutos.
+- **Por construção:** `tentativa.modo`/`passos[].modo` (campo removido).
+- **Ordem de atendimento:** quatro linhas de `fila` com `off=1`.
+  - Na bateria limpa, a chegada do gesto da pessoa veio **depois** do clique em "Continuar". Resultado: pedido aberto no destino, e "Sair" vai a ele. Em 7d299a2 a chegada veio **antes**: editor sem pedido. As duas ordens são OK pelo oráculo e estão dentro do contrato α2.
+  - O A/B com as duas raízes nas mesmas condições deu "depois do clique" em 1/10 e 1/10 na base e em 1/10 e 0/10 na limpa. É corrida de atendimento de 1 ms, não efeito do código. O 4/10 da bateria limpa coincidiu com o incidente abaixo.
+
+**F-1 (fora desta limpeza, pendente para decisão de Felipe):**
+- O 2º "Continuar" depois da contingência injetada se reproduz **igual** a 7d299a2: `contingencia-continuar2`, `extra-f1-tela` e `extra-f1-tela-B5` são idênticos às linhas da revisora.
+- A limpeza não mudou nem o comportamento nem a alcançabilidade dele.
+
+**Incidentes de execução (registro):**
+- **Concorrência (04:50–04:58Z):**
+  - O que houve: depois de uma interrupção da sessão, a bateria original e duas retomadas rodaram em paralelo.
+  - Tratamento: foram encerradas; os resultados desse intervalo estão em quarentena, preservados (`testes/limpa/quarentena-concorrencia-20261018T0450Z/`).
+  - Substituição: os casos afetados foram refeitos numa cadeia única com trava. Só os 16 resultados anteriores (04:37–04:49Z, sem sobreposição) foram mantidos.
+- **Servidor parou durante o custo-alfa:**
+  - O que houve: o `next dev` saiu duas vezes, sem erro e sem ação desta sessão. A causa não foi determinada, e o timeout de C6 foi consequência. Detalhes em `testes/limpa/diagnostico-custo-alfa-20261018/`.
+  - Resolução: na 3ª execução, com um vigia de processos, o servidor ficou no ar e o custo-alfa passou 11/11.
+- **Guarda da fase extra:** recusou corretamente nas duas falhas.
+
+**Limites:**
+- Navigation API ausente só simulada no Chrome headless (não é Firefox/Safari).
+- `next dev` com sessão/API sintéticas, sem banco.
+- Aba sem entrada anterior não verificada.
+- A ausência de marcas é prova da bateria executada, não prova universal: a inalcançabilidade vem do invariante lido no código.
+
+**Estado:** implementação e validação da implementadora. **Revisão independente do delta pendente.**
+
 ## 0. Integração α2 — decisão de Felipe (17/10/2026)
 
 Felipe aprovou, nesta conversa, **α2 ("Continuar" sem travessia) com os custos medidos**:
@@ -42,7 +114,7 @@ O teste de cruzamento pós-"Continuar" **deixou de ser TODO e passa**.
 - **O que acontece:** a entrada nova do editor nasce depois da página tentada. O 2º Avançar do roteiro original não tem mais destino; essa página agora está atrás.
 - **Substituto no contrato aprovado** (`roteiro-adminshell-alfa2-b5.mjs`): **PASS**. Esc mantém o editor e a edição; o Avançar fica sem destino (medido); Voltar abre o pedido no Dashboard; "Sair sem salvar" vai a ele.
 
-**Revisão independente:** pendente.
+**Revisão independente de `7d299a2`:** APROVADO para encerrar o goal local, com F-1 (P3, latente: 2º "Continuar" depois da contingência; só por injeção). Parecer em `revisao-marketing-historico-continuar-7d299a2-parecer-20261017/PARECER.md`.
 
 ## Estado antes da decisão (registro de 3851e3f; sem autoaprovação)
 
