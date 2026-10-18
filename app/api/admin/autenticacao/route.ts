@@ -11,6 +11,7 @@ import { contextoDaSessao } from '@/lib/autenticacao/contexto';
 import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
 import { recursoIncluido } from '@/lib/assinatura/recursos-plano';
+import { menuMarketingVisivel } from '@/lib/marketing/capacidades';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
@@ -47,7 +48,10 @@ export async function GET(request: NextRequest) {
             const comercial = contexto.empresaAtual ? await resumoComercialDaEmpresa(db(), contexto.empresaAtual.id) : null;
             // Recursos do plano, só para o menu (a barreira está nas APIs). Falha de leitura esconde o item, não derruba a sessão.
             const recursos = contexto.empresaAtual
-                ? { financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false) }
+                ? {
+                    financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false),
+                    marketing: await menuMarketingVisivel(db(), contexto.empresaAtual.id, session.usuario_id, contexto.gestaoNaEmpresa, recursoIncluido),
+                }
                 : null;
             return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, recursos, cadastroAberto: situacaoCadastro().ativo } });
         }

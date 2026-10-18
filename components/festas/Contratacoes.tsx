@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { Contratacao } from '@/lib/fechamentos/contratacoes';
 import { formatarFormaPagamento, formatarMoeda } from '@/lib/contratos/documento/formatters';
+import OrigemPainel from '@/components/admin/marketing/OrigemPainel';
 import styles from './festa.module.css';
 
-export default function Contratacoes({ clienteId, onTotal }: { clienteId?: string; onTotal?: (total: number) => void }) {
+/** `mostrarOrigem`: no perfil do cliente, cada negociação mostra e permite informar a própria origem (Marketing, básico do CRM). */
+export default function Contratacoes({ clienteId, onTotal, mostrarOrigem = false }: { clienteId?: string; onTotal?: (total: number) => void; mostrarOrigem?: boolean }) {
     const [itens, setItens] = useState<Contratacao[] | null>(null);
     const [erro, setErro] = useState('');
     const [tentativa, setTentativa] = useState(0);
@@ -33,11 +35,11 @@ export default function Contratacoes({ clienteId, onTotal }: { clienteId?: strin
         {erro && <div role="alert" className={styles.warning}>{erro} <button type="button" onClick={() => setTentativa(v => v + 1)}>Atualizar contratações</button></div>}
         {!erro && itens === null && <p role="status">Carregando contratações…</p>}
         {!erro && itens?.length === 0 && <p>Nenhuma contratação em andamento.</p>}
-        {!erro && itens && <ContratacoesLista itens={itens}/>}
+        {!erro && itens && <ContratacoesLista itens={itens} mostrarOrigem={mostrarOrigem}/>}
     </section>;
 }
 
-export function ContratacoesLista({ itens }: { itens: Contratacao[] }) {
+export function ContratacoesLista({ itens, mostrarOrigem = false }: { itens: Contratacao[]; mostrarOrigem?: boolean }) {
     return <div className={styles.grid}>{itens.map(item => <article className={styles.card} key={item.id}>
             <p className={styles.customer}>Cliente</p><h3>{item.cliente}</h3>
             {item.clienteStatus === 'INATIVO' && <small>Cliente arquivado/inativo</small>}
@@ -50,5 +52,6 @@ export function ContratacoesLista({ itens }: { itens: Contratacao[] }) {
             <p>Próximo passo: {item.proximoPasso}</p>
             <div className={styles.actions}><Link className={styles.button} href={item.acao.href}>{item.acao.titulo}</Link>
                 {item.acessoPublico && <Link href={item.acessoPublico}>Abrir acesso público do cliente</Link>}</div>
+            {mostrarOrigem && <OrigemPainel alvoTipo="FECHAMENTO" alvoId={item.id} />}
         </article>)}</div>;
 }

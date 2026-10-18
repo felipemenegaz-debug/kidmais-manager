@@ -12,6 +12,11 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         '/admin/festas',
         '/admin/disponibilidade',
         '/admin/atendimento',
+        '/admin/marketing',
+        '/admin/marketing/campanhas',
+        '/admin/marketing/origens',
+        '/admin/marketing/site',
+        '/admin/marketing/automacoes',
         '/admin/financeiro',
         '/admin/financeiro/contas-receber',
         '/admin/financeiro/contas-pagar',
@@ -45,6 +50,14 @@ test('plano sem financeiro completo esconde contas a pagar, fluxo e relatórios;
     assert.deepEqual(financeiro(true), completo);
     assert.deepEqual(financeiro(undefined), completo, 'sem informação do plano (teste, legado, isenta) nada é escondido');
     assert.equal(itensNavegacao({ gestaoEmpresa: true, plataforma: false, financeiroCompleto: false }).some((i) => i.href === '/admin/configuracoes/perfil-empresa'), true);
+});
+
+test('Marketing: some sem o recurso/capacidade (marketing: false); aparece no menu principal quando liberado', () => {
+    const marketing = (valor?: boolean) => itensNavegacao({ gestaoEmpresa: false, plataforma: false, marketing: valor }).filter((i) => i.grupo === 'Marketing').map((i) => i.rotulo);
+    assert.deepEqual(marketing(false), []);
+    assert.deepEqual(marketing(true), ['Visão geral', 'Campanhas', 'Origens dos contatos', 'Site e SEO', 'Automações']);
+    assert.equal(itemAtivo('/admin/marketing/site/previa', '/admin/marketing/site', itensNavegacao(true)), true);
+    assert.equal(itemAtivo('/admin/marketing/site', '/admin/marketing', itensNavegacao(true)), false);
 });
 
 test('o item ativo é o link mais específico', () => {
