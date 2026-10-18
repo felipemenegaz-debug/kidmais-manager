@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import sharp from 'sharp';
-import { gerarImagem, iaConfigurada, modeloImagem, MODELO_OPENAI, FalhaProvedorImagem } from './imagem.ts';
+import { gerarImagem, iaConfigurada, imagemDaResposta, modeloImagem, processarImagemRecebida, MODELO_OPENAI, FalhaProvedorImagem } from './imagem.ts';
 
 // Configuração sintética explícita, passada a cada chamada: os testes não leem nem alteram process.env, e o
 // resultado independe das variáveis do serviço onde o build roda (ex.: CONVITES_OPENAI_API_KEY ou provedor real).
@@ -79,4 +79,16 @@ test('recusa preserva request ID e metadados públicos, descartando conteúdo li
   });
   assert.equal(calls,1);
   await assert.rejects(gerarImagem('Jardim',[],async () => Response.json({error:{code:'moderation_blocked',moderation_details:{moderation_stage:'PRIVADO',categories:['PRIVADO']}}},{status:400,headers:{'x-request-id':'PRIVADO'}}),env), e => e instanceof FalhaProvedorImagem && !JSON.stringify(e).includes('PRIVADO'));
+});
+test('imagem recebida: extrai só os bytes da resposta 2xx (sem o corpo) e reprocessa pelo mesmo caminho da geração', async () => {
+  const bytes = await sharp({ create: { width: 768, height: 1024, channels: 3, background: '#224466' } }).webp().toBuffer();
+  const corpo = { data: [{ b64_json: bytes.toString('base64'), revised_prompt: 'não guardar' }], usage: { output_tokens: 10 } };
+  const extraida = imagemDaResposta('https://api.openai.com/v1/images/generations', corpo);
+  assert.ok(extraida); assert.deepEqual(extraida, bytes);
+  for (const invalido of [{ data: [] }, { data: [{}, {}] }, { data: [{ b64_json: 'não é base64!' }] }, null, 'texto'])
+    assert.equal(imagemDaResposta('https://api.openai.com/v1/images/edits', invalido), null);
+  // Reprocessar a imagem guardada dá o mesmo resultado da geração original (sem nova chamada).
+  const original = await gerarImagem('Astronauta', [], async () => Response.json(corpo), ENV);
+  assert.deepEqual(await processarImagemRecebida(extraida, false), original.imagem);
+  await assert.rejects(processarImagemRecebida(Buffer.from('não é imagem'), false));
 });
