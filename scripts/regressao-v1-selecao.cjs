@@ -183,6 +183,11 @@ const ESTADO_POSTGRES = {
   "lib/marketing/correcoes-o1-o2.postgres.test.ts": { descartavel: "086" },
   // F1 da revisão de f917f98 (15/10/2026): formulário × saída do número em transações concorrentes (3 conexões).
   "lib/marketing/correcao-f1.postgres.test.ts": { descartavel: "086" },
+  // OBS-2 da revisão de f9d8a63 (18/10/2026): o aplicador real de staging 085/086 sobre o schema anterior ao Marketing
+  // (083 + 084): conferência, recusas (parcial, trava concorrente, sem CREATE), falha/retomada, idempotência e downs.
+  "lib/marketing/aplicador-085-086.postgres.test.ts": { descartavel: "084" },
+  // OBS-2: Convites (084) e WhatsApp (083) com o Marketing presente; downs 086 → 085 → 084 e recusas com dados.
+  "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

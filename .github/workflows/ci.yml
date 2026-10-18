@@ -62,3 +62,6 @@ jobs:
 
       - name: Aplicador manual da 084 em staging — alvo, hashes, privilégio de DDL, estados preservados e tentativa única (cliente simulado)
         run: node --test scripts/migration-084-staging.test.cjs
+
+      - name: Aplicador manual da 085/086 (Marketing) em staging — plano sem conexão, alvo, hashes, pré-requisitos 083/084, estado parcial, privilégios, trava concorrente, retomada e sigilo (cliente simulado)
+        run: node --test scripts/migration-085-086-staging.test.cjs
