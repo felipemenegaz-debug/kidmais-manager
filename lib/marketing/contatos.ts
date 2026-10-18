@@ -93,7 +93,7 @@ export async function capturarContatoPublico(
   }
   // Consentimento (R1): vale só para o número INFORMADO no pedido. Se o cadastro vinculado não tem esse número (ex.:
   // reaproveitado pelo e-mail), fica PENDENTE para a equipe confirmar; nunca autoriza outro número do cadastro, nunca
-  // altera o CRM e nunca desfaz descadastro (085 ausente = ignorado).
+  // altera o CRM e nunca desfaz descadastro (086 ausente = ignorado).
   const autorizacao: ResultadoFormulario | null = entrada.autorizaWhatsapp === true && entrada.telefone
     ? await registrarAutorizacaoDoFormulario(tx, site.empresaId, clienteId, contatoId, entrada.telefone) : null;
   await registrarEventoHistorico({

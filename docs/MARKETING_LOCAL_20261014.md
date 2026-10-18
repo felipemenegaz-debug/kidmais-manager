@@ -1,10 +1,11 @@
 # Marketing do KidMais Manager — implementação e validação LOCAIS (14–15/10/2026)
 
 > **Renumeração em 18/10/2026 (preparação para staging):** a 083 já é da conexão WhatsApp por empresa
-> (`20261016_083_whatsapp_conexao_empresa`, em staging). As migrations do Marketing passaram a ser **084** (base, antes 083)
-> e **085** (automações, antes 084): `database/migrations/20261018_084_marketing_base.sql` e `20261018_085_marketing_automacoes.sql`,
-> com prechecks, postchecks, rollbacks, funções `kidmais084_*`/`kidmais085_*` e mensagens acompanhando. As referências a 083/084
-> neste documento são **históricas** (anteriores à renumeração). Mapa completo: `docs/MARKETING_PREPARACAO_STAGING_20261018.md`.
+> (`20261016_083_whatsapp_conexao_empresa`, em staging), e a 084 passou a ser de Convites (PR #176). As migrations do
+> Marketing passaram a ser **085** (base, antes 083) e **086** (automações, antes 084):
+> `database/migrations/20261018_085_marketing_base.sql` e `20261018_086_marketing_automacoes.sql`, com prechecks, postchecks,
+> rollbacks, funções `kidmais085_*`/`kidmais086_*` e mensagens acompanhando. As referências a 083/084 neste documento são
+> **históricas** (anteriores à renumeração). Mapa completo: `docs/MARKETING_PREPARACAO_STAGING_20261018.md`.
 
 Goal: `Kidmais-Manager-Second-Brain/02 - Kidmais Manager SaaS/07 - Roadmap/Goal Marketing local para Opus.md`.
 Escopo: **somente local**. Nada foi publicado, enviado, provisionado, cobrado ou aplicado fora do cluster PostgreSQL

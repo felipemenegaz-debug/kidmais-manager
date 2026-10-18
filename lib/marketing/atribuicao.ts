@@ -5,7 +5,7 @@ import { CANAIS_ATENDIMENTO, CODIGO_ORIGEM, ORIGEM_DESCONHECIDA, exigirOrigemVal
 import type { Utm } from "./utm.ts";
 
 /**
- * Atribuição (084, append-only):
+ * Atribuição (085, append-only):
  *   CLIENTE    → primeira origem do cliente = primeira linha registrada para ele (correções formam a cadeia);
  *   FECHAMENTO → origem DESTA negociação (cliente antigo pode voltar por outra campanha);
  *   CONTATO    → origem do pedido captado/registrado.
@@ -51,7 +51,7 @@ export type NovaAtribuicao = {
   registradoPor?: string | null;
 };
 
-/** Confere que o alvo é da empresa ANTES de qualquer escrita (o gatilho da 084 confere de novo). */
+/** Confere que o alvo é da empresa ANTES de qualquer escrita (o gatilho da 085 confere de novo). */
 export async function exigirAlvoDaEmpresa(tx: DbExecutor, empresaId: string, alvoTipo: AlvoAtribuicao, alvoId: string) {
   const tabela = alvoTipo === "CLIENTE" ? "clientes" : alvoTipo === "FECHAMENTO" ? "fechamentos" : "marketing_contatos";
   const r = await tx.query<{ ok: boolean }>(`SELECT true AS ok FROM ${tabela} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [alvoId, empresaId]);

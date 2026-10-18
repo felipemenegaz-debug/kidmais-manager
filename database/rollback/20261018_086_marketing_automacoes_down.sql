@@ -1,7 +1,7 @@
--- Rollback da 085 (automações de Marketing). NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
+-- Rollback da 086 (automações de Marketing). NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
 --
 -- Rollback operacional recomendado: MARKETING_AUTOMACOES_ENABLED diferente de "true" (nada é processado) e pausar as
--- regras. O schema da 085 é aditivo e pode ficar.
+-- regras. O schema da 086 é aditivo e pode ficar.
 -- Este down existe só para bancos descartáveis: RECUSA enquanto houver execução, tarefa, preferência ou registro no
 -- transporte simulado (evidências de envio e de consentimento/descadastro não são apagadas por rollback).
 BEGIN;
@@ -9,7 +9,7 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $$ BEGIN
-  IF to_regclass('public.marketing_automacao_regras') IS NULL THEN RAISE EXCEPTION '085 ausente: nada a remover.'; END IF;
+  IF to_regclass('public.marketing_automacao_regras') IS NULL THEN RAISE EXCEPTION '086 ausente: nada a remover.'; END IF;
 END $$;
 
 LOCK TABLE marketing_automacao_execucoes, marketing_tarefas, marketing_contato_preferencias, marketing_contato_autorizacoes, marketing_transporte_simulado IN ACCESS EXCLUSIVE MODE;
@@ -19,13 +19,13 @@ DO $$ BEGIN
      OR EXISTS (SELECT 1 FROM marketing_contato_preferencias) OR EXISTS (SELECT 1 FROM marketing_contato_preferencias_eventos)
      OR EXISTS (SELECT 1 FROM marketing_contato_autorizacoes)
      OR EXISTS (SELECT 1 FROM marketing_transporte_simulado) THEN
-    RAISE EXCEPTION '085: há execuções, tarefas, preferências ou envios simulados; rollback recusado (use o rollback operacional).';
+    RAISE EXCEPTION '086: há execuções, tarefas, preferências ou envios simulados; rollback recusado (use o rollback operacional).';
   END IF;
 END $$;
 
 DROP TRIGGER marketing_aut_numero_saiu ON clientes;
-DROP FUNCTION kidmais085_numero_saiu_do_cadastro();
-DROP FUNCTION kidmais085_destino(text);
+DROP FUNCTION kidmais086_numero_saiu_do_cadastro();
+DROP FUNCTION kidmais086_destino(text);
 DROP TABLE marketing_transporte_simulado;
 DROP TABLE marketing_tarefas;
 DROP TABLE marketing_contato_autorizacoes;
@@ -34,8 +34,8 @@ DROP TABLE marketing_contato_preferencias_eventos;
 DROP TABLE marketing_automacao_eventos;
 DROP TABLE marketing_automacao_execucoes;
 DROP TABLE marketing_automacao_regras;
-DROP FUNCTION kidmais085_autorizacao_controle();
-DROP FUNCTION kidmais085_preferencia_tenant();
-DROP FUNCTION kidmais085_execucao_tenant();
+DROP FUNCTION kidmais086_autorizacao_controle();
+DROP FUNCTION kidmais086_preferencia_tenant();
+DROP FUNCTION kidmais086_execucao_tenant();
 
 COMMIT;

@@ -29,11 +29,11 @@ export function conflito(mensagem = "Este registro foi alterado por outra pessoa
   throw new MarketingError("MARKETING_CONFLITO", mensagem, 409);
 }
 
-/** Tabelas da 084/085 ausentes neste banco: indisponível, sem detalhe do schema. */
+/** Tabelas da 085/086 ausentes neste banco: indisponível, sem detalhe do schema. */
 export function schemaAusente(error: unknown): MarketingError | null {
   const e = error as { code?: unknown; message?: unknown };
   if (e?.code === "42P01" && typeof e.message === "string" && /marketing_/.test(e.message)) {
-    const migration = /marketing_(automacao|tarefas|contato_preferencias|contato_autorizacoes|transporte_simulado)/.test(e.message) ? "085" : "084";
+    const migration = /marketing_(automacao|tarefas|contato_preferencias|contato_autorizacoes|transporte_simulado)/.test(e.message) ? "086" : "085";
     return new MarketingError("MARKETING_INDISPONIVEL", `Marketing indisponível neste ambiente: a migration ${migration} ainda não foi aplicada.`, 503);
   }
   return null;

@@ -3,7 +3,7 @@ import type { TenantComprovado } from "../saas/provar-tenant.ts";
 import { MarketingError } from "./erros.ts";
 
 /**
- * Capacidades de Marketing (084), no mesmo desenho das capacidades de Festa (056) e do Perfil:
+ * Capacidades de Marketing (085), no mesmo desenho das capacidades de Festa (056) e do Perfil:
  *   - Gestão (memberships.papel REPRESENTANTE_AUTORIZADO) tem todas, sem concessão;
  *   - Equipe precisa de concessão ATIVA (marketing_membership_capacidades, não revogada) NESTA empresa;
  *   - qualquer capacidade de edição inclui ver o painel (VISUALIZAR).
@@ -60,7 +60,7 @@ export async function exigirCapacidadeMarketing(tx: DbExecutor, tenant: TenantCo
 
 /**
  * Só para o MENU (a barreira está nas APIs): Marketing aparece quando o plano inclui e a pessoa tem ao menos uma
- * capacidade nesta empresa. Qualquer falha de leitura (084 ausente, plano ilegível) esconde o item.
+ * capacidade nesta empresa. Qualquer falha de leitura (085 ausente, plano ilegível) esconde o item.
  */
 export async function menuMarketingVisivel(
   tx: DbExecutor, empresaId: string, usuarioId: string, gestao: boolean,

@@ -6,7 +6,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 import { carregarComBanco, cod, empresa, executor, vincular, SENHA_FALSA } from "./harness-postgres.ts";
 
 /**
- * Observações O1 e O2 da revisão de 64fcd09 (15/10/2026) no PostgreSQL descartável (modelo 085). Dados 100% sintéticos
+ * Observações O1 e O2 da revisão de 64fcd09 (15/10/2026) no PostgreSQL descartável (modelo 086). Dados 100% sintéticos
  * (telefones 55119666xxxxx / 5511333xxxxx).
  *   O1 — decisão de Felipe: número que SAI do cadastro do cliente perde as autorizações vivas desse número (gatilho
  *        marketing_aut_numero_saiu em clientes); se voltar, precisa de nova autorização. Troca de campo ou só de
@@ -24,7 +24,7 @@ type Pref = {
 type Crm = { atualizarCliente(id: string, escopo: unknown, patch: Record<string, unknown>, db: unknown): Promise<unknown> };
 
 const opt = () => process.env.KIDMAIS_POSTGRES_DESCARTAVEL === "kidmais_pacotes_v1_descartavel";
-const POST085 = readFileSync("database/checks/20261018_085_postcheck.sql", "utf8");
+const POST086 = readFileSync("database/checks/20261018_086_postcheck.sql", "utf8");
 
 async function pessoa(c: Client, empresaId: string) {
   const usuario = (await c.query<{ id: string }>(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Pessoa sintética', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id::text AS id`,
@@ -120,9 +120,9 @@ test("O1: número que sai do cadastro perde a autorização; ao voltar, exige no
 
     await t.test("normalização SQL igual à de normalizarDestino", async () => {
       for (const v of ["(11) 96666-0001", "11966660001", "5511966660001", "+55 11 96666-0001", "1133334444", "551133334444", "123", "", "  ", "12345678901234567", "abc", "+1 (415) 555-0100"]) {
-        assert.equal((await c.query(`SELECT kidmais085_destino($1) AS d`, [v])).rows[0].d, pref.normalizarDestino(v), `entrada ${JSON.stringify(v)}`);
+        assert.equal((await c.query(`SELECT kidmais086_destino($1) AS d`, [v])).rows[0].d, pref.normalizarDestino(v), `entrada ${JSON.stringify(v)}`);
       }
-      assert.equal((await c.query(`SELECT kidmais085_destino(NULL) AS d`)).rows[0].d, pref.normalizarDestino(null));
+      assert.equal((await c.query(`SELECT kidmais086_destino(NULL) AS d`)).rows[0].d, pref.normalizarDestino(null));
     });
   } finally {
     await c.query("ROLLBACK").catch(() => undefined);
@@ -178,7 +178,7 @@ test("O2: evidências de confirmação gravadas uma vez e congeladas, inclusive 
       assert.deepEqual(await evidencia(viva), { ...antes, estado: "REVOGADA" });
     });
 
-    await c.query(POST085);
+    await c.query(POST086);
   } finally {
     await c.query("ROLLBACK").catch(() => undefined);
     await encerrarDescartavel(c);

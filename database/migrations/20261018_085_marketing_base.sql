@@ -1,4 +1,4 @@
--- 084 — Marketing (Entrega A): capacidades por membership, opções de origem, campanhas, site público por unidade
+-- 085 — Marketing (Entrega A): capacidades por membership, opções de origem, campanhas, site público por unidade
 --       (rascunho, versões publicadas, imagens), domínios personalizados (provedor SIMULADO), contatos captados,
 --       atribuições rastreáveis e eventos de clique.
 --
@@ -18,7 +18,7 @@
 --     (CHECK), e a coluna `simulado` impede apresentar domínio simulado como ativo real.
 -- Rollback operacional: desligar MARKETING_SITES_PUBLICOS / MARKETING_DOMINIOS_PERSONALIZADOS e voltar o código; o
 -- schema é aditivo e fica. O down só existe para banco descartável e recusa enquanto houver contato ou atribuição.
--- Postcheck: database/checks/20261018_084_postcheck.sql. Rollback: database/rollback/20261018_084_marketing_base_down.sql.
+-- Postcheck: database/checks/20261018_085_postcheck.sql. Rollback: database/rollback/20261018_085_marketing_base_down.sql.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -29,12 +29,12 @@ DO $$ BEGIN
      OR to_regclass('public.clientes') IS NULL OR to_regclass('public.fechamentos') IS NULL OR to_regclass('public.usuarios_administrativos') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.clientes'::regclass AND attname = 'empresa_id' AND NOT attisdropped)
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fechamentos'::regclass AND attname = 'estabelecimento_id' AND NOT attisdropped) THEN
-    RAISE EXCEPTION '084 exige a 031, a 043, a 054 e a 062.';
+    RAISE EXCEPTION '085 exige a 031, a 043, a 054 e a 062.';
   END IF;
   IF to_regclass('public.marketing_campanhas') IS NOT NULL OR to_regclass('public.marketing_sites') IS NOT NULL
      OR to_regclass('public.marketing_membership_capacidades') IS NOT NULL OR to_regclass('public.marketing_atribuicoes') IS NOT NULL
      OR to_regclass('public.marketing_contatos') IS NOT NULL OR to_regclass('public.marketing_dominios') IS NOT NULL THEN
-    RAISE EXCEPTION '084 já aplicada (total ou parcialmente).';
+    RAISE EXCEPTION '085 já aplicada (total ou parcialmente).';
   END IF;
 END $$;
 
@@ -64,18 +64,18 @@ CREATE TABLE marketing_membership_capacidades (
 CREATE UNIQUE INDEX marketing_cap_ativa_uk ON marketing_membership_capacidades (membership_id, capacidade) WHERE revogado_em IS NULL;
 CREATE INDEX marketing_cap_empresa_idx ON marketing_membership_capacidades (empresa_id, membership_id);
 
-CREATE FUNCTION kidmais084_capacidade_imutavel() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_capacidade_imutavel() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: capacidade de Marketing não é apagada; revogue.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: capacidade de Marketing não é apagada; revogue.'; END IF;
   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.membership_id IS DISTINCT FROM OLD.membership_id
      OR NEW.capacidade IS DISTINCT FROM OLD.capacidade OR NEW.concedido_por IS DISTINCT FROM OLD.concedido_por
      OR NEW.concedido_em IS DISTINCT FROM OLD.concedido_em OR NEW.motivo IS DISTINCT FROM OLD.motivo OR OLD.revogado_em IS NOT NULL THEN
-    RAISE EXCEPTION '084: concessão de Marketing só pode ser revogada, uma vez.';
+    RAISE EXCEPTION '085: concessão de Marketing só pode ser revogada, uma vez.';
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_cap_imutavel BEFORE UPDATE OR DELETE ON marketing_membership_capacidades
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_capacidade_imutavel();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_capacidade_imutavel();
 
 -- =============================================================================
 -- 2. Opções de origem configuráveis. As padrão vivem no código (lib/marketing/origens.ts); a linha só muda rótulo,
@@ -147,12 +147,12 @@ CREATE TABLE marketing_site_versoes (
 ALTER TABLE marketing_sites ADD CONSTRAINT marketing_sites_versao_fk FOREIGN KEY (id, versao_publicada_id)
   REFERENCES marketing_site_versoes (site_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
-CREATE FUNCTION kidmais084_somente_insercao() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_somente_insercao() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  RAISE EXCEPTION '084: % é somente inserção (registro histórico).', TG_TABLE_NAME;
+  RAISE EXCEPTION '085: % é somente inserção (registro histórico).', TG_TABLE_NAME;
 END $$;
 CREATE TRIGGER marketing_versoes_imutavel BEFORE UPDATE OR DELETE ON marketing_site_versoes
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_somente_insercao();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_somente_insercao();
 
 CREATE TABLE marketing_site_imagens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -177,18 +177,18 @@ CREATE TABLE marketing_site_imagens (
 );
 CREATE INDEX marketing_imagens_site_idx ON marketing_site_imagens (site_id, criado_em DESC) WHERE removida_em IS NULL;
 
-CREATE FUNCTION kidmais084_imagem_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_imagem_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: imagem do site não é apagada; marque como removida.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: imagem do site não é apagada; marque como removida.'; END IF;
   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.site_id IS DISTINCT FROM OLD.site_id
      OR NEW.conteudo IS DISTINCT FROM OLD.conteudo OR NEW.sha256 IS DISTINCT FROM OLD.sha256 OR NEW.criado_em IS DISTINCT FROM OLD.criado_em
      OR OLD.removida_em IS NOT NULL OR NEW.removida_em IS NULL THEN
-    RAISE EXCEPTION '084: imagem do site só pode ser marcada como removida, uma vez.';
+    RAISE EXCEPTION '085: imagem do site só pode ser marcada como removida, uma vez.';
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_imagens_controle BEFORE UPDATE OR DELETE ON marketing_site_imagens
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_imagem_controle();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_imagem_controle();
 
 -- =============================================================================
 -- 4. Domínios personalizados. Host exclusivo na instalação inteira (não REMOVIDO). Só provedor SIMULADO neste goal.
@@ -226,18 +226,18 @@ CREATE UNIQUE INDEX marketing_dominios_host_uk ON marketing_dominios (host) WHER
 CREATE UNIQUE INDEX marketing_dominios_principal_uk ON marketing_dominios (site_id) WHERE principal AND status <> 'REMOVIDO';
 CREATE INDEX marketing_dominios_site_idx ON marketing_dominios (empresa_id, site_id);
 
-CREATE FUNCTION kidmais084_dominio_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_dominio_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: domínio não é apagado; remova (status REMOVIDO).'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: domínio não é apagado; remova (status REMOVIDO).'; END IF;
   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.site_id IS DISTINCT FROM OLD.site_id
      OR NEW.host IS DISTINCT FROM OLD.host OR NEW.provedor IS DISTINCT FROM OLD.provedor OR NEW.token_verificacao IS DISTINCT FROM OLD.token_verificacao THEN
-    RAISE EXCEPTION '084: host, empresa, site, provedor e token do domínio são imutáveis.';
+    RAISE EXCEPTION '085: host, empresa, site, provedor e token do domínio são imutáveis.';
   END IF;
-  IF OLD.status = 'REMOVIDO' THEN RAISE EXCEPTION '084: domínio removido não volta; cadastre de novo.'; END IF;
+  IF OLD.status = 'REMOVIDO' THEN RAISE EXCEPTION '085: domínio removido não volta; cadastre de novo.'; END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_dominios_controle BEFORE UPDATE OR DELETE ON marketing_dominios
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_dominio_controle();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_dominio_controle();
 
 -- DNS do provedor simulado: o "mundo externo" de mentira que o adaptador consulta (sem empresa: o DNS real também não tem).
 CREATE TABLE marketing_dns_simulado (
@@ -296,17 +296,17 @@ CREATE TABLE marketing_campanhas (
 );
 CREATE INDEX marketing_campanhas_lista_idx ON marketing_campanhas (empresa_id, status, inicio DESC);
 
-CREATE FUNCTION kidmais084_campanha_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_campanha_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: campanha não é apagada; arquive.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: campanha não é apagada; arquive.'; END IF;
   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id OR NEW.codigo IS DISTINCT FROM OLD.codigo THEN
-    RAISE EXCEPTION '084: empresa e código (identificador dos links) da campanha são imutáveis.';
+    RAISE EXCEPTION '085: empresa e código (identificador dos links) da campanha são imutáveis.';
   END IF;
-  IF OLD.status = 'ARQUIVADA' THEN RAISE EXCEPTION '084: campanha arquivada não é alterada.'; END IF;
+  IF OLD.status = 'ARQUIVADA' THEN RAISE EXCEPTION '085: campanha arquivada não é alterada.'; END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_campanhas_controle BEFORE UPDATE OR DELETE ON marketing_campanhas
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_campanha_controle();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_campanha_controle();
 
 -- =============================================================================
 -- 6. Contatos captados (pedido de orçamento do site ou registro manual). Não é negociação: fechamento exige data,
@@ -355,30 +355,30 @@ CREATE INDEX marketing_contatos_cliente_idx ON marketing_contatos (cliente_id) W
 CREATE UNIQUE INDEX marketing_contatos_fechamento_uk ON marketing_contatos (fechamento_id) WHERE fechamento_id IS NOT NULL;
 
 -- Integridade de tenant: cliente e negociação do contato são da MESMA empresa; a negociação é do cliente do contato.
-CREATE FUNCTION kidmais084_contato_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_contato_tenant() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 DECLARE c_empresa uuid; f_empresa uuid; f_cliente uuid;
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: contato captado não é apagado.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: contato captado não é apagado.'; END IF;
   IF TG_OP = 'UPDATE' AND (NEW.id IS DISTINCT FROM OLD.id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id
      OR NEW.chave_idempotencia IS DISTINCT FROM OLD.chave_idempotencia OR NEW.recebido_em IS DISTINCT FROM OLD.recebido_em
      OR NEW.canal_atendimento IS DISTINCT FROM OLD.canal_atendimento OR NEW.site_id IS DISTINCT FROM OLD.site_id) THEN
-    RAISE EXCEPTION '084: empresa, chave, canal, site e data de recebimento do contato são imutáveis.';
+    RAISE EXCEPTION '085: empresa, chave, canal, site e data de recebimento do contato são imutáveis.';
   END IF;
   IF NEW.cliente_id IS NOT NULL THEN
     SELECT empresa_id INTO c_empresa FROM clientes WHERE id = NEW.cliente_id;
-    IF c_empresa IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: cliente do contato é de outra empresa.'; END IF;
+    IF c_empresa IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: cliente do contato é de outra empresa.'; END IF;
   END IF;
   IF NEW.fechamento_id IS NOT NULL THEN
     SELECT empresa_id, cliente_id INTO f_empresa, f_cliente FROM fechamentos WHERE id = NEW.fechamento_id;
-    IF f_empresa IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: negociação do contato é de outra empresa.'; END IF;
+    IF f_empresa IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: negociação do contato é de outra empresa.'; END IF;
     IF NEW.cliente_id IS NULL OR f_cliente IS DISTINCT FROM NEW.cliente_id THEN
-      RAISE EXCEPTION '084: a negociação vinculada precisa ser do cliente do contato.';
+      RAISE EXCEPTION '085: a negociação vinculada precisa ser do cliente do contato.';
     END IF;
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_contatos_tenant BEFORE INSERT OR UPDATE OR DELETE ON marketing_contatos
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_contato_tenant();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_contato_tenant();
 
 -- =============================================================================
 -- 7. Atribuições (append-only com vigência). DESCONHECIDA = sem evidência; nunca inventada.
@@ -419,15 +419,15 @@ CREATE UNIQUE INDEX marketing_atrib_substitui_uk ON marketing_atribuicoes (subst
 CREATE INDEX marketing_atrib_campanha_idx ON marketing_atribuicoes (empresa_id, campanha_id) WHERE vigente AND campanha_id IS NOT NULL;
 CREATE INDEX marketing_atrib_alvo_idx ON marketing_atribuicoes (alvo_tipo, alvo_id, registrado_em);
 
-CREATE FUNCTION kidmais084_atribuicao_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+CREATE FUNCTION kidmais085_atribuicao_controle() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
 DECLARE dono uuid; anterior marketing_atribuicoes%ROWTYPE;
 BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '084: atribuição não é apagada; corrija com uma nova.'; END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '085: atribuição não é apagada; corrija com uma nova.'; END IF;
   IF TG_OP = 'UPDATE' THEN
     -- Só a desativação da vigente (correção), uma vez.
     IF NOT (OLD.vigente AND NOT NEW.vigente AND NEW.substituida_em IS NOT NULL)
        OR (to_jsonb(NEW) - 'vigente' - 'substituida_em') IS DISTINCT FROM (to_jsonb(OLD) - 'vigente' - 'substituida_em') THEN
-      RAISE EXCEPTION '084: atribuição é append-only; só a vigente pode ser substituída.';
+      RAISE EXCEPTION '085: atribuição é append-only; só a vigente pode ser substituída.';
     END IF;
     RETURN NEW;
   END IF;
@@ -435,17 +435,17 @@ BEGIN
   ELSIF NEW.alvo_tipo = 'FECHAMENTO' THEN SELECT empresa_id INTO dono FROM fechamentos WHERE id = NEW.alvo_id;
   ELSE SELECT empresa_id INTO dono FROM marketing_contatos WHERE id = NEW.alvo_id;
   END IF;
-  IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '084: alvo da atribuição inexistente ou de outra empresa.'; END IF;
+  IF dono IS DISTINCT FROM NEW.empresa_id THEN RAISE EXCEPTION '085: alvo da atribuição inexistente ou de outra empresa.'; END IF;
   IF NEW.substitui_id IS NOT NULL THEN
     SELECT * INTO anterior FROM marketing_atribuicoes WHERE id = NEW.substitui_id;
     IF anterior.id IS NULL OR anterior.empresa_id <> NEW.empresa_id OR anterior.alvo_tipo <> NEW.alvo_tipo OR anterior.alvo_id <> NEW.alvo_id OR anterior.vigente THEN
-      RAISE EXCEPTION '084: correção precisa substituir a atribuição (já desativada) do mesmo alvo.';
+      RAISE EXCEPTION '085: correção precisa substituir a atribuição (já desativada) do mesmo alvo.';
     END IF;
   END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_atrib_controle BEFORE INSERT OR UPDATE OR DELETE ON marketing_atribuicoes
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_atribuicao_controle();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_atribuicao_controle();
 
 -- =============================================================================
 -- 8. Eventos de clique (link de campanha, botão de WhatsApp). Sem IP nem dado pessoal. Não é contato.
@@ -463,7 +463,7 @@ CREATE TABLE marketing_eventos (
 );
 CREATE INDEX marketing_eventos_periodo_idx ON marketing_eventos (empresa_id, ocorrido_em);
 CREATE TRIGGER marketing_eventos_imutavel BEFORE UPDATE OR DELETE ON marketing_eventos
-  FOR EACH ROW EXECUTE FUNCTION kidmais084_somente_insercao();
+  FOR EACH ROW EXECUTE FUNCTION kidmais085_somente_insercao();
 
 COMMENT ON TABLE marketing_atribuicoes IS
   'Origem de cliente (primeira = primeira linha), negociação e contato. Append-only: correção desativa a vigente e insere outra com motivo. DESCONHECIDA = sem evidência.';

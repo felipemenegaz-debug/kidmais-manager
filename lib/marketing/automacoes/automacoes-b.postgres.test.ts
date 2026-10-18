@@ -13,7 +13,7 @@ async function pessoa(c: ClientePg, empresaId: string, papel: "REPRESENTANTE_AUT
 }
 
 /**
- * Entrega B (automações) no PostgreSQL descartável, modelo 085, com o TRANSPORTE SIMULADO (caixa de saída local; nenhuma
+ * Entrega B (automações) no PostgreSQL descartável, modelo 086, com o TRANSPORTE SIMULADO (caixa de saída local; nenhuma
  * rede). Evidência 7 do goal: disparo elegível funciona; repetição não duplica envio; descadastro e contrato fechado
  * suprimem; falha do provedor fica visível e é recuperável; pausa cancela pendentes; tarefa interna sem provedor;
  * concorrência (2 conexões): reserva sem sobreposição, planejamento sem duplicar e envio uma vez só.

@@ -14,25 +14,25 @@ async function pessoa(c: ClientePg, empresaId: string, papel: "REPRESENTANTE_AUT
 }
 
 /**
- * Migrations 084 (Marketing) e 085 (automações) no PostgreSQL descartável, sobre o modelo 083 (ordem real em staging). Só pelo
+ * Migrations 085 (Marketing) e 086 (automações) no PostgreSQL descartável, sobre o modelo 083 (ordem real em staging). Só pelo
  * check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL (goal local de 14/10/2026). Dados sintéticos.
- *   0. ordem: 085 sem a 084 é recusada;
- *   1. 084: precheck, aplicação, postcheck, reaplicação recusada;
- *   2. 085: idem; postchecks juntos;
- *   3. rollback sem dados: 085 down e 084 down funcionam (em transação desfeita);
+ *   0. ordem: 086 sem a 085 é recusada;
+ *   1. 085: precheck, aplicação, postcheck, reaplicação recusada;
+ *   2. 086: idem; postchecks juntos;
+ *   3. rollback sem dados: 086 down e 085 down funcionam (em transação desfeita);
  *   4. gatilhos e restrições: tenant (contato, atribuição, execução, preferência), append-only, host exclusivo,
  *      provedor só SIMULADO, domínio removido terminal, campanha arquivada imutável, mensagem ativa exige revisão;
- *   5. rollback com dados: recusado (contatos e evidências não são apagados), e a 084 recusa enquanto a 085 existir.
+ *   5. rollback com dados: recusado (contatos e evidências não são apagados), e a 085 recusa enquanto a 086 existir.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
-const UP084 = ler("database/migrations/20261018_084_marketing_base.sql");
-const PRE083 = ler("database/checks/20261018_084_precheck.sql");
-const POST084 = ler("database/checks/20261018_084_postcheck.sql");
-const DOWN084 = ler("database/rollback/20261018_084_marketing_base_down.sql");
-const UP085 = ler("database/migrations/20261018_085_marketing_automacoes.sql");
-const PRE084 = ler("database/checks/20261018_085_precheck.sql");
+const UP085 = ler("database/migrations/20261018_085_marketing_base.sql");
+const PRE083 = ler("database/checks/20261018_085_precheck.sql");
 const POST085 = ler("database/checks/20261018_085_postcheck.sql");
-const DOWN085 = ler("database/rollback/20261018_085_marketing_automacoes_down.sql");
+const DOWN085 = ler("database/rollback/20261018_085_marketing_base_down.sql");
+const UP086 = ler("database/migrations/20261018_086_marketing_automacoes.sql");
+const PRE084 = ler("database/checks/20261018_086_precheck.sql");
+const POST086 = ler("database/checks/20261018_086_postcheck.sql");
+const DOWN086 = ler("database/rollback/20261018_086_marketing_automacoes_down.sql");
 
 async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("SAVEPOINT recusa");
@@ -40,27 +40,27 @@ async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("ROLLBACK TO SAVEPOINT recusa");
 }
 
-test("084/085: ordem, checks, reaplicação, gatilhos de tenant e append-only, host exclusivo e rollback", { timeout: 300_000 }, async (t) => {
+test("085/086: ordem, checks, reaplicação, gatilhos de tenant e append-only, host exclusivo e rollback", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
     // 0. Ordem.
-    await assert.rejects(c.query(UP085), /085 exige a 084/); await c.query("ROLLBACK").catch(() => {});
-    // 1. 084.
+    await assert.rejects(c.query(UP086), /086 exige a 085/); await c.query("ROLLBACK").catch(() => {});
+    // 1. 085.
     const pre = await c.query(PRE083) as unknown as Array<{ rows: Array<Record<string, unknown>> }>;
     const linha = pre.flatMap((r) => r.rows ?? []).find((l) => "marketing_ausente" in l)!;
     assert.deepEqual(linha, { tem_empresas: true, tem_estabelecimentos: true, tem_memberships: true, clientes_tem_empresa_054: true, fechamentos_tem_unidade_062: true, marketing_ausente: true });
-    await c.query(UP084); await c.query(POST084);
-    await assert.rejects(c.query(UP084), /084 já aplicada/); await c.query("ROLLBACK").catch(() => {});
-    // 2. 085.
-    await c.query(PRE084); await c.query(UP085); await c.query(POST085); await c.query(POST084);
+    await c.query(UP085); await c.query(POST085);
     await assert.rejects(c.query(UP085), /085 já aplicada/); await c.query("ROLLBACK").catch(() => {});
+    // 2. 086.
+    await c.query(PRE084); await c.query(UP086); await c.query(POST086); await c.query(POST085);
+    await assert.rejects(c.query(UP086), /086 já aplicada/); await c.query("ROLLBACK").catch(() => {});
     // 3. Rollback sem dados (desfeito no fim para manter o schema).
     await c.query("BEGIN");
+    await c.query(semTransacaoExplicita(DOWN086));
     await c.query(semTransacaoExplicita(DOWN085));
-    await c.query(semTransacaoExplicita(DOWN084));
     assert.equal((await c.query(`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'marketing\\_%'`)).rows[0].n, 0);
-    assert.deepEqual((await c.query(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'marketing_aut_numero_saiu') AS gatilho, to_regprocedure('public.kidmais085_destino(text)') IS NOT NULL AS funcao`)).rows[0],
+    assert.deepEqual((await c.query(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'marketing_aut_numero_saiu') AS gatilho, to_regprocedure('public.kidmais086_destino(text)') IS NOT NULL AS funcao`)).rows[0],
       { gatilho: false, funcao: false }, "down remove o gatilho em clientes (O1) e a normalização");
     await c.query("ROLLBACK");
     assert.ok((await c.query(`SELECT to_regclass('public.marketing_automacao_execucoes') AS t`)).rows[0].t, "rollback desfeito: schema de volta");
@@ -116,7 +116,7 @@ test("084/085: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     await recusa(c, `UPDATE marketing_campanhas SET nome = 'Renomeada' WHERE id = $1`, [campanha], /arquivada não é alterada/);
     await recusa(c, `INSERT INTO marketing_atribuicoes (empresa_id, alvo_tipo, alvo_id, origem_codigo, metodo, campanha_id) VALUES ($1, 'CONTATO', $2, 'INSTAGRAM', 'CAPTURADO', (SELECT id FROM marketing_campanhas WHERE empresa_id = $3 AND codigo = 'nov-centro'))`,
       [A, contatoA, B], /marketing_atrib_campanha_fk/);
-    // 085: execução e preferência só da mesma empresa; mensagem ativa exige texto revisado.
+    // 086: execução e preferência só da mesma empresa; mensagem ativa exige texto revisado.
     await recusa(c, `INSERT INTO marketing_automacao_regras (empresa_id, tipo, status, acao, espera_dias, criado_por, atualizado_por) VALUES ($1, 'PROPOSTA_PARADA', 'ATIVA', 'MENSAGEM_WHATSAPP', 3, $2, $2)`, [A, ga.usuario], /marketing_regras_mensagem_revisada/);
     await recusa(c, `INSERT INTO marketing_automacao_regras (empresa_id, tipo, acao, espera_dias, criado_por, atualizado_por) VALUES ($1, 'DATAS_VAGAS', 'MENSAGEM_WHATSAPP', 0, $2, $2)`, [A, ga.usuario], /marketing_regras_datas_vagas_sugestao/);
     const regra = await id(`INSERT INTO marketing_automacao_regras (empresa_id, tipo, acao, espera_dias, criado_por, atualizado_por) VALUES ($1, 'PROPOSTA_PARADA', 'TAREFA_INTERNA', 3, $2, $2) RETURNING id::text AS id`, [A, ga.usuario]);
@@ -170,11 +170,11 @@ test("084/085: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
 
     // 5. Rollback com dados: recusado.
     await c.query("SAVEPOINT down");
-    await assert.rejects(c.query(semTransacaoExplicita(DOWN085)), /rollback recusado/);
+    await assert.rejects(c.query(semTransacaoExplicita(DOWN086)), /rollback recusado/);
     await c.query("ROLLBACK TO SAVEPOINT down");
-    await assert.rejects(c.query(semTransacaoExplicita(DOWN084)), /desfazer a 085 antes/);
+    await assert.rejects(c.query(semTransacaoExplicita(DOWN085)), /desfazer a 086 antes/);
     await c.query("ROLLBACK");
-    for (const p of [POST084, POST085]) await c.query(p);
+    for (const p of [POST085, POST086]) await c.query(p);
   } finally {
     await encerrarDescartavel(c);
   }

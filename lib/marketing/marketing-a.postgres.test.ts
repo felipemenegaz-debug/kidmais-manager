@@ -14,7 +14,7 @@ async function pessoa(c: ClientePg, empresaId: string, papel: "REPRESENTANTE_AUT
 }
 
 /**
- * Entrega A (Marketing) no PostgreSQL descartável, modelo 085, pelas ROTAS reais (guarda administrativa dublada pela
+ * Entrega A (Marketing) no PostgreSQL descartável, modelo 086, pelas ROTAS reais (guarda administrativa dublada pela
  * sessão sintética; tenant, plano e capacidades reais no banco). Tudo numa transação desfeita no fim (contratos têm
  * validações diferidas). Evidências do goal:
  *   1. empresa A publica o site, o formulário com campanha cria/reaproveita contato, a negociação e o contrato são

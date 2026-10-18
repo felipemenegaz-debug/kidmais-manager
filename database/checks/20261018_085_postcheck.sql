@@ -1,44 +1,35 @@
--- Postcheck da 085 (automações de Marketing): somente leitura.
+-- Postcheck da 085 (Marketing): somente leitura.
 DO $$
 DECLARE
   item text;
 BEGIN
-  FOREACH item IN ARRAY ARRAY['marketing_automacao_regras', 'marketing_automacao_execucoes', 'marketing_automacao_eventos', 'marketing_contato_preferencias',
-                              'marketing_contato_preferencias_eventos', 'marketing_contato_autorizacoes', 'marketing_tarefas', 'marketing_transporte_simulado'] LOOP
+  FOREACH item IN ARRAY ARRAY['marketing_membership_capacidades', 'marketing_origens_opcoes', 'marketing_sites', 'marketing_site_versoes',
+                              'marketing_site_imagens', 'marketing_dominios', 'marketing_dns_simulado', 'marketing_campanhas',
+                              'marketing_contatos', 'marketing_atribuicoes', 'marketing_eventos'] LOOP
     IF to_regclass('public.' || item) IS NULL THEN RAISE EXCEPTION 'postcheck 085: tabela % ausente', item; END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['marketing_regras_tipo_uk', 'marketing_exec_fila_idx', 'marketing_exec_provedor_uk', 'marketing_aut_viva_uk'] LOOP
+  FOREACH item IN ARRAY ARRAY['marketing_sites_unidade_uk', 'marketing_dominios_host_uk', 'marketing_dominios_principal_uk',
+                              'marketing_atrib_vigente_uk', 'marketing_atrib_substitui_uk', 'marketing_cap_ativa_uk', 'marketing_contatos_fechamento_uk'] LOOP
     IF to_regclass('public.' || item) IS NULL THEN RAISE EXCEPTION 'postcheck 085: índice % ausente', item; END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['marketing_exec_tenant', 'marketing_automacao_eventos_imutavel', 'marketing_pref_tenant', 'marketing_pref_eventos_imutavel', 'marketing_aut_controle',
-                              'marketing_aut_numero_saiu'] LOOP
+  FOREACH item IN ARRAY ARRAY['marketing_cap_imutavel', 'marketing_versoes_imutavel', 'marketing_imagens_controle', 'marketing_dominios_controle',
+                              'marketing_campanhas_controle', 'marketing_contatos_tenant', 'marketing_atrib_controle', 'marketing_eventos_imutavel'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = item AND tgenabled = 'O' AND NOT tgisinternal) THEN
       RAISE EXCEPTION 'postcheck 085: trigger % ausente ou desligado', item;
     END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['marketing_regras_mensagem_revisada', 'marketing_exec_chave_uk', 'marketing_exec_posse', 'marketing_exec_provedor',
-                              'marketing_aut_destino', 'marketing_aut_estado', 'marketing_aut_revogada', 'marketing_aut_formulario_tem_contato',
-                              'marketing_aut_canal', 'marketing_aut_origem', 'marketing_aut_evidencia', 'marketing_aut_confirmada', 'marketing_aut_confirmacao',
-                              'marketing_aut_motivo', 'marketing_aut_contato_fk', 'marketing_pref_descadastro', 'marketing_tarefas_exec_uk', 'marketing_simulado_idempotencia_uk'] LOOP
+  FOREACH item IN ARRAY ARRAY['marketing_dominios_provedor', 'marketing_dominios_simulado', 'marketing_dominios_host', 'marketing_atrib_desconhecida',
+                              'marketing_atrib_capturada_tem_campanha', 'marketing_atrib_correcao', 'marketing_contatos_chave_uk', 'marketing_contatos_vinculo_cliente',
+                              'marketing_sites_publicado_tem_versao', 'marketing_sites_versao_fk', 'marketing_campanhas_codigo_uk', 'marketing_cap_capacidade'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = item AND convalidated) THEN
       RAISE EXCEPTION 'postcheck 085: restrição % ausente ou não validada', item;
     END IF;
   END LOOP;
-  -- Versão vigente das regras de autorização (O1/O2 de 15/10/2026), e não uma 085 anterior aplicada por engano.
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'marketing_aut_confirmada' AND pg_get_constraintdef(oid) LIKE '%confirmacao IS NULL%' AND pg_get_constraintdef(oid) LIKE '%confirmada_por IS NULL%')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'marketing_aut_revogada' AND pg_get_constraintdef(oid) LIKE '%revogada_por IS NULL%') THEN
-    RAISE EXCEPTION 'postcheck 085: restrições de evidência da autorização desatualizadas';
+  IF EXISTS (SELECT 1 FROM marketing_dominios WHERE provedor <> 'SIMULADO' OR NOT simulado) THEN
+    RAISE EXCEPTION 'postcheck 085: domínio com provedor real (fora do escopo desta migration)';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'kidmais085_autorizacao_controle' AND prosrc LIKE '%evidências de confirmação da autorização são imutáveis%') THEN
-    RAISE EXCEPTION 'postcheck 085: gatilho da autorização não congela as evidências de confirmação';
-  END IF;
-  IF to_regprocedure('public.kidmais085_numero_saiu_do_cadastro()') IS NULL
-     OR kidmais085_destino('(11) 98888-7777') IS DISTINCT FROM '5511988887777' OR kidmais085_destino('5511988887777') IS DISTINCT FROM '5511988887777'
-     OR kidmais085_destino('1133334444') IS DISTINCT FROM '551133334444' OR kidmais085_destino('123') IS NOT NULL OR kidmais085_destino(NULL) IS NOT NULL THEN
-    RAISE EXCEPTION 'postcheck 085: normalização de destino ou revogação por número fora do cadastro ausente';
-  END IF;
-  IF EXISTS (SELECT 1 FROM marketing_automacao_regras WHERE status = 'ATIVA' AND acao = 'MENSAGEM_WHATSAPP' AND template_revisado_em IS NULL) THEN
-    RAISE EXCEPTION 'postcheck 085: regra de mensagem ativa sem revisão';
+  IF EXISTS (SELECT 1 FROM marketing_sites WHERE estado = 'PUBLICADO' AND versao_publicada_id IS NULL) THEN
+    RAISE EXCEPTION 'postcheck 085: site publicado sem versão';
   END IF;
 END $$;
 SELECT '085 postcheck OK' AS resultado;
