@@ -3,7 +3,7 @@
 **Estado:** preparado localmente; **nunca executado contra banco**.
 
 **Correções da revisão de `9080f45`** (parecer `revisao-marketing-aplicador-085-086-9080f45-parecer-20261018`), no commit seguinte:
-- **P2-1:** blocos de Shell da etapa 6b (seção abaixo).
+- **P2-1:** blocos de Shell da etapa 6b (seção abaixo), refeitos depois da revisão de `b659b14` (P2-A: subshell, código legível e teste interativo; P3-A: guarda de serviço; P3-B: ASCII, tamanho em bytes).
 - **P3-1:** critério da 083 idêntico ao do aplicador de origem.
 - **P3-3:** interpretação da invariante.
 - **P3-4:** código 3 para "RECUSARIA".
@@ -128,9 +128,9 @@ O mais provável é atividade legítima durante a janela, como uma geração de 
 
 Para evitar o alarme, aplicar numa **janela quieta**: sem gerações de convite em andamento (a conferência mostra os estados) e sem onboarding WhatsApp em curso.
 
-## Blocos de Shell da etapa 6b (P2-1)
+## Blocos de Shell da etapa 6b (P2-1; P2-A, P3-A e P3-B da revisão de b659b14)
 
-O deploy de staging não tem o aplicador nem os SQL 085/086. `scripts/bloco-shell-085-086-staging.cjs` gera, de uma árvore conferida, blocos para colar no Web Shell do serviço, no mesmo desenho dos blocos da 084:
+O deploy de staging não tem o aplicador nem os SQL 085/086. `scripts/bloco-shell-085-086-staging.cjs` gera, de uma árvore conferida, blocos para **colar** no Web Shell do serviço, que é um bash interativo, no desenho dos blocos da 084:
 
 ```
 node scripts/bloco-shell-085-086-staging.cjs H0 <rotulo>       > BLOCO-SHELL-085-086-H0.sh       # grava os 7 arquivos e roda --conferir-085-086
@@ -138,13 +138,36 @@ node scripts/bloco-shell-085-086-staging.cjs H1 <rotulo>       > BLOCO-SHELL-085
 node scripts/bloco-shell-085-086-staging.cjs LIMPEZA <rotulo>  > BLOCO-SHELL-085-086-LIMPEZA.sh  # remove só os 7 arquivos
 ```
 
-O sha256 de cada bloco sai no stderr e precisa ser conferido antes de colar. Cada bloco:
-1. Entra em `/opt/render/project/src`.
-2. Confere o sha das 4 dependências já implantadas (`migration-078-staging.cjs`, `assinatura-staging-ensaio.cjs`, `assinatura-preservacao.cjs`, `conexao-staging.cjs`, idênticas em `87bedb8`); sem isso, para sem escrever.
-3. Decodifica e confere o sha dos 7 arquivos (aplicador e 6 SQL) **antes** de gravar qualquer um.
-4. Grava só os ausentes, aceita os presentes com o mesmo sha e para diante de presente diferente.
-5. Roda o modo do aplicador.
+O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então bytes e caracteres coincidem.
 
-A LIMPEZA remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente. O deploy seguinte (6c) substitui a árvore de qualquer forma.
+**Desenho:**
+1. `bind 'set enable-bracketed-paste off'` e **guarda `RENDER_SERVICE_ID`** = `srv-daif418ae00c73e8k2gg` antes de qualquer gravação. Em outro shell sai `SHELL_ERRADO_NAO_E_STAGING` e nada é executado.
+2. Todo o resto roda num **subshell** `( … )`. `set -euo pipefail`, `umask 077`, `cd`, o `trap` do temporário e os `exit` ficam contidos nele: o shell do operador **não muda nem cai**. Depois do subshell sai `CODIGO_SAIDA_BLOCO=<n>`.
+3. Dentro do subshell:
+   - confere o sha das 4 dependências implantadas (`migration-078-staging.cjs`, `assinatura-staging-ensaio.cjs`, `assinatura-preservacao.cjs`, `conexao-staging.cjs`);
+   - decodifica e confere os 7 arquivos **antes** de gravar qualquer um;
+   - grava só os ausentes e para diante de presente diferente;
+   - roda o aplicador (`NODE_PATH="$PWD/node_modules"`, como na 084) e lista o registro do disco persistente.
 
-O teste `scripts/bloco-shell-085-086-staging.test.cjs` executa os blocos com `bash` num destino temporário, sem o comando do aplicador. Ele não substitui a revisão do bloco gerado para staging.
+**Códigos (`CODIGO_SAIDA_BLOCO`):**
+
+| Código | Significado |
+|---|---|
+| 0 | aplicador PASS/CONFERIDO |
+| 1 | o aplicador recusou antes de conectar |
+| 2 | FALHA registrada |
+| 3 | RECUSARIA |
+| **4** | o **bloco** recusou: ferramenta, dependência, conteúdo ou colisão; nada gravado |
+
+**Procedimento:**
+1. Conferir sha256 e bytes na página.
+2. Colar uma vez e dar Enter.
+3. Guardar a saída inteira.
+
+**LIMPEZA:** remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente.
+
+**Teste** (`scripts/bloco-shell-085-086-staging.test.cjs`), sempre com destino temporário e comando omitido ou substituto que só devolve um código:
+- executa os blocos com `bash`;
+- executa uma **colagem interativa** (`bash -i`, bloco + linhas do operador) e confere que o shell sobrevive, sem opções, `umask`, diretório ou `trap` herdados, e que o código 0/2/3/4 fica legível;
+- cobre duas colagens seguidas;
+- cobre a guarda de serviço.
