@@ -106,9 +106,12 @@ const approvedFiles = [
   // scripts/migration-083-staging.cjs, PASS; nota do vault "Plano WhatsApp por empresa"), não confirmada aqui. Por isso o
   // número 083 não muda: o Marketing foi renumerado (18/10/2026).
   '20261016_083_whatsapp_conexao_empresa.sql',
-  // 084: reservada a Convites (geração sem resultado, PR #176, 20261018_084_convite_geracao_pendencias.sql; aplicação em
-  // staging registrada fora deste inventário em 18/10/2026 ~08:33Z, não confirmada aqui). Ausente desta linha até o merge
-  // daquela PR; ao integrá-la, entra aqui antes do Marketing. Por isso o Marketing passou de 084/085 para 085/086.
+  // 084: etapas duráveis da geração de IA de convites (envio, recebimento, classe da falha) e estado NAO_ENVIADA.
+  // Aditiva; precheck e postcheck externos (padrão). Aplicação em staging registrada fora deste inventário (18/10/2026
+  // ~08:33Z, aplicador scripts/migration-084-staging.cjs, H1 PASS segundo a sessão de Convites), não confirmada aqui.
+  '20261018_084_convite_geracao_pendencias.sql',
+  // A 084 é de Convites (PR #176, mergeada em staging em 18/10/2026 segundo o fetch local de 05:50); por isso o
+  // Marketing passou de 084/085 para 085/086 (18/10/2026).
   // 085: Marketing (goal local de 14/10/2026). Escolha local provisória, não reserva coordenada; nunca aplicada fora de
   // banco descartável local. Precheck e postcheck externos (forma padrão).
   '20261018_085_marketing_base.sql',
@@ -142,7 +145,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '085', '086'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -190,7 +193,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '085', '086']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

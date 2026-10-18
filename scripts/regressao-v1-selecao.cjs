@@ -158,19 +158,19 @@ const ESTADO_POSTGRES = {
   // 12/10: postcheck da 082 aceita a versão final e recusa variantes antigas/adulteradas (B2 da revisão de aa04387).
   "lib/whatsapp/atendimento/postcheck-082.postgres.test.ts": { descartavel: "082" },
   // 16/10: WhatsApp por empresa (083): conexão, isolamento entre empresas, número único, desconexão, rollback.
-  "lib/whatsapp/conexao-empresa.postgres.test.ts": { descartavel: "083" },
+  // Também no schema completo (084 de Convites + 085/086 do Marketing), desde a composição de 18/10/2026.
+  "lib/whatsapp/conexao-empresa.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // 16/10: Meta (Cloud API) como canal do atendimento: webhook assinado → empresa dona do número; status e envio.
-  "lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts": { descartavel: "083" },
+  "lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
   "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
   "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
-  // Marketing (goal local 14/10/2026): 085/086 aplicadas pela suíte sobre a 083 (ordem real em staging: 083 do WhatsApp,
-  // 084 de Convites, depois 085/086; a 084 não está nesta linha até o merge da PR #176 e não toca tabelas do Marketing;
-  // reaplicação, gatilhos, rollback). Antes da integração (18/10/2026) a base era a 082.
-  "lib/marketing/migration-085-086.postgres.test.ts": { descartavel: "083" },
+  // Marketing (goal local 14/10/2026): 085/086 aplicadas pela suíte sobre a 084 (ordem real em staging: 083 do WhatsApp,
+  // 084 de Convites, depois 085/086; reaplicação, gatilhos, rollback). Antes: modelo 082 (até 18/10/2026) e 083 (4e80b81).
+  "lib/marketing/migration-085-086.postgres.test.ts": { descartavel: "084" },
   // Entrega A no modelo 086: site, formulário, atribuição até contrato, painel, isolamento A×B, domínio simulado.
   "lib/marketing/marketing-a.postgres.test.ts": { descartavel: "086" },
   // Entrega B no modelo 086: planejamento idempotente, supressões, falha recuperável, retorno e concorrência.

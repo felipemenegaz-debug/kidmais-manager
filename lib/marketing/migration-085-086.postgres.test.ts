@@ -14,7 +14,7 @@ async function pessoa(c: ClientePg, empresaId: string, papel: "REPRESENTANTE_AUT
 }
 
 /**
- * Migrations 085 (Marketing) e 086 (automações) no PostgreSQL descartável, sobre o modelo 083 (ordem real em staging). Só pelo
+ * Migrations 085 (Marketing) e 086 (automações) no PostgreSQL descartável, sobre o modelo 084 (ordem real em staging: 083, 084 de Convites, 085, 086). Só pelo
  * check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL (goal local de 14/10/2026). Dados sintéticos.
  *   0. ordem: 086 sem a 085 é recusada;
  *   1. 085: precheck, aplicação, postcheck, reaplicação recusada;
@@ -26,11 +26,11 @@ async function pessoa(c: ClientePg, empresaId: string, papel: "REPRESENTANTE_AUT
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const UP085 = ler("database/migrations/20261018_085_marketing_base.sql");
-const PRE083 = ler("database/checks/20261018_085_precheck.sql");
+const PRE085 = ler("database/checks/20261018_085_precheck.sql");
 const POST085 = ler("database/checks/20261018_085_postcheck.sql");
 const DOWN085 = ler("database/rollback/20261018_085_marketing_base_down.sql");
 const UP086 = ler("database/migrations/20261018_086_marketing_automacoes.sql");
-const PRE084 = ler("database/checks/20261018_086_precheck.sql");
+const PRE086 = ler("database/checks/20261018_086_precheck.sql");
 const POST086 = ler("database/checks/20261018_086_postcheck.sql");
 const DOWN086 = ler("database/rollback/20261018_086_marketing_automacoes_down.sql");
 
@@ -47,13 +47,13 @@ test("085/086: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     // 0. Ordem.
     await assert.rejects(c.query(UP086), /086 exige a 085/); await c.query("ROLLBACK").catch(() => {});
     // 1. 085.
-    const pre = await c.query(PRE083) as unknown as Array<{ rows: Array<Record<string, unknown>> }>;
+    const pre = await c.query(PRE085) as unknown as Array<{ rows: Array<Record<string, unknown>> }>;
     const linha = pre.flatMap((r) => r.rows ?? []).find((l) => "marketing_ausente" in l)!;
     assert.deepEqual(linha, { tem_empresas: true, tem_estabelecimentos: true, tem_memberships: true, clientes_tem_empresa_054: true, fechamentos_tem_unidade_062: true, marketing_ausente: true });
     await c.query(UP085); await c.query(POST085);
     await assert.rejects(c.query(UP085), /085 já aplicada/); await c.query("ROLLBACK").catch(() => {});
     // 2. 086.
-    await c.query(PRE084); await c.query(UP086); await c.query(POST086); await c.query(POST085);
+    await c.query(PRE086); await c.query(UP086); await c.query(POST086); await c.query(POST085);
     await assert.rejects(c.query(UP086), /086 já aplicada/); await c.query("ROLLBACK").catch(() => {});
     // 3. Rollback sem dados (desfeito no fim para manter o schema).
     await c.query("BEGIN");
