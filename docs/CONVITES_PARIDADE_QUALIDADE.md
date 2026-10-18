@@ -1,6 +1,6 @@
 # Qualidade do convite completo
 
-O editor publicado oferece as mesmas opções do laboratório aprovado: Alta (`high`), Muito alta (`xhigh`, padrão) e Máxima (`max`). O seletor aparece para buffet e cliente quando o convite completo está disponível. Qualidade maior pode aumentar custo e tempo; o teto interno continua sendo de reservas, não um limite garantido de cobrança do provedor.
+O editor publicado oferece as mesmas opções do laboratório aprovado: Alta (`high`), Muito alta (`xhigh`, padrão) e Máxima (`max`). Os controles de convite completo aparecem para buffet e cliente também quando a IA está desligada; o botão de geração permanece bloqueado nesse caso. Qualidade maior pode aumentar custo e tempo; o teto interno continua sendo de reservas, não um limite garantido de cobrança do provedor.
 
 A API aceita somente essas três qualidades, exclusivamente para convite completo. Pedidos antigos sem o campo continuam usando `xhigh`. O modelo, a resolução e as referências de estilo continuam definidos pelo servidor.
 
