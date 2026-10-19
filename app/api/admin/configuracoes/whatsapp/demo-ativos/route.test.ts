@@ -25,6 +25,8 @@ const URL_ROTA = `${ORIGEM}/api/admin/configuracoes/whatsapp/demo-ativos`;
 const COOKIE = 'kidmais_admin_dev';
 const TOKEN_SESSAO = 'S'.repeat(43), CSRF = 'csrf-sintetico-da-sessao';
 const EMPRESA = randomUUID(), USUARIO = randomUUID(), TOKEN_META = 'TOKENSINTETICO0123456789abcdef';
+/** Ambiente administrativo local e independente da máquina (origem http://localhost:3000, cookie de dev). */
+const AMBIENTE_ADMIN_LOCAL = { ADMIN_AUTH_ORIGIN: undefined, KIDMAIS_DEPLOY_ENV: undefined, NODE_ENV: 'test', RENDER: undefined };
 const envOk = { RENDER: 'true', RENDER_SERVICE_ID: demo.SERVICO_WEB_STAGING, KIDMAIS_DEPLOY_ENV: 'staging', META_DEMO_ATIVOS_TESTE: 'true',
   META_DEMO_EMPRESA_ID: EMPRESA, META_DEMO_USUARIO_ID: USUARIO, META_DEMO_ACCESS_TOKEN: TOKEN_META, META_GRAPH_API_VERSION: 'v26.0' };
 
@@ -58,7 +60,9 @@ function rota(c: Cenario = {}) {
     '../autenticacao/senha': senha,
     '../db/postgres': { db: () => ({ query: async (texto: string) => { sql.push(texto); return { rows: [] }; } }) },
     '../assinatura/paywall.ts': { exigirAcessoComercial: async () => { if (c.paywall402) throw new errosCliente.ClienteServiceError('ASSINATURA_NECESSARIA', 'Assinatura necessária.', 402); } },
-    './admin-origin.ts': origemAdmin,
+    // Política de origem REAL, mas com ambiente local fixo: no build do Render (RENDER, KIDMAIS_DEPLOY_ENV,
+    // ADMIN_AUTH_ORIGIN, NODE_ENV=production) o ambiente da máquina mudaria a origem esperada e o teste.
+    './admin-origin.ts': { ...origemAdmin, ambientePoliticaAdminAtual: () => AMBIENTE_ADMIN_LOCAL },
   } as Record<string, unknown>)[id]);
   const http = transpilar('lib/whatsapp/http.ts', (id) => ({
     'next/server': requireModule('next/server'),
