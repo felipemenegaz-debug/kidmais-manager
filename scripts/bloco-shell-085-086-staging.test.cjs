@@ -136,3 +136,55 @@ test('P2-A: duas colagens na mesma sessão (H0 e depois H1) — sem vazamento de
     assert.equal(linhas(r.saida,/^JA_PRESENTE /),7,'a 2ª colagem encontra os arquivos da 1ª');assert.equal(temporarios(d),0);
   }finally{fs.rmSync(d,{recursive:true,force:true});}
 });
+
+// P3-1 da revisão de 8a43fd5: o `rm` do trap EXIT falhando (rm falso como função do shell do operador, herdada pelo
+// subshell) não pode trocar o código principal; sai o aviso TEMPORARIO_NAO_REMOVIDO com o caminho que ficou.
+const RM_FALSO='rm() { echo "rm falso: $*" >&2; return 1; }\n';
+const aviso=s=>s.split(/\r?\n/).filter(l=>/^TEMPORARIO_NAO_REMOVIDO /.test(l));
+test('P3-1: trap só no H0/H1 (a LIMPEZA não tem); falha do rm vira aviso e não muda o código',()=>{
+  for(const modo of ['H0','H1'])assert.ok(b.gerar({modo,rotulo:'b659b14'}).split('\n').includes(`trap 'rm -rf -- "$T" || echo "TEMPORARIO_NAO_REMOVIDO $T"' EXIT`),modo);
+  assert.doesNotMatch(b.gerar({modo:'LIMPEZA',rotulo:'b659b14'}),/^trap |mktemp -d/m);
+});
+
+test('P3-1: rm falso no trap com aplicador 0/1/2/3 e por sinal — código preservado, aviso com o temporário restante, registro listado',()=>{
+  for(const [comando,esperado] of [['node -e "process.exitCode=0"',0],['node -e "process.exitCode=1"',1],['node -e "process.exitCode=2"',2],
+    ['node -e "process.exitCode=3"',3],["bash -c 'kill -TERM $$'",143]]){
+    const d=destino();
+    try{const r=sessao(d,RM_FALSO+gerar(d,'H1',comando));
+      assert.equal(codigo(r.saida),esperado,comando+': '+r.saida.slice(-300));
+      assert.equal(linhas(r.saida,/^=== REGISTRO /),1,'o aplicador rodou e o registro foi listado');
+      const a=aviso(r.saida);assert.equal(a.length,1,'um aviso');assert.equal(temporarios(d),1,'o temporário ficou');
+      assert.equal(path.posix.basename(a[0].slice('TEMPORARIO_NAO_REMOVIDO '.length)),fs.readdirSync(path.join(d,'tmp'))[0],'o aviso identifica o temporário que ficou');
+      assert.match(r.saida,/rm falso: -rf -- /);
+    }finally{fs.rmSync(d,{recursive:true,force:true});}
+  }
+});
+
+test('P3-1: recusa do bloco (4) seguida de falha do trap continua 4, com a mensagem da recusa e o aviso',()=>{
+  const d=destino();
+  try{const L=gerar(d,'H1','node -e "process.exitCode=0"').split('\n'),i=L.findIndex(x=>x.startsWith('prep 3 '))+1;L[i]='!!!'+L[i].slice(3);
+    const r=sessao(d,RM_FALSO+L.join('\n'));assert.equal(codigo(r.saida),4,r.saida.slice(-300));
+    assert.match(r.saida,/^CONTEUDO_DIVERGENTE database\/checks\/20261018_085_postcheck\.sql$/m);assert.equal(aviso(r.saida).length,1);
+    assert.equal(linhas(r.saida,/^=== REGISTRO /),0,'aplicador não rodou');assert.deepEqual(presentes(d),[]);
+  }finally{fs.rmSync(d,{recursive:true,force:true});}
+});
+
+test('P3-1: caso normal remove o temporário sem aviso; LIMPEZA com rm falso continua 4 REMOCAO_FALHOU (sem aviso de temporário)',()=>{
+  const d=destino();
+  try{const r=rodar(d,'H1','node -e "process.exitCode=3"');assert.equal(codigo(r.saida),3);assert.equal(aviso(r.saida).length,0);assert.equal(temporarios(d),0);
+    const l=sessao(d,RM_FALSO+gerar(d,'LIMPEZA'));assert.equal(codigo(l.saida),4,l.saida.slice(-300));
+    assert.match(l.saida,/^REMOCAO_FALHOU scripts\/migration-085-086-staging\.cjs$/m);assert.equal(aviso(l.saida).length,0);
+    assert.equal(presentes(d).length,7,'nada removido');
+  }finally{fs.rmSync(d,{recursive:true,force:true});}
+});
+
+test('P3-1: colagem interativa com falha do trap — shell vivo, código 2 legível, sem opções/umask/cwd/trap herdados',()=>{
+  const d=destino();
+  try{const POS='echo "POS_BLOCO opcoes=$- umask=$(umask) pwd=$PWD"\ntrap -p EXIT\necho "T_HERDADO=${T-ausente} codigo_herdado=${codigo-ausente}"\ncat arquivo-que-nao-existe-no-teste\necho SHELL_DO_OPERADOR_VIVO\n';
+    const r=sessao(d,RM_FALSO+'echo "ANTES opcoes=$- umask=$(umask) pwd=$PWD"\n'+gerar(d,'H0','node -e "process.exitCode=2"')+POS,{interativo:true});
+    assert.equal(codigo(r.saida),2,r.saida.slice(-400));assert.equal(aviso(r.saida).length,1);assert.match(r.saida,/^SHELL_DO_OPERADOR_VIVO$/m);
+    const antes=/^ANTES opcoes=(\S*) umask=(\d+) pwd=(.*)$/m.exec(r.saida),pos=/^POS_BLOCO opcoes=(\S*) umask=(\d+) pwd=(.*)$/m.exec(r.saida);
+    assert.ok(antes&&pos);assert.equal(pos[1],antes[1]);assert.equal(pos[2],antes[2]);assert.equal(pos[3].trim(),antes[3].trim());
+    assert.doesNotMatch(r.saida,/trap -- .*EXIT/);assert.match(r.saida,/^T_HERDADO=ausente codigo_herdado=ausente$/m);
+  }finally{fs.rmSync(d,{recursive:true,force:true});}
+});

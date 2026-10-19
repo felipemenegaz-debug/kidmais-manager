@@ -2,14 +2,17 @@
 // Blocos de Shell da etapa 6b (P2-1 da revisão de 9080f45; P2-A/P3-A/P3-B da revisão de b659b14): o deploy de staging
 // (87bedb8) não tem o aplicador 085/086 nem os SQL; o operador cola no Web Shell do serviço (bash INTERATIVO) um bloco
 // gerado de uma árvore conferida, com sha256 e tamanho em bytes conferidos antes de colar. Desenho dos blocos da 084:
-//   - bracketed paste desligado e guarda RENDER_SERVICE_ID ANTES de qualquer gravação (outro shell: nada executado);
+//   - `bind` desliga o bracketed paste ANTES da guarda e fora do subshell: vale pelo resto da sessão do operador (também
+//     em outro serviço), não muda a colagem que o contém, só as seguintes (P3-2 da revisão de 8a43fd5: só documentado);
+//   - guarda RENDER_SERVICE_ID ANTES de qualquer leitura/gravação de arquivo (outro shell: nada do corpo executado);
 //   - todo o corpo num SUBSHELL ( … ): set -euo pipefail, umask, cd, trap e exit não alteram nem encerram o shell do
-//     operador; depois do subshell, CODIGO_SAIDA_BLOCO=<n> fica impresso e legível;
+//     operador (o readline, pelo bind, é a exceção); depois do subshell, CODIGO_SAIDA_BLOCO=<n> fica impresso e legível;
 //   - o corpo confere as 4 dependências implantadas e o sha dos 7 arquivos ANTES de gravar qualquer um, grava só os
 //     ausentes (presente diferente → para), roda o aplicador e imprime o registro do disco persistente;
 //   - códigos: 0/1/2/3 são do aplicador (PASS-CONFERIDO / recusa antes de conectar / FALHA / RECUSARIA); 4 é recusa ou
 //     falha do PRÓPRIO bloco, com mensagem nomeada (destino, ferramenta, temporário, dependência, conteúdo, colisão:
 //     antes de gravar; GRAVACAO_FALHOU/REMOCAO_FALHOU: durante a gravação/limpeza). Nenhuma falha do bloco sai com 1–3;
+//     falha ao remover o temporário (trap) só imprime TEMPORARIO_NAO_REMOVIDO e mantém o código principal;
 //   - LIMPEZA remove só os 7 arquivos cujo sha confere (nunca dependências nem o registro no disco persistente).
 // O bloco gerado é ASCII puro. Este gerador só lê arquivos e escreve o bloco na saída; não conecta nem executa nada.
 //   node scripts/bloco-shell-085-086-staging.cjs <H0|H1|LIMPEZA> <rotulo-da-arvore>
@@ -68,7 +71,9 @@ function gerar({modo, rotulo, raiz = path.resolve(__dirname, '..'), destino = DE
     for (const a of ARQUIVOS) c.push(`limpar ${seguro(a)} ${sha(ler(raiz, a))}`);
     c.push('echo LIMPEZA_FIM');
   } else {
-    c.push('T="$(mktemp -d)" || { echo "TEMPORARIO_FALHOU"; exit 4; }', "trap 'rm -rf \"$T\"' EXIT",
+    // P3-1 da revisão de 8a43fd5: sob set -e, um `rm` que falhasse no trap trocaria o código principal por 1. Com `||`
+    // a falha vira o aviso TEMPORARIO_NAO_REMOVIDO e o subshell sai com o código original (0/1/2/3/4 ou por sinal).
+    c.push('T="$(mktemp -d)" || { echo "TEMPORARIO_FALHOU"; exit 4; }', "trap 'rm -rf -- \"$T\" || echo \"TEMPORARIO_NAO_REMOVIDO $T\"' EXIT",
       'prep() { { base64 -d | gzip -dc > "$T/$1"; } 2>/dev/null || { echo "CONTEUDO_DIVERGENTE $2"; exit 4; }; [ "$(h "$T/$1")" = "$3" ] || { echo "CONTEUDO_DIVERGENTE $2"; exit 4; }; }',
       'livre() { [ ! -e "$1" ] || [ "$(h "$1")" = "$2" ] || { echo "JA_EXISTE_DIFERENTE $1"; exit 4; }; }',
       // Falha de gravação (permissão, disco): 4 com GRAVACAO_FALHOU; pode ter gravado parte dos 7 — a LIMPEZA remove os que conferem.
@@ -88,7 +93,11 @@ function gerar({modo, rotulo, raiz = path.resolve(__dirname, '..'), destino = DE
     `# BLOCO-SHELL-085-086-${modo} - Web Shell do ${SERVICO} (kidmais-manager-staging). Colar inteiro, uma vez, e Enter.`,
     ...TITULOS[modo].map(t => '# ' + t),
     `# Gerado da arvore ${rotulo} por scripts/bloco-shell-085-086-staging.cjs. Conferir sha256 e bytes antes de colar.`,
-    '# Corpo em subshell: o shell do operador nao muda; no fim sai CODIGO_SAIDA_BLOCO=<n> (0/1/2/3 aplicador, 4 bloco).',
+    '# O bind abaixo roda ANTES da guarda e FORA do subshell, mesmo em outro servico: desliga o bracketed paste do readline',
+    '# pelo resto desta sessao. Nao muda esta colagem (ja recebida); nas seguintes, texto multilinha roda linha a linha.',
+    '# A guarda de RENDER_SERVICE_ID vem antes de qualquer leitura/gravacao de arquivo. Corpo em subshell: opcoes, trap,',
+    '# umask, cwd e variaveis do corpo nao vazam (o bind e a excecao). No fim sai CODIGO_SAIDA_BLOCO=<n> (0/1/2/3',
+    '# aplicador, 4 bloco); TEMPORARIO_NAO_REMOVIDO <caminho> e so aviso: o codigo continua o principal.',
     "bind 'set enable-bracketed-paste off' 2>/dev/null",
     `if [ "$RENDER_SERVICE_ID" != "${SERVICO}" ]; then echo "SHELL_ERRADO_NAO_E_STAGING ($RENDER_SERVICE_ID): nada executado"; else`,
     '(', ...c, ')', 'echo "CODIGO_SAIDA_BLOCO=$?"', 'fi'];

@@ -141,9 +141,14 @@ node scripts/bloco-shell-085-086-staging.cjs LIMPEZA <rotulo>  > BLOCO-SHELL-085
 O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então bytes e caracteres coincidem.
 
 **Desenho:**
-1. `bind 'set enable-bracketed-paste off'` e **guarda `RENDER_SERVICE_ID`** = `srv-daif418ae00c73e8k2gg` antes de qualquer gravação. Em outro shell sai `SHELL_ERRADO_NAO_E_STAGING` e nada é executado.
-2. Todo o resto roda num **subshell** `( … )`. `set -euo pipefail`, `umask 077`, `cd`, o `trap` do temporário e os `exit` ficam contidos nele: o shell do operador **não muda nem cai**. Depois do subshell sai `CODIGO_SAIDA_BLOCO=<n>`.
-3. Dentro do subshell:
+1. `bind 'set enable-bracketed-paste off'` roda **primeiro, fora do subshell e antes da guarda** (P3-2 da revisão de `8a43fd5`; comportamento mantido, só documentado):
+   - desliga o bracketed paste do readline **pelo resto da sessão** do Web Shell, sem restauração, e acontece **também** em outro serviço ou sem `RENDER_SERVICE_ID`;
+   - **não** muda a colagem que o contém (ela já está no buffer do readline); afeta só as colagens **seguintes**;
+   - numa colagem seguinte, texto multilinha é executado linha a linha, sem a espera do bracketed paste. Para os blocos isso é inofensivo (nada do bloco roda antes do `fi`), mas outro texto multilinha colado depois na mesma sessão executa linha a linha.
+2. **Guarda `RENDER_SERVICE_ID`** = `srv-daif418ae00c73e8k2gg` antes de qualquer leitura ou gravação de arquivo (não antes de qualquer comando: o `bind` já rodou). Em outro shell sai `SHELL_ERRADO_NAO_E_STAGING` e o corpo não executa.
+3. Todo o resto roda num **subshell** `( … )`. `set -euo pipefail`, `umask 077`, `cd`, as variáveis, o `trap` do temporário e os `exit` ficam contidos nele: as opções, os traps, o `umask`, o diretório e as variáveis do shell do operador **não mudam** e ele **não cai**. A exceção é o readline, pelo `bind` do item 1. Depois do subshell sai `CODIGO_SAIDA_BLOCO=<n>`.
+4. O `trap` do temporário é `rm -rf -- "$T" || echo "TEMPORARIO_NAO_REMOVIDO $T"` (P3-1 da revisão de `8a43fd5`): se a remoção falhar, sai o **aviso** com o caminho que ficou e o código continua o principal (0/1/2/3 do aplicador, 4 do bloco ou o status por sinal). Antes, sob `set -e`, a falha do `rm` trocava o código por 1.
+5. Dentro do subshell:
    - confere o sha das 4 dependências implantadas (`migration-078-staging.cjs`, `assinatura-staging-ensaio.cjs`, `assinatura-preservacao.cjs`, `conexao-staging.cjs`);
    - decodifica e confere os 7 arquivos **antes** de gravar qualquer um;
    - grava só os ausentes e para diante de presente diferente;
@@ -157,14 +162,17 @@ O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então b
 | 1 | o aplicador recusou antes de conectar |
 | 2 | FALHA registrada |
 | 3 | RECUSARIA |
-| **4** | o **bloco** recusou ou falhou, sempre com mensagem nomeada. Antes de gravar (nada gravado): `DESTINO_INACESSIVEL`, `FERRAMENTA_AUSENTE`, `TEMPORARIO_FALHOU`, `DEPENDENCIA_DIVERGENTE`, `CONTEUDO_DIVERGENTE`, `JA_EXISTE_DIFERENTE`. Durante a gravação ou limpeza: `GRAVACAO_FALHOU` (pode ter gravado parte dos 7; a LIMPEZA remove os que conferem) e `REMOCAO_FALHOU`. Nenhuma falha do bloco sai com 1–3 |
+| **4** | o **bloco** recusou ou falhou, sempre com mensagem nomeada. Antes de gravar (nada gravado): `DESTINO_INACESSIVEL`, `FERRAMENTA_AUSENTE`, `TEMPORARIO_FALHOU`, `DEPENDENCIA_DIVERGENTE`, `CONTEUDO_DIVERGENTE`, `JA_EXISTE_DIFERENTE`. Durante a gravação ou limpeza: `GRAVACAO_FALHOU` (pode ter gravado parte dos 7; a LIMPEZA remove os que conferem) e `REMOCAO_FALHOU` (da LIMPEZA, que não tem temporário nem `trap`). Nenhuma falha do bloco sai com 1–3 |
+
+`TEMPORARIO_NAO_REMOVIDO <caminho>` **não é código**: é aviso de que o temporário do H0/H1 ficou no disco (nada foi gravado nele além das cópias conferidas). O código ao lado continua o resultado principal; com o aviso, não se pode afirmar que o temporário foi limpo.
 
 O registro (`ls` do disco persistente) só é listado quando o aplicador chega a rodar: em 0/1/2/3, e não em 4. Shell de outro serviço: `SHELL_ERRADO_NAO_E_STAGING`, sem `CODIGO_SAIDA_BLOCO`.
 
 **Procedimento:**
 1. Conferir sha256 e bytes na página.
-2. Colar uma vez e dar Enter.
-3. Guardar a saída inteira.
+2. Colar o bloco inteiro uma vez e dar Enter. Nada do bloco executa antes do `fi` final, com ou sem bracketed paste.
+3. Guardar a saída inteira e ler a linha `CODIGO_SAIDA_BLOCO=<n>` e, se houver, `TEMPORARIO_NAO_REMOVIDO`. Sem a linha do código, ou com `SHELL_ERRADO_NAO_E_STAGING`, o corpo não rodou.
+4. Depois do bloco, o bracketed paste está desligado nessa sessão: outro bloco pode ser colado nela, mas qualquer outro texto multilinha colado depois executa linha a linha, sem esperar o Enter.
 
 **LIMPEZA:** remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente.
 
@@ -172,4 +180,7 @@ O registro (`ls` do disco persistente) só é listado quando o aplicador chega a
 - executa os blocos com `bash`;
 - executa uma **colagem interativa** (`bash -i`, bloco + linhas do operador) e confere que o shell sobrevive, sem opções, `umask`, diretório ou `trap` herdados, e que o código 0/2/3/4 fica legível;
 - cobre duas colagens seguidas;
-- cobre a guarda de serviço.
+- cobre a guarda de serviço;
+- cobre a falha do `rm` no `trap` (rm falso): códigos 0/1/2/3, por sinal (143) e recusa 4 preservados, com o aviso e o temporário que ficou; LIMPEZA com `rm` falso continua 4 `REMOCAO_FALHOU`; colagem interativa depois da falha mantém o shell vivo e intacto.
+
+Não cobre o readline: com stdin em pipe e `TERM` sem valor (como no CI), o bracketed paste nasce desligado e o `bind` não muda nada; o efeito do `bind` foi provado em PTY pela revisão de `8a43fd5`.
