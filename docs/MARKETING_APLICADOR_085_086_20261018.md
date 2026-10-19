@@ -144,7 +144,7 @@ O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então b
 1. `bind 'set enable-bracketed-paste off'` roda **primeiro, fora do subshell e antes da guarda** (P3-2 da revisão de `8a43fd5`; comportamento mantido, só documentado):
    - desliga o bracketed paste do readline **pelo resto da sessão** do Web Shell, sem restauração, e acontece **também** em outro serviço ou sem `RENDER_SERVICE_ID`;
    - **não** muda a colagem que o contém (ela já está no buffer do readline); afeta só as colagens **seguintes**;
-   - numa colagem seguinte, texto multilinha é executado linha a linha, sem a espera do bracketed paste. Para os blocos isso é inofensivo (nada do bloco roda antes do `fi`), mas outro texto multilinha colado depois na mesma sessão executa linha a linha.
+   - numa colagem seguinte, texto multilinha é executado linha a linha, sem a espera do bracketed paste. Para os blocos isso é inofensivo (o `bind` de um bloco seguinte roda logo, mas a guarda e o corpo, dentro do `if`, só rodam depois de o bash ler o `fi`), mas outro texto multilinha colado depois na mesma sessão executa linha a linha.
 2. **Guarda `RENDER_SERVICE_ID`** = `srv-daif418ae00c73e8k2gg` antes de qualquer leitura ou gravação de arquivo (não antes de qualquer comando: o `bind` já rodou). Em outro shell sai `SHELL_ERRADO_NAO_E_STAGING` e o corpo não executa.
 3. Todo o resto roda num **subshell** `( … )`. `set -euo pipefail`, `umask 077`, `cd`, as variáveis, o `trap` do temporário e os `exit` ficam contidos nele: as opções, os traps, o `umask`, o diretório e as variáveis do shell do operador **não mudam** e ele **não cai**. A exceção é o readline, pelo `bind` do item 1. Depois do subshell sai `CODIGO_SAIDA_BLOCO=<n>`.
 4. O `trap` do temporário é `rm -rf -- "$T" || echo "TEMPORARIO_NAO_REMOVIDO $T"` (P3-1 da revisão de `8a43fd5`): se a remoção falhar, sai o **aviso** com o caminho que ficou e o código continua o principal (0/1/2/3 do aplicador, 4 do bloco ou o status por sinal). Antes, sob `set -e`, a falha do `rm` trocava o código por 1.
@@ -170,8 +170,10 @@ O registro (`ls` do disco persistente) só é listado quando o aplicador chega a
 
 **Procedimento:**
 1. Conferir sha256 e bytes na página.
-2. Colar o bloco inteiro uma vez e dar Enter. Nada do bloco executa antes do `fi` final, com ou sem bracketed paste.
-3. Guardar a saída inteira e ler a linha `CODIGO_SAIDA_BLOCO=<n>` e, se houver, `TEMPORARIO_NAO_REMOVIDO`. Sem a linha do código, ou com `SHELL_ERRADO_NAO_E_STAGING`, o corpo não rodou.
+2. Colar o bloco inteiro uma vez e dar Enter. O `bind` do início já pode ter rodado e alterado o readline; a guarda e o corpo, protegidos pelo `if`, só começam depois de o bash ler o `fi` final completo, com ou sem bracketed paste.
+3. Guardar a saída inteira e ler a linha `CODIGO_SAIDA_BLOCO=<n>` e, se houver, `TEMPORARIO_NAO_REMOVIDO`.
+   - Com `SHELL_ERRADO_NAO_E_STAGING`, o corpo não rodou.
+   - Sem `CODIGO_SAIDA_BLOCO` e sem `SHELL_ERRADO_NAO_E_STAGING`, o resultado é **desconhecido**. Uma interrupção pode ter ocorrido depois de gravar arquivos ou iniciar o aplicador. Preserve a saída, confira o registro e o estado por procedimento autorizado; não repita automaticamente o H1. A ausência da linha não indica sucesso nem falha, e esta orientação não autoriza SQL nem conexão.
 4. Depois do bloco, o bracketed paste está desligado nessa sessão: outro bloco pode ser colado nela, mas qualquer outro texto multilinha colado depois executa linha a linha, sem esperar o Enter.
 
 **LIMPEZA:** remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente.
