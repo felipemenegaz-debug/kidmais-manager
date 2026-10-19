@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [staging, main]
+    branches: [staging, main, production]
   push:
     branches: [staging]
 
@@ -68,3 +68,9 @@ jobs:
 
       - name: Blocos de Shell da 6b (085/086) — dependências e conteúdo conferidos por sha, sem sobrescrever, limpeza seletiva, guarda de serviço, subshell e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-085-086-staging.test.cjs
+
+      - name: Aplicador manual da 079 em produção — trava de alvo e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-079-production.test.cjs
+
+      - name: Aplicador manual da 084 em produção — trava de alvo, TLS, hashes, privilégio, estados preservados e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-084-production.test.cjs
