@@ -19,10 +19,16 @@
 //   node scripts/migrations-producao-20261019.cjs --retomar-autorizado <id> --backup <registro>
 // O registro de backup é o do P1 do lançamento (backup-lancamento-production.cjs; pasta lancamento-venda-20261011),
 // conferido por conferirBackup do aplicador do lançamento: < 24 h, PITR < 24 h, dump íntegro com o hash registrado.
-// Marcador exclusivo por migration aplicada aqui em /opt/render/project/src/data/migracoes-producao-20261019: uma
-// tentativa anterior impede repetição automática (retomada só com a flag própria, só com o schema da migration AUSENTE).
+// Marcador exclusivo por migration (deste pacote: migration-<id>; do processo filho do lançamento: lancamento-<id>, com a
+// situação verdadeira depois do filho) em /opt/render/project/src/data/migracoes-producao-20261019: uma tentativa
+// anterior impede repetição automática. Retomada só com a flag própria, só com o schema da migration AUSENTE; para
+// 074a–078 o marcador ativo do lançamento é renomeado para .tentativa-<n> (registrado antes) e o filho roda de novo.
+// Antes da 1ª escrita (e na conferência): marcadores anteriores de migrations ausentes, prechecks de TODAS as ausentes
+// que só dependem da base atual e as condições de dados dos postchecks (kidmais; 7 categorias da 078).
 // Saída: só nomes de etapas, booleanos, contagens agregadas e códigos curtos; nunca URL, credencial ou dado de cliente.
-// Códigos de saída: 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar; 2 FALHA registrada; 3 conferência RECUSARIA.
+// Códigos de saída (CODIGOS_DE_SAIDA): 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar; 2 FALHA (ver
+// confirmadasNestaExecucao/nenhumaEscrita; falha de conexão/identidade não escreve); 3 conferência RECUSARIA.
+// Qualquer outro código (127, 130, 143…) = parar e ler.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -50,6 +56,12 @@ const BLOQUEIOS_REPARO = Object.freeze(['57618aab-a62c-4be1-9385-17308ac8dda3', 
 const KIDMAIS_ID = '7e990a2b-e64b-4630-9aae-4646fe936ede';
 /** Já aplicadas em produção (079 em 17/10 e 084 em 18/10, pelos aplicadores próprios): só conferidas aqui. */
 const JA_PRESENTES = Object.freeze(['079', '084']);
+/** Aplicadas pelo processo filho do aplicador do lançamento (retomada própria, P2-1 da revisão de 19/10). */
+const DO_LANCAMENTO = Object.freeze(['074a', '075', '076', '077', '078']);
+/** Prechecks externos que só dependem da base ATUAL (rodam todos na conferência e antes da 1ª escrita; P2-2). */
+const PRECHECK_INDEPENDENTE = Object.freeze(['074a', '076', '077', '078', '083', '085']);
+/** Categorias originais do catálogo exigidas pelo postcheck da 078 (database/checks/20261010_078_postcheck.sql). */
+const CATEGORIAS_ORIGINAIS = Object.freeze(['SALGADOS', 'DOCES', 'MASSA_BOLO', 'RECHEIO_BOLO', 'BOMBONS', 'EMPRATADOS', 'LEMBRANCINHAS']);
 
 // Catálogo (pg_attribute), não information_schema: este só mostra colunas de tabelas com privilégio do papel atual, e um
 // papel sem privilégio veria a 079 como "parcial" (achado do ensaio local de 19/10).
@@ -161,7 +173,51 @@ const SQL_SITUACAO = `SELECT (SELECT count(*) FROM empresas)::int AS empresas,
   (SELECT count(*) FROM buffet_itens)::int AS buffet_itens,
   CASE WHEN to_regclass('public.whatsapp_conexoes') IS NULL THEN NULL ELSE (SELECT count(*) FROM whatsapp_conexoes)::int END AS whatsapp_conexoes,
   CASE WHEN to_regclass('public.convite_geracoes') IS NULL THEN NULL ELSE
-    (SELECT coalesce(jsonb_object_agg(estado, n), '{}'::jsonb) FROM (SELECT estado, count(*) AS n FROM convite_geracoes GROUP BY estado) e) END AS convites_estados`;
+    (SELECT coalesce(jsonb_object_agg(estado, n), '{}'::jsonb) FROM (SELECT estado, count(*) AS n FROM convite_geracoes GROUP BY estado) e) END AS convites_estados,
+  -- Contagens de risco (P3-5 da revisão de 19/10): sem ids nem dados pessoais.
+  (SELECT count(*) FROM pacotes WHERE empresa_id IS NULL)::int AS pacotes_sem_empresa,
+  (SELECT count(*) FROM fechamentos WHERE empresa_id IS NULL)::int AS fechamentos_sem_empresa,
+  (SELECT count(*) FROM whatsapp_conexoes w WHERE w.status = 'CONFIGURADA' AND (to_jsonb(w) ->> 'empresa_id') IS NULL)::int AS whatsapp_configuradas_sem_empresa,
+  (SELECT count(*) FROM whatsapp_onboarding_tentativas WHERE status IN ('INICIADA', 'VALIDANDO'))::int AS onboarding_em_andamento,
+  ARRAY(SELECT c FROM unnest(${arr(CATEGORIAS_ORIGINAIS)}) c WHERE NOT EXISTS (SELECT 1 FROM buffet_categorias b WHERE b.codigo = c) ORDER BY c) AS categorias_originais_ausentes`;
+/**
+ * Condições de dados que só apareceriam no MEIO da aplicação (P2-2 da revisão de 19/10): 077/078 exigem uma `kidmais`
+ * ATIVA; o postcheck da 078 exige as 7 categorias originais (hoje sem empresa; a 078 as entrega à kidmais).
+ */
+const SQL_ANTECIPACOES = `SELECT (SELECT count(*) FROM empresas WHERE codigo = 'kidmais')::int AS kidmais,
+  (SELECT count(*) FROM empresas WHERE codigo = 'kidmais' AND status = 'ATIVA')::int AS kidmais_ativa,
+  (SELECT count(DISTINCT codigo) FROM buffet_categorias WHERE codigo = ANY(${arr(CATEGORIAS_ORIGINAIS)}))::int AS categorias_originais`;
+/** Impressão do schema public (definições, nunca OID): a mesma do ensaio local, para comparar a base de produção com a dele. */
+const SQL_SCHEMA = `
+    WITH rel AS (
+      SELECT c.oid, c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','S','f')
+    ), fn AS (
+      SELECT p.oid, p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+    )
+    SELECT x FROM (
+      SELECT 'rel:' || relname || ':' || relkind::text AS x FROM rel
+      UNION ALL SELECT 'col:' || r.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text
+             || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '') || ':' || a.attidentity::text || ':' || a.attgenerated::text
+        FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped
+        LEFT JOIN pg_attrdef d ON d.adrelid = r.oid AND d.adnum = a.attnum
+      UNION ALL SELECT 'con:' || r.relname || '.' || co.conname || ':' || pg_get_constraintdef(co.oid) || ':valid=' || co.convalidated::text || ':def=' || co.condeferrable::text || co.condeferred::text
+        FROM pg_constraint co JOIN rel r ON r.oid = co.conrelid
+      UNION ALL SELECT 'idx:' || r.relname || '.' || i.relname || ':' || pg_get_indexdef(ix.indexrelid)
+        FROM pg_index ix JOIN rel r ON r.oid = ix.indrelid JOIN pg_class i ON i.oid = ix.indexrelid
+      UNION ALL SELECT 'trg:' || r.relname || '.' || t.tgname || ':' || t.tgenabled::text || ':' || pg_get_triggerdef(t.oid)
+        FROM pg_trigger t JOIN rel r ON r.oid = t.tgrelid WHERE NOT t.tgisinternal
+      UNION ALL SELECT 'fn:' || f.proname || '(' || pg_get_function_identity_arguments(f.oid) || '):' || md5(pg_get_functiondef(f.oid)) FROM fn f
+      UNION ALL SELECT 'view:' || r.relname || ':' || md5(pg_get_viewdef(r.oid)) FROM rel r WHERE r.relkind IN ('v','m')
+      UNION ALL SELECT 'pol:' || p.tablename || '.' || p.policyname || ':' || p.cmd || ':' || coalesce(p.qual, '') || ':' || coalesce(p.with_check, '')
+        FROM pg_policies p WHERE p.schemaname = 'public'
+      UNION ALL SELECT 'enum:' || t.typname || ':' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
+        FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace JOIN pg_enum e ON e.enumtypid = t.oid WHERE n.nspname = 'public' GROUP BY t.typname
+      UNION ALL SELECT 'comment:' || r.relname || '.' || coalesce(a.attname, '') || ':' || md5(d.description)
+        FROM pg_description d JOIN rel r ON r.oid = d.objoid AND d.classoid = 'pg_class'::regclass
+        LEFT JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum = d.objsubid AND d.objsubid > 0
+    ) s ORDER BY x`;
+const SQL_IMPRESSAO = `SELECT md5(string_agg(x, chr(10) ORDER BY x)) AS md5, count(*)::int AS objetos FROM (${SQL_SCHEMA}) i`;
 const SQL_TRAVA = `SELECT pg_try_advisory_lock(${TRAVA[0]}, ${TRAVA[1]}) AS trava`;
 const SQL_SOLTAR = `SELECT pg_advisory_unlock(${TRAVA[0]}, ${TRAVA[1]}) AS solta`;
 
@@ -367,34 +423,70 @@ function registrosBackup(dir = DIR_LANCAMENTO, agora = Date.now(), fsImpl = fs, 
 }
 function discoLivreMb(dir = DISCO) { try { const s = fs.statfsSync(dir); return Math.floor(Number(s.bavail) * Number(s.bsize) / 1048576); } catch { return null; } }
 
+/** Nomes de marcadores anteriores (deste pacote e do lançamento) de uma migration. */
+function marcadoresDe(id, {dir = DIR, dirLancamento = DIR_LANCAMENTO, fsImpl = fs} = {}) {
+  const proprio = new RegExp(`^(?:migration|lancamento)-${id}(?:\\.tentativa-\\d+)?\\.json$`);
+  const doPacote = nomesJson(dir, fsImpl).filter(x => proprio.test(x));
+  // Do lançamento só importa o marcador ativo (migration-<id>.json): é ele que faz o filho falhar em EEXIST.
+  const doLancamento = DO_LANCAMENTO.includes(id) ? nomesJson(dirLancamento, fsImpl).filter(x => x === `migration-${id}.json`) : [];
+  return {doPacote, doLancamento};
+}
+
+/**
+ * Verificações em READ ONLY que antecipam o que só falharia no MEIO da aplicação (P2-2 e P3-1 da revisão de 19/10):
+ * marcadores anteriores de migrations ainda ausentes (exigem retomada explícita), prechecks de TODAS as migrations
+ * ausentes que só dependem da base atual e as condições de dados dos postchecks (kidmais; 7 categorias da 078).
+ * `retomar` dispensa só o marcador daquela migration. Devolve a lista; falha = item com `falha`.
+ */
+async function verificacoesPrevias(db, sequencia, estado, {retomar = null, dir = DIR, dirLancamento = DIR_LANCAMENTO, fsImpl = fs} = {}) {
+  const v = [];
+  for (const e of sequencia) {
+    if (estado[e.id] !== 'AUSENTE' || e.id === retomar) continue;
+    const m = marcadoresDe(e.id, {dir, dirLancamento, fsImpl});
+    if (m.doPacote.length || m.doLancamento.length)
+      v.push({id: e.id, falha: `MARCADOR_ANTERIOR ${[...m.doPacote, ...m.doLancamento.map(x => 'lancamento/' + x)].join(',')} (retomada explícita exigida)`});
+  }
+  for (const e of sequencia) {
+    if (estado[e.id] !== 'AUSENTE') continue;
+    if (!PRECHECK_INDEPENDENTE.includes(e.id)) { v.push({id: e.id, precheck: arquivosDe(e, 'precheck').length ? 'DEPENDE_DE_ANTERIOR' : 'SEM_PRECHECK_EXTERNO'}); continue; }
+    try {
+      for (const a of arquivosDe(e, 'precheck')) exigirPrecheck(e.id, await somenteLeitura(db, corpo(a.sql, 'precheck')));
+      v.push({id: e.id, precheck: 'PASS'});
+    } catch (erro) { v.push({id: e.id, precheck: 'FALHA', falha: curta(erro)}); }
+  }
+  const a = (await somenteLeitura(db, SQL_ANTECIPACOES)).rows[0];
+  if (estado['077'] === 'AUSENTE' || estado['078'] === 'AUSENTE')
+    v.push(a.kidmais === 1 && a.kidmais_ativa === 1 ? {id: '077/078', antecipacao: 'PASS'}
+      : {id: '077/078', antecipacao: 'FALHA', falha: `ANTECIPACAO_KIDMAIS kidmais=${a.kidmais} ativa=${a.kidmais_ativa}`});
+  if (estado['078'] === 'AUSENTE')
+    v.push(a.categorias_originais === CATEGORIAS_ORIGINAIS.length ? {id: '078', antecipacao: 'PASS'}
+      : {id: '078', antecipacao: 'FALHA', falha: `ANTECIPACAO_078 categorias originais ${a.categorias_originais}/${CATEGORIAS_ORIGINAIS.length} (postcheck da 078 falharia)`});
+  return v;
+}
+
 /** CONFERIR: nenhuma escrita no banco nem no disco. Identidade, flags, privilégios, estado, checks aplicáveis, agregados. */
-async function conferirNoCliente(db, {sequencia, env = {}, identidade = conferirIdentidade}) {
+async function conferirNoCliente(db, {sequencia, env = {}, identidade = conferirIdentidade, dir = DIR, dirLancamento = DIR_LANCAMENTO, fsImpl = fs}) {
   const r = {modo: 'CONFERENCIA_SOMENTE_LEITURA', verificacoes: []};
   r.conexao = identidade((await somenteLeitura(db, SQL_IDENTIDADE)).rows[0]);
   r.flagsLigadas = flagsLigadas(env);
   Object.assign(r, await lerTudo(db));
   r.situacao = (await somenteLeitura(db, SQL_SITUACAO)).rows[0];
+  r.impressaoSchema = (await somenteLeitura(db, SQL_IMPRESSAO)).rows[0];
   try { r.plano = planoEtapas(sequencia, r.estado, r.faltas); } catch (e) { r.planoRecusado = curta(e); }
-  let primeiraAusente = true;
   for (const e of sequencia) {
-    try {
-      if (r.estado[e.id] === 'COMPLETA') { await postcheckSomenteLeitura(db, e); r.verificacoes.push({id: e.id, postcheck: 'PASS'}); }
-      else if (r.estado[e.id] === 'AUSENTE' && primeiraAusente) {
-        primeiraAusente = false;
-        const pre = arquivosDe(e, 'precheck');
-        for (const a of pre) exigirPrecheck(e.id, await somenteLeitura(db, corpo(a.sql, 'precheck')));
-        r.verificacoes.push({id: e.id, precheck: pre.length ? 'PASS' : 'SEM_PRECHECK_EXTERNO'});
-      }
-    } catch (erro) { r.verificacoes.push({id: e.id, falha: curta(erro)}); }
+    if (r.estado[e.id] !== 'COMPLETA') continue;
+    try { await postcheckSomenteLeitura(db, e); r.verificacoes.push({id: e.id, postcheck: 'PASS'}); }
+    catch (erro) { r.verificacoes.push({id: e.id, postcheck: 'FALHA', falha: curta(erro)}); }
   }
+  r.verificacoes.push(...await verificacoesPrevias(db, sequencia, r.estado, {dir, dirLancamento, fsImpl}));
   const falhou = r.verificacoes.some(v => v.falha);
   r.resultado = r.planoRecusado || falhou || r.flagsLigadas.length ? 'RECUSARIA' : 'CONFERIDO';
   return r;
 }
 
-/** Marcadores exclusivos por migration deste pacote: primeira tentativa ou retomada explícita com schema ausente. */
-function tentativa(dir, id, retomar, fsImpl = fs) {
-  const base = `migration-${id}`;
+/** Marcadores exclusivos deste pacote (`base` = migration-<id> ou lancamento-<id>): primeira tentativa ou retomada explícita. */
+function tentativa(dir, base, retomar, fsImpl = fs) {
+  if (/^[0-9a-z]{3,4}$/.test(base)) base = `migration-${base}`;
   const anteriores = nomesJson(dir, fsImpl).filter(x => x === base + '.json' || new RegExp(`^${base}\\.tentativa-\\d+\\.json$`).test(x));
   if (!anteriores.length) return {arquivo: path.posix.join(dir, base + '.json'), numero: 1, anteriores};
   assert.ok(retomar, 'TENTATIVA_ANTERIOR_REVISAR ' + anteriores.join(','));
@@ -404,6 +496,20 @@ function tentativa(dir, id, retomar, fsImpl = fs) {
   }
   const numero = anteriores.length + 1;
   return {arquivo: path.posix.join(dir, `${base}.tentativa-${numero}.json`), numero, anteriores};
+}
+/**
+ * Retomada de 074a–078 sem alterar o aplicador do lançamento: o marcador ativo dele (`migration-<id>.json`, gravado com
+ * `wx` antes de conectar) é lido, recusado se disser COMMIT_CONFIRMADO, e RENOMEADO para `.tentativa-<n>` (registro no
+ * marcador deste pacote antes do rename). Sem marcador do lançamento: nada a fazer.
+ */
+function prepararMarcadorLancamento(id, retomar, {dirLancamento = DIR_LANCAMENTO, fsImpl = fs} = {}) {
+  const ativo = path.posix.join(dirLancamento, `migration-${id}.json`);
+  if (!fsImpl.existsSync(ativo)) return null;
+  assert.ok(retomar, 'TENTATIVA_ANTERIOR_LANCAMENTO_REVISAR ' + ativo);
+  let anterior; try { anterior = JSON.parse(fsImpl.readFileSync(ativo, 'utf8')); } catch { throw new Error('MARCADOR_LANCAMENTO_ILEGIVEL ' + ativo); }
+  assert.notEqual(anterior.situacao, 'COMMIT_CONFIRMADO', 'JA_CONFIRMADA ' + ativo);
+  let n = 2; while (fsImpl.existsSync(path.posix.join(dirLancamento, `migration-${id}.tentativa-${n}.json`))) n++;
+  return {ativo, renomearPara: path.posix.join(dirLancamento, `migration-${id}.tentativa-${n}.json`), situacaoAnterior: anterior.situacao ?? null};
 }
 
 /** Processo filho do aplicador revisado do lançamento (uma migration ausente por processo; marcador próprio dele). */
@@ -418,9 +524,9 @@ function rodarLancamento(id, backup, {dir = __dirname, executar = spawnSync} = {
 
 /**
  * APLICAR (sequência, para na primeira falha). `deps` existe para os testes e o ensaio local: cliente já conectado,
- * identidade, pasta dos marcadores, sistema de arquivos e executor do lançamento.
+ * identidade, pastas dos marcadores, sistema de arquivos e executor do lançamento.
  */
-async function aplicarNoCliente(db, {sequencia, backup, retomar = null, identidade = conferirIdentidade, dir = DIR, fsImpl = fs,
+async function aplicarNoCliente(db, {sequencia, backup, retomar = null, identidade = conferirIdentidade, dir = DIR, dirLancamento = DIR_LANCAMENTO, fsImpl = fs,
   lancamento = id => rodarLancamento(id, backup), relogio = () => new Date().toISOString()}) {
   const r = {modo: retomar ? 'RETOMADA' : 'APLICACAO', etapas: []};
   r.conexao = identidade((await somenteLeitura(db, SQL_IDENTIDADE)).rows[0]);
@@ -430,7 +536,11 @@ async function aplicarNoCliente(db, {sequencia, backup, retomar = null, identida
     r.estadoAntes = antes.estado;
     r.situacaoAntes = (await somenteLeitura(db, SQL_SITUACAO)).rows[0];
     r.plano = planoEtapas(sequencia, antes.estado, antes.faltas);
-    if (retomar) assert.ok(r.plano.some(p => p.id === retomar && p.acao === 'APLICAR'), 'RETOMADA_RECUSADA ' + retomar);
+    if (retomar) assert.ok(r.plano.some(p => p.id === retomar && p.acao.startsWith('APLICAR')), 'RETOMADA_RECUSADA ' + retomar);
+    // Antes da 1ª escrita: as mesmas antecipações da conferência (marcadores, prechecks independentes, dados).
+    r.verificacoesPrevias = await verificacoesPrevias(db, sequencia, antes.estado, {retomar, dir, dirLancamento, fsImpl});
+    const recusa = r.verificacoesPrevias.find(v => v.falha);
+    assert.ok(!recusa, 'VERIFICACAO_PREVIA ' + (recusa ? `${recusa.id}: ${recusa.falha}` : ''));
     fsImpl.mkdirSync(dir, {recursive: true, mode: 0o700});
     for (const passo of r.plano) {
       const e = sequencia.find(x => x.id === passo.id);
@@ -438,23 +548,37 @@ async function aplicarNoCliente(db, {sequencia, backup, retomar = null, identida
       r.etapas.push(etapa);
       try {
         if (passo.acao === 'POSTCHECK') { await postcheckSomenteLeitura(db, e); etapa.resultado = 'JA_APLICADA_POSTCHECK_PASS'; }
-        else if (passo.acao === 'APLICAR_LANCAMENTO') {
-          const x = await lancamento(e.id);
-          assert.ok(x.ok, 'LANCAMENTO_FALHOU ' + e.id + (x.erro ? ' ' + x.erro : ''));
-          etapa.resultado = x.saida.resultado;
-        } else {
-          const t = tentativa(dir, e.id, retomar === e.id, fsImpl);
-          const marcador = {id: e.id, tentativa: t.numero, inicio: etapa.inicio, arquivos: e.arquivos.map(a => ({tipo: a.tipo, arquivo: a.arquivo, sha256: a.sha256})), situacao: 'INICIADA'};
+        else {
+          const lanc = passo.acao === 'APLICAR_LANCAMENTO';
+          const t = tentativa(dir, `${lanc ? 'lancamento' : 'migration'}-${e.id}`, retomar === e.id, fsImpl);
+          const marcador = {id: e.id, tentativa: t.numero, inicio: etapa.inicio, aplicador: lanc ? 'lancamento (processo filho)' : 'este pacote',
+            arquivos: e.arquivos.map(a => ({tipo: a.tipo, arquivo: a.arquivo, sha256: a.sha256})), situacao: 'INICIADA'};
+          const prep = lanc ? prepararMarcadorLancamento(e.id, retomar === e.id, {dirLancamento, fsImpl}) : null;
+          if (prep) marcador.marcadorDoLancamentoAnterior = {arquivo: prep.ativo, situacao: prep.situacaoAnterior, renomeadoPara: prep.renomearPara};
           fsImpl.writeFileSync(t.arquivo, JSON.stringify(marcador, null, 2), {flag: 'wx', mode: 0o600});
           const salvar = x => { Object.assign(marcador, x, {em: relogio()}); fsImpl.writeFileSync(t.arquivo, JSON.stringify(marcador, null, 2), {mode: 0o600}); };
           etapa.marcador = t.arquivo;
+          if (prep) { assert.ok(!fsImpl.existsSync(prep.renomearPara), 'RENOMEACAO_RECUSADA ' + prep.renomearPara); fsImpl.renameSync(prep.ativo, prep.renomearPara); salvar({situacao: 'MARCADOR_DO_LANCAMENTO_RENOMEADO'}); }
           try {
-            await aplicarEtapa(db, e, {registrar: salvar});
-            const depois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-            assert.equal(depois[e.id], 'COMPLETA', 'COMMIT_NAO_CONFIRMADO ' + e.id);
-            salvar({situacao: 'COMMIT_CONFIRMADO'});
-          } catch (erro) { salvar({situacao: 'FALHA', falha: curta(erro)}); throw erro; }
-          etapa.resultado = 'APLICADA_POSTCHECK_PASS';
+            if (lanc) {
+              salvar({situacao: 'PROCESSO_FILHO_EM_EXECUCAO'});
+              const x = await lancamento(e.id);
+              const depois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0])[e.id];
+              // O marcador do filho fica ANTES_DA_TRANSACAO mesmo depois de ROLLBACK: a situação verdadeira fica neste.
+              if (!x.ok) { salvar({situacao: depois === 'AUSENTE' ? 'FALHA_SCHEMA_AUSENTE' : 'FALHA_SCHEMA_' + depois, falha: x.erro ?? 'SEM_SAIDA'}); throw new Error('LANCAMENTO_FALHOU ' + e.id + (x.erro ? ' ' + x.erro : '')); }
+              assert.equal(depois, 'COMPLETA', 'COMMIT_NAO_CONFIRMADO ' + e.id);
+              // O postcheck do lançamento rodou na transação de escrita dele; aqui roda de novo em READ ONLY.
+              await postcheckSomenteLeitura(db, e);
+              salvar({situacao: 'COMMIT_CONFIRMADO', postcheckSomenteLeitura: 'PASS'});
+              etapa.resultado = x.saida.resultado;
+            } else {
+              await aplicarEtapa(db, e, {registrar: salvar});
+              const depois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
+              assert.equal(depois[e.id], 'COMPLETA', 'COMMIT_NAO_CONFIRMADO ' + e.id);
+              salvar({situacao: 'COMMIT_CONFIRMADO'});
+              etapa.resultado = 'APLICADA_POSTCHECK_PASS';
+            }
+          } catch (erro) { if (!String(marcador.situacao).startsWith('FALHA')) salvar({situacao: 'FALHA', falha: curta(erro)}); throw erro; }
         }
         etapa.fim = relogio();
       } catch (erro) { etapa.falha = curta(erro); throw erro; }
@@ -468,6 +592,9 @@ async function aplicarNoCliente(db, {sequencia, backup, retomar = null, identida
     r.falha = {etapa: r.etapas.at(-1)?.id ?? 'ANTES_DAS_ETAPAS', mensagem: curta(erro)};
     try { r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]); } catch { /* conexão perdida */ }
   } finally { await db.query(SQL_SOLTAR).catch(() => {}); }
+  // Leitura humana da falha: o que ficou confirmado (migrations são atômicas: as demais não mudaram).
+  r.confirmadasNestaExecucao = r.etapas.filter(e => e.acao !== 'POSTCHECK' && e.resultado).map(e => e.id);
+  r.nenhumaEscrita = r.confirmadasNestaExecucao.length === 0;
   return r;
 }
 
@@ -478,15 +605,18 @@ function plano({raiz = path.resolve(__dirname, '..')} = {}) {
     modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} --backup <registro>`, retomar: `${FLAG_RETOMAR} <id> --backup <registro>`},
     sequencia: sequencia.map(e => ({id: e.id, aplicador: e.aplicador, arquivos: e.arquivos.map(a => ({tipo: a.tipo, arquivo: a.arquivo, sha256: a.sha256}))})),
     marcadores: DIR, backup: DIR_LANCAMENTO + '/backup-*.json (P1 do lançamento)', flagsQueRecusam: FLAGS_ABERTURA,
-    nuncaExecuta: ['reparo dos bloqueios', 'down de migration', 'mudança de variável', 'deploy']};
+    codigosDeSaida: CODIGOS_DE_SAIDA, nuncaExecuta: ['reparo dos bloqueios', 'down de migration', 'mudança de variável', 'deploy']};
 }
+/** Códigos de saída (também no roteiro de recuperação). Qualquer outro código = parar e ler a saída. */
+const CODIGOS_DE_SAIDA = Object.freeze({0: 'PLANO / CONFERIDO / PASS', 1: 'recusa antes de conectar (nenhuma escrita)',
+  2: 'FALHA: ler confirmadasNestaExecucao/nenhumaEscrita; falha de conexão ou identidade = nenhuma escrita', 3: 'conferência RECUSARIA (nenhuma escrita)'});
 
-/** Argumentos estritos. */
+/** Argumentos estritos. Retomada: 074a–078 (lançamento) e 060/065/080–083/085/086 (este pacote); nunca 079/084. */
 function modo(argv) {
   if (argv.length === 0 || (argv.length === 1 && argv[0] === '--plano')) return {modo: 'plano'};
   if (argv.length === 1 && argv[0] === FLAG_CONFERIR) return {modo: 'conferir'};
   if (argv.length === 3 && argv[0] === FLAG_APLICAR && argv[1] === '--backup') return {modo: 'aplicar', backup: argv[2]};
-  if (argv.length === 4 && argv[0] === FLAG_RETOMAR && argv[2] === '--backup' && /^(?:060|065|08[0-3]|08[56])$/.test(argv[1]) && argv[1] !== '084')
+  if (argv.length === 4 && argv[0] === FLAG_RETOMAR && argv[2] === '--backup' && /^(?:074a|07[5-8]|060|065|08[0-3]|08[56])$/.test(argv[1]))
     return {modo: 'retomar', retomar: argv[1], backup: argv[3]};
   throw new Error('USO_RECUSADO');
 }
@@ -520,7 +650,8 @@ async function principal(argv, env, {Client = require('pg').Client, raiz = path.
     s.backup = backup; s.certificadoVerificado = opts.ssl.rejectUnauthorized;
     return {codigo: s.resultado === 'PASS' ? 0 : 2, saida: s};
   } catch (e) {
-    return {codigo: 2, saida: {resultado: 'FALHA', mensagem: curta(e)}};
+    // Conexão, identidade ou trava: antes de qualquer escrita.
+    return {codigo: 2, saida: {resultado: 'FALHA', mensagem: curta(e), nenhumaEscrita: true}};
   } finally { await db.end().catch(() => {}); }
 }
 
@@ -529,7 +660,9 @@ if (require.main === module) {
     (codigo === 0 ? console.log : console.error)(JSON.stringify(saida, null, 1)); process.exitCode = codigo;
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
-module.exports = {MANIFESTO, HASH_MANIFESTO, ALVO, DIR, DIR_LANCAMENTO, FLAGS_ABERTURA, JA_PRESENTES, TRAVA, OBJETOS, PRIVILEGIOS, BLOQUEIOS_REPARO, KIDMAIS_ID,
-  SQL_ESTADO, SQL_PRIVILEGIOS, SQL_IDENTIDADE, SQL_SITUACAO, SQL_TRAVA, SQL_SOLTAR, corpo, carregar, alvo, conferirIdentidade, flagsLigadas,
-  exigirDisco, exigirSearchPath, somenteLeitura, exigirPrecheck, lerEstado, faltasDePrivilegio, planoEtapas, aplicarEtapa, postcheckSomenteLeitura, lerTudo,
-  conferirNoCliente, tentativa, rodarLancamento, aplicarNoCliente, plano, modo, principal, registrosBackup, nomesJson};
+module.exports = {MANIFESTO, HASH_MANIFESTO, ALVO, DIR, DIR_LANCAMENTO, FLAGS_ABERTURA, JA_PRESENTES, DO_LANCAMENTO, PRECHECK_INDEPENDENTE, CATEGORIAS_ORIGINAIS,
+  TRAVA, OBJETOS, PRIVILEGIOS, BLOQUEIOS_REPARO, KIDMAIS_ID, CODIGOS_DE_SAIDA,
+  SQL_ESTADO, SQL_PRIVILEGIOS, SQL_IDENTIDADE, SQL_SITUACAO, SQL_ANTECIPACOES, SQL_SCHEMA, SQL_IMPRESSAO, SQL_TRAVA, SQL_SOLTAR, corpo, carregar, alvo,
+  conferirIdentidade, flagsLigadas, exigirDisco, exigirSearchPath, somenteLeitura, exigirPrecheck, lerEstado, faltasDePrivilegio, planoEtapas, aplicarEtapa,
+  postcheckSomenteLeitura, lerTudo, marcadoresDe, verificacoesPrevias, conferirNoCliente, tentativa, prepararMarcadorLancamento, rodarLancamento,
+  aplicarNoCliente, plano, modo, principal, registrosBackup, nomesJson};

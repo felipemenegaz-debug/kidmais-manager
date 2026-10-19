@@ -148,9 +148,10 @@ test('estado legível: colunas pelo catálogo (pg_attribute), nunca information_
 
 // ---------- cliente simulado ----------
 /** Banco simulado: estado por migration; migration "commitada" só no COMMIT; postcheck/precheck configuráveis para falhar. */
-function banco({estado = {...PRODUCAO}, id = ID, falharPostcheck = null, falharPrecheckBool = null, trava = true, privilegioOk = true} = {}) {
+function banco({estado = {...PRODUCAO}, id = ID, falharPostcheck = null, falharPrecheckBool = null, falharPrecheck = null, trava = true, privilegioOk = true,
+  antecipacoes = {kidmais: 1, kidmais_ativa: 1, categorias_originais: 7}} = {}) {
   const corpos = new Map(sequencia.flatMap(e => e.arquivos.map(a => [m.corpo(a.sql, a.tipo), {id: e.id, tipo: a.tipo}])));
-  const s = {estado, chamadas: [], pendente: null, somenteLeitura: false};
+  const s = {estado, chamadas: [], pendente: null, somenteLeitura: false, prechecks: []};
   s.query = async sql => {
     s.chamadas.push(sql);
     if (sql === 'BEGIN TRANSACTION READ ONLY') { s.somenteLeitura = true; return {rows: []}; }
@@ -165,34 +166,89 @@ function banco({estado = {...PRODUCAO}, id = ID, falharPostcheck = null, falharP
     if (sql === m.SQL_ESTADO) return {rows: [Object.fromEntries(ORDEM.flatMap(x => [['c' + x, s.estado[x] === 'COMPLETA'], ['v' + x, s.estado[x] !== 'AUSENTE']]))]};
     if (sql === m.SQL_PRIVILEGIOS) return {rows: [{criar: privilegioOk, papel_trocado: true, tabelas: new Proxy({}, {get: () => privilegioOk}), funcoes: new Proxy({}, {get: () => privilegioOk}), referencias: new Proxy({}, {get: () => privilegioOk})}]};
     if (sql === m.SQL_SITUACAO) return {rows: [{empresas: 1, kidmais: 1}]};
+    if (sql === m.SQL_ANTECIPACOES) { assert.equal(s.somenteLeitura, true); return {rows: [antecipacoes]}; }
+    if (sql === m.SQL_IMPRESSAO) { assert.equal(s.somenteLeitura, true); return {rows: [{md5: 'f'.repeat(32), objetos: 6000}]}; }
     const x = corpos.get(sql);
     assert.ok(x, 'SQL inesperado: ' + sql.slice(0, 80));
     if (x.tipo === 'migration') { assert.equal(s.somenteLeitura, false, 'migration em transação de leitura'); s.pendente = x.id; return {rows: []}; }
     assert.equal(s.somenteLeitura, true, `${x.tipo} ${x.id} fora de READ ONLY`);
+    if (x.tipo === 'precheck') s.prechecks.push(x.id);
     if (x.tipo === 'postcheck' && falharPostcheck === x.id) throw new Error('POSTCHECK_SIMULADO_FALHOU ' + x.id);
+    if (x.tipo === 'precheck' && falharPrecheck === x.id) throw new Error('PRECHECK_SIMULADO_FALHOU ' + x.id);
     if (x.tipo === 'precheck' && falharPrecheckBool === x.id) return {rows: [{tem_085: true, automacoes_ausentes: false}]};
     return {rows: x.tipo === 'precheck' ? [{ok: true}] : []};
   };
   return s;
 }
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mig-prod-marcadores-'));
-const lancamentoSimulado = (db, falhar = null) => { const chamados = []; const f = async id => { chamados.push(id); if (id === falhar) return {ok: false, erro: 'FALHA_SIMULADA'}; db.estado[id] = 'COMPLETA'; return {ok: true, saida: {id, resultado: 'APLICADA_POSTCHECK_PASS'}}; }; f.chamados = chamados; return f; };
-const aplicar = (db, dir, extra = {}) => m.aplicarNoCliente(db, {sequencia, backup: '/opt/render/project/src/data/lancamento-venda-20261011/backup-x.json', dir, ...extra});
+/**
+ * Processo filho do lançamento simulado como o real (main de migrations-lancamento-production.cjs): grava o marcador
+ * migration-<id>.json com 'wx' ANTES de conectar (EEXIST se já houver) e o deixa ANTES_DA_TRANSACAO numa falha.
+ */
+function lancamentoSimulado(db, falhar = null, dirL = null) {
+  const chamados = [];
+  const f = async id => {
+    chamados.push(id);
+    if (dirL) {
+      const arq = path.join(dirL, `migration-${id}.json`);
+      try { fs.writeFileSync(arq, JSON.stringify({id, situacao: 'INICIADA'}), {flag: 'wx'}); } catch (e) { return {ok: false, erro: e.code}; }
+      fs.writeFileSync(arq, JSON.stringify({etapa: id, situacao: 'ANTES_DA_TRANSACAO', jaAplicada: false}));
+      if (id === falhar) return {ok: false, erro: 'canceling statement due to lock timeout'};
+      db.estado[id] = 'COMPLETA'; fs.writeFileSync(arq, JSON.stringify({etapa: id, situacao: 'COMMIT_CONFIRMADO', jaAplicada: false}));
+      return {ok: true, saida: {id, resultado: 'APLICADA_POSTCHECK_PASS'}};
+    }
+    if (id === falhar) return {ok: false, erro: 'FALHA_SIMULADA'};
+    db.estado[id] = 'COMPLETA'; return {ok: true, saida: {id, resultado: 'APLICADA_POSTCHECK_PASS'}};
+  };
+  f.chamados = chamados; return f;
+}
+const aplicar = (db, dir, extra = {}) => m.aplicarNoCliente(db, {sequencia, backup: '/opt/render/project/src/data/lancamento-venda-20261011/backup-x.json', dir,
+  dirLancamento: extra.dirLancamento ?? path.join(dir, 'nao-existe-lancamento'), ...extra});
 
-test('aplicação completa: lançamento na ordem, oito migrations com marcador, cada uma BEGIN → corpo → READ ONLY → postcheck → COMMIT', async () => {
+test('aplicação completa: lançamento na ordem (marcador lancamento-<id> + postcheck READ ONLY de novo), oito migrations BEGIN → corpo → READ ONLY → postcheck → COMMIT', async () => {
   const db = banco(), dir = temp(), lancamento = lancamentoSimulado(db);
   try {
     const r = await aplicar(db, dir, {lancamento});
     assert.equal(r.resultado, 'PASS', JSON.stringify(r.falha));
     assert.deepEqual(lancamento.chamados, ['074a', '075', '076', '077', '078']);
     assert.deepEqual(r.etapas.map(e => e.resultado), [...Array(5).fill('APLICADA_POSTCHECK_PASS'), 'JA_APLICADA_POSTCHECK_PASS', 'JA_APLICADA_POSTCHECK_PASS', ...Array(8).fill('APLICADA_POSTCHECK_PASS')]);
-    assert.deepEqual(fs.readdirSync(dir).sort(), ['060', '065', '080', '081', '082', '083', '085', '086'].map(id => `migration-${id}.json`).sort());
+    assert.deepEqual(fs.readdirSync(dir).sort(), [...['074a', '075', '076', '077', '078'].map(id => `lancamento-${id}.json`),
+      ...['060', '065', '080', '081', '082', '083', '085', '086'].map(id => `migration-${id}.json`)].sort());
     for (const f of fs.readdirSync(dir)) assert.equal(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).situacao, 'COMMIT_CONFIRMADO', f);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'lancamento-076.json'), 'utf8')).postcheckSomenteLeitura, 'PASS');
     const i = db.chamadas.indexOf(m.corpo(sequencia.find(e => e.id === '085').arquivos[1].sql, 'migration'));
     assert.deepEqual(db.chamadas.slice(i - 3, i), ['BEGIN', "SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '120s'"]);
     assert.equal(db.chamadas[i + 1], 'SET TRANSACTION READ ONLY');
     assert.equal(db.chamadas.at(-1), m.SQL_SOLTAR, 'trava liberada');
+    assert.deepEqual(r.confirmadasNestaExecucao, ['074a', '075', '076', '077', '078', '060', '065', '080', '081', '082', '083', '085', '086']);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('verificações prévias: TODOS os prechecks independentes (074a, 076, 077, 078, 083, 085) em READ ONLY antes da 1ª escrita', async () => {
+  const db = banco(), dir = temp();
+  try {
+    const r = await aplicar(db, dir, {lancamento: lancamentoSimulado(db)});
+    assert.equal(r.resultado, 'PASS');
+    const i = db.chamadas.indexOf('BEGIN');
+    assert.deepEqual(db.prechecks.slice(0, 6), ['074a', '076', '077', '078', '083', '085']);
+    assert.ok(db.chamadas.indexOf(m.SQL_ANTECIPACOES) < i || i < 0);
+    assert.deepEqual(r.verificacoesPrevias.filter(v => v.precheck === 'DEPENDE_DE_ANTERIOR').map(v => v.id), ['075', '086']);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('P2-2: categoria original ausente (BOMBONS), kidmais divergente ou precheck independente falho: CONFERIR RECUSARIA e APLICAR recusa antes de escrever', async () => {
+  for (const [opcoes, erro] of [[{antecipacoes: {kidmais: 1, kidmais_ativa: 1, categorias_originais: 6}}, /ANTECIPACAO_078 categorias originais 6\/7/],
+    [{antecipacoes: {kidmais: 2, kidmais_ativa: 2, categorias_originais: 7}}, /ANTECIPACAO_KIDMAIS kidmais=2/],
+    [{falharPrecheck: '083'}, /PRECHECK_SIMULADO_FALHOU 083/], [{falharPrecheckBool: '085'}, /PRECHECK_RECUSOU 085: automacoes_ausentes/]]) {
+    const c = await m.conferirNoCliente(banco(opcoes), {sequencia, env: {}});
+    assert.equal(c.resultado, 'RECUSARIA'); assert.ok(c.verificacoes.some(v => erro.test(v.falha ?? '')), JSON.stringify(c.verificacoes));
+    const db = banco(opcoes), dir = temp(), lancamento = lancamentoSimulado(db);
+    try {
+      const r = await aplicar(db, dir, {lancamento});
+      assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /VERIFICACAO_PREVIA/); assert.match(r.falha.mensagem, erro);
+      assert.deepEqual(lancamento.chamados, []); assert.ok(!db.chamadas.includes('BEGIN')); assert.equal(r.nenhumaEscrita, true);
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  }
 });
 
 test('falha no postcheck da 081: ROLLBACK, para na 081, marcador FALHA; repetir sem retomada recusa; retomada explícita conclui', async () => {
@@ -206,22 +262,63 @@ test('falha no postcheck da 081: ROLLBACK, para na 081, marcador FALHA; repetir 
     assert.ok(db.chamadas.slice(i).includes('ROLLBACK') && !db.chamadas.slice(i).includes('COMMIT'));
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'migration-081.json'), 'utf8')).situacao, 'FALHA');
     const db2 = banco({estado: db.estado}), r2 = await aplicar(db2, dir, {lancamento: lancamentoSimulado(db2)});
-    assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /TENTATIVA_ANTERIOR_REVISAR migration-081\.json/);
+    assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /MARCADOR_ANTERIOR migration-081\.json/);
     assert.ok(!db2.chamadas.includes('BEGIN'), 'recusa antes de qualquer escrita');
+    const c = await m.conferirNoCliente(banco({estado: db.estado}), {sequencia, env: {}, dir, dirLancamento: path.join(dir, 'x')});
+    assert.equal(c.resultado, 'RECUSARIA', 'conferência acusa o marcador');
     const db3 = banco({estado: db.estado}), r3 = await aplicar(db3, dir, {lancamento: lancamentoSimulado(db3), retomar: '081'});
     assert.equal(r3.resultado, 'PASS', JSON.stringify(r3.falha));
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'migration-081.tentativa-2.json'), 'utf8')).situacao, 'COMMIT_CONFIRMADO');
-    await assert.rejects(async () => { const x = await aplicar(banco({estado: {...db3.estado, '082': 'AUSENTE', '083': 'AUSENTE', '085': 'AUSENTE', '086': 'AUSENTE'}}), dir, {lancamento: async () => ({ok: true}), retomar: '082'}); if (x.resultado !== 'PASS') throw new Error(x.falha.mensagem); }, /JA_CONFIRMADA migration-082\.json/);
+    const r4 = await aplicar(banco({estado: {...db3.estado, '082': 'AUSENTE', '083': 'AUSENTE', '085': 'AUSENTE', '086': 'AUSENTE'}}), dir, {lancamento: async () => ({ok: true}), retomar: '082'});
+    assert.equal(r4.resultado, 'FALHA'); assert.match(r4.falha.mensagem, /JA_CONFIRMADA migration-082\.json|MARCADOR_ANTERIOR/);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
-test('retomada só de migration deste pacote ainda ausente', async () => {
+test('P2-1: falha da 076 no lançamento (lock_timeout): marcador verdadeiro FALHA_SCHEMA_AUSENTE; sem retomada recusa; retomada renomeia o marcador do lançamento e conclui', async () => {
+  const dir = temp(), dirL = path.join(dir, 'lancamento'); fs.mkdirSync(dirL);
+  try {
+    const db = banco();
+    const r = await aplicar(db, dir, {dirLancamento: dirL, lancamento: lancamentoSimulado(db, '076', dirL)});
+    assert.equal(r.resultado, 'FALHA'); assert.equal(r.falha.etapa, '076'); assert.match(r.falha.mensagem, /LANCAMENTO_FALHOU 076 canceling statement due to lock timeout/);
+    assert.deepEqual(r.confirmadasNestaExecucao, ['074a', '075']); assert.equal(r.nenhumaEscrita, false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'lancamento-076.json'), 'utf8')).situacao, 'FALHA_SCHEMA_AUSENTE');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dirL, 'migration-076.json'), 'utf8')).situacao, 'ANTES_DA_TRANSACAO', 'o do filho continua enganoso: por isso o deste pacote');
+    // CONFERIR acusa os marcadores (deste pacote e do lançamento) da migration ausente.
+    const c = await m.conferirNoCliente(banco({estado: db.estado}), {sequencia, env: {}, dir, dirLancamento: dirL});
+    assert.equal(c.resultado, 'RECUSARIA'); assert.ok(c.verificacoes.some(v => /MARCADOR_ANTERIOR lancamento-076\.json,lancamento\/migration-076\.json/.test(v.falha ?? '')));
+    // Sem retomada: recusa antes de escrever e sem chamar o filho (que falharia em EEXIST).
+    const db2 = banco({estado: db.estado}), l2 = lancamentoSimulado(db2, null, dirL), r2 = await aplicar(db2, dir, {dirLancamento: dirL, lancamento: l2});
+    assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /MARCADOR_ANTERIOR/); assert.deepEqual(l2.chamados, []);
+    // Retomada explícita da 076: marcador do lançamento renomeado (registrado antes), filho de novo, sequência até o fim.
+    const db3 = banco({estado: db.estado}), l3 = lancamentoSimulado(db3, null, dirL);
+    const r3 = await aplicar(db3, dir, {dirLancamento: dirL, lancamento: l3, retomar: '076'});
+    assert.equal(r3.resultado, 'PASS', JSON.stringify(r3.falha)); assert.deepEqual(l3.chamados, ['076', '077', '078']);
+    assert.ok(fs.existsSync(path.join(dirL, 'migration-076.tentativa-2.json')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dirL, 'migration-076.json'), 'utf8')).situacao, 'COMMIT_CONFIRMADO');
+    const t2 = JSON.parse(fs.readFileSync(path.join(dir, 'lancamento-076.tentativa-2.json'), 'utf8'));
+    assert.equal(t2.situacao, 'COMMIT_CONFIRMADO'); assert.equal(t2.marcadorDoLancamentoAnterior.situacao, 'ANTES_DA_TRANSACAO');
+    assert.match(t2.marcadorDoLancamentoAnterior.renomeadoPara, /migration-076\.tentativa-2\.json$/);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('P2-1: retomada do lançamento recusada se o marcador dele disser COMMIT_CONFIRMADO ou estiver ilegível', async () => {
+  for (const [conteudo, erro] of [[JSON.stringify({situacao: 'COMMIT_CONFIRMADO'}), /JA_CONFIRMADA/], ['{nao json', /MARCADOR_LANCAMENTO_ILEGIVEL/]]) {
+    const dir = temp(), dirL = path.join(dir, 'lancamento'); fs.mkdirSync(dirL);
+    try {
+      fs.writeFileSync(path.join(dirL, 'migration-074a.json'), conteudo);
+      const db = banco(), l = lancamentoSimulado(db, null, dirL), r = await aplicar(db, dir, {dirLancamento: dirL, lancamento: l, retomar: '074a'});
+      assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, erro); assert.deepEqual(l.chamados, []);
+      assert.ok(fs.existsSync(path.join(dirL, 'migration-074a.json')), 'nada renomeado');
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  }
+});
+
+test('retomada: só de migration ainda ausente; aceita 074a–078 e 060…086, nunca 079/084', async () => {
   const db = banco({estado: Object.fromEntries(ORDEM.map(id => [id, 'COMPLETA']))}), dir = temp();
   try { const r = await aplicar(db, dir, {retomar: '081'}); assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /RETOMADA_RECUSADA 081/); }
   finally { fs.rmSync(dir, {recursive: true, force: true}); }
-  assert.throws(() => m.modo(['--retomar-autorizado', '084', '--backup', 'x']), /USO_RECUSADO/);
-  assert.throws(() => m.modo(['--retomar-autorizado', '076', '--backup', 'x']), /USO_RECUSADO/);
-  assert.equal(m.modo(['--retomar-autorizado', '086', '--backup', 'x']).retomar, '086');
+  for (const id of ['079', '084', '074', '061']) assert.throws(() => m.modo(['--retomar-autorizado', id, '--backup', 'x']), /USO_RECUSADO/, id);
+  for (const id of ['074a', '075', '076', '077', '078', '060', '065', '080', '081', '082', '083', '085', '086']) assert.equal(m.modo(['--retomar-autorizado', id, '--backup', 'x']).retomar, id);
 });
 
 test('falha do aplicador do lançamento (076) para a sequência antes da 077 e de qualquer migration deste pacote', async () => {
@@ -229,18 +326,8 @@ test('falha do aplicador do lançamento (076) para a sequência antes da 077 e d
   try {
     const r = await aplicar(db, dir, {lancamento});
     assert.equal(r.resultado, 'FALHA'); assert.equal(r.falha.etapa, '076'); assert.match(r.falha.mensagem, /LANCAMENTO_FALHOU 076 FALHA_SIMULADA/);
-    assert.deepEqual(lancamento.chamados, ['074a', '075', '076']); assert.deepEqual(fs.readdirSync(dir), []); assert.ok(!db.chamadas.includes('BEGIN'));
-  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
-});
-
-test('precheck booleano falso (085) recusa antes do BEGIN e marca FALHA', async () => {
-  const db = banco({falharPrecheckBool: '085'}), dir = temp();
-  try {
-    const r = await aplicar(db, dir, {lancamento: lancamentoSimulado(db)});
-    assert.equal(r.resultado, 'FALHA'); assert.equal(r.falha.etapa, '085'); assert.match(r.falha.mensagem, /PRECHECK_RECUSOU 085: automacoes_ausentes/);
-    assert.equal(db.estado['085'], 'AUSENTE'); assert.equal(db.estado['083'], 'COMPLETA');
-    const corpo085 = m.corpo(sequencia.find(e => e.id === '085').arquivos[1].sql, 'migration');
-    assert.ok(!db.chamadas.includes(corpo085));
+    assert.deepEqual(lancamento.chamados, ['074a', '075', '076']); assert.ok(!db.chamadas.includes('BEGIN'));
+    assert.deepEqual(fs.readdirSync(dir).filter(x => x.startsWith('migration-')), []);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
@@ -263,6 +350,7 @@ test('tudo já aplicado: só postchecks READ ONLY, nenhum BEGIN de escrita, nenh
     const r = await aplicar(db, dir, {lancamento});
     assert.equal(r.resultado, 'PASS'); assert.ok(r.etapas.every(e => e.resultado === 'JA_APLICADA_POSTCHECK_PASS'));
     assert.ok(!db.chamadas.includes('BEGIN')); assert.deepEqual(lancamento.chamados, []); assert.deepEqual(fs.readdirSync(dir), []);
+    assert.equal(r.nenhumaEscrita, true);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
@@ -276,11 +364,14 @@ test('resposta do COMMIT perdida: marcador ficou e o schema está completo → p
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
-test('conferência: somente leitura, precheck só da primeira ausente, postcheck das presentes, RECUSARIA com flag ligada', async () => {
+test('conferência: somente leitura, postchecks das presentes, prechecks de todas as ausentes independentes, md5 do schema; RECUSARIA com flag ou ordem quebrada', async () => {
   const db = banco();
   const r = await m.conferirNoCliente(db, {sequencia, env: {}});
-  assert.equal(r.resultado, 'CONFERIDO');
-  assert.deepEqual(r.verificacoes, [{id: '074a', precheck: 'PASS'}, {id: '079', postcheck: 'PASS'}, {id: '084', postcheck: 'PASS'}]);
+  assert.equal(r.resultado, 'CONFERIDO', JSON.stringify(r.verificacoes));
+  assert.deepEqual(r.verificacoes.filter(v => v.postcheck).map(v => v.id), ['079', '084']);
+  assert.deepEqual(r.verificacoes.filter(v => v.precheck === 'PASS').map(v => v.id), ['074a', '076', '077', '078', '083', '085']);
+  assert.deepEqual(r.verificacoes.filter(v => v.antecipacao === 'PASS').map(v => v.id), ['077/078', '078']);
+  assert.equal(r.impressaoSchema.md5, 'f'.repeat(32));
   assert.ok(!db.chamadas.includes('BEGIN') && !db.chamadas.includes('COMMIT'));
   assert.ok(!db.chamadas.includes(m.SQL_TRAVA), 'conferência não toma a trava');
   const r2 = await m.conferirNoCliente(banco(), {sequencia, env: {CADASTRO_PUBLICO_ATIVO: 'true'}});
@@ -288,10 +379,17 @@ test('conferência: somente leitura, precheck só da primeira ausente, postcheck
   const r3 = await m.conferirNoCliente(banco({estado: {...PRODUCAO, '080': 'COMPLETA'}}), {sequencia, env: {}});
   assert.equal(r3.resultado, 'RECUSARIA'); assert.match(r3.planoRecusado, /ORDEM_QUEBRADA/);
   const r4 = await m.conferirNoCliente(banco({estado: Object.fromEntries(ORDEM.map(id => [id, 'COMPLETA']))}), {sequencia, env: {}});
-  assert.equal(r4.verificacoes.length, 15); assert.ok(r4.verificacoes.every(v => v.postcheck === 'PASS'));
+  assert.equal(r4.verificacoes.length, 15); assert.ok(r4.verificacoes.every(v => v.postcheck === 'PASS')); assert.equal(r4.resultado, 'CONFERIDO');
 });
 
-test('principal: plano sem conexão; recusas antes de conectar (fora do Render, flag ligada, registro de backup inválido, disco)', async () => {
+test('situação traz as contagens de risco e o SQL de impressão é o mesmo do ensaio', () => {
+  for (const k of ['pacotes_sem_empresa', 'fechamentos_sem_empresa', 'whatsapp_configuradas_sem_empresa', 'onboarding_em_andamento', 'categorias_originais_ausentes'])
+    assert.match(m.SQL_SITUACAO, new RegExp(' AS ' + k));
+  assert.equal(require('./ensaio-migracoes-producao-20261019.cjs').SQL_SCHEMA, m.SQL_SCHEMA);
+  assert.deepEqual(Object.keys(m.CODIGOS_DE_SAIDA), ['0', '1', '2', '3']);
+});
+
+test('principal: plano sem conexão; recusas antes de conectar (fora do Render, flag ligada, registro de backup inválido, disco); falha de conexão = nenhumaEscrita', async () => {
   let construidos = 0; const Client = class { constructor() { construidos++; } };
   const deps = {Client, disco: () => {}, lancamento: {...lanc, conferirBackup: async () => ({criadoEm: 'x', pitrConferidoEm: 'y'})}};
   const p = await m.principal([], {}, deps); assert.equal(p.codigo, 0); assert.equal(p.saida.conecta, false); assert.equal(p.saida.sequencia.length, 15);
@@ -301,6 +399,9 @@ test('principal: plano sem conexão; recusas antes de conectar (fora do Render, 
   await assert.rejects(m.principal(['--aplicar-autorizado', '--backup', '/opt/render/project/src/data/lancamento-venda-20261011/backup-a.json'], ENV, {...deps, disco: () => { throw new Error('DISCO_PERSISTENTE_AUSENTE'); }}), /DISCO_PERSISTENTE_AUSENTE/);
   await assert.rejects(m.principal(['--aplicar-autorizado', '--backup', '/opt/render/project/src/data/lancamento-venda-20261011/backup-a.json'], ENV, {...deps, lancamento: {...lanc, conferirBackup: async () => { throw new Error('BACKUP_ANTIGO'); }}}), /BACKUP_ANTIGO/);
   assert.equal(construidos, 0, 'nenhum cliente criado nas recusas');
+  const SemConexao = class { connect() { return Promise.reject(new Error('ECONNREFUSED')); } end() { return Promise.resolve(); } };
+  const f = await m.principal(['--aplicar-autorizado', '--backup', '/opt/render/project/src/data/lancamento-venda-20261011/backup-a.json'], ENV, {...deps, Client: SemConexao});
+  assert.equal(f.codigo, 2); assert.equal(f.saida.nenhumaEscrita, true);
   for (const argv of [['--aplicar-autorizado'], ['--aplicar-autorizado', '--backup'], ['--conferir', '--aplicar-autorizado'], ['--retomar-autorizado', '081'], ['x']])
     assert.throws(() => m.modo(argv), /USO_RECUSADO/, argv.join(' '));
 });

@@ -34,7 +34,9 @@ const DADOS = 'kidmais_ensaio_producao_dados';
 const FALHAS = 'kidmais_ensaio_producao_falhas';
 const RESULTADO = 'kidmais_ensaio_producao_resultado';
 const REFERENCIA = 'kidmais_ensaio_referencia_staging';
-const PROPRIOS = [BASE, DADOS, FALHAS, RESULTADO, REFERENCIA];
+const TRAVA_DB = 'kidmais_ensaio_producao_trava';
+const CATEGORIA_DB = 'kidmais_ensaio_producao_categoria';
+const PROPRIOS = [BASE, DADOS, FALHAS, RESULTADO, REFERENCIA, TRAVA_DB, CATEGORIA_DB];
 /** Modelos da receita substituídos pelo schema na ORDEM DE PRODUÇÃO (para as suítes). */
 const MODELOS_SUITES = {'084': 'kidmais_v1_modelo_084', '083': 'kidmais_v1_modelo_083', '086': 'kidmais_v1_modelo_086'};
 const SUITES = ['lib/marketing/migration-085-086.postgres.test.ts', 'lib/marketing/aplicador-085-086.postgres.test.ts',
@@ -160,36 +162,8 @@ async function montarReferencia(admin) {
   return arquivos.length;
 }
 
-/** Impressão digital do schema public (mesma consulta de lib/whatsapp/atendimento/migracoes-atendimento-teste.ts, fora=false). */
-const SQL_SCHEMA = `
-    WITH rel AS (
-      SELECT c.oid, c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','S','f')
-    ), fn AS (
-      SELECT p.oid, p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
-    )
-    SELECT x FROM (
-      SELECT 'rel:' || relname || ':' || relkind::text AS x FROM rel
-      UNION ALL SELECT 'col:' || r.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text
-             || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '') || ':' || a.attidentity::text || ':' || a.attgenerated::text
-        FROM rel r JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped
-        LEFT JOIN pg_attrdef d ON d.adrelid = r.oid AND d.adnum = a.attnum
-      UNION ALL SELECT 'con:' || r.relname || '.' || co.conname || ':' || pg_get_constraintdef(co.oid) || ':valid=' || co.convalidated::text || ':def=' || co.condeferrable::text || co.condeferred::text
-        FROM pg_constraint co JOIN rel r ON r.oid = co.conrelid
-      UNION ALL SELECT 'idx:' || r.relname || '.' || i.relname || ':' || pg_get_indexdef(ix.indexrelid)
-        FROM pg_index ix JOIN rel r ON r.oid = ix.indrelid JOIN pg_class i ON i.oid = ix.indexrelid
-      UNION ALL SELECT 'trg:' || r.relname || '.' || t.tgname || ':' || t.tgenabled::text || ':' || pg_get_triggerdef(t.oid)
-        FROM pg_trigger t JOIN rel r ON r.oid = t.tgrelid WHERE NOT t.tgisinternal
-      UNION ALL SELECT 'fn:' || f.proname || '(' || pg_get_function_identity_arguments(f.oid) || '):' || md5(pg_get_functiondef(f.oid)) FROM fn f
-      UNION ALL SELECT 'view:' || r.relname || ':' || md5(pg_get_viewdef(r.oid)) FROM rel r WHERE r.relkind IN ('v','m')
-      UNION ALL SELECT 'pol:' || p.tablename || '.' || p.policyname || ':' || p.cmd || ':' || coalesce(p.qual, '') || ':' || coalesce(p.with_check, '')
-        FROM pg_policies p WHERE p.schemaname = 'public'
-      UNION ALL SELECT 'enum:' || t.typname || ':' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
-        FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace JOIN pg_enum e ON e.enumtypid = t.oid WHERE n.nspname = 'public' GROUP BY t.typname
-      UNION ALL SELECT 'comment:' || r.relname || '.' || coalesce(a.attname, '') || ':' || md5(d.description)
-        FROM pg_description d JOIN rel r ON r.oid = d.objoid AND d.classoid = 'pg_class'::regclass
-        LEFT JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum = d.objsubid AND d.objsubid > 0
-    ) s ORDER BY x`;
+/** Impressão digital do schema public: a mesma consulta do aplicador (SQL_SCHEMA), também usada no CONFERIR de produção. */
+const {SQL_SCHEMA} = require('./migrations-producao-20261019.cjs');
 async function impressao(banco) {
   const c = await conectar(banco);
   try { return (await c.query(SQL_SCHEMA)).rows.map(r => r.x); } finally { await c.end(); }
@@ -226,6 +200,37 @@ async function semear(c) {
 }
 
 // ---------- ensaio ----------
+/**
+ * Processo filho do lançamento em conexão separada, com o MESMO tratamento de marcador do main do aplicador do lançamento
+ * (scripts/migrations-lancamento-production.cjs:71-77): `migration-<id>.json` com 'wx' antes de conectar, registrar = etapa.
+ */
+function viaLancamentoComMarcador(lanc, lancPlano, cliente, banco, dirL) {
+  return async id => {
+    fs.mkdirSync(dirL, {recursive: true});
+    const arq = path.join(dirL, `migration-${id}.json`);
+    try { fs.writeFileSync(arq, JSON.stringify({inicio: new Date().toISOString(), id, situacao: 'INICIADA'}), {flag: 'wx', mode: 0o600}); }
+    catch (e) { return {ok: false, erro: e.code}; }
+    const salvar = r => fs.writeFileSync(arq, JSON.stringify(r), {mode: 0o600});
+    try {
+      const r = await lanc.etapa(cliente, lancPlano, id, {registrar: salvar, validarIdentidade: x => { assert.equal(x.db, banco, 'BANCO_DIVERGENTE'); assert.equal(x.tls, false); }});
+      return {ok: r.resultado === 'APLICADA_POSTCHECK_PASS', saida: r};
+    } catch (e) { return {ok: false, erro: String(e.message).slice(0, 160)}; }
+  };
+}
+/** Exclusão da categoria original BOMBONS como o painel antigo permitia (sem uso): o caso D do revisor. */
+async function excluirBombons(c) {
+  await c.query('BEGIN');
+  const cat = (await c.query("SELECT id FROM buffet_categorias WHERE codigo='BOMBONS'")).rows[0].id;
+  await c.query('UPDATE adicionais SET origem_buffet_item_id = NULL WHERE origem_buffet_item_id IN (SELECT id FROM buffet_itens WHERE categoria_id=$1)', [cat]);
+  await c.query('UPDATE adicionais SET origem_buffet_categoria_id = NULL WHERE origem_buffet_categoria_id = $1', [cat]);
+  await c.query('DELETE FROM pacote_buffet_itens WHERE categoria_id=$1', [cat]);
+  await c.query('DELETE FROM pacote_itens_especificos WHERE item_id IN (SELECT id FROM buffet_itens WHERE categoria_id=$1)', [cat]);
+  await c.query('DELETE FROM pacote_buffet_categorias WHERE categoria_id=$1', [cat]);
+  await c.query('DELETE FROM buffet_itens WHERE categoria_id=$1', [cat]);
+  await c.query('DELETE FROM buffet_categorias WHERE id=$1', [cat]);
+  await c.query('COMMIT');
+}
+
 async function ensaiar() {
   exigirAutorizacao(); exigirCaminhoReal(true);
   const pacote = require('./migrations-producao-20261019.cjs');
@@ -236,26 +241,25 @@ async function ensaiar() {
   const caso = (nome, x = {}) => { const r = {caso: nome, resultado: 'PASS', ...x}; relatorio.casos.push(r); console.log(JSON.stringify(r)); return r; };
   const admin = await conectar('postgres');
   const marcadores = path.join(RELATORIOS, 'marcadores-' + carimbo());
+  const pastas = nome => ({dir: path.join(marcadores, nome, 'pacote'), dirLancamento: path.join(marcadores, nome, 'lancamento-venda-20261011')});
+  const identidadeLocal = banco => id => { assert.equal(id.db, banco, 'BANCO_DIVERGENTE'); assert.equal(Number(id.pg_major), 18); pacote.exigirSearchPath(id); return {banco: id.db, local: true, searchPath: id.search_path}; };
   try {
     const ordem = await montarProducao(admin);
     caso('montagem_producao', {migrations: ordem.length, ultimas: ordem.slice(-4)});
     caso('montagem_referencia_staging', {migrations: await montarReferencia(admin)});
-    const identidadeLocal = banco => id => { assert.equal(id.db, banco, 'BANCO_DIVERGENTE'); assert.equal(Number(id.pg_major), 18); pacote.exigirSearchPath(id); return {banco: id.db, local: true, searchPath: id.search_path}; };
-    const lancLocal = banco => r => { assert.equal(r.db, banco, 'BANCO_DIVERGENTE'); assert.equal(r.tls, false); };
-
-    // Estado inicial reconhecido como o de produção lido em 19/10.
+    // Estado inicial reconhecido como o de produção lido em 19/10 + md5 da impressão (para comparar com o CONFERIR real).
     {
       const c = await conectar(BASE);
       try {
         const est = (await pacote.lerTudo(c)).estado;
         const esperado = Object.fromEntries(Object.keys(pacote.OBJETOS).map(id => [id, ['079', '084'].includes(id) ? 'COMPLETA' : 'AUSENTE']));
         assert.deepEqual(est, esperado);
-        caso('estado_inicial_igual_ao_lido_em_producao', {estado: est});
+        const imp = (await c.query(pacote.SQL_IMPRESSAO)).rows[0];
+        relatorio.impressaoBase = imp;
+        caso('estado_inicial_igual_ao_lido_em_producao', {estado: est, impressaoBase: imp});
       } finally { await c.end(); }
     }
-    await recriar(admin, DADOS, BASE);
-    await recriar(admin, FALHAS, BASE);
-    await recriar(admin, RESULTADO, BASE);
+    for (const b of [DADOS, FALHAS, RESULTADO, TRAVA_DB, CATEGORIA_DB]) await recriar(admin, b, BASE);
 
     // ---- DADOS: conferência, aplicação completa, repetição, invariantes, reparo ----
     const c = await conectar(DADOS), c2 = await conectar(DADOS);
@@ -264,26 +268,26 @@ async function ensaiar() {
       await semearDados(c, semente.kidmais);
       const antes = await retrato(c);
       caso('dados_sinteticos', {resumo: antes.resumo});
-      const conf = await pacote.conferirNoCliente(c, {sequencia, env: {}, identidade: identidadeLocal(DADOS)});
-      assert.equal(conf.resultado, 'CONFERIDO', JSON.stringify(conf).slice(0, 400));
-      caso('conferir_antes', {plano: conf.plano.map(p => `${p.id}:${p.acao}`), verificacoes: conf.verificacoes, situacao: conf.situacao});
-      const viaLancamento = async id => {
-        const r = await lanc.etapa(c2, lancPlano, id, {validarIdentidade: lancLocal(DADOS)});
-        return {ok: r.resultado === 'APLICADA_POSTCHECK_PASS', saida: r};
-      };
-      const ap = await pacote.aplicarNoCliente(c, {sequencia, backup: 'ensaio', identidade: identidadeLocal(DADOS), dir: path.join(marcadores, 'dados'), lancamento: viaLancamento});
+      const p = pastas('dados');
+      const conf = await pacote.conferirNoCliente(c, {sequencia, env: {}, identidade: identidadeLocal(DADOS), ...p});
+      assert.equal(conf.resultado, 'CONFERIDO', JSON.stringify(conf.verificacoes).slice(0, 600));
+      assert.deepEqual(conf.verificacoes.filter(v => v.precheck === 'PASS').map(v => v.id), ['074a', '076', '077', '078', '083', '085']);
+      assert.equal(conf.impressaoSchema.md5, relatorio.impressaoBase.md5, 'mesma impressão da base');
+      caso('conferir_antes', {plano: conf.plano.map(x => `${x.id}:${x.acao}`), verificacoes: conf.verificacoes, situacao: conf.situacao, impressao: conf.impressaoSchema});
+      const via = viaLancamentoComMarcador(lanc, lancPlano, c2, DADOS, p.dirLancamento);
+      const ap = await pacote.aplicarNoCliente(c, {sequencia, backup: 'ensaio', identidade: identidadeLocal(DADOS), ...p, lancamento: via});
       assert.equal(ap.resultado, 'PASS', JSON.stringify(ap).slice(0, 600));
       caso('aplicar_sequencia_completa', {etapas: ap.etapas.map(e => ({id: e.id, acao: e.acao, resultado: e.resultado}))});
-      const rep = await pacote.aplicarNoCliente(c, {sequencia, backup: 'ensaio', identidade: identidadeLocal(DADOS), dir: path.join(marcadores, 'dados'), lancamento: viaLancamento});
+      const rep = await pacote.aplicarNoCliente(c, {sequencia, backup: 'ensaio', identidade: identidadeLocal(DADOS), ...p, lancamento: via});
       assert.equal(rep.resultado, 'PASS'); assert.ok(rep.etapas.every(e => e.resultado === 'JA_APLICADA_POSTCHECK_PASS'));
       caso('repeticao_so_postchecks_somente_leitura', {etapas: rep.etapas.length});
       const depois = await retrato(c);
       verificarInvariantes(antes, depois, semente.kidmais);
       caso('invariantes_de_dados', {resumo: depois.resumo});
-      const conf2 = await pacote.conferirNoCliente(c, {sequencia, env: {}, identidade: identidadeLocal(DADOS)});
+      const conf2 = await pacote.conferirNoCliente(c, {sequencia, env: {}, identidade: identidadeLocal(DADOS), ...p});
       assert.equal(conf2.resultado, 'CONFERIDO');
       assert.ok(conf2.verificacoes.length === sequencia.length && conf2.verificacoes.every(v => v.postcheck === 'PASS'));
-      caso('conferir_depois_todos_postchecks', {verificacoes: conf2.verificacoes.length});
+      caso('conferir_depois_todos_postchecks', {verificacoes: conf2.verificacoes.length, impressao: conf2.impressaoSchema});
       caso('reparo_bloqueios_pos_migrations', await ensaiarReparo(c, semente.kidmais));
     } finally { await c.end(); await c2.end(); }
 
@@ -291,29 +295,28 @@ async function ensaiar() {
     {
       const f = await conectar(FALHAS), f2 = await conectar(FALHAS);
       try {
-        const viaLancamento = async id => ({ok: true, saida: await lanc.etapa(f2, lancPlano, id, {validarIdentidade: lancLocal(FALHAS)})});
+        const p = pastas('falhas');
+        const via = viaLancamentoComMarcador(lanc, lancPlano, f2, FALHAS, p.dirLancamento);
         const quebrada = sequencia.map(e => e.id !== '081' ? e : {...e, arquivos: e.arquivos.map(a => a.tipo === 'postcheck' ? {...a, sql: "DO $$ BEGIN RAISE EXCEPTION 'FALHA_INJETADA_081'; END $$;"} : a)});
-        const dir = path.join(marcadores, 'falhas');
-        const r1 = await pacote.aplicarNoCliente(f, {sequencia: quebrada, backup: 'ensaio', identidade: identidadeLocal(FALHAS), dir, lancamento: viaLancamento});
+        const r1 = await pacote.aplicarNoCliente(f, {sequencia: quebrada, backup: 'ensaio', identidade: identidadeLocal(FALHAS), ...p, lancamento: via});
         assert.equal(r1.resultado, 'FALHA'); assert.equal(r1.falha.etapa, '081'); assert.match(r1.falha.mensagem, /FALHA_INJETADA_081/);
         assert.equal(r1.estadoDepois['080'], 'COMPLETA'); assert.equal(r1.estadoDepois['081'], 'AUSENTE'); assert.equal(r1.estadoDepois['082'], 'AUSENTE');
-        const m081 = JSON.parse(fs.readFileSync(path.join(dir, 'migration-081.json'), 'utf8'));
+        const m081 = JSON.parse(fs.readFileSync(path.join(p.dir, 'migration-081.json'), 'utf8'));
         assert.equal(m081.situacao, 'FALHA');
-        caso('falha_no_postcheck_081_rollback_integral_e_parada', {aplicadasAntes: r1.etapas.filter(e => e.resultado).map(e => e.id), marcador: m081.situacao});
-        const r2 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', identidade: identidadeLocal(FALHAS), dir, lancamento: viaLancamento});
-        assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /TENTATIVA_ANTERIOR_REVISAR/); assert.equal(r2.estadoDepois['081'], 'AUSENTE');
+        caso('falha_no_postcheck_081_rollback_integral_e_parada', {confirmadas: r1.confirmadasNestaExecucao, marcador: m081.situacao});
+        const r2 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', identidade: identidadeLocal(FALHAS), ...p, lancamento: via});
+        assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /MARCADOR_ANTERIOR migration-081\.json/); assert.equal(r2.estadoDepois['081'], 'AUSENTE');
+        assert.equal(r2.nenhumaEscrita, true);
         caso('repeticao_sem_retomada_recusada', {mensagem: r2.falha.mensagem});
-        const r3 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', retomar: '081', identidade: identidadeLocal(FALHAS), dir, lancamento: viaLancamento});
+        const r3 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', retomar: '081', identidade: identidadeLocal(FALHAS), ...p, lancamento: via});
         assert.equal(r3.resultado, 'PASS', JSON.stringify(r3).slice(0, 400));
-        assert.ok(fs.existsSync(path.join(dir, 'migration-081.tentativa-2.json')));
+        assert.ok(fs.existsSync(path.join(p.dir, 'migration-081.tentativa-2.json')));
         caso('retomada_081_explicita_conclui', {etapas: r3.etapas.map(e => `${e.id}:${e.resultado}`)});
-        // Migration parcial (vestígio manual) e ordem quebrada são recusadas antes de escrever.
         await f.query('ALTER TABLE marketing_tarefas RENAME TO marketing_tarefas_x');
-        const r4 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', identidade: identidadeLocal(FALHAS), dir, lancamento: viaLancamento});
+        const r4 = await pacote.aplicarNoCliente(f, {sequencia, backup: 'ensaio', identidade: identidadeLocal(FALHAS), ...p, lancamento: via});
         assert.equal(r4.resultado, 'FALHA'); assert.match(r4.falha.mensagem, /APLICACAO_PARCIAL 086/);
         await f.query('ALTER TABLE marketing_tarefas_x RENAME TO marketing_tarefas');
         caso('parcial_recusada_antes_de_escrever');
-        // Sem privilégio de dono: papel sem posse das tabelas recusa antes de qualquer escrita (SEM_PRIVILEGIO).
         await f.query('DROP ROLE IF EXISTS kidmais_ensaio_sem_posse'); await f.query('CREATE ROLE kidmais_ensaio_sem_posse NOLOGIN');
         const s = await conectar(BASE);
         try {
@@ -327,22 +330,81 @@ async function ensaiar() {
       } finally { await f.end(); await f2.end(); }
     }
 
+    // ---- C do revisor: transação aberta em clientes derruba a 076 (lock_timeout); retomada explícita da 076 conclui ----
+    {
+      const c3 = await conectar(TRAVA_DB), c4 = await conectar(TRAVA_DB), trava = await conectar(TRAVA_DB);
+      try {
+        const p = pastas('trava');
+        const via = viaLancamentoComMarcador(lanc, lancPlano, c4, TRAVA_DB, p.dirLancamento);
+        const k = (await c3.query("SELECT id FROM empresas WHERE codigo='kidmais'")).rows[0].id;
+        await semearDados(c3, k);
+        await trava.query('BEGIN');
+        await trava.query("UPDATE clientes SET nome_completo = nome_completo WHERE cpf = '00000000191'");
+        const t0 = Date.now();
+        const r1 = await pacote.aplicarNoCliente(c3, {sequencia, backup: 'ensaio', identidade: identidadeLocal(TRAVA_DB), ...p, lancamento: via});
+        const segundos = Math.round((Date.now() - t0) / 100) / 10;
+        await trava.query('ROLLBACK');
+        assert.equal(r1.resultado, 'FALHA'); assert.equal(r1.falha.etapa, '076'); assert.match(r1.falha.mensagem, /lock timeout/);
+        assert.deepEqual(r1.confirmadasNestaExecucao, ['074a', '075']); assert.equal(r1.estadoDepois['076'], 'AUSENTE');
+        const meu = JSON.parse(fs.readFileSync(path.join(p.dir, 'lancamento-076.json'), 'utf8'));
+        const doFilho = JSON.parse(fs.readFileSync(path.join(p.dirLancamento, 'migration-076.json'), 'utf8'));
+        assert.equal(meu.situacao, 'FALHA_SCHEMA_AUSENTE'); assert.equal(doFilho.situacao, 'ANTES_DA_TRANSACAO');
+        caso('C_lock_timeout_na_076', {segundos, confirmadas: r1.confirmadasNestaExecucao, marcadorDestePacote: meu.situacao, marcadorDoFilho: doFilho.situacao});
+        const conf = await pacote.conferirNoCliente(c3, {sequencia, env: {}, identidade: identidadeLocal(TRAVA_DB), ...p});
+        assert.equal(conf.resultado, 'RECUSARIA'); assert.ok(conf.verificacoes.some(v => /MARCADOR_ANTERIOR lancamento-076\.json,lancamento\/migration-076\.json/.test(v.falha ?? '')));
+        const r2 = await pacote.aplicarNoCliente(c3, {sequencia, backup: 'ensaio', identidade: identidadeLocal(TRAVA_DB), ...p, lancamento: via});
+        assert.equal(r2.resultado, 'FALHA'); assert.match(r2.falha.mensagem, /MARCADOR_ANTERIOR/); assert.equal(r2.nenhumaEscrita, true);
+        caso('C_conferir_e_aplicar_sem_retomada_recusam', {conferir: conf.resultado, aplicar: r2.falha.mensagem});
+        const r3 = await pacote.aplicarNoCliente(c3, {sequencia, backup: 'ensaio', retomar: '076', identidade: identidadeLocal(TRAVA_DB), ...p, lancamento: via});
+        assert.equal(r3.resultado, 'PASS', JSON.stringify(r3.falha));
+        assert.ok(fs.existsSync(path.join(p.dirLancamento, 'migration-076.tentativa-2.json')));
+        assert.equal(JSON.parse(fs.readFileSync(path.join(p.dirLancamento, 'migration-076.json'), 'utf8')).situacao, 'COMMIT_CONFIRMADO');
+        const t2 = JSON.parse(fs.readFileSync(path.join(p.dir, 'lancamento-076.tentativa-2.json'), 'utf8'));
+        assert.equal(t2.situacao, 'COMMIT_CONFIRMADO');
+        const conf2 = await pacote.conferirNoCliente(c3, {sequencia, env: {}, identidade: identidadeLocal(TRAVA_DB), ...p});
+        assert.equal(conf2.resultado, 'CONFERIDO');
+        caso('C_retomada_076_conclui', {etapas: r3.etapas.map(e => `${e.id}:${e.resultado}`), marcadorRenomeado: 'migration-076.tentativa-2.json',
+          marcadorDestePacote: t2.marcadorDoLancamentoAnterior, conferirDepois: conf2.resultado});
+      } finally { await c3.end(); await c4.end(); await trava.end(); }
+    }
+
+    // ---- D do revisor: categoria original BOMBONS excluída → CONFERIR acusa e APLICAR recusa ANTES de escrever ----
+    {
+      const c5 = await conectar(CATEGORIA_DB), c6 = await conectar(CATEGORIA_DB);
+      try {
+        const p = pastas('categoria');
+        await excluirBombons(c5);
+        const conf = await pacote.conferirNoCliente(c5, {sequencia, env: {}, identidade: identidadeLocal(CATEGORIA_DB), ...p});
+        assert.equal(conf.resultado, 'RECUSARIA');
+        const acusa = conf.verificacoes.find(v => /ANTECIPACAO_078 categorias originais 6\/7/.test(v.falha ?? ''));
+        assert.ok(acusa, JSON.stringify(conf.verificacoes));
+        assert.deepEqual(conf.situacao.categorias_originais_ausentes, ['BOMBONS']);
+        const via = viaLancamentoComMarcador(lanc, lancPlano, c6, CATEGORIA_DB, p.dirLancamento);
+        const r = await pacote.aplicarNoCliente(c5, {sequencia, backup: 'ensaio', identidade: identidadeLocal(CATEGORIA_DB), ...p, lancamento: via});
+        assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /VERIFICACAO_PREVIA 078: ANTECIPACAO_078/); assert.equal(r.nenhumaEscrita, true);
+        assert.equal(r.estadoDepois['074a'], 'AUSENTE');
+        caso('D_bombons_excluida_detectada_antes_de_escrever', {conferir: conf.resultado, acusacao: acusa.falha, aplicar: r.falha.mensagem, estado074a: r.estadoDepois['074a']});
+      } finally { await c5.end(); await c6.end(); }
+    }
+
     // ---- RESULTADO (sem dados): modelos para as suítes e comparação com a referência ----
     {
       const r = await conectar(RESULTADO), r2 = await conectar(RESULTADO);
-      const viaLancamento = async id => ({ok: true, saida: await lanc.etapa(r2, lancPlano, id, {validarIdentidade: lancLocal(RESULTADO)})});
+      const p = pastas('resultado');
+      const via = viaLancamentoComMarcador(lanc, lancPlano, r2, RESULTADO, p.dirLancamento);
       try {
         const ate083 = sequencia.filter(e => !['085', '086'].includes(e.id));
-        const a = await pacote.aplicarNoCliente(r, {sequencia: ate083, backup: 'ensaio', identidade: identidadeLocal(RESULTADO), dir: path.join(marcadores, 'resultado'), lancamento: viaLancamento});
-        assert.equal(a.resultado, 'PASS');
+        const a = await pacote.aplicarNoCliente(r, {sequencia: ate083, backup: 'ensaio', identidade: identidadeLocal(RESULTADO), ...p, lancamento: via});
+        assert.equal(a.resultado, 'PASS', JSON.stringify(a.falha));
       } finally { await r.end(); await r2.end(); }
       await recriar(admin, MODELOS_SUITES['084'], RESULTADO);
       await recriar(admin, MODELOS_SUITES['083'], RESULTADO);
       const r3 = await conectar(RESULTADO);
       try {
-        const b = await pacote.aplicarNoCliente(r3, {sequencia, backup: 'ensaio', identidade: identidadeLocal(RESULTADO), dir: path.join(marcadores, 'resultado'), lancamento: async () => falhar('nada do lançamento deveria faltar')});
+        const b = await pacote.aplicarNoCliente(r3, {sequencia, backup: 'ensaio', identidade: identidadeLocal(RESULTADO), ...p, lancamento: async () => falhar('nada do lançamento deveria faltar')});
         assert.equal(b.resultado, 'PASS');
-        caso('resultado_sem_dados_por_partes', {etapas: b.etapas.map(e => `${e.id}:${e.resultado}`)});
+        relatorio.impressaoResultado = (await r3.query(pacote.SQL_IMPRESSAO)).rows[0];
+        caso('resultado_sem_dados_por_partes', {etapas: b.etapas.map(e => `${e.id}:${e.resultado}`), impressao: relatorio.impressaoResultado});
       } finally { await r3.end(); }
       await recriar(admin, MODELOS_SUITES['086'], RESULTADO);
     }
@@ -350,9 +412,15 @@ async function ensaiar() {
     const dif = diferenca(ip, ir);
     const [op, or] = [await ordemColunas(RESULTADO), await ordemColunas(REFERENCIA)];
     const ordemDiferente = Object.keys(or).filter(t => op[t] !== or[t]).map(t => ({tabela: t, producao: op[t], referencia: or[t]}));
+    {
+      const cr = await conectar(REFERENCIA);
+      try { relatorio.impressaoReferencia = (await cr.query(pacote.SQL_IMPRESSAO)).rows[0]; } finally { await cr.end(); }
+    }
     relatorio.comparacao = {objetosProducao: ip.length, objetosReferencia: ir.length, ...dif, ordemFisicaDeColunasDiferente: ordemDiferente};
+    assert.equal(dif.soNoPrimeiro.length + dif.soNoSegundo.length, 0, 'schema diverge da referência');
+    assert.equal(relatorio.impressaoResultado.md5, relatorio.impressaoReferencia.md5);
     caso('comparacao_schema_vs_referencia_staging', {objetos: ip.length, soNaProducao: dif.soNoPrimeiro.length, soNaReferencia: dif.soNoSegundo.length,
-      tabelasComOrdemDeColunasDiferente: ordemDiferente.map(x => x.tabela)});
+      tabelasComOrdemDeColunasDiferente: ordemDiferente.map(x => x.tabela), md5Resultado: relatorio.impressaoResultado.md5, md5Referencia: relatorio.impressaoReferencia.md5});
     relatorio.resultado = relatorio.casos.every(x => x.resultado === 'PASS') ? 'PASS' : 'FALHA';
   } catch (erro) {
     relatorio.resultado = 'FALHA'; relatorio.erro = String(erro?.stack ?? erro).slice(0, 2000);

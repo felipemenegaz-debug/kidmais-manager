@@ -1,6 +1,6 @@
 # Migrations de produção — pacote de 19/10/2026
 
-**Status: PREPARADO E ENSAIADO LOCALMENTE, NÃO EXECUTADO.** Nada foi aplicado, lido ou conectado em produção ou staging
+**Status: PREPARADO E ENSAIADO LOCALMENTE, NÃO EXECUTADO** (revisado em 19/10: APROVADO COM RESSALVAS; ressalvas P2-1…P2-4 e P3 tratadas neste pacote). Nada foi aplicado, lido ou conectado em produção ou staging
 nesta preparação. Executar qualquer bloco exige autorização própria de Felipe (docs/OPERACAO_AGENTES.md); preparar e ensaiar
 não autoriza aplicar.
 
@@ -42,32 +42,53 @@ aplicador do lançamento sem alterá-lo, um processo por migration ausente. O qu
 
 ## Pacote
 
-- `docs/MIGRATIONS_PRODUCTION_20261019.json` — manifesto (sha256 `db81ff8e…`), amarrado ao manifesto e ao aplicador do lançamento.
-- `scripts/migrations-producao-20261019.cjs` — PLANO (sem conexão), `--conferir` (somente leitura), `--aplicar-autorizado
-  --backup <registro>`, `--retomar-autorizado <id> --backup <registro>`. Trava de alvo (serviço, ambiente, host interno exato,
-  banco, porta, TLS, URL sem query), identidade vista pelo servidor (banco, TLS 1.2+, rede privada, PostgreSQL 18, search_path
-  padrão e nenhum schema "$user"), interruptores de abertura/atendimento/Marketing desligados, backup do P1 conferido
-  (`conferirBackup` do lançamento: < 24 h, PITR < 24 h, dump íntegro), disco persistente montado, privilégio de dono/CREATE/
-  REFERENCES para as migrations ausentes, trava consultiva, marcador exclusivo por migration em
-  `/opt/render/project/src/data/migracoes-producao-20261019`, para na primeira falha. Cada migration deste pacote: precheck
-  externo em READ ONLY; `BEGIN` → corpo → `SET TRANSACTION READ ONLY` → postcheck → `COMMIT` (postcheck que falha desfaz tudo).
-- `scripts/bloco-shell-migracoes-producao-20261019.cjs` — blocos CONFERIR, APLICAR e LIMPEZA para o Web Shell de produção
-  (pasta própria `/opt/render/project/src/.kidmais-migracoes-producao-20261019`, nada do deploy sobrescrito ou removido).
-- `scripts/ensaio-migracoes-producao-20261019.cjs` (+ `.dados.sql`) — ensaio em PostgreSQL 18 descartável local.
+- `docs/MIGRATIONS_PRODUCTION_20261019.json`: manifesto (sha256 `db81ff8e…`), amarrado ao manifesto e ao aplicador do lançamento.
+- `scripts/migrations-producao-20261019.cjs`, com estes modos:
+  - PLANO, sem conexão;
+  - `--conferir`, somente leitura;
+  - `--aplicar-autorizado --backup <registro>`;
+  - `--retomar-autorizado <id> --backup <registro>`, aceito para 074a–078 e 060/065/080–083/085/086, nunca para 079/084.
+
+  Travas, conferências e transação de cada migration:
+  - **Trava de alvo:** serviço, ambiente, host interno exato, banco, porta, TLS e URL sem query.
+  - **Identidade vista pelo servidor:** banco, TLS 1.2+, rede privada, PostgreSQL 18, `search_path` padrão e nenhum schema "$user".
+  - **Antes de conectar:** interruptores de abertura, atendimento e Marketing desligados; backup do P1 conferido (`conferirBackup` do lançamento); disco persistente montado.
+  - **Privilégio:** dono, CREATE e REFERENCES para as migrations ausentes.
+  - **Antes da 1ª escrita (e no CONFERIR):**
+    - marcadores anteriores de migrations ausentes, deste pacote e do lançamento;
+    - prechecks de **todas** as ausentes que só dependem da base atual (074a, 076, 077, 078, 083, 085);
+    - antecipações de dados dos postchecks: `kidmais` única e ATIVA (077/078) e as 7 categorias originais (078).
+  - **Execução:** trava consultiva; marcador exclusivo por migration; para na primeira falha.
+  - **Migrations deste pacote:** precheck externo em READ ONLY, depois `BEGIN` → corpo → `SET TRANSACTION READ ONLY` → postcheck → `COMMIT`.
+  - **074a–078:** processo filho do aplicador do lançamento, sem alteração. O marcador próprio `lancamento-<id>` guarda a situação verdadeira, e o postcheck roda de novo em READ ONLY.
+  - **Retomada de 074a–078:** renomeia o marcador do lançamento para `.tentativa-<n>`, registrando isso antes de renomear.
+  - **CONFERIR também emite:**
+    - o md5 da impressão do schema;
+    - as contagens de risco: pacotes e fechamentos sem empresa, conexões WhatsApp CONFIGURADAS sem empresa, onboarding em andamento e categorias originais ausentes.
+- `scripts/bloco-shell-migracoes-producao-20261019.cjs`: blocos para o Web Shell de produção.
+  - **PARTE-1..N:** cada parte tem no máximo 40 KB e só transporta arquivos, com sha conferido, para `.partes/`.
+  - **CONFERIR, APLICAR, RETOMAR e LIMPEZA:** blocos curtos. Montam a pasta própria só com todas as partes presentes; caso contrário, dizem qual parte colar.
+  - Pasta própria: `/opt/render/project/src/.kidmais-migracoes-producao-20261019`. Nada do deploy é sobrescrito ou removido.
+- `scripts/ensaio-migracoes-producao-20261019.cjs` (+ `.dados.sql`): ensaio em PostgreSQL 18 descartável local.
+- `docs/MIGRATIONS_PRODUCTION_20261019_RECUPERACAO.md`: gate de prontidão do deploy, pausas, janela, códigos de saída,
+  recuperação por cenário e incompatibilidades do código antigo `cf3de338`.
 
 ## Sequência operacional proposta (cada passo com autorização própria)
 
-1. P1 — backup do dia com o comando existente `docs/evidencias/backup-production-comando-codex-20261011.txt` (PITR conferido
-   no painel); anotar o caminho do registro `…/lancamento-venda-20261011/backup-<uuid>.json`.
-2. Bloco CONFERIR → esperado `CODIGO_SAIDA_BLOCO=0` com o plano 074a…086 e os checks 074a/079/084 PASS.
-3. Pausar edição do catálogo do buffet e da agenda. `export KIDMAIS_REGISTRO_BACKUP=<registro>`; bloco APLICAR uma vez.
-   Falha = parar, copiar a saída, conferir por leitura; retomada só com `--retomar-autorizado <id>` e decisão explícita.
-4. Bloco CONFERIR de novo (todos COMPLETA, 15 postchecks PASS) e LIMPEZA.
-5. Deploy do código de staging em produção logo depois (o código atual de produção não grava `empresa_id` no catálogo do
-   buffet: os gatilhos da 078 recusariam criar categoria/item até o deploy).
+Está em `docs/MIGRATIONS_PRODUCTION_20261019_RECUPERACAO.md` (seções 1–3). Em resumo:
+1. gate de prontidão do deploy VERDE;
+2. P1;
+3. pausas (catálogo, pacotes e adicionais; clientes e fechamento público; onboarding WhatsApp; nenhum deploy ou troca de env);
+4. PARTES 1..N e CONFERIR;
+5. APLICAR, uma vez;
+6. CONFERIR pós-aplicação **antes** de disparar o deploy;
+7. deploy LIVE e smoke;
+8. fim das pausas.
+
+A agenda não precisa de pausa.
 
 ## Limites
 
-Ensaio local não substitui backup/PITR reais nem prova o comportamento sob tráfego (lock_timeout 5 s pode abortar uma
-migration com atividade concorrente: falha atômica, retomada explícita). O reparo dos cinco bloqueios globais continua
-pacote separado (decisão de Felipe). Evidência local: pacote `pacote-migrations-producao-20261019` (fora do repositório).
+- O ensaio local não substitui backup e PITR reais e não prova o comportamento sob tráfego. O `lock_timeout` de 5 s pode abortar uma migration com atividade concorrente; a falha é atômica, e a retomada é explícita e foi ensaiada na 076.
+- O reparo dos cinco bloqueios globais continua como pacote separado (decisão de Felipe).
+- Evidência local: pacote `pacote-migrations-producao-20261019`, fora do repositório.
