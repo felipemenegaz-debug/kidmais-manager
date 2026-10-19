@@ -56,9 +56,10 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('cotas'), festa: z.int().min(0).max(100), cliente: z.int().min(0).max(100) }).strict(),
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
   z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
-  // Convite completo: estilo escolhido e foto opcional (nunca salva); modelo, qualidade e referências de estilo são do servidor.
+  // Convite completo: estilo, qualidade validada e foto opcional; modelo e referências são do servidor.
   z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2),
     completo: z.literal(true).optional(), estilo: z.enum(['pedido', 'cartoon3d', 'cartoon2d', 'realista']).optional(),
+    qualidade: z.enum(['high', 'xhigh', 'max']).optional(),
     foto: z.string().max(7_000_000).optional(), autorizacaoFoto: z.literal(true).optional() }).strict(),
 ]);
 // Decisão financeira de uma geração sem resultado: exclusiva do operador da plataforma (painel do desenvolvedor),

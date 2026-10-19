@@ -9,7 +9,6 @@
 .page.page button,.page.page select,.page.page input,.page.page textarea { font:inherit; }
 .page.page button,.page.page select,.page.page input:not([type=checkbox]):not([type=radio]),.page.page textarea { border:1px solid var(--input-border); border-radius:8px; padding:10px 13px; background:var(--input-bg); color:var(--main-text); max-width:100%; min-height:44px; }
 .page.page select,.page.page textarea { width:100%; }
-.page.page select option { background:var(--card-bg); }
 .page.page button { cursor:pointer; }
 .page.page button:disabled { opacity:.5; cursor:not-allowed; }
 .page.page :focus-visible { outline:2px solid var(--emerald-accent); outline-offset:3px; }

@@ -4,7 +4,7 @@ import type { DbExecutor } from '../db/contracts.ts';
 import { WhatsappOnboardingError } from './errors.ts';
 
 const JANELA_REAUTENTICACAO_MS = 5 * 60 * 1000;
-const PAPEL_GESTAO = 'REPRESENTANTE_AUTORIZADO';
+export const PAPEL_GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const idMeta = z.string().regex(/^[0-9]+$/).max(64);
 export const concluirOnboardingSchema = z.object({
   tentativaId: z.uuid(), state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),

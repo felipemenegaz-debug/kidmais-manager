@@ -20,8 +20,6 @@
 .campo input:disabled { opacity: .55; cursor: not-allowed; }
 .campo input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--km-orange) 70%, transparent); }
 .campo .campoErro { color: #f6c9a1; }
-/* Lista nativa do select com a cor do card (não branca), como nas demais telas do Admin. */
-.assistente select option, .assistente select optgroup { background: var(--card-bg); color: var(--km-text); }
 .ajuda { margin: 0 0 12px; color: var(--km-text-2); font-size: 13px; line-height: 1.5; }
 .subtitulo { margin: 4px 0 10px; color: var(--km-lilac); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .subtitulo span { margin-left: 6px; color: var(--km-text-2); font-weight: 600; letter-spacing: 0; text-transform: none; }

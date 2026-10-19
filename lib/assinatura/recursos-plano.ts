@@ -11,16 +11,22 @@ import type { PlanoComercialId } from './planos-comerciais.ts';
  *
  *   FINANCEIRO_COMPLETO → contas a pagar, fluxo de caixa e relatórios. Pix e contas a receber são de todos os planos.
  *   ORCAMENTO_ONLINE    → cotação e fechamento públicos pelo endereço da empresa (/b/<código>).
+ *   MARKETING           → campanhas, site público por unidade, domínio, painel e automações (goal local 14/10/2026).
+ *                         Planos provisórios: os mesmos do orçamento online (escolha comercial pendente; esta linha é a
+ *                         única mudança no mapa de recursos). Hipóteses de preço (R$ 99/149/249) NÃO estão aprovadas;
+ *                         preços, catálogo e cobrança não mudam. Origem manual no CRM fica fora (básico).
  */
 export const RECURSOS_POR_PLANO = {
     FINANCEIRO_COMPLETO: ['profissional', 'premium'],
     ORCAMENTO_ONLINE: ['profissional', 'premium'],
+    MARKETING: ['profissional', 'premium'],
 } as const satisfies Record<string, readonly PlanoComercialId[]>;
 export type RecursoPlano = keyof typeof RECURSOS_POR_PLANO;
 
 const RECUSA: Record<RecursoPlano, string> = {
     FINANCEIRO_COMPLETO: 'Contas a pagar, fluxo de caixa e relatórios não fazem parte do plano contratado.',
     ORCAMENTO_ONLINE: 'O orçamento online não faz parte do plano contratado.',
+    MARKETING: 'Marketing (campanhas, site e automações) não faz parte do plano contratado.',
 };
 
 export function planoIncluiRecurso(plano: PlanoComercialId, recurso: RecursoPlano) {

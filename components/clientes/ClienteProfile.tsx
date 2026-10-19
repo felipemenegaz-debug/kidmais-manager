@@ -13,6 +13,7 @@ import {
 } from "@/lib/clientes/utils";
 import ClienteLixeira from "./ClienteLixeira";
 import Contratacoes from "@/components/festas/Contratacoes";
+import OrigemPainel from "@/components/admin/marketing/OrigemPainel";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
 
@@ -249,6 +250,10 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
             </article>
 
             <ContratosImportadosDoCliente clienteId={cliente.id} />
+
+            <article className={`${styles.profileCard} ${styles.fullWidth}`}>
+              <OrigemPainel alvoTipo="CLIENTE" alvoId={cliente.id} />
+            </article>
           </section>
         )}
 
@@ -297,7 +302,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
               <Link className={styles.primaryButton} href={`/admin/clientes/${clienteId}/fechamento`}>+ Iniciar fechamento</Link>
             </div>
             <h3>Em contratação</h3>
-            <Contratacoes key={cliente.id} clienteId={cliente.id}/>
+            <Contratacoes key={cliente.id} clienteId={cliente.id} mostrarOrigem/>
             <div className={styles.integrationNotice}>
               <strong>Festas vinculadas</strong>
               <Link href={`/admin/festas?clienteId=${encodeURIComponent(cliente.id)}`}>Ver festas reais deste cliente</Link>

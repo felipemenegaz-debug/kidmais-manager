@@ -229,7 +229,7 @@
 /* Recebimento por Pix (seção do Perfil). Seletor escuro: sem isto o Windows abre a lista com fundo branco. */
 .campo select { width:100%; min-width:0; color-scheme:dark; background:var(--input-bg); color:var(--main-text); border:1px solid var(--input-border); border-radius:var(--admin-input-radius); padding:12px 16px; font:400 14px/21px var(--admin-font); }
 .campo select:focus { outline:none; border-color:var(--primary-violet); background:var(--input-focus-bg); }
-.campo select option { background:var(--km-card, #111827); color:var(--main-text); }
+.campo select option { background:var(--km-card-2); color:var(--km-text); } /* mesmas cores da regra única do painel (tokens.module.css); o teste do Pix exige o seletor escuro aqui */
 .pixResumo { margin:0 0 24px; color:var(--main-text); font-size:14px; line-height:21px; }
 .pixResumo strong { color:var(--lilac-accent); }
 .pixAcoes { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }

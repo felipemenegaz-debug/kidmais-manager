@@ -2,6 +2,8 @@ import type { exigirConfiguracaoWhatsappPrivada } from './configuracao.ts';
 import { WhatsappOnboardingError } from './errors.ts';
 
 type Config = ReturnType<typeof exigirConfiguracaoWhatsappPrivada>;
+/** Leituras só precisam da versão da Graph (a demonstração de ativos de teste não usa segredo do app). */
+type ConfigLeitura = Pick<Config, 'graphApiVersion'>;
 type Fetch = typeof fetch;
 type GraphList<T> = { data?: T[]; paging?: { next?: unknown }; error?: unknown };
 
@@ -10,7 +12,7 @@ async function respostaJson(response: Response) {
   if (!response.ok || !body || body.error) throw new WhatsappOnboardingError('META_API_RECUSOU', 'A Meta recusou a validação da configuração.', 502);
   return body;
 }
-async function graphGet(path: string, token: string, config: Config, fetchImpl: Fetch) {
+async function graphGet(path: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
   return respostaJson(await fetchImpl(`https://graph.facebook.com/${config.graphApiVersion}${path}`, {
     method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store',
   }));
@@ -30,7 +32,7 @@ const RELACAO_NAO_CONFIRMADA = () => new WhatsappOnboardingError('META_RELACAO_N
  * by a business"), lida com o token do cliente. Recusa da Meta (4xx), resposta sem lista ou lista paginada sem a WABA:
  * relação NÃO confirmada (fail-closed). Falha do provedor (5xx/rede): mesma recusa genérica das demais etapas.
  */
-async function wabaPertenceAoNegocio(businessId: string, wabaId: string, token: string, config: Config, fetchImpl: Fetch) {
+export async function wabaPertenceAoNegocio(businessId: string, wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
   const response = await fetchImpl(`https://graph.facebook.com/${config.graphApiVersion}/${businessId}/owned_whatsapp_business_accounts?fields=id&limit=100`, {
     method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store',
   });
@@ -42,6 +44,11 @@ async function wabaPertenceAoNegocio(businessId: string, wabaId: string, token: 
   if (ids.map(String).includes(wabaId)) return true;
   if (body.paging?.next) throw RELACAO_NAO_CONFIRMADA();
   return false;
+}
+
+/** Números da WABA com os campos que a conexão confere (inclusive `is_on_biz_app`). Só leitura. */
+export async function lerNumerosDaWaba(wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
+  return await graphGet(`/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,account_mode,is_on_biz_app&limit=100`, token, config, fetchImpl) as GraphList<Record<string, unknown>>;
 }
 
 const MAX_NEGOCIOS_AUTORIZADOS = 10;
@@ -154,7 +161,7 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   } else {
     businessId = await negocioDonoDaWaba(negociosAutorizados, input.wabaId, accessToken, config, fetchImpl);
   }
-  const phones = await graphGet(`/${input.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,account_mode,is_on_biz_app&limit=100`, accessToken, config, fetchImpl) as GraphList<Record<string, unknown>>;
+  const phones = await lerNumerosDaWaba(input.wabaId, accessToken, config, fetchImpl);
   const phone = numeroDaConexao(phones, input.phoneNumberId);
   const phoneNumberId = String(phone.id ?? '');
   if (!/^[0-9]{1,64}$/.test(phoneNumberId)) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
