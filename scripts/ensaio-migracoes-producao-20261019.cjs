@@ -429,7 +429,7 @@ async function suites() {
           env: ambienteDaSuite(ambienteLimpo(), estado, PORTA, 'kidmais_pacotes_v1_descartavel'), windowsHide: true});
         filho.stdout.pipe(saida, {end: false}); filho.stderr.pipe(saida, {end: false});
         const codigo = await new Promise(resolve => filho.on('close', resolve));
-        saida.end();
+        await new Promise(fim => saida.end(fim)); // o log precisa estar gravado antes da contagem
         const texto = fs.readFileSync(log, 'utf8');
         const pass = Number((/^(?:#|ℹ) pass (\d+)/m.exec(texto) || [])[1]), fail = Number((/^(?:#|ℹ) fail (\d+)/m.exec(texto) || [])[1]);
         const r = {suite: rel, modelo, codigo, pass, fail, segundos: Math.round((Date.now() - inicio) / 1000), log: path.basename(log)};
