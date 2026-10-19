@@ -1,4 +1,5 @@
 import { localizarEspaco, type Area, type Posicao } from './fundo-posicoes';
+import { cx } from './estilos';
 
 const formas = {
  balloon:'M50 4 C7 4 4 65 48 82 L43 89 L57 89 L52 82 C96 65 93 4 50 4 Z',
@@ -66,19 +67,24 @@ function criarShader(canvas: HTMLCanvasElement) {
     } catch { liberar(); return null; }
 }
 
-export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: boolean) => void) {
+export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: boolean) => void, pausaInicial?: boolean) {
     const raiz = camada.parentElement!;
     const canvas = camada.querySelector<HTMLCanvasElement>('[data-elementos]')!;
     const coracoes = camada.querySelector<HTMLCanvasElement>('[data-coracoes]')!;
-    const gradiente = camada.querySelector<HTMLCanvasElement>('[data-gradiente]')!;
     const contexto = canvas.getContext('2d');
     const agua = coracoes.getContext('2d');
     if (!contexto || !agua) { informarPausa(true); return null; }
+    // Canvas GPU pertence ao renderer, não ao React: pode ser recriado após liberar o contexto.
+    const gradiente = document.createElement('canvas');
+    gradiente.dataset.gradiente = 'true';
+    camada.querySelector('[data-gradiente-container]')!.appendChild(gradiente);
     const ctx = contexto, wet = agua;
     const reduzir = matchMedia('(prefers-reduced-motion: reduce)');
-    let pausado = reduzir.matches, visivel = true, encerrado = false;
+    let pausado = reduzir.matches || (pausaInicial ?? false), visivel = true, encerrado = false;
     let quadro = 0, ultimo = 0, tempo = 0, largura = 0, altura = 0, atualizar = true;
     let shader = criarShader(gradiente);
+    camada.dataset.ativo = 'true';
+    gradiente.style.visibility = 'visible';
     gradiente.dataset.renderer = shader ? 'webgl' : 'fallback';
     if (!shader) gradiente.style.visibility = 'hidden';
     const perderContexto = () => { shader?.liberar(); shader = null; gradiente.style.visibility = 'hidden'; gradiente.dataset.renderer = 'fallback'; };
@@ -94,19 +100,23 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     function distribuir() {
         const base = raiz.getBoundingClientRect();
         const areas: Area[] = [];
-        const adicionar = (r: DOMRect) => areas.push({ left: r.left - base.left, right: r.right - base.left, top: r.top - base.top, bottom: r.bottom - base.top });
-        raiz.querySelectorAll('[data-fundo-proteger], button').forEach(el => adicionar(el.getBoundingClientRect()));
-        raiz.querySelectorAll('[data-fundo-texto]').forEach(el => {
-            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const adicionar = (r: DOMRect) => { if (r.width && r.height) areas.push({ left: r.left - base.left, right: r.right - base.left, top: r.top - base.top, bottom: r.bottom - base.top }); };
+        const caixas = ['panel', 'preview', 'founder', 'receipt', 'trial-line', 'flow', 'final-copy'].map(nome => `.${CSS.escape(cx(nome))}`).join(',');
+        raiz.querySelectorAll(`[data-fundo-proteger],button,a,input,select,textarea,article,details,[role="img"],[role="tabpanel"],${caixas}`).forEach(el => adicionar(el.getBoundingClientRect()));
+        {
+            const walker = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
             while (walker.nextNode()) {
                 if (!walker.currentNode.textContent?.trim()) continue;
                 const range = document.createRange(); range.selectNodeContents(walker.currentNode);
                 Array.from(range.getClientRects()).forEach(adicionar);
             }
-        });
+        }
         lugares = [];
         const mobile = largura < 700;
-        itens.slice(0, mobile ? 3 : 6).forEach(([nome, x, y, tamanho], indice) => {
+        const abertura = raiz.querySelectorAll(':scope > section').length > 1;
+        const limite = abertura ? (mobile ? 3 : 6) : (mobile ? 2 : 3);
+        const inicio = abertura ? 0 : Array.from(raiz.parentElement!.children).indexOf(raiz) % itens.length;
+        Array.from({ length: limite }, (_, i) => itens[(inicio + i) % itens.length]).forEach(([nome, x, y, tamanho], indice) => {
             const s = tamanho * (mobile ? .64 : 1);
             const lugar = localizarEspaco({ x: largura * x, y: altura * y, raio: s * .58 + 11 }, largura, altura, areas, lugares);
             if (lugar) lugares.push({ ...lugar, nome, tamanho: s, indice });
@@ -195,6 +205,13 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     function preferencia() { pausado = reduzir.matches; gotas = []; sincronizar(); }
     function visibilidade() { if (document.hidden) gotas = []; sincronizar(); }
     const resize = new ResizeObserver(dimensionar); resize.observe(raiz);
+    // Abas, ciclo mensal/anual e FAQ podem mudar sem alterar a altura da seção.
+    const mutacoes = new MutationObserver(registros => {
+        if (registros.some(r => !camada.contains(r.target))) {
+            atualizar = true; desenhar(performance.now());
+        }
+    });
+    mutacoes.observe(raiz, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'open', 'data-ciclo'] });
     const intersecao = new IntersectionObserver(([e]) => { visivel = e.isIntersecting; sincronizar(); }); intersecao.observe(raiz);
     raiz.addEventListener('pointerdown', clicar, { passive: true });
     reduzir.addEventListener('change', preferencia); document.addEventListener('visibilitychange', visibilidade);
@@ -204,10 +221,14 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     return {
         alternar() { pausado = !pausado; gotas = []; sincronizar(); },
         destruir() {
-            encerrado = true; cancelAnimationFrame(quadro); resize.disconnect(); intersecao.disconnect();
+            encerrado = true; cancelAnimationFrame(quadro); resize.disconnect(); intersecao.disconnect(); mutacoes.disconnect();
             raiz.removeEventListener('pointerdown', clicar); reduzir.removeEventListener('change', preferencia);
             document.removeEventListener('visibilitychange', visibilidade); window.removeEventListener('resize', dimensionar);
             gradiente.removeEventListener('webglcontextlost', perderContexto); shader?.liberar(); gotas = [];
+            gradiente.getContext('webgl')?.getExtension('WEBGL_lose_context')?.loseContext();
+            gradiente.remove();
+            for (const c of [canvas, coracoes]) { c.width = 1; c.height = 1; }
+            camada.dataset.ativo = 'false';
         },
     };
 }
