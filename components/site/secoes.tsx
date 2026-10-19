@@ -5,10 +5,9 @@ import type { ConfiguracaoSite } from '@/lib/site/configuracao';
 import { dias } from '@/lib/assinatura/texto';
 
 export function Hero({ aberto, config }: { aberto: boolean; config: ConfiguracaoSite }) { return (<section className={cx('hero')} aria-labelledby="t-hero">
-    <div className={cx('blob b1')} aria-hidden="true"></div><div className={cx('blob b2')} aria-hidden="true"></div><div className={cx('blob b3')} aria-hidden="true"></div><div className={cx('caustics')} aria-hidden="true"></div>
     <div className={cx('wrap')}>
       <div className={cx('hero-grid')}>
-        <div className={cx('hero-copy')}>
+        <div className={cx('hero-copy')} data-fundo-proteger>
           <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
           <h1 id="t-hero">Seu buffet vende<br />até de madrugada.<br /><em>Sem planilha.</em></h1>
           <p className={cx('lead')}><Recurso ids={["orcamento"]}>O cliente consulta a data e monta o orçamento com pacote, horário e adicionais</Recurso>; <Recurso ids={["assinatura_whatsapp"]}>o contrato é assinado pelo celular</Recurso>. Você recebe por Pix ou <Recurso ids={["cartao"]}>cartão</Recurso>, direto na conta da sua empresa.</p>
@@ -18,7 +17,7 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           </div>
           <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão de crédito</span><span>Implantação guiada</span></div>
         </div>
-        <div className={cx('halo')}><div className={cx('app')} role="img" aria-label="Tela de exemplo do Kidmais Manager com as próximas festas">
+        <div className={cx('halo')} data-fundo-proteger><div className={cx('app')} role="img" aria-label="Tela de exemplo do Kidmais Manager com as próximas festas">
           <div className={cx('app-bar')}><i></i><i></i><i></i><span>manager.kidmaisfestas.com/admin/festas</span></div>
           <div className={cx('app-body')}>
             <div className={cx('app-head')}><strong>Próximas festas</strong><small>OUTUBRO</small></div>
@@ -34,18 +33,18 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           </div>
         </div></div>
       </div>
-      <div className={cx('ribbon')}><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O Kidmais não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">Entenda →</a></div>
+      <div className={cx('ribbon')} data-fundo-proteger><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O Kidmais não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">Entenda →</a></div>
     </div>
   </section>); }
 
 export function AntesDepois() { return (<section className={cx('block')} aria-labelledby="t-dor">
     <div className={cx('wrap')}>
-      <div className={cx('head')}><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
       <div className={cx('pain')}>
-        <article><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
-        <article><span className={cx('from')}>Contrato impresso e assinatura na loja</span><h3><Recurso ids={["assinatura_whatsapp"]}>Contrato assinado pelo celular</Recurso></h3><p><Recurso ids={["assinatura_whatsapp"]}>O cliente recebe o link, confere os dados e assina. Você acompanha quem já viu e quem já assinou.</Recurso></p></article>
-        <article><span className={cx('from')}>Orçamento por mensagem, um por um</span><h3><Recurso ids={["orcamento"]}>Orçamento online</Recurso></h3><p><Recurso ids={["orcamento"]}>O cliente escolhe data, pacote, horário e adicionais e vê o valor na hora, a qualquer hora do dia.</Recurso></p></article>
-        <article><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3><Recurso ids={["cartao"]}>Parcelas no Pix e no cartão</Recurso></h3><p><Recurso ids={["cartao"]}>Cada parcela sai com Pix copia e cola ou pagamento no cartão. Você sabe o que entrou, o que vence e o que atrasou.</Recurso></p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Contrato impresso e assinatura na loja</span><h3><Recurso ids={["assinatura_whatsapp"]}>Contrato assinado pelo celular</Recurso></h3><p><Recurso ids={["assinatura_whatsapp"]}>O cliente recebe o link, confere os dados e assina. Você acompanha quem já viu e quem já assinou.</Recurso></p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Orçamento por mensagem, um por um</span><h3><Recurso ids={["orcamento"]}>Orçamento online</Recurso></h3><p><Recurso ids={["orcamento"]}>O cliente escolhe data, pacote, horário e adicionais e vê o valor na hora, a qualquer hora do dia.</Recurso></p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3><Recurso ids={["cartao"]}>Parcelas no Pix e no cartão</Recurso></h3><p><Recurso ids={["cartao"]}>Cada parcela sai com Pix copia e cola ou pagamento no cartão. Você sabe o que entrou, o que vence e o que atrasou.</Recurso></p></article>
       </div>
     </div>
   </section>); }

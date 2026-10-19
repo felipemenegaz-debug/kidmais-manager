@@ -457,3 +457,14 @@
 .site .wa-float{background-color:#071226;}
 .site p a{text-decoration:underline;text-underline-offset:3px;}
 .site [data-ciclo="mensal"] [data-valor-ciclo="anual"],.site [data-ciclo="anual"] [data-valor-ciclo="mensal"]{display:none;}
+
+/* Fundo aprovado: as duas primeiras seções compartilham uma única camada. */
+.site .aberturaAnimada{position:relative;isolation:isolate;overflow:hidden;background:#080b16;padding-bottom:42px}
+.site .aberturaAnimada .hero{background:transparent;isolation:auto;overflow:visible}
+.site .aberturaAnimada .halo::before{display:none}
+.site .aberturaAnimada .halo,.site .aberturaAnimada .app{transform:none}
+.site .aberturaAnimada .hero .app{background:linear-gradient(145deg,#122344f5,#0d1429f5)}
+.site .fundoFesta{position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 75% 20%,#29204366,transparent 60%),radial-gradient(ellipse at 90% 80%,#153c3c44,transparent 60%)}
+.site .fundoFesta canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.site .fundoGradiente{opacity:.9}
+.site .fundoPausa{position:absolute;right:24px;bottom:12px;background:#080b1699;border:1px solid #ffffff26;border-radius:24px;padding:7px 13px;color:#adb8d0;font-size:11px;cursor:pointer}
