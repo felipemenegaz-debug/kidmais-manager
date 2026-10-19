@@ -9,7 +9,9 @@ import whatsapp from './WhatsappConfiguracao.module.css';
 type MetaInicio = { appId: string; graphApiVersion: string; configurationId: string; eventName: string; launchOptions: Record<string, unknown>; messageOrigins: string[] };
 type Inicio = { tentativaId: string; state: string; expiraEm: string; meta: MetaInicio };
 type DadosSessao = { wabaId: string; businessId?: string; phoneNumberId?: string };
-type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string }; tentativa: null | { status: string; expira_em: string } };
+type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string }; tentativa: null | { status: string; expira_em: string }; demoAtivosTeste?: boolean };
+type DemoAtivos = { portfolio: { id: string; possuiWabaTeste: boolean }; waba: { id: string }; numeros: { id: string; display_phone_number: string | null; verified_name: string | null; is_on_biz_app: boolean | null }[]; numeroTestePresente: boolean; requisitoKidmaisIsOnBizApp: 'atendido' | 'nao_atendido' | 'nao_informado'; aviso: string };
+const rotulosRequisito: Record<DemoAtivos['requisitoKidmaisIsOnBizApp'], string> = { atendido: 'atendido', nao_atendido: 'não atendido', nao_informado: 'não informado pela Meta' };
 type FbResponse = { authResponse?: { code?: string }; status?: string };
 type FacebookSdk = { init(input: { appId: string; version: string; cookie: boolean; xfbml: boolean }): void; login(callback: (response: FbResponse) => void, options: Record<string, unknown>): void };
 
@@ -42,6 +44,8 @@ export default function WhatsappConfiguracao() {
   const listenerMeta = useRef<((event: MessageEvent) => void) | null>(null);
   // Desconectar (083): motivo + senha reconfirmada; o servidor exige a Gestão da empresa.
   const [motivoDesconexao, setMotivoDesconexao] = useState(''), [senhaDesconexao, setSenhaDesconexao] = useState('');
+  // Verificação de ativos de teste (análise do app Meta): só leitura, visível apenas quando o servidor libera.
+  const [demo, setDemo] = useState<DemoAtivos | null>(null), [verificandoDemo, setVerificandoDemo] = useState(false);
   const carregar = useCallback(async () => { const r = await adminFetch('/api/admin/configuracoes/whatsapp'), j = await r.json(); if (!j.ok) throw new Error(j.erro || FALHA_CARGA); setData(j.data); }, []);
   useEffect(() => {
     let ativo = true;
@@ -107,6 +111,15 @@ export default function WhatsappConfiguracao() {
     finally { setOcupado(false); }
   }
 
+  async function verificarAtivosTeste() {
+    setErro(''); setAviso(''); setVerificandoDemo(true);
+    try {
+      const r = await adminFetch('/api/admin/configuracoes/whatsapp/demo-ativos', { method: 'POST' });
+      const j = await r.json(); if (!j.ok) throw new Error(j.erro); setDemo(j.data);
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível verificar os ativos de teste.'); }
+    finally { setVerificandoDemo(false); }
+  }
+
   function abrirMeta() {
     const tentativa = inicio.current;
     setErro(''); setAviso('');
@@ -149,6 +162,8 @@ export default function WhatsappConfiguracao() {
     {!data ? (falhaCarga ? null : <p>Carregando…</p>) : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.empresa && <p>Empresa: {data.empresa}</p>}{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número conferidos. O envio e o recebimento de mensagens pelo Kidmais serão ativados numa próxima etapa.</p></> : <p>Esta empresa ainda não tem um WhatsApp conectado.</p>}</section>
       {!data.metaConfigurada && <p className={whatsapp.pending}>A conexão com a Meta ainda não está disponível neste ambiente. Fale com o suporte da Kidmais.</p>}
       {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Você vai entrar na Meta com a conta que administra o WhatsApp Business da empresa e escolher o número.</p>{data.ambiente === 'STAGING' && <p className={whatsapp.pending}>Ambiente de testes: use somente um número de teste.</p>}<div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={prepararConexao}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
-      {data.conexao && <section className={styles.card}><h2>Desconectar</h2><p>O Kidmais deixa de usar este número. O WhatsApp Business App continua funcionando normalmente.</p><div className={whatsapp.actions}><label>Motivo<input value={motivoDesconexao} maxLength={500} onChange={(e) => setMotivoDesconexao(e.target.value)} /></label><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaDesconexao} onChange={(e) => setSenhaDesconexao(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senhaDesconexao || motivoDesconexao.trim().length < 3} onClick={desconectar}>Desconectar</AdminPrimaryButton></div></section>}</>}
+      {data.conexao && <section className={styles.card}><h2>Desconectar</h2><p>O Kidmais deixa de usar este número. O WhatsApp Business App continua funcionando normalmente.</p><div className={whatsapp.actions}><label>Motivo<input value={motivoDesconexao} maxLength={500} onChange={(e) => setMotivoDesconexao(e.target.value)} /></label><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaDesconexao} onChange={(e) => setSenhaDesconexao(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senhaDesconexao || motivoDesconexao.trim().length < 3} onClick={desconectar}>Desconectar</AdminPrimaryButton></div></section>}
+      {data.demoAtivosTeste && <section className={styles.card}><h2>Verificação de ativos de teste da Meta</h2><p className={whatsapp.pending}>Ambiente de teste: esta verificação não cria conexão.</p><p>Confere, com os ativos de teste do Kidmais, se a conta do WhatsApp Business pertence ao portfólio empresarial e lê os números dessa conta.</p><div className={whatsapp.actions}><AdminPrimaryButton carregando={verificandoDemo} onClick={verificarAtivosTeste}>Verificar ativos de teste</AdminPrimaryButton></div>
+        {demo && <div className={whatsapp.status}><p>Portfólio {demo.portfolio.id}: {demo.portfolio.possuiWabaTeste ? 'a conta do WhatsApp Business ' + demo.waba.id + ' pertence a este portfólio.' : 'a conta do WhatsApp Business ' + demo.waba.id + ' não pertence a este portfólio.'}</p>{demo.numeros.map((n) => <p key={n.id}>{n.verified_name ?? 'Sem nome verificado'} · {n.display_phone_number ?? n.id} · is_on_biz_app: {n.is_on_biz_app === null ? 'não informado' : String(n.is_on_biz_app)}</p>)}<p>Requisito do Kidmais para coexistência (is_on_biz_app=true): {rotulosRequisito[demo.requisitoKidmaisIsOnBizApp]}.</p><p className={whatsapp.technical}>{demo.aviso}</p></div>}</section>}</>}
   </main>;
 }
