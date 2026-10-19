@@ -46,10 +46,10 @@ export default function MarketingAutomacoes() {
   return <main className={styles.pagina}>
     <CabecalhoMarketing titulo="Automações" descricao="Regras prontas de acompanhamento: quando algo acontece, depois do prazo, o sistema cria uma tarefa para a equipe ou envia uma mensagem a quem autorizou." />
     {dados && <div className={au.ambiente} role="note">
-      <strong>Ambiente local — mensagens simuladas.</strong>
+      <strong>Mensagens simuladas neste servidor.</strong>
       <span>Nenhuma mensagem real sai deste servidor: o transporte é <span className={styles.seloSimulado}>{dados.ambiente.transporte}</span> e tudo vai para a “Caixa de saída simulada” abaixo.</span>
       <span>{dados.ambiente.processamentoLigado
-        ? 'Ativar uma regra não liga um processamento contínuo aqui: nada roda sozinho neste ambiente. “Processar agora” executa UM ciclo (planeja o que venceu e processa o que está dentro do horário). Em um ambiente real, isso depende de um processador configurado.'
+        ? 'Ativar uma regra não liga um processamento contínuo aqui: nada roda sozinho neste ambiente. “Processar agora” executa UM ciclo (planeja o que venceu e processa o que está dentro do horário). Rodar sozinho depende de um processador configurado, que este servidor não tem.'
         : 'Processamento desligado neste servidor (MARKETING_AUTOMACOES_ENABLED): regras podem ser configuradas e simuladas, mas nada é executado.'}</span>
       {pode && <div className={styles.acoes}>
         {dados.ambiente.processamentoLigado && <AdminPrimaryButton type="button" carregando={ocupado} onClick={() => void acao({ acao: 'processar' }, (r) => `Ciclo concluído: ${String((r.planejamento as { criadas?: number })?.criadas ?? 0)} execução(ões) agendada(s), ${String(r.processadas ?? 0)} processada(s). Veja o histórico abaixo.`)}>Processar agora (um ciclo)</AdminPrimaryButton>}
