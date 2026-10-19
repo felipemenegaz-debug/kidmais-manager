@@ -6,6 +6,7 @@ import { registrarAuditoria } from '../clientes/repositories/auditoria.repositor
 import { provarTenant, revalidarTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { configuracaoWhatsappPublica, configuracaoWhatsappServidorPronta, exigirConfiguracaoWhatsappPrivada, type AmbienteWhatsapp } from './configuracao.ts';
 import { cifrarCredencialWhatsapp } from './credencial.ts';
+import { demoAtivosTesteVisivel } from './demo-ativos-teste.ts';
 import { WhatsappOnboardingError } from './errors.ts';
 import { trocarCodigoEValidarAtivos } from './meta-client.ts';
 import { concluirOnboardingSchema, desconectarSchema, exigirEsquemaPorEmpresa, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, hashState, stateCorresponde } from './onboarding-core.ts';
@@ -48,9 +49,10 @@ export async function consultarConfiguracaoWhatsapp(sessao: SessaoAdmin, deps: D
     exigirGestaoDaEmpresa(tenant.papelAtual, 'consultar');
     const empresa = (await tx.query<{ nome: string }>('SELECT nome FROM empresas WHERE id=$1::uuid', [tenant.empresaComprovada])).rows[0]?.nome ?? null;
     await exigirEsquemaPorEmpresa(tx);
+    const demoAtivosTeste = demoAtivosTesteVisivel(tenant, sessao.usuario_id);
     if (!ambiente) {
       await revalidarTenant(tx, tenant);
-      return { estado: 'ACAO_NECESSARIA', metaConfigurada: false, ambiente: null, empresa, conexao: null, tentativa: null };
+      return { estado: 'ACAO_NECESSARIA', metaConfigurada: false, ambiente: null, empresa, conexao: null, tentativa: null, demoAtivosTeste };
     }
     const conexao = (await tx.query<{ id: string; ambiente: string; business_id: string; waba_id: string; phone_number_id: string; numero_exibicao: string; nome_verificado: string; status: string; meta_validada_em: string }>(
       `SELECT id,ambiente,business_id,waba_id,phone_number_id,numero_exibicao,nome_verificado,status,meta_validada_em::text
@@ -70,6 +72,7 @@ export async function consultarConfiguracaoWhatsapp(sessao: SessaoAdmin, deps: D
       estado, metaConfigurada: servidorPronto, ambiente, empresa,
       conexao: conexao && { id: conexao.id, ambiente: conexao.ambiente, businessId: conexao.business_id, wabaId: conexao.waba_id, phoneNumberId: conexao.phone_number_id, numeroExibicao: conexao.numero_exibicao, nomeVerificado: conexao.nome_verificado, status: conexao.status, metaValidadaEm: conexao.meta_validada_em },
       tentativa,
+      demoAtivosTeste,
     };
   });
 }
