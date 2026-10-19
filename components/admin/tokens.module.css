@@ -35,6 +35,18 @@
   background: var(--main-bg);
   color: var(--main-text);
 }
+/*
+ * Listas suspensas nativas do painel (16/10/2026). No Chromium/Windows a lista ABERTA é pintada com a cor das opções;
+ * com o campo translúcido (rgba) ela ficava branca com texto quase branco. Uma regra só para todo o painel (.tema):
+ * superfície opaca do tema, texto claro, opção marcada em violeta, indisponível esmaecida mas legível. Teclado, leitor
+ * de tela, zoom e toque continuam os do controle nativo. Sites públicos claros não usam .tema.
+ */
+.tema select { color-scheme: dark; }
+.tema select option, .tema select optgroup { background-color: var(--km-card-2); color: var(--km-text); }
+.tema select optgroup { color: var(--lilac-accent); font-weight: 700; }
+.tema select option:checked { background-color: #4c2f9e; color: #fff; }
+.tema select option:disabled { color: #8792ab; }
+.tema select:disabled { opacity: .62; cursor: not-allowed; }
 @media(max-width:800px) {
   .tema { --admin-space: 16px; --admin-card-radius: 24px; --admin-header-height: 64px; }
 }

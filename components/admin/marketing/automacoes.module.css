@@ -1,0 +1,24 @@
+/* Automações (UX de 15/10/2026): passos "quando → prazo → fazer", segue o Admin V1 (escuro, violeta + teal; laranja só alerta). */
+.ambiente { display: grid; gap: 8px; padding: 14px 16px; margin: 0 0 16px; border-radius: var(--km-radius); border: 1px solid color-mix(in srgb, var(--km-teal) 45%, transparent);
+  background: color-mix(in srgb, var(--km-teal) 9%, transparent); }
+.ambiente strong { font-size: 16px; }
+.resumo { margin: 0 0 14px; padding: 12px 14px; border-radius: 10px; background: var(--km-violet-soft); color: var(--km-text); line-height: 1.55; }
+.passos { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.passo { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; }
+.passo h3 { margin: 4px 0 8px !important; font-size: 15px; }
+.passo p { margin: 0 0 6px; }
+.numero { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--km-violet-soft); color: var(--km-lilac); }
+.opcoes { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.opcao { display: grid; gap: 4px; padding: 12px; border-radius: 10px; border: 1px solid var(--km-border); cursor: pointer; }
+.opcao:has(input:checked) { border-color: var(--km-lilac); background: var(--km-violet-soft); }
+.opcao:has(input:disabled) { cursor: default; }
+.opcao input { position: absolute; opacity: 0; }
+.opcao:has(input:focus-visible) { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+.opcao span { font-size: 13px; color: var(--km-text-2); }
+.legenda, .avancado { margin-top: 8px; }
+.legenda summary, .avancado summary { cursor: pointer; font-weight: 600; color: var(--km-lilac); min-height: 32px; display: list-item; }
+.legenda ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; color: var(--km-text-2); }
+.avancado > div { margin-top: 10px; }
+.previaMensagem { margin: 10px 0; padding: 12px 14px; border-radius: 12px 12px 12px 2px; background: #1f3b2f; color: #e7f6ee; max-width: 520px; }
+.previaMensagem p { margin: 6px 0 0; white-space: pre-line; }
+.rotuloFicticio { display: inline-block; font-size: 12px; font-weight: 700; color: #b9e4cf; }

@@ -24,6 +24,8 @@ test('cards renderizam identificação, pagamento e links reais de revisão/cont
         'next/link': { default: ({ children, ...props }: React.ComponentProps<'a'>) => React.createElement('a', props, children), __esModule: true },
         '@/lib/http/admin-fetch': {}, './festa.module.css': {},
         '@/lib/contratos/documento/formatters': { formatarMoeda: (v: number) => `R$ ${v}`, formatarFormaPagamento: () => 'PIX à vista' },
+        // Origem da negociação (Marketing): só aparece com mostrarOrigem (perfil do cliente); aqui fica desligada.
+        '@/components/admin/marketing/OrigemPainel': { default: () => React.createElement('div', { 'data-origem': 'sim' }), __esModule: true },
     });
     const base = { id: 'f-sintetico', clienteId: 'cl-sintetico', cliente: 'Cliente sintético', clienteStatus: 'ATIVO', data: '2026-09-19', inicio: '11:00', fim: '15:00', pacote: 'Pacote sintético', convidados: 40, criadoEm: '2026-09-16T10:00:00Z', status: 'AGUARDANDO_CONTRATO', formaPagamento: 'PIX_AVISTA', contratoId: null, contratoStatus: null, versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false };
     const itens = [classificarContratacao({ ...base, clienteStatus: 'INATIVO' })!, classificarContratacao({ ...base, id: 'f2', contratoId: 'c-sintetico', edicaoEstado: 'AGUARDANDO_CLIENTE', valorContratual: '5000' })!];

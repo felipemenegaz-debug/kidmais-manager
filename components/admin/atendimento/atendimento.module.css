@@ -57,8 +57,7 @@
 .bloqueio{margin:16px 0;padding:16px 20px;border-radius:12px;border:1px solid var(--km-border);border-left:4px solid #FF7A3D;background:var(--km-card-2)}.bloqueio h2{font-size:18px;margin:0 0 6px}.bloqueio p{margin:0}
 /* Anexos (foto, vídeo, PDF): anexo da resposta e mídia no histórico. Teal = informação; laranja só alerta. */
 .anexo{margin:8px 0;padding:8px 12px;border-radius:8px;border-left:3px solid var(--km-teal);background:var(--km-card-2);font-size:13px}div.anexo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.anexo p{margin:0}.anexo a{color:inherit;text-decoration:underline}
-/* Lista aberta dos selects (opções nativas): o fundo translúcido do campo deixava a lista branca com texto claro; fundo opaco do tema e esquema escuro. */
-.pagina,.gaveta,.painel{color-scheme:dark}.pagina select option,.pagina select optgroup,.gaveta select option,.painel select option{background:var(--km-card-2);color:var(--km-text)}.pagina select option:disabled,.gaveta select option:disabled,.painel select option:disabled{color:var(--km-text-2)}
+/* Lista aberta dos selects: regra única do painel em components/admin/tokens.module.css (.tema select option). */
 /* Rodada 40 — cadastro da biblioteca: o que adicionar em cartões (rádio nativo: setas do teclado), área de arquivo
    evidente (arrastar ou clicar, formatos e limites visíveis), arquivo escolhido com prévia, nome, tamanho e ações, e
    opções avançadas recolhidas. Teal = arquivo/informação; violeta = escolha; laranja só alerta. */
