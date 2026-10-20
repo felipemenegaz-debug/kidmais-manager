@@ -113,3 +113,228 @@ test('P1: empresa com leitura sem confirmação (404) deixa o ciclo incompleto (
     assert.deepEqual(r.empresas,{SEM_CONFIRMACAO:1,SEM_MUDANCA:1});
     assert.equal(r.incompleto,true);assert.equal(r.divergente,true);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// D-C4 (aprovada em 20/10/2026): alarme por idade na conferência de PRODUÇÃO. Sem banco e sem rede.
+// ---------------------------------------------------------------------------------------------------------------------
+const D = require('./assinatura-reconciliar.cjs');
+const HORA = 3600000, DIA = 24 * HORA;
+// Execução real com atraso de 2 min 13 s; a referência do dia é 09:00:00 UTC.
+const AGORA = Date.parse('2026-11-20T09:02:13.000Z'), REF = Date.parse('2026-11-20T09:00:00.000Z');
+/** Recebido `d` dias completos antes da referência (+3 h: no meio da janela daquele dia). */
+const noDia = (d) => REF - d * DIA - 3 * HORA;
+const UUIDS = Array.from({length: 40}, (_, i) => `0000000${i}`.slice(-8) + '-aaaa-4bbb-8ccc-0123456789ab');
+
+/** Ciclo de conferência de produção com dublês: eventos = [{dia|recebidoMs, semLinha, item, situacao, motivo, erro}]. */
+async function conferencia(eventos, empresas = [], agoraMs = AGORA) {
+    const ids = eventos.map((_, i) => UUIDS[i]);
+    const sinc = {
+        eventosPendentes: async () => ids,
+        empresasComProvedor: async () => empresas.map((_, i) => UUIDS[30 + i]),
+        processarEvento: async (_c, id) => {
+            const e = eventos[ids.indexOf(id)];
+            if (e.erro) throw Object.assign(new Error('falha com ' + id), {name: e.erro});
+            return {situacao: e.situacao ?? 'FALHOU', empresaId: UUIDS[39], motivo: e.motivo};
+        },
+        sincronizarEmpresa: async (_c, id) => empresas[UUIDS.indexOf(id) - 30],
+    };
+    const lidos = [];
+    const idadesDosEventos = async (_c, lista) => {
+        lidos.push(...lista);
+        const mapa = new Map();
+        eventos.forEach((e, i) => {
+            if (e.semLinha) return;
+            const recebidoMs = 'recebidoMs' in e ? e.recebidoMs : noDia(e.dia);
+            mapa.set(ids[i], {item: e.item ?? 'EVENTO_ASAAS', recebidoMs});
+        });
+        return {agoraMs, eventos: mapa};
+    };
+    const r = await D.executarCiclo({client: {query: async () => {}}, provedor: {}, aplicar: false, banco: 'kidmais_production', sinc, idadesDosEventos});
+    r.kidmais = {violada: false};
+    assert.deepEqual(lidos, ids, 'idades lidas para exatamente os eventos listados');
+    return r;
+}
+
+test('D-C4: referência do dia = 09:00 UTC; atraso de até 23 h e antecipação de até 1 h caem no mesmo dia', () => {
+    assert.equal(D.HORA_CRON_UTC, 9);
+    for (const t of ['2026-11-20T09:00:00.000Z', '2026-11-20T09:02:13.000Z', '2026-11-20T11:00:00.000Z', '2026-11-20T08:00:00.000Z', '2026-11-21T07:59:59.999Z'])
+        assert.equal(new Date(D.referenciaDoDia(Date.parse(t))).toISOString(), '2026-11-20T09:00:00.000Z', t);
+    assert.equal(new Date(D.referenciaDoDia(Date.parse('2026-11-20T07:59:59.999Z'))).toISOString(), '2026-11-19T09:00:00.000Z');
+    assert.equal(new Date(D.referenciaDoDia(Date.parse('2026-11-21T08:00:00.000Z'))).toISOString(), '2026-11-21T09:00:00.000Z');
+});
+
+test('D-C4: dias de aviso = 0 (novo), 1, 3, 7, 14, 21, 28…; fora da janela 2, 4–6, 8–13, 15…', () => {
+    const avisos = Array.from({length: 61}, (_, d) => d).filter(D.diaDeAviso);
+    assert.deepEqual(avisos, [0, 1, 3, 7, 14, 21, 28, 35, 42, 49, 56]);
+    // Bordas exatas da janela de 24 h (medida até a referência, não até o instante real da execução).
+    assert.equal(D.diaDoItem(REF - 1, REF), 0);
+    assert.equal(D.diaDoItem(REF - DIA + 1, REF), 0);
+    assert.equal(D.diaDoItem(REF - DIA, REF), 1);
+    assert.equal(D.diaDoItem(REF - 2 * DIA, REF), 2);
+    assert.equal(D.diaDoItem(REF + 60000, REF), 0, 'recebido depois das 09:00 e antes da consulta = novo');
+    for (const ausente of [null, undefined, NaN, '2026-11-20', Infinity]) assert.equal(D.diaDoItem(ausente, REF), null, String(ausente));
+    assert.equal(D.diaDoItem(REF, null), null);
+});
+
+test('D-C4: execuções diárias com atrasos diferentes avisam cada marco exatamente uma vez (sem duplicar nem perder dia)', () => {
+    // Atrasos reais da execução em relação às 09:00 UTC: 0, segundos, minutos, horas e uma antecipação de 50 min.
+    const atrasos = [0, 13000, 2 * 60000, 2 * HORA, 5 * HORA, -50 * 60000, 22 * HORA, 30000];
+    const base = Date.parse('2026-11-01T09:00:00.000Z');
+    // Recebimentos em vários horários (fora do intervalo entre 09:00 e a consulta daquele dia, tratado logo abaixo).
+    for (const recebido of [base - 1, base - 5 * HORA, base - 23 * HORA, base - 12 * HORA - 7]) {
+        const dias = [];
+        for (let k = 0; k < 70; k++) {
+            const execucao = base + k * DIA + atrasos[k % atrasos.length];
+            if (execucao <= recebido) continue;
+            dias.push(D.diaDoItem(recebido, D.referenciaDoDia(execucao)));
+        }
+        assert.deepEqual(dias, dias.map((_, i) => i), `dia avança 1 por execução, sem repetir nem pular (recebido ${new Date(recebido).toISOString()})`);
+        assert.deepEqual(dias.filter(D.diaDeAviso), [0, 1, 3, 7, 14, 21, 28, 35, 42, 49, 56, 63]);
+    }
+    // Limitação documentada: recebido entre 09:00 e a consulta do dia é visto hoje E amanhã como novo (aviso a mais, nunca a menos).
+    const execucao = base + 2 * 60000, recebido = base + 60000;
+    assert.equal(D.diaDoItem(recebido, D.referenciaDoDia(execucao)), 0);
+    assert.equal(D.diaDoItem(recebido, D.referenciaDoDia(execucao + DIA)), 0);
+    assert.equal(D.diaDoItem(recebido, D.referenciaDoDia(execucao + 2 * DIA)), 1);
+});
+
+test('D-C4: item novo e dias 1/3/7/14/21 alarmam (saída 2); dias 2/4/8/15 não alarmam e saem em pendentesConhecidos', async () => {
+    for (const d of [0, 1, 3, 7, 14, 21]) {
+        const r = await conferencia([{dia: d}]);
+        assert.equal(D.codigoDeSaida(r, true), 2, `dia ${d}`);
+        assert.deepEqual(r.alarme.itens, [{item: 'EVENTO_ASAAS', resultado: 'FALHOU', motivo: null, idadeDias: d, aviso: d === 0 ? 'NOVO' : `DIA_${d}`}]);
+        assert.deepEqual(r.pendentesConhecidos, []);
+    }
+    const proximo = {2: 3, 4: 7, 8: 14, 15: 21};
+    for (const d of [2, 4, 8, 15]) {
+        const r = await conferencia([{dia: d, item: 'PENDENCIA_CRIACAO', motivo: 'CRIACAO_SEM_RESPOSTA'}]);
+        assert.equal(r.divergente, true, 'a divergência continua no relatório');
+        assert.equal(r.incompleto, true, 'FALHOU continua marcado como incompleto');
+        assert.equal(D.codigoDeSaida(r, true), 0, `dia ${d}: sem alarme`);
+        assert.deepEqual(r.alarme.itens, []);
+        assert.deepEqual(r.pendentesConhecidos, [{item: 'PENDENCIA_CRIACAO', resultado: 'FALHOU', motivo: 'CRIACAO_SEM_RESPOSTA', idadeDias: d, proximoAvisoDia: proximo[d]}]);
+    }
+    assert.equal(Date.parse((await conferencia([])).alarme.referencia), REF);
+});
+
+test('D-C4: idade ausente (sem linha, recebido_em nulo/inválido ou relógio do banco ausente) alarma — falha fechada', async () => {
+    for (const e of [{semLinha: true}, {recebidoMs: null}, {recebidoMs: NaN}, {recebidoMs: undefined}]) {
+        const r = await conferencia([{dia: 8}, e]);
+        assert.equal(D.codigoDeSaida(r, true), 2, JSON.stringify(e));
+        assert.deepEqual(r.alarme.itens.map((i) => i.aviso), ['SEM_IDADE']);
+        assert.equal(r.pendentesConhecidos.length, 1);
+    }
+    const semRelogio = await conferencia([{dia: 8}, {dia: 15}], [], null);
+    assert.deepEqual(semRelogio.alarme.itens.map((i) => i.aviso), ['SEM_IDADE', 'SEM_IDADE']);
+    assert.equal(semRelogio.alarme.referencia, null);
+    assert.equal(D.codigoDeSaida(semRelogio, true), 2);
+});
+
+test('D-C4: mistura — antigos fora da janela + 1 em janela = 2; empresa divergente e erro desta execução alarmam sempre', async () => {
+    const r = await conferencia([
+        {dia: 2, item: 'MARCADOR_REMOCAO', motivo: 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO'},
+        {dia: 9, situacao: 'PROCESSADO'},
+        {dia: 16, item: 'PENDENCIA_CONTRATACAO', motivo: 'ADIADA: MARCADOR_NAO_GRAVADO'},
+        {dia: 3, item: 'PENDENCIA_VINCULO', motivo: 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA'},
+        {dia: 40, motivo: 'PROVEDOR_INDISPONIVEL: obterAssinatura (503)'},
+        {dia: 40, erro: 'TypeError'},
+    ], [
+        {resultado: 'SINCRONIZADA', mudou: false},
+        {resultado: 'SINCRONIZADA', mudou: true, antes: 'ATIVA', depois: 'EM_ATRASO'},
+        {resultado: 'RECUSADA', motivo: 'REFERENCIA_DIVERGENTE'},
+    ]);
+    assert.deepEqual(r.alarme.itens.map((i) => [i.item, i.resultado, i.aviso]), [
+        ['PENDENCIA_VINCULO', 'FALHOU', 'DIA_3'],
+        ['EVENTO_ASAAS', 'FALHOU', 'ERRO_NESTA_EXECUCAO'],
+        ['EVENTO_ASAAS', 'ERRO_TypeError', 'ERRO_NESTA_EXECUCAO'],
+        ['EMPRESA', 'MUDOU_ATIVA_PARA_EM_ATRASO', 'EMPRESA_SEM_IDADE'],
+        ['EMPRESA', 'RECUSADA', 'EMPRESA_SEM_IDADE'],
+    ]);
+    assert.deepEqual(r.pendentesConhecidos.map((i) => [i.item, i.idadeDias, i.motivo, i.proximoAvisoDia]), [
+        ['MARCADOR_REMOCAO', 2, 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO', 3],
+        ['EVENTO_ASAAS', 9, null, 14],
+        ['PENDENCIA_CONTRATACAO', 16, 'ADIADA: MARCADOR_NAO_GRAVADO', 21],
+    ]);
+    assert.equal(D.codigoDeSaida(r, true), 2);
+    // Só os antigos fora da janela: 0, com tudo listado.
+    const antigos = await conferencia([{dia: 2}, {dia: 9}, {dia: 16}], [{resultado: 'SINCRONIZADA', mudou: false}]);
+    assert.equal(D.codigoDeSaida(antigos, true), 0);
+    assert.equal(antigos.pendentesConhecidos.length, 3);
+    // Contagem que não fecha com a classificação (relatório adulterado ou incompleto): falha fechada.
+    assert.equal(D.codigoDeSaida({...antigos, eventos: {FALHOU: 4}}, true), 2);
+    assert.equal(D.codigoDeSaida({...antigos, pendentesConhecidos: antigos.pendentesConhecidos.slice(1)}, true), 2);
+    assert.equal(D.codigoDeSaida({...antigos, pendentesConhecidos: undefined}, true), 2, 'sem a lista, vale a regra anterior');
+});
+
+test('D-C4: violação da gratuidade da Kidmais continua saída 2 mesmo sem nenhum item em alarme', async () => {
+    const r = await conferencia([{dia: 9}]);
+    assert.equal(D.codigoDeSaida(r, true), 0);
+    assert.equal(D.codigoDeSaida({...r, kidmais: {violada: true}}, true), 2);
+    const vazio = await conferencia([]);
+    assert.equal(D.codigoDeSaida(vazio, true), 0);
+    assert.equal(D.codigoDeSaida({...vazio, kidmais: {violada: true}}, true), 2);
+});
+
+test('D-C4: staging inalterado — sem idades não há classificação e a saída segue incompleto/violada', async () => {
+    const sinc = {eventosPendentes: async () => ['a', 'b'], empresasComProvedor: async () => ['e'],
+        processarEvento: async (_c, id) => ({situacao: id === 'a' ? 'FALHOU' : 'PROCESSADO'}),
+        sincronizarEmpresa: async () => ({resultado: 'SINCRONIZADA', mudou: true, antes: 'TESTE', depois: 'ATIVA'})};
+    for (const aplicar of [true, false]) {
+        const r = await D.executarCiclo({client: {query: async () => {}}, provedor: {}, aplicar, banco: 'kidmais_staging_1z91', sinc});
+        assert.deepEqual(Object.keys(r).sort(), ['banco', 'divergente', 'empresas', 'eventos', 'incompleto', 'modo'], 'mesmas chaves de antes');
+        r.kidmais = {violada: false};
+        assert.equal(D.codigoDeSaida(r, false), 2, 'FALHOU = incompleto = 2, como antes');
+        assert.equal(D.codigoDeSaida({...r, incompleto: false}, false), 0, 'divergência sem falha: 0 em staging, como antes');
+        assert.equal(D.codigoDeSaida({...r, kidmais: {violada: true}, incompleto: false}, false), 2);
+    }
+    // Mesmo com a classificação presente, staging (producao=false) ignora a regra D-C4.
+    const comRegra = await conferencia([{dia: 9}]);
+    assert.equal(D.codigoDeSaida(comRegra, false), 2, 'staging: incompleto continua 2');
+    // O CLI só passa as idades para o alvo de produção (o cron de staging nunca é alvo de produção).
+    const fonte = require('node:fs').readFileSync(__dirname + '/assinatura-reconciliar.cjs', 'utf8');
+    assert.match(fonte, /const idadesDosEventos = alvo\.producao \? lerIdadesDosEventos : undefined;/);
+});
+
+test('D-C4: alarme e pendentesConhecidos sem dados sensíveis (só categoria, resultado, código do motivo e idade)', async () => {
+    const r = await conferencia([
+        {dia: 2, motivo: `REVISAO_HUMANA: ${UUIDS[39]} felipe@example.test sub_abc123`},
+        {dia: 9, motivo: 'ERRO_GENERICO: Cliente Fulano de Tal'},
+        {dia: 15, motivo: 'texto livre com id ' + UUIDS[5]},
+        {dia: 1, motivo: 'LISTA_INCOMPLETA: listar cobranças (mais registros que o limite conferido; revisão humana)'},
+    ], [{resultado: 'SEM_CONFIRMACAO', motivo: 'ASSINATURA_NAO_ENCONTRADA'}]);
+    const texto = JSON.stringify({alarme: r.alarme, pendentesConhecidos: r.pendentesConhecidos});
+    for (const proibido of [...UUIDS, '@', 'sub_', 'Fulano', 'texto livre', 'cobranças', 'kidmais:'])
+        assert.ok(!texto.includes(proibido), proibido);
+    assert.deepEqual(r.pendentesConhecidos.map((i) => i.motivo), ['REVISAO_HUMANA', 'ERRO_GENERICO', null]);
+    assert.deepEqual(r.alarme.itens.map((i) => i.motivo), ['LISTA_INCOMPLETA', 'ASSINATURA_NAO_ENCONTRADA']);
+    const permitidas = new Set(['item', 'resultado', 'motivo', 'idadeDias', 'proximoAvisoDia', 'aviso']);
+    for (const i of [...r.alarme.itens, ...r.pendentesConhecidos]) for (const k of Object.keys(i)) assert.ok(permitidas.has(k), k);
+});
+
+test('D-C4: leitura das idades — relógio do banco, só os ids listados, categorias iguais às constantes do código', async () => {
+    const consultas = [];
+    const client = {query: async (sql, params) => {
+        consultas.push([sql, params]);
+        if (/clock_timestamp/.test(sql)) return {rows: [{agora_ms: AGORA}]};
+        return {rows: [{id: UUIDS[0], recebido_ms: noDia(3), item: 'PENDENCIA_CRIACAO'}, {id: UUIDS[1], recebido_ms: null, item: 'EVENTO_ASAAS'}]};
+    }};
+    const lido = await D.lerIdadesDosEventos(client, [UUIDS[0], UUIDS[1]]);
+    assert.equal(lido.agoraMs, AGORA);
+    assert.deepEqual(lido.eventos.get(UUIDS[0]), {item: 'PENDENCIA_CRIACAO', recebidoMs: noDia(3)});
+    assert.deepEqual(lido.eventos.get(UUIDS[1]), {item: 'EVENTO_ASAAS', recebidoMs: null});
+    assert.equal(consultas.length, 2);
+    assert.deepEqual(consultas[1][1], [[UUIDS[0], UUIDS[1]]]);
+    assert.match(consultas[1][0], /FROM cobranca_eventos WHERE id = ANY\(\$1::uuid\[\]\)/);
+    assert.doesNotMatch(D.SQL_IDADES_EVENTOS, /\b(INSERT|UPDATE|DELETE)\b/i, 'somente leitura');
+    const vazio = [];
+    await D.lerIdadesDosEventos({query: async (sql) => { vazio.push(sql); return {rows: [{agora_ms: AGORA}]}; }}, []);
+    assert.equal(vazio.length, 1, 'sem eventos, só o relógio');
+    // As categorias usam os mesmos literais de lib/assinatura/reconciliacao-contratacao.ts.
+    const ts = require('node:fs').readFileSync(require('node:path').join(__dirname, '../lib/assinatura/reconciliacao-contratacao.ts'), 'utf8');
+    for (const [nome, sufixo] of [['TIPO_PENDENCIA', ''], ['PREFIXO_PENDENCIA', '%'], ['PREFIXO_CRIACAO', '%'], ['PREFIXO_ID_CONFIRMADO', '%'], ['PREFIXO_REMOCAO_SEM_CONFIRMACAO', '%']]) {
+        const valor = new RegExp(`export const ${nome} = '([^']+)';`).exec(ts)[1];
+        assert.ok(D.SQL_IDADES_EVENTOS.includes(`'${valor}${sufixo}'`), nome);
+    }
+    assert.ok(D.SQL_IDADES_EVENTOS.includes("'kidmais:contratacao:%'"));
+    assert.match(ts, /\$\{PREFIXO_PENDENCIA\}contratacao:/, 'prefixo das pendências de contratação');
+});
