@@ -62,7 +62,8 @@ test('fixtures novas: 3 pagantes (mensal, anual, mensal) + isenta + teste; nada 
     }
     // Varredura de TODOS os scripts e documentos (rodadas 1–5 do ensaio, planos, Fundador, sonda, pagamento, renovação, concorrência…).
     const proprios = new Set([NOME + '.cjs', NOME + '.test.cjs', 'HOMOLOGACAO_PAGAMENTO_RENOVACAO_STAGING_20261010.md',
-        'PACOTE_CONSOLIDADO_20261010.md']); // o pacote consolidado cita a rodada de propósito
+        'PACOTE_CONSOLIDADO_20261010.md', // o pacote consolidado cita a rodada de propósito
+        'RODADA_FINAL_LANCAMENTO_20261013.md', 'JANELA_S3_S4_STAGING_20261020.md']); // roteiros da janela S3+S4 (passo W6 com a flag); a rodada 3 nunca foi executada
     const arquivos = d => fs.readdirSync(d, {withFileTypes:true}).flatMap(e => e.isDirectory() ? (e.name === 'node_modules' ? [] : arquivos(path.join(d, e.name)))
         : /\.(c?js|ts|md|json|sql)$/.test(e.name) && !proprios.has(e.name) ? [path.join(d, e.name)] : []);
     const texto = ['scripts', 'docs', 'database'].flatMap(d => arquivos(path.resolve(__dirname, '..', d))).map(a => fs.readFileSync(a, 'utf8')).join('\n');
