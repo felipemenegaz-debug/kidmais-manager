@@ -8,8 +8,9 @@
 //   - traz scripts/s3s4-staging-20261020.cjs e scripts/s3-cadastro-staging.cjs para a pasta própria (efêmera)
 //     /opt/render/project/src/.kidmais-s3s4-staging-20261020/, conferindo o sha256 ANTES de gravar (presente igual =
 //     JA_PRESENTE; diferente = código 4 sem gravar nada), e roda o modo do bloco a partir dela;
-//   - S4-INICIAR roda a JANELA e só com PRONTO_PARA_S4 inicia o executor da rodada 3 do deploy em segundo plano (nohup),
-//     com o log no disco persistente sem sobrescrever (noclobber); S4-ENCERRAR roda a recuperação do próprio executor.
+//   - S4-INICIAR roda a JANELA e só com PRONTO_PARA_S4 inicia o executor da rodada 3 do deploy em segundo plano, numa
+//     sessão própria (setsid nohup: nem Ctrl-C nem o fechamento do Shell chegam a ele), com o log no disco persistente sem
+//     sobrescrever (noclobber); S4-ENCERRAR roda a recuperação do próprio executor.
 // Comum a todos: `bind` desliga o bracketed paste ANTES da guarda e fora do subshell; guarda RENDER_SERVICE_ID antes de
 // qualquer leitura/gravação; corpo num SUBSHELL ( … ); no fim CODIGO_SAIDA_BLOCO=<n>: 0/1/2 do script, 4 do bloco.
 // Qualquer outro código (127 = linha perdida na colagem, 130 = Ctrl-C, 143 = sinal) ou ausência de CODIGO_SAIDA_BLOCO =
@@ -45,7 +46,7 @@ const MODOS = Object.freeze({
     JANELA: {args:'--janela ' + C, titulo:['SOMENTE LEITURA, depois de W1: commit = candidata, chaves do S4, Asaas pronto, estado/log ausentes, antes das',
         '20h BRT, banco (READ ONLY): vagas Fundador e fixtures livres. Esperado PRONTO_PARA_S4.']},
     'S4-INICIAR': {args:null, titulo:['INICIA A RODADA 3 DO S4 (grava em staging e no Asaas sandbox; 3 vagas Fundador ficam CONFIRMADAS para sempre).',
-        'Roda a JANELA antes e so inicia com PRONTO_PARA_S4. Executor do deploy em segundo plano (nohup); log no disco, sem sobrescrever.',
+        'Roda a JANELA antes e so inicia com PRONTO_PARA_S4. Executor do deploy em segundo plano (setsid nohup); log no disco, sem sobrescrever.',
         'Somente com o "pode ir" de Felipe para o S4. Nao redeployar o staging ate o S4-ACOMPANHAR dar PASS ou INCOMPLETO.']},
     'S4-ACOMPANHAR': {args:'--s4-acompanhar', titulo:['SOMENTE LEITURA: estado da rodada 3 e ultima linha do log. Repetir ate PASS ou INCOMPLETO.']},
     'S4-ENCERRAR': {args:null, titulo:['CONTINGENCIA (so se o S4-ACOMPANHAR der INTERROMPIDA_SEM_CONCLUSAO ou INCOMPLETO com recursos pendentes):',
@@ -90,15 +91,17 @@ function cabecalho(modo, rotulo, candidata) {
 }
 
 /**
- * `destino`, `deploy`, `s3s4`, `s4` e `espera` existem para os testes locais (pastas temporárias; comandos substitutos;
- * espera curta). A CLI usa sempre as pastas do staging, os comandos reais e 15 s de espera depois de iniciar o S4.
+ * `destino`, `deploy`, `s3s4`, `s4`, `lancador` e `espera` existem para os testes locais (pastas temporárias; comandos
+ * substitutos; o Git Bash não tem setsid; espera curta). A CLI usa sempre as pastas do staging, os comandos reais,
+ * `setsid nohup` e 15 s de espera depois de iniciar o S4.
  */
-function gerar({modo, rotulo, candidata, raiz = path.resolve(__dirname, '..'), destino = DESTINO, deploy = DEPLOY, s3s4 = S3S4, s4 = S4, espera = 15}) {
+function gerar({modo, rotulo, candidata, raiz = path.resolve(__dirname, '..'), destino = DESTINO, deploy = DEPLOY, s3s4 = S3S4, s4 = S4, lancador = 'setsid nohup', espera = 15}) {
     assert.ok(Object.hasOwn(MODOS, modo), 'MODO_DESCONHECIDO');
     assert.match(String(rotulo), /^[0-9a-f]{7,40}$/, 'ROTULO_INVALIDO');
     assert.match(String(candidata), /^[0-9a-f]{40}$/, 'CANDIDATA_INVALIDA');
     for (const d of [destino, deploy]) assert.match(d, /^(?:[A-Za-z]:)?\/[A-Za-z0-9_./-]+$/, 'DESTINO_INVALIDO');
     assert.ok(Number.isInteger(espera) && espera >= 0 && espera <= 60, 'ESPERA_INVALIDA');
+    assert.match(lancador, /^[a-z]+( [a-z]+)*$/, 'LANCADOR_INVALIDO');
     const lista = carga(raiz), deployConferido = conferidos(raiz);
     const cmd = args => `${s3s4} ${args.replace('@C@', candidata)}`;
     const c = ['set -euo pipefail', 'umask 077',
@@ -122,9 +125,10 @@ function gerar({modo, rotulo, candidata, raiz = path.resolve(__dirname, '..'), d
     if (modo === 'S4-INICIAR') {
         c.push(`${cmd('--janela ' + C)} || codigo=$?`,
             'if [ "$codigo" != 0 ]; then echo "S4_NAO_INICIADO (a JANELA recusou com codigo $codigo; nada foi iniciado)"; exit "$codigo"; fi',
-            `cd '${deploy}'`, `[ ! -e '${LOG_R3}' ] || { echo "LOG_R3_PRESENTE (arquivar antes; nada foi iniciado)"; exit 4; }`, 'set -o noclobber',
-            `nohup ${s4} ${executor.FLAG} > '${LOG_R3}' 2>&1 < /dev/null &`,
-            'echo "S4_INICIADO PID=$! (anotar). Nao fechar o Shell a forca nem redeployar ate o S4-ACOMPANHAR dar PASS ou INCOMPLETO."',
+            `cd '${deploy}'`, `[ ! -e '${LOG_R3}' ] || { echo "LOG_R3_PRESENTE (arquivar antes; nada foi iniciado)"; exit 4; }`,
+            `for f in ${lancador}; do command -v "$f" >/dev/null || { echo "FERRAMENTA_AUSENTE $f (nada foi iniciado)"; exit 4; }; done`, 'set -o noclobber',
+            `${lancador} ${s4} ${executor.FLAG} > '${LOG_R3}' 2>&1 < /dev/null &`,
+            'echo "S4_INICIADO PID=$! (anotar). Sessao propria: fechar o Shell nao interrompe. Nao redeployar o staging ate o S4-ACOMPANHAR dar PASS ou INCOMPLETO."',
             `sleep ${espera}`, `cd '${destino}'`, `${cmd('--s4-acompanhar')} || true`, 'exit 0');
     } else if (modo === 'S4-ENCERRAR') {
         c.push(`cd '${deploy}'`, `${s4} ${executor.FLAG_ENCERRAR} 2>&1 | tee -a '${LOG_ENCERRAR}' || codigo=$?`,

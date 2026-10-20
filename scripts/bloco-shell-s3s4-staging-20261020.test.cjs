@@ -40,7 +40,7 @@ function sessao(d, conteudo, opcoes = {}) {
     fs.rmSync(f, {force:true});
     return {status:r.status, saida:(r.stdout || '') + (r.stderr || '')};
 }
-const falsos = d => ({s3s4:`node '${posix(path.join(d, 'falso-s3s4.cjs'))}'`, s4:`node '${posix(path.join(d, 'falso-s4.cjs'))}'`});
+const falsos = d => ({s3s4:`node '${posix(path.join(d, 'falso-s3s4.cjs'))}'`, s4:`node '${posix(path.join(d, 'falso-s4.cjs'))}'`, lancador:'nohup'});
 const gerar = (d, modo, extra = {}) => b.gerar({modo, rotulo:'abcdef1', candidata:CAND, destino:posix(path.join(d, PASTA)), deploy:posix(d), espera:0, ...extra});
 const rodar = (d, modo, extra, opcoes) => sessao(d, gerar(d, modo, extra), opcoes);
 const codigo = s => [...s.matchAll(/^CODIGO_SAIDA_BLOCO=(\d+)$/gm)].map(x => Number(x[1])).at(-1);
@@ -66,14 +66,16 @@ test('dez blocos oficiais: ≤ 32 KB, ASCII, bind e guarda do staging antes de t
         assert.match(x, /SHELL_ERRADO_NAO_E_STAGING/); assert.match(x, new RegExp('# Candidata \\(commit que o deploy de W1 deve por no ar\\): ' + CAND));
         assert.doesNotMatch(x, /ASAAS_API_KEY|\$aact_|RESEND_API_KEY|DATABASE_URL|access_token/);
         assert.equal(L.filter(l => /^conf scripts\/[a-z0-9-]+\.cjs [0-9a-f]{64}$/.test(l)).length, j.DEPLOY_S4.length, modo);
-        assert.ok(L.indexOf('echo "DEPLOY_CONFERIDO 6"') < L.findIndex(l => l.startsWith('node ') || l.startsWith('nohup ')), 'deploy conferido antes de qualquer node');
+        assert.ok(L.indexOf('echo "DEPLOY_CONFERIDO 6"') < L.findIndex(l => l.startsWith('node ') || l.startsWith('setsid ')), 'deploy conferido antes de qualquer node');
         assert.doesNotMatch(x, /rm -rf -- '\/opt|\/opt\/render\/project\/src\/(scripts|lib|data)/, 'só a pasta própria e caminhos relativos do disco');
         const flag = (x.match(new RegExp(h.FLAG.replace(/-/g, '\\-'), 'g')) || []).length, encerrar = (x.match(new RegExp(h.FLAG_ENCERRAR.replace(/-/g, '\\-'), 'g')) || []).length;
         assert.equal(flag, modo === 'S4-INICIAR' ? 1 : 0, modo); assert.equal(encerrar, modo === 'S4-ENCERRAR' ? 1 : 0, modo);
     }
     const ini = b.gerar({modo:'S4-INICIAR', rotulo:'abcdef1', candidata:CAND});
-    assert.ok(ini.indexOf('--janela --candidata=' + CAND) < ini.indexOf('nohup '), 'a JANELA roda antes do executor');
-    assert.match(ini, /^set -o noclobber$/m); assert.match(ini, new RegExp(`^nohup node --experimental-strip-types scripts/homologacao-pagamento-renovacao-staging\\.cjs ${h.FLAG} > '${b.LOG_R3}' 2>&1 < /dev/null &$`, 'm'));
+    assert.ok(ini.indexOf('--janela --candidata=' + CAND) < ini.indexOf('setsid nohup '), 'a JANELA roda antes do executor');
+    assert.throws(() => b.gerar({modo:'S4-INICIAR', rotulo:'abcdef1', candidata:CAND, lancador:'nohup; rm'}), /LANCADOR_INVALIDO/);
+    assert.match(ini, /^set -o noclobber$/m); assert.match(ini, /^for f in setsid nohup; do command -v /m);
+    assert.match(ini, new RegExp(`^setsid nohup node --experimental-strip-types scripts/homologacao-pagamento-renovacao-staging\\.cjs ${h.FLAG} > '${b.LOG_R3}' 2>&1 < /dev/null &$`, 'm'));
     assert.match(b.gerar({modo:'S3-ANTES', rotulo:'abcdef1', candidata:CAND}), new RegExp(`^node scripts/s3s4-staging-20261020\\.cjs --s3-antes --candidata=${CAND} ${j.CNPJ_S3R} \\|\\| codigo=\\$\\?$`, 'm'));
     assert.match(b.gerar({modo:'S4N-DEPOIS', rotulo:'abcdef1', candidata:CAND}), new RegExp(` --s4n-depois --candidata=${CAND} ${j.CNPJ_TESTE_S3} `));
     assert.match(b.gerar({modo:'PRE', rotulo:'abcdef1', candidata:CAND}), /^node scripts\/s3s4-staging-20261020\.cjs --pre \|\| codigo=\$\?$/m);
@@ -185,3 +187,4 @@ test('colagem interativa (bash -i) funciona; colagem truncada não executa nada'
             assert.ok(intactos(d));
         } finally { limpar(d); }
     });
+
