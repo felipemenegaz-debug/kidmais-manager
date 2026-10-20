@@ -60,6 +60,15 @@ jobs:
           scripts/assinatura-reconciliar.test.cjs
           scripts/reparo-bloqueios-production.test.cjs
 
+      # Sem rede (fetch global bloqueado; transporte real do produto com rede simulada) e sem /opt: guarda de serviço, env do
+      # e-mail, flags da venda, envio único sem retentativa, anti-replay, sigilo da chave e blocos de Shell executados com
+      # bash (e bash -i, pulado com motivo se indisponível) em pastas temporárias.
+      - name: Prova de entrega de e-mail em produção (V6) — executor e blocos de Shell
+        run: >-
+          node --test
+          scripts/email-producao-20261020.test.cjs
+          scripts/bloco-shell-email-producao-20261020.test.cjs
+
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs
 
