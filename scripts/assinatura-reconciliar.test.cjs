@@ -338,3 +338,81 @@ test('D-C4: leitura das idades — relógio do banco, só os ids listados, categ
     assert.ok(D.SQL_IDADES_EVENTOS.includes("'kidmais:contratacao:%'"));
     assert.match(ts, /\$\{PREFIXO_PENDENCIA\}contratacao:/, 'prefixo das pendências de contratação');
 });
+
+test('D-C4 (P2-2): lista de eventos no limite alarma LISTA_LIMITE_ATINGIDO — um evento novo pode ter ficado de fora', async () => {
+    assert.equal(D.LIMITE_EVENTOS, 500);
+    const ciclo = async (n) => {
+        const ids = Array.from({length: n}, (_, i) => `e${i}`);
+        const pedidos = [];
+        const sinc = {eventosPendentes: async (_c, limite) => { pedidos.push(limite); return ids.slice(0, limite); },
+            empresasComProvedor: async () => [], processarEvento: async () => ({situacao: 'FALHOU', motivo: 'CRIACAO_SEM_RESPOSTA'})};
+        const idadesDosEventos = async (_c, lista) => ({agoraMs: AGORA, eventos: new Map(lista.map((id) => [id, {item: 'PENDENCIA_CRIACAO', recebidoMs: noDia(9)}]))});
+        const r = await D.executarCiclo({client: {query: async () => {}}, provedor: {}, aplicar: false, banco: 'kidmais_production', sinc, idadesDosEventos});
+        r.kidmais = {violada: false};
+        assert.deepEqual(pedidos, [500], 'o ciclo pede exatamente o limite');
+        return r;
+    };
+    const abaixo = await ciclo(499);
+    assert.deepEqual(abaixo.alarme.itens, []);
+    assert.equal(abaixo.pendentesConhecidos.length, 499);
+    assert.equal(D.codigoDeSaida(abaixo, true), 0, '499 antigos fora da janela: sem alarme');
+    for (const n of [500, 800]) {
+        const r = await ciclo(n);
+        assert.deepEqual(r.alarme.itens, [{item: 'LISTA_EVENTOS', resultado: 'LIMITE_500', motivo: 'LISTA_LIMITE_ATINGIDO', aviso: 'LISTA_LIMITE_ATINGIDO'}], `${n} pendentes`);
+        assert.equal(r.pendentesConhecidos.length, 500, 'os 500 lidos continuam listados');
+        assert.equal(D.codigoDeSaida(r, true), 2, 'lista saturada = saída 2 (falha fechada)');
+    }
+    // Sem idades (staging), a lista no limite não muda nada.
+    const sinc = {eventosPendentes: async () => Array.from({length: 500}, (_, i) => `e${i}`), empresasComProvedor: async () => [], processarEvento: async () => ({situacao: 'PROCESSADO'})};
+    const stg = await D.executarCiclo({client: {query: async () => {}}, provedor: {}, aplicar: true, banco: 'kidmais_staging_1z91', sinc});
+    assert.equal('alarme' in stg, false);
+});
+
+test('D-C4 (P3-2): LISTA_INCOMPLETA e PROVEDOR_SEM_ESCRITA em item antigo = erro desta execução (alarma)', async () => {
+    const r = await conferencia([
+        {dia: 9, motivo: 'LISTA_INCOMPLETA: listar assinaturas (mais registros que o limite conferido; revisão humana)'},
+        {dia: 16, item: 'PENDENCIA_CONTRATACAO', motivo: 'PROVEDOR_SEM_ESCRITA'},
+        {dia: 15, motivo: 'ERRO_INTERNO: TypeError'},
+        {dia: 9, motivo: 'REVISAO_HUMANA: LISTA_INCOMPLETA_NAO_E_PREFIXO'},
+    ]);
+    assert.deepEqual(r.alarme.itens.map((i) => [i.motivo, i.aviso]), [
+        ['LISTA_INCOMPLETA', 'ERRO_NESTA_EXECUCAO'], ['PROVEDOR_SEM_ESCRITA', 'ERRO_NESTA_EXECUCAO'], ['ERRO_INTERNO', 'ERRO_NESTA_EXECUCAO']]);
+    assert.deepEqual(r.pendentesConhecidos.map((i) => i.motivo), ['REVISAO_HUMANA: LISTA_INCOMPLETA_NAO_E_PREFIXO']);
+    assert.equal(D.codigoDeSaida(r, true), 2);
+});
+
+test('D-C4 (P3-4): o CASE da SQL mapeia cada (tipo, evento_id) na categoria certa', () => {
+    // Intérprete mínimo do CASE: WHEN <termo> [OR <termo>] THEN '<cat>' ... ELSE '<cat>' END; termos "tipo <> 'x'",
+    // "evento_id LIKE 'p%'" e "evento_id NOT LIKE 'p%'". Qualquer outra forma falha o teste (a SQL precisa continuar simples).
+    const sql = D.SQL_IDADES_EVENTOS.replace(/\s+/g, ' ');
+    const corpo = /CASE (.*?) END AS item/.exec(sql)[1];
+    const ramos = [...corpo.matchAll(/WHEN (.*?) THEN '([A-Z_]+)'/g)].map((m) => [m[1], m[2]]);
+    const senao = /ELSE '([A-Z_]+)'$/.exec(corpo)[1];
+    assert.equal(corpo.replace(/WHEN (.*?) THEN '([A-Z_]+)' ?/g, '').trim(), `ELSE '${senao}'`, 'só WHEN/THEN e um ELSE');
+    const like = (valor, padrao) => { assert.match(padrao, /^[^%_]*%$/, 'só prefixo%'); return valor.startsWith(padrao.slice(0, -1)); };
+    const termo = (t, linha) => {
+        let m;
+        if ((m = /^tipo <> '([^']*)'$/.exec(t))) return linha.tipo !== m[1];
+        if ((m = /^evento_id NOT LIKE '([^']*)'$/.exec(t))) return !like(linha.evento_id, m[1]);
+        if ((m = /^evento_id LIKE '([^']*)'$/.exec(t))) return like(linha.evento_id, m[1]);
+        throw new Error('termo fora do formato: ' + t);
+    };
+    const categoria = (linha) => {
+        for (const [cond, cat] of ramos) if (cond.split(' OR ').some((t) => termo(t, linha))) return cat;
+        return senao;
+    };
+    const ts = require('node:fs').readFileSync(require('node:path').join(__dirname, '../lib/assinatura/reconciliacao-contratacao.ts'), 'utf8');
+    const k = (nome) => new RegExp(`export const ${nome} = '([^']+)';`).exec(ts)[1];
+    const P = k('TIPO_PENDENCIA'), E = '11111111-2222-4333-8444-555555555555';
+    const casos = [
+        [P, `${k('PREFIXO_CRIACAO')}${E}:${E}`, 'PENDENCIA_CRIACAO'],
+        [P, `${k('PREFIXO_PENDENCIA')}contratacao:${E}:${E}`, 'PENDENCIA_CONTRATACAO'],
+        [P, `${k('PREFIXO_ID_CONFIRMADO')}${E}:${E}`, 'PENDENCIA_VINCULO'],
+        [P, `${k('PREFIXO_REMOCAO_SEM_CONFIRMACAO')}${E}:${E}`, 'MARCADOR_REMOCAO'],
+        [P, `${k('PREFIXO_PENDENCIA')}outra:${E}`, 'PENDENCIA_INTERNA'],
+        [P, 'evt_sem_prefixo', 'EVENTO_ASAAS'],
+        ['PAYMENT_CONFIRMED', `${k('PREFIXO_CRIACAO')}${E}`, 'EVENTO_ASAAS'],
+        ['PAYMENT_RECEIVED', 'evt_abc&123', 'EVENTO_ASAAS'],
+    ];
+    for (const [tipo, evento_id, esperado] of casos) assert.equal(categoria({tipo, evento_id}), esperado, `${tipo} ${evento_id.slice(0, 20)}`);
+});

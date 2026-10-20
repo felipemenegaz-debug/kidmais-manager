@@ -7,9 +7,11 @@
 - **C1 (criar em `aguardando`, sem nenhuma variável secreta): aprovado.**
 - **C2 (`conferir`): bloqueado**, até três condições:
   1. ~~Felipe decidir sobre o alarme persistente (§5a, P2-B1)~~ — **D-C4 decidida por Felipe em 20/10/2026 e implementada
-     LOCALMENTE** (alarme por idade, §5a; branch `codex/dc4-alarme-cron-20261020`, sem push). **Deixa de bloquear C2 como
+     na branch `codex/dc4-alarme-cron-20261020`** (alarme por idade, §5a; PR #196 aberta para `staging`, sem merge; revisão
+     independente APROVADO COM RESSALVAS, ressalvas tratadas no §5a). **Deixa de bloquear C2 como
      decisão**, mas o código precisa chegar à branch `production` (PR → staging → promoção → `production`) antes de C2: o
-     cron de produção roda essa branch e, sem a regra, `conferir` volta a alarmar todo dia;
+     cron de produção roda essa branch e, sem a regra, `conferir` volta a alarmar todo dia. Antes de C2, Felipe também
+     precisa aceitar (ou mudar) o limite P2-1 do §5a: a piora de um item antigo não alarma até o próximo marco;
   2. o cron entrar no roteiro de rotação — feito em [ROTACAO_CREDENCIAIS_20261007.md](ROTACAO_CREDENCIAIS_20261007.md)
      (P2-B2);
   3. o Asaas de produção estar configurado no web. Criar o serviço, gravar variáveis ou disparar execução exige autorização explícita de Felipe
@@ -36,8 +38,9 @@ Estado informado: só existe o cron de staging `kidmais-assinatura-reconciliar-s
   - **2** = evento não concluído, empresa cujo estado mudaria, item falho ou Kidmais violada (o cron falha e o Render
     notifica);
   - 1 = configuração recusada ou interrupção.
-- **Saídas com a D-C4 (implementação LOCAL, §5a):** 2 só com Kidmais violada ou com algum item em **alarme** (novo, em dia
-  de aviso, empresa divergente, sem idade ou erro desta execução); pendências antigas fora dos dias de aviso saem 0 e ficam
+- **Saídas com a D-C4 (PR #196 para staging, ainda não publicada; §5a):** 2 só com Kidmais violada ou com algum item em
+  **alarme** (novo, em dia de aviso, empresa divergente, sem idade, erro desta execução ou lista de eventos no limite de
+  500); pendências antigas fora dos dias de aviso saem 0 e ficam
   listadas em `pendentesConhecidos`. O código 1 não muda.
 - **Correção de divergência:** nunca pelo cron. Ver §5a: a saída 2 pode ser transitória ou persistente, e a persistente só
   some com ação humana.
@@ -156,9 +159,14 @@ chave diferente de `SEM_MUDANCA` também dá saída 2: `MUDOU_<antes>_PARA_<depo
 
 ### Triagem (ler o log do cron no Render; o relatório não tem dado pessoal)
 
-0. Com a D-C4: `alarme.itens` diz **por que** a execução saiu 2 (`aviso`: `NOVO`, `DIA_n`, `EMPRESA_SEM_IDADE`,
-   `SEM_IDADE`, `ERRO_NESTA_EXECUCAO`); `pendentesConhecidos` lista o que continua aberto sem alarmar hoje (idade, motivo e
-   próximo dia de aviso). Saída 0 **não** quer dizer "nada pendente": olhar sempre `pendentesConhecidos`.
+0. Com a D-C4:
+   - `alarme.itens` diz **por que** a execução saiu 2 (`aviso`: `NOVO`, `DIA_n`, `EMPRESA_SEM_IDADE`, `SEM_IDADE`,
+     `ERRO_NESTA_EXECUCAO`, `LISTA_LIMITE_ATINGIDO`);
+   - `pendentesConhecidos` lista o que continua aberto sem alarmar hoje (idade, motivo e próximo dia de aviso).
+
+   Saída 0 **não** quer dizer "nada pendente". A triagem **diária** lê o log mesmo com saída 0 e confere em
+   `pendentesConhecidos` se algum `resultado`/`motivo` mudou desde a véspera (P2-1, abaixo): uma piora de item antigo não
+   gera notificação do Render até o próximo marco.
 1. `kidmais.violada: true` → **prioridade máxima**: a gratuidade da Kidmais foi violada (assinatura, contratação ou vaga na
    Kidmais). Não mexer; levar para decisão.
 2. `incompleto: true` (evento `FALHOU`/`ERRO_*`, empresa `RECUSADA`/`SEM_CONFIRMACAO`/`ERRO_*`) → falha real. Abrir a
@@ -182,9 +190,15 @@ chave diferente de `SEM_MUDANCA` também dá saída 2: `MUDOU_<antes>_PARA_<depo
 
 ### D-C4 — alarme por idade: DECIDIDA por Felipe (20/10/2026) e IMPLEMENTADA LOCALMENTE
 
-**Estado:** implementação **local** na branch `codex/dc4-alarme-cron-20261020` (base `staging` `73618a2`). Sem push, PR,
-merge ou deploy; o cron de produção ainda não existe e a branch `production` ainda não tem a regra. Vale **só na conferência
-de produção** (`conferir`).
+**Estado:**
+- implementada na branch `codex/dc4-alarme-cron-20261020` (base `staging` `73618a2`);
+- **PR #196 aberta para `staging`**, sem merge nem deploy;
+- o cron de produção ainda não existe e a branch `production` ainda não tem a regra;
+- revisão independente de 20/10 sobre `09613a9`: **APROVADO COM RESSALVAS**, com execução em PostgreSQL real (ver
+  "Validação em PostgreSQL" no §8). As ressalvas P2-2, P3-2 e P3-4 foram corrigidas no código; P2-1, P3-1 e P3-3 estão
+  documentadas aqui.
+
+Vale **só na conferência de produção** (`conferir`).
 
 Foi escolhida a regra **sem estado, por idade** (a proposta de 19–20/10, precisada abaixo). O cron não tem disco e só simula,
 então nada é gravado: a idade de cada item é recalculada a cada execução a partir do próprio banco. Alternativas descartadas:
@@ -223,7 +237,9 @@ qualquer que seja o atraso (teste com atrasos de 0 s a 22 h e uma antecipação 
   - é `NOT NULL DEFAULT clock_timestamp()`, gravado pelo banco na inserção;
   - a guarda da 068 recusa qualquer `UPDATE` que o altere e recusa reabrir evento concluído;
   - a reentrega do mesmo evento pelo Asaas não cria linha nova (`ON CONFLICT DO NOTHING`);
-  - cada pendência interna é uma linha nova (`evento_id` com UUID aleatório).
+  - cada pendência interna é uma linha nova com `evento_id` único: UUID aleatório em `kidmais:criacao:`,
+    `kidmais:contratacao:` e `kidmais:remocao:`, e o id da intenção em `kidmais:vinculo:` (uma por intenção). A idade não
+    depende disso, porque `recebido_em` é imutável.
 
   A idade nunca é reiniciada, e um problema que reaparece é uma linha nova, com aviso de novo.
 - **Por que a empresa não tem idade:** `sincronizado_em` marca a última sincronização, não o início da divergência. Usá-lo
@@ -235,12 +251,18 @@ qualquer que seja o atraso (teste com atrasos de 0 s a 22 h e uma antecipação 
 
 **Continua como hoje (fora da regra):**
 - `kidmais.violada: true` → saída 2 sempre;
-- **erro desta execução** → saída 2 sempre (`ERRO_NESTA_EXECUCAO`): item que lançou exceção (`ERRO_*`) ou cujo
-  processamento simulado falhou com `PROVEDOR_INDISPONIVEL`/`ERRO_INTERNO`. A conferência não conseguiu verificar o item
-  hoje, então não é "pendência conhecida";
+- **erro desta execução** → saída 2 sempre (`ERRO_NESTA_EXECUCAO`): a conferência não conseguiu verificar o item hoje,
+  então não é "pendência conhecida". São os casos de:
+  - item que lançou exceção (`ERRO_*`);
+  - processamento simulado que falhou com `PROVEDOR_INDISPONIVEL`, `LISTA_INCOMPLETA` (lista do provedor acima do limite
+    conferido), `PROVEDOR_SEM_ESCRITA` ou `ERRO_INTERNO` (P3-2 da revisão);
+- **lista de eventos no limite** → saída 2 sempre (`LISTA_LIMITE_ATINGIDO`, item `LISTA_EVENTOS`, resultado `LIMITE_500`):
+  - o ciclo lê só os 500 eventos `PENDENTE`/`FALHOU` mais antigos (`LIMITE_EVENTOS`; `ORDER BY recebido_em LIMIT 500`);
+  - com 500 lidos, um evento novo pode ter ficado de fora, então a falha é fechada (P2-2 da revisão);
+  - os 500 lidos continuam classificados normalmente;
 - configuração recusada, alvo/TLS recusado, conexão ou interrupção → saída 1, sem relatório;
-- relatório cuja contagem (`eventos` + empresas ≠ `SEM_MUDANCA`) não fecha com `alarme.itens` + `pendentesConhecidos` →
-  saída 2.
+- relatório cuja contagem (`eventos` + empresas ≠ `SEM_MUDANCA`) não fecha com `alarme.itens` (sem o item da lista) +
+  `pendentesConhecidos` → saída 2.
 
 **Saída no log** (sem id, `evento_id`, empresa, nome ou texto livre; o `motivo` é reduzido ao código em maiúsculas, por
 exemplo `REVISAO_HUMANA: ASSINATURAS_AMBIGUAS`):
@@ -264,6 +286,21 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
   - a agenda não é diária, e a regra ancorada às 09:00 não faria sentido;
   - é ambiente de homologação, onde o alarme imediato é o desejado.
 
+> **⚠ P2-1 — piora de item antigo fica sem alarme até o próximo marco (até 6 dias). ACEITE PENDENTE DE FELIPE.**
+>
+> - **Causa:** a idade vem de `recebido_em`, mas o *resultado* e o *motivo* de cada item são recalculados a cada execução.
+>   Um item antigo que piora continua em `pendentesConhecidos`, e a saída é 0 até o próximo dia de aviso.
+> - **Exemplo:** uma pendência de contratação no dia 8 em `AGUARDANDO_CONFIRMACAO` passa a dar
+>   `REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO` (cliente pagou uma assinatura duplicada). Ela só alarma no dia 14.
+> - **Backstop:** só existe se a empresa vinculada também divergir (`EMPRESA`), o que não acontece quando o pagamento caiu
+>   na duplicata.
+> - É consequência direta da regra aprovada ("os demais itens não alarmam"). A regra **não** foi mudada.
+> - **Conduta enquanto vigorar:** a triagem diária lê `pendentesConhecidos` mesmo com saída 0 (item 0 da Triagem).
+> - **Alternativa, NÃO implementada:** uma lista fixa de motivos que alarmam sempre, qualquer que seja a idade, por
+>   indicarem dinheiro em risco ou revisão humana urgente (por exemplo, `REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO`).
+>   Continua sem estado, mas um item com esse motivo alarma todo dia até ser resolvido.
+> - **Decisão de Felipe antes de C2:** aceitar o limite, ou escolher a alternativa e a lista de motivos.
+
 **Limites conhecidos:**
 - **Recebido entre 09:00 UTC e a consulta:** um item recebido entre as 09:00 UTC e o momento da consulta (segundos ou
   minutos de atraso) é avisado como `NOVO` nessa execução **e** na seguinte. É um aviso a mais, nunca a menos.
@@ -273,11 +310,17 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
 - **Execução agendada que não acontece** (falha do Render):
   - os avisos daquele dia se perdem;
   - o item continua listado e volta a alarmar no próximo marco;
-  - um item que seria `NOVO` alarma no dia seguinte como `DIA_1`.
+  - um item que seria `NOVO` alarma no dia seguinte como `DIA_1`;
+  - **duas falhas seguidas** logo depois do recebimento levam o primeiro aviso de um item novo para o dia 3 (P3-1);
+  - **recuperação:** a regra não tem estado, então um **"Trigger run" manual na mesma janela UTC** recupera os avisos do
+    dia perdido. A janela vai das 08:00 UTC do dia da falha até as 08:00 UTC do dia seguinte. O manual usa a mesma
+    referência R e produz exatamente o veredito que a execução agendada teria dado. Depois de uma falha de agenda
+    notificada pelo Render, disparar o manual antes das 08:00 UTC seguintes.
 - **Mudança de agenda (D-C1):** se a agenda mudar (por exemplo, mais frequente), todas as execuções do mesmo dia repetem
   o veredito. Mudar `HORA_CRON_UTC` junto com o YAML; o teste falha se só um mudar.
 - **Pendência persistente gera lembretes, não silêncio:** fica em `pendentesConhecidos` todos os dias e alarma nos dias 1,
-  3, 7 e depois semanalmente até a ação humana.
+  3, 7 e depois semanalmente até a ação humana. Entre um marco e outro (até 6 dias), nem uma piora de resultado ou de
+  motivo gera notificação (P2-1, acima).
 - **Empresa divergente persistente** (`SEM_CONFIRMACAO`, `RECUSADA`, `MUDOU_…` sem "Sincronizar") continua alarmando
   **todo dia** até ser resolvida (risco aceito pela falha fechada).
 
@@ -318,10 +361,17 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
 - **D-C3 — credencial:** o cron usa a mesma credencial do web (dono do banco). A simulação escreve e desfaz, então um papel
   somente leitura não serve; um papel dedicado não foi preparado. Em C2, a credencial e a chave Asaas de produção passam a
   existir em um segundo serviço (superfície maior).
-- **D-C4 — alarme persistente: DECIDIDA por Felipe em 20/10/2026** (alarme por idade, sem estado; §5a) e **implementada
-  localmente** (branch `codex/dc4-alarme-cron-20261020`, sem push). Não bloqueia mais C2 como decisão; C2 continua
-  dependendo da regra chegar à `production`, do Asaas de produção no web e do roteiro de rotação (P2-B2, já documentado).
-  Riscos residuais: empresa divergente persistente alarma todo dia; saída 0 pode conviver com `pendentesConhecidos`.
+- **D-C4 — alarme persistente: DECIDIDA por Felipe em 20/10/2026** (alarme por idade, sem estado; §5a).
+  - **Estado:** implementada na branch `codex/dc4-alarme-cron-20261020`, com PR #196 aberta para `staging` e sem merge.
+  - **C2:** a decisão não bloqueia mais. C2 continua dependendo de:
+    - a regra chegar à `production`;
+    - o Asaas de produção no web;
+    - o roteiro de rotação (P2-B2, já documentado);
+    - o aceite de Felipe para o P2-1.
+  - **Riscos residuais:**
+    - empresa divergente persistente alarma todo dia;
+    - saída 0 pode conviver com `pendentesConhecidos`;
+    - piora de item antigo fica sem alarme até o próximo marco (P2-1).
 - **Rotação (P2-B2):** em `conferir`, rotacionar a `DATABASE_URL` ou a chave do Asaas sem atualizar o cron faz o cron
   falhar todo dia (código 1). O passo agora está no roteiro de rotação. Alternativa a avaliar: `fromDatabase` num
   Blueprint ou um grupo de ambiente (mudaria a configuração do web; fora deste escopo).
@@ -351,12 +401,29 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
     - 70 dias de execuções com atrasos variados (cada marco uma vez);
     - idade ausente (alarma);
     - mistura;
-    - empresa e erro desta execução;
+    - empresa e erro desta execução, inclusive `LISTA_INCOMPLETA` e `PROVEDOR_SEM_ESCRITA`;
+    - lista de eventos no limite (499 sem alarme; 500 e 800 → `LISTA_LIMITE_ATINGIDO`);
     - Kidmais violada;
     - staging inalterado;
     - saída sem dados sensíveis;
-    - leitura das idades com as mesmas constantes de `lib/assinatura/reconciliacao-contratacao.ts`.
+    - leitura das idades com as mesmas constantes de `lib/assinatura/reconciliacao-contratacao.ts`;
+    - **mapeamento do `CASE`** da SQL: um intérprete do `CASE` confere a categoria de cada combinação de tipo e
+      `evento_id` (mata a mutação M18 da revisão).
   - [scripts/assinatura-cron-producao-20261020.test.cjs](../scripts/assinatura-cron-producao-20261020.test.cjs) amarra a
     agenda do YAML a `HORA_CRON_UTC`.
-  - A consulta `SQL_IDADES_EVENTOS` (somente leitura) não foi executada contra PostgreSQL nesta entrega: só com cliente
-    simulado.
+  - **Validação em PostgreSQL real: PASS.** Feita na revisão independente de 20/10 sobre `09613a9`
+    (`D:/glass/KidMais Manager/revisao-dc4-alarme-20261020/PARECER.md` §4; roteiro `pg-dc4.cjs`, saída
+    `pg-dc4-resultado.txt`).
+    - **Ambiente:** PostgreSQL 18.6 descartável, banco `kidmais_v1_modelo_086` montado pela receita oficial (inventário
+      até a 086); cluster parado e removido no fim.
+    - `lerIdadesDosEventos` rodou em `BEGIN READ ONLY`, com as 10 categorias certas e `recebido_ms` exato.
+    - **`executarCiclo` em conferência:**
+      - borda de 24 h → `DIA_1`;
+      - banco byte a byte igual depois do ciclo;
+      - nenhum id na saída;
+      - só antigos → 0;
+      - Asaas 503 → `ERRO_NESTA_EXECUCAO`;
+      - id malformado → código 1.
+    - As correções posteriores (P2-2, P3-2, P3-4) não mudaram a SQL: foram testadas só com dublês.
+  - **Na revisão:** CI e build do cron também passaram em Node 22.23.2; 23/24 mutantes mortos (M18 sobreviveu e foi
+    tratado depois).

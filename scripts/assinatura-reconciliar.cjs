@@ -27,6 +27,8 @@
  * ou de item cuja idade cai num dia de aviso (1, 3, 7 e depois a cada 7); os demais saem em `pendentesConhecidos`, sem
  * alarme. Regra, idades e janelas: classificarConferencia e docs/CRON_ASSINATURA_PRODUCAO_20261020.md §5a. Staging inalterado.
  */
+/** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
+const LIMITE_EVENTOS = 500;
 const BANCOS_PROIBIDOS = new Set(['kidmais_manager', 'kidmais-production']);
 const PRODUCAO = Object.freeze({ database: 'kidmais_production', host: 'dpg-dak750gae00c73fudmg0-a', port: 5432 });
 
@@ -202,7 +204,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
     // D-C4 (só quando a conferência de produção passa `idadesDosEventos`): um item por evento e por empresa divergente.
     const itens = [];
-    const ids = await sinc.eventosPendentes(client, 500);
+    const ids = await sinc.eventosPendentes(client, LIMITE_EVENTOS);
     const idades = idadesDosEventos ? await idadesDosEventos(client, ids) : null;
     for (const eventoId of ids) {
         const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente }));
@@ -217,7 +219,8 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         conta(relatorio.empresas, chave);
         if (chave !== 'SEM_MUDANCA') itens.push({ item: 'EMPRESA', resultado: chave, motivo: r.motivo, recebidoMs: null });
     }
-    if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs));
+    // P2-2: a lista traz só os LIMITE_EVENTOS mais antigos; no limite, um evento novo pode ter ficado de fora → alarma.
+    if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs, { listaNoLimite: ids.length >= LIMITE_EVENTOS }));
 
     relatorio.incompleto = Object.entries(relatorio.eventos).some(([k, n]) => n > 0 && (k === 'FALHOU' || k.startsWith('ERRO_')))
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')));
@@ -273,20 +276,32 @@ function motivoSeguro(motivo) {
     return codigos.length ? codigos.join(': ') : null;
 }
 
-/** Falha DESTA execução (exceção no item, provedor fora, erro interno): não é pendência antiga, alarma sempre. */
-const erroDaExecucao = (i) => i.resultado.startsWith('ERRO_') || /^(?:PROVEDOR_INDISPONIVEL|ERRO_INTERNO)(?::|$)/.test(typeof i.motivo === 'string' ? i.motivo : '');
+/**
+ * Falha DESTA execução — a conferência não conseguiu verificar o item hoje, então não é pendência antiga e alarma sempre:
+ * exceção no item (ERRO_*), provedor fora (PROVEDOR_INDISPONIVEL), lista do provedor acima do limite conferido
+ * (LISTA_INCOMPLETA), provedor sem as operações da reconciliação (PROVEDOR_SEM_ESCRITA) ou erro interno (ERRO_INTERNO).
+ */
+const MOTIVOS_ERRO_DA_EXECUCAO = /^(?:PROVEDOR_INDISPONIVEL|LISTA_INCOMPLETA|PROVEDOR_SEM_ESCRITA|ERRO_INTERNO)(?::|$)/;
+const erroDaExecucao = (i) => i.resultado.startsWith('ERRO_') || MOTIVOS_ERRO_DA_EXECUCAO.test(typeof i.motivo === 'string' ? i.motivo : '');
+
+/** Item de alarme da própria lista (não é evento nem empresa: fica fora da conferência de contagem). */
+const ITEM_LISTA = 'LISTA_EVENTOS';
 
 /**
  * Classifica os itens da conferência de produção (D-C4). Saída: `alarme.itens` (cada um com o aviso que o fez alarmar) e
  * `pendentesConhecidos` (idade, motivo e próximo dia de aviso). Nenhum id, evento_id, empresa ou texto livre sai daqui.
- *   - erro desta execução (ERRO_*, PROVEDOR_INDISPONIVEL, ERRO_INTERNO) → alarma (ERRO_NESTA_EXECUCAO);
+ *   - lista de eventos no limite (`listaNoLimite`) → alarma (LISTA_LIMITE_ATINGIDO: pode haver evento novo fora da lista);
+ *   - erro desta execução (ERRO_*, PROVEDOR_INDISPONIVEL, LISTA_INCOMPLETA, PROVEDOR_SEM_ESCRITA, ERRO_INTERNO) → alarma
+ *     (ERRO_NESTA_EXECUCAO);
  *   - empresa com resultado ≠ SEM_MUDANCA → alarma sempre (EMPRESA_SEM_IDADE: não há no banco quando a divergência começou);
  *   - evento/pendência sem `recebido_em` legível (ou sem `agora`) → alarma (SEM_IDADE: falha fechada);
  *   - dia 0 → NOVO; dias 1, 3, 7, 14, 21… → DIA_n; os demais → pendentesConhecidos (sem alarme).
  */
-function classificarConferencia(itens, agoraMs) {
+function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) {
     const referenciaMs = typeof agoraMs === 'number' && Number.isFinite(agoraMs) ? referenciaDoDia(agoraMs) : null;
     const alarmes = [];
+    if (listaNoLimite)
+        alarmes.push({ item: ITEM_LISTA, resultado: `LIMITE_${LIMITE_EVENTOS}`, motivo: 'LISTA_LIMITE_ATINGIDO', aviso: 'LISTA_LIMITE_ATINGIDO' });
     const pendentesConhecidos = [];
     for (const i of itens) {
         const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
@@ -305,8 +320,8 @@ function classificarConferencia(itens, agoraMs) {
 
 /**
  * Idade dos eventos listados (leitura, fora das transações por item). `recebido_em` é NOT NULL, gravado pelo banco na
- * inserção e imutável (guarda da 068); cada pendência interna é uma linha nova (evento_id com UUID aleatório) e um evento
- * concluído não reabre — a idade nunca é reiniciada. `agora` é o relógio do banco, o mesmo de `recebido_em`.
+ * inserção e imutável (guarda da 068); cada pendência interna é uma linha nova (evento_id único: UUID aleatório, ou o id da
+ * intenção em `kidmais:vinculo:`) e um evento concluído não reabre — a idade nunca é reiniciada. `agora` é o relógio do banco, o mesmo de `recebido_em`.
  */
 const SQL_IDADES_EVENTOS = `SELECT id::text AS id, (extract(epoch FROM recebido_em) * 1000)::float8 AS recebido_ms,
     CASE WHEN tipo <> 'KIDMAIS_RECONCILIAR_CONTRATACAO' OR evento_id NOT LIKE 'kidmais:%' THEN 'EVENTO_ASAAS'
@@ -354,7 +369,8 @@ function codigoDeSaida(relatorio, producao) {
     if (producao && Array.isArray(relatorio.alarme?.itens) && Array.isArray(relatorio.pendentesConhecidos)) {
         const soma = (grupo, filtro = () => true) => Object.entries(grupo ?? {}).reduce((t, [k, n]) => t + (filtro(k) ? n : 0), 0);
         const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA');
-        if (relatorio.alarme.itens.length + relatorio.pendentesConhecidos.length !== total) return 2;
+        const classificados = relatorio.alarme.itens.filter((i) => i.item !== ITEM_LISTA).length + relatorio.pendentesConhecidos.length;
+        if (classificados !== total) return 2;
         return relatorio.alarme.itens.length > 0 ? 2 : 0;
     }
     if (relatorio.incompleto) return 2;
@@ -416,4 +432,4 @@ if (require.main === module) {
 }
 
 module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
-    HORA_CRON_UTC, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS };
+    HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS };
