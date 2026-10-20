@@ -1,10 +1,9 @@
 import { adicionais, ancora, ancoraExibivel, comercial, planos, precoExibido, valorPlano, type Ciclo } from '@/lib/site/catalogo';
-import type { ConfiguracaoSite } from '@/lib/site/configuracao';
-import { Cadastro, Contato, Recurso } from './elementos';
+import { Cadastro, Contato, Recurso, type ContatoSite } from './elementos';
 import { cx } from './estilos';
 import CicloPlanos from './CicloPlanos';
 
-export default function Planos({ publicado, aberto, contato }: { publicado: boolean; aberto: boolean; contato: Pick<ConfiguracaoSite, 'contato' | 'fundador'> }) {
+export default function Planos({ publicado, aberto, contato }: { publicado: boolean; aberto: boolean; contato: ContatoSite }) {
     const moeda = (centavos: number | null) => precoExibido(centavos, publicado);
     const premium = planos.find(plano => plano.id === 'premium')!;
     return <section className={cx('block')} id="planos" aria-labelledby="t-planos"><div className={cx('wrap')}>

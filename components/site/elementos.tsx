@@ -14,7 +14,11 @@ export function Cadastro({ aberto, children, destaque = true }: { aberto: boolea
     return aberto ? <a className={cx('btn', destaque ? 'btn-primary' : '')} href="/cadastro">{children ?? <>Começar teste grátis <span aria-hidden="true">↗</span></>}</a>
         : <p className={cx('closed')} data-cadastro-fechado>{CADASTRO_FECHADO}</p>;
 }
-export function Contato({ config, fundador = false, flutuante = false }: { config: Pick<ConfiguracaoSite, 'contato' | 'fundador'>; fundador?: boolean; flutuante?: boolean }) {
-    const href = fundador ? config.fundador : config.contato;
-    return href ? <a className={cx('btn', flutuante ? 'btn-lilac wa-float' : '')} href={href} target="_blank" rel="noopener noreferrer">{fundador ? 'Quero ser fundador' : 'Falar com a equipe'}</a> : null;
+export type ContatoSite = Pick<ConfiguracaoSite, 'contato' | 'fundador'> & Partial<Pick<ConfiguracaoSite, 'emailHref' | 'fundadorEmail'>>;
+/** WhatsApp quando configurado; sem ele, e-mail de atendimento (o botão flutuante é só do WhatsApp). */
+export function Contato({ config, fundador = false, flutuante = false }: { config: ContatoSite; fundador?: boolean; flutuante?: boolean }) {
+    const whatsapp = fundador ? config.fundador : config.contato;
+    if (whatsapp) return <a className={cx('btn', flutuante ? 'btn-lilac wa-float' : '')} href={whatsapp} target="_blank" rel="noopener noreferrer">{fundador ? 'Quero ser fundador' : 'Falar com a equipe'}</a>;
+    const email = flutuante ? null : fundador ? config.fundadorEmail : config.emailHref;
+    return email ? <a className={cx('btn')} href={email} data-contato-email>{fundador ? 'Quero ser fundador' : 'Falar com a equipe por e-mail'}</a> : null;
 }
