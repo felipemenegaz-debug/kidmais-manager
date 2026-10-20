@@ -3,7 +3,8 @@
 # Roteiro, lista exata de variáveis e comportamento: docs/CRON_ASSINATURA_PRODUCAO_20261020.md.
 # Criação recomendada: manual no painel (New -> Cron Job) copiando estes campos. Nenhum valor secreto neste arquivo:
 # as chaves `sync: false` são digitadas por Felipe no painel (copiadas do web de produção, nunca do staging).
-# O código necessário já está na branch production (dc157a7, mesma árvore de staging aa442b7): nenhum deploy do web.
+# O código necessário para C1 (aguardando) já está na branch production (dc157a7, mesma árvore de staging aa442b7): nenhum
+# deploy do web. Para C2 (conferir), a regra de alarme D-C4 ainda precisa chegar à branch production.
 services:
   - type: cron
     name: kidmais-assinatura-reconciliar-production
@@ -16,7 +17,8 @@ services:
     repo: https://github.com/felipemenegaz-debug/kidmais-manager
     branch: production
     autoDeployTrigger: off
-    # Diário às 09:00 UTC (06:00 BRT), como no roteiro de 13/10 (P6).
+    # Diário às 09:00 UTC (06:00 BRT), como no roteiro de 13/10 (P6). A regra de alarme D-C4 ancora os dias de aviso
+    # nesta hora (HORA_CRON_UTC em scripts/assinatura-reconciliar.cjs; o teste amarra os dois): mudar só um desloca os avisos.
     schedule: "0 9 * * *"
     buildCommand: npm ci --include=dev && node --test scripts/assinatura-cron.test.cjs scripts/assinatura-reconciliar.test.cjs
     startCommand: node scripts/assinatura-cron.cjs
@@ -28,7 +30,8 @@ services:
       - key: KIDMAIS_DEPLOY_ENV
         value: production
       # Começa em `aguardando` (no-op: sai 0 sem conectar). Só passar para `conferir` depois que o web de produção tiver
-      # ASAAS_AMBIENTE=producao + chave + token (P6 etapa 4) e as mesmas três chaves forem copiadas para cá.
+      # ASAAS_AMBIENTE=producao + chave + token (P6 etapa 4) e as mesmas três chaves forem copiadas para cá, e depois que a
+      # regra de alarme D-C4 (docs/CRON_ASSINATURA_PRODUCAO_20261020.md §5a) estiver na branch production.
       - key: KIDMAIS_RECONCILIAR_MODO
         value: aguardando
       - key: KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO
