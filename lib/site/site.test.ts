@@ -4,7 +4,8 @@ import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { adicionais, ancora, ancoraExibivel, comercial, planos, precoExibido, recursos, statusDosRecursos, valorPlano, type RecursoId } from './catalogo.ts';
-import { configuracaoSite, linkWhatsApp, CADASTRO_FECHADO } from './configuracao.ts';
+import { configuracaoSite, linkEmail, linkWhatsApp, CADASTRO_FECHADO } from './configuracao.ts';
+import { robotsDaPlataforma, sitemapDaPlataforma } from './indexacao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
 
 const semBanco = { db: () => { throw new Error('teste não acessa banco'); }, withTransaction: () => { throw new Error('teste não acessa banco'); } };
@@ -99,4 +100,47 @@ test('cadastro fechado não expõe CTA; aberto mantém /cadastro', () => {
     const fechado = renderToStaticMarkup(createElement(Cadastro, { aberto: false }));
     assert.ok(fechado.includes(CADASTRO_FECHADO)); assert.doesNotMatch(fechado, /href=/);
     assert.match(renderToStaticMarkup(createElement(Cadastro, { aberto: true })), /href="\/cadastro"/);
+});
+
+test('contato por e-mail: sem WhatsApp, o visitante ainda tem uma ação clicável', () => {
+    assert.equal(linkEmail(' contato@exemplo.com.br ', 'Olá & oi'), 'mailto:contato@exemplo.com.br?subject=Ol%C3%A1%20%26%20oi');
+    for (const email of [undefined, '', 'a definir', 'sem-arroba', 'a@b', 'x@y.com?bcc=z@w.com', 'a b@c.com', 'javascript:x@y.com']) assert.equal(linkEmail(email, 'x'), null, String(email));
+    const soEmail = configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' });
+    const html = renderToStaticMarkup(createElement(Contato, { config: soEmail }));
+    assert.match(html, /href="mailto:contato@exemplo\.com\.br\?subject=/);
+    assert.match(html, /Falar com a equipe por e-mail/);
+    assert.doesNotMatch(html, /target=/);
+    assert.match(renderToStaticMarkup(createElement(Contato, { config: soEmail, fundador: true })), /mailto:.*Quero ser fundador/);
+    assert.equal(renderToStaticMarkup(createElement(Contato, { config: soEmail, flutuante: true })), '', 'botão flutuante é só do WhatsApp');
+    // Com WhatsApp, ele continua sendo o canal principal.
+    const ambos = configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br', SITE_ATENDIMENTO_WHATSAPP: '+55 (11) 99999-0000' });
+    assert.match(renderToStaticMarkup(createElement(Contato, { config: ambos })), /wa\.me/);
+    const planos = renderToStaticMarkup(createElement(Planos, { publicado: false, aberto: false, contato: soEmail }));
+    assert.match(planos, /mailto:[^"]*Quero%20ser%20fundador/);
+});
+test('rodapé: e-mail de atendimento clicável e ano corrente', () => {
+    const html = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' }) }));
+    assert.match(html, /E-mail: <a href="mailto:contato@exemplo\.com\.br\?subject=[^"]*">contato@exemplo\.com\.br<\/a>/);
+    assert.match(html, new RegExp(`© ${new Date().getFullYear()} Kidmais Manager`));
+});
+test('metadados: /planos tem título e descrição próprios, sem recurso Em breve', () => {
+    const metadataSite = carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as (rota?: string) => { title: string; description: string };
+    const conheca = metadataSite(); const planos = metadataSite('/planos');
+    assert.notEqual(planos.title, conheca.title);
+    assert.notEqual(planos.description, conheca.description);
+    assert.match(planos.title, /Planos/);
+    assert.doesNotMatch(planos.description, /orçamento online|Wall-e|convite/i);
+});
+test('robots e sitemap da plataforma: só com origem confiável; áreas privadas seguem pelo cabeçalho noindex', () => {
+    assert.deepEqual(sitemapDaPlataforma({}), []);
+    assert.equal('sitemap' in robotsDaPlataforma({}), false);
+    const env = { SITE_URL: 'https://manager.exemplo.com.br/conheca' };
+    assert.deepEqual(sitemapDaPlataforma(env).map(e => e.url), ['https://manager.exemplo.com.br/conheca', 'https://manager.exemplo.com.br/planos']);
+    const robots = robotsDaPlataforma(env);
+    assert.equal(robots.sitemap, 'https://manager.exemplo.com.br/sitemap.xml');
+    const regras = Array.isArray(robots.rules) ? robots.rules[0] : robots.rules;
+    assert.equal(regras.allow, '/');
+    assert.equal(([] as string[]).concat(regras.disallow ?? []).some(c => c.startsWith('/admin')), false, 'não esconder o X-Robots-Tag do Admin');
+    assert.equal(sitemapDaPlataforma({ SITE_URL: 'javascript:alert(1)' }).length, 0);
+    for (const arquivo of ['app/robots.ts', 'app/sitemap.ts']) assert.match(readFileSync(new URL(`../../${arquivo}`, import.meta.url), 'utf8'), /dynamic = 'force-dynamic'/);
 });

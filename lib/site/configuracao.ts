@@ -9,6 +9,13 @@ export function linkWhatsApp(numero: string | undefined, mensagem: string): stri
     if (!/^[1-9]\d{9,14}$/.test(digitos)) return null;
     return `https://wa.me/${digitos}?text=${encodeURIComponent(mensagem)}`;
 }
+const EMAIL = /^[^\s@<>()"',;:?&]+@[^\s@<>()"',;:?&]+\.[^\s@<>()"',;:?&]+$/;
+/** mailto só para um endereço simples (sem parâmetros embutidos); qualquer outra coisa não vira link. */
+export function linkEmail(email: string | undefined, assunto: string): string | null {
+    const informado = email?.trim() ?? '';
+    if (informado.length > 254 || !EMAIL.test(informado)) return null;
+    return `mailto:${informado}?subject=${encodeURIComponent(assunto)}`;
+}
 export function configuracaoSite(env: AmbienteSite = process.env) {
     const dado = (nome: string) => env[nome]?.trim() || 'a definir';
     const whatsapp = env.SITE_ATENDIMENTO_WHATSAPP;
@@ -23,6 +30,9 @@ export function configuracaoSite(env: AmbienteSite = process.env) {
         email: dado('SITE_ATENDIMENTO_EMAIL'), whatsapp: dado('SITE_ATENDIMENTO_WHATSAPP'), horario: dado('SITE_ATENDIMENTO_HORARIO'), encarregado: dado('SITE_ENCARREGADO_DADOS'),
         contato: linkWhatsApp(whatsapp, 'Olá! Quero conhecer o Kidmais Manager e conversar com a equipe.'),
         fundador: linkWhatsApp(whatsapp, 'Olá! Quero ser fundador do Kidmais Manager. Podem me explicar as condições?'),
+        // Sem WhatsApp, o e-mail de atendimento é a saída: o visitante nunca fica sem uma ação clicável.
+        emailHref: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero conhecer o Kidmais Manager'),
+        fundadorEmail: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero ser fundador do Kidmais Manager'),
     };
 }
 export type ConfiguracaoSite = ReturnType<typeof configuracaoSite>;
