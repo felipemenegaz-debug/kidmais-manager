@@ -12,7 +12,7 @@ type Secao = { titulo: string; paragrafos: string[] };
 export type TextoLegal = { documento: DocumentoLegal; titulo: string; versao: string; minuta: boolean; secoes: Secao[] };
 
 const TERMOS: TextoLegal = {
-    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-13-minuta', minuta: true,
+    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-20-minuta', minuta: true,
     secoes: [
         { titulo: 'Minuta', paragrafos: ['Este texto é uma minuta para homologação e será substituído pela versão revisada juridicamente antes da publicação.'] },
         { titulo: 'O serviço', paragrafos: ['O Kidmais Manager é um sistema de gestão para buffets infantis, contratado por empresa (CNPJ).'] },
@@ -23,25 +23,25 @@ const TERMOS: TextoLegal = {
         { titulo: 'Teste grátis e assinatura', paragrafos: [
             'A empresa recebe um período de teste sem cartão e sem cobrança automática, com duração informada no cadastro. Cada CNPJ tem um único teste.',
             'Os planos, preços e ciclos (mensal ou anual) são os exibidos na página de planos no momento da contratação. A assinatura renova ao fim de cada ciclo pelo meio de pagamento escolhido.',
-            'Sem pagamento, a empresa tem 7 dias para regularizar; depois, passa a somente leitura por 60 dias e, em seguida, tem o acesso suspenso.',
+            'Sem pagamento, a empresa tem 7 dias para regularizar, com acesso completo; depois, passa a somente leitura por 60 dias e, em seguida, tem o acesso suspenso.',
             'O cancelamento pode ser pedido a qualquer momento pelo canal de atendimento: a renovação é interrompida e o acesso continua até o fim do período já pago. Devolução de valores: [A DEFINIR].',
         ] },
         { titulo: 'Depois do teste ou da assinatura', paragrafos: [
-            'Sem assinatura ativa, a empresa passa a somente leitura por um período e, depois, tem o acesso suspenso. Os dados não são apagados por vencimento e podem ser exportados.',
+            'Ao fim do teste sem assinatura, ao fim do período já pago de uma assinatura cancelada ou depois dos 7 dias para regularizar um pagamento, a empresa passa a somente leitura por 60 dias e, depois, tem o acesso suspenso. Os dados não são apagados por vencimento e podem ser exportados.',
             'Prazo de retenção após o encerramento: [A DEFINIR].',
         ] },
-        { titulo: 'Contato', paragrafos: ['Canal de atendimento, inclusive para cancelamento: felipemenegaz@gmail.com.'] },
+        { titulo: 'Contato', paragrafos: ['Canal de atendimento, inclusive para cancelamento: contato@demerzellabs.com.br.'] },
     ],
 };
 
 const PRIVACIDADE: TextoLegal = {
-    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-15-minuta4', minuta: true,
+    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-20-minuta5', minuta: true,
     secoes: [
         { titulo: 'Sobre este aviso', paragrafos: [
             'Esta minuta descreve o tratamento de dados no Kidmais Manager, sistema de gestão de buffets e eventos, incluindo cadastro, assinatura e recursos de atendimento pelo WhatsApp. As definições pendentes estão identificadas no texto e precisam ser concluídas antes da publicação da política definitiva.',
         ] },
         { titulo: 'Quem é responsável', paragrafos: [
-            'A responsável pelo Kidmais Manager é Mary Marra Menegaz – EPP, nome fantasia KidMais Festas, CNPJ 20.119.900/0001-60. Contato para assuntos de privacidade: glass@demerzellabs.com.br.',
+            'A responsável pelo Kidmais Manager é Mary Marra Menegaz – EPP, nome fantasia KidMais Festas, CNPJ 20.119.900/0001-60. Contato para assuntos de privacidade: contato@demerzellabs.com.br.',
             'A KidMais Festas decide sobre o tratamento dos dados de cadastro, relacionamento e administração da plataforma. Quando uma empresa cliente utiliza o sistema para atender seus próprios clientes, essa empresa decide as finalidades desse atendimento, e a plataforma trata os dados conforme suas instruções e os serviços contratados.',
         ] },
         { titulo: 'Dados da conta', paragrafos: [
@@ -81,7 +81,7 @@ const PRIVACIDADE: TextoLegal = {
         ] },
         { titulo: 'Direitos e pedidos de exclusão', paragrafos: [
             'Você pode solicitar confirmação do tratamento, acesso, correção, informações sobre compartilhamento, portabilidade quando aplicável, revogação do consentimento e anonimização, bloqueio ou exclusão nas hipóteses previstas na legislação. Também pode apresentar petição à Autoridade Nacional de Proteção de Dados (ANPD).',
-            'Envie o pedido para glass@demerzellabs.com.br, com o assunto “Privacidade — Kidmais Manager” ou “Exclusão de dados — Kidmais Manager”. Informe qual é o pedido e o e-mail ou telefone utilizado no serviço. Se o atendimento foi feito por um buffet, indique o nome dele para localizarmos a empresa responsável. Não envie senhas nem códigos de verificação.',
+            'Envie o pedido para contato@demerzellabs.com.br, com o assunto “Privacidade — Kidmais Manager” ou “Exclusão de dados — Kidmais Manager”. Informe qual é o pedido e o e-mail ou telefone utilizado no serviço. Se o atendimento foi feito por um buffet, indique o nome dele para localizarmos a empresa responsável. Não envie senhas nem códigos de verificação.',
             'Podemos solicitar informações proporcionais para confirmar sua identidade e evitar acesso ou exclusão indevidos. Quando a decisão couber à empresa cliente, o pedido será encaminhado ou será indicado o canal responsável. Esse contato por e-mail também pode ser utilizado por quem não tem mais acesso à conta.',
             'A exclusão pode ter limites decorrentes de obrigações legais e da preservação de direitos; eventuais restrições devem ser explicadas ao solicitante. A exclusão na plataforma não remove automaticamente mensagens do aparelho de destinatários, cópias já baixadas ou dados mantidos por serviços externos. O atendimento do pedido deve considerar esses destinatários e as cópias de segurança aplicáveis.',
             'Definição sobre encarregado e divulgação de seus dados de contato, quando aplicável: [A DEFINIR]. O canal de privacidade acima permanece disponível para solicitações.',
