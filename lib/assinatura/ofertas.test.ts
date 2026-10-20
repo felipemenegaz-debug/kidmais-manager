@@ -10,7 +10,7 @@ import { sincronizarEmpresa } from './sincronizacao.ts';
 
 const E = '11111111-1111-4111-8111-111111111111', U = '22222222-2222-4222-8222-222222222222';
 const env = { ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox' };
-const pedido = { plano: 'essencial', ciclo: 'MENSAL', valorEsperadoCentavos: 11820, versao: '2026-10-09' } as const;
+const pedido = { plano: 'essencial', ciclo: 'MENSAL', valorEsperadoCentavos: 11820, versao: '2026-10-20' } as const;
 const oferta: Oferta = { id: 'contrato', empresa_id: E, plano: 'ESSENCIAL', ciclo: 'MENSAL', valor_regular_centavos: 19700,
     valor_final_centavos: 11820, fundador_id: 'vaga', estado: 'EM_ABERTO', catalogo_versao: pedido.versao };
 const sub: AssinaturaProvedor = { id: 'sub_1', customer: 'cus_1', externalReference: E, cycle: 'MONTHLY', status: 'ACTIVE', deleted: false, valorCentavos: 11820 };

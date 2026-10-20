@@ -31,7 +31,7 @@ const REMETENTE_TESTE = 'Kidmais Manager — Teste <onboarding@resend.dev>';
 /** Centavos fixados aqui (independentes do código): regular e com 40% Fundador. Anual = 10 × mensal. */
 const PRECOS = Object.freeze({
     'essencial/MENSAL': {regular:19700, fundador:11820}, 'essencial/ANUAL': {regular:197000, fundador:118200},
-    'profissional/MENSAL': {regular:34700, fundador:20820},
+    'profissional/MENSAL': {regular:39700, fundador:23820},
 });
 const emailDe = (chave, usuario, modo = MODO_EMAIL) => modo === 'RESEND' && chave === 'RM' ? DESTINO_AUTORIZADO : `hml-renovacao-${usuario.slice(0, 8)}@example.invalid`;
 const emailEncerrado = usuario => `hml-renovacao-${usuario.slice(0, 8)}-encerrado@example.invalid`;
