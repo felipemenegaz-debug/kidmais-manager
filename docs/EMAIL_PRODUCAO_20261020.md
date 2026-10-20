@@ -93,7 +93,11 @@ colar o MESMO bloco. Ctrl-C durante o ENVIAR **depois** de `ARQUIVOS_OK` = estad
 | 2 | Intenção gravada e o envio **falhou ou ficou incerto** (`RECUSADO_PROVEDOR_NADA_ENVIADO_NAO_REPETIR`, `FALHA_OU_ENVIO_INCERTO_NAO_REPETIR`, `ACEITO_SEM_IDENTIFICADOR_NAO_REPETIR`, `ERRO_INESPERADO`). | **Não repetir.** Conferir no painel do Resend (Emails/Logs) se houve envio para `contato@`. Nova tentativa só com decisão de Felipe e pacote novo (outra pasta de registro). |
 | 3 | `REGISTRO_JA_EXISTE_REPLAY_RECUSADO`: a prova já foi tentada. | Nada enviado agora. Ler o registro anterior (situação, id) e decidir. |
 | 4 | Recusa do **bloco** antes do executor (`DEPLOY_INACESSIVEL`, `FERRAMENTA_AUSENTE`, `CONTEUDO_DIVERGENTE`, `JA_EXISTE_DIFERENTE`, `GRAVACAO_FALHOU`, `DESTINO_INACESSIVEL`, `TEMPORARIO_FALHOU`). | Nada executado. Conferir o sha do bloco colado; não colar por cima. |
-| outro / sem a linha | 127 (linha perdida), 130 (Ctrl-C), 143 (sinal), ou nenhuma linha `CODIGO_SAIDA_BLOCO` (colagem incompleta, shell errado = `SHELL_ERRADO_NAO_E_PRODUCAO`). | Parar e ler a saída. Para o ENVIAR, tratar como incerto (código 2). |
+| outro / sem a linha | 127 (linha perdida), 130 (Ctrl-C), 143 (sinal), ou nenhuma linha `CODIGO_SAIDA_BLOCO` (colagem incompleta, shell errado = `SHELL_ERRADO_NAO_E_PRODUCAO`). | Parar e ler a saída. Para o ENVIAR, tratar como incerto (código 2). Depois de um Ctrl-C, um CONFERIR com código 0 significa que nada foi enviado (não há registro); código 3, que a intenção foi gravada. |
+
+ENVIAR com código 0 mas **sem** a linha JSON de resultado: tratar como 2 (P3-1 da revisão). Avisos esperados na saída,
+sem efeito: `MODULE_TYPELESS_PACKAGE_JSON` do Node e, se o provedor recusar, uma linha `HTTP <status>` do transporte.
+Ao passar o env (passo 3 do §3), usar a integração **sem `replace`**.
 
 ## 6. Como confirmar o recebimento
 
@@ -149,9 +153,14 @@ fazem sentido (o reenvio gera link novo e e-mail real).
 
 ## 9. Rollback
 
-- **Desligar o envio real:** remover `EMAIL_PROVIDER` do web de produção (o transporte volta a `desativado`; nada mais
-  sai). Isso dispara um deploy do mesmo commit — exige autorização própria. Opcionalmente remover também
-  `EMAIL_REMETENTE`. `RESEND_API_KEY` pode ficar (sem `EMAIL_PROVIDER=resend` ela não é usada) ou ser revogada no Resend.
+- **Desligar o envio real (agente, P2-1 da revisão de 20/10):** gravar `EMAIL_PROVIDER=desativado` no web de produção
+  pela integração do Render **em modo de mescla, sem `replace`** (`replace: true` apagaria todas as variáveis, inclusive
+  os segredos). Qualquer valor diferente de `resend`/`arquivo` é tratado como desligado (`lib/acessos/email.ts`,
+  `situacaoEmail`). Isso dispara um deploy do mesmo commit — exige autorização própria.
+- **Remover a variável de fato:** só Felipe, no painel do Render (Environment → excluir → "Save only" ou deploy).
+  `RESEND_API_KEY` pode ficar (sem `EMAIL_PROVIDER=resend` ela não é usada) ou ser revogada no Resend.
+- **Se a prova der código 2:** o app continua com `EMAIL_PROVIDER=resend` e os convites tendem a falhar com "provedor
+  recusou"; avaliar o desligamento acima (P3-8 da revisão).
 - **Não apagar** o registro `data/lancamento-email-producao-20261020/teste-envio.json` (é a trava anti-replay e a
   evidência), nem mensagens ou logs do Resend.
 - O executor não muda banco nem código: não há rollback de dados.
