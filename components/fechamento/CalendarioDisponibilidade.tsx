@@ -8,10 +8,13 @@ import {
   StatusDisponibilidade,
 } from "./types";
 import styles from "./FechamentoWizard.module.css";
+import { apiPublica } from "../../lib/fechamentos/rota-publica";
+import { useMarcaPublica } from "./MarcaPublica";
 import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
   horarioAlternativo,
+  type RegraPacoteEmpresa,
   statusDataPacote,
   statusLabel,
 } from "@/lib/agenda/disponibilidade";
@@ -43,8 +46,8 @@ export type ConsultaAgendaMes = (inicio: string, fim: string) => Promise<{
   comercial?: Pick<DisponibilidadeConfig, "pacoteOverrides" | "descontos">;
 }>;
 
-async function consultaPublica(inicio: string, fim: string) {
-  const r = await fetch(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, { cache: "no-store" });
+async function consultaPublica(inicio: string, fim: string, empresa: string | null = null) {
+  const r = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, empresa), { cache: "no-store" });
   const json = await r.json().catch(() => null);
   // Agenda pública sem contexto no servidor (062): mostra o motivo do servidor, nunca horários de outra empresa.
   if (!r.ok) throw new Error(String(json?.codigo ?? "").startsWith("AGENDA_PUBLICA_") ? String(json.erro) : "");
@@ -59,7 +62,10 @@ export default function CalendarioDisponibilidade({
   onSelecionar,
   onTrocarHorario,
   onConfigChange,
-  consultar = consultaPublica,
+  consultar,
+  empresa = null,
+  descontoDiaUtil,
+  regrasPacote = null,
 }: {
   pacote: PacoteId;
   horario: HorarioBase;
@@ -72,7 +78,16 @@ export default function CalendarioDisponibilidade({
   onTrocarHorario: (horario: HorarioBase) => void;
   onConfigChange?: (config: DisponibilidadeConfig) => void;
   consultar?: ConsultaAgendaMes;
+  /** Código público da empresa (/b/<código>); ausente = endereço atual. */
+  empresa?: string | null;
+  /** Regra do selo -15% vinda da tela (regras do servidor); ausente = a da marca. */
+  descontoDiaUtil?: boolean;
+  /** Regras de disponibilidade da empresa para o pacote (/b/<código>); ausente = regra legada do endereço atual. */
+  regrasPacote?: readonly RegraPacoteEmpresa[] | null;
 }) {
+  const marca = useMarcaPublica();
+  const diaUtil = descontoDiaUtil ?? marca.pagamento.descontoDiaUtil;
+  const consultarAgenda = useMemo<ConsultaAgendaMes>(() => consultar ?? ((inicio, fim) => consultaPublica(inicio, fim, empresa)), [consultar, empresa]);
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
   const [ano, setAno] = useState(agora.getFullYear());
@@ -96,7 +111,7 @@ export default function CalendarioDisponibilidade({
       const inicio = iso(ano, mes, 1);
       const ultimoDia = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
       const fim = iso(ano, mes, ultimoDia);
-      const json = await consultar(inicio, fim);
+      const json = await consultarAgenda(inicio, fim);
       const dias = json.dias;
       setOperacionalPorData(
         Object.fromEntries(dias.map((item) => [item.data, item])),
@@ -122,7 +137,7 @@ export default function CalendarioDisponibilidade({
     } finally {
       setCarregando(false);
     }
-  }, [ano, mes, onConfigChange, consultar]);
+  }, [ano, mes, onConfigChange, consultarAgenda]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void carregar(), 0);
@@ -202,12 +217,13 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario
+      horario,
+      regrasPacote
     );
 
     if (atual.status === "indisponivel") {
       const alt = horarioAlternativo(horario);
-      const statusAlt = statusDataPacote(config, pacote, data, alt);
+      const statusAlt = statusDataPacote(config, pacote, data, alt, regrasPacote);
       const ajustesAlt = ajustesOperacionaisDisponiveis(data, alt);
 
       setAviso({
@@ -226,7 +242,8 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario
+      horario,
+      diaUtil,
     );
 
     onSelecionar(
@@ -242,7 +259,7 @@ export default function CalendarioDisponibilidade({
         texto:
           (atual.motivo ||
             "Esta combinação não é realizada normalmente.") +
-          " Você pode continuar e solicitar uma análise especial da Kidmais.",
+          ` Você pode continuar e solicitar uma análise especial ${marca.da}.`,
       });
       return;
     }
@@ -250,7 +267,7 @@ export default function CalendarioDisponibilidade({
     if (atual.status === "consulta") {
       setAviso({
         tipo: "consulta",
-        titulo: "Data sujeita à avaliação da Kidmais.",
+        titulo: `Data sujeita à avaliação ${marca.da}.`,
         texto:
           (atual.motivo ||
             "Você pode continuar. A equipe avaliará essa data antes de liberar o contrato.") +
@@ -277,7 +294,7 @@ export default function CalendarioDisponibilidade({
   }
 
   const temAlgumBeneficioPadrao =
-    pacoteTemDescontoDiaUtil(pacote);
+    diaUtil && pacoteTemDescontoDiaUtil(pacote);
 
   return (
     <div className={styles.calendarWrap} data-calendario-disponibilidade>
@@ -332,7 +349,7 @@ export default function CalendarioDisponibilidade({
           <i>✓</i> Disponível
         </span>
         <span className={styles.legendConsult}>
-          <i>?</i> Consultar Kidmais
+          <i>?</i> {marca.kidmais ? "Consultar Kidmais" : "Consultar o buffet"}
         </span>
         <span className={styles.legendException}>
           <i>!</i> Exceção
@@ -379,7 +396,7 @@ export default function CalendarioDisponibilidade({
                   origem: "agenda" as const,
                   motivo: "Este período não está disponível.",
                 }
-              : statusDataPacote(config, pacote, data, horario);
+              : statusDataPacote(config, pacote, data, horario, regrasPacote);
 
           const selecionada =
             dataSelecionada === data;
@@ -391,7 +408,8 @@ export default function CalendarioDisponibilidade({
                   config,
                   pacote,
                   data,
-                  horario
+                  horario,
+                  diaUtil,
                 )
               : {
                   ativo: false,
@@ -435,7 +453,7 @@ export default function CalendarioDisponibilidade({
               onClick={() => selecionarData(data)}
               disabled={passado || semDados}
               aria-label={`${dia} de ${MESES[mes]}: ${
-                semDados ? "disponibilidade não carregada" : statusLabel(info.status)
+                semDados ? "disponibilidade não carregada" : statusLabel(info.status, marca.kidmais)
               }${
                 desconto.ativo
                   ? `, ${Math.round(
@@ -446,7 +464,7 @@ export default function CalendarioDisponibilidade({
               title={
                 semDados
                   ? "Disponibilidade não carregada."
-                  : info.motivo || statusLabel(info.status)
+                  : info.motivo || statusLabel(info.status, marca.kidmais)
               }
             >
               <div className={styles.calendarDayTop}>

@@ -7,12 +7,11 @@ import type { FerramentaAcao } from "./tipos.ts";
  * O registro é montado na composição a partir das fábricas de cada feature (pacotes aqui; importação
  * na feature IMPORT). Nenhuma feature futura é importada por este arquivo.
  *
- * Buffet (categorias e itens) é DENY: `buffet_categorias`/`buffet_itens` são catálogo global e a
- * própria rota /api/admin/configuracoes/catalogo recusa escrita por membership de empresa
- * (`CATALOGO_GLOBAL_SEM_AUTORIDADE`). A IA não pode ter mais autoridade que a tela.
- * Liberar exige decisão do Core (catálogo por empresa, com migration própria).
+ * Buffet (categorias e itens) é DENY para a IA: com a 078 o catálogo é por empresa e a Gestão o altera pela tela
+ * (/api/admin/configuracoes/catalogo); sem a 078 a rota recusa (`CATALOGO_GLOBAL_SEM_AUTORIDADE`). Na Fase 1 a IA é
+ * somente leitura — escrever no catálogo exigiria uma ação CONFIRM própria, não liberada.
  */
-const MENSAGEM_BUFFET = "Hoje o Buffet é um catálogo global: nenhuma empresa pode alterá-lo, nem pela tela nem pelo Kidmais Intelligence. Isso depende de o catálogo passar a ser por empresa.";
+const MENSAGEM_BUFFET = "O Kidmais Intelligence não altera o catálogo do Buffet. Categorias e itens são editados pela Gestão da empresa em Configurações › Itens do Buffet.";
 
 function negada(capacidade: string, titulo: string, mensagem: string, indisponivel = false): FerramentaAcao {
   const recusar = (): never => { throw new InteligenciaError("ACAO_NEGADA", mensagem, 403); };

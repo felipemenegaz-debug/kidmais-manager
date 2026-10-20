@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
+import InstalarGuardiaoHistorico from "@/components/InstalarGuardiaoHistorico";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,6 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kidmais Manager",
   description: "Gestão de clientes, festas e disponibilidade da Kidmais.",
+  // Mesmo <link rel="icon" href="/favicon.ico" sizes="any"> de antes (arquivo agora em public/), declarado aqui para
+  // que os endereços públicos de outras empresas (/b/<código>) possam substituí-lo por um ícone neutro.
+  icons: { icon: [{ url: "/favicon.ico", sizes: "any" }] },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -24,7 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col"><InstalarGuardiaoHistorico />{children}</body>
     </html>
   );
 }

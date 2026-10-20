@@ -134,6 +134,8 @@ function mundo() {
         query: async (sql: string, p: unknown[] = []) => {
             sqls.push(sql);
             const r = (rows: unknown[]) => ({ rows, rowCount: rows.length });
+            if (sql.startsWith('SELECT id FROM empresas WHERE id=$1::uuid FOR UPDATE')) return r([{ id: p[0] }]);
+            if (sql.includes('AS instalado074')) return r([{ instalado074: false }]);
             if (sql.includes('FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id') && sql.includes('WHERE m.empresa_id = $1::uuid')) {
                 return r(vinculos.filter((m) => m.empresa === p[0] && (p[1] === undefined || m.usuario === p[1])).map(linha));
             }
@@ -193,6 +195,10 @@ function mundo() {
         criarHashSenha: async (senha: string) => { hashes.push(senha); return 'hash:' + senha; },
         registrarAuditoria: async (input: { acao: string }) => { auditorias.push(input); return {}; },
         withTransaction: async (fn: (t: unknown) => unknown) => fn(tx),
+        // Estes cenários exercitam a criação direta: ligada explicitamente, sem herdar USUARIOS_CRIACAO_DIRETA do
+        // ambiente (o build do Render roda com a variável do serviço). A recusa com ela desligada é coberta em
+        // lib/acessos/convites-empresa.test.ts e no teste abaixo.
+        criacaoDireta: () => true,
     };
     return { identidades, vinculos, caps, assinaturas, auditorias, sqls, hashes, tenantDe, deps, gestaoA, membroA, soB, compartilhado, gestaoB, inativa };
 }
@@ -247,6 +253,18 @@ test('056 listagem: A vê membro A e o compartilhado (com o papel de A), nunca q
     assert.ok(!r.usuarios.some((u) => u.email === m.soB.email), 'nenhum dado de B');
     assert.equal(r.usuarios.find((u) => u.id === m.compartilhado.id)!.papel, 'ADMINISTRATIVO', 'papel NESTA empresa, não o de B nem o global');
     assert.ok(m.sqls.every((sql) => !sql.includes('FROM usuarios_administrativos ORDER BY')), 'nenhuma lista global');
+});
+
+test('criação direta desligada (E1): o mesmo cenário recusa antes de calcular hash ou abrir transação', async () => {
+    const m = (mundoAtual = mundo());
+    const s = comoSessao(m.gestaoA);
+    let transacoes = 0;
+    const identidadesAntes = m.identidades.length;
+    const deps = { ...m.deps, criacaoDireta: () => false, withTransaction: async () => { transacoes += 1; } };
+    await assert.rejects(
+        () => u056.criarUsuarioAdministrativo(s, { acao: 'criar', nome: 'Nova', email: 'nova@example.invalid', nivel: 'EQUIPE', senha: 'senha-longa-1', confirmacao: 'senha-longa-1' }, 'r', deps, EMP_A),
+        (e: unknown) => (e as { httpStatus?: number }).httpStatus === 403 && (e as { code?: string }).code === 'CRIACAO_DIRETA_DESATIVADA');
+    assert.deepEqual([m.hashes.length, transacoes, m.identidades.length], [0, 0, identidadesAntes]);
 });
 
 test('056 criação: e-mail novo gera identidade + membership ATIVA + capacidades da membership; conta já administrável', async () => {

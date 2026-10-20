@@ -1,7 +1,7 @@
 export type ItemNavegacao = {
     href: string;
     rotulo: string;
-    grupo: 'Principal' | 'Operação' | 'Financeiro' | 'Configurações';
+    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Financeiro' | 'Configurações';
 };
 
 const PRINCIPAL: ItemNavegacao[] = [
@@ -13,6 +13,19 @@ const OPERACAO: ItemNavegacao[] = [
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/disponibilidade', rotulo: 'Agenda', grupo: 'Operação' },
+    { href: '/admin/atendimento', rotulo: 'Atendimento WhatsApp', grupo: 'Operação' },
+];
+
+/**
+ * Marketing (goal local 14/10/2026): aparece com o recurso MARKETING no plano e alguma capacidade de Marketing na
+ * empresa (Gestão tem todas). A barreira está nas APIs (lib/marketing/http.ts); o menu só acompanha.
+ */
+const MARKETING: ItemNavegacao[] = [
+    { href: '/admin/marketing', rotulo: 'Visão geral', grupo: 'Marketing' },
+    { href: '/admin/marketing/campanhas', rotulo: 'Campanhas', grupo: 'Marketing' },
+    { href: '/admin/marketing/origens', rotulo: 'Origens dos contatos', grupo: 'Marketing' },
+    { href: '/admin/marketing/site', rotulo: 'Site e SEO', grupo: 'Marketing' },
+    { href: '/admin/marketing/automacoes', rotulo: 'Automações', grupo: 'Marketing' },
 ];
 
 const FINANCEIRO: ItemNavegacao[] = [
@@ -34,20 +47,39 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
-    { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'plataforma' },
+    // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
+    { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean };
+/** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */
+/** `marketing: false` = plano sem Marketing ou pessoa sem capacidade nesta empresa. Ausente = mostrado (compatibilidade). */
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean };
+
+/** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
+export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
 
 /** `true`/`false` mantém o comportamento antigo (as duas autoridades juntas); o shell passa as duas separadas. */
 export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemNavegacao[] {
-    const p = typeof permissoes === 'boolean' ? { gestaoEmpresa: permissoes, plataforma: permissoes } : permissoes;
-    const base = [...PRINCIPAL, ...OPERACAO, ...FINANCEIRO];
+    const p: PermissoesNavegacao = typeof permissoes === 'boolean' ? { gestaoEmpresa: permissoes, plataforma: permissoes } : permissoes;
+    const financeiro = p.financeiroCompleto === false
+        ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
+        : FINANCEIRO;
+    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });
     return [...base, ...config];
+}
+
+/**
+ * Cartões do hub de Configurações (/admin/configuracoes): a MESMA autoridade do menu e da API. Rota sem autoridade
+ * registrada continua visível; sem as permissões do shell (fora dele), o hub mostra tudo como antes.
+ */
+export function configuracaoVisivel(href: string, permissoes: PermissoesNavegacao | null) {
+    const autoridade = autoridadeDaConfiguracao(href);
+    if (!autoridade || !permissoes) return true;
+    return autoridade === 'empresa' ? permissoes.gestaoEmpresa : permissoes.plataforma;
 }
 
 /** Rotas de configuração e a autoridade que o servidor exige (usado no teste que amarra menu e API). */

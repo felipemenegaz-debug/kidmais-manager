@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
+import { recursoIncluido } from "@/lib/assinatura/recursos-plano";
 import { buscarClientesCrm, obterClienteBase } from "@/lib/clientes/services";
 import { listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
 import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
@@ -34,6 +35,8 @@ import { montarExtensoes } from "./extensoes";
  */
 export function portasDominio(request: NextRequest): PortasDominio {
   return {
+    // Mesma matriz de plano das APIs do financeiro, na transação da empresa comprovada.
+    recursos: { financeiroCompleto: (tx, empresaId) => recursoIncluido(tx, empresaId, "FINANCEIRO_COMPLETO") },
     festas: {
       async consultarDetalhe(festaId) {
         try {

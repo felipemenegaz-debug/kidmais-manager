@@ -6,6 +6,10 @@ import {
   isIdentityServiceError,
 } from "@/lib/identidade/services";
 
+import { db } from "@/lib/db/postgres";
+import { escopoIdentidadePublica } from "@/lib/comercial/cotacao-publica";
+import { limitarPublico, respostaRecusaPublica } from "@/lib/http/limite-publico";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -17,6 +21,15 @@ function noStore(response: NextResponse) {
 }
 
 export async function POST(request: NextRequest) {
+  const limite = limitarPublico(request, "IDENTIDADE");
+  if (limite) return limite;
+  // Empresa pelo endereço (servidor): CPF só é procurado nela; nunca em cadastro de outra empresa.
+  let escopo: Awaited<ReturnType<typeof escopoIdentidadePublica>>;
+  try {
+    escopo = await escopoIdentidadePublica(db, request.nextUrl);
+  } catch (error) {
+    return respostaRecusaPublica(error);
+  }
   let body: unknown;
   try {
     body = await request.json();
@@ -41,7 +54,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = criarIdentityServiceComAmbiente(enviarOtpComAmbiente);
-    const result = await service.solicitarRecuperacao(parsed.data.cpf);
+    const result = await service.solicitarRecuperacao(parsed.data.cpf, escopo);
 
     return noStore(NextResponse.json({ ok: true, ...result }, { status: 202 }));
   } catch (error) {

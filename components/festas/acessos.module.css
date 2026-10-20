@@ -73,7 +73,9 @@
 .linhaMuted{color: var(--secondary-text)}
 .menuWrap{position:relative;display:inline-block}
 .iconBtn{min-height:40px;min-width:40px;padding:0;border-radius:10px;color: var(--secondary-text);font-size:22px;line-height:1}
-.menu{position:absolute;right:0;top:100%;z-index:5;min-width:240px;background:var(--card-bg);border:1px solid var(--input-border);border-radius:12px;box-shadow:0 12px 32px #1b1f3b1f;padding:6px;display:flex;flex-direction:column}
+/* Fixo na janela (posição calculada em menu-posicao.ts a partir do botão): a tabela tem overflow e recortaria um menu absoluto.
+   z-index 44: acima da barra lateral do shell (40), abaixo da cortina (45), da barra móvel (50) e do botão de menu (60). */
+.menu{position:fixed;z-index:44;min-width:min(240px,calc(100vw - 16px));box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;background:var(--card-bg);border:1px solid var(--input-border);border-radius:12px;box-shadow:0 12px 32px #1b1f3b1f;padding:6px;display:flex;flex-direction:column}
 .menu button{width:100%;text-align:left;padding:10px 12px;border-radius:8px;min-height:44px}
 .menuDanger{color: #fda4af}
 .vazio{text-align:center;padding:56px 16px}

@@ -11,6 +11,7 @@ import { erroAcesso, isAcessoServiceError } from './erros.ts';
 import { criarEnviarEmail, linkComToken, mensagemConvite, type EnviarEmail } from './email.ts';
 import { validarNovaSenha, type ContextoRequisicao } from './senha-propria.ts';
 import { mascararEmail, nomeObrigatorio } from './validacao.ts';
+import { exigirVaga } from '../assinatura/limites-usuarios.ts';
 
 /**
  * Convite de acesso a UMA empresa (063, convites_acesso).
@@ -102,6 +103,7 @@ export async function criarConviteNaTransacao(tx: DbExecutor, deps: Pick<Convite
     const pendente = (await tx.query<LinhaConvite>(`SELECT ${COLUNAS} FROM convites_acesso c WHERE c.empresa_id = $1::uuid AND c.email = $2 AND c.status = 'PENDENTE' FOR UPDATE`, [input.empresaId, input.email])).rows[0];
     if (pendente && !pendente.expirado)
         throw erroAcesso('CONFLITO', 'Já existe convite pendente para este e-mail nesta empresa. Use "Reenviar".', 409, { conviteId: pendente.id });
+    await exigirVaga(tx, input.empresaId);
     if (pendente)
         await tx.query("UPDATE convites_acesso SET status = 'CANCELADO', cancelado_por = $2 WHERE id = $1", [pendente.id, input.criadoPor]);
     const token = deps.gerarToken();
@@ -114,6 +116,7 @@ export async function criarConviteNaTransacao(tx: DbExecutor, deps: Pick<Convite
 
 /** Gera token novo para um convite pendente desta empresa (vencido ou não), respeitando intervalo e limite de envios. */
 export async function renovarConviteNaTransacao(tx: DbExecutor, deps: Pick<ConvitesDeps, 'gerarToken'>, empresaId: string, conviteId: string) {
+    await tx.query('SELECT id FROM empresas WHERE id=$1::uuid FOR UPDATE', [empresaId]);
     const c = (await tx.query<LinhaConvite & { segundos_desde_envio: number | null }>(
         `SELECT ${COLUNAS}, extract(epoch FROM clock_timestamp() - c.ultimo_envio_em)::int AS segundos_desde_envio
            FROM convites_acesso c WHERE c.id = $1::uuid AND c.empresa_id = $2::uuid FOR UPDATE`, [conviteId, empresaId])).rows[0];
@@ -127,6 +130,7 @@ export async function renovarConviteNaTransacao(tx: DbExecutor, deps: Pick<Convi
     }
     if (c.envios >= MAXIMO_ENVIOS)
         throw erroAcesso('LIMITE_TENTATIVAS', 'Este convite atingiu o limite de envios. Cancele e crie um novo.', 429);
+    await exigirVaga(tx, empresaId, c.expirado ? 1 : 0);
     const token = deps.gerarToken();
     const renovado = (await tx.query<{ expira_em: string }>(
         `UPDATE convites_acesso SET token_hash = $2, expira_em = clock_timestamp() + make_interval(days => $3::int) WHERE id = $1 RETURNING expira_em::text`,
@@ -214,13 +218,17 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
     const resultado = await deps.withTransaction(async (tx) => {
         if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE))
             return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE.namespace) };
+        const inicial = (await tx.query<LinhaConvite>(`SELECT ${COLUNAS} FROM convites_acesso c WHERE c.token_hash = $1`, [hashToken(input.token)])).rows[0];
+        if (!inicial || inicial.status !== 'PENDENTE' || inicial.expirado) return { tipo: 'link' as const };
+        // Usuário → empresa → convite: não segurar o convite antes de disputar a trava de vagas.
+        const conta = (await tx.query<{ id: string; senha_hash: string; ativo: boolean }>('SELECT id, senha_hash, ativo FROM usuarios_administrativos WHERE email = $1 FOR UPDATE', [inicial.email])).rows[0];
+        const empresa = (await tx.query<{ nome: string; status: string }>('SELECT nome, status FROM empresas WHERE id = $1 FOR UPDATE', [inicial.empresa_id])).rows[0];
         const c = (await tx.query<LinhaConvite>(`SELECT ${COLUNAS} FROM convites_acesso c WHERE c.token_hash = $1 FOR UPDATE`, [hashToken(input.token)])).rows[0];
         if (!c || c.status !== 'PENDENTE' || c.expirado)
             return { tipo: 'link' as const };
-        const empresa = (await tx.query<{ nome: string; status: string }>('SELECT nome, status FROM empresas WHERE id = $1 FOR SHARE', [c.empresa_id])).rows[0];
+        if (c.empresa_id!==inicial.empresa_id || c.email!==inicial.email) return { tipo: 'link' as const };
         if (empresa?.status !== 'ATIVA')
             return { tipo: 'empresa' as const };
-        const conta = (await tx.query<{ id: string; senha_hash: string; ativo: boolean }>('SELECT id, senha_hash, ativo FROM usuarios_administrativos WHERE email = $1 FOR UPDATE', [c.email])).rows[0];
         let usuarioId: string;
         let contaNova = false;
         if (conta) {
@@ -244,6 +252,8 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
         const vinculo = (await tx.query<{ id: string; status: string }>('SELECT id, status FROM memberships WHERE empresa_id = $1 AND usuario_id = $2 FOR UPDATE', [c.empresa_id, usuarioId])).rows[0];
         if (vinculo && vinculo.status !== 'PENDENTE' && vinculo.status !== 'ATIVA')
             return { tipo: 'vinculo' as const, status: vinculo.status };
+        // Aceitar troca a reserva válida pelo vínculo, sem somar duas vezes.
+        if (vinculo?.status !== 'ATIVA') await exigirVaga(tx, c.empresa_id, 0);
         let membershipId = vinculo?.id;
         if (!membershipId) {
             membershipId = (await tx.query<{ id: string }>(
@@ -255,7 +265,12 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
             await tx.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1 AND empresa_id = $2", [membershipId, c.empresa_id]);
             await concederPerfilFesta(tx, c.empresa_id, membershipId, (c.papel === 'REPRESENTANTE_AUTORIZADO' ? 'GESTAO' : 'EQUIPE') as NivelSistema, c.criado_por);
         }
-        await tx.query("UPDATE convites_acesso SET status = 'ACEITO', aceito_usuario_id = $2, membership_id = $3 WHERE id = $1", [c.id, usuarioId, membershipId]);
+        // O hash/prova de senha pode atravessar a expiração. Conferir no banco ao concluir;
+        // lançar dentro da transação desfaz também a identidade/vínculo criados nesta tentativa.
+        const aceito = await tx.query(`UPDATE convites_acesso SET status = 'ACEITO', aceito_usuario_id = $2, membership_id = $3
+            WHERE id = $1 AND status = 'PENDENTE' AND expira_em > clock_timestamp() RETURNING id`, [c.id, usuarioId, membershipId]);
+        if (aceito.rowCount !== 1)
+            throw erroAcesso('LINK_INVALIDO', 'Este convite é inválido, já foi usado ou expirou. Peça um novo convite.', 410);
         const implantacao = (await tx.query<{ implantacao: string }>(
             `UPDATE plataforma_empresas_cadastro SET implantacao = 'EM_CONFIGURACAO', atualizado_por = $2
               WHERE empresa_id = $1 AND implantacao = 'AGUARDANDO_PRIMEIRO_ACESSO' RETURNING implantacao`, [c.empresa_id, usuarioId])).rows[0];

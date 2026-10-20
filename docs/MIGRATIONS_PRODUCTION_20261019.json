@@ -1,0 +1,201 @@
+{
+  "status": "PREPARADO_NAO_EXECUTADO",
+  "preparadoEm": "2026-10-19",
+  "alvo": {
+    "servico": "srv-dak77m2d0e5s73b8rkkg",
+    "host": "dpg-dak750gae00c73fudmg0-a",
+    "database": "kidmais_production",
+    "port": 5432
+  },
+  "normalizacao": "CRLF para LF",
+  "lancamento": {
+    "manifesto": "docs/MIGRATIONS_PRODUCTION_LANCAMENTO_20261011.json",
+    "sha256": "628eb4f66dd843073725a8ec7c44669b777637facdcede14c8a87e24d1c55c26",
+    "aplicador": "scripts/migrations-lancamento-production.cjs",
+    "aplicadorSha256": "33bb4ab6caa4cd2ecbb4401340631f31ad799af7f08d85e3b6975cdd63560070",
+    "diagnostico": "scripts/diagnostico-lancamento-production.cjs",
+    "diagnosticoSha256": "6606c08e58d01c633e6b55d65683156585f069f2d4c5d96ccfee80f2b7d5615a"
+  },
+  "sequencia": [
+    {
+      "id": "074a",
+      "aplicador": "lancamento"
+    },
+    {
+      "id": "075",
+      "aplicador": "lancamento"
+    },
+    {
+      "id": "076",
+      "aplicador": "lancamento"
+    },
+    {
+      "id": "077",
+      "aplicador": "lancamento"
+    },
+    {
+      "id": "078",
+      "aplicador": "lancamento"
+    },
+    {
+      "id": "079",
+      "aplicador": "lancamento",
+      "presenteEmProducaoDesde": "2026-10-17"
+    },
+    {
+      "id": "084",
+      "aplicador": "migration-084-production",
+      "presenteEmProducaoDesde": "2026-10-18",
+      "arquivos": [
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261018_084_postcheck.sql",
+          "sha256": "b9ef2e59fcbce0e4218d73f6d4d9a2ae2ad833a7c8b00eadedcc90fb764dec5b"
+        }
+      ]
+    },
+    {
+      "id": "060",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261001_060_whatsapp_atendimento.sql",
+          "sha256": "c2da9f744b48f7536c155decd1e0c4e19af8571f7fb9e6615dda56e44ec04bd8"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261001_060_postcheck.sql",
+          "sha256": "50ba7ddd8bf54d1eaac068ba9817e08e5a0f140c87bc687c2debe5a8716c38f2"
+        }
+      ]
+    },
+    {
+      "id": "065",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261004_065_whatsapp_nome_perfil.sql",
+          "sha256": "3b52aca1717cb27e0d5a5d80b8af1358947aab3625a392a6af18cf8bedd2dc2f"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261004_065_postcheck.sql",
+          "sha256": "5361c3de59bffe271680ebb4d6bfbfa6cbcebe4f283cad798d110aa723bd3ab9"
+        }
+      ]
+    },
+    {
+      "id": "080",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261011_080_whatsapp_mensagens_prontas.sql",
+          "sha256": "f5df43dbd1b1ec2667beee939d66e1c040e3e6b63606414e488059356358f731"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261011_080_postcheck.sql",
+          "sha256": "7864399674ed22141ed083d485a50cc658f53f12824f1b249cb8b1feaab3a68d"
+        }
+      ]
+    },
+    {
+      "id": "081",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261011_081_whatsapp_prontas_midia.sql",
+          "sha256": "bc11de56e23eb2aa7050bad9cce383634f8d8aa6271e287019baee2669974b15"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261011_081_postcheck.sql",
+          "sha256": "83dcbaf7a3675046111c78e7bd65556674e02fd6f421f96ba56119886f06b5dc"
+        }
+      ]
+    },
+    {
+      "id": "082",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261011_082_wall_e_atendimento.sql",
+          "sha256": "62c93333142e76e55a0f2bca4d45e2a58ed67bbc6c7ffbbda805e2f183ec01b5"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261011_082_postcheck.sql",
+          "sha256": "84889ade956932f27fb65198be54264f86b2803d9e565a5d915593b6e12d10c7"
+        }
+      ]
+    },
+    {
+      "id": "083",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261016_083_precheck.sql",
+          "sha256": "d48bf23c200eacdddd2ca592c4e3e8b29d2cc3a0de3c08365e82ea92905d8a52"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261016_083_whatsapp_conexao_empresa.sql",
+          "sha256": "5806c11a3c7d270878d142e5656f26bb4742e83571eedef4190f37eee2e5ceb2"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261016_083_postcheck.sql",
+          "sha256": "def0037f6dcb70bf33c915884d7ebf4232f141654783caee2f913639d474b1a2"
+        }
+      ]
+    },
+    {
+      "id": "085",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261018_085_precheck.sql",
+          "sha256": "645e7b603da53aa35efca7683529f6bce29c4c7b64dca3de2bb73d546dfef677"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261018_085_marketing_base.sql",
+          "sha256": "45a839ad999ef06b6e806c58b04ec351544eac63cb026734dc6993c4b46bec91"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261018_085_postcheck.sql",
+          "sha256": "1df5cb0f707c2b209997e2df07efea8a4919c694718213b464d86f8c5271a4bc"
+        }
+      ]
+    },
+    {
+      "id": "086",
+      "aplicador": "este",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261018_086_precheck.sql",
+          "sha256": "2fa5373aa597c6e94b5460d1b067cbcf8c342bfb50abc299b8566e3e0a62b020"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261018_086_marketing_automacoes.sql",
+          "sha256": "e814fc164b09891ac3b431e326090b87ef665810d4ce92895b41825e976a1f37"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261018_086_postcheck.sql",
+          "sha256": "4e38917f44db67d0af142d77ca390aa7450c2b4becff21a372fae25bb1e4399f"
+        }
+      ]
+    }
+  ]
+}

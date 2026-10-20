@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ASAAS_SANDBOX_URL, AsaasFalhou, clienteAsaasDoAmbiente, configuracaoAsaas, criarClienteAsaas, urlDeFaturaValida, type ConfiguracaoAsaas } from './asaas.ts';
+import { ASAAS_PRODUCAO_URL, ASAAS_SANDBOX_URL, AsaasFalhou, ambienteAsaas, clienteAsaasDoAmbiente, configuracaoAsaas, criarClienteAsaas, urlDeFaturaValida, type ConfiguracaoAsaas } from './asaas.ts';
 
 /** Cliente Asaas com fetch FALSO: nenhuma chamada de rede acontece neste arquivo. */
 const CHAVE = '$aact_hmlg_000000000000000000000000000000chave_de_teste';
@@ -22,9 +22,10 @@ function fetchFalso(respostas: Array<(c: Chamada) => Response | Promise<Response
 }
 const json = (corpo: unknown, status = 200) => () => new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('configuração: só sandbox; chave com prefixo de sandbox; token 32–255; motivo explícito sem expor valores', () => {
+test('configuração: sandbox fora de produção; chave com prefixo de sandbox; token 32–255; motivo explícito sem expor valores', () => {
     assert.deepEqual(configuracaoAsaas({}), { ligado: false, motivo: 'AMBIENTE_AUSENTE' });
-    assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_AMBIENTE: 'producao' }), { ligado: false, motivo: 'AMBIENTE_NAO_SUPORTADO' });
+    assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_AMBIENTE: 'producao' }), { ligado: false, motivo: 'AMBIENTE_DIVERGENTE' }, 'produção fora do serviço de produção');
+    assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_AMBIENTE: 'producao', KIDMAIS_DEPLOY_ENV: 'staging' }), { ligado: false, motivo: 'AMBIENTE_DIVERGENTE' });
     assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_AMBIENTE: 'production' }), { ligado: false, motivo: 'AMBIENTE_NAO_SUPORTADO' });
     assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_API_KEY: '' }), { ligado: false, motivo: 'CHAVE_AUSENTE' });
     assert.deepEqual(configuracaoAsaas({ ...env, ASAAS_API_KEY: '$aact_prod_000000000000000000' }), { ligado: false, motivo: 'CHAVE_FORA_DO_SANDBOX' });
@@ -33,8 +34,36 @@ test('configuração: só sandbox; chave com prefixo de sandbox; token 32–255;
     assert.equal(configuracaoAsaas(env).ligado, true);
     assert.equal(config.baseUrl, ASAAS_SANDBOX_URL);
     assert.equal(clienteAsaasDoAmbiente({ ...env, ASAAS_API_KEY: '$aact_prod_x' }).cliente, null);
-    assert.throws(() => criarClienteAsaas({ ...config, apiKey: '$aact_prod_000' }), /somente sandbox/);
-    assert.throws(() => criarClienteAsaas({ ...config, baseUrl: 'https://api.asaas.com/v3' }), /somente sandbox/);
+    assert.throws(() => criarClienteAsaas({ ...config, apiKey: '$aact_prod_000' }), /mesmo ambiente/);
+    assert.throws(() => criarClienteAsaas({ ...config, baseUrl: 'https://api.asaas.com/v3' }), /mesmo ambiente/);
+    assert.throws(() => criarClienteAsaas({ ...config, ambiente: 'outro' as never }), /mesmo ambiente/);
+});
+
+test('produção: só no serviço de produção, só com chave de produção e URL de produção; sandbox recusado lá', () => {
+    const CHAVE_PROD = '$aact_prod_000000000000000000000000000000chave_de_teste';
+    const prod = { ASAAS_AMBIENTE: 'producao', ASAAS_API_KEY: CHAVE_PROD, ASAAS_WEBHOOK_TOKEN: TOKEN, KIDMAIS_DEPLOY_ENV: 'production' };
+    const estado = configuracaoAsaas(prod);
+    assert.equal(estado.ligado, true);
+    const c = (estado as { ligado: true; config: ConfiguracaoAsaas }).config;
+    assert.deepEqual({ ambiente: c.ambiente, baseUrl: c.baseUrl }, { ambiente: 'producao', baseUrl: ASAAS_PRODUCAO_URL });
+    assert.ok(criarClienteAsaas(c));
+    assert.deepEqual(configuracaoAsaas({ ...prod, ASAAS_API_KEY: CHAVE }), { ligado: false, motivo: 'CHAVE_FORA_DA_PRODUCAO' }, 'chave de sandbox em produção');
+    assert.deepEqual(configuracaoAsaas({ ...env, KIDMAIS_DEPLOY_ENV: 'production' }), { ligado: false, motivo: 'AMBIENTE_DIVERGENTE' }, 'sandbox no serviço de produção');
+    assert.deepEqual(configuracaoAsaas({ ...prod, KIDMAIS_DEPLOY_ENV: ' production ' }).ligado, true);
+    assert.throws(() => criarClienteAsaas({ ...c, baseUrl: ASAAS_SANDBOX_URL }), /mesmo ambiente/);
+    assert.throws(() => criarClienteAsaas({ ...c, apiKey: CHAVE }), /mesmo ambiente/);
+    assert.equal(ambienteAsaas(prod), 'producao');
+    assert.equal(ambienteAsaas(env), 'sandbox');
+    for (const [e, motivo] of [[{}, 'AMBIENTE_AUSENTE'], [{ ASAAS_AMBIENTE: 'prod' }, 'AMBIENTE_NAO_SUPORTADO'], [{ ASAAS_AMBIENTE: 'producao' }, 'AMBIENTE_DIVERGENTE']] as const)
+        assert.deepEqual(ambienteAsaas(e), { motivo });
+});
+
+test('produção: a configuração inválida nunca vaza a chave nas mensagens', () => {
+    const CHAVE_PROD = '$aact_prod_segredo_que_nao_pode_aparecer_000000';
+    const estado = configuracaoAsaas({ ASAAS_AMBIENTE: 'producao', ASAAS_API_KEY: CHAVE_PROD, ASAAS_WEBHOOK_TOKEN: 'curto', KIDMAIS_DEPLOY_ENV: 'production' });
+    assert.equal(JSON.stringify(estado).includes('segredo'), false);
+    try { criarClienteAsaas({ ambiente: 'producao', baseUrl: ASAAS_SANDBOX_URL, apiKey: CHAVE_PROD, webhookToken: TOKEN }); assert.fail('aceitou'); }
+    catch (e) { assert.equal(String((e as Error).message).includes('segredo'), false); }
 });
 
 test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDisabled e referência externa', async () => {
@@ -55,7 +84,7 @@ test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDis
     assert.ok(!('email' in corpo) && !('mobilePhone' in corpo), 'nenhum contato é enviado ao provedor');
 });
 
-test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; 404 = removida', async () => {
+test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; GET 404 = null (não prova remoção); DELETE com deleted = removida (DELETE 404 em remocao-resultado.test.ts)', async () => {
     const { f, chamadas } = fetchFalso([
         json({ id: 'sub_000001', status: 'ACTIVE', deleted: false, cycle: 'YEARLY', customer: 'cus_000001', externalReference: 'e1' }),
         () => new Response('{"errors":[{"description":"nao encontrado"}]}', { status: 404 }),
@@ -67,7 +96,7 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     assert.equal(s.id, 'sub_000001');
     assert.deepEqual(JSON.parse(String(chamadas[0].init.body)), { customer: 'cus_000001', billingType: 'UNDEFINED', value: 1234.56, nextDueDate: '2026-10-07', cycle: 'YEARLY', description: 'Kidmais', externalReference: 'e1' });
     assert.equal(await c.obterAssinatura('sub_000001'), null);
-    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true });
+    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true }, 'DELETE confirmado pela resposta (deleted), sem ausente');
     assert.equal(chamadas[2].init.method, 'DELETE');
     const pagamentos = await c.listarCobrancasDaAssinatura('sub_000001');
     assert.equal(chamadas[3].url, `${ASAAS_SANDBOX_URL}/subscriptions/sub_000001/payments?offset=0&limit=100`);
@@ -77,6 +106,21 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     assert.equal(urlDeFaturaValida('http://www.asaas.com/i/x'), false);
     assert.equal(urlDeFaturaValida('https://asaas.com.evil.example/i/x'), false);
     await assert.rejects(c.obterAssinatura('../customers'), AsaasFalhou, 'id fora do formato nunca vira caminho');
+});
+
+test('listagem com mais páginas que o limite falha (LISTA_INCOMPLETA) em vez de devolver lista parcial', async () => {
+    const pagina = (n: number, hasMore: boolean) => json({ object: 'list', hasMore, data: [{ id: `sub_00000${n}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_000001', externalReference: 'emp-1' }] });
+    const cheia = fetchFalso([pagina(1, true), pagina(2, true)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cheia.f }).listarAssinaturasPorReferencia('emp-1'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA' && e.status === null);
+    // Cobranças: limite de 5 páginas (500 itens), mesma regra.
+    const cobranca = (n: number) => json({ object: 'list', hasMore: true, data: [{ id: `pay_00000${n}`, status: 'PENDING', dueDate: '2026-10-07', invoiceUrl: null }] });
+    const cinco = fetchFalso([cobranca(1), cobranca(2), cobranca(3), cobranca(4), cobranca(5)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cinco.f }).listarCobrancasDaAssinatura('sub_000001'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    assert.equal(cinco.chamadas.length, 5);
+    assert.equal(cheia.chamadas.length, 2);
+    assert.match(cheia.chamadas[1].url, /offset=100&limit=100$/);
+    const fim = fetchFalso([pagina(1, true), pagina(2, false)]);
+    assert.deepEqual((await criarClienteAsaas(config, { fetch: fim.f }).listarAssinaturasPorReferencia('emp-1')).map((a) => a.id), ['sub_000001', 'sub_000002']);
 });
 
 test('tempo-limite: chamada que não responde é abortada e vira AsaasFalhou (TEMPO_ESGOTADO)', async () => {

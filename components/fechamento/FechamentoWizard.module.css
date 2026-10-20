@@ -168,6 +168,12 @@
 .successSummary strong { font-size: 13px; }
 .successCard .warningBox { text-align: left; margin-bottom: 20px; }
 .smallMuted { color: var(--muted); font-size: 11px; margin-top: 16px; }
+.contatoEmpresa { margin-top: 16px; font-size: 13px; line-height: 1.6; color: #56617c; }
+.contatoEmpresa strong { display: block; margin-bottom: 4px; color: var(--ink); }
+.contatoEmpresa ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.contatoEmpresa li span { color: var(--muted); }
+.contatoEmpresa a { color: var(--purple); font-weight: 600; overflow-wrap: anywhere; }
+.pageFooter .contatoEmpresa { margin-top: 0; font-size: 11px; }
 
 @media (max-width: 760px) {
   .shell { width: min(100% - 20px, 620px); padding-top: 10px; }

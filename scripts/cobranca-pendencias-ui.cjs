@@ -41,11 +41,14 @@ async function principal() {
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
   try {
-    await receita.restaurar(admin, receita.TRABALHO[0], '063');
+    const modelo = receita.modeloE2E(process.env);
+    await receita.restaurar(admin, receita.TRABALHO[0], modelo);
     client = await receita.conectar(porta, receita.TRABALHO[0]);
-    for (const f of ['database/migrations/20261006_067_modelo_comercial_empresa.sql', 'database/checks/20261007_068_precheck.sql',
-      'database/migrations/20261007_068_cobranca_assinatura.sql', 'database/checks/20261007_068_postcheck.sql'])
-      await client.query(fs.readFileSync(f, 'utf8'));
+    // Modelo 075: 067/068 (e 074a/075) já vêm da receita.
+    if (modelo === '063')
+      for (const f of ['database/migrations/20261006_067_modelo_comercial_empresa.sql', 'database/checks/20261007_068_precheck.sql',
+        'database/migrations/20261007_068_cobranca_assinatura.sql', 'database/checks/20261007_068_postcheck.sql'])
+        await client.query(fs.readFileSync(f, 'utf8'));
     const carregar = (f) => carregarModulo(f, { 'db/postgres': { db: () => client, withTransaction: async (w) => w(client) } }, new Map());
     const senhaMod = carregar('lib/autenticacao/senha.ts');
     const password = `sintetica-${randomBytes(12).toString('hex')}`;

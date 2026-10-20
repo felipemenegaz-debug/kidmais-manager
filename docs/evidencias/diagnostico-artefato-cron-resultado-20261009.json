@@ -1,0 +1,38 @@
+{
+  "servico": "crn-db493i142hec73ahmoe0",
+  "ambiente": "staging",
+  "node": "v22.23.2",
+  "cwd": "/opt/render/project/src",
+  "revisaoInformada": "27e072237442e2f249e1e93d85a74e62b6eb7695",
+  "arquivos": [
+    {
+      "arquivo": "scripts/assinatura-aviso-email-staging.cjs",
+      "presente": true,
+      "blob": "efdde0e6a5abbe1cc473612d8164d9788c2fb875",
+      "igualCandidata": true
+    },
+    {
+      "arquivo": "scripts/assinatura-cron.cjs",
+      "presente": true,
+      "blob": "e2a8df05c2c95dde1d3ab17cf51f8f8f2021ef79",
+      "igualCandidata": true
+    },
+    {
+      "arquivo": "lib/assinatura/renovacao-fundador.ts",
+      "presente": true,
+      "blob": "c36c304dc3c67a458a3b54bc6f9cc861ed747c38",
+      "igualCandidata": true
+    }
+  ],
+  "bancoConsultado": false,
+  "provedoresChamados": false,
+  "shell": {
+    "inicioObservado": "2026-10-10T02:04:32Z",
+    "fechadoAntes": "2026-10-10T02:05:51Z",
+    "paginaFechada": true,
+    "abasRestantes": 0,
+    "desprovisionamentoConfirmadoPorAPI": false
+  },
+  "causaHistorica": "NAO_CONFIRMADA",
+  "cronNormalUltimoSucesso": "2026-10-10T02:05:13Z"
+}

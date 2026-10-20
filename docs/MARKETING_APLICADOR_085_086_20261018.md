@@ -1,0 +1,188 @@
+# Aplicador de staging das migrations 085/086 do Marketing (18/10/2026)
+
+**Estado:** preparado localmente; **nunca executado contra banco**.
+
+**Correções da revisão de `9080f45`** (parecer `revisao-marketing-aplicador-085-086-9080f45-parecer-20261018`), no commit seguinte:
+- **P2-1:** blocos de Shell da etapa 6b (seção abaixo), refeitos depois da revisão de `b659b14` (P2-A: subshell, código legível e teste interativo; P3-A: guarda de serviço; P3-B: ASCII, tamanho em bytes).
+- **P3-1:** critério da 083 idêntico ao do aplicador de origem.
+- **P3-3:** interpretação da invariante.
+- **P3-4:** código 3 para "RECUSARIA".
+- **P3-5:** falha real de SQL na suíte PostgreSQL do aplicador. Executar exige:
+- revisão independente;
+- autorização específica da operação de staging, conforme `docs/OPERACAO_AGENTES.md`.
+
+**Arquivos:**
+- `scripts/migration-085-086-staging.cjs` (aplicador);
+- `scripts/migration-085-086-staging.test.cjs` (testes com cliente simulado; CI);
+- `lib/marketing/aplicador-085-086.postgres.test.ts` e `lib/marketing/composicao-convites-085-086.postgres.test.ts`: suítes PostgreSQL da OBS-2, para a rodada descartável autorizada; **NÃO EXECUTADAS** neste commit.
+
+## Uso (no Web Shell do serviço de staging, depois das autorizações)
+
+```
+node scripts/migration-085-086-staging.cjs                                # PLANO: não lê DATABASE_URL, não conecta
+node scripts/migration-085-086-staging.cjs --conferir-085-086              # só leitura: identidade, estado, privilégios, pre/postcheck
+node scripts/migration-085-086-staging.cjs --aplicar-085-086-autorizado    # aplica 085 e 086 (primeira tentativa)
+node scripts/migration-085-086-staging.cjs --retomar-085-086-autorizado    # só após revisão de tentativa não concluída
+```
+
+Os registros ficam no disco persistente: `/opt/render/project/src/data/atualizacao-staging-marketing-085-086/`.
+
+## Padrão escolhido
+
+O padrão é o dos aplicadores de staging **083/084** (`scripts/migration-083-staging.cjs`, `migration-084-staging.cjs`), não um de produção:
+
+| Aspecto | Padrão |
+|---|---|
+| Trava de alvo | `alvo()` de `migration-078-staging.cjs` → `assinatura-staging-ensaio.cjs`: `RENDER=true`, `RENDER_SERVICE_ID=srv-daif418ae00c73e8k2gg`, `KIDMAIS_DEPLOY_ENV=staging`, `ASAAS_AMBIENTE=sandbox`, host `dpg-daidko3m8hqs73ce4jt0-a`, banco `/kidmais_staging_1z91`, porta 5432, sem `ssl*` na URL, `DATABASE_SSL` explícito; mais a recusa de qualquer query string na URL, como na 083/084 |
+| Identidade da conexão efetiva | `conexao-staging.cjs` (`SQL_IDENTIDADE` + `conferirIdentidade`): banco exato, TLS conforme `DATABASE_SSL`, sem TLS só em servidor de rede privada. A trava não depende de substring do nome; o servidor precisa responder o banco e o TLS esperados |
+| Disco persistente | `exigirDisco()`: o registro das tentativas fica em `/opt/render/project/src/data/...`, nunca no sistema de arquivos efêmero |
+| SQL executado | só o revisado: sha256 do conteúdo LF fixado no aplicador; divergência = `ARQUIVO_DIVERGENTE` antes de conectar |
+| Registro de aplicação | arquivo JSON por tentativa no disco persistente (`flag: 'wx'`), como 083/084; **sem tabela de controle nova** no banco. O projeto não tem tabela de migrations; o estado vem do próprio schema |
+
+## Modos
+
+| Modo | Como | Efeito |
+|---|---|---|
+| **plano (padrão)** | sem flag | confere os hashes locais e imprime fases, pré-condições e variáveis exigidas (só nomes). **Não lê `DATABASE_URL`, não abre conexão, não executa subprocesso nem grava arquivo** |
+| conferência | `--conferir-085-086` (sozinha) | conecta, confere identidade, estado do schema e privilégios e roda o precheck ou postcheck aplicável, **só leitura** (os prechecks já trazem `BEGIN TRANSACTION READ ONLY … ROLLBACK`; postcheck dentro de `BEGIN TRANSACTION READ ONLY … COMMIT`); grava `conferencia-085-086-N.json` |
+| aplicação | `--aplicar-085-086-autorizado` (sozinha) | executa as fases abaixo; exige que não haja tentativa anterior |
+| retomada | `--retomar-085-086-autorizado` (sozinha) | só depois de revisão humana de tentativa anterior **não concluída**; nova tentativa numerada; o plano volta a ser derivado do schema |
+
+Qualquer outra combinação de flags é recusada.
+
+## Fases (execução)
+
+1. **Antes de conectar:** trava de alvo, disco, hashes e registro de tentativa (`wx`).
+2. **Conexão:** identidade; `pg_try_advisory_lock` de sessão (chave fixa do aplicador). Se outro aplicador já segura a trava: `EXECUCAO_CONCORRENTE`, sem SQL.
+3. **Estado (`SQL_ESTADO`, leitura):**
+   - 083 presente e 084 presente, com o mesmo texto dos critérios dos aplicadores de origem (o teste confere a igualdade normalizada). Na 084, `conrelid='public.convite_geracoes'::regclass` virou `to_regclass(...)`, que não falha sem a tabela e deixa o estado legível (a 084 dá `false`, não erro);
+   - estado de 085 e de 086 como **ausente / completa / parcial**, por contagem de tabelas e funções;
+   - privilégios: `CREATE` em `public`, `REFERENCES` em `empresas`/`estabelecimentos`/`memberships`/`clientes`/`fechamentos`/`usuarios_administrativos` e `TRIGGER` em `clientes` (para a 086);
+   - agregados de preservação (sem ids): estados de `convite_geracoes` e contagem de `whatsapp_conexoes`.
+4. **Recusas antes de escrever:**
+   - 083 ou 084 ausente: `PRE_REQUISITO_AUSENTE`;
+   - estado parcial: `INSTALACAO_PARCIAL`;
+   - 086 sem 085: `ESTADO_INCOERENTE`;
+   - privilégio faltando: `SEM_PRIVILEGIO`.
+5. **085 ausente:** `precheck 085` (todos os booleanos `true`, senão `PRECHECK_RECUSOU`) → `migration 085` (transação própria do arquivo) → releitura do estado (085 completa) → `postcheck 085` (leitura). **085 completa:** só `postcheck 085`.
+6. **086:** mesma sequência (precheck 086 → migration 086 → releitura → postcheck 086), ou só o postcheck se já completa.
+7. **Final:** os agregados de preservação devem ser iguais aos de antes (senão `INVARIANTE_ALTERADA`). Libera a trava e grava `concluido: true`.
+
+**Transações:** cada migration é atômica (`BEGIN … COMMIT` no próprio arquivo). Se a 086 falhar depois da 085 ter feito COMMIT, **a 085 fica aplicada**; o aplicador registra a falha e **não** executa down. A retomada aplica só o que falta, pelo estado.
+
+## Limites de tempo e trava (onde estão de fato)
+
+- `lock_timeout = 5s` e `statement_timeout = 60s`: **`SET LOCAL` dentro das migrations e dos downs** (arquivos revisados).
+- O aplicador não muda isso. Os prechecks e postchecks não definem timeout próprio.
+- `connectionTimeoutMillis: 10000` (da trava de alvo) é **timeout de conexão do driver**, não de SQL.
+
+## Concorrência
+
+- **Mesmo disco:** o arquivo de tentativa `wx` impede duas tentativas iniciadas com o mesmo número.
+- **Qualquer origem que use este aplicador:** a trava consultiva de sessão (`pg_try_advisory_lock`), liberada ao fim da sessão ou da conexão.
+- **Não coberto:** alguém aplicando o SQL manualmente, fora do aplicador. Nesse caso, os blocos `DO` das migrations ("085 já aplicada (total ou parcialmente)") e os prechecks recusam o que já existe, mas duas transações simultâneas de DDL não são serializadas pelo aplicador.
+
+## Recuperação (nenhum down automático)
+
+| Cenário | Estado | Ação |
+|---|---|---|
+| Falha antes de conectar ou na identidade | nada escrito | corrigir a configuração; nova tentativa exige revisão (retomada) |
+| Precheck 085 recusou | nada escrito | investigar o pré-requisito |
+| Migration 085 falhou | a transação da 085 é desfeita pelo próprio PostgreSQL (sem COMMIT) | analisar o erro; retomada |
+| Postcheck 085 falhou | 085 **commitada** | parar; não aplicar a 086; avaliar. O down 085 só **sem dados** (recusa com contatos/atribuições/versões/eventos), por decisão e autorização próprias |
+| Migration 086 falhou | 085 commitada, 086 desfeita | retomada aplica só a 086 |
+| Postcheck 086 falhou | 085 e 086 commitadas | parar; avaliar; down 086 e depois 085, só sem dados e com autorização |
+| Processo interrompido | tentativa sem `concluido` | revisar o registro e o schema; retomada deriva o plano do estado (parcial = recusa) |
+| Invariante alterada | migrations commitadas | parar; investigar; não há down automático |
+
+Rollback operacional preferido: chaves do Marketing desligadas e código anterior. O schema aditivo pode ficar.
+
+## Efeitos colaterais proibidos
+
+Não liga flags (`MARKETING_*`), automações, transportes ou domínios. Não envia mensagens. Não lê `.env`.
+
+**Logs:**
+- só fase, resultado e mensagens truncadas a 160 caracteres;
+- nunca a URL de conexão;
+- agregados sem ids nem dados de clientes.
+
+## Códigos de saída
+
+| Código | Situação |
+|---|---|
+| 0 | PLANO, CONFERIDO ou PASS |
+| 1 | recusa antes de conectar: flags, alvo, disco, hashes, tentativa anterior |
+| 2 | FALHA durante conferência ou execução, registrada no arquivo da tentativa |
+| 3 | conferência **RECUSARIA**: pré-requisito ausente, instalação parcial, estado incoerente ou privilégio faltando; nada foi escrito |
+
+## Invariante de preservação (interpretação)
+
+O aplicador compara, antes e depois, os agregados sem ids: estados de `convite_geracoes` e contagem de `whatsapp_conexoes`.
+
+`INVARIANTE_ALTERADA` com `migracoesCommitadas` preenchido **não** indica dano das migrations. Por leitura dos SQL, elas não tocam essas tabelas; a suíte de composição foi escrita para provar isso no PostgreSQL descartável, mas **ainda não foi executada**.
+
+O mais provável é atividade legítima durante a janela, como uma geração de convite que mudou de estado ou uma conexão WhatsApp nova. Nesse caso:
+1. Conferir os registros da aplicação na janela.
+2. Rodar `--conferir-085-086` (só leitura: postchecks).
+3. Se os postchecks passarem e a diferença for explicada, registrar como concluída com alerta, sem down.
+
+Para evitar o alarme, aplicar numa **janela quieta**: sem gerações de convite em andamento (a conferência mostra os estados) e sem onboarding WhatsApp em curso.
+
+## Blocos de Shell da etapa 6b (P2-1; P2-A, P3-A e P3-B da revisão de b659b14)
+
+O deploy de staging não tem o aplicador nem os SQL 085/086. `scripts/bloco-shell-085-086-staging.cjs` gera, de uma árvore conferida, blocos para **colar** no Web Shell do serviço, que é um bash interativo, no desenho dos blocos da 084:
+
+```
+node scripts/bloco-shell-085-086-staging.cjs H0 <rotulo>       > BLOCO-SHELL-085-086-H0.sh       # grava os 7 arquivos e roda --conferir-085-086
+node scripts/bloco-shell-085-086-staging.cjs H1 <rotulo>       > BLOCO-SHELL-085-086-H1.sh       # grava e roda --aplicar-085-086-autorizado
+node scripts/bloco-shell-085-086-staging.cjs LIMPEZA <rotulo>  > BLOCO-SHELL-085-086-LIMPEZA.sh  # remove só os 7 arquivos
+```
+
+O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então bytes e caracteres coincidem.
+
+**Desenho:**
+1. `bind 'set enable-bracketed-paste off'` roda **primeiro, fora do subshell e antes da guarda** (P3-2 da revisão de `8a43fd5`; comportamento mantido, só documentado):
+   - desliga o bracketed paste do readline **pelo resto da sessão** do Web Shell, sem restauração, e acontece **também** em outro serviço ou sem `RENDER_SERVICE_ID`;
+   - **não** muda a colagem que o contém (ela já está no buffer do readline); afeta só as colagens **seguintes**;
+   - numa colagem seguinte, texto multilinha é executado linha a linha, sem a espera do bracketed paste. Para os blocos isso é inofensivo (o `bind` de um bloco seguinte roda logo, mas a guarda e o corpo, dentro do `if`, só rodam depois de o bash ler o `fi`), mas outro texto multilinha colado depois na mesma sessão executa linha a linha.
+2. **Guarda `RENDER_SERVICE_ID`** = `srv-daif418ae00c73e8k2gg` antes de qualquer leitura ou gravação de arquivo (não antes de qualquer comando: o `bind` já rodou). Em outro shell sai `SHELL_ERRADO_NAO_E_STAGING` e o corpo não executa.
+3. Todo o resto roda num **subshell** `( … )`. `set -euo pipefail`, `umask 077`, `cd`, as variáveis, o `trap` do temporário e os `exit` ficam contidos nele: as opções, os traps, o `umask`, o diretório e as variáveis do shell do operador **não mudam** e ele **não cai**. A exceção é o readline, pelo `bind` do item 1. Depois do subshell sai `CODIGO_SAIDA_BLOCO=<n>`.
+4. O `trap` do temporário é `rm -rf -- "$T" || echo "TEMPORARIO_NAO_REMOVIDO $T"` (P3-1 da revisão de `8a43fd5`): se a remoção falhar, sai o **aviso** com o caminho que ficou e o código continua o principal (0/1/2/3 do aplicador, 4 do bloco ou o status por sinal). Antes, sob `set -e`, a falha do `rm` trocava o código por 1.
+5. Dentro do subshell:
+   - confere o sha das 4 dependências implantadas (`migration-078-staging.cjs`, `assinatura-staging-ensaio.cjs`, `assinatura-preservacao.cjs`, `conexao-staging.cjs`);
+   - decodifica e confere os 7 arquivos **antes** de gravar qualquer um;
+   - grava só os ausentes e para diante de presente diferente;
+   - roda o aplicador (`NODE_PATH="$PWD/node_modules"`, como na 084) e lista o registro do disco persistente.
+
+**Códigos (`CODIGO_SAIDA_BLOCO`):**
+
+| Código | Significado |
+|---|---|
+| 0 | aplicador PASS/CONFERIDO |
+| 1 | o aplicador recusou antes de conectar |
+| 2 | FALHA registrada |
+| 3 | RECUSARIA |
+| **4** | o **bloco** recusou ou falhou, sempre com mensagem nomeada. Antes de gravar (nada gravado): `DESTINO_INACESSIVEL`, `FERRAMENTA_AUSENTE`, `TEMPORARIO_FALHOU`, `DEPENDENCIA_DIVERGENTE`, `CONTEUDO_DIVERGENTE`, `JA_EXISTE_DIFERENTE`. Durante a gravação ou limpeza: `GRAVACAO_FALHOU` (pode ter gravado parte dos 7; a LIMPEZA remove os que conferem) e `REMOCAO_FALHOU` (da LIMPEZA, que não tem temporário nem `trap`). Nenhuma falha do bloco sai com 1–3 |
+
+`TEMPORARIO_NAO_REMOVIDO <caminho>` **não é código**: é aviso de que o temporário do H0/H1 ficou no disco (nada foi gravado nele além das cópias conferidas). O código ao lado continua o resultado principal; com o aviso, não se pode afirmar que o temporário foi limpo.
+
+O registro (`ls` do disco persistente) só é listado quando o aplicador chega a rodar: em 0/1/2/3, e não em 4. Shell de outro serviço: `SHELL_ERRADO_NAO_E_STAGING`, sem `CODIGO_SAIDA_BLOCO`.
+
+**Procedimento:**
+1. Conferir sha256 e bytes na página.
+2. Colar o bloco inteiro uma vez e dar Enter. O `bind` do início já pode ter rodado e alterado o readline; a guarda e o corpo, protegidos pelo `if`, só começam depois de o bash ler o `fi` final completo, com ou sem bracketed paste.
+3. Guardar a saída inteira e ler a linha `CODIGO_SAIDA_BLOCO=<n>` e, se houver, `TEMPORARIO_NAO_REMOVIDO`.
+   - Com `SHELL_ERRADO_NAO_E_STAGING`, o corpo não rodou.
+   - Sem `CODIGO_SAIDA_BLOCO` e sem `SHELL_ERRADO_NAO_E_STAGING`, o resultado é **desconhecido**. Uma interrupção pode ter ocorrido depois de gravar arquivos ou iniciar o aplicador. Preserve a saída, confira o registro e o estado por procedimento autorizado; não repita automaticamente o H1. A ausência da linha não indica sucesso nem falha, e esta orientação não autoriza SQL nem conexão.
+4. Depois do bloco, o bracketed paste está desligado nessa sessão: outro bloco pode ser colado nela, mas qualquer outro texto multilinha colado depois executa linha a linha, sem esperar o Enter.
+
+**LIMPEZA:** remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente.
+
+**Teste** (`scripts/bloco-shell-085-086-staging.test.cjs`), sempre com destino temporário e comando omitido ou substituto que só devolve um código:
+- executa os blocos com `bash`;
+- executa uma **colagem interativa** (`bash -i`, bloco + linhas do operador) e confere que o shell sobrevive, sem opções, `umask`, diretório ou `trap` herdados, e que o código 0/2/3/4 fica legível;
+- cobre duas colagens seguidas;
+- cobre a guarda de serviço;
+- cobre a falha do `rm` no `trap` (rm falso): códigos 0/1/2/3, por sinal (143) e recusa 4 preservados, com o aviso e o temporário que ficou; LIMPEZA com `rm` falso continua 4 `REMOCAO_FALHOU`; colagem interativa depois da falha mantém o shell vivo e intacto.
+
+Não cobre o readline: com stdin em pipe e `TERM` sem valor (como no CI), o bracketed paste nasce desligado e o `bind` não muda nada; o efeito do `bind` foi provado em PTY pela revisão de `8a43fd5`.

@@ -1,0 +1,356 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 25 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r25-conversas",
+  "itens": [
+    {
+      "id": "ra01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quero um orçamento do completa pra 80 pessoas",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela + data e período."
+    },
+    {
+      "id": "ra02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "dezembro, dia 12, de noite",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 12/12 (mês explícito)."
+    },
+    {
+      "id": "ra03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "e no dia 19?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Continuação: 19 do mesmo mês da conversa (19/12)."
+    },
+    {
+      "id": "ra04",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "tem data livre em dezembro?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede a data."
+    },
+    {
+      "id": "ra05",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "dia 19",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda em 19/12 (mês herdado)."
+    },
+    {
+      "id": "ra06",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "quanto fica o essencial pra 40?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 40,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela."
+    },
+    {
+      "id": "ra07",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "em novembro no dia 21, primeiro horário",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 21/11."
+    },
+    {
+      "id": "ra08",
+      "texto": "tem vaga em dezembro no dia 5 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda em 05/12."
+    },
+    {
+      "id": "ra09",
+      "texto": "quanto fica o premium pra 100 pessoas, 12 dezembro, segundo horário?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": 100,
+        "turno": "NOITE",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 12/12 (sem \"de\")."
+    },
+    {
+      "id": "ra10",
+      "texto": "quanto fica o essencial pra 40 dia 12 de novembro ou dezembro à noite?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 40,
+        "turno": "NOITE",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Dois meses: confirma a data, sem calcular."
+    },
+    {
+      "id": "ra11",
+      "texto": "em dezembro, umas 70 pessoas, quanto fica o completa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 70,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: mês sem dia (70 não é dia, nenhuma data suposta); valor de pacote para N sem data = tabela."
+    },
+    {
+      "id": "ra12",
+      "texto": "a festa da minha filha foi sábado retrasado, vocês podem me mandar o contrato que a gente assinou?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contrato próprio: equipe, nada pelo telefone."
+    },
+    {
+      "id": "ra13",
+      "texto": "me manda o contrato que eu assinei",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contrato próprio."
+    },
+    {
+      "id": "ra14",
+      "texto": "a festa foi ontem, consegue me mandar uma cópia do contrato?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contrato próprio."
+    },
+    {
+      "id": "ra15",
+      "texto": "me manda o contrato pra eu assinar",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: contratação nova (coleta)."
+    },
+    {
+      "id": "ra16",
+      "texto": "consegue parcelar em 12x sem juros?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Condições de pagamento: equipe, sem cláusula 7."
+    },
+    {
+      "id": "ra17",
+      "texto": "vcs parcelam em mais vezes? queria dividir em 10x sem juros",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Condições de pagamento: equipe, sem cláusula 7."
+    },
+    {
+      "id": "ra18",
+      "texto": "se atrasar uma parcela tem juros?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cláusula 7 (atraso)."
+    },
+    {
+      "id": "ra19",
+      "texto": "qual o juros por atraso?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cláusula 7 (atraso)."
+    }
+  ]
+}

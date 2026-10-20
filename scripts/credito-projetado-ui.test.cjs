@@ -5,7 +5,7 @@ async function main(){
  const root=path.resolve(__dirname,'..'),workspace=path.join(root,'.tmp','credito-projetado-ui-'+Date.now());
  fs.mkdirSync(workspace,{recursive:true});
  for(const e of fs.readdirSync(root,{withFileTypes:true})){
-  if(['node_modules','.next','.tmp','.backups','.git'].includes(e.name)||e.name.startsWith('.env')||e.name==='tsconfig.tsbuildinfo')continue;
+  if(['node_modules','.next','.tmp','.backups','.git'].includes(e.name)||e.name.startsWith('.env')||e.name.startsWith('.local')||e.name==='tsconfig.tsbuildinfo')continue;
   fs.cpSync(path.join(root,e.name),path.join(workspace,e.name),{recursive:true});
  }
  fs.symlinkSync(path.join(root,'node_modules'),path.join(workspace,'node_modules'),'junction');
@@ -19,11 +19,11 @@ async function main(){
   const {chromium}=require('C:/Users/Glass/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
   browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const v1={id:'v1',numero_versao:1,snapshot:{evento:{data:'2026-12-10'},comercial:{formaPagamentoPretendida:'PIX_PARCELADO'}}},v3={...v1,id:'v3',numero_versao:3};
-  function fixture(){return {original:v1,reconhecida:v1,vigente:v3,valorVigente:'836100',pagamento:{id:'p',valor_total_contratado:'9290.00',status:'QUITADO'},posicao:{obrigacao:'929000',liquido:'929000',saldo:'0',credito:'0',reservado:'0',disponivel:'0',devolvido:'0'},posicaoHash:'hash-teste',motivos:['VALOR'],pendencias:[{id:'pend',versao_nova_id:'v3',situacao:'EM_TRATAMENTO',tentativas:[{id:'tentativa',tentativa:1,estado:'EM_TRATAMENTO'}]}],futuro:[],origens:[],provas:[],timeline:[],devolucoes:[],cronograma:null};}
+  function fixture(){return {original:v1,reconhecida:v1,vigente:v3,valorVigente:'836100',pagamento:{id:'p',valor_total_contratado:'9290.00',status:'QUITADO'},posicao:{obrigacao:'929000',liquido:'929000',saldo:'0',credito:'0',reservado:'0',disponivel:'0',devolvido:'0'},posicaoHash:'hash-teste',cobranca:{encerrada:false,saldoACobrar:'0',acertoAdministrativoPendente:false},motivos:['VALOR'],pendencias:[{id:'pend',versao_nova_id:'v3',situacao:'EM_TRATAMENTO',tentativas:[{id:'tentativa',tentativa:1,estado:'EM_TRATAMENTO'}]}],futuro:[],origens:[],provas:[],timeline:[],devolucoes:[],cronograma:null};}
   let painel=fixture(),aumento=false;const posts=[];
   await page.route('**/api/admin/**',async route=>{
    const req=route.request(),url=new URL(req.url());let data;
-   if(url.pathname==='/api/admin/autenticacao')data={usuarioId:'sintetico',csrf:'teste'};
+   if(url.pathname==='/api/admin/autenticacao')data={usuarioId:'sintetico',sessaoId:'sessao-sintetica',contexto:{empresaAtual:{id:'e',nome:'Empresa sintética',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false},csrf:'teste'}; // contexto exigido pelo painel desde a 056
    else if(req.method()==='GET')data={painel,papel:'REPRESENTANTE_AUTORIZADO'};
    else{
     const body=req.postDataJSON();posts.push({path:url.pathname,body});

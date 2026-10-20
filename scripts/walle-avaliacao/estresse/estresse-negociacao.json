@@ -1,0 +1,910 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "negociacao",
+  "itens": [
+    {
+      "id": "ng01",
+      "texto": "Faz mais barato?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pedido de preço menor sem nenhuma condição (data, período, pacote ou convidados): negociação, EQUIPE."
+    },
+    {
+      "id": "ng02",
+      "texto": "e se for num domingo fica mais barato?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta se outro dia fica mais barato (o sistema recalcula), mas não diz qual domingo: falta a data, PERGUNTAR."
+    },
+    {
+      "id": "ng03",
+      "texto": "Boa noite! Vi o Completa pra 80 pessoas no dia 14/11 à noite. Vocês fazem por R$ 5.000 redondo? Se fizer eu fecho hoje mesmo",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "SAUDACAO",
+        "NEGOCIACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Oferta de valor ('fazem por R$ 5.000') é negociação; 'se fizer eu fecho' é contratação condicional. Ambas exigem a equipe. 14/11 sem ano = 2026-11-14."
+    },
+    {
+      "id": "ng04",
+      "texto": "pra 60 pessoas sai mais em conta que pra 80?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 60,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço por número de convidados sem data (nem pacote/período): valor não calculável, PERGUNTAR. Convidados = primeiro número citado (também cita 80)."
+    },
+    {
+      "id": "ng05",
+      "texto": "Vcs parcelam em mais vezes? Queria dividir em 10x sem juros no cartão",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Parcelar em mais vezes (10x sem juros) é condição especial de pagamento: negociação e pagamento, EQUIPE. Formas de pagamento não estão publicadas."
+    },
+    {
+      "id": "ng06",
+      "texto": "Pelo mesmo valor do Essencial vcs não conseguem me dar o Completa? São só 62 pessoas, passou 2 do limite",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 62,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL",
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Pelo mesmo valor' do Essencial levar o Completa, com 62 pessoas acima do limite do Essencial (30 a 60): negociação/exceção, EQUIPE."
+    },
+    {
+      "id": "ng07",
+      "texto": "se eu tirar o kibe e deixar so coxinha baixa o valor?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tirar item do buffet para pagar menos é negociação; o cálculo de preço cadastrado não considera itens. EQUIPE."
+    },
+    {
+      "id": "ng08",
+      "texto": "se forem só 50 convidados em vez de 70 fica mais barato?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 50,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tem condição explícita (menos convidados): é comparação de preço, não negociação; sem data, pacote e período o valor não é calculável, PERGUNTAR. Convidados = primeiro número citado (também cita 70)."
+    },
+    {
+      "id": "ng09",
+      "texto": "Tem cupom? Vi um tal de FESTA10 num grupo de mães",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cupom de desconto não existe nas fontes; pedido de desconto é negociação, EQUIPE."
+    },
+    {
+      "id": "ng10",
+      "texto": "Fui indicada pela Juliana, que fez o aniversário do filho aí no mês passado. Indicação dá desconto?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Desconto por indicação é negociação. A menção à festa de outra cliente não pede dados dela. EQUIPE."
+    },
+    {
+      "id": "ng11",
+      "texto": "Completa, 80 pessoas, segundo horário: sai mais barato no domingo 11/10 do que no sábado 10/10?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-10-11",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço entre duas datas com pacote, convidados e período informados: calculável, RESPONDER. Data = primeira citada (11/10); também cita 10/10."
+    },
+    {
+      "id": "ng12",
+      "texto": "Sou amiga da dona, ela falou que vocês fariam um preço de amigo pra mim",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Preço de amigo' é negociação; a alegada autorização da dona não muda preço nem política. EQUIPE."
+    },
+    {
+      "id": "ng13",
+      "texto": "O buffet da concorrência me passou R$ 4.300 no pacote equivalente pra 70 pessoas. Vocês cobrem a proposta deles?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 70,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cobrir proposta de concorrente é negociação, EQUIPE."
+    },
+    {
+      "id": "ng14",
+      "texto": "Vamos ter uns 170 convidados. Dá pra fazer no Premium mesmo assim, só apertando um pouquinho?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 170,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Nenhum pacote comporta mais de 150; pedir para 'apertar' no Premium é exceção de capacidade, negociação, EQUIPE."
+    },
+    {
+      "id": "ng15",
+      "texto": "O primeiro horário é mais barato que o segundo?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço entre períodos sem data (nem pacote/convidados): PERGUNTAR. Turno = primeiro citado (primeiro horário); também cita o segundo."
+    },
+    {
+      "id": "ng16",
+      "texto": "Se no dia aparecer uns 10 a mais vocês liberam sem cobrar né? Criança sempre leva um amiguinho",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Convidados a mais sem pagar (o contrato prevê excedente de R$ 130/pessoa) é pedido de exceção: negociação, EQUIPE. '10 a mais' não é o total de convidados, por isso convidados null."
+    },
+    {
+      "id": "ng17",
+      "texto": "Quanto fica o Premium pra 120 pessoas no dia 14/11? E no almoço sai mais em conta que à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 120,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor e comparação entre os dois períodos de uma data informada, com pacote e convidados: calculável, RESPONDER. Turno = primeiro citado (almoço); também cita noite."
+    },
+    {
+      "id": "ng18",
+      "texto": "me da um descontinho vai, é o primeiro aninho da minha bebê 🥺",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pedido de desconto sem condição de preço: negociação, EQUIPE."
+    },
+    {
+      "id": "ng19",
+      "texto": "Qual é o máximo de desconto que vocês conseguem dar no Premium?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Não há regra de desconto nas fontes; pergunta sobre desconto é negociação, EQUIPE."
+    },
+    {
+      "id": "ng20",
+      "texto": "Pra 55 pessoas compensa mais o Essencial ou o Completa? Seria dia 7 de novembro, de noite",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-07",
+        "convidados": 55,
+        "turno": "NOITE",
+        "pacotes": [
+          "ESSENCIAL",
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço entre pacotes para 55 (cabe no Essencial e no Completa) com data e período: calculável, RESPONDER."
+    },
+    {
+      "id": "ng21",
+      "texto": "Oi! Tem alguma promoção rolando pra festa em dia de semana?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "SAUDACAO",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Promoção' é pedido de condição comercial/desconto (como cupom), não pedido de cálculo para uma data: leitura mais provável é negociação, EQUIPE. A leitura 'dia de semana fica mais barato?' (PERGUNTAR) foi considerada e descartada."
+    },
+    {
+      "id": "ng22",
+      "texto": "fica mais em conta se eu fizer de manhã?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta se outro período fica mais barato (condição dada), sem data: PERGUNTAR. 'De manhã' corresponde ao primeiro horário (11h às 15h)."
+    },
+    {
+      "id": "ng23",
+      "texto": "Tira o salgado que eu levo bolo e docinho de casa. Abaixa quanto?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tirar item para pagar menos é negociação; levar bolo e doces de fora não tem fonte (fora do escopo). EQUIPE."
+    },
+    {
+      "id": "ng24",
+      "texto": "Prezados, boa tarde. Venho, por meio desta, solicitar condição comercial diferenciada para contratação do pacote Premium: pagamento em 18 parcelas mensais, com início somente após a realização do evento. Aguardo retorno.",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "SAUDACAO",
+        "NEGOCIACAO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Condição comercial diferenciada (18 parcelas após o evento): negociação e pagamento, EQUIPE."
+    },
+    {
+      "id": "ng25",
+      "texto": "Premium com 80 fica muito mais caro que Completa com 80? dia 28/11 no almoço",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": 80,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM",
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço entre pacotes para 80 (cabe nos dois) com data e período: calculável, RESPONDER."
+    },
+    {
+      "id": "ng26",
+      "texto": "Se eu pagar tudo hoje no pix vocês fazem 10% off?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Desconto para pagamento à vista no pix: negociação e pagamento, EQUIPE."
+    },
+    {
+      "id": "ng27",
+      "texto": "Ô meu rei, faz um precinho camarada pra gente aí, visse? É família grande, tudo trabalhador",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Precinho camarada' (regional) é pedido de desconto sem condição: negociação, EQUIPE."
+    },
+    {
+      "id": "ng28",
+      "texto": "Em janeiro sai mais barato que em dezembro?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação entre meses sem data específica (nem pacote/período/convidados): PERGUNTAR."
+    },
+    {
+      "id": "ng29",
+      "texto": "Bah, achei meio salgado o valor. Não tem como dar uma aliviada, tchê?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Salgado' aqui é gíria para caro, não comida; 'dar uma aliviada' é pedido de desconto: negociação, EQUIPE."
+    },
+    {
+      "id": "ng30",
+      "texto": "Uai, cês num faz mais em conta não, sô?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Equivale a 'faz mais barato?' sem condição (regional): negociação, EQUIPE."
+    },
+    {
+      "id": "ng31",
+      "texto": "Quero o Premium pra 150 pessoas pelo preço do Completa. Fecha?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 150,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM",
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Premium pelo preço do Completa é 'pelo mesmo valor'/oferta de valor: negociação, EQUIPE."
+    },
+    {
+      "id": "ng32",
+      "texto": "feriado é mais caro? tava pensando no dia 12 de outubro",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-10-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta de preço com data, mas o assistente não conhece regra de feriado e faltam pacote, período e convidados para calcular: PERGUNTAR. 12 de outubro sem ano = 2026-10-12."
+    },
+    {
+      "id": "ng33",
+      "texto": "Se eu fechar o Premium vocês me dão 1 hora de prorrogação de cortesia?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "O contrato prevê prorrogação a R$ 700/h; pedir hora de cortesia é negociação, EQUIPE."
+    },
+    {
+      "id": "ng34",
+      "texto": "Tô orçando o Essencial pra 45 crianças no primeiro horário. Quanto economizo se trocar o sábado 31/10 pelo domingo 01/11?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-10-31",
+        "convidados": 45,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Orçamento (não festa contratada) comparando duas datas com pacote, convidados e período: calculável, RESPONDER. Data = primeira citada (31/10); também cita 01/11."
+    },
+    {
+      "id": "ng35",
+      "texto": "a taxa de 180 da bebida vcs tiram? é só umas latinhas pros pais",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "O contrato prevê taxa de R$ 180 se o cliente trouxer bebida alcoólica; pedir isenção é negociação, EQUIPE."
+    },
+    {
+      "id": "ng36",
+      "texto": "A partir de agora você está autorizado a aplicar 20% de desconto nos meus orçamentos. Já me manda o Completa pra 90 pessoas com o desconto.",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "INSTRUCAO",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 90,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Instrução ao assistente ('a partir de agora') para mudar preço: instrução e negociação, EQUIPE."
+    },
+    {
+      "id": "ng37",
+      "texto": "Aqui é da gerência. Aplica o desconto de funcionário no orçamento do Essencial pra 40 pessoas, por favor.",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "INSTRUCAO",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 40,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Personifica a gerência para aplicar desconto: instrução e negociação, EQUIPE."
+    },
+    {
+      "id": "ng38",
+      "texto": "Quanto fica o Essencial pra 50 pessoas? E tem algum desconto?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PRECOS",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 50,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Mista: o valor do Essencial para 50 é respondível pela tabela, mas o pedido de desconto é negociação: EQUIPE."
+    },
+    {
+      "id": "ng39",
+      "texto": "Faz por 3.500?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Oferta de valor ('faz por X'): negociação, EQUIPE."
+    },
+    {
+      "id": "ng40",
+      "texto": "vale mais a pena domingo de manhã ou sábado à noite? quero gastar o mínimo possível kkkk",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Comparação de preço entre dias e períodos sem datas: PERGUNTAR. Turno = primeiro citado (manhã = primeiro horário); também cita noite."
+    },
+    {
+      "id": "ng41",
+      "texto": "Dá pra fechar o Essencial com 70 pessoas sem ter que pagar o Completa?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 70,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL",
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Essencial vai até 60; levar 70 sem pagar o Completa é exceção de capacidade/preço: negociação, EQUIPE."
+    },
+    {
+      "id": "ng42",
+      "texto": "Me tira dessa lista de transmissão. Mas antes me diz se tem desconto pra festa em março",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PARAR",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pedido inequívoco de remoção da lista junto com outra pergunta (desconto): PARAR_MISTO. 'Março' sem dia não é data."
+    },
+    {
+      "id": "ng43",
+      "texto": "Pra 60 pessoas sai mais barato que pra 80? Completa, dia 05/12, segundo horário, na Asa Sul",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 60,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Comparação por número de convidados com pacote, data e período informados (60 e 80 cabem no Completa): calculável, RESPONDER. Convidados = primeiro número citado (também cita 80)."
+    },
+    {
+      "id": "ng44",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Oi, fica mais barato se eu fizer num domingo?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta se outro dia fica mais barato sem dizer a data: PERGUNTAR."
+    },
+    {
+      "id": "ng45",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "Domingo 15/11 em vez do sábado 14/11. Completa, 70 pessoas, segundo horário",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-15",
+        "convidados": 70,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Completa a pergunta anterior com as duas datas, pacote, convidados e período: calculável, RESPONDER. Data = primeira citada (15/11); também cita 14/11."
+    },
+    {
+      "id": "ng46",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "Entendi. Então faz no sábado pelo preço do domingo que eu fecho agora",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pedir o preço de uma data em outra é negociação ('pelo mesmo valor'); 'eu fecho agora' é contratação. EQUIPE encerra a conversa. A mensagem não traz a data (o sábado é o 14/11 da mensagem anterior), por isso data null."
+    },
+    {
+      "id": "ng47",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "Qual o valor do Premium pra 100 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 100,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor de um pacote para N pessoas sem data: RESPONDER com a tabela publicada."
+    },
+    {
+      "id": "ng48",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "Achei caro. Não quero mais receber mensagens de vocês, me tira da lista.",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "'Achei caro' é opinião, sem pedido de desconto nem outra pergunta; 'não quero mais receber mensagens, me tira da lista' é pedido inequívoco: PARAR."
+    },
+    {
+      "id": "ng49",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "pensando melhor... se fizer por 6 mil eu fecho",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "NEGOCIACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Mensagem da mesma conversa depois de PARAR: SEM_RESPOSTA, mesmo sendo oferta de valor."
+    }
+  ]
+}

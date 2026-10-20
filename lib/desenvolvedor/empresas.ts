@@ -84,8 +84,11 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
     return deps.withTransaction(async (tx) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         const termo = filtros.busca ? `%${filtros.busca.toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
+        // CNPJ e telefone ficam só com dígitos no cadastro: "97.310.458/0001-89" também encontra (3+ dígitos, como em interessadas).
+        const digitos = filtros.busca.replace(/\D/g, '');
         const condicoes = `($1::text IS NULL OR lower(e.nome) LIKE $1 OR e.codigo LIKE $1 OR lower(coalesce(c.nome_empresarial, '')) LIKE $1
-              OR coalesce(c.email, '') LIKE $1 OR lower(coalesce(c.responsavel_nome, '')) LIKE $1 OR coalesce(c.documento_fiscal, '') LIKE $1)
+              OR coalesce(c.email, '') LIKE $1 OR lower(coalesce(c.responsavel_nome, '')) LIKE $1 OR coalesce(c.documento_fiscal, '') LIKE $1
+              OR ($3::text <> '' AND (coalesce(c.documento_fiscal, '') LIKE '%' || $3 || '%' OR coalesce(c.telefone, '') LIKE '%' || $3 || '%')))
           AND (CASE $2::text
                 WHEN 'TODAS' THEN true
                 WHEN 'EM_IMPLANTACAO' THEN e.status = 'ATIVA' AND c.implantacao IN ('AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO')
@@ -93,9 +96,9 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
                 WHEN 'AGUARDANDO_PRIMEIRO_ACESSO' THEN e.status = 'ATIVA' AND c.implantacao = 'AGUARDANDO_PRIMEIRO_ACESSO'
                 WHEN 'EM_CONFIGURACAO' THEN e.status = 'ATIVA' AND c.implantacao = 'EM_CONFIGURACAO'
                 ELSE e.status = $2::text END)`;
-        const params = [termo, filtros.situacao];
+        const params = [termo, filtros.situacao, digitos.length >= 3 ? digitos : ''];
         const total = (await tx.query<{ n: number }>(`SELECT count(*)::int AS n ${FROM} WHERE ${condicoes}`, params)).rows[0].n;
-        const linhas = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE ${condicoes} ORDER BY e.atualizado_em DESC LIMIT ${porPagina} OFFSET $3`, [...params, (filtros.pagina - 1) * porPagina])).rows;
+        const linhas = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE ${condicoes} ORDER BY e.atualizado_em DESC LIMIT ${porPagina} OFFSET $4`, [...params, (filtros.pagina - 1) * porPagina])).rows;
         // E5: plano e situação comercial por empresa (sem a 067, "sem cobrança").
         const itens = [];
         for (const l of linhas)
@@ -133,15 +136,35 @@ export async function atividadeDaEmpresa(tx: DbExecutor, empresaId: string, limi
           ORDER BY a.criado_em DESC LIMIT $2`, [empresaId, limite])).rows;
 }
 
+/** A empresa nasceu pelo cadastro público (069)? Sem a 069 instalada, nunca. */
+async function criadaPeloCadastroPublico(tx: DbExecutor, empresaId: string) {
+    if ((await tx.query<{ t: string | null }>("SELECT to_regclass('public.cadastros_empresas') AS t")).rows[0]?.t == null)
+        return false;
+    return (await tx.query('SELECT 1 FROM cadastros_empresas WHERE empresa_id = $1::uuid', [empresaId])).rows.length > 0;
+}
+
+export type OrigemCadastro = 'INTERESSADA' | 'CADASTRO_PUBLICO' | 'DIRETO';
+
 function detalhe(l: LinhaEmpresa) {
     return {
         ...resumo(l), atualizadoEm: l.atualizado_em,
         cadastro: l.cad_empresa ? {
             nomeEmpresarial: l.nome_empresarial, documentoFiscal: l.documento_fiscal, responsavelNome: l.responsavel_nome, email: l.email,
             telefone: l.telefone, observacoes: l.observacoes, interessadaId: l.interessada_id, implantacao: l.implantacao,
-            implantacaoConcluidaEm: l.implantacao_concluida_em, revisao: l.cad_revisao,
+            implantacaoConcluidaEm: l.implantacao_concluida_em, revisao: l.cad_revisao, origem: null as OrigemCadastro | null,
         } : null,
     };
+}
+
+/** WhatsApp da empresa (083), só leitura para o painel. `null` enquanto a 083 não existe no banco. */
+async function whatsappDaEmpresa(tx: DbExecutor, empresaId: string) {
+    const instalada = (await tx.query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+        AND table_name = 'whatsapp_conexoes' AND column_name = 'empresa_id') AS ok`)).rows[0]?.ok === true;
+    if (!instalada) return null;
+    const c = (await tx.query<{ numero_exibicao: string; nome_verificado: string; meta_validada_em: string }>(
+        `SELECT numero_exibicao, nome_verificado, meta_validada_em::text FROM whatsapp_conexoes
+          WHERE empresa_id = $1::uuid AND status = 'CONFIGURADA' ORDER BY criada_em DESC LIMIT 1`, [empresaId])).rows[0];
+    return { conectado: Boolean(c), numeroExibicao: c?.numero_exibicao ?? null, nomeVerificado: c?.nome_verificado ?? null, conectadoEm: c?.meta_validada_em ?? null };
 }
 
 export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: PainelDeps = painelDepsPadrao) {
@@ -152,8 +175,11 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
         if (!l)
             throw erroAcesso('NAO_ENCONTRADO', 'Empresa não encontrada.', 404);
         const email = situacaoEmail();
+        const empresa = detalhe(l);
+        if (empresa.cadastro)
+            empresa.cadastro.origem = l.interessada_id ? 'INTERESSADA' : await criadaPeloCadastroPublico(tx, uuid) ? 'CADASTRO_PUBLICO' : 'DIRETO';
         return {
-            empresa: detalhe(l),
+            empresa,
             membros: await membrosDaEmpresa(tx, uuid),
             convites: await listarConvitesDaEmpresa(tx, uuid),
             atividade: await atividadeDaEmpresa(tx, uuid),
@@ -162,6 +188,7 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
             comercial: await comercialDaEmpresa(tx, uuid),
             representacao: await representacaoDaEmpresa(tx, uuid),
+            whatsapp: await whatsappDaEmpresa(tx, uuid),
         };
     });
 }

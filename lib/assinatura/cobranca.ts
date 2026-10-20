@@ -8,6 +8,8 @@
  *                      só webhook/sincronização liberam (voltar da página de pagamento não concede nada).
  *   cancelarAssinatura remove a assinatura no provedor (cobranças pendentes saem, pagas ficam) e sincroniza:
  *                      CANCELADA_FIM_PERIODO com acesso até o fim do período pago. Exige senha confirmada há ≤ 5 min.
+ *                      Só conclui (ASSINATURA_CANCELADA) com exclusão confirmada ou ausência comprovada; sem
+ *                      confirmação → ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO e 503 (resultado incerto), sem repetir o DELETE.
  *
  * Três fases para não segurar travas do banco durante a chamada ao provedor:
  *   A. transação curta do tenant: Gestão, situação e ids gravados;
@@ -16,8 +18,16 @@
  * Registro prévio: antes de cada POST de criação grava-se a intenção (pendência `kidmais:criacao:`); enquanto houver
  * pendência aberta da empresa não há outro POST (listagem vazia depois de tempo esgotado não prova falha).
  * Falhas: provedor criou e o commit da fase C falhou → a próxima tentativa reencontra cliente e assinatura pela
- * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Provedor fora
- * do ar → COBRANCA_FALHOU (502) e nada é gravado.
+ * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Não há uma
+ * regra única para "provedor fora", e o código de erro descreve só a tentativa atual, nunca o estado final no provedor:
+ *   - COBRANCA_FALHOU (502): consulta ao provedor falhou, ou recusa definitiva (4xx, exceto 408/409/429) de uma escrita.
+ *     A escrita recusada não teve efeito; uma tentativa anterior com resultado desconhecido pode ter tido;
+ *   - COBRANCA_RESULTADO_INCERTO (503): escrita sem resultado conclusivo (criação sem resposta; exclusão sem `deleted`
+ *     do mesmo id nem ausência comprovada), com a intenção/pendência gravada ou a auditoria neutra
+ *     ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO; nunca registrada como sucesso. A escrita PODE ter acontecido no provedor:
+ *     a nova tentativa espera a releitura (webhook, sincronização, reconciliação), nunca repete às cegas;
+ *   - exclusão confirmada e sincronização local falhou → também COBRANCA_FALHOU (502): o provedor já removeu e a
+ *     situação local vem pelo webhook ou pela reconciliação.
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -28,8 +38,11 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, registrarIdConfirmado, registrarPendencia } from './reconciliacao-contratacao.ts';
+import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, persistirMarcadorPrevio, registrarIdConfirmado,
+    registrarPendencia, registrarResultadoRemocao, removerComResultado, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
+import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
+import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
@@ -42,6 +55,11 @@ export type DepsCobranca = {
     env?: Record<string, string | undefined>;
     /** Transação comum (sem tenant): releitura do vínculo e registro de pendências. */
     withTransaction: <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
+    /**
+     * Transação INDEPENDENTE com prazo do lado da aplicação, para o marcador de exclusão e o resultado do DELETE da
+     * compensação. Ausente → a compensação não exclui (fail closed).
+     */
+    transacaoIndependente?: TransacaoIndependente;
     /** Executa a contratação com a trava exclusiva da empresa; ocupada → 409 CONTRATACAO_EM_ANDAMENTO. */
     travarContratacao: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
 };
@@ -74,6 +92,7 @@ const incerto = () => erroAcesso('COBRANCA_RESULTADO_INCERTO', 'Não conseguimos
 const falhou = () => erroAcesso('COBRANCA_FALHOU', 'Não foi possível falar com o provedor de pagamento agora. Nada foi alterado; tente novamente em instantes.', 502);
 
 async function linhaDaEmpresa(tx: DbExecutor, empresaId: string, travar: boolean): Promise<Linha | null> {
+    if (travar) await travarEmpresaComercial(tx, empresaId);
     const instalada = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0]?.ok === true;
     if (!instalada)
         throw desligada();
@@ -121,50 +140,85 @@ async function noProvedor<T>(acao: () => Promise<T>): Promise<T> {
 }
 
 export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {
+    const env = deps.env ?? process.env;
+    const pediuPlano = Boolean(raw && typeof raw === 'object' && 'plano' in raw);
+    if (pediuPlano) {
+        if (!novosPlanosLigados(env)) throw erroAcesso('PLANOS_NAO_DISPONIVEIS', 'Os novos planos ainda não estão disponíveis neste ambiente.', 503);
+        const pedido = validarPedidoOferta(raw);
+        const provedor = deps.provedor();
+        if (!provedor) throw desligada();
+        const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, tenant) => {
+            exigirGestao(tenant); return tenant.empresaComprovada;
+        });
+        return deps.travarContratacao(empresaId, async () => {
+            const oferta = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+                exigirGestao(tenant);
+                if (tenant.empresaComprovada !== empresaId) throw erroAcesso('CONFLITO', 'A empresa da sessão mudou.', 409);
+                return prepararOferta(tx, empresaId, sessao.usuario_id, pedido);
+            });
+            return contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
+        });
+    }
     const ciclo = (raw as { ciclo?: unknown } | null)?.ciclo;
     if (ciclo !== 'MENSAL' && ciclo !== 'ANUAL')
         throw erroAcesso('DADOS_INVALIDOS', 'Escolha o plano mensal ou anual.', 400, { campo: 'ciclo' });
-    let preco: number | null;
+    const contexto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        exigirGestao(tenant);
+        return { empresaId: tenant.empresaComprovada,
+            apenasRetomar: await conferirCheckoutLegado(tx, tenant.empresaComprovada, ciclo, env) };
+    });
+    let preco: number | null = null;
     try {
-        preco = precoDoCiclo(ciclo, deps.env ?? process.env);
+        if (!contexto.apenasRetomar) preco = precoDoCiclo(ciclo, env);
     }
     catch (error) {
         if (error instanceof ConfiguracaoComercialInvalida)
             throw desligada();
         throw error;
     }
-    if (!preco)
+    if (!preco && !contexto.apenasRetomar)
         throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'Este plano ainda não está publicado neste ambiente.', 503);
     const provedor = deps.provedor();
     if (!provedor)
         throw desligada();
     // Empresa comprovada primeiro (a trava é por empresa); depois TODA a contratação roda sob a trava.
-    const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, tenant) => {
-        exigirGestao(tenant);
-        return tenant.empresaComprovada;
-    });
+    const empresaId = contexto.empresaId;
     return deps.travarContratacao(empresaId, () => contratar(sessao, empresaSolicitada, empresaId, ciclo, preco, provedor, ctx, deps));
 }
 
-async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, empresaId: string, ciclo: Ciclo, preco: number, provedor: ClienteAsaas, ctx: Contexto, deps: DepsCobranca) {
+async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, empresaId: string, ciclo: Ciclo, preco: number | null, provedor: ClienteAsaas, ctx: Contexto, deps: DepsCobranca, oferta?: Oferta) {
     // A. leitura curta (sob a trava: o que outra contratação já gravou aparece aqui)
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+        await exigirEmpresaCobravel(tx, empresaId);
         const linha = await linhaDaEmpresa(tx, empresaId, false);
         if (!linha)
             throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
-        return { linha, cliente: await dadosDoCliente(tx, empresaId, linha) };
+        const apenasRetomar = !oferta && await conferirCheckoutLegado(tx, empresaId, ciclo, deps.env ?? process.env);
+        return { linha, apenasRetomar, cliente: await dadosDoCliente(tx, empresaId, linha) };
     });
 
     // B. provedor, sem transação de tenant aberta
     const b = await noProvedor(async () => {
+        // Assinaturas com exclusão incerta (marcador aberto): nenhuma retomada abaixo as adota; com alguma, não há POST novo.
+        let marcadas: Set<string>;
+        try {
+            marcadas = await deps.withTransaction((tx) => assinaturasComRemocaoIncerta(tx, empresaId));
+        }
+        catch {
+            throw incerto();
+        }
         const anterior = a.linha.provedor_assinatura_id ? await provedor.obterAssinatura(a.linha.provedor_assinatura_id) : null;
         if (anterior && ativa(anterior)) {
+            if (marcadas.has(anterior.id))
+                throw incerto();
             const aberta = cobrancaEmAberto(await provedor.listarCobrancasDaAssinatura(anterior.id));
             return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true, encerrar: [] as string[] };
         }
+        if (a.apenasRetomar || preco === null)
+            throw erroAcesso('TROCA_PLANO_NAO_DISPONIVEL', 'A assinatura encerrada precisa de atendimento para recontratação.', 409);
         let clienteId = a.linha.provedor_cliente_id;
         if (!clienteId) {
             const existente = await provedor.buscarClientePorReferencia(empresaId);
@@ -178,8 +232,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         }
         // Retomada: assinatura ativa criada antes e não gravada (resposta perdida, COMMIT incerto) é reaproveitada.
         const retomada = unicaCandidata(await provedor.listarAssinaturasPorReferencia(empresaId), clienteId);
-        if (retomada.tipo === 'UNICA')
+        if (retomada.tipo === 'UNICA') {
+            // A única candidata com exclusão incerta não é adotada (a exclusão pode ter acontecido); também não cria outra.
+            if (marcadas.has(retomada.assinatura.id))
+                throw incerto();
             return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true, encerrar: [] as string[] };
+        }
         if (retomada.tipo === 'AMBIGUA') {
             // Várias assinaturas (ou de outro cliente) para a empresa: não escolhe, não cria outra, não exclui.
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
@@ -196,7 +254,8 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             throw incerto();
         }
         for (const pend of abertas) {
-            if (!pend.assinatura_provedor_id)
+            // Só pendências de criação/vínculo (pendenciasAbertas já exclui marcadores); nunca uma assinatura marcada.
+            if (!pend.assinatura_provedor_id || marcadas.has(pend.assinatura_provedor_id))
                 continue;
             const conhecida = await provedor.obterAssinatura(pend.assinatura_provedor_id);
             if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId)) {
@@ -206,7 +265,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true, encerrar };
             }
         }
-        if (abertas.length)
+        if (abertas.length || marcadas.size)
             throw incerto();
         // Registro prévio: a intenção é gravada ANTES do POST. Se o processo cair ou a resposta se perder, ela continua
         // aberta e bloqueia novos POSTs. Sem conseguir gravá-la, não cria.
@@ -221,7 +280,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         try {
             assinatura = await provedor.criarAssinatura({
                 cliente: clienteId, valorCentavos: preco, ciclo, vencimento: a.linha.hoje, referencia: empresaId,
-                descricao: `Kidmais Manager — assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
+                descricao: `Kidmais Manager — ${oferta ? `${oferta.plano} · ` : ''}assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
             });
         }
         catch (error) {
@@ -233,7 +292,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             // Resposta perdida: o provedor pode ter criado. Nunca cria outra às cegas; procura pela referência.
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
             const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
-            if (confirmada?.tipo === 'UNICA') {
+            if (confirmada?.tipo === 'UNICA' && !marcadas.has(confirmada.assinatura.id)) {
                 const encerrar = await persistirIdConfirmado(deps, empresaId, confirmada.assinatura.id, intencao);
                 return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false, encerrar };
             }
@@ -246,6 +305,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         return { assinatura, clienteId, aberta: await cobrancaAberta(provedor, assinatura.id), criada: true, reaproveitada: false, encerrar };
     });
 
+    if (oferta && (b.assinatura.externalReference !== empresaId || b.assinatura.valorCentavos !== oferta.valor_final_centavos
+        || cicloDoProvedor(b.assinatura.cycle) !== oferta.ciclo || !b.clienteId || b.assinatura.customer !== b.clienteId))
+        throw erroAcesso('OFERTA_DIVERGENTE', 'Não foi possível confirmar as condições no provedor. Nenhum acesso foi liberado; contate o atendimento.', 409);
+    if (oferta && b.aberta && (b.aberta.valorCentavos !== oferta.valor_final_centavos
+        || b.aberta.assinaturaId !== b.assinatura.id || b.aberta.clienteId !== b.clienteId))
+        throw erroAcesso('OFERTA_DIVERGENTE', 'A cobrança não corresponde ao plano confirmado. Nenhum acesso foi liberado; contate o atendimento.', 409);
     // C. grava os ids (nunca a situação) com a linha travada
     try {
         await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
@@ -284,7 +349,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         });
     }
     catch (error) {
-        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps);
+        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps, { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId });
     }
     return {
         ciclo: cicloDoProvedor(b.assinatura.cycle) ?? ciclo,
@@ -379,11 +444,12 @@ async function registrarPendenciaSegura(deps: DepsCobranca, input: Parameters<ty
  * relido por uma transação nova:
  *   - vinculada a ESTA assinatura → COMMIT confirmado: segue como sucesso (nada é desfeito);
  *   - esta foi criada agora e o banco mostra OUTRO vínculo → a decisão central (compensacao.ts) confere a assinatura
- *     vigente e os pagamentos; só com justificativa segura exclui (falha ao excluir → pendência COMPENSACAO_FALHOU);
+ *     vigente e os pagamentos; só com justificativa segura exclui, com registro prévio (compensarComMarcador);
  *     preservada → pendência com o motivo (vínculo que não mudou = COMMIT_INCERTO, ex.: recontratação após cancelamento);
  *   - qualquer outra dúvida (releitura falhou, nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
  */
-async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca) {
+async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca,
+    origem: OrigemSincronizacao) {
     // Só o tipo do erro (sem mensagem, ids ou dados): permite investigar sem expor nada.
     console.warn('[cobrança] falha ao gravar o vínculo da assinatura', error instanceof Error ? ((error as { code?: string }).code ?? error.name) : typeof error);
     let vinculo: string | null | undefined;
@@ -406,13 +472,7 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
             decisao = null; // provedor indisponível para confirmar: preserva
         }
         if (decisao?.excluir) {
-            try {
-                await provedor.removerAssinatura(b.assinatura.id);
-                await encerrarSeguro(deps, empresaId, b.encerrar, 'COMPENSADA');
-            }
-            catch {
-                await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
-            }
+            await compensarComMarcador(deps, provedor, empresaId, b, origem);
             throw error;
         }
         if (decisao?.motivo === 'VINCULO_NAO_MUDOU')
@@ -427,6 +487,48 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
     if (error instanceof AcessoServiceError && vinculo === null)
         throw error;
     throw incerto();
+}
+
+/**
+ * Exclusão da duplicata na compensação imediata, com REGISTRO PRÉVIO: o marcador durável (kidmais:remocao:, o mesmo da
+ * reconciliação) é gravado ANTES do DELETE. Enquanto ele estiver aberto, a assinatura nunca é excluída de novo
+ * automaticamente; a reconciliação só relê pelo id (removida → exclusão auditada pela releitura; existe → revisão humana).
+ *   - marcador não gravado → NÃO exclui; pendência COMPENSACAO_FALHOU (nada executado: a reconciliação decide de novo);
+ *   - confirmada → marcador fecha (REMOCAO_CONFIRMADA) + ASSINATURA_DUPLICADA_REMOVIDA; as pendências da operação encerram;
+ *   - ausente (404 + releitura por id com `deleted`) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação neutra
+ *     ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO; as pendências encerram como DUPLICATA_AUSENTE_NO_PROVEDOR (ausência
+ *     comprovada, autoria não). 404 sem ausência comprovada conta como sem confirmação (abaixo);
+ *   - recusa definitiva (4xx) → marcador fecha (REMOCAO_RECUSADA) e pendência COMPENSACAO_FALHOU;
+ *   - sem confirmação (resposta perdida, 5xx, resposta sem `deleted`) → marcador aberto (REMOCAO_SEM_CONFIRMACAO) +
+ *     ASSINATURA_REMOCAO_SEM_CONFIRMACAO; nada é registrado como sucesso.
+ * Processo interrompido entre o DELETE e a gravação do resultado, ou gravação do resultado falhando: o marcador continua
+ * aberto (REMOCAO_EM_CURSO) e vale a mesma regra — releitura, nunca outro DELETE.
+ */
+async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, empresaId: string, b: { assinatura: AssinaturaProvedor; encerrar: string[] }, origem: OrigemSincronizacao) {
+    const assinaturaId = b.assinatura.id;
+    // Registro prévio na transação independente com prazo (a mesma regra da reconciliação): sem marcador confirmado, não exclui.
+    const independente = deps.transacaoIndependente;
+    const marcador = await persistirMarcadorPrevio(independente, empresaId, assinaturaId);
+    if (!marcador) {
+        await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+        return;
+    }
+    const remocao = await removerComResultado(provedor, assinaturaId);
+    const gravado = await registrarResultadoRemocao(independente!, empresaId, marcador, remocao, origem, async (tx) => {
+        if (remocao.resultado === 'CONFIRMADA')
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'COMPENSADA');
+        else if (remocao.resultado === 'AUSENTE')
+            // 404: a duplicata não existe mais; as pendências fecham sem atribuir a remoção a este pedido.
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'DUPLICATA_AUSENTE_NO_PROVEDOR');
+        else {
+            if (remocao.resultado === 'RECUSADA')
+                await registrarPendencia(tx, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'SUBSTITUIDA_POR_PENDENCIA');
+        }
+    });
+    // Não gravado: o marcador já confirmado (REMOCAO_EM_CURSO) continua aberto; a reconciliação relê; nada é excluído de novo.
+    if (!gravado)
+        console.error('[cobrança] resultado da exclusão não gravado (marcador continua aberto)', remocao.resultado);
 }
 
 export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {
@@ -449,13 +551,30 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         return { empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao };
     });
 
-    await noProvedor(() => provedor.removerAssinatura(a.assinaturaId));
+    // Só a exclusão CONFIRMADA (resposta com `deleted`) ou a ausência comprovada (404 + releitura com `deleted`) concluem
+    // o cancelamento. Recusa definitiva → nada feito. Resultado desconhecido → registro neutro, nada concluído e nenhum
+    // DELETE repetido: a situação vem da releitura (webhook SUBSCRIPTION_DELETED ou reconciliação, com `deleted=true`).
+    const remocao = await removerComResultado(provedor, a.assinaturaId);
+    if (remocao.resultado === 'RECUSADA')
+        throw falhou();
+    const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
+    if (remocao.resultado === 'DESCONHECIDA') {
+        await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+            exigirGestao(tenant);
+            if (tenant.empresaComprovada !== a.empresaId)
+                throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+            await auditarCobranca(tx, {
+                acao: 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
+                antes: { situacao: a.situacao }, depois: { situacao: a.situacao },
+            });
+        });
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida. Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503);
+    }
 
     return deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== a.empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
-        const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
         let r;
         try {
             r = await sincronizarEmpresa(tx, a.empresaId, { provedor }, origem);
@@ -468,7 +587,8 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         }
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_CANCELADA', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
-            antes: { situacao: a.situacao }, depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao },
+            antes: { situacao: a.situacao },
+            depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao, confirmacao: remocao.resultado === 'AUSENTE' ? 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO' : 'RESPOSTA_DO_PROVEDOR' },
         });
         return { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao };
     });

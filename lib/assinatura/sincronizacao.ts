@@ -6,10 +6,14 @@
  *                       A consulta fica dentro da trava de propósito: duas sincronizações da mesma empresa nunca
  *                       aplicam uma leitura antiga depois de uma nova. Cada chamada ao provedor tem 10 s de limite
  *                       (lib/assinatura/asaas.ts), no máximo duas por sincronização. Só a linha desta empresa é travada.
+ *                       Leitura 404 NÃO é remoção (o 404 do Asaas também cobre rota inexistente e id de outra conta; a
+ *                       removida foi lida com `deleted=true` no sandbox, em 10/10/2026): SEM_CONFIRMACAO, situação
+ *                       comercial inalterada.
  *   registrarEvento     INSERT ... ON CONFLICT (provedor, evento_id) DO NOTHING — só identificadores.
  *   processarEvento     resolve a empresa pelos ids GRAVADOS no nosso banco e sincroniza; nunca usa o conteúdo do
- *                       evento como estado. Tipo desconhecido ou empresa não encontrada → IGNORADO; provedor fora →
- *                       FALHOU (nova tentativa por reentrega do provedor ou pela reconciliação).
+ *                       evento como estado. Tipo desconhecido ou empresa não encontrada → IGNORADO; provedor fora ou
+ *                       assinatura sem confirmação (404) → FALHOU (nova tentativa por reentrega do provedor ou pela
+ *                       reconciliação).
  * Auditoria em `auditoria` (origem COBRANCA): situações e datas, sem valores nem dados pessoais.
  */
 import type { DbExecutor } from '../db/contracts';
@@ -18,7 +22,9 @@ import type { Ciclo } from './configuracao.ts';
 import { AsaasFalhou, type ClienteAsaas } from './asaas.ts';
 import { estadoDoProvedor, type EstadoAlvo, type EstadoLocal } from './provedor-estado.ts';
 import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
-import { ehPendencia, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, reconciliarContratacao, TIPO_PENDENCIA, type ProvedorReconciliacao } from './reconciliacao-contratacao.ts';
+import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, PREFIXO_REMOCAO_SEM_CONFIRMACAO, reconciliarContratacao, registrarRemocoes, TIPO_PENDENCIA,
+    type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
+import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -34,6 +40,7 @@ type Linha = {
 };
 
 export async function assinaturaTravada(tx: DbExecutor, empresaId: string) {
+    await travarEmpresaComercial(tx, empresaId);
     return (await tx.query<Linha>(
         `SELECT situacao, ciclo, ${ISO('periodo_atual_fim')} AS periodo_atual_fim, ${ISO('em_atraso_desde')} AS em_atraso_desde,
                 ${ISO('cancelada_em')} AS cancelada_em, ${ISO('encerrada_em')} AS encerrada_em, provedor, provedor_cliente_id, provedor_assinatura_id
@@ -52,6 +59,7 @@ const local = (l: Linha): EstadoLocal => ({
 export type ResultadoSincronizacao =
     | { resultado: 'SEM_ASSINATURA' | 'SEM_PROVEDOR' }
     | { resultado: 'RECUSADA'; motivo: string }
+    | { resultado: 'SEM_CONFIRMACAO'; motivo: 'ASSINATURA_NAO_ENCONTRADA' }
     | { resultado: 'SINCRONIZADA'; antes: SituacaoAssinatura; depois: SituacaoAssinatura; mudou: boolean; recusa: string | null; provedorSituacao: string };
 
 export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps: { provedor: ProvedorLeitura }, origem: OrigemSincronizacao): Promise<ResultadoSincronizacao> {
@@ -61,6 +69,13 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     if (!linha.provedor_assinatura_id)
         return { resultado: 'SEM_PROVEDOR' };
     const assinatura = await deps.provedor.obterAssinatura(linha.provedor_assinatura_id);
+    // GET 404 não comprova remoção (docs.asaas.com/reference/codigos-http-das-respostas: rota inexistente ou id de outra
+    // conta também dão 404; no sandbox, a removida foi lida com `deleted=true`). Sem confirmação, nada muda; fica só o
+    // registro neutro.
+    if (!assinatura) {
+        await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO', empresaId, origem, depois: { motivo: 'ASSINATURA_NAO_ENCONTRADA', situacao: linha.situacao } });
+        return { resultado: 'SEM_CONFIRMACAO', motivo: 'ASSINATURA_NAO_ENCONTRADA' };
+    }
     // Isolamento: a assinatura consultada tem de ser desta empresa (referência externa) e deste cliente no provedor.
     if (assinatura && ((assinatura.externalReference && assinatura.externalReference !== empresaId)
         || (assinatura.customer && linha.provedor_cliente_id && assinatura.customer !== linha.provedor_cliente_id))) {
@@ -70,12 +85,15 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     const pagamentos = assinatura ? await deps.provedor.listarCobrancasDaAssinatura(assinatura.id) : [];
     const agora = await agoraDoBanco(tx);
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
-    if (alvo.mudou) {
+    const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))
+        ? await confirmarOfertaPaga(tx, empresaId, assinatura, pagamentos, linha.provedor_cliente_id, alvo.situacao === 'ATIVA') : null;
+    if (alvo.mudou || oferta) {
         await tx.query(
             `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
                     cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
+                    ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
               WHERE empresa_id = $1::uuid`,
-            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao]);
+            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])]);
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_SINCRONIZADA', empresaId, origem,
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
@@ -104,7 +122,9 @@ export type EventoRecebido = {
     eventoId: string; tipo: string; criadoNoProvedor: string | null; assinaturaId: string | null; cobrancaId: string | null; checkoutId: string | null; referenciaExterna: string | null;
 };
 
-const ID_EVENTO = /^[A-Za-z0-9_.:-]{1,200}$/;
+// O identificador opaco do Asaas pode conter '&' (exemplo oficial de PAYMENT_RECEIVED).
+// Preservar integralmente para deduplicação; não interpretar como URL/query string.
+const ID_EVENTO = /^[A-Za-z0-9_.:&-]{1,200}$/;
 const ID_PROVEDOR = /^[A-Za-z0-9_-]{1,100}$/;
 const TIPO = /^[A-Z0-9_]{1,80}$/;
 const opcional = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v) ? v : null);
@@ -165,7 +185,9 @@ async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     return null;
 }
 
-const codigoErro = (error: unknown) => error instanceof AsaasFalhou
+const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
+    ? `LISTA_INCOMPLETA: ${error.operacao} (mais registros que o limite conferido; revisão humana)`.slice(0, 500)
+    : error instanceof AsaasFalhou
     ? `PROVEDOR_INDISPONIVEL: ${error.operacao}${error.status ? ` (${error.status})` : ''}`.slice(0, 500)
     : `ERRO_INTERNO: ${error instanceof Error ? error.name : typeof error}`.slice(0, 500);
 
@@ -175,7 +197,8 @@ export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' |
  * Processa um evento gravado (transação do chamador). A sincronização roda num SAVEPOINT: se o provedor falhar,
  * a transação continua válida e o evento fica FALHOU com a tentativa contada.
  */
-export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao> }): Promise<ResultadoEvento> {
+/** `transacaoIndependente`: outra conexão com COMMIT próprio, para o marcador de exclusão (sem ela, nada é excluído). */
+export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>; transacaoIndependente?: TransacaoIndependente }): Promise<ResultadoEvento> {
     const ev = (await tx.query<LinhaEvento>(
         `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
     if (!ev || ev.situacao === 'PROCESSADO' || ev.situacao === 'IGNORADO')
@@ -187,27 +210,32 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
         return { situacao, empresaId, ...(motivo ? { motivo } : {}) };
     };
     if (ehPendencia(ev))
-        return processarPendencia(tx, ev, deps.provedor, concluir);
+        return processarPendencia(tx, ev, deps.provedor, concluir, deps.transacaoIndependente);
     if (!EVENTOS_SUPORTADOS.has(ev.tipo))
         return concluir('IGNORADO', null, 'TIPO_NAO_TRATADO');
     const empresaId = await resolverEmpresa(tx, ev);
     if (!empresaId)
         return concluir('IGNORADO', null, 'EMPRESA_NAO_ENCONTRADA');
+    const falhar = async (motivo: string) => {
+        await tx.query(
+            `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
+            [ev.id, empresaId, motivo]);
+        return { situacao: 'FALHOU' as const, empresaId, motivo };
+    };
     await tx.query('SAVEPOINT kidmais_evento_cobranca');
     try {
         const r = await sincronizarEmpresa(tx, empresaId, deps, { tipo: 'WEBHOOK', eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_evento_cobranca');
         if (r.resultado === 'RECUSADA')
             return concluir('IGNORADO', empresaId, r.motivo);
+        // Sem confirmação: o evento continua reprocessável (nunca IGNORADO), e a situação não muda até uma leitura confirmada.
+        if (r.resultado === 'SEM_CONFIRMACAO')
+            return falhar(r.motivo);
         return concluir('PROCESSADO', empresaId, null);
     }
     catch (error) {
         await tx.query('ROLLBACK TO SAVEPOINT kidmais_evento_cobranca');
-        const motivo = codigoErro(error);
-        await tx.query(
-            `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
-            [ev.id, empresaId, motivo]);
-        return { situacao: 'FALHOU', empresaId, motivo };
+        return falhar(codigoErro(error));
     }
 }
 
@@ -217,7 +245,8 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
  * provedor fora → FALHOU com o motivo, visível e reprocessável. Nunca IGNORADO: não some em silêncio.
  */
 async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>,
-    concluir: (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => Promise<ResultadoEvento>): Promise<ResultadoEvento> {
+    concluir: (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => Promise<ResultadoEvento>,
+    independente?: TransacaoIndependente): Promise<ResultadoEvento> {
     const empresaId = ev.empresa_id!;
     const falhar = async (motivo: string) => {
         await tx.query(`UPDATE cobranca_eventos SET situacao = 'FALHOU', tentativas = tentativas + 1, ultimo_erro = $2 WHERE id = $1::uuid`, [ev.id, motivo.slice(0, 500)]);
@@ -225,23 +254,40 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
     };
     if (!provedor.listarAssinaturasPorReferencia || !provedor.removerAssinatura)
         return falhar('PROVEDOR_SEM_ESCRITA');
+    const registro = novoRegistroRemocoes();
+    const origem = { tipo: 'RECONCILIACAO' as const, eventoId: ev.evento_id };
+    let r: ResultadoReconciliacao | null = null;
+    let erro: unknown = null;
     await tx.query('SAVEPOINT kidmais_pendencia_contratacao');
     try {
-        const r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null,
-            { criacao: ev.evento_id.startsWith(PREFIXO_CRIACAO), assinaturaId: ev.assinatura_provedor_id });
+        r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null,
+            { criacao: ev.evento_id.startsWith(PREFIXO_CRIACAO), assinaturaId: ev.assinatura_provedor_id }, registro, independente);
         if (r.resultado === 'VINCULADA' || r.resultado === 'CONCILIADA')
             await sincronizarEmpresa(tx, empresaId, { provedor }, { tipo: 'RECONCILIACAO', eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_pendencia_contratacao');
-        if (r.resultado === 'REVISAO_HUMANA')
-            return falhar(`REVISAO_HUMANA: ${r.motivo}`);
-        if (r.resultado === 'AGUARDANDO')
-            return falhar(`AGUARDANDO_CONFIRMACAO: ${r.motivo}`);
-        return concluir('PROCESSADO', empresaId, r.resultado);
     }
     catch (error) {
         await tx.query('ROLLBACK TO SAVEPOINT kidmais_pendencia_contratacao');
-        return falhar(codigoErro(error));
+        erro = error;
     }
+    // Marcador de exclusão sem confirmação: só fecha quando a releitura confirma a exclusão.
+    const marcador = ev.evento_id.startsWith(PREFIXO_REMOCAO_SEM_CONFIRMACAO);
+    const marcadorConfirmado = registro.confirmadasNaReleitura.some((m) => m.marcadorId === ev.id);
+    const concluido = !erro && r !== null && r.resultado !== 'REVISAO_HUMANA' && r.resultado !== 'AGUARDANDO' && r.resultado !== 'ADIADA' && (!marcador || marcadorConfirmado);
+    // Exclusões feitas no provedor ficam registradas mesmo quando a operação seguinte falhou (o SAVEPOINT desfeito não as leva).
+    await registrarRemocoes(tx, empresaId, registro, origem, { id: ev.id, concluido });
+    if (erro || !r)
+        return falhar(codigoErro(erro));
+    if (r.resultado === 'REVISAO_HUMANA')
+        return falhar(`REVISAO_HUMANA: ${r.motivo}`);
+    if (r.resultado === 'AGUARDANDO')
+        return falhar(`AGUARDANDO_CONFIRMACAO: ${r.motivo}`);
+    // Marcador não confirmado no banco: nada foi excluído; nova tentativa no reprocessamento.
+    if (r.resultado === 'ADIADA')
+        return falhar(`ADIADA: ${r.motivo}`);
+    if (marcador && !marcadorConfirmado)
+        return falhar('REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO');
+    return concluir('PROCESSADO', empresaId, marcador ? 'AUSENCIA_CONFIRMADA_NA_RELEITURA' : r.resultado);
 }
 
 /** Eventos a reprocessar (PENDENTE/FALHOU), mais antigos primeiro. */

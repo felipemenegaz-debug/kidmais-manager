@@ -8,11 +8,12 @@ import {
   revalidarHorarioSelecionado,
 } from "@/lib/disponibilidade/services";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
-import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica, type EscopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { db } from "@/lib/db/postgres";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { limitarPublico } from "@/lib/http/limite-publico";
 import { isPricingServiceError } from "@/lib/comercial/services";
 import {
   criarFechamentoPublicoComIdentidade,
@@ -68,6 +69,8 @@ function requestMetadata(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const limite = limitarPublico(request, "PEDIDO");
+  if (limite) return limite;
   let body: unknown;
   try {
     body = await request.json();
@@ -112,9 +115,11 @@ export async function POST(request: NextRequest) {
   }
 
   let horarioRevalidado: Awaited<ReturnType<typeof revalidarHorarioSelecionado>>;
-  let escopo: Awaited<ReturnType<typeof escopoCatalogoPublico>>;
+  let escopo: EscopoCotacaoPublica;
   try {
-    escopo = await escopoCatalogoPublico(db);
+    // Cliente existente: a prova de identidade é emitida só para cliente desta empresa (escopo em /api/identidade)
+    // e o serviço confere de novo que o cliente comprovado é da empresa do pacote.
+    escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl), { escrita: true });
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     escopo.estabelecimentoId = unidade.estabelecimentoId;
     horarioRevalidado = await revalidarHorarioSelecionado({
@@ -123,7 +128,7 @@ export async function POST(request: NextRequest) {
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
-    }, undefined, escopo);
+    }, undefined, { empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId });
   } catch (error) {
     if (isAvailabilityServiceError(error)) {
       return NextResponse.json(
@@ -234,6 +239,7 @@ export async function POST(request: NextRequest) {
         temaPadrao: dados.data.temaFesta,
       },
       ...requestMetadata(request),
+      cpfSemRevelarCadastro: escopo.porCodigo,
     });
 
     const fechamento = resultado.fechamento;
@@ -247,7 +253,8 @@ export async function POST(request: NextRequest) {
         status: fechamento.status,
         negociacaoNecessaria: resultado.negociacaoNecessaria,
         persistido: true,
-        crm: {
+        // Endereço por empresa: nada sobre o cadastro (CPF gravado ou não) sai na resposta pública.
+        crm: escopo.porCodigo ? undefined : {
           clienteNovo: resultado.cliente.novo,
           cadastroAtualizado: resultado.cliente.cadastroAtualizado,
           cadastroCompletoParaContrato: resultado.cliente.cadastroCompletoParaContrato,

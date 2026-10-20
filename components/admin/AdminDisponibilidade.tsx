@@ -7,6 +7,7 @@ import { HorarioBase, PacoteId } from "@/components/fechamento/types";
 import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
+  type RegraPacoteEmpresa,
   statusDataPacote,
   statusLabel,
 } from "@/lib/agenda/disponibilidade";
@@ -61,6 +62,8 @@ type AdminPayload = DisponibilidadeConfig & {
   podeResolverLegado?: boolean;
   /** E2: regras e descontos do arquivo da instalação só para a empresa dona da agenda pública. */
   configuracaoComercial?: boolean;
+  /** Regras dos pacotes da empresa ativa (id da tela → regras); null/ausente = dona da agenda pública (regra legada). */
+  regrasPacotes?: Record<string, RegraPacoteEmpresa[]> | null;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
 };
@@ -96,6 +99,7 @@ export default function AdminDisponibilidade() {
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
   const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
+  const [regrasPacotes, setRegrasPacotes] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
@@ -158,6 +162,7 @@ export default function AdminDisponibilidade() {
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
       configuracaoComercial: admin.configuracaoComercial !== false,
+      regrasPacotes: admin.regrasPacotes ?? null,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -203,6 +208,7 @@ export default function AdminDisponibilidade() {
       setAgendaPorEscopo(dados.agendaPorEscopo);
       setPodeResolverLegado(dados.podeResolverLegado);
       setConfiguracaoComercial(dados.configuracaoComercial);
+      setRegrasPacotes(dados.regrasPacotes);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -233,6 +239,7 @@ export default function AdminDisponibilidade() {
         setAgendaPorEscopo(dados.agendaPorEscopo);
         setPodeResolverLegado(dados.podeResolverLegado);
         setConfiguracaoComercial(dados.configuracaoComercial);
+        setRegrasPacotes(dados.regrasPacotes);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -368,8 +375,11 @@ export default function AdminDisponibilidade() {
     }
   }
 
+  // Empresa ativa que não é a dona da agenda pública: as regras do pacote configuradas por ela (mesma decisão da
+  // cotação em /b/<código>); dona: regra legada (null).
+  const regrasDoPacote = regrasPacotes ? (regrasPacotes[pacote] ?? []) : null;
   const infoComercialSelecionada = selecionada
-    ? statusDataPacote(config, pacote, selecionada, horario)
+    ? statusDataPacote(config, pacote, selecionada, horario, regrasDoPacote)
     : null;
 
   const turnoSelecionado = selecionada
@@ -538,7 +548,7 @@ export default function AdminDisponibilidade() {
                 const data = iso(ano, mes, i + 1);
                 const padrao = horarioPadraoOperacional(data, horario);
                 const semDados = !padrao;
-                const comercial = statusDataPacote(config, pacote, data, horario);
+                const comercial = statusDataPacote(config, pacote, data, horario, regrasDoPacote);
                 const info = padrao?.status === "INDISPONIVEL"
                   ? {
                       status: "indisponivel" as const,
@@ -823,11 +833,13 @@ export default function AdminDisponibilidade() {
 
                 <div className={styles.currentStatus}>
                   <span>Status comercial do pacote</span>
-                  <strong>{infoComercialSelecionada ? statusLabel(infoComercialSelecionada.status) : "-"}</strong>
+                  <strong>{infoComercialSelecionada ? statusLabel(infoComercialSelecionada.status, regrasDoPacote === null) : "-"}</strong>
                   <small>
                     {infoComercialSelecionada?.origem === "override"
                       ? "Definido manualmente para este pacote"
-                      : "Regra padrão do pacote"}
+                      : regrasDoPacote
+                        ? "Dias e períodos configurados no pacote"
+                        : "Regra padrão do pacote"}
                   </small>
                 </div>
 

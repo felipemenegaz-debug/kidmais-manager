@@ -7,6 +7,16 @@ import { extrairEvento } from './sincronizacao.ts';
 import { decidirCompensacao } from './compensacao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
 
+test('webhook preserva o identificador opaco com & usado pelo Asaas, mantendo limites e recusas', () => {
+    // https://docs.asaas.com/docs/payment-events — formato oficial, valores sintéticos.
+    const id = 'evt_05b708f961d739ea7eba7e4db318f621&368604920';
+    const evento = { id, event: 'PAYMENT_RECEIVED', payment: { id: 'pay_teste', subscription: 'sub_teste' } };
+    assert.equal(extrairEvento(evento)?.eventoId, id);
+    assert.notEqual(extrairEvento({ ...evento, id: id.replace('&', '_') })?.eventoId, id);
+    for (const invalido of ['', 'x'.repeat(201), 'evt_teste\n', 'evt_teste?x=1', 'evt_<script>', 'kidmais:contratacao:x&1'])
+        assert.equal(extrairEvento({ ...evento, id: invalido }), null);
+});
+
 test('resultado da criação: só 4xx definitivo é "não criado"; tempo, rede, 5xx, 408/409/429 e resposta ilegível são incertos', () => {
     assert.equal(resultadoIncerto(new AsaasFalhou('criar assinatura', 400, 'HTTP')), false);
     assert.equal(resultadoIncerto(new AsaasFalhou('criar assinatura', 401, 'HTTP')), false);
@@ -27,12 +37,37 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.doesNotMatch(fonte, /removerAssinatura\([^)]*\)\.catch\(\(\) => undefined\)/, 'compensação silenciosa removida');
     const resolver = fonte.slice(fonte.indexOf('async function resolverFalhaNoVinculo('), fonte.indexOf('export async function cancelarAssinatura'));
     // Toda exclusão automática passa pela decisão central: só depois de decidirCompensacao(...) devolver excluir.
-    assert.match(resolver, /decidirCompensacao\(provedor, \{ empresaId, vinculo, vinculoAnterior, candidataId: b\.assinatura\.id \}\)[\s\S]*if \(decisao\?\.excluir\) \{\s*try \{\s*await provedor\.removerAssinatura/);
-    assert.equal(resolver.match(/removerAssinatura\(/g)?.length, 1);
-    assert.match(resolver, /motivo: 'COMPENSACAO_FALHOU'/);
+    assert.match(resolver, /decidirCompensacao\(provedor, \{ empresaId, vinculo, vinculoAnterior, candidataId: b\.assinatura\.id \}\)[\s\S]*if \(decisao\?\.excluir\) \{\s*await compensarComMarcador\(deps, provedor, empresaId, b, origem\);\s*throw error;/);
+    // Na contratação, nenhuma chamada direta: a exclusão passa por removerComResultado, uma vez, DEPOIS do marcador gravado.
+    assert.equal(resolver.match(/removerAssinatura\(/g), null);
+    assert.equal(resolver.match(/removerComResultado\(/g)?.length, 1);
+    const compensar = resolver.slice(resolver.indexOf('async function compensarComMarcador('));
+    // Registro prévio na transação independente com prazo (deps.transacaoIndependente): sem marcador confirmado, não há DELETE.
+    assert.match(compensar, /const independente = deps\.transacaoIndependente;\s*const marcador = await persistirMarcadorPrevio\(independente, empresaId, assinaturaId\);\s*if \(!marcador\) \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
+        'marcador não gravado → não exclui');
+    assert.match(compensar, /registrarResultadoRemocao\(independente!, empresaId, marcador, remocao, origem,/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
+    // Único ponto que chama o provedor para excluir: `ausente` (404 + releitura com `deleted`, sem autoria), `removida` = confirmada, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
-    assert.match(rec, /const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*await provedor\.removerAssinatura\(d\.id\)/);
+    assert.match(rec, /const r = await provedor\.removerAssinatura\(assinaturaId\);\s*return r\.ausente === true \? \{ resultado: 'AUSENTE' \} : r\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
+    assert.match(rec, /return remocaoPodeTerOcorrido\(error\) \? \{ resultado: 'DESCONHECIDA' \} : \{ resultado: 'RECUSADA', erro: error \};/);
+    // Marcador prévio: só na transação independente (COMMIT próprio), com limite de espera por lock e uma exclusão por assinatura.
+    const previo = rec.slice(rec.indexOf('export async function persistirMarcadorPrevio('), rec.indexOf('export async function registrarResultadoRemocao('));
+    assert.match(previo, /if \(!independente\)\s*return null;/);
+    assert.match(previo, /return await independente\(async \(tx\) => \{\s*await limitesIndependente\(tx\);\s*await tx\.query\("SELECT pg_advisory_xact_lock\(hashtext\('kidmais:remocao'\), hashtext\(\$1\)\)", \[assinaturaId\]\);/);
+    assert.match(previo, /catch \{\s*return null;\s*\}/);
+    assert.match(rec, /SET LOCAL lock_timeout = '3s'/);
+    // Resultado gravado na mesma transação independente: sucesso só em CONFIRMADA; sem confirmação o marcador fica aberto.
+    const resultado = rec.slice(rec.indexOf('export async function registrarResultadoRemocao('));
+    assert.equal(resultado.slice(0, resultado.indexOf('\nexport ')).match(/ASSINATURA_DUPLICADA_REMOVIDA/g)?.length, 1);
+    assert.match(resultado, /if \(remocao\.resultado === 'CONFIRMADA'\) \{\s*await fecharMarcadorRemocao\(tx, empresaId, marcadorId, 'REMOCAO_CONFIRMADA'\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_DUPLICADA_REMOVIDA'/);
+    assert.match(resultado, /else \{\s*await manterMarcadorRemocao\(tx, empresaId, marcadorId\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO'/);
+    // Reconciliação: decisão central → marcador prévio confirmado → DELETE; sem marcador, ADIADA (nada excluído).
+    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}[\s\S]*?const marcadorId = await persistirMarcadorPrevio\(independente, empresaId, d\.id\);\s*if \(!marcadorId\)\s*return \{ resultado: 'ADIADA', motivo: 'MARCADOR_NAO_GRAVADO', ids: \[d\.id\] \};\s*const remocao = await removerComResultado\(provedor, d\.id\);/);
+    assert.equal(rec.match(/removerComResultado\(provedor,/g)?.length, 1);
+    // Sem confirmação (ou resultado não gravado) nunca conta como removida.
+    assert.equal(rec.match(/registro\.confirmadas\.push\(/g)?.length, 1);
+    assert.match(rec, /if \(\(remocao\.resultado !== 'CONFIRMADA' && remocao\.resultado !== 'AUSENTE'\) \|\| !gravado\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}[\s\S]*?if \(remocao\.resultado === 'AUSENTE'\)\s*registro\.ausentes\.push\(d\.id\);\s*else\s*registro\.confirmadas\.push\(d\.id\);/);
     assert.match(fonte, /pg_try_advisory_xact_lock\(hashtext\('kidmais:contratacao'\), hashtext\(\$1\)\)/);
 });
 
@@ -70,4 +105,23 @@ test('decisão central de compensação: exclui só com vínculo confirmado, vig
     await d('vigente', 'cand');
     assert.deepEqual(leituras, ['assinatura:vigente', 'assinatura:cand', 'cobrancas:cand'], 'confirma a vigente, a candidata e os pagamentos');
     await assert.rejects(decidirCompensacao({ ...provedor, listarCobrancasDaAssinatura: async () => { throw new AsaasFalhou('listar cobranças', null, 'REDE'); } }, { empresaId: E, vinculo: 'vigente', candidataId: 'cand' }), AsaasFalhou);
+    // Lista de cobranças incompleta: um pagamento além do limite poderia existir → nunca decide excluir.
+    await assert.rejects(decidirCompensacao({ ...provedor, listarCobrancasDaAssinatura: async () => { throw new AsaasFalhou('listar cobranças', null, 'LISTA_INCOMPLETA'); } }, { empresaId: E, vinculo: 'vigente', candidataId: 'cand' }), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    assert.equal(resultadoIncerto(new AsaasFalhou('listar assinaturas', null, 'LISTA_INCOMPLETA')), true, 'lista incompleta é resultado incerto');
+});
+
+test('D1: a transação independente da aplicação e do script tem prazo do lado da aplicação; a compensação sem ela não exclui', () => {
+    const padrao = readFileSync('lib/assinatura/cobranca-padrao.ts', 'utf8');
+    assert.match(padrao, /export const transacaoIndependenteDaAplicacao = transacaoComPrazo\(conexaoDescartavelDoPool, PRAZO_TRANSACAO_INDEPENDENTE_MS\);/);
+    assert.match(padrao, /transacaoIndependente: transacaoIndependenteDaAplicacao, travarContratacao/, 'contratação (rotas)');
+    assert.match(padrao, /processarEvento\(tx, eventoInternoId, \{ provedor, transacaoIndependente: transacaoIndependenteDaAplicacao \}\)/, 'webhook');
+    assert.doesNotMatch(padrao, /transacaoIndependente: withTransaction/, 'nunca a transação comum sem prazo');
+    const script = readFileSync('scripts/assinatura-reconciliar.cjs', 'utf8');
+    assert.match(script, /transacaoIndependenteDaExecucao\(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS\)/);
+    assert.match(script, /return comPrazo\(abrirMarcador, prazoMs\);/);
+    const cobranca = readFileSync('lib/assinatura/cobranca.ts', 'utf8');
+    const compensar = cobranca.slice(cobranca.indexOf('async function compensarComMarcador('), cobranca.indexOf('export async function cancelarAssinatura'));
+    assert.doesNotMatch(compensar, /withTransaction/, 'o marcador e o resultado nunca vão pela transação comum');
+    const postgres = readFileSync('lib/db/postgres.ts', 'utf8');
+    assert.doesNotMatch(postgres, /query_timeout|statement_timeout/, 'o pool da aplicação não muda');
 });

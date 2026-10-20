@@ -1,0 +1,472 @@
+{
+  "criadoEm": "2026-10-06",
+  "autor": "rodada 16 (desenvolvimento; rótulos pelas regras dos holdouts, não é medição)",
+  "categoria": "r16-conversas",
+  "itens": [
+    {
+      "id": "rd01",
+      "texto": "Favor providenciar a baixa do meu número na lista de envios de vocês.",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Formal por substantivo (baixa); holdout 15, b79."
+    },
+    {
+      "id": "rd02",
+      "texto": "solicito a baixa do meu contato",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Formal."
+    },
+    {
+      "id": "rd03",
+      "texto": "quero dar baixa no meu número da lista de promoções",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Formal com \"no\"."
+    },
+    {
+      "id": "rd04",
+      "texto": "a baixa do boleto já caiu?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Baixa de pagamento: não é parar."
+    },
+    {
+      "id": "rd05",
+      "texto": "me manda só o pdf com os preços e depois disso não me manda mais nada",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PRECOS",
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Material + parar: nada automático."
+    },
+    {
+      "id": "rd06",
+      "texto": "manda a tabela e daí pra frente não me manda mais nada",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PRECOS",
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Paráfrase."
+    },
+    {
+      "id": "rd07",
+      "texto": "me manda a tabela e depois me manda o endereço da asa sul",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Contraexemplo: dois pedidos de material, sem parar (antes da gravação: \"o pdf\" não dizia qual material; trocado por \"a tabela\")."
+    },
+    {
+      "id": "rd08",
+      "texto": "a festa do meu filho foi sábado passado e ficou uma sacola de lembrancinhas aí, vcs acharam?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Objeto esquecido (holdout 15, b17)."
+    },
+    {
+      "id": "rd09",
+      "texto": "esqueceram um casaco azul no salão ontem, alguém guardou?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Paráfrase."
+    },
+    {
+      "id": "rd10",
+      "texto": "ficou caro aí, hein",
+      "decisao": "RESPONDER",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: não é objeto esquecido; comentário sem pergunta (antes da gravação estava como PRECOS, sem pergunta de preço)."
+    },
+    {
+      "id": "rd11",
+      "texto": "q valor do essencial pra 40 pessoas? se for bom ja garanto o dia 28/11",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PRECOS",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": 40,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 15, b23."
+    },
+    {
+      "id": "rd12",
+      "texto": "se couber no orçamento eu fecho o completa",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Paráfrase."
+    },
+    {
+      "id": "rd13",
+      "texto": "se for de noite fica mais caro?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: comparação de preço sem data."
+    },
+    {
+      "id": "rd14",
+      "texto": "o buffet aqui do lado fez o mesmo pacote por 7 mil, vcs cobrem?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 15, b33."
+    },
+    {
+      "id": "rd15",
+      "texto": "outro lugar me passou 6.500 no mesmo pacote, igualam?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Paráfrase."
+    },
+    {
+      "id": "rd16",
+      "texto": "vcs cobrem taxa de limpeza?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cobrar = cláusula 14."
+    },
+    {
+      "id": "rd17",
+      "texto": "e se vierem 10 a mais no dia, pago o excedente?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 3 (valor por pacote)."
+    },
+    {
+      "id": "rd18",
+      "texto": "vcs cobrem o excedente no dia?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 3."
+    },
+    {
+      "id": "rd19",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi, quanto fica o completa pra 80 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela."
+    },
+    {
+      "id": "rd20",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "Favor providenciar a baixa do meu número na lista de envios de vocês.",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Baixa no meio da conversa."
+    },
+    {
+      "id": "rd21",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "obrigada",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR."
+    },
+    {
+      "id": "rd22",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "ah, me manda o endereço então",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR: silêncio."
+    },
+    {
+      "id": "rd23",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "boa tarde! vcs fazem decoração de dinossauro?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "dinossauro"
+      },
+      "nota": "Decoração."
+    },
+    {
+      "id": "rd24",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "e quantos balões vêm? se eu quiser mais cobra?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 17."
+    },
+    {
+      "id": "rd25",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "e se vierem uns 15 a mais no dia, pago o excedente?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 3."
+    },
+    {
+      "id": "rd26",
+      "conversa": "c2",
+      "ordem": 4,
+      "texto": "me manda só o pdf com os preços e depois disso não me manda mais nada",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PRECOS",
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Material + parar no fim da conversa."
+    }
+  ]
+}

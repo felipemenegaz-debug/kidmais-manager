@@ -1,5 +1,9 @@
 import { after } from 'next/server';
 import { receiveGupshupWebhook } from '@/lib/integracoes/gupshup/webhook';
+import { entradaGupshup } from '@/lib/whatsapp/atendimento/core';
+import { receberEntrada, receberStatus } from '@/lib/whatsapp/atendimento/service';
+import { recepcaoAtiva } from '@/lib/whatsapp/atendimento/configuracao';
+import { opcoesRecepcaoAtendimento } from '@/app/api/admin/inteligencia/whatsapp/automacao';
 
 export const runtime = 'nodejs';
 
@@ -10,5 +14,11 @@ export async function POST(request: Request) {
         RENDER: process.env.RENDER,
     }, (event) => {
         after(() => { console.info('[Gupshup webhook]', JSON.stringify(event)); });
-    });
+    }, recepcaoAtiva() ? async (raw, event) => {
+        // Formato fora do contrato (outro app, versão ou campos): retry não corrige; confirma sem persistir.
+        // Estado da chave global da IA vem da composition root da IA (o Core e este adaptador não leem a chave):
+        // desligada, a entrada já nasce com a equipe e não espera resposta automática para depois de religar.
+        if (event.eventType === 'message') { const entrada = entradaGupshup(raw); if (entrada) await receberEntrada(entrada, opcoesRecepcaoAtendimento()); }
+        else await receberStatus(raw);
+    } : undefined);
 }

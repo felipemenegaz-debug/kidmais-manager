@@ -16,7 +16,8 @@ function executar(nome, argumentos) {
   if (resultado.status !== 0) process.exit(resultado.status ?? 1);
 }
 
-const testes = arquivosDoCheckEstatico(raiz);
+// O filho já usa a raiz como cwd. Caminhos relativos evitam ENAMETOOLONG em worktrees Windows profundas.
+const testes = arquivosDoCheckEstatico(raiz).map(arquivo => path.relative(raiz, arquivo));
 
 executar("Worker de PDF atualizado", ["scripts/gerar-pdf-worker.cjs", "--check"]);
 

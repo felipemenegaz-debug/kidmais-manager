@@ -11,7 +11,7 @@ test('duração do teste: singular só para 1 dia', () => {
 
 test('telas públicas usam o texto com singular/plural (nada de "1 dias")', async () => {
     const { readFileSync } = await import('node:fs');
-    for (const arquivo of ['app/planos/page.tsx', 'app/cadastro/page.tsx']) {
+    for (const arquivo of ['components/site/secoes.tsx', 'app/cadastro/page.tsx']) {
         const fonte = readFileSync(arquivo, 'utf8');
         assert.match(fonte, /from '@\/lib\/assinatura\/texto'/, arquivo);
         assert.doesNotMatch(fonte, /\$\{(situacao\.)?testeDias\} dias/, arquivo);

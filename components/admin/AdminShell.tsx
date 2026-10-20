@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { adminFetch } from '@/lib/http/admin-fetch';
-import { registrarContextoEmpresa, reiniciarContextoEmpresa } from '@/lib/http/contexto-empresa-cliente';
+import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
+import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
 import { lembrarCsrf, sairDaSessao } from './sair';
+import { PermissoesAdminContext } from './PermissoesAdmin';
 
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
@@ -22,6 +23,8 @@ const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/a
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
+/** Depois de pedir a navegação da troca: se a página ainda existir (navegação cancelada), o seletor volta a funcionar. */
+const ESPERA_NAVEGACAO_DA_TROCA_MS = 4000;
 
 export default function AdminShell({ children, vitrine }: {
     children: React.ReactNode;
@@ -48,7 +51,10 @@ export default function AdminShell({ children, vitrine }: {
         if (vitrine || path === '/admin/login')
             return;
         let alive = true;
-        const carregar = () => fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+        // Resposta de leitura que saiu antes de uma troca de empresa desta página é da sessão anterior: ignorada.
+        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+            if (sessaoObsoletaDesde(marca))
+                return;
             if (!b.ok || !b.data.usuarioId) {
                 setName(null);
                 window.location.replace('/admin/login');
@@ -61,10 +67,10 @@ export default function AdminShell({ children, vitrine }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma) });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => router.replace('/admin/login'));
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };
@@ -126,17 +132,20 @@ export default function AdminShell({ children, vitrine }: {
         </div></div>;
     const semEmpresa = !vitrine && contexto !== null && contexto.empresas.length === 0;
     const itens = semEmpresa ? [] : itensNavegacao(permissoes);
-    const grupos = ['Principal', 'Operação', 'Financeiro', 'Configurações'] as const;
+    const grupos = ['Principal', 'Operação', 'Marketing', 'Financeiro', 'Configurações'] as const;
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
         try {
-            const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ acao: 'selecionar-empresa', empresaId: id }) });
+            // Janela de proteção contra respostas da sessão anterior com início e fim definidos (lib/http/admin-fetch.ts).
+            const res = await trocarEmpresaAtiva(id);
             const b = await res.json();
             if (!res.ok || !b.ok) throw Error(b.erro ?? 'Não foi possível trocar de empresa.');
             try { localStorage.setItem('kidmais-contexto-alterado', String(Date.now())); } catch { /* Sem armazenamento, foco/poll revalidam as outras abas. */ }
             reiniciarContextoEmpresa();
+            // Navegação cancelada (aviso de alterações não salvas → "Ficar"): a página continua e o seletor volta a funcionar.
+            // Os dados antigos continuam descartados na próxima leitura (empresa da sessão ≠ empresa da página).
+            window.setTimeout(() => setTrocando(false), ESPERA_NAVEGACAO_DA_TROCA_MS);
         } catch (e) { setErroEmpresa(e instanceof Error ? e.message : 'Não foi possível trocar de empresa.'); setTrocando(false); }
     }
     const seletor = contexto && contexto.empresas.length > 0 ? <label className={styles.seletorEmpresa}>Empresa ativa
@@ -198,11 +207,16 @@ export default function AdminShell({ children, vitrine }: {
                     <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
                         {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
                         <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
-                : children}</div>
+                : <PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider>}</div>
     </PerguntarKidmaisProvider></div>;
 }
 
 function iconeDaRota(href: string): AdminIconName {
+    if (href === '/admin/marketing') return 'marketing';
+    if (href.includes('/marketing/campanhas')) return 'campaign';
+    if (href.includes('/marketing/origens')) return 'origin';
+    if (href.includes('/marketing/site')) return 'site';
+    if (href.includes('/marketing/automacoes')) return 'automation';
     if (href.includes('perfil-empresa')) return 'profile';
     if (href.includes('tabelas-preco')) return 'prices';
     if (href.includes('tabela-pacotes')) return 'pdf';
@@ -212,7 +226,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('contratos')) return 'contract';
     if (href.includes('festas')) return 'cake';
     if (href.includes('disponibilidade')) return 'calendar';
-    if (href.includes('whatsapp')) return 'contact';
+    if (href.includes('whatsapp') || href.includes('atendimento')) return 'contact';
     if (href.includes('dashboard')) return 'dashboard';
     if (href.includes('contas-receber')) return 'receive';
     if (href.includes('contas-pagar')) return 'pay';

@@ -15,7 +15,17 @@
  *   061   — inventário inteiro até a 061 (com 055a–d, 058 e 059): etapa da integração sem a agenda por unidade.
  *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *   063   — inventário inteiro até a 063: painel do desenvolvedor (concessão, interessadas, convites, recuperação).
- *   079   — inventário inteiro até a 079: convites (073/074) com a recuperação manual de geração incerta.
+ *   075   — inventário inteiro até a 075: cobrança com as travas comerciais da 074a e a renovação 075 (suítes da #147).
+ *   078   — inventário inteiro até a 078 (planos, regras de pagamento, catálogo por empresa).
+ *   079   — inventário inteiro até a 079 (recuperação manual de convites).
+ *           Desde a integração do atendimento (11/10/2026), os modelos 061…079 incluem a 060 e a 065, que ficam antes
+ *           delas na ordem do inventário (como o 063 já incluía a 060).
+ *   079-sem-atendimento — inventário até a 079 SEM a 060 e a 065: a PREMISSA do banco de staging antes das
+ *           migrations do atendimento (076–078 com evidência datada; 079 sem evidência datada; estado real só por E2a novo).
+ *   079-sem-065 — inventário até a 079 sem a 065 (060 presente): o estado misto possível do staging.
+ *   082   — inventário inteiro até a 082: atendimento completo (060, 065, 080, 081, 082) na ordem do inventário.
+ *   084   — inventário inteiro até a 084 (Convites, geração sem resultado; PR #176).
+ *   086   — inventário inteiro até a 086 (inclui a 084): Marketing (085) e automações de Marketing (086), goal local de 14/10/2026.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -53,9 +63,31 @@ const MODELOS = {
   "062": { banco: "kidmais_v1_modelo_062", ate: "062", sem: [] },
   // Painel do desenvolvedor (063): inventário inteiro até a 063.
   "063": { banco: "kidmais_v1_modelo_063", ate: "063", sem: [] },
-  // Recuperação manual de convites (079): cadeia completa do inventário de produção até a 079.
+  // Migrations atuais (073–075): a cobrança roda também com a trava comercial e os gatilhos da 074a instalados.
+  "075": { banco: "kidmais_v1_modelo_075", ate: "075", sem: [] },
+  // Schema de staging depois da 078 (074a, 077, 078): fixtures de homologação (F-L) no mesmo schema do alvo.
+  "078": { banco: "kidmais_v1_modelo_078", ate: "078", sem: [] },
+  // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
   "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
+  // Premissa do staging antes do atendimento: 061…079 presentes, 060/065 ausentes (base da suíte ordem-staging-real).
+  "079-sem-atendimento": { banco: "kidmais_v1_modelo_079_sem_atendimento", ate: "079", sem: ["060", "065"] },
+  // Estado misto (12/10): a 060 aplicada antes de 061…079 e a 065 ausente (base da suíte estado-misto).
+  "079-sem-065": { banco: "kidmais_v1_modelo_079_sem_065", ate: "079", sem: ["065"] },
+  // Atendimento completo na ordem do inventário (060 antes da 061, 065 antes da 064, 080–082 depois da 079).
+  "082": { banco: "kidmais_v1_modelo_082", ate: "082", sem: [] },
+  // WhatsApp por empresa (083): inventário inteiro até a 083.
+  "083": { banco: "kidmais_v1_modelo_083", ate: "083", sem: [] },
+  // Convites — geração sem resultado (084, PR #176): inventário inteiro até a 084 (schema de staging antes do Marketing).
+  "084": { banco: "kidmais_v1_modelo_084", ate: "084", sem: [] },
+  // Marketing (goal local 14/10/2026): 085 (base) e 086 (automações) com prechecks e postchecks do inventário.
+  "086": { banco: "kidmais_v1_modelo_086", ate: "086", sem: [] },
 };
+/** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
+function modeloE2E(env = process.env) {
+  const m = env.KIDMAIS_E2E_MODELO ?? "063";
+  if (m !== "063" && m !== "075") throw new Error(`KIDMAIS_E2E_MODELO inválido: ${m}`);
+  return m;
+}
 /** Bancos de trabalho que o runner pode restaurar. */
 const TRABALHO = ["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"];
 const GERENCIAVEIS = new Set([...TRABALHO, ...Object.values(MODELOS).map((m) => m.banco)]);
@@ -195,4 +227,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { MODELOS, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco };
+module.exports = { modeloE2E, MODELOS, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco };

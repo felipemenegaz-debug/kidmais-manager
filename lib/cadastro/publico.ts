@@ -64,6 +64,16 @@ export function situacaoCadastro(env: Ambiente = process.env): { ativo: boolean;
         return { ativo: false, motivo: 'O cadastro público exige o envio de e-mail configurado.' };
     return { ativo: true, motivo: null };
 }
+/**
+ * E2 (docs/RECURSOS_GLOBAIS_E2_20261006.md): bloqueio de agenda antigo sem empresa vale para TODAS as empresas. Enquanto
+ * houver algum ativo de hoje em diante, nenhuma empresa nova nasce pelo cadastro público (a plataforma atribui ou libera
+ * antes). Sem a coluna da 062 a consulta falha e o cadastro continua fechado (fail-closed).
+ */
+export async function exigirAgendaSemBloqueioGlobal(tx: Pick<DbExecutor, 'query'>) {
+    const n = (await tx.query<{ n: number }>('SELECT count(*)::int AS n FROM bloqueios_agenda WHERE empresa_id IS NULL AND ativo AND data >= current_date')).rows[0]?.n;
+    if (n !== 0)
+        throw erroAcesso('CADASTRO_INDISPONIVEL', 'O cadastro de novas empresas não está disponível no momento.', 503);
+}
 export function exigirCadastroAtivo(env: Ambiente = process.env) {
     const s = situacaoCadastro(env);
     if (!s.ativo)
@@ -269,6 +279,7 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
                   WHERE c.usuario_id = $1::uuid AND c.documento = $2`, [sessao.usuario_id, documento])).rows[0];
             if (propria)
                 return { situacao: 'CRIADA' as const, empresaId: propria.empresa_id, testeFim: propria.teste_fim, repetido: true };
+            await exigirAgendaSemBloqueioGlobal(tx);
             if (!await consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_EMPRESA))
                 throw erroAcesso('LIMITE_TENTATIVAS', 'Limite diário de cadastros de empresa atingido. Fale com a Kidmais.', 429);
             await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:cnpj:' || $1))", [documento]);

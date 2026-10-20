@@ -13,7 +13,7 @@ export default function LoginAdmin() {
     const [mostrarSenha, setMostrarSenha] = useState(false);
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
     return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
- <form onSubmit={async (event) => {
+ <form method="post" onSubmit={async (event) => {
             event.preventDefault();
             setBusy(true);
             setError('');

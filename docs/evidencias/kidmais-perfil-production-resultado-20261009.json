@@ -1,0 +1,18 @@
+{
+  "banco": "kidmais_production",
+  "recursoPostgres": "dpg-dak750gae00c73fudmg0-a",
+  "servicoWeb": "srv-dak77m2d0e5s73b8rkkg",
+  "fonteConfirmadaPorFelipe": "CONFIGURACOES_PERFIL_DA_EMPRESA",
+  "fonteSql": "perfil_empresas.cnpj",
+  "modo": "IDENTIDADE_PERFIL_PRODUCTION_SOMENTE_LEITURA",
+  "bancoConsultado": true,
+  "tlsAtivoConferido": true,
+  "empresasEncontradasPeloDocumentoNoPerfilAplicado": 0,
+  "isencaoConcedida": false,
+  "cobrancasAlteradas": 0,
+  "testesDeFuncionalidadeEmProducao": false,
+  "abaShellFechada": true,
+  "deploysExecutados": 0,
+  "redeOuCredenciaisAlteradas": false,
+  "pendencia": "CONFIRMAR_DOCUMENTO_EXIBIDO_E_SE_APLICADO_OU_RASCUNHO"
+}

@@ -35,7 +35,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
   const pendente = dados?.aprovacoes.find((a) => a.status === "PENDENTE" && a.condicaoPagamento);
   let previa = null;
   if (f && condicao) {
-    try { previa = calcularCondicaoComercial(base ? centavosComerciais(base.replace(",", ".")) / 100 : f.valorAprovado ?? f.valorTabela, condicao.forma); }
+    try { previa = calcularCondicaoComercial(base ? centavosComerciais(base.replace(",", ".")) / 100 : f.valorAprovado ?? f.valorTabela, condicao.forma, condicao.descontoPercentual); }
     catch { /* Entrada parcial durante digitação. */ }
   }
   async function decidir(decisao: "APROVAR" | "RECUSAR") {

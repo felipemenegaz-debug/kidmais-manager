@@ -8,7 +8,7 @@ import { rotaSemprePermitida } from '../assinatura/paywall.ts';
 // publico.ts importa db/postgres (sem extensão): carregado com um banco falso que nunca é usado aqui.
 const semBanco = { db: () => { throw new Error('sem banco'); }, withTransaction: () => { throw new Error('sem banco'); } };
 type Publico = typeof import('./publico.ts');
-const { linkConfirmacao, mensagemConfirmacao, mensagemContaExistente, situacaoCadastro, validarPedidoCadastro } = carregarModulo('lib/cadastro/publico.ts', { 'db/postgres': semBanco }, new Map()) as unknown as Publico;
+const { exigirAgendaSemBloqueioGlobal, linkConfirmacao, mensagemConfirmacao, mensagemContaExistente, situacaoCadastro, validarPedidoCadastro } = carregarModulo('lib/cadastro/publico.ts', { 'db/postgres': semBanco }, new Map()) as unknown as Publico;
 
 const VERSAO_DB = /^[0-9]{4}-[0-9]{2}-[0-9]{2}(-[a-z0-9]+)?$/;
 const pedido = (o: Record<string, unknown> = {}) => ({
@@ -43,6 +43,9 @@ test('pedido: e-mail normalizado; exige aceites da versão vigente e senha váli
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ aceiteTermos: false }))), 'DADOS_INVALIDOS');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ aceitePrivacidade: undefined }))), 'DADOS_INVALIDOS');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao: '2020-01-01' }))), 'DADOS_INVALIDOS');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-13-minuta' }))), 'DADOS_INVALIDOS', 'o texto anterior não autoriza um novo aceite da versão atual');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta' }))), 'DADOS_INVALIDOS', 'a revisão anterior também exige novo aceite');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta2' }))), 'DADOS_INVALIDOS', 'a revisão da retenção exige aceite do texto atualizado');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ senha: 'curta', confirmacao: 'curta' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ confirmacao: 'outra-senha-1' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ extra: 1 }))), 'DADOS_INVALIDOS', 'campos estranhos recusados');
@@ -70,4 +73,16 @@ test('rotas do cadastro: sempre permitidas pelo paywall; pedido responde 202 igu
     const servico = readFileSync('lib/cadastro/publico.ts', 'utf8');
     assert.doesNotMatch(servico, /plataforma_desenvolvedores|REPRESENTANTE_AUTORIZADO'\)\s*,\s*\$|papel\s*=\s*'REPRESENTANTE_AUTORIZADO'\s+WHERE id/, 'cadastro nunca concede plataforma');
     assert.match(servico, /inserirIdentidadeNeutra\(tx, p\.email/);
+});
+
+test('E2: cadastro público recusa (503) enquanto houver bloqueio de agenda antigo sem empresa; falha de leitura também recusa', async () => {
+    const consultas: string[] = [];
+    const tx = (n: unknown) => ({ query: async (sql: string) => { consultas.push(sql); return { rows: n === undefined ? [] : [{ n }], rowCount: 1 }; } });
+    const erro = async (p: Promise<unknown>) => { try { await p; return 'OK'; } catch (e) { return `${(e as { code?: string }).code}:${(e as { httpStatus?: number; status?: number }).httpStatus ?? (e as { status?: number }).status}`; } };
+    assert.equal(await erro(exigirAgendaSemBloqueioGlobal(tx(0) as never)), 'OK');
+    assert.equal(await erro(exigirAgendaSemBloqueioGlobal(tx(2) as never)), 'CADASTRO_INDISPONIVEL:503');
+    assert.equal(await erro(exigirAgendaSemBloqueioGlobal(tx(undefined) as never)), 'CADASTRO_INDISPONIVEL:503', 'sem resposta: fechado');
+    assert.match(consultas[0], /empresa_id IS NULL AND ativo AND data >= current_date/);
+    const fonte = readFileSync(new URL('./publico.ts', import.meta.url), 'utf8');
+    assert.match(fonte, /await exigirAgendaSemBloqueioGlobal\(tx\);\s+if \(!await consumirLimite\(tx, 'IDENTIFICADOR', sessao\.usuario_id, REGRA_EMPRESA\)\)/, 'dentro do cadastro da empresa, antes de criá-la');
 });

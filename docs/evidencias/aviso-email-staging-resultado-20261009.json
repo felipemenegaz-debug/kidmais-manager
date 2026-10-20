@@ -1,0 +1,79 @@
+{
+  "cron": "crn-db493i142hec73ahmoe0",
+  "workspace": "tea-daidbj95efls73d2bcf0",
+  "candidate": "27e072237442e2f249e1e93d85a74e62b6eb7695",
+  "window": {
+    "start": "2026-10-10T01:00:00.000Z",
+    "end": "2026-10-10T01:04:00.000Z",
+    "abandoned": true
+  },
+  "deploy": {
+    "commit": {
+      "createdAt": "2026-10-10T00:47:44Z",
+      "id": "27e072237442e2f249e1e93d85a74e62b6eb7695",
+      "message": "test: prepare scoped staging renewal email transport rehearsal"
+    },
+    "createdAt": "2026-10-10T00:49:33.199406Z",
+    "id": "dep-db4on7flot8c73cfam0g",
+    "startedAt": "2026-10-10T00:49:33.1993Z",
+    "status": "created",
+    "trigger": "api",
+    "updatedAt": "2026-10-10T00:49:33.199406Z"
+  },
+  "recoveryDeploy": {
+    "commit": {
+      "createdAt": "2026-10-10T00:47:44Z",
+      "id": "27e072237442e2f249e1e93d85a74e62b6eb7695",
+      "message": "test: prepare scoped staging renewal email transport rehearsal"
+    },
+    "createdAt": "2026-10-10T00:53:08.351768Z",
+    "id": "dep-db4oot2jnfac738028ug",
+    "startedAt": "2026-10-10T00:53:08.3514Z",
+    "status": "created",
+    "trigger": "api",
+    "updatedAt": "2026-10-10T00:53:08.351768Z"
+  },
+  "failure": [
+    {
+      "timestamp": "2026-10-10T00:50:25.63618999Z",
+      "message": "Error: Cannot find module '/opt/render/project/src/scripts/assinatura-aviso-email-staging.cjs'"
+    },
+    {
+      "timestamp": "2026-10-10T00:50:25.63620743Z",
+      "message": "  code: 'MODULE_NOT_FOUND',"
+    },
+    {
+      "timestamp": "2026-10-10T00:50:30.498873675Z",
+      "message": "❌ Your cronjob failed because of an error: Exited with status 1"
+    }
+  ],
+  "recovery": [
+    {
+      "timestamp": "2026-10-10T00:55:21.344421176Z",
+      "message": "==> Running 'node scripts/assinatura-cron.cjs'"
+    },
+    {
+      "timestamp": "2026-10-10T00:55:24.741243268Z",
+      "message": "  \"modo\": \"APLICAR\","
+    },
+    {
+      "timestamp": "2026-10-10T00:55:24.741256029Z",
+      "message": "    \"SEM_MUDANCA\": 3"
+    },
+    {
+      "timestamp": "2026-10-10T00:55:24.741261529Z",
+      "message": "  \"incompleto\": false"
+    },
+    {
+      "timestamp": "2026-10-10T00:55:30.811122821Z",
+      "message": "==> Cron job run finished successfully"
+    }
+  ],
+  "emailTest": "PENDENTE_SCRIPT_NAO_CARREGADO",
+  "emailProviderCalledByTest": false,
+  "replayVerified": false,
+  "rootCause": "NAO_CONFIRMADA",
+  "scriptPresentInGitCandidate": true,
+  "secretValuesRead": false,
+  "remoteRenewalEnabled": false
+}

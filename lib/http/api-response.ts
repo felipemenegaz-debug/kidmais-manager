@@ -9,6 +9,7 @@ import { CondicaoPagamentoError } from '../comercial/condicao-pagamento';
 import { PacoteAdminError } from '../comercial/pacotes-admin';
 import { isPagamentoServiceError } from '../pagamentos/services/errors';
 import { ResumoTenantError } from '../contratos/services/resumo-tenant';
+import { MarketingError, schemaAusente } from '../marketing/erros';
 
 export function jsonNoStore(data: unknown, init?: ResponseInit) {
   const response = NextResponse.json(data, init);
@@ -23,7 +24,9 @@ export function apiErrorResponse(error: unknown) {
   if (error instanceof SyntaxError || error instanceof ZodError) {
     return NextResponse.json({ok:false,erro:'Dados inválidos.',codigo:'DADOS_INVALIDOS'}, {status:400,headers:{'Cache-Control':'no-store'}});
   }
-  if (isClienteServiceError(error) || isContratoServiceError(error) || error instanceof FechamentoServiceError || error instanceof PricingServiceError || error instanceof AvailabilityServiceError || error instanceof PacoteAdminError || isPagamentoServiceError(error)) {
+  const marketingSemSchema = schemaAusente(error);
+  if (marketingSemSchema) error = marketingSemSchema;
+  if (isClienteServiceError(error) || isContratoServiceError(error) || error instanceof FechamentoServiceError || error instanceof PricingServiceError || error instanceof AvailabilityServiceError || error instanceof PacoteAdminError || isPagamentoServiceError(error) || error instanceof MarketingError) {
     return NextResponse.json(
       {
         ok: false,

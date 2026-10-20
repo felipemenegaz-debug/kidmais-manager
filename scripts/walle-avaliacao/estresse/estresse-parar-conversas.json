@@ -1,0 +1,549 @@
+{
+  "criadoEm": "2026-10-06",
+  "autor": "rodada 15 (desenvolvimento; rótulos pelas regras dos holdouts, não é medição)",
+  "categoria": "parar-conversas",
+  "itens": [
+    {
+      "id": "pc01",
+      "texto": "oi então eu queria pedir pra vocês não me mandarem mais nada tá bom porque eu já fiz a festa em outro lugar obrigada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pedido inequívoco; a explicação não é outro pedido (holdout 14, g50)."
+    },
+    {
+      "id": "pc02",
+      "texto": "gostaria que vocês não me mandassem mais nada, obrigada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Subjuntivo; inequívoco."
+    },
+    {
+      "id": "pc03",
+      "texto": "peço pra não me procurarem mais",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Infinitivo pessoal de contato."
+    },
+    {
+      "id": "pc04",
+      "texto": "queria pedir pra vcs nao me mandarem mais nada pq ja resolvi",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Abreviações; inequívoco."
+    },
+    {
+      "id": "pc05",
+      "texto": "ok pode não me mandar mais nada, já fechei",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Fechou em outro lugar; inequívoco."
+    },
+    {
+      "id": "pc06",
+      "texto": "peço por gentileza que não me enviem mais nada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Formal."
+    },
+    {
+      "id": "pc07",
+      "texto": "prefiro que nunca mais me procurem, obrigado",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Inequívoco."
+    },
+    {
+      "id": "pc08",
+      "texto": "pode não me mandar mais nada por enquanto, to viajando",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só por um tempo: equipe em silêncio, sem bloqueio definitivo."
+    },
+    {
+      "id": "pc09",
+      "texto": "queria pedir pra não me mandarem mais nada, mas antes me fala o endereço da asa sul",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PARAR",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Parar com outro pedido."
+    },
+    {
+      "id": "pc10",
+      "texto": "não mande mais PDF, mas responda o preço do completa pra 80 pessoas dia 21/11/2026 à noite",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Parar só o material; o preço é calculado."
+    },
+    {
+      "id": "pc11",
+      "texto": "queria pedir pra vocês não me mandarem nada de bolo pronto, a gente leva o nosso",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Levar bolo de fora: sem fonte, equipe; não é parar."
+    },
+    {
+      "id": "pc12",
+      "texto": "cancela a festa do dia 30, não vamos mais fazer",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cancelar a festa não é parar."
+    },
+    {
+      "id": "pc13",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quanto fica o premium pra 100 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 100,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela (sem data)."
+    },
+    {
+      "id": "pc14",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "oi então eu queria pedir pra vocês não me mandarem mais nada tá bom porque eu já fiz a festa em outro lugar obrigada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Inequívoco no meio da conversa."
+    },
+    {
+      "id": "pc15",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "oi?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR."
+    },
+    {
+      "id": "pc16",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "quanto fica o completa?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR: silêncio, mesmo com pergunta."
+    },
+    {
+      "id": "pc17",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "oi boa tarde",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Saudação."
+    },
+    {
+      "id": "pc18",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "gostaria que vocês não me mandassem mais nada, obrigada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Inequívoco."
+    },
+    {
+      "id": "pc19",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "mudei de ideia, me manda a tabela",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR (bloqueio definitivo)."
+    },
+    {
+      "id": "pc20",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "tem vaga dia 21/11/2026 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda."
+    },
+    {
+      "id": "pc21",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "peço pra não me procurarem mais",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Inequívoco."
+    },
+    {
+      "id": "pc22",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR."
+    },
+    {
+      "id": "pc23",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "não mande mais PDF, mas responda o preço do completa pra 80 pessoas dia 21/11/2026 à noite",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo em conversa: preço."
+    },
+    {
+      "id": "pc24",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "e no primeiro horário?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Continuação do preço."
+    },
+    {
+      "id": "pc25",
+      "texto": "consegue fazer a premium pra 170 pessoas? a gente paga a diferença",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 170,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Exceção de capacidade (Premium até 150) com pagamento: equipe."
+    },
+    {
+      "id": "pc26",
+      "texto": "se eu pagar a diferença dá pra 200 convidados no completa?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 200,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Exceção de capacidade (Completa até 100)."
+    },
+    {
+      "id": "pc27",
+      "texto": "fecha o essencial pra 80 que eu pago o extra",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR",
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Essencial até 60: exceção; contratação com a equipe."
+    },
+    {
+      "id": "pc28",
+      "texto": "Para 120 convidados, qual seria o indicado?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 120,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Premium (80 a 150)."
+    },
+    {
+      "id": "pc29",
+      "texto": "qual o pacote ideal pra 45 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 45,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Essencial (30 a 60)."
+    },
+    {
+      "id": "pc30",
+      "texto": "pra 200 convidados qual vcs indicam?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 200,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Nenhum comporta; o maior vai até 150."
+    }
+  ]
+}

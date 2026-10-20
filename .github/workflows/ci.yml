@@ -52,13 +52,25 @@ jobs:
         run: node --test lib/convites/service.test.cjs
 
       - name: Convites — migration 084, decisão só do operador e fila do painel (dependências simuladas)
-        run: node --test lib/desenvolvedor/convites-geracoes.test.cjs
+        run: node --test lib/convites/recuperacao.test.cjs lib/desenvolvedor/convites-geracoes.test.cjs
 
       - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
         run: node --test scripts/convites-exportacao-completa.test.cjs
 
-      - name: Convites — recuperação manual (079) e aplicador de produção com trava de alvo e anti-repetição
-        run: node --test lib/convites/recuperacao.test.cjs scripts/migration-079-production.test.cjs
+      - name: Aplicador manual da 083 em staging — alvo, hashes, privilégio de DDL e tentativa única (cliente simulado)
+        run: node --test scripts/migration-083-staging.test.cjs
+
+      - name: Aplicador manual da 084 em staging — alvo, hashes, privilégio de DDL, estados preservados e tentativa única (cliente simulado)
+        run: node --test scripts/migration-084-staging.test.cjs
+
+      - name: Aplicador manual da 085/086 (Marketing) em staging — plano sem conexão, alvo, hashes, pré-requisitos 083/084, estado parcial, privilégios, trava concorrente, retomada e sigilo (cliente simulado)
+        run: node --test scripts/migration-085-086-staging.test.cjs
+
+      - name: Blocos de Shell da 6b (085/086) — dependências e conteúdo conferidos por sha, sem sobrescrever, limpeza seletiva, guarda de serviço, subshell e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-085-086-staging.test.cjs
+
+      - name: Aplicador manual da 079 em produção — trava de alvo e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-079-production.test.cjs
 
       - name: Aplicador manual da 084 em produção — trava de alvo, TLS, hashes, privilégio, estados preservados e anti-repetição (cliente simulado)
         run: node --test scripts/migration-084-production.test.cjs

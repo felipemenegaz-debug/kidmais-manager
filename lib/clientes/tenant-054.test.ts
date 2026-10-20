@@ -194,6 +194,7 @@ function servico(estado: { clientes: Record<string, any>; canonico?: Record<stri
         registrarAuditoria: reg('registrarAuditoria', () => undefined),
         registrarEventoHistorico: reg('registrarEventoHistorico', () => undefined),
         registrarPossivelDuplicidade: reg('registrarPossivelDuplicidade', () => undefined),
+        INDICES_CPF_CANONICO: ['clientes_cpf_canonico_uk', 'clientes_cpf_empresa_canonico_uk'],
     };
     const e = executor();
     const mod = carregar('lib/clientes/services/cliente.service.ts', {

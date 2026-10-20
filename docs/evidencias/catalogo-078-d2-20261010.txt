@@ -1,0 +1,371 @@
+
+=== PostgreSQL descartável (5 arquivos) ===
+receita: modelo 063 recriado do schema vazio
+receita: modelo atual recriado do schema vazio
+
+--- lib/comercial/adicionais-070.postgres.test.ts [063]
+(node:46416) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/adicionais-070.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 070: precheck, migration e postcheck; segunda aplicação é recusada (164.9373ms)
+✔ fixtures: duas empresas, pacotes com preço publicado e uma categoria do buffet (35.469ms)
+✔ categoria vira um adicional único: preço numa nova tabela publicada, oferecido só no pacote marcado (52.109ms)
+✔ escolhas: congeladas por nome; item inativo, de outra categoria, acima do máximo ou em adicional sem categoria é recusado (17.1467ms)
+✔ outro adicional sem origem; preço nulo tira da oferta; empresa B não vê nem edita os de A (42.9568ms)
+✔ sem tabela publicada o preço é recusado com orientação; categoria de adicional inválida também (4.5717ms)
+✔ rollback da 070 é recusado enquanto houver adicional criado a partir do buffet (2.5103ms)
+✔ pacotes já usados: preço + dois pacotes num salvamento viram etapas; revisões vigentes recebem o adicional (63.1132ms)
+✔ excluir: sem histórico apaga; com preço publicado arquiva (some do fechamento); outra empresa não exclui (25.6229ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 585.3096
+
+--- lib/comercial/catalogo-buffet-078.postgres.test.ts [063]
+(node:47448) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e por OUTRA (pacote, item solto, adicional e pedido) (137.3782ms)
+✖ 078: precheck lista só OUTRA; migration e postcheck; segunda aplicação recusada (44.7098ms)
+✖ Kidmais: cardápio, ids e composição idênticos, agora com empresa_id da Kidmais (1.0628ms)
+✖ OUTRA: cópia só do que usava; vínculos (pacote, itens selecionados, item solto, adicional) passam para a cópia (0.8813ms)
+✖ OUTRA: cópias com os MESMOS códigos do catálogo antigo (categorias e itens sem categoria), que a unicidade global recusaria (0.8167ms)
+✖ pedidos e fotografias: nenhuma linha alterada; a escolha antiga continua apontando para o item original (0.6307ms)
+✖ duas empresas, MESMA categoria (SALGADOS) e itens diferentes: leitura só da própria empresa (0.6437ms)
+✖ escrita: Y não edita, exclui nem usa categoria/item de X (serviço = 404/recusa; banco = gatilho) (0.7297ms)
+✖ pedido: a escolha só aceita item do catálogo da empresa do pacote, mesmo com o mesmo código de categoria (1.4457ms)
+✖ adicional do buffet e cotação: origem de outra empresa é recusada; a cotação de Y não enxerga o adicional de X (0.8514ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 1
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 782.6983
+
+✖ failing tests:
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:153:1
+✖ 078: precheck lista só OUTRA; migration e postcheck; segunda aplicação recusada (44.7098ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  error: 078 exige a 050 (itens sem categoria).
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:160:3)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: error: 078 exige a 050 (itens sem categoria).
+        at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+        at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:160:3)
+        at async Test.run (node:internal/test_runner/test:1404:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:969:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:164:1
+✖ Kidmais: cardápio, ids e composição idênticos, agora com empresa_id da Kidmais (1.0628ms)
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:165:19)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    length: 145,
+    severity: 'ERROR',
+    code: '25P02',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'postgres.c',
+    line: '1497',
+    routine: 'exec_parse_message'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:175:1
+✖ OUTRA: cópia só do que usava; vínculos (pacote, itens selecionados, item solto, adicional) passam para a cópia (0.8813ms)
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:176:17)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    length: 145,
+    severity: 'ERROR',
+    code: '25P02',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'postgres.c',
+    line: '1497',
+    routine: 'exec_parse_message'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:196:1
+✖ OUTRA: cópias com os MESMOS códigos do catálogo antigo (categorias e itens sem categoria), que a unicidade global recusaria (0.8167ms)
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:198:22)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    length: 144,
+    severity: 'ERROR',
+    code: '25P02',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'postgres.c',
+    line: '1140',
+    routine: 'exec_simple_query'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:228:1
+✖ pedidos e fotografias: nenhuma linha alterada; a escolha antiga continua apontando para o item original (0.6307ms)
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async impressao (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:72:13)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:229:51)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    length: 144,
+    severity: 'ERROR',
+    code: '25P02',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'postgres.c',
+    line: '1140',
+    routine: 'exec_simple_query'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:237:1
+✖ duas empresas, MESMA categoria (SALGADOS) e itens diferentes: leitura só da própria empresa (0.6437ms)
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async empresa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:56:11)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:238:7)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    length: 145,
+    severity: 'ERROR',
+    code: '25P02',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'postgres.c',
+    line: '1497',
+    routine: 'exec_parse_message'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:254:1
+✖ escrita: Y não edita, exclui nem usa categoria/item de X (serviço = 404/recusa; banco = gatilho) (0.7297ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:255:3)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: error: current transaction is aborted, commands ignored until end of transaction block
+        at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async emTransacao (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:42:3)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+        at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:255:3)
+        at async Test.run (node:internal/test_runner/test:1404:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:969:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:275:1
+✖ pedido: a escolha só aceita item do catálogo da empresa do pacote, mesmo com o mesmo código de categoria (1.4457ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:276:3)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: error: current transaction is aborted, commands ignored until end of transaction block
+        at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.query (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:97:15)
+        at async catalogoBuffetPorEmpresa (eval at carregarModulo (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/acessos/teste-carregador.ts:25:5), <anonymous>:12:15)
+        at async resolverEscolhasBuffet (eval at carregarModulo (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/acessos/teste-carregador.ts:25:5), <anonymous>:18:24)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+        at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:276:3)
+        at async Test.run (node:internal/test_runner/test:1404:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at lib\comercial\catalogo-buffet-078.postgres.test.ts:281:1
+✖ adicional do buffet e cotação: origem de outra empresa é recusada; a cotação de Y não enxerga o adicional de X (0.8514ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  error: current transaction is aborted, commands ignored until end of transaction block
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:282:3)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: error: current transaction is aborted, commands ignored until end of transaction block
+        at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async emTransacao (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:42:3)
+        at async salvarAdicionalEmEtapas (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/adicionais-admin.ts:159:17)
+        at async waitForActual (node:assert:646:5)
+        at async strict.rejects (node:assert:769:25)
+        at async recusa (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:53:3)
+        at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts:282:3)
+        at async Test.run (node:internal/test_runner/test:1404:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:969:7),
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+--- lib/comercial/catalogo-ux.postgres.test.ts [063]
+(node:52220) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-ux.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ catálogo do buffet no postgres descartável (1682.9505ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1813.4375
+
+--- lib/comercial/round4-remediacao.postgres.test.ts [atual]
+(node:28748) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/round4-remediacao.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ remediação da rodada 4 no postgres descartável
+  ✔ contratação usa a sucessora no pacote e nos adicionais (74.6596ms)
+  ✔ empresa sem tabela corrente não usa o preço legado (2.3455ms)
+  ✔ simulação ignora tabela substituída (10.6514ms)
+  ✔ revisão só de nome conserva o preço e o rollback desfaz a cópia (38.9205ms)
+  ✔ down concorrente não apaga a supersessão nem a guarda (1545.1909ms)
+  ✔ insert direto já publicado não cria segunda corrente (7.134ms)
+  ✔ disponibilidade guarda o par real e categoria sem itens aceita todos (16.0458ms)
+✔ remediação da rodada 4 no postgres descartável (1734.4777ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1889.2252
+
+--- lib/saas/hg8-catalogo.postgres.test.ts [atual]
+(node:55792) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/saas/hg8-catalogo.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ catálogo HG-8 no postgres descartável
+  ✔ tenant não altera categoria global (1384.7833ms)
+  ✔ tenant não renomeia nem desativa item global (212.1952ms)
+  ✔ composição pela rota revisa pacote usado e grava uma auditoria (284.5609ms)
+  ✔ regra de buffet pela rota revisa pacote usado e grava uma auditoria (225.0282ms)
+  ✔ duas memberships exigem empresaId autorizado e payload estrito (254.9801ms)
+✔ catálogo HG-8 no postgres descartável (2603.6776ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2928.3251
+
+=== Resumo PostgreSQL descartável ===
+ok   lib/comercial/adicionais-070.postgres.test.ts [063] — OK (1s)
+FALHA lib/comercial/catalogo-buffet-078.postgres.test.ts [063] — FALHOU (1s)
+ok   lib/comercial/catalogo-ux.postgres.test.ts [063] — OK (2s)
+ok   lib/comercial/round4-remediacao.postgres.test.ts [atual] — OK (2s)
+ok   lib/saas/hg8-catalogo.postgres.test.ts [atual] — OK (3s)
+
+FALHA suíte PostgreSQL descartável: 1 de 5 arquivos.

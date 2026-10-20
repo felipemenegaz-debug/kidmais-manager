@@ -1,0 +1,13 @@
+{
+  "data": "2026-10-09",
+  "workspace": "tea-daidbj95efls73d2bcf0",
+  "autorizacao": "Felipe respondeu auttorizo ao pedido explícito de teto mensal de US$ 10 para builds",
+  "tetoMensalAnteriorUSD": 0,
+  "tetoMensalSalvoUSD": 10,
+  "gastoMensalInformadoAntesDaAlteracaoUSD": 5,
+  "tierMantido": "Starter",
+  "semLimite": false,
+  "alteracaoConfirmadaNoPainel": true,
+  "screenshot": "render-build-teto-10usd-20261009.png",
+  "observacao": "Teto mensal de builds; não representa custo total dos serviços, compra de plano Pro ou autorização para ampliar o teto novamente."
+}

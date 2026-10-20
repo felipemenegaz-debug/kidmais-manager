@@ -1,0 +1,443 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 23 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r23-conversas",
+  "itens": [
+    {
+      "id": "ry01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quanto fica o completa pra 80 dia 21/11 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "ry02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "fechou, quero garantir essa data! mas minha filha tem alergia a amendoim, vcs usam?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR",
+        "ALERGIA"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Alergia + contratação: equipe com os dois motivos, sem consultar a agenda."
+    },
+    {
+      "id": "ry03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "e qual o endereço da asa sul?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Com a equipe: nada automático."
+    },
+    {
+      "id": "ry04",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "fechamos a festa pro dia 20/11 e descobri q o aniversariante é alérgico a ovo, dá pra adaptar?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "ALERGIA"
+      ],
+      "entidades": {
+        "data": "2026-11-20",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Festa contratada + alergia: equipe, sem agenda."
+    },
+    {
+      "id": "ry05",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "e quanto fica se aumentar pra 90?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 90,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Com a equipe: nada automático."
+    },
+    {
+      "id": "ry06",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "quanto fica o pacote completa pra 90 pessoas no sábado 21/11 à noite? e se eu fizer em outro mês, muda o valor?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 90,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor + pede a data para comparar (uma vez)."
+    },
+    {
+      "id": "ry07",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "dia 12/12",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor na nova data."
+    },
+    {
+      "id": "ry08",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "quanto fica o essencial pra 40 dia 14/11 no almoço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 40,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "ry09",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "e se eu fizer em outro mês muda?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede a data para comparar (uma vez)."
+    },
+    {
+      "id": "ry10",
+      "texto": "sai fora com essas propaganda, nem conheço vcs",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção."
+    },
+    {
+      "id": "ry11",
+      "texto": "vaza com esse spam",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção."
+    },
+    {
+      "id": "ry12",
+      "texto": "cai fora com essas mensagens chatas",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção."
+    },
+    {
+      "id": "ry13",
+      "texto": "o pacote sai mais barato com essas promoções?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo de interrupção: pergunta de preço; mais barato sem data pede a data (regra dos holdouts)."
+    },
+    {
+      "id": "ry14",
+      "texto": "se a gente sair fora do horário cobra?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cláusula de horários."
+    },
+    {
+      "id": "ry15",
+      "texto": "meu filho é alérgico a leite. quanto fica o essencial pra 40 dia 14/11 a noite? e qual o endereço da asa sul?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "ALERGIA",
+        "PRECOS",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 40,
+        "turno": "NOITE",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Alergia: equipe, sem tabela nem endereço."
+    },
+    {
+      "id": "ry16",
+      "texto": "a festa foi um desastre, salgado frio. vcs tem vaga dia 12/12 pra eu fazer outra?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "RECLAMACAO",
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Reclamação: equipe, sem agenda."
+    },
+    {
+      "id": "ry17",
+      "texto": "já contratamos com vcs pro dia 28/11, dá pra aumentar pra 80 pessoas? quanto fica?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Festa contratada: equipe, sem tabela."
+    },
+    {
+      "id": "ry18",
+      "texto": "a comida da festa do meu filho veio fria, e o cardápio do premium tem o que?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "RECLAMACAO",
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Reclamação: equipe, sem cardápio."
+    },
+    {
+      "id": "ry19",
+      "texto": "bora, fechamos a festa hoje então! completa, 80 pessoas, 21/11 a noite",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: contratação nova (agenda permitida)."
+    },
+    {
+      "id": "ry20",
+      "texto": "o valor muda dependendo da data? e cabe quantas pessoas no máximo?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS",
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta geral + capacidade, sem pedir data nem período."
+    },
+    {
+      "id": "ry21",
+      "texto": "Bom dia! Gostaria de saber o valor do pacote Essencial para 45 convidados no sábado, 7 de novembro, no primeiro horário.",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-07",
+        "convidados": 45,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor sem a ficha do pacote."
+    },
+    {
+      "id": "ry22",
+      "texto": "queria um orçamento do pacote completo pro domingo dia 22/11, umas 70 pessoas",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-22",
+        "convidados": 70,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede só o período, sem a ficha."
+    },
+    {
+      "id": "ry23",
+      "texto": "quanto custa o pacote essencial e quantas pessoas cabem nele?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS",
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: capacidade perguntada (ficha)."
+    }
+  ]
+}

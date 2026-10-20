@@ -1,0 +1,17 @@
+{
+  "modo": "IDENTIDADE_RASCUNHO_PRODUCTION_SOMENTE_LEITURA",
+  "banco": "kidmais_production",
+  "recursoPostgres": "dpg-dak750gae00c73fudmg0-a",
+  "servicoWeb": "srv-dak77m2d0e5s73b8rkkg",
+  "bancoConsultado": true,
+  "tlsAtivoConferido": true,
+  "empresasEncontradas": 0,
+  "dados": [],
+  "isencaoConcedida": false,
+  "cobrancasAlteradas": 0,
+  "testesDeFuncionalidadeEmProducao": false,
+  "abaShellFechada": true,
+  "deploysExecutados": 0,
+  "redeOuCredenciaisAlteradas": false,
+  "pendencia": "CONFIRMAR_URL_DA_TELA_DO_CNPJ"
+}

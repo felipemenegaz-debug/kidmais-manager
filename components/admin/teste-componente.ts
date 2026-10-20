@@ -50,7 +50,13 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
       return slots[i];
     },
     useEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
-    useCallback: (fn: unknown) => { cursor++; return fn; },
+    // Como no React: a mesma função enquanto as dependências não mudam (efeitos que dependem dela não rodam de novo).
+    useCallback: (fn: unknown, dependencias?: readonly unknown[]) => {
+      const i = cursor++; const antes = slots[i] as { fn: unknown; deps?: readonly unknown[] } | undefined;
+      if (antes && dependencias && antes.deps && antes.deps.length === dependencias.length && dependencias.every((d, k) => Object.is(d, antes.deps![k]))) return antes.fn;
+      slots[i] = { fn, deps: dependencias }; return fn;
+    },
+    useId: () => { const i = cursor++; if (!(i in slots)) slots[i] = `:r${i}:`; return slots[i]; },
     useMemo: (fn: () => unknown) => { cursor++; return fn(); },
     createContext: (padrao: unknown) => ({ padrao, Provider: function Provider(props: { children?: unknown }) { return props.children; } }),
     useContext: (ctx: { padrao: unknown }) => ctx.padrao,

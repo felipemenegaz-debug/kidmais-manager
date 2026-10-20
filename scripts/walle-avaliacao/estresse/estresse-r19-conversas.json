@@ -1,0 +1,404 @@
+{
+  "criadoEm": "2026-10-06",
+  "autor": "rodada 19 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r19-conversas",
+  "itens": [
+    {
+      "id": "ru01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi, quanto fica o completa pra 70 dia 21/11 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 70,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "ru02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "e se atrasar uma parcela tem multa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 7 (inadimplência), só ela."
+    },
+    {
+      "id": "ru03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "e se a festa passar do horário?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 8 (horários), só ela."
+    },
+    {
+      "id": "ru04",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "SAI DO MEU ZAP 🙄",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 18, f40: parar coloquial — bloqueio e silêncio."
+    },
+    {
+      "id": "ru05",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "???",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do bloqueio, silêncio."
+    },
+    {
+      "id": "ru06",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "oi",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Saudação."
+    },
+    {
+      "id": "ru07",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "Para de me mandar mensagem, que coisa chata, toda hora vcs mandando promoção",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 18, f74: bloqueio + reclamação registrada."
+    },
+    {
+      "id": "ru08",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "ainda vou receber a tabela?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do bloqueio, silêncio."
+    },
+    {
+      "id": "ru09",
+      "texto": "some do meu whats",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Parar coloquial."
+    },
+    {
+      "id": "ru10",
+      "texto": "me deixa em paz",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Parar coloquial."
+    },
+    {
+      "id": "ru11",
+      "texto": "minha filha não sai do meu pé pedindo a festa kkk, quanto fica o essencial pra 40?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 40,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: \"não sai do meu pé\" não é parar."
+    },
+    {
+      "id": "ru12",
+      "texto": "se o pagamento atrasar, tem juros?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 7."
+    },
+    {
+      "id": "ru13",
+      "texto": "se eu desistir da festa tem multa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 9 (desistência)."
+    },
+    {
+      "id": "ru14",
+      "texto": "tem multa se eu trocar de pacote?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Sem cláusula de troca de pacote: equipe, sem citar outra cláusula."
+    },
+    {
+      "id": "ru15",
+      "texto": "qto é a taxa pra usar chuva de prata no parabéns?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 18, f42: cláusula 14, sem tabela."
+    },
+    {
+      "id": "ru16",
+      "texto": "premium pra 170 pessoas, abre uma exceção?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 170,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 18, f36: sem horário de atendimento."
+    },
+    {
+      "id": "ru17",
+      "texto": "vcs abrem q dias?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DUVIDA_FAQ"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: horário de atendimento."
+    },
+    {
+      "id": "ru18",
+      "texto": "se eu tirar o kibe do pacote fica mais barato?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Negociação sem tabela nem lista de pacotes."
+    },
+    {
+      "id": "ru19",
+      "texto": "a coxinha vem em todos os pacotes?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cardápio, sem a lista de pacotes."
+    },
+    {
+      "id": "ru20",
+      "texto": "me manda a tabela e diz se tem taxa de chuva de prata",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS",
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: tabela pedida + cláusula 14."
+    },
+    {
+      "id": "ru21",
+      "texto": "criança de 4 anos é cortesia?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 4."
+    },
+    {
+      "id": "ru22",
+      "texto": "não precisa mandar o pdf de novo, já salvei. só me diz: se o pessoal levar cerveja tem taxa? e se passar do horário quanto é?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 18, f35: cláusulas 11 e 8, sem pergunta de data."
+    }
+  ]
+}

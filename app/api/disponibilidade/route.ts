@@ -7,7 +7,9 @@ import {
   isAvailabilityServiceError,
 } from "@/lib/disponibilidade/services";
 import { escopoPublico } from "@/lib/disponibilidade/escopo";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { db } from "@/lib/db/postgres";
+import { limitarPublico } from "@/lib/http/limite-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,13 +64,18 @@ async function lerComercialPublico() {
 }
 
 export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get("data")?.trim();
     const inicio = searchParams.get("inicio")?.trim();
     const fim = searchParams.get("fim")?.trim();
-    // D4: empresa/unidade só da configuração do servidor; nenhum parâmetro do pedido escolhe o escopo.
-    const escopo = await escopoPublico(db);
+    // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
+    const codigo = codigoEmpresaDoPedido(request.nextUrl);
+    const escopo = codigo === null
+      ? await escopoPublico(db)
+      : await escopoCotacaoPublica(db, codigo).then(({ empresaId, estabelecimentoId }) => ({ empresaId, estabelecimentoId }));
 
     const [resultado, comercial] = await Promise.all([
       data
@@ -80,7 +87,8 @@ export async function GET(request: NextRequest) {
                 "Informe data=YYYY-MM-DD ou inicio=YYYY-MM-DD&fim=YYYY-MM-DD.",
               ),
             ),
-      lerComercialPublico(),
+      // Ajustes do arquivo legado são da instalação (endereço atual); nunca aparecem no endereço de outra empresa.
+      codigo === null ? lerComercialPublico() : Promise.resolve({ pacoteOverrides: [], descontos: [] }),
     ]);
 
     return NextResponse.json(

@@ -152,7 +152,7 @@ bombom: fechamento.buffetBombom ?? null,
       valorFinalContrato: valorFinalContrato(fechamento),
       formaPagamentoPretendida: fechamento.formaPagamentoPretendida,
       ...(fechamento.condicaoPagamento ? {
-        ...calcularCondicaoComercial(fechamento.valorAprovado ?? fechamento.valorTabela, fechamento.condicaoPagamento.forma),
+        ...calcularCondicaoComercial(fechamento.valorAprovado ?? fechamento.valorTabela, fechamento.condicaoPagamento.forma, fechamento.condicaoPagamento.descontoPercentual),
         condicaoPagamento: fechamento.condicaoPagamento,
       } : {}),
     },

@@ -1,0 +1,2823 @@
+{
+ "descricao": "Interpretações do modelo GRAVADAS na IA real de 07/10/2026 (resultado do avaliador: intenções no vocabulário do corpus e entidades), por mensagem. Servem para reproduzir sem rede o caminho da IA no código novo (interpretacoes-gravadas.test.mjs). O trecho de cada intenção não é gravado pelo avaliador; o teste usa o texto inteiro. Sem segredo: texto sintético do corpus, nenhuma chave, mensagem do provedor ou consumo.",
+ "corpora": {
+  "corpus-holdout-32-20261007.json": {
+   "versao": "r31-c6800ae",
+   "sha": "c6800ae2b9189cf48be4047d15e477e60f8fbb91",
+   "execucao": "r31-c6800ae-corpus-holdout-32-20261007-muy6rqz2",
+   "linhas": {
+    "aa01": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa02": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-11-07",
+      "convidados": 50,
+      "turno": "ALMOCO",
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa03": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa04": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa05": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa06": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "DUVIDA_FAQ",
+      "FORA_DO_ESCOPO",
+      "INSTRUCAO",
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa07": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa08": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "LOCALIZACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": "ALMOCO",
+      "pacotes": [],
+      "unidade": "AGUAS_CLARAS",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa09": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa10": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-11-28",
+      "convidados": 80,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa11": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-12-12",
+      "convidados": 90,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa12": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "DECORACAO",
+      "HUMANO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO",
+      "PEDIDO_CLIENTE"
+     ]
+    },
+    "aa13": {
+     "intencoes": [
+      "CONTRATAR",
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa14": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO",
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa15": {
+     "intencoes": [
+      "HUMANO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PARAR_A_CONFIRMAR"
+     ]
+    },
+    "aa16": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "INSTRUCAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa17": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa18": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa19": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa20": {
+     "intencoes": [
+      "CONTRATAR",
+      "CONTRATO",
+      "PAGAMENTO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO"
+     ]
+    },
+    "aa21": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa22": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa23": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa24": {
+     "intencoes": [
+      "CARDAPIO",
+      "INSTRUCAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa25": {
+     "intencoes": [
+      "PACOTES",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 200,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa26": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa27": {
+     "intencoes": [
+      "CONTRATO",
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa28": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa29": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": "2026-12-19",
+      "convidados": null,
+      "turno": "NOITE",
+      "pacotes": [],
+      "unidade": "AGUAS_CLARAS",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa30": {
+     "intencoes": [
+      "CONTRATO",
+      "FORA_DO_ESCOPO",
+      "INSTRUCAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa31": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa32": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "PAGAMENTO",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa33": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa34": {
+     "intencoes": [
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa35": {
+     "intencoes": [
+      "CONTRATAR",
+      "CONTRATO",
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa36": {
+     "intencoes": [
+      "INSTRUCAO",
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa37": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa38": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa39": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa40": {
+     "intencoes": [
+      "CARDAPIO",
+      "CONTRATO_PROPRIO",
+      "HUMANO",
+      "RECLAMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RECLAMACAO",
+      "CONTRATO_PROPRIO",
+      "PEDIDO_CLIENTE"
+     ]
+    },
+    "aa41": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa42": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa43": {
+     "intencoes": [
+      "CONTRATO",
+      "NEGOCIACAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 170,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa44": {
+     "intencoes": [
+      "HUMANO",
+      "LOCALIZACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": "ASA_SUL",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PARAR_A_CONFIRMAR"
+     ]
+    },
+    "aa45": {
+     "intencoes": [
+      "CONTRATO",
+      "INSTRUCAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa46": {
+     "intencoes": [
+      "FORA_DO_ESCOPO",
+      "HUMANO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PEDIDO_CLIENTE"
+     ]
+    },
+    "aa47": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa48": {
+     "intencoes": [
+      "HUMANO",
+      "LOCALIZACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": "AGUAS_CLARAS",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PEDIDO_CLIENTE"
+     ]
+    },
+    "aa49": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa50": {
+     "intencoes": [
+      "PACOTES",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-11-14",
+      "convidados": 70,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa51": {
+     "intencoes": [
+      "CONFIRMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa52": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa53": {
+     "intencoes": [
+      "CONFIRMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa54": {
+     "intencoes": [
+      "DUVIDA_FAQ",
+      "PACOTES"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa55": {
+     "intencoes": [
+      "CONTRATO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa56": {
+     "intencoes": [
+      "CONTRATAR",
+      "PACOTES"
+     ],
+     "entidades": {
+      "data": "2026-12-05",
+      "convidados": 120,
+      "turno": "ALMOCO",
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa57": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-12-12",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa58": {
+     "intencoes": [
+      "CONFIRMACAO",
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-12-12",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa59": {
+     "intencoes": [
+      "PRECOS",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-11-21",
+      "convidados": 40,
+      "turno": "ALMOCO",
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa60": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa61": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2027-01-09",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa62": {
+     "intencoes": [
+      "CONTRATO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa63": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa64": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO"
+     ]
+    },
+    "aa65": {
+     "intencoes": [
+      "DISPONIBILIDADE",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-11-21",
+      "convidados": null,
+      "turno": "NOITE",
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa66": {
+     "intencoes": [
+      "DISPONIBILIDADE"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa67": {
+     "intencoes": [
+      "DISPONIBILIDADE"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": "NOITE",
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa68": {
+     "intencoes": [
+      "CONTRATO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa69": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PARAR_A_CONFIRMAR"
+     ]
+    },
+    "aa70": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    },
+    "aa71": {
+     "intencoes": [
+      "FORA_DO_ESCOPO",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Moana"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa72": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Moana"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa73": {
+     "intencoes": [
+      "CONTRATO",
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Frozen"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa74": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-11-28",
+      "convidados": 60,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa75": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa76": {
+     "intencoes": [
+      "CARDAPIO",
+      "LOCALIZACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa77": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa78": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa79": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "SEM_RESPOSTA",
+     "motivos": [
+      "BLOQUEADA"
+     ]
+    },
+    "aa80": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "SEM_RESPOSTA",
+     "motivos": [
+      "BLOQUEADA"
+     ]
+    }
+   }
+  },
+  "corpus-holdout-30-20261007.json": {
+   "versao": "r29-bc1eabe",
+   "sha": "bc1eabe6a953c80476b8329175ea264d160a960e",
+   "execucao": "r29-bc1eabe-corpus-holdout-30-20261007-muy6vc62",
+   "linhas": {
+    "aa01": {
+     "intencoes": [
+      "DECORACAO",
+      "LOCALIZACAO",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Mario Bros"
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa02": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-11-07",
+      "convidados": 80,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa03": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa04": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa05": {
+     "intencoes": [
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa06": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": "2026-10-24",
+      "convidados": 65,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO",
+      "NEGOCIACAO"
+     ]
+    },
+    "aa07": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 70,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa08": {
+     "intencoes": [
+      "CONTRATO",
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa09": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa10": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa11": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-12-13",
+      "convidados": 120,
+      "turno": "NOITE",
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": "ASA_SUL",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa12": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa13": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa14": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "FORA_DO_ESCOPO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Wandinha"
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa15": {
+     "intencoes": [
+      "CONTRATAR",
+      "NEGOCIACAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 50,
+      "turno": null,
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa16": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa17": {
+     "intencoes": [
+      "PACOTES",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 180,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa18": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "FORA_DO_ESCOPO",
+      "HUMANO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": "2026-12-19",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "PEDIDO_CLIENTE",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa19": {
+     "intencoes": [
+      "CARDAPIO",
+      "CONTRATO_PROPRIO",
+      "INSTRUCAO"
+     ],
+     "entidades": {
+      "data": "2026-10-10",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa20": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO"
+     ]
+    },
+    "aa21": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 175,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa22": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": "2026-11-14",
+      "convidados": null,
+      "turno": "NOITE",
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa23": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa24": {
+     "intencoes": [
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa25": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa26": {
+     "intencoes": [
+      "CONTRATO",
+      "NEGOCIACAO",
+      "PAGAMENTO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa27": {
+     "intencoes": [
+      "CONTRATAR",
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": "2026-10-31",
+      "convidados": 40,
+      "turno": "ALMOCO",
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "CONTRATACAO"
+     ]
+    },
+    "aa28": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa29": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": "2026-10-31",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa30": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa31": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa32": {
+     "intencoes": [
+      "HUMANO",
+      "LOCALIZACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": "ASA_SUL",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PEDIDO_CLIENTE"
+     ]
+    },
+    "aa33": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RESTRICAO_ALIMENTAR"
+     ]
+    },
+    "aa34": {
+     "intencoes": [
+      "CARDAPIO",
+      "NEGOCIACAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA",
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa35": {
+     "intencoes": [
+      "CONTRATO_PROPRIO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa36": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR",
+      "RECLAMACAO",
+      "BLOQUEADO_A_PEDIDO"
+     ]
+    },
+    "aa37": {
+     "intencoes": [
+      "CONTRATO",
+      "NEGOCIACAO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "NEGOCIACAO"
+     ]
+    },
+    "aa38": {
+     "intencoes": [
+      "CONTRATO",
+      "HUMANO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PARAR_A_CONFIRMAR"
+     ]
+    },
+    "aa39": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa40": {
+     "intencoes": [
+      "CARDAPIO",
+      "CONTRATO_PROPRIO",
+      "RECLAMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "RECLAMACAO",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa41": {
+     "intencoes": [
+      "INSTRUCAO",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA"
+     ]
+    },
+    "aa42": {
+     "intencoes": [
+      "NEGOCIACAO",
+      "PACOTES"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": 60,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "NEGOCIACAO"
+     ]
+    },
+    "aa43": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa44": {
+     "intencoes": [
+      "ALERGIA",
+      "CARDAPIO",
+      "CONTRATO_PROPRIO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": "2026-11-07",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PAGAMENTO",
+      "RESTRICAO_ALIMENTAR",
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa45": {
+     "intencoes": [
+      "INSTRUCAO",
+      "NEGOCIACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INSTRUCAO_SUSPEITA",
+      "NEGOCIACAO"
+     ]
+    },
+    "aa46": {
+     "intencoes": [
+      "PARAR"
+     ],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "PARAR",
+     "motivos": [
+      "PARAR"
+     ]
+    },
+    "aa47": {
+     "intencoes": [
+      "PACOTES",
+      "PRECOS",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-11-14",
+      "convidados": 70,
+      "turno": "NOITE",
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa48": {
+     "intencoes": [
+      "CONFIRMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa49": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa50": {
+     "intencoes": [
+      "CONTRATO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa51": {
+     "intencoes": [
+      "CONTRATAR",
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": "2026-11-14",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa52": {
+     "intencoes": [
+      "CONFIRMACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa53": {
+     "intencoes": [
+      "PRECOS",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-11-21",
+      "convidados": 100,
+      "turno": "ALMOCO",
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa54": {
+     "intencoes": [
+      "CARDAPIO",
+      "PACOTES"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "PREMIUM"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa55": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa56": {
+     "intencoes": [
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-11-28",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa57": {
+     "intencoes": [
+      "CONFIRMACAO",
+      "CONTRATAR"
+     ],
+     "entidades": {
+      "data": "2026-11-28",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATACAO"
+     ]
+    },
+    "aa58": {
+     "intencoes": [
+      "PRECOS",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-12-05",
+      "convidados": 45,
+      "turno": "NOITE",
+      "pacotes": [
+       "ESSENCIAL"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa59": {
+     "intencoes": [
+      "CONTRATO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": "ALMOCO",
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa60": {
+     "intencoes": [
+      "PRECOS"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa61": {
+     "intencoes": [
+      "CONTRATO",
+      "PAGAMENTO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa62": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": "2026-10-17",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "dinossauro"
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa63": {
+     "intencoes": [
+      "LOCALIZACAO",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": "AGUAS_CLARAS",
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa64": {
+     "intencoes": [
+      "CONTRATO_PROPRIO",
+      "DUVIDA_FAQ"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "CONTRATO_PROPRIO"
+     ]
+    },
+    "aa65": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    },
+    "aa66": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    },
+    "aa67": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    },
+    "aa68": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    },
+    "aa69": {
+     "intencoes": [
+      "DISPONIBILIDADE",
+      "SAUDACAO"
+     ],
+     "entidades": {
+      "data": "2026-12-12",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa70": {
+     "intencoes": [
+      "DISPONIBILIDADE"
+     ],
+     "entidades": {
+      "data": "2027-01-09",
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa71": {
+     "intencoes": [
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "PERGUNTAR",
+     "motivos": []
+    },
+    "aa72": {
+     "intencoes": [
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Bluey"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa73": {
+     "intencoes": [
+      "DECORACAO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa74": {
+     "intencoes": [
+      "CONTRATO",
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "INFORMACAO_INDISPONIVEL"
+     ]
+    },
+    "aa75": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa76": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Sonic"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa77": {
+     "intencoes": [
+      "FORA_DO_ESCOPO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": "Homem-Aranha"
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa78": {
+     "intencoes": [
+      "PACOTES"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [
+       "COMPLETA"
+      ],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "RESPONDER",
+     "motivos": []
+    },
+    "aa79": {
+     "intencoes": [
+      "CONFIRMACAO",
+      "HUMANO"
+     ],
+     "entidades": {
+      "data": null,
+      "convidados": null,
+      "turno": null,
+      "pacotes": [],
+      "unidade": null,
+      "tema": null
+     },
+     "chamouModelo": true,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "PARAR_A_CONFIRMAR"
+     ]
+    },
+    "aa80": {
+     "intencoes": [],
+     "entidades": null,
+     "chamouModelo": false,
+     "decisao": "EQUIPE",
+     "motivos": [
+      "COM_A_EQUIPE"
+     ]
+    }
+   }
+  }
+ }
+}
