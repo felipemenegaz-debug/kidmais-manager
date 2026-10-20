@@ -62,6 +62,8 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
       if (id.endsWith('.css')) return { default: {} };
       if (id === './AdminPrimaryButton') return { AdminPrimaryButton: 'button' };
       if (id === './VoltarConfiguracoes') return { VoltarConfiguracoes: 'voltar' };
+      if (id === 'next/link') return { default: 'a' };
+      if (id === '@/lib/suporte/rota') return { ROTA_AJUDA: '/admin/ajuda' };
       throw Error(`Import inesperado: ${id}`);
     },
   });

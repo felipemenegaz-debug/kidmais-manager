@@ -17,9 +17,12 @@ import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/
 import LogoEmpresa from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
+import { ROTA_AJUDA } from '@/lib/suporte/rota';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio'];
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio', ROTA_AJUDA];
+/** Telas abertas sem empresa ativa: conta e ajuda (nenhum dado de negócio). */
+const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/perfil', ROTA_AJUDA];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
@@ -165,6 +168,7 @@ export default function AdminShell({ children, vitrine }: {
         {cadastroAberto && <p data-retomar-cadastro>Começou o cadastro e não terminou? <Link href="/cadastro/empresa">Cadastrar sua empresa</Link></p>}
         <ul>
             <li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
+            <li><Link href={ROTA_AJUDA}>Ajuda e suporte</Link></li>
             {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
             <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li>
         </ul></section></main>;
@@ -184,6 +188,7 @@ export default function AdminShell({ children, vitrine }: {
                     return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
+                    <Link href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
             </nav>
             {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>}
@@ -195,16 +200,17 @@ export default function AdminShell({ children, vitrine }: {
                 {comercial?.cobrado && permissoes.gestaoEmpresa && <Link className={styles.perfilLink} href="/admin/inicio" aria-current={path === '/admin/inicio' ? 'page' : undefined} onClick={() => setAberto(false)}>Primeiros passos</Link>}
                 {cadastroAberto && <Link className={styles.perfilLink} href="/cadastro/empresa">Cadastrar empresa</Link>}
                 {comercial?.cobrado && <Link className={styles.perfilLink} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => setAberto(false)}>Assinatura</Link>}
+                {!semEmpresa && <Link className={styles.perfilLink} href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => setAberto(false)}>Ajuda e suporte</Link>}
                 <Link className={styles.perfilLink} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}>Meu perfil e senha</Link>
                 <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && path !== '/admin/perfil'
+        <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section></main>)
             : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>
                     <p>Os dados de {contexto?.empresaAtual?.nome ?? 'sua empresa'} continuam guardados. Nada foi apagado.</p>
-                    <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
+                    <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href={ROTA_AJUDA}>Falar com o suporte</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
                         {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
                         <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
                 : <PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider>}</div>

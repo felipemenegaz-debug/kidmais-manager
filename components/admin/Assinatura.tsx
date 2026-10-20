@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ROTA_AJUDA } from '@/lib/suporte/rota';
 import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -88,7 +90,7 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
             {dados.precos && (dados.precos.MENSAL || dados.precos.ANUAL)
                 ? <p>{[dados.precos.MENSAL ? `${reais(dados.precos.MENSAL)} por mês` : null, dados.precos.ANUAL ? `${reais(dados.precos.ANUAL)} por ano` : null].filter(Boolean).join(' · ')}</p>
                 : <p className={workspace.muted}>Os planos ainda não estão publicados neste ambiente.</p>}
-            <p className={workspace.muted}>A contratação on-line ainda não está disponível. Fale com a Kidmais para assinar.</p>
+            <p className={workspace.muted}>A contratação on-line ainda não está disponível. <Link href={ROTA_AJUDA}>Fale com a Kidmais</Link> para assinar.</p>
         </section>)}
     </main>;
 }

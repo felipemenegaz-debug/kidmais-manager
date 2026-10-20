@@ -21,7 +21,7 @@ function montar(senhaCerta = true, opcoes: { dados?: unknown; statusPost?: numbe
   };
   const reautenticarSessao = async () => { reautenticacoes++; return senhaCerta ? { ok: true } : { ok: false, erro: 'Senha incorreta.', senhaIncorreta: true }; };
   const h = carregarComponente('components/admin/atendimento/PrivacidadeAtendimento.tsx', {
-    'next/link': { default: (p: { children?: unknown }) => p.children }, '@/lib/http/admin-fetch': { adminFetch, reautenticarSessao }, './atendimento.module.css': cssFalso,
+    'next/link': { default: (p: { children?: unknown }) => p.children }, '@/lib/http/admin-fetch': { adminFetch, reautenticarSessao }, '@/lib/suporte/rota': { ROTA_AJUDA: '/admin/ajuda' }, './atendimento.module.css': cssFalso,
   });
   globalThis.window = { setTimeout, clearTimeout } as never;
   const render = async () => { h.render(); h.efeitos(); await new Promise((r) => setTimeout(r, 5)); await tique(); const t = h.render(); h.efeitos(); return t; };
