@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { ROTA_AJUDA } from '@/lib/suporte/rota';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
@@ -87,7 +88,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         {!dados.gestao && <p className={workspace.muted}>Somente a Gestão desta empresa contrata ou cancela a assinatura.</p>}
         {dados.gestao && !cobranca?.disponivel && <>
             {precos && (precos.MENSAL || precos.ANUAL) && <p>{[precos.MENSAL ? `${reais(precos.MENSAL)} por mês` : null, precos.ANUAL ? `${reais(precos.ANUAL)} por ano` : null].filter(Boolean).join(' · ')}</p>}
-            <p className={workspace.muted}>A contratação on-line ainda não está disponível neste ambiente. Fale com a Kidmais para assinar.</p>
+            <p className={workspace.muted}>A contratação on-line ainda não está disponível neste ambiente. <Link href={ROTA_AJUDA}>Fale com a Kidmais</Link> para assinar.</p>
         </>}
         {dados.gestao && cobranca?.disponivel && pagamento?.urlPagamento && <div data-pagamento-aberto>
             <p>{pagamento.reaproveitada ? 'Há um pagamento em aberto desta assinatura.' : 'Assinatura criada.'}{pagamento.vencimento ? ` Vencimento: ${pagamento.vencimento.split('-').reverse().join('/')}.` : ''} Pague pela página segura do provedor (Pix, boleto ou cartão).</p>
@@ -126,7 +127,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                         : <p className={workspace.muted}>Os planos ainda não estão publicados neste ambiente.</p>}
                 </>}
             {a.situacao === 'ATIVA' && ativaNoProvedor && <p className={workspace.muted}>Renovação automática pelo provedor. Cada cobrança chega pela página de pagamento do provedor.</p>}
-            {!ativaNoProvedor && dados.ofertas?.planoAtual && <p>A assinatura mantém seu histórico. Para recontratar ou mudar de plano, fale com o atendimento.</p>}
+            {!ativaNoProvedor && dados.ofertas?.planoAtual && <p>A assinatura mantém seu histórico. Para recontratar ou mudar de plano, <Link href={ROTA_AJUDA}>fale com o atendimento</Link>.</p>}
         </>}
         {dados.gestao && cobranca?.disponivel && pagando && ativaNoProvedor && !cancelando && <p>
             <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setErro(''); setAviso(''); }}>Cancelar ao fim do período…</button>
