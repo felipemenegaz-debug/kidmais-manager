@@ -4,7 +4,7 @@ import { planoComercialValido, planosComerciais, valorComercial, type PlanoComer
 import { precoDoCiclo } from './configuracao.ts';
 
 test('oferta: centavos exatos para três planos, anual 10× e Fundador 60%', () => {
-    const esperados = { essencial: [19700,197000,11820,118200], profissional: [34700,347000,20820,208200], premium: [59700,597000,35820,358200] };
+    const esperados = { essencial: [19700,197000,11820,118200], profissional: [39700,397000,23820,238200], premium: [69700,697000,41820,418200] };
     for (const id of Object.keys(esperados) as PlanoComercialId[])
         assert.deepEqual([valorComercial(id,'mensal'),valorComercial(id,'anual'),valorComercial(id,'mensal',true),valorComercial(id,'anual',true)],esperados[id]);
     assert.deepEqual(Object.values(planosComerciais).map(p => p.limiteUsuarios), [3,10,null]);

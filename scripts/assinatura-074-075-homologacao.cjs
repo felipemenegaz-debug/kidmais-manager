@@ -93,7 +93,7 @@ async function testar() {
             const r = await f(p); await p.query('COMMIT'); return r;
         } catch (e) { await p.query('ROLLBACK'); throw e; } finally { p.release(); }
     };
-    const pedido = { plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-09' };
+    const pedido = { plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-19' };
     let contador = 0;
     const novo = async (p, empresa = randomUUID()) => {
         const usuario = randomUUID();

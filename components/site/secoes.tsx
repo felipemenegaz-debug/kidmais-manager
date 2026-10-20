@@ -9,8 +9,8 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
       <div className={cx('hero-grid')}>
         <div className={cx('hero-copy')} data-fundo-proteger>
           <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
-          <h1 id="t-hero">Seu buffet vende<br />até de madrugada.<br /><em>Sem planilha.</em></h1>
-          <p className={cx('lead')}><Recurso ids={["orcamento"]}>O cliente consulta a data e monta o orçamento com pacote, horário e adicionais</Recurso>; <Recurso ids={["assinatura_whatsapp"]}>o contrato é assinado pelo celular</Recurso>. Você recebe por Pix ou <Recurso ids={["cartao"]}>cartão</Recurso>, direto na conta da sua empresa.</p>
+          <h1 id="t-hero">Seu buffet organizado,<br />da data à festa.<br /><em>Sem planilha.</em></h1>
+          <p className={cx('lead')}>Agenda com as datas livres, clientes, orçamentos com o seu preço, contratos, festas e parcelas com Pix copia e cola, tudo no mesmo lugar. O dinheiro das festas cai direto na conta da sua empresa.</p>
           <div className={cx('actions')}>
             <Cadastro aberto={aberto} />
             <Contato config={config} />
@@ -22,12 +22,12 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           <div className={cx('app-body')}>
             <div className={cx('app-head')}><strong>Próximas festas</strong><small>OUTUBRO</small></div>
             <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>17</span>SÁB</span><span><b>Sofia · 6 anos</b><small>15h · Horário nobre · 60 convidados</small></span><span className={cx('pill ok')}>Contrato assinado</span></div>
-            <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>18</span>DOM</span><span><b>Miguel · 4 anos</b><small>Orçamento feito pelo site às 23h40</small></span><span className={cx('pill wait')}>Aguardando assinatura</span></div>
+            <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>18</span>DOM</span><span><b>Miguel · 4 anos</b><small>Contrato enviado hoje · 40 convidados</small></span><span className={cx('pill wait')}>Aguardando assinatura</span></div>
             <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>24</span>SÁB</span><span><b>Helena · 8 anos</b><small>14h · Espaço jardim · 80 convidados</small></span><span className={cx('pill info')}>2ª parcela vence 20/10</span></div>
             <div className={cx('hero-stats')}>
               <div><b>R$ 18.400</b><small>a receber no mês</small></div>
               <div><b>3</b><small>datas livres em outubro</small></div>
-              <div><b>4</b><small>orçamentos online na semana</small></div>
+              <div><b>4</b><small>contratos fechados na semana</small></div>
             </div>
             <div className={cx('caption')}>Dados fictícios</div>
           </div>
@@ -42,9 +42,9 @@ export function AntesDepois() { return (<section className={cx('block')} aria-la
       <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
       <div className={cx('pain')}>
         <article data-fundo-proteger><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Contrato impresso e assinatura na loja</span><h3><Recurso ids={["assinatura_whatsapp"]}>Contrato assinado pelo celular</Recurso></h3><p><Recurso ids={["assinatura_whatsapp"]}>O cliente recebe o link, confere os dados e assina. Você acompanha quem já viu e quem já assinou.</Recurso></p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Orçamento por mensagem, um por um</span><h3><Recurso ids={["orcamento"]}>Orçamento online</Recurso></h3><p><Recurso ids={["orcamento"]}>O cliente escolhe data, pacote, horário e adicionais e vê o valor na hora, a qualquer hora do dia.</Recurso></p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3><Recurso ids={["cartao"]}>Parcelas no Pix e no cartão</Recurso></h3><p><Recurso ids={["cartao"]}>Cada parcela sai com Pix copia e cola ou pagamento no cartão. Você sabe o que entrou, o que vence e o que atrasou.</Recurso></p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Contrato digitado à mão, um por um</span><h3>Contrato pronto com os dados da festa</h3><p>O contrato sai preenchido com o seu modelo, o pacote e os valores combinados. O cliente confere tudo pelo link no celular.</p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Orçamento na calculadora</span><h3>Orçamento com o seu preço</h3><p>Pacote, horário nobre ou promocional e adicionais somados na hora, com a sua tabela. Sem conta de cabeça.</p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3>Parcelas com Pix copia e cola</h3><p>Cada parcela sai com o Pix da chave da sua empresa. Você sabe o que entrou, o que vence e o que atrasou.</p></article>
       </div>
     </div>
   </section>); }
@@ -54,9 +54,9 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
       <div className={cx('head')}><div className={cx('eyebrow')}>Diferenciais</div><h2 id="t-diff">O que o Kidmais faz<br /><em>e uma planilha não faz.</em></h2></div>
       <div className={cx('diff')}>
         <article className={cx('hero-card')}>
-          <span className={cx('n')}>01 · VENDA SEM ATENDENTE</span>
-          <h3><Recurso ids={["orcamento", "assinatura_whatsapp"]}>Seu cliente faz o orçamento e assina sozinho, a qualquer hora.</Recurso></h3>
-          <p><Recurso ids={["orcamento"]}>Uma página do seu buffet mostra as datas livres com os seus preços oficiais. O cliente monta a festa, vê o total e segue direto para o contrato. Você acorda com a venda pronta para conferir.</Recurso></p>
+          <span className={cx('n')}>01 · DA DATA AO CONTRATO</span>
+          <h3>Da data livre ao contrato em poucos minutos.</h3>
+          <p>Escolha uma data que está mesmo livre, monte a festa com o seu preço oficial e gere o contrato com o seu modelo. Sem vender a mesma data duas vezes e sem copiar dados de uma planilha para outra.</p>
           <div className={cx('quote-steps')}>
             <div><b>Data</b>Só aparecem as livres</div>
             <div><b>Pacote</b>Com o seu preço</div>
@@ -68,12 +68,12 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
           <span className={cx('n')}>02 · SEU DINHEIRO</span>
           <div className={cx('big-num')}>0%</div>
           <h3>do valor das festas fica com o Kidmais.</h3>
-          <p><Recurso ids={["cartao"]}>Pix copia e cola com a chave da sua empresa e cartão pela sua própria conta de pagamento. Tudo cai direto na sua conta.</Recurso></p>
+          <p>Pix copia e cola com a chave da sua empresa. Tudo cai direto na sua conta.</p>
         </article>
         <article>
-          <span className={cx('n')}>03 · PREÇO CERTO</span>
-          <h3>Horário nobre e adicionais na cotação</h3>
-          <p>Sábado à tarde não custa o mesmo que terça de manhã. Grades de horário nobre, promocional e adicionais entram no cálculo sem conta de cabeça.</p>
+          <span className={cx('n')}>03 · A FESTA INTEIRA</span>
+          <h3>Contrato, festa e fechamento ligados</h3>
+          <p>Cada festa reúne contrato, buffet, checklist, parcelas e histórico. No fechamento, recebimentos, adicionais e pendências daquele evento aparecem juntos.</p>
         </article>
         <article>
           <span className={cx('n')}>04 · IA QUE IMPLANTA</span>
@@ -182,16 +182,16 @@ export function ComoFunciona() { return (<section className={cx('block')} id="co
       <div className={cx('head')}>
         <div className={cx('eyebrow')}>Como funciona</div>
         <h2 id="t-fluxo">Uma festa, do pedido ao fechamento.</h2>
-        <p className={cx('lead')}><Recurso ids={["orcamento", "assinatura_whatsapp"]}>Quatro das cinco etapas o próprio cliente faz pelo celular.</Recurso> Cada etapa usa o que foi registrado na anterior.</p>
+        <p className={cx('lead')}>Cada etapa usa o que foi registrado na anterior. Nada de copiar dados de um caderno para uma planilha.</p>
       </div>
       <ol className={cx('flow')}>
-        <li><span className={cx('who')}>Cliente</span><h3>Consulta a data</h3><p><Recurso ids={["orcamento", "walle_whatsapp"]}>Pela página do buffet ou pelo WhatsApp com o Wall-e. Só aparecem as datas livres.</Recurso></p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Monta o orçamento</h3><p><Recurso ids={["orcamento"]}>Escolhe pacote, horário e adicionais e vê o total calculado com os seus preços.</Recurso></p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Assina o contrato</h3><p>O contrato sai preenchido com o seu modelo. <Recurso ids={["assinatura_whatsapp"]}>O cliente confere e assina pelo link.</Recurso></p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Paga as parcelas</h3><p><Recurso ids={["cartao"]}>Pix copia e cola ou cartão em cada parcela, direto na conta do buffet.</Recurso></p></li>
+        <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Confere a data</h3><p>A agenda mostra as datas e horários livres de cada espaço.</p></li>
+        <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Monta o orçamento</h3><p>Pacote, horário e adicionais com o total calculado pelos seus preços.</p></li>
+        <li><span className={cx('who')}>Cliente</span><h3>Confere o contrato</h3><p>O contrato sai preenchido com o seu modelo e o cliente confere pelo link no celular.</p></li>
+        <li><span className={cx('who')}>Cliente</span><h3>Paga as parcelas</h3><p>Pix copia e cola em cada parcela, direto na conta do buffet.</p></li>
         <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Fecha a festa</h3><p>O fechamento reúne recebimentos, adicionais e pendências daquele evento.</p></li>
       </ol>
-      <p className={cx('flow-note')}>Você continua no controle: <b>pode atender, ajustar valores e enviar o contrato</b> você mesmo sempre que preferir.</p>
+      <p className={cx('flow-note')}><Recurso ids={["orcamento"]}>Em seguida, o próprio cliente poderá consultar a data e montar o orçamento pela página do seu buffet.</Recurso></p>
     </div>
   </section>); }
 
@@ -203,7 +203,7 @@ export function Confianca() { return (<section className={cx('block')} id="confi
           <div className={cx('big')}>Feito dentro de um buffet</div>
           <p>O Kidmais Manager nasceu para organizar a operação da Kidmais Festas, que usa o sistema todos os dias. Cada tela foi construída com quem atende, organiza e recebe.</p>
         </article>
-        <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo Kidmais</h3><p><Recurso ids={["cartao"]}>Pix com a chave da sua empresa e cartão pela sua própria conta de pagamento. As taxas do cartão são as da sua conta.</Recurso></p></article>
+        <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo Kidmais</h3><p>O Pix usa a chave da sua empresa. O Kidmais não intermedia o pagamento nem fica com parte do valor.</p></article>
         <article><div className={cx('big')}>CSV · PDF</div><h3>Exportação a qualquer hora</h3><p>Clientes e contas a receber em CSV e cada contrato em PDF saem do sistema quando você quiser, conforme as condições de acesso e exportação dos termos de uso.</p></article>
         <article><div className={cx('big')}>Gestão e equipe</div><h3>Cada um no seu papel</h3><p>A Gestão cuida da empresa, dos usuários e das configurações. A equipe opera o dia a dia com o próprio acesso.</p></article>
       </div>
@@ -216,7 +216,7 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
       <div className={cx('faq')}>
         <div>
           <details><summary>Preciso cadastrar cartão para testar?</summary><p>Não. O teste de {dias(comercial.testeDias)} começa sem cartão e nada é cobrado automaticamente quando ele termina.</p></details>
-          <details><summary>O Kidmais recebe o pagamento dos meus clientes?</summary><p><Recurso ids={["cartao"]}>Não. O Pix usa a chave da sua empresa e o cartão passa pela sua própria conta de pagamento. O dinheiro vai direto para você.</Recurso></p></details>
+          <details><summary>O Kidmais recebe o pagamento dos meus clientes?</summary><p>Não. O Pix usa a chave da sua empresa e o dinheiro vai direto para você.</p></details>
           <details><summary>Meu cliente pode pagar no cartão?</summary><p><Recurso ids={["cartao"]}>O cartão nas parcelas está em preparação e depende da conexão da conta de pagamento do buffet. O Pix copia e cola usa a chave da empresa. As taxas do cartão são as da conta de pagamento da sua empresa.</Recurso></p></details>
           <details><summary>Meu cliente precisa instalar algum aplicativo?</summary><p>Não. Ele abre o link do contrato no celular e confere tudo por ali.</p></details>
           <details><summary>A família consegue fazer o convite sozinha?</summary><p><Recurso ids={["convite"]}>O buffet libera um link de edição e a família escolhe o modelo, troca a imagem e publica. O buffet acompanha e pode ajudar quando precisar.</Recurso></p></details>
