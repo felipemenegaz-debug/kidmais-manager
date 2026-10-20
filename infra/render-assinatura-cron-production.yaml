@@ -8,7 +8,8 @@ services:
   - type: cron
     name: kidmais-assinatura-reconciliar-production
     runtime: node
-    # Mesmo plano do cron de staging (crn-db493i142hec73ahmoe0); conferir o nome/custo do plano no painel ao criar.
+    # Mesmo plano do cron de staging (crn-db493i142hec73ahmoe0). Identificador NÃO verificado como valor de Blueprint
+    # (P3-B4 da revisão de 20/10): na criação manual, escolher o tipo/custo no painel (D-C2).
     plan: 0.5c-512mb
     # Mesma região do banco kidmais-production (dpg-dak750gae00c73fudmg0-a, Virginia): a URL interna só resolve nela.
     region: virginia
@@ -42,8 +43,12 @@ services:
         value: "true"
       - key: DATABASE_SSL_REJECT_UNAUTHORIZED
         value: "false"
+      # --- Secretas: SÓ em C2 (modo conferir). Em C1 (aguardando) NÃO criar estas três chaves: o modo aguardando não as lê.
+      # Por isso a criação recomendada é MANUAL; aplicado como Blueprint, o Render pediria os valores destas chaves
+      # (sync: false) - deixá-las vazias/ausentes em C1. ---
       # URL INTERNA do banco kidmais_production (mesmo valor da DATABASE_URL do web, host sem domínio, sem parâmetros).
-      # NUNCA definir DATABASE_URL neste cron (a reconciliação recusa quando as duas são iguais).
+      # NUNCA definir DATABASE_URL neste cron (a reconciliação recusa quando as duas são iguais). Entra no roteiro de
+      # rotação (docs/ROTACAO_CREDENCIAIS_20261007.md): a cada rotação do banco ou da chave Asaas, atualizar aqui também.
       - key: KIDMAIS_RECONCILIAR_DATABASE_URL
         sync: false
       - key: ASAAS_API_KEY

@@ -47,6 +47,13 @@ const registroOk = d => pastaBackup(d) + '/backup-teste.json';
 const intactos = d => fs.readFileSync(path.join(d, 'scripts/migrations-lancamento-production.cjs'), 'utf8') === SENTINELA
   && fs.readdirSync(path.join(d, 'data/lancamento-venda-20261011')).join() === 'backup-teste.json';
 const PLANO = `NODE_PATH='./node_modules' node ${b.EXECUTOR}`;
+/**
+ * Sonda do bash interativo (CI ubuntu-latest/Node 22 e Git Bash/MSYS2 no Windows): a expressão aritmética só aparece
+ * avaliada ("_2") se o shell EXECUTOU a linha, não só a ecoou. Sem bash interativo o teste de colagem é pulado com motivo
+ * explícito (os demais continuam, com bash não interativo).
+ */
+const BASH_INTERATIVO = /SONDA_INTERATIVO_2/.test((r => (r.stdout || '') + (r.stderr || ''))(
+  spawnSync('bash', ['--norc', '--noprofile', '-i'], {input: 'echo SONDA_INTERATIVO_$((1+1))\n', encoding: 'utf8', timeout: 20000})));
 
 test('quatro blocos oficiais: ≤ 32 KB, ASCII, guarda de produção antes de tudo, subshell, código impresso, sem segredo', () => {
   assert.deepEqual(b.MODOS, ['CONFERIR', 'APLICAR', 'RETOMAR', 'LIMPEZA']);
@@ -148,7 +155,8 @@ test('recusas do bloco (código 4, nada gravado): pg ausente, arquivo presente d
   } finally { fs.rmSync(d, {recursive: true, force: true}); }
 });
 
-test('colagem interativa (bash -i) funciona; colagem truncada não executa nada', () => {
+test('colagem interativa (bash -i) funciona; colagem truncada não executa nada',
+  {skip: BASH_INTERATIVO ? false : 'bash interativo (bash -i com stdin em pipe) indisponível neste ambiente'}, () => {
   const d = deploy();
   try {
     const s = sessao(d, gerar(d, 'CONFERIR', PLANO), {interativo: true});
@@ -175,4 +183,22 @@ test('LIMPEZA: remove só arquivos com sha conferido, preserva divergente, nunca
     assert.match(s2.saida, /PASTA_REMOVIDA/); assert.equal(fs.existsSync(path.join(d, PASTA)), false);
     assert.ok(intactos(d));
   } finally { fs.rmSync(d, {recursive: true, force: true}); }
+});
+
+// O gzip grava o sistema operacional no cabeçalho (byte 9: 10 no Windows, 3 no Linux) e o zlib embutido varia por versão
+// do Node: os blocos aprovados foram gerados no Windows (Node 24.20.0, zlib 1.3.2.1-motley). Fora dessa combinação o
+// conteúdo transportado é o mesmo (teste "carga"), mas os bytes do bloco diferem; por isso a fixação só roda nela.
+const MESMO_GERADOR = process.platform === 'win32' && process.versions.zlib === '1.3.2.1-motley-42c2f19';
+test('blocos APROVADOS na revisão independente de 20/10 (árvore a239f10) continuam byte a byte iguais',
+  {skip: MESMO_GERADOR ? false : 'bytes do gzip dependem do SO/zlib; blocos aprovados gerados no Windows com zlib 1.3.2.1-motley'}, () => {
+  // Mudar o executor, o SQL, o aplicador do lançamento ou o gerador muda estes sha: exige nova geração, nova revisão e
+  // novo pacote. Ver docs/REPARO_BLOQUEIOS_PRODUCAO_20261020.md §3.
+  const aprovados = {CONFERIR: ['b5d9faf4d5b0be220b0705c9cc26ebae74aade90ee3121e1837a86f7c87adde4', 27704],
+    APLICAR: ['080b108c426ea433a6391bf96eefd0d50ff48e35b5a9c00f9f42717990f2e81a', 28403],
+    RETOMAR: ['27777fd359c2718fde260885f309e9a926a49f26dbb8bd076e52b8c7e32aaa4e', 28372],
+    LIMPEZA: ['94eb2432a05e02c637d915e35022096e623a941c940d76ac5637126d7054ca90', 2693]};
+  for (const [modo, [h, bytes]] of Object.entries(aprovados)) {
+    const x = b.gerar({modo, rotulo: 'a239f10'});
+    assert.equal(sha(x), h, modo); assert.equal(Buffer.byteLength(x), bytes, modo);
+  }
 });

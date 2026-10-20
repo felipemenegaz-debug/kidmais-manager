@@ -7,14 +7,34 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
-const yaml = require('js-yaml');
 const {planejar} = require('./assinatura-cron.cjs');
 const {validarAlvo, opcoesConexao, codigoDeSaida, executarCiclo, PRODUCAO} = require('./assinatura-reconciliar.cjs');
 
 const raiz = path.resolve(__dirname, '..');
 const texto = fs.readFileSync(path.join(raiz, 'infra/render-assinatura-cron-production.yaml'), 'utf8');
-const servico = yaml.load(texto).services[0];
-const staging = yaml.load(fs.readFileSync(path.join(raiz, 'infra/render-assinatura-cron.yaml'), 'utf8')).services[0];
+/**
+ * Leitura SEM dependência (P3-B5 da revisão: js-yaml só existe como dependência transitiva do ESLint) do formato fixo dos
+ * dois YAML de cron: um serviço, campos escalares com 4 espaços e envVars como "- key:" seguido de "value:" ou "sync:".
+ * Qualquer linha fora desse formato falha o teste (o arquivo precisa continuar simples e revisável).
+ */
+function lerCron(conteudo) {
+  const escalar = v => { const t = v.replace(/\s+#.*$/, '').trim(); return /^"(.*)"$/.test(t) ? t.slice(1, -1) : t === 'false' ? false : t; };
+  const s = {envVars: []};
+  let emEnv = false;
+  for (const linha of conteudo.split(/\r?\n/)) {
+    if (!linha.trim() || /^\s*#/.test(linha) || linha === 'services:') continue;
+    let m;
+    if ((m = /^ {2}- type: (.+)$/.exec(linha))) { s.type = escalar(m[1]); continue; }
+    if (linha === '    envVars:') { emEnv = true; continue; }
+    if (emEnv && (m = /^ {6}- key: (.+)$/.exec(linha))) { s.envVars.push({key: escalar(m[1])}); continue; }
+    if (emEnv && (m = /^ {8}(value|sync): (.+)$/.exec(linha))) { s.envVars.at(-1)[m[1]] = escalar(m[2]); continue; }
+    if (!emEnv && (m = /^ {4}(\w+): (.+)$/.exec(linha))) { s[m[1]] = escalar(m[2]); continue; }
+    throw new Error('LINHA_FORA_DO_FORMATO ' + linha);
+  }
+  return s;
+}
+const servico = lerCron(texto);
+const staging = lerCron(fs.readFileSync(path.join(raiz, 'infra/render-assinatura-cron.yaml'), 'utf8'));
 const fixos = Object.fromEntries(servico.envVars.filter(v => Object.hasOwn(v, 'value')).map(v => [v.key, String(v.value)]));
 const secretos = servico.envVars.filter(v => v.sync === false).map(v => v.key);
 // Valores FICTÍCIOS só no formato (nunca credenciais): URL interna sem senha real, chave com o prefixo de produção.
@@ -32,6 +52,7 @@ test('definição: serviço, branch production, diário, mesmos build/start/plan
     KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO: '074-075', KIDMAIS_RECONCILIAR_ALVO: 'kidmais_production@dpg-dak750gae00c73fudmg0-a:5432', ASAAS_AMBIENTE: 'producao',
     DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'});
   assert.deepEqual(secretos, ['KIDMAIS_RECONCILIAR_DATABASE_URL', 'ASAAS_API_KEY', 'ASAAS_WEBHOOK_TOKEN']);
+  assert.equal(staging.name, 'kidmais-assinatura-reconciliar-staging'); assert.equal(staging.envVars.length, 10, 'leitor sem dependência lê o YAML de staging inteiro');
   const chaves = servico.envVars.map(v => v.key);
   for (const proibida of ['DATABASE_URL', 'KIDMAIS_RECONCILIAR_TLS', 'KIDMAIS_RECONCILIAR_CA_PEM']) assert.ok(!chaves.includes(proibida), proibida);
   assert.doesNotMatch(texto, /\$aact_|postgres(?:ql)?:\/\/|sk_|re_[A-Za-z0-9]{8}/, 'nenhum segredo no arquivo');

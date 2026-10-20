@@ -1,7 +1,15 @@
 # Cron de conferência de pagamentos em produção — 20/10/2026 (V8 da abertura da venda)
 
 **Status: DEFINIÇÃO PREPARADA, NADA CRIADO NO RENDER.** Nenhum metadado do Render foi lido nesta preparação; o estado abaixo
-é o informado em 20/10. Criar o serviço, gravar variáveis ou disparar execução exige autorização explícita de Felipe
+é o informado em 20/10.
+
+**Revisão independente de 20/10:**
+- **C1 (criar em `aguardando`, sem nenhuma variável secreta): aprovado.**
+- **C2 (`conferir`): bloqueado**, até três condições:
+  1. Felipe decidir sobre o alarme persistente (§5a, P2-B1);
+  2. o cron entrar no roteiro de rotação — feito em [ROTACAO_CREDENCIAIS_20261007.md](ROTACAO_CREDENCIAIS_20261007.md)
+     (P2-B2);
+  3. o Asaas de produção estar configurado no web. Criar o serviço, gravar variáveis ou disparar execução exige autorização explícita de Felipe
 ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)). Definição revisável: [infra/render-assinatura-cron-production.yaml](../infra/render-assinatura-cron-production.yaml).
 
 Estado informado: só existe o cron de staging `kidmais-assinatura-reconciliar-staging` (`crn-db493i142hec73ahmoe0`, branch
@@ -25,7 +33,8 @@ Estado informado: só existe o cron de staging `kidmais-assinatura-reconciliar-s
   - **2** = evento não concluído, empresa cujo estado mudaria, item falho ou Kidmais violada (o cron falha e o Render
     notifica);
   - 1 = configuração recusada ou interrupção.
-- **Correção de divergência:** nunca pelo cron. Reenvio do webhook no painel do Asaas ou pacote autorizado.
+- **Correção de divergência:** nunca pelo cron. Ver §5a: a saída 2 pode ser transitória ou persistente, e a persistente só
+  some com ação humana.
 
 **O código já está na branch `production` (`dc157a7`): criar o cron não exige PR, merge nem deploy do web.**
 
@@ -92,8 +101,9 @@ Todas no código já publicado e cobertas por [scripts/assinatura-cron-producao-
 - **TLS como o web:** `DATABASE_SSL=true` obrigatório (`TLS_PRODUCAO_RECUSADO`); `KIDMAIS_RECONCILIAR_TLS` proibida;
   `sslmode` fraco na URL recusado.
 - **Depois de conectar:** `current_database()` e TLS ativo conferidos.
-- **Lacuna aceita:** o caminho de produção não confere `RENDER_SERVICE_ID`. Outro serviço Render com as mesmas variáveis
-  também conseguiria rodar a conferência, que só simula.
+- **Lacuna aceita (P3-B1):** o caminho de produção não confere `RENDER_SERVICE_ID`. Outro serviço Render com as mesmas
+  variáveis também conseguiria rodar a conferência, que só simula. Proposta para uma PR futura, depois do C1: fixar o
+  `crn-…` real do cron de produção em `planejarProducao`, como o cron de staging faz na exceção de TLS.
 
 ## 5. Quando o Asaas de produção ainda NÃO está configurado
 
@@ -105,20 +115,104 @@ Todas no código já publicado e cobertas por [scripts/assinatura-cron-producao-
 | `conferir` com Asaas configurado e nenhuma assinatura | conecta (transações desfeitas); 0 eventos e 0 empresas, **nenhuma chamada ao Asaas**; confere a Kidmais; sai **0** | sim |
 
 Conclusão: o cron deve nascer em **`aguardando`** e só passar para `conferir` depois que o web de produção tiver o Asaas de
-produção (P6 etapa 4 do [roteiro de 13/10](RODADA_FINAL_LANCAMENTO_20261013.md)).
+produção (P6 etapa 4 do [roteiro de 13/10](RODADA_FINAL_LANCAMENTO_20261013.md)) **e** depois da decisão do §5a.
+
+## 5a. O alarme (saída 2): transitório × persistente, triagem e resolução (P2-B1)
+
+### Quando a conferência sai 2 (código publicado)
+
+Base: `scripts/assinatura-reconciliar.cjs`, funções `executarCiclo` e `codigoDeSaida`.
+
+**Eventos — `relatorio.eventos`:** qualquer linha de `cobranca_eventos` com `provedor = 'ASAAS'` e
+`situacao IN ('PENDENTE','FALHOU')` (até 500) entra no relatório com o resultado que o processamento simulado teria
+(`PROCESSADO`, `IGNORADO`, `FALHOU`, `ERRO_<tipo>`). **Basta uma linha** para `divergente = true`, ou seja, saída 2. Entram
+aí:
+- eventos de webhook recebidos e não concluídos;
+- as **pendências internas** de contratação (`tipo = 'KIDMAIS_RECONCILIAR_CONTRATACAO'`, `evento_id` `kidmais:criacao:…` /
+  `kidmais:contratacao:…`), que nascem quando o resultado de uma contratação fica incerto
+  (`lib/assinatura/reconciliacao-contratacao.ts`);
+- os marcadores de exclusão sem confirmação (`kidmais:remocao:…`).
+
+**Empresas — `relatorio.empresas`:** cada empresa com assinatura vinculada ao Asaas é sincronizada em simulação. Qualquer
+chave diferente de `SEM_MUDANCA` também dá saída 2: `MUDOU_<antes>_PARA_<depois>`, `RECUSADA`, `SEM_CONFIRMACAO`,
+`ERRO_<tipo>` e os demais resultados (por exemplo, adiada ou revisão humana).
+
+**Kidmais:** `kidmais.violada = true` dá saída 2 em qualquer caso.
+
+### Transitório × persistente
+
+| Tipo | Exemplos | Some sozinho? |
+|---|---|---|
+| Transitório | webhook que chegou durante a conferência; pagamento confirmado no Asaas minutos antes e webhook ainda a caminho (`MUDOU_…`) | sim, na próxima conferência, se o webhook for processado |
+| **Persistente** | evento `FALHOU` (erro que não se resolve repetindo); pendência interna de contratação; marcador `kidmais:remocao:`; empresa `RECUSADA`/`SEM_CONFIRMACAO`/revisão humana | **não**: em staging o cron `aplicar` resolve o que é resolvível; em produção o cron **só simula**, então nada fecha sozinho. Cada um gera saída 2 e notificação **todo dia** até a ação humana |
+
+### Triagem (ler o log do cron no Render; o relatório não tem dado pessoal)
+
+1. `kidmais.violada: true` → **prioridade máxima**: a gratuidade da Kidmais foi violada (assinatura, contratação ou vaga na
+   Kidmais). Não mexer; levar para decisão.
+2. `incompleto: true` (evento `FALHOU`/`ERRO_*`, empresa `RECUSADA`/`SEM_CONFIRMACAO`/`ERRO_*`) → falha real. Abrir a
+   empresa no painel do desenvolvedor.
+3. Só `eventos.PROCESSADO`/`IGNORADO` ou `empresas.MUDOU_…` → provável atraso de webhook. Conferir no painel do Asaas se
+   o webhook foi entregue; se falhou, reenviar.
+4. `removeriaNoProvedor > 0` → há duplicata de assinatura que o modo `aplicar` removeria. Em produção não se remove
+   nada automaticamente: decisão humana.
+
+### Resolução em produção (nunca pelo cron)
+
+- **Painel do Asaas:** reenviar o webhook com falha. O processamento normal fecha o evento.
+- **Painel do desenvolvedor → empresa → Cobrança** (`lib/desenvolvedor/cobranca.ts`), com senha confirmada há pouco:
+  - **Sincronizar:** aplica o estado atual do provedor, com auditoria; resolve `MUDOU_…`.
+  - **Pendências:** lista as pendências abertas da empresa.
+  - **Liberar intenção:** para `kidmais:criacao:…` comprovadamente não executada no provedor.
+- **Pacote autorizado:** o que nenhum dos dois resolve (por exemplo, marcador `kidmais:remocao:` que exige reler e fechar,
+  ou `FALHOU` permanente). `assinatura-reconciliar.cjs --aplicar` é **recusado em produção** por desenho, então fechar
+  esses itens exige pacote próprio, com autorização. **Esta é uma lacuna real:** hoje não há ferramenta pronta para fechar
+  em produção uma pendência que o painel não fecha.
+
+### Proposta (NÃO implementada) para não alarmar todo dia pelo mesmo item — decisão D-C4
+
+O cron não tem disco e a conferência é somente simulação, então não há onde gravar "já avisei". A proposta é uma regra **sem
+estado, por idade**, numa PR futura em `assinatura-reconciliar.cjs` (modo de produção):
+
+- **Saída 2:**
+  - `kidmais.violada`;
+  - item novo: evento com `recebido_em` nas últimas 26 h, ou empresa `MUDOU_…`/`ERRO_…` nesta execução;
+  - pendência que acaba de cruzar um marco de idade (1, 3 e 7 dias, depois uma vez por semana, quando a idade em dias é
+    múltiplo de 7).
+- **Saída 0 com aviso no relatório:** demais pendências antigas, listadas como `pendentesConhecidos` (contagem por tipo e
+  idade máxima), para não esconder nada de quem ler o log.
+- **Requisitos:**
+  - a consulta de pendências passa a devolver `recebido_em`;
+  - testes para os marcos;
+  - documentar que uma pendência persistente gera **lembretes**, não silêncio.
+
+Alternativas:
+- (a) aceitar a saída 2 diária até resolver (simples, mas cansa e faz ignorar alarmes);
+- (b) uma tabela de "pendência reconhecida" gravada pelo painel do desenvolvedor (exige migration);
+- (c) o cron de produção em `aplicar` (fora de questão sem nova revisão).
+
+**C2 fica bloqueado até Felipe escolher**: proposta, (a), (b) ou outra.
 
 ## 6. Roteiro proposto (cada passo com autorização própria)
 
 1. **C1 — criar o cron em `aguardando`** (independe do Asaas):
-   - campos da seção 2;
-   - variáveis 1–6, 8 e 10 (`ASAAS_AMBIENTE=producao` sozinho não liga nada) e 9, conferida no web;
-   - sem segredos;
+   - criação **manual** no painel com os campos da seção 2;
+   - variáveis 1–6, 8, 9 (conferida no web) e 10 (`ASAAS_AMBIENTE=producao` sozinho não liga nada);
+   - **nenhuma das três secretas (7, 11 e 12) é criada em C1** (P3-B3). Por Blueprint, o Render pediria os valores das
+     chaves `sync: false`: não usar Blueprint em C1;
+   - confirmar no painel o tipo e o custo do plano (P3-B4);
    - notificação ligada; "Trigger run" uma vez → saída 0 e `AGUARDANDO_HABILITACAO`.
-   - Custo do plano a confirmar.
-2. **C2 — depois que o web de produção tiver `ASAAS_AMBIENTE=producao`, a chave e o token** (e o webhook registrado):
+2. **C2 — BLOQUEADO** até:
+   - a decisão D-C4 (§5a), implementada se for o caso;
+   - o web de produção com `ASAAS_AMBIENTE=producao`, chave e token, e o webhook registrado.
+
+   Depois disso:
    - copiar para o cron a 7 (valor da `DATABASE_URL` do web), a 11 e a 12;
    - trocar a 4 para `conferir` (gera build; acompanhar sem deploy duplicado);
    - "Trigger run" → saída 0, `kidmais.violada: false`, `eventos {}` e `empresas {}`.
+
+   A partir daqui o cron entra no roteiro de rotação ([ROTACAO_CREDENCIAIS_20261007.md](ROTACAO_CREDENCIAIS_20261007.md),
+   "Consumidores fora do serviço web").
 3. **C3 — antes de `CADASTRO_PUBLICO_ATIVO=true`:** C2 PASS. Depois da primeira venda assistida (P8), a conferência do dia
    seguinte precisa sair 0.
 4. **Recuperação:** voltar a 4 para `aguardando` (no-op), ou suspender o cron. Nenhuma ação grava no banco ou no Asaas.
@@ -127,13 +221,28 @@ produção (P6 etapa 4 do [roteiro de 13/10](RODADA_FINAL_LANCAMENTO_20261013.md
 
 - **D-C1 — agenda:** diário às 06:00 BRT (roteiro de 13/10) ou mais frequente nos primeiros dias de venda. O webhook
   continua sendo o caminho principal; a conferência só detecta.
-- **D-C2 — plano e custo** do novo cron: o mesmo do staging, a confirmar no painel.
+- **D-C2 — plano e custo** do novo cron: o identificador `0.5c-512mb` foi copiado do YAML de staging e não foi verificado
+  como valor de Blueprint (P3-B4); confirmar no painel.
 - **D-C3 — credencial:** o cron usa a mesma credencial do web (dono do banco). A simulação escreve e desfaz, então um papel
-  somente leitura não serve; um papel dedicado não foi preparado.
-- **Rotação:** se a credencial do banco de produção for rotacionada, a cópia no cron precisa ser atualizada junto. Se não
-  for, o cron falha (código 1/2) e notifica. Alternativa a avaliar: `fromDatabase` num Blueprint ou um grupo de ambiente
-  (mudaria a configuração do web; fora deste escopo).
-- **Falso alarme:** um evento que chega durante a conferência, ou um webhook atrasado, dá saída 2; a próxima conferência
-  normaliza. Ler o relatório antes de agir.
+  somente leitura não serve; um papel dedicado não foi preparado. Em C2, a credencial e a chave Asaas de produção passam a
+  existir em um segundo serviço (superfície maior).
+- **D-C4 — alarme persistente:** ver §5a. Bloqueia C2.
+- **Rotação (P2-B2):** em `conferir`, rotacionar a `DATABASE_URL` ou a chave do Asaas sem atualizar o cron faz o cron
+  falhar todo dia (código 1). O passo agora está no roteiro de rotação. Alternativa a avaliar: `fromDatabase` num
+  Blueprint ou um grupo de ambiente (mudaria a configuração do web; fora deste escopo).
+- **Travas de linha na simulação (P3-B2):** cada item segura travas de linha (empresa/assinatura) enquanto faz leituras no
+  Asaas (tempo-limite de 10 s por chamada). Um webhook ou uma tela da mesma empresa espera até o fim daquele item. Às
+  06:00 e com pouco volume o risco é baixo.
+- **Substituições mortas (P3-B6):** `provedorDaExecucao` substitui `atualizarValorAssinatura`, `atualizarValorCobranca` e
+  `suspenderGeracao`, que não existem em `ClienteAsaas`. São inofensivas; a proteção efetiva na simulação é a de
+  `removerAssinatura` (só contada) e o ROLLBACK por item. Limpar numa PR futura.
 - **Ordem:** com `conferir` ligado e a chave de produção ausente ou rotacionada, o cron falha diariamente (seguro, mas
   ruidoso). Manter `aguardando` até C2.
+
+## 8. Testes e CI
+
+- [scripts/assinatura-cron-producao-20261020.test.cjs](../scripts/assinatura-cron-producao-20261020.test.cjs) lê os dois
+  YAML sem dependência externa (P3-B5: `js-yaml` era só dependência transitiva do ESLint). O leitor aceita só o formato fixo
+  desses arquivos e falha em qualquer linha fora dele.
+- O passo "Testes do reparo de bloqueios e do cron de conferência (produção)" do `.github/workflows/ci.yml` roda os 6
+  arquivos `.test.cjs` destas peças (o `check:v1:static` só seleciona `*.test.ts`).

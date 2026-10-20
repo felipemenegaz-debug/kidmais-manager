@@ -25,7 +25,9 @@ Felipe (P0b, 11/10): os cinco bloqueios são da Kidmais inteira.
 
 - **Grava:** `bloqueios_agenda.empresa_id` = Kidmais (`7e990a2b…`) nos cinco; `estabelecimento_id` continua vazio (= todas
   as unidades da Kidmais); mais cinco linhas em `agenda_062_bloqueios_resolucao` (decidido por "Felipe", motivo fixo
-  "Propriedade confirmada por Felipe em 11/10/2026 apos leitura P0b…", hora da aplicação).
+  "Propriedade confirmada por Felipe em 11/10/2026 apos leitura P0b…", hora da aplicação). **`atualizado_em` também muda
+  nos cinco**, pelo gatilho `bloqueios_agenda_atualizado_em_trg` (005). A revisão independente provou isso (R2); o retrato
+  do ensaio do autor não incluía essa coluna (P3-A4).
 - **Não muda:** data, horário, motivo, `ativo` (continuam ativos), qualquer outro bloqueio, turno, contratação, cliente,
   assinatura. Nada é apagado nem desativado.
 - **Agenda da Kidmais:** nenhum horário muda. Os quatro futuros continuam bloqueados das 17h às 21h para a Kidmais, em
@@ -33,10 +35,27 @@ Felipe (P0b, 11/10): os cinco bloqueios são da Kidmais inteira.
 - **Empresas novas:** deixam de herdar esses horários bloqueados (ensaio: 5 → 0).
 - **Cadastro público (B9):** `exigirAgendaSemBloqueioGlobal` recusa com 503 enquanto houver bloqueio global ativo de hoje
   em diante (hoje: 4). Depois do reparo: 0. **Sem o reparo, ligar `CADASTRO_PUBLICO_ATIVO=true` continua dando 503.**
-- **Painel da agenda:** os cinco deixam de ser "bloqueio anterior à separação da agenda por empresa" (o painel recusa
-  liberá-los com `BLOQUEIO_SEM_DONO`) e passam a ser bloqueios da empresa inteira. Ponto a observar (não testado em
-  navegador): o "livre" do turno filtra pela unidade exata do painel; liberar um bloqueio da empresa inteira a partir de uma
-  unidade pode exigir a desativação pelo bloqueio (id).
+- **Painel da agenda HOJE, antes do reparo (correção P3-A5):** o código publicado **já permite** que a própria Kidmais use
+  "Liberar horário" num desses bloqueios (`liberarBloqueioLegadoPelaEmpresa`, `lib/disponibilidade/bloqueios-legados.ts`).
+  - Condição: o autor do bloqueio tem vínculo com a Kidmais, **ou** não existe outra empresa ATIVA/SUSPENSA. Com uma
+    empresa só em produção, a segunda condição é provável.
+  - Efeito: o bloqueio é **desativado** e atribuído à Kidmais.
+  - **Se algum dos cinco for liberado antes da janela, o reparo recusa sem escrever nada:** o CONFERIR diz `RECUSARIA`
+    (`<n>:DIVERGENTE`), e o APLICAR e o próprio SQL também recusam (revisão R1). Aí os outros quatro precisariam de decisão
+    e de um pacote novo.
+  - **Orientar a equipe a não usar "Liberar horário" nem "Desativar" nesses cinco** até a janela.
+- **Painel da agenda DEPOIS do reparo:** os cinco aparecem como bloqueio da empresa inteira (`alcance = "EMPRESA"`), em
+  qualquer unidade da Kidmais.
+  - O botão "Desativar" (`desativarBloqueioAgendaPorId`) funciona a partir de qualquer unidade (revisão R2).
+  - É **um clique, sem confirmação**, e vale para todas as unidades. Um clique acidental desfaz a decisão de Felipe; para
+    reativar, é preciso criar um bloqueio novo. Orientar a equipe; numa PR futura, pedir confirmação para bloqueios da
+    empresa inteira.
+- **Pendência registrada (P3-A3):** a operação de API `tipo:"agenda", status:"livre"` (`app/api/admin/disponibilidade/route.ts`)
+  filtra pela unidade exata.
+  - Com uma unidade selecionada, ela **não** desativa um bloqueio da empresa inteira e mesmo assim responde sucesso (0 linhas,
+    revisão R2).
+  - Hoje nenhuma tela usa essa operação. Correção numa PR futura: incluir o alcance `EMPRESA` na verificação de restantes,
+    ou filtrar `estabelecimento_id IS NULL OR = unidade`.
 - **Reversão:** não há pacote pronto. Desfazer = correção para frente com SQL próprio e autorização (as resoluções têm FK
   `RESTRICT`); o backup P1 cobre o estado anterior.
 
@@ -107,8 +126,9 @@ Os sha256/bytes dos blocos gerados da árvore do commit ficam no `LEIA-ME.md` do
 
 1. **Backup:** se o registro do P1 tiver mais de 24 h, refazer o backup com
    [o comando](evidencias/backup-production-comando-codex-20261011.txt) e anotar o caminho do registro.
-2. **Pausa:** não editar a agenda (bloqueios, turnos, remarcações) durante a janela (~1 minuto). O `lock_timeout` de
-   5 s aborta o reparo inteiro se houver edição concorrente; nesse caso, `FALHA_NADA_GRAVADO` → RETOMAR com decisão.
+2. **Pausa:** não editar a agenda (bloqueios, turnos, remarcações) durante a janela (~1 minuto) e, desde já, **não usar
+   "Liberar horário" nem "Desativar" nos cinco** (§1). O `lock_timeout` de 5 s aborta o reparo inteiro se houver edição
+   concorrente; nesse caso, marcador `FALHA_NADA_GRAVADO` → RETOMAR com decisão.
 3. **CONFERIR** → `CONFERIDO` (código 0). Esperado:
    - cinco alvos `INTACTO`, `conflitos` 0;
    - `globais_ativos` 5, `globais_futuros` 4, `globais_futuros_fora_do_alvo` 0;
@@ -123,10 +143,19 @@ Os sha256/bytes dos blocos gerados da árvore do commit ficam no `LEIA-ME.md` do
 | Código | Leitura | Próximo passo |
 |---|---|---|
 | 1 | recusa antes de conectar (flag ligada, backup antigo, serviço/URL) | corrigir a causa; nada foi gravado |
-| 2, `gravado: false` | falha sem gravação (`FALHA_NADA_GRAVADO`) | ler a saída; CONFERIR; RETOMAR só com decisão de Felipe |
-| 2, `gravado: true`/`null` | estado gravado ou desconhecido | não repetir; CONFERIR e ler; se `REPARO_JA_APLICADO`, conferir os agregados |
+| 2, sem `marcador` na saída | recusa **antes** do marcador: conexão, identidade, trava ou `ESTADO_NAO_APTO` (conflito, global fora do alvo, alvo divergente/já reparado) — **nada gravado por esta execução** | corrigir a causa e repetir APLICAR (não precisa de RETOMAR); `ESTADO_NAO_APTO JA_APLICADO` = já estava reparado |
+| 2, marcador `FALHA_NADA_GRAVADO` | falhou dentro da transação; os cinco continuam INTACTOS | ler a saída; CONFERIR; **RETOMAR** só com decisão de Felipe |
+| 2, marcador `FALHA_ESTADO_GRAVADO_REVISAR`/`FALHA_ESTADO_DESCONHECIDO` | COMMIT pode ter acontecido (ex.: edição concorrente mudou totais depois do COMMIT) | não repetir; CONFERIR e ler; se `REPARO_JA_APLICADO`, conferir os agregados |
 | 3 | conferência recusaria (motivos listados) | não aplicar; levar os motivos para decisão |
 | 4 | o bloco recusou (registro, arquivo divergente, pg ausente) | ler a linha; corrigir; colar o MESMO bloco |
+
+**Como ler `gravado` (P3-A1).** O campo diz se o **estado do banco já não é o intacto** (estado alterado), não se **esta**
+execução gravou.
+- Uma recusa antes do marcador, com um alvo DIVERGENTE ou já REPARADO, sai com `gravado: true` sem ter escrito nada
+  (revisão R1 e o caso `repeticao_recusada_sem_gravar`).
+- Para saber se esta execução escreveu, olhe o `marcador` e a situação dele: sem marcador, nada foi tentado.
+- `--retomar-autorizado` sem tentativa anterior funciona como uma primeira aplicação (marcador `reparo.json`). Isso é
+  inofensivo: a segurança vem do estado APTO.
 
 ## 5. Ensaio local e testes
 
@@ -145,7 +174,8 @@ removido; os relatórios ficam em `ambientes-locais/pg-descartavel-abertura-vend
 **Resultado: PASS, 10/10 casos:**
 - montagem e conferência antes (CONFERIDO);
 - SQL sem a autorização de sessão recusado sem gravar;
-- APLICAR PASS: só `empresa_id` muda nos cinco, demais bloqueios e tabelas intactos, alcance na agenda como na seção 1;
+- APLICAR PASS: nas colunas do retrato só `empresa_id` muda nos cinco (o retrato não inclui `atualizado_em`, que também
+  muda, §1); demais bloqueios e tabelas intactos; alcance na agenda como na seção 1;
 - conferência depois (REPARO_JA_APLICADO);
 - repetições recusadas sem gravar (executor, sem marcador, retomada, SQL direto: `BLOQUEIOS_DIVERGENTES_OU_REPARO_JA_INICIADO`);
 - global futuro fora dos cinco recusado antes de escrever (mesma recusa do SQL);
@@ -155,7 +185,8 @@ removido; os relatórios ficam em `ambientes-locais/pg-descartavel-abertura-vend
 - gatilho inesperado, papel sem privilégio e flag ligada recusados.
 
 **Testes offline:** `node --test scripts/reparo-bloqueios-producao-20261020.test.cjs` (11) e
-`scripts/bloco-shell-reparo-bloqueios-producao-20261020.test.cjs` (8). Os blocos são executados de verdade com bash num
+`scripts/bloco-shell-reparo-bloqueios-producao-20261020.test.cjs` (9). Um deles fixa os sha e os bytes dos 4 blocos
+aprovados; esse roda no Windows com o zlib do gerador, porque o gzip grava o SO no cabeçalho. Os blocos são executados de verdade com bash num
 deploy temporário, inclusive em colagem interativa e truncada; o executor transportado recusa fora do Render com
 código 1.
 
@@ -165,3 +196,30 @@ código 1.
 - O estado de produção acima é o informado em 20/10. O CONFERIR no Shell é a prova antes de aplicar.
 - Contratação vigente no horário dos cinco bloqueios não pôde ser montada no ensaio: os gatilhos 014/019/062 impedem
   esse estado nos dois sentidos. O CONFERIR a conta assim mesmo, pela mesma regra do gatilho.
+- **CONFERIR não exige o disco montado (P3-A6):** `nomesJson` trata erro de leitura como "sem marcador" e ignora uma
+  pasta que seja link. No Web Shell do web de produção o disco está sempre montado, e APLICAR/RETOMAR exigem o disco e
+  gravam com `wx`. O risco residual é um CONFERIR dizer "sem marcadores" num cenário anômalo.
+
+## 7. Revisão independente de 20/10 e mudanças de código propostas (NÃO feitas)
+
+Parecer: `D:/glass/KidMais Manager/revisao-reparo-cron-20261020/PARECER.md`.
+- **APROVADO para CONFERIR e para APLICAR**, com quatro condições: P1 < 24 h, CONFERIR = `CONFERIDO` imediatamente antes,
+  janela sem edição da agenda e autorização de Felipe.
+- Sem P1 nem P2. As ressalvas P3-A1 a P3-A6 estão tratadas **só na documentação** acima, para não mudar os blocos aprovados:
+  - CONFERIR `b5d9faf4…`
+  - APLICAR `080b108c…`
+  - RETOMAR `27777fd3…`
+  - LIMPEZA `94eb2432…`
+- A fixação desses sha está em `scripts/bloco-shell-reparo-bloqueios-producao-20261020.test.cjs`.
+
+Mudanças de código para decisão de Felipe. Cada uma muda os blocos e exige nova geração, revisão e pacote:
+
+| # | Mudança | Arquivo |
+|---|---|---|
+| A1 | calcular `gravado` só depois que o marcador existe (ou renomear para `estadoAlterado`) | `scripts/reparo-bloqueios-producao-20261020.cjs` |
+| A6 | CONFERIR informar `discoMontado` e tratar `PASTA_E_LINK`/erro de leitura como pendência | idem |
+| A3 | "agenda livre" considerar o alcance `EMPRESA` (ou recusar quando restar bloqueio da empresa inteira) | `app/api/admin/disponibilidade/route.ts` + repositório (não muda os blocos) |
+| UX | confirmação ao desativar bloqueio da empresa inteira | `components/admin/AdminDisponibilidade.tsx` (não muda os blocos) |
+
+Recomendação: **não** mexer em A1/A6 antes da janela. As duas são de leitura de saída, e o roteiro acima já cobre a
+semântica.
