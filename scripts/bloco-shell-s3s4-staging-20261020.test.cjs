@@ -188,3 +188,26 @@ test('colagem interativa (bash -i) funciona; colagem truncada não executa nada'
         } finally { limpar(d); }
     });
 
+// O gzip grava o sistema operacional no cabeçalho (byte 9: 10 no Windows, 3 no Linux) e o zlib embutido varia por versão
+// do Node: os blocos do pacote foram gerados no Windows (Node 24.20.0, zlib 1.3.2.1-motley). Fora dessa combinação o
+// conteúdo transportado é o mesmo (teste "carga"), mas os bytes do bloco diferem; por isso a fixação só roda nela.
+const MESMO_GERADOR = process.platform === 'win32' && process.versions.zlib === '1.3.2.1-motley-42c2f19';
+test('blocos do pacote pacote-s3s4-staging-20261020 (árvore 81d9ddb, candidata 321c9d5) continuam byte a byte iguais',
+    {skip:MESMO_GERADOR ? false : 'bytes do gzip dependem do SO/zlib; blocos do pacote gerados no Windows com zlib 1.3.2.1-motley'}, () => {
+        // Mudar o script da janela, o S3, o gerador ou um arquivo do deploy conferido muda estes sha: nova geração, novo pacote.
+        const pacote = {PRE:['d790bb5dbe2d3eb9ac140dfd9dbe2ee8b03afacfa2a93294f7cce007fa843a62', 20806],
+            ARQUIVAR:['69863faee9d88e04453893f12bd892d56b19556ba864bac4aab6ce63d84aebfa', 20809],
+            JANELA:['792cb53202186f8d870546f0f111f5c2f15f1bc5b9cb37f099fb180030d462fb', 20831],
+            'S4-INICIAR':['76d6415c8b16a47f57fe7436ca01109ca01a89177f0907a44d8bdbd711e28a71', 21965],
+            'S4-ACOMPANHAR':['09e08aaa30e18a10b7ba59ebc31f48761a8fb75dc99624a0de108096c5dfd31e', 20684],
+            'S4-ENCERRAR':['f163b9cfbf0a72e585e49dfaab8685b96e93f1edc5723142cb7d22fdcdef8494', 21144],
+            'S3-ANTES':['4a3b13a47f7db3e8d7cbc5b8cad7a14fed3561bd94ab8e4679822b26a3f4ae61', 20784],
+            'S3-DEPOIS':['d1fc461f50530539d6ea8c1607d5af447b4c61c2204dcfecc7d243b018d2fb2f', 20777],
+            'S4N-DEPOIS':['44b5d3da92c6c98af3b40618fa6b6d72f41536906fc94b1e4636b321a15e0b7b', 20814],
+            POS:['325144604c42e7999fcbbee136f5a22945bf0dd9412232aa8e3373e3877228e2', 20757]};
+        assert.deepEqual(Object.keys(pacote), Object.keys(b.MODOS));
+        for (const [modo, [hh, bytes]] of Object.entries(pacote)) {
+            const x = b.gerar({modo, rotulo:'81d9ddb', candidata:CAND});
+            assert.equal(sha(x), hh, modo); assert.equal(Buffer.byteLength(x), bytes, modo);
+        }
+    });
