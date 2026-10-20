@@ -19,7 +19,7 @@ const FLAG = '--pagamento-rodada-3-autorizada';
 const FLAG_ENCERRAR = '--encerrar-pagamento-rodada-3-autorizada';
 const VAGAS_CAMPANHA = 20;
 /** Mensal regular e com 40% Fundador, em centavos, fixados aqui (independentes do código). */
-const PRECOS = Object.freeze({essencial:{regular:19700, fundador:11820}, profissional:{regular:34700, fundador:20820}, premium:{regular:59700, fundador:35820}});
+const PRECOS = Object.freeze({essencial:{regular:19700, fundador:11820}, profissional:{regular:39700, fundador:23820}, premium:{regular:69700, fundador:41820}});
 /** Janela de navegador: espera o sinal ou este prazo (fixtures vivas durante os testes manuais). */
 const JANELA_NAVEGADOR_MS = 25 * 60 * 1000;
 const KIDMAIS_CNPJ = '20119900000160';

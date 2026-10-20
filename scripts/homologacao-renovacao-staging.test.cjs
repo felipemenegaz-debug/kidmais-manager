@@ -63,7 +63,7 @@ test('preços independentes: catálogo regular, anual = 10 × mensal, 40% Fundad
         const mensal = Number(planos.match(new RegExp(`${plano}: \\{[^}]*mensalCentavos: (\\d+)`))[1]);
         assert.equal(regular, ciclo === 'ANUAL' ? mensal * 10 : mensal, chave); assert.equal(f * 100, regular * 60, chave);
     }
-    assert.deepEqual([RM.fundador, RA.fundador, RF.fundador], [11820, 118200, 20820]);
+    assert.deepEqual([RM.fundador, RA.fundador, RF.fundador], [11820, 118200, 23820]);
 });
 
 test('campanha: as três vagas precisam caber sem mexer no teto', () => {
