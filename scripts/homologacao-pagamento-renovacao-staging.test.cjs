@@ -77,7 +77,7 @@ test('preços e regras independentes: catálogo, anual = 10 × mensal, 40% exato
         const mensal = Number(planos.match(new RegExp(`${plano}: \\{[^}]*mensalCentavos: (\\d+)`))[1]);
         assert.equal(regular, ciclo === 'ANUAL' ? mensal * 10 : mensal, chave); assert.equal(f * 100, regular * 60, chave);
     }
-    assert.deepEqual(h.PAGANTES.map(f => [f.regular, f.fundador]), [[19700, 11820], [397000, 238200], [69700, 41820]]);
+    assert.deepEqual(h.PAGANTES.map(f => [f.regular, f.fundador]), [[19700, 11820], [347000, 208200], [59700, 35820]]);
     assert.deepEqual(Object.fromEntries(Object.entries(h.REGRAS).map(([k, v]) => [k, v.pixAvista])), {F4:5, F5:8});
     const esperados = [h.precoEsperado(0), h.precoEsperado(5), h.precoEsperado(8), h.precoEsperado(10)];
     assert.deepEqual(esperados, [150000, 142500, 138000, 135000]); assert.equal(new Set(esperados).size, 4);

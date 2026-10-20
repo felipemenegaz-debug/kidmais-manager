@@ -49,7 +49,7 @@ test('preços independentes: regulares do catálogo e 40% Fundador exatos (mesma
         assert.match(planos, new RegExp(`${plano}: \\{[^}]*mensalCentavos: ${regular}\\b`), plano);
         assert.equal(fundador, Math.round(regular * 60 / 100)); assert.equal(fundador * 100, regular * 60);
     }
-    assert.deepEqual(Object.values(h.PRECOS).map(p => p.fundador), [11820, 23820, 41820]);
+    assert.deepEqual(Object.values(h.PRECOS).map(p => p.fundador), [11820, 20820, 35820]);
 });
 
 test('campanha: as três vagas precisam caber sem mexer no teto', () => {

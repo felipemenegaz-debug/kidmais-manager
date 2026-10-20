@@ -30,7 +30,7 @@ test('catálogo: status obrigatório; cada recurso futuro renderiza selo, inclus
     assert.equal(statusDosRecursos(['pix', 'cartao']), 'em_breve');
 });
 test('preços: anual 10 vezes o mensal, Fundador exatamente 60%, centavos preservados', () => {
-    assert.deepEqual(planos.map(p => p.mensalCentavos), [19700, 39700, 69700]);
+    assert.deepEqual(planos.map(p => p.mensalCentavos), [19700, 34700, 59700]);
     for (const plano of planos) {
         assert.equal(valorPlano(plano, 'anual'), plano.mensalCentavos * 10);
         assert.equal(valorPlano(plano, 'mensal', true), Math.round(plano.mensalCentavos * .6));

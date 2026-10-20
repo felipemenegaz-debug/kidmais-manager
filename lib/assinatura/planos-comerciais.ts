@@ -4,7 +4,7 @@
  * Condição Fundador só poderá ser usada pelo checkout após concessão persistida no servidor.
  */
 export const condicoesComerciais = {
-    versao: '2026-10-19',
+    versao: '2026-10-09',
     testeDias: 15,
     multiplicadorAnual: 10,
     fundador: { descontoPercentual: 40, meses: 12, vagas: 20 },
@@ -12,8 +12,8 @@ export const condicoesComerciais = {
 
 export const planosComerciais = {
     essencial: { nome: 'Essencial', mensalCentavos: 19700, limiteUsuarios: 3 },
-    profissional: { nome: 'Profissional', mensalCentavos: 39700, limiteUsuarios: 10 },
-    premium: { nome: 'Premium', mensalCentavos: 69700, limiteUsuarios: null },
+    profissional: { nome: 'Profissional', mensalCentavos: 34700, limiteUsuarios: 10 },
+    premium: { nome: 'Premium', mensalCentavos: 59700, limiteUsuarios: null },
 } as const;
 
 export type PlanoComercialId = keyof typeof planosComerciais;

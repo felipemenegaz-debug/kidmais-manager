@@ -33,8 +33,8 @@ const HORA_LIMITE_BRT = 20;
 /** Centavos fixados aqui (independentes do código): regular e com 40% Fundador. Anual = 10 × mensal. */
 const PRECOS = Object.freeze({
     'essencial/MENSAL': Object.freeze({regular:19700, fundador:11820}),
-    'profissional/ANUAL': Object.freeze({regular:397000, fundador:238200}),
-    'premium/MENSAL': Object.freeze({regular:69700, fundador:41820}),
+    'profissional/ANUAL': Object.freeze({regular:347000, fundador:208200}),
+    'premium/MENSAL': Object.freeze({regular:59700, fundador:35820}),
 });
 /** Faixa única do pacote das fixtures: 20–30 convidados, valor fixo. */
 const FAIXA_POCKET = Object.freeze({min:20, max:30, valor:'1500.00'});
