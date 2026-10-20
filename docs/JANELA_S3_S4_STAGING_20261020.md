@@ -71,3 +71,5 @@ Os passos são os mesmos de 13/10, com as diferenças marcadas.
 2. Nova janela: W0 → W1 (só `ASSINATURA_PLANOS_ATIVOS` e `COTACAO_PUBLICA_POR_EMPRESA` bastam para o S4) → arquivar o estado, provado vazio:
    `cd /opt/render/project/src/data/homologacao-planos-cotacao-20261010 && mv pagamento-renovacao-rodada-3.json pagamento-renovacao-rodada-3.precheck-401-20261020.json`
    → W6 → W7 → W8. Antes das 20h BRT.
+
+> **Próxima janela:** roteiro e blocos em [HOMOLOGACAO_S3_S4_STAGING_20261020.md](HOMOLOGACAO_S3_S4_STAGING_20261020.md) (S4 com chave nova do sandbox, arquivamento conferido do estado e blocos colados; S3-R e S4-N opcionais).
