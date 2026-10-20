@@ -38,13 +38,21 @@ export function apiErrorResponse(error: unknown) {
     );
   }
 
-  console.error("[Kidmais CRM API] erro não tratado", error);
+  // Código curto no log e na resposta: a pessoa informa ao suporte e a equipe acha a linha do erro.
+  const referencia = referenciaErroInterno();
+  console.error(`[Kidmais CRM API] erro não tratado (ref ${referencia})`, error);
   return NextResponse.json(
     {
       ok: false,
-      erro: "Erro interno ao processar a solicitação.",
+      erro: `Erro interno ao processar a solicitação. Código de referência: ${referencia}.`,
       codigo: "ERRO_INTERNO",
+      referencia,
     },
     { status: 500, headers: { "Cache-Control": "no-store" } },
   );
+}
+
+/** 8 caracteres hexadecimais maiúsculos, sem relação com dados da requisição. */
+export function referenciaErroInterno(): string {
+  return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
 }

@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ROTA_AJUDA } from '@/lib/suporte/rota';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import type { SituacaoPrivacidade } from '@/lib/whatsapp/atendimento/privacidade';
 import styles from './atendimento.module.css';
@@ -73,7 +74,7 @@ export default function PrivacidadeAtendimento() {
         <p className={styles.nota} data-execucao>{ret?.ultimaExecucao
           ? `Última execução: ${new Date(ret.ultimaExecucao.iniciadaEm).toLocaleString('pt-BR')} — ${ret.ultimaExecucao.situacao === 'EXECUTADA' ? 'executada' : ret.ultimaExecucao.situacao === 'EXECUTADA_COM_FALHAS' ? 'executada COM FALHAS nesta empresa' : ret.ultimaExecucao.situacao === 'EM_ANDAMENTO' ? 'em andamento' : 'não concluída'}; ${ret.ultimaExecucao.excluidasDestaEmpresa} conversa(s) desta empresa excluída(s)${ret.ultimaExecucao.adiadasDestaEmpresa ? `, ${ret.ultimaExecucao.adiadasDestaEmpresa} adiada(s)` : ''}${ret.ultimaExecucao.falhasDestaEmpresa ? `, ${ret.ultimaExecucao.falhasDestaEmpresa} com falha (serão tentadas de novo; se persistir, avise o suporte)` : ''}.`
           : 'A rotina de retenção ainda não foi executada neste ambiente.'}</p>
-        {ret?.atrasada && <p className={styles.erro} role="status" data-atrasada>Há prazo definido, mas a rotina de retenção não terminou nas últimas 36 horas: nada está sendo excluído automaticamente. Avise o suporte.</p>}
+        {ret?.atrasada && <p className={styles.erro} role="status" data-atrasada>Há prazo definido, mas a rotina de retenção não terminou nas últimas 36 horas: nada está sendo excluído automaticamente. <Link href={ROTA_AJUDA}>Avise o suporte</Link>.</p>}
         <label>Prazo em dias (1 a 3650)<input type="number" min={1} max={3650} name="prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} /></label>
         <div className={styles.acoes}>
           <button type="button" disabled={!/^\d{1,4}$/.test(prazo) || Number(prazo) < 1 || Number(prazo) > 3650} onClick={() => pedir({ titulo: 'Definir a retenção', explicacao: `Conversas sem atividade há mais de ${prazo} dias passam a ser excluídas automaticamente, sem volta.`, corpo: { acao: 'retencao', prazoDias: Number(prazo) }, sucesso: 'Retenção definida.' })}>Definir prazo</button>

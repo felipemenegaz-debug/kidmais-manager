@@ -3,10 +3,13 @@ import { configuracaoSite, ROTA_SITE } from './configuracao';
 import { comercial, statusDosRecursos } from './catalogo';
 export function metadataSite(rota = ROTA_SITE): Metadata {
     const { origem } = configuracaoSite();
-    const title = 'Kidmais Manager — gestão para buffet infantil';
+    const planos = rota === '/planos';
+    const title = planos ? 'Planos do Kidmais Manager — Essencial, Profissional e Premium' : 'Kidmais Manager — gestão para buffet infantil';
     // A descrição para buscadores não tem selo "Em breve": só cita o que está disponível.
     const modulos = statusDosRecursos(['orcamento']) === 'disponivel' ? 'Agenda, orçamento online, contratos e recebimentos' : 'Agenda, clientes, contratos e recebimentos';
-    const description = `${modulos} para organizar seu buffet infantil. Conheça os recursos disponíveis e comece seu teste de ${comercial.testeDias} dias.`;
+    const description = planos
+        ? `Compare os planos Essencial, Profissional e Premium do Kidmais Manager para buffet infantil, com teste de ${comercial.testeDias} dias e condição de fundador.`
+        : `${modulos} para organizar seu buffet infantil. Conheça os recursos disponíveis e comece seu teste de ${comercial.testeDias} dias.`;
     const url = origem ? `${origem}${rota}` : rota;
     return {
         title, description,

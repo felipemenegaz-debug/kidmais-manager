@@ -21,7 +21,7 @@ const KIDMAIS_CNPJ = '20119900000160';
 const VAGAS_CAMPANHA = 20;
 /** Preços em centavos fixados aqui (independentes do código): mensal regular e com 40% Fundador. */
 const PRECOS = Object.freeze({
-    essencial: {regular:19700, fundador:11820}, profissional: {regular:34700, fundador:20820}, premium: {regular:59700, fundador:35820},
+    essencial: {regular:19700, fundador:11820}, profissional: {regular:39700, fundador:23820}, premium: {regular:69700, fundador:41820},
 });
 const FIXTURES = Object.freeze([
     {chave:'FE', empresa:'ed7800c8-1ddd-4596-b82b-a5db0e5eafc2', usuario:'92eb6686-ad99-44bc-8bdb-d6909dfd96e3', codigo:'hml-fundador-essencial', plano:'essencial'},

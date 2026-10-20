@@ -46,6 +46,23 @@ Particularidade deste projeto: as migrations rodam com o usuário **efetivo** do
 Confirmar no passo 3 que o usuário novo tem as mesmas permissões efetivas (o diagnóstico v7 imprime
 `usuario_sessao`/`usuario_efetivo` e os donos das tabelas) **antes** do passo 6.
 
+### Consumidores fora do serviço web (atualizado em 20/10/2026)
+
+A credencial do banco e a chave do Asaas também ficam em **cópias** fora do web. Cada rotação precisa atualizar essas
+cópias **antes do passo 6** (excluir o usuário antigo), com um "Trigger run" para conferir.
+
+| Ambiente | Serviço | Cópias | Situação |
+|---|---|---|---|
+| staging | cron `kidmais-assinatura-reconciliar-staging` (`crn-db493i142hec73ahmoe0`) | `KIDMAIS_RECONCILIAR_DATABASE_URL` (URL interna do banco de staging); `ASAAS_API_KEY`/`ASAAS_WEBHOOK_TOKEN` (sandbox) | existe |
+| production | cron `kidmais-assinatura-reconciliar-production` ([CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md)) | `KIDMAIS_RECONCILIAR_DATABASE_URL` (mesmo valor da `DATABASE_URL` do web); `ASAAS_API_KEY`/`ASAAS_WEBHOOK_TOKEN` (produção) | proposto; só tem cópias em `conferir` (C2). Em `aguardando` não há o que atualizar |
+
+**Passo extra na rotação do banco** (entre os passos 3 e 5): cron → Environment → atualizar `KIDMAIS_RECONCILIAR_DATABASE_URL`
+com a mesma URL interna nova (direto do Dashboard, sem chat) → acompanhar o build → "Trigger run" → saída 0. Uma cópia
+esquecida faz o cron falhar todo dia (código 1, autenticação) depois que o usuário antigo for excluído.
+
+**Passo extra na rotação da chave ou do token do Asaas:** atualizar as duas variáveis também no cron → "Trigger run"
+→ saída 0.
+
 ## Rotação de segredos de aplicação
 
 1. Gerar o valor novo fora de qualquer chat (gerenciador de senhas ou `openssl rand -base64 48` no terminal local).

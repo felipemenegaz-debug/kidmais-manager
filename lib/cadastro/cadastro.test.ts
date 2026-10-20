@@ -29,6 +29,23 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
     assert.match(textoCanonico(DOCUMENTOS.TERMOS_USO), /não comprova a existência da empresa nem a autoridade/);
 });
 
+test('documentos legais 20/10: canal único de contato e prazos 7/60 consistentes, sem decidir lacunas jurídicas', () => {
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-20-minuta');
+    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-20-minuta5');
+    for (const d of Object.values(DOCUMENTOS)) {
+        const texto = textoCanonico(d);
+        assert.match(texto, /contato@demerzellabs\.com\.br/, `${d.documento}: canal oficial`);
+        assert.doesNotMatch(texto, /felipemenegaz@gmail\.com|glass@demerzellabs\.com\.br/, `${d.documento}: contatos anteriores removidos`);
+        assert.doesNotMatch(texto, /R\$/, `${d.documento}: os textos legais não citam preços`);
+    }
+    const termos = textoCanonico(DOCUMENTOS.TERMOS_USO);
+    assert.doesNotMatch(termos, /por um período/, 'somente leitura sempre com o prazo aprovado');
+    assert.equal(termos.match(/somente leitura por 60 dias/g)?.length, 2, 'as duas seções citam os mesmos 60 dias');
+    assert.equal(termos.match(/7 dias para regularizar/g)?.length, 2);
+    assert.equal(textoCanonico(DOCUMENTOS.TERMOS_USO).match(/\[A DEFINIR\]/g)?.length, 2, 'L1 devolução e L2 retenção continuam abertas');
+    assert.equal(textoCanonico(DOCUMENTOS.PRIVACIDADE).match(/\[A DEFINIR\]/g)?.length, 9, 'L3–L11 continuam abertas');
+});
+
 test('cadastro só abre com flag, e-mail configurado e criação direta desligada', () => {
     const base = { CADASTRO_PUBLICO_ATIVO: 'true', USUARIOS_CRIACAO_DIRETA: 'desativada', EMAIL_PROVIDER: 'arquivo', EMAIL_ARQUIVO_DIR: process.platform === 'win32' ? 'C:\\tmp\\x' : '/tmp/x', NODE_ENV: 'development' };
     assert.equal(situacaoCadastro(base).ativo, true);
@@ -46,6 +63,8 @@ test('pedido: e-mail normalizado; exige aceites da versão vigente e senha váli
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-13-minuta' }))), 'DADOS_INVALIDOS', 'o texto anterior não autoriza um novo aceite da versão atual');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta' }))), 'DADOS_INVALIDOS', 'a revisão anterior também exige novo aceite');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta2' }))), 'DADOS_INVALIDOS', 'a revisão da retenção exige aceite do texto atualizado');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta4' }))), 'DADOS_INVALIDOS', 'a troca do canal de contato exige aceite do texto atualizado');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao: '2026-10-13-minuta' }))), 'DADOS_INVALIDOS', 'termos anteriores ao canal único também exigem novo aceite');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ senha: 'curta', confirmacao: 'curta' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ confirmacao: 'outra-senha-1' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ extra: 1 }))), 'DADOS_INVALIDOS', 'campos estranhos recusados');
