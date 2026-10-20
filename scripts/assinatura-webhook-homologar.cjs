@@ -139,7 +139,7 @@ async function main() {
         const w=await api('/webhooks','POST',{name:r.webhookNome,url:r.url+ROTA,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,authToken:cfg.config.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED'],sendType:'SEQUENTIALLY',apiVersion:3});
         r.webhookId=w.id;salvar();webhookConfere(await api('/webhooks/'+encodeURIComponent(r.webhookId)));
         r.intencaoCheckout=true;salvar();
-        await post('/api/admin/assinatura/checkout',{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-09'});
+        await post('/api/admin/assinatura/checkout',{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-20'});
         const linha=(await c.query('SELECT provedor_cliente_id,provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id=$1',[r.empresa])).rows[0];
         r.clienteId=linha.provedor_cliente_id;r.assinaturaId=linha.provedor_assinatura_id;salvar();
         const sub=await p.obterAssinatura(r.assinaturaId);subConfere(sub);assert.equal(sub.customer,r.clienteId);assert.equal(sub.cycle,'MONTHLY');

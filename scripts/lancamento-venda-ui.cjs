@@ -42,7 +42,7 @@ async function main() {
                 const text = await page.locator('main').innerText();
                 if (route === '/conheca') {
                     assert.match(text, /Em breve/);
-                    for (const price of ['197','347','597']) assert.ok(text.includes(price), 'PRECO:'+price);
+                    for (const price of ['197','397','697']) assert.ok(text.includes(price), 'PRECO:'+price);
                     assert.doesNotMatch(text, /se fosse comprar separado/i);
                 }
                 await page.screenshot({path:path.join(out, `${width}-${route.slice(1)}.png`), fullPage:true});

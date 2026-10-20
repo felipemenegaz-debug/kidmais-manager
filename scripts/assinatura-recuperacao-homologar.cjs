@@ -76,7 +76,7 @@ async function main() {
                 await p.query("UPDATE memberships SET status='ATIVA' WHERE empresa_id=$1 AND usuario_id=$2",[empresa,usuario]);
                 const doc=BigInt('0x'+randomBytes(5).toString('hex')).toString().padStart(14,'0');
                 await p.query("INSERT INTO empresa_assinaturas(empresa_id,situacao,teste_inicio,teste_fim,documento_teste) VALUES($1,'TESTE',clock_timestamp()-interval '16 days',clock_timestamp()-interval '1 day',$2)",[empresa,doc]);
-                await prepararOferta(p,empresa,usuario,{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-09'});
+                await prepararOferta(p,empresa,usuario,{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:11820,versao:'2026-10-20'});
                 await p.query("UPDATE empresa_assinaturas SET provedor='ASAAS',provedor_cliente_id=$2,provedor_assinatura_id=$3,ciclo='MENSAL' WHERE empresa_id=$1",[empresa,f.cus,f.sub]);
                 r.casos.push(f);
             }

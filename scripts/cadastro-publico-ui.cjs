@@ -133,7 +133,7 @@ async function principal() {
     let checkouts = 0;
     await page.route('**/api/admin/assinatura/checkout', async route => {
       const body = route.request().postDataJSON();
-      assert.equal(body.plano, 'profissional'); assert.equal(body.ciclo, 'ANUAL'); assert.equal(body.valorEsperadoCentavos, 208200);
+      assert.equal(body.plano, 'profissional'); assert.equal(body.ciclo, 'ANUAL'); assert.equal(body.valorEsperadoCentavos, 238200);
       checkouts++;
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'ANUAL', reaproveitada: false } }) });
     });
@@ -146,7 +146,7 @@ async function principal() {
       await page.screenshot({ path: path.join(relatorios, `assinatura-${width}.png`), fullPage: true });
     }
     assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antesAssinatura, 'resposta de checkout não libera acesso');
-    resultados.push('Assinatura: três planos; Profissional anual Fundador R$ 2.082; checkout interceptado, confirmação pendente, 1280/375 px; nenhuma assinatura alterada');
+    resultados.push('Assinatura: três planos; Profissional anual Fundador R$ 2.382; checkout interceptado, confirmação pendente, 1280/375 px; nenhuma assinatura alterada');
     console.log('E2E_ASSINATURA_OK');
     await ctx1.close();
 
