@@ -162,3 +162,19 @@ test('LIMPEZA: remove só o arquivo com sha conferido, preserva divergente, nunc
     assert.ok(intactos(d));
   } finally { fs.rmSync(d, {recursive: true, force: true}); }
 });
+
+// O gzip grava o sistema operacional no cabeçalho (byte 9: 10 no Windows, 3 no Linux) e o zlib embutido varia por versão
+// do Node: os blocos do pacote foram gerados no Windows (Node 24.20.0, zlib 1.3.2.1-motley). Fora dessa combinação o
+// conteúdo transportado é o mesmo (teste "carga"), mas os bytes do bloco diferem; por isso a fixação só roda nela.
+const MESMO_GERADOR = process.platform === 'win32' && process.versions.zlib === '1.3.2.1-motley-42c2f19';
+test('blocos do pacote pacote-email-producao-20261020 (árvore 7494087) continuam byte a byte iguais',
+  {skip: MESMO_GERADOR ? false : 'bytes do gzip dependem do SO/zlib; blocos do pacote gerados no Windows com zlib 1.3.2.1-motley'}, () => {
+  // Mudar o executor ou o gerador muda estes sha: exige nova geração, nova revisão e novo pacote (docs/EMAIL_PRODUCAO_20261020.md §10).
+  const pacote = {CONFERIR: ['8f77a397d84d1b3a5463b50bebc5ee0e4ae352c9375d1c056a02d55bdb3ad10f', 9612],
+    ENVIAR: ['7cdbb59c0399d544f716c12cb1869dc00306af91a1310f6f9e7585f1bbdd47ed', 9743],
+    LIMPEZA: ['9e9967a088c166e14dd707355fbb58f2c67977f24b383ecacdaa5b419fbdf3b3', 2285]};
+  for (const [modo, [h, bytes]] of Object.entries(pacote)) {
+    const x = b.gerar({modo, rotulo: '7494087'});
+    assert.equal(sha(x), h, modo); assert.equal(Buffer.byteLength(x), bytes, modo);
+  }
+});

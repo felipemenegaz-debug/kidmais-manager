@@ -3,7 +3,9 @@
 **Atualização 20/10/2026 (preparado, não executado):** com 074a–086 já aplicadas em produção, o reparo dos cinco bloqueios
 passou a ter executor e blocos próprios ([REPARO_BLOQUEIOS_PRODUCAO_20261020.md](REPARO_BLOQUEIOS_PRODUCAO_20261020.md); o
 `cutover-lancamento-production.cjs` não é mais usado) e o cron de conferência de pagamentos (P6) tem definição revisável
-([CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md)).
+([CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md)). A prova de entrega de e-mail em produção
+(V6, equivalente ao E0) tem executor e blocos próprios ([EMAIL_PRODUCAO_20261020.md](EMAIL_PRODUCAO_20261020.md)), também
+preparados e não executados.
 
 Complementa [LANCAMENTO_VENDA_20261011.md](LANCAMENTO_VENDA_20261011.md). Tudo abaixo está **preparado e testado localmente**; nada
 foi executado em staging ou produção depois do E0. Cada bloco remoto pede autorização de Felipe antes de começar. Quem executa:
