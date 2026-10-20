@@ -144,3 +144,21 @@ test('robots e sitemap da plataforma: só com origem confiável; áreas privadas
     assert.equal(sitemapDaPlataforma({ SITE_URL: 'javascript:alert(1)' }).length, 0);
     for (const arquivo of ['app/robots.ts', 'app/sitemap.ts']) assert.match(readFileSync(new URL(`../../${arquivo}`, import.meta.url), 'utf8'), /dynamic = 'force-dynamic'/);
 });
+
+test('oferta inicial = núcleo de gestão (19/10): topo, antes/depois e fluxo principal sem selo Em breve', () => {
+    const secao = (nome: string) => componente('components/site/secoes.tsx', nome);
+    const hero = renderToStaticMarkup(createElement(secao('Hero'), { aberto: false, config: configuracaoSite({}) }));
+    assert.doesNotMatch(hero, /Em breve/);
+    assert.doesNotMatch(hero, /madrugada|orçamentos online/i);
+    assert.doesNotMatch(renderToStaticMarkup(createElement(secao('AntesDepois'))), /Em breve/);
+    const fluxo = renderToStaticMarkup(createElement(secao('ComoFunciona')));
+    // Só a nota sobre o orçamento pelo próprio cliente fica marcada como futura.
+    assert.equal((fluxo.match(/Em breve/g) || []).length, 1);
+    assert.doesNotMatch(fluxo, /Quatro das cinco/);
+});
+
+test('suporte só por e-mail (19/10): nenhum plano promete canal de suporte que não existe', () => {
+    const suporte = planos.flatMap(p => p.itens.filter(i => i.recursos.includes('suporte')).map(i => `${p.id}: ${i.texto}`));
+    assert.deepEqual(suporte, ['essencial: Suporte por e-mail', 'premium: Suporte prioritário por e-mail']);
+    for (const plano of planos) assert.doesNotMatch(plano.descricao, /vender pela internet|IA trabalhando/);
+});
