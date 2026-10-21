@@ -108,13 +108,21 @@ Felipe (item A1 da §9).
 
 **Nenhum segredo passa por chat.** Valores são colados por Felipe direto no campo **Environment** do serviço
 `kidmais-manager-staging` (Render → serviço → Environment → Add/Edit). Salvar as variáveis **redeploya** o serviço
-(mesmo commit): fazer **uma única** gravação com todas as variáveis do bloco.
+(mesmo commit): **uma gravação por etapa** (1 e-mail → 2 cadastro → 3 cobrança), cada uma com autorização própria.
 
-| Variável (staging) | Valor | Efeito | Custo | Reversão |
+**Regra de reversão — restaurar, não apagar indiscriminadamente.** Antes de cada etapa, o inventário somente leitura
+(`cutover/homologacao-venda-staging-20261007/BLOCO-SHELL-INVENTARIO-ENV-STAGING-v1.sh`) registra, para cada variável
+que o ensaio pode tocar, `AUSENTE`/`PRESENTE` (segredos só com tamanho e impressão digital irreversível; configuração
+com o valor), e Felipe copia para o gerenciador de senhas o valor atual de toda variável da etapa que já existir. No
+fim: variável que estava `AUSENTE` é apagada; variável que estava `PRESENTE` **volta ao valor anterior**; o inventário
+repetido deve mostrar o mesmo estado e a mesma impressão digital. A coluna "Reversão" abaixo vale para o caso
+`AUSENTE` no inventário.
+
+| Variável (staging) | Valor | Efeito | Custo | Reversão (se estava `AUSENTE`; senão, valor anterior) |
 |---|---|---|---|---|
 | `EMAIL_PROVIDER` | `resend` | convites, recuperação e confirmação de cadastro passam a enviar e-mail real a partir de staging | ver Resend abaixo | apagar (volta a `desativado`) |
 | `RESEND_API_KEY` | **segredo** (chave só de envio, exclusiva de staging) | idem | — | apagar a variável e revogar a chave no Resend |
-| `EMAIL_REMETENTE` | `Kidmais Manager (staging) <nao-responda@<subdominio verificado>>` | remetente | — | apagar |
+| `EMAIL_REMETENTE` | `Kidmais Manager (staging) <nao-responda@notificacoes.kidmaisfestas.com>` | remetente | — | apagar |
 | `USUARIOS_CRIACAO_DIRETA` | `desativada` | criação direta de usuário no Admin de staging some; equipe só por convite (pré-requisito do cadastro) | — | apagar (volta a ligada) |
 | `CADASTRO_PUBLICO_ATIVO` | `true` | `/cadastro` de staging aberto a **qualquer pessoa que tenha a URL** (limites por IP/e-mail; sem CAPTCHA) | — | apagar (503 imediato após redeploy) |
 | `ASSINATURA_TESTE_DIAS` | `1` durante o ensaio | empresas **novas** nascem com teste de 1 dia (gravado na criação; não muda as já criadas) | — | apagar (padrão 15) |
@@ -134,7 +142,7 @@ política aprovada).
 
 | Recurso | Passos | Custo | Reversão |
 |---|---|---|---|
-| **Resend + subdomínio verificado** | Sem domínio verificado o Resend só envia de `onboarding@resend.dev` para o e-mail **da própria conta** (403 para qualquer outro destino) — insuficiente para testar duas contas e um CNPJ repetido. Criar conta, adicionar um subdomínio dedicado (ex. `mail.kidmaisfestas.com`), publicar **exatamente** os registros DNS mostrados pelo Resend (SPF/DKIM; DMARC `p=none`), aguardar "Verified", criar chave **só de envio** para staging | plano gratuito do Resend (cota diária/mensal limitada; confirmar na página de preços no dia); DNS sem custo | revogar a chave; remover o domínio e os registros DNS |
+| **Resend + subdomínio verificado** | Sem domínio verificado o Resend só envia de `onboarding@resend.dev` para o e-mail **da própria conta** (403 para qualquer outro destino) — insuficiente para testar duas contas e um CNPJ repetido. Criar conta, adicionar o subdomínio dedicado `notificacoes.kidmaisfestas.com`, publicar **exatamente** os registros DNS mostrados pelo Resend, todos sob o subdomínio; DMARC opcional só em `_dmarc.notificacoes` e só se o nome estiver vazio; **nunca** alterar SPF/MX da raiz, `manager` nem criar `_dmarc.kidmaisfestas.com` (e-mail da Terra Empresas). Aguardar "Verified"; chave `sending_access` restrita ao domínio, só de staging | plano gratuito do Resend (07/10/2026: 3.000/mês, 100/dia, 3 domínios, sem cobrança de excedente); DNS sem custo | revogar a chave; os registros do subdomínio ficam se forem reaproveitados em production, senão remover **só** os criados sob `notificacoes`; registros compartilhados nunca |
 | **E-mail de teste controlado** | aliases `+` de uma caixa de Felipe (`<caixa>+kmh-a@…`, `+kmh-b`, `+kmh-c`) para ler e clicar os links; `bounced@resend.dev` para falha de entrega | — | — |
 | **Asaas sandbox** | conta em `https://sandbox.asaas.com` com dados de teste da Kidmais (sem contato de terceiros: o sandbox pode enviar e-mail/SMS reais); chave `$aact_hmlg_…`; Integrações → Webhooks → URL `https://kidmais-manager-staging.onrender.com/api/integracoes/asaas/webhook`, token = `ASAAS_WEBHOOK_TOKEN`, eventos de cobrança e de assinatura | sem custo (sandbox; nenhuma cobrança real) | desativar o webhook; revogar a chave |
 
@@ -192,7 +200,7 @@ e nenhuma cobrança paga em duplicidade; conferido no painel do sandbox e em `co
 |---|---|---|
 | Sandbox Asaas | cancelar pela aplicação (cenário 16) as assinaturas restantes; remover clientes sintéticos no painel do sandbox | isolado do real |
 | Banco de staging | **não apagar**: suspender as empresas `ENSAIO KMH` pelo painel do desenvolvedor (auditado); revogar vínculos de B e C | a política proíbe delete; CNPJs e e-mails sintéticos ficam reservados |
-| Variáveis de staging | apagar `ASSINATURA_TESTE_DIAS`, `ASSINATURA_REGULARIZACAO_DIAS`, `ASSINATURA_SOMENTE_LEITURA_DIAS`; decidir se cadastro/cobrança/e-mail ficam ligados em staging | uma gravação = um redeploy |
+| Variáveis de staging | restaurar o estado do inventário inicial de cada etapa (ausente → apagar; presente → valor anterior do cofre) e conferir com o inventário repetido; manter algo ligado só por decisão explícita | uma gravação = um redeploy |
 | Resend / sandbox | manter ou revogar chaves | — |
 
 ## 8. Decisões comerciais (uma pergunta)
@@ -233,7 +241,7 @@ Ordem: (1) e-mail (`EMAIL_PROVIDER`, chave, remetente) + teste com a caixa de Fe
 (3) preços e prazos decididos; (4) cobrança de produção; (5) `CADASTRO_PUBLICO_ATIVO=true` por último. Cada passo é uma
 gravação de env (redeploy) com health e smoke.
 
-Rollback: apagar `CADASTRO_PUBLICO_ATIVO` (fecha o cadastro), depois `ASAAS_*` (checkout e webhook 503; assinaturas
+Rollback (mesma regra de inventário e restauração): `CADASTRO_PUBLICO_ATIVO` volta ao estado anterior (fecha o cadastro), depois `ASAAS_*` (checkout e webhook 503; assinaturas
 existentes continuam no provedor e a reconciliação as relê quando religar), depois e-mail. Código: redeploy do deploy
 anterior. Banco: nada a desfazer (migrations aditivas; nunca DOWN com dados). Empresas já criadas e em teste continuam
 com acesso calculado pelas datas gravadas.
