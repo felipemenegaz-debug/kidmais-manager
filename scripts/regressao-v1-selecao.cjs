@@ -193,6 +193,9 @@ const ESTADO_POSTGRES = {
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
   "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 088: completude do inventário, retrato das
+  // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "088" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

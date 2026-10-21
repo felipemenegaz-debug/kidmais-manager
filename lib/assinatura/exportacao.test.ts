@@ -23,7 +23,9 @@ test('exportação: só Gestão, auditada sem conteúdo, rota sempre permitida p
     assert.doesNotMatch(fonte, /listarContasPagar|garantirCategorias|INSERT INTO (?!auditoria)|UPDATE |DELETE /);
     assert.match(fonte, /WHERE empresa_id = \$1::uuid/);
     const rota = readFileSync('app/api/admin/exportacao/route.ts', 'utf8');
-    assert.match(rota, /withTenantTransaction\(sessao,/);
+    // A rota passa pela guarda da exportação (lib/exportacao/guarda.ts): provarTenant + Gestão; a suspensa só por empresaId.
+    assert.match(rota, /provarTenantParaExportacao\(tx, sessao, empresaId\)/);
+    assert.match(rota, /revalidarTenantExportacao\(tx, tenant\)/);
     assert.match(rota, /"Cache-Control": "no-store"/);
     assert.match(readFileSync('lib/assinatura/paywall.ts', 'utf8'), /'\/api\/admin\/exportacao'/);
 });
