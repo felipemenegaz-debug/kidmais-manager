@@ -76,13 +76,15 @@ export function lerCsv(texto: string): string[][] {
 
 export type Fixture = { empresa: string; gestao: string; equipe: string; marca: string; segredos: string[]; pdf: Buffer; documento: string };
 
-export async function montarEmpresa(db: Client, letra: string): Promise<Fixture> {
+/** Cria a identidade administrativa sintética (a suíte fornece: só arquivos de teste inserem identidades). */
+export type CriarIdentidade = (db: Client, email: string, nome: string) => Promise<string>;
+
+export async function montarEmpresaCom(db: Client, letra: string, criarIdentidade: CriarIdentidade): Promise<Fixture> {
   const marca = `MARCA-${letra}-${randomBytes(4).toString("hex")}`;
   const empresa = await id(db, `INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod(), `Buffet ${marca}`]);
   await db.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [empresa]);
   const pessoa = async (papel: string, nome: string) => {
-    const u = await id(db, `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, 'ADMINISTRATIVO', true) RETURNING id`,
-      [`${cod()}@example.test`, `${nome} ${marca}`, SENHA_FALSA]);
+    const u = await criarIdentidade(db, `${cod()}@example.test`, `${nome} ${marca}`);
     const m = await id(db, `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', now(), $3) RETURNING id`, [empresa, u, papel]);
     await db.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
     return u;

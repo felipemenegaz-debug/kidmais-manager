@@ -8,7 +8,14 @@ import { exportarPacoteCompleto, type Transacao } from "./servico.ts";
 import { provarTenantParaExportacao, empresasSuspensasExportaveis } from "./guarda.ts";
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO } from "./entidades.ts";
 import { lerZip } from "./zip.ts";
-import { abrir, lido, cod, id, lerCsv, montarEmpresa, opt, RETRATO, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo } from "./fixture.postgres.test-apoio.ts";
+import type { Client } from "pg";
+import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
+
+/** Identidade sintética da suíte (senha em formato válido que não autentica). */
+const criarIdentidade: CriarIdentidade = (db, email, nome) =>
+  id(db, `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, 'ADMINISTRATIVO', true) RETURNING id`, [email, nome, SENHA_FALSA]);
+const montarEmpresa = (db: Client, letra: string) => montarEmpresaCom(db, letra, criarIdentidade);
+
 
 /**
  * Exportação verificável no PostgreSQL descartável, modelo 088 (inventário inteiro até a 088). Só pelo

@@ -11,7 +11,13 @@ import { provarTenantParaExportacao } from "./guarda.ts";
 import { ENTIDADES } from "./entidades.ts";
 import { gerarPacote, PREFIXO_TEMPORARIO } from "./pacote.ts";
 import { lerZip } from "./zip.ts";
-import { abrir, cod, id, lerCsv, lido, montarEmpresa, opt, SENHA_FALSA, sessaoDe, sha, transacaoAninhada } from "./fixture.postgres.test-apoio.ts";
+import { abrir, cod, id, lerCsv, lido, montarEmpresaCom, opt, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
+
+/** Identidade sintética da suíte (senha em formato válido que não autentica). */
+const criarIdentidade: CriarIdentidade = (db, email, nome) =>
+  id(db, `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, 'ADMINISTRATIVO', true) RETURNING id`, [email, nome, SENHA_FALSA]);
+const montarEmpresa = (db: Client, letra: string) => montarEmpresaCom(db, letra, criarIdentidade);
+
 
 /**
  * Exportação — cenários adversariais da revisão independente de 21/10/2026 (roteiros/adversarial-cauda.ts do revisor,
