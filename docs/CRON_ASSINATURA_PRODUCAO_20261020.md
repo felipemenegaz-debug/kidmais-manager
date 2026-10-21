@@ -286,7 +286,7 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
   - a agenda não é diária, e a regra ancorada às 09:00 não faria sentido;
   - é ambiente de homologação, onde o alarme imediato é o desejado.
 
-> **⚠ P2-1 — piora de item antigo fica sem alarme até o próximo marco (até 6 dias). ACEITE PENDENTE DE FELIPE.**
+> **⚠ P2-1 — piora de item antigo fica sem alarme até o próximo marco (até 6 dias). ACEITO POR FELIPE em 21/10/2026 ("faça como achar melhor", com a recomendação de aceitar por agora; rever quando houver volume).**
 >
 > - **Causa:** a idade vem de `recebido_em`, mas o *resultado* e o *motivo* de cada item são recalculados a cada execução.
 >   Um item antigo que piora continua em `pendentesConhecidos`, e a saída é 0 até o próximo dia de aviso.
@@ -367,7 +367,7 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
     - a regra chegar à `production`;
     - o Asaas de produção no web;
     - o roteiro de rotação (P2-B2, já documentado);
-    - o aceite de Felipe para o P2-1.
+    - ~~o aceite de Felipe para o P2-1~~ — aceito em 21/10/2026.
   - **Riscos residuais:**
     - empresa divergente persistente alarma todo dia;
     - saída 0 pode conviver com `pendentesConhecidos`;
