@@ -95,3 +95,9 @@ jobs:
 
       - name: Aplicador manual da 084 em produção — trava de alvo, TLS, hashes, privilégio, estados preservados e anti-repetição (cliente simulado)
         run: node --test scripts/migration-084-production.test.cjs
+
+      - name: Aplicadores manuais da 088 (staging e produção) — trava de alvo, identidade, hashes, plano, privilégios CREATE/REFERENCES, conferência só leitura, backup obrigatório e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-088.test.cjs
+
+      - name: Blocos de Shell da 088 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-088.test.cjs

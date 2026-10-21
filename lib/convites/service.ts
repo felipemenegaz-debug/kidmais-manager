@@ -7,7 +7,9 @@ import { provarEstabelecimento } from '../saas/provar-estabelecimento';
 import { contrato } from '../festas/repository';
 import { lerEstadoComercial } from '../assinatura/estado';
 import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, concluirGeracaoSchema, resolucaoGeracaoSchema, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
-import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, modeloImagem, completoDisponivel, gerarConviteCompletoOpenAI, armazenarConviteCompleto, imagemDaResposta, processarImagemRecebida, MODELO_COMPLETO, QUALIDADE_COMPLETO } from './imagem';
+import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, modeloImagem, completoDisponivel, gerarConviteCompletoOpenAI, armazenarConviteCompleto, imagemDaResposta, processarImagemRecebida, provedorImagem, destinoDoProvedor, MODELO_COMPLETO, QUALIDADE_COMPLETO } from './imagem';
+import { AUTORIZACAO_AINDA_VIGENTE, autorizacaoVigente, conferirImagens, MENSAGEM_088_AUSENTE, registrarAutorizacao, resumoAutorizacao, revogarAutorizacao, tabelaAusente, textosParaTela } from './consentimento';
+import { ehProvedorIA, VERSAO_TEXTOS_IA, type ProvedorIA } from './consentimento-textos';
 import { adicionarReferenciaEstilo, orientacaoFoto, prepararConviteCompleto, type ConviteCompletoPreparado } from './estilos';
 import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
 
@@ -19,6 +21,10 @@ type Ligacao = { empresa_id: string; cliente_id: string; estabelecimento_id: str
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
 const ator = (a: Acesso, c: Convite) => a.tipo === 'admin' ? `USUARIO:${a.sessao.usuario_id}` : `CLIENTE:${c.cliente_id}`;
+// Provedor REAL que será chamado (configuração do servidor); null quando a IA não está habilitada.
+function provedorAtual(): ProvedorIA | null { const p = provedorImagem(); return iaConfigurada() && ehProvedorIA(p) ? p : null; }
+const operadorIA = (a: Acesso) => a.tipo === 'admin' ? 'BUFFET' as const : 'CLIENTE' as const;
+export const MENSAGEM_SEM_AUTORIZACAO = 'Para gerar com IA, registre antes a autorização específica do responsável legal pela criança. Você também pode seguir sem IA.';
 export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', 'Convites ainda não estão disponíveis neste ambiente.', 503); }
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
@@ -99,6 +105,18 @@ export function evidenciaSanitizada(d: unknown) {
   }
   return r;
 }
+// Sem a 088 aplicada (ordem de deploy invertida), o editor continua abrindo e a geração com IA fica bloqueada: a
+// consulta da autorização falha num savepoint e a tela recebe "indisponível"; gerar continua falhando fechado.
+async function resumoTolerante(tx: DbExecutor, c: Convite, provedor: ProvedorIA) {
+  await tx.query('SAVEPOINT autorizacao_ia');
+  try { const r = await resumoAutorizacao(tx, c, provedor); await tx.query('RELEASE SAVEPOINT autorizacao_ia'); return { ...r, indisponivel: false }; }
+  catch (e) {
+    if (!tabelaAusente(e) && !(e instanceof ConviteError)) console.error('[convites] Falha ao ler a autorização de IA.');
+    await tx.query('ROLLBACK TO SAVEPOINT autorizacao_ia');
+    console.error('[convites] Autorização de IA indisponível; geração bloqueada.');
+    return { vigente: null, precisaRenovar: false, indisponivel: true, mensagemIndisponivel: MENSAGEM_088_AUSENTE };
+  }
+}
 async function evento(tx: DbExecutor, c: Convite, a: Acesso, acao: string, detalhe: object = {}) {
   await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [c.id, ator(a, c), acao, detalhe]);
 }
@@ -127,12 +145,15 @@ export async function consultar(a: Acesso, criar = false) {
     // evidências ou decisões financeiras (buffet e cliente veem "verificando", nunca a revisão).
     const abertas = (await tx.query<{ id: string; estado: string }>(`SELECT id,estado FROM convite_geracoes
       WHERE convite_id=$1 AND empresa_id=$2 AND estado IN ('RESERVADA','INCERTA') ORDER BY criado_em`, [c.id, c.empresa_id])).rows;
+    // Aviso e autorização (088): textos com o provedor real, hashes do texto exibido e situação, sem o nome do responsável.
+    const provedor = provedorAtual();
+    const autorizacaoIA = provedor ? { ...textosParaTela(provedor, operadorIA(a)), ...await resumoTolerante(tx, c, provedor) } : null;
     return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
       geracaoIncerta: abertas.some(g => g.estado === 'INCERTA'), geracaoEmAndamento: abertas.find(g => g.estado === 'RESERVADA')?.id ?? null,
-      artes, respostas, familias, historico };
+      autorizacaoIA, artes, respostas, familias, historico };
   });
 }
 
@@ -157,6 +178,21 @@ async function guardarArte(tx: DbExecutor, c: Pick<Convite, 'id' | 'empresa_id'>
 export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   const i = comandoSchema.parse(raw);
   if (i.acao === 'gerar') return gerar(a, i);
+  if (i.acao === 'autorizar_ia') return comConvite(a, true, async (tx, c) => {
+    const provedor = provedorAtual();
+    exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
+    const operador = a.tipo === 'admin' ? { tipo: 'BUFFET' as const, usuarioId: a.sessao.usuario_id } : { tipo: 'CLIENTE' as const, clienteId: c.cliente_id };
+    const r = await registrarAutorizacao(tx, c, operador, ator(a, c), provedor, i);
+    // Auditoria sem dados pessoais: identificador, provedor, versão e manifestação sobre a foto.
+    await evento(tx, c, a, 'AUTORIZACAO_IA_REGISTRADA', { autorizacao: r.id, provedor, versao: VERSAO_TEXTOS_IA, ...(r.substituiu ? { substituiu: r.substituiu } : {}) });
+    return { autorizacaoId: r.id, provedor };
+  });
+  // Revogar não depende de permissão de edição nem de acesso comercial completo: vale para usos futuros.
+  if (i.acao === 'revogar_autorizacao_ia') return comConvite(a, false, async (tx, c) => {
+    const revogada = await revogarAutorizacao(tx, c, ator(a, c));
+    if (revogada) await evento(tx, c, a, 'AUTORIZACAO_IA_REVOGADA', { autorizacao: revogada });
+    return { revogada: !!revogada };
+  });
   // Reencoding fora da transação; só após autenticação da rota (cliente revalidado abaixo).
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
@@ -357,13 +393,16 @@ export async function reconciliarGeracoesParadas(limite = 20) {
 
 // Envio único com registro durável. A chamada só sai depois de enviado_em confirmado no banco; uma segunda tentativa
 // na mesma geração é recusada. A imagem de uma resposta 2xx é guardada antes do processamento local.
-function enviarComRegistro(chave: string, etapas: Etapas, base: typeof fetch = globalThis.fetch): typeof fetch {
+function enviarComRegistro(chave: string, etapas: Etapas, provedor: ProvedorIA, autorizacaoId: string, base: typeof fetch = globalThis.fetch): typeof fetch {
   return (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
     exigir(!etapas.enviou, 'Envio repetido recusado.', 500);
-    const marcado = await db().query("UPDATE convite_geracoes SET enviado_em=clock_timestamp() WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL RETURNING id", [chave]);
-    exigir(marcado.rows.length === 1, 'A reserva desta geração não está mais ativa.', 409);
-    etapas.enviou = true;
     const destino = typeof url === 'string' ? url : String((url as { href?: string; url?: string }).href ?? (url as { url?: string }).url ?? '');
+    // Provedor exibido = provedor chamado: outro destino é recusado antes do marcador (nada sai; crédito devolvido).
+    exigir(destinoDoProvedor(provedor, destino), 'Envio a um provedor diferente do autorizado foi recusado.', 409);
+    const marcado = await db().query(`UPDATE convite_geracoes SET enviado_em=clock_timestamp() WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL
+      AND ${AUTORIZACAO_AINDA_VIGENTE} RETURNING id`, [chave, autorizacaoId]);
+    exigir(marcado.rows.length === 1, 'A reserva desta geração ou a autorização do responsável não está mais ativa.', 409);
+    etapas.enviou = true;
     // Nosso identificador (a chave) só ajuda o suporte do provedor a localizar o pedido; não deduplica nem recupera.
     const headers = destino.startsWith('https://api.openai.com/') ? { ...(init?.headers as Record<string, string> | undefined), 'X-Client-Request-Id': chave } : init?.headers;
     const resposta = await base(url, { ...init, headers });
@@ -464,12 +503,13 @@ export async function concluirGeracaoComImagem(tx: DbExecutor, operadorId: strin
 
 async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>) {
   exigir(iaConfigurada(), 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
+  const provedor = provedorAtual();
+  exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
   const completo = i.completo === true, estilo = i.estilo ?? 'pedido', qualidade = i.qualidade ?? QUALIDADE_COMPLETO;
-  exigir(completo || (i.estilo === undefined && i.qualidade === undefined && i.foto === undefined && i.autorizacaoFoto === undefined), 'Estilo, qualidade e foto valem somente para o convite completo.', 400);
+  exigir(completo || (i.estilo === undefined && i.qualidade === undefined && i.foto === undefined), 'Estilo, qualidade e foto valem somente para o convite completo.', 400);
   if (completo) {
     exigir(completoDisponivel(), 'O convite completo ainda não está disponível neste ambiente.', 503);
     exigir(!i.referencias.length, 'O convite completo não usa imagens da galeria como referência.', 400);
-    exigir(i.foto === undefined || i.autorizacaoFoto === true, 'Confirme a autorização para enviar a foto.', 400);
   }
   // Pedido simples mantém o hash anterior; o completo inclui estilo, o hash da foto (a foto nunca é salva)
   // e os dados oficiais da festa no momento da reserva: textos alterados exigem nova chave.
@@ -500,6 +540,11 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     if (emAndamento) return { repetida: true as const, chave: emAndamento.id, estado: 'EM_ANDAMENTO', arteId: null, acompanhando: true };
     exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='INCERTA' LIMIT 1", [c.id])).rows.length,
       'Estamos verificando a geração anterior desta festa. Você não precisa tentar novamente.', 409);
+    // 088: o servidor não confia na tela. Sem autorização vigente para esta festa, este provedor e esta versão do texto,
+    // nada é reservado nem enviado. Foto e imagens da galeria (podem mostrar a criança) exigem, além disso, a confirmação
+    // desta geração (uso único), conferida abaixo com as imagens que de fato serão enviadas.
+    const autorizacao = await autorizacaoVigente(tx, c, provedor);
+    exigir(autorizacao, MENSAGEM_SEM_AUTORIZACAO, 403);
     // Dados oficiais = rascunho salvo no servidor; conflito com o pedido falha antes de reservar créditos.
     let preparado: ConviteCompletoPreparado | null = null;
     if (completo) {
@@ -512,6 +557,8 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
       const ref = (await tx.query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [id, c.id, c.empresa_id])).rows[0];
       exigir(ref, 'Referência não pertence à festa.', 400); refs.push(ref.imagem);
     }
+    // Imagens pessoais que sairão nesta geração (a referência fixa do estilo é um arquivo do servidor, não da festa).
+    const imagens = conferirImagens(provedor, operadorIA(a), i.autorizacaoImagens, [...(foto ? [foto] : []), ...refs]);
     // Carteira + consumo mensal + convite travados; cliente não escolhe modelo, custo ou empresa.
     await tx.query('SELECT empresa_id FROM convite_carteiras WHERE empresa_id=$1 FOR UPDATE', [c.empresa_id]);
     const limites = await cotas(tx, c); validarCredito(limites, a.tipo === 'cliente');
@@ -527,19 +574,19 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     await tx.query('UPDATE convites SET usado_festa=usado_festa+1,usado_cliente=usado_cliente+$2 WHERE id=$1', [c.id, a.tipo === 'cliente' ? 1 : 0]);
     // etapas_registradas=true: só gerações deste código podem ser devolvidas automaticamente (ver 084).
     await tx.query('INSERT INTO convite_geracoes(id,convite_id,empresa_id,ator,payload_hash,modelo,etapas_registradas) VALUES($1,$2,$3,$4,$5,$6,true)', [i.chave, c.id, c.empresa_id, ator(a, c), payload, completo ? MODELO_COMPLETO : modeloImagem()]);
-    await evento(tx, c, a, 'IA_RESERVADA', { geracao: i.chave, ...(preparado ? { completo: true, estilo, foto: !!foto, referencia: preparado.referenciaEstiloId ?? null } : {}) });
-    return { repetida: false as const, c, refs, preparado };
+    await evento(tx, c, a, 'IA_RESERVADA', { geracao: i.chave, autorizacao: autorizacao.id, provedor, ...(imagens ? { imagens } : {}), ...(preparado ? { completo: true, estilo, foto: !!foto, referencia: preparado.referenciaEstiloId ?? null } : {}) });
+    return { repetida: false as const, c, refs, preparado, autorizacaoId: autorizacao.id };
   });
   if (reserva.repetida) return reserva;
   const etapas: Etapas = { enviou: false, recebeu: false };
-  const enviar = enviarComRegistro(i.chave, etapas);
+  const enviar = enviarComRegistro(i.chave, etapas, provedor, reserva.autorizacaoId);
   const p = reserva.preparado;
   let resultado: { imagem: Buffer; uso: unknown };
   try {
     // Uma única chamada: foto (imagem 1) e referência do estilo (imagem 2), sem retry nem troca de modelo.
     const r = p
       ? await gerarConviteCompletoOpenAI(p.promptImagem, enviar, process.env, qualidade, p.foto ? [p.foto, ...(p.referenciaEstilo ? [p.referenciaEstilo] : [])] : [])
-      : await gerarImagem(i.prompt, reserva.refs, enviar);
+      : await gerarImagem(i.prompt, reserva.refs, enviar, process.env, provedor);
     resultado = { imagem: p ? await armazenarConviteCompleto(r.imagem) : r.imagem, uso: r.uso };
   } catch (erro) {
     return registrarFalha(a, reserva.c, i.chave, etapas, erro);

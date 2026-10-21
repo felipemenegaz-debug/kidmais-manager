@@ -31,7 +31,8 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
 
 test('documentos legais 20/10: canal único de contato e prazos 7/60 consistentes, sem decidir lacunas jurídicas', () => {
     assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-20-minuta');
-    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-20-minuta5');
+    // 21/10: versão mínima só com a seção de IA (L5) ampliada para os convites com IA; o resto é idêntico à minuta5.
+    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-21-minuta5a');
     for (const d of Object.values(DOCUMENTOS)) {
         const texto = textoCanonico(d);
         assert.match(texto, /contato@demerzellabs\.com\.br/, `${d.documento}: canal oficial`);
@@ -44,6 +45,17 @@ test('documentos legais 20/10: canal único de contato e prazos 7/60 consistente
     assert.equal(termos.match(/7 dias para regularizar/g)?.length, 2);
     assert.equal(textoCanonico(DOCUMENTOS.TERMOS_USO).match(/\[A DEFINIR\]/g)?.length, 2, 'L1 devolução e L2 retenção continuam abertas');
     assert.equal(textoCanonico(DOCUMENTOS.PRIVACIDADE).match(/\[A DEFINIR\]/g)?.length, 9, 'L3–L11 continuam abertas');
+});
+
+test('privacidade minuta5a: só a seção de IA muda (convites com IA, L5); sem os acréscimos, o hash volta ao da minuta5', () => {
+    const d = structuredClone(DOCUMENTOS.PRIVACIDADE);
+    const ia = d.secoes.find((x) => x.titulo === 'Recursos de inteligência artificial')!;
+    assert.equal(ia.paragrafos.length, 4);
+    ia.paragrafos.splice(1, 2);
+    ia.paragrafos[1] = ia.paragrafos[1].replace('A ativação de cada recurso depende da verificação de suas condições contratuais e das salvaguardas aplicáveis. ', '');
+    // Hash da 2026-10-20-minuta5 (publicada em 20/10, 7ce0916) — o resto do aviso é idêntico, letra por letra.
+    assert.equal(hashDocumento({ ...d, versao: '2026-10-20-minuta5' }), '06e7b9a5098bd8f6325bca15a67cb472668a7fa5f487df2e08e957e365c2bfcf');
+    assert.equal(DOCUMENTOS.PRIVACIDADE.minuta, true);
 });
 
 test('cadastro só abre com flag, e-mail configurado e criação direta desligada', () => {
@@ -65,6 +77,7 @@ test('pedido: e-mail normalizado; exige aceites da versão vigente e senha váli
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta2' }))), 'DADOS_INVALIDOS', 'a revisão da retenção exige aceite do texto atualizado');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-15-minuta4' }))), 'DADOS_INVALIDOS', 'a troca do canal de contato exige aceite do texto atualizado');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao: '2026-10-13-minuta' }))), 'DADOS_INVALIDOS', 'termos anteriores ao canal único também exigem novo aceite');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-20-minuta5' }))), 'DADOS_INVALIDOS', 'a minuta5 (sem os convites com IA na seção de IA) exige aceite do texto atualizado');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ senha: 'curta', confirmacao: 'curta' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ confirmacao: 'outra-senha-1' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ extra: 1 }))), 'DADOS_INVALIDOS', 'campos estranhos recusados');
