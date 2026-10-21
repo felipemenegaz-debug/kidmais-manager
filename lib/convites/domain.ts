@@ -61,6 +61,14 @@ export const comandoSchema = z.discriminatedUnion('acao', [
     completo: z.literal(true).optional(), estilo: z.enum(['pedido', 'cartoon3d', 'cartoon2d', 'realista']).optional(),
     qualidade: z.enum(['high', 'xhigh', 'max']).optional(),
     foto: z.string().max(7_000_000).optional(), autorizacaoFoto: z.literal(true).optional() }).strict(),
+  // Autorização específica do responsável legal (088): provedor, versão e hash do texto exibido; o servidor confere
+  // os três com o provedor atual. Identificação mínima: nome e vínculo; nunca documento.
+  z.object({ acao: z.literal('autorizar_ia'), versao: z.string().min(1).max(64), provedor: z.string().min(1).max(20),
+    textoHash: z.string().regex(/^[0-9a-f]{64}$/), responsavelNome: z.string().trim().min(2).max(120),
+    vinculo: z.enum(['MAE', 'PAI', 'TUTOR', 'OUTRO_RESPONSAVEL_LEGAL']),
+    meio: z.enum(['PRESENCIAL', 'WHATSAPP', 'EMAIL', 'TELEFONE', 'OUTRO']).optional(),
+    declaracao: z.literal(true), foto: z.boolean() }).strict(),
+  z.object({ acao: z.literal('revogar_autorizacao_ia') }).strict(),
 ]);
 // Decisão financeira de uma geração sem resultado: exclusiva do operador da plataforma (painel do desenvolvedor),
 // nunca do buffet nem do cliente. A ação 'recuperar' não existe mais no editor do convite.

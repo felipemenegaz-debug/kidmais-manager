@@ -84,3 +84,11 @@
   .colunaUnica .dadosCompactos .campos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .galeriaLocal .galeria { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Aviso e autorização do responsável para IA (088). */
+.consentimentoIA { margin: 16px 0; padding: 16px; border: 1px solid #ccd7cb; border-radius: 14px; background: #fff; }
+.consentimentoIA h3 { margin: 0 0 8px; font-size: 15px; }
+.consentimentoIA p { font-size: 13px; line-height: 1.6; }
+.formularioAutorizacao { border: 0; margin: 12px 0 0; padding: 0; min-width: 0; }
+.formularioAutorizacao legend { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.formularioAutorizacao .check { align-items: flex-start; font-size: 13px; line-height: 1.5; margin: 10px 0; }
+.alternativaSemIA { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #e3e9e2; }

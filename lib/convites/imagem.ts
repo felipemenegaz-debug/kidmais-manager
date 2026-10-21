@@ -5,6 +5,11 @@ export const MODELO = 'gemini-nano-banana-2.1';
 export const MODELO_OPENAI = 'gpt-image-2.5-flare';
 export function provedorImagem(env: NodeJS.ProcessEnv = process.env) { return env.CONVITES_IA_PROVIDER ?? 'gemini'; }
 export function modeloImagem(env: NodeJS.ProcessEnv = process.env) { return provedorImagem(env) === 'openai' ? MODELO_OPENAI : MODELO; }
+// Destino de cada provedor. A chamada só sai para o host do provedor autorizado; nunca há troca de provedor.
+export const HOST_PROVEDOR = Object.freeze({ openai: 'https://api.openai.com/', gemini: 'https://generativelanguage.googleapis.com/' });
+export function destinoDoProvedor(provedor: string, url: string) {
+  return Object.hasOwn(HOST_PROVEDOR, provedor) && url.startsWith(HOST_PROVEDOR[provedor as keyof typeof HOST_PROVEDOR]);
+}
 export function iaConfigurada(env: NodeJS.ProcessEnv = process.env) {
   const provedor = provedorImagem(env);
   const chave = provedor === 'openai' ? env.CONVITES_OPENAI_API_KEY ?? env.OPENAI_API_KEY : env.CONVITES_GEMINI_API_KEY;
@@ -56,8 +61,11 @@ export function extrairImagem(resposta: Resposta) {
   if (imagens.length !== 1) throw new FalhaProvedorImagem('resposta_sem_imagem_unica');
   return `data:${imagens[0].mime_type};base64,${imagens[0].data}`;
 }
-export async function gerarImagem(prompt: string, refs: Buffer[], enviar: typeof fetch = fetch, env: NodeJS.ProcessEnv = process.env) {
+// provedorAutorizado: o provedor exibido e autorizado pelo responsável (088). Se a configuração mudou desde então,
+// recusa antes de montar o pedido: nenhum envio a outro provedor sem novo aviso e nova autorização.
+export async function gerarImagem(prompt: string, refs: Buffer[], enviar: typeof fetch = fetch, env: NodeJS.ProcessEnv = process.env, provedorAutorizado?: string) {
   exigir(iaConfigurada(env), 'IA indisponível.', 503);
+  if (provedorAutorizado !== undefined) exigir(provedorImagem(env) === provedorAutorizado, 'O provedor de IA mudou. Leia o novo aviso e autorize novamente.', 409);
   if (provedorImagem(env) === 'openai') return gerarImagemOpenAI(prompt, refs, enviar, env);
   const input = [{ type: 'text', text: `Crie uma arte vertical de convite de festa. Deixe nome, data, horário e endereço fora da arte: serão aplicados pelo editor. Siga este pedido visual: ${prompt}` },
     ...refs.map(b => ({ type: 'image', mime_type: 'image/webp', data: b.toString('base64') }))];

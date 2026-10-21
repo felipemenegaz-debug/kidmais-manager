@@ -184,3 +184,11 @@
   .paginacaoArtes button { padding: 8px; }
 }
 .colunaInferior { max-width: 720px; margin-left: auto; margin-right: auto; }
+/* Aviso e autorização do responsável para IA (088). */
+.consentimentoIA { margin: 16px 0; padding: 16px; border: 1px solid color-mix(in srgb, var(--input-border) 80%, transparent); border-radius: 14px; background: rgba(150, 120, 230, .06); }
+.consentimentoIA h3 { margin: 0 0 8px; font-size: 15px; color: var(--lilac-accent); }
+.consentimentoIA p { color: var(--secondary-text); font-size: 13px; line-height: 1.6; }
+.formularioAutorizacao { border: 0; margin: 12px 0 0; padding: 0; min-width: 0; }
+.formularioAutorizacao legend { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.editor .formularioAutorizacao .check { align-items: flex-start; font-size: 13px; line-height: 1.5; margin: 10px 0; }
+.alternativaSemIA { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent); }
