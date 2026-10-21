@@ -35,7 +35,7 @@ const TERMOS: TextoLegal = {
 };
 
 const PRIVACIDADE: TextoLegal = {
-    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-20-minuta5', minuta: true,
+    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-21-minuta5a', minuta: true,
     secoes: [
         { titulo: 'Sobre este aviso', paragrafos: [
             'Esta minuta descreve o tratamento de dados no Kidmais Manager, sistema de gestão de buffets e eventos, incluindo cadastro, assinatura e recursos de atendimento pelo WhatsApp. As definições pendentes estão identificadas no texto e precisam ser concluídas antes da publicação da política definitiva.',
@@ -63,7 +63,9 @@ const PRIVACIDADE: TextoLegal = {
         ] },
         { titulo: 'Recursos de inteligência artificial', paragrafos: [
             'O atendimento utiliza a OpenAI como provedora de inteligência artificial, inclusive no atendimento a clientes reais. Conforme a função habilitada, texto da conversa e trechos do histórico podem ser enviados à OpenAI para interpretar a solicitação ou auxiliar na resposta. Os filtros de dados pessoais não garantem anonimização completa.',
-            'As condições contratuais aplicáveis, os prazos de retenção pelo provedor e as configurações efetivas de tratamento precisam ser confirmados: [A DEFINIR]. Esta minuta não presume anonimização integral nem ausência de armazenamento pelo provedor.',
+            'Os recursos de IA podem auxiliar no atendimento, na preparação de respostas, na leitura de documentos e na geração de imagens e convites. Conforme o recurso e o provedor habilitado, podem ser enviados textos, documentos, imagens e dados da festa. A geração de imagens e convites utiliza a OpenAI e, somente quando habilitado, o Google Gemini; o provedor utilizado é informado no momento da geração.',
+            'A geração de convites com IA pode envolver nome e idade da criança, data, local e endereço do evento e fotografia opcional, mediante as autorizações aplicáveis: a autorização específica do responsável legal é registrada antes da geração, e a fotografia e as imagens da galeria só são enviadas com confirmação própria a cada geração. A imagem gerada é armazenada no Kidmais e pode continuar identificando a criança. Os filtros reduzem a exposição, mas não garantem anonimização. Os resultados podem conter erros e devem ser revisados antes do uso. É possível criar o convite sem IA, e a autorização pode ser revogada para usos futuros no editor do convite ou pelo canal de privacidade deste aviso.',
+            'A ativação de cada recurso depende da verificação de suas condições contratuais e das salvaguardas aplicáveis. As condições contratuais aplicáveis, os prazos de retenção pelo provedor e as configurações efetivas de tratamento precisam ser confirmados: [A DEFINIR]. Esta minuta não presume anonimização integral nem ausência de armazenamento pelo provedor.',
         ] },
         { titulo: 'Finalidades e fundamentos do tratamento', paragrafos: [
             'Os dados são utilizados para criar e proteger contas, disponibilizar a gestão de eventos, prestar suporte, administrar assinaturas e cobranças, executar os atendimentos solicitados e manter registros necessários à segurança e ao cumprimento de obrigações aplicáveis.',
