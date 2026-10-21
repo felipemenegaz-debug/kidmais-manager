@@ -154,3 +154,29 @@ test('erros e logs nunca levam a chave, o corpo da resposta ou dados do pagador'
     }
     assert.deepEqual(saidas, [], 'o cliente não escreve nada no console');
 });
+
+test('estorno (POST /payments/{id}/refund): valor explícito em reais, descrição, status e refunds lidos; erros sem corpo', async () => {
+    const resposta = { id: 'pay_1', status: 'RECEIVED', refunds: [{ status: 'PENDING', value: 2882.33, description: 'Kidmais Manager - devolucao KM-1' }, null] };
+    const { f, chamadas } = fetchFalso([json(resposta)]);
+    const r = await criarClienteAsaas(config, { fetch: f }).estornarCobranca('pay_1', 288_233, 'Kidmais Manager - devolucao KM-1');
+    assert.equal(chamadas[0].url, `${ASAAS_SANDBOX_URL}/payments/pay_1/refund`);
+    assert.equal(chamadas[0].init.method, 'POST');
+    assert.deepEqual(JSON.parse(String(chamadas[0].init.body)), { value: 2882.33, description: 'Kidmais Manager - devolucao KM-1' });
+    assert.deepEqual(r, { status: 'RECEIVED', estornos: [{ status: 'PENDING', valorCentavos: 288_233, descricao: 'Kidmais Manager - devolucao KM-1' }] });
+    // Resposta de outra cobrança ou ilegível: falha com status 200 (resultado incerto para quem chama).
+    await assert.rejects(criarClienteAsaas(config, { fetch: fetchFalso([json({ id: 'pay_2', status: 'REFUNDED' })]).f }).estornarCobranca('pay_1', 100, 'x'),
+        (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'RESPOSTA_INVALIDA' && e.status === 200);
+    // 400 (ex.: saldo insuficiente) → recusa definitiva, sem o corpo na mensagem.
+    await assert.rejects(criarClienteAsaas(config, { fetch: fetchFalso([json({ errors: [{ code: 'x', description: 'Saldo insuficiente' }] }, 400)]).f }).estornarCobranca('pay_1', 100, 'x'),
+        (e: unknown) => e instanceof AsaasFalhou && e.status === 400 && !e.message.includes('Saldo'));
+    await assert.rejects(criarClienteAsaas(config, { fetch: fetchFalso([json(resposta)]).f }).estornarCobranca('pay_1', 0, 'x'), /Valor inválido/);
+    await assert.rejects(criarClienteAsaas(config, { fetch: fetchFalso([json(resposta)]).f }).estornarCobranca('../x', 100, 'x'), (e: unknown) => e instanceof AsaasFalhou);
+});
+
+test('cobrança: confirmedDate lido só no formato de data', async () => {
+    const base = { id: 'pay_1', status: 'CONFIRMED', dueDate: '2026-11-10', paymentDate: null };
+    const ok = await criarClienteAsaas(config, { fetch: fetchFalso([json({ ...base, confirmedDate: '2026-11-11' })]).f }).obterCobranca('pay_1');
+    assert.equal(ok?.confirmedDate, '2026-11-11');
+    const ruim = await criarClienteAsaas(config, { fetch: fetchFalso([json({ ...base, confirmedDate: '11/11/2026' })]).f }).obterCobranca('pay_1');
+    assert.equal(ruim?.confirmedDate, null);
+});

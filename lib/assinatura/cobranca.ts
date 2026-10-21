@@ -10,6 +10,8 @@
  *                      CANCELADA_FIM_PERIODO com acesso até o fim do período pago. Exige senha confirmada há ≤ 5 min.
  *                      Só conclui (ASSINATURA_CANCELADA) com exclusão confirmada ou ausência comprovada; sem
  *                      confirmação → ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO e 503 (resultado incerto), sem repetir o DELETE.
+ *                      Com a 089: cada pedido recebe PROTOCOLO (assinatura_encerramentos, tipo CANCELAMENTO_FIM_PERIODO),
+ *                      inclusive o sem confirmação, e a Gestão recebe a confirmação por e-mail (melhor esforço).
  *
  * Três fases para não segurar travas do banco durante a chamada ao provedor:
  *   A. transação curta do tenant: Gestão, situação e ids gravados;
@@ -43,6 +45,8 @@ import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, int
 import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
+import type { EnviarEmail } from '../acessos/email.ts';
+import { chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido, type PedidoResumo } from './devolucao-registro.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
@@ -62,6 +66,8 @@ export type DepsCobranca = {
     transacaoIndependente?: TransacaoIndependente;
     /** Executa a contratação com a trava exclusiva da empresa; ocupada → 409 CONTRATACAO_EM_ANDAMENTO. */
     travarContratacao: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
+    /** E-mail de confirmação do protocolo (089). Ausente → não envia (o protocolo continua na resposta). */
+    enviarEmail?: EnviarEmail | null;
 };
 
 /**
@@ -532,10 +538,11 @@ async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, 
 }
 
 export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {
-    const corpo = (raw ?? {}) as { confirmar?: unknown; motivo?: unknown };
+    const corpo = (raw ?? {}) as { confirmar?: unknown; motivo?: unknown; chave?: unknown };
     if (corpo.confirmar !== true)
         throw erroAcesso('DADOS_INVALIDOS', 'Confirme o cancelamento.', 400, { campo: 'confirmar' });
     const motivo = typeof corpo.motivo === 'string' ? corpo.motivo.trim().slice(0, 500) : '';
+    const chave = chaveDoPedido(corpo.chave);
     exigirReautenticacaoRecente(sessao);
     const provedor = deps.provedor();
     if (!provedor)
@@ -543,41 +550,55 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
 
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
+        const protocolo = await encerramentosInstalados(tx);
+        // Repetição do mesmo pedido (duplo clique, nova tentativa da tela): devolve o protocolo já registrado.
+        const repetido = protocolo ? await pedidoPorChave(tx, tenant.empresaComprovada, chave) : null;
+        if (repetido) return { repetido };
         const linha = await linhaDaEmpresa(tx, tenant.empresaComprovada, false);
         if (!linha?.provedor_assinatura_id)
             throw erroAcesso('CONFLITO', 'Não há assinatura contratada para cancelar.', 409);
         if ((linha.situacao === 'CANCELADA_FIM_PERIODO' || linha.situacao === 'ENCERRADA') && linha.provedor_situacao === 'DELETED')
             throw erroAcesso('CONFLITO', 'A assinatura já foi cancelada.', 409);
-        return { empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao };
+        return { repetido: null, empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao, ciclo: linha.ciclo, protocolo };
+    });
+    if (a.repetido)
+        return { situacao: 'CANCELADA_FIM_PERIODO', protocolo: a.repetido.protocolo, repetido: true };
+    const pedido = (tx: DbExecutor, cancelamentoProvedor: 'CONFIRMADO' | 'AUSENTE' | 'SEM_CONFIRMACAO') => registrarPedido(tx, {
+        empresaId: a.empresaId!, tipo: 'CANCELAMENTO_FIM_PERIODO', chave, solicitadoPor: sessao.usuario_id, motivo: motivo || null, ciclo: a.ciclo ?? null,
+        situacaoAnterior: a.situacao!, provedorAssinaturaId: a.assinaturaId!, cancelamentoProvedor,
     });
 
     // Só a exclusão CONFIRMADA (resposta com `deleted`) ou a ausência comprovada (404 + releitura com `deleted`) concluem
     // o cancelamento. Recusa definitiva → nada feito. Resultado desconhecido → registro neutro, nada concluído e nenhum
     // DELETE repetido: a situação vem da releitura (webhook SUBSCRIPTION_DELETED ou reconciliação, com `deleted=true`).
-    const remocao = await removerComResultado(provedor, a.assinaturaId);
+    const remocao = await removerComResultado(provedor, a.assinaturaId!);
     if (remocao.resultado === 'RECUSADA')
         throw falhou();
     const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
     if (remocao.resultado === 'DESCONHECIDA') {
-        await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        const protocoloIncerto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
             exigirGestao(tenant);
             if (tenant.empresaComprovada !== a.empresaId)
                 throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+            const registrado = a.protocolo ? await pedido(tx, 'SEM_CONFIRMACAO') : null;
             await auditarCobranca(tx, {
-                acao: 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
-                antes: { situacao: a.situacao }, depois: { situacao: a.situacao },
+                acao: 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', empresaId: a.empresaId!, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
+                antes: { situacao: a.situacao }, depois: { situacao: a.situacao, ...(registrado ? { protocolo: registrado.protocolo } : {}) },
             });
+            return registrado?.protocolo ?? null;
         });
-        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida. Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503);
+        const sufixo = protocoloIncerto ? ' Protocolo do pedido: ' + protocoloIncerto + '.' : '';
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida.' + sufixo + ' Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503,
+            protocoloIncerto ? { protocolo: protocoloIncerto } : undefined);
     }
 
-    return deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+    const final = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== a.empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
         let r;
         try {
-            r = await sincronizarEmpresa(tx, a.empresaId, { provedor }, origem);
+            r = await sincronizarEmpresa(tx, a.empresaId!, { provedor }, origem);
         }
         catch (error) {
             // A remoção no provedor já aconteceu; o webhook SUBSCRIPTION_DELETED ou a reconciliação aplicam o estado.
@@ -585,11 +606,20 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
                 throw erroAcesso('COBRANCA_FALHOU', 'O cancelamento foi enviado ao provedor, mas a confirmação ainda não chegou. Atualize a página em instantes.', 502);
             throw error;
         }
+        const registrado: PedidoResumo | null = a.protocolo ? await pedido(tx, remocao.resultado === 'AUSENTE' ? 'AUSENTE' : 'CONFIRMADO') : null;
         await auditarCobranca(tx, {
-            acao: 'ASSINATURA_CANCELADA', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
+            acao: 'ASSINATURA_CANCELADA', empresaId: a.empresaId!, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
             antes: { situacao: a.situacao },
-            depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao, confirmacao: remocao.resultado === 'AUSENTE' ? 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO' : 'RESPOSTA_DO_PROVEDOR' },
+            depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao, confirmacao: remocao.resultado === 'AUSENTE' ? 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO' : 'RESPOSTA_DO_PROVEDOR',
+                ...(registrado ? { protocolo: registrado.protocolo } : {}) },
         });
-        return { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao };
+        const periodo = (await tx.query<{ fim: string | null; nome: string }>(
+            `SELECT to_char(a.periodo_atual_fim AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fim, e.nome FROM empresa_assinaturas a JOIN empresas e ON e.id = a.empresa_id WHERE a.empresa_id = $1::uuid`,
+            [a.empresaId])).rows[0];
+        return { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao!, registrado, periodoFim: periodo?.fim ?? null, nome: periodo?.nome ?? '',
+            para: registrado ? await emailDoSolicitante(tx, sessao.usuario_id) : null };
     });
+    if (final.registrado && final.para)
+        await enviarConfirmacao(deps, a.empresaId!, mensagemConfirmacao({ para: final.para, empresa: final.nome, pedido: final.registrado, periodoFim: final.periodoFim, estornoAutomatico: false }), final.registrado.id);
+    return { situacao: final.situacao, protocolo: final.registrado?.protocolo ?? null, repetido: false };
 }

@@ -15,6 +15,11 @@
  *                       assinatura sem confirmação (404) → FALHOU (nova tentativa por reentrega do provedor ou pela
  *                       reconciliação).
  * Auditoria em `auditoria` (origem COBRANCA): situações e datas, sem valores nem dados pessoais.
+ *
+ * Devolução (089, L1 de 21/10/2026): a cobrança com pedido de devolução registrado (arrependimento ou encerramento
+ * anual) não sustenta período pago. Ela sai da lista antes do cálculo: o estorno parcial mantém o status RECEIVED no
+ * provedor e, sem isso, a releitura reabriria o período encerrado ou acusaria divergência da oferta (alarme falso na
+ * reconciliação e na D-C4). A empresa encerrada continua ENCERRADA; só um pagamento NOVO a reativa.
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SituacaoAssinatura } from './acesso.ts';
@@ -25,6 +30,7 @@ import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './si
 import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, PREFIXO_REMOCAO_SEM_CONFIRMACAO, reconciliarContratacao, registrarRemocoes, TIPO_PENDENCIA,
     type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
+import { cobrancasDevolvidas } from './devolucao-registro.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -82,7 +88,8 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
         await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_RECUSADA', empresaId, origem, depois: { motivo: 'REFERENCIA_DIVERGENTE' } });
         return { resultado: 'RECUSADA', motivo: 'REFERENCIA_DIVERGENTE' };
     }
-    const pagamentos = assinatura ? await deps.provedor.listarCobrancasDaAssinatura(assinatura.id) : [];
+    const devolvidas = await cobrancasDevolvidas(tx, empresaId);
+    const pagamentos = (assinatura ? await deps.provedor.listarCobrancasDaAssinatura(assinatura.id) : []).filter((p) => !devolvidas.has(p.id));
     const agora = await agoraDoBanco(tx);
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
     const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))

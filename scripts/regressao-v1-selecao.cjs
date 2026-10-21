@@ -193,6 +193,9 @@ const ESTADO_POSTGRES = {
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
   "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: cancelamento e devolução da assinatura (089, L1), aplicada pela suíte sobre o modelo 086 (sem a 087 de
+  // outro trabalho local); provedor e e-mail falsos; inclui a reconciliação simulada com a regra D-C4.
+  "lib/assinatura/devolucao-089.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
