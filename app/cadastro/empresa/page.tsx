@@ -111,7 +111,7 @@ export default function CadastroEmpresa() {
                 {socios.length < 10 && <button type="button" onClick={() => setSocios([...socios, { nome: '', qualificacao: 'SOCIO_ADMINISTRADOR' }])}>Adicionar sócio</button>}
             </fieldset>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} required style={{ width: 'auto' }} />
-                <span>Em nome da empresa, aceito os <Link href="/termos" target="_blank">termos de uso</Link> e li o <Link href="/privacidade" target="_blank">aviso de privacidade</Link>.</span></label>
+                <span>Em nome da empresa, aceito os <Link href="/termos" target="_blank">termos de uso</Link>, incluindo o <Link href="/acordo-de-tratamento" target="_blank">Acordo de Tratamento de Dados</Link>, e li o <Link href="/privacidade" target="_blank">aviso de privacidade</Link>.</span></label>
             {pedirSenha && <label>Sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} required maxLength={512} /></label>}
             {aviso && <p role="status" data-cnpj-existente>{aviso}</p>}
             <p role="alert">{erro}</p>
