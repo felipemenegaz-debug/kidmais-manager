@@ -86,7 +86,7 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     assert.match(privacidade, /região Virginia, Estados Unidos/);
     assert.match(privacidade, /DeepSeek é uma integração opcional, atualmente sem uso confirmado/);
     assert.match(privacidade, /em até 15 dias contados do pedido/);
-    assert.match(privacidade, /Quando houver indicação de encarregado/);
+    assert.match(privacidade, /O encarregado pelo tratamento de dados pessoais é Felipe Menegaz, que atende pelo mesmo canal, contato@demerzellabs\.com\.br/, 'L11 decidido por Felipe (21/10)');
     for (const prestador of ['Render', 'Asaas', 'Resend', 'Meta/WhatsApp', 'Gupshup', 'OpenAI', 'Google Gemini', 'ViaCEP', 'DeepSeek'])
         assert.ok(DOCUMENTOS.PRIVACIDADE.secoes.some((s) => s.tabela?.linhas.some((l) => l[0] === prestador)), `relação de prestadores: ${prestador}`);
     // Conteúdo mínimo do anexo de L4 (Astra).
@@ -97,16 +97,22 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     assert.match(dpa, /meta contratual de até 24 horas a partir da ciência/);
     assert.match(dpa, /não é o prazo legal de comunicação à ANPD/);
     // Pendências que Felipe precisa ver (não decididas) e controles que ainda não existem.
-    for (const [texto, padrao] of [
-        [privacidade, /\[DECISÃO PENDENTE: L10 /], [privacidade, /\[DECISÃO PENDENTE: L11 /], [privacidade, /\[DECISÃO PENDENTE: tabela de retenção/],
-        [termos, /\[DECISÃO PENDENTE: reajuste /], [dpa, /\[DECISÃO PENDENTE: tabela de retenção/],
-    ] as const) assert.match(texto, padrao);
+    // Decisões de Felipe de 21/10 à tarde (11-DECISOES-FELIPE): L10, L11, tabela de retenção e reajuste saíram de DECISÃO PENDENTE.
+    assert.match(termos, /no máximo uma vez a cada 12 meses, pela variação acumulada do IPCA \(IBGE\)/);
+    assert.match(termos, /com aviso de pelo menos 30 dias antes da primeira cobrança reajustada\. O reajuste não altera o valor de período já pago/);
+    assert.match(privacidade, /Como configuração padrão, as conversas e suas mídias serão eliminadas após 12 meses sem atividade\. Cada empresa controladora pode escolher um prazo menor/);
+    assert.match(dpa, /ciclo máximo de 90 dias, incluindo cópias locais/);
+    for (const linha of ['Até 10 anos após o término', 'em regra cinco anos', 'Seis meses', '12 meses, salvo necessidade', 'eliminar 30 dias após a festa', 'Ciclo máximo de 90 dias'])
+        assert.ok(privacidade.includes(linha), `tabela de retenção aprovada: ${linha}`);
+    const decisoes = Object.values(DOCUMENTOS).flatMap((d) => marcadoresPendentes(d).filter((m) => m.startsWith(MARCADORES.DECISAO)));
+    assert.equal(decisoes.length, 1, 'só o ponto urgente 4 (IA no WhatsApp) continua sem decisão');
+    assert.match(decisoes[0], /^\[DECISÃO PENDENTE: ponto urgente 4 /);
     assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261021.2) está publicado; o aviso descreve o que existe');
     assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 8);
     assert.equal(privacidade.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 5);
     assert.equal(dpa.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 3);
     // Lista completa: qualquer marcador novo ou resolvido aparece na revisão do teste.
-    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 15, PRIVACIDADE: 18, DPA: 10 });
+    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 14, PRIVACIDADE: 17, DPA: 9 });
 });
 
 test('privacidade v2 sobre a minuta5a (#199): a seção de IA mantém a âncora e os compromissos dos convites com IA publicados', () => {
