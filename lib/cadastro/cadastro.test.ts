@@ -49,10 +49,10 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
     assert.equal(textoCanonico({ documento: 'TERMOS_USO', titulo: 'T', versao: '2026-01-01', minuta: true, rota: '/termos', secoes: [{ titulo: 'A', paragrafos: ['b', 'c'] }] }), 'T\nVersão 2026-01-01\nA\nb\nc');
 });
 
-test('documentos legais 21/10 (v2, parecer Astra): versões novas, responsável por marcador, DPA incorporado aos Termos e pendências listadas', () => {
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-21-minuta');
-    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-21-minuta6');
-    assert.equal(DOCUMENTOS.DPA.versao, '2026-10-21-minuta');
+test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões novas, responsável por marcador, DPA incorporado aos Termos e pendências listadas', () => {
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-22-minuta');
+    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-22-minuta6');
+    assert.equal(DOCUMENTOS.DPA.versao, '2026-10-22-minuta');
     for (const d of Object.values(DOCUMENTOS)) {
         const texto = textoCanonico(d);
         assert.match(texto, /contato@demerzellabs\.com\.br/, `${d.documento}: canal oficial`);
@@ -101,12 +101,26 @@ test('documentos legais 21/10 (v2, parecer Astra): versões novas, responsável 
         [privacidade, /\[DECISÃO PENDENTE: L10 /], [privacidade, /\[DECISÃO PENDENTE: L11 /], [privacidade, /\[DECISÃO PENDENTE: tabela de retenção/],
         [termos, /\[DECISÃO PENDENTE: reajuste /], [dpa, /\[DECISÃO PENDENTE: tabela de retenção/],
     ] as const) assert.match(texto, padrao);
-    assert.ok(privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: comportamento planejado depende do consentimento');
+    assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261021.2) está publicado; o aviso descreve o que existe');
     assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 8);
     assert.equal(privacidade.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 5);
     assert.equal(dpa.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 3);
     // Lista completa: qualquer marcador novo ou resolvido aparece na revisão do teste.
-    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 15, PRIVACIDADE: 19, DPA: 10 });
+    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 15, PRIVACIDADE: 18, DPA: 10 });
+});
+
+test('privacidade v2 sobre a minuta5a (#199): a seção de IA mantém a âncora e os compromissos dos convites com IA publicados', () => {
+    const ia = DOCUMENTOS.PRIVACIDADE.secoes.find((s) => s.titulo === 'Recursos de inteligência artificial');
+    assert.equal(ia?.id, 'inteligencia-artificial', 'LINK_AVISO_IA do editor de convites');
+    const texto = ia!.paragrafos.join(' ');
+    for (const trecho of [/somente quando habilitado, o Google Gemini; o provedor utilizado é informado no momento da geração/, /nome e idade da criança, data, local e endereço do evento e fotografia opcional/,
+        /autorização específica do responsável legal/, /a cada geração/, /É possível criar o convite sem IA/, /revogada para usos futuros no editor do convite ou pelo canal de privacidade/,
+        /Provedores, finalidades e condições de armazenamento constam da relação de prestadores/, /A ativação de cada recurso depende da verificação de suas condições contratuais/])
+        assert.match(texto, trecho);
+    const prestadores = textoCanonico(DOCUMENTOS.PRIVACIDADE);
+    assert.match(prestadores, /Google Gemini quando habilitado para geração de imagens e convites/, 'R2-P3-2: convites e Gemini na seção de prestadores');
+    assert.match(prestadores, /Google Gemini \| Geração de artes de convite com IA \| .+ \| Condicional: somente quando habilitado/);
+    assert.match(prestadores, /OpenAI \| Recursos de IA, inclusive geração de convites/);
 });
 
 test('cadastro: telas e API apontam para o Acordo de Tratamento de Dados; a rota pública existe', () => {
@@ -118,7 +132,7 @@ test('cadastro: telas e API apontam para o Acordo de Tratamento de Dados; a rota
     assert.match(readFileSync('components/cadastro/DocumentoLegal.tsx', 'utf8'), /id=\{s\.id\}/);
     const ancoras = (d: keyof typeof DOCUMENTOS) => DOCUMENTOS[d].secoes.flatMap((s) => s.id ? [s.id] : []);
     for (const id of ['cancelamento', 'contato']) assert.ok(ancoras('TERMOS_USO').includes(id), `/termos#${id}`);
-    for (const id of ['tratamento-de-dados', 'exclusao-de-dados']) assert.ok(ancoras('PRIVACIDADE').includes(id), `/privacidade#${id}`);
+    for (const id of ['tratamento-de-dados', 'exclusao-de-dados', 'inteligencia-artificial']) assert.ok(ancoras('PRIVACIDADE').includes(id), `/privacidade#${id}`);
 });
 
 test('cadastro só abre com flag, e-mail configurado e criação direta desligada', () => {
@@ -142,6 +156,9 @@ test('pedido: e-mail normalizado; exige aceites da versão vigente e senha váli
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao: '2026-10-13-minuta' }))), 'DADOS_INVALIDOS', 'termos anteriores ao canal único também exigem novo aceite');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao: '2026-10-20-minuta' }))), 'DADOS_INVALIDOS', 'termos publicados em 20/10 não cobrem o DPA incorporado na v2');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-20-minuta5' }))), 'DADOS_INVALIDOS', 'o aviso publicado em 20/10 exige aceite do texto v2');
+    assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: '2026-10-21-minuta5a' }))), 'DADOS_INVALIDOS', 'o aviso publicado em 21/10 (#199, convites com IA) exige aceite do texto v2');
+    for (const [termosVersao, privacidadeVersao] of [['2026-10-21-minuta', '2026-10-22-minuta6'], [versaoVigente('TERMOS_USO').versao, '2026-10-21-minuta6']])
+        assert.equal(codigo(() => validarPedidoCadastro(pedido({ termosVersao, privacidadeVersao }))), 'DADOS_INVALIDOS', 'a primeira candidata v2 (21/10, nunca publicada) não vale');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ privacidadeVersao: versaoVigente('DPA').versao }))), 'DADOS_INVALIDOS', 'a versão do DPA não substitui a da privacidade');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ senha: 'curta', confirmacao: 'curta' }))), 'SENHA_INVALIDA');
     assert.equal(codigo(() => validarPedidoCadastro(pedido({ confirmacao: 'outra-senha-1' }))), 'SENHA_INVALIDA');
