@@ -94,7 +94,7 @@ arquivos/contratos/<documento_id>.pdf   PDF de cada documento de contrato (contr
 - **Risco aceito, para decisão de Felipe:** uma suspensão **por segurança**, como conta comprometida, também deixa exportar.
   - Hoje não há como distinguir o motivo sem migration: o motivo da suspensão é texto livre.
   - Se for preciso bloquear nesse caso, a saída sem migration é revogar ou suspender o vínculo da Gestão afetada, o que fecha também a exportação.
-  - A saída com migration (089) é uma marca "suspensão por segurança" na empresa.
+  - A saída com migration é uma marca "suspensão por segurança" na empresa, no próximo número livre. A 089 foi tomada em 21/10 pelo trabalho local de cancelamento e devolução; conferir colisões em todos os clones antes de numerar.
 
 ## Limites
 
