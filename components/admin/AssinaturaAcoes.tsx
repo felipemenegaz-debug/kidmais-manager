@@ -7,6 +7,7 @@ import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
+import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
 
 /**
  * Ações de cobrança da tela Assinatura (E8, Asaas sandbox). Só a Gestão contrata ou cancela; a Equipe vê a situação.
@@ -35,6 +36,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
     const [senha, setSenha] = useState('');
     const [motivo, setMotivo] = useState('');
     const [aviso, setAviso] = useState('');
+    const [chaveCancelamento, setChaveCancelamento] = useState('');
     const [cicloPlano, setCicloPlano] = useState<'MENSAL' | 'ANUAL'>('MENSAL');
     const a = dados.assinatura;
     if (!a)
@@ -60,10 +62,12 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         try {
             const auth = await reautenticarSessao(senha);
             if (!auth.ok) { setErro(auth.senhaIncorreta ? 'Senha incorreta. Nada foi alterado.' : auth.erro); return; }
-            const r = await postar<{ situacao: string }>('/api/admin/assinatura/cancelamento', { confirmar: true, motivo: motivo.trim() });
+            const r = await postar<{ situacao: string; protocolo: string | null }>('/api/admin/assinatura/cancelamento', { confirmar: true, motivo: motivo.trim(), chave: chaveCancelamento });
             if (!r.ok) { setErro(r.erro); return; }
             setCancelando(false);
-            setAviso(r.data.situacao === 'CANCELADA_FIM_PERIODO' ? `Assinatura cancelada. O acesso continua até ${a?.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}.` : 'Cancelamento registrado.');
+            // Confirmação imediata com protocolo (089). Sem a 089 no ambiente, o protocolo vem nulo e a mensagem é a de antes.
+            const protocolo = r.data.protocolo ? ` Protocolo: ${r.data.protocolo}.` : '';
+            setAviso(r.data.situacao === 'CANCELADA_FIM_PERIODO' ? `Assinatura cancelada.${protocolo} O acesso continua até ${a?.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}.` : `Cancelamento registrado.${protocolo}`);
             recarregar();
         }
         finally {
@@ -73,7 +77,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
     }
 
     const titulo = pagando ? 'Sua assinatura' : 'Contratar';
-    return <section className={workspace.card} aria-labelledby="t-contratar" style={{ maxWidth: 720 }} data-assinatura-acoes>
+    return <><section className={workspace.card} aria-labelledby="t-contratar" style={{ maxWidth: 720 }} data-assinatura-acoes>
         <h2 id="t-contratar">{titulo}</h2>
         {erro && <p role="alert">{erro}</p>}
         {aviso && <p role="status">{aviso}</p>}
@@ -130,10 +134,10 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             {!ativaNoProvedor && dados.ofertas?.planoAtual && <p>A assinatura mantém seu histórico. Para recontratar ou mudar de plano, <Link href={ROTA_AJUDA}>fale com o atendimento</Link>.</p>}
         </>}
         {dados.gestao && cobranca?.disponivel && pagando && ativaNoProvedor && !cancelando && <p>
-            <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setErro(''); setAviso(''); }}>Cancelar ao fim do período…</button>
+            <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setChaveCancelamento(globalThis.crypto?.randomUUID?.() ?? ''); setErro(''); setAviso(''); }}>Cancelar ao fim do período…</button>
         </p>}
         {cancelando && <form onSubmit={(e) => { e.preventDefault(); if (senha) void cancelar(); }} data-cancelamento>
-            <p>O acesso completo continua até {a.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}. Depois disso a empresa fica em somente leitura. Cobranças em aberto são removidas; nada é apagado.</p>
+            <p>Sem multa. A renovação é cancelada e o acesso completo continua até {a.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}. Depois disso a empresa fica em somente leitura por 60 dias, com exportação. Cobranças em aberto são removidas; nada é apagado. Você recebe um protocolo na hora.</p>
             <label>Motivo (opcional)<input value={motivo} maxLength={500} onChange={(e) => setMotivo(e.target.value)} /></label>
             <label>Sua senha<input type="password" autoComplete="current-password" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} required /></label>
             <p style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -141,7 +145,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                 <button type="button" disabled={ocupado} onClick={() => { setCancelando(false); setSenha(''); }}>Voltar</button>
             </p>
         </form>}
-    </section>;
+    </section>
+    <EncerramentoComDevolucao dados={dados} recarregar={recarregar} /></>;
 }
 
 /** Tela Assinatura com as ações de cobrança (componente cliente: a página de servidor não passa funções). */
