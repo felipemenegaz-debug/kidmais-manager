@@ -53,7 +53,7 @@ export const planos: Plano[] = [
         { texto: 'Orçamento online', recursos: ['orcamento'], excluido: true },
         { texto: 'Copiloto de IA', recursos: ['copiloto'], excluido: true },
     ] },
-    { id: 'profissional', ...planosComerciais.profissional, descricao: 'Para quem quer vender pela internet e controlar o caixa.', destaque: true, itens: [
+    { id: 'profissional', ...planosComerciais.profissional, descricao: 'Para quem quer o caixa completo e uma equipe maior no sistema.', destaque: true, itens: [
         { texto: 'Tudo do Essencial, mais:', recursos: [], introducao: true },
         { texto: 'Até 10 usuários', recursos: ['permissoes'] },
         { texto: 'Orçamento online pela página do buffet', recursos: ['orcamento'] },
@@ -61,15 +61,15 @@ export const planos: Plano[] = [
         { texto: 'Importação por IA sempre que precisar, com cota', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },
         { texto: 'Wall-e no WhatsApp como adicional', recursos: ['walle_whatsapp'] },
-        { texto: 'Suporte por WhatsApp', recursos: ['suporte'] },
     ] },
-    { id: 'premium', ...planosComerciais.premium, descricao: 'Para buffets com equipe grande que querem a IA trabalhando junto.', itens: [
+    { id: 'premium', ...planosComerciais.premium, descricao: 'Para buffets com equipe grande e implantação acompanhada de perto.', itens: [
         { texto: 'Tudo do Profissional, mais:', recursos: [], introducao: true },
         { texto: 'Usuários ilimitados', recursos: ['permissoes'] },
         { texto: 'Importação por IA sem cota', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Copiloto de IA, franquia ampla', recursos: ['copiloto'] },
         { texto: 'Wall-e no WhatsApp com franquia incluída', recursos: ['walle_whatsapp'] },
-        { texto: 'Suporte prioritário', recursos: ['suporte'] },
+        // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
+        { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
         { texto: 'Implantação dedicada', recursos: ['implantacao'] },
     ] },
 ];

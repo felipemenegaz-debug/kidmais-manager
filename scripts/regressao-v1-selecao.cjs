@@ -188,6 +188,11 @@ const ESTADO_POSTGRES = {
   "lib/marketing/aplicador-085-086.postgres.test.ts": { descartavel: "084" },
   // OBS-2: Convites (084) e WhatsApp (083) com o Marketing presente; downs 086 → 085 → 084 e recusas com dados.
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
+  // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
+  "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
+  // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
+  "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

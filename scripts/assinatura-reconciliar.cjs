@@ -22,7 +22,13 @@
  * KIDMAIS_DEPLOY_ENV=production e ASAAS_AMBIENTE=producao. `--aplicar` é recusado em produção: divergência encontrada sai
  * com código 2 (o cron falha e avisa) e a correção é pelo reenvio do webhook no painel do Asaas ou por pacote autorizado.
  * TLS em produção: a mesma política do serviço (DATABASE_SSL=true obrigatório; lib/db/postgres.ts), nunca mais frouxa.
+ *
+ * ALARME POR IDADE (D-C4, aprovada por Felipe em 20/10/2026; só na conferência de produção): a saída 2 vem só de item novo
+ * ou de item cuja idade cai num dia de aviso (1, 3, 7 e depois a cada 7); os demais saem em `pendentesConhecidos`, sem
+ * alarme. Regra, idades e janelas: classificarConferencia e docs/CRON_ASSINATURA_PRODUCAO_20261020.md §5a. Staging inalterado.
  */
+/** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
+const LIMITE_EVENTOS = 500;
 const BANCOS_PROIBIDOS = new Set(['kidmais_manager', 'kidmais-production']);
 const PRODUCAO = Object.freeze({ database: 'kidmais_production', host: 'dpg-dak750gae00c73fudmg0-a', port: 5432 });
 
@@ -179,7 +185,7 @@ function argumentos(argv) {
  * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
  * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
  */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente }) {
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
@@ -196,15 +202,25 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     const relatorio = { modo, banco, eventos: {}, empresas: {} };
     const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
     const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
-    for (const eventoId of await sinc.eventosPendentes(client, 500)) {
+    // D-C4 (só quando a conferência de produção passa `idadesDosEventos`): um item por evento e por empresa divergente.
+    const itens = [];
+    const ids = await sinc.eventosPendentes(client, LIMITE_EVENTOS);
+    const idades = idadesDosEventos ? await idadesDosEventos(client, ids) : null;
+    for (const eventoId of ids) {
         const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente }));
-        conta(relatorio.eventos, r.erro ? `ERRO_${r.erro}` : r.situacao);
+        const chave = r.erro ? `ERRO_${r.erro}` : r.situacao;
+        conta(relatorio.eventos, chave);
+        const idade = idades?.eventos?.get(String(eventoId));
+        itens.push({ item: idade?.item ?? 'EVENTO', resultado: chave, motivo: r.motivo, recebidoMs: idade?.recebidoMs ?? null });
     }
     for (const empresaId of await sinc.empresasComProvedor(client)) {
         const r = await item(() => sinc.sincronizarEmpresa(client, empresaId, { provedor: provedorUsado }, { tipo: 'RECONCILIACAO' }));
         const chave = r.erro ? `ERRO_${r.erro}` : r.resultado === 'SINCRONIZADA' ? (r.mudou ? `MUDOU_${r.antes}_PARA_${r.depois}` : 'SEM_MUDANCA') : r.resultado;
         conta(relatorio.empresas, chave);
+        if (chave !== 'SEM_MUDANCA') itens.push({ item: 'EMPRESA', resultado: chave, motivo: r.motivo, recebidoMs: null });
     }
+    // P2-2: a lista traz só os LIMITE_EVENTOS mais antigos; no limite, um evento novo pode ter ficado de fora → alarma.
+    if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs, { listaNoLimite: ids.length >= LIMITE_EVENTOS }));
 
     relatorio.incompleto = Object.entries(relatorio.eventos).some(([k, n]) => n > 0 && (k === 'FALHOU' || k.startsWith('ERRO_')))
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')));
@@ -212,6 +228,117 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     relatorio.divergente = Object.values(relatorio.eventos).some((n) => n > 0)
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && k !== 'SEM_MUDANCA');
     return relatorio;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// D-C4 — alarme por idade na conferência de PRODUÇÃO (sem estado: nada é gravado; a idade vem do próprio banco)
+// ---------------------------------------------------------------------------------------------------------------------
+/** Hora UTC da agenda do cron de produção (`0 9 * * *`, infra/render-assinatura-cron-production.yaml; teste amarra os dois). */
+const HORA_CRON_UTC = 9;
+const HORA_MS = 3_600_000;
+const DIA_MS = 24 * HORA_MS;
+/** Execução até 1 h ANTES das 09:00 (relógio adiantado, disparo manual cedo) ainda conta como a do dia: não perde o marco. */
+const ANTECIPACAO_TOLERADA_MS = HORA_MS;
+
+/**
+ * Referência do dia da execução: as 09:00:00 UTC (horário nominal do cron) mais recentes, com a antecipação tolerada.
+ * Toda execução entre 08:00 UTC de um dia e 08:00 UTC do dia seguinte usa a MESMA referência; execuções diárias
+ * consecutivas usam referências exatamente 24 h distantes, qualquer que seja o atraso de cada uma (< 23 h).
+ */
+function referenciaDoDia(agoraMs) {
+    const deslocamento = HORA_CRON_UTC * HORA_MS;
+    return Math.floor((agoraMs + ANTECIPACAO_TOLERADA_MS - deslocamento) / DIA_MS) * DIA_MS + deslocamento;
+}
+
+/** Dia do item = dias completos entre `recebido_em` e a referência (recebido depois dela = 0). Sem os dois números = null. */
+function diaDoItem(recebidoMs, referenciaMs) {
+    if (typeof recebidoMs !== 'number' || typeof referenciaMs !== 'number' || !Number.isFinite(recebidoMs) || !Number.isFinite(referenciaMs))
+        return null;
+    return Math.max(0, Math.floor((referenciaMs - recebidoMs) / DIA_MS));
+}
+
+/** Dias de aviso: 0 (novo), 1, 3, 7 e depois a cada 7 (14, 21, 28…). */
+const diaDeAviso = (dia) => dia === 0 || dia === 1 || dia === 3 || (dia >= 7 && dia % 7 === 0);
+function proximoDiaDeAviso(dia) {
+    let d = dia + 1;
+    while (!diaDeAviso(d)) d++;
+    return d;
+}
+
+/** Só o código do motivo (ex.: `REVISAO_HUMANA: ASSINATURAS_AMBIGUAS`): maiúsculas, dígitos e `_`; nada de ids, nomes ou texto livre. */
+function motivoSeguro(motivo) {
+    if (typeof motivo !== 'string') return null;
+    const codigos = [];
+    for (const parte of motivo.split(': ').slice(0, 2)) {
+        if (!/^[A-Z][A-Z0-9_]{0,59}$/.test(parte)) break;
+        codigos.push(parte);
+    }
+    return codigos.length ? codigos.join(': ') : null;
+}
+
+/**
+ * Falha DESTA execução — a conferência não conseguiu verificar o item hoje, então não é pendência antiga e alarma sempre:
+ * exceção no item (ERRO_*), provedor fora (PROVEDOR_INDISPONIVEL), lista do provedor acima do limite conferido
+ * (LISTA_INCOMPLETA), provedor sem as operações da reconciliação (PROVEDOR_SEM_ESCRITA) ou erro interno (ERRO_INTERNO).
+ */
+const MOTIVOS_ERRO_DA_EXECUCAO = /^(?:PROVEDOR_INDISPONIVEL|LISTA_INCOMPLETA|PROVEDOR_SEM_ESCRITA|ERRO_INTERNO)(?::|$)/;
+const erroDaExecucao = (i) => i.resultado.startsWith('ERRO_') || MOTIVOS_ERRO_DA_EXECUCAO.test(typeof i.motivo === 'string' ? i.motivo : '');
+
+/** Item de alarme da própria lista (não é evento nem empresa: fica fora da conferência de contagem). */
+const ITEM_LISTA = 'LISTA_EVENTOS';
+
+/**
+ * Classifica os itens da conferência de produção (D-C4). Saída: `alarme.itens` (cada um com o aviso que o fez alarmar) e
+ * `pendentesConhecidos` (idade, motivo e próximo dia de aviso). Nenhum id, evento_id, empresa ou texto livre sai daqui.
+ *   - lista de eventos no limite (`listaNoLimite`) → alarma (LISTA_LIMITE_ATINGIDO: pode haver evento novo fora da lista);
+ *   - erro desta execução (ERRO_*, PROVEDOR_INDISPONIVEL, LISTA_INCOMPLETA, PROVEDOR_SEM_ESCRITA, ERRO_INTERNO) → alarma
+ *     (ERRO_NESTA_EXECUCAO);
+ *   - empresa com resultado ≠ SEM_MUDANCA → alarma sempre (EMPRESA_SEM_IDADE: não há no banco quando a divergência começou);
+ *   - evento/pendência sem `recebido_em` legível (ou sem `agora`) → alarma (SEM_IDADE: falha fechada);
+ *   - dia 0 → NOVO; dias 1, 3, 7, 14, 21… → DIA_n; os demais → pendentesConhecidos (sem alarme).
+ */
+function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) {
+    const referenciaMs = typeof agoraMs === 'number' && Number.isFinite(agoraMs) ? referenciaDoDia(agoraMs) : null;
+    const alarmes = [];
+    if (listaNoLimite)
+        alarmes.push({ item: ITEM_LISTA, resultado: `LIMITE_${LIMITE_EVENTOS}`, motivo: 'LISTA_LIMITE_ATINGIDO', aviso: 'LISTA_LIMITE_ATINGIDO' });
+    const pendentesConhecidos = [];
+    for (const i of itens) {
+        const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
+        if (erroDaExecucao(i)) { alarmes.push({ ...base, aviso: 'ERRO_NESTA_EXECUCAO' }); continue; }
+        if (i.item === 'EMPRESA') { alarmes.push({ ...base, aviso: 'EMPRESA_SEM_IDADE' }); continue; }
+        const dia = diaDoItem(i.recebidoMs, referenciaMs);
+        if (dia === null) { alarmes.push({ ...base, aviso: 'SEM_IDADE' }); continue; }
+        if (diaDeAviso(dia)) alarmes.push({ ...base, idadeDias: dia, aviso: dia === 0 ? 'NOVO' : `DIA_${dia}` });
+        else pendentesConhecidos.push({ ...base, idadeDias: dia, proximoAvisoDia: proximoDiaDeAviso(dia) });
+    }
+    return {
+        alarme: { regra: 'D-C4', referencia: referenciaMs === null ? null : new Date(referenciaMs).toISOString(), itens: alarmes },
+        pendentesConhecidos,
+    };
+}
+
+/**
+ * Idade dos eventos listados (leitura, fora das transações por item). `recebido_em` é NOT NULL, gravado pelo banco na
+ * inserção e imutável (guarda da 068); cada pendência interna é uma linha nova (evento_id único: UUID aleatório, ou o id da
+ * intenção em `kidmais:vinculo:`) e um evento concluído não reabre — a idade nunca é reiniciada. `agora` é o relógio do banco, o mesmo de `recebido_em`.
+ */
+const SQL_IDADES_EVENTOS = `SELECT id::text AS id, (extract(epoch FROM recebido_em) * 1000)::float8 AS recebido_ms,
+    CASE WHEN tipo <> 'KIDMAIS_RECONCILIAR_CONTRATACAO' OR evento_id NOT LIKE 'kidmais:%' THEN 'EVENTO_ASAAS'
+         WHEN evento_id LIKE 'kidmais:criacao:%' THEN 'PENDENCIA_CRIACAO'
+         WHEN evento_id LIKE 'kidmais:contratacao:%' THEN 'PENDENCIA_CONTRATACAO'
+         WHEN evento_id LIKE 'kidmais:vinculo:%' THEN 'PENDENCIA_VINCULO'
+         WHEN evento_id LIKE 'kidmais:remocao:%' THEN 'MARCADOR_REMOCAO'
+         ELSE 'PENDENCIA_INTERNA' END AS item
+  FROM cobranca_eventos WHERE id = ANY($1::uuid[])`;
+async function lerIdadesDosEventos(client, ids) {
+    const agora = (await client.query('SELECT (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS agora_ms')).rows[0];
+    const eventos = new Map();
+    if (ids.length) {
+        for (const l of (await client.query(SQL_IDADES_EVENTOS, [ids])).rows)
+            eventos.set(String(l.id), { item: l.item, recebidoMs: l.recebido_ms === null ? null : Number(l.recebido_ms) });
+    }
+    return { agoraMs: agora ? Number(agora.agora_ms) : null, eventos };
 }
 
 /**
@@ -231,9 +358,22 @@ async function conferirKidmais(client) {
     return { ...k, isenta: k.isencoes === 1, violada };
 }
 
-/** Produção: só conferência. Saída 2 com divergência, falha ou gratuidade da Kidmais violada (o cron falha e notifica). */
+/**
+ * Produção: só conferência. Saída 2 com gratuidade da Kidmais violada (sempre) ou, com a classificação D-C4 presente, com
+ * algum item em alarme; pendências antigas fora dos dias de aviso saem 0 e ficam em `pendentesConhecidos`. Sem a
+ * classificação (ou com contagem que não fecha), vale a regra anterior: divergência ou falha = 2 (falha fechada).
+ * Staging (producao=false): inalterado — 2 com item falho/recusado ou Kidmais violada.
+ */
 function codigoDeSaida(relatorio, producao) {
-    if (relatorio.incompleto || relatorio.kidmais?.violada) return 2;
+    if (relatorio.kidmais?.violada) return 2;
+    if (producao && Array.isArray(relatorio.alarme?.itens) && Array.isArray(relatorio.pendentesConhecidos)) {
+        const soma = (grupo, filtro = () => true) => Object.entries(grupo ?? {}).reduce((t, [k, n]) => t + (filtro(k) ? n : 0), 0);
+        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA');
+        const classificados = relatorio.alarme.itens.filter((i) => i.item !== ITEM_LISTA).length + relatorio.pendentesConhecidos.length;
+        if (classificados !== total) return 2;
+        return relatorio.alarme.itens.length > 0 ? 2 : 0;
+    }
+    if (relatorio.incompleto) return 2;
     return producao && relatorio.divergente ? 2 : 0;
 }
 
@@ -268,9 +408,12 @@ async function main() {
         if (!(await client.query("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0].ok)
             throw new Error('Banco sem a 068 (cobranca_eventos): nada a reconciliar.');
         const transacaoIndependente = transacaoIndependenteDaExecucao(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS);
-        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente });
+        // D-C4: só a conferência de produção classifica por idade; staging (simular/aplicar) segue sem classificação.
+        const idadesDosEventos = alvo.producao ? lerIdadesDosEventos : undefined;
+        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente, idadesDosEventos });
         relatorio.kidmais = await conferirKidmais(client);
-        // Saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147), gratuidade violada ou divergência em produção.
+        // Staging: saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147) ou gratuidade violada.
+        // Produção: gratuidade violada ou item em alarme pela regra D-C4 (codigoDeSaida).
         process.exitCode = codigoDeSaida(relatorio, alvo.producao);
         console.log(JSON.stringify(relatorio, null, 2));
         if (!aplicar)
@@ -288,4 +431,5 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
+    HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS };

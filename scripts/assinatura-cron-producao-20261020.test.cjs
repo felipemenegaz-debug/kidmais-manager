@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const {planejar} = require('./assinatura-cron.cjs');
-const {validarAlvo, opcoesConexao, codigoDeSaida, executarCiclo, PRODUCAO} = require('./assinatura-reconciliar.cjs');
+const {validarAlvo, opcoesConexao, codigoDeSaida, executarCiclo, PRODUCAO, HORA_CRON_UTC} = require('./assinatura-reconciliar.cjs');
 
 const raiz = path.resolve(__dirname, '..');
 const texto = fs.readFileSync(path.join(raiz, 'infra/render-assinatura-cron-production.yaml'), 'utf8');
@@ -47,6 +47,8 @@ const rodarCron = env => spawnSync(process.execPath, [path.join(__dirname, 'assi
 test('definição: serviço, branch production, diário, mesmos build/start/plano/região do cron de staging, variáveis exatas', () => {
   assert.equal(servico.type, 'cron'); assert.equal(servico.name, 'kidmais-assinatura-reconciliar-production');
   assert.equal(servico.branch, 'production'); assert.equal(servico.autoDeployTrigger, 'off'); assert.equal(servico.schedule, '0 9 * * *');
+  // D-C4: as janelas de aviso são ancoradas no horário da agenda; mudar um sem o outro desloca os dias de aviso.
+  assert.equal(servico.schedule, `0 ${HORA_CRON_UTC} * * *`, 'agenda diária na hora de referência da regra D-C4');
   for (const k of ['runtime', 'plan', 'region', 'repo', 'buildCommand', 'startCommand']) assert.equal(servico[k], staging[k], k);
   assert.deepEqual(fixos, {NODE_VERSION: '22.23.2', NODE_ENV: 'production', KIDMAIS_DEPLOY_ENV: 'production', KIDMAIS_RECONCILIAR_MODO: 'aguardando',
     KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO: '074-075', KIDMAIS_RECONCILIAR_ALVO: 'kidmais_production@dpg-dak750gae00c73fudmg0-a:5432', ASAAS_AMBIENTE: 'producao',

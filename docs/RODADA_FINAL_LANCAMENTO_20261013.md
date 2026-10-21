@@ -3,7 +3,9 @@
 **Atualização 20/10/2026 (preparado, não executado):** com 074a–086 já aplicadas em produção, o reparo dos cinco bloqueios
 passou a ter executor e blocos próprios ([REPARO_BLOQUEIOS_PRODUCAO_20261020.md](REPARO_BLOQUEIOS_PRODUCAO_20261020.md); o
 `cutover-lancamento-production.cjs` não é mais usado) e o cron de conferência de pagamentos (P6) tem definição revisável
-([CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md)).
+([CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md)). A prova de entrega de e-mail em produção
+(V6, equivalente ao E0) tem executor e blocos próprios ([EMAIL_PRODUCAO_20261020.md](EMAIL_PRODUCAO_20261020.md)), também
+preparados e não executados.
 
 Complementa [LANCAMENTO_VENDA_20261011.md](LANCAMENTO_VENDA_20261011.md). Tudo abaixo está **preparado e testado localmente**; nada
 foi executado em staging ou produção depois do E0. Cada bloco remoto pede autorização de Felipe antes de começar. Quem executa:
@@ -40,6 +42,8 @@ Validação do conjunto: `tsc` 0; ESLint 0 erros; estática 2402/2402; scripts 2
 
 ## Bloco 2 — janela de staging: S3 (cadastro real) + S4 (pagamentos sandbox) juntos
 
+> **Superado em 20/10/2026.** A janela rodou em 20/10 ([JANELA_S3_S4_STAGING_20261020.md](JANELA_S3_S4_STAGING_20261020.md)): S3 APROVADO, S4 parado no PRECHECK (Asaas sandbox 401, nada criado). A próxima janela segue [HOMOLOGACAO_S3_S4_STAGING_20261020.md](HOMOLOGACAO_S3_S4_STAGING_20261020.md); a tabela abaixo fica como histórico.
+
 Uma gravação de configuração, um deploy; no fim, uma restauração, um deploy. Antes das 20h (BRT). Sem outros testes em staging.
 
 | # | Quem | Passo | Esperado / parada |
@@ -68,7 +72,7 @@ a empresa `TESTE S3` (em teste, depois somente leitura), duas contas `+s3a/+s3b`
 | P5 | F (painel produção) | Variáveis, **uma etapa por vez** com smoke: (1) `EMAIL_PROVIDER=resend`, `EMAIL_REMETENTE=Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>`, `RESEND_API_KEY` (chave de produção); (2) `USUARIOS_CRIACAO_DIRETA=desativada`; (3) `ASSINATURA_REGULARIZACAO_DIAS=7`, `ASSINATURA_SOMENTE_LEITURA_DIAS=60`; (4) `ASAAS_AMBIENTE=producao`, `ASAAS_API_KEY` (`$aact_prod_…`), `ASAAS_WEBHOOK_TOKEN` + webhook no Asaas em `https://manager.kidmaisfestas.com/api/integracoes/asaas/webhook`; (5) `SITE_URL`, `SITE_RAZAO_SOCIAL`, `SITE_CNPJ`, `SITE_ENDERECO`, `SITE_ATENDIMENTO_EMAIL` ([valores aprovados](CONFIGURACAO_VENDA_APROVADA_20261011.json)); (6) `SITE_PRECOS_PUBLICADOS=true`; (7) `ASSINATURA_PLANOS_ATIVOS=true` | cada etapa: health 200 e a tela correspondente |
 | P6 | F (Render → New Cron Job) | Conferência diária: repositório, branch `production`, comando `node scripts/assinatura-cron.cjs`, agenda `0 9 * * *` (06:00 BRT); variáveis `KIDMAIS_DEPLOY_ENV=production`, `KIDMAIS_RECONCILIAR_MODO=conferir`, `KIDMAIS_RECONCILIAR_DATABASE_URL` (URL **interna** do banco de produção), `KIDMAIS_RECONCILIAR_ALVO=kidmais_production@dpg-dak750gae00c73fudmg0-a:5432`, `KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO=074-075`, `DATABASE_SSL` igual ao web, `ASAAS_AMBIENTE/ASAAS_API_KEY/ASAAS_WEBHOOK_TOKEN` iguais ao web; notificação de falha ligada. “Trigger run” uma vez | saída 0, `kidmais.violada: false` |
 | P7 | F | **Por último:** `CADASTRO_PUBLICO_ATIVO=true` | `/cadastro` abre |
-| P8 | F | Primeira venda assistida (Essencial mensal, cobrança real), webhook confirma, nota emitida no Asaas; conferência do dia seguinte com saída 0 | PASS |
+| P8 | F | Primeira venda assistida (Essencial mensal, cobrança real), webhook confirma, nota emitida no Asaas; conferência do dia seguinte com saída 0 e `pendentesConhecidos` vazio (regra D-C4, [CRON_ASSINATURA_PRODUCAO_20261020.md](CRON_ASSINATURA_PRODUCAO_20261020.md) §5a) | PASS |
 
 Recuperação: variáveis em ordem inversa (cadastro primeiro); código → redeploy anterior; banco → nunca DOWN com dados (correção para
 frente); P2 interrompido → marcadores impedem repetição, conferir por leitura antes de qualquer passo.
