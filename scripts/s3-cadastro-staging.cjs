@@ -5,7 +5,7 @@
 //   --s3-depois <CNPJ>         empresa criada pelo CNPJ sintético: ATIVA, teste de 15 dias, uma Gestão, sem cobrança; Kidmais intacta
 //   --s3-restaurado            chaves da janela de volta ao estado anterior (ausentes); sem banco
 const assert=require('node:assert/strict');
-const SHA='e819772dcf71ebd2b47c02ed38fcf5ade49d0b9d';
+const SHA='73618a298673b837ef52b0380b74d22b3cab9edc'; // candidata da janela de 20/10 (antes: e819772, 13/10)
 const ALVO=Object.freeze({servico:'srv-daif418ae00c73e8k2gg',host:'dpg-daidko3m8hqs73ce4jt0-a',database:'kidmais_staging_1z91'});
 const REMETENTE='Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>';
 const CHAVES_JANELA=['CADASTRO_PUBLICO_ATIVO','USUARIOS_CRIACAO_DIRETA','ASSINATURA_PLANOS_ATIVOS','COTACAO_PUBLICA_POR_EMPRESA'];

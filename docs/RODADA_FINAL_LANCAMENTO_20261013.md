@@ -42,6 +42,8 @@ Validação do conjunto: `tsc` 0; ESLint 0 erros; estática 2402/2402; scripts 2
 
 ## Bloco 2 — janela de staging: S3 (cadastro real) + S4 (pagamentos sandbox) juntos
 
+> **Superado em 20/10/2026.** A janela rodou em 20/10 ([JANELA_S3_S4_STAGING_20261020.md](JANELA_S3_S4_STAGING_20261020.md)): S3 APROVADO, S4 parado no PRECHECK (Asaas sandbox 401, nada criado). A próxima janela segue [HOMOLOGACAO_S3_S4_STAGING_20261020.md](HOMOLOGACAO_S3_S4_STAGING_20261020.md); a tabela abaixo fica como histórico.
+
 Uma gravação de configuração, um deploy; no fim, uma restauração, um deploy. Antes das 20h (BRT). Sem outros testes em staging.
 
 | # | Quem | Passo | Esperado / parada |

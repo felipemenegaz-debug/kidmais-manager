@@ -39,15 +39,17 @@ Executor novo: `scripts/homologacao-pagamento-renovacao-staging.cjs`, flag únic
 
 ## Fixtures (IDs novos; nenhum reaproveitado de rodada anterior)
 
+> **Preços atualizados em 20/10/2026** (tabela `2026-10-20`, #189): o executor já usa 197/397/697 e o Fundador de 40%; a tabela abaixo foi corrigida para os mesmos valores (antes 347/597). A nova janela está em [HOMOLOGACAO_S3_S4_STAGING_20261020.md](HOMOLOGACAO_S3_S4_STAGING_20261020.md).
+
 IDs gerados com `crypto.randomUUID()`. O teste varre todos os arquivos de `scripts/`, `docs/` e `database/` e confirma que nenhum ID, código, e-mail ou marcador aparece em outra rodada (ensaio 3/4/5, planos 1/2, Fundador 2, sonda, rascunhos de pagamento e de renovação, concorrência).
 
 | Fixture | Empresa | Usuário | `codigo` | Tipo | Plano/ciclo | Regular → Fundador (centavos) |
 |---|---|---|---|---|---|---|
 | F1 | `1d56ada8-d35e-4afd-a2e0-946b8e1bba05` | `aa17eb45-58a3-486c-b711-8e5106104483` | `hml-pr-essencial` | pagante | Essencial **mensal** | 19700 → 11820 |
-| F2 | `d4ca9a48-9c7d-4855-9d2f-de498c413e29` | `2f477463-1b40-4738-88cb-71208e0fc230` | `hml-pr-profissional` | pagante | Profissional **anual** | 347000 → 208200 |
+| F2 | `d4ca9a48-9c7d-4855-9d2f-de498c413e29` | `2f477463-1b40-4738-88cb-71208e0fc230` | `hml-pr-profissional` | pagante | Profissional **anual** | 397000 → 238200 |
 | F3 | `5cf7409e-6f99-4350-a816-c6555285ebae` | `71ce36b7-8732-4355-baaa-929975537cd2` | `hml-pr-isenta` | isenta | — | sem vaga |
 | F4 | `111866d0-df82-479e-a39d-79c6927aa42e` | `e90a5e92-b091-4c25-bd19-0c024feeac0a` | `hml-pr-teste` | teste (15 dias) | — | sem vaga |
-| F5 | `43e76c7e-b628-4d1c-9953-7aa6b72f3f65` | `aed63f4b-2a32-44df-90ab-c10eb2d9c5be` | `hml-pr-premium` | pagante | Premium **mensal** | 59700 → 35820 |
+| F5 | `43e76c7e-b628-4d1c-9953-7aa6b72f3f65` | `aed63f4b-2a32-44df-90ab-c10eb2d9c5be` | `hml-pr-premium` | pagante | Premium **mensal** | 69700 → 41820 |
 
 E-mails `hml-pr-<8 primeiros do usuário>@example.invalid`, senhas só em memória, documento sintético único (≠ CNPJ da Kidmais, ≠ beneficiários e documentos de teste existentes). Pagantes com teste encerrado há 1 h; F4 em teste vigente; F3 com isenção. Regras de pagamento (077) só em F4 (PIX à vista 5%) e F5 (8%); F2 sem regra (0%).
 
