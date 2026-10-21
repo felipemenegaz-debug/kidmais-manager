@@ -72,6 +72,8 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // contrato_assinaturas, com IP e navegador, por ser a evidência do contrato da própria empresa).
     aceites_documentos_legais: { ip: 'dado de segurança da sessão', user_agent: 'dado de segurança da sessão' },
     pagamento_eventos: { ip: 'dado de segurança da sessão', user_agent: 'dado de segurança da sessão', sessao_id: 'dado de segurança da sessão' },
+    // A prova do aceite é método, data, IP, navegador e hashes; o id interno da sessão administrativa não prova nada (P3-1).
+    contrato_assinaturas: { sessao_id: 'identificador interno da sessão (não é prova do aceite)' },
 };
 
 const BASE: readonly Entidade[] = [

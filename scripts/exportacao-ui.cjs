@@ -4,8 +4,10 @@
  * escrever). Nenhum .env, banco real, e-mail, provedor ou serviço Render. Execute com os três KIDMAIS_* de autorização
  * do descartável, KIDMAIS_PLAYWRIGHT_MODULE e Chrome.
  *
- *   - Gestão de empresa ATIVA: /admin/assinatura → "Baixar pacote completo (ZIP)" → arquivo baixado; manifesto, hashes,
- *     linhas e o código de conferência mostrado na tela conferem; links CSV avulsos continuam.
+ *   - Gestão de empresa ATIVA: /admin/assinatura → "Baixar pacote completo (ZIP)" (POST com CSRF) → arquivo baixado;
+ *     manifesto, hashes, linhas e o código de conferência mostrado na tela conferem; links CSV avulsos continuam.
+ *     A mesma pessoa, Gestão também de uma empresa SUSPENSA, baixa o pacote dela ali mesmo, sem trocar de empresa.
+ *   - Proteções: GET do pacote = 405; POST sem origem/CSRF = 403; CSV aberto por outro site (Sec-Fetch-Site) = 403.
  *   - Equipe: 403 no pacote.
  *   - Gestão de empresa SUSPENSA: tela "Sem empresa ativa" oferece o pacote da suspensa; o download confere.
  *   - Celular (390 px): sem rolagem horizontal.
@@ -70,6 +72,7 @@ async function principal() {
     await vinculo(A, gestaoA, 'REPRESENTANTE_AUTORIZADO');
     await vinculo(A, equipeA, 'ADMINISTRATIVO');
     await vinculo(S, gestaoS, 'REPRESENTANTE_AUTORIZADO');
+    await vinculo(S, gestaoA, 'REPRESENTANTE_AUTORIZADO');
     for (const [e, n] of [[A, 'Cliente Exporta UI 1'], [A, 'Cliente Exporta UI 2'], [S, 'Cliente Suspenso UI']])
       await client.query('INSERT INTO clientes(nome_completo, empresa_id) VALUES($1,$2)', [n, e]);
     await client.query("UPDATE empresas SET status='SUSPENSA' WHERE id=$1", [S]);
@@ -100,6 +103,10 @@ async function principal() {
       await page.waitForURL(url => !url.pathname.includes('/login'));
       return { contexto, page };
     }
+    async function csrfDe(contexto) {
+      const s = await contexto.request.get(`${base}/api/admin/autenticacao`).then(r => r.json());
+      return { origin: base, 'x-csrf-token': s.data.csrf, 'x-kidmais-sessao': s.data.sessaoId, 'content-type': 'application/json' };
+    }
     async function conferirPacote(download, codigoNaTela, empresaId, nomeArquivo) {
       const destino = path.join(relatorios, nomeArquivo);
       await download.saveAs(destino);
@@ -122,9 +129,9 @@ async function principal() {
       await page.getByRole('heading', { name: 'Exportar dados', exact: true }).waitFor();
       await page.getByRole('link', { name: 'Clientes (CSV)', exact: true }).waitFor();
       await page.getByRole('link', { name: 'Contas a receber (CSV)', exact: true }).waitFor();
-      const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar pacote completo (ZIP)', exact: true }).click()]);
-      await page.locator('[data-exportacao-pronta]').waitFor();
-      const codigo = (await page.locator('[data-manifesto-sha256]').innerText()).trim();
+      const [download] = await Promise.all([page.waitForEvent('download'), page.locator('[data-exportacao-dados="sessao"]').getByRole('button', { name: 'Baixar pacote completo (ZIP)', exact: true }).click()]);
+      await page.locator('[data-exportacao-dados="sessao"] [data-exportacao-pronta]').waitFor();
+      const codigo = (await page.locator('[data-exportacao-dados="sessao"] [data-manifesto-sha256]').innerText()).trim();
       assert.match(download.suggestedFilename(), /^kidmais-exportacao-ex-[0-9a-f]{6}-\d{8}T\d{6}Z\.zip$/);
       const m = await conferirPacote(download, codigo, A, 'ativa.zip');
       assert.equal(m.arquivos.find(a => a.entidade === 'clientes/clientes').linhas, 2);
@@ -132,19 +139,35 @@ async function principal() {
       // CSV avulso continua.
       const csv = await contexto.request.get(`${base}/api/admin/exportacao?tipo=clientes`);
       assert.equal(csv.status(), 200);
+      // Proteções da geração (P3-2).
+      assert.equal((await contexto.request.get(`${base}/api/admin/exportacao?tipo=completa`)).status(), 405, 'pacote não sai por GET');
+      assert.equal((await contexto.request.post(`${base}/api/admin/exportacao`, { data: { tipo: 'completa' } })).status(), 403, 'POST sem origem/CSRF');
+      const deFora = await contexto.request.get(`${base}/api/admin/exportacao?tipo=clientes`, { headers: { 'sec-fetch-site': 'cross-site' } });
+      assert.equal(deFora.status(), 403, 'CSV aberto por outro site');
+      // P3-4: a empresa suspensa da mesma pessoa aparece na tela Assinatura e baixa sem trocar de empresa.
+      const blocoSuspensa = page.locator('[data-exportacao-suspensas]');
+      await blocoSuspensa.getByRole('heading', { name: 'Buffet Suspenso UI', exact: true }).waitFor();
+      const [baixaS] = await Promise.all([page.waitForEvent('download'), blocoSuspensa.getByRole('button', { name: 'Baixar pacote completo (ZIP)', exact: true }).click()]);
+      await blocoSuspensa.locator('[data-exportacao-pronta]').waitFor();
+      const codigoS = (await blocoSuspensa.locator('[data-manifesto-sha256]').innerText()).trim();
+      const mS = await conferirPacote(baixaS, codigoS, S, 'suspensa-pela-ativa.zip');
+      assert.equal(mS.empresa.situacao, 'SUSPENSA');
+      const depois = await contexto.request.get(`${base}/api/admin/autenticacao`).then(r => r.json());
+      assert.equal(depois.data.contexto.empresaAtual.id, A, 'a sessão continua na empresa ativa');
+      await page.screenshot({ path: path.join(relatorios, 'assinatura-com-suspensa.png'), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`${base}/admin/assinatura`);
-      await page.getByRole('button', { name: 'Baixar pacote completo (ZIP)', exact: true }).waitFor();
+      await page.locator('[data-exportacao-dados="sessao"]').getByRole('button', { name: 'Baixar pacote completo (ZIP)', exact: true }).waitFor();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'sem rolagem horizontal no celular');
       await page.screenshot({ path: path.join(relatorios, 'celular-exportacao.png'), fullPage: true });
       await contexto.close();
-      resultados.push('Gestão (ativa): botão na tela Assinatura baixou o ZIP; código da tela = SHA-256 do MANIFESTO = auditoria; hashes e linhas conferem; CSV avulso 200; celular sem rolagem');
+      resultados.push('Gestão (ativa): botão na tela Assinatura baixou o ZIP (POST); código da tela = SHA-256 do MANIFESTO = auditoria; hashes e linhas conferem; CSV avulso 200; GET do pacote 405, POST sem CSRF 403, CSV de outro site 403; pacote da empresa suspensa da mesma pessoa baixado na Assinatura sem trocar de empresa; celular sem rolagem');
       console.log('E2E_EXPORTACAO_ATIVA_OK');
     }
     // Equipe: recusada.
     {
       const { contexto } = await entrar('equipe-exporta-ui@exemplo.test');
-      const r = await contexto.request.get(`${base}/api/admin/exportacao?tipo=completa`);
+      const r = await contexto.request.post(`${base}/api/admin/exportacao`, { headers: await csrfDe(contexto), data: { tipo: 'completa' } });
       assert.equal(r.status(), 403);
       assert.equal((await r.json()).codigo, 'PAPEL_NAO_AUTORIZADO');
       await contexto.close();
@@ -166,7 +189,7 @@ async function principal() {
       assert.equal(m.arquivos.find(a => a.entidade === 'clientes/clientes').linhas, 1);
       await page.screenshot({ path: path.join(relatorios, 'suspensa-exportacao.png'), fullPage: true });
       // Sem empresaId a guarda não adivinha a suspensa.
-      assert.equal((await contexto.request.get(`${base}/api/admin/exportacao?tipo=completa`)).status(), 403);
+      assert.equal((await contexto.request.post(`${base}/api/admin/exportacao`, { headers: await csrfDe(contexto), data: { tipo: 'completa' } })).status(), 403);
       await contexto.close();
       resultados.push('Gestão (suspensa): "Sem empresa ativa" oferece o pacote; download confere (situação SUSPENSA, 1 cliente); sem empresaId → 403; demais APIs continuam fechadas');
       console.log('E2E_EXPORTACAO_SUSPENSA_OK');

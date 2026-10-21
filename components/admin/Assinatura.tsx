@@ -6,7 +6,7 @@ import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataCurta, diasAte } from './AvisoComercial';
-import ExportacaoDados from './ExportacaoDados';
+import ExportacaoDados, { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import type { consultarOfertas } from '@/lib/assinatura/ofertas';
 import type { consultarRenovacao } from '@/lib/assinatura/renovacao-repositorio';
 import type { consultarVagas } from '@/lib/assinatura/limites-usuarios';
@@ -82,6 +82,7 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
             <h2 id="t-exportar">Exportar dados</h2>
             <ExportacaoDados />
         </section>}
+        {dados && <ExportacaoEmpresasSuspensas className={workspace.card} style={{ maxWidth: 720 }} />}
         {dados && a && (acoes ? acoes(dados, () => setVersao((v) => v + 1)) : <section className={workspace.card} aria-labelledby="t-contratar" style={{ maxWidth: 720 }}>
             <h2 id="t-contratar">Contratar</h2>
             {dados.precos && (dados.precos.MENSAL || dados.precos.ANUAL)

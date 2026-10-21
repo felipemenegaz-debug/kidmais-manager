@@ -196,6 +196,9 @@ const ESTADO_POSTGRES = {
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 088: completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
   "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "088" },
+  // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
+  // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "088" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

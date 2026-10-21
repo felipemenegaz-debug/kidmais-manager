@@ -692,7 +692,6 @@
     "parte",
     "documento_id",
     "usuario_id",
-    "sessao_id",
     "autenticacao_metodo",
     "autenticado_em",
     "validacao_identidade_id",

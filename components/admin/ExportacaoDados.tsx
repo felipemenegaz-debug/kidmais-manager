@@ -12,11 +12,13 @@ import workspace from '@/components/admin/workspace.module.css';
 export default function ExportacaoDados({ empresaId, nome, csvAvulsos = true }: { empresaId?: string; nome?: string; csvAvulsos?: boolean }) {
     const [estado, setEstado] = useState<{ fase: 'parado' | 'gerando' | 'pronto' | 'erro'; texto?: string; hash?: string }>({ fase: 'parado' });
     const sufixo = empresaId ? `&empresaId=${encodeURIComponent(empresaId)}` : '';
+    const corpoPedido = JSON.stringify(empresaId ? { tipo: 'completa', empresaId } : { tipo: 'completa' });
     async function baixar() {
         if (estado.fase === 'gerando') return;
         setEstado({ fase: 'gerando' });
         try {
-            const r = await adminFetch(`/api/admin/exportacao?tipo=completa${sufixo}`, { cache: 'no-store' });
+            // POST com o CSRF padrão do Admin (adminFetch): um site de terceiros não consegue disparar a geração.
+            const r = await adminFetch('/api/admin/exportacao', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: corpoPedido });
             if (!r.ok) {
                 const corpo = await r.json().catch(() => null) as { erro?: string } | null;
                 setEstado({ fase: 'erro', texto: corpo?.erro ?? 'Não foi possível gerar o pacote. Tente novamente.' });
@@ -60,8 +62,9 @@ export default function ExportacaoDados({ empresaId, nome, csvAvulsos = true }: 
     </div>;
 }
 
-/** Tela sem empresa ativa: Gestão de empresa SUSPENSA ainda leva os próprios dados (exceção mínima da exportação). */
-export function ExportacaoEmpresasSuspensas() {
+/** Gestão de empresa SUSPENSA ainda leva os próprios dados (exceção mínima da exportação): na tela "Sem empresa ativa"
+ * e em Assinatura, mesmo com a sessão numa empresa ativa. */
+export function ExportacaoEmpresasSuspensas({ className, style }: { className?: string; style?: React.CSSProperties } = {}) {
     const [empresas, setEmpresas] = useState<{ id: string; nome: string }[]>([]);
     useEffect(() => {
         let vivo = true;
@@ -71,9 +74,9 @@ export function ExportacaoEmpresasSuspensas() {
         return () => { vivo = false; };
     }, []);
     if (empresas.length === 0) return null;
-    return <section aria-labelledby="t-exportar-suspensas" data-exportacao-suspensas>
+    return <section className={className} style={style} aria-labelledby="t-exportar-suspensas" data-exportacao-suspensas>
         <h2 id="t-exportar-suspensas">Exportar dados de empresa suspensa</h2>
-        <p>A empresa abaixo está suspensa, mas os dados continuam dela: a Gestão pode baixar o pacote completo a qualquer momento.</p>
+        <p>{empresas.length > 1 ? 'As empresas abaixo estão suspensas' : 'A empresa abaixo está suspensa'}, mas os dados continuam dela: a Gestão pode baixar o pacote completo a qualquer momento, sem trocar de empresa.</p>
         {empresas.map((e) => <div key={e.id}><h3>{e.nome}</h3><ExportacaoDados empresaId={e.id} nome={e.nome} csvAvulsos={false} /></div>)}
     </section>;
 }

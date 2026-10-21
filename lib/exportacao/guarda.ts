@@ -10,12 +10,16 @@ import { exigirGestaoNoTenant, provarTenant, revalidarTenant, travarUsuariosNaOr
  * A exceção vale só quando TODAS as condições se cumprem, na mesma transação e com as mesmas travas de provarTenant
  * (usuário → empresa → membership):
  *   - a empresa foi pedida explicitamente (empresaId) e está SUSPENSA (nunca DESATIVADA nem PROVISIONAMENTO);
- *   - a pessoa está ativa, a sessão continua válida e não está selecionada em OUTRA empresa;
+ *   - a pessoa está ativa e a sessão continua válida (revogada, expirada ou com contexto mudado = recusa);
+ *   - a sessão não está selecionada em OUTRA empresa — salvo no pedido explícito do pacote completo (POST com CSRF,
+ *     `permitirSelecaoNoutraEmpresa`): a Gestão que trabalha na empresa ativa A baixa a suspensa B sem sair e entrar;
+ *     a sessão continua em A (nada muda de contexto) e os CSVs avulsos por GET seguem a regra estrita;
  *   - o vínculo DESSA empresa está ATIVA e o papel é Gestão (REPRESENTANTE_AUTORIZADO); Equipe nunca;
  * e só é usada pela rota de exportação (GET, somente leitura + auditoria). Nenhuma outra rota chama esta guarda; um
  * teste estático confere. A suspensão continua cortando todo o resto (provarTenant segue só com empresa ATIVA).
  */
 export type TenantExportacao = TenantComprovado & { suspensa: boolean };
+export type OpcoesGuarda = { permitirSelecaoNoutraEmpresa?: boolean };
 
 function recusar(): never {
     throw new PacoteAdminError('TENANT_NAO_COMPROVADO', 'A sessão administrativa não comprova a empresa autorizada.', 403);
@@ -27,9 +31,10 @@ function ehRecusaDeTenant(erro: unknown) {
     return erro instanceof PacoteAdminError && erro.code === 'TENANT_NAO_COMPROVADO';
 }
 
-async function provarSuspensa(tx: DbExecutor, sessao: SessaoParaTenant, pedida: string): Promise<TenantExportacao> {
-    // Sessão selecionada em outra empresa: um parâmetro não troca de contexto (mesma regra de provarTenant).
-    if (sessao.empresa_ativa_id && sessao.empresa_ativa_id !== pedida) recusar();
+async function provarSuspensa(tx: DbExecutor, sessao: SessaoParaTenant, pedida: string, opcoes: OpcoesGuarda): Promise<TenantExportacao> {
+    // Sessão selecionada em outra empresa: um parâmetro não troca de contexto (mesma regra de provarTenant), exceto no
+    // pedido explícito e protegido por CSRF do pacote completo.
+    if (sessao.empresa_ativa_id && sessao.empresa_ativa_id !== pedida && opcoes.permitirSelecaoNoutraEmpresa !== true) recusar();
     await travarUsuariosNaOrdem(tx, [sessao.usuario_id]);
     const usuario = await tx.query<{ ativo: boolean }>('SELECT ativo FROM usuarios_administrativos WHERE id = $1::uuid', [sessao.usuario_id]);
     if (usuario.rows[0]?.ativo !== true) recusar();
@@ -54,7 +59,7 @@ async function provarSuspensa(tx: DbExecutor, sessao: SessaoParaTenant, pedida: 
 }
 
 /** Prova o tenant da exportação dentro da transação aberta. Empresa ativa → provarTenant; suspensa → exceção acima. */
-export async function provarTenantParaExportacao(tx: DbExecutor, sessao: SessaoParaTenant, empresaSolicitada?: string | null): Promise<TenantExportacao> {
+export async function provarTenantParaExportacao(tx: DbExecutor, sessao: SessaoParaTenant, empresaSolicitada?: string | null, opcoes: OpcoesGuarda = {}): Promise<TenantExportacao> {
     const pedida = empresaSolicitada?.trim() ? empresaSolicitada.trim().toLowerCase() : null;
     if (pedida !== null && !UUID.test(pedida)) recusar();
     try {
@@ -65,7 +70,7 @@ export async function provarTenantParaExportacao(tx: DbExecutor, sessao: SessaoP
         // Só a recusa de tenant abre a verificação da suspensa, e só com empresa pedida explicitamente.
         if (!ehRecusaDeTenant(erro) || pedida === null) throw erro;
     }
-    return provarSuspensa(tx, sessao, pedida);
+    return provarSuspensa(tx, sessao, pedida, opcoes);
 }
 
 /** Relê, antes do commit, as condições que valiam na prova (a empresa não pode ter mudado de situação no meio). */
