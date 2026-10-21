@@ -98,8 +98,8 @@ async function festa(db: Client, empresaId: string, criador: string) {
 }
 
 const INSERIR = `INSERT INTO convite_ia_autorizacoes (empresa_id, convite_id, festa_id, provedor, texto_versao, texto_hash, operador_tipo, operador_usuario_id,
-  operador_cliente_id, responsavel_nome, responsavel_vinculo, meio, declaracao_responsavel, foto_autorizada)
-  VALUES ($1::uuid, $2::uuid, $3::uuid, 'openai', $4, $5, $6, $7::uuid, $8::uuid, 'Responsável Sintético', 'MAE', $9, $10, false)`;
+  operador_cliente_id, responsavel_nome, responsavel_vinculo, meio, declaracao_responsavel)
+  VALUES ($1::uuid, $2::uuid, $3::uuid, 'openai', $4, $5, $6, $7::uuid, $8::uuid, 'Responsável Sintético', 'MAE', $9, $10)`;
 
 test("088: precheck, aplicação, postcheck e reaplicação recusada", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
@@ -125,17 +125,17 @@ test("088: registro, isolamento por empresa, constraints, imutabilidade, revoga�
     const A = await empresa(c), B = await empresa(c);
     const uA = await usuario(c, A), uB = await usuario(c, B);
     const cA = await festa(c, A, uA), cB = await festa(c, B, uB);
-    const nova = (extra: Record<string, unknown> = {}) => ({ versao: VERSAO_TEXTOS_IA, provedor: "openai", textoHash: hashTextoIA("openai", "BUFFET", true),
-      responsavelNome: "  Joana   Responsável  ", vinculo: "MAE" as const, meio: "WHATSAPP" as const, declaracao: true as const, foto: true, ...extra });
+    const nova = (extra: Record<string, unknown> = {}) => ({ versao: VERSAO_TEXTOS_IA, provedor: "openai", textoHash: hashTextoIA("openai", "BUFFET"),
+      responsavelNome: "  Joana   Responsável  ", vinculo: "MAE" as const, meio: "WHATSAPP" as const, declaracao: true as const, ...extra });
 
     // Registro pelo serviço real (empresa A, funcionário A): todos os campos do registro.
     const r1 = await registrarAutorizacao(c, cA, { tipo: "BUFFET", usuarioId: uA }, `USUARIO:${uA}`, "openai", nova());
     const linha = (await c.query(`SELECT empresa_id::text, convite_id::text, festa_id::text, finalidade, provedor, texto_versao, texto_hash, operador_tipo,
-      operador_usuario_id::text, operador_cliente_id, responsavel_nome, responsavel_vinculo, meio, declaracao_responsavel, foto_autorizada, criado_em IS NOT NULL AS tem_data, revogada_em
+      operador_usuario_id::text, operador_cliente_id, responsavel_nome, responsavel_vinculo, meio, declaracao_responsavel, criado_em IS NOT NULL AS tem_data, revogada_em
       FROM convite_ia_autorizacoes WHERE id = $1::uuid`, [r1.id])).rows[0];
     assert.deepEqual(linha, { empresa_id: A, convite_id: cA.id, festa_id: cA.festa_id, finalidade: "CONVITE_IA", provedor: "openai", texto_versao: VERSAO_TEXTOS_IA,
-      texto_hash: hashTextoIA("openai", "BUFFET", true), operador_tipo: "BUFFET", operador_usuario_id: uA, operador_cliente_id: null, responsavel_nome: "Joana Responsável",
-      responsavel_vinculo: "MAE", meio: "WHATSAPP", declaracao_responsavel: true, foto_autorizada: true, tem_data: true, revogada_em: null });
+      texto_hash: hashTextoIA("openai", "BUFFET"), operador_tipo: "BUFFET", operador_usuario_id: uA, operador_cliente_id: null, responsavel_nome: "Joana Responsável",
+      responsavel_vinculo: "MAE", meio: "WHATSAPP", declaracao_responsavel: true, tem_data: true, revogada_em: null });
     assert.equal((await autorizacaoVigente(c, cA, "openai"))?.id, r1.id);
     assert.equal(await autorizacaoVigente(c, cA, "gemini"), null, "outro provedor não vale");
     // Isolamento: o mesmo convite visto pela empresa B não existe; B não revoga a autorização de A.
@@ -154,7 +154,7 @@ test("088: registro, isolamento por empresa, constraints, imutabilidade, revoga�
     await recusa(c, INSERIR, [A, cA.id, cB.festa_id, VERSAO_TEXTOS_IA, "a".repeat(64), "BUFFET", uA, null, "PRESENCIAL", true], /não correspondem/);
     await recusaFn(c, () => registrarAutorizacao(c, cA, { tipo: "BUFFET", usuarioId: uB }, `USUARIO:${uB}`, "openai", nova()), /sem vínculo ativo/);
     await recusaFn(c, () => registrarAutorizacao(c, cA, { tipo: "CLIENTE", clienteId: cB.cliente_id }, `CLIENTE:${cB.cliente_id}`, "openai",
-      nova({ meio: undefined, textoHash: hashTextoIA("openai", "CLIENTE", true) })), /cliente não é o do convite/);
+      nova({ meio: undefined, textoHash: hashTextoIA("openai", "CLIENTE") })), /cliente não é o do convite/);
     // Constraints: meio coerente com quem opera, declaração obrigatória, provedor fechado; uma não revogada por convite.
     await recusa(c, INSERIR, [A, cA.id, cA.festa_id, VERSAO_TEXTOS_IA, "a".repeat(64), "BUFFET", uA, null, "PROPRIO_RESPONSAVEL", true], /convite_ia_autorizacoes_operador/);
     await recusa(c, INSERIR, [A, cA.id, cA.festa_id, VERSAO_TEXTOS_IA, "a".repeat(64), "BUFFET", uA, null, "PRESENCIAL", false], /declaracao_responsavel_check/);
@@ -162,7 +162,7 @@ test("088: registro, isolamento por empresa, constraints, imutabilidade, revoga�
     await recusa(c, INSERIR, [A, cA.id, cA.festa_id, VERSAO_TEXTOS_IA, "a".repeat(64), "BUFFET", uA, null, "PRESENCIAL", true], /convite_ia_autorizacao_vigente/);
     // Imutável: só a revogação muda, uma vez.
     await recusa(c, `UPDATE convite_ia_autorizacoes SET responsavel_nome = 'Outro' WHERE id = $1::uuid`, [r1.id], /registro imutável/);
-    await recusa(c, `UPDATE convite_ia_autorizacoes SET foto_autorizada = false WHERE id = $1::uuid`, [r1.id], /registro imutável/);
+    await recusa(c, `UPDATE convite_ia_autorizacoes SET meio = 'TELEFONE' WHERE id = $1::uuid`, [r1.id], /registro imutável/);
 
     // Marcador do envio (SQL real do serviço): só grava com a autorização da reserva ainda não revogada.
     const marcador = `UPDATE convite_geracoes SET enviado_em=clock_timestamp() WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL
@@ -178,14 +178,18 @@ test("088: registro, isolamento por empresa, constraints, imutabilidade, revoga�
 
     // Substituição pelo responsável no link (CLIENTE): a anterior vira SUBSTITUIDA; segue uma só não revogada.
     const r2 = await registrarAutorizacao(c, cA, { tipo: "CLIENTE", clienteId: cA.cliente_id }, `CLIENTE:${cA.cliente_id}`, "openai",
-      nova({ meio: undefined, foto: false, textoHash: hashTextoIA("openai", "CLIENTE", false) }));
+      nova({ meio: undefined, textoHash: hashTextoIA("openai", "CLIENTE") }));
     assert.equal(r2.substituiu, r1.id);
+    // P3-3: revogação da anterior e criação da nova no mesmo relógio (clock_timestamp), nessa ordem.
+    const cronologia = (await c.query<{ ordem: boolean }>(`SELECT (SELECT revogada_em FROM convite_ia_autorizacoes WHERE id=$1::uuid)
+      <= (SELECT criado_em FROM convite_ia_autorizacoes WHERE id=$2::uuid) AS ordem`, [r1.id, r2.id])).rows[0];
+    assert.equal(cronologia.ordem, true, "a substituição não pode registrar a nova antes do fim da anterior");
     assert.deepEqual((await c.query(`SELECT id::text, revogacao_motivo, revogada_por, meio, operador_tipo FROM convite_ia_autorizacoes WHERE convite_id = $1::uuid ORDER BY criado_em, revogada_em NULLS LAST`, [cA.id])).rows,
       [{ id: r1.id, revogacao_motivo: "SUBSTITUIDA", revogada_por: `CLIENTE:${cA.cliente_id}`, meio: "WHATSAPP", operador_tipo: "BUFFET" },
         { id: r2.id, revogacao_motivo: null, revogada_por: null, meio: "PROPRIO_RESPONSAVEL", operador_tipo: "CLIENTE" }]);
     await recusa(c, `UPDATE convite_ia_autorizacoes SET revogada_em = now(), revogada_por = 'USUARIO:x', revogacao_motivo = 'REVOGADA' WHERE id = $1::uuid`, [r1.id], /registro imutável/);
     const resumo = await resumoAutorizacao(c, cA, "openai");
-    assert.equal(resumo.vigente?.foto, false); assert.equal(resumo.vigente?.operador, "CLIENTE"); assert.ok(!JSON.stringify(resumo).includes("Joana"));
+    assert.equal("foto" in (resumo.vigente ?? {}), false); assert.equal(resumo.vigente?.operador, "CLIENTE"); assert.ok(!JSON.stringify(resumo).includes("Joana"));
 
     // Revogação para usos futuros: o marcador do envio não grava mais.
     assert.equal(await revogarAutorizacao(c, cA, `USUARIO:${uA}`), r2.id);

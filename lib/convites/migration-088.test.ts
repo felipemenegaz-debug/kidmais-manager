@@ -24,9 +24,11 @@ test('088 é aditiva: só cria a tabela, índices e gatilho próprios; não alte
 test('088 amarra a autorização ao convite e à empresa e registra os campos pedidos pela Astra', () => {
   assert.match(UP, /FOREIGN KEY \(convite_id, empresa_id\) REFERENCES convites\(id, empresa_id\)/);
   for (const coluna of ['operador_tipo', 'operador_usuario_id', 'operador_cliente_id', 'responsavel_nome', 'responsavel_vinculo', 'meio', 'declaracao_responsavel',
-    'festa_id', 'finalidade', 'provedor', 'texto_versao', 'texto_hash', 'criado_em', 'foto_autorizada', 'revogada_em', 'revogada_por', 'revogacao_motivo'])
+    'festa_id', 'finalidade', 'provedor', 'texto_versao', 'texto_hash', 'criado_em', 'revogada_em', 'revogada_por', 'revogacao_motivo'])
     assert.match(UP, new RegExp(`\\n  ${coluna} `), coluna);
   assert.match(UP, /CHECK \(provedor IN \('openai','gemini'\)\)/);
+  // P2-3 da revisão de 15aa937: a fotografia é confirmada por geração (evento IA_RESERVADA), não na autorização geral.
+  assert.doesNotMatch(UP + POST, /foto_autorizada/);
   assert.match(UP, /CHECK \(declaracao_responsavel\)/);
   assert.match(UP, /CREATE UNIQUE INDEX convite_ia_autorizacao_vigente ON convite_ia_autorizacoes\(convite_id\) WHERE revogada_em IS NULL/);
   assert.match(UP, /m\.status = 'ATIVA'/); assert.match(UP, /registro imutável/);

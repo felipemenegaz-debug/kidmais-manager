@@ -4,7 +4,7 @@ DECLARE colunas text[];
 BEGIN
   SELECT array_agg(column_name::text ORDER BY column_name) INTO colunas FROM information_schema.columns
     WHERE table_schema='public' AND table_name='convite_ia_autorizacoes';
-  IF colunas IS DISTINCT FROM ARRAY['convite_id','criado_em','declaracao_responsavel','empresa_id','festa_id','finalidade','foto_autorizada','id','meio',
+  IF colunas IS DISTINCT FROM ARRAY['convite_id','criado_em','declaracao_responsavel','empresa_id','festa_id','finalidade','id','meio',
       'operador_cliente_id','operador_tipo','operador_usuario_id','provedor','responsavel_nome','responsavel_vinculo','revogacao_motivo','revogada_em',
       'revogada_por','texto_hash','texto_versao']::text[] THEN
     RAISE EXCEPTION '088 postcheck: colunas ausentes ou inesperadas em convite_ia_autorizacoes';

@@ -11,7 +11,7 @@ import PromptComCorretor from './PromptComCorretor';
 import ConviteVisual from './ConviteVisual';
 import ConvitePresencas from './ConvitePresencas';
 import ConviteFamilias, { type ResultadoFamilia } from './ConviteFamilias';
-import ConviteAutorizacaoIA, { type AutorizacaoIATela } from './ConviteAutorizacaoIA';
+import ConviteAutorizacaoIA, { ConfirmacaoImagensIA, type AutorizacaoIATela } from './ConviteAutorizacaoIA';
 import type { ComandoFamilia, Familia } from '@/lib/convites/familias-domain';
 import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
@@ -120,9 +120,13 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   const completoAtivo = dados?.laboratorioLocal ? conviteCompleto && geradorLocal === 'openai' : !!dados?.completoDisponivel || dados?.iaDisponivel === false;
   // 088: sem autorização vigente do responsável, o botão fica desabilitado (o servidor também recusa).
   const autorizacaoIA = dados?.laboratorioLocal ? null : dados?.autorizacaoIA ?? null;
-  const fotoLiberada = dados?.laboratorioLocal ? autorizacaoFoto : !!autorizacaoIA?.vigente?.foto;
+  // P2-3: a fotografia e as imagens da galeria são confirmadas a cada geração, só depois de escolhidas (autorizacaoFoto).
+  const imagensSelecionadas = !!foto || (!completoAtivo && referencias.length > 0);
+  const fotoLiberada = autorizacaoFoto;
   const faltaAutorizacao = !!autorizacaoIA && !autorizacaoIA.vigente;
-  const imagensSemAutorizacao = !dados?.laboratorioLocal && (!!foto || (!completoAtivo && referencias.length > 0)) && !fotoLiberada;
+  const imagensSemAutorizacao = !dados?.laboratorioLocal && imagensSelecionadas && !autorizacaoFoto;
+  const confirmacaoImagens = !dados?.laboratorioLocal && autorizacaoIA && imagensSelecionadas && autorizacaoFoto
+    ? { autorizacaoImagens: { versao: autorizacaoIA.versao, textoHash: autorizacaoIA.hashes.imagens } } : {};
   useEffect(() => { const sair = (e: BeforeUnloadEvent) => { if (alterado) e.preventDefault(); }; window.addEventListener('beforeunload', sair); return () => window.removeEventListener('beforeunload', sair); }, [alterado]);
   async function executar(body: object, mensagem: string, preservar = false) {
     setBusy(true); setErro(''); setAviso('');
@@ -179,7 +183,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     const completo = completoAtivo;
     if (completo && conteudo) {
       if (conferirPrompt(prompt, conteudo).conflito) { setConflitoPrompt(true); return; }
-      if (foto && !fotoLiberada) { setErro(dados?.laboratorioLocal ? 'Confirme a autorização para usar a foto.' : 'A foto só pode ser enviada com a autorização da fotografia registrada.'); return; }
+      if (foto && !fotoLiberada) { setErro(dados?.laboratorioLocal ? 'Confirme a autorização para usar a foto.' : 'Confirme o envio da fotografia e das imagens da galeria selecionadas para esta geração.'); return; }
     }
     // O servidor usa os dados salvos da festa: salvar antes evita gerar com textos diferentes da tela.
     if (!dados?.laboratorioLocal && completo && alterado && dados && conteudo && !await executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')) return;
@@ -223,10 +227,12 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       return;
     }
     const comando = completo
-      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, qualidade, ...(foto && fotoLiberada ? { foto, autorizacaoFoto: true } : {}) }
-      : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias };
+      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, qualidade, ...(foto && fotoLiberada ? { foto, ...confirmacaoImagens } : {}) }
+      : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias, ...confirmacaoImagens };
     const chave = pedido.current.chave, pronta = completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.';
     guardarPedido(pedido.current);
+    // Uso único: a confirmação das imagens vale só para este pedido; a próxima geração pede de novo.
+    if (!dados?.laboratorioLocal) setAutorizacaoFoto(false);
     setBusy(true); setErro(''); setAviso(MENSAGEM_GERANDO);
     let r: SituacaoGeracao;
     try { r = await api(comando) as SituacaoGeracao; }
@@ -333,7 +339,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
               <input hidden ref={fotoArquivo} type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { setAvatarPronto(false); void lerFoto(e.target.files?.[0]); e.target.value = ''; }} />
               <input hidden ref={fotoCamera} type="file" accept="image/*" capture="user" onChange={e => { setAvatarPronto(false); void lerFoto(e.target.files?.[0]); e.target.value = ''; }} />
               <div className={ui.acoes}><button type="button" disabled={busy} onClick={() => fotoArquivo.current?.click()}>Escolher foto</button><button type="button" disabled={busy} onClick={() => fotoCamera.current?.click()}>Tirar foto</button></div>
-              {foto && <><img className={ui.miniaturaFoto} src={foto} alt="Foto de referência do aniversariante" /><button type="button" disabled={busy} onClick={() => { setFoto(''); setAvatarPronto(false); setAutorizacaoFoto(false); }}>Remover foto</button>{dados.laboratorioLocal ? <label className={ui.check}><input type="checkbox" checked={autorizacaoFoto} disabled={busy} onChange={e => setAutorizacaoFoto(e.target.checked)} />Tenho autorização para enviar esta foto à OpenAI; sou responsável ou tenho autorização do responsável.</label> : !fotoLiberada && <p role="alert">Esta foto só será enviada com a autorização da fotografia registrada abaixo. Sem ela, remova a foto para gerar.</p>}</>}
+              {foto && <><img className={ui.miniaturaFoto} src={foto} alt="Foto de referência do aniversariante" /><button type="button" disabled={busy} onClick={() => { setFoto(''); setAvatarPronto(false); setAutorizacaoFoto(false); }}>Remover foto</button>{dados.laboratorioLocal ? <label className={ui.check}><input type="checkbox" checked={autorizacaoFoto} disabled={busy} onChange={e => setAutorizacaoFoto(e.target.checked)} />Tenho autorização para enviar esta foto à OpenAI; sou responsável ou tenho autorização do responsável.</label> : null}</>}
               {dados.laboratorioLocal && foto && !avatarPronto && <button type="button" disabled={busy || !autorizacaoFoto || !['cartoon3d', 'cartoon2d'].includes(estilo)} onClick={() => void gerar(true)}>1. Criar avatar cartoon · 1 chamada paga</button>}
               {avatarPronto && <p role="status">Avatar selecionado como referência. Confira antes de gerar o convite.</p>}
               {dados.laboratorioLocal && <small>Gere o convite diretamente para usar uma chamada. Criar avatar antes é um teste opcional e custa uma chamada adicional.</small>}
@@ -342,6 +348,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
             {conflitoPrompt && conferencia && <section className={ui.conferenciaPrompt} role="alert"><strong>Confira o nome e a idade antes de gerar</strong><p>Na festa: {conteudo.nome || 'sem nome'} · {conteudo.idade || 'sem idade'}. No pedido: {conferencia.nomes.join(', ') || 'nome não informado'} · {conferencia.idades.join(', ') || 'idade não informada'}.</p><div className={ui.acoes}><button type="button" onClick={() => { setPrompt(alinharPrompt(prompt, conteudo)); setConflitoPrompt(false); }}>Usar dados da festa</button><button type="button" disabled={conferencia.ambiguo} onClick={() => { setConteudo({ ...conteudo, ...(conferencia.nomes[0] ? { nome: conferencia.nomes[0] } : {}), ...(conferencia.idades[0] ? { idade: `${conferencia.idades[0]} anos` } : {}) }); setConflitoPrompt(false); }}>Usar dados do pedido</button></div><small>Depois da escolha, confira os campos e clique em gerar. Nenhum teste foi consumido.</small></section>}
           </>}
           {autorizacaoIA && <ConviteAutorizacaoIA ia={autorizacaoIA} busy={busy || !!acompanhando} ui={ui} semIA={semIA} executar={(body, mensagem) => executar(body, mensagem, true)} />}
+          {autorizacaoIA && !autorizacaoIA.indisponivel && imagensSelecionadas && <ConfirmacaoImagensIA ia={autorizacaoIA} marcado={autorizacaoFoto} mudar={setAutorizacaoFoto} busy={busy || !!acompanhando} ui={ui} />}
           <div className={ui.controlesIA}>
             {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={setEstilo} opcoes={[["pedido", "Conforme pedido"], ["cartoon3d", "Cartoon 3D"], ["cartoon2d", "Desenho 2D"], ["realista", "Realista"]]} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
             {completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy || !!acompanhando} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
@@ -356,9 +363,9 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
             {etapaLocal && <p role="status">{etapaLocal}</p>}
             {jobLocal && <><button type="button" onClick={() => { void api({ acao: 'cancelar', jobId: jobLocal }).then(() => setEtapaLocal('Cancelamento solicitado.')).catch(e => setErro(e.message)); }}>Descartar resultado</button><small>A solicitação já enviada pode ser cobrada mesmo ao descartar.</small></>}
           </>}
-          {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id])}><img src={a.url} alt="Referência" /></button>)}</div></>}
-          {faltaAutorizacao && <p role="status"><small>Registre a autorização do responsável legal para gerar com IA, ou use uma arte própria.</small></p>}
-          {!faltaAutorizacao && imagensSemAutorizacao && <p role="status"><small>Sem a autorização da fotografia, remova a foto ou as imagens de referência para gerar.</small></p>}
+          {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => { setAutorizacaoFoto(false); setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id]); }}><img src={a.url} alt="Referência" /></button>)}</div></>}
+          {faltaAutorizacao && !autorizacaoIA?.indisponivel && <p role="status"><small>Registre a autorização do responsável legal para gerar com IA, ou use uma arte própria.</small></p>}
+          {!faltaAutorizacao && imagensSemAutorizacao && <p role="status"><small>Confirme o envio da fotografia e das imagens da galeria selecionadas, ou remova-as, para gerar.</small></p>}
           <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : dados.geracaoIncerta ? MENSAGEM_VERIFICANDO : acompanhando ? MENSAGEM_GERANDO : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
         </>) : null;
   const painelGeracao = <section ref={painelIA} className={ui.painel} aria-labelledby="titulo-criar-arte"><h2 id="titulo-criar-arte">Crie uma arte com IA</h2>{conteudoGeracao}</section>;

@@ -7,7 +7,9 @@
 -- (convite_id, empresa_id) → convites, gatilho que confere festa/empresa/operador e serviço sempre filtrando pela
 -- empresa comprovada da sessão.
 -- Registro: quem operou, declaração, identificação mínima do responsável (nome e vínculo; nunca documento), meio,
--- criança/evento (festa e convite), finalidade, provedor, versão e hash do texto exibido, data/hora e foto sim/não.
+-- criança/evento (festa e convite), finalidade, provedor, versão e hash do texto exibido e data/hora. A fotografia e as
+-- imagens da galeria NÃO entram aqui: são confirmadas a cada geração que as envia (uso único), e a confirmação (versão,
+-- hash do texto e sha-256 das imagens) fica no evento IA_RESERVADA da geração (convite_eventos).
 -- Revogação para usos futuros: só as colunas de revogação podem mudar, uma única vez. DELETE não é bloqueado: a
 -- eliminação segue a política de retenção decidida (ver docs/CONVITES_IA_CONSENTIMENTO_20261021.md).
 -- Rollback: database/rollback/20261021_088_convite_ia_autorizacoes_down.sql (recusado se houver autorizações).
@@ -42,7 +44,6 @@ CREATE TABLE convite_ia_autorizacoes (
   responsavel_vinculo text NOT NULL CHECK (responsavel_vinculo IN ('MAE','PAI','TUTOR','OUTRO_RESPONSAVEL_LEGAL')),
   meio text NOT NULL CHECK (meio IN ('PROPRIO_RESPONSAVEL','PRESENCIAL','WHATSAPP','EMAIL','TELEFONE','OUTRO')),
   declaracao_responsavel boolean NOT NULL CHECK (declaracao_responsavel),
-  foto_autorizada boolean NOT NULL,
   criado_em timestamptz NOT NULL DEFAULT now(),
   revogada_em timestamptz,
   revogada_por text CHECK (revogada_por IS NULL OR revogada_por ~ '^(USUARIO|CLIENTE|OPERADOR|SISTEMA):[A-Za-z0-9_-]{1,64}$'),
@@ -80,11 +81,11 @@ BEGIN
   IF OLD.revogada_em IS NOT NULL OR NEW.revogada_em IS NULL
     OR (NEW.id, NEW.empresa_id, NEW.convite_id, NEW.festa_id, NEW.finalidade, NEW.provedor, NEW.texto_versao, NEW.texto_hash, NEW.operador_tipo,
         NEW.operador_usuario_id, NEW.operador_cliente_id, NEW.responsavel_nome, NEW.responsavel_vinculo, NEW.meio, NEW.declaracao_responsavel,
-        NEW.foto_autorizada, NEW.criado_em)
+        NEW.criado_em)
       IS DISTINCT FROM
        (OLD.id, OLD.empresa_id, OLD.convite_id, OLD.festa_id, OLD.finalidade, OLD.provedor, OLD.texto_versao, OLD.texto_hash, OLD.operador_tipo,
         OLD.operador_usuario_id, OLD.operador_cliente_id, OLD.responsavel_nome, OLD.responsavel_vinculo, OLD.meio, OLD.declaracao_responsavel,
-        OLD.foto_autorizada, OLD.criado_em) THEN
+        OLD.criado_em) THEN
     RAISE EXCEPTION 'Autorização de IA: registro imutável; só a revogação pode ser gravada, uma vez';
   END IF;
   RETURN NEW;

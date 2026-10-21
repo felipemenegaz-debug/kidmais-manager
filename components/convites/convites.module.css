@@ -92,3 +92,5 @@
 .formularioAutorizacao legend { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
 .formularioAutorizacao .check { align-items: flex-start; font-size: 13px; line-height: 1.5; margin: 10px 0; }
 .alternativaSemIA { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #e3e9e2; }
+.confirmacaoImagens { margin: 12px 0; padding: 12px 16px; border: 1px solid #efd3c4; border-radius: 12px; background: #fff7f1; }
+.confirmacaoImagens .check { align-items: flex-start; font-size: 13px; line-height: 1.5; }
