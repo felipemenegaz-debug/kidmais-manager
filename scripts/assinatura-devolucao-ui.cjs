@@ -85,7 +85,7 @@ async function principal() {
             DATABASE_SSL: 'false', ADMIN_AUTH_SECRET: randomBytes(32).toString('hex'), ADMIN_AUTH_ORIGIN: base,
             EMAIL_PROVIDER: 'arquivo', EMAIL_ARQUIVO_DIR: path.join(relatorios, 'emails'), NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1',
             ASAAS_AMBIENTE: 'sandbox', ASAAS_API_KEY: '$aact_hmlg_chave_sintetica_do_duble_sem_valor', ASAAS_WEBHOOK_TOKEN: `token-sintetico-${randomBytes(16).toString('hex')}`,
-            KIDMAIS_TESTE_ASAAS_DUBLE: duble, NODE_OPTIONS: `--require "${path.resolve('scripts/teste-asaas-duble.cjs').split(path.sep).join('/')}"` };
+            SITE_ATENDIMENTO_EMAIL: 'plataforma@exemplo.test', KIDMAIS_TESTE_ASAAS_DUBLE: duble, NODE_OPTIONS: `--require "${path.resolve('scripts/teste-asaas-duble.cjs').split(path.sep).join('/')}"` };
         for (const k of ['RESEND_API_KEY', 'EMAIL_REMETENTE', 'OPENAI_API_KEY', 'KIDMAIS_DEPLOY_ENV', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_HOSTNAME',
             'RECUPERACAO_SENHA_ATIVA', 'ASSINATURA_PRECO_MENSAL_CENTAVOS', 'ASSINATURA_PRECO_ANUAL_CENTAVOS', 'ASSINATURA_PLANOS_ATIVOS', 'ASSINATURA_ESTORNO_ATIVO']) delete env[k];
         servidor = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(PORTA_WEB)],
@@ -121,6 +121,11 @@ async function principal() {
         // A: arrependimento em 7 dias.
         await selecionar('A');
         await secao.getByText('Nos primeiros 7 dias da primeira ativação paga', { exact: false }).waitFor();
+        // P3-9: durante a garantia, o formulário de "cancelar ao fim do período" indica o arrependimento integral.
+        await page.getByRole('button', { name: 'Cancelar ao fim do período…' }).click();
+        await page.locator('[data-cancelamento] [data-aviso-garantia]').getByText(/devolução integral de R\$\s?3\.970,00/).waitFor();
+        await page.screenshot({ path: path.join(relatorios, 'a-cancelar-com-garantia.png'), fullPage: true });
+        await page.locator('[data-cancelamento]').getByRole('button', { name: 'Voltar' }).click();
         await secao.getByRole('button', { name: 'Ver opções de encerramento com devolução' }).click();
         const opcaoA = secao.locator('[data-opcao="ARREPENDIMENTO_7_DIAS"]');
         await opcaoA.getByText(/R\$\s?3\.970,00/).first().waitFor();
@@ -146,9 +151,13 @@ async function principal() {
         assert.ok(d1.chamadas.includes(`DELETE /subscriptions/${empresas.A.sub}`), 'renovação removida no dublê');
         assert.equal(d1.estornos.length, 0, 'flag desligada: nenhum estorno pela API');
         const emails = fs.readdirSync(path.join(relatorios, 'emails')).map((f) => JSON.parse(fs.readFileSync(path.join(relatorios, 'emails', f), 'utf8')));
-        assert.equal(emails.length, 1);
-        assert.equal(emails[0].para, email);
-        assert.match(emails[0].texto, new RegExp(protocoloA));
+        const daGestao = emails.filter((m) => m.para === email), internos = emails.filter((m) => m.para === 'plataforma@exemplo.test');
+        assert.equal(daGestao.length, 1);
+        assert.match(daGestao[0].texto, new RegExp(protocoloA));
+        // P2-3: aviso interno imediato ao canal da plataforma, sem nome da empresa nem e-mail da pessoa.
+        assert.equal(internos.length, 1);
+        assert.match(internos[0].assunto, new RegExp(protocoloA));
+        assert.doesNotMatch(internos[0].texto, /Buffet|@exemplo/);
         // Depois de recarregar: Encerrada, somente leitura e o protocolo no histórico.
         await page.reload();
         await secao.locator('[data-pedidos]').getByText(protocoloA, { exact: false }).waitFor();
@@ -185,11 +194,20 @@ async function principal() {
         await page.getByRole('button', { name: 'Cancelar ao fim do período…' }).click();
         const formC = page.locator('[data-cancelamento]');
         await formC.getByLabel('Sua senha').fill(password);
+        // P2-2: 1ª tentativa sem confirmação do provedor (503) → a tela mostra o erro e troca a chave; a 2ª é efetiva.
+        const d0 = lerDuble(); d0.perderRemocao = true; fs.writeFileSync(duble, JSON.stringify(d0, null, 2));
+        await formC.getByRole('button', { name: 'Confirmar cancelamento' }).click();
+        await page.locator('[data-assinatura-acoes] [role="alert"]').getByText('não confirmou', { exact: false }).waitFor();
+        const d1c = lerDuble(); d1c.perderRemocao = false; fs.writeFileSync(duble, JSON.stringify(d1c, null, 2));
+        assert.equal((await client.query("SELECT count(*)::int AS n FROM assinatura_encerramentos WHERE empresa_id=$1 AND cancelamento_provedor='SEM_CONFIRMACAO'", [empresas.C.id])).rows[0].n, 1);
+        await formC.getByLabel('Sua senha').fill(password);
         await formC.getByRole('button', { name: 'Confirmar cancelamento' }).click();
         await page.locator('[data-assinatura-acoes] [role="status"]').getByText('Protocolo: KM-', { exact: false }).first().waitFor();
         const pedidoC = (await client.query("SELECT tipo, estorno_situacao FROM assinatura_encerramentos WHERE empresa_id=$1", [empresas.C.id])).rows[0];
         assert.deepEqual([pedidoC.tipo, pedidoC.estorno_situacao], ['CANCELAMENTO_FIM_PERIODO', 'NAO_SE_APLICA']);
         assert.equal((await client.query("SELECT situacao FROM empresa_assinaturas WHERE empresa_id=$1", [empresas.C.id])).rows[0].situacao, 'CANCELADA_FIM_PERIODO');
+        const cancelamentosC = (await client.query("SELECT cancelamento_provedor FROM assinatura_encerramentos WHERE empresa_id=$1 ORDER BY solicitado_em", [empresas.C.id])).rows.map((x) => x.cancelamento_provedor);
+        assert.deepEqual(cancelamentosC, ['AUSENTE', 'CONFIRMADO'], 'a 2ª tentativa (chave nova) confirmou; a sincronização fechou o pedido incerto');
         await page.screenshot({ path: path.join(relatorios, 'c-cancelamento.png'), fullPage: true });
         resultados.push('C (mensal, 10 dias): sem devolução (textos corretos); "Cancelar ao fim do período" com protocolo na tela; CANCELADA_FIM_PERIODO');
         console.log('E2E_DEVOLUCAO_CANCELAMENTO_OK');

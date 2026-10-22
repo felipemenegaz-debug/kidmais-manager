@@ -15,6 +15,7 @@ import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
  * pagamento é confirmado pelo provedor (webhook + reconsulta no servidor).
  */
 type Pagamento = { urlPagamento: string | null; vencimento: string | null; ciclo: 'MENSAL' | 'ANUAL'; reaproveitada: boolean };
+const novaChave = () => globalThis.crypto?.randomUUID?.() ?? '';
 export const MENSAGEM_PROCESSANDO = 'Processando: o acesso é liberado quando o pagamento for confirmado.';
 
 async function postar<T>(url: string, corpo: unknown): Promise<{ ok: true; data: T } | { ok: false; erro: string; codigo: string | null }> {
@@ -37,6 +38,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
     const [motivo, setMotivo] = useState('');
     const [aviso, setAviso] = useState('');
     const [chaveCancelamento, setChaveCancelamento] = useState('');
+    const [garantia, setGarantia] = useState<{ valorCentavos: number } | null>(null);
     const [cicloPlano, setCicloPlano] = useState<'MENSAL' | 'ANUAL'>('MENSAL');
     const a = dados.assinatura;
     if (!a)
@@ -63,7 +65,9 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             const auth = await reautenticarSessao(senha);
             if (!auth.ok) { setErro(auth.senhaIncorreta ? 'Senha incorreta. Nada foi alterado.' : auth.erro); return; }
             const r = await postar<{ situacao: string; protocolo: string | null }>('/api/admin/assinatura/cancelamento', { confirmar: true, motivo: motivo.trim(), chave: chaveCancelamento });
-            if (!r.ok) { setErro(r.erro); return; }
+            // P2-2: depois de qualquer falha (inclusive o 503 sem confirmação do provedor), a próxima confirmação é uma
+            // tentativa NOVA, com chave nova; a mesma chave nunca serve de "confirmação" de um pedido não concluído.
+            if (!r.ok) { setErro(r.erro); setChaveCancelamento(novaChave()); return; }
             setCancelando(false);
             // Confirmação imediata com protocolo (089). Sem a 089 no ambiente, o protocolo vem nulo e a mensagem é a de antes.
             const protocolo = r.data.protocolo ? ` Protocolo: ${r.data.protocolo}.` : '';
@@ -74,6 +78,18 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             setSenha('');
             setOcupado(false);
         }
+    }
+
+    /** P3-9: durante a garantia, o formulário de cancelar indica o arrependimento integral (opções calculadas no servidor). */
+    async function verGarantia() {
+        setGarantia(null);
+        try {
+            const r = await adminFetch('/api/admin/assinatura/devolucao?opcoes=1');
+            const j = await r.json().catch(() => null) as { ok?: boolean; data?: { opcoes?: { arrependimento?: { disponivel?: boolean; valorCentavos?: number } } | null } } | null;
+            const o = j?.ok ? j.data?.opcoes?.arrependimento : null;
+            if (o?.disponivel && typeof o.valorCentavos === 'number') setGarantia({ valorCentavos: o.valorCentavos });
+        }
+        catch { /* sem aviso: o formulário continua válido */ }
     }
 
     const titulo = pagando ? 'Sua assinatura' : 'Contratar';
@@ -134,10 +150,11 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             {!ativaNoProvedor && dados.ofertas?.planoAtual && <p>A assinatura mantém seu histórico. Para recontratar ou mudar de plano, <Link href={ROTA_AJUDA}>fale com o atendimento</Link>.</p>}
         </>}
         {dados.gestao && cobranca?.disponivel && pagando && ativaNoProvedor && !cancelando && <p>
-            <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setChaveCancelamento(globalThis.crypto?.randomUUID?.() ?? ''); setErro(''); setAviso(''); }}>Cancelar ao fim do período…</button>
+            <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setChaveCancelamento(novaChave()); setErro(''); setAviso(''); void verGarantia(); }}>Cancelar ao fim do período…</button>
         </p>}
         {cancelando && <form onSubmit={(e) => { e.preventDefault(); if (senha) void cancelar(); }} data-cancelamento>
             <p>Sem multa. A renovação é cancelada e o acesso completo continua até {a.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}. Depois disso a empresa fica em somente leitura por 60 dias, com exportação. Cobranças em aberto são removidas; nada é apagado. Você recebe um protocolo na hora.</p>
+            {garantia && <p role="note" data-aviso-garantia><strong>Você está nos 7 dias da primeira ativação paga.</strong> Em vez de cancelar só a renovação, você pode desistir com devolução integral de {reais(garantia.valorCentavos)} na seção “Cancelamento e devolução”, logo abaixo.</p>}
             <label>Motivo (opcional)<input value={motivo} maxLength={500} onChange={(e) => setMotivo(e.target.value)} /></label>
             <label>Sua senha<input type="password" autoComplete="current-password" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} required /></label>
             <p style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

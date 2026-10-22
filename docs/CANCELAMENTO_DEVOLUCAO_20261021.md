@@ -4,6 +4,9 @@
 banco remoto ou chamada ao Asaas (real ou sandbox). Migration **089** preparada e validada só em PostgreSQL descartável;
 **não aplicada** em staging nem em produção. A flag `ASSINATURA_ESTORNO_ATIVO` não existe em nenhum ambiente (desligada).
 
+**Rodada 2 (21/10/2026, revisão independente `revisao-devolucao-20261021/PARECER.md`):** P2-1 a P2-4 e os P3 tratados
+nesta branch (§9). A vaga Fundador continua ocupada após o encerramento antecipado: **decisão pendente de Felipe**.
+
 Fontes: parecer da Astra (`pacote-revisao-juridica-astra-20261020/10-PARECER-ASTRA-20261021.md`, L1 e ajuste 5),
 decisões de Felipe (`11-DECISOES-FELIPE-20261021.md`) e item 7 de `v2/PLANO-PROCEDIMENTOS.md`.
 
@@ -105,8 +108,13 @@ Sem a flag (padrão), o estorno fica `AGUARDANDO_MANUAL` (§5).
 - Únicos: protocolo; (empresa, chave); uma devolução por cobrança; uma garantia de 7 dias por empresa.
 - `DELETE`/`TRUNCATE` recusados.
 
-**Ordem de publicação:** o código funciona sem a 089 (cancelamento como antes, sem protocolo; seção de devolução oculta).
-Código primeiro, depois a 089, com autorização própria, precheck, backup e postcheck. Numeração: 087 e 088 tomadas. Na
+**Ordem de publicação (como a 088):** o código funciona sem a 089 (cancelamento como antes, sem protocolo; seção de
+devolução oculta). **Código primeiro** — já com os aplicadores `scripts/migration-089-{comum,staging,production}.cjs`,
+os blocos `scripts/bloco-shell-089.cjs` e os três SQL na árvore implantada —, depois a 089 pelo Web Shell:
+`--conferir-089` → autorização de Felipe → `--aplicar-089-autorizado --backup "<registro>"` → `--conferir-089`. O
+aplicador confere o sha256 dos SQL (CRLF normalizado), 067/068/074a, estado ausente/completa/parcial, CREATE e
+REFERENCES (`empresa_assinaturas`, `usuarios_administrativos`) como `current_user`, grava o marcador no disco
+persistente e nunca roda o down. A migration também diz "código primeiro" (as duas ordens são compatíveis). Numeração: 087 e 088 tomadas. Na
 leitura de 21/10/2026, nenhum clone local tinha 089; outro agente pode usá-la para exportação. Se colidir, renumerar
 para 090 antes de qualquer aplicação.
 
@@ -123,6 +131,26 @@ Por isso `sincronizarEmpresa` remove da lista as cobranças com pedido de devolu
 A suíte PG prova, com `executarCiclo` da reconciliação (simulação) e `idadesDosEventos` da conferência de produção:
 - 5 empresas `SEM_MUDANCA`, `divergente=false`, `incompleto=false`, `alarme.itens=[]` e `codigoDeSaida(…, true) = 0`;
 - inclui uma empresa cuja assinatura **continuou ativa** no provedor (remoção sem confirmação).
+
+**P2-1 (rodada 2):** na assinatura que teve devolução, também nenhuma cobrança com vencimento **menor ou igual** ao da
+devolvida sustenta período (`cobrancaDevolvidaOuAnterior`, pelo `inicio_ciclo` do pedido). Caso coberto: anual no 2º
+ano, proporcional sobre a renovação, remoção sem confirmação (assinatura ACTIVE) e webhook
+`PAYMENT_PARTIALLY_REFUNDED` → continua ENCERRADA. Só um pagamento com vencimento posterior, ou de outra assinatura
+(recontratação), reativa.
+
+**P3-8 (rodada 2):** quando a releitura comprova a remoção (`deleted=true` lida por id), a sincronização marca como
+`AUSENTE` os pedidos da empresa para aquela assinatura que ainda esperavam a remoção (`PENDENTE`/`SEM_CONFIRMACAO`/
+`RECUSADO`). O pedido sem confirmação não fica mais parado: o webhook `SUBSCRIPTION_DELETED` ou a reconciliação o fecham.
+
+**P2-3 (rodada 2) — fila na conferência de produção (D-C4):** `lerPendenciasEncerramento` (somente leitura, sem ids)
+transforma cada pedido vencido num item da regra por idade:
+- `DEVOLUCAO_PENDENTE`: estorno `AGUARDANDO_MANUAL`/`EM_CURSO`/`SEM_CONFIRMACAO`/`RECUSADO` depois do prazo
+  (arrependimento: 1 h após o pedido; proporcional: fim do dia de `prazo_processamento`, Brasília);
+- `RENOVACAO_NAO_REMOVIDA`: remoção `PENDENTE`/`SEM_CONFIRMACAO`/`RECUSADO` há mais de 1 h.
+
+A idade conta do vencimento do prazo (dia 0 = `NOVO`, depois 1, 3, 7 e semanais; os demais dias em
+`pendentesConhecidos`), e a contagem entra na conferência de `codigoDeSaida`. Em staging o relatório só conta
+(`encerramentos`). Pedido recente (dentro do prazo) não alarma.
 
 Os webhooks `PAYMENT_PARTIALLY_REFUNDED`/`PAYMENT_REFUNDED` são processados sem mudança. `PAYMENT_REFUND_IN_PROGRESS`
 não está entre os eventos suportados e é concluído como `IGNORADO`, o que não gera alarme.
@@ -164,7 +192,8 @@ Para cada linha:
 
    ```sql
    UPDATE assinatura_encerramentos SET estorno_situacao = 'CONCLUIDO', estorno_referencia = 'Painel Asaas DD/MM: estorno <tipo> <id/comprovante>'
-    WHERE protocolo = 'KM-…' AND estorno_situacao IN ('AGUARDANDO_MANUAL', 'SOLICITADO', 'SEM_CONFIRMACAO', 'RECUSADO');
+    WHERE protocolo = 'KM-…' AND estorno_situacao IN ('AGUARDANDO_MANUAL', 'EM_CURSO', 'SOLICITADO', 'SEM_CONFIRMACAO', 'RECUSADO');
+   -- EM_CURSO = processo interrompido durante a chamada automática: conferir no painel ANTES (o estorno pode ter saído).
    -- remoção conferida no painel:
    UPDATE assinatura_encerramentos SET cancelamento_provedor = 'CONFIRMADO' WHERE protocolo = 'KM-…' AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO');
    ```
@@ -173,6 +202,17 @@ Para cada linha:
 
 Outros pedidos fora da tela (por e-mail) seguem o mesmo cálculo. Hoje eles não geram protocolo automático: usar a tela
 pela Gestão, ou registrar no atendimento.
+
+**Aviso interno (P2-3, rodada 2):** cada pedido (devolução ou cancelamento) envia na hora um e-mail ao canal da plataforma
+(`SITE_ATENDIMENTO_EMAIL`, o mesmo endereço validado da tela de suporte), pelo transporte do app, só com protocolo, tipo,
+valor, meio de pagamento, prazo e situação no provedor — sem nome da empresa, pessoa, e-mail, documento ou ids. Assunto
+com `[AÇÃO HOJE]` no arrependimento e quando a renovação não foi removida. Situação gravada em
+`aviso_interno_situacao` (`NAO_CONFIGURADO` sem o canal). A repetição do mesmo pedido não reenvia.
+
+**Repetição do cancelamento (P2-2, rodada 2):** a mesma chave nunca "confirma" um cancelamento que não aconteceu.
+Remoção já confirmada → devolve o protocolo e a situação gravada; ainda sem confirmação → nova tentativa efetiva
+(outro `DELETE`, idempotente no Asaas) sobre o MESMO pedido, com 503 de novo se continuar incerta. A tela gera chave nova
+depois de qualquer falha.
 
 ## 6. Ensaio futuro no sandbox (não executado; exige autorização)
 
@@ -203,6 +243,13 @@ Roteiro:
    - se o status da cobrança muda em estorno parcial de cartão.
 
    Ajustar este documento e os Termos.
+6. **A conferir (P3-4/P3-5 da revisão):**
+   - cobrança com juros, multa ou desconto padrão da conta: `value` × `originalValue` — o produto usa `value` como
+     "valor efetivamente pago";
+   - estornos parciais anteriores feitos no painel (`refunds[]` não é lido): o integral pode passar do estornável; o
+     Asaas recusa e o pedido fica `RECUSADO` para tratamento manual;
+   - janelas dos meios: Pix (cerca de 90 dias para devolução pela API) e cartão (prazo da adquirente); fora delas, a
+     devolução vira transferência com dados bancários — incluir no procedimento manual.
 
 ## 7. Riscos e limitações conhecidos
 
@@ -214,15 +261,21 @@ Roteiro:
   diz "iniciada de imediato"; a fila precisa ser olhada no mesmo dia.
 - **Processo interrompido entre a fase C e a D1.** O pedido existe e a empresa está encerrada, mas a renovação continua
   ativa no Asaas (`cancelamento_provedor = PENDENTE`). Aparece na fila manual. A repetição da mesma chave não refaz a D1.
+- **Renovação paga antecipadamente (P3-6).** Se a última cobrança paga tem vencimento futuro, ela vira a base: a
+  devolução é o valor integral dela e os poucos dias restantes do ciclo atual não entram (levemente a menor).
+- **Fase B fora da trava (P3-7).** Uma cobrança paga entre a leitura no provedor e a fase C (milissegundos) não entra
+  no cálculo; o valor é conferido de novo na fase C só com as cobranças lidas na B.
+- **Ctrl-C durante o bloco de Shell:** como na 088, a linha `CODIGO_SAIDA_BLOCO` pode não sair (PTY real); a regra do
+  bloco é "ausência da linha = parar e ler".
 - **Primeira ativação em clientes legados (plano `UNICO`).** Uma assinatura anterior trocada antes desta versão não é
   detectada se não houver contratação 074a nem pedido 089. Raro: só a empresa da Kidmais em produção hoje.
 - **Vaga Fundador.** Continua consumida (CONFIRMADA) depois do encerramento antecipado. A 074a só libera vaga sem
-  contratação confirmada. Decidir se a vaga volta à campanha.
+  contratação confirmada. Mantido assim na rodada 2: **decisão pendente de Felipe** (a vaga volta ou não à campanha).
 - **Feriados** não entram nos dias úteis: o prazo informado fica mais curto que o legal, o lado seguro.
-- **E-mail.** Vai só para quem pediu, não para toda a Gestão. Se o e-mail não estiver configurado no ambiente, a tela
+- **E-mail.** A confirmação vai só para quem pediu, não para toda a Gestão (a plataforma recebe o aviso interno). Se o e-mail não estiver configurado no ambiente, a tela
   avisa para guardar o protocolo.
-- **Sem tela de operação.** A conclusão é registrada por SQL autorizado. Um painel da plataforma para a fila fica para
-  depois.
+- **Sem tela de operação.** A conclusão é registrada por SQL autorizado; o aviso interno e a D-C4 avisam da fila. Um
+  painel da plataforma para a fila fica para depois.
 - **Textos legais.** Os marcadores `[CONTROLE AINDA NÃO IMPLEMENTADO: protocolo…/encerramento antecipado…]` dos Termos só
   saem quando esta versão e a 089 estiverem publicadas, e o estorno pelo Asaas, ensaiado.
 
@@ -243,3 +296,20 @@ Roteiro:
 - `npx tsc --noEmit`, ESLint e `npm run check:v1:static`.
 
 Os resultados finais estão no registro do vault (nota "Cancelamento e devolucao local 20261021").
+
+## 9. Rodada 2 — correções da revisão independente (21/10/2026)
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-1 renovação devolvida reabria a empresa | `cobrancaDevolvidaOuAnterior`: na assinatura com devolução, cobrança devolvida ou com vencimento ≤ ao dela não sustenta período | PG "P2-1" (2º ano + remoção incerta + webhook `PAYMENT_PARTIALLY_REFUNDED` → ENCERRADA; pagamento novo reativa); revisor R2; mutações M17/M19 |
+| P2-2 repetição confirmava cancelamento inexistente | mesma chave: confirmado → situação real; incerto → novo `DELETE` sobre o mesmo pedido (503 de novo se incerto); tela troca a chave após falha | PG "P2-2"; revisor R3; E2E (503 → nova tentativa); M20 |
+| P2-3 ninguém era avisado | aviso interno imediato (`SITE_ATENDIMENTO_EMAIL`, `aviso_interno_situacao`) + itens `DEVOLUCAO_PENDENTE`/`RENOVACAO_NAO_REMOVIDA` na conferência D-C4 | PG "P2-3", unitários de `assinatura-reconciliar.test.cjs`; E2E (e-mail interno sem dados do pagador); M21/M22 |
+| P2-4 sem aplicador/blocos | `scripts/migration-089-{comum,staging,production}.cjs`, `scripts/bloco-shell-089.cjs`, testes e CI; ordem "código primeiro" alinhada na migration | `migration-089.test.cjs` 11/11, `bloco-shell-089.test.cjs` 10/10, `aplicador-089.postgres.test.ts` (SQL real), PTY real 9/10 (Ctrl-C sem linha de código, igual à 088) |
+| P3 | guarda aceita `EM_CURSO → CONCLUIDO` (SQL do §5 inclui); M11/M12/M13 cobertas; aviso de garantia no formulário de cancelar; itens a conferir no sandbox (§6); renovação antecipada e fase B (§7); pedido sem confirmação fechado pela sincronização (`AUSENTE`) | PG "P2-2"/"P3-3"; E2E; M11–M13, M23, M24 |
+
+Vaga Fundador após encerramento antecipado: mantida ocupada; **decisão pendente de Felipe**.
+
+Validação da rodada 2: unitários de assinatura 181 + devolução; PG descartável (cluster 55641, removido) 14/14 —
+suíte do autor, aplicadores 089, suíte do revisor R0–R9 (modelo 088, só local) e regressão de assinatura e da 088;
+11 mutações mortas (M11–M13, M17–M24); Playwright PASS (inclui 503 → nova tentativa, aviso interno e aviso de garantia);
+`tsc`, ESLint e `check:v1:static` PASS (3252 unitários, 103 do harness; 1 aviso de lint preexistente).

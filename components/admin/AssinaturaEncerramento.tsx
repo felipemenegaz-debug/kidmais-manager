@@ -122,6 +122,7 @@ export function EncerramentoComDevolucao({ dados, recarregar }: { dados: DadosAs
                 setErro(r.erro);
                 // Valor mudou (virou o dia) ou opção indisponível: a pessoa revê as opções antes de confirmar de novo.
                 if (r.codigo === 'OFERTA_ALTERADA' || r.codigo === 'CONFLITO') { setEscolha(null); setChave(''); void verOpcoes(); }
+                else setChave(novaChave()); // nova tentativa = chave nova (a mesma chave só devolve o pedido já registrado)
                 return;
             }
             setResultado(r.data); setEscolha(null); setMotivo(''); setChave('');

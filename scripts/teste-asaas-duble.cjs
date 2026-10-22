@@ -31,6 +31,8 @@ if (arquivo) {
             resposta = responder({ data: estado.cobrancas[m[1]] ?? [], hasMore: false });
         else if (metodo === 'GET' && (m = caminho.match(/^\/subscriptions\/([^/]+)$/)) && estado.assinaturas[m[1]])
             resposta = responder({ ...estado.assinaturas[m[1]], ...(estado.assinaturas[m[1]].deleted ? { status: 'INACTIVE' } : {}) });
+        else if (metodo === 'DELETE' && estado.perderRemocao)
+            resposta = responder({ errors: [] }, 500); // 5xx: resultado incerto para quem chama (nada removido)
         else if (metodo === 'DELETE' && (m = caminho.match(/^\/subscriptions\/([^/]+)$/)) && estado.assinaturas[m[1]]) {
             estado.assinaturas[m[1]].deleted = true;
             resposta = responder({ deleted: true, id: m[1] });
