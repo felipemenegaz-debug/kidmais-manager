@@ -6,6 +6,8 @@ Data: 22/10/2026. **PROPOSTA para decisão de Felipe; nenhuma implementação ou
 > (branch `codex/creditos-ia-20261022`, migration 090, catálogo de demonstração `PROPOSTA-20261022-DEMO`). Este plano
 > continua sendo a **proposta**: nenhuma sugestão abaixo foi aprovada comercial, jurídica ou fiscalmente, nada foi
 > homologado no sandbox, publicado ou aplicado. As diferenças entre plano e implementação estão no documento novo (§1–§8).
+> Decisões por delegação de Felipe (preços do piloto, garantia, pagamento tardio, CRÍTICO, pareceres) estão em
+> `docs/DECISOES_CREDITOS_IA_20261022.md`; a venda continua bloqueada até os pareceres e o gate de preço.
 
 ## 1. Escopo, base e evidências
 

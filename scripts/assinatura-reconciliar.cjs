@@ -40,9 +40,10 @@
  * serviço), (b) revisita os pedidos abertos/incertos/em revisão e as disputas pelo mesmo serviço (simulação = ROLLBACK por
  * item; produção só conferência) e (c) lê a fila (somente leitura) em itens D-C4: PEDIDO_CREDITOS (criação incerta, revisão,
  * pagamento duplicado), DEVOLUCAO_CREDITOS (vencida), RESERVA_CREDITOS (aberta há > 24 h), DISPUTA_CREDITOS e
- * DIVERGENCIA_CARTEIRA (recomputação extrato × lotes × carteira). PROPOSTA sujeita à aprovação de Felipe: dinheiro pago sem
- * crédito, pagamento duplicado, arrependimento vencido e divergência de carteira são CRÍTICOS e alarmam em toda conferência
- * até a resolução (aviso CRITICO), em vez dos dias 0/1/3/7/semanais. NFS-e (DOCUMENTO_FISCAL) não existe nesta versão.
+ * DIVERGENCIA_CARTEIRA (recomputação extrato × lotes × carteira). Decidido por Felipe em 22/10/2026 (D4 de
+ * docs/DECISOES_CREDITOS_IA_20261022.md): dinheiro pago sem crédito, pagamento duplicado, arrependimento vencido e divergência
+ * de carteira são CRÍTICOS e alarmam em toda conferência até a resolução (aviso CRITICO), em vez dos dias 0/1/3/7/semanais.
+ * NFS-e (DOCUMENTO_FISCAL) não existe nesta versão.
  */
 /** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
 const LIMITE_EVENTOS = 500;
@@ -394,7 +395,7 @@ function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) 
     for (const i of itens) {
         const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
         if (erroDaExecucao(i)) { alarmes.push({ ...base, aviso: 'ERRO_NESTA_EXECUCAO' }); continue; }
-        // 090 (proposta): item crítico dos créditos alarma em toda conferência até ser resolvido.
+        // 090 (D4, 22/10/2026): item crítico dos créditos alarma em toda conferência até ser resolvido.
         if (i.critico === true) { alarmes.push({ ...base, aviso: 'CRITICO' }); continue; }
         if (i.item === 'EMPRESA') { alarmes.push({ ...base, aviso: 'EMPRESA_SEM_IDADE' }); continue; }
         const dia = diaDoItem(i.recebidoMs, referenciaMs);

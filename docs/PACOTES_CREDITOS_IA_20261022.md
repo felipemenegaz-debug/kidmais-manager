@@ -142,8 +142,9 @@ Retrato `lib/exportacao/colunas-esperadas.json` regenerado e revisado; suítes d
 `scripts/assinatura-reconciliar.cjs`: eventos de cobrança avulsa pelo mesmo serviço; pedidos abertos/incertos/em revisão e
 disputas revisitados por item (simulação = ROLLBACK; produção só conferência); fila somente leitura em itens
 `PEDIDO_CREDITOS`, `DEVOLUCAO_CREDITOS`, `RESERVA_CREDITOS`, `DISPUTA_CREDITOS`, `DIVERGENCIA_CARTEIRA`.
-**Proposta para Felipe:** pago sem crédito, pagamento duplicado, arrependimento vencido e divergência de carteira são
-`CRITICO` e alarmam em toda conferência até resolução. `DOCUMENTO_FISCAL` não existe (NFS-e fora desta versão).
+**Decidido por Felipe em 22/10 (D4):** pago sem crédito, pagamento duplicado, arrependimento vencido e divergência de carteira
+são `CRITICO` e alarmam em toda conferência até resolução (substituto de Felipe ainda não definido). `DOCUMENTO_FISCAL` não
+existe (NFS-e fora desta versão).
 
 ## 7. Testes executados (22/10/2026, locais)
 
@@ -151,7 +152,7 @@ disputas revisitados por item (simulação = ROLLBACK; produção só conferênc
 |---|---|
 | `lib/creditos/creditos.test.ts` (regras, flags, catálogo, Asaas avulso com fetch falso, webhook, CLIs) | 13/13 |
 | `npm run check:v1:static` (rodada final) | **EXIT 0**: unitários 3276/3276, harness 103/103, lint 0 erros (1 aviso preexistente em `lib/inteligencia/skills/catalogo.ts`), TypeScript e build OK. A 1ª rodada apontou 1 erro de lint no componente novo (`set-state-in-effect`), corrigido |
-| PG descartável `lib/creditos/creditos-090.postgres.test.ts` (modelo 089 + 090) | 10/10 |
+| PG descartável `lib/creditos/creditos-090.postgres.test.ts` (modelo 089 + 090) | 10/10 na 1ª entrega; **12/12** depois do fechamento da M16 (duas rodadas seguidas) |
 | PG `lib/creditos/aplicador-090.postgres.test.ts` | 1/1 |
 | PG exportação (`exportacao` 3/3, `exportacao-adversarial` 6/6, modelo 090) | 9/9 |
 | `scripts/migration-090.test.cjs` + `scripts/bloco-shell-090.test.cjs` | 21/21 |
@@ -169,10 +170,18 @@ M06 pedido creditado credita de novo (webhook duplicado: 2º evento FALHOU pela 
 empresa"), M10 devolução sem cancelar o remanescente, M11 liberação reabre lote devolvido, M12 corte com geração aberta,
 M13 URL da fatura exportada, M15 liberação de lote vencido volta ao disponível. **Sobreviventes:** M14 (sem o limite da
 soma das devoluções no gatilho) — equivalente na prática, pois `UNIQUE (pedido_id)` e o CHECK `valor ≤ valor_pago` já
-impedem exceder o pago (defesa em profundidade sem teste próprio); M16 (geração legada sem reconferir o motor depois de
-travar `convite_carteiras`) — a suíte não exercita um corte concorrente pelo caminho administrativo; no caminho do cliente,
-a trava da empresa pelo corte serializa antes. **Lacuna registrada para a revisão.** Relatórios:
+impedem exceder o pago (defesa em profundidade sem teste próprio); M16 — ver abaixo. Relatórios:
 `handoff-revisao-creditos-ia-20261022/mutacoes-r2-16.txt` e `mutacoes-r3-corrigidos.txt`.
+
+**Fechamento da M16 (22/10, mesma data).** Dois testes novos com duas conexões reais: (a) corte aberto e geração pelo
+serviço real — a geração espera o corte na trava da empresa (`empresas FOR UPDATE`, antes de escolher o motor) e depois usa
+só o motor novo, sem debitar o legado; (b) geração já em curso (mesma ordem de travas da geração) e corte — o corte espera
+na trava da empresa, sem deadlock, e a fotografia inclui o consumo legado. Achado: tirar o `FOR SHARE` da empresa no corte
+causa **deadlock** (mutante **M17**, eliminado com `40P01 deadlock detected`); a trava foi mantida e documentada. Com a
+ordem empresa → `convite_carteiras` nos dois lados, a reconferência do motor (M16) é **equivalente** — inalcançável pelos
+caminhos atuais, mantida como defesa em profundidade; M16 sobrevive com a suíte determinística (`mutacoes-r5-m16-m17.txt`).
+Uma rodada intermediária (`mutacoes-r4-m16-m17.txt`) foi **inconclusiva** para M16: o teste de expiração dependia de uma
+janela de 300 ms; ele foi reescrito sem tempo (o lote vence no banco descartável depois da reserva) e passou em duas rodadas.
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
@@ -188,7 +197,11 @@ antes de cada execução; sem o banco `kidmais_manager`.
 - Uma devolução por pedido (a devolução cancela todo o remanescente). Saldo não usado fora da garantia exige nenhuma geração
   em andamento no lote.
 - Textos legais e preços **não** publicados; minutas do plano seguem pendentes de jurídico.
-- Decisões de Felipe/jurídico/contador: §11 do plano (inalteradas) + extensão crítica do D-C4 + política de pagamento tardio.
+- Decisões de 22/10 por delegação de Felipe: `docs/DECISOES_CREDITOS_IA_20261022.md` (D1 preços do piloto e validade,
+  D2 garantia, D3 pagamento tardio, D4 CRÍTICO, D5 pareceres). Pendentes de código: franquia por plano/proporcional, regra
+  da 3ª devolução, lacuna de pagamento em pedido `ENCERRADO`, nova versão aprovada do catálogo. Pendentes externos:
+  pareceres do jurídico e do contador (pacote `pacote-revisao-creditos-juridico-contador-20261022/`), medição de custo,
+  substituto de Felipe.
 
 ### Roteiro de homologação em sandbox (NÃO EXECUTADO)
 
