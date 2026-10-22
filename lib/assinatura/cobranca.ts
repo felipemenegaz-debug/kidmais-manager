@@ -252,9 +252,13 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         let clienteId = a.linha.provedor_cliente_id;
         if (!clienteId) {
             const existente = await provedor.buscarClientePorReferencia(empresaId);
-            // Cliente achado por referência (criado antes e não vinculado): só é reaproveitado com o documento vigente.
-            if (existente && existente.cpfCnpj && a.cliente.documento && existente.cpfCnpj !== a.cliente.documento)
-                throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O cadastro no provedor usa outro CPF ou CNPJ. A conferência é feita pelo atendimento antes de contratar.', 409);
+            // Cliente achado por referência (criado antes e não vinculado): só é reaproveitado com o documento do provedor
+            // PRESENTE e igual ao vigente. Ausente, vazio ou diferente não prova identidade (revisão 7628d39, P2-N1): recusa,
+            // sem POST de assinatura, para conferência do atendimento.
+            if (existente && (!existente.cpfCnpj || !a.cliente.documento || existente.cpfCnpj !== a.cliente.documento))
+                throw erroAcesso('DOCUMENTO_DIVERGENTE', existente.cpfCnpj
+                    ? 'O cadastro no provedor usa outro CPF ou CNPJ. A conferência é feita pelo atendimento antes de contratar.'
+                    : 'Não foi possível conferir o CPF ou CNPJ do cadastro no provedor. A conferência é feita pelo atendimento antes de contratar.', 409);
             if (existente)
                 clienteId = existente.id;
             else {

@@ -377,7 +377,7 @@ test('9. continuidade assistida (D5): sempre pendente até a conferência; trava
     // Checkout: cliente órfão achado por referência com o CPF antigo não é reaproveitado (P2-1); sem órfão, cria com o CNPJ.
     const criados: { nome: string; cpfCnpj: string }[] = [];
     const subs = new Map<string, Record<string, unknown>>();
-    let orfao: { id: string; externalReference: string; cpfCnpj: string } | null = { id: 'cus_orfao', externalReference: x, cpfCnpj: cpf(70) };
+    let orfao: { id: string; externalReference: string; cpfCnpj?: string | null } | null = null;
     const provedor = {
         async buscarClientePorReferencia() { return orfao; },
         async criarCliente(i: { nome: string; cpfCnpj: string; referencia: string }) { criados.push({ nome: i.nome, cpfCnpj: i.cpfCnpj }); return { id: `cus_c${criados.length}`, externalReference: i.referencia }; },
@@ -394,12 +394,19 @@ test('9. continuidade assistida (D5): sempre pendente até a conferência; trava
         withTransaction: (t: (tx: never) => Promise<unknown>) => transacao(() => client)((c) => t(c as never)), provedor: () => provedor as never, env, travarContratacao: async (_e: string, t: () => Promise<unknown>) => t(),
     } as never);
     const sessao = { id: 's', usuario_id: operador, nome: 'Gestão', cargo: null, papel: 'REPRESENTANTE_AUTORIZADO' as const, autenticado_em: '', expira_em: '', csrf_hash: '' };
-    assert.equal(await erro(iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(x))), 'DOCUMENTO_DIVERGENTE');
+    // P2-N1: documento do provedor diferente, nulo, ausente ou vazio não prova identidade: recusa sem POST de assinatura.
+    for (const doc of [cpf(70), null, undefined, '']) {
+        orfao = { id: 'cus_orfao', externalReference: x, ...(doc === undefined ? {} : { cpfCnpj: doc }) } as never;
+        assert.equal(await erro(iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(x))), 'DOCUMENTO_DIVERGENTE', String(doc));
+        assert.equal(subs.size, 0, 'nenhuma assinatura criada');
+    }
     assert.equal(criados.length, 0);
     assert.equal((await client.query('SELECT provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1', [x])).rows[0].provedor_cliente_id, null, 'órfão não vinculado');
-    orfao = null;
+    // Mesmo documento vigente: o cliente achado é reaproveitado (sem cliente novo).
+    orfao = { id: 'cus_orfao', externalReference: x, cpfCnpj: cnpj(70) };
     await iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(x));
-    assert.deepEqual(criados.at(-1), { nome: 'Maria Sintética da Silva ME', cpfCnpj: cnpj(70) });
+    assert.equal(criados.length, 0);
+    assert.equal((await client.query('SELECT provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1', [x])).rows[0].provedor_cliente_id, 'cus_orfao');
     assert.equal((await client.query('SELECT documento_beneficiario FROM assinatura_fundadores WHERE empresa_id = $1', [x])).rows[0].documento_beneficiario, cpf(70),
         'a concessão fica no snapshot do teste (074a), ligada pela continuidade');
     // P2-2: documento intermediário da cadeia (CNPJ 70 → retificação para CNPJ 75) continua vinculado: outro cadastro com ele vira pedido neutro.
@@ -415,6 +422,24 @@ test('9. continuidade assistida (D5): sempre pendente até a conferência; trava
     assert.equal(p.situacao, 'PENDENTE_PROVEDOR');
     await concluir(ids.pf, p.continuidadeId, 'Cliente conferido no provedor (sintético)');
     assert.deepEqual(await documentoVigente(client as never, ids.pf, cpf(10)), { documento: cnpj(72), pendente: false });
+    // P2-N2: reconciliação não adota assinatura sem vínculo quando há continuidade (pendente ou concluída); sem continuidade, adota.
+    const { reconciliarContratacao } = await import('./reconciliacao-contratacao.ts');
+    const remota = (empresa: string) => ({ id: `sub_rec_${empresa.slice(0, 8)}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_rec_${empresa.slice(0, 8)}`, externalReference: empresa });
+    const provedorRec = (empresa: string) => ({ async listarAssinaturasPorReferencia() { return [remota(empresa)]; }, async obterAssinatura() { return remota(empresa); } }) as never;
+    const y = (await cadastrar((await conta('yara')).sessao, pf(cpf(80)))).empresaId!;
+    await registrar(y, { documentoNovo: cnpj(80) });
+    for (const fase of ['pendente', 'concluida']) {
+        const r = await tx((t) => reconciliarContratacao(t as never, y, provedorRec(y))) as { resultado: string; motivo?: string };
+        assert.deepEqual([r.resultado, r.motivo], ['REVISAO_HUMANA', 'CONTINUIDADE_DOCUMENTO'], fase);
+        assert.equal((await client.query('SELECT provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id = $1', [y])).rows[0].provedor_assinatura_id, null, fase);
+        if (fase === 'pendente') {
+            const id = (await client.query("SELECT id FROM empresa_documento_continuidades WHERE empresa_id = $1 AND situacao = 'PENDENTE_PROVEDOR'", [y])).rows[0].id;
+            await concluir(y, id, 'Assinatura antiga identificada para revisão (sintético)');
+        }
+    }
+    const z = (await cadastrar((await conta('zeca')).sessao, pf(cpf(81)))).empresaId!;
+    const rz = await tx((t) => reconciliarContratacao(t as never, z, provedorRec(z))) as { resultado: string };
+    assert.equal(rz.resultado, 'VINCULADA', 'sem continuidade, o comportamento anterior continua');
     // Guardas do banco: registro imutável, sem DELETE, encadeamento, DV e data futura.
     await assert.rejects(client.query("UPDATE empresa_documento_continuidades SET nome_novo = 'Outro' WHERE id = $1", [p.continuidadeId]), /registro é imutável/);
     await assert.rejects(client.query('DELETE FROM empresa_documento_continuidades WHERE id = $1', [p.continuidadeId]), /não é apagada/);

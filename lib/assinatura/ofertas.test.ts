@@ -215,7 +215,7 @@ function checkoutSintetico(db: Banco) {
     let criacoes = 0;
     let valorFatura = 11820;
     const provedor: ClienteAsaas = {
-        buscarClientePorReferencia: async () => ({ id: 'cus_1', externalReference: E }),
+        buscarClientePorReferencia: async () => ({ id: 'cus_1', externalReference: E, cpfCnpj: '00000000000191' }),
         criarCliente: async () => { throw new Error('Cliente já existe no mock.'); },
         obterAssinatura: async () => criada,
         listarAssinaturasPorReferencia: async () => criada ? [criada] : [],
