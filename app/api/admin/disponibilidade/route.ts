@@ -25,7 +25,7 @@ import {
 } from "@/lib/disponibilidade/services";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
-import { regrasDosPacotesDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
+import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
   liberarBloqueioLegadoPelaEmpresa,
@@ -161,9 +161,12 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
   const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
   // Status comercial dos pacotes: a dona da agenda pública mantém a regra legada (null, como em /fechamento); as demais
   // empresas, as regras configuradas por ELAS — a mesma leitura da cotação pública em /b/<código> e do servidor.
-  const regrasPacotes = configuracaoComercial
+  // O seletor de pacote dessas empresas lista só os pacotes que elas têm (empresa nova = nenhum, sem catálogo Kidmais).
+  const daEmpresa = configuracaoComercial
     ? null
-    : await regrasDosPacotesDaEmpresa(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo);
+    : await pacotesDaAgendaDaEmpresa(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo);
+  const regrasPacotes = daEmpresa ? daEmpresa.regras : null;
+  const pacotes = daEmpresa ? daEmpresa.pacotes : null;
 
   return {
     agendaPorEscopo: porEscopo,
@@ -177,6 +180,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     descontos: comercial.descontos,
     configuracaoComercial,
     regrasPacotes,
+    pacotes,
     bloqueios,
   };
 }

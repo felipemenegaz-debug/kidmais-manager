@@ -64,6 +64,8 @@ type AdminPayload = DisponibilidadeConfig & {
   configuracaoComercial?: boolean;
   /** Regras dos pacotes da empresa ativa (id da tela → regras); null/ausente = dona da agenda pública (regra legada). */
   regrasPacotes?: Record<string, RegraPacoteEmpresa[]> | null;
+  /** Pacotes que a empresa ativa realmente tem (empresa nova = []); null/ausente = dona da agenda pública (catálogo legado). */
+  pacotes?: Array<{ id: string; nome: string }> | null;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
 };
@@ -100,6 +102,7 @@ export default function AdminDisponibilidade() {
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
   const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
   const [regrasPacotes, setRegrasPacotes] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
+  const [pacotesEmpresa, setPacotesEmpresa] = useState<Array<{ id: string; nome: string }> | null>(null);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
@@ -163,6 +166,7 @@ export default function AdminDisponibilidade() {
       podeResolverLegado: admin.podeResolverLegado === true,
       configuracaoComercial: admin.configuracaoComercial !== false,
       regrasPacotes: admin.regrasPacotes ?? null,
+      pacotes: admin.regrasPacotes ? (admin.pacotes ?? []) : null,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -197,6 +201,14 @@ export default function AdminDisponibilidade() {
     setDescontoTitulo(manual?.titulo || "");
   }
 
+  // Empresa que não é a dona da agenda pública vê só os pacotes que criou; se o escolhido não existe nela, vai para o primeiro.
+  function aplicarPacotesEmpresa(lista: Array<{ id: string; nome: string }> | null) {
+    setPacotesEmpresa(lista);
+    if (lista && lista.length > 0) {
+      setPacote((atual) => (lista.some((p) => p.id === atual) ? atual : (lista[0].id as PacoteId)));
+    }
+  }
+
   async function carregar() {
     setCarregando(true);
     try {
@@ -209,6 +221,7 @@ export default function AdminDisponibilidade() {
       setPodeResolverLegado(dados.podeResolverLegado);
       setConfiguracaoComercial(dados.configuracaoComercial);
       setRegrasPacotes(dados.regrasPacotes);
+      aplicarPacotesEmpresa(dados.pacotes);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -240,6 +253,7 @@ export default function AdminDisponibilidade() {
         setPodeResolverLegado(dados.podeResolverLegado);
         setConfiguracaoComercial(dados.configuracaoComercial);
         setRegrasPacotes(dados.regrasPacotes);
+        aplicarPacotesEmpresa(dados.pacotes);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -378,7 +392,10 @@ export default function AdminDisponibilidade() {
   // Empresa ativa que não é a dona da agenda pública: as regras do pacote configuradas por ela (mesma decisão da
   // cotação em /b/<código>); dona: regra legada (null).
   const regrasDoPacote = regrasPacotes ? (regrasPacotes[pacote] ?? []) : null;
-  const infoComercialSelecionada = selecionada
+  const opcoesPacote = pacotesEmpresa ?? PACOTES;
+  // Buffet novo, sem pacote criado: nada comercial para mostrar; o calendário fica só com a ocupação física.
+  const semPacotes = opcoesPacote.length === 0;
+  const infoComercialSelecionada = selecionada && !semPacotes
     ? statusDataPacote(config, pacote, selecionada, horario, regrasDoPacote)
     : null;
 
@@ -394,7 +411,7 @@ export default function AdminDisponibilidade() {
     ? bloqueiosDoTurno(selecionada, horario)
     : [];
 
-  const descontoSelecionado = selecionada
+  const descontoSelecionado = selecionada && !semPacotes
     ? descontoEfetivo(config, pacote, selecionada, horario)
     : null;
 
@@ -440,14 +457,17 @@ export default function AdminDisponibilidade() {
           <label>
             <span>Pacote</span>
             <select
-              value={pacote}
+              value={semPacotes ? "" : pacote}
+              disabled={semPacotes}
               onChange={(e) => {
                 const novoPacote = e.target.value as PacoteId;
                 setPacote(novoPacote);
                 sincronizarDescontoFormulario(config, novoPacote, selecionada, horario);
               }}
             >
-              {PACOTES.map((p) => <option value={p.id} key={p.id}>{p.nome}</option>)}
+              {semPacotes
+                ? <option value="">Nenhum pacote criado</option>
+                : opcoesPacote.map((p) => <option value={p.id} key={p.id}>{p.nome}</option>)}
             </select>
           </label>
 
@@ -511,6 +531,14 @@ export default function AdminDisponibilidade() {
           </section>
         )}
 
+        {semPacotes && (
+          <p className={styles.helpText}>
+            Nenhum pacote criado ainda. Cadastre seus pacotes em{" "}
+            <a href="/admin/configuracoes/pacotes">Configurações → Pacotes</a> para ver e ajustar a disponibilidade de cada um.
+            O calendário abaixo mostra só a ocupação física da agenda.
+          </p>
+        )}
+
         <div className={styles.contentActions}><a className={styles.clientView} href="/disponibilidade">Ver tela do cliente →</a></div>
 
         <section className={styles.layout}>
@@ -531,7 +559,7 @@ export default function AdminDisponibilidade() {
               <span className={styles.blue}>? Consulta</span>
               <span className={styles.purple}>! Exceção</span>
               <span className={styles.red}>× Indisponível</span>
-              {pacoteTemDescontoDiaUtil(pacote) && (
+              {!semPacotes && pacoteTemDescontoDiaUtil(pacote) && (
                 <span className={styles.orange}>-15% Dia útil</span>
               )}
             </div>
@@ -548,7 +576,9 @@ export default function AdminDisponibilidade() {
                 const data = iso(ano, mes, i + 1);
                 const padrao = horarioPadraoOperacional(data, horario);
                 const semDados = !padrao;
-                const comercial = statusDataPacote(config, pacote, data, horario, regrasDoPacote);
+                const comercial = semPacotes
+                  ? { status: "disponivel" as const, origem: "agenda" as const }
+                  : statusDataPacote(config, pacote, data, horario, regrasDoPacote);
                 const info = padrao?.status === "INDISPONIVEL"
                   ? {
                       status: "indisponivel" as const,
@@ -558,7 +588,7 @@ export default function AdminDisponibilidade() {
                   : comercial;
 
                 const desconto =
-                  !semDados && info.status !== "indisponivel"
+                  !semDados && !semPacotes && info.status !== "indisponivel"
                     ? descontoEfetivo(config, pacote, data, horario)
                     : {
                         ativo: false,
@@ -831,7 +861,7 @@ export default function AdminDisponibilidade() {
                   </div>
                 )}
 
-                <div className={styles.currentStatus}>
+                {!semPacotes && (<div className={styles.currentStatus}>
                   <span>Status comercial do pacote</span>
                   <strong>{infoComercialSelecionada ? statusLabel(infoComercialSelecionada.status, regrasDoPacote === null) : "-"}</strong>
                   <small>
@@ -841,7 +871,7 @@ export default function AdminDisponibilidade() {
                         ? "Dias e períodos configurados no pacote"
                         : "Regra padrão do pacote"}
                   </small>
-                </div>
+                </div>)}
 
                 {configuracaoComercial ? (<>
                 <label className={styles.motivo}>
