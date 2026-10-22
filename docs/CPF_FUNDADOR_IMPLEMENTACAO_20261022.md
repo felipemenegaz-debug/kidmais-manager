@@ -467,3 +467,30 @@ no fim.
 - `check:v1:static`: PASS (3280 + 103).
 - Preexistente: `concorrencia-vagas-isolado`.
 - Não executado: sandbox Asaas, staging/produção, nova revisão independente das correções.
+
+### Quarta rodada: P3 das duas revisões independentes
+
+A segunda revisão (das correções `2927d45..db39107`) foi **APROVADA** local, sem P1 nem P2. Os P3 dela e os da primeira
+revisão foram tratados assim:
+
+| P3 | Correção | Prova |
+|---|---|---|
+| Corrida LEGADO × ativação | A ativação toma a mesma trava da alocação (`kidmais:fundadores:2026`). Uma reserva LEGADO em andamento termina antes, ou espera e é recusada depois. O encerramento não toma a trava: a concessão segura a campanha com FOR SHARE, sem ciclo. | 090 caso 3 (espera observada no servidor; LEGADO recusada) |
+| Ativação retroativa | No calendário, a guarda 090 e `ativarCampanhaAprovada` recusam data de abertura no passado. `HORARIO_EXATO` continua só para ensaio sintético. | 090 caso 3 |
+| ENCERRADA sem motivo | O gatilho exige motivo (≥5) e o CHECK exige motivo em ENCERRADA. | 090 caso 3 |
+| Concessão própria × chave e validade | Com a campanha ativada e a chave desligada, a concessão própria também bloqueia (`CAMPANHA_DESLIGADA`). Uma concessão própria reservada e vencida não gera oferta nova (`FUNDADOR_OFERTA_EXPIRADA`). | unitário de ofertas; 090 caso 8 |
+| Site sem timeout | `resumoCampanhaSite` usa `statement_timeout` de 2 s e um limite de 2,5 s; se passar, usa o texto neutro. | `lib/site/fundador-servidor.test.ts` |
+| Código cortado no relatório D-C4 | O formato passa a ser `ERRO_INTERNO: <CÓDIGO>`, que `motivoSeguro` preserva. Sem código de domínio, continua `ERRO_INTERNO: <nome>`. | `lib/assinatura/recusa-visivel.test.ts` |
+| Chaves `ERRO_<código>` para todos os erros de domínio | Mudança intencional e documentada: o alarme não muda e não há consumidor no repositório. Um painel externo que contasse `ERRO_AcessoServiceError` precisa ser ajustado. | reconciliar.test 23/23 |
+| Falso alarme por transação aberta antes do corte | Depois de ler o corte, o aplicador espera (só lendo, até 30 s) até nenhuma outra sessão ter transação aberta desde antes dele. Se não terminar, recusa ANTES de escrever (`TRANSACOES_ANTERIORES_AO_CORTE`). **Limite:** o papel precisa enxergar `xact_start` das outras sessões; sessões invisíveis não são esperadas. | unitário dos aplicadores; aplicador PG cenário 4a |
+| Postcheck 091 só por nome | Confere também `tgtype = 7` (ROW, BEFORE, INSERT) e a função de guarda. A 090 passou a conferir tipo e função dos três gatilhos. | 091 caso 7b (gatilho adulterado recusado) |
+| Rollback 091 parcial com erro genérico | Confere todos os objetos antes de qualquer DROP e recusa com "migration ausente ou parcial". | 091 caso 7b |
+| Concorrência sem espera observada | "Mesma empresa" e "20ª vaga": uma terceira conexão segura a trava até as duas estarem esperando no servidor. | 090 casos 4 e 6 |
+| Janela de 45 s | Passou para 90 s. | suíte 090 |
+| Último dia perto da meia-noite; datas do caso 8 | As datas são relativas à validade de cada empresa. O bloco do último dia espera virar o dia se faltarem menos de 2 min. | 090 caso 8 |
+| Reconciliação do caso 8 não presa à empresa | O ciclo roda só com a empresa testada, sem eventos: `{ERRO_FUNDADOR_OFERTA_EXPIRADA: 1}`. | 090 caso 8 |
+| Guarda fraca em `kidmais-gratuidade` | Confere as recusas dentro do corpo de `iniciarTesteDaContratante`, antes da única chamada. | kidmais-gratuidade |
+
+Os testes do aplicador real foram ajustados ao comportamento novo:
+- tráfego aberto antes do corte gera recusa sem escrita;
+- tráfego iniciado depois do corte, por um gancho que só existe no teste, gera a falha real por `lock_timeout` na migration.
