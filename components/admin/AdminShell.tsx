@@ -17,6 +17,7 @@ import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/
 import LogoEmpresa from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
+import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
@@ -171,7 +172,7 @@ export default function AdminShell({ children, vitrine }: {
             <li><Link href={ROTA_AJUDA}>Ajuda e suporte</Link></li>
             {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
             <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li>
-        </ul></section></main>;
+        </ul></section><ExportacaoEmpresasSuspensas /></main>;
     return <div className={`${tokens.tema} ${styles.shell}`}><PerguntarKidmaisProvider>
         <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto((valor) => !valor)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
         {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={fechar} />}
@@ -206,7 +207,7 @@ export default function AdminShell({ children, vitrine }: {
             </footer>
         </aside>
         <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
-            ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section></main>)
+            ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section><ExportacaoEmpresasSuspensas /></main>)
             : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>
                     <p>Os dados de {contexto?.empresaAtual?.nome ?? 'sua empresa'} continuam guardados. Nada foi apagado.</p>

@@ -416,3 +416,25 @@ test('D-C4 (P3-4): o CASE da SQL mapeia cada (tipo, evento_id) na categoria cert
     ];
     for (const [tipo, evento_id, esperado] of casos) assert.equal(categoria({tipo, evento_id}), esperado, `${tipo} ${evento_id.slice(0, 20)}`);
 });
+
+test('089 na conferência D-C4: pedido vencido vira item por idade (novo alarma; fora do dia de aviso fica conhecido); staging só conta',async()=>{
+    const {executarCiclo,codigoDeSaida}=require('./assinatura-reconciliar.cjs');
+    const agoraMs=Date.parse('2026-11-20T09:30:00Z'), DIA=86400000;
+    const sinc={eventosPendentes:async()=>[],empresasComProvedor:async()=>['a'],processarEvento:async()=>({situacao:'PROCESSADO'}),
+        sincronizarEmpresa:async()=>({resultado:'SINCRONIZADA',mudou:false})};
+    const ciclo=(pend,producao=true)=>executarCiclo({client:{query:async()=>{}},provedor:{},aplicar:false,banco:'sintetico',sinc,
+        idadesDosEventos:producao?async()=>({agoraMs,eventos:new Map()}):undefined,pendenciasEncerramento:async()=>pend});
+    const novo=await ciclo([{item:'DEVOLUCAO_PENDENTE',resultado:'AGUARDANDO_MANUAL',motivo:'ARREPENDIMENTO_7_DIAS',recebidoMs:agoraMs-3600000}]);
+    assert.deepEqual(novo.encerramentos,{DEVOLUCAO_PENDENTE_AGUARDANDO_MANUAL:1});
+    assert.deepEqual(novo.alarme.itens,[{item:'DEVOLUCAO_PENDENTE',resultado:'AGUARDANDO_MANUAL',motivo:'ARREPENDIMENTO_7_DIAS',idadeDias:0,aviso:'NOVO'}]);
+    assert.equal(codigoDeSaida(novo,true),2);
+    const antigo=await ciclo([{item:'RENOVACAO_NAO_REMOVIDA',resultado:'SEM_CONFIRMACAO',motivo:'CANCELAMENTO_FIM_PERIODO',recebidoMs:agoraMs-2*DIA-3600000}]);
+    assert.deepEqual([antigo.alarme.itens.length,antigo.pendentesConhecidos.length,antigo.pendentesConhecidos[0].proximoAvisoDia],[0,1,3]);
+    assert.equal(codigoDeSaida(antigo,true),0,'conhecido fora do dia de aviso: sem alarme, mas listado');
+    const vazio=await ciclo([]);
+    assert.deepEqual([vazio.encerramentos,codigoDeSaida(vazio,true)],[{},0]);
+    const staging=await ciclo([{item:'DEVOLUCAO_PENDENTE',resultado:'RECUSADO',motivo:'ENCERRAMENTO_ANUAL_PROPORCIONAL',recebidoMs:agoraMs}],false);
+    assert.deepEqual([staging.encerramentos,staging.alarme,codigoDeSaida(staging,false)],[{DEVOLUCAO_PENDENTE_RECUSADO:1},undefined,0]);
+    const fonte=require('node:fs').readFileSync(__dirname+'/assinatura-reconciliar.cjs','utf8');
+    assert.match(fonte,/pendenciasEncerramento: lerPendenciasEncerramento/);
+});

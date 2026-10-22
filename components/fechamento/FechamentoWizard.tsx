@@ -5,7 +5,7 @@ import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
-import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import { codigoServidorDoPacoteDaMarca, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -301,18 +301,19 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     return () => controller.abort();
   }, [empresa, tentativaPacotes]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
-  const fato = form.pacote ? fatosPacote?.[CODIGO_PACOTE[form.pacote]] : undefined;
+  const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
+  const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
   const pacote = pacoteDaTela(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote);
   useEffect(()=>{
-    const codigo=CODIGO_PACOTE[form.pacote];
+    const codigo=codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
     if(!codigo)return;
     const controller=new AbortController();
-    void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${codigo}`, empresa),{signal:controller.signal})
+    void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${encodeURIComponent(codigo)}`, empresa),{signal:controller.signal})
       .then(r=>r.ok?r.json():{categorias:[]})
       .then(body=>setCategoriasBuffet(body.categorias??[]))
       .catch(()=>setCategoriasBuffet([]));
     return ()=>controller.abort();
-  },[form.pacote, empresa]);
+  },[form.pacote, empresa, marca.kidmais]);
   const chaveAdicionais=form.pacote && form.dataFesta && Number.isInteger(Number(form.convidadosPagantes)) && Number(form.convidadosPagantes)>=1
     ? [form.pacote,form.dataFesta,form.convidadosPagantes,tentativaAdicionais].join('|')
     : null;

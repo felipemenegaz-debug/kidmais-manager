@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
-import { pacoteCodigoContratavelV1 } from "@/lib/comercial/pacotes-v1";
+import { codigoDoPacoteDaTela, pacoteCodigoContratavelV1 } from "@/lib/comercial/pacotes-v1";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
@@ -16,8 +16,10 @@ export async function GET(request: NextRequest) {
   if (limite) return limite;
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
-    const codigo = request.nextUrl.searchParams.get("pacote") ?? "";
-    if (!pacoteCodigoContratavelV1(codigo)) throw new PacoteAdminError("DADOS_INVALIDOS", "Pacote inválido.", 400);
+    const pedido = request.nextUrl.searchParams.get("pacote") ?? "";
+    // Endereço atual: os sete códigos, como antes; /b/<código>: id V1 ou código de pacote (a busca abaixo prova a empresa).
+    const codigo = escopo.porCodigo ? codigoDoPacoteDaTela(pedido, true) : (pacoteCodigoContratavelV1(pedido) ? pedido : null);
+    if (!codigo) throw new PacoteAdminError("DADOS_INVALIDOS", "Pacote inválido.", 400);
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigo, db());
     if (!pacote) throw new PacoteAdminError("NAO_ENCONTRADO", "Pacote indisponível.", 404);
     // Escopo pelo pacote da empresa do endereço; com a 078, também pelo catálogo dela (segunda barreira, além do gatilho).

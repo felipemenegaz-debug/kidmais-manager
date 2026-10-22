@@ -6,7 +6,7 @@ import { calcularResumoComercial, isPricingServiceError } from "@/lib/comercial/
 import { db } from "@/lib/db/postgres";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { isAvailabilityServiceError, revalidarHorarioSelecionado } from "@/lib/disponibilidade/services";
-import { PACOTE_CODIGO_BANCO } from "@/lib/fechamentos/comercial-input";
+import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
 
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
  * horário da agenda, faixa de convidados, mínimo faturável e desconto), só leitura. Substitui a tabela fixa da tela.
  */
 const entrada = z.object({
-  pacote: z.enum(Object.keys(PACOTE_CODIGO_BANCO) as [keyof typeof PACOTE_CODIGO_BANCO, ...Array<keyof typeof PACOTE_CODIGO_BANCO>]),
+  // Id V1 (endereço atual) ou código do pacote da empresa (/b/<código>); traduzido pelo endereço abaixo.
+  pacote: z.string().min(1).max(50),
   dataFesta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   horarioBase: z.enum(["almoco", "noite"]),
   ajusteHorario: z.enum(["-30", "0", "30"]),
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
   const dados = entrada.safeParse(await request.json().catch(() => null));
   if (!dados.success) return NextResponse.json({ ok: false, erro: "Dados da cotação inválidos.", codigo: "DADOS_INVALIDOS" }, { status: 400, headers: semCache });
   try {
+    // Pacote pelo endereço, sem banco: endereço atual = só os sete ids V1 (como antes); /b/<código> = também o código.
+    const codigoPacote = codigoDoPacoteDaTela(dados.data.pacote, codigoEmpresaDoPedido(request.nextUrl) !== null);
+    if (!codigoPacote) return NextResponse.json({ ok: false, erro: "Dados da cotação inválidos.", codigo: "DADOS_INVALIDOS" }, { status: 400, headers: semCache });
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     const horario = await revalidarHorarioSelecionado({
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest) {
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
     }, undefined, { ...escopo, estabelecimentoId: unidade.estabelecimentoId });
-    const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, PACOTE_CODIGO_BANCO[dados.data.pacote], db());
+    const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
     if (!pacote) return NextResponse.json({ ok: false, erro: "Pacote indisponível.", codigo: "PACOTE_NAO_ENCONTRADO" }, { status: 404, headers: semCache });
     const resumo = await calcularResumoComercial({
       data: dados.data.dataFesta,

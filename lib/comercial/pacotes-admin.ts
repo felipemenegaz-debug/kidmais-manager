@@ -175,7 +175,7 @@ export async function criarPacoteAdmin(
        ordem_exibicao, ativo, vigente
      ) VALUES (
        $1::uuid, $2, $3, $4, $5, $6, $7,
-       (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM pacotes),
+       (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM pacotes WHERE empresa_id = $1::uuid),
        true, true
      ) RETURNING id`,
     [ctx.empresaId, cadastro.codigo, input.nome, input.descricao, input.duracaoMinutos, input.convidadosMinimos ?? null, input.convidadosMaximos ?? null],
@@ -647,12 +647,51 @@ export async function definirDisponibilidadePacoteAdmin(
     [id, paresDias, paresHorarios],
   );
   if (paresDias.length > 0) {
+    // Par mantido: a regra DISPONIVEL aberta que já vale fica como está. O gatilho de vigência da 006 roda antes do
+    // ON CONFLICT, então uma regra nova de hoje sobre ela seria recusada como sobreposta. As demais regras ativas do
+    // par que alcançam hoje ou depois (outro estado, fim marcado, início futuro) saem da frente antes da regra nova.
+    const mantida = `r.estado = 'DISPONIVEL' AND r.vigencia_inicio <= CURRENT_DATE AND r.vigencia_fim IS NULL`;
+    await tx.query(
+      `UPDATE regras_disponibilidade_pacote r
+          SET vigencia_fim = CURRENT_DATE - 1
+        WHERE r.pacote_id = $1::uuid
+          AND r.ativo
+          AND r.vigencia_inicio < CURRENT_DATE
+          AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= CURRENT_DATE)
+          AND NOT (${mantida})
+          AND EXISTS (
+            SELECT 1 FROM unnest($2::smallint[], $3::uuid[]) AS e(dia, horario)
+             WHERE e.dia = r.dia_semana AND e.horario = r.configuracao_agenda_id
+          )`,
+      [id, paresDias, paresHorarios],
+    );
+    await tx.query(
+      `UPDATE regras_disponibilidade_pacote r
+          SET ativo = false
+        WHERE r.pacote_id = $1::uuid
+          AND r.ativo
+          AND r.vigencia_inicio >= CURRENT_DATE
+          AND NOT (${mantida})
+          AND EXISTS (
+            SELECT 1 FROM unnest($2::smallint[], $3::uuid[]) AS e(dia, horario)
+             WHERE e.dia = r.dia_semana AND e.horario = r.configuracao_agenda_id
+          )`,
+      [id, paresDias, paresHorarios],
+    );
     await tx.query(
       `INSERT INTO regras_disponibilidade_pacote (
          pacote_id, dia_semana, configuracao_agenda_id, estado, vigencia_inicio, ativo
        )
        SELECT $1::uuid, e.dia, e.horario, 'DISPONIVEL', CURRENT_DATE, true
          FROM unnest($2::smallint[], $3::uuid[]) AS e(dia, horario)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM regras_disponibilidade_pacote r
+           WHERE r.pacote_id = $1::uuid
+             AND r.ativo
+             AND r.dia_semana = e.dia
+             AND r.configuracao_agenda_id = e.horario
+             AND ${mantida}
+        )
        ON CONFLICT (pacote_id, dia_semana, configuracao_agenda_id, vigencia_inicio)
        DO UPDATE SET estado = 'DISPONIVEL', ativo = true, vigencia_fim = NULL`,
       [id, paresDias, paresHorarios],

@@ -193,6 +193,26 @@ const ESTADO_POSTGRES = {
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
   "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: cancelamento e devolução da assinatura (089, L1), aplicada pela suíte sobre o modelo 086 (sem a 087 de
+  // outro trabalho local); provedor e e-mail falsos; inclui a reconciliação simulada com a regra D-C4.
+  "lib/assinatura/devolucao-089.postgres.test.ts": { descartavel: "086" },
+  // P2-4 da revisão da devolução: aplicadores reais da 089 (staging e produção) no modelo 086 (089 ausente).
+  "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
+  // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
+  // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
+  // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
+  // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: pacote criado em "Novo pacote" (código P_…) na lista/agenda da empresa, na cotação e no fechamento
+  // público de /b; ordem de exibição por empresa; revisão mantém o código. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-livres.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
+  // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

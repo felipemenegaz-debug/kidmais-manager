@@ -324,6 +324,15 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
 - **Empresa divergente persistente** (`SEM_CONFIRMACAO`, `RECUSADA`, `MUDOU_…` sem "Sincronizar") continua alarmando
   **todo dia** até ser resolvida (risco aceito pela falha fechada).
 
+### Fila 089 de cancelamento e devolução na conferência (LOCAL, 21/10/2026)
+
+Com a 089 instalada (branch `codex/devolucao-cancelamento-20261021`, ainda local), a conferência também lê a fila de
+pedidos (somente leitura, sem ids) e cada pedido VENCIDO vira um item da mesma regra por idade: `DEVOLUCAO_PENDENTE`
+(estorno manual/sem confirmação/recusado depois do prazo: arrependimento 1 h; proporcional, fim do dia de
+`prazo_processamento`) e `RENOVACAO_NAO_REMOVIDA` (remoção da assinatura sem confirmação há mais de 1 h). Resolver pela
+fila de `docs/CANCELAMENTO_DEVOLUCAO_20261021.md` §5; o item some quando o pedido é concluído/confirmado (ou quando a
+releitura com `deleted=true` fecha a remoção). Em staging o relatório só conta (`encerramentos`).
+
 ## 6. Roteiro proposto (cada passo com autorização própria)
 
 1. **C1 — criar o cron em `aguardando`** (independe do Asaas):

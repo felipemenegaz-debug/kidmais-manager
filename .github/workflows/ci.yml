@@ -101,3 +101,9 @@ jobs:
 
       - name: Blocos de Shell da 088 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-088.test.cjs
+
+      - name: Aplicadores manuais da 089 (cancelamento e devolução) — trava de alvo, identidade, hashes, plano, privilégios CREATE/REFERENCES, conferência só leitura, backup obrigatório e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-089.test.cjs
+
+      - name: Blocos de Shell da 089 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-089.test.cjs

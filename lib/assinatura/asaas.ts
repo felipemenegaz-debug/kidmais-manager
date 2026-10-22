@@ -15,6 +15,8 @@
  *   assinaturas           https://docs.asaas.com/reference/criar-nova-assinatura · https://docs.asaas.com/reference/listar-assinaturas
  *                         https://docs.asaas.com/reference/recuperar-uma-unica-assinatura · https://docs.asaas.com/reference/remover-assinatura
  *   cobranças             https://docs.asaas.com/reference/listar-cobrancas-de-uma-assinatura
+ *   estorno (21/10/2026)  https://docs.asaas.com/reference/estornar-cobranca · https://docs.asaas.com/reference/estornar-boleto
+ *                         https://docs.asaas.com/docs/estornos · https://docs.asaas.com/docs/webhook-para-cobrancas
  *   webhooks              https://docs.asaas.com/docs/sobre-os-webhooks
  */
 import type { Ciclo } from './configuracao.ts';
@@ -102,7 +104,21 @@ export class AsaasFalhou extends Error {
 
 export type ClienteProvedor = { id: string; externalReference: string | null };
 export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
-export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null };
+export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null;
+    /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
+    confirmedDate?: string | null };
+
+/** Situação de cada devolução da cobrança (`refunds[]`): só `DONE` conta como devolvida (docs.asaas.com/docs/estornos). */
+export type EstornoProvedor = { status: string; valorCentavos: number | null; descricao: string | null };
+export type ResultadoEstorno = { status: string; estornos: EstornoProvedor[] };
+/**
+ * Estorno de cobrança (POST /v3/payments/{id}/refund). Escrita financeira: quem chama grava o registro prévio ANTES e
+ * nunca repete depois de resultado desconhecido. Boleto não passa por aqui (exige dados bancários do pagador).
+ */
+export type ProvedorEstorno = {
+    obterCobranca(id: string): Promise<CobrancaProvedor | null>;
+    estornarCobranca(id: string, valorCentavos: number, descricao: string): Promise<ResultadoEstorno>;
+};
 
 export type ProvedorRenovacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarCobrancasDaAssinatura'> & {
     obterCobranca(id: string): Promise<CobrancaProvedor | null>;
@@ -170,7 +186,14 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
         ...(o.subscription !== undefined ? { assinaturaId: texto(o.subscription, 100) } : {}),
         ...(o.customer !== undefined ? { clienteId: texto(o.customer, 100) } : {}),
         ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
+        ...(o.confirmedDate !== undefined ? { confirmedDate: texto(o.confirmedDate, 10) && DATA.test(String(o.confirmedDate)) ? String(o.confirmedDate) : null } : {}),
     };
+}
+
+function estornos(lista: unknown): EstornoProvedor[] {
+    if (!Array.isArray(lista)) return [];
+    return lista.filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === 'object')
+        .map((r) => ({ status: texto(r.status, 40) ?? 'DESCONHECIDO', valorCentavos: valorDoProvedor(r.value), descricao: texto(r.description, 500) }));
 }
 
 /** Só aceita a página hospedada do próprio Asaas (https, domínio asaas.com) como destino de pagamento. */
@@ -189,7 +212,7 @@ export function cicloDoProvedor(cycle: string | null): Ciclo | null {
     return cycle === 'MONTHLY' ? 'MENSAL' : cycle === 'YEARLY' ? 'ANUAL' : null;
 }
 
-export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao {
+export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao & ProvedorEstorno {
     const esperado = (AMBIENTES as Record<string, { baseUrl: string; prefixo: string } | undefined>)[config.ambiente];
     if (!esperado || config.baseUrl !== esperado.baseUrl || !config.apiKey.startsWith(esperado.prefixo))
         throw new Error('Cliente Asaas recusado: ambiente, URL e chave precisam ser do mesmo ambiente.');
@@ -255,6 +278,18 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         async obterCobranca(id) {
             const r = await chamar('consultar cobrança', 'GET', `/payments/${idPath(id, 'consultar cobrança')}`, undefined, true);
             return r ? cobranca(r, 'consultar cobrança') : null;
+        },
+        // POST /v3/payments/{id}/refund — https://docs.asaas.com/reference/estornar-cobranca (lida em 21/10/2026): `value`
+        // opcional (parcial; ausente = integral), `description` opcional; 200 devolve a cobrança com `status`
+        // (REFUNDED, REFUND_REQUESTED, REFUND_IN_PROGRESS…) e `refunds[]`. Pix aceita parciais até o valor da cobrança; cartão
+        // só confirmado/recebido (até 10 dias úteis na fatura); taxas da cobrança não voltam; saldo insuficiente → 400.
+        // Sempre envia `value` explícito (inclusive o integral), para o pedido nunca depender do padrão do provedor.
+        async estornarCobranca(id, valorCentavos, descricao) {
+            if (!Number.isSafeInteger(valorCentavos) || valorCentavos <= 0) throw new Error('Valor inválido.');
+            const r = await chamar('estornar cobrança', 'POST', `/payments/${idPath(id, 'estornar cobrança')}/refund`,
+                { value: valorCentavos / 100, description: descricao.slice(0, 500) });
+            if (!r || r.id !== id) throw new AsaasFalhou('estornar cobrança', 200, 'RESPOSTA_INVALIDA');
+            return { status: texto(r.status, 40) ?? 'DESCONHECIDO', estornos: estornos(r.refunds) };
         },
         // Só próximas parcelas; nunca reprifica mensalidades antigas ainda pendentes.
         async atualizarValorAssinatura(id, valorCentavos) {
@@ -342,7 +377,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
 }
 
 /** Cliente do ambiente atual, ou null com o motivo quando a cobrança está desligada. */
-export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
+export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas & ProvedorEstorno; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
     const estado = configuracaoAsaas(env);
     if (!estado.ligado)
         return { cliente: null, motivo: estado.motivo };
