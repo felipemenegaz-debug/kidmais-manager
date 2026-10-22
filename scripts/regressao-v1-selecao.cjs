@@ -202,6 +202,8 @@ const ESTADO_POSTGRES = {
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
   // 22/10/2026: campanha Fundador em duas fases (090), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/campanha-090.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: CPF do contratante (091) e Fundador com CPF (090 aplicada pela própria suíte), sobre o modelo 089.
+  "lib/assinatura/documento-091.postgres.test.ts": { descartavel: "089" },
   "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.

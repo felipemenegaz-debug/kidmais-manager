@@ -3,6 +3,7 @@ import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { configuracaoSite, ROTA_SITE, type ConfiguracaoSite } from '@/lib/site/configuracao';
 import { textoFundador } from '@/lib/site/fundador';
 import { resumoCampanhaSite } from '@/lib/site/fundador-servidor';
+import { cpfContratacaoLigado } from '@/lib/assinatura/documento-contratante';
 import { abas, type AbaId } from '@/lib/site/abas';
 import { fonteTexto, fonteTitulo } from './fonte';
 import { cx } from './estilos';
@@ -42,7 +43,7 @@ export default async function SiteVenda({ somentePlanos = false }: { somentePlan
         </nav></div></header>
         <main id="topo" data-planos={somentePlanos || undefined}>
             {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos Kidmais Manager</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Diferenciais /></SecaoAnimada><SecaoAnimada><Abas telas={telas} /></SecaoAnimada><SecaoAnimada><WallE /></SecaoAnimada><SecaoAnimada><Convite /></SecaoAnimada><SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
-            {somentePlanos ? <Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} /> : <SecaoAnimada><Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} /></SecaoAnimada>}
+            {somentePlanos ? <Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} cpf={cpfContratacaoLigado()} /> : <SecaoAnimada><Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} cpf={cpfContratacaoLigado()} /></SecaoAnimada>}
             {!somentePlanos && <><SecaoAnimada><Duvidas config={config} fundador={fundador} /></SecaoAnimada><SecaoAnimada><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} /></div></div>
                 <div className={cx('panel', 'contactPanel')}><h3>Conheça o Kidmais</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
             </div></section></SecaoAnimada></>}

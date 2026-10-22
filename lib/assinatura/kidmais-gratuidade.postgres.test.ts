@@ -78,7 +78,7 @@ test("controle negativo: empresa com teste vencido é restringida (a regra exist
   assert.equal(decidirPaywall(estado.acesso, "POST", "/api/admin/clientes").permitido, false);
 });
 
-test("o produto só cria assinatura no cadastro público (iniciarTeste), nunca para empresa existente", () => {
+test("o produto só cria assinatura no cadastro público e na operação explícita do piloto (iniciarTeste), nunca para a Kidmais nem para isenta", () => {
   const raiz = process.cwd();
   const arquivos: string[] = [];
   const varrer = (dir: string) => { for (const e of readdirSync(join(raiz, dir), { withFileTypes: true })) {
@@ -89,7 +89,13 @@ test("o produto só cria assinatura no cadastro público (iniciarTeste), nunca p
   const insercoes = arquivos.filter((f) => /INSERT INTO empresa_assinaturas/.test(readFileSync(join(raiz, f), "utf8")));
   assert.deepEqual(insercoes, ["lib/assinatura/servico.ts"]);
   const chamadas = arquivos.filter((f) => /\biniciarTeste\(/.test(readFileSync(join(raiz, f), "utf8")) && f !== "lib/assinatura/servico.ts");
-  assert.deepEqual(chamadas, ["lib/cadastro/publico.ts"]);
+  // Piloto (3348f80, 22/10/2026): operação explícita do painel do desenvolvedor, com senha recente e auditoria. Ela recusa
+  // a Kidmais e a empresa isenta ANTES de chamar iniciarTeste (provado também em lib/desenvolvedor/comercial.postgres.test.ts).
+  assert.deepEqual(chamadas, ["lib/cadastro/publico.ts", "lib/desenvolvedor/comercial.ts"]);
+  const piloto = readFileSync(join(raiz, "lib/desenvolvedor/comercial.ts"), "utf8");
+  const chamada = piloto.indexOf("iniciarTeste(tx");
+  for (const guarda of ["empresa.codigo === 'kidmais'", "await empresaIsenta(tx, empresa.id)", "empresa.status !== 'ATIVA'"])
+    assert.ok(piloto.indexOf(guarda) > 0 && piloto.indexOf(guarda) < chamada, guarda);
 });
 
 test("conferência diária (scripts/assinatura-reconciliar.cjs): SQL real aprova a Kidmais e reprova uma assinatura criada para ela", async () => {

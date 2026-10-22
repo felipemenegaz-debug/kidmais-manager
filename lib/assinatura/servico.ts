@@ -1,21 +1,22 @@
 import type { DbExecutor } from '../db/contracts';
 import { erroAcesso, violacaoUnica } from '../acessos/erros.ts';
 import { duracaoTesteDias, EXTENSAO_TESTE_MAXIMA_DIAS } from './configuracao.ts';
+import { exigirDocumentoContratante } from './documento-contratante.ts';
 
 /**
  * Operações do modelo comercial (067 + 068), sempre DENTRO da transação de quem já autorizou o ator:
  *   - iniciarTeste: o cadastro público (E6) e, para contratante provisionada (piloto/conversão), o painel do
- *     desenvolvedor (lib/desenvolvedor/comercial.ts, com CNPJ do cadastro) criam a assinatura, em TESTE, com datas do relógio do banco;
+ *     desenvolvedor (lib/desenvolvedor/comercial.ts, com o CPF ou CNPJ do cadastro) criam a assinatura, em TESTE, com datas do relógio do banco;
  *   - estenderTeste / concederExcecao / revogarExcecao: só o painel do desenvolvedor (E5), com motivo e prazo.
  * A auditoria de negócio é feita pelo chamador (ele conhece o ator e a origem). Nada aqui concede papel, vínculo ou
  * concessão de desenvolvedor, e nada muda empresas.status (eixo administrativo).
  */
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
-const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
-
-export async function iniciarTeste(tx: DbExecutor, input: { empresaId: string; documento: string; dias?: number }) {
-    if (!CNPJ.test(input.documento))
-        throw erroAcesso('DADOS_INVALIDOS', 'CNPJ inválido para o teste.', 400);
+/** Documento do contratante validado aqui (DV de CPF/CNPJ; CPF só com a 091 e ASSINATURA_CPF_ATIVO), qualquer que seja a origem. */
+export async function iniciarTeste(tx: DbExecutor, input: { empresaId: string; documento: string; dias?: number; env?: Record<string, string | undefined> }) {
+    const documento = (await exigirDocumentoContratante(tx, input.documento, input.env ?? process.env)).numero;
+    if (documento !== input.documento)
+        throw erroAcesso('DADOS_INVALIDOS', 'Documento do teste precisa chegar normalizado.', 400);
     const dias = input.dias ?? duracaoTesteDias();
     if (!Number.isInteger(dias) || dias < 1 || dias > 90)
         throw erroAcesso('DADOS_INVALIDOS', 'Duração do teste inválida.', 400);
@@ -33,7 +34,7 @@ export async function iniciarTeste(tx: DbExecutor, input: { empresaId: string; d
     catch (error) {
         await tx.query('ROLLBACK TO SAVEPOINT kidmais_iniciar_teste');
         if (violacaoUnica(error, 'empresa_assinaturas_documento_teste_uk'))
-            throw erroAcesso('TESTE_JA_UTILIZADO', 'Este CNPJ já utilizou o teste grátis.', 409);
+            throw erroAcesso('TESTE_JA_UTILIZADO', `Este ${documento.length === 11 ? 'CPF' : 'CNPJ'} já utilizou o teste grátis.`, 409);
         if (violacaoUnica(error, 'empresa_assinaturas_pkey'))
             throw erroAcesso('CONFLITO', 'Esta empresa já tem situação comercial registrada.', 409);
         throw error;

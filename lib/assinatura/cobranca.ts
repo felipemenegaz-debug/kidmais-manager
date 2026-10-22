@@ -46,11 +46,12 @@ import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
+import { documentoFiscalValido, tipoDocumentoFiscal } from '../acessos/validacao.ts';
+import { cpfDisponivel, MENSAGEM_CPF_INDISPONIVEL } from './documento-contratante.ts';
 import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido,
     type PedidoResumo } from './devolucao-registro.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
-const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
 
 export type Contexto = { requestId: string; ip?: string | null; userAgent?: string | null };
 export type DepsCobranca = {
@@ -110,18 +111,28 @@ async function linhaDaEmpresa(tx: DbExecutor, empresaId: string, travar: boolean
           WHERE a.empresa_id = $1::uuid ${travar ? 'FOR UPDATE OF a' : ''}`, [empresaId])).rows[0] ?? null;
 }
 
-/** CNPJ e razão social para o cadastro do cliente no provedor: o CNPJ do teste; senão o do cadastro da plataforma (063). */
-async function dadosDoCliente(tx: DbExecutor, empresaId: string, linha: Linha) {
-    let nome = linha.nome, documento = linha.documento_teste;
+/**
+ * Titular fiscal para o cliente no provedor (cpfCnpj): PJ = razão social + CNPJ; PF = nome civil + CPF (ambos em
+ * nome_empresarial). Documento do teste primeiro; senão o do cadastro da plataforma (063), validado e, se CPF, só com a
+ * 091 e ASSINATURA_CPF_ATIVO. CPF ↔ CNPJ entre teste e cadastro não é trocado aqui (fluxo assistido): `divergente`.
+ * Aceite do cliente no provedor não comprova emissão fiscal.
+ */
+async function dadosDoCliente(tx: DbExecutor, empresaId: string, linha: Linha, env: Record<string, string | undefined>) {
+    let nome = linha.nome, documento = linha.documento_teste, divergente = false;
     if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS ok")).rows[0]?.ok) {
         const c = (await tx.query<{ nome_empresarial: string | null; documento_fiscal: string | null }>(
             'SELECT nome_empresarial, documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresaId])).rows[0];
         if (c?.nome_empresarial?.trim())
             nome = c.nome_empresarial.trim();
-        if (!documento && c?.documento_fiscal && CNPJ.test(c.documento_fiscal))
-            documento = c.documento_fiscal;
+        const cadastro = documentoFiscalValido(c?.documento_fiscal);
+        if (!documento && cadastro) {
+            if (cadastro.tipo === 'CPF' && !await cpfDisponivel(tx, env))
+                throw erroAcesso('CPF_INDISPONIVEL', MENSAGEM_CPF_INDISPONIVEL, 409);
+            documento = cadastro.numero;
+        }
+        divergente = Boolean(documento && cadastro && tipoDocumentoFiscal(documento) !== cadastro.tipo);
     }
-    return { nome, documento };
+    return { nome, documento, divergente };
 }
 
 const ativa = (a: AssinaturaProvedor | null) => Boolean(a && !a.deleted && a.status === 'ACTIVE');
@@ -161,7 +172,7 @@ export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: 
             const oferta = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
                 exigirGestao(tenant);
                 if (tenant.empresaComprovada !== empresaId) throw erroAcesso('CONFLITO', 'A empresa da sessão mudou.', 409);
-                return prepararOferta(tx, empresaId, sessao.usuario_id, pedido);
+                return prepararOferta(tx, empresaId, sessao.usuario_id, pedido, deps.env ?? process.env);
             });
             return contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
         });
@@ -204,7 +215,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         if (!linha)
             throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
         const apenasRetomar = !oferta && await conferirCheckoutLegado(tx, empresaId, ciclo, deps.env ?? process.env);
-        return { linha, apenasRetomar, cliente: await dadosDoCliente(tx, empresaId, linha) };
+        return { linha, apenasRetomar, cliente: await dadosDoCliente(tx, empresaId, linha, deps.env ?? process.env) };
     });
 
     // B. provedor, sem transação de tenant aberta
@@ -233,7 +244,9 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 clienteId = existente.id;
             else {
                 if (!a.cliente.documento)
-                    throw erroAcesso('CONFLITO', 'Cadastre o CNPJ da empresa antes de assinar (Perfil da empresa ou atendimento Kidmais).', 409);
+                    throw erroAcesso('CONFLITO', 'Cadastre o CPF ou CNPJ da contratante antes de assinar (atendimento Kidmais).', 409);
+                if (a.cliente.divergente)
+                    throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O documento do teste e o do cadastro são de tipos diferentes (CPF e CNPJ). A troca é feita pelo atendimento, sem perder condições já garantidas.', 409);
                 clienteId = (await provedor.criarCliente({ nome: a.cliente.nome, cpfCnpj: a.cliente.documento, referencia: empresaId })).id;
             }
         }

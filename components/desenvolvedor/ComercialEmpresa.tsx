@@ -46,7 +46,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                 }}>
                     <label>Duração do teste em dias (1 a 90)<input type="number" min={1} max={90} required value={inicio.dias} onChange={(e) => setInicio({ ...inicio, dias: e.target.value })} /></label>
                     <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={inicio.motivo} onChange={(e) => setInicio({ ...inicio, motivo: e.target.value })} /></label>
-                    <p className={workspace.muted}>Cria a assinatura em teste com o CNPJ do cadastro (CPF não serve) e não tem volta: acesso completo até o fim do teste, depois somente leitura até a contratação. Com a venda ligada, a Gestão escolhe o plano pela tela (Fundador se houver vaga). Sua senha será pedida.</p>
+                    <p className={workspace.muted}>Cria a assinatura em teste com o CPF ou CNPJ do cadastro (CPF só quando a contratação por CPF estiver ligada) e não tem volta: acesso completo até o fim do teste, depois somente leitura até a contratação. Com a venda ligada, a Gestão escolhe o plano pela tela (Fundador se houver vaga). Sua senha será pedida.</p>
                     <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Confirmar</button><button type="button" onClick={() => setInicio(null)}>Cancelar</button></div>
                 </form>}
             </>

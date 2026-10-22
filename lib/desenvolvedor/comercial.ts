@@ -9,6 +9,7 @@ import { empresaIsenta } from '../assinatura/ofertas.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
+import { travarDocumento } from '../assinatura/documento-contratante.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -70,17 +71,16 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
     z.object({ operacao: z.literal('revogar-excecao'), excecaoId: z.string().uuid(), motivo }).strict(),
 ]);
 
-const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
-
 /**
  * Piloto e conversão de contratante provisionada (22/10/2026): a empresa criada pelo painel nasce SEM cobrança (sem linha
  * em empresa_assinaturas) e, assim, não vê planos nem a condição Fundador. Esta operação cria a assinatura em TESTE com o
- * CNPJ do cadastro administrativo (o mesmo `iniciarTeste` do cadastro público: datas do relógio do banco, CNPJ único),
+ * CPF ou CNPJ do cadastro administrativo (o mesmo `iniciarTeste` do cadastro público: datas do relógio do banco, documento único),
  * para um prazo de 1 a 90 dias. A partir daí vale a régua comum (COMPLETO até o fim do teste; depois somente leitura)
  * e, com a venda ligada, a Gestão contrata pela tela. Recusa: empresa não ATIVA, a Kidmais, isenta, já com situação
- * comercial ou sem CNPJ no cadastro (CPF não participa do teste nem do Fundador). Sem volta: a assinatura não é apagada.
+ * comercial ou sem documento válido no cadastro. CPF só com a 091 e ASSINATURA_CPF_ATIVO (22/10/2026); antes disso, CPF_INDISPONIVEL.
+ * Sem volta: a assinatura não é apagada.
  */
-async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; codigo: string; status: string }, dias: number) {
+async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; codigo: string; status: string }, dias: number, env: Record<string, string | undefined> = process.env) {
     if (empresa.status !== 'ATIVA')
         throw erroAcesso('CONFLITO', 'Só empresa ativa recebe teste.', 409);
     if (empresa.codigo === 'kidmais')
@@ -89,9 +89,10 @@ async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; 
         throw erroAcesso('CONFLITO', 'Empresa isenta não recebe teste nem cobrança.', 409);
     const documento = (await tx.query<{ documento_fiscal: string | null }>(
         'SELECT documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresa.id])).rows[0]?.documento_fiscal ?? null;
-    if (!documento || !CNPJ.test(documento))
-        throw erroAcesso('DADOS_INVALIDOS', 'Cadastre o CNPJ da contratante na ficha antes de iniciar o teste (CPF não participa do teste nem da condição Fundador).', 400, { campo: 'documentoFiscal' });
-    return iniciarTeste(tx, { empresaId: empresa.id, documento, dias });
+    if (!documento)
+        throw erroAcesso('DADOS_INVALIDOS', 'Cadastre o CPF ou CNPJ da contratante na ficha antes de iniciar o teste.', 400, { campo: 'documentoFiscal' });
+    await travarDocumento(tx, documento);
+    return iniciarTeste(tx, { empresaId: empresa.id, documento, dias, env });
 }
 
 export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: PainelDeps = painelDepsPadrao) {

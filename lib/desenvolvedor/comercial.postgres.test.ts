@@ -149,7 +149,7 @@ async function contratante(chave: string, documento: string | null, status: 'ATI
         await client.query("UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1", [ids[chave]]);
 }
 
-test('piloto: iniciar teste recusa empresa sem CNPJ, com CPF, suspensa, a Kidmais, sem cadastro e prazo fora de 1–90; nada é gravado', async () => {
+test('piloto: iniciar teste recusa empresa sem documento, com CPF sem a 091 e a chave (CPF_INDISPONIVEL), suspensa, a Kidmais, sem cadastro e prazo fora de 1–90; nada é gravado', async () => {
     await contratante('piloto', PILOTO_CNPJ);
     await contratante('pilotoCpf', '52998224725');
     await contratante('pilotoSemDoc', null);
@@ -161,7 +161,8 @@ test('piloto: iniciar teste recusa empresa sem CNPJ, com CPF, suspensa, a Kidmai
     const antes = await fotografia();
     const pedido = (dias: number) => ({ operacao: 'iniciar-teste', dias, motivo: 'Piloto gratuito antes da venda' });
     assert.equal(await erro(operar(dev, ids.pilotoSemDoc, pedido(30))), 'DADOS_INVALIDOS');
-    assert.equal(await erro(operar(dev, ids.pilotoCpf, pedido(30))), 'DADOS_INVALIDOS');
+    // Decisão A de 22/10/2026: CPF participa do teste, mas só com a 091 e ASSINATURA_CPF_ATIVO (aceite na suíte documento-091).
+    assert.equal(await erro(operar(dev, ids.pilotoCpf, pedido(30))), 'CPF_INDISPONIVEL');
     assert.equal(await erro(operar(dev, ids.pilotoSuspensa, pedido(30))), 'CONFLITO');
     assert.equal(await erro(operar(dev, kidmais, pedido(30))), 'CONFLITO');
     assert.equal(await erro(operar(dev, ids.semCobranca, pedido(30))), 'DADOS_INVALIDOS', 'empresa sem cadastro administrativo');
