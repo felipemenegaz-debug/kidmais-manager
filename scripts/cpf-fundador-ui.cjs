@@ -160,7 +160,7 @@ async function principal() {
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
     // D3: o prazo acompanha o link de pagamento (revisão de 22/10/2026).
-    await page.locator('[data-fundador-validade-link]').getByText('pague até 31/01/2099 (horário de Brasília)', { exact: false }).waitFor();
+    await page.locator('[data-fundador-validade-link]').getByText('pague até 31/01/2099, fim do dia (23h59, horário de Brasília)', { exact: false }).waitFor();
     assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antes);
     await page.screenshot({ path: path.join(relatorios, 'pf-assinatura.png'), fullPage: true });
     resultados.push('Assinatura PF: prazo da janela na tela; checkout interceptado com Essencial mensal Fundador R$ 118,20; nenhuma assinatura alterada');
@@ -176,9 +176,9 @@ async function principal() {
       VALUES ($1, gen_random_uuid(), 'ESSENCIAL', 'MENSAL', '2026-10-20', 19700, 40, 11820, $2, $3)`, [empresaPf, fund.id, gestor]);
     await client.query('COMMIT');
     await page.goto(`${base}/admin/assinatura`);
-    await page.locator('[data-fundador-validade]').getByText(`pague até ${fund.ate} (horário de Brasília)`, { exact: false }).waitFor();
+    await page.locator('[data-fundador-validade]').getByText(`pague até ${fund.ate}, fim do dia (23h59, horário de Brasília)`, { exact: false }).waitFor();
     await page.screenshot({ path: path.join(relatorios, 'pf-validade.png'), fullPage: true });
-    resultados.push(`Prazo da reserva informado ao contratante: "pague até ${fund.ate} (horário de Brasília)" (7 dias da aceitação)`);
+    resultados.push(`Prazo da reserva informado ao contratante: "pague até ${fund.ate}, fim do dia (23h59, horário de Brasília)" (fim do 7º dia da aceitação), sem cobrança complementar automática`);
     console.log('E2E_VALIDADE_OK');
 
     // 3c. Perfil da empresa PF: cria o perfil e mostra CNPJ opcional (sem asterisco) e o rótulo de nome civil.

@@ -8,6 +8,7 @@ import { ambienteAsaas, type AssinaturaProvedor, type CobrancaProvedor } from '.
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
 import { campanhaFundadorLigada, faseCampanha, lerCampanhaAtivada, ocupacaoPosJanela, prazoAnunciado, schemaCampanhaInstalado,
     type CampanhaFundador, type ResumoCampanha } from './campanha.ts';
+import { PAGAMENTO_TARDIO } from './textos-fundador.ts';
 
 export type Oferta = {
     id: string; empresa_id: string; plano: 'ESSENCIAL' | 'PROFISSIONAL' | 'PREMIUM'; ciclo: Ciclo;
@@ -291,7 +292,7 @@ export async function confirmarOfertaPaga(tx: DbExecutor, empresaId: string, ass
         const pagoEm = dataDoPagamento(pagamento);
         if (!pagoEm || pagoEm > validade.dia)
             throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', pagoEm
-                ? 'Pagamento recebido depois da validade da condição Fundador: a contratação fica em reconciliação pelo atendimento.'
+                ? PAGAMENTO_TARDIO
                 : 'O provedor não informou a data do pagamento: a contratação Fundador fica em reconciliação pelo atendimento.', 409);
     }
     if (!ativar) return null;
