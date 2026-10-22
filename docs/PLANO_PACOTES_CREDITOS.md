@@ -3,7 +3,8 @@
 Data: 22/10/2026. **PROPOSTA para decisão de Felipe; nenhuma implementação ou homologação nesta entrega.**
 
 > **Atualização 22/10/2026 (mesma data):** há implementação **LOCAL** em `docs/PACOTES_CREDITOS_IA_20261022.md`
-> (branch `codex/creditos-ia-20261022`, migration 090, catálogo de demonstração `PROPOSTA-20261022-DEMO`). Este plano
+> (branch `codex/creditos-ia-20261022`, migration **095** — renumerada da 090 por colisão com trabalhos paralelos, ver o
+> documento novo —, catálogo de demonstração `PROPOSTA-20261022-DEMO`). Onde este plano diz 090, leia-se 095. Este plano
 > continua sendo a **proposta**: nenhuma sugestão abaixo foi aprovada comercial, jurídica ou fiscalmente, nada foi
 > homologado no sandbox, publicado ou aplicado. As diferenças entre plano e implementação estão no documento novo (§1–§8).
 > Decisões por delegação de Felipe (preços do piloto, garantia, pagamento tardio, CRÍTICO, pareceres) estão em

@@ -68,8 +68,11 @@ catálogo tenha mudado.
 
 Pagamento de cobrança **cancelada** (pedido `ENCERRADO`) ou valor divergente: vai para **revisão**, e o cliente escolhe entre
 receber os créditos do pedido ou a **devolução integral** em até 5 dias úteis. O dinheiro nunca fica retido sem crédito.
-**Lacuna de código:** a reconciliação não revisita pedidos `ENCERRADO`; um pagamento numa cobrança cancelada (raro no Asaas)
-só apareceria pelo webhook e hoje terminaria como "já concluído". Corrigir antes do sandbox.
+**Lacuna fechada em 22/10 (P2-2 da revisão independente):** o webhook e a reconciliação releem a cobrança de pedido
+`ENCERRADO` (não creditado, até 90 dias); confirmada/recebida → pedido em `REVISAO` `PAGO_APOS_CANCELAMENTO` (transição
+`ENCERRADO → REVISAO` permitida pela guarda da 095), item `CRITICO` na conferência. O operador resolve pela rota do
+desenvolvedor: `resolver_revisao` `CREDITAR` (só com o pagamento relido agora) ou `ENCERRAR` com a referência da devolução
+integral feita no painel do Asaas.
 
 ## D4. Alerta CRÍTICO na conferência diária
 
@@ -96,6 +99,6 @@ o gate de preço da D1.
 | D1 preços/validade | piloto Convites 10/30; validade 12 meses | catálogo de demonstração (nova versão na aprovação) | sim: gate de preço + jurídico |
 | D1 franquia | legado preservado; 5/15/30 por plano depois | só o legado | não para o piloto com empresas migradas |
 | D2 garantia | integral com uso; fila manual no piloto | implementada (sem a regra da 3ª) | sim: jurídico |
-| D3 pagamento tardio | honrar a fotografia; cancelada → revisão | parcial (lacuna `ENCERRADO`) | sim: corrigir a lacuna |
+| D3 pagamento tardio | honrar a fotografia; cancelada → revisão | implementada (P2-2 fechada em 22/10) | não (sandbox pendente) |
 | D4 CRÍTICO | aprovado | implementado | sim: substituto de Felipe |
 | D5 pareceres | enviar | — | sim |
