@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 089 (P2-4 da revisão da devolução, 21/10/2026), derivados dos da 089 (P2-1 da revisão de 15aa937), no desenho revisado dos blocos 085/086 (P2-A colagem interativa,
+// Blocos de Shell da 089 (P2-4 da revisão da devolução, 21/10/2026), derivados dos da 088 (P2-1 da revisão de 15aa937), no desenho revisado dos blocos 085/086 (P2-A colagem interativa,
 // P3-1 trap/código, P3-2 bind antes da guarda). Ordem decidida em 21/10/2026: o CÓDIGO é publicado antes, já com o
 // aplicador e os SQL da 089 na árvore implantada — por isso o bloco NÃO transporta nem grava arquivos: confere o sha256
 // de cada arquivo implantado e roda o aplicador. O operador cola no Web Shell do serviço (bash INTERATIVO):
@@ -8,7 +8,7 @@
 //   - corpo num SUBSHELL ( … ): set -euo pipefail, umask, cd e exit não alteram nem encerram o shell do operador;
 //   - no fim, CODIGO_SAIDA_BLOCO=<n>: 0/1/2/3 do aplicador (CONFERIDO-PASS / recusa antes de conectar / FALHA /
 //     RECUSARIA); 4 = recusa do PRÓPRIO bloco, com mensagem nomeada (destino, ferramenta, arquivo, backup). Qualquer
-//     outro código (127 linha perdida, 130 Ctrl-C, 143 sinal) ou ausência da linha = parar e ler;
+//     outro código (127 linha perdida, 143 sinal) ou ausência da linha (Ctrl-C pode não imprimir a linha: PTY real, como na 088) = parar e ler;
 //   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar (referência do export/PITR anotado).
 // O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
 //   node scripts/bloco-shell-089.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador manual da 089 SOMENTE no PostgreSQL do web de staging, no Web Shell do srv-daif418ae00c73e8k2gg, DEPOIS do
-// deploy do código que a usa (ordem: código primeiro, como a 089; sem a 089 o cancelamento segue sem protocolo).
+// deploy do código que a usa (ordem: código primeiro, como a 088; sem a 089 o cancelamento segue sem protocolo).
 // Alvo fixo de staging (serviço, ambiente, host interno, banco, porta) e identidade/TLS/disco de scripts/conexao-staging.cjs
 // (mesma regra dos aplicadores 076–086). Núcleo em scripts/migration-089-comum.cjs.
 //   node scripts/migration-089-staging.cjs                                             → plano, sem conexão

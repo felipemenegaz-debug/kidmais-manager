@@ -9,7 +9,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 
 /**
- * P2-4 da revisão da devolução (21/10/2026), derivado do teste dos aplicadores da 089 — os APLICADORES REAIS da 089 (scripts/migration-089-staging.cjs e -production.cjs) no
+ * P2-4 da revisão da devolução (21/10/2026), derivado do teste dos aplicadores da 088 — os APLICADORES REAIS da 089 (scripts/migration-089-staging.cjs e -production.cjs) no
  * PostgreSQL descartável, modelo 086 (089 ausente). Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL.
  * Única substituição: o cliente do aplicador conecta ao cluster descartável (identidade provada por conectarDescartavel)
  * e responde à consulta de identidade como o banco do ambiente responderia. Trava de alvo, identidade e marcador são

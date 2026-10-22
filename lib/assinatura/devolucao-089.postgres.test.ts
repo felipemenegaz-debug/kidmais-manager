@@ -67,7 +67,7 @@ const dia = (deslocamento: number) => {
 /** Provedor falso em objeto simples (a simulação da reconciliação espalha os métodos com `...`). */
 const estado = {
     assinaturas: new Map<string, AssinaturaProvedor>(), cobrancas: new Map<string, CobrancaProvedor[]>(),
-    remocao: 'normal' as 'normal' | 'perder', estorno: 'normal' as 'normal' | 'perder' | 'recusar',
+    remocao: 'normal' as 'normal' | 'perder' | 'recusar', estorno: 'normal' as 'normal' | 'perder' | 'recusar',
     remocoes: 0, estornos: [] as { id: string; valor: number; descricao: string }[], seq: 0,
 };
 const provedor = {
@@ -77,6 +77,7 @@ const provedor = {
     async removerAssinatura(id: string) {
         estado.remocoes += 1;
         if (estado.remocao === 'perder') throw new AsaasFalhou('remover assinatura', null, 'TEMPO_ESGOTADO');
+        if (estado.remocao === 'recusar') throw new AsaasFalhou('remover assinatura', 400, 'HTTP');
         const a = estado.assinaturas.get(id);
         if (a) a.deleted = true;
         return { removida: true };
@@ -464,6 +465,15 @@ test('P2-3: aviso interno sem canal fica NAO_CONFIGURADO; fila vencida entra na 
     const r = await solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: 197_000 }, ctx(), depsDev(semCanal));
     assert.equal(internos().length, antes, 'sem canal: nada enviado');
     assert.equal((await pedido(r.protocolo)).aviso_interno_situacao, 'NAO_CONFIGURADO');
+    // R2-P3-b (M25): remoção RECUSADA pelo Asaas (4xx) deixa a renovação ativa; também entra na fila depois de 1 h.
+    const n = await empresaPagante('15436940000103', 'MENSAL', 39_700, hoje);
+    ids.atual = n.empresaId;
+    estado.remocao = 'recusar';
+    const rn = await solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: 39_700 }, ctx(), depsDev());
+    estado.remocao = 'normal';
+    assert.deepEqual([rn.cancelamentoProvedor, estado.assinaturas.get(n.sub)!.deleted], ['RECUSADO', false]);
+    assert.equal((await sincronizar(n.empresaId)).resultado === 'SINCRONIZADA', true);
+    assert.equal((await linha(n.empresaId)).situacao, 'ENCERRADA', 'a renovação ativa não reabre a empresa');
     // Agora: tudo recente (< 1 h) ou concluído/confirmado → nenhum item; a conferência não alarma.
     const agora = await reconciliar.lerPendenciasEncerramento(client);
     assert.deepEqual(agora, [], JSON.stringify(agora));
@@ -473,6 +483,7 @@ test('P2-3: aviso interno sem canal fica NAO_CONFIGURADO; fila vencida entra na 
     const chaves = vencidos.map((x) => `${x.item}:${x.resultado}:${x.motivo}`).sort();
     assert.ok(chaves.includes('DEVOLUCAO_PENDENTE:AGUARDANDO_MANUAL:ARREPENDIMENTO_7_DIAS'), chaves.join(','));
     assert.ok(chaves.includes('RENOVACAO_NAO_REMOVIDA:SEM_CONFIRMACAO:ENCERRAMENTO_ANUAL_PROPORCIONAL'), chaves.join(','));
+    assert.ok(chaves.includes('RENOVACAO_NAO_REMOVIDA:RECUSADO:ARREPENDIMENTO_7_DIAS'), chaves.join(','));
     assert.ok(!chaves.some((x) => x.startsWith('DEVOLUCAO_PENDENTE') && x.endsWith('ENCERRAMENTO_ANUAL_PROPORCIONAL')), 'proporcional dentro de 5 dias úteis não alarma');
     assert.ok(vencidos.every((x) => /^[A-Z0-9_]+$/.test(x.item + x.resultado + x.motivo) && Number.isFinite(x.recebidoMs)), 'só códigos e idade');
     // Ciclo de produção completo com a fila: vencidos alarmam (NOVO), com contagem conferida; sem ids no relatório.

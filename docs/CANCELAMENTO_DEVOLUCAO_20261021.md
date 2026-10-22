@@ -265,8 +265,20 @@ Roteiro:
   devolução é o valor integral dela e os poucos dias restantes do ciclo atual não entram (levemente a menor).
 - **Fase B fora da trava (P3-7).** Uma cobrança paga entre a leitura no provedor e a fase C (milissegundos) não entra
   no cálculo; o valor é conferido de novo na fase C só com as cobranças lidas na B.
+- **Renovação com remoção RECUSADA pelo Asaas (4xx):** a assinatura continua ativa; o pedido fica `RECUSADO` e entra na
+  conferência como `RENOVACAO_NAO_REMOVIDA` depois de 1 h (testado). Remover no painel e registrar `CONFIRMADO`.
 - **Ctrl-C durante o bloco de Shell:** como na 088, a linha `CODIGO_SAIDA_BLOCO` pode não sair (PTY real); a regra do
   bloco é "ausência da linha = parar e ler".
+- **Proporcional iniciado e ainda aberto (R2-P3-c).** Ex.: boleto, com o link de dados bancários já enviado ao cliente
+  dentro do prazo, mas sem crédito. A guarda não tem estado manual de "iniciado" (`AGUARDANDO_MANUAL → SOLICITADO` não é
+  aceito), então depois de `prazo_processamento` o pedido aparece como `DEVOLUCAO_PENDENTE` na conferência, mesmo já
+  iniciado. O alarme segue a regra por idade (1, 3, 7 e semanal; nos outros dias em `pendentesConhecidos`), sem ruído
+  diário. Até decidir um estado "iniciado" com referência, anotar o início no atendimento e concluir (`CONCLUIDO` com
+  referência) quando o crédito sair.
+- **`SOLICITADO` sem acompanhamento (R2-P3-d).** Com `ASSINATURA_ESTORNO_ATIVO=true`, o estorno aceito pelo Asaas fica
+  `SOLICITADO`: não entra na conferência D-C4 nem é concluído automaticamente quando o Asaas marca o estorno como `DONE`.
+  Com a flag desligada (padrão) o caso não ocorre. No ensaio com a flag ligada (§6), conferir os `refunds[]` e concluir à
+  mão; acompanhamento automático (releitura da cobrança ou webhook) fica para antes de ligar a flag em produção.
 - **Primeira ativação em clientes legados (plano `UNICO`).** Uma assinatura anterior trocada antes desta versão não é
   detectada se não houver contratação 074a nem pedido 089. Raro: só a empresa da Kidmais em produção hoje.
 - **Vaga Fundador.** Continua consumida (CONFIRMADA) depois do encerramento antecipado. A 074a só libera vaga sem

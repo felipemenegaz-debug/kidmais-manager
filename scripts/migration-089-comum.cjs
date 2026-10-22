@@ -3,7 +3,7 @@
 // (scripts/migration-089-staging.cjs e scripts/migration-089-production.cjs, que fixam o alvo, a identidade da conexão e
 // o disco). Derivado dos aplicadores 084 (alvo travado, TLS, hash fixado de cada SQL com CRLF normalizado, marcador
 // exclusivo no disco persistente) e 085/086 (estado ausente/completa/parcial, privilégios de criação e de referência).
-// Ordem decidida em 21/10/2026 (revisão de 15aa937, §7): o CÓDIGO é publicado ANTES, já com este aplicador e os SQL na
+// Ordem igual à da 088 (decidida em 21/10/2026, revisão de 15aa937, §7): o CÓDIGO é publicado ANTES, já com este aplicador e os SQL na
 // árvore implantada; sem a 089 o cancelamento segue sem protocolo e a devolução fica oculta. Depois: --conferir-089 → autorização →
 // --aplicar-089-autorizado --backup <registro> → --conferir-089.
 // Conferência: somente leitura (BEGIN TRANSACTION READ ONLY em toda consulta), não grava nada no banco nem no disco.

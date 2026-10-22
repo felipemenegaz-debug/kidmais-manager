@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador manual da 089 SOMENTE no PostgreSQL do web de produção, no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do
-// deploy do código que a usa (ordem: código primeiro, como a 089; sem a 089 o cancelamento segue sem protocolo).
+// deploy do código que a usa (ordem: código primeiro, como a 088; sem a 089 o cancelamento segue sem protocolo).
 // Trava de alvo e identidade derivadas do aplicador da 084 de produção; núcleo em scripts/migration-089-comum.cjs.
 //   node scripts/migration-089-production.cjs                                             → plano, sem conexão
 //   node scripts/migration-089-production.cjs --conferir-089                              → somente leitura
