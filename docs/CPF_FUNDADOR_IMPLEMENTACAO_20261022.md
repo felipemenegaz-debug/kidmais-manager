@@ -1,6 +1,6 @@
 # CPF do contratante e campanha Fundador em duas fases: implementação local
 
-Data: 22/10/2026 (segunda rodada no mesmo dia, com D1–D5 decididas). Estado: **implementação LOCAL**. Não houve push, PR, deploy, migration em ambiente real, Asaas real ou sandbox.
+Data: 22/10/2026 (segunda rodada com D1–D5 decididas; terceira rodada com as correções da revisão independente). Estado: **implementação LOCAL**. Não houve push, PR, deploy, migration em ambiente real, Asaas real ou sandbox.
 A campanha nova está desligada e sem data. O CPF fica desligado até a 091 ser aplicada e a chave ser ligada com autorização.
 Plano de origem: [PLANO_PLANO_CPF_E_FUNDADOR.md](PLANO_PLANO_CPF_E_FUNDADOR.md).
 
@@ -32,7 +32,7 @@ expressa: não ativar a campanha nem o CPF, não publicar e não acessar ambient
 |---|---|---|---|
 | D1 | Oferta aceita e persistida pelo servidor garante a elegibilidade; o pagamento confirma o benefício e inicia os 12 meses. | A concessão nasce com a oferta persistida (`prepararOferta`); a confirmação do pagamento grava `confirmada_em` e `beneficio_fim` (+12 meses, guarda 074a). O banco só aceita `elegibilidade = 'OFERTA_PERSISTIDA'` (CHECK). | 090 casos 3, 4 e 7 |
 | D2 | 30 dias de calendário em America/Sao_Paulo, `[D 00:00, D+30 00:00)`. | `ativarCampanhaAprovada` fixa `CALENDARIO_LOCAL` e calcula a janela pela data D. O site anuncia "até D+29, 23h59 (horário de Brasília)". **Resíduo:** o schema mantém `HORARIO_EXATO` para o ensaio sintético de fronteira em banco descartável; a ativação real só pode usar a função (controle operacional). | 090 caso 3; unitário de calendário |
-| D3 | Oferta vale 7 dias corridos da aceitação persistida. Paga depois do corte e dentro dos 7 dias: continua JANELA, sem consumir as 20. Vencida: liberação só com prova de cobrança ausente ou cancelada. Pagamento tardio vai para reconciliação, sem cobrança complementar automática. O prazo é informado ao contratante. | O banco fixa `validade_oferta = 7 days`; `oferta_valida_ate = reservada_em + 7 dias`, imutável. O pagamento é comparado pela **data do pagamento no provedor** (`confirmedDate`/`paymentDate`, não a chegada do webhook) com a data local do fim da validade. Até esse dia: confirma JANELA. Depois: `FUNDADOR_OFERTA_EXPIRADA`, sem confirmar, liberar, reprecificar ou cobrar de novo. A reconciliação diária registra o item como erro e alarma. Retomar oferta vencida também é recusado. Não existe liberação automática: a liberação continua manual, com evidência (guarda 074a). A tela de assinatura mostra "pague até DD/MM/AAAA (horário de Brasília)" ou o aviso de vencida; o site e a tela explicam os 7 dias. | 090 caso 8; Playwright `E2E_VALIDADE_OK` |
+| D3 | Oferta vale 7 dias corridos da aceitação persistida. Paga depois do corte e dentro dos 7 dias: continua JANELA, sem consumir as 20. Vencida: liberação só com prova de cobrança ausente ou cancelada. Pagamento tardio vai para reconciliação, sem cobrança complementar automática. O prazo é informado ao contratante. | O banco fixa `validade_oferta = 7 days`; `oferta_valida_ate = reservada_em + 7 dias`, imutável. Critério **único por dia local**: a condição vale até o fim do dia (America/Sao_Paulo) de `oferta_valida_ate`, inclusive. Esse dia vale para a tela, a retomada e o pagamento. O pagamento é comparado pela **data mais antiga informada pelo provedor** (`clientPaymentDate` do boleto, que é o dia pago; `confirmedDate` do cartão; `paymentDate`). Nunca pela chegada do webhook ou pelo relógio. Até o dia: confirma JANELA. Depois, ou sem nenhuma data: `FUNDADOR_OFERTA_EXPIRADA`, sem confirmar, liberar, reprecificar ou cobrar de novo. A sincronização grava `ERRO_INTERNO: AcessoServiceError FUNDADOR_OFERTA_EXPIRADA` e a reconciliação diária conta `ERRO_FUNDADOR_OFERTA_EXPIRADA` e alarma (código de saída 2); isso é testado. Retomar oferta vencida também é recusado. Não existe liberação automática: a liberação continua manual, com evidência (guarda 074a). A tela de assinatura mostra "pague até DD/MM/AAAA (horário de Brasília)" ou o aviso de vencida, também junto do link de pagamento (o checkout devolve a validade); o site e a tela explicam os 7 dias. | 090 caso 8 (inclui boleto no último dia, sem data, último dia por calendário, reconciliação real); unitário `dataDoPagamento`; Playwright `E2E_VALIDADE_OK` e prazo no link |
 | D4 | Reservas legadas preservadas, inclusive pendentes, sem consumir as 20. Pendente legada paga mantém a condição. Vaga posterior confirmada não é reciclada. | Backfill `LEGADO` sem alterar nenhuma coluna antiga (prova coluna a coluna e md5 do aplicador). LEGADO não tem prazo e confirma pelo valor contratado. `CONFIRMADA` nunca volta a `LIBERADA` (074a); vaga posterior continua ocupada. | 090 casos 1, 2, 6 e 9; aplicadores PG |
 | D5 | Benefício por empresa/tenant e documento. Troca CPF→CNPJ da mesma operação não gera novo teste nem novo benefício. Vínculos são declarados e conferidos no atendimento. Ser sócio não bloqueia. Continuidade preserva prazo, preço e benefício, sem nova vaga; bloqueada no autoatendimento. | Unicidade por empresa e por documento (índices 074a e `documento_teste_uk`). `documento_teste` e `documento_beneficiario` são imutáveis. O painel recusa trocar CPF↔CNPJ depois do teste. O checkout recusa documento de outro tipo (`DOCUMENTO_DIVERGENTE`). Nenhuma checagem de sociedade, nome, telefone ou IP. **Resíduo declarado:** um cadastro NOVO com o CNPJ da mesma operação não é detectável automaticamente; depende do vínculo declarado e conferido no atendimento. | 091 casos 5 e 6; unitários |
 
@@ -121,7 +121,8 @@ Arquivos: `database/migrations/20261022_090_campanha_fundador.sql`, os checks pr
 - **L1/089:** a devolução usa o valor efetivamente pago; a concessão continua CONFIRMADA (suíte 090, caso 7).
 - **075:** a renovação aceita contrato Fundador da janela com o preço regular contratado (suíte 090, caso 7).
 - **D-C4:** `scripts/assinatura-reconciliar.cjs` não conta concessões; mais de 20 na janela não gera alarme.
-  A reconciliação ainda não lista reservas expiradas para revisão: depende de D3 (lacuna 2 no §9).
+  Pagamento de oferta vencida aparece na reconciliação como `ERRO_FUNDADOR_OFERTA_EXPIRADA`, com alarme (suíte 090, caso 8). A empresa
+  fica sem sincronizar até o atendimento resolver; é intencional, porque ainda não há plano a ativar.
 - **Isenção Kidmais:** inalterada (regra 074a e a mesma verificação de 0 concessões).
 - **Staging (seis vagas):** viram `LEGADO` sem consulta ou limpeza nesta tarefa. O efeito sobre elas só pode ser
   conferido por operação futura autorizada (§8).
@@ -137,8 +138,15 @@ Arquivos: `database/migrations/20261022_091_documento_fiscal_contratante.sql`, o
   - `cadastros_empresas.documento`;
   - `solicitacoes_acesso_empresa.documento`.
 - `kidmais_091_documento_valido(text)` (IMMUTABLE) calcula o DV oficial de CPF e de CNPJ numérico e alfanumérico.
-  Ele é aplicado como CHECK `NOT VALID` em `documento_teste` e `documento_beneficiario`: só as linhas novas são
-  validadas. Nada é revalidado ou atualizado.
+  Ele é aplicado por **gatilho só no INSERT** (`kidmais_091_documento_guarda`) em `empresa_assinaturas` e
+  `assinatura_fundadores`.
+  - Revisão independente: um CHECK `NOT VALID` também valeria em todo UPDATE de linha antiga, e uma linha legada com DV
+    inválido deixaria de sincronizar.
+  - Como o documento é imutável, conferir na inserção basta. Linhas antigas continuam atualizáveis (provado na suíte
+    091, caso 2).
+  - O precheck só **informa** quantas linhas antigas têm DV de CNPJ inválido.
+  - O postcheck recusa qualquer CHECK que use a função de DV.
+  - A 091 toma ACCESS EXCLUSIVE já no início.
 - `empresa_representacoes.qualificacao` ganha `TITULAR_PF`.
 - **Não muda:** imutabilidade de `documento_teste`/`documento_beneficiario` (guardas 068/074a), `assinatura_isencoes`
   (só CNPJ) e `perfil_empresas.cnpj` (só CNPJ).
@@ -218,8 +226,15 @@ O padrão é o mesmo da 088/089:
 - saída sanitizada;
 - bloco ASCII em subshell com `CODIGO_SAIDA_BLOCO`.
 
-Novo nesta rodada: **prova agregada de preservação**. São contagens e md5 agregados das colunas que a migration não
-pode mudar, iguais antes e depois. A divergência é `FALHA` com `migracaoCommitada=true`.
+**Prova agregada de preservação.** São contagens e md5 agregados, com NULL explícito, só das colunas **imutáveis**
+que a migration poderia afetar:
+- identidade da concessão e snapshot da contratação (090);
+- documentos e qualificação (091).
+
+Entram só as linhas criadas até um **corte** lido no banco antes da migration. Estado, versão e pagamentos ficam fora,
+porque mudam com o tráfego: assim, escrita normal durante a aplicação não gera falso `PRESERVACAO_DIVERGENTE`
+(achado da revisão independente). O backfill LEGADO é conferido pelas linhas até o corte. A divergência real continua
+`FALHA` com `migracaoCommitada=true`.
 
 Ordem futura, para cada uma das migrations, independentes:
 1. código publicado com a chave desligada;
@@ -400,6 +415,41 @@ base `326895e`).
 - Asaas sandbox.
 - Staging e produção.
 - Revisão independente.
-- Teste automatizado da reconciliação diária com `FUNDADOR_OFERTA_EXPIRADA`. Conferido só por leitura: o item vira
-  `ERRO_`, a conferência fica incompleta/divergente e alarma.
 - Liberação de reserva vencida: continua manual, com prova (sem ferramenta própria).
+
+### Terceira rodada: correções da revisão independente
+
+A revisão independente da faixa `326895e..2927d45` resultou em REPROVADO, por um bloqueante e alguns P2.
+
+**Corrigido:**
+- **Bloqueante, DV da 091:** passou para um gatilho só no INSERT. O precheck informa as linhas antigas com DV de CNPJ
+  inválido, e uma linha legada com DV inválido continua atualizável (provado).
+- **D3:**
+  - data do pagamento: `clientPaymentDate` do boleto, depois a mais antiga das datas; sem relógio, e sem data o
+    pagamento vai para reconciliação;
+  - critério único por dia local na tela, na retomada e no pagamento;
+  - código `FUNDADOR_OFERTA_EXPIRADA` visível no `ultimo_erro` e na reconciliação (`ERRO_FUNDADOR_OFERTA_EXPIRADA`,
+    alarme), testado com o ciclo real.
+- **Aplicadores:** preservação só de colunas imutáveis e até o corte, com NULL explícito e corte validado.
+- **Prazo junto do link de pagamento:** o checkout devolve `fundadorValidoAte`, e o Playwright verifica.
+- **Perfil PF:** provado pelo serviço `aplicarCadastroPerfil`. Sem CNPJ, grava NULL; PJ sem CNPJ é recusado.
+- **Docs:** §11 do plano marcado como primeira rodada; alarme da reconciliação agora com teste.
+
+**Bugs que os testes pegaram e foram corrigidos:**
+- o `CASE` do gatilho novo referenciava um campo que a outra tabela não tem;
+- o próprio teste fazia o UPDATE fora de ordem.
+
+**Ajuste de expectativa:** um teste aceita a recusa do gatilho de DV no lugar da recusa do CHECK de formato para um
+documento mascarado. A recusa continua; só mudou qual guarda chega primeiro.
+
+**P3 da revisão ainda não tratados:**
+- corrida LEGADO × ativação;
+- ativação retroativa;
+- ENCERRADA sem motivo obrigatório;
+- concessão própria ignora a chave da campanha;
+- site sem timeout de banco;
+- concorrência da 20ª vaga sem espera observada;
+- janela de 45 s;
+- guarda de ordem fraca no teste `kidmais-gratuidade`.
+
+(O lock da 091 foi tratado junto com o bloqueante.)

@@ -207,13 +207,13 @@ Riscos principais: datas divergentes entre web/worker, estoque contado com legad
 
 Leitura local do código, SQL, aplicadores, documentos comerciais e pacote jurídico; conferência dos caminhos e referências; inventário local de números; revisão de conteúdo e `git diff --check`. Sem alegação de testes de produto, PG, Playwright ou sandbox aprovados. Commit solicitado usa `Felipe Menegaz <324788905+felipemenegaz-debug@users.noreply.github.com>`. Obsidian atualizado separadamente com estado de proposta, decisões, validação e próximos passos.
 
-## 11. Implementação local de 22/10/2026 (resumo)
+## 11. Implementação local de 22/10/2026 (resumo da PRIMEIRA rodada, superado em parte pelo §12 e pela revisão)
 
 Detalhes em [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md).
 
 **Divergências em relação a este plano:**
 - O tipo de documento não ganhou coluna: ele é derivado do formato normalizado, garantido por CHECK.
-- O DV fica no banco como CHECK `NOT VALID`: só as linhas novas são validadas, nenhuma é alterada.
+- [1ª rodada] O DV ficava como CHECK `NOT VALID`. A revisão mostrou que isso valeria em todo UPDATE de linha antiga; foi trocado por um gatilho só no INSERT.
 - A janela aceita os dois modos de contagem (D2 pendente). A elegibilidade aceita os dois valores no dado, mas só
   `OFERTA_PERSISTIDA` tem implementação; com o outro valor, a contratação fica indisponível.
 - A validade da oferta é registrada, mas não tem efeito automático (D3).
@@ -242,3 +242,10 @@ Felipe decidiu:
 Conferência item a item e provas: [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md), §2.
 
 O impedimento técnico do Perfil para PF foi corrigido. A identificação do PF nos documentos continua com a Astra.
+
+## 13. Revisão independente e correções (22/10/2026)
+
+O resultado foi REPROVADO: um bloqueante (DV da 091 por CHECK `NOT VALID`) e vários P2 (D3, preservação dos aplicadores,
+prazo junto do link, docs). Todos foram corrigidos e testados localmente. Os P3 ficam registrados.
+
+Detalhes: [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md), "Terceira rodada".
