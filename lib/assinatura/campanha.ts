@@ -116,7 +116,7 @@ export function prazoAnunciado(c: Pick<CampanhaFundador, 'contagem' | 'janelaFim
 /** Disponibilidade indicativa, sem ids nem documentos. O checkout sempre recalcula sob trava. */
 export type ResumoCampanha =
     | { fase: 'LEGADO' } | { fase: 'DESLIGADA' } | { fase: 'ANTES'; inicio: string }
-    | { fase: 'JANELA'; prazo: ReturnType<typeof prazoAnunciado> }
+    | { fase: 'JANELA'; prazo: ReturnType<typeof prazoAnunciado>; janelaFim?: string }
     | { fase: 'POS_JANELA'; vagasRestantes: number; emConfirmacao: number; limite: number }
     | { fase: 'ENCERRADA' };
 
@@ -128,7 +128,7 @@ export async function resumoCampanha(tx: DbExecutor, env: Ambiente = process.env
     const agora = (await tx.query<{ agora: string }>(`SELECT ${ISO('clock_timestamp()')} AS agora`)).rows[0]?.agora;
     const fase = faseCampanha(c, Date.parse(String(agora)));
     if (fase === 'ANTES') return { fase, inicio: c.inicio };
-    if (fase === 'JANELA') return { fase, prazo: prazoAnunciado(c) };
+    if (fase === 'JANELA') return { fase, prazo: prazoAnunciado(c), janelaFim: c.janelaFim };
     if (fase === 'ENCERRADA') return { fase };
     const o = await ocupacaoPosJanela(tx, c.id);
     return { fase, vagasRestantes: Math.max(0, c.vagasPosJanela - o.ocupadas), emConfirmacao: o.ocupadas - o.confirmadas, limite: c.vagasPosJanela };

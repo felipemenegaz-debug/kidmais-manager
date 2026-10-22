@@ -6,7 +6,7 @@ import { carregarModulo } from '../acessos/teste-carregador.ts';
 type Tx = { query: (sql: string) => Promise<{ rows: object[] }> };
 const carregar = (withTransaction: (t: (tx: Tx) => Promise<unknown>) => Promise<unknown>) =>
     carregarModulo('lib/site/fundador-servidor.ts', { 'lib/db/postgres': { withTransaction } }, new Map()) as {
-        resumoCampanhaSite: (limiteMs?: number) => Promise<unknown> };
+        resumoCampanhaSite: (limiteMs?: number) => Promise<unknown>; proximaMudanca: (r: object) => number };
 
 test('banco lento: devolve null no limite, sem esperar a consulta', async () => {
     const { resumoCampanhaSite } = carregar(() => new Promise(() => {}));
@@ -40,4 +40,30 @@ test('uma leitura em andamento por vez; resultado guardado por instantes; falha 
     assert.equal(await falho.resumoCampanhaSite(100), null);
     assert.equal(await falho.resumoCampanhaSite(100), null);
     assert.equal(falhas, 2, 'falha não fica guardada');
+});
+
+test('P3-1: cache não atravessa a mudança de fase (abertura ou fim da janela); sem fronteira, só o prazo curto', async () => {
+    const { proximaMudanca } = carregar(async () => null);
+    const fim = '2026-12-01T03:00:00.000Z', inicio = '2026-11-01T03:00:00.000Z';
+    assert.equal(proximaMudanca({ fase: 'JANELA', prazo: {}, janelaFim: fim }), Date.parse(fim));
+    assert.equal(proximaMudanca({ fase: 'ANTES', inicio }), Date.parse(inicio));
+    for (const r of [{ fase: 'LEGADO' }, { fase: 'DESLIGADA' }, { fase: 'ENCERRADA' }, { fase: 'POS_JANELA', vagasRestantes: 1, emConfirmacao: 0, limite: 20 }, { fase: 'JANELA', prazo: {} }])
+        assert.equal(proximaMudanca(r), Infinity, JSON.stringify(r));
+    // Janela termina em 60 ms: a leitura seguinte, depois do fim, consulta o banco de novo (não usa os 30 s).
+    let chamadas = 0;
+    const janelaFim = new Date(Date.now() + 60).toISOString();
+    const tx: Tx = { query: async (sql) => {
+        if (sql.includes('AS instalado090')) return { rows: [{ instalado090: true }] };
+        return { rows: [] };
+    } };
+    const site = carregarModulo('lib/site/fundador-servidor.ts', {
+        'lib/db/postgres': { withTransaction: async (w: (t: Tx) => Promise<unknown>) => { chamadas++; return w(tx); } },
+        'assinatura/campanha': { resumoCampanha: async () => ({ fase: 'JANELA', prazo: { dia: '30/11/2026', hora: '23h59', texto: 'x' }, janelaFim }) },
+    }, new Map()) as { resumoCampanhaSite: (l?: number) => Promise<unknown> };
+    await site.resumoCampanhaSite(1000);
+    await site.resumoCampanhaSite(1000);
+    assert.equal(chamadas, 1, 'antes do fim, cache');
+    await new Promise((r) => setTimeout(r, 90));
+    await site.resumoCampanhaSite(1000);
+    assert.equal(chamadas, 2, 'depois do fim da janela, nova leitura');
 });
