@@ -34,6 +34,15 @@
  *   - RENOVACAO_NAO_REMOVIDA: remoção da assinatura PENDENTE/SEM_CONFIRMACAO/RECUSADO há mais de 1 h (a renovação pode
  *     continuar gerando cobrança no Asaas).
  * A idade conta do vencimento do prazo (dia 0 = NOVO; 1, 3, 7 e semanais). Em staging o relatório só conta (`encerramentos`).
+ *
+ * CRÉDITOS DE IA (090, implementação local de 22/10/2026): com a 090 instalada, o ciclo também (a) processa os eventos de
+ * cobrança avulsa pelo MESMO serviço do webhook (lib/creditos/pagamento.ts, via processarEvento com a conta/ambiente do
+ * serviço), (b) revisita os pedidos abertos/incertos/em revisão e as disputas pelo mesmo serviço (simulação = ROLLBACK por
+ * item; produção só conferência) e (c) lê a fila (somente leitura) em itens D-C4: PEDIDO_CREDITOS (criação incerta, revisão,
+ * pagamento duplicado), DEVOLUCAO_CREDITOS (vencida), RESERVA_CREDITOS (aberta há > 24 h), DISPUTA_CREDITOS e
+ * DIVERGENCIA_CARTEIRA (recomputação extrato × lotes × carteira). PROPOSTA sujeita à aprovação de Felipe: dinheiro pago sem
+ * crédito, pagamento duplicado, arrependimento vencido e divergência de carteira são CRÍTICOS e alarmam em toda conferência
+ * até a resolução (aviso CRITICO), em vez dos dias 0/1/3/7/semanais. NFS-e (DOCUMENTO_FISCAL) não existe nesta versão.
  */
 /** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
 const LIMITE_EVENTOS = 500;
@@ -193,7 +202,7 @@ function argumentos(argv) {
  * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
  * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
  */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento }) {
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento, creditos }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
@@ -215,7 +224,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     const ids = await sinc.eventosPendentes(client, LIMITE_EVENTOS);
     const idades = idadesDosEventos ? await idadesDosEventos(client, ids) : null;
     for (const eventoId of ids) {
-        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente }));
+        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente, ...(creditos ? { creditos: creditos.contexto } : {}) }));
         const chave = r.erro ? `ERRO_${r.erro}` : r.situacao;
         conta(relatorio.eventos, chave);
         const idade = idades?.eventos?.get(String(eventoId));
@@ -235,11 +244,32 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
             itens.push({ item: p.item, resultado: p.resultado, motivo: p.motivo, recebidoMs: p.recebidoMs });
         }
     }
+    // 090: pedidos de créditos pelo mesmo serviço do webhook (um item por pedido) e a fila em itens D-C4 (só leitura).
+    if (creditos && await creditos.instalados(client)) {
+        relatorio.creditos = {};
+        relatorio.creditosPedidos = {};
+        for (const pedidoId of await creditos.pedidos(client)) {
+            const r = await item(() => creditos.processar(client, pedidoId, provedorUsado));
+            const chave = r.erro ? `ERRO_${r.erro}` : r.resultado;
+            conta(relatorio.creditosPedidos, chave);
+            // Pago sem crédito (a leitura creditaria) ou falha da leitura: item da conferência.
+            if (r.erro || r.resultado === 'CREDITADO') {
+                const pendencia = { item: 'PEDIDO_CREDITOS', resultado: r.erro ? `ERRO_${r.erro}` : 'PAGO_SEM_CREDITO', motivo: r.motivo ?? null, recebidoMs: null, critico: !r.erro };
+                conta(relatorio.creditos, `${pendencia.item}_${pendencia.resultado}`);
+                itens.push(pendencia);
+            }
+        }
+        for (const p of [...await creditos.pendencias(client), ...await creditos.divergencias(client)]) {
+            conta(relatorio.creditos, `${p.item}_${p.resultado}`);
+            itens.push(p);
+        }
+    }
     // P2-2: a lista traz só os LIMITE_EVENTOS mais antigos; no limite, um evento novo pode ter ficado de fora → alarma.
     if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs, { listaNoLimite: ids.length >= LIMITE_EVENTOS }));
 
     relatorio.incompleto = Object.entries(relatorio.eventos).some(([k, n]) => n > 0 && (k === 'FALHOU' || k.startsWith('ERRO_')))
-        || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')));
+        || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')))
+        || Object.keys(relatorio.creditosPedidos ?? {}).some((k) => k.startsWith('ERRO_'));
     // Conferência: evento de pagamento ainda não concluído ou empresa cujo estado mudaria = banco diverge do provedor.
     relatorio.divergente = Object.values(relatorio.eventos).some((n) => n > 0)
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && k !== 'SEM_MUDANCA');
@@ -261,6 +291,31 @@ async function lerPendenciasEncerramento(client, instanteMs = null) {
     if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
     return (await client.query(SQL_PENDENCIAS_ENCERRAMENTO, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
         .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) }));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Créditos de IA (090): fila somente leitura, sem ids nem dados pessoais. `$1` fixa o instante (testes).
+const SQL_PENDENCIAS_CREDITOS = `SELECT item, resultado, motivo, critico, (extract(epoch FROM limite) * 1000)::float8 AS limite_ms FROM (
+    SELECT 'PEDIDO_CREDITOS' AS item, estado AS resultado, coalesce(revisao_motivo, recurso) AS motivo, false AS critico,
+           CASE WHEN estado = 'CRIACAO_EM_CURSO' THEN criado_em + interval '10 minutes' ELSE criado_em END AS limite
+      FROM ia_credito_pedidos WHERE estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO')
+    UNION ALL
+    SELECT 'PEDIDO_CREDITOS', 'PAGAMENTO_DUPLICADO', c.situacao_provedor, true, c.atualizada_em
+      FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'PAGAMENTO_DUPLICADO'
+    UNION ALL
+    SELECT 'DEVOLUCAO_CREDITOS', estado, tipo, tipo = 'ARREPENDIMENTO_7_DIAS',
+           CASE WHEN tipo = 'ARREPENDIMENTO_7_DIAS' THEN solicitado_em + interval '1 hour'
+                ELSE ((prazo + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo') END
+      FROM ia_credito_devolucoes WHERE estado <> 'CONCLUIDO'
+    UNION ALL
+    SELECT 'RESERVA_CREDITOS', 'ABERTA', recurso, false, criada_em + interval '24 hours' FROM ia_credito_reservas WHERE estado = 'ABERTA'
+    UNION ALL
+    SELECT 'DISPUTA_CREDITOS', disputa, situacao_provedor, false, atualizada_em FROM ia_credito_cobrancas WHERE disputa = 'ABERTA'
+  ) x WHERE limite <= coalesce($1::timestamptz, clock_timestamp()) ORDER BY limite`;
+async function lerPendenciasCreditos(client, instanteMs = null) {
+    if ((await client.query("SELECT to_regclass('public.ia_credito_lancamentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
+    return (await client.query(SQL_PENDENCIAS_CREDITOS, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
+        .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms), critico: l.critico === true }));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -339,6 +394,8 @@ function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) 
     for (const i of itens) {
         const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
         if (erroDaExecucao(i)) { alarmes.push({ ...base, aviso: 'ERRO_NESTA_EXECUCAO' }); continue; }
+        // 090 (proposta): item crítico dos créditos alarma em toda conferência até ser resolvido.
+        if (i.critico === true) { alarmes.push({ ...base, aviso: 'CRITICO' }); continue; }
         if (i.item === 'EMPRESA') { alarmes.push({ ...base, aviso: 'EMPRESA_SEM_IDADE' }); continue; }
         const dia = diaDoItem(i.recebidoMs, referenciaMs);
         if (dia === null) { alarmes.push({ ...base, aviso: 'SEM_IDADE' }); continue; }
@@ -401,7 +458,7 @@ function codigoDeSaida(relatorio, producao) {
     if (relatorio.kidmais?.violada) return 2;
     if (producao && Array.isArray(relatorio.alarme?.itens) && Array.isArray(relatorio.pendentesConhecidos)) {
         const soma = (grupo, filtro = () => true) => Object.entries(grupo ?? {}).reduce((t, [k, n]) => t + (filtro(k) ? n : 0), 0);
-        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA') + soma(relatorio.encerramentos);
+        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA') + soma(relatorio.encerramentos) + soma(relatorio.creditos);
         const classificados = relatorio.alarme.itens.filter((i) => i.item !== ITEM_LISTA).length + relatorio.pendentesConhecidos.length;
         if (classificados !== total) return 2;
         return relatorio.alarme.itens.length > 0 ? 2 : 0;
@@ -444,7 +501,7 @@ async function main() {
         // D-C4: só a conferência de produção classifica por idade; staging (simular/aplicar) segue sem classificação.
         const idadesDosEventos = alvo.producao ? lerIdadesDosEventos : undefined;
         const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente, idadesDosEventos,
-            pendenciasEncerramento: lerPendenciasEncerramento });
+            pendenciasEncerramento: lerPendenciasEncerramento, creditos: await creditosDaExecucao(estado.config, process.env) });
         relatorio.kidmais = await conferirKidmais(client);
         // Staging: saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147) ou gratuidade violada.
         // Produção: gratuidade violada ou item em alarme pela regra D-C4 (codigoDeSaida).
@@ -458,6 +515,28 @@ async function main() {
     }
 }
 
+/** Dependências dos créditos (090) no ciclo: o mesmo serviço do webhook e a recomputação das carteiras (só leitura). */
+async function creditosDaExecucao(config, env) {
+    const pagamento = await import('../lib/creditos/pagamento.ts');
+    const ledger = await import('../lib/creditos/ledger.ts');
+    const { contaProvedor } = await import('../lib/creditos/config.ts');
+    const contexto = { ambiente: config.ambiente, conta: contaProvedor(env) };
+    return {
+        contexto,
+        instalados: (c) => ledger.creditosInstalados(c),
+        pedidos: (c) => pagamento.pedidosParaReconciliar(c),
+        processar: (c, pedidoId, provedor) => pagamento.processarPedido(c, pedidoId, { provedor, ...contexto }),
+        pendencias: (c) => lerPendenciasCreditos(c),
+        divergencias: async (c) => {
+            const itens = [];
+            for (const w of (await c.query('SELECT empresa_id, recurso FROM ia_credito_carteiras ORDER BY empresa_id, recurso')).rows)
+                for (const d of await ledger.conferirCarteira(c, w.empresa_id, w.recurso))
+                    itens.push({ item: 'DIVERGENCIA_CARTEIRA', resultado: d.tipo, motivo: d.recurso, recebidoMs: null, critico: true });
+            return itens;
+        },
+    };
+}
+
 if (require.main === module) {
     main().catch((error) => {
         console.error(`Reconciliação recusada/interrompida: ${error instanceof Error ? error.message : 'erro'}`);
@@ -467,4 +546,4 @@ if (require.main === module) {
 
 module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
-    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO };
+    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };

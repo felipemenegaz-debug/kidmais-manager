@@ -18,6 +18,8 @@
  *   estorno (21/10/2026)  https://docs.asaas.com/reference/estornar-cobranca · https://docs.asaas.com/reference/estornar-boleto
  *                         https://docs.asaas.com/docs/estornos · https://docs.asaas.com/docs/webhook-para-cobrancas
  *   webhooks              https://docs.asaas.com/docs/sobre-os-webhooks
+ *   avulsa (22/10/2026)   https://docs.asaas.com/reference/criar-nova-cobranca · https://docs.asaas.com/reference/listar-cobrancas
+ *                         (créditos de IA, lib/creditos: contrato PLANEJADO, exercitado só com dublê; sandbox NÃO executado)
  */
 import type { Ciclo } from './configuracao.ts';
 
@@ -106,7 +108,9 @@ export type ClienteProvedor = { id: string; externalReference: string | null };
 export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
 export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null;
     /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
-    confirmedDate?: string | null };
+    confirmedDate?: string | null;
+    /** Correlação gravada por nós na criação (créditos: km:<ambiente>:creditos:<pedido>); nunca prova idempotência. */
+    externalReference?: string | null };
 
 /** Situação de cada devolução da cobrança (`refunds[]`): só `DONE` conta como devolvida (docs.asaas.com/docs/estornos). */
 export type EstornoProvedor = { status: string; valorCentavos: number | null; descricao: string | null };
@@ -119,6 +123,18 @@ export type ProvedorEstorno = {
     obterCobranca(id: string): Promise<CobrancaProvedor | null>;
     estornarCobranca(id: string, valorCentavos: number, descricao: string): Promise<ResultadoEstorno>;
 };
+
+/**
+ * Cobrança AVULSA dos pacotes de créditos (POST /v3/payments, sem `subscription`): nunca ativa nem renova assinatura.
+ * `externalReference` é só correlação; timeout depois do POST é resultado INCERTO (quem chama não repete o POST e
+ * procura pela referência). Cartão: só a fatura hospedada do provedor (nenhum dado de cartão passa por aqui).
+ */
+export type ProvedorCreditos = {
+    obterCobranca(id: string): Promise<CobrancaProvedor | null>;
+    criarCobrancaAvulsa(input: { cliente: string; forma: 'PIX' | 'CREDIT_CARD' | 'BOLETO'; valorCentavos: number; vencimento: string; descricao: string; referencia: string }): Promise<CobrancaProvedor>;
+    /** Todas as páginas (até o limite conferido); lista maior → AsaasFalhou LISTA_INCOMPLETA (nunca "não existe"). */
+    listarCobrancasPorReferencia(referencia: string): Promise<CobrancaProvedor[]>;
+} & Partial<Pick<ProvedorEstorno, 'estornarCobranca'>>;
 
 export type ProvedorRenovacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarCobrancasDaAssinatura'> & {
     obterCobranca(id: string): Promise<CobrancaProvedor | null>;
@@ -187,6 +203,7 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
         ...(o.customer !== undefined ? { clienteId: texto(o.customer, 100) } : {}),
         ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
         ...(o.confirmedDate !== undefined ? { confirmedDate: texto(o.confirmedDate, 10) && DATA.test(String(o.confirmedDate)) ? String(o.confirmedDate) : null } : {}),
+        ...(o.externalReference !== undefined ? { externalReference: texto(o.externalReference) } : {}),
     };
 }
 
@@ -212,7 +229,7 @@ export function cicloDoProvedor(cycle: string | null): Ciclo | null {
     return cycle === 'MONTHLY' ? 'MENSAL' : cycle === 'YEARLY' ? 'ANUAL' : null;
 }
 
-export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao & ProvedorEstorno {
+export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao & ProvedorEstorno & ProvedorCreditos {
     const esperado = (AMBIENTES as Record<string, { baseUrl: string; prefixo: string } | undefined>)[config.ambiente];
     if (!esperado || config.baseUrl !== esperado.baseUrl || !config.apiKey.startsWith(esperado.prefixo))
         throw new Error('Cliente Asaas recusado: ambiente, URL e chave precisam ser do mesmo ambiente.');
@@ -290,6 +307,27 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
                 { value: valorCentavos / 100, description: descricao.slice(0, 500) });
             if (!r || r.id !== id) throw new AsaasFalhou('estornar cobrança', 200, 'RESPOSTA_INVALIDA');
             return { status: texto(r.status, 40) ?? 'DESCONHECIDO', estornos: estornos(r.refunds) };
+        },
+        // POST /v3/payments (avulsa) — https://docs.asaas.com/reference/criar-nova-cobranca (lida em 22/10/2026): customer,
+        // billingType, value, dueDate, description, externalReference. Sem subscription nem parcelamento. A resposta é
+        // conferida (id, referência e valor); divergência = RESPOSTA_INVALIDA, tratada como resultado incerto por quem chama.
+        async criarCobrancaAvulsa(input) {
+            if (!Number.isSafeInteger(input.valorCentavos) || input.valorCentavos <= 0 || !DATA.test(input.vencimento)
+                || !['PIX', 'CREDIT_CARD', 'BOLETO'].includes(input.forma) || !/^km:(sandbox|producao):creditos:[0-9a-f-]{36}$/.test(input.referencia))
+                throw new Error('Cobrança avulsa inválida.');
+            const r = await chamar('criar cobrança avulsa', 'POST', '/payments', {
+                customer: idValido(input.cliente, 'criar cobrança avulsa'), billingType: input.forma, value: input.valorCentavos / 100,
+                dueDate: input.vencimento, description: input.descricao.slice(0, 500), externalReference: input.referencia,
+            });
+            const c = cobranca(r ?? {}, 'criar cobrança avulsa');
+            if (c.externalReference !== input.referencia || c.valorCentavos !== input.valorCentavos || c.assinaturaId)
+                throw new AsaasFalhou('criar cobrança avulsa', 200, 'RESPOSTA_INVALIDA');
+            return c;
+        },
+        // GET /v3/payments?externalReference= — https://docs.asaas.com/reference/listar-cobrancas (paginado; 5 páginas de 100).
+        async listarCobrancasPorReferencia(referencia) {
+            return (await listar('listar cobranças avulsas', `/payments?externalReference=${ref(referencia)}`, (o) => cobranca(o, 'listar cobranças avulsas')))
+                .filter((c) => c.externalReference === referencia);
         },
         // Só próximas parcelas; nunca reprifica mensalidades antigas ainda pendentes.
         async atualizarValorAssinatura(id, valorCentavos) {
@@ -377,7 +415,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
 }
 
 /** Cliente do ambiente atual, ou null com o motivo quando a cobrança está desligada. */
-export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas & ProvedorEstorno; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
+export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas & ProvedorEstorno & ProvedorCreditos; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
     const estado = configuracaoAsaas(env);
     if (!estado.ligado)
         return { cliente: null, motivo: estado.motivo };

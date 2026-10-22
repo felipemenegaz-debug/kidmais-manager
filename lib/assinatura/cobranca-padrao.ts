@@ -10,6 +10,10 @@ import { travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
 import type { DepsDevolucao } from './devolucao.ts';
 import { processarEvento } from './sincronizacao.ts';
 import { PRAZO_TRANSACAO_INDEPENDENTE_MS } from './reconciliacao-contratacao.ts';
+import { contaProvedor } from '../creditos/config.ts';
+import type { DepsCreditos } from '../creditos/compra.ts';
+import { consumirLimite } from '../autenticacao/service.ts';
+import { drenarNotificacoes } from '../creditos/notificacoes.ts';
 
 /**
  * Transação independente da aplicação (marcador de exclusão e resultado do DELETE): outra conexão do pool, com prazo do
@@ -40,12 +44,31 @@ export async function processarEventoAgendado(eventoInternoId: string) {
     const provedor = p.cliente;
     try {
         // O marcador de exclusão usa OUTRA conexão do pool (COMMIT próprio, antes do DELETE), com prazo do lado da aplicação.
-        const r = await withTransaction((tx) => processarEvento(tx, eventoInternoId, { provedor, transacaoIndependente: transacaoIndependenteDaAplicacao }));
+        const r = await withTransaction((tx) => processarEvento(tx, eventoInternoId, { provedor, transacaoIndependente: transacaoIndependenteDaAplicacao,
+            creditos: { ambiente: p.config.ambiente, conta: contaProvedor() } }));
         if (r.situacao === 'FALHOU')
             console.warn('[Asaas webhook] evento não processado agora; fica FALHOU para nova tentativa.');
     }
     catch (error) {
         console.error('[Asaas webhook] falha ao processar evento', error instanceof Error ? error.name : typeof error);
+    }
+}
+
+/** Dependências reais dos créditos de IA (090): banco do serviço, provedor do ambiente e limites persistentes. */
+export function depsCreditosPadrao(env: Record<string, string | undefined> = process.env): DepsCreditos {
+    return { withTenantTransaction, withTransaction, consumirLimite, env, provedor: () => {
+        const p = clienteAsaasDoAmbiente(env);
+        return p.cliente ? { cliente: p.cliente, ambiente: p.config.ambiente } : null;
+    } };
+}
+
+/** E-mails pendentes dos créditos (outbox), depois da resposta; falha só reagenda. */
+export async function drenarNotificacoesCreditos() {
+    try {
+        await drenarNotificacoes({ withTransaction, enviarEmail: criarEnviarEmail() });
+    }
+    catch (error) {
+        console.warn('[creditos] envio de notificações adiado', error instanceof Error ? error.name : typeof error);
     }
 }
 

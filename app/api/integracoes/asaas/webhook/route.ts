@@ -3,7 +3,7 @@ import { withTransaction } from '@/lib/db/postgres';
 import { consumirLimite } from '@/lib/autenticacao/service';
 import { ipDaRequisicao } from '@/lib/acessos/http';
 import { receberWebhookAsaas } from '@/lib/assinatura/webhook-asaas';
-import { processarEventoAgendado } from '@/lib/assinatura/cobranca-padrao';
+import { drenarNotificacoesCreditos, processarEventoAgendado } from '@/lib/assinatura/cobranca-padrao';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,8 @@ export async function POST(request: Request) {
             ip: ipDaRequisicao(request),
             withTransaction,
             consumirLimite,
-            agendar: (id) => after(() => processarEventoAgendado(id)),
+            // Créditos (090): depois do processamento, os e-mails do outbox (pagamento confirmado) saem em melhor esforço.
+            agendar: (id) => after(async () => { await processarEventoAgendado(id); await drenarNotificacoesCreditos(); }),
         });
     }
     catch (error) {

@@ -114,7 +114,8 @@ test('D1: a transação independente da aplicação e do script tem prazo do lad
     const padrao = readFileSync('lib/assinatura/cobranca-padrao.ts', 'utf8');
     assert.match(padrao, /export const transacaoIndependenteDaAplicacao = transacaoComPrazo\(conexaoDescartavelDoPool, PRAZO_TRANSACAO_INDEPENDENTE_MS\);/);
     assert.match(padrao, /transacaoIndependente: transacaoIndependenteDaAplicacao, travarContratacao/, 'contratação (rotas)');
-    assert.match(padrao, /processarEvento\(tx, eventoInternoId, \{ provedor, transacaoIndependente: transacaoIndependenteDaAplicacao \}\)/, 'webhook');
+    // 090: o webhook também passa a conta/ambiente dos créditos (cobrança avulsa); a transação independente continua a mesma.
+    assert.match(padrao, /processarEvento\(tx, eventoInternoId, \{ provedor, transacaoIndependente: transacaoIndependenteDaAplicacao,\s*creditos: \{ ambiente: p\.config\.ambiente, conta: contaProvedor\(\) \} \}\)/, 'webhook');
     assert.doesNotMatch(padrao, /transacaoIndependente: withTransaction/, 'nunca a transação comum sem prazo');
     const script = readFileSync('scripts/assinatura-reconciliar.cjs', 'utf8');
     assert.match(script, /transacaoIndependenteDaExecucao\(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS\)/);
