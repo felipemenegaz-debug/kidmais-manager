@@ -175,7 +175,7 @@ export async function criarPacoteAdmin(
        ordem_exibicao, ativo, vigente
      ) VALUES (
        $1::uuid, $2, $3, $4, $5, $6, $7,
-       (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM pacotes),
+       (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM pacotes WHERE empresa_id = $1::uuid),
        true, true
      ) RETURNING id`,
     [ctx.empresaId, cadastro.codigo, input.nome, input.descricao, input.duracaoMinutos, input.convidadosMinimos ?? null, input.convidadosMaximos ?? null],

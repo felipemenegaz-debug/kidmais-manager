@@ -30,7 +30,6 @@ import {
 } from "../../clientes/services";
 import { criarIdentityServiceComAmbiente } from "../../identidade/services";
 import { buscarPacoteAtivoPorId } from "../../comercial/repositories";
-import { pacoteCodigoContratavelV1 } from "../../comercial/pacotes-v1";
 import { criarFechamentoComercial } from "./fechamento.service";
 import { resolverEscolhasBuffet, gravarEscolhasBuffet } from "./escolhas-buffet.service";
 import { FechamentoServiceError } from "./errors";
@@ -89,6 +88,8 @@ export type CriarFechamentoPublicoInput = Omit<
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /** Empresa do endereço público: o pacote precisa ser dela (segunda barreira; a rota já buscou o pacote nela). */
+  empresaEsperada?: string;
   /**
    * Endereço público de uma empresa (/b/<código>): CPF usado em cadastro de OUTRA empresa não é revelado nem
    * bloqueia; enquanto o índice global existir (antes da 076), o cliente novo nasce sem CPF, com nota interna neutra.
@@ -553,7 +554,9 @@ export async function criarFechamentoPublicoComIdentidade(
 
   const executar = async (tx: DbExecutor) => {
     const pacoteV1 = await buscarPacoteAtivoPorId(input.pacoteId, tx);
-    if (!pacoteV1 || !pacoteCodigoContratavelV1(pacoteV1.codigo)) {
+    // Qualquer pacote ativo da empresa (inclusive "Novo pacote", P_…): a rota já restringiu o endereço atual aos sete
+    // e resolveu o pacote pelo código NA empresa do endereço; aqui, a segunda barreira confere essa empresa.
+    if (!pacoteV1 || (input.empresaEsperada !== undefined && (pacoteV1.empresaId ?? null) !== input.empresaEsperada)) {
       throw new FechamentoServiceError(
         "PACOTE_FORA_ESCOPO_V1",
         "O pacote selecionado ainda não está disponível para fechamento online.",
