@@ -7,6 +7,8 @@ import { exigirApiAdminCrmDisponivel, politicaAdmin, tokenAdmin, verificarOrigem
 import { csrfParaSessaoInvalida } from '@/lib/http/csrf-sem-sessao';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { db } from '@/lib/db/postgres';
+import { ipDaRequisicao } from '@/lib/acessos/http';
+import { causaDoErro, registrarFormatoDaOrigem } from '@/lib/http/origem-cliente';
 import { contextoDaSessao } from '@/lib/autenticacao/contexto';
 import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
@@ -24,8 +26,13 @@ const schema = z.discriminatedUnion('acao', [
 ]);
 function response(data: unknown, status = 200) { return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } }); }
 function fail(error: unknown) {
-    if (!(isClienteServiceError(error) || error instanceof PacoteAdminError))
+    if (error instanceof SyntaxError)
+        return response({ ok: false, erro: 'Dados inválidos.' }, 400);
+    if (!(isClienteServiceError(error) || error instanceof PacoteAdminError)) {
+        // Antes, este 500 não deixava rastro (X-3 da revisão de 22/10/2026): a causa vai ao log, nunca à resposta.
+        console.error('[autenticacao] falha não tratada', JSON.stringify(causaDoErro(error)));
         return response({ ok: false, erro: 'Falha na autenticação.' }, 500);
+    }
     const res = response({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus);
     // Limite de tentativas com prazo calculável (janela do banco): Retry-After em segundos; sem prazo, nenhum cabeçalho.
     const detalhes = error.details as { retryAfterSegundos?: unknown } | null | undefined;
@@ -87,11 +94,15 @@ export async function POST(request: NextRequest) {
                 res.cookies.set(name, '', { httpOnly: true, secure: policy.secure, sameSite: 'lax', path: '/', maxAge: 0 });
             return res;
         }
+        // IP confiável do proxy do Render (lib/http/origem-cliente.ts); sem ele, o login segue só com o limite por conta.
+        const ip = ipDaRequisicao(request), userAgent = request.headers.get('user-agent')?.slice(0, 1000) ?? null;
+        if (body.data.acao !== 'selecionar-empresa')
+            registrarFormatoDaOrigem(request, ip);
         const result = body.data.acao === 'login'
-            ? await loginAdmin(body.data.email, body.data.senha, randomUUID(), null, request.headers.get('user-agent')?.slice(0, 1000) ?? null)
+            ? await loginAdmin(body.data.email, body.data.senha, randomUUID(), ip, userAgent)
             : body.data.acao === 'selecionar-empresa'
                 ? await selecionarEmpresaAtiva(tokenAdmin(request), body.data.empresaId)
-            : await reautenticarAdmin(tokenAdmin(request), body.data.senha);
+            : await reautenticarAdmin(tokenAdmin(request), body.data.senha, ip, userAgent);
         // Só a reautenticação devolve a renovação (sessão anterior → nova); login e seleção de empresa não.
         const renovacao = body.data.acao === 'reautenticar' && 'renovacao' in result ? result.renovacao : null;
         const res = response({ ok: true, data: { csrf: result.csrf, renovacao } });
