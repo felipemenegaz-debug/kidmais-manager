@@ -12,9 +12,9 @@ import { crc32, escreverZip, MAXIMO_ENTRADAS_ZIP, type EntradaArquivo } from './
 /**
  * Pacote completo e verificável dos dados de UMA empresa (formato 1), montado em FLUXO:
  *   - cada tabela é lida por cursor, em lotes, e gravada num CSV temporário com SHA-256 e CRC-32 incrementais;
- *   - cada PDF de contrato vem um por vez para o seu arquivo temporário;
+ *   - cada PDF de contrato é lido em blocos limitados para o seu arquivo temporário;
  *   - o ZIP é montado em arquivo, lendo dos temporários; a rota envia o ZIP por fluxo só depois da revalidação final.
- * Memória: um lote por vez (LOTE linhas ou 1 PDF) + o manifesto. Disco: a pasta temporária do sistema (os.tmpdir()),
+ * Memória: um lote por vez (LOTE linhas ou BLOCO_PDF_BYTES) + o manifesto. Disco: a pasta temporária do sistema (os.tmpdir()),
  * nunca o disco persistente da aplicação; tudo é apagado por `limpar()` (servico.ts garante em erro, fim e abandono).
  *
  * As leituras rodam dentro de uma transação REPEATABLE READ READ ONLY aberta por quem chama (servico.ts): todos os
@@ -29,6 +29,8 @@ export const FORMATO = 'kidmais-exportacao';
 export const VERSAO_FORMATO = 1;
 /** Linhas por FETCH do cursor. */
 export const LOTE = 100;
+/** Limita o bytea que atravessa o driver; nunca carregar o PDF inteiro no processo web. */
+export const BLOCO_PDF_BYTES = 1024 * 1024;
 /** Prefixo das pastas temporárias (a limpeza de sobras antigas só toca pastas com este prefixo). */
 export const PREFIXO_TEMPORARIO = 'kidmais-exportacao-';
 /** Disco persistente da produção no Render: nunca usado para temporários. */
@@ -173,18 +175,23 @@ export function naoClassificadas(tabelas: Iterable<string>): string[] {
     return [...tabelas].filter((t) => !conhecidas.has(t)).sort();
 }
 
-/** Arquivo temporário gravado em fluxo, com SHA-256, CRC-32 e tamanho incrementais. */
-class Gravador {
+/** Arquivo temporário gravado em fluxo, com SHA-256, CRC-32 e tamanho incrementais. Exportado só para os testes. */
+export class Gravador {
     private hash: Hash = createHash('sha256');
     private crc = 0;
     bytes = 0;
     readonly arquivo: string;
     private fh: FileHandle;
-    private constructor(arquivo: string, fh: FileHandle) { this.arquivo = arquivo; this.fh = fh; }
+    constructor(arquivo: string, fh: FileHandle) { this.arquivo = arquivo; this.fh = fh; }
     static async abrir(arquivo: string) { return new Gravador(arquivo, await open(arquivo, 'wx', 0o600)); }
     async escrever(b: Buffer) {
         if (b.length === 0) return;
-        await this.fh.write(b, 0, b.length);
+        let offset = 0;
+        while (offset < b.length) {
+            const { bytesWritten } = await this.fh.write(b, offset, b.length - offset);
+            if (bytesWritten === 0) throw new Error('exportação: escrita temporária sem progresso');
+            offset += bytesWritten;
+        }
         this.hash.update(b);
         this.crc = crc32(b, this.crc);
         this.bytes += b.length;
@@ -364,19 +371,42 @@ export async function lerDados(tx: DbExecutor, empresaId: string, dir: string, o
             const total = Number((await tx.query<{ n: string }>(`SELECT coalesce(sum(octet_length(${col})), 0)::text AS n FROM ${ident(e.tabela)} t WHERE ${e.onde}`, [empresaId])).rows[0].n);
             if (bytes + total > limites.bytesTotal) grandeDemais(`mais de ${Math.round(limites.bytesTotal / 1024 / 1024)} MB`);
             if (entradas.length + esperado.size + 3 > MAXIMO_ENTRADAS_ZIP) grandeDemais(`mais de ${MAXIMO_ENTRADAS_ZIP} arquivos`);
-            await tx.query(`DECLARE exportacao_binarios NO SCROLL CURSOR FOR SELECT t.id::text AS id, ${col} AS b FROM ${ident(e.tabela)} t WHERE ${e.onde} AND ${col} IS NOT NULL ORDER BY t.id`, [empresaId]);
+            await tx.query(`DECLARE exportacao_binarios NO SCROLL CURSOR FOR SELECT t.id::text AS id, octet_length(${col}) AS tamanho FROM ${ident(e.tabela)} t WHERE ${e.onde} AND ${col} IS NOT NULL ORDER BY t.id`, [empresaId]);
             let vistos = 0;
             let falhou = false;
             try {
                 for (;;) {
                     conferirTempo();
-                    const d = (await tx.query<{ id: string; b: Buffer }>('FETCH 1 FROM exportacao_binarios')).rows[0];
+                    const d = (await tx.query<{ id: string; tamanho: number }>('FETCH 1 FROM exportacao_binarios')).rows[0];
                     if (!d) break;
+                    // Defesa: octet_length é int4; tipo ou valor inesperado do driver recusa antes de qualquer bloco.
+                    if (!Number.isSafeInteger(d.tamanho) || d.tamanho < 0) throw new Error('exportação: tamanho de PDF inválido');
                     const caminhoBin = `${bin.pasta}/${d.id}.${bin.extensao}`;
                     const gb = await Gravador.abrir(temporario());
-                    await gb.escrever(d.b);
-                    const r = await gb.fechar();
-                    await somar(r.bytes);
+                    let r: Awaited<ReturnType<Gravador['fechar']>> | null;
+                    let falhouBloco = false;
+                    try {
+                        for (let offset = 0; offset < d.tamanho; offset += BLOCO_PDF_BYTES) {
+                            conferirTempo();
+                            const quantidade = Math.min(BLOCO_PDF_BYTES, d.tamanho - offset);
+                            // Mesma transação RR e mesmo filtro de empresa; o id nunca substitui o filtro tenant.
+                            const parte = (await tx.query<{ b: Buffer }>(
+                                `SELECT substring(${col} FROM $3::int FOR $4::int) AS b FROM ${ident(e.tabela)} t WHERE (${e.onde}) AND t.id = $2::uuid`,
+                                [empresaId, d.id, offset + 1, quantidade])).rows[0];
+                            if (!parte || !Buffer.isBuffer(parte.b) || parte.b.length !== quantidade)
+                                throw new Error('exportação: bloco de PDF ausente ou tamanho divergente');
+                            await somar(parte.b.length);
+                            await gb.escrever(parte.b);
+                        }
+                    } catch (erro) {
+                        falhouBloco = true;
+                        throw erro;
+                    } finally {
+                        // Como no CLOSE do cursor: depois de um erro de bloco, a falha do close não esconde a causa.
+                        r = await gb.fechar().catch((erro) => { if (falhouBloco) return null; throw erro; });
+                    }
+                    // Redundante com o tamanho exato de cada bloco (só falharia por defeito no Gravador): defesa mantida.
+                    if (r?.bytes !== d.tamanho) throw new Error('exportação: tamanho final de PDF divergente');
                     // O hash calculado aqui tem de ser o mesmo que o banco calculou para o CSV (mesma fotografia).
                     if (esperado.get(caminhoBin) !== r.sha256) throw new Error(`exportação: hash divergente em ${caminhoBin}`);
                     entradas.push({ caminho: caminhoBin, arquivo: gb.arquivo, bytes: r.bytes, crc: r.crc, armazenar: true });

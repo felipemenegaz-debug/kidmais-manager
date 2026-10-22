@@ -16,6 +16,90 @@ const criarIdentidade: CriarIdentidade = (db, email, nome) =>
   id(db, `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, 'ADMINISTRATIVO', true) RETURNING id`, [email, nome, SENHA_FALSA]);
 const montarEmpresa = (db: Client, letra: string) => montarEmpresaCom(db, letra, criarIdentidade);
 
+test('PDF em blocos no PostgreSQL: fronteiras, tamanho e fotografia verificáveis', { timeout: 300_000 }, async (t) => {
+  if (!opt()) { t.skip('opt-in ausente'); return; }
+  const c = await conectarDescartavel();
+  try {
+    await c.query('BEGIN');
+    const f = await montarEmpresa(c, 'Blocos');
+    const v = (await c.query('SELECT contrato_versao_id AS id, snapshot_hash AS hash FROM contrato_documentos WHERE id = $1', [f.documento])).rows[0];
+    const pdf = Buffer.alloc(2 * 1024 * 1024 + 17);
+    for (let i = 0; i < pdf.length; i++) pdf[i] = i % 251;
+    const doc = await id(c, `INSERT INTO contrato_documentos
+      (contrato_versao_id,categoria,revisao,snapshot_hash,template_codigo,template_versao,pdf_hash,tamanho_bytes,conteudo_pdf,gerado_por_usuario_id)
+      VALUES ($1,'CONTRATO',42,$2,'CONTRATO_E1',1,$3,$4,$5,$6) RETURNING id`, [v.id,v.hash,sha(pdf),pdf.length,pdf,f.gestao]);
+    const { gerarPacote, BLOCO_PDF_BYTES } = await import('./pacote.ts');
+    const tamanhos: number[] = [];
+    const tx: DbExecutor = { async query(sql, valores) {
+      const r = await c.query(sql, valores ? [...valores] : []);
+      if (sql.startsWith('SELECT substring(')) {
+        for (const row of r.rows) { tamanhos.push(row.b.length); assert.ok(row.b.length <= BLOCO_PDF_BYTES); }
+      }
+      return r;
+    } };
+    const p = await gerarPacote(tx, f.empresa);
+    try {
+      const arquivo = `arquivos/contratos/${doc}.pdf`;
+      assert.deepEqual(lerZip(readFileSync(p.zipCaminho)).get(arquivo), pdf);
+      assert.equal(p.manifesto.arquivos.find(a => a.caminho === arquivo)!.sha256, sha(pdf));
+      assert.ok(tamanhos.filter(n => n === BLOCO_PDF_BYTES).length >= 2);
+      assert.ok(tamanhos.includes(17));
+    } finally { await p.limpar(); }
+  } finally { await c.query('ROLLBACK'); await encerrarDescartavel(c); }
+});
+
+
+test('PDF em blocos no PostgreSQL: o filtro da empresa vale em cada bloco (id de outra empresa no bloco N recusa)', { timeout: 300_000 }, async (t) => {
+  if (!opt()) { t.skip('opt-in ausente'); return; }
+  const c = await conectarDescartavel();
+  try {
+    await c.query('BEGIN');
+    const a = await montarEmpresa(c, 'BlocoA');
+    const b = await montarEmpresa(c, 'BlocoB');
+    const { gerarPacote, BLOCO_PDF_BYTES } = await import('./pacote.ts');
+    // Mesmo tamanho nas duas empresas: a troca não muda o tamanho do bloco, só a empresa dona dos bytes.
+    const padrao = (n: number, k: number) => { const x = Buffer.alloc(n); for (let i = 0; i < n; i++) x[i] = (i * 7 + 3) % k; return x; };
+    const inserir = async (f: typeof a, pdf: Buffer) => {
+      const v = (await c.query('SELECT contrato_versao_id AS id, snapshot_hash AS hash FROM contrato_documentos WHERE id = $1', [f.documento])).rows[0];
+      return id(c, `INSERT INTO contrato_documentos
+        (contrato_versao_id,categoria,revisao,snapshot_hash,template_codigo,template_versao,pdf_hash,tamanho_bytes,conteudo_pdf,gerado_por_usuario_id)
+        VALUES ($1,'CONTRATO',43,$2,'CONTRATO_E1',1,$3,$4,$5,$6) RETURNING id`, [v.id, v.hash, sha(pdf), pdf.length, pdf, f.gestao]);
+    };
+    const docA = await inserir(a, padrao(BLOCO_PDF_BYTES + 99, 241));
+    const docB = await inserir(b, padrao(BLOCO_PDF_BYTES + 99, 239));
+    const ehBloco = (sql: string) => sql.startsWith('SELECT substring(');
+    // Controle positivo: a mesma consulta de bloco SEM o filtro da empresa (o $1 só para manter os parâmetros).
+    const semFiltro = (sql: string) => sql.replace(/ WHERE \(.*\) AND t\.id = \$2::uuid$/s, ' WHERE $1::uuid IS NOT NULL AND t.id = $2::uuid');
+    for (const [bloco, filtro, esperado] of [
+      [1, true, /bloco de PDF ausente/], [2, true, /bloco de PDF ausente/],
+      [1, false, /hash divergente/], [2, false, /hash divergente/],
+    ] as const) {
+      let trocou = 0;
+      let bytesDeB = 0;
+      const tx: DbExecutor = { async query(sql, valores) {
+        let v = valores ? [...valores] : [];
+        let consulta = sql;
+        if (ehBloco(sql)) {
+          if (!filtro) { consulta = semFiltro(sql); assert.notEqual(consulta, sql, 'mutação do filtro aplicada'); }
+          if (v[1] === docA && Number(v[2]) === 1 + (bloco - 1) * BLOCO_PDF_BYTES) { v = [v[0], docB, v[2], v[3]]; trocou++; }
+        }
+        const r = await c.query(consulta, v);
+        if (ehBloco(sql) && v[1] === docB && r.rows[0]?.b) bytesDeB += r.rows[0].b.length;
+        return r;
+      } };
+      await c.query('SAVEPOINT bloco_outra_empresa');
+      await assert.rejects(gerarPacote(tx, a.empresa), esperado, `bloco ${bloco}, filtro ${filtro}`);
+      await c.query('ROLLBACK TO SAVEPOINT bloco_outra_empresa');
+      assert.equal(trocou, 1, `troca aplicada no bloco ${bloco}`);
+      // Com o filtro, nenhum byte da empresa B atravessa; sem ele, o bloco inteiro de B chega e só o hash o barra.
+      assert.equal(bytesDeB, filtro ? 0 : (bloco === 1 ? BLOCO_PDF_BYTES : 99));
+    }
+    // Sem troca, o mesmo arranjo exporta o PDF da A normalmente (a recusa vem da troca, não do arranjo).
+    const p = await gerarPacote(c as unknown as DbExecutor, a.empresa);
+    try { assert.ok(p.manifesto.arquivos.some(x => x.caminho === `arquivos/contratos/${docA}.pdf`)); assert.ok(!p.manifesto.arquivos.some(x => x.caminho.includes(docB))); }
+    finally { await p.limpar(); }
+  } finally { await c.query('ROLLBACK'); await encerrarDescartavel(c); }
+});
 
 /**
  * Exportação verificável no PostgreSQL descartável, modelo 089 (inventário inteiro até a 089 da devolução). Só pelo
