@@ -1,0 +1,356 @@
+# CPF do contratante e campanha Fundador em duas fases: implementação local
+
+Data: 22/10/2026. Estado: **implementação LOCAL**. Não houve push, PR, deploy, migration em ambiente real, Asaas real ou sandbox.
+A campanha nova está desligada e sem data. O CPF fica desligado até a 091 ser aplicada e a chave ser ligada com autorização.
+Plano de origem: [PLANO_PLANO_CPF_E_FUNDADOR.md](PLANO_PLANO_CPF_E_FUNDADOR.md).
+
+## 1. Proveniência
+
+- Clone local novo `kidmais-manager-cpf-fundador-20261022`, criado a partir do clone `kidmais-manager-piloto-20261022`.
+  - Feito com `--no-checkout --no-hardlinks -c core.autocrlf=false`, antes do checkout.
+  - Branch `codex/implementar-cpf-fundador-20261022`, sobre a staging conhecida localmente `326895eaef59eb926e34397220df333cdf754b4e`.
+  - Não houve `git fetch` do GitHub. O commit do plano veio do clone local do plano.
+  - A ponta remota não foi conferida.
+- Cherry-picks com autoria preservada:
+  - `eb6cd5c` (plano), que virou `1a9cfe8`;
+  - `3348f80` (piloto "Iniciar teste grátis"), que virou `35a429b`.
+- O piloto continua **não publicado**. A composição foi revalidada aqui: a suíte PG `comercial` roda no modelo 063.
+
+## 2. Decisões comerciais: recebidas × pendentes
+
+**Recebidas (pedido de 22/10/2026):**
+- CPF válido aceito no teste, na assinatura e no Fundador.
+- Fundador com 40% por 12 meses.
+- Nos primeiros 30 dias após a abertura, vale para todos, sem teto. Depois, mais 20 vagas por ordem de contratação.
+- Pilotos que assinarem na janela têm a condição garantida.
+- Cancelamento ou devolução não cobra o desconto de volta.
+
+**Pendentes.** As perguntas foram feitas no início da sessão e não houve resposta até o fechamento deste documento. Nenhuma
+delas foi transformada em regra definitiva:
+
+| # | Decisão | Como o código fica enquanto isso |
+|---|---|---|
+| D1 | O que é "assinar": oferta aceita e persistida, ou pagamento confirmado | A coluna `elegibilidade` aceita os dois valores, mas a guarda 090 e o código só concedem com `OFERTA_PERSISTIDA` (desenho atual do snapshot). Com `PAGAMENTO_CONFIRMADO` a contratação fica indisponível (`CAMPANHA_REGRA_PENDENTE`). |
+| D2 | 30 dias por calendário de Brasília ou pelo horário exato | Os dois modos estão implementados (`CALENDARIO_LOCAL` e `HORARIO_EXATO`). A ativação exige escolher um. Sem escolha, a campanha não ativa. |
+| D3 | Validade da oferta/reserva e pagamento que atravessa o corte | `validade_oferta` é obrigatória para ativar e não tem padrão. Oferta da janela paga depois do corte continua JANELA e não consome as 20 (comportamento estrutural). A expiração é **registrada** (`oferta_valida_ate`), mas não tem efeito automático: não libera vaga, não recusa pagamento e não reprecifica. O efeito depende de D3. |
+| D4 | Reservas legadas e reciclagem | Todas as linhas atuais viram `LEGADO`, com estado, vagas e datas intactos, e não consomem as 20 novas. A pendente legada retoma a própria oferta. A confirmada nunca volta a liberada (regra 074a mantida). |
+| D5 | Unidade do benefício; continuidade CPF → CNPJ | Unicidade por empresa e por documento (índices 074a). Não há vínculo automático CPF↔CNPJ. A troca CPF ↔ CNPJ fica bloqueada no autoatendimento e no painel depois do teste. |
+| — | Data de abertura | Não existe em lugar nenhum: nenhuma campanha é criada nem ativada pela migration ou pelo código. |
+| — | Transição antes da ativação | Sem campanha ativada vale a regra anterior (20 primeiros, `LEGADO`), inclusive no site. Isso preserva o comportamento atual até a ativação autorizada. Felipe deve confirmar se é isso que quer até a abertura. |
+
+## 3. Numeração das migrations
+
+Antes de escrever, foi feita uma busca local em todos os clones `kidmais-manager-*`:
+- refs `heads/remotes` e árvore de trabalho;
+- caminhos `database/` e `scripts/` com `_09x`/`-09x`.
+
+Nenhuma ocorrência de 090 ou 091 foi encontrada. 087 continua reservada aos e-mails de cobrança; 088 e 089 já estão
+tomadas. **Número livre localmente não é reserva global**: repetir a busca antes de congelar a candidata e antes de
+aplicar.
+
+- **090:** campanha Fundador (B).
+- **091:** documento fiscal do contratante (A). É independente da 090.
+
+## 4. B — campanha Fundador (commits `afc427c`, `77520e1`)
+
+### 4.1 Migration 090
+Arquivos: `database/migrations/20261022_090_campanha_fundador.sql`, os checks pre/post e o rollback.
+
+**`assinatura_campanhas`:**
+- Fonte persistida e auditável da campanha. Começa em `RASCUNHO`, editável.
+- `RASCUNHO → ATIVA` exige: contagem, elegibilidade, validade da oferta, abertura (data ou horário), autorização em
+  texto e quem ativou.
+- A guarda calcula `inicio`/`janela_fim` em `America/Sao_Paulo`:
+  - calendário: `[D 00:00, D+30 00:00)`;
+  - horário exato: 720 h.
+- Recusa janela que já terminaria antes da ativação.
+- Só uma campanha pode estar ativada (índice parcial e guarda).
+- Depois de ativada é imutável. `ATIVA → ENCERRADA` só com motivo.
+- `DELETE` só em rascunho; `TRUNCATE` é recusado.
+- Percentual (40), meses (12), janela (30) e lote (20) são fixados por CHECK.
+
+**`assinatura_fundadores` ganha:**
+- `origem`: `LEGADO`/`JANELA`/`POS_JANELA`. O padrão `LEGADO` existe só no backfill e é removido em seguida.
+- `campanha_id`, `regra_versao` e `oferta_valida_ate`.
+- `vaga` passa a nullable:
+  - nula na janela;
+  - 1–20 no `LEGADO` (números antigos) e no `POS_JANELA`.
+- O índice global de vaga foi trocado por:
+  - `vaga_legado_uk` (`LEGADO` não liberado);
+  - `vaga_pos_uk` (campanha + vaga, `POS_JANELA` não liberado).
+- Os índices únicos por empresa e por documento continuam.
+
+**Guarda `kidmais_090_fundador_guarda`:**
+- Roda depois da 074a, que já travou a empresa.
+- Recusa `origem` nula.
+- Toma a mesma trava da alocação (`kidmais:fundadores:2026`) e lê `clock_timestamp()` **depois** da trava.
+- Recusa `LEGADO` se alguma campanha já foi ativada.
+- Recusa campanha não ativa e janela fechada para `JANELA`.
+- Recusa lote posterior antes do corte, acima de 20 ou esgotado.
+- Grava `reservada_em`, `regra_versao` e `oferta_valida_ate` (validade da campanha).
+- As colunas novas são imutáveis.
+
+**Não muda:** 068, 074a (arquivo intacto, hash fixado no `schema-completo`), 075, 089, preços, renovação e o cálculo UTC dos 12 meses.
+
+### 4.2 Código
+- `lib/assinatura/campanha.ts`: schema instalado, campanha ativada, fase (início inclusivo, fim exclusivo), cálculo de
+  calendário com base IANA, prazo anunciado e resumo indicativo sem ids nem documentos.
+- `lib/assinatura/ofertas.ts`:
+  - Sem a 090, ou sem campanha ativada, vale a regra antiga (20 primeiros; com a 090 instalada a contagem é só `LEGADO`).
+  - Com campanha ativada e `ASSINATURA_CAMPANHA_FUNDADOR_ATIVA` diferente de `true`, a contratação fica indisponível
+    (`CAMPANHA_DESLIGADA`, 503). Isso é intencional: não vende sem a condição prometida.
+  - Antes do início: `CAMPANHA_ANTES_DA_ABERTURA`.
+  - Na janela: concessão `JANELA`. Depois: `POS_JANELA` com a primeira vaga livre. Com 20 ocupadas e não confirmadas:
+    `FUNDADOR_AGUARDANDO`. Com 20 confirmadas: preço regular.
+  - A guarda que recusa na virada vira `OFERTA_ALTERADA` (409): o cliente confirma de novo.
+  - A retomada de oferta e a concessão existente não reiniciam 12 meses nem ocupam vaga nova.
+- `lib/assinatura/cobranca.ts`: o checkout passa o `env` à oferta.
+- Site e assinatura (`lib/site/fundador.ts`):
+  - mesmo texto na barra, no cartão e no FAQ;
+  - prazo vindo do banco, com "(horário de Brasília)";
+  - vagas reais restantes, "em confirmação" ou encerrado;
+  - desligada, antes da abertura ou sem leitura do banco: sem prazo nem estoque.
+  - A tela de assinatura mostra o prazo ou as vagas (indicativo) e o bloqueio.
+- Exportação: `assinatura_campanhas` é `FORA_DO_ESCOPO` (configuração da plataforma); `assinatura_fundadores` continua
+  fora do escopo. A guarda de tabela desconhecida continua intacta.
+
+### 4.3 Compatibilidade
+- **L1/089:** a devolução usa o valor efetivamente pago; a concessão continua CONFIRMADA (suíte 090, caso 7).
+- **075:** a renovação aceita contrato Fundador da janela com o preço regular contratado (suíte 090, caso 7).
+- **D-C4:** `scripts/assinatura-reconciliar.cjs` não conta concessões; mais de 20 na janela não gera alarme.
+  A reconciliação ainda não lista reservas expiradas para revisão: depende de D3 (lacuna 2 no §9).
+- **Isenção Kidmais:** inalterada (regra 074a e a mesma verificação de 0 concessões).
+- **Staging (seis vagas):** viram `LEGADO` sem consulta ou limpeza nesta tarefa. O efeito sobre elas só pode ser
+  conferido por operação futura autorizada (§8).
+
+## 5. A — CPF do contratante (commit `7b4db68`)
+
+### 5.1 Migration 091
+Arquivos: `database/migrations/20261022_091_documento_fiscal_contratante.sql`, os checks e o rollback.
+
+- Alarga o formato para `^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$` em quatro colunas:
+  - `empresa_assinaturas.documento_teste`;
+  - `assinatura_fundadores.documento_beneficiario`;
+  - `cadastros_empresas.documento`;
+  - `solicitacoes_acesso_empresa.documento`.
+- `kidmais_091_documento_valido(text)` (IMMUTABLE) calcula o DV oficial de CPF e de CNPJ numérico e alfanumérico.
+  Ele é aplicado como CHECK `NOT VALID` em `documento_teste` e `documento_beneficiario`: só as linhas novas são
+  validadas. Nada é revalidado ou atualizado.
+- `empresa_representacoes.qualificacao` ganha `TITULAR_PF`.
+- **Não muda:** imutabilidade de `documento_teste`/`documento_beneficiario` (guardas 068/074a), `assinatura_isencoes`
+  (só CNPJ) e `perfil_empresas.cnpj` (só CNPJ).
+- O tipo não ganhou coluna própria. Ele é derivado do formato normalizado (11 dígitos = CPF; 14 caracteres = CNPJ),
+  garantido pelos CHECKs: sem duplicar estado nem fazer backfill.
+
+### 5.2 Código
+- **Validação única** (`lib/acessos/validacao.ts`): `cpfValido` (zeros à esquerda, dois DVs, sequência repetida),
+  `documentoFiscalValido` e `tipoDocumentoFiscal`, reaproveitando `normalizarDocumentoFiscal` e o CNPJ alfanumérico de
+  `lib/cadastro/cnpj.ts`.
+- **`lib/assinatura/documento-contratante.ts`:**
+  - CPF só com a 091 instalada **e** `ASSINATURA_CPF_ATIVO=true`; senão `CPF_INDISPONIVEL`.
+  - Trava única por documento (`kidmais:cnpj:` + documento, nome histórico mantido para coincidir com o código antigo).
+- **`iniciarTeste`:** valida no servidor qualquer que seja a origem. DV de CNPJ agora é exigido; antes era só formato.
+- **Cadastro público:**
+  - PJ: CNPJ, razão social, qualificação e sócios.
+  - PF: CPF, nome civil e `TITULAR_PF`, sem sócios.
+  - Nome do buffet separado nos dois casos.
+  - Combinações incompatíveis são recusadas no servidor.
+  - O campo antigo `cnpj` continua aceito como PJ.
+  - Auditoria com documento mascarado e tipo de pessoa.
+- **Provisionamento pelo painel:**
+  - documento continua opcional no rascunho;
+  - mesma trava do cadastro público;
+  - conferência também contra `documento_teste`;
+  - troca CPF ↔ CNPJ depois do teste é recusada (atendimento).
+- **Piloto:** "Iniciar teste grátis" aceita CPF com a 091 e a chave. A expectativa da suíte do piloto passou de
+  `DADOS_INVALIDOS` para `CPF_INDISPONIVEL` sem a 091, conforme a decisão A.
+- **Checkout/Asaas:**
+  - O cliente é criado com `cpfCnpj` e o titular fiscal (PF: nome civil; PJ: razão social).
+  - Documento do teste primeiro; senão, o do cadastro, validado.
+  - CPF ↔ CNPJ divergente entre o teste e o cadastro recusa a criação do cliente (`DOCUMENTO_DIVERGENTE`).
+  - **Aceite da cobrança não comprova emissão de NFS-e.**
+- **Telas:**
+  - `/cadastro/empresa` mostra "Quem contrata" só com a chave ligada.
+  - O site cita CPF só com a chave ligada.
+  - O painel deixou de dizer "CPF não serve".
+  - O CNPJ do fornecedor no rodapé não mudou.
+
+### 5.3 Não implementado (bloqueado ou fora do escopo)
+- **Continuidade CPF → CNPJ:** sem fluxo, bloqueada no autoatendimento e no painel depois do teste. Depende de:
+  - decisão contratual (cessão/continuidade, Astra);
+  - capacidade do provedor de trocar `cpfCnpj` do cliente existente ou exigir cliente e assinatura novos (sandbox não
+    executado);
+  - efeito fiscal (contador).
+  - Documentos do teste e do beneficiário continuam snapshots.
+- **Perfil da empresa:** continua exigindo razão social e CNPJ válido para aplicar. Esses dados alimentam documentos
+  com os clientes do buffet. Como identificar o buffet PF nesses documentos (nome civil, CPF, endereço) é decisão
+  jurídica: um buffet PF hoje não consegue aplicar o Perfil. Não foi gravado CPF em campo de CNPJ.
+- Vínculo CPF↔CNPJ, consulta societária, coleta de CPF de sócios: não criados, por decisão.
+- Textos legais (Termos/Aviso/Acordo v2) **não alterados**: continuam citando CNPJ/razão social.
+
+## 6. Aplicadores e blocos de Shell
+
+Arquivos:
+- `scripts/migration-090-comum.cjs`, `-staging.cjs`, `-production.cjs`, `scripts/bloco-shell-090.cjs`;
+- os equivalentes `091`;
+- testes `scripts/migration-09x.test.cjs` e `scripts/bloco-shell-09x.test.cjs`.
+
+O padrão é o mesmo da 088/089:
+- identidade e TLS do alvo;
+- hashes LF fixados;
+- conferência READ ONLY;
+- backup obrigatório;
+- recusa de estado parcial e de privilégio insuficiente (CREATE, REFERENCES, **dono** das tabelas alteradas);
+- marcador exclusivo contra repetição;
+- saída sanitizada;
+- bloco ASCII em subshell com `CODIGO_SAIDA_BLOCO`.
+
+Novo nesta rodada: **prova agregada de preservação**. São contagens e md5 agregados das colunas que a migration não
+pode mudar, iguais antes e depois. A divergência é `FALHA` com `migracaoCommitada=true`.
+
+Ordem futura, para cada uma das migrations, independentes:
+1. código publicado com a chave desligada;
+2. `--conferir-09x`;
+3. autorização;
+4. backup;
+5. `--aplicar-09x-autorizado`;
+6. `--conferir-09x`.
+
+Só depois disso, com autorização própria, vêm a campanha (rascunho, decisões e ativação) e a chave
+`ASSINATURA_CAMPANHA_FUNDADOR_ATIVA`, e também `ASSINATURA_CPF_ATIVO`.
+
+**Rollback:**
+- 090: só sem campanha registrada e sem concessão nova.
+- 091: só sem CPF ou `TITULAR_PF`.
+- Depois disso: desligar a chave e corrigir para frente.
+
+## 7. Validação executada (local)
+
+O resultado completo está no §10.
+
+## 8. Roteiro futuro de homologação (não executado; cada passo exige autorização)
+
+1. Revalidar a ponta de staging e as colisões 090/091 em todas as branches e clones (busca de nomes de checks também).
+2. Revisão independente da candidata.
+3. Decisões D1–D5, data de abertura, parecer da Astra e do contador (§9).
+4. PR para staging e deploy do código com as chaves desligadas. Smoke:
+   - site com a regra anterior;
+   - CPF recusado com `CPF_INDISPONIVEL`.
+5. Staging, para cada migration:
+   - export/PITR anotado;
+   - bloco `CONFERIR 090`, `APLICAR 090` e `CONFERIR`;
+   - mesmo ciclo para a 091.
+   - Conferir as seis concessões históricas: mesmas linhas, `LEGADO`, valores e datas iguais, nada removido.
+6. Asaas **sandbox** (plano separado de fixtures e limpeza):
+   - cliente PF sintético aceito;
+   - mensal e anual;
+   - pagamento confirmado;
+   - webhook atrasado e repetido;
+   - devolução L1;
+   - retomada após falha;
+   - tentativa de troca de `cpfCnpj`.
+   - NFS-e só com o roteiro do contador.
+7. Campanha de staging:
+   - rascunho com data própria de staging;
+   - ativação autorizada;
+   - janela, corte, lote posterior e renovação, em campanha sintética de staging.
+8. Produção: mesma ordem, com autorizações próprias. A data real nunca é copiada de staging.
+
+## 9. Perguntas e impedimentos (Astra / contador)
+
+Nada foi enviado a terceiros. Pauta, não conclusão:
+
+1. **Astra:**
+   - qualificação do buffet PF nos Termos (titular em nome próprio, sem representação societária);
+   - informação prévia e resumo contratual para PF;
+   - aceite e comprovante na contratação eletrônica;
+   - arrependimento pelo mesmo meio e protocolo (L1 existe, mas falta a conferência jurídica);
+   - CPF como dado do próprio contratante (base, finalidade, retenção);
+   - redação "assinar até DD/MM" e o efeito da validade da oferta (D1/D3);
+   - promessa aos pilotos;
+   - continuidade/cessão CPF → CNPJ;
+   - Aviso e Acordo v2 (citam CNPJ/razão social; PF continua controlador dos dados dos clientes);
+   - como o buffet PF aparece nos documentos do Perfil.
+2. **Contador:**
+   - emissão de NFS-e para tomador PF (campos obrigatórios, endereço, município, código de serviço);
+   - momento de emissão;
+   - cancelamento/substituição;
+   - devolução proporcional;
+   - diferença entre o documento do contratante e o do pagador;
+   - efeito da troca CPF → CNPJ no meio do ciclo.
+3. **Provedor (sandbox autorizado):**
+   - aceitação de cliente PF;
+   - alteração de `cpfCnpj` em cliente existente;
+   - efeitos na assinatura.
+
+## 10. Resultado das validações
+
+Tudo executado localmente, sem `.env.local`, rede externa, banco real ou credencial real. Os logs ficam fora do
+repositório, em `D:/glass/KidMais Manager/cpf-fundador-*.log`.
+
+### Unitários e verificações estáticas
+- Unitários: `lib/assinatura` **188/188** antes de A; depois de A, `lib/assinatura`+`cadastro`+`desenvolvedor`+`acessos` **301/301**.
+  Incluem calendário da campanha (5), textos do site (5) e validador/chave de CPF (3).
+- Aplicadores e blocos: `migration-090` + `bloco-shell-090` **22/22**; `migration-091` + `bloco-shell-091` **22/22**.
+  Os blocos rodam com bash real, inclusive em colagem interativa.
+- Inventário de produção (`scripts/production/production.test.mjs`): **37/37**, com 090 e 091 registradas.
+- `check:v1:static`: **PASS**, com 3276 + 103 testes, ESLint, TypeScript e `next build`. Rodou com B e de novo com A.
+
+### PostgreSQL descartável
+Cluster **novo** desta tarefa: porta 55607, `cluster_name`/papel `kidmais_descartavel`, identidade provada antes de
+qualquer escrita, modelos recriados do schema vazio.
+
+- **090: 7/7.** Cobre:
+  - seis concessões criadas pelo código antigo e preservadas coluna a coluna (aplicação, rollback e reaplicação);
+  - regra anterior sem campanha; guardas da campanha;
+  - **22 adesões na janela** sem vaga numerada; chave desligada; inserções diretas recusadas;
+  - mesma empresa em duas conexões;
+  - **fronteira**: o pedido que espera a trava atravessa o corte e vira lote posterior, com a espera observada no servidor;
+  - **disputa real da 20ª vaga** em duas conexões (uma vence, a outra recebe `FUNDADOR_AGUARDANDO` sem oferta nem cobrança);
+  - 21ª concessão direta recusada; "em confirmação" e depois preço cheio;
+  - pagamento tardio da janela pela sincronização, repetido sem efeito;
+  - renovação 075 aceita; devolução L1 sobre o valor pago, com a concessão preservada.
+- **Controle negativo da 090:** com o relógio lido ANTES da trava, a fronteira falha (`OFERTA_ALTERADA`, barrada pela guarda
+  do banco). O original foi restaurado.
+- **091: 7/7.** Cobre:
+  - sem a 091, CPF recusado e PJ pelo campo antigo;
+  - aplicação com preservação, rollback e reaplicação;
+  - cadastro PF completo, idempotente, com auditoria mascarada; combinações inválidas;
+  - CPF duplicado vira pedido neutro;
+  - corrida real de duas pessoas; espera na trava compartilhada com o "painel" observada no servidor;
+  - DV e imutabilidade no banco; piloto com CPF;
+  - Fundador JANELA com CPF;
+  - checkout com cliente do provedor PF (nome civil + CPF) e PJ (razão social + CNPJ);
+  - divergência CPF↔CNPJ sem criar cliente;
+  - rollback recusado com CPF.
+- **Regressão de 14 arquivos / 18 execuções** (cadastro 069, piloto/comercial, painel 063, contratação/cobrança E8,
+  cobrança 068, devolução 089, aplicador 089, exportação, gratuidade Kidmais, transação com prazo, assinatura):
+  - 1ª rodada: 4 falhas, todas atribuídas e corrigidas:
+    - painel no schema 063;
+    - mensagem de duplicidade;
+    - `kidmais-gratuidade`, já quebrado pelo piloto;
+    - mensagem de documento inválido.
+  - Depois disso, as suítes afetadas passaram.
+  - **Rodada final sobre o commit A (`7b4db68`): 18/18 PASS.**
+
+### Playwright local
+Chrome sem rede externa, checkout interceptado, e-mail em arquivo.
+- `scripts/cpf-fundador-ui.cjs`: **5/5**:
+  - site com o prazo do banco;
+  - cadastro PF (DV errado recusado com alerta acessível; válido cria TITULAR_PF);
+  - assinatura com o prazo e o valor Fundador;
+  - CPF existente com mensagem neutra;
+  - celular 375 px sem rolagem horizontal.
+- `scripts/cadastro-publico-ui.cjs` (regressão, chave de CPF desligada): **8/8**.
+
+### Preexistente e não relacionado
+`scripts/concorrencia-vagas-isolado.test.cjs` falha também na base `326895e` (`INVENTARIO_MUDOU`, pacote histórico
+de 10/10). Não foi alterado.
+
+### Não executado
+- Asaas sandbox.
+- Staging e produção.
+- Aplicadores 090/091 contra PostgreSQL. Eles rodaram só com cliente simulado; não há suíte PG própria como a
+  `aplicador-089`. Os SQL que eles executam (pre/migration/post/down) foram exercitados nas suítes 090/091. Lacuna para
+  a revisão.
+- Revisão independente.

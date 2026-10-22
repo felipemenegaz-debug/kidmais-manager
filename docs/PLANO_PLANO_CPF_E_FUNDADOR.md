@@ -1,6 +1,14 @@
 # Plano: CPF e nova campanha Fundador
 
-Data: 22/10/2026. Estado: **proposta técnica, sem implementação ou homologação**.
+Data: 22/10/2026. Estado original: **proposta técnica, sem implementação ou homologação**.
+
+> **Atualização 22/10/2026: implementação LOCAL** na branch `codex/implementar-cpf-fundador-20261022` (clone
+> `kidmais-manager-cpf-fundador-20261022`, base staging conhecida `326895e`). Migrations **090** (campanha) e **091**
+> (documento CPF/CNPJ), aplicadores, blocos, testes e telas, com a campanha desligada e sem data e o CPF desligado.
+> Nada publicado nem aplicado fora do PostgreSQL descartável. As decisões D1–D5 continuam **pendentes**: nenhuma
+> recomendação abaixo virou regra definitiva. Implementação real, divergências deste plano, validações e lacunas estão em
+> [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md). O texto abaixo é preservado como
+> proposta.
 
 Decisão comercial recebida de Felipe: 40% por 12 meses para todos que assinarem nos primeiros 30 dias da abertura comercial; depois, mais 20 vagas por ordem de contratação. Pilotos que assinarem dentro da janela têm a condição garantida. CPF deve ser aceito no teste, assinatura e Fundador.
 
@@ -198,3 +206,23 @@ Riscos principais: datas divergentes entre web/worker, estoque contado com legad
 ## 10. Validação desta entrega documental
 
 Leitura local do código, SQL, aplicadores, documentos comerciais e pacote jurídico; conferência dos caminhos e referências; inventário local de números; revisão de conteúdo e `git diff --check`. Sem alegação de testes de produto, PG, Playwright ou sandbox aprovados. Commit solicitado usa `Felipe Menegaz <324788905+felipemenegaz-debug@users.noreply.github.com>`. Obsidian atualizado separadamente com estado de proposta, decisões, validação e próximos passos.
+
+## 11. Implementação local de 22/10/2026 (resumo)
+
+Detalhes em [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md).
+
+**Divergências em relação a este plano:**
+- O tipo de documento não ganhou coluna: ele é derivado do formato normalizado, garantido por CHECK.
+- O DV fica no banco como CHECK `NOT VALID`: só as linhas novas são validadas, nenhuma é alterada.
+- A janela aceita os dois modos de contagem (D2 pendente). A elegibilidade aceita os dois valores no dado, mas só
+  `OFERTA_PERSISTIDA` tem implementação; com o outro valor, a contratação fica indisponível.
+- A validade da oferta é registrada, mas não tem efeito automático (D3).
+- Com a campanha ativada e a chave operacional desligada, a contratação fica indisponível, em vez de vender sem a
+  condição prometida.
+- Antes da ativação vale a regra anterior (`LEGADO`).
+
+**Não implementado:**
+- continuidade CPF → CNPJ (bloqueada);
+- Perfil da empresa para pessoa física;
+- textos legais;
+- ensaio no sandbox.
