@@ -890,11 +890,16 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.equal((await lerCarteira(tx, G, "CONVITES"))!.saldo, 10);
     await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: "de novo" }, ctx)), /PEDIDO_NAO_ESTA_EM_REVISAO/);
     assert.equal((await c.query("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0].n, 1);
+    // P3-5 (revisão do delta): a auditoria guarda o preço do pedido e o valor lido no provedor.
+    assert.deepEqual((await c.query("SELECT dados_depois->'precoCentavos' AS p, dados_depois->'valorLidoCentavos' AS v FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0], { p: 5900, v: 5900 });
 
     // P2-3: revisão por valor divergente → ENCERRAR com referência (devolvido no painel); creditar sem pagamento confirmado recusa.
     const y = await comprar(G, uG);
     duble.pagar(y.pagamento, "RECEIVED", { valorCentavos: 6100 });
     assert.deepEqual(await emTx(c)((t2) => reprocessarPedido(t2, uG, y.protocolo, ctx)), { resultado: "REVISAO", motivo: "VALOR_DIVERGENTE" });
+    // P3-2 (revisão do delta): ENCERRAR com o pagamento ainda confirmado recusa (devolver no painel antes).
+    await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: y.protocolo, resultado: "ENCERRAR", referencia: "ainda nao devolvido" }, ctx)), /PAGAMENTO_CONFIRMADO_DEVOLVER_ANTES/);
+    assert.deepEqual(await estado(y.id), { estado: "REVISAO", revisao_motivo: "VALOR_DIVERGENTE" });
     duble.pagar(y.pagamento, "REFUND_REQUESTED");
     await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: y.protocolo, resultado: "CREDITAR", referencia: "tentativa" }, ctx)), /PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR/);
     assert.deepEqual(await emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: y.protocolo, resultado: "ENCERRAR", referencia: "Estorno integral no painel Asaas" }, ctx)), { estado: "ENCERRADO" });
@@ -926,6 +931,32 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.ok((await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL" && i.critico));
     await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: z.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
     assert.deepEqual(await loteZ(), { disponivel: "10", bloqueado: "0", cancelado: "0" });
+    // P2-N1 (revisão do delta): o mesmo estorno relido depois da decisão do operador não realarma nem bloqueia...
+    assert.notEqual((await emTx(c)((t2) => processarPedido(t2, z.id, ctx))).resultado, "REVISAO");
+    assert.deepEqual(await loteZ(), { disponivel: "10", bloqueado: "0", cancelado: "0" });
+    assert.equal((await c.query("SELECT revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0].revisao_motivo, null);
+    assert.ok(!(await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL"), "sem alarme depois da decisão");
+    // ...e um 2º estorno maior é episódio novo: bloqueia de novo; CANCELAR leva o bloqueado à perda definitiva.
+    duble.pagar(z.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 2000, descricao: null }, { status: "DONE", valorCentavos: 1500, descricao: null }] });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, z.id, ctx)), { resultado: "REVISAO", motivo: "ESTORNO_EXTERNO_PARCIAL" });
+    assert.deepEqual(await loteZ(), { disponivel: "0", bloqueado: "10", cancelado: "0" });
+    await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: z.pagamento, resultado: "CANCELAR", referencia: "Cliente ficou com o reembolso (conferido)" }));
+    assert.deepEqual(await loteZ(), { disponivel: "0", bloqueado: "0", cancelado: "10" });
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, z.id, ctx))).resultado === "REVISAO", false, "cancelado não realarma");
+
+    // P3-6 (revisão do delta): cliente divergente sem dinheiro recebido não é CRÍTICO; com a cobrança recebida, é.
+    const w = await comprar(G, uG);
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    await c.query("UPDATE ia_credito_pedidos SET estado = 'REVISAO', revisao_motivo = 'CLIENTE_DIVERGENTE' WHERE id = $1::uuid", [w.id]);
+    await c.query("COMMIT");
+    const itemW = async () => (await reconciliar.lerPendenciasCreditos(c)).find((i) => i.item === "PEDIDO_CREDITOS" && i.motivo === "CLIENTE_DIVERGENTE");
+    assert.equal((await itemW())?.critico, false);
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    await c.query("UPDATE ia_credito_cobrancas SET situacao_provedor = 'RECEIVED' WHERE pedido_id = $1::uuid AND canonica", [w.id]);
+    await c.query("COMMIT");
+    assert.equal((await itemW())?.critico, true);
 
     // P2-6: disputa aberta com geração em andamento; a liberação fica BLOQUEADA (não cancelada) e volta inteira na disputa favorável.
     const h = await comprar(Hh, uH);

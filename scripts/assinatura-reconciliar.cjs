@@ -297,11 +297,14 @@ async function lerPendenciasEncerramento(client, instanteMs = null) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Créditos de IA (095): fila somente leitura, sem ids nem dados pessoais. `$1` fixa o instante (testes).
 const SQL_PENDENCIAS_CREDITOS = `SELECT item, resultado, motivo, critico, (extract(epoch FROM limite) * 1000)::float8 AS limite_ms FROM (
-    SELECT 'PEDIDO_CREDITOS' AS item, estado AS resultado, coalesce(revisao_motivo, recurso) AS motivo,
-           -- P2-2/P2-3: revisão com dinheiro já recebido é CRÍTICA (D4: pagamento confirmado sem crédito).
-           coalesce(revisao_motivo, '') IN ('PAGO_APOS_CANCELAMENTO', 'VALOR_DIVERGENTE', 'FORMA_DIVERGENTE', 'RECEBIDO_FORA_DO_PROVEDOR', 'CLIENTE_DIVERGENTE', 'REFERENCIA_DIVERGENTE') AS critico,
-           CASE WHEN estado = 'CRIACAO_EM_CURSO' THEN criado_em + interval '10 minutes' ELSE criado_em END AS limite
-      FROM ia_credito_pedidos WHERE estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO')
+    SELECT 'PEDIDO_CREDITOS' AS item, p.estado AS resultado, coalesce(p.revisao_motivo, p.recurso) AS motivo,
+           -- P2-2/P2-3: revisão com dinheiro já recebido é CRÍTICA (D4: pagamento confirmado sem crédito). P3-6 (revisão do
+           -- delta): cliente/referência divergentes só são críticos com a cobrança canônica confirmada/recebida.
+           (coalesce(p.revisao_motivo, '') IN ('PAGO_APOS_CANCELAMENTO', 'VALOR_DIVERGENTE', 'FORMA_DIVERGENTE', 'RECEBIDO_FORA_DO_PROVEDOR')
+             OR (coalesce(p.revisao_motivo, '') IN ('CLIENTE_DIVERGENTE', 'REFERENCIA_DIVERGENTE')
+                 AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica AND c.situacao_provedor IN ('CONFIRMED', 'RECEIVED')))) AS critico,
+           CASE WHEN p.estado = 'CRIACAO_EM_CURSO' THEN p.criado_em + interval '10 minutes' ELSE p.criado_em END AS limite
+      FROM ia_credito_pedidos p WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO')
     UNION ALL
     SELECT 'PEDIDO_CREDITOS', 'PAGAMENTO_DUPLICADO', c.situacao_provedor, true, c.atualizada_em
       FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'PAGAMENTO_DUPLICADO'

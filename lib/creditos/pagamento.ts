@@ -22,7 +22,7 @@ import type { Recurso } from './catalogo.ts';
 
 export type ContextoProvedor = { provedor: Pick<ProvedorCreditos, 'obterCobranca' | 'listarCobrancasPorReferencia'>; ambiente: 'sandbox' | 'producao'; conta: string };
 export type ResultadoPedido = { resultado: 'CREDITADO' | 'SEM_MUDANCA' | 'VINCULADO' | 'AGUARDANDO' | 'VENCIDO' | 'ENCERRADO' | 'REVISAO' | 'ESTORNO' | 'DISPUTA' | 'JA_CONCLUIDO';
-    motivo?: string };
+    motivo?: string; valorLidoCentavos?: number | null };
 
 type Pedido = { id: string; empresa_id: string; protocolo: string; recurso: Recurso; estado: string; quantidade: string; preco_centavos: string; validade_dias: number;
     forma: Forma; ambiente: 'sandbox' | 'producao'; idade_s: string; creditado_em: string | null };
@@ -126,12 +126,17 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
  * P2-5 (revisão de 22/10): soma dos estornos concluídos (`refunds[]` com status DONE) gravada em `estornado_centavos` (só
  * aumenta). Com devolução nossa: conclui quando a soma alcança o valor devolvido. Sem devolução nossa (estorno feito fora,
  * parcial): bloqueia o remanescente do lote e marca a cobrança para o operador decidir (liberar ou cancelar), nunca em silêncio.
+ * P2-N1 (revisão do delta): `estornado_centavos` é o valor já TRATADO — só um aumento é episódio novo (a mesma soma relida
+ * depois da decisão do operador não realarma), e a operação do bloqueio leva o valor (um 2º estorno maior bloqueia de novo).
  */
 async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, lido: CobrancaProvedor): Promise<ResultadoPedido | null> {
     const feitos = (lido.estornos ?? []).filter((e) => e.status === 'DONE' && (e.valorCentavos ?? 0) > 0).reduce((s, e) => s + (e.valorCentavos ?? 0), 0);
     if (feitos <= 0) return null;
-    if (feitos > Number(c.estornado_centavos))
-        await tx.query('UPDATE ia_credito_cobrancas SET estornado_centavos = LEAST(valor_centavos, $2) WHERE id = $1::uuid', [c.id, feitos]);
+    const anterior = Number(c.estornado_centavos);
+    const tratado = Number((await tx.query<{ estornado_centavos: string }>(
+        'UPDATE ia_credito_cobrancas SET estornado_centavos = GREATEST(estornado_centavos, LEAST(valor_centavos, $2)) WHERE id = $1::uuid RETURNING estornado_centavos',
+        [c.id, feitos])).rows[0].estornado_centavos);
+    if (tratado <= anterior) return null;
     const devolucao = (await tx.query<{ id: string; estado: string; valor_centavos: string }>('SELECT id, estado, valor_centavos FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid FOR UPDATE',
         [p.id])).rows[0];
     if (devolucao) {
@@ -140,11 +145,9 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
             [devolucao.id, /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null, `asaas:${c.pagamento_id}:REFUND_DONE`]);
         return { resultado: 'ESTORNO' };
     }
-    const cob = (await tx.query<{ revisao_motivo: string | null }>('SELECT revisao_motivo FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0];
-    if (cob?.revisao_motivo === 'ESTORNO_EXTERNO_PARCIAL') return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
     const lote = await loteDoPedido(tx, p);
     await lerCarteira(tx, p.empresa_id, p.recurso, true);
-    if (lote) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL:${c.id}`, 'SISTEMA', p.protocolo);
+    if (lote) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
     await tx.query("UPDATE ia_credito_cobrancas SET revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
 }
@@ -292,7 +295,8 @@ export async function creditarAposRevisao(tx: DbExecutor, pedidoId: string, ctx:
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
     if (!lido || lido.id !== c.pagamento_id || !STATUS_LIBERA.has(lido.status)) return { resultado: 'SEM_MUDANCA', motivo: 'PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR' };
     await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid', [c.id]);
-    return creditar(tx, p, c, lido);
+    // P3-5 (revisão do delta): o valor lido segue para a auditoria do operador ao lado do preço do pedido.
+    return { ...(await creditar(tx, p, c, lido)), valorLidoCentavos: lido.valorCentavos ?? null };
 }
 
 export const ehFalhaDoProvedor = (e: unknown) => e instanceof AsaasFalhou;
