@@ -118,7 +118,9 @@ test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcia
   assert.match(comum.SQL_ESTADO, /has_schema_privilege\(current_user,'public','CREATE'\)/);
   assert.match(comum.SQL_ESTADO, /session_user <> current_user AS papel_trocado/);
   assert.match(comum.SQL_ESTADO, /pg_has_role\(current_user, c\.relowner, 'USAGE'\)/);
-  assert.deepEqual([...comum.REFERENCIADAS], []);
+  assert.deepEqual([...comum.REFERENCIADAS], ['empresas', 'usuarios_administrativos']);
+  assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_referenciar: false})), /SEM_PRIVILEGIO_091 REFERENCES/);
+  assert.match(comum.SQL_ESTADO, /has_table_privilege\(current_user,to_regclass\('public\.'\|\|t\),'REFERENCES'\)/);
   assert.deepEqual([...comum.ALTERADAS], ['empresa_assinaturas', 'assinatura_fundadores', 'cadastros_empresas', 'solicitacoes_acesso_empresa', 'empresa_representacoes']);
   // A prova de preservação devolve só contagens e md5 agregados (nenhum documento na saída).
   const p = comum.SQL_PRESERVACAO('2026-10-22T12:00:00.000000Z');

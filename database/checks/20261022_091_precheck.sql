@@ -6,7 +6,11 @@ BEGIN
     OR to_regclass('public.empresa_representacoes') IS NULL THEN
     RAISE EXCEPTION '091 precheck: 067, 068, 069 ou 074a ausente';
   END IF;
+  IF to_regclass('public.usuarios_administrativos') IS NULL THEN
+    RAISE EXCEPTION '091 precheck: usuarios_administrativos ausente';
+  END IF;
   IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NOT NULL OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NOT NULL
+    OR to_regclass('public.empresa_documento_continuidades') IS NOT NULL OR to_regprocedure('public.kidmais_091_continuidade_guarda()') IS NOT NULL
     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento')) THEN
     RAISE EXCEPTION '091 precheck: aplicação anterior ou parcial encontrada';
   END IF;

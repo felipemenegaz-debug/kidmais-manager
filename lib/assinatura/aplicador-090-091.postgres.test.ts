@@ -71,7 +71,7 @@ const CASOS: Caso[] = [
     objetos: async (c) => Object.values((await c.query(`SELECT to_regprocedure('public.kidmais_091_documento_valido(text)') IS NOT NULL AS f,
       EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'empresa_assinaturas_091_documento') AS d`)).rows[0]),
     parcial: ["CREATE FUNCTION kidmais_091_documento_valido(text) RETURNS boolean LANGUAGE sql IMMUTABLE AS 'SELECT true'", "DROP FUNCTION kidmais_091_documento_valido(text)"],
-    trafego: "LOCK TABLE empresa_assinaturas IN ROW EXCLUSIVE MODE", motivoSemPrivilegio: /SEM_PRIVILEGIO_091 CREATE DONO/ },
+    trafego: "LOCK TABLE empresa_assinaturas IN ROW EXCLUSIVE MODE", motivoSemPrivilegio: /SEM_PRIVILEGIO_091 CREATE REFERENCES DONO/ },
 ];
 
 test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono, parcial, falha real, aplicação com preservação, anti-repetição",

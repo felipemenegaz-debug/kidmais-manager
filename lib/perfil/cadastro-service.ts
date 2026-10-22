@@ -156,15 +156,17 @@ const COLUNAS_EMPRESA = `id, codigo, versao, nome_comercial, razao_social, cnpj,
                 sede_bairro, sede_cidade, sede_uf, sede_pais`;
 
 /**
- * Contratante pessoa física (091): o documento do teste, ou, sem teste, o do cadastro administrativo, tem 11 dígitos.
+ * Contratante pessoa física (091): o documento vigente (última continuidade assistida, D5), o do teste ou, sem teste, o do
+ * cadastro administrativo, tem 11 dígitos.
  * Empresa SaaS resolvida pela mesma regra da autorização. Tolerante a schema anterior (sem as tabelas, PJ).
  */
 export async function contratantePessoaFisica(tx: DbExecutor, perfilId: string) {
-    const r = (await tx.query<{ assinaturas: boolean; cadastro: boolean }>(`SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS assinaturas,
-        to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS cadastro`)).rows[0];
+    const r = (await tx.query<{ assinaturas: boolean; cadastro: boolean; continuidades: boolean }>(`SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS assinaturas,
+        to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS cadastro, to_regclass('public.empresa_documento_continuidades') IS NOT NULL AS continuidades`)).rows[0];
     if (!r?.assinaturas && !r?.cadastro)
         return false;
     const doc = (await tx.query<{ documento: string | null }>(`SELECT coalesce(
+            ${r.continuidades ? '(SELECT c.documento_novo FROM empresa_documento_continuidades c WHERE c.empresa_id = e.id ORDER BY c.registrada_em DESC, c.id DESC LIMIT 1)' : 'NULL'},
             ${r.assinaturas ? '(SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = e.id)' : 'NULL'},
             ${r.cadastro ? '(SELECT documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = e.id)' : 'NULL'}) AS documento
         FROM public.perfil_empresas p JOIN LATERAL (${EMPRESA_SAAS_DO_PERFIL}) e ON e.candidatos = 1

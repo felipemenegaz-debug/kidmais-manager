@@ -10,6 +10,7 @@ import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './a
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
+import { concluirContinuidade, continuidadesDaEmpresa, registrarContinuidade } from './continuidade.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -21,7 +22,8 @@ import { exigirNomeCivil, travarDocumento } from '../assinatura/documento-contra
  * comerciais da empresa alvo (067/068). Concessão de desenvolvedor continua só pelo CLI.
  */
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
-export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA'] as const;
+export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA',
+    'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA'] as const;
 
 export type ComercialResumo = { instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null };
 
@@ -37,7 +39,7 @@ export async function comercialResumo(tx: DbExecutor, empresaId: string): Promis
 export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
     const resumo = await comercialResumo(tx, empresaId);
     if (!resumo.instalado)
-        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [] };
+        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [] };
     const a = (await tx.query<{ ciclo: string | null; teste_inicio: string; em_atraso_desde: string | null; versao: number }>(
         `SELECT ciclo, ${ISO('teste_inicio')} AS teste_inicio, ${ISO('em_atraso_desde')} AS em_atraso_desde, versao FROM empresa_assinaturas WHERE empresa_id = $1::uuid`, [empresaId])).rows[0];
     const excecoes = (await tx.query<{ id: string; tipo: string; valida_ate: string; motivo: string; criado_em: string; criado_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; vigente: boolean }>(
@@ -60,6 +62,7 @@ export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
         excecoes: excecoes.map((x) => ({ id: x.id, tipo: x.tipo, validaAte: x.valida_ate, motivo: x.motivo, criadoEm: x.criado_em, criadoPor: x.criado_por, revogadaEm: x.revogada_em, motivoRevogacao: x.motivo_revogacao, vigente: x.vigente })),
         eventos: eventos.map((ev) => ({ tipo: ev.tipo, situacao: ev.situacao, recebidoEm: ev.recebido_em, processadoEm: ev.processado_em, tentativas: ev.tentativas })),
         historico,
+        continuidades: await continuidadesDaEmpresa(tx, empresaId),
     };
 }
 
@@ -69,6 +72,11 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
     z.object({ operacao: z.literal('estender-teste'), dias: z.number().int().min(1).max(EXTENSAO_TESTE_MAXIMA_DIAS), motivo }).strict(),
     z.object({ operacao: z.literal('conceder-excecao'), tipo: z.enum(['CORTESIA', 'ACESSO_TEMPORARIO']), dias: z.number().int().min(1).max(365), motivo }).strict(),
     z.object({ operacao: z.literal('revogar-excecao'), excecaoId: z.string().uuid(), motivo }).strict(),
+    // D5: continuidade assistida do documento (091). O motivo é a justificativa; instrumento e evidências ficam na linha.
+    z.object({ operacao: z.literal('registrar-continuidade'), tipo: z.enum(['RETIFICACAO', 'MESMA_TITULARIDADE', 'CESSAO']), documentoNovo: z.string().max(40),
+        nomeNovo: z.string().trim().min(2).max(200), instrumento: z.string().trim().min(5).max(300), evidencias: z.string().trim().min(5).max(1000),
+        dataEfetiva: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), motivo }).strict(),
+    z.object({ operacao: z.literal('concluir-continuidade'), continuidadeId: z.string().uuid(), motivo }).strict(),
 ]);
 
 /**
@@ -125,6 +133,19 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
             const r = await concederExcecao(tx, { empresaId, tipo: input.tipo, dias: input.dias, motivo: input.motivo, usuarioId: sessao.usuario_id });
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_EXCECAO_CONCEDIDA', antes: { nivel: antes.nivel }, depois: { tipo: r.tipo, validaAte: r.validaAte, dias: input.dias, excecaoId: r.excecaoId } });
             resultado = { excecaoId: r.excecaoId, validaAte: r.validaAte };
+        }
+        else if (input.operacao === 'registrar-continuidade') {
+            const r = await registrarContinuidade(tx, { empresaId, usuarioId: sessao.usuario_id, tipo: input.tipo, documentoNovo: input.documentoNovo, nomeNovo: input.nomeNovo,
+                instrumento: input.instrumento, evidencias: input.evidencias, dataEfetiva: input.dataEfetiva });
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_CONTINUIDADE_REGISTRADA', antes: { documentoAnterior: r.documentoAnterior },
+                depois: { continuidadeId: r.continuidadeId, tipo: r.tipo, situacao: r.situacao, documentoNovo: r.documentoNovo, instrumento: input.instrumento, dataEfetiva: input.dataEfetiva } });
+            resultado = { continuidadeId: r.continuidadeId, situacao: r.situacao };
+        }
+        else if (input.operacao === 'concluir-continuidade') {
+            const r = await concluirContinuidade(tx, { empresaId, continuidadeId: input.continuidadeId, nota: input.motivo, usuarioId: sessao.usuario_id });
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_CONTINUIDADE_CONCLUIDA', antes: { situacao: 'PENDENTE_PROVEDOR' },
+                depois: { continuidadeId: r.continuidadeId, situacao: 'CONCLUIDA', documentoNovo: r.documentoNovo } });
+            resultado = { continuidadeId: r.continuidadeId, situacao: 'CONCLUIDA' };
         }
         else {
             const r = await revogarExcecao(tx, { empresaId, excecaoId: input.excecaoId, motivo: input.motivo, usuarioId: sessao.usuario_id });

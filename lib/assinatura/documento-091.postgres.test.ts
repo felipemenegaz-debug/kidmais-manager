@@ -19,7 +19,8 @@ import { iniciarAssinatura, type DepsCobranca } from './cobranca.ts';
  *   5. banco: DV no INSERT, documento do teste imutável (CPF → CNPJ recusado), CHECK de formato;
  *   6. Fundador com CPF na janela e checkout: cliente do provedor com nome civil + CPF (PJ: razão social + CNPJ);
  *      documento do cadastro diferente do teste (CPF ↔ CNPJ ou CPF A → B) e CPF sem nome civil não criam cliente;
- *   7. rollback recusado depois de existir CPF.
+ *   7. rollback recusado depois de existir CPF;
+ *   8. Perfil PF; 9. continuidade assistida (D5): CPF → CNPJ, pendência do provedor, guardas do registro.
  */
 const ler = (f: string) => readFileSync(f, 'utf8');
 const SQL = {
@@ -308,4 +309,85 @@ test('8. Perfil: contratante PF é reconhecido pela empresa SaaS do perfil (CNPJ
     // Gravação do Perfil PF sem CNPJ respeita o CHECK 027 (CNPJ nulo, nunca vazio nem CPF).
     await client.query('UPDATE perfil_empresas SET razao_social = $2, cnpj = NULL WHERE id = $1', [pfPerfil, 'Maria Sintética da Silva']);
     await assert.rejects(client.query('UPDATE perfil_empresas SET cnpj = $2 WHERE id = $1', [pfPerfil, cpf(10)]), /perfil_empresas_cnpj_check/);
+});
+
+test('9. continuidade assistida (D5): CPF → CNPJ sem cliente no provedor conclui e o checkout usa o CNPJ; com cliente, fica pendente e bloqueia; guardas do banco', { skip: !opt() }, async () => {
+    const { registrarContinuidade, concluirContinuidade, continuidadesDaEmpresa } = await import('../desenvolvedor/continuidade.ts');
+    const { documentoVigente } = await import('./documento-contratante.ts');
+    const { contratantePessoaFisica } = await import('../perfil/cadastro-service.ts');
+    const { prepararOferta } = await import('./ofertas.ts');
+    const ENV_CONT = { ...ENV_CPF, ASSINATURA_CONTINUIDADE_ATIVA: 'true' };
+    const operador = ids.biaUsuario;
+    const tx = transacao(() => client);
+    const registrar = (empresaId: string, o: Record<string, unknown>, env: Record<string, string> = ENV_CONT) => tx((t) => registrarContinuidade(t as never, {
+        empresaId, usuarioId: operador, tipo: 'MESMA_TITULARIDADE', documentoNovo: '', nomeNovo: 'Maria Sintética da Silva ME', instrumento: 'Aditivo de qualificação v1 (sintético)',
+        evidencias: 'Certidão do CNPJ e documento do titular conferidos (sintético)', dataEfetiva: '2026-11-10', ...o } as never, env));
+    const j = await conta('joana');
+    const rj = await cadastrar(j.sessao, pf(cpf(70)));
+    const x = rj.empresaId!;
+    // Chave desligada: nada é registrado.
+    assert.equal(await erro(registrar(x, { documentoNovo: cnpj(70) }, ENV_CPF)), 'CONTINUIDADE_INDISPONIVEL');
+    // Combinações recusadas no servidor.
+    const dvRuim = cnpj(70).slice(0, 13) + ((Number(cnpj(70)[13]) + 1) % 10);
+    for (const [o, codigo] of [[{ tipo: 'RETIFICACAO', documentoNovo: cnpj(70) }, 'DADOS_INVALIDOS'], [{ documentoNovo: cpf(71) }, 'DADOS_INVALIDOS'],
+        [{ documentoNovo: dvRuim }, 'DADOS_INVALIDOS'], [{ documentoNovo: cpf(70), tipo: 'RETIFICACAO' }, 'DADOS_INVALIDOS'], [{ documentoNovo: cnpj(1) }, 'DUPLICIDADE']] as const)
+        assert.equal(await erro(registrar(x, o)), codigo, JSON.stringify(o));
+    assert.equal(await contar('SELECT count(*)::int AS n FROM empresa_documento_continuidades WHERE empresa_id = $1', [x]), 0, 'nada gravado nas recusas');
+    // Sem cliente no provedor: conclui na hora; ficha passa a CNPJ + razão social; snapshot do teste continua o CPF.
+    const r = await registrar(x, { documentoNovo: cnpj(70) });
+    assert.equal(r.situacao, 'CONCLUIDA');
+    const ficha = (await client.query('SELECT c.documento_fiscal, c.nome_empresarial, a.documento_teste FROM plataforma_empresas_cadastro c JOIN empresa_assinaturas a USING (empresa_id) WHERE empresa_id = $1', [x])).rows[0];
+    assert.deepEqual(ficha, { documento_fiscal: cnpj(70), nome_empresarial: 'Maria Sintética da Silva ME', documento_teste: cpf(70) });
+    assert.deepEqual(await documentoVigente(client as never, x, cpf(70)), { documento: cnpj(70), pendente: false });
+    const perfilX = (await client.query('INSERT INTO perfil_empresas (codigo, nome_comercial) VALUES ((SELECT codigo FROM empresas WHERE id = $1), $2) RETURNING id', [x, 'Perfil continuidade'])).rows[0].id;
+    assert.equal(await contratantePessoaFisica(client as never, perfilX), false, 'Perfil passa a PJ (CNPJ obrigatório)');
+    const lista = await continuidadesDaEmpresa(client as never, x);
+    assert.equal(lista.length, 1);
+    assert.ok(!JSON.stringify(lista).includes(cnpj(70)) && !JSON.stringify(lista).includes(cpf(70)), 'documentos mascarados');
+    const retrato = (await client.query('SELECT condicoes FROM empresa_documento_continuidades WHERE empresa_id = $1', [x])).rows[0].condicoes;
+    assert.ok(retrato.assinatura && !JSON.stringify(retrato).includes(cpf(70)), 'retrato das condições sem documento');
+    // Checkout: cliente criado com o CNPJ vigente e a razão social; a concessão Fundador fica no snapshot do teste (074a), ligada pela continuidade.
+    const criados: { nome: string; cpfCnpj: string }[] = [];
+    const subs = new Map<string, Record<string, unknown>>();
+    const provedor = {
+        async buscarClientePorReferencia() { return null; },
+        async criarCliente(i: { nome: string; cpfCnpj: string; referencia: string }) { criados.push({ nome: i.nome, cpfCnpj: i.cpfCnpj }); return { id: `cus_c${criados.length}`, externalReference: i.referencia }; },
+        async listarAssinaturasPorReferencia(ref: string) { return [...subs.values()].filter((s) => s.externalReference === ref); },
+        async criarAssinatura(i: { cliente: string; referencia: string; valorCentavos: number }) {
+            const id = `sub_c${subs.size + 1}`; const s = { id, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: i.cliente, externalReference: i.referencia, valorCentavos: i.valorCentavos };
+            subs.set(id, s); return { ...s };
+        },
+        async obterAssinatura(id: string) { const s = subs.get(id); return s ? { ...s } : null; },
+        async listarCobrancasDaAssinatura(id: string) { return [{ clienteId: subs.get(id)?.customer, id: `pay_${id}`, status: 'PENDING', dueDate: '2099-01-01', paymentDate: null, invoiceUrl: `https://sandbox.example.test/i/${id}`, deleted: false, valorCentavos: 11820, assinaturaId: id }]; },
+    };
+    const env = { ...ENV_CONT, ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox', ASSINATURA_CAMPANHA_FUNDADOR_ATIVA: 'true' };
+    const depsDe = (empresa: string): DepsCobranca => ({
+        withTenantTransaction: (_s: unknown, _e: unknown, t: (tx: never, tenant: never) => Promise<unknown>) => transacao(() => client)((c) => t(c as never, { empresaComprovada: empresa, membershipId: 'm', usuarioId: operador, papelAtual: 'REPRESENTANTE_AUTORIZADO' } as never)),
+        withTransaction: (t: (tx: never) => Promise<unknown>) => transacao(() => client)((c) => t(c as never)), provedor: () => provedor as never, env, travarContratacao: async (_e: string, t: () => Promise<unknown>) => t(),
+    } as never);
+    const sessao = { id: 's', usuario_id: operador, nome: 'Gestão', cargo: null, papel: 'REPRESENTANTE_AUTORIZADO' as const, autenticado_em: '', expira_em: '', csrf_hash: '' };
+    const pedido = { ciclo: 'MENSAL', plano: 'essencial', valorEsperadoCentavos: 11820, versao: '2026-10-20' };
+    await iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(x));
+    assert.deepEqual(criados.at(-1), { nome: 'Maria Sintética da Silva ME', cpfCnpj: cnpj(70) });
+    assert.equal((await client.query('SELECT documento_beneficiario FROM assinatura_fundadores WHERE empresa_id = $1', [x])).rows[0].documento_beneficiario, cpf(70));
+    // Com cliente no provedor (ids.pf, do caso 6): pendente; nova oferta e segunda continuidade bloqueadas; conclusão libera.
+    assert.ok((await client.query('SELECT provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1', [ids.pf])).rows[0].provedor_cliente_id);
+    const p = await registrar(ids.pf, { documentoNovo: cnpj(72), nomeNovo: 'Maria Sintética Festas Ltda', tipo: 'CESSAO', instrumento: 'Cessão de posição contratual v1 (sintético)' });
+    assert.equal(p.situacao, 'PENDENTE_PROVEDOR');
+    assert.equal(await erro(registrar(ids.pf, { documentoNovo: cnpj(73) })), 'CONTINUIDADE_PENDENTE');
+    assert.equal(await erro(tx((t) => prepararOferta(t as never, ids.pf, operador, pedido as never, env))), 'CONTINUIDADE_PENDENTE');
+    assert.equal(await erro(tx((t) => concluirContinuidade(t as never, { empresaId: ids.pj, continuidadeId: p.continuidadeId, nota: 'Empresa errada', usuarioId: operador }, ENV_CONT))), 'CONFLITO');
+    await tx((t) => concluirContinuidade(t as never, { empresaId: ids.pf, continuidadeId: p.continuidadeId, nota: 'Cliente conferido no provedor (sintético)', usuarioId: operador }, ENV_CONT));
+    assert.equal(await erro(tx((t) => concluirContinuidade(t as never, { empresaId: ids.pf, continuidadeId: p.continuidadeId, nota: 'De novo', usuarioId: operador }, ENV_CONT))), 'CONFLITO');
+    assert.deepEqual(await documentoVigente(client as never, ids.pf, cpf(10)), { documento: cnpj(72), pendente: false });
+    // Guardas do banco: registro imutável, sem DELETE, encadeamento e DV.
+    await assert.rejects(client.query("UPDATE empresa_documento_continuidades SET nome_novo = 'Outro' WHERE id = $1", [p.continuidadeId]), /registro é imutável/);
+    await assert.rejects(client.query('DELETE FROM empresa_documento_continuidades WHERE id = $1', [p.continuidadeId]), /não é apagada/);
+    const inserir = (anterior: string, novo: string) => client.query(`INSERT INTO empresa_documento_continuidades (empresa_id, tipo, documento_anterior, documento_novo, nome_novo,
+        instrumento, evidencias, data_efetiva, condicoes, situacao, provedor_conferido_em, provedor_conferido_por, provedor_nota, registrada_por)
+        VALUES ($1, 'RETIFICACAO', $2, $3, 'Nome', 'Instrumento', 'Evidências', '2026-11-10', '{}', 'CONCLUIDA', now(), $4, 'Nota sintética', $4)`, [ids.pf, anterior, novo, operador]);
+    await assert.rejects(inserir(cnpj(70), cnpj(74)), /não é o documento vigente/);
+    await assert.rejects(inserir(cnpj(72), cnpj(74).slice(0, 13) + ((Number(cnpj(74)[13]) + 1) % 10)), /dígito verificador inválido/);
+    // Snapshot intacto.
+    assert.deepEqual((await client.query('SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = $1', [ids.pf])).rows[0], { documento_teste: cpf(10) });
 });

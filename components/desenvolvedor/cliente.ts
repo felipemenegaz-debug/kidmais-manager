@@ -108,6 +108,8 @@ const ACOES: Record<string, string> = {
     PAINEL_ACESSO_RECUSADO: 'Acesso ao painel recusado',
     FESTA_PERFIL_APLICADO: 'Perfil de Festa aplicado',
     COMERCIAL_TESTE_INICIADO: 'Teste grátis iniciado pelo painel',
+    COMERCIAL_CONTINUIDADE_REGISTRADA: 'Continuidade de documento registrada',
+    COMERCIAL_CONTINUIDADE_CONCLUIDA: 'Continuidade de documento concluída (provedor conferido)',
     COMERCIAL_TESTE_ESTENDIDO: 'Teste grátis estendido',
     COMERCIAL_EXCECAO_CONCEDIDA: 'Acesso comercial excepcional concedido',
     COMERCIAL_EXCECAO_REVOGADA: 'Acesso comercial excepcional revogado',

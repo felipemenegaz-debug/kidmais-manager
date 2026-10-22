@@ -14,7 +14,7 @@ const CPF_A = '52998224725', CPF_B = '00000000191', CNPJ_A = '11444777000161', C
 const ctx = { requestId: ID, ip: null, userAgent: null };
 async function codigo(p: Promise<unknown>) { try { await p; return 'OK'; } catch (e) { return (e as { code?: string }).code ?? (e as Error).message; } }
 
-function painel(documentoFicha: string | null, documentoTeste: string | null) {
+function painel(documentoFicha: string | null, documentoTeste: string | null, continuidade: string | null = null) {
     const gravados: unknown[][] = [];
     const atual = { id: ID, nome: 'Buffet Sintético', nome_empresarial: 'Titular Sintético A', documento_fiscal: documentoFicha, responsavel_nome: 'Responsável',
         email: 'ficha@exemplo.test', telefone: null, observacoes: null, cad_revisao: 1, cad_empresa: ID };
@@ -23,6 +23,7 @@ function painel(documentoFicha: string | null, documentoTeste: string | null) {
             if (sql.includes('FOR UPDATE OF e')) return { rows: [atual] };
             if (sql.includes('to_regclass')) return { rows: [{ ok: true }] };
             if (sql.startsWith('SELECT documento_teste')) return { rows: documentoTeste ? [{ documento_teste: documentoTeste }] : [] };
+            if (sql.startsWith('SELECT documento_novo')) return { rows: continuidade ? [{ documento_novo: continuidade, situacao: 'CONCLUIDA' }] : [] };
             if (sql.startsWith('UPDATE plataforma_empresas_cadastro')) gravados.push(p);
             return { rows: [] };
         },
@@ -74,4 +75,12 @@ test('P2-2: mesmo documento do teste segue editável (correção de nome); sem t
     const semTeste = painel(CPF_A, null);
     assert.equal(await codigo(semTeste.salvar({ documentoFiscal: CPF_B, nomeEmpresarial: 'Titular Sintético B' })), 'OK');
     assert.deepEqual(semTeste.gravados[0].slice(1, 3), ['Titular Sintético B', CPF_B]);
+});
+
+test('D5: depois da continuidade, a ficha segue o documento VIGENTE (o novo); voltar ao documento do teste é recusado', async () => {
+    const depois = painel(CNPJ_A, CPF_A, CNPJ_A);
+    assert.equal(await codigo(depois.salvar({ nomeEmpresarial: 'Titular Sintético ME' })), 'OK');
+    const volta = painel(CNPJ_A, CPF_A, CNPJ_A);
+    assert.equal(await codigo(volta.salvar({ documentoFiscal: CPF_A })), 'CONFLITO');
+    assert.equal(volta.gravados.length, 0);
 });

@@ -21,12 +21,12 @@ const FLAG_APLICAR = '--aplicar-091-autorizado';
 const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-091.json';
 const ETAPAS = Object.freeze([
-  ['precheck 091', 'database/checks/20261022_091_precheck.sql', 'c1de8e307fa3b42b270653cc7f1ac64ec7a118c755cda691457749f593182adb'],
-  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', '2556cc24dd946b94ce4d10cca94879bb18cf7000e99d39d7ff0ce8258a0a6507'],
-  ['postcheck 091', 'database/checks/20261022_091_postcheck.sql', '625dd5998871d4201e9744a18d023ba4eafd7ef7c9714a378f9453bf37b684e6'],
+  ['precheck 091', 'database/checks/20261022_091_precheck.sql', '40578941cc3ddd1c4a3af2d5f2405e99390ad8c8852207c94e893d22a622f3ed'],
+  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', '7cfc40f71c7948721cdb9c83b97e90291d8c26ea31c01b86a52529012d7138ac'],
+  ['postcheck 091', 'database/checks/20261022_091_postcheck.sql', 'dea02160f59a7a89a17283bbea25b17646bdd894a6dd4652970c896c5cb57329'],
 ]);
-/** A 091 não cria FK; altera CHECKs destas tabelas (dono exigido). */
-const REFERENCIADAS = Object.freeze([]);
+/** FKs da continuidade (D5): REFERENCES exigido nestas tabelas. Altera CHECKs das ALTERADAS (dono exigido). */
+const REFERENCIADAS = Object.freeze(['empresas', 'usuarios_administrativos']);
 const ALTERADAS = Object.freeze(['empresa_assinaturas', 'assinatura_fundadores', 'cadastros_empresas', 'solicitacoes_acesso_empresa', 'empresa_representacoes']);
 const lista = xs => xs.map(x => `'${x}'`).join(',');
 const def = nome => `coalesce((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='${nome}' AND contype='c' LIMIT 1), '')`;
@@ -44,13 +44,18 @@ const SQL_ESTADO = `SELECT
   ${def('cadastros_empresas_documento_check')} LIKE '%[0-9]{11}|%' AS formato_cadastro,
   ${def('solicitacoes_documento_check')} LIKE '%[0-9]{11}|%' AS formato_solicitacao,
   ${def('empresa_representacoes_qualificacao_check')} LIKE '%TITULAR_PF%' AS qualificacao_pf,
+  to_regclass('public.empresa_documento_continuidades') IS NOT NULL AS continuidades,
+  to_regprocedure('public.kidmais_091_continuidade_guarda()') IS NOT NULL AS guarda_continuidade,
   has_schema_privilege(current_user,'public','CREATE') AS pode_criar,
-  true AS pode_referenciar,
+  coalesce((SELECT bool_and(has_table_privilege(current_user,to_regclass('public.'||t),'REFERENCES'))
+    FROM unnest(ARRAY[${lista(REFERENCIADAS)}]) t WHERE to_regclass('public.'||t) IS NOT NULL), false)
+    AND (SELECT count(*) FROM unnest(ARRAY[${lista(REFERENCIADAS)}]) t WHERE to_regclass('public.'||t) IS NOT NULL)=${REFERENCIADAS.length} AS pode_referenciar,
   coalesce((SELECT bool_and(pg_has_role(current_user, c.relowner, 'USAGE')) FROM pg_class c
     WHERE c.oid IN (SELECT to_regclass('public.'||t) FROM unnest(ARRAY[${lista(ALTERADAS)}]) t)), false)
     AND (SELECT count(*) FROM unnest(ARRAY[${lista(ALTERADAS)}]) t WHERE to_regclass('public.'||t) IS NOT NULL)=${ALTERADAS.length} AS dono_alteradas,
   session_user <> current_user AS papel_trocado`;
-const OBJETOS = Object.freeze(['funcao', 'guarda', 'dv_teste', 'dv_fundador', 'formato_teste', 'formato_fundador', 'formato_cadastro', 'formato_solicitacao', 'qualificacao_pf']);
+const OBJETOS = Object.freeze(['funcao', 'guarda', 'dv_teste', 'dv_fundador', 'formato_teste', 'formato_fundador', 'formato_cadastro', 'formato_solicitacao', 'qualificacao_pf',
+  'continuidades', 'guarda_continuidade']);
 /** Corte lido no banco ANTES da migration: a prova compara só linhas criadas até ele (tráfego durante a janela não conta). */
 const SQL_CORTE = `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS corte`;
 const CORTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
@@ -93,7 +98,8 @@ function planoEtapas(s) {
   assert.ok(s.m067_068 && s.m069 && s.m074a, 'DEPENDENCIA_AUSENTE_067_068_069_074A');
   assert.notEqual(s.m091, 'parcial', 'APLICACAO_PARCIAL_091');
   if (s.m091 === 'completa') return ['postcheck 091'];
-  assert.ok(s.pode_criar && s.dono_alteradas, 'SEM_PRIVILEGIO_091 ' + (s.pode_criar ? '' : 'CREATE ') + (s.dono_alteradas ? '' : 'DONO'));
+  assert.ok(s.pode_criar && s.pode_referenciar && s.dono_alteradas, 'SEM_PRIVILEGIO_091 ' + (s.pode_criar ? '' : 'CREATE ')
+    + (s.pode_referenciar ? '' : 'REFERENCES ') + (s.dono_alteradas ? '' : 'DONO'));
   return ETAPAS.map(([nome]) => nome);
 }
 
@@ -205,7 +211,7 @@ function criarAplicador(amb) {
       arquivos: ETAPAS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
       modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
       preRequisitos: ['067/068/069/074a (empresa_assinaturas, empresa_representacoes, cadastros_empresas, solicitacoes_acesso_empresa, assinatura_fundadores)',
-        '091 ausente ou completa (nunca parcial)', 'CREATE em public', 'dono de ' + ALTERADAS.join('/')],
+        '091 ausente ou completa (nunca parcial)', 'CREATE em public', 'REFERENCES em ' + REFERENCIADAS.join('/'), 'dono de ' + ALTERADAS.join('/')],
       ordem: ['deploy do código (sem a 091: CPF recusado com CPF_INDISPONIVEL)', FLAG_CONFERIR, 'autorização de Felipe', FLAG_APLICAR, FLAG_CONFERIR,
         'ASSINATURA_CPF_ATIVO continua desligada até revisão jurídica/fiscal e autorização própria'],
       nuncaExecuta: ['down 091', 'alteração de env (ASSINATURA_CPF_ATIVO)', 'atualização de linhas existentes', 'chamada ao Asaas']};

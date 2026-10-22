@@ -47,7 +47,7 @@ import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, validadeDaConcessao, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
 import { documentoFiscalValido, tipoDocumentoFiscal } from '../acessos/validacao.ts';
-import { cpfDisponivel, MENSAGEM_CPF_INDISPONIVEL, MENSAGEM_NOME_CIVIL } from './documento-contratante.ts';
+import { cpfDisponivel, documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE, MENSAGEM_CPF_INDISPONIVEL, MENSAGEM_NOME_CIVIL } from './documento-contratante.ts';
 import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido,
     type PedidoResumo } from './devolucao-registro.ts';
 
@@ -116,10 +116,15 @@ async function linhaDaEmpresa(tx: DbExecutor, empresaId: string, travar: boolean
  * nome_empresarial). Documento do teste primeiro; senão o do cadastro da plataforma (063), validado e, se CPF, só com a
  * 091 e ASSINATURA_CPF_ATIVO. Documento do teste diferente do cadastro (qualquer tipo) não é trocado aqui (fluxo
  * assistido): `divergente`. CPF sem nome civil no cadastro: `semNomeCivil` (nunca o nome do buffet; revisão 22/10, P2-1/P2-2).
+ * Com continuidade assistida (D5, 091), o documento é o VIGENTE (o da última continuidade); continuidade aguardando a
+ * conferência do provedor bloqueia a contratação (CONTINUIDADE_PENDENTE).
  * Aceite do cliente no provedor não comprova emissão fiscal.
  */
 async function dadosDoCliente(tx: DbExecutor, empresaId: string, linha: Linha, env: Record<string, string | undefined>) {
-    let nome = linha.nome, documento = linha.documento_teste, divergente = false, nomeCivil = false;
+    const vigente = await documentoVigente(tx, empresaId, linha.documento_teste);
+    if (vigente.pendente)
+        throw erroAcesso('CONTINUIDADE_PENDENTE', MENSAGEM_CONTINUIDADE_PENDENTE, 409);
+    let nome = linha.nome, documento = vigente.documento, divergente = false, nomeCivil = false;
     if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS ok")).rows[0]?.ok) {
         const c = (await tx.query<{ nome_empresarial: string | null; documento_fiscal: string | null }>(
             'SELECT nome_empresarial, documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresaId])).rows[0];

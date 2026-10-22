@@ -4,6 +4,7 @@
  * CPF só é aceito com a 091 instalada E a chave operacional ASSINATURA_CPF_ATIVO=true; sem isso, CPF_INDISPONIVEL
  * (código novo tolera schema antigo). DV correto não prova titularidade, representação nem vínculo com algum CNPJ.
  * Troca CPF → CNPJ não é autoatendimento: documento_teste e documento_beneficiario são snapshots imutáveis (068/074a).
+ * A continuidade assistida (D5, 091) registra o documento novo à parte; o VIGENTE é o da última continuidade.
  */
 import type { DbExecutor } from '../db/contracts';
 import { erroAcesso } from '../acessos/erros.ts';
@@ -46,6 +47,25 @@ export const MENSAGEM_NOME_CIVIL = 'Com CPF, informe o nome civil do titular no 
 export function exigirNomeCivil(documento: string | null | undefined, nomeEmpresarial: string | null | undefined) {
     if (documento && tipoDocumentoFiscal(documento) === 'CPF' && !nomeEmpresarial?.trim())
         throw erroAcesso('DADOS_INVALIDOS', MENSAGEM_NOME_CIVIL, 400, { campo: 'nomeEmpresarial' });
+}
+
+/** Continuidade assistida (D5): registro pelo painel só com a 091 E ASSINATURA_CONTINUIDADE_ATIVA=true. A leitura vale sempre. */
+export const continuidadeLigada = (env: Ambiente = process.env) => env.ASSINATURA_CONTINUIDADE_ATIVA === 'true';
+export async function continuidadeInstalada(tx: DbExecutor) {
+    return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.empresa_documento_continuidades') IS NOT NULL AS ok")).rows[0]?.ok === true;
+}
+export const MENSAGEM_CONTINUIDADE_PENDENTE = 'Há uma atualização do CPF ou CNPJ da contratante em andamento pelo atendimento. A contratação fica disponível assim que ela for concluída.';
+
+/**
+ * Documento vigente da contratante: o da última continuidade registrada (091) ou, sem continuidade, o do teste.
+ * `pendente`: a última continuidade ainda aguarda a conferência do cliente no provedor (nada é contratado até lá).
+ */
+export async function documentoVigente(tx: DbExecutor, empresaId: string, documentoTeste: string | null): Promise<{ documento: string | null; pendente: boolean }> {
+    if (!documentoTeste || !await continuidadeInstalada(tx))
+        return { documento: documentoTeste, pendente: false };
+    const c = (await tx.query<{ documento_novo: string; situacao: string }>(
+        `SELECT documento_novo, situacao FROM empresa_documento_continuidades WHERE empresa_id = $1::uuid ORDER BY registrada_em DESC, id DESC LIMIT 1`, [empresaId])).rows[0];
+    return { documento: c?.documento_novo ?? documentoTeste, pendente: c?.situacao === 'PENDENTE_PROVEDOR' };
 }
 
 /** Trava do documento (antes de conferir duplicidade), igual no cadastro público, no painel e no teste. */

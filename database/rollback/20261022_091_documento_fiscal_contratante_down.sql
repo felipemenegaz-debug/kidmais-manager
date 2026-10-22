@@ -1,4 +1,5 @@
--- Rollback da 091. Recusa se já existir algum CPF (teste, concessão, cadastro ou pedido) ou representação TITULAR_PF: o
+-- Rollback da 091. Recusa se já existir algum CPF (teste, concessão, cadastro ou pedido), representação TITULAR_PF ou
+-- continuidade de documento registrada (prova de atendimento): o
 -- código antigo não sabe tratar pessoa física e o rollback apagaria a prova do contratante. Nesse caso, desligue
 -- ASSINATURA_CPF_ATIVO e corrija para frente. ANTES do rollback, volte o código para a versão anterior.
 BEGIN;
@@ -9,21 +10,25 @@ DO $$
 BEGIN
   -- Todos os objetos da 091 presentes; estado parcial é recusado com motivo explícito, antes de qualquer DROP.
   IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NULL OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL
+     OR to_regclass('public.empresa_documento_continuidades') IS NULL OR to_regprocedure('public.kidmais_091_continuidade_guarda()') IS NULL
      OR (SELECT count(*) FROM pg_trigger WHERE tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento')) <> 2 THEN
     RAISE EXCEPTION '091 rollback recusado: migration ausente ou parcial.';
   END IF;
 END $$;
-LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes, empresa_documento_continuidades IN ACCESS EXCLUSIVE MODE;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM empresa_assinaturas WHERE documento_teste ~ '^[0-9]{11}$')
     OR EXISTS (SELECT 1 FROM assinatura_fundadores WHERE documento_beneficiario ~ '^[0-9]{11}$')
     OR EXISTS (SELECT 1 FROM cadastros_empresas WHERE documento ~ '^[0-9]{11}$')
     OR EXISTS (SELECT 1 FROM solicitacoes_acesso_empresa WHERE documento ~ '^[0-9]{11}$')
-    OR EXISTS (SELECT 1 FROM empresa_representacoes WHERE qualificacao = 'TITULAR_PF') THEN
+    OR EXISTS (SELECT 1 FROM empresa_representacoes WHERE qualificacao = 'TITULAR_PF')
+    OR EXISTS (SELECT 1 FROM empresa_documento_continuidades) THEN
     RAISE EXCEPTION '091 rollback recusado: já há contratante pessoa física registrado. Preserve e corrija para frente.';
   END IF;
 END $$;
+DROP TABLE empresa_documento_continuidades;
+DROP FUNCTION kidmais_091_continuidade_guarda();
 DROP TRIGGER empresa_assinaturas_091_documento ON empresa_assinaturas;
 DROP TRIGGER assinatura_fundadores_091_documento ON assinatura_fundadores;
 DROP FUNCTION kidmais_091_documento_guarda();

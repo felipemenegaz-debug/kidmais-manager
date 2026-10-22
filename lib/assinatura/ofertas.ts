@@ -9,6 +9,7 @@ import { pagamentoDaOferta } from './pagamento-oferta.ts';
 import { campanhaFundadorLigada, faseCampanha, lerCampanhaAtivada, ocupacaoPosJanela, prazoAnunciado, schemaCampanhaInstalado,
     type CampanhaFundador, type ResumoCampanha } from './campanha.ts';
 import { PAGAMENTO_TARDIO } from './textos-fundador.ts';
+import { documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE } from './documento-contratante.ts';
 
 export type Oferta = {
     id: string; empresa_id: string; plano: 'ESSENCIAL' | 'PROFISSIONAL' | 'PREMIUM'; ciclo: Ciclo;
@@ -229,6 +230,9 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
     const linha = (await tx.query<{ documento_teste: string | null; provedor_assinatura_id: string | null; plano: string }>(
         'SELECT plano, documento_teste, provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha) throw erroAcesso('EMPRESA_SEM_COBRANCA', 'Esta empresa mantém seu acesso atual sem cobrança.', 409);
+    // D5: continuidade aguardando a conferência do provedor não abre oferta.
+    const vigente = await documentoVigente(tx, empresaId, linha.documento_teste);
+    if (vigente.pendente) throw erroAcesso('CONTINUIDADE_PENDENTE', MENSAGEM_CONTINUIDADE_PENDENTE, 409);
     const aberta = (await tx.query<Oferta>("SELECT * FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND estado = 'EM_ABERTO' FOR UPDATE", [empresaId])).rows[0];
     if (aberta) {
         if (aberta.plano !== pedido.plano.toUpperCase() || aberta.ciclo !== pedido.ciclo || aberta.valor_final_centavos !== pedido.valorEsperadoCentavos)
@@ -252,6 +256,7 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         throw erroAcesso('OFERTA_ALTERADA', 'As condições disponíveis mudaram. Atualize e confirme o novo valor antes de continuar.', 409);
     let fundadorId = campanha.elegivel ? campanha.id : null;
     if (campanha.elegivel && !fundadorId) {
+        // O beneficiário é o documento do TESTE (guarda 074a); a continuidade (D5) liga esse snapshot ao documento vigente.
         if (!linha.documento_teste) throw erroAcesso('DOCUMENTO_NAO_CONFIRMADO', 'A assinatura precisa do documento cadastrado para participar da campanha.', 409);
         fundadorId = await reservarConcessao(tx, empresaId, linha.documento_teste, campanha);
         if (!fundadorId) throw erroAcesso('FUNDADOR_AGUARDANDO', 'Aguarde a confirmação das vagas disponíveis.', 409);

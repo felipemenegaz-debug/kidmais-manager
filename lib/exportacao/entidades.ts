@@ -271,6 +271,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     cobranca_eventos: 'Eventos brutos do provedor de cobrança (Asaas).',
     assinatura_fundadores: 'Controle interno das concessões do plano Fundador (vagas legadas, janela e lote posterior; 090).',
     assinatura_campanhas: 'Configuração da campanha Fundador da plataforma (090): datas, regra e autorização; sem dado de empresa.',
+    empresa_documento_continuidades: 'Registro interno do atendimento sobre retificação ou continuidade CPF → CNPJ da contratante (091), com instrumento e evidências.',
     assinatura_isencoes: 'Concessões internas da plataforma.',
     empresa_excecoes_comerciais: 'Decisões comerciais internas da plataforma.',
     ia_operacoes: 'Telemetria das operações de IA.',

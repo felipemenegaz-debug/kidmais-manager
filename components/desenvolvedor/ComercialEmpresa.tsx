@@ -11,7 +11,12 @@ export type Comercial = {
     excecoes: { id: string; tipo: string; validaAte: string; motivo: string; criadoEm: string; criadoPor: string | null; revogadaEm: string | null; motivoRevogacao: string | null; vigente: boolean }[];
     eventos: { tipo: string; situacao: string; recebidoEm: string; processadoEm: string | null; tentativas: number }[];
     historico: { id: string; acao: string; criado_em: string; ator: string | null; justificativa: string | null }[];
+    continuidades?: { id: string; tipo: TipoContinuidade; situacao: string; documentoAnterior: string | null; documentoNovo: string | null; nomeNovo: string; instrumento: string;
+        dataEfetiva: string; registradaEm: string; registradaPor: string | null; provedorConferidoEm: string | null; provedorNota: string | null }[];
 };
+type TipoContinuidade = 'RETIFICACAO' | 'MESMA_TITULARIDADE' | 'CESSAO';
+const CONTINUIDADE: Record<TipoContinuidade, string> = { RETIFICACAO: 'Retificação (mesmo tipo de documento)', MESMA_TITULARIDADE: 'CPF → CNPJ da mesma titularidade (empresário individual/MEI)', CESSAO: 'CPF → CNPJ de sociedade (cessão de posição contratual)' };
+type FormContinuidade = { tipo: TipoContinuidade; documentoNovo: string; nomeNovo: string; instrumento: string; evidencias: string; dataEfetiva: string; motivo: string };
 const SITUACAO: Record<string, string> = { TESTE: 'Teste grátis', ATIVA: 'Assinatura ativa', EM_ATRASO: 'Pagamento pendente', CANCELADA_FIM_PERIODO: 'Cancelada no fim do período', ENCERRADA: 'Encerrada' };
 const NIVEL: Record<string, string> = { COMPLETO: 'Completo', SOMENTE_LEITURA: 'Somente leitura', BLOQUEADO: 'Bloqueado' };
 const EXCECAO: Record<string, string> = { EXTENSAO_TESTE: 'Extensão de teste', CORTESIA: 'Cortesia', ACESSO_TEMPORARIO: 'Acesso temporário' };
@@ -20,7 +25,8 @@ export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'si
     return `${SITUACAO[c.situacao ?? ''] ?? c.situacao} · ${NIVEL[c.nivel] ?? c.nivel}`;
 }
 
-type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string };
+type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string }
+    | ({ operacao: 'registrar-continuidade' } & FormContinuidade) | { operacao: 'concluir-continuidade'; continuidadeId: string; motivo: string };
 
 export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar }: {
     empresaId: string; comercial: Comercial; ocupado: boolean;
@@ -29,6 +35,9 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     const [form, setForm] = useState<{ acao: 'estender-teste' | 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: string; motivo: string } | null>(null);
     const [inicio, setInicio] = useState<{ dias: string; motivo: string } | null>(null);
     const [revogar, setRevogar] = useState<{ id: string; motivo: string } | null>(null);
+    const [continuidade, setContinuidade] = useState<FormContinuidade | null>(null);
+    const [concluir, setConcluir] = useState<{ id: string; motivo: string } | null>(null);
+    const pendente = comercial.continuidades?.find((x) => x.situacao === 'PENDENTE_PROVEDOR');
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
     const enviar = (dados: Operacao, texto: string) => operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), () => ({ tipo: 'ok', texto }));
     const c = comercial;
@@ -61,7 +70,24 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                     <div className={estilos.acoesLinha} style={{ marginTop: 12 }}>
                         {c.situacao === 'TESTE' && <button type="button" disabled={ocupado} onClick={() => setForm({ acao: 'estender-teste', dias: '7', motivo: '' })}>Estender teste</button>}
                         <button type="button" disabled={ocupado} onClick={() => setForm({ acao: 'CORTESIA', dias: '30', motivo: '' })}>Conceder acesso excepcional</button>
+                        {!pendente && <button type="button" disabled={ocupado} onClick={() => setContinuidade({ tipo: 'MESMA_TITULARIDADE', documentoNovo: '', nomeNovo: '', instrumento: '', evidencias: '', dataEfetiva: '', motivo: '' })}>Continuidade de documento…</button>}
                     </div>
+                    {continuidade && <form aria-label="Continuidade de documento" onSubmit={(e) => {
+                        e.preventDefault();
+                        enviar({ operacao: 'registrar-continuidade', ...continuidade }, 'Continuidade de documento registrada.');
+                        setContinuidade(null);
+                    }}>
+                        <label>Tipo<select value={continuidade.tipo} onChange={(e) => setContinuidade({ ...continuidade, tipo: e.target.value as TipoContinuidade })}>
+                            {(Object.keys(CONTINUIDADE) as TipoContinuidade[]).map((t) => <option key={t} value={t}>{CONTINUIDADE[t]}</option>)}</select></label>
+                        <label>CPF ou CNPJ novo<input required maxLength={40} value={continuidade.documentoNovo} onChange={(e) => setContinuidade({ ...continuidade, documentoNovo: e.target.value })} /></label>
+                        <label>Nome civil (CPF) ou razão social (CNPJ)<input required minLength={2} maxLength={200} value={continuidade.nomeNovo} onChange={(e) => setContinuidade({ ...continuidade, nomeNovo: e.target.value })} /></label>
+                        <label>Instrumento assinado (identificação e versão)<input required minLength={5} maxLength={300} value={continuidade.instrumento} onChange={(e) => setContinuidade({ ...continuidade, instrumento: e.target.value })} /></label>
+                        <label>Evidências do vínculo conferidas<textarea required minLength={5} maxLength={1000} value={continuidade.evidencias} onChange={(e) => setContinuidade({ ...continuidade, evidencias: e.target.value })} /></label>
+                        <label>Data efetiva<input type="date" required value={continuidade.dataEfetiva} onChange={(e) => setContinuidade({ ...continuidade, dataEfetiva: e.target.value })} /></label>
+                        <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={continuidade.motivo} onChange={(e) => setContinuidade({ ...continuidade, motivo: e.target.value })} /></label>
+                        <p className={workspace.muted}>Preserva o preço contratado, o benefício Fundador e suas datas originais, sem novo teste nem novo período. O documento novo passa a valer na ficha, no checkout e no Perfil; os registros anteriores não são reescritos. Se já houver cliente no provedor, a contratação fica bloqueada até você registrar a conferência do provedor. Sua senha será pedida.</p>
+                        <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Registrar</button><button type="button" onClick={() => setContinuidade(null)}>Cancelar</button></div>
+                    </form>}
                     {form && <form aria-label="Intervenção comercial" onSubmit={(e) => {
                         e.preventDefault();
                         const dias = Number(form.dias);
@@ -93,6 +119,24 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
             }}>
                 <label>Motivo da revogação<textarea required minLength={5} maxLength={500} value={revogar.motivo} onChange={(e) => setRevogar({ ...revogar, motivo: e.target.value })} /></label>
                 <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Revogar</button><button type="button" onClick={() => setRevogar(null)}>Cancelar</button></div>
+            </form>}
+        </>}
+        {(c.continuidades?.length ?? 0) > 0 && <>
+            <h3>Continuidade de documento</h3>
+            <ul className={estilos.lista} aria-label="Continuidades de documento">
+                {c.continuidades!.map((x) => <li key={x.id}>
+                    <strong>{CONTINUIDADE[x.tipo] ?? x.tipo}: {x.documentoAnterior} → {x.documentoNovo}{x.situacao === 'PENDENTE_PROVEDOR' ? ' · aguardando conferência do provedor' : ' · concluída'}</strong>
+                    <span>{x.nomeNovo} · {x.instrumento} · efetiva em {x.dataEfetiva.split('-').reverse().join('/')} · por {x.registradaPor ?? 'Sistema'} em {formatarData(x.registradaEm)}{x.provedorNota ? ` · provedor: ${x.provedorNota}` : ''}
+                        {x.situacao === 'PENDENTE_PROVEDOR' && <> · <button type="button" disabled={ocupado} onClick={() => setConcluir({ id: x.id, motivo: '' })}>Registrar conferência do provedor</button></>}</span>
+                </li>)}
+            </ul>
+            {concluir && <form aria-label="Conferência do provedor" onSubmit={(e) => {
+                e.preventDefault();
+                enviar({ operacao: 'concluir-continuidade', continuidadeId: concluir.id, motivo: concluir.motivo }, 'Continuidade concluída.');
+                setConcluir(null);
+            }}>
+                <label>O que foi conferido no provedor (fica no registro)<textarea required minLength={5} maxLength={500} value={concluir.motivo} onChange={(e) => setConcluir({ ...concluir, motivo: e.target.value })} /></label>
+                <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Concluir</button><button type="button" onClick={() => setConcluir(null)}>Cancelar</button></div>
             </form>}
         </>}
         {c.eventos.length > 0 && <>

@@ -35,6 +35,16 @@ BEGIN
   IF to_regclass('public.empresa_assinaturas_documento_teste_uk') IS NULL OR to_regclass('public.assinatura_fundadores_documento_uk') IS NULL THEN
     RAISE EXCEPTION '091 postcheck: unicidade de documento ausente';
   END IF;
+  -- Continuidade (D5): tabela, índices únicos e gatilho ROW BEFORE INSERT/UPDATE/DELETE (tgtype = 31) com a guarda.
+  IF to_regclass('public.empresa_documento_continuidades') IS NULL OR to_regclass('public.empresa_doc_continuidades_documento_uk') IS NULL
+    OR to_regclass('public.empresa_doc_continuidades_pendente_uk') IS NULL
+    OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND tgtype = 31
+          AND tgrelid = 'public.empresa_documento_continuidades'::regclass AND tgname = 'empresa_documento_continuidades_091_guarda'
+          AND tgfoid = 'public.kidmais_091_continuidade_guarda()'::regprocedure) <> 1
+    OR (SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND convalidated AND conname IN ('empresa_doc_continuidades_documentos_check',
+          'empresa_doc_continuidades_conferencia_check')) <> 2 THEN
+    RAISE EXCEPTION '091 postcheck: continuidade de documento ausente ou divergente';
+  END IF;
   RAISE NOTICE '091 postcheck OK';
 END $$;
 -- Contagem informativa (sem documentos): contratantes por tipo de documento.
