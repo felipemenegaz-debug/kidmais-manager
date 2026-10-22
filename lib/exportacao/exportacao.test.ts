@@ -258,7 +258,7 @@ test('limparSobras: só pastas do prefixo e mais velhas que o prazo', async () =
     }
 });
 
-test('serviço: uma exportação por processo; a vaga volta em erro', async () => {
+test('serviço: uma exportação por processo; a vaga volta em erro', { timeout: 10_000 }, async () => {
     assert.equal(MAXIMO_SIMULTANEAS, 1);
     let soltar: () => void = () => {};
     const bloqueio = new Promise<void>((r) => { soltar = r; });
