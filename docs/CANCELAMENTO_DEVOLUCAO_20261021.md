@@ -114,7 +114,14 @@ os blocos `scripts/bloco-shell-089.cjs` e os três SQL na árvore implantada —
 `--conferir-089` → autorização de Felipe → `--aplicar-089-autorizado --backup "<registro>"` → `--conferir-089`. O
 aplicador confere o sha256 dos SQL (CRLF normalizado), 067/068/074a, estado ausente/completa/parcial, CREATE e
 REFERENCES (`empresa_assinaturas`, `usuarios_administrativos`) como `current_user`, grava o marcador no disco
-persistente e nunca roda o down. A migration também diz "código primeiro" (as duas ordens são compatíveis). Numeração: 087 e 088 tomadas. Na
+persistente e nunca roda o down. A migration também diz "código primeiro" (as duas ordens são compatíveis).
+
+**Integração com a exportação (22/10/2026):** a exportação verificável (staging `3bb7b4b`) recusa com 503 a exportação
+completa quando há tabela pública sem classificação. Por isso `assinatura_encerramentos` foi classificada nesta branch
+(`lib/exportacao/entidades.ts`, exportada sem `chave_idempotencia` e `aviso_interno_situacao`). A ordem passa a ser
+obrigatória: **código integrado primeiro, depois a 089**; com a 089 antes e o código antigo no ar, a exportação completa
+responderia 503. Depois da 089, em cada ambiente, rodar o bloco P2-5 da exportação
+(`scripts/bloco-shell-exportacao-producao.mjs`) como pós-conferência: `NAO_CLASSIFICADAS NENHUMA`. Numeração: 087 e 088 tomadas. Na
 leitura de 21/10/2026, nenhum clone local tinha 089; outro agente pode usá-la para exportação. Se colidir, renumerar
 para 090 antes de qualquer aplicação.
 
