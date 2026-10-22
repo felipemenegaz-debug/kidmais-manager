@@ -86,6 +86,8 @@ const MODELOS = {
   // neste repositório (trabalho local de cobrança, não integrado).
   "088": { banco: "kidmais_v1_modelo_088", ate: "088", sem: [] },
   "089": { banco: "kidmais_v1_modelo_089", ate: "089", sem: [] },
+  // Créditos de IA (090, 22/10/2026): inventário inteiro até a 090; exportação verificável roda no 089 (sem a 090) e no 090.
+  "090": { banco: "kidmais_v1_modelo_090", ate: "090", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

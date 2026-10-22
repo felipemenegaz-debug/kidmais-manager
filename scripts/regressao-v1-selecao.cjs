@@ -200,10 +200,17 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: com os créditos de IA (090), o inventário inteiro vai até a 090; a compatibilidade sem a 090 (tabelas
+  // ausentes registradas no manifesto) é provada em lib/creditos/creditos-090.postgres.test.ts sobre o modelo 089.
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "090" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
-  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "089" },
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "090" },
+  // 22/10/2026: créditos de IA (090) aplicados pela suíte sobre o modelo 089: pre/postcheck, rollback, ledger, concorrência
+  // real (duas conexões, travas observadas), compra/webhook/reconciliação com Asaas dublê, devolução, corte e exportação sem/com 090.
+  "lib/creditos/creditos-090.postgres.test.ts": { descartavel: "089" },
+  // Aplicadores reais da 090 (staging e produção) no modelo 089 (090 ausente): conferência, privilégios, parcial, falha e anti-repetição.
+  "lib/creditos/aplicador-090.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
