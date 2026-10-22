@@ -6,6 +6,7 @@ import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataCurta, diasAte } from './AvisoComercial';
+import ExportacaoDados, { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import type { consultarOfertas } from '@/lib/assinatura/ofertas';
 import type { consultarRenovacao } from '@/lib/assinatura/renovacao-repositorio';
 import type { consultarVagas } from '@/lib/assinatura/limites-usuarios';
@@ -79,12 +80,9 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
         </section>}
         {dados && dados.gestao && <section className={workspace.card} aria-labelledby="t-exportar" style={{ maxWidth: 720 }}>
             <h2 id="t-exportar">Exportar dados</h2>
-            <p className={workspace.muted}>Arquivos CSV com os dados desta empresa. Disponível em qualquer situação da assinatura.</p>
-            <p style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: 0 }}>
-                <a href="/api/admin/exportacao?tipo=clientes" download>Clientes (CSV)</a>
-                <a href="/api/admin/exportacao?tipo=contas-receber" download>Contas a receber (CSV)</a>
-            </p>
+            <ExportacaoDados />
         </section>}
+        {dados && <ExportacaoEmpresasSuspensas className={workspace.card} style={{ maxWidth: 720 }} />}
         {dados && a && (acoes ? acoes(dados, () => setVersao((v) => v + 1)) : <section className={workspace.card} aria-labelledby="t-contratar" style={{ maxWidth: 720 }}>
             <h2 id="t-contratar">Contratar</h2>
             {dados.precos && (dados.precos.MENSAL || dados.precos.ANUAL)
