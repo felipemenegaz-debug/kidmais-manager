@@ -518,3 +518,29 @@ A revisão foi **APROVADA** local, sem P1 nem P2. Os P3 restantes foram tratados
 - Playwright: 7/7 e 8/8.
 - `check:v1:static`: PASS (3286 + 103).
 - Preexistente: `concorrencia-vagas-isolado`.
+
+### Sexta rodada: revisão completa do Astra (`326895e..1b9cf5c`)
+
+A revisão completa foi **REPROVADA**, com dois P2 reproduzidos e um P3 (relatório em
+`revisao-cpf-fundador-completa-20261022/RELATORIO.md`, fora do checkout). Correções em `2a7275c` e `3a481f9`:
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-1: PF provisionada pelo painel chegava ao checkout com o nome do buffet + CPF | `exigirNomeCivil`: com CPF, o nome civil (`nome_empresarial`) é obrigatório ao provisionar, editar a ficha e iniciar o teste pelo painel. O checkout confere de novo (`semNomeCivil`) e recusa com `DADOS_INVALIDOS` (campo `nomeEmpresarial`) antes de criar o cliente. O rótulo do painel passou a "Nome empresarial / nome civil". | `identidade-fiscal.test.ts`; 091 caso 6; piloto em `comercial.postgres` |
+| P2-2: trocar o CPF na ficha misturava o nome novo com o CPF do teste | Depois do teste, a ficha não troca nem apaga o documento (CPF A→B, CNPJ A→B, CPF↔CNPJ): `CONFLITO`, nada gravado. Voltar ao documento do teste e corrigir o nome continuam permitidos. O checkout compara o documento normalizado (não só o tipo): `DOCUMENTO_DIVERGENTE` sem criar cliente. | `identidade-fiscal.test.ts`; 091 caso 6 (CPF A→B) |
+| P3-1: cache do site atravessava a mudança de fase | O cache dura no máximo até a próxima fronteira conhecida (abertura ou fim da janela). Usa o relógio do processo, então a defasagem para o banco continua valendo. O estoque pós-janela segue indicativo. | `fundador-servidor.test.ts` (P3-1) |
+
+As mutações foram conferidas: com o código anterior, os testes de painel falham e o caso 6 do 091 recebe `OK` no lugar de
+`DOCUMENTO_DIVERGENTE`.
+
+**D3 e D5, pontos levantados pela revisão (sem mudança de código):**
+- D3: a validade conta até o **fim do dia local** da data de reserva + 7 (uma reserva às 10h vale até 23h59 do 7º dia), ou seja, pode passar de 168 horas. É a interpretação do §2 e é o que a tela mostra. O texto comercial e jurídico precisa dizer isso com essa precisão.
+- D5: a continuidade CPF→CNPJ e o vínculo declarado continuam sem fluxo operacional (atendimento). Agora o painel também recusa trocar documento do mesmo tipo.
+
+**Validação:**
+- Unitários: 406/406 (assinatura, cadastro, site, desenvolvedor, perfil, acessos).
+- Scripts: 63/63 + blocos de Shell 20/20 (Git Bash).
+- PG descartável 55607: 45/45 (090 10, 091 9, aplicadores 1, cobrança 7, gratuidade 5+5, painel comercial 8). Cluster removido.
+- Playwright `cpf-fundador-ui`: 7/7.
+- tsc, ESLint e build: PASS. `check:v1:static`: PASS (3291 + 103).
+- Não executado: Asaas sandbox, staging/produção, revisão do delta pelo Astra.
