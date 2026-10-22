@@ -2,14 +2,17 @@
 -- por Felipe; Decreto 7.962/2013: confirmação imediata e arrependimento pela mesma ferramenta da contratação).
 -- Executar somente após autorização própria do ambiente, precheck e backup operacional. Aditiva: cria uma tabela nova e
 -- não altera linha, coluna nem gatilho existente (a guarda da 068/074a já aceita ATIVA/CANCELADA_FIM_PERIODO → ENCERRADA).
--- ORDEM: aplicar ANTES do deploy do código que a usa. Sem a 089, o código mantém o cancelamento ao fim do período como
--- hoje (sem protocolo) e não oferece encerramento com devolução.
+-- ORDEM (como a 088): o CÓDIGO é publicado primeiro, já com o aplicador e estes SQL na árvore implantada; depois a 089 é
+-- aplicada por scripts/migration-089-{staging,production}.cjs (blocos de scripts/bloco-shell-089.cjs). Sem a 089, o código
+-- mantém o cancelamento ao fim do período como antes (sem protocolo) e não oferece encerramento com devolução; com ela
+-- aplicada e o código antigo ainda no ar, a tabela fica vazia e nada muda (as duas ordens são compatíveis).
 -- Tipos:
 --   CANCELAMENTO_FIM_PERIODO        cancela a renovação; acesso até o fim do período pago; sem devolução;
 --   ARREPENDIMENTO_7_DIAS           garantia de 7 dias na primeira ativação paga: devolução integral, encerra o período;
 --   ENCERRAMENTO_ANUAL_PROPORCIONAL anual: devolução proporcional aos dias não utilizados, encerra o período.
 -- Valores e cálculo são evidência imutável (regra, dias, valor pago, valor da devolução). Só mudam o resultado do
--- cancelamento no provedor, a situação do estorno e a situação do e-mail, por transições controladas pela guarda.
+-- cancelamento no provedor, a situação do estorno e a situação dos e-mails (confirmação à Gestão e aviso interno à
+-- plataforma), por transições controladas pela guarda.
 -- Rollback: database/rollback/20261021_089_assinatura_encerramentos_down.sql (recusado se houver pedidos).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -58,6 +61,8 @@ CREATE TABLE assinatura_encerramentos (
   estorno_atualizado_em timestamptz,
   estorno_concluido_em timestamptz,
   email_situacao text NOT NULL DEFAULT 'PENDENTE' CHECK (email_situacao IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'NAO_CONFIGURADO')),
+  -- Aviso interno imediato ao canal da plataforma (SITE_ATENDIMENTO_EMAIL), só com protocolo, tipo, valor e prazo.
+  aviso_interno_situacao text NOT NULL DEFAULT 'PENDENTE' CHECK (aviso_interno_situacao IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'NAO_CONFIGURADO')),
   CONSTRAINT assinatura_encerramentos_idempotencia_uk UNIQUE (empresa_id, chave_idempotencia),
   CONSTRAINT assinatura_encerramentos_devolucao_check CHECK (
     (tipo = 'CANCELAMENTO_FIM_PERIODO' AND estorno_situacao = 'NAO_SE_APLICA' AND regra IS NULL AND cobranca_provedor_id IS NULL
@@ -85,7 +90,8 @@ BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN RAISE EXCEPTION '089: pedido de encerramento não é apagado.' USING ERRCODE = 'P0001'; END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.estorno_situacao NOT IN ('NAO_SE_APLICA', 'AGUARDANDO_MANUAL') OR NEW.estorno_modo IS NOT NULL OR NEW.estorno_status_provedor IS NOT NULL
-       OR NEW.estorno_referencia IS NOT NULL OR NEW.estorno_concluido_em IS NOT NULL OR NEW.email_situacao <> 'PENDENTE' THEN
+       OR NEW.estorno_referencia IS NOT NULL OR NEW.estorno_concluido_em IS NOT NULL OR NEW.email_situacao <> 'PENDENTE'
+       OR NEW.aviso_interno_situacao <> 'PENDENTE' THEN
       RAISE EXCEPTION '089: pedido nasce sem estorno executado e sem e-mail.' USING ERRCODE = 'P0001';
     END IF;
     IF NEW.cancelamento_provedor NOT IN ('PENDENTE', 'JA_REMOVIDA', 'CONFIRMADO', 'AUSENTE', 'SEM_CONFIRMACAO') THEN
@@ -114,10 +120,11 @@ BEGIN
   END IF;
   -- Estorno: EM_CURSO é o registro prévio da chamada automática; resultado desconhecido nunca volta a EM_CURSO
   -- (nenhuma segunda chamada automática); CONCLUIDO é final e exige referência (comprovante/id no painel do Asaas).
+  -- EM_CURSO → CONCLUIDO cobre o processo interrompido durante a chamada, conferido e concluído à mão.
   IF NEW.estorno_situacao IS DISTINCT FROM OLD.estorno_situacao THEN
     IF NOT ((OLD.estorno_situacao, NEW.estorno_situacao) IN (
          ('AGUARDANDO_MANUAL', 'EM_CURSO'), ('AGUARDANDO_MANUAL', 'CONCLUIDO'),
-         ('EM_CURSO', 'SOLICITADO'), ('EM_CURSO', 'SEM_CONFIRMACAO'), ('EM_CURSO', 'RECUSADO'),
+         ('EM_CURSO', 'SOLICITADO'), ('EM_CURSO', 'SEM_CONFIRMACAO'), ('EM_CURSO', 'RECUSADO'), ('EM_CURSO', 'CONCLUIDO'),
          ('SOLICITADO', 'CONCLUIDO'), ('SEM_CONFIRMACAO', 'SOLICITADO'), ('SEM_CONFIRMACAO', 'CONCLUIDO'),
          ('RECUSADO', 'CONCLUIDO'))) THEN
       RAISE EXCEPTION '089: transição do estorno inválida: % → %.', OLD.estorno_situacao, NEW.estorno_situacao USING ERRCODE = 'P0001';
@@ -139,6 +146,10 @@ BEGIN
   IF NEW.email_situacao IS DISTINCT FROM OLD.email_situacao AND NOT ((OLD.email_situacao, NEW.email_situacao) IN (
        ('PENDENTE', 'ENVIADO'), ('PENDENTE', 'FALHOU'), ('PENDENTE', 'NAO_CONFIGURADO'), ('FALHOU', 'ENVIADO'), ('NAO_CONFIGURADO', 'ENVIADO'))) THEN
     RAISE EXCEPTION '089: transição do e-mail inválida: % → %.', OLD.email_situacao, NEW.email_situacao USING ERRCODE = 'P0001';
+  END IF;
+  IF NEW.aviso_interno_situacao IS DISTINCT FROM OLD.aviso_interno_situacao AND NOT ((OLD.aviso_interno_situacao, NEW.aviso_interno_situacao) IN (
+       ('PENDENTE', 'ENVIADO'), ('PENDENTE', 'FALHOU'), ('PENDENTE', 'NAO_CONFIGURADO'), ('FALHOU', 'ENVIADO'), ('NAO_CONFIGURADO', 'ENVIADO'))) THEN
+    RAISE EXCEPTION '089: transição do aviso interno inválida: % → %.', OLD.aviso_interno_situacao, NEW.aviso_interno_situacao USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END $$;

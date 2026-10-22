@@ -46,7 +46,8 @@ import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
-import { chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido, type PedidoResumo } from './devolucao-registro.ts';
+import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido,
+    type PedidoResumo } from './devolucao-registro.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
@@ -551,44 +552,64 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         const protocolo = await encerramentosInstalados(tx);
-        // Repetição do mesmo pedido (duplo clique, nova tentativa da tela): devolve o protocolo já registrado.
+        // Repetição do mesmo pedido (duplo clique, nova tentativa da tela). P2-2 (revisão de 21/10/2026): a resposta é a
+        // situação REAL. Remoção já confirmada (ou ausência comprovada) → devolve o protocolo e a situação gravada; ainda
+        // sem confirmação → a repetição é uma NOVA tentativa efetiva (outro DELETE, idempotente no Asaas) sobre o MESMO
+        // pedido, sem novo protocolo.
         const repetido = protocolo ? await pedidoPorChave(tx, tenant.empresaComprovada, chave) : null;
-        if (repetido) return { repetido };
+        if (repetido && repetido.tipo !== 'CANCELAMENTO_FIM_PERIODO')
+            throw erroAcesso('CONFLITO', 'Esta chave pertence a outro pedido. Atualize a página.', 409);
         const linha = await linhaDaEmpresa(tx, tenant.empresaComprovada, false);
+        if (repetido && ['CONFIRMADO', 'AUSENTE', 'JA_REMOVIDA'].includes(repetido.cancelamentoProvedor))
+            return { concluido: { situacao: linha?.situacao ?? 'CANCELADA_FIM_PERIODO', protocolo: repetido.protocolo } };
         if (!linha?.provedor_assinatura_id)
             throw erroAcesso('CONFLITO', 'Não há assinatura contratada para cancelar.', 409);
-        if ((linha.situacao === 'CANCELADA_FIM_PERIODO' || linha.situacao === 'ENCERRADA') && linha.provedor_situacao === 'DELETED')
+        if (!repetido && (linha.situacao === 'CANCELADA_FIM_PERIODO' || linha.situacao === 'ENCERRADA') && linha.provedor_situacao === 'DELETED')
             throw erroAcesso('CONFLITO', 'A assinatura já foi cancelada.', 409);
-        return { repetido: null, empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao, ciclo: linha.ciclo, protocolo };
+        return { concluido: null, repetido, empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao, ciclo: linha.ciclo, protocolo };
     });
-    if (a.repetido)
-        return { situacao: 'CANCELADA_FIM_PERIODO', protocolo: a.repetido.protocolo, repetido: true };
-    const pedido = (tx: DbExecutor, cancelamentoProvedor: 'CONFIRMADO' | 'AUSENTE' | 'SEM_CONFIRMACAO') => registrarPedido(tx, {
-        empresaId: a.empresaId!, tipo: 'CANCELAMENTO_FIM_PERIODO', chave, solicitadoPor: sessao.usuario_id, motivo: motivo || null, ciclo: a.ciclo ?? null,
-        situacaoAnterior: a.situacao!, provedorAssinaturaId: a.assinaturaId!, cancelamentoProvedor,
-    });
+    if (a.concluido)
+        return { situacao: a.concluido.situacao, protocolo: a.concluido.protocolo, repetido: true };
+    const existente: PedidoResumo | null = a.repetido ?? null;
+    /** Pedido desta tentativa: o existente (repetição da mesma chave) atualizado, ou um novo. */
+    const pedido = async (tx: DbExecutor, cancelamentoProvedor: 'CONFIRMADO' | 'AUSENTE' | 'SEM_CONFIRMACAO'): Promise<PedidoResumo> => {
+        if (existente) {
+            if (cancelamentoProvedor !== 'SEM_CONFIRMACAO')
+                await atualizarCancelamentoProvedor(tx, a.empresaId!, existente.id, cancelamentoProvedor);
+            return (await pedidoPorChave(tx, a.empresaId!, chave)) ?? existente;
+        }
+        return registrarPedido(tx, {
+            empresaId: a.empresaId!, tipo: 'CANCELAMENTO_FIM_PERIODO', chave, solicitadoPor: sessao.usuario_id, motivo: motivo || null, ciclo: a.ciclo ?? null,
+            situacaoAnterior: a.situacao!, provedorAssinaturaId: a.assinaturaId!, cancelamentoProvedor,
+        });
+    };
 
     // Só a exclusão CONFIRMADA (resposta com `deleted`) ou a ausência comprovada (404 + releitura com `deleted`) concluem
     // o cancelamento. Recusa definitiva → nada feito. Resultado desconhecido → registro neutro, nada concluído e nenhum
-    // DELETE repetido: a situação vem da releitura (webhook SUBSCRIPTION_DELETED ou reconciliação, com `deleted=true`).
+    // DELETE repetido por conta própria: a situação vem da releitura (webhook SUBSCRIPTION_DELETED ou reconciliação, com
+    // `deleted=true`, que também fecha o pedido como AUSENTE) ou de uma nova tentativa da própria Gestão.
     const remocao = await removerComResultado(provedor, a.assinaturaId!);
     if (remocao.resultado === 'RECUSADA')
         throw falhou();
     const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
     if (remocao.resultado === 'DESCONHECIDA') {
-        const protocoloIncerto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        const incerto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
             exigirGestao(tenant);
             if (tenant.empresaComprovada !== a.empresaId)
                 throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
             const registrado = a.protocolo ? await pedido(tx, 'SEM_CONFIRMACAO') : null;
             await auditarCobranca(tx, {
                 acao: 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', empresaId: a.empresaId!, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
-                antes: { situacao: a.situacao }, depois: { situacao: a.situacao, ...(registrado ? { protocolo: registrado.protocolo } : {}) },
+                antes: { situacao: a.situacao }, depois: { situacao: a.situacao, ...(registrado ? { protocolo: registrado.protocolo, repeticao: Boolean(existente) } : {}) },
             });
-            return registrado?.protocolo ?? null;
+            return registrado;
         });
+        // Aviso interno só no primeiro registro (a repetição não gera outro aviso).
+        if (incerto && !existente)
+            await enviarAvisoInterno(deps, a.empresaId!, incerto, { formaPagamento: null, prazoArrependimento: false });
+        const protocoloIncerto = incerto?.protocolo ?? null;
         const sufixo = protocoloIncerto ? ' Protocolo do pedido: ' + protocoloIncerto + '.' : '';
-        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida.' + sufixo + ' Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503,
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida.' + sufixo + ' Nada foi registrado como cancelado. A situação será conferida com o provedor e aparecerá nesta tela; você pode tentar de novo, e a equipe Kidmais foi avisada.', 503,
             protocoloIncerto ? { protocolo: protocoloIncerto } : undefined);
     }
 
@@ -596,6 +617,9 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== a.empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+        // O pedido desta tentativa é gravado ANTES da sincronização: a releitura (deleted=true) só fecha como AUSENTE os
+        // pedidos ANTERIORES desta assinatura que ainda esperavam a remoção.
+        const registrado: PedidoResumo | null = a.protocolo ? await pedido(tx, remocao.resultado === 'AUSENTE' ? 'AUSENTE' : 'CONFIRMADO') : null;
         let r;
         try {
             r = await sincronizarEmpresa(tx, a.empresaId!, { provedor }, origem);
@@ -606,7 +630,6 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
                 throw erroAcesso('COBRANCA_FALHOU', 'O cancelamento foi enviado ao provedor, mas a confirmação ainda não chegou. Atualize a página em instantes.', 502);
             throw error;
         }
-        const registrado: PedidoResumo | null = a.protocolo ? await pedido(tx, remocao.resultado === 'AUSENTE' ? 'AUSENTE' : 'CONFIRMADO') : null;
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_CANCELADA', empresaId: a.empresaId!, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
             antes: { situacao: a.situacao },
@@ -621,5 +644,7 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
     });
     if (final.registrado && final.para)
         await enviarConfirmacao(deps, a.empresaId!, mensagemConfirmacao({ para: final.para, empresa: final.nome, pedido: final.registrado, periodoFim: final.periodoFim, estornoAutomatico: false }), final.registrado.id);
-    return { situacao: final.situacao, protocolo: final.registrado?.protocolo ?? null, repetido: false };
+    if (final.registrado && !existente)
+        await enviarAvisoInterno(deps, a.empresaId!, final.registrado, { formaPagamento: null, prazoArrependimento: false });
+    return { situacao: final.situacao, protocolo: final.registrado?.protocolo ?? null, repetido: Boolean(existente) };
 }

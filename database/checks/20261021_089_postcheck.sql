@@ -4,7 +4,7 @@ DECLARE colunas text[];
 BEGIN
   SELECT array_agg(column_name::text ORDER BY column_name) INTO colunas FROM information_schema.columns
     WHERE table_schema='public' AND table_name='assinatura_encerramentos';
-  IF colunas IS DISTINCT FROM ARRAY['acesso_pago_encerrado_em','cancelamento_provedor','chave_idempotencia','ciclo','cobranca_provedor_id','data_ativacao',
+  IF colunas IS DISTINCT FROM ARRAY['acesso_pago_encerrado_em','aviso_interno_situacao','cancelamento_provedor','chave_idempotencia','ciclo','cobranca_provedor_id','data_ativacao',
       'dias_ciclo','dias_utilizados','email_situacao','empresa_id','estorno_atualizado_em','estorno_concluido_em','estorno_modo','estorno_referencia',
       'estorno_situacao','estorno_status_provedor','forma_pagamento','id','inicio_ciclo','motivo','periodo_fim_anterior','prazo_processamento',
       'protocolo','provedor_assinatura_id','regra','situacao_anterior','solicitado_em','solicitado_por','tipo','valor_devolucao_centavos',

@@ -34,11 +34,12 @@ const DOWN = ler('database/rollback/20261021_089_assinatura_encerramentos_down.s
 const reconciliar = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
     executarCiclo: (o: Record<string, unknown>) => Promise<{ empresas: Record<string, number>; eventos: Record<string, number>; divergente: boolean; incompleto: boolean; alarme?: { itens: unknown[] }; pendentesConhecidos?: unknown[] }>;
     lerIdadesDosEventos: (c: unknown, ids: string[]) => Promise<unknown>;
+    lerPendenciasEncerramento: (c: unknown, instanteMs?: number | null) => Promise<{ item: string; resultado: string; motivo: string; recebidoMs: number }[]>;
     codigoDeSaida: (r: unknown, producao: boolean) => number;
 };
 
 const TOKEN = 'token-webhook-sintetico-de-teste-32+caracteres';
-const ENV = { ASAAS_AMBIENTE: 'sandbox', ASAAS_API_KEY: '$aact_hmlg_chave_sintetica_de_teste_sem_valor', ASAAS_WEBHOOK_TOKEN: TOKEN };
+const ENV = { ASAAS_AMBIENTE: 'sandbox', ASAAS_API_KEY: '$aact_hmlg_chave_sintetica_de_teste_sem_valor', ASAAS_WEBHOOK_TOKEN: TOKEN, SITE_ATENDIMENTO_EMAIL: 'plataforma@example.test' };
 const opt = () => process.env.KIDMAIS_POSTGRES_DESCARTAVEL === 'kidmais_pacotes_v1_descartavel';
 
 let client: Client;
@@ -93,6 +94,9 @@ const provedor = {
 
 const enviados: MensagemEmail[] = [];
 const enviarEmail = async (m: MensagemEmail) => { enviados.push(m); return { provedor: 'arquivo' as const, idExterno: null }; };
+const CANAL = 'plataforma@example.test';
+const paraGestao = () => enviados.filter((m) => m.para !== CANAL);
+const internos = () => enviados.filter((m) => m.para === CANAL);
 const tenant = () => ({ empresaComprovada: ids.atual, membershipId: 'm', usuarioId: ids.usuario, papelAtual: ids.papel ?? 'REPRESENTANTE_AUTORIZADO' });
 function depsDev(env: Record<string, string | undefined> = ENV): DepsDevolucao {
     return { withTenantTransaction: (_s, _e, t) => emTx(() => t(client as never, tenant())), withTransaction: (t) => emTx(() => t(client as never)), provedor: () => provedor, env, enviarEmail };
@@ -192,14 +196,20 @@ test('arrependimento em 7 dias (anual): integral, protocolo, período encerrado 
     assert.deepEqual([p.valor_pago_centavos, p.valor_devolucao_centavos, p.cobranca_provedor_id, p.forma_pagamento, p.regra, p.motivo, p.situacao_anterior],
         [397_000, 397_000, a.pagamento, 'PIX', 'L1-20261021', 'Desisti', 'ATIVA']);
     assert.equal((await q("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'ASSINATURA_ENCERRADA_COM_DEVOLUCAO' AND entidade_id = $1 AND dados_depois->>'protocolo' = $2", [a.empresaId, r.protocolo])).rows[0].n, 1);
-    assert.equal(enviados.length, 1);
-    assert.match(enviados[0].texto, new RegExp(r.protocolo));
-    assert.match(enviados[0].texto, /R\$\s?3\.970,00/);
-    assert.equal(enviados[0].idempotencia, `encerramento:${p.id}`);
+    assert.equal(paraGestao().length, 1);
+    assert.match(paraGestao()[0].texto, new RegExp(r.protocolo));
+    assert.match(paraGestao()[0].texto, /R\$\s?3\.970,00/);
+    assert.equal(paraGestao()[0].idempotencia, `encerramento:${p.id}`);
+    // P2-3: aviso interno imediato ao canal da plataforma, só com protocolo, tipo, valor, prazo e situação (sem dados do pagador).
+    assert.equal(internos().length, 1);
+    assert.match(internos()[0].texto, new RegExp(r.protocolo));
+    assert.match(internos()[0].assunto, /^\[AÇÃO HOJE\]/);
+    for (const proibido of [/Buffet/, /@example\.test/, /pay_|sub_|cus_/, /11222333000181/]) assert.doesNotMatch(internos()[0].texto, proibido);
+    assert.equal(p.aviso_interno_situacao, 'ENVIADO');
     // Repetição da mesma chave: o mesmo protocolo, sem novo DELETE, estorno ou e-mail.
     const remocoes = estado.remocoes;
     const de2 = await solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, chave, valorEsperadoCentavos: 397_000 }, ctx(), depsDev());
-    assert.deepEqual([de2.protocolo, de2.repetido, estado.remocoes, enviados.length], [r.protocolo, true, remocoes, 1]);
+    assert.deepEqual([de2.protocolo, de2.repetido, estado.remocoes, paraGestao().length], [r.protocolo, true, remocoes, 1]);
     // Outra chave: a empresa já está encerrada; nenhuma opção.
     await assert.rejects(solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, valorEsperadoCentavos: 397_000 }, ctx(), depsDev()), (e: { code?: string }) => e.code === 'CONFLITO');
     const depois = await consultarEncerramento(await sessao(), null, depsDev());
@@ -243,7 +253,7 @@ test('anual proporcional com a flag (Pix): valor sobre o pago, registro prévio 
     const valorE = calcularProporcional({ valorPagoCentavos: 197_000, inicioCiclo: dia(-30), dataPedido: hoje }).valorCentavos;
     const re = await solicitarEncerramento(await sessao(), null, { tipo: 'ENCERRAMENTO_ANUAL_PROPORCIONAL', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: valorE }, ctx(), depsDev(env));
     assert.deepEqual([re.estorno, estado.estornos.filter((x) => x.id === e.pagamento).length], ['AGUARDANDO_MANUAL', 0]);
-    assert.match(enviados.at(-1)!.texto, /boleto/);
+    assert.match(paraGestao().at(-1)!.texto, /boleto/);
 });
 
 test('mensal depois da garantia: sem devolução; cancelar ao fim do período devolve protocolo e e-mail', { skip: !opt() }, async () => {
@@ -251,15 +261,15 @@ test('mensal depois da garantia: sem devolução; cancelar ao fim do período de
     ids.c = c.empresaId; ids.atual = c.empresaId;
     const consulta = await consultarEncerramento(await sessao(), null, depsDev());
     assert.deepEqual(consulta.opcoes, { arrependimento: { disponivel: false, motivo: 'GARANTIA_ENCERRADA' }, anualProporcional: { disponivel: false, motivo: 'SOMENTE_ANUAL' } });
-    const antes = enviados.length;
+    const antes = paraGestao().length;
     const chave = randomUUID();
     const r = await cancelarAssinatura(await sessao(), null, { confirmar: true, motivo: 'Fim da temporada', chave }, ctx(), depsCob());
     assert.equal(r.situacao, 'CANCELADA_FIM_PERIODO');
     assert.match(r.protocolo ?? '', /^KM-/);
     const p = await pedido(r.protocolo!);
     assert.deepEqual([p.tipo, p.estorno_situacao, p.cancelamento_provedor, p.valor_devolucao_centavos, p.email_situacao], ['CANCELAMENTO_FIM_PERIODO', 'NAO_SE_APLICA', 'CONFIRMADO', null, 'ENVIADO']);
-    assert.equal(enviados.length, antes + 1);
-    assert.match(enviados.at(-1)!.texto, /não será renovada/);
+    assert.equal(paraGestao().length, antes + 1);
+    assert.match(paraGestao().at(-1)!.texto, /não será renovada/);
     assert.deepEqual(await nivel(c.empresaId), ['COMPLETO', 'CANCELADA_NO_PERIODO'], 'mensal: acesso até o fim do ciclo pago');
     const de2 = await cancelarAssinatura(await sessao(), null, { confirmar: true, chave }, ctx(), depsCob());
     assert.deepEqual([de2.protocolo, de2.repetido], [r.protocolo, true]);
@@ -332,4 +342,150 @@ test('guarda da 089: imutável, transições, conclusão manual com referência,
     await assert.rejects(q(DOWN), /089 rollback recusado: há pedidos/);
     await q('ROLLBACK').catch(() => undefined);
     assert.equal((await q("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0].ok, true);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revisão independente de 21/10/2026 (P2-1, P2-2, P2-3, P3): cenários acrescentados nesta rodada.
+
+/** Acrescenta uma cobrança paga à assinatura (renovação) e sincroniza. */
+async function renovar(empresaId: string, sub: string, vencimento: string, valorCentavos: number) {
+    const lista = estado.cobrancas.get(sub)!;
+    lista.push({ id: `pay_${sub}_${lista.length + 1}`, status: 'RECEIVED', dueDate: vencimento, paymentDate: vencimento, invoiceUrl: null, deleted: false, valorCentavos, billingType: 'PIX', assinaturaId: sub });
+    const r = await emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(r.resultado === 'SINCRONIZADA' && r.depois, 'ATIVA');
+    return `pay_${sub}_${lista.length}`;
+}
+const sincronizar = (empresaId: string) => emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor }, { tipo: 'RECONCILIACAO' }));
+
+test('P2-1: anual no 2º ano, proporcional sobre a renovação, remoção não confirmada e webhook do estorno: continua ENCERRADA', { skip: !opt() }, async () => {
+    const f = await empresaPagante('27418593000167', 'ANUAL', 397_000, dia(-367));
+    ids.atual = f.empresaId; ids.f = f.empresaId; ids.subF = f.sub;
+    const segunda = await renovar(f.empresaId, f.sub, dia(-2), 397_000);
+    // M11: a renovação (2ª cobrança paga) nunca tem a garantia de 7 dias, mesmo paga há 2 dias.
+    const c = await consultarEncerramento(await sessao(), null, depsDev());
+    assert.deepEqual(c.opcoes?.arrependimento, { disponivel: false, motivo: 'NAO_E_PRIMEIRA_ATIVACAO' });
+    await assert.rejects(solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, valorEsperadoCentavos: 397_000 }, ctx(), depsDev()),
+        (e: { code?: string; details?: { motivo?: string } }) => e.code === 'CONFLITO' && e.details?.motivo === 'NAO_E_PRIMEIRA_ATIVACAO');
+    const valor = calcularProporcional({ valorPagoCentavos: 397_000, inicioCiclo: dia(-2), dataPedido: hoje }).valorCentavos;
+    estado.remocao = 'perder';
+    const r = await solicitarEncerramento(await sessao(), null, { tipo: 'ENCERRAMENTO_ANUAL_PROPORCIONAL', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: valor }, ctx(), depsDev());
+    estado.remocao = 'normal';
+    assert.deepEqual([r.cancelamentoProvedor, r.valorDevolucaoCentavos, estado.assinaturas.get(f.sub)!.deleted], ['SEM_CONFIRMACAO', valor, false]);
+    assert.equal((await pedido(r.protocolo)).cobranca_provedor_id, segunda);
+    // Felipe estorna parcialmente no painel (a cobrança continua RECEIVED) e o webhook chega.
+    const reg = await emTx(() => registrarEvento(client as never, { eventoId: `evt_${randomUUID()}`, tipo: 'PAYMENT_PARTIALLY_REFUNDED', criadoNoProvedor: null, assinaturaId: f.sub, cobrancaId: segunda, checkoutId: null, referenciaExterna: f.empresaId }));
+    assert.equal((await emTx(() => processarEvento(client as never, reg.id, { provedor }))).situacao, 'PROCESSADO');
+    const s = await sincronizar(f.empresaId);
+    assert.equal(s.resultado === 'SINCRONIZADA' && s.mudou, false, 'a cobrança do 1º ano não reabre a empresa');
+    assert.equal((await linha(f.empresaId)).situacao, 'ENCERRADA');
+    assert.deepEqual(await nivel(f.empresaId), ['SOMENTE_LEITURA', 'ENCERRADA']);
+    // Só um pagamento NOVO (vencimento posterior) da mesma assinatura reativa.
+    const lista = estado.cobrancas.get(f.sub)!;
+    lista.push({ id: `pay_${f.sub}_novo`, status: 'RECEIVED', dueDate: dia(363), paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 397_000, billingType: 'PIX', assinaturaId: f.sub });
+    const reativada = await sincronizar(f.empresaId);
+    assert.equal(reativada.resultado === 'SINCRONIZADA' && reativada.depois, 'ATIVA', 'pagamento novo reativa');
+});
+
+test('P2-2: cancelar ao fim do período sem confirmação; a mesma chave refaz a remoção e responde a situação real; sincronização fecha o pedido antigo', { skip: !opt() }, async () => {
+    const g = await empresaPagante('33000167000101', 'MENSAL', 39_700, dia(-10));
+    ids.atual = g.empresaId; ids.g = g.empresaId;
+    const chave = randomUUID();
+    estado.remocao = 'perder';
+    const remocoes = estado.remocoes;
+    let protocolo = '';
+    await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true, chave }, ctx(), depsCob()),
+        (e: { code?: string; details?: { protocolo?: string } }) => { protocolo = e.details?.protocolo ?? ''; return e.code === 'COBRANCA_RESULTADO_INCERTO'; });
+    assert.match(protocolo, /^KM-/);
+    // Mesma chave, provedor ainda sem resposta: nova remoção, 503 de novo com o MESMO protocolo; nada é "cancelado".
+    await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true, chave }, ctx(), depsCob()),
+        (e: { code?: string; details?: { protocolo?: string } }) => e.code === 'COBRANCA_RESULTADO_INCERTO' && e.details?.protocolo === protocolo);
+    assert.equal(estado.remocoes - remocoes, 2, 'a repetição é uma tentativa efetiva');
+    assert.equal((await linha(g.empresaId)).situacao, 'ATIVA');
+    assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_encerramentos WHERE empresa_id = $1', [g.empresaId])).rows[0].n, 1, 'um pedido só');
+    assert.equal(internos().filter((m) => m.texto.includes(protocolo)).length, 1, 'aviso interno uma vez, no primeiro registro');
+    // Mesma chave com o provedor respondendo: remove, sincroniza e devolve a situação real com o mesmo protocolo.
+    estado.remocao = 'normal';
+    const ok = await cancelarAssinatura(await sessao(), null, { confirmar: true, chave }, ctx(), depsCob());
+    assert.deepEqual([ok.situacao, ok.protocolo, ok.repetido, estado.remocoes - remocoes], ['CANCELADA_FIM_PERIODO', protocolo, true, 3]);
+    assert.equal((await pedido(protocolo)).cancelamento_provedor, 'CONFIRMADO');
+    // Outra repetição: só lê (nenhum DELETE novo), com a situação gravada.
+    const ja = await cancelarAssinatura(await sessao(), null, { confirmar: true, chave }, ctx(), depsCob());
+    assert.deepEqual([ja.situacao, ja.protocolo, ja.repetido, estado.remocoes - remocoes], ['CANCELADA_FIM_PERIODO', protocolo, true, 3]);
+
+    // P3-8: pedido sem confirmação de OUTRA empresa fecha sozinho quando a releitura comprova a remoção (deleted=true).
+    const h = await empresaPagante('60701190000104', 'MENSAL', 39_700, dia(-5));
+    ids.atual = h.empresaId; ids.h = h.empresaId;
+    estado.remocao = 'perder';
+    let protH = '';
+    await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true, chave: randomUUID() }, ctx(), depsCob()),
+        (e: { details?: { protocolo?: string } }) => { protH = e.details?.protocolo ?? ''; return true; });
+    estado.remocao = 'normal';
+    estado.assinaturas.get(h.sub)!.deleted = true; // o Asaas tinha removido; a resposta é que se perdeu
+    const s = await sincronizar(h.empresaId);
+    assert.equal(s.resultado === 'SINCRONIZADA' && s.depois, 'CANCELADA_FIM_PERIODO');
+    assert.equal((await pedido(protH)).cancelamento_provedor, 'AUSENTE');
+    // A guarda aceita a conclusão manual de um estorno interrompido em EM_CURSO (P3-2).
+    const [e] = (await q("SELECT protocolo FROM assinatura_encerramentos WHERE empresa_id = $1", [ids.e])).rows;
+    await q("UPDATE assinatura_encerramentos SET estorno_situacao = 'EM_CURSO', estorno_modo = 'AUTOMATICO' WHERE protocolo = $1", [e.protocolo]);
+    await assert.rejects(q("UPDATE assinatura_encerramentos SET estorno_situacao = 'AGUARDANDO_MANUAL' WHERE protocolo = $1", [e.protocolo]), /transição do estorno inválida/);
+    await q("UPDATE assinatura_encerramentos SET estorno_situacao = 'CONCLUIDO', estorno_referencia = 'Painel Asaas: estorno conferido' WHERE protocolo = $1", [e.protocolo]);
+    assert.equal((await pedido(e.protocolo)).estorno_modo, 'AUTOMATICO');
+});
+
+test('P3-3 (M12/M13): garantia uma vez por empresa e nunca com oferta 074a confirmada por outro pagamento', { skip: !opt() }, async () => {
+    // M12: depois do arrependimento de A, uma nova assinatura paga não tem nova garantia (o proporcional continua).
+    ids.atual = ids.a;
+    const cliente = (await q('SELECT provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1', [ids.a])).rows[0].provedor_cliente_id;
+    const sub = `sub_dv_${++estado.seq}`;
+    estado.assinaturas.set(sub, { id: sub, status: 'ACTIVE', deleted: false, cycle: 'YEARLY', customer: cliente, externalReference: ids.a, valorCentavos: 397_000 });
+    estado.cobrancas.set(sub, [{ id: `pay_${sub}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 397_000, billingType: 'PIX', assinaturaId: sub }]);
+    await q('UPDATE empresa_assinaturas SET provedor_assinatura_id = $2 WHERE empresa_id = $1', [ids.a, sub]);
+    const s = await sincronizar(ids.a);
+    assert.equal(s.resultado === 'SINCRONIZADA' && s.depois, 'ATIVA', 'recontratação paga reativa (outra assinatura)');
+    const c = await consultarEncerramento(await sessao(), null, depsDev());
+    assert.deepEqual(c.opcoes?.arrependimento, { disponivel: false, motivo: 'NAO_E_PRIMEIRA_ATIVACAO' });
+    assert.ok(c.opcoes?.anualProporcional.disponivel);
+    // M13: oferta 074a CONFIRMADA por outro pagamento (contratação anterior) → a cobrança atual não é a primeira ativação.
+    const k = await empresaPagante('00360305000104', 'ANUAL', 397_000, hoje);
+    ids.atual = k.empresaId;
+    const contratacao = (await q(`INSERT INTO assinatura_contratacoes (empresa_id, chave_idempotencia, plano, ciclo, catalogo_versao, valor_regular_centavos, valor_final_centavos, criada_por)
+        VALUES ($1, gen_random_uuid(), 'PROFISSIONAL', 'ANUAL', 'teste-089', 397000, 397000, $2) RETURNING id`, [k.empresaId, ids.usuario])).rows[0].id;
+    await q(`UPDATE assinatura_contratacoes SET estado = 'CONFIRMADA', confirmada_em = clock_timestamp(), pagamento_confirmacao_id = 'pay_contratacao_anterior',
+        provedor_assinatura_id = 'sub_anterior' WHERE id = $1`, [contratacao]);
+    const ck = await consultarEncerramento(await sessao(), null, depsDev());
+    assert.deepEqual(ck.opcoes?.arrependimento, { disponivel: false, motivo: 'NAO_E_PRIMEIRA_ATIVACAO' });
+});
+
+test('P2-3: aviso interno sem canal fica NAO_CONFIGURADO; fila vencida entra na conferência D-C4 (e o recente não alarma)', { skip: !opt() }, async () => {
+    const m = await empresaPagante('07526557000100', 'ANUAL', 197_000, hoje, 'BOLETO');
+    ids.atual = m.empresaId;
+    const semCanal = { ...ENV, SITE_ATENDIMENTO_EMAIL: undefined };
+    const antes = internos().length;
+    const r = await solicitarEncerramento(await sessao(), null, { tipo: 'ARREPENDIMENTO_7_DIAS', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: 197_000 }, ctx(), depsDev(semCanal));
+    assert.equal(internos().length, antes, 'sem canal: nada enviado');
+    assert.equal((await pedido(r.protocolo)).aviso_interno_situacao, 'NAO_CONFIGURADO');
+    // Agora: tudo recente (< 1 h) ou concluído/confirmado → nenhum item; a conferência não alarma.
+    const agora = await reconciliar.lerPendenciasEncerramento(client);
+    assert.deepEqual(agora, [], JSON.stringify(agora));
+    // Daqui a 2 h: arrependimentos aguardando, renovações não removidas e o proporcional ainda no prazo (não entra).
+    const daqui = Date.now() + 2 * 3_600_000;
+    const vencidos = await reconciliar.lerPendenciasEncerramento(client, daqui);
+    const chaves = vencidos.map((x) => `${x.item}:${x.resultado}:${x.motivo}`).sort();
+    assert.ok(chaves.includes('DEVOLUCAO_PENDENTE:AGUARDANDO_MANUAL:ARREPENDIMENTO_7_DIAS'), chaves.join(','));
+    assert.ok(chaves.includes('RENOVACAO_NAO_REMOVIDA:SEM_CONFIRMACAO:ENCERRAMENTO_ANUAL_PROPORCIONAL'), chaves.join(','));
+    assert.ok(!chaves.some((x) => x.startsWith('DEVOLUCAO_PENDENTE') && x.endsWith('ENCERRAMENTO_ANUAL_PROPORCIONAL')), 'proporcional dentro de 5 dias úteis não alarma');
+    assert.ok(vencidos.every((x) => /^[A-Z0-9_]+$/.test(x.item + x.resultado + x.motivo) && Number.isFinite(x.recebidoMs)), 'só códigos e idade');
+    // Ciclo de produção completo com a fila: vencidos alarmam (NOVO), com contagem conferida; sem ids no relatório.
+    const sinc = await import('./sincronizacao.ts');
+    const rel = await reconciliar.executarCiclo({ client, provedor, aplicar: false, banco: 'kidmais_pacotes_v1_descartavel', sinc,
+        idadesDosEventos: reconciliar.lerIdadesDosEventos, pendenciasEncerramento: (c: unknown) => reconciliar.lerPendenciasEncerramento(c, daqui) }) as unknown as {
+        empresas: Record<string, number>; encerramentos: Record<string, number>; alarme: { itens: { item: string; aviso: string }[] } };
+    assert.deepEqual(Object.keys(rel.empresas), ['SEM_MUDANCA'], JSON.stringify(rel.empresas));
+    assert.ok(rel.alarme.itens.some((i) => i.item === 'DEVOLUCAO_PENDENTE' && i.aviso === 'NOVO'));
+    assert.equal(reconciliar.codigoDeSaida(rel, true), 2);
+    assert.doesNotMatch(JSON.stringify(rel), /KM-|pay_|sub_|[0-9a-f]{8}-[0-9a-f]{4}-/);
+    // Sem a fila vencida (agora): a mesma conferência sai 0.
+    const limpo = await reconciliar.executarCiclo({ client, provedor, aplicar: false, banco: 'kidmais_pacotes_v1_descartavel', sinc,
+        idadesDosEventos: reconciliar.lerIdadesDosEventos, pendenciasEncerramento: reconciliar.lerPendenciasEncerramento });
+    assert.equal(reconciliar.codigoDeSaida(limpo, true), 0, JSON.stringify(limpo));
 });

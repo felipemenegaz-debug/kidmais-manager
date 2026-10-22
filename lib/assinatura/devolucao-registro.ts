@@ -7,16 +7,46 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import type { EnviarEmail, MensagemEmail } from '../acessos/email.ts';
 import { gerarProtocolo, PROTOCOLO, type TipoPedido } from './devolucao-calculo.ts';
+import { canaisSuporte } from '../suporte/canais.ts';
 
 export async function encerramentosInstalados(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 
 /** Cobranças com pedido de devolução (089): nunca sustentam período pago na sincronização. Sem a 089: nenhuma. */
-export async function cobrancasDevolvidas(tx: DbExecutor, empresaId: string) {
-    if (!await encerramentosInstalados(tx)) return new Set<string>();
-    return new Set((await tx.query<{ id: string }>(
-        `SELECT cobranca_provedor_id AS id FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows.map((x) => x.id));
+export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string> };
+/**
+ * Cobranças com pedido de devolução (089) e, por assinatura do provedor, o vencimento da cobrança devolvida mais recente
+ * (`inicio_ciclo`). P2-1 da revisão de 21/10/2026: na assinatura que teve devolução, nenhuma cobrança com vencimento
+ * MENOR OU IGUAL a esse limite sustenta período (a renovação do 2º ano devolvida não deixa a do 1º ano reabrir a empresa);
+ * só um pagamento com vencimento posterior, ou de outra assinatura (recontratação), reativa. Sem a 089: nada.
+ */
+export async function cobrancasDevolvidas(tx: DbExecutor, empresaId: string): Promise<CobrancasDevolvidas> {
+    if (!await encerramentosInstalados(tx)) return { ids: new Set(), limites: new Map() };
+    const linhas = (await tx.query<{ id: string; assinatura: string; inicio: string }>(
+        `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
+           FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows;
+    const limites = new Map<string, string>();
+    for (const l of linhas)
+        if (!limites.has(l.assinatura) || limites.get(l.assinatura)! < l.inicio) limites.set(l.assinatura, l.inicio);
+    return { ids: new Set(linhas.map((l) => l.id)), limites };
+}
+/** Cobrança que não sustenta período na sincronização (ver cobrancasDevolvidas). */
+export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string, c: { id: string; dueDate: string }) => {
+    const limite = d.limites.get(assinaturaId);
+    return d.ids.has(c.id) || (limite !== undefined && c.dueDate <= limite);
+};
+
+/**
+ * P3-8: a releitura comprovou que a assinatura não existe mais (`deleted=true` lida por id): os pedidos desta empresa
+ * para ela que ainda esperavam a remoção (PENDENTE/SEM_CONFIRMACAO/RECUSADO) passam a AUSENTE (ausência comprovada, sem
+ * atribuir autoria). Sem a 089: nada.
+ */
+export async function registrarAusenciaNoProvedor(tx: DbExecutor, empresaId: string, assinaturaId: string) {
+    if (!await encerramentosInstalados(tx)) return 0;
+    return (await tx.query(`UPDATE assinatura_encerramentos SET cancelamento_provedor = 'AUSENTE'
+        WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2 AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')`,
+    [empresaId, assinaturaId])).rowCount ?? 0;
 }
 
 export type CancelamentoProvedor = 'PENDENTE' | 'CONFIRMADO' | 'AUSENTE' | 'JA_REMOVIDA' | 'SEM_CONFIRMACAO' | 'RECUSADO';
@@ -167,6 +197,67 @@ export async function enviarConfirmacao(deps: { enviarEmail?: EnviarEmail | null
     }
     catch (error) {
         console.error('[assinatura] situação do e-mail não gravada', error instanceof Error ? error.name : typeof error);
+    }
+    return situacao;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Aviso interno imediato à plataforma (P2-3): canal SITE_ATENDIMENTO_EMAIL, transporte do app, melhor esforço.
+
+/** Canal da plataforma para o aviso interno (o mesmo endereço validado da tela de suporte); null = não configurado. */
+export const canalDaPlataforma = (env: Record<string, string | undefined> = process.env) => canaisSuporte(env).email;
+
+export type DetalhesAviso = { formaPagamento: string | null; prazoArrependimento: boolean };
+/**
+ * Só o necessário para agir: protocolo, tipo, valor, prazo, meio de pagamento e situação no provedor. Sem nome da
+ * empresa, pessoa, e-mail, documento ou ids do provedor: o protocolo localiza o pedido na fila (doc §5).
+ */
+export function mensagemAvisoInterno(input: { para: string; pedido: PedidoResumo; detalhes: DetalhesAviso }): MensagemEmail {
+    const p = input.pedido;
+    const prazo = p.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'IMEDIATO (arrependimento: restituir hoje, sem taxas, e comunicar o intermediador)'
+        : p.prazoProcessamento ? `iniciar até ${dataBr(p.prazoProcessamento)} (5 dias úteis)` : 'sem devolução';
+    const linhas = [
+        `Novo pedido na tela Assinatura: ${TITULO_PEDIDO[p.tipo]}.`,
+        `Protocolo: ${p.protocolo}. Registrado em ${horaBr(p.solicitadoEm)} (Brasília).`,
+        p.valorDevolucaoCentavos ? `Valor a devolver: ${reais(p.valorDevolucaoCentavos)}. Meio de pagamento: ${input.detalhes.formaPagamento ?? 'não informado'}.` : 'Sem devolução (cancelamento da renovação).',
+        `Prazo: ${prazo}.`,
+        `Renovação no provedor: ${p.cancelamentoProvedor}. Estorno: ${p.estorno}.`,
+        'Processar pela fila de pedidos (docs/CANCELAMENTO_DEVOLUCAO_20261021.md, seção 5), localizando pelo protocolo.',
+    ];
+    const texto = linhas.join('\n\n');
+    const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${linhas.map((l) => `<p>${escapar(l)}</p>`).join('')}</div>`;
+    const urgente = p.tipo === 'ARREPENDIMENTO_7_DIAS' || (p.cancelamentoProvedor !== 'CONFIRMADO' && p.cancelamentoProvedor !== 'AUSENTE' && p.cancelamentoProvedor !== 'JA_REMOVIDA');
+    return { para: input.para, assunto: `${urgente ? '[AÇÃO HOJE] ' : ''}Kidmais Manager — pedido ${p.protocolo} (${TITULO_PEDIDO[p.tipo]})`, texto, html,
+        idempotencia: `encerramento-interno:${p.id}` };
+}
+
+export async function registrarAvisoInterno(tx: DbExecutor, empresaId: string, id: string, situacao: Exclude<SituacaoEmail, 'PENDENTE'>) {
+    await tx.query(`UPDATE assinatura_encerramentos SET aviso_interno_situacao = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
+        AND aviso_interno_situacao IN ('PENDENTE', 'FALHOU', 'NAO_CONFIGURADO') AND aviso_interno_situacao <> $3`, [id, empresaId, situacao]);
+}
+
+/** Aviso interno (melhor esforço; nunca desfaz o pedido). Canal ausente → NAO_CONFIGURADO gravado (a D-C4 continua cobrindo). */
+export async function enviarAvisoInterno(deps: { enviarEmail?: EnviarEmail | null; withTransaction: <T>(t: (tx: DbExecutor) => Promise<T>) => Promise<T>; env?: Record<string, string | undefined> },
+    empresaId: string, pedido: PedidoResumo, detalhes: DetalhesAviso): Promise<SituacaoEmail> {
+    if (!deps.enviarEmail) return 'PENDENTE';
+    const para = canalDaPlataforma(deps.env ?? process.env);
+    let situacao: Exclude<SituacaoEmail, 'PENDENTE'>;
+    if (!para) situacao = 'NAO_CONFIGURADO';
+    else {
+        try {
+            await deps.enviarEmail(mensagemAvisoInterno({ para, pedido, detalhes }));
+            situacao = 'ENVIADO';
+        }
+        catch (error) {
+            situacao = (error as { code?: string }).code === 'EMAIL_NAO_CONFIGURADO' ? 'NAO_CONFIGURADO' : 'FALHOU';
+        }
+    }
+    if (situacao !== 'ENVIADO') console.warn('[assinatura] aviso interno do pedido não enviado', situacao);
+    try {
+        await deps.withTransaction((tx) => registrarAvisoInterno(tx, empresaId, pedido.id, situacao));
+    }
+    catch (error) {
+        console.error('[assinatura] situação do aviso interno não gravada', error instanceof Error ? error.name : typeof error);
     }
     return situacao;
 }

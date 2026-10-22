@@ -69,3 +69,30 @@ test('089 (texto): aditiva, com guarda própria; o down recusa com dados; nenhum
     assert.match(down, /089 rollback recusado: há pedidos/);
     assert.doesNotMatch(down, /empresa_assinaturas/);
 });
+
+test('P2-1: na assinatura com devolução, cobrança devolvida ou com vencimento ≤ ao dela não sustenta período; outra assinatura e posterior sustentam', async () => {
+    const { cobrancaDevolvidaOuAnterior } = await import('./devolucao-registro.ts');
+    const d = { ids: new Set(['pay_2']), limites: new Map([['sub_1', '2027-11-10']]) };
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_2', dueDate: '2027-11-10' }), true);
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_1', dueDate: '2026-11-10' }), true, '1º ano não reabre');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_3', dueDate: '2028-11-10' }), false, 'pagamento novo reativa');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_2', { id: 'pay_9', dueDate: '2027-11-10' }), false, 'recontratação (outra assinatura)');
+    assert.equal(cobrancaDevolvidaOuAnterior({ ids: new Set(), limites: new Map() }, 'sub_1', { id: 'pay_1', dueDate: '2026-11-10' }), false);
+});
+
+test('P2-3: aviso interno só com protocolo, tipo, valor, prazo e situação; urgente no arrependimento e na renovação não removida', async () => {
+    const { mensagemAvisoInterno, canalDaPlataforma } = await import('./devolucao-registro.ts');
+    assert.equal(canalDaPlataforma({}), null);
+    assert.equal(canalDaPlataforma({ SITE_ATENDIMENTO_EMAIL: ' contato@demerzellabs.com.br ' }), 'contato@demerzellabs.com.br');
+    assert.equal(canalDaPlataforma({ SITE_ATENDIMENTO_EMAIL: 'a definir' }), null);
+    const m = mensagemAvisoInterno({ para: 'contato@exemplo.test', pedido: pedido(), detalhes: { formaPagamento: 'PIX', prazoArrependimento: false } });
+    assert.equal(m.assunto, 'Kidmais Manager — pedido KM-20261021-ABCDEFGH (Encerramento antecipado do plano anual (devolução proporcional))');
+    assert.match(m.texto, /R\$\s?2\.882,33\. Meio de pagamento: PIX/);
+    assert.match(m.texto, /iniciar até 28\/10\/2026/);
+    assert.equal(m.idempotencia, 'encerramento-interno:00000000-0000-4000-8000-000000000001');
+    const a = mensagemAvisoInterno({ para: 'x@exemplo.test', pedido: pedido({ tipo: 'ARREPENDIMENTO_7_DIAS' }), detalhes: { formaPagamento: 'CREDIT_CARD', prazoArrependimento: true } });
+    assert.match(a.assunto, /^\[AÇÃO HOJE\]/); assert.match(a.texto, /IMEDIATO/);
+    const r = mensagemAvisoInterno({ para: 'x@exemplo.test', pedido: pedido({ tipo: 'CANCELAMENTO_FIM_PERIODO', valorDevolucaoCentavos: null, cancelamentoProvedor: 'SEM_CONFIRMACAO' }), detalhes: { formaPagamento: null, prazoArrependimento: false } });
+    assert.match(r.assunto, /^\[AÇÃO HOJE\]/); assert.match(r.texto, /Renovação no provedor: SEM_CONFIRMACAO/);
+    for (const x of [m, a, r]) assert.doesNotMatch(x.texto, /@|pay_|sub_|cus_|Buffet/);
+});

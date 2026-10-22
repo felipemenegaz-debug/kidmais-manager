@@ -11,7 +11,8 @@
  *                           D. efeitos no provedor, cada um registrado no pedido: remoção da assinatura (sem repetir em
  *                           resultado desconhecido) e, só com ASSINATURA_ESTORNO_ATIVO=true e Pix/cartão, o estorno
  *                           (registro prévio EM_CURSO; resultado desconhecido → SEM_CONFIRMACAO, nunca repetido);
- *                           E. e-mail de confirmação (melhor esforço).
+ *                           E. e-mail de confirmação (melhor esforço); F. aviso interno imediato ao canal da plataforma
+ *                           (SITE_ATENDIMENTO_EMAIL), sem dados do pagador. A fila também entra na conferência D-C4.
  * Sem a flag (padrão), o estorno fica AGUARDANDO_MANUAL: Felipe processa no painel do Asaas e registra a conclusão
  * (docs/CANCELAMENTO_DEVOLUCAO_20261021.md). A sincronização ignora a cobrança devolvida (sincronizacao.ts), então nem o
  * webhook nem a reconciliação reabrem o período ou alarmam por causa dela.
@@ -28,7 +29,7 @@ import { removerComResultado } from './reconciliacao-contratacao.ts';
 import { auditarCobranca } from './sincronizacao-auditoria.ts';
 import { travarEmpresaComercial } from './ofertas.ts';
 import { dataBrasilia, opcoesDeEncerramento, REGRA_DEVOLUCAO, type Opcoes, type PagamentoBase, type TipoDevolucao } from './devolucao-calculo.ts';
-import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarConfirmacao, marcarEstornoEmCurso, mensagemConfirmacao,
+import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, marcarEstornoEmCurso, mensagemConfirmacao,
     pedidoPorChave, pedidosDaEmpresa, registrarPedido, registrarResultadoEstorno, type CancelamentoProvedor, type PedidoResumo, type SituacaoEstorno } from './devolucao-registro.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
@@ -287,5 +288,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
     if (n.para)
         pedido = { ...pedido, email: await enviarConfirmacao(deps, empresaId,
             mensagemConfirmacao({ para: n.para, empresa: n.local.nome, pedido, periodoFim: null, estornoAutomatico: pedido.estorno === 'SOLICITADO' }), pedido.id) };
+    // F. aviso interno imediato à plataforma (P2-3): protocolo, tipo, valor, prazo e situação no provedor.
+    await enviarAvisoInterno(deps, empresaId, pedido, { formaPagamento: n.forma, prazoArrependimento: tipo === 'ARREPENDIMENTO_7_DIAS' });
     return resposta(pedido, false, automatico);
 }

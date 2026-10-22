@@ -19,7 +19,10 @@
  * Devolução (089, L1 de 21/10/2026): a cobrança com pedido de devolução registrado (arrependimento ou encerramento
  * anual) não sustenta período pago. Ela sai da lista antes do cálculo: o estorno parcial mantém o status RECEIVED no
  * provedor e, sem isso, a releitura reabriria o período encerrado ou acusaria divergência da oferta (alarme falso na
- * reconciliação e na D-C4). A empresa encerrada continua ENCERRADA; só um pagamento NOVO a reativa.
+ * reconciliação e na D-C4). P2-1 (revisão de 21/10/2026): na mesma assinatura, também nenhuma cobrança com vencimento
+ * menor ou igual ao da devolvida sustenta período — o anual no 2º ano devolvido, com a remoção não confirmada, não volta
+ * a ATIVA pela cobrança do 1º ano. A empresa encerrada continua ENCERRADA; só um pagamento NOVO (vencimento posterior ou
+ * outra assinatura) a reativa. Releitura com `deleted=true` também fecha os pedidos que esperavam a remoção (AUSENTE).
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SituacaoAssinatura } from './acesso.ts';
@@ -30,7 +33,7 @@ import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './si
 import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, PREFIXO_REMOCAO_SEM_CONFIRMACAO, reconciliarContratacao, registrarRemocoes, TIPO_PENDENCIA,
     type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
-import { cobrancasDevolvidas } from './devolucao-registro.ts';
+import { cobrancaDevolvidaOuAnterior, cobrancasDevolvidas, registrarAusenciaNoProvedor } from './devolucao-registro.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -88,8 +91,10 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
         await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_RECUSADA', empresaId, origem, depois: { motivo: 'REFERENCIA_DIVERGENTE' } });
         return { resultado: 'RECUSADA', motivo: 'REFERENCIA_DIVERGENTE' };
     }
+    if (assinatura.deleted && assinatura.id === linha.provedor_assinatura_id)
+        await registrarAusenciaNoProvedor(tx, empresaId, assinatura.id);
     const devolvidas = await cobrancasDevolvidas(tx, empresaId);
-    const pagamentos = (assinatura ? await deps.provedor.listarCobrancasDaAssinatura(assinatura.id) : []).filter((p) => !devolvidas.has(p.id));
+    const pagamentos = (await deps.provedor.listarCobrancasDaAssinatura(assinatura.id)).filter((p) => !cobrancaDevolvidaOuAnterior(devolvidas, assinatura.id, p));
     const agora = await agoraDoBanco(tx);
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
     const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))

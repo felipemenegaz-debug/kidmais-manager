@@ -26,6 +26,14 @@
  * ALARME POR IDADE (D-C4, aprovada por Felipe em 20/10/2026; só na conferência de produção): a saída 2 vem só de item novo
  * ou de item cuja idade cai num dia de aviso (1, 3, 7 e depois a cada 7); os demais saem em `pendentesConhecidos`, sem
  * alarme. Regra, idades e janelas: classificarConferencia e docs/CRON_ASSINATURA_PRODUCAO_20261020.md §5a. Staging inalterado.
+ *
+ * PEDIDOS DE CANCELAMENTO E DEVOLUÇÃO (089, P2-3 da revisão de 21/10/2026): com a 089 instalada, a conferência lê a fila
+ * (somente leitura, sem ids nem dados pessoais) e cada pedido VENCIDO vira um item da mesma regra por idade:
+ *   - DEVOLUCAO_PENDENTE: estorno AGUARDANDO_MANUAL/EM_CURSO/SEM_CONFIRMACAO/RECUSADO depois do prazo (arrependimento:
+ *     1 h após o pedido; proporcional: fim do dia de prazo_processamento, Brasília);
+ *   - RENOVACAO_NAO_REMOVIDA: remoção da assinatura PENDENTE/SEM_CONFIRMACAO/RECUSADO há mais de 1 h (a renovação pode
+ *     continuar gerando cobrança no Asaas).
+ * A idade conta do vencimento do prazo (dia 0 = NOVO; 1, 3, 7 e semanais). Em staging o relatório só conta (`encerramentos`).
  */
 /** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
 const LIMITE_EVENTOS = 500;
@@ -185,7 +193,7 @@ function argumentos(argv) {
  * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
  * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
  */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos }) {
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
@@ -219,6 +227,14 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         conta(relatorio.empresas, chave);
         if (chave !== 'SEM_MUDANCA') itens.push({ item: 'EMPRESA', resultado: chave, motivo: r.motivo, recebidoMs: null });
     }
+    // 089: pedidos de cancelamento/devolução vencidos (fora das transações por item; só leitura).
+    if (pendenciasEncerramento) {
+        relatorio.encerramentos = {};
+        for (const p of await pendenciasEncerramento(client)) {
+            conta(relatorio.encerramentos, `${p.item}_${p.resultado}`);
+            itens.push({ item: p.item, resultado: p.resultado, motivo: p.motivo, recebidoMs: p.recebidoMs });
+        }
+    }
     // P2-2: a lista traz só os LIMITE_EVENTOS mais antigos; no limite, um evento novo pode ter ficado de fora → alarma.
     if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs, { listaNoLimite: ids.length >= LIMITE_EVENTOS }));
 
@@ -228,6 +244,23 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     relatorio.divergente = Object.values(relatorio.eventos).some((n) => n > 0)
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && k !== 'SEM_MUDANCA');
     return relatorio;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fila de pedidos de cancelamento e devolução (089) vencidos — somente leitura; `$1` fixa o instante (testes), padrão = relógio do banco.
+const SQL_PENDENCIAS_ENCERRAMENTO = `SELECT item, resultado, motivo, (extract(epoch FROM limite) * 1000)::float8 AS limite_ms FROM (
+    SELECT 'DEVOLUCAO_PENDENTE' AS item, estorno_situacao AS resultado, tipo AS motivo,
+           CASE WHEN tipo = 'ARREPENDIMENTO_7_DIAS' THEN solicitado_em + interval '1 hour'
+                ELSE ((prazo_processamento + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo') END AS limite
+      FROM assinatura_encerramentos WHERE estorno_situacao IN ('AGUARDANDO_MANUAL', 'EM_CURSO', 'SEM_CONFIRMACAO', 'RECUSADO')
+    UNION ALL
+    SELECT 'RENOVACAO_NAO_REMOVIDA', cancelamento_provedor, tipo, solicitado_em + interval '1 hour'
+      FROM assinatura_encerramentos WHERE cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')
+  ) x WHERE limite <= coalesce($1::timestamptz, clock_timestamp()) ORDER BY limite`;
+async function lerPendenciasEncerramento(client, instanteMs = null) {
+    if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
+    return (await client.query(SQL_PENDENCIAS_ENCERRAMENTO, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
+        .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) }));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -368,7 +401,7 @@ function codigoDeSaida(relatorio, producao) {
     if (relatorio.kidmais?.violada) return 2;
     if (producao && Array.isArray(relatorio.alarme?.itens) && Array.isArray(relatorio.pendentesConhecidos)) {
         const soma = (grupo, filtro = () => true) => Object.entries(grupo ?? {}).reduce((t, [k, n]) => t + (filtro(k) ? n : 0), 0);
-        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA');
+        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA') + soma(relatorio.encerramentos);
         const classificados = relatorio.alarme.itens.filter((i) => i.item !== ITEM_LISTA).length + relatorio.pendentesConhecidos.length;
         if (classificados !== total) return 2;
         return relatorio.alarme.itens.length > 0 ? 2 : 0;
@@ -410,7 +443,8 @@ async function main() {
         const transacaoIndependente = transacaoIndependenteDaExecucao(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS);
         // D-C4: só a conferência de produção classifica por idade; staging (simular/aplicar) segue sem classificação.
         const idadesDosEventos = alvo.producao ? lerIdadesDosEventos : undefined;
-        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente, idadesDosEventos });
+        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente, idadesDosEventos,
+            pendenciasEncerramento: lerPendenciasEncerramento });
         relatorio.kidmais = await conferirKidmais(client);
         // Staging: saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147) ou gratuidade violada.
         // Produção: gratuidade violada ou item em alarme pela regra D-C4 (codigoDeSaida).
@@ -432,4 +466,5 @@ if (require.main === module) {
 }
 
 module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
-    HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS };
+    HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
+    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO };
