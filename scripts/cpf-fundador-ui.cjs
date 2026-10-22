@@ -163,6 +163,34 @@ async function principal() {
     await page.screenshot({ path: path.join(relatorios, 'pf-assinatura.png'), fullPage: true });
     resultados.push('Assinatura PF: prazo da janela na tela; checkout interceptado com Essencial mensal Fundador R$ 118,20; nenhuma assinatura alterada');
     console.log('E2E_ASSINATURA_PF_OK');
+
+    // 3b. D3: oferta Fundador persistida (como o checkout grava, aqui direto no banco sintético) mostra o prazo de pagamento.
+    const empresaPf = e[0].id;
+    await client.query('BEGIN');
+    const camp = (await client.query("SELECT id FROM assinatura_campanhas WHERE codigo = 'fundador-ui'")).rows[0].id;
+    const fund = (await client.query("INSERT INTO assinatura_fundadores (empresa_id, documento_beneficiario, origem, campanha_id) VALUES ($1, $2, 'JANELA', $3) RETURNING id, to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY') AS ate", [empresaPf, doc, camp])).rows[0];
+    const gestor = (await client.query("SELECT id FROM usuarios_administrativos WHERE email = $1", [emailJo])).rows[0].id;
+    await client.query(`INSERT INTO assinatura_contratacoes (empresa_id, chave_idempotencia, plano, ciclo, catalogo_versao, valor_regular_centavos, desconto_percentual, valor_final_centavos, fundador_id, criada_por)
+      VALUES ($1, gen_random_uuid(), 'ESSENCIAL', 'MENSAL', '2026-10-20', 19700, 40, 11820, $2, $3)`, [empresaPf, fund.id, gestor]);
+    await client.query('COMMIT');
+    await page.goto(`${base}/admin/assinatura`);
+    await page.locator('[data-fundador-validade]').getByText(`pague até ${fund.ate} (horário de Brasília)`, { exact: false }).waitFor();
+    await page.screenshot({ path: path.join(relatorios, 'pf-validade.png'), fullPage: true });
+    resultados.push(`Prazo da reserva informado ao contratante: "pague até ${fund.ate} (horário de Brasília)" (7 dias da aceitação)`);
+    console.log('E2E_VALIDADE_OK');
+
+    // 3c. Perfil da empresa PF: cria o perfil e mostra CNPJ opcional (sem asterisco) e o rótulo de nome civil.
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    const criar = page.getByRole('button', { name: /Criar perfil da empresa|Confirmar senha e criar perfil/ });
+    await criar.waitFor();
+    await criar.click();
+    const campoSenha = page.getByLabel('Senha da sua conta');
+    if (await campoSenha.isVisible().catch(() => false)) { await campoSenha.fill(senha); await page.getByRole('button', { name: 'Confirmar senha e criar perfil' }).click(); }
+    await page.getByLabel('Razão social ou nome civil do titular (obrigatório ao aplicar)').waitFor();
+    assert.equal(await page.getByLabel('CNPJ', { exact: true }).count(), 1, 'CNPJ sem "(obrigatório ao aplicar)" para PF');
+    await page.screenshot({ path: path.join(relatorios, 'pf-perfil.png'), fullPage: true });
+    resultados.push('Perfil PF: CNPJ opcional ao aplicar; "Razão social ou nome civil do titular" obrigatório; CPF não vai para o Perfil');
+    console.log('E2E_PERFIL_PF_OK');
     await ctx1.close();
 
     // 4. Mesmo CPF por outra pessoa.

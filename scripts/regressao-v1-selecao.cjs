@@ -204,6 +204,8 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/campanha-090.postgres.test.ts": { descartavel: "089" },
   // 22/10/2026: CPF do contratante (091) e Fundador com CPF (090 aplicada pela própria suíte), sobre o modelo 089.
   "lib/assinatura/documento-091.postgres.test.ts": { descartavel: "089" },
+  // Aplicadores reais da 090 e da 091 (staging e produção) no modelo 089: conferência, privilégios/dono, parcial, falha real, preservação e anti-repetição.
+  "lib/assinatura/aplicador-090-091.postgres.test.ts": { descartavel: "089" },
   "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
