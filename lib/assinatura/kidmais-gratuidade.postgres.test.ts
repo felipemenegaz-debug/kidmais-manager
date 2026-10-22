@@ -92,10 +92,15 @@ test("o produto só cria assinatura no cadastro público e na operação explíc
   // Piloto (3348f80, 22/10/2026): operação explícita do painel do desenvolvedor, com senha recente e auditoria. Ela recusa
   // a Kidmais e a empresa isenta ANTES de chamar iniciarTeste (provado também em lib/desenvolvedor/comercial.postgres.test.ts).
   assert.deepEqual(chamadas, ["lib/cadastro/publico.ts", "lib/desenvolvedor/comercial.ts"]);
-  const piloto = readFileSync(join(raiz, "lib/desenvolvedor/comercial.ts"), "utf8");
-  const chamada = piloto.indexOf("iniciarTeste(tx");
+  // Revisão de 22/10/2026: as guardas precisam estar DENTRO do corpo da função que chama iniciarTeste, antes da chamada.
+  const fonte = readFileSync(join(raiz, "lib/desenvolvedor/comercial.ts"), "utf8");
+  const inicio = fonte.indexOf("async function iniciarTesteDaContratante(");
+  const chamada = fonte.indexOf("return iniciarTeste(tx", inicio);
+  assert.ok(inicio > 0 && chamada > inicio, "função do piloto e chamada localizadas");
+  assert.equal(fonte.split(/\biniciarTeste\(/).length - 1, 1, "uma única chamada a iniciarTeste no arquivo");
+  const corpo = fonte.slice(inicio, chamada);
   for (const guarda of ["empresa.codigo === 'kidmais'", "await empresaIsenta(tx, empresa.id)", "empresa.status !== 'ATIVA'"])
-    assert.ok(piloto.indexOf(guarda) > 0 && piloto.indexOf(guarda) < chamada, guarda);
+    assert.ok(corpo.includes(guarda), guarda);
 });
 
 test("conferência diária (scripts/assinatura-reconciliar.cjs): SQL real aprova a Kidmais e reprova uma assinatura criada para ela", async () => {

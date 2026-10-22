@@ -94,7 +94,13 @@ async function situacaoFundador(tx: DbExecutor, empresaId: string, travar: boole
         (estado = 'RESERVADA' OR beneficio_fim > clock_timestamp()) AS vigente
         FROM assinatura_fundadores WHERE empresa_id = $1::uuid AND estado <> 'LIBERADA'`, [empresaId])).rows[0];
     // Concessão existente (de qualquer origem) é retomada: não reinicia 12 meses nem ocupa vaga nova.
-    if (propria) return { ...base, id: propria.id, elegivel: propria.vigente, aguardando: false, origem: null, resumo: { fase: 'LEGADO' } };
+    if (propria) {
+        // Revisão de 22/10/2026: concessão própria também respeita a chave operacional da campanha ativada.
+        if (instalado090 && !campanhaFundadorLigada(env) && await lerCampanhaAtivada(tx))
+            return { ...base, id: null, elegivel: false, aguardando: false, origem: null, resumo: { fase: 'DESLIGADA' }, bloqueio: { codigo: 'CAMPANHA_DESLIGADA', status: 503,
+                mensagem: 'A contratação está temporariamente indisponível. Nenhuma cobrança foi criada.' } };
+        return { ...base, id: propria.id, elegivel: propria.vigente, aguardando: false, origem: null, resumo: { fase: 'LEGADO' } };
+    }
     const campanha = instalado090 ? await lerCampanhaAtivada(tx, travar) : null;
     if (!campanha) {
         const ocupacao = (await tx.query<{ confirmadas: number; ocupadas: number }>(`SELECT
@@ -233,6 +239,9 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         throw erroAcesso('TROCA_PLANO_NAO_DISPONIVEL', 'A assinatura existente mantém suas condições. A mudança de plano exige atendimento.', 409);
     const campanha = await situacaoFundador(tx, empresaId, true, env);
     if (campanha.bloqueio) throw erroAcesso(campanha.bloqueio.codigo, campanha.bloqueio.mensagem, campanha.bloqueio.status);
+    // D3: concessão própria reservada com a validade vencida não gera oferta nova com desconto (atendimento).
+    if (campanha.id && (await validadeDaConcessao(tx, campanha.id))?.vencida)
+        throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
     if (campanha.aguardando) throw erroAcesso('FUNDADOR_AGUARDANDO', 'As vagas Fundador estão em confirmação. Tente novamente mais tarde; nenhuma cobrança foi criada.', 409);
     const ciclo = pedido.ciclo === 'ANUAL' ? 'anual' : 'mensal';
     const valor = valorComercial(pedido.plano, ciclo, campanha.elegivel);

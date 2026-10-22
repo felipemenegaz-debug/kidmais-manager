@@ -469,4 +469,4 @@ if (require.main === module) {
 
 module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
-    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO };
+    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, motivoSeguro };
