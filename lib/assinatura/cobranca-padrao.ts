@@ -10,7 +10,7 @@ import { travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
 import type { DepsDevolucao } from './devolucao.ts';
 import { processarEvento } from './sincronizacao.ts';
 import { PRAZO_TRANSACAO_INDEPENDENTE_MS } from './reconciliacao-contratacao.ts';
-import { contaProvedor } from '../creditos/config.ts';
+import { contaProvedor, contaValida } from '../creditos/config.ts';
 import type { DepsCreditos } from '../creditos/compra.ts';
 import { consumirLimite } from '../autenticacao/service.ts';
 import { drenarNotificacoes } from '../creditos/notificacoes.ts';
@@ -44,8 +44,11 @@ export async function processarEventoAgendado(eventoInternoId: string) {
     const provedor = p.cliente;
     try {
         // O marcador de exclusão usa OUTRA conexão do pool (COMMIT próprio, antes do DELETE), com prazo do lado da aplicação.
+        // R4-P2-2: conta de créditos inválida não impede a assinatura; o evento de créditos fica FALHOU (CREDITOS_SEM_PROVEDOR).
+        const creditos = contaValida() ? { ambiente: p.config.ambiente, conta: contaProvedor() } : undefined;
+        if (!creditos) console.error('[creditos] CREDITOS_ASAAS_CONTA inválida: eventos de créditos não processados.');
         const r = await withTransaction((tx) => processarEvento(tx, eventoInternoId, { provedor, transacaoIndependente: transacaoIndependenteDaAplicacao,
-            creditos: { ambiente: p.config.ambiente, conta: contaProvedor() } }));
+            ...(creditos ? { creditos } : {}) }));
         if (r.situacao === 'FALHOU')
             console.warn('[Asaas webhook] evento não processado agora; fica FALHOU para nova tentativa.');
     }

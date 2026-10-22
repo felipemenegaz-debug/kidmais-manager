@@ -114,7 +114,8 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
     const titulo = TITULO[recurso];
     if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
     // WhatsApp.AI: o bloco sempre aparece; sem o Wall-e liberado para a empresa, só o aviso (sem saldo, pacotes ou pedidos).
-    const walleInativo = recurso === 'WALLE' && !(c.walleDisponivel && c.walle);
+    // R4-P3-2: liberado e ainda sem carteira (primeira compra) = ativo com saldo zero.
+    const walleInativo = recurso === 'WALLE' && !c.walleDisponivel;
 
     async function comprar() {
         if (!oferta || !c?.catalogo || enviando.current) return;
@@ -166,7 +167,8 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
             : <p data-saldo-legado>Convites: franquia mensal de {conv.legado.limiteMensal} gerações ({conv.legado.usadoNoMes} usadas neste mês).
                 {(conv.emVerificacao ?? 0) > 0 && ' Há uma geração em verificação.'}</p>)}
         {recurso === 'CONVITES' && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
-        {recurso === 'WALLE' && c.walle && <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />}
+        {recurso === 'WALLE' && !walleInativo && (c.walle ? <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />
+            : <p data-saldo="WALLE"><strong>WhatsApp.AI:</strong> <span data-disponivel>0</span> {UNIDADE.WALLE} disponíveis</p>)}
         {walleInativo && <p data-walle-inativo>O atendimento com IA (Wall-e) ainda não está ativo para a sua empresa. Os créditos do WhatsApp.AI ficam disponíveis quando ele for ativado.</p>}
         {!walleInativo && !c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
         {!walleInativo && !c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}

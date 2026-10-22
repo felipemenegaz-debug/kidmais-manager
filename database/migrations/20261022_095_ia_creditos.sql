@@ -219,6 +219,8 @@ CREATE TABLE ia_credito_cobrancas (
   revisao_motivo text CHECK (revisao_motivo IS NULL OR revisao_motivo ~ '^[A-Z0-9_]{1,60}$'),
   registrada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   atualizada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  -- R4-P2-1: última leitura do provedor pela reconciliação/webhook (cursor da varredura justa dos creditados).
+  conferida_em timestamptz,
   FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_empresa_uk UNIQUE (id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_pedido_cobranca_uk UNIQUE (id, empresa_id, pedido_id),

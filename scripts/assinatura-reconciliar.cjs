@@ -225,7 +225,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     const ids = await sinc.eventosPendentes(client, LIMITE_EVENTOS);
     const idades = idadesDosEventos ? await idadesDosEventos(client, ids) : null;
     for (const eventoId of ids) {
-        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente, ...(creditos ? { creditos: creditos.contexto } : {}) }));
+        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente, ...(creditos?.contexto ? { creditos: creditos.contexto } : {}) }));
         const chave = r.erro ? `ERRO_${r.erro}` : r.situacao;
         conta(relatorio.eventos, chave);
         const idade = idades?.eventos?.get(String(eventoId));
@@ -249,7 +249,10 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
     if (creditos && await creditos.instalados(client)) {
         relatorio.creditos = {};
         relatorio.creditosPedidos = {};
-        for (const pedidoId of await creditos.pedidos(client)) {
+        const selecao = creditos.contexto ? await creditos.pedidos(client) : { ids: [], truncado: false };
+        if (!creditos.contexto) conta(relatorio.creditos, 'CONFIG_CONTA_INVALIDA');
+        if (selecao.truncado) conta(relatorio.creditos, 'RECONCILIACAO_TRUNCADA');
+        for (const pedidoId of selecao.ids) {
             const r = await item(() => creditos.processar(client, pedidoId, provedorUsado));
             const chave = r.erro ? `ERRO_${r.erro}` : r.resultado;
             conta(relatorio.creditosPedidos, chave);
@@ -528,12 +531,15 @@ async function main() {
 async function creditosDaExecucao(config, env) {
     const pagamento = await import('../lib/creditos/pagamento.ts');
     const ledger = await import('../lib/creditos/ledger.ts');
-    const { contaProvedor } = await import('../lib/creditos/config.ts');
-    const contexto = { ambiente: config.ambiente, conta: contaProvedor(env) };
+    const { contaProvedor, contaValida } = await import('../lib/creditos/config.ts');
+    // R4-P2-2: conta inválida desliga só o processamento de créditos (eventos de créditos ficam FALHOU, item no relatório);
+    // o ciclo das assinaturas segue normalmente.
+    const contexto = contaValida(env) ? { ambiente: config.ambiente, conta: contaProvedor(env) } : null;
+    if (!contexto) console.error('[creditos] CREDITOS_ASAAS_CONTA inválida: créditos não processados nesta execução.');
     return {
         contexto,
         instalados: (c) => ledger.creditosInstalados(c),
-        pedidos: (c) => pagamento.pedidosParaReconciliar(c),
+        pedidos: (c) => pagamento.selecionarParaReconciliar(c, 200, config.ambiente),
         processar: (c, pedidoId, provedor) => pagamento.processarPedido(c, pedidoId, { provedor, ...contexto }),
         pendencias: (c) => lerPendenciasCreditos(c),
         divergencias: async (c) => {

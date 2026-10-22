@@ -76,10 +76,14 @@ async function main() {
         const estado = asaas.configuracaoAsaas(process.env);
         if (estado.ligado) {
             const pagamento = await import('../lib/creditos/pagamento.ts');
-            const { contaProvedor } = await import('../lib/creditos/config.ts');
-            const ctx = { provedor: asaas.criarClienteAsaas(estado.config), ambiente: estado.config.ambiente, conta: contaProvedor(process.env) };
+            const { contaProvedor, contaValida } = await import('../lib/creditos/config.ts');
             relatorio.pedidos = {};
-            for (const pedidoId of await pagamento.pedidosParaReconciliar(client)) {
+            // R4-P2-2: conta inválida pula só os pedidos (franquia/expiração acima já rodaram); R4-P2-1: seleção justa.
+            const ctx = contaValida(process.env) ? { provedor: asaas.criarClienteAsaas(estado.config), ambiente: estado.config.ambiente, conta: contaProvedor(process.env) } : null;
+            const selecao = ctx ? await pagamento.selecionarParaReconciliar(client, 200, estado.config.ambiente) : { ids: [], truncado: false };
+            if (!ctx) { relatorio.pedidos.CONFIG_CONTA_INVALIDA = 1; relatorio.falhas += 1; }
+            if (selecao.truncado) relatorio.pedidos.TRUNCADO = 1;
+            for (const pedidoId of selecao.ids) {
                 await client.query('BEGIN');
                 try {
                     const r = await pagamento.processarPedido(client, pedidoId, ctx);

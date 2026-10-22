@@ -16,7 +16,7 @@ import { abrirCarteira, conferirCarteira, creditarLote, creditosInstalados, ence
 import { aplicarCorte, simularCorte } from "./corte.ts";
 import { criarPedido, type DepsCreditos } from "./compra.ts";
 import { consultarCreditos } from "./servico.ts";
-import { processarEventoCreditos, processarPedido, pedidosParaReconciliar } from "./pagamento.ts";
+import { processarEventoCreditos, processarPedido, pedidosParaReconciliar, selecionarParaReconciliar } from "./pagamento.ts";
 import { concluirCobrancaExtra, reprocessarPedido, resolverBloqueio, resolverRevisao } from "./operacao.ts";
 import { createRequire } from "node:module";
 import { registrarDevolucao, solicitarDevolucao } from "./devolucao.ts";
@@ -307,6 +307,12 @@ test("095: corte do legado, guardas do extrato, FKs compostas, lote imutável e 
     const rw = (await q(`INSERT INTO ia_credito_reservas (empresa_id, recurso, operacao_id, quantidade) VALUES ($1::uuid, 'WALLE', 'op-w', 1) RETURNING id`, [S.A])).rows[0].id;
     await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 'WALLE', 1, 1)", [rw, loteA, S.A]), /ia_credito_reserva_lotes_lote_fk/);
     await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 'CONVITES', 1, 1)", [rw, loteA, S.A]), /ia_credito_reserva_lotes_reserva_fk/);
+    // R4-P3-1: a mesma FK com o nome esperado e o relacionamento errado (alocação → lote) reprova o postcheck.
+    await recusa(c, async () => {
+      await q("ALTER TABLE ia_credito_reserva_lotes DROP CONSTRAINT ia_credito_reserva_lotes_reserva_fk");
+      await q("ALTER TABLE ia_credito_reserva_lotes ADD CONSTRAINT ia_credito_reserva_lotes_reserva_fk FOREIGN KEY (lote_id, empresa_id, recurso) REFERENCES ia_credito_lotes(id, empresa_id, recurso)");
+      await q(POST);
+    }, /relacionamento errado/);
     await q("ROLLBACK");
     // A carteira só muda pelo extrato: conferência independente sem divergência.
     for (const e of [S.A, S.B, S.C]) assert.deepEqual(await conferirCarteira(tx, e, "CONVITES"), []);
@@ -895,6 +901,25 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.equal((await lerCarteira(tx, G, "CONVITES"))!.saldo, 10);
     await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: "de novo" }, ctx)), /PEDIDO_NAO_ESTA_EM_REVISAO/);
     assert.equal((await c.query("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0].n, 1);
+    // R4-P2-1: com o limite cheio de creditados, a pendência entra primeiro e os creditados rodam pelo cursor conferida_em
+    // (pedidos isolados no ambiente "producao" do dublê; os demais da suíte são "sandbox").
+    const depsProd = { ...deps(G, uG), provedor: () => ({ cliente: duble.cliente, ambiente: "producao" as const }) };
+    const ctxProd = { ...ctx, ambiente: "producao" as const };
+    const comprarProd = async () => {
+      const r = await criarPedido(sessao(uG), null, { oferta: "CONVITES_10", forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: "creditos-ia-20261022.demo" }, depsProd);
+      const p = (await c.query("SELECT p.id, c.pagamento_id FROM ia_credito_pedidos p JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica WHERE p.protocolo = $1", [r.protocolo])).rows[0];
+      return { id: p.id as string, pagamento: p.pagamento_id as string };
+    };
+    const a1 = await comprarProd(), a2 = await comprarProd();
+    for (const a of [a1, a2]) { duble.pagar(a.pagamento, "RECEIVED"); assert.equal((await emTx(c)((t2) => processarPedido(t2, a.id, ctxProd))).resultado, "CREDITADO"); }
+    const pend = await comprarProd();
+    const sel1 = await emTx(c)((t2) => selecionarParaReconciliar(t2, 2, "producao"));
+    assert.deepEqual(sel1, { ids: [pend.id, a1.id], truncado: true }, "pendência primeiro; creditado lido há mais tempo; sobrou um");
+    for (const id of sel1.ids) await emTx(c)((t2) => processarPedido(t2, id, ctxProd));
+    assert.deepEqual(await emTx(c)((t2) => selecionarParaReconciliar(t2, 2, "producao")), { ids: [pend.id, a2.id], truncado: true }, "o creditado lido vai para o fim da fila");
+    assert.ok(!(await emTx(c)((t2) => selecionarParaReconciliar(t2, 500, "sandbox"))).ids.includes(pend.id), "outro ambiente fica de fora");
+    duble.pagar(pend.pagamento, "RECEIVED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, pend.id, ctxProd))).resultado, "CREDITADO");
     // P3-2 (revisão de 22/10): creditado recente é relido pela reconciliação; leitura de outra conta do provedor não mexe em nada.
     assert.ok((await emTx(c)((t2) => pedidosParaReconciliar(t2))).includes(x.id), "creditado recente revisitado");
     assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, x.id, { ...ctx, conta: "outra-conta" })), { resultado: "SEM_MUDANCA", motivo: "CONTA_DIVERGENTE" });
@@ -988,6 +1013,34 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     duble.pagar(h.pagamento, "RECEIVED");
     await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
     assert.deepEqual(await loteH(), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "2ª favorável devolve tudo");
+
+    // R4-P2-3: disputa chega com TODO o pacote reservado (bloqueio inicial zero): a liberação fica retida pelo estado da
+    // cobrança (não volta ao saldo); favorável devolve; perdida com tudo reservado cancela o que for liberado depois.
+    const k = await comprar(Hh, uH);
+    duble.pagar(k.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, k.id, ctx));
+    const livreH = async () => { const w = (await lerCarteira(tx, Hh, "CONVITES"))!; return w.saldo - w.reservado - w.bloqueado; };
+    const loteK = async () => (await c.query("SELECT disponivel, reservado, bloqueado, cancelado FROM ia_credito_lotes WHERE pedido_id = $1::uuid", [k.id])).rows[0];
+    await emTx(c)((t2) => reservar(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "k-tudo-1", quantidade: 20, ator: "EQUIPE" }));
+    assert.equal((await loteK()).reservado, "10", "pacote k inteiro reservado");
+    duble.pagar(k.pagamento, "CHARGEBACK_REQUESTED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, k.id, ctx))).resultado, "DISPUTA");
+    assert.equal((await loteK()).bloqueado, "0", "nada disponível para bloquear na abertura");
+    await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "k-tudo-1", quantidadeFinal: 0, ator: "SISTEMA" }));
+    assert.deepEqual(await loteK(), { disponivel: "0", reservado: "0", bloqueado: "10", cancelado: "0" }, "liberado em disputa fica retido");
+    assert.equal(await livreH(), 10, "só o pacote h volta ao saldo");
+    duble.pagar(k.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, k.id, ctx));
+    assert.deepEqual(await loteK(), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "favorável devolve");
+    await emTx(c)((t2) => reservar(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "k-tudo-2", quantidade: 20, ator: "EQUIPE" }));
+    duble.pagar(k.pagamento, "CHARGEBACK_DISPUTE");
+    await emTx(c)((t2) => processarPedido(t2, k.id, ctx));
+    duble.pagar(k.pagamento, "REFUNDED");
+    await emTx(c)((t2) => processarPedido(t2, k.id, ctx));
+    assert.equal((await c.query("SELECT disputa FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [k.id])).rows[0].disputa, "PERDIDA");
+    await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "k-tudo-2", quantidadeFinal: 0, ator: "SISTEMA" }));
+    assert.deepEqual(await loteK(), { disponivel: "0", reservado: "0", bloqueado: "0", cancelado: "10" }, "perdida: liberado depois é cancelado");
+    assert.equal(await livreH(), 10, "o pacote h segue intacto");
 
     // P2-5: devolução própria (saldo não usado, estorno automático) concluída por estorno PARCIAL DONE com status RECEIVED.
     await c.query("BEGIN");

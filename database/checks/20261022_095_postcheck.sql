@@ -25,11 +25,20 @@ BEGIN
         AND array_length(conkey, 1) >= 2) < 9 THEN
     RAISE EXCEPTION '095 postcheck: chaves estrangeiras compostas por empresa ausentes';
   END IF;
-  -- P3-1: as amarras de recurso e de pedido, pelos nomes e com as colunas certas.
-  IF (SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND convalidated AND conname IN (
-        'ia_credito_lotes_pedido_fk', 'ia_credito_reserva_lotes_reserva_fk', 'ia_credito_reserva_lotes_lote_fk',
-        'ia_credito_devolucoes_cobranca_fk', 'ia_credito_devolucoes_lote_fk') AND array_length(conkey, 1) = 3) <> 5 THEN
-    RAISE EXCEPTION '095 postcheck: amarras de recurso/pedido ausentes';
+  -- P3-1/R4-P3-1: as amarras de recurso e de pedido pelo catálogo — nome, tabela de origem e de destino e o par ordenado de
+  -- colunas (uma FK com o nome certo e o relacionamento errado não passa).
+  IF (SELECT count(*) FROM (
+        SELECT k.conname, k.conrelid::regclass::text AS origem, k.confrelid::regclass::text AS destino,
+               (SELECT string_agg(a.attname || '>' || b.attname, ',' ORDER BY x.ord) FROM unnest(k.conkey, k.confkey) WITH ORDINALITY AS x(o, d, ord)
+                  JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = x.o JOIN pg_attribute b ON b.attrelid = k.confrelid AND b.attnum = x.d) AS pares
+          FROM pg_constraint k WHERE k.contype = 'f' AND k.convalidated) f
+       WHERE (f.conname, f.origem, f.destino, f.pares) IN (
+        ('ia_credito_lotes_pedido_fk', 'ia_credito_lotes', 'ia_credito_pedidos', 'pedido_id>id,empresa_id>empresa_id,recurso>recurso'),
+        ('ia_credito_reserva_lotes_reserva_fk', 'ia_credito_reserva_lotes', 'ia_credito_reservas', 'reserva_id>id,empresa_id>empresa_id,recurso>recurso'),
+        ('ia_credito_reserva_lotes_lote_fk', 'ia_credito_reserva_lotes', 'ia_credito_lotes', 'lote_id>id,empresa_id>empresa_id,recurso>recurso'),
+        ('ia_credito_devolucoes_cobranca_fk', 'ia_credito_devolucoes', 'ia_credito_cobrancas', 'cobranca_id>id,empresa_id>empresa_id,pedido_id>pedido_id'),
+        ('ia_credito_devolucoes_lote_fk', 'ia_credito_devolucoes', 'ia_credito_lotes', 'lote_id>id,empresa_id>empresa_id,pedido_id>pedido_id'))) <> 5 THEN
+    RAISE EXCEPTION '095 postcheck: amarras de recurso/pedido ausentes ou com relacionamento errado';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = 'public.ia_credito_cobrancas_canonica_uk'::regclass AND indisvalid AND indisunique)
     OR NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = 'public.ia_credito_lotes_pedido_uk'::regclass AND indisvalid AND indisunique)

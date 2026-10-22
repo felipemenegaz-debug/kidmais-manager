@@ -10,7 +10,7 @@ import { registrarDevolucao } from '../creditos/devolucao.ts';
 import { simularCorte } from '../creditos/corte.ts';
 import { concluirCobrancaExtra, OperacaoRecusada, reprocessarPedido, resolverBloqueio, resolverRevisao } from '../creditos/operacao.ts';
 import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
-import { contaProvedor } from '../creditos/config.ts';
+import { contaProvedor, contaValida } from '../creditos/config.ts';
 import type { ContextoProvedor } from '../creditos/pagamento.ts';
 
 /**
@@ -43,7 +43,7 @@ const operacaoSchema = z.discriminatedUnion('acao', [
 export type ProvedorOperacao = () => ContextoProvedor | null;
 const provedorPadrao: ProvedorOperacao = () => {
     const p = clienteAsaasDoAmbiente();
-    return p.cliente ? { provedor: p.cliente, ambiente: p.config.ambiente, conta: contaProvedor() } : null;
+    return p.cliente && contaValida() ? { provedor: p.cliente, ambiente: p.config.ambiente, conta: contaProvedor() } : null;
 };
 
 export async function filaCreditos(sessao: SessaoAdmin, deps: PainelDeps = painelDepsPadrao) {

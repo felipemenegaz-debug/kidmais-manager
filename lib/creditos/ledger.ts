@@ -106,7 +106,15 @@ export async function creditarLote(tx: DbExecutor, l: NovoLote): Promise<{ loteI
 type LinhaLote = { id: string; origem: Origem; disponivel: string; reservado: string; vence_ms: string; vencido: boolean; cancelado_definitivo: boolean; em_bloqueio: boolean };
 async function lotesTravados(tx: DbExecutor, empresaId: string, recurso: Recurso, ids?: readonly string[]) {
     return (await tx.query<LinhaLote>(`SELECT l.id, l.origem, l.disponivel, l.reservado, (extract(epoch FROM l.vence_em) * 1000)::bigint AS vence_ms,
-            l.vence_em <= clock_timestamp() AS vencido, (l.cancelado > 0) AS cancelado_definitivo, (l.bloqueado > 0) AS em_bloqueio
+            l.vence_em <= clock_timestamp() AS vencido,
+            -- R4-P2-3: perda confirmada pelo ESTADO (devolução registrada, disputa perdida, estorno total externo), não pela
+            -- quantidade já cancelada — com tudo reservado no momento da perda, nada foi cancelado e mesmo assim é perda.
+            (l.cancelado > 0 OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.lote_id = l.id AND d.empresa_id = l.empresa_id)
+              OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
+                AND (c.disputa = 'PERDIDA' OR c.revisao_motivo = 'ESTORNO_SEM_PEDIDO'))) AS cancelado_definitivo,
+            -- R4-P2-3: retenção pelo ESTADO (disputa aberta, estorno externo parcial em análise), mesmo com bloqueio inicial zero.
+            (l.bloqueado > 0 OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
+                AND (c.disputa = 'ABERTA' OR c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'))) AS em_bloqueio
         FROM ia_credito_lotes l WHERE l.empresa_id = $1::uuid AND l.recurso = $2 AND ${ids ? 'l.id = ANY($3::uuid[])' : '(l.disponivel > 0 AND l.vence_em > clock_timestamp())'}
         ORDER BY l.vence_em, l.id FOR UPDATE`, ids ? [empresaId, recurso, ids] : [empresaId, recurso])).rows;
 }

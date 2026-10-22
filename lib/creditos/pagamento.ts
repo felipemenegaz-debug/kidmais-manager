@@ -205,6 +205,8 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
         if (!c) return { resultado: 'REVISAO', motivo: 'VINCULO_DIVERGENTE' };
     }
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
+    // R4-P2-1: marca a leitura (cursor da varredura dos creditados), mesmo quando nada muda.
+    await tx.query('UPDATE ia_credito_cobrancas SET conferida_em = clock_timestamp() WHERE id = $1::uuid', [c.id]);
     const cliente = await clienteDaEmpresa(tx, p.empresa_id);
     const decisao = decidirPagamento(lido && { id: lido.id, status: lido.status, valorCentavos: lido.valorCentavos ?? null, clienteId: lido.clienteId ?? null,
         externalReference: lido.externalReference ?? null, billingType: lido.billingType ?? null, deleted: lido.deleted },
@@ -284,17 +286,34 @@ export async function processarEventoCreditos(tx: DbExecutor, ev: EventoCreditos
     return processarPedido(tx, alvo.pedidoId, ctx);
 }
 
-/** Pedidos que a reconciliação revisita (abertos, ou creditados com cobrança em disputa/estorno não concluído). */
-export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200) {
-    return (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'AGUARDANDO_PAGAMENTO', 'VENCIDO', 'REVISAO')
+/**
+ * Pedidos que a reconciliação revisita. R4-P2-1 (revisão de 22/10): duas filas com cota — as PENDÊNCIAS (abertos, em
+ * revisão, disputa/estorno/devolução em curso, encerrados recentes) vêm primeiro, pelo mais antigo; os CREDITADOS dos
+ * últimos 90 dias entram pela leitura mais antiga (`conferida_em`, nunca lidos primeiro), com pelo menos 1/4 do limite
+ * quando houver. Cada leitura move o cursor, então todos avançam entre execuções. `truncado` = sobrou alguém para a
+ * próxima execução. `ambiente` restringe aos pedidos do ambiente do provedor em uso.
+ */
+export async function selecionarParaReconciliar(tx: DbExecutor, limite = 200, ambiente: 'sandbox' | 'producao' | null = null) {
+    const pendentes = (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p WHERE ($2::text IS NULL OR p.ambiente = $2) AND (
+        p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'AGUARDANDO_PAGAMENTO', 'VENCIDO', 'REVISAO')
         OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND (c.disputa = 'ABERTA'))
         OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.pedido_id = p.id AND d.estado IN ('EM_CURSO', 'SOLICITADO', 'SEM_CONFIRMACAO'))
-        -- P3-2: creditado há até 90 dias é relido (estorno total feito no painel com o webhook perdido cancela o remanescente).
-        OR (p.estado = 'CREDITADO' AND p.creditado_em > clock_timestamp() - interval '90 days')
         -- P2-2: cobrança cancelada há até 90 dias ainda pode ser paga (Pix já aberto, boleto impresso).
         OR (p.estado = 'ENCERRADO' AND p.creditado_em IS NULL AND p.atualizado_em > clock_timestamp() - interval '90 days'
-            AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica))
-        ORDER BY p.criado_em LIMIT $1`, [limite])).rows.map((r) => r.id);
+            AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica)))
+        ORDER BY p.criado_em LIMIT $1`, [limite + 1, ambiente])).rows.map((r) => r.id);
+    // P3-2: creditado há até 90 dias é relido (estorno total feito no painel com o webhook perdido cancela o remanescente).
+    const creditados = (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica
+        WHERE ($2::text IS NULL OR p.ambiente = $2) AND p.estado = 'CREDITADO' AND p.creditado_em > clock_timestamp() - interval '90 days'
+        ORDER BY c.conferida_em NULLS FIRST, p.criado_em LIMIT $1`, [limite + 1, ambiente])).rows.map((r) => r.id)
+        .filter((id) => !pendentes.includes(id));
+    const cotaCreditados = Math.min(creditados.length, Math.ceil(limite / 4));
+    const dePendentes = pendentes.slice(0, limite - cotaCreditados);
+    const deCreditados = creditados.slice(0, limite - dePendentes.length);
+    return { ids: [...dePendentes, ...deCreditados], truncado: pendentes.length + creditados.length > dePendentes.length + deCreditados.length };
+}
+export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200, ambiente: 'sandbox' | 'producao' | null = null) {
+    return (await selecionarParaReconciliar(tx, limite, ambiente)).ids;
 }
 
 /**
