@@ -28,7 +28,7 @@ services:
       - key: DATABASE_SSL_REJECT_UNAUTHORIZED
         value: "false"
       - key: DATABASE_POOL_MAX
-        value: "30"
+        value: "20"
       - key: DATABASE_IDLE_TIMEOUT_MS
         value: "30000"
       - key: DATABASE_CONNECTION_TIMEOUT_MS

@@ -56,7 +56,7 @@ O login passa a ter três fases. Nenhuma conexão fica presa durante o scrypt.
 
 - Padrão `max` **30**, espera **10 s** (antes 5 s), ociosa 30 s. O `max` tem teto de 40 no código, e um valor inválido no ambiente cai no padrão (`opcoesDoPool`).
 - Conta das conexões. Os dois Postgres do Render estão no plano `0.1c-256mb` (lido só em metadados em 22/10). Nesse plano o limite é de ~100 conexões, com algumas reservadas ao superusuário (tutorial "connection limits" do Render). No deploy sem interrupção, a instância antiga e a nova coexistem: 2 × 30 = 60. Sobram ~35 para os crons (3 conexões cada), migrations, psql e o monitoramento do Render.
-- **Atenção: no Render vale a variável de ambiente.** `render.yaml` (staging) e o env de produção definem `DATABASE_POOL_MAX=10` e `DATABASE_CONNECTION_TIMEOUT_MS=5000`. O `render.yaml` local passou a 30/10000, mas **nada foi aplicado**. Trocar o env nos serviços exige autorização de Felipe e reinicia o serviço.
+- **Atenção: no Render vale a variável de ambiente.** `render.yaml` (staging) e o env de produção definem `DATABASE_POOL_MAX=10` e `DATABASE_CONNECTION_TIMEOUT_MS=5000`. O `render.yaml` local (staging) passou a 20/10000 — 20 primeiro, por decisão de Felipe em 22/10 (gate G2), antes de considerar 30 —, mas **nada foi aplicado**. Trocar o env nos serviços exige autorização de Felipe e reinicia o serviço.
 - **O pool não substitui CPU.** Com a CPU saturada (0,5 CPU, scrypt de ~128 MiB e CPU alta), mais conexões só mudam a espera de lugar, do pool para o processador. A correção do login tira o scrypt de dentro da conexão, e isso resolve o esgotamento causado pelo login. A latência com 40–50 pessoas ativas continua dependendo da CPU. O upgrade do plano é decisão separada de Felipe.
 
 ## Logs do 500 (X-3)
