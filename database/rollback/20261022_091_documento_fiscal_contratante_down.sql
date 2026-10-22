@@ -11,7 +11,10 @@ BEGIN
   -- Todos os objetos da 091 presentes; estado parcial é recusado com motivo explícito, antes de qualquer DROP.
   IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NULL OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL
      OR to_regclass('public.empresa_documento_continuidades') IS NULL OR to_regprocedure('public.kidmais_091_continuidade_guarda()') IS NULL
-     OR (SELECT count(*) FROM pg_trigger WHERE tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento')) <> 2 THEN
+     OR to_regclass('public.empresa_doc_continuidades_documento_uk') IS NULL OR to_regclass('public.empresa_doc_continuidades_pendente_uk') IS NULL
+     OR to_regclass('public.empresa_doc_continuidades_empresa_idx') IS NULL
+     OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento',
+           'empresa_documento_continuidades_091_guarda')) <> 3 THEN
     RAISE EXCEPTION '091 rollback recusado: migration ausente ou parcial.';
   END IF;
 END $$;

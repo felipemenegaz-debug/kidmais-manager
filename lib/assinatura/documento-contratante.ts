@@ -68,6 +68,25 @@ export async function documentoVigente(tx: DbExecutor, empresaId: string, docume
     return { documento: c?.documento_novo ?? documentoTeste, pendente: c?.situacao === 'PENDENTE_PROVEDOR' };
 }
 
+/**
+ * Empresa que já usa o documento: ficha administrativa, documento do teste, beneficiário Fundador ou QUALQUER ponto da
+ * cadeia de continuidades (anterior ou novo; revisão de 22/10/2026, P2-2: um documento intermediário retificado não fica
+ * livre por ter deixado de ser o último). `exceto`: a própria empresa (edição). Chamar sob travarDocumento.
+ * Devolve null se livre; { empresaId } (pode ser null para registros sem empresa) se já vinculado.
+ */
+export async function documentoVinculado(tx: DbExecutor, numero: string, exceto: string | null = null): Promise<{ empresaId: string | null } | null> {
+    const cadeia = await continuidadeInstalada(tx)
+        ? 'UNION ALL SELECT empresa_id FROM empresa_documento_continuidades WHERE documento_novo = $1 OR documento_anterior = $1' : '';
+    const assinaturas = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS ok")).rows[0]?.ok === true;
+    const fundadores = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_fundadores') IS NOT NULL AS ok")).rows[0]?.ok === true;
+    const r = (await tx.query<{ empresa_id: string | null }>(`SELECT empresa_id::text FROM (
+            SELECT empresa_id FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1
+            ${assinaturas ? 'UNION ALL SELECT empresa_id FROM empresa_assinaturas WHERE documento_teste = $1' : ''}
+            ${fundadores ? 'UNION ALL SELECT empresa_id FROM assinatura_fundadores WHERE documento_beneficiario = $1' : ''}
+            ${cadeia}) d WHERE $2::uuid IS NULL OR empresa_id IS DISTINCT FROM $2::uuid LIMIT 1`, [numero, exceto])).rows[0];
+    return r ? { empresaId: r.empresa_id } : null;
+}
+
 /** Trava do documento (antes de conferir duplicidade), igual no cadastro público, no painel e no teste. */
 export async function travarDocumento(tx: DbExecutor, numero: string) {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:cnpj:' || $1))", [numero]);

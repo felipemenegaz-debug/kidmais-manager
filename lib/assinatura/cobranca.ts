@@ -252,6 +252,9 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         let clienteId = a.linha.provedor_cliente_id;
         if (!clienteId) {
             const existente = await provedor.buscarClientePorReferencia(empresaId);
+            // Cliente achado por referência (criado antes e não vinculado): só é reaproveitado com o documento vigente.
+            if (existente && existente.cpfCnpj && a.cliente.documento && existente.cpfCnpj !== a.cliente.documento)
+                throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O cadastro no provedor usa outro CPF ou CNPJ. A conferência é feita pelo atendimento antes de contratar.', 409);
             if (existente)
                 clienteId = existente.id;
             else {
@@ -356,6 +359,10 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
             if (linha.provedor_cliente_id && b.clienteId && linha.provedor_cliente_id !== b.clienteId)
                 throw erroAcesso('CONFLITO', 'O cadastro no provedor mudou durante a operação. Atualize a página e tente de novo.', 409);
+            // D5: a identidade usada no provedor ainda é a vigente (defesa além da trava de contratação).
+            const vigente = await documentoVigente(tx, empresaId, linha.documento_teste);
+            if (vigente.pendente || (a.cliente.documento !== null && vigente.documento !== a.cliente.documento))
+                throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O documento da contratante mudou durante a operação. A conferência é feita pelo atendimento.', 409);
             if (linha.provedor_assinatura_id && linha.provedor_assinatura_id !== b.assinatura.id) {
                 if (linha.provedor_assinatura_id !== a.linha.provedor_assinatura_id)
                     throw erroAcesso('CONFLITO', 'Outra contratação foi iniciada ao mesmo tempo. Atualize a página.', 409);

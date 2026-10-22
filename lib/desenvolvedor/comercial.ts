@@ -9,7 +9,7 @@ import { empresaIsenta } from '../assinatura/ofertas.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
-import { exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
+import { documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { concluirContinuidade, continuidadesDaEmpresa, registrarContinuidade } from './continuidade.ts';
 
 /**
@@ -102,6 +102,8 @@ async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; 
         throw erroAcesso('DADOS_INVALIDOS', 'Cadastre o CPF ou CNPJ da contratante na ficha antes de iniciar o teste.', 400, { campo: 'documentoFiscal' });
     exigirNomeCivil(documento, cadastro?.nome_empresarial);
     await travarDocumento(tx, documento);
+    if (await documentoVinculado(tx, documento, empresa.id))
+        throw erroAcesso('CONFLITO', 'Este documento já está vinculado a outra contratante (inclusive em continuidade de documento).', 409, { campo: 'documentoFiscal' });
     return iniciarTeste(tx, { empresaId: empresa.id, documento, dias, env });
 }
 

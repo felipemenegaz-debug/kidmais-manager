@@ -7,7 +7,7 @@ import { marcarAtor } from '../autenticacao/usuarios.ts';
 import { nomePapelSistema } from '../autenticacao/papeis.ts';
 import { erroAcesso, isAcessoServiceError, violacaoUnica } from '../acessos/erros.ts';
 import { CODIGO_EMPRESA, emailObrigatorio, mascararEmail, nomeObrigatorio, normalizarDocumentoFiscal, normalizarTelefone, observacoes, sugerirCodigoEmpresa, textoOpcional } from '../acessos/validacao.ts';
-import { documentoVigente, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
+import { documentoVigente, documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { criarConviteNaTransacao, enviarConvite, listarConvitesDaEmpresa, type ResultadoEnvioConvite } from '../acessos/convites.ts';
 import { criarEnviarEmail, situacaoEmail, type EnviarEmail } from '../acessos/email.ts';
 import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
@@ -241,8 +241,7 @@ async function conflitosProvisionamento(tx: DbExecutor, d: DadosProvisionamento)
         conflitos.push('Já existe empresa com este código.');
     // Mesma trava e mesma conferência do cadastro público: painel × cadastro público terminam numa única contratante.
     if (d.documentoFiscal) await travarDocumento(tx, d.documentoFiscal);
-    if (d.documentoFiscal && ((await tx.query('SELECT 1 FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1', [d.documentoFiscal])).rows.length
-        || (await assinaturasInstaladas(tx) && (await tx.query('SELECT 1 FROM empresa_assinaturas WHERE documento_teste = $1', [d.documentoFiscal])).rows.length)))
+    if (d.documentoFiscal && await documentoVinculado(tx, d.documentoFiscal))
         conflitos.push('Já existe contratante com este documento.');
     let interessada: { id: string; nome: string; status: string } | null = null;
     if (d.interessadaId) {
@@ -381,7 +380,12 @@ export async function atualizarCadastroEmpresa(sessao: SessaoAdmin, id: string, 
             await exigirDesenvolvedorNaTransacao(tx, sessao);
             const atual = await empresaTravada(tx, empresaId);
             if ((dados.documentoFiscal ?? null) !== (atual.documento_fiscal ?? null)) {
-                if (dados.documentoFiscal) await travarDocumento(tx, dados.documentoFiscal);
+                if (dados.documentoFiscal) {
+                    await travarDocumento(tx, dados.documentoFiscal);
+                    // Documento de outra contratante (ficha, teste, Fundador ou cadeia de continuidades): recusa (P2-2).
+                    if (await documentoVinculado(tx, dados.documentoFiscal, empresaId))
+                        throw erroAcesso('CONFLITO', 'Já existe contratante com este documento.', 409, { campo: 'documentoFiscal' });
+                }
                 // Depois do teste, a identidade fiscal é o par titular + documento VIGENTE (o do teste ou o da última
                 // continuidade assistida, 091). Trocar o documento (CPF ↔ CNPJ, CPF A → B, CNPJ A → B) ou apagá-lo na
                 // ficha é recusado (P2-2): a troca é a operação "continuidade de documento" do painel comercial (D5).

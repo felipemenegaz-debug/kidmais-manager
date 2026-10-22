@@ -22,7 +22,7 @@ const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-091.json';
 const ETAPAS = Object.freeze([
   ['precheck 091', 'database/checks/20261022_091_precheck.sql', '40578941cc3ddd1c4a3af2d5f2405e99390ad8c8852207c94e893d22a622f3ed'],
-  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', '7cfc40f71c7948721cdb9c83b97e90291d8c26ea31c01b86a52529012d7138ac'],
+  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', 'dd175ec1fb1c8db3154d9c1ec8da4efc75b98d9149bb9c35aa508ba79cf2228c'],
   ['postcheck 091', 'database/checks/20261022_091_postcheck.sql', 'dea02160f59a7a89a17283bbea25b17646bdd894a6dd4652970c896c5cb57329'],
 ]);
 /** FKs da continuidade (D5): REFERENCES exigido nestas tabelas. Altera CHECKs das ALTERADAS (dono exigido). */

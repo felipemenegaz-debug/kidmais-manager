@@ -96,8 +96,7 @@ ALTER TABLE empresa_representacoes
   ADD CONSTRAINT empresa_representacoes_qualificacao_check CHECK (qualificacao IN ('SOCIO_ADMINISTRADOR','PROCURADOR','RESPONSAVEL_INDICADO','TITULAR_PF'));
 
 -- Continuidade assistida (D5). Uma linha por retificação/formalização; nunca apagada. Só o atendimento (painel do
--- desenvolvedor) registra. PENDENTE_PROVEDOR enquanto o cliente já existente no provedor não for conferido; CONCLUIDA
--- depois da conferência registrada. RETIFICACAO: mesmo tipo de documento (erro de digitação). MESMA_TITULARIDADE
+-- desenvolvedor) registra. Nasce PENDENTE_PROVEDOR; CONCLUIDA só depois da conferência do provedor registrada. RETIFICACAO: mesmo tipo de documento (erro de digitação). MESMA_TITULARIDADE
 -- (empresário individual/MEI) e CESSAO (sociedade, cessão de posição contratual): sempre CPF → CNPJ.
 CREATE TABLE empresa_documento_continuidades (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -147,6 +146,10 @@ BEGIN
   END IF;
   IF NOT public.kidmais_091_documento_valido(NEW.documento_novo) THEN
     RAISE EXCEPTION '091: documento com dígito verificador inválido.' USING ERRCODE = '23514';
+  END IF;
+  -- Aplicação imediata: a data efetiva não pode estar no futuro (calendário de Brasília).
+  IF NEW.data_efetiva > (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date THEN
+    RAISE EXCEPTION '091: data efetiva futura; a continuidade vale a partir do registro.' USING ERRCODE = 'P0001';
   END IF;
   SELECT a.documento_teste INTO vigente FROM public.empresa_assinaturas a WHERE a.empresa_id = NEW.empresa_id FOR UPDATE;
   SELECT coalesce((SELECT c.documento_novo FROM public.empresa_documento_continuidades c WHERE c.empresa_id = NEW.empresa_id

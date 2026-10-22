@@ -102,7 +102,7 @@ export class AsaasFalhou extends Error {
     }
 }
 
-export type ClienteProvedor = { id: string; externalReference: string | null };
+export type ClienteProvedor = { id: string; externalReference: string | null; /** Só dígitos/letras, quando o provedor informa. */ cpfCnpj?: string | null };
 export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
 export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null;
     /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
@@ -320,7 +320,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (!data)
                 throw new AsaasFalhou('listar clientes', null, 'RESPOSTA_INVALIDA');
             const c = data.find((d) => d && d.deleted !== true && d.externalReference === referencia);
-            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia } : null;
+            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia, cpfCnpj: typeof c.cpfCnpj === 'string' ? c.cpfCnpj.replace(/[^0-9A-Za-z]/g, '').toUpperCase() || null : null } : null;
         },
         // POST /v3/customers — https://docs.asaas.com/reference/criar-novo-cliente
         // notificationDisabled: true — em qualquer ambiente o provedor não envia e-mail/SMS ao cliente: a fatura e os avisos

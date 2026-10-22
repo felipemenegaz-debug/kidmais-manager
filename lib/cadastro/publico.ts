@@ -13,7 +13,7 @@ import { validarNovaSenha, type ContextoRequisicao } from '../acessos/senha-prop
 import { documentoFiscalValido, emailObrigatorio, mascararDocumento, nomeObrigatorio, normalizarTelefone, sugerirCodigoEmpresa } from '../acessos/validacao.ts';
 import { exigirReautenticacaoRecente } from '../desenvolvedor/autorizacao.ts';
 import { iniciarTeste } from '../assinatura/servico.ts';
-import { exigirDocumentoContratante, travarDocumento } from '../assinatura/documento-contratante.ts';
+import { documentoVinculado, exigirDocumentoContratante, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { versaoVigente, type DocumentoLegal } from './documentos-legais.ts';
 
 /**
@@ -302,10 +302,10 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
             // CPF só com a 091 e a chave ligada; antes de qualquer escrita. Mesma trava do painel e do teste.
             await exigirDocumentoContratante(tx, documento, env, esperado);
             await travarDocumento(tx, documento);
-            const existente = (await tx.query<{ empresa_id: string | null }>(
-                `SELECT empresa_id::text FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1
-                 UNION ALL SELECT empresa_id::text FROM empresa_assinaturas WHERE documento_teste = $1
-                 UNION ALL SELECT NULL FROM perfil_empresas WHERE cnpj = $1 LIMIT 1`, [documento])).rows[0];
+            // Ficha, teste, Fundador e toda a cadeia de continuidades (091), mais o CNPJ de um Perfil (P2-2 da revisão de 22/10).
+            const vinculo = await documentoVinculado(tx, documento)
+                ?? ((await tx.query('SELECT 1 FROM perfil_empresas WHERE cnpj = $1 LIMIT 1', [documento])).rows.length ? { empresaId: null } : null);
+            const existente = vinculo ? { empresa_id: vinculo.empresaId } : null;
             if (existente) {
                 await tx.query(`INSERT INTO solicitacoes_acesso_empresa (usuario_id, documento, empresa_id) VALUES ($1::uuid, $2, $3::uuid)
                                 ON CONFLICT (usuario_id, documento) WHERE situacao = 'PENDENTE' DO NOTHING`, [sessao.usuario_id, documento, existente.empresa_id]);
