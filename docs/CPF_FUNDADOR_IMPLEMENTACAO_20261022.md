@@ -453,3 +453,17 @@ documento mascarado. A recusa continua; só mudou qual guarda chega primeiro.
 - guarda de ordem fraca no teste `kidmais-gratuidade`.
 
 (O lock da 091 foi tratado junto com o bloqueante.)
+
+**Validação da terceira rodada** (commits `df7c48f`, `5306225`, `f2e0d5f`). Cluster descartável 55607, recriado e removido
+no fim.
+- Unitários: 332/332.
+- Scripts: aplicadores, blocos, produção e reconciliação, 104/104.
+- PG descartável:
+  - 090: 9/9;
+  - 091: 8/8;
+  - aplicadores reais: 1/1;
+  - regressão de 19 execuções: 19/19.
+- Playwright: `cpf-fundador-ui` 7/7 e `cadastro-publico-ui` 8/8.
+- `check:v1:static`: PASS (3280 + 103).
+- Preexistente: `concorrencia-vagas-isolado`.
+- Não executado: sandbox Asaas, staging/produção, nova revisão independente das correções.
