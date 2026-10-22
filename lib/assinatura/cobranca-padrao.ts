@@ -5,7 +5,9 @@ import { conexaoDescartavelDoPool, withTransaction } from '../db/postgres.ts';
 import { transacaoComPrazo } from '../db/transacao-com-prazo.ts';
 import { withTenantTransaction } from '../saas/provar-tenant.ts';
 import { clienteAsaasDoAmbiente } from './asaas.ts';
+import { criarEnviarEmail } from '../acessos/email.ts';
 import { travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
+import type { DepsDevolucao } from './devolucao.ts';
 import { processarEvento } from './sincronizacao.ts';
 import { PRAZO_TRANSACAO_INDEPENDENTE_MS } from './reconciliacao-contratacao.ts';
 
@@ -17,7 +19,8 @@ export const transacaoIndependenteDaAplicacao = transacaoComPrazo(conexaoDescart
 
 /** Dependências reais das rotas de cobrança (banco do serviço e provedor do ambiente). */
 export function depsCobrancaPadrao(env: Record<string, string | undefined> = process.env): DepsCobranca {
-    return { withTenantTransaction, withTransaction, transacaoIndependente: transacaoIndependenteDaAplicacao, travarContratacao: travaPorEmpresa(withTransaction), provedor: () => clienteAsaasDoAmbiente(env).cliente, env };
+    return { withTenantTransaction, withTransaction, transacaoIndependente: transacaoIndependenteDaAplicacao, travarContratacao: travaPorEmpresa(withTransaction), provedor: () => clienteAsaasDoAmbiente(env).cliente, env,
+        enviarEmail: criarEnviarEmail() };
 }
 
 /** Erros do serviço de cobrança (AcessoServiceError) e das guardas administrativas, sem detalhe interno. */
@@ -44,4 +47,9 @@ export async function processarEventoAgendado(eventoInternoId: string) {
     catch (error) {
         console.error('[Asaas webhook] falha ao processar evento', error instanceof Error ? error.name : typeof error);
     }
+}
+
+/** Dependências reais do encerramento com devolução (089): banco do serviço, provedor do ambiente e e-mail do app. */
+export function depsDevolucaoPadrao(env: Record<string, string | undefined> = process.env): DepsDevolucao {
+    return { withTenantTransaction, withTransaction, provedor: () => clienteAsaasDoAmbiente(env).cliente, env, enviarEmail: criarEnviarEmail() };
 }

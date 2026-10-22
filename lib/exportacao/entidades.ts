@@ -74,6 +74,10 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     pagamento_eventos: { ip: 'dado de segurança da sessão', user_agent: 'dado de segurança da sessão', sessao_id: 'dado de segurança da sessão' },
     // A prova do aceite é método, data, IP, navegador e hashes; o id interno da sessão administrativa não prova nada (P3-1).
     contrato_assinaturas: { sessao_id: 'identificador interno da sessão (não é prova do aceite)' },
+    // 089 (devolução): a chave de repetição da tela é técnica; a situação do aviso interno é controle da operação da
+    // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
+    // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
+    assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
 };
 
 const BASE: readonly Entidade[] = [
@@ -91,6 +95,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do Kidmais Manager (situação e ciclo).', onde: EMP },
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
+    { arquivo: 'empresa/assinatura_encerramentos', tabela: 'assinatura_encerramentos', grupo: 'Empresa', descricao: 'Pedidos de cancelamento e devolução da assinatura (protocolo).', onde: EMP },
     {
         arquivo: 'empresa/usuarios', tabela: 'usuarios_administrativos', grupo: 'Empresa', descricao: 'Pessoas com vínculo nesta empresa (sem senha nem papel global).',
         onde: em(USUARIOS, 'id'), somente: ['id', 'nome', 'email', 'cargo', 'ativo', 'criado_em'],

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-/** E2E opt-in da exportação verificável no navegador, com PostgreSQL DESCARTÁVEL e dados sintéticos (modelo 088).
- * Restaura SOMENTE o banco sintético do runner a partir do modelo 088 (a receita prova cluster/porta/usuário antes de
+/** E2E opt-in da exportação verificável no navegador, com PostgreSQL DESCARTÁVEL e dados sintéticos (modelo 089).
+ * Restaura SOMENTE o banco sintético do runner a partir do modelo 089 (a receita prova cluster/porta/usuário antes de
  * escrever). Nenhum .env, banco real, e-mail, provedor ou serviço Render. Execute com os três KIDMAIS_* de autorização
  * do descartável, KIDMAIS_PLAYWRIGHT_MODULE e Chrome.
  *
@@ -42,9 +42,9 @@ async function principal() {
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
   try {
-    const existe = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [receita.MODELOS['088'].banco])).rows.length > 0;
-    if (!existe) await receita.construirModelo(admin, porta, '088');
-    await receita.restaurar(admin, receita.TRABALHO[0], '088');
+    const existe = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [receita.MODELOS['089'].banco])).rows.length > 0;
+    if (!existe) await receita.construirModelo(admin, porta, '089');
+    await receita.restaurar(admin, receita.TRABALHO[0], '089');
     client = await receita.conectar(porta, receita.TRABALHO[0]);
     const carregar = (f) => carregarModulo(f, { 'db/postgres': { db: () => client, withTransaction: async (w) => w(client) } }, new Map());
     const senhaMod = carregar('lib/autenticacao/senha.ts');

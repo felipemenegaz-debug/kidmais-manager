@@ -193,12 +193,17 @@ const ESTADO_POSTGRES = {
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
   "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
-  // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 088: completude do inventário, retrato das
+  // 21/10/2026: cancelamento e devolução da assinatura (089, L1), aplicada pela suíte sobre o modelo 086 (sem a 087 de
+  // outro trabalho local); provedor e e-mail falsos; inclui a reconciliação simulada com a regra D-C4.
+  "lib/assinatura/devolucao-089.postgres.test.ts": { descartavel: "086" },
+  // P2-4 da revisão da devolução: aplicadores reais da 089 (staging e produção) no modelo 086 (089 ausente).
+  "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
+  // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "088" },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
-  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "088" },
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

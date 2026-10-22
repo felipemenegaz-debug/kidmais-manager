@@ -192,14 +192,16 @@ A exceção não distingue o motivo da suspensão: o motivo é texto livre, e ne
 - **Instância de 512 MB:** um pacote de 147 MB deixa a instância em torno de 220 MB de RSS. Relatórios em `ambientes-locais/memoria-exportacao-20261021/`.
 - **Lacuna:** não medi PDFs grandes (o fixture de contrato não passa pelas validações adiadas no COMMIT). Cada PDF vem sozinho, então o custo é o maior PDF + o lote.
 
-## Inventário (schema até a 088: 174 tabelas = 143 no pacote + 31 fora)
+## Inventário (schema até a 089: 175 tabelas = 144 no pacote + 31 fora)
+
+Até a 088 eram 174 = 143 + 31; a integração com a devolução (22/10/2026) acrescentou `assinatura_encerramentos` ao pacote.
 
 Três travas impedem que uma tabela nova fique fora em silêncio (P2-3):
 
 - **Teste estático** (`lib/exportacao/exportacao.test.ts`), independente de modelo de banco:
   - compara todos os `CREATE TABLE` de `database/migrations`, menos `DROP`/`RENAME` posteriores e os `*_down.sql`, com o inventário;
   - falha com tabela sem classificação ou com classificação órfã.
-  - A 089 da devolução (`assinatura_encerramentos`) vai falhar aqui até ser classificada.
+  - A 089 da devolução (`assinatura_encerramentos`) já está classificada (integração de 22/10/2026).
 - **Em execução:** a geração lista as tabelas públicas do banco e **recusa com 503** (`EXPORTACAO_INVENTARIO_DESATUALIZADO`) se alguma não estiver classificada. Os nomes vão para o log do servidor.
   - **Por que recusar, e não listar no manifesto:** um pacote chamado "completo" não pode omitir dados em silêncio. O 503 é visível, auditável e corrigível por código.
   - **Consequência operacional:** migration com tabela nova só pode ir para produção junto com o código que a classifica.
@@ -565,12 +567,22 @@ Logs: `ambientes-locais/mutacoes-exportacao-r2/logs/`. Na M10, o teste da vaga f
 
 ## Integração com a 089 (devolução) e migrations futuras
 
-A 089 cria `assinatura_encerramentos`. Ao integrar:
-1. o teste estático e a geração em execução **falham** até a tabela ser classificada (esperado);
-2. acrescentar a entidade em `ENTIDADES` (grupo Empresa, `onde: EMP`, `empresa/assinatura_encerramentos`; o revisor não viu coluna secreta);
-3. criar o modelo `"089"` na receita e passar as duas suítes e `scripts/exportacao-ui.cjs` para ele;
-4. regenerar o retrato (só a chave nova deve mudar);
-5. atualizar este documento (175 = 144 + 31).
+A 089 cria `assinatura_encerramentos`. **Integrada em 22/10/2026** na branch `codex/devolucao-cancelamento-20261021`
+(merge da staging `3bb7b4b`), conforme o passo (7) da revisão da exportação:
+1. entidade `empresa/assinatura_encerramentos` em `ENTIDADES` (grupo Empresa, depois de `assinatura_renovacoes`,
+   `onde: EMP`);
+2. excluídas só duas colunas: `chave_idempotencia` (identificador técnico de repetição da tela) e
+   `aviso_interno_situacao` (controle interno da plataforma: se a equipe Kidmais foi avisada; não é dado do pedido).
+   Protocolo, valores, prazos, situação do cancelamento e do estorno, ids do provedor (da própria empresa) e a situação
+   do e-mail de confirmação saem;
+3. modelo `"089"` na receita; as duas suítes PG e `scripts/exportacao-ui.cjs` passaram para ele;
+4. retrato regenerado com `KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO=1` (diff só com a chave `assinatura_encerramentos`);
+5. inventário: 175 = 144 + 31.
+
+**Ordem de publicação em cada ambiente:** código integrado primeiro (sem a 089, a tabela fica em `entidadesAusentes` e
+a devolução mantém o fluxo antigo); depois a 089 com autorização própria. Se a 089 fosse aplicada antes, com o código
+antigo no ar a exportação completa responderia 503 até o deploy. Em qualquer ordem, rodar o bloco P2-5 como
+pós-conferência (`NAO_CLASSIFICADAS NENHUMA`).
 
 ## O que falta
 

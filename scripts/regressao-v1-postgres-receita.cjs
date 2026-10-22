@@ -81,9 +81,11 @@ const MODELOS = {
   "084": { banco: "kidmais_v1_modelo_084", ate: "084", sem: [] },
   // Marketing (goal local 14/10/2026): 085 (base) e 086 (automações) com prechecks e postchecks do inventário.
   "086": { banco: "kidmais_v1_modelo_086", ate: "086", sem: [] },
-  // Exportação verificável (21/10/2026): inventário inteiro até a 088 (autorização dos Convites com IA); a 087 não existe
+  // Exportação verificável (21/10/2026): inventário inteiro até a 088 (autorização dos Convites com IA) e, desde a integração
+  // com a devolução (22/10/2026), até a 089 (assinatura_encerramentos); a 087 não existe
   // neste repositório (trabalho local de cobrança, não integrado).
   "088": { banco: "kidmais_v1_modelo_088", ate: "088", sem: [] },
+  "089": { banco: "kidmais_v1_modelo_089", ate: "089", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {
