@@ -647,3 +647,28 @@ Mutações conferidas (cada uma reverte uma correção, e o caso 9 falha): trava
 - `check:v1:static`: PASS (3297 + 103).
 
 **Incidente local:** a primeira execução das mutações restaurou arquivos com `git checkout` e desfez correções ainda não commitadas. Elas foram reaplicadas e conferidas (dois trechos duplicados pela reaplicação foram removidos e o hash refeito) antes do commit. As mutações foram repetidas com tudo commitado.
+
+### Décima rodada: P2-1 residual da revisão de `2ffe713..7628d39`
+
+A revisão do Astra **REPROVOU** o delta: P2-2, P2-3 e P3-1 fechados, mas P2-1 parcial, com dois achados (relatório em `revisao-cpf-fundador-7628d39-20261022/RELATORIO.md`). Correção em `ae0aa1b`:
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-N1: cliente achado por referência sem `cpfCnpj` era reaproveitado | O checkout só reaproveita esse cliente se o `cpfCnpj` dele estiver **presente e igual** ao documento vigente. Ausente, nulo, vazio ou diferente: `DOCUMENTO_DIVERGENTE`, sem POST de assinatura. O adaptador normaliza o campo (ausente ou vazio viram null). | `asaas.test.ts` (6 formas); 091 caso 9 (diferente, nulo, ausente, vazio e igual) |
+| P2-N2: reconciliação adotava assinatura sem vínculo durante `PENDENTE_PROVEDOR` | Com qualquer continuidade de documento na empresa (pendente ou concluída), a reconciliação não adota a assinatura sem vínculo: `REVISAO_HUMANA`/`CONTINUIDADE_DOCUMENTO`, marcador aberto, pagamentos intocados. Sem continuidade, nada muda. | 091 caso 9 (pendente, concluída e controle sem continuidade → `VINCULADA`) |
+
+Os provedores falsos das suítes e8 passaram a devolver o documento da empresa na busca por referência, como o Asaas. Sem isso, a regra nova (correta) recusava o reaproveitamento nos cenários de retomada.
+
+Mutações: com cada correção revertida, o caso 9 falha.
+
+**Validação:**
+- Unitários 427/427 e scripts 63/63.
+- PG descartável 55607:
+  - 091: 10/10;
+  - aplicadores: 1/1;
+  - cobrança e8: 9/9 ×2;
+  - contratação e8: 46/46 e 42/42 + 4 skips preexistentes do modelo sem 074a;
+  - vizinhos: 82/82 (090, cobrança 068, gratuidade, painel comercial, exportação, painel 063, devolução 089).
+  - Cluster removido.
+- Playwright 7/7 e 8/8.
+- `check:v1:static`: PASS (3298 + 103).
