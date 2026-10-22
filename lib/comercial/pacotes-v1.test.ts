@@ -43,7 +43,9 @@ test("catálogo público lista os sete e a API valida o código antes de qualque
   assert.match(wizard, /erroConvidadosFechamento\(convidados, pacote\)/);
   assert.match(erroConvidadosFechamento(41, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 })!, /Festa Compacta possui valor automático somente para 40 convidados/);
   assert.equal(erroConvidadosFechamento(40, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 }), null);
-  assert.match(admin, /PACOTES\.map/);
+  // Disponibilidade: a dona da agenda pública vê os sete; outra empresa, só os pacotes que criou (nova = nenhum).
+  assert.match(admin, /const opcoesPacote = pacotesEmpresa \?\? PACOTES;/);
+  assert.match(admin, /opcoesPacote\.map/);
   assert(
     route.indexOf("if (!pacoteIdContratavelV1") <
       route.indexOf("revalidarHorarioSelecionado({"),

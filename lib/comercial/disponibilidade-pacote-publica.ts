@@ -47,22 +47,40 @@ export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: s
 }
 
 /** Busca do pacote vigente da empresa por código — a mesma da cotação pública e do servidor (injetada para teste). */
-export type BuscarPacoteDaEmpresa = (empresaId: string, codigo: string, tx: DbExecutor) => Promise<{ id: string } | null>;
+export type BuscarPacoteDaEmpresa = (empresaId: string, codigo: string, tx: DbExecutor) => Promise<{ id: string; nome?: string } | null>;
+
+export type PacotesDaAgendaDaEmpresa = {
+  /** Só os pacotes que a empresa realmente tem (vigentes e ativos), na ordem da tela; empresa nova = []. */
+  pacotes: Array<{ id: string; nome: string }>;
+  regras: Record<string, RegraPacoteEmpresa[]>;
+};
 
 /**
- * Regras de disponibilidade de TODOS os pacotes contratáveis da empresa, por id da tela (pocket, mini, …), com a mesma
- * leitura usada por `/api/fechamentos/pacotes?empresa=` — administração e cotação pública decidem com os mesmos dados.
- * Pacote que a empresa não oferece = [] (nada disponível pela regra). Só a empresa informada (comprovada pela sessão).
+ * Pacotes contratáveis da empresa e as regras de disponibilidade de cada um, por id da tela (pocket, mini, …), com a
+ * mesma leitura usada por `/api/fechamentos/pacotes?empresa=` — administração e cotação pública decidem com os mesmos
+ * dados. Pacote que a empresa não oferece fica fora de `pacotes` e tem regras [] (nada disponível pela regra).
+ * Só a empresa informada (comprovada pela sessão).
  */
+export async function pacotesDaAgendaDaEmpresa(
+  tx: DbExecutor,
+  empresaId: string,
+  buscarPacote: BuscarPacoteDaEmpresa,
+): Promise<PacotesDaAgendaDaEmpresa> {
+  const pacotes: PacotesDaAgendaDaEmpresa["pacotes"] = [];
+  const regras: Record<string, RegraPacoteEmpresa[]> = {};
+  for (const { id, codigo } of PACOTES_CONTRATAVEIS_V1) {
+    const pacote = await buscarPacote(empresaId, codigo, tx);
+    regras[id] = pacote ? await lerRegrasDisponibilidadePacote(tx, pacote.id) : [];
+    if (pacote) pacotes.push({ id, nome: pacote.nome?.trim() || codigo });
+  }
+  return { pacotes, regras };
+}
+
+/** Regras de disponibilidade de TODOS os pacotes contratáveis da empresa (ver `pacotesDaAgendaDaEmpresa`). */
 export async function regrasDosPacotesDaEmpresa(
   tx: DbExecutor,
   empresaId: string,
   buscarPacote: BuscarPacoteDaEmpresa,
 ): Promise<Record<string, RegraPacoteEmpresa[]>> {
-  const resultado: Record<string, RegraPacoteEmpresa[]> = {};
-  for (const { id, codigo } of PACOTES_CONTRATAVEIS_V1) {
-    const pacote = await buscarPacote(empresaId, codigo, tx);
-    resultado[id] = pacote ? await lerRegrasDisponibilidadePacote(tx, pacote.id) : [];
-  }
-  return resultado;
+  return (await pacotesDaAgendaDaEmpresa(tx, empresaId, buscarPacote)).regras;
 }

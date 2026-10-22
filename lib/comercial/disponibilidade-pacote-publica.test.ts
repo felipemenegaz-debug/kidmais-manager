@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lerRegrasDisponibilidadePacote, regrasDosPacotesDaEmpresa, regrasPublicasDoPacote } from "./disponibilidade-pacote-publica.ts";
+import { lerRegrasDisponibilidadePacote, pacotesDaAgendaDaEmpresa, regrasDosPacotesDaEmpresa, regrasPublicasDoPacote } from "./disponibilidade-pacote-publica.ts";
 import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 import { regrasDisponibilidadeDaTela, type FatosPacote } from "../../components/fechamento/pacotes-tela.ts";
 import { CONFIG_VAZIA, regraPadraoPacote, statusDataPacote } from "../agenda/disponibilidade.ts";
@@ -151,6 +151,25 @@ test("administração: regras de todos os pacotes da empresa ativa, pela mesma l
   assert.deepEqual(deB.pocket, regrasPublicasDoPacote([linha(3, "TURNO_1")]), "mesmo código, regras da outra empresa não vazam");
 });
 
+test("administração: empresa nova sem pacote não herda o catálogo Kidmais no seletor; lista só os pacotes dela, com o nome dela", async () => {
+  const { banco } = bancoDeRegras({ [POCKET_A]: [linha(1, "TURNO_1")] });
+  const nova = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_B, async () => null);
+  assert.deepEqual(nova.pacotes, [], "buffet novo: nenhum pacote");
+  assert.deepEqual(Object.keys(nova.regras), PACOTES_CONTRATAVEIS_V1.map((p) => p.id));
+  assert.ok(Object.values(nova.regras).every((r) => r.length === 0));
+  const comPocket = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A, nome: "Festinha do Buffet A" } : null));
+  assert.deepEqual(comPocket.pacotes, [{ id: "pocket", nome: "Festinha do Buffet A" }]);
+  assert.equal(comPocket.regras.pocket.length, 1);
+  const semNome = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A } : null));
+  assert.deepEqual(semNome.pacotes, [{ id: "pocket", nome: "POCKET" }], "sem nome: o código, nunca o nome do catálogo Kidmais");
+  const tela = (await import("node:fs")).readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
+  assert.match(tela, /pacotes: admin\.regrasPacotes \? \(admin\.pacotes \?\? \[\]\) : null/);
+  assert.match(tela, /const opcoesPacote = pacotesEmpresa \?\? PACOTES;/);
+  assert.match(tela, /opcoesPacote\.map\(\(p\) => <option/);
+  assert.doesNotMatch(tela, /\{PACOTES\.map\(/, "o seletor não lista o catálogo fixo diretamente");
+  assert.equal((tela.match(/aplicarPacotesEmpresa\(dados\.pacotes\);/g) ?? []).length, 2, "carga inicial e recarga");
+});
+
 test("coerência administração = cotação pública: mesmas regras e mesmo status em 5 semanas × 2 períodos × 7 pacotes", async () => {
   const regrasA = { [POCKET_A]: [1, 2, 3, 4, 5].map((d) => linha(d, "TURNO_1")).concat([linha(6, "TURNO_2", "SOB_CONSULTA")]) };
   const r = rota({ "buffet-a": EMPRESA_A }, { [EMPRESA_A]: POCKET_A }, regrasA);
@@ -176,9 +195,11 @@ test("coerência administração = cotação pública: mesmas regras e mesmo sta
 test("administração: dona da agenda pública mantém a regra legada (null); demais empresas recebem as regras delas", async () => {
   const { readFileSync } = await import("node:fs");
   const rota = readFileSync("app/api/admin/disponibilidade/route.ts", "utf8");
-  assert.match(rota, /const regrasPacotes = configuracaoComercial\s*\?\s*null\s*:\s*await regrasDosPacotesDaEmpresa\(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo\);/);
-  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*bloqueios,/);
-  assert.doesNotMatch(rota, /regrasDosPacotesDaEmpresa\(tx, (q\.|body|alvo|request)/, "empresa só da sessão comprovada");
+  assert.match(rota, /const daEmpresa = configuracaoComercial\s*\?\s*null\s*:\s*await pacotesDaAgendaDaEmpresa\(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo\);/);
+  assert.match(rota, /const regrasPacotes = daEmpresa \? daEmpresa\.regras : null;/);
+  assert.match(rota, /const pacotes = daEmpresa \? daEmpresa\.pacotes : null;/);
+  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,\s*bloqueios,/);
+  assert.doesNotMatch(rota, /(regrasDosPacotesDaEmpresa|pacotesDaAgendaDaEmpresa)\(tx, (q\.|body|alvo|request)/, "empresa só da sessão comprovada");
   const tela = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.match(tela, /regrasPacotes: admin\.regrasPacotes \?\? null/);
   assert.match(tela, /const regrasDoPacote = regrasPacotes \? \(regrasPacotes\[pacote\] \?\? \[\]\) : null;/);
