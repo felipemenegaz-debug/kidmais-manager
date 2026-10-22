@@ -7,11 +7,12 @@ import type { RegraPacoteEmpresa } from "../../lib/agenda/disponibilidade.ts";
 export const CODIGO_PACOTE: Record<string, string> = { pocket: 'POCKET', mini: 'MINI_FESTA', compacta: 'COMPACTA', essencial: 'ESSENCIAL', completa: 'COMPLETA', premium: 'PREMIUM', pizza_party_scienza: 'PIZZA_PARTY' };
 
 /**
- * Código do pacote no servidor para o id da tela.
+ * Código do pacote no servidor para o id da tela, pela MARCA da página (não valida formato nem existência: quem valida é
+ * `codigoDoPacoteDaTela` no servidor, que também aceita id V1 em /b).
  * - Kidmais (endereço atual): o id V1 traduzido; id fora dos sete = undefined.
  * - Outra empresa (/b/<código>): o id da tela JÁ é o código do pacote dela (POCKET, P_9F…), vindo do servidor.
  */
-export function codigoDoPacoteNaTela(kidmais: boolean, id: string): string | undefined {
+export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): string | undefined {
     if (!id) return undefined;
     return kidmais ? CODIGO_PACOTE[id] : id;
 }

@@ -210,6 +210,9 @@ const ESTADO_POSTGRES = {
   // 22/10/2026: pacote criado em "Novo pacote" (código P_…) na lista/agenda da empresa, na cotação e no fechamento
   // público de /b; ordem de exibição por empresa; revisão mantém o código. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-livres.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
+  // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

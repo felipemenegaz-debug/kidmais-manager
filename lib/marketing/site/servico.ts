@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
-import { buscarPacoteVigenteDaEmpresaPorCodigo } from "../../comercial/repositories/comercial.repository.ts";
+import { buscarPacoteVigenteDaEmpresaPorCodigo, listarPacotesContrataveisDaEmpresa } from "../../comercial/repositories/comercial.repository.ts";
 import { lerPrecosCorrentes } from "../../comercial/pacote-precos.ts";
-import { PACOTES_CONTRATAVEIS_V1 } from "../../comercial/pacotes-v1.ts";
 import { nomePublicoDaEmpresa } from "../../perfil/nome-publico.ts";
 import { perfilDoTenantOuNulo } from "../../perfil/tenant.ts";
 import { MarketingError, conflito, naoEncontrado } from "../erros.ts";
@@ -83,15 +82,14 @@ export async function versoesDoSite(tx: DbExecutor, empresaId: string, siteId: s
 }
 
 /** Pacotes vigentes que a empresa pode escolher divulgar (nome do catálogo; preço só na publicação). */
-/** Pacotes vigentes para o editor (inclui os dados que a prévia imediata mostra antes de salvar). */
+/**
+ * Pacotes vigentes para o editor (inclui os dados que a prévia imediata mostra antes de salvar): todos os pacotes ativos
+ * da empresa, na ordem da tela de Pacotes, inclusive os criados por "Novo pacote" (P_…) — a mesma lista de /b.
+ */
 export async function pacotesDisponiveis(tx: DbExecutor, empresaId: string) {
-  const lista: Array<{ codigo: string; nome: string; descricao: string | null; convidadosMinimos: number | null; convidadosMaximos: number | null; duracaoMinutos: number | null }> = [];
-  for (const { codigo } of PACOTES_CONTRATAVEIS_V1) {
-    const p = await buscarPacoteVigenteDaEmpresaPorCodigo(empresaId, codigo, tx).catch(() => null);
-    if (p) lista.push({ codigo: p.codigo, nome: p.nome, descricao: p.descricao ?? null, convidadosMinimos: p.convidadosMinimos ?? null,
-      convidadosMaximos: p.convidadosMaximos ?? null, duracaoMinutos: p.duracaoMinutos ?? null });
-  }
-  return lista;
+  const pacotes = await listarPacotesContrataveisDaEmpresa(empresaId, tx).catch(() => []);
+  return pacotes.map((p) => ({ codigo: p.codigo, nome: p.nome, descricao: p.descricao ?? null, convidadosMinimos: p.convidadosMinimos ?? null,
+    convidadosMaximos: p.convidadosMaximos ?? null, duracaoMinutos: p.duracaoMinutos ?? null }));
 }
 
 /** Rascunho inicial a partir do cadastro APLICADO (nome comercial, endereço e contatos da unidade). Nada é publicado. */

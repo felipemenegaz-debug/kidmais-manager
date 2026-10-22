@@ -4,7 +4,7 @@ import { pretensaoPixSchema } from "../http/condicao-pagamento-schema";
 /**
  * Id do pacote na tela do fechamento PÚBLICO: id V1 (endereço atual) ou o código do pacote da empresa em /b/<código>
  * (POCKET, P_…). Só forma e tamanho aqui; a rota traduz com `codigoDoPacoteDaTela` pelo endereço e o banco prova que o
- * pacote é da empresa. O fechamento administrativo continua com os sete (`camposComerciaisFechamento.pacote`).
+ * pacote é da empresa. O fechamento administrativo usa o mesmo formato; o serviço decide pela empresa comprovada.
  */
 export const pacoteDaTelaPublicaSchema = z.string().min(1).max(50);
 

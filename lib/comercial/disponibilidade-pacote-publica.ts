@@ -46,11 +46,13 @@ export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: s
 }
 
 /** Lista dos pacotes contratáveis da empresa — a mesma da cotação pública e do servidor (injetada para teste). */
-export type ListarPacotesDaEmpresa = (empresaId: string, tx: DbExecutor) => Promise<Array<{ id: string; codigo: string; nome?: string }>>;
+export type ListarPacotesDaEmpresa = (empresaId: string, tx: DbExecutor) => Promise<Array<{
+  id: string; codigo: string; nome?: string; convidadosMinimos?: number | null; convidadosMaximos?: number | null;
+}>>;
 
 export type PacotesDaAgendaDaEmpresa = {
   /** Só os pacotes que a empresa realmente tem (vigentes e ativos), na ordem da tela de Pacotes; empresa nova = []. */
-  pacotes: Array<{ id: string; nome: string }>;
+  pacotes: Array<{ id: string; nome: string; convidadosMinimos: number | null; convidadosMaximos: number | null }>;
   regras: Record<string, RegraPacoteEmpresa[]>;
 };
 
@@ -69,7 +71,10 @@ export async function pacotesDaAgendaDaEmpresa(
   const regras: Record<string, RegraPacoteEmpresa[]> = {};
   for (const pacote of await listarPacotes(empresaId, tx)) {
     regras[pacote.codigo] = await lerRegrasDisponibilidadePacote(tx, pacote.id);
-    pacotes.push({ id: pacote.codigo, nome: pacote.nome?.trim() || pacote.codigo });
+    pacotes.push({
+      id: pacote.codigo, nome: pacote.nome?.trim() || pacote.codigo,
+      convidadosMinimos: pacote.convidadosMinimos ?? null, convidadosMaximos: pacote.convidadosMaximos ?? null,
+    });
   }
   return { pacotes, regras };
 }

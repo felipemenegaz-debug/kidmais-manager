@@ -111,7 +111,7 @@ test("L1–L3: Novo pacote (P_…) entra na lista e na agenda da empresa, na ord
   const listaA = await listarPacotesContrataveisDaEmpresa(A.empresa, tx);
   assert.deepEqual(listaA.map((p) => p.nome), ["Festa Jardim", "Festa Noturna"], "L1: na ordem da tela de Pacotes");
   const agendaA = await pacotesDaAgendaDaEmpresa(tx, A.empresa, listarPacotesContrataveisDaEmpresa);
-  assert.deepEqual(agendaA.pacotes, [{ id: livre.codigo, nome: "Festa Jardim" }, { id: segundo.pacote.codigo, nome: "Festa Noturna" }], "L2");
+  assert.deepEqual(agendaA.pacotes, [{ id: livre.codigo, nome: "Festa Jardim", convidadosMinimos: 30, convidadosMaximos: 80 }, { id: segundo.pacote.codigo, nome: "Festa Noturna", convidadosMinimos: 30, convidadosMaximos: 80 }], "L2");
   assert.equal(agendaA.regras[livre.codigo].length, 14, "L2: 7 dias × 2 períodos configurados no Novo pacote");
   assert.ok(agendaA.regras[livre.codigo].every((r) => r.estado === "DISPONIVEL"));
 
@@ -175,6 +175,6 @@ test("L4–L5: cotação e fechamento público com o pacote P_; revisão mantém
   assert.notEqual(vigente.id, livre.id, "L5: pacote usado → revisão com uuid novo");
   assert.equal(revisado.pacote.codigo, livre.codigo, "L5: revisão com o mesmo código");
   const agenda = await pacotesDaAgendaDaEmpresa(tx, A.empresa, listarPacotesContrataveisDaEmpresa);
-  assert.deepEqual(agenda.pacotes, [{ id: livre.codigo, nome: "Festa Jardim 2" }], "L5: a agenda segue pelo código");
+  assert.deepEqual(agenda.pacotes, [{ id: livre.codigo, nome: "Festa Jardim 2", convidadosMinimos: 30, convidadosMaximos: 80 }], "L5: a agenda segue pelo código");
   assert.equal(agenda.regras[livre.codigo].length, 14, "L5: a revisão mantém os 7 dias × 2 períodos");
 });

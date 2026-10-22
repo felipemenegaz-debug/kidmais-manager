@@ -5,7 +5,7 @@ import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
-import { codigoDoPacoteNaTela, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import { codigoServidorDoPacoteDaMarca, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -301,11 +301,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     return () => controller.abort();
   }, [empresa, tentativaPacotes]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
-  const codigoPacote = codigoDoPacoteNaTela(marca.kidmais, form.pacote);
+  const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
   const pacote = pacoteDaTela(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote);
   useEffect(()=>{
-    const codigo=codigoDoPacoteNaTela(marca.kidmais, form.pacote);
+    const codigo=codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
     if(!codigo)return;
     const controller=new AbortController();
     void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${encodeURIComponent(codigo)}`, empresa),{signal:controller.signal})

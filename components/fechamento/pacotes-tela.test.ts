@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CONTATO_KIDMAIS, PACOTES_FECHAMENTO_V1 } from './data.ts';
-import { CODIGO_PACOTE, codigoDoPacoteNaTela, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela.ts';
+import { CODIGO_PACOTE, codigoServidorDoPacoteDaMarca, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela.ts';
 import { contatoPublicoDe } from '../../lib/fechamentos/marca-publica.ts';
 import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregador.ts';
 
@@ -53,10 +53,10 @@ test('outra empresa: pacote criado em Novo pacote (P_…) aparece com os dados d
     semKidmais(html);
     assert.deepEqual(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, fatos, LIVRE), { id: LIVRE, nome: 'Festa Jardim', precoInicial: 4500, minPagantes: 30, maxPagantes: 80,
         limiteCadastrado: true, descricao: 'Ao ar livre', disponibilidade: '', duracao: '240 minutos', buffet: '' });
-    assert.equal(codigoDoPacoteNaTela(false, LIVRE), LIVRE, 'catálogo do buffet e adicionais pedidos pelo código');
-    assert.equal(codigoDoPacoteNaTela(true, LIVRE), undefined, 'endereço atual: só os sete');
-    assert.equal(codigoDoPacoteNaTela(true, 'pocket'), 'POCKET');
-    assert.equal(codigoDoPacoteNaTela(false, ''), undefined);
+    assert.equal(codigoServidorDoPacoteDaMarca(false, LIVRE), LIVRE, 'catálogo do buffet e adicionais pedidos pelo código');
+    assert.equal(codigoServidorDoPacoteDaMarca(true, LIVRE), undefined, 'endereço atual: só os sete');
+    assert.equal(codigoServidorDoPacoteDaMarca(true, 'pocket'), 'POCKET');
+    assert.equal(codigoServidorDoPacoteDaMarca(false, ''), undefined);
 });
 
 test('outra empresa: carregando, falha e lista vazia nunca caem no catálogo da Kidmais', () => {
