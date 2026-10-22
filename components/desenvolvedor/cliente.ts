@@ -107,6 +107,7 @@ const ACOES: Record<string, string> = {
     SENHA_TROCA_RECUSADA: 'Troca de senha recusada',
     PAINEL_ACESSO_RECUSADO: 'Acesso ao painel recusado',
     FESTA_PERFIL_APLICADO: 'Perfil de Festa aplicado',
+    COMERCIAL_TESTE_INICIADO: 'Teste grátis iniciado pelo painel',
     COMERCIAL_TESTE_ESTENDIDO: 'Teste grátis estendido',
     COMERCIAL_EXCECAO_CONCEDIDA: 'Acesso comercial excepcional concedido',
     COMERCIAL_EXCECAO_REVOGADA: 'Acesso comercial excepcional revogado',

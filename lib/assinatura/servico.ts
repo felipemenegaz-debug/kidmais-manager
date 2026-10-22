@@ -4,7 +4,8 @@ import { duracaoTesteDias, EXTENSAO_TESTE_MAXIMA_DIAS } from './configuracao.ts'
 
 /**
  * Operações do modelo comercial (067 + 068), sempre DENTRO da transação de quem já autorizou o ator:
- *   - iniciarTeste: só o cadastro público (E6) cria a assinatura, em TESTE, com datas do relógio do banco;
+ *   - iniciarTeste: o cadastro público (E6) e, para contratante provisionada (piloto/conversão), o painel do
+ *     desenvolvedor (lib/desenvolvedor/comercial.ts, com CNPJ do cadastro) criam a assinatura, em TESTE, com datas do relógio do banco;
  *   - estenderTeste / concederExcecao / revogarExcecao: só o painel do desenvolvedor (E5), com motivo e prazo.
  * A auditoria de negócio é feita pelo chamador (ele conhece o ator e a origem). Nada aqui concede papel, vínculo ou
  * concessão de desenvolvedor, e nada muda empresas.status (eixo administrativo).

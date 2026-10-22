@@ -20,13 +20,14 @@ export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'si
     return `${SITUACAO[c.situacao ?? ''] ?? c.situacao} · ${NIVEL[c.nivel] ?? c.nivel}`;
 }
 
-type Operacao = { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string };
+type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string };
 
 export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar }: {
     empresaId: string; comercial: Comercial; ocupado: boolean;
     operar: (op: () => Promise<Resposta<{ operacao: string }>>, sucesso: (d: { operacao: string }) => { tipo: 'ok' | 'alerta'; texto: string }) => void;
 }) {
     const [form, setForm] = useState<{ acao: 'estender-teste' | 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: string; motivo: string } | null>(null);
+    const [inicio, setInicio] = useState<{ dias: string; motivo: string } | null>(null);
     const [revogar, setRevogar] = useState<{ id: string; motivo: string } | null>(null);
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
     const enviar = (dados: Operacao, texto: string) => operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), () => ({ tipo: 'ok', texto }));
@@ -34,7 +35,21 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     return <section className={workspace.card} aria-labelledby="t-comercial">
         <h2 id="t-comercial">Situação comercial</h2>
         {!c.instalado ? <p className={workspace.muted}>O modelo comercial (067) não está instalado neste ambiente: a empresa opera sem cobrança.</p>
-            : !c.cobrado ? <p className={workspace.muted}>Sem cobrança: empresa sem assinatura registrada (acesso completo). Só o cadastro público cria a assinatura, em teste.</p>
+            : !c.cobrado ? <>
+                <p className={workspace.muted}>Sem cobrança: empresa sem assinatura registrada (acesso completo, sem prazo). Sem assinatura a empresa não vê planos nem a condição Fundador.</p>
+                <div className={estilos.acoesLinha}><button type="button" disabled={ocupado} onClick={() => setInicio({ dias: '15', motivo: '' })}>Iniciar teste grátis…</button></div>
+                {inicio && <form aria-label="Iniciar teste grátis" onSubmit={(e) => {
+                    e.preventDefault();
+                    const dias = Number(inicio.dias);
+                    enviar({ operacao: 'iniciar-teste', dias, motivo: inicio.motivo }, `Teste grátis iniciado por ${dias} dia(s).`);
+                    setInicio(null);
+                }}>
+                    <label>Duração do teste em dias (1 a 90)<input type="number" min={1} max={90} required value={inicio.dias} onChange={(e) => setInicio({ ...inicio, dias: e.target.value })} /></label>
+                    <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={inicio.motivo} onChange={(e) => setInicio({ ...inicio, motivo: e.target.value })} /></label>
+                    <p className={workspace.muted}>Cria a assinatura em teste com o CNPJ do cadastro (CPF não serve) e não tem volta: acesso completo até o fim do teste, depois somente leitura até a contratação. Com a venda ligada, a Gestão escolhe o plano pela tela (Fundador se houver vaga). Sua senha será pedida.</p>
+                    <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Confirmar</button><button type="button" onClick={() => setInicio(null)}>Cancelar</button></div>
+                </form>}
+            </>
                 : <>
                     <dl className={estilos.ficha}>
                         <div><dt>Situação</dt><dd>{rotuloComercial(c)}{c.ate ? ` até ${formatarData(c.ate, false)}` : ''}</dd></div>

@@ -3,8 +3,9 @@ import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { comercialInstalado, lerEstadoComercial } from '../assinatura/estado.ts';
-import { concederExcecao, estenderTeste, revogarExcecao } from '../assinatura/servico.ts';
-import { EXTENSAO_TESTE_MAXIMA_DIAS } from '../assinatura/configuracao.ts';
+import { concederExcecao, estenderTeste, iniciarTeste, revogarExcecao } from '../assinatura/servico.ts';
+import { EXTENSAO_TESTE_MAXIMA_DIAS, TESTE_DIAS_MAXIMO } from '../assinatura/configuracao.ts';
+import { empresaIsenta } from '../assinatura/ofertas.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
@@ -19,7 +20,7 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
  * comerciais da empresa alvo (067/068). Concessão de desenvolvedor continua só pelo CLI.
  */
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
-export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_ESTENDIDO', 'COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA'] as const;
+export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA'] as const;
 
 export type ComercialResumo = { instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null };
 
@@ -63,10 +64,35 @@ export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
 
 const motivo = z.string().trim().min(5, 'Informe o motivo (5 a 500 caracteres).').max(500);
 const operacaoSchema = z.discriminatedUnion('operacao', [
+    z.object({ operacao: z.literal('iniciar-teste'), dias: z.number().int().min(1).max(TESTE_DIAS_MAXIMO), motivo }).strict(),
     z.object({ operacao: z.literal('estender-teste'), dias: z.number().int().min(1).max(EXTENSAO_TESTE_MAXIMA_DIAS), motivo }).strict(),
     z.object({ operacao: z.literal('conceder-excecao'), tipo: z.enum(['CORTESIA', 'ACESSO_TEMPORARIO']), dias: z.number().int().min(1).max(365), motivo }).strict(),
     z.object({ operacao: z.literal('revogar-excecao'), excecaoId: z.string().uuid(), motivo }).strict(),
 ]);
+
+const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
+
+/**
+ * Piloto e conversão de contratante provisionada (22/10/2026): a empresa criada pelo painel nasce SEM cobrança (sem linha
+ * em empresa_assinaturas) e, assim, não vê planos nem a condição Fundador. Esta operação cria a assinatura em TESTE com o
+ * CNPJ do cadastro administrativo (o mesmo `iniciarTeste` do cadastro público: datas do relógio do banco, CNPJ único),
+ * para um prazo de 1 a 90 dias. A partir daí vale a régua comum (COMPLETO até o fim do teste; depois somente leitura)
+ * e, com a venda ligada, a Gestão contrata pela tela. Recusa: empresa não ATIVA, a Kidmais, isenta, já com situação
+ * comercial ou sem CNPJ no cadastro (CPF não participa do teste nem do Fundador). Sem volta: a assinatura não é apagada.
+ */
+async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; codigo: string; status: string }, dias: number) {
+    if (empresa.status !== 'ATIVA')
+        throw erroAcesso('CONFLITO', 'Só empresa ativa recebe teste.', 409);
+    if (empresa.codigo === 'kidmais')
+        throw erroAcesso('CONFLITO', 'A Kidmais não tem cobrança.', 409);
+    if (await empresaIsenta(tx, empresa.id))
+        throw erroAcesso('CONFLITO', 'Empresa isenta não recebe teste nem cobrança.', 409);
+    const documento = (await tx.query<{ documento_fiscal: string | null }>(
+        'SELECT documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresa.id])).rows[0]?.documento_fiscal ?? null;
+    if (!documento || !CNPJ.test(documento))
+        throw erroAcesso('DADOS_INVALIDOS', 'Cadastre o CNPJ da contratante na ficha antes de iniciar o teste (CPF não participa do teste nem da condição Fundador).', 400, { campo: 'documentoFiscal' });
+    return iniciarTeste(tx, { empresaId: empresa.id, documento, dias });
+}
 
 export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: PainelDeps = painelDepsPadrao) {
     exigirReautenticacaoRecente(sessao);
@@ -74,7 +100,7 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
     const input = operacaoSchema.parse(raw);
     return deps.withTransaction(async (tx) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
-        const empresa = (await tx.query<{ status: string }>('SELECT status FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
+        const empresa = (await tx.query<{ status: string; codigo: string }>('SELECT status, codigo FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
         if (!empresa)
             throw erroAcesso('NAO_ENCONTRADO', 'Empresa não encontrada.', 404);
         if (!await comercialInstalado(tx))
@@ -82,7 +108,12 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
         const antes = await comercialResumo(tx, empresaId);
         const base = { atorId: sessao.usuario_id, entidadeTipo: 'EMPRESA', entidadeId: empresaId, empresaId, resultado: 'SUCESSO' as const, justificativa: input.motivo, ctx };
         let resultado: Record<string, unknown>;
-        if (input.operacao === 'estender-teste') {
+        if (input.operacao === 'iniciar-teste') {
+            const r = await iniciarTesteDaContratante(tx, { id: empresaId, codigo: empresa.codigo, status: empresa.status }, input.dias);
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_TESTE_INICIADO', antes: { cobrado: antes.cobrado, nivel: antes.nivel }, depois: { testeInicio: r.testeInicio, testeFim: r.testeFim, dias: r.dias } });
+            resultado = { testeInicio: r.testeInicio, testeFim: r.testeFim };
+        }
+        else if (input.operacao === 'estender-teste') {
             const r = await estenderTeste(tx, { empresaId, dias: input.dias, motivo: input.motivo, usuarioId: sessao.usuario_id });
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_TESTE_ESTENDIDO', antes: { testeFim: r.testeFimAntes, nivel: antes.nivel }, depois: { testeFim: r.testeFimDepois, dias: input.dias, excecaoId: r.excecaoId } });
             resultado = { testeFim: r.testeFimDepois, excecaoId: r.excecaoId };
