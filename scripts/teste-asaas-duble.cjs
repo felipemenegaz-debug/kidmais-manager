@@ -38,7 +38,7 @@ if (arquivo) {
             estado.assinaturas[m[1]].deleted = true;
             resposta = responder({ deleted: true, id: m[1] });
         }
-        // Créditos de IA (090): cobrança avulsa (POST /payments), leitura por id e listagem pela referência externa.
+        // Créditos de IA (095): cobrança avulsa (POST /payments), leitura por id e listagem pela referência externa.
         else if (metodo === 'POST' && caminho === '/payments') {
             const corpo = JSON.parse(String(init.body ?? '{}'));
             estado.avulsas = estado.avulsas ?? {};

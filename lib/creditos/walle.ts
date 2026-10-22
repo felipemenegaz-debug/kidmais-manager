@@ -1,5 +1,5 @@
 /**
- * Carteira do Wall-e no motor de créditos (090), em µUS$ inteiros. API pronta e testada, NÃO ligada ao atendimento:
+ * Carteira do Wall-e no motor de créditos (095), em µUS$ inteiros. API pronta e testada, NÃO ligada ao atendimento:
  * o Wall-e segue desligado/regras por padrão e só pode usar esta carteira com CREDITOS_WALLE_CONSUMO_ATIVO=true E os
  * gates próprios do atendimento (R6, receptor, contatos; lib/creditos/config.ts walleDisponivel). Saldo nunca reativa o
  * atendimento nem eleva tetos de custo (AI_BUDGET_JSON continua valendo por cima).

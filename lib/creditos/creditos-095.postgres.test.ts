@@ -16,7 +16,9 @@ import { abrirCarteira, conferirCarteira, creditarLote, creditosInstalados, ence
 import { aplicarCorte, simularCorte } from "./corte.ts";
 import { criarPedido, type DepsCreditos } from "./compra.ts";
 import { consultarCreditos } from "./servico.ts";
-import { processarPedido, pedidosParaReconciliar } from "./pagamento.ts";
+import { processarEventoCreditos, processarPedido, pedidosParaReconciliar } from "./pagamento.ts";
+import { concluirCobrancaExtra, reprocessarPedido, resolverBloqueio, resolverRevisao } from "./operacao.ts";
+import { createRequire } from "node:module";
 import { registrarDevolucao, solicitarDevolucao } from "./devolucao.ts";
 import { concederCortesia } from "./cortesia.ts";
 import { manutencaoEmpresa } from "./manutencao.ts";
@@ -24,9 +26,9 @@ import { liquidarChamada, reservarChamada } from "./walle.ts";
 import { proporcionalCentavos as proporcional, referenciaExterna } from "./dominio.ts";
 
 /**
- * 090 — créditos de IA no PostgreSQL DESCARTÁVEL sobre o modelo 089 (inventário inteiro até a 089; a 090 é aplicada aqui).
+ * 095 — créditos de IA no PostgreSQL DESCARTÁVEL sobre o modelo 089 (inventário inteiro até a 089; a 095 é aplicada aqui).
  * Asaas e IA são DUBLÊS em memória (nenhuma rede); dados sintéticos. Só pelo check:v1:postgres com o opt-in do descartável.
- *   1. sem a 090: código novo tolera o schema antigo (instalado=false, compra 503, exportação com tabelas ausentes);
+ *   1. sem a 095: código novo tolera o schema antigo (instalado=false, compra 503, exportação com tabelas ausentes);
  *   2. precheck, aplicação, postcheck, reaplicação recusada, rollback vazio e reaplicação;
  *   3. corte do legado (lote LEGADO, idempotente, recusa com geração aberta), guardas (extrato imutável, sem negativo,
  *      FKs compostas por empresa, lote imutável, vencimento só prorroga);
@@ -39,13 +41,13 @@ import { proporcionalCentavos as proporcional, referenciaExterna } from "./domin
  *   8. Convites pelo serviço real (IA dublê): motor legado intacto; motor novo consome 1 por geração concluída, devolve na
  *      falha pré-envio, mantém reserva em verificação; 088 continua obrigatória antes de reservar; flag off = 503;
  *   9. isolamento: empresa B com lotes, pedidos e reservas elegíveis, fotografia idêntica antes/depois;
- *  10. exportação com a 090 (CSVs dos créditos, colunas excluídas, filtro por empresa) e rollback recusado com dados.
+ *  10. exportação com a 095 (CSVs dos créditos, colunas excluídas, filtro por empresa) e rollback recusado com dados.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
-const UP = ler("database/migrations/20261022_090_ia_creditos.sql");
-const PRE = ler("database/checks/20261022_090_precheck.sql");
-const POST = ler("database/checks/20261022_090_postcheck.sql");
-const DOWN = ler("database/rollback/20261022_090_ia_creditos_down.sql");
+const UP = ler("database/migrations/20261022_095_ia_creditos.sql");
+const PRE = ler("database/checks/20261022_095_precheck.sql");
+const POST = ler("database/checks/20261022_095_postcheck.sql");
+const DOWN = ler("database/rollback/20261022_095_ia_creditos_down.sql");
 const opt = () => process.env.KIDMAIS_POSTGRES_DESCARTAVEL === "kidmais_pacotes_v1_descartavel";
 const cod = () => `cr${randomBytes(3).toString("hex")}`;
 const id = async (db: Client, sql: string, v: unknown[]) => (await db.query<{ id: string }>(sql, v)).rows[0].id;
@@ -186,14 +188,14 @@ async function recusa(c: Client, fn: () => Promise<unknown>, motivo: RegExp) {
 const S = {} as { A: string; B: string; C: string; D: string; uA: string; uB: string; uC: string; uD: string; fotoB: string; pedidoC: string; protocoloC: string;
   conviteA: Awaited<ReturnType<typeof festa>>; conviteD: Awaited<ReturnType<typeof festa>> };
 
-test("090 ausente: código novo tolera o schema antigo (instalado=false, compra 503, exportação com tabelas ausentes)", { timeout: 120_000 }, async (t) => {
+test("095 ausente: código novo tolera o schema antigo (instalado=false, compra 503, exportação com tabelas ausentes)", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
     assert.equal(await creditosInstalados(c as unknown as DbExecutor), false);
     await c.query("BEGIN");
-    const E = await empresa(c, "Sem 090"), u = await gestao(c, E);
-    await assinaturaPaga(c, E, "cus_sem090");
+    const E = await empresa(c, "Sem 095"), u = await gestao(c, E);
+    await assinaturaPaga(c, E, "cus_sem095");
     await c.query("COMMIT");
     const tenant = async <T>(_s: unknown, _e: unknown, w: (tx: DbExecutor, t: { empresaComprovada: string; papelAtual: string; membershipId: string; usuarioId: string }) => Promise<T>) =>
       emTx(c)((tx) => w(tx, { empresaComprovada: E, papelAtual: "REPRESENTANTE_AUTORIZADO", membershipId: "m", usuarioId: u }));
@@ -204,7 +206,7 @@ test("090 ausente: código novo tolera o schema antigo (instalado=false, compra 
     await assert.rejects(criarPedido(sessao(u), null, { oferta: "CONVITES_10", forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: "creditos-ia-20261022.demo" },
       { withTenantTransaction: tenant as DepsCreditos["withTenantTransaction"], withTransaction: emTx(c), provedor: () => ({ cliente: duble.cliente, ambiente: "sandbox" }), consumirLimite: async () => true, env: ENV }),
     (e: { code?: string; httpStatus?: number }) => e.code === "COBRANCA_NAO_CONFIGURADA" && e.httpStatus === 503);
-    assert.equal(duble.s.posts, 0, "sem a 090 nenhuma cobrança é criada");
+    assert.equal(duble.s.posts, 0, "sem a 095 nenhuma cobrança é criada");
     // Exportação: o pacote sai e registra as dez tabelas dos créditos como ausentes (migration não aplicada).
     const { gerarPacote } = await import("../exportacao/pacote.ts");
     await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
@@ -218,15 +220,15 @@ test("090 ausente: código novo tolera o schema antigo (instalado=false, compra 
   }
 });
 
-test("090: precheck, aplicação, postcheck, reaplicação recusada, rollback vazio e reaplicação", { timeout: 120_000 }, async (t) => {
+test("095: precheck, aplicação, postcheck, reaplicação recusada, rollback vazio e reaplicação", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
     await c.query(PRE);
     await c.query(UP);
     await c.query(POST);
-    await assert.rejects(c.query(UP), /090: precheck falhou/); await c.query("ROLLBACK").catch(() => {});
-    await assert.rejects(c.query(PRE), /090 precheck: aplicação anterior ou parcial/);
+    await assert.rejects(c.query(UP), /095: precheck falhou/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(PRE), /095 precheck: aplicação anterior ou parcial/);
     await c.query(DOWN);
     assert.equal(await creditosInstalados(c as unknown as DbExecutor), false);
     await c.query(PRE);
@@ -238,7 +240,7 @@ test("090: precheck, aplicação, postcheck, reaplicação recusada, rollback va
   }
 });
 
-test("090: corte do legado, guardas do extrato, FKs compostas, lote imutável e sem saldo negativo", { timeout: 120_000 }, async (t) => {
+test("095: corte do legado, guardas do extrato, FKs compostas, lote imutável e sem saldo negativo", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const q = (s: string, v: unknown[] = []) => c.query(s, v);
@@ -308,7 +310,7 @@ test("090: corte do legado, guardas do extrato, FKs compostas, lote imutável e 
   }
 });
 
-test("090: duas conexões reais disputam o último crédito (espera observada; a segunda vê saldo insuficiente)", { timeout: 120_000 }, async (t) => {
+test("095: duas conexões reais disputam o último crédito (espera observada; a segunda vê saldo insuficiente)", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c1 = await conectarDescartavel();
   const c2 = await conectarDescartavel({ travar: false });
@@ -351,7 +353,7 @@ test("090: duas conexões reais disputam o último crédito (espera observada; a
   }
 });
 
-test("090: compra avulsa com Asaas dublê — idempotência, recusa, incerto, duplicidade, divergência e crédito único", { timeout: 180_000 }, async (t) => {
+test("095: compra avulsa com Asaas dublê — idempotência, recusa, incerto, duplicidade, divergência e crédito único", { timeout: 180_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const c2 = await conectarDescartavel({ travar: false });
@@ -466,7 +468,7 @@ test("090: compra avulsa com Asaas dublê — idempotência, recusa, incerto, du
   }
 });
 
-test("090: devolução × consumo concorrentes, garantia integral com uso, proporcional e estorno automático só com flag", { timeout: 180_000 }, async (t) => {
+test("095: devolução × consumo concorrentes, garantia integral com uso, proporcional e estorno automático só com flag", { timeout: 180_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c1 = await conectarDescartavel();
   const c2 = await conectarDescartavel({ travar: false });
@@ -546,7 +548,7 @@ test("090: devolução × consumo concorrentes, garantia integral com uso, propo
   }
 });
 
-test("090: expiração, manutenção (franquia só para cortadas), cortesia com teto e Wall-e em µUS$",{ timeout: 120_000 }, async (t) => {
+test("095: expiração, manutenção (franquia só para cortadas), cortesia com teto e Wall-e em µUS$",{ timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
@@ -598,7 +600,7 @@ test("090: expiração, manutenção (franquia só para cortadas), cortesia com 
   }
 });
 
-test("090: disputa (chargeback) bloqueia só o remanescente com exposição; favorável desbloqueia; perdida/estorno externo cancela", { timeout: 120_000 }, async (t) => {
+test("095: disputa (chargeback) bloqueia só o remanescente com exposição; favorável desbloqueia; perdida/estorno externo cancela", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
@@ -651,7 +653,7 @@ test("090: disputa (chargeback) bloqueia só o remanescente com exposição; fav
   }
 });
 
-test("090: Convites pelo serviço real com IA dublê — legado intacto, motor novo, 088 antes da reserva, flag off e verificação", { timeout: 240_000 }, async (t) => {
+test("095: Convites pelo serviço real com IA dublê — legado intacto, motor novo, 088 antes da reserva, flag off e verificação", { timeout: 240_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const salvo = { ...process.env };
@@ -734,7 +736,7 @@ test("090: Convites pelo serviço real com IA dublê — legado intacto, motor n
   }
 });
 
-test("090: corte concorrente com geração (duas conexões): a geração espera o corte na trava da empresa e usa só o motor novo; o legado não debita", { timeout: 180_000 }, async (t) => {
+test("095: corte concorrente com geração (duas conexões): a geração espera o corte na trava da empresa e usa só o motor novo; o legado não debita", { timeout: 180_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const c2 = await conectarDescartavel({ travar: false });
@@ -801,7 +803,7 @@ test("090: corte concorrente com geração (duas conexões): a geração espera 
   }
 });
 
-test("090: geração já em curso e corte (duas conexões): o corte espera na trava da empresa, sem deadlock, e vê o consumo legado", { timeout: 120_000 }, async (t) => {
+test("095: geração já em curso e corte (duas conexões): o corte espera na trava da empresa, sem deadlock, e vê o consumo legado", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const gen = await conectarDescartavel({ travar: false });
@@ -844,7 +846,126 @@ test("090: geração já em curso e corte (duas conexões): o corte espera na tr
   }
 });
 
-test("090: exportação com os créditos (colunas excluídas, filtro por empresa) e rollback recusado com dados", { timeout: 120_000 }, async (t) => {
+test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do operador; estorno parcial; disputa preserva o liberado", { timeout: 240_000 }, async (t) => {
+  if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  try {
+    const tx = c as unknown as DbExecutor;
+    const duble = asaasDuble();
+    const ctx = { provedor: duble.cliente, ambiente: "sandbox" as const, conta: "padrao" };
+    const reconciliar = createRequire(import.meta.url)("../../scripts/assinatura-reconciliar.cjs") as {
+      lerPendenciasCreditos: (c: unknown) => Promise<{ item: string; resultado: string; motivo: string; critico: boolean }[]> };
+    await c.query("BEGIN");
+    const G = await empresa(c, "Créditos G (P2)"), uG = await gestao(c, G);
+    await assinaturaPaga(c, G, "cus_G");
+    await legado(c, G, 0, 0);
+    const Hh = await empresa(c, "Créditos H (P2-6)"), uH = await gestao(c, Hh);
+    await assinaturaPaga(c, Hh, "cus_H");
+    await legado(c, Hh, 0, 0);
+    await c.query("COMMIT");
+    for (const e of [G, Hh]) await emTx(c)((t2) => aplicarCorte(t2, e, "TESTE P2 22/10"));
+    const tenant = (empresaId: string, u: string) => (async <T>(_s: unknown, _e: unknown, w: (t2: DbExecutor, t: object) => Promise<T>) =>
+      emTx(c)((t2) => w(t2, { empresaComprovada: empresaId, papelAtual: "REPRESENTANTE_AUTORIZADO", membershipId: "m", usuarioId: u }))) as unknown as DepsCreditos["withTenantTransaction"];
+    const deps = (empresaId: string, u: string, env: Record<string, string> = ENV): DepsCreditos => ({ withTenantTransaction: tenant(empresaId, u), withTransaction: emTx(c),
+      provedor: () => ({ cliente: duble.cliente, ambiente: "sandbox" }), consumirLimite: async () => true, env });
+    const comprar = async (empresaId: string, u: string, oferta = "CONVITES_10", preco = 5900, env?: Record<string, string>) => {
+      const r = await criarPedido(sessao(u), null, { oferta, forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: preco, termosVersao: "creditos-ia-20261022.demo" }, deps(empresaId, u, env));
+      const p = (await c.query("SELECT p.id, c.pagamento_id FROM ia_credito_pedidos p JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica WHERE p.protocolo = $1", [r.protocolo])).rows[0];
+      return { protocolo: r.protocolo, id: p.id as string, pagamento: p.pagamento_id as string };
+    };
+    const estado = async (id: string) => (await c.query("SELECT estado, revisao_motivo FROM ia_credito_pedidos WHERE id = $1::uuid", [id])).rows[0];
+
+    // P2-2: cobrança cancelada (deleted) → ENCERRADO; o cliente paga mesmo assim → REVISAO crítica, revisitada pela reconciliação.
+    const x = await comprar(G, uG);
+    duble.pagar(x.pagamento, "PENDING", { deleted: true });
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, x.id, ctx))).resultado, "ENCERRADO");
+    assert.ok((await emTx(c)((t2) => pedidosParaReconciliar(t2))).includes(x.id), "ENCERRADO recente com cobrança é revisitado");
+    duble.pagar(x.pagamento, "RECEIVED", { deleted: false });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, x.id, ctx)), { resultado: "REVISAO", motivo: "PAGO_APOS_CANCELAMENTO" });
+    assert.deepEqual(await estado(x.id), { estado: "REVISAO", revisao_motivo: "PAGO_APOS_CANCELAMENTO" });
+    assert.ok((await reconciliar.lerPendenciasCreditos(c)).some((i) => i.item === "PEDIDO_CREDITOS" && i.motivo === "PAGO_APOS_CANCELAMENTO" && i.critico), "item CRÍTICO (D4)");
+    // P2-3: saída do operador — sem referência recusa; CREDITAR só com o pagamento relido agora; crédito único.
+    await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: " " }, ctx)), /REFERENCIA_OBRIGATORIA/);
+    assert.deepEqual(await emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: "Cliente escolheu os creditos (D3)" }, ctx)), { estado: "CREDITADO" });
+    assert.equal((await lerCarteira(tx, G, "CONVITES"))!.saldo, 10);
+    await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: "de novo" }, ctx)), /PEDIDO_NAO_ESTA_EM_REVISAO/);
+    assert.equal((await c.query("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0].n, 1);
+
+    // P2-3: revisão por valor divergente → ENCERRAR com referência (devolvido no painel); creditar sem pagamento confirmado recusa.
+    const y = await comprar(G, uG);
+    duble.pagar(y.pagamento, "RECEIVED", { valorCentavos: 6100 });
+    assert.deepEqual(await emTx(c)((t2) => reprocessarPedido(t2, uG, y.protocolo, ctx)), { resultado: "REVISAO", motivo: "VALOR_DIVERGENTE" });
+    duble.pagar(y.pagamento, "REFUND_REQUESTED");
+    await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: y.protocolo, resultado: "CREDITAR", referencia: "tentativa" }, ctx)), /PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR/);
+    assert.deepEqual(await emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: y.protocolo, resultado: "ENCERRAR", referencia: "Estorno integral no painel Asaas" }, ctx)), { estado: "ENCERRADO" });
+    assert.deepEqual(await estado(y.id), { estado: "ENCERRADO", revisao_motivo: null });
+
+    // P2-3: pagamento duplicado (cobrança extra paga) → concluído pelo operador com referência.
+    duble.s.modo = "duplicar";
+    const dup = await criarPedido(sessao(uG), null, { oferta: "CONVITES_10", forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: "creditos-ia-20261022.demo" }, deps(G, uG));
+    duble.s.modo = "normal";
+    const dupId = (await c.query("SELECT id FROM ia_credito_pedidos WHERE protocolo = $1", [dup.protocolo])).rows[0].id;
+    await emTx(c)((t2) => processarPedido(t2, dupId, ctx));
+    const extra = (await c.query("SELECT id, pagamento_id FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND NOT canonica ORDER BY pagamento_id LIMIT 1", [dupId])).rows[0];
+    duble.pagar(extra.pagamento_id, "RECEIVED");
+    await emTx(c)((t2) => processarEventoCreditos(t2, { cobrancaProvedorId: extra.pagamento_id, referenciaExterna: null }, { pedidoId: dupId, cobrancaId: extra.id, canonica: false }, ctx));
+    assert.equal((await c.query("SELECT revisao_motivo FROM ia_credito_cobrancas WHERE id = $1::uuid", [extra.id])).rows[0].revisao_motivo, "PAGAMENTO_DUPLICADO");
+    await emTx(c)((t2) => concluirCobrancaExtra(t2, uG, { pagamentoId: extra.pagamento_id, referencia: "Estorno do duplicado no painel" }));
+    assert.deepEqual((await c.query("SELECT revisao_motivo, estornado_centavos FROM ia_credito_cobrancas WHERE id = $1::uuid", [extra.id])).rows[0], { revisao_motivo: null, estornado_centavos: "5900" });
+
+    // P2-5: estorno externo PARCIAL (refunds DONE, status continua RECEIVED) → bloqueia o remanescente e marca para o operador.
+    const z = await comprar(G, uG);
+    duble.pagar(z.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, z.id, ctx));
+    duble.pagar(z.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 2000, descricao: null }] });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, z.id, ctx)), { resultado: "REVISAO", motivo: "ESTORNO_EXTERNO_PARCIAL" });
+    const loteZ = async () => (await c.query("SELECT disponivel, bloqueado, cancelado FROM ia_credito_lotes WHERE pedido_id = $1::uuid", [z.id])).rows[0];
+    assert.deepEqual(await loteZ(), { disponivel: "0", bloqueado: "10", cancelado: "0" });
+    assert.deepEqual((await c.query("SELECT estornado_centavos, revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0],
+      { estornado_centavos: "2000", revisao_motivo: "ESTORNO_EXTERNO_PARCIAL" });
+    assert.ok((await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL" && i.critico));
+    await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: z.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
+    assert.deepEqual(await loteZ(), { disponivel: "10", bloqueado: "0", cancelado: "0" });
+
+    // P2-6: disputa aberta com geração em andamento; a liberação fica BLOQUEADA (não cancelada) e volta inteira na disputa favorável.
+    const h = await comprar(Hh, uH);
+    duble.pagar(h.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
+    await emTx(c)((t2) => reservar(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "h-em-andamento", quantidade: 2, ator: "EQUIPE" }));
+    duble.pagar(h.pagamento, "CHARGEBACK_REQUESTED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, h.id, ctx))).resultado, "DISPUTA");
+    await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "h-em-andamento", quantidadeFinal: 0, ator: "SISTEMA" }));
+    const loteH = async () => (await c.query("SELECT disponivel, reservado, bloqueado, cancelado FROM ia_credito_lotes WHERE pedido_id = $1::uuid", [h.id])).rows[0];
+    assert.deepEqual(await loteH(), { disponivel: "0", reservado: "0", bloqueado: "10", cancelado: "0" }, "liberado durante a disputa fica bloqueado");
+    duble.pagar(h.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
+    assert.deepEqual(await loteH(), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "disputa favorável devolve tudo");
+
+    // P2-5: devolução própria (saldo não usado, estorno automático) concluída por estorno PARCIAL DONE com status RECEIVED.
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    await c.query("UPDATE ia_credito_lotes SET liberado_em = liberado_em - interval '10 days' WHERE pedido_id = $1::uuid", [h.id]);
+    await c.query("COMMIT");
+    const envEstorno = { ...ENV, CREDITOS_ESTORNO_ATIVO: "true" };
+    const sd = await solicitarDevolucao(sessao(uH), null, { pedido: h.protocolo, tipo: "SALDO_NAO_UTILIZADO", valorEsperadoCentavos: 5900, chave: randomUUID(), confirmar: true }, deps(Hh, uH, envEstorno));
+    assert.equal(sd.estado, "SOLICITADO");
+    duble.pagar(h.pagamento, "RECEIVED", { estornos: [{ status: "PENDING", valorCentavos: 5900, descricao: null }] });
+    await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
+    assert.equal((await c.query("SELECT estado FROM ia_credito_devolucoes WHERE protocolo = $1", [sd.protocolo])).rows[0].estado, "SOLICITADO", "estorno ainda não concluído");
+    duble.pagar(h.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 2000, descricao: null }, { status: "PENDING", valorCentavos: 3900, descricao: null }] });
+    await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
+    assert.equal((await c.query("SELECT estado FROM ia_credito_devolucoes WHERE protocolo = $1", [sd.protocolo])).rows[0].estado, "SOLICITADO", "parte feita não conclui a devolução");
+    duble.pagar(h.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 5900, descricao: null }] });
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, h.id, ctx))).resultado, "ESTORNO");
+    assert.equal((await c.query("SELECT estado FROM ia_credito_devolucoes WHERE protocolo = $1", [sd.protocolo])).rows[0].estado, "CONCLUIDO");
+    for (const e of [G, Hh]) assert.deepEqual(await conferirCarteira(tx, e, "CONVITES"), []);
+    assert.equal(await fotografia(c, S.B), S.fotoB, "B intacta");
+  } finally {
+    await encerrarDescartavel(c);
+  }
+});
+
+test("095: exportação com os créditos (colunas excluídas, filtro por empresa) e rollback recusado com dados", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
@@ -866,7 +987,7 @@ test("090: exportação com os créditos (colunas excluídas, filtro por empresa
     assert.doesNotMatch(csv("cobrancas"), /asaas\.com/, "sem link de fatura");
     assert.doesNotMatch(csv("extrato") + csv("lotes") + csv("pedidos"), new RegExp(S.B), "nada da empresa B");
     // Rollback recusado: há obrigações financeiras registradas.
-    await assert.rejects(c.query(DOWN), /090 rollback recusado: há registros/);
+    await assert.rejects(c.query(DOWN), /095 rollback recusado: há registros/);
     await c.query("ROLLBACK").catch(() => {});
     assert.equal(await creditosInstalados(c as unknown as DbExecutor), true);
   } finally {

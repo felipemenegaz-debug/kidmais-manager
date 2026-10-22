@@ -1,5 +1,5 @@
 /**
- * Flags e travas dos créditos de IA (090). Tudo server-side e DESLIGADO por padrão: só o texto exato `true` liga.
+ * Flags e travas dos créditos de IA (095). Tudo server-side e DESLIGADO por padrão: só o texto exato `true` liga.
  *
  *   CREDITOS_CATALOGO_ATIVO          mostra o catálogo de pacotes (sem ele, nenhuma oferta é exibida nem aceita);
  *   CREDITOS_COMPRA_ATIVA            aceita novos pedidos de compra (exige também o catálogo);

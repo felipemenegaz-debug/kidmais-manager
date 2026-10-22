@@ -125,7 +125,7 @@ async function evento(tx: DbExecutor, c: Convite, a: Acesso, acao: string, detal
   await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [c.id, ator(a, c), acao, detalhe]);
 }
 async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
-  // Empresa migrada para os créditos (090): o teto da empresa é o disponível da carteira nova; festa e cliente não mudam.
+  // Empresa migrada para os créditos (095): o teto da empresa é o disponível da carteira nova; festa e cliente não mudam.
   if (await motorConvites(tx, c.empresa_id) === 'CREDITOS')
     return { empresa: await disponivelConvites(tx, c.empresa_id), empresaUsado: 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
   const w =(await tx.query<{ limite: number; usado: number }>(`SELECT CASE WHEN w.ativo THEN w.limite_mensal ELSE 0 END limite,COALESCE(u.usado,0)::int usado
@@ -287,7 +287,7 @@ async function registrarEventoTolerante(tx: DbExecutor, conviteId: string, autor
 // Devolve, uma única vez, as reservas originais (festa, cliente, mês e dia civis de São Paulo da reserva). Mesma ordem
 // de travas da reserva (convite já travado → carteira → orçamento do dia → consumo do mês): sem deadlock entre elas.
 async function devolverReservas(tx: DbExecutor, g: GeracaoAberta) {
-  // Reserva feita no motor de créditos (090): libera lá (aos lotes de origem) e não toca o consumo mensal legado.
+  // Reserva feita no motor de créditos (095): libera lá (aos lotes de origem) e não toca o consumo mensal legado.
   const motorNovo = await encerrarGeracao(tx, g.empresa_id, g.id, false, 'SISTEMA');
   if (!motorNovo) await tx.query('SELECT empresa_id FROM convite_carteiras WHERE empresa_id=$1 FOR UPDATE', [g.empresa_id]);
   const festa = await tx.query(`UPDATE convites SET usado_festa=usado_festa-1,
@@ -575,7 +575,7 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     // Imagens pessoais que sairão nesta geração (a referência fixa do estilo é um arquivo do servidor, não da festa).
     const imagens = conferirImagens(provedor, operadorIA(a), i.autorizacaoImagens, [...(foto ? [foto] : []), ...refs]);
     // Carteira + consumo mensal + convite travados; cliente não escolhe modelo, custo ou empresa.
-    // Um único motor autoriza a empresa (090): com corte registrado, só a carteira nova; sem corte, só o legado.
+    // Um único motor autoriza a empresa (095): com corte registrado, só a carteira nova; sem corte, só o legado.
     const motor = await motorConvites(tx, c.empresa_id);
     if (motor === 'CREDITOS') exigir(flagsCreditos().consumoConvites, MENSAGEM_CREDITOS_MANUTENCAO, 503);
     else {

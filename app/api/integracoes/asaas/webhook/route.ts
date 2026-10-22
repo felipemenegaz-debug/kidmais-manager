@@ -16,7 +16,7 @@ export async function POST(request: Request) {
             ip: ipDaRequisicao(request),
             withTransaction,
             consumirLimite,
-            // Créditos (090): depois do processamento, os e-mails do outbox (pagamento confirmado) saem em melhor esforço.
+            // Créditos (095): depois do processamento, os e-mails do outbox (pagamento confirmado) saem em melhor esforço.
             agendar: (id) => after(async () => { await processarEventoAgendado(id); await drenarNotificacoesCreditos(); }),
         });
     }

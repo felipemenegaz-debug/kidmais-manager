@@ -78,7 +78,7 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
     assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
-    // 090 (créditos de IA): saem saldo, lotes (origem, quantidade, preço, vencimento), extrato, reservas, pedidos (oferta, valor,
+    // 095 (créditos de IA): saem saldo, lotes (origem, quantidade, preço, vencimento), extrato, reservas, pedidos (oferta, valor,
     // termos, protocolo), cobranças, devoluções, cortesias e o corte do legado. Ficam fora chaves técnicas de repetição e
     // deduplicação, a URL da fatura (contém token de acesso), a conta do provedor, controles internos de risco e a
     // identidade/motivo do operador da plataforma.
@@ -227,7 +227,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'convites/geracoes', tabela: 'convite_geracoes', grupo: 'Convites', descricao: 'Gerações com IA (resultado: tamanho e SHA-256).', onde: EMP },
     { arquivo: 'convites/autorizacoes_ia', tabela: 'convite_ia_autorizacoes', grupo: 'Convites', descricao: 'Autorizações do responsável para IA.', onde: EMP },
 
-    // Créditos de IA (090; ausentes enquanto a migration não for aplicada — o pacote registra a ausência)
+    // Créditos de IA (095; ausentes enquanto a migration não for aplicada — o pacote registra a ausência)
     { arquivo: 'creditos/carteiras', tabela: 'ia_credito_carteiras', grupo: 'Créditos de IA', descricao: 'Saldo de créditos por recurso (Convites, Wall-e).', onde: EMP },
     { arquivo: 'creditos/lotes', tabela: 'ia_credito_lotes', grupo: 'Créditos de IA', descricao: 'Lotes de crédito: origem, quantidade, preço pago e vencimento.', onde: EMP },
     { arquivo: 'creditos/extrato', tabela: 'ia_credito_lancamentos', grupo: 'Créditos de IA', descricao: 'Extrato de créditos (entradas, reservas, usos, vencimentos e cancelamentos).', onde: EMP },

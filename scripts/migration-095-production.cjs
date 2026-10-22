@@ -1,18 +1,18 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Aplicador manual da 090 SOMENTE no PostgreSQL do web de produção, no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do
-// deploy do código que a usa (ordem: código primeiro, como a 088/089; sem a 090 os fluxos antigos seguem e os novos recusam).
-// Trava de alvo e identidade derivadas do aplicador da 084 de produção; núcleo em scripts/migration-090-comum.cjs.
-//   node scripts/migration-090-production.cjs                                             → plano, sem conexão
-//   node scripts/migration-090-production.cjs --conferir-090                              → somente leitura
-//   node scripts/migration-090-production.cjs --aplicar-090-autorizado --backup "<registro>" → uma vez (marcador exclusivo)
+// Aplicador manual da 095 SOMENTE no PostgreSQL do web de produção, no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do
+// deploy do código que a usa (ordem: código primeiro, como a 088/089; sem a 095 os fluxos antigos seguem e os novos recusam).
+// Trava de alvo e identidade derivadas do aplicador da 084 de produção; núcleo em scripts/migration-095-comum.cjs.
+//   node scripts/migration-095-production.cjs                                             → plano, sem conexão
+//   node scripts/migration-095-production.cjs --conferir-095                              → somente leitura
+//   node scripts/migration-095-production.cjs --aplicar-095-autorizado --backup "<registro>" → uma vez (marcador exclusivo)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {criarAplicador} = require('./migration-090-comum.cjs');
+const {criarAplicador} = require('./migration-095-comum.cjs');
 
 const ALVO = Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', host: 'dpg-dak750gae00c73fudmg0-a', database: 'kidmais_production', port: 5432});
 const DISCO = '/opt/render/project/src/data';
-const DIR = path.posix.join(DISCO, 'ia-creditos-090-producao');
+const DIR = path.posix.join(DISCO, 'ia-creditos-095-producao');
 const SQL_IDENTIDADE = `SELECT current_database() AS db,
   (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls,
   (SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls_versao,
@@ -36,7 +36,7 @@ function alvo(env) {
   assert.ok(!u.port || Number(u.port) === ALVO.port, 'PORTA_RECUSADA');
   assert.ok(u.search === '', 'CONNECTION_QUERY_REJECTED');
   return {connectionString: env.DATABASE_URL, ssl: {rejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false', minVersion: 'TLSv1.2'},
-    application_name: 'kidmais-migration-090-production', connectionTimeoutMillis: 10000};
+    application_name: 'kidmais-migration-095-production', connectionTimeoutMillis: 10000};
 }
 function identidade(id) {
   assert.ok(id?.db === ALVO.database, 'BANCO_DIVERGENTE');

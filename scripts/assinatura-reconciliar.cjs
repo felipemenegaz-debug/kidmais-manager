@@ -35,7 +35,7 @@
  *     continuar gerando cobrança no Asaas).
  * A idade conta do vencimento do prazo (dia 0 = NOVO; 1, 3, 7 e semanais). Em staging o relatório só conta (`encerramentos`).
  *
- * CRÉDITOS DE IA (090, implementação local de 22/10/2026): com a 090 instalada, o ciclo também (a) processa os eventos de
+ * CRÉDITOS DE IA (095, implementação local de 22/10/2026): com a 095 instalada, o ciclo também (a) processa os eventos de
  * cobrança avulsa pelo MESMO serviço do webhook (lib/creditos/pagamento.ts, via processarEvento com a conta/ambiente do
  * serviço), (b) revisita os pedidos abertos/incertos/em revisão e as disputas pelo mesmo serviço (simulação = ROLLBACK por
  * item; produção só conferência) e (c) lê a fila (somente leitura) em itens D-C4: PEDIDO_CREDITOS (criação incerta, revisão,
@@ -245,7 +245,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
             itens.push({ item: p.item, resultado: p.resultado, motivo: p.motivo, recebidoMs: p.recebidoMs });
         }
     }
-    // 090: pedidos de créditos pelo mesmo serviço do webhook (um item por pedido) e a fila em itens D-C4 (só leitura).
+    // 095: pedidos de créditos pelo mesmo serviço do webhook (um item por pedido) e a fila em itens D-C4 (só leitura).
     if (creditos && await creditos.instalados(client)) {
         relatorio.creditos = {};
         relatorio.creditosPedidos = {};
@@ -295,14 +295,19 @@ async function lerPendenciasEncerramento(client, instanteMs = null) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Créditos de IA (090): fila somente leitura, sem ids nem dados pessoais. `$1` fixa o instante (testes).
+// Créditos de IA (095): fila somente leitura, sem ids nem dados pessoais. `$1` fixa o instante (testes).
 const SQL_PENDENCIAS_CREDITOS = `SELECT item, resultado, motivo, critico, (extract(epoch FROM limite) * 1000)::float8 AS limite_ms FROM (
-    SELECT 'PEDIDO_CREDITOS' AS item, estado AS resultado, coalesce(revisao_motivo, recurso) AS motivo, false AS critico,
+    SELECT 'PEDIDO_CREDITOS' AS item, estado AS resultado, coalesce(revisao_motivo, recurso) AS motivo,
+           -- P2-2/P2-3: revisão com dinheiro já recebido é CRÍTICA (D4: pagamento confirmado sem crédito).
+           coalesce(revisao_motivo, '') IN ('PAGO_APOS_CANCELAMENTO', 'VALOR_DIVERGENTE', 'FORMA_DIVERGENTE', 'RECEBIDO_FORA_DO_PROVEDOR', 'CLIENTE_DIVERGENTE', 'REFERENCIA_DIVERGENTE') AS critico,
            CASE WHEN estado = 'CRIACAO_EM_CURSO' THEN criado_em + interval '10 minutes' ELSE criado_em END AS limite
       FROM ia_credito_pedidos WHERE estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO')
     UNION ALL
     SELECT 'PEDIDO_CREDITOS', 'PAGAMENTO_DUPLICADO', c.situacao_provedor, true, c.atualizada_em
       FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'PAGAMENTO_DUPLICADO'
+    UNION ALL
+    SELECT 'PEDIDO_CREDITOS', 'ESTORNO_EXTERNO_PARCIAL', c.situacao_provedor, true, c.atualizada_em
+      FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'
     UNION ALL
     SELECT 'DEVOLUCAO_CREDITOS', estado, tipo, tipo = 'ARREPENDIMENTO_7_DIAS',
            CASE WHEN tipo = 'ARREPENDIMENTO_7_DIAS' THEN solicitado_em + interval '1 hour'
@@ -395,7 +400,7 @@ function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) 
     for (const i of itens) {
         const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
         if (erroDaExecucao(i)) { alarmes.push({ ...base, aviso: 'ERRO_NESTA_EXECUCAO' }); continue; }
-        // 090 (D4, 22/10/2026): item crítico dos créditos alarma em toda conferência até ser resolvido.
+        // 095 (D4, 22/10/2026): item crítico dos créditos alarma em toda conferência até ser resolvido.
         if (i.critico === true) { alarmes.push({ ...base, aviso: 'CRITICO' }); continue; }
         if (i.item === 'EMPRESA') { alarmes.push({ ...base, aviso: 'EMPRESA_SEM_IDADE' }); continue; }
         const dia = diaDoItem(i.recebidoMs, referenciaMs);
@@ -516,7 +521,7 @@ async function main() {
     }
 }
 
-/** Dependências dos créditos (090) no ciclo: o mesmo serviço do webhook e a recomputação das carteiras (só leitura). */
+/** Dependências dos créditos (095) no ciclo: o mesmo serviço do webhook e a recomputação das carteiras (só leitura). */
 async function creditosDaExecucao(config, env) {
     const pagamento = await import('../lib/creditos/pagamento.ts');
     const ledger = await import('../lib/creditos/ledger.ts');

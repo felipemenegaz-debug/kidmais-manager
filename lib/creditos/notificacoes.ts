@@ -1,5 +1,5 @@
 /**
- * Saída de e-mails dos créditos (090): outbox deduplicado na mesma transação do fato (pagamento confirmado, devolução
+ * Saída de e-mails dos créditos (095): outbox deduplicado na mesma transação do fato (pagamento confirmado, devolução
  * registrada, aviso interno, lote vencendo). O envio é melhor esforço depois do COMMIT (rota/after ou manutenção) e nunca
  * desfaz o fato: falha de e-mail só reagenda. A 087 (avisos de cobrança) não está integrada neste repositório; o transporte
  * é o mesmo adaptador do app (lib/acessos/email.ts, EMAIL_PROVIDER; `desativado` por padrão = nada sai).
@@ -7,6 +7,7 @@
  */
 import type { DbExecutor } from '../db/contracts';
 import type { EnviarEmail, MensagemEmail } from '../acessos/email.ts';
+import { createHash } from 'node:crypto';
 import { canaisSuporte } from '../suporte/canais.ts';
 
 export type TipoNotificacao = 'PAGAMENTO_CONFIRMADO' | 'DEVOLUCAO_REGISTRADA' | 'AVISO_INTERNO_DEVOLUCAO' | 'LOTE_VENCENDO_30' | 'LOTE_VENCENDO_7';
@@ -30,10 +31,16 @@ const TEXTO: Record<TipoNotificacao, string> = {
     LOTE_VENCENDO_30: 'Parte dos seus créditos de IA vence em cerca de 30 dias. Confira os vencimentos em Assinatura → Créditos de IA.',
     LOTE_VENCENDO_7: 'Parte dos seus créditos de IA vence em cerca de 7 dias. Confira os vencimentos em Assinatura → Créditos de IA.',
 };
-export function mensagem(tipo: TipoNotificacao, para: string, protocolo: string | null): MensagemEmail {
+/**
+ * P2-4 (revisão de 22/10): a chave de idempotência é POR NOTIFICAÇÃO E DESTINATÁRIO (id da notificação + hash do e-mail),
+ * nunca por tipo/protocolo: duas pessoas da Gestão, ou avisos sem protocolo de empresas diferentes, não colidem. Uma nova
+ * tentativa reenvia a mesma mensagem com a mesma chave, que o transporte trata como repetição (quem já recebeu não recebe de novo).
+ */
+export function mensagem(tipo: TipoNotificacao, para: string, protocolo: string | null, notificacaoId: string): MensagemEmail {
     const linhas = [TEXTO[tipo], ...(protocolo ? [`Protocolo: ${protocolo}`] : []), 'Dúvidas: contato@demerzellabs.com.br.'];
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return { para, assunto: ASSUNTO[tipo], texto: linhas.join('\n\n'), html: linhas.map((l) => `<p>${esc(l)}</p>`).join(''), idempotencia: `creditos-${tipo}-${protocolo ?? 'sem'}` };
+    const destino = createHash('sha256').update(para.trim().toLowerCase(), 'utf8').digest('hex').slice(0, 16);
+    return { para, assunto: ASSUNTO[tipo], texto: linhas.join('\n\n'), html: linhas.map((l) => `<p>${esc(l)}</p>`).join(''), idempotencia: `creditos-${notificacaoId}-${destino}` };
 }
 
 type DepsEnvio = { withTransaction: <T>(t: (tx: DbExecutor) => Promise<T>) => Promise<T>; enviarEmail?: EnviarEmail | null; env?: Record<string, string | undefined> };
@@ -42,7 +49,7 @@ type DepsEnvio = { withTransaction: <T>(t: (tx: DbExecutor) => Promise<T>) => Pr
  * da plataforma (SITE_ATENDIMENTO_EMAIL). Uma transação curta por notificação para marcar o resultado.
  */
 export async function drenarNotificacoes(deps: DepsEnvio, limite = 20) {
-    const r = { enviadas: 0, falhas: 0, semDestino: 0 };
+    const r = { enviadas: 0, falhas: 0, semDestino: 0, naoConfigurado: false };
     if (!deps.enviarEmail) return r;
     const pendentes = await deps.withTransaction(async (tx) => (await tx.query<{ id: string; empresa_id: string; tipo: TipoNotificacao; protocolo: string | null }>(
         `SELECT id, empresa_id, tipo, protocolo FROM ia_credito_notificacoes WHERE situacao IN ('PENDENTE', 'FALHOU') AND proxima_em <= clock_timestamp()
@@ -55,8 +62,12 @@ export async function drenarNotificacoes(deps: DepsEnvio, limite = 20) {
         let ok = destinos.length > 0;
         if (!ok) r.semDestino += 1;
         for (const para of destinos) {
-            try { await deps.enviarEmail(mensagem(n.tipo, para, n.protocolo)); }
-            catch { ok = false; }
+            try { await deps.enviarEmail(mensagem(n.tipo, para, n.protocolo, n.id)); }
+            catch (error) {
+                // P3-4: transporte desativado não é falha desta notificação; para a drenagem sem gastar tentativas.
+                if ((error as { code?: string }).code === 'EMAIL_NAO_CONFIGURADO') { r.naoConfigurado = true; return r; }
+                ok = false;
+            }
         }
         await deps.withTransaction((tx) => tx.query(ok
             ? `UPDATE ia_credito_notificacoes SET situacao = 'ENVIADO', enviada_em = clock_timestamp(), tentativas = tentativas + 1 WHERE id = $1::uuid`

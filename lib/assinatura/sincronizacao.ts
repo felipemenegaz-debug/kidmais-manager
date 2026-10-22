@@ -39,7 +39,7 @@ import { creditosInstalados } from '../creditos/ledger.ts';
 import { pedidoDoEvento, processarEventoCreditos } from '../creditos/pagamento.ts';
 
 /**
- * Créditos de IA (090): cobrança AVULSA de pacote nunca entra na sincronização da assinatura (não ativa nem renova nada).
+ * Créditos de IA (095): cobrança AVULSA de pacote nunca entra na sincronização da assinatura (não ativa nem renova nada).
  * O evento cujo pagamento está vinculado a um pedido de créditos, ou cuja referência é km:<amb>:creditos:<pedido>, vai
  * para lib/creditos/pagamento.ts (mesmo serviço idempotente da reconciliação), com a conta e o ambiente do serviço.
  */
@@ -150,7 +150,7 @@ const ID_EVENTO = /^[A-Za-z0-9_.:&-]{1,200}$/;
 const ID_PROVEDOR = /^[A-Za-z0-9_-]{1,100}$/;
 const TIPO = /^[A-Z0-9_]{1,80}$/;
 const opcional = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v) ? v : null);
-/** Referência de pedido de créditos (090): km:<ambiente>:creditos:<uuid>. Guardada como veio, só para escolher o pedido. */
+/** Referência de pedido de créditos (095): km:<ambiente>:creditos:<uuid>. Guardada como veio, só para escolher o pedido. */
 const REFERENCIA_CREDITOS = /^km:(sandbox|producao):creditos:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const objeto = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
 
@@ -239,7 +239,7 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
         return processarPendencia(tx, ev, deps.provedor, concluir, deps.transacaoIndependente);
     if (!EVENTOS_SUPORTADOS.has(ev.tipo))
         return concluir('IGNORADO', null, 'TIPO_NAO_TRATADO');
-    // 090: pagamento avulso de créditos → serviço de créditos (nunca o sincronizador da assinatura).
+    // 095: pagamento avulso de créditos → serviço de créditos (nunca o sincronizador da assinatura).
     if (!ev.assinatura_provedor_id && await creditosInstalados(tx)) {
         const alvo = await pedidoDoEvento(tx, { cobrancaProvedorId: ev.cobranca_provedor_id ?? null, referenciaExterna: ev.referencia_externa });
         if (alvo) return processarCreditos(tx, ev, alvo, deps);

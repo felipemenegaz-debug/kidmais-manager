@@ -1,8 +1,8 @@
 /**
- * Ponte entre a geração de Convites (lib/convites/service.ts) e o motor novo de créditos (090).
+ * Ponte entre a geração de Convites (lib/convites/service.ts) e o motor novo de créditos (095).
  *
  * Um único motor autoriza o débito de cada empresa:
- *   LEGADO   — sem carteira CONVITES (sem corte registrado, ou sem a 090): convite_carteiras/convite_consumos, como antes;
+ *   LEGADO   — sem carteira CONVITES (sem corte registrado, ou sem a 095): convite_carteiras/convite_consumos, como antes;
  *   CREDITOS — com carteira CONVITES (criada só pelo corte, lib/creditos/corte.ts): reserva de 1 crédito por geração no
  *              extrato; o motor legado nunca mais autoriza essa empresa (sem fallback quando o saldo novo acaba).
  * Cotas por festa/cliente, teto global diário, autorização do responsável (088) e confirmação de foto/galeria continuam

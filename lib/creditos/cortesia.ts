@@ -1,5 +1,5 @@
 /**
- * Cortesia de créditos (090): só o operador autorizado da plataforma (concessão de desenvolvedor travada na transação +
+ * Cortesia de créditos (095): só o operador autorizado da plataforma (concessão de desenvolvedor travada na transação +
  * senha recente, lib/desenvolvedor/creditos.ts), com motivo, campanha, protocolo e idempotência. A Gestão do buffet não
  * fabrica saldo. Cortesia não gera valor a devolver, não contorna gates jurídicos e não eleva tetos de custo.
  * Campanhas e tetos abaixo são PROPOSTA (piloto de 10 gerações por 60 dias); Wall-e fica fora até a liberação.

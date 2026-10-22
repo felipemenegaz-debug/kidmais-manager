@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 090 executados DE VERDADE com bash num destino temporário (só o destino difere do Render; o comando
+// Blocos de Shell da 095 executados DE VERDADE com bash num destino temporário (só o destino difere do Render; o comando
 // do aplicador é o real — recusando antes de conectar, sem RENDER/DATABASE_URL — ou um substituto que só devolve um
 // código). Inclui COLAGEM INTERATIVA (bash -i, bloco + linhas do operador), como no Web Shell: o shell do operador
 // precisa sobreviver e ler o código. Não toca banco nem /opt/render.
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {spawnSync} = require('node:child_process'), {createHash} = require('node:crypto');
-const b = require('./bloco-shell-090.cjs'), {ETAPAS} = require('./migration-090-comum.cjs');
+const b = require('./bloco-shell-095.cjs'), {ETAPAS} = require('./migration-095-comum.cjs');
 const root = path.resolve(__dirname, '..');
 const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n');
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -14,7 +14,7 @@ const AMBIENTES = ['staging', 'production'];
 
 /** Destino com os arquivos implantados (LF) e, opcionalmente, node_modules do repositório (junção) para o aplicador real. */
 function destino(ambiente, {modulos = false} = {}) {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bloco-090-'));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bloco-095-'));
   for (const a of b.arquivos(ambiente)) { fs.mkdirSync(path.dirname(path.join(d, a)), {recursive: true}); fs.writeFileSync(path.join(d, a), lf(a)); }
   if (modulos) fs.symlinkSync(path.join(root, 'node_modules'), path.join(d, 'node_modules'), 'junction');
   return d;
@@ -37,8 +37,8 @@ const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('arquivos conferidos: aplicador do ambiente, núcleo (e conexão de staging) e os 3 SQL revisados', () => {
-  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-090-staging.cjs', 'scripts/migration-090-comum.cjs', 'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1])]);
-  assert.deepEqual(b.arquivos('production'), ['scripts/migration-090-production.cjs', 'scripts/migration-090-comum.cjs', ...ETAPAS.map(e => e[1])]);
+  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-095-staging.cjs', 'scripts/migration-095-comum.cjs', 'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1])]);
+  assert.deepEqual(b.arquivos('production'), ['scripts/migration-095-production.cjs', 'scripts/migration-095-comum.cjs', ...ETAPAS.map(e => e[1])]);
   for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src');
   assert.equal(b.AMBIENTES.staging.servico, 'srv-daif418ae00c73e8k2gg'); assert.equal(b.AMBIENTES.production.servico, 'srv-dak77m2d0e5s73b8rkkg');
@@ -59,9 +59,9 @@ test('blocos oficiais: ASCII, ≤ 32 KB, bind e guarda antes de tudo, corpo em s
     assert.doesNotMatch(x, /DATABASE_URL|PGPASSWORD|postgres(ql)?:\/\/|B64|base64/);
     for (const a of b.arquivos(ambiente)) assert.ok(L.includes(`arq ${a} ${sha(lf(a))}`), a);
   }
-  assert.match(b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: '15aa937'}), /^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-090-staging\.cjs --conferir-090 \|\| codigo=\$\?$/m);
+  assert.match(b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: '15aa937'}), /^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-095-staging\.cjs --conferir-095 \|\| codigo=\$\?$/m);
   assert.match(b.gerar({ambiente: 'production', modo: 'APLICAR', rotulo: '15aa937'}),
-    /^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-090-production\.cjs --aplicar-090-autorizado --backup "\$KIDMAIS_REGISTRO_BACKUP" \|\| codigo=\$\?$/m);
+    /^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-095-production\.cjs --aplicar-095-autorizado --backup "\$KIDMAIS_REGISTRO_BACKUP" \|\| codigo=\$\?$/m);
   assert.doesNotMatch(b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: '15aa937'}), /KIDMAIS_REGISTRO_BACKUP/);
 });
 
@@ -76,7 +76,7 @@ test('shell de outro serviço (ou sem RENDER_SERVICE_ID): nada do corpo executad
 });
 
 test('arquivo implantado divergente ou ausente: código 4 antes de rodar o aplicador', () => {
-  for (const [ambiente, alterar] of [['staging', 'scripts/conexao-staging.cjs'], ['production', ETAPAS[1][1]], ['production', 'scripts/migration-090-comum.cjs']]) {
+  for (const [ambiente, alterar] of [['staging', 'scripts/conexao-staging.cjs'], ['production', ETAPAS[1][1]], ['production', 'scripts/migration-095-comum.cjs']]) {
     for (const modo of ['remover', 'alterar']) {
       const d = destino(ambiente);
       try { if (modo === 'remover') fs.rmSync(path.join(d, alterar)); else fs.appendFileSync(path.join(d, alterar), '\n-- alterado');

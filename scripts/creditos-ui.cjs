@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-/** E2E opt-in dos créditos de IA (090) no navegador, com PostgreSQL DESCARTÁVEL (modelo 089 + 090 aplicada aqui) e dados
+/** E2E opt-in dos créditos de IA (095) no navegador, com PostgreSQL DESCARTÁVEL (modelo 089 + 095 aplicada aqui) e dados
  * sintéticos. O Asaas é o DUBLÊ dentro do `next dev` (scripts/teste-asaas-duble.cjs: o fetch para o sandbox é atendido em
  * memória; qualquer outro endereço do Asaas é recusado). E-mail em ARQUIVO local. Nenhum .env, banco real, provedor real ou
  * serviço Render. Execute com os três KIDMAIS_* de autorização do descartável, KIDMAIS_PLAYWRIGHT_MODULE e Chrome.
@@ -23,7 +23,7 @@ const path = require('node:path');
 const receita = require('./regressao-v1-postgres-receita.cjs');
 
 const PORTA_WEB = 3157;
-const UP = 'database/migrations/20261022_090_ia_creditos.sql';
+const UP = 'database/migrations/20261022_095_ia_creditos.sql';
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function principal() {

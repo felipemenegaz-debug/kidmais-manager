@@ -1,5 +1,5 @@
 /**
- * Worker de manutenção dos créditos (090), idempotente e por empresa (scripts/creditos-manutencao.cjs; simulação por
+ * Worker de manutenção dos créditos (095), idempotente e por empresa (scripts/creditos-manutencao.cjs; simulação por
  * padrão). Não depende de evento do Asaas: plano anual recebe franquia mês a mês por aqui.
  *   - expira o disponível de lotes vencidos (EXPIRACAO por lote, uma vez);
  *   - franquia mensal de Convites para empresas CORTADAS: o mesmo limite legado (convite_carteiras ativo), com acesso

@@ -6,7 +6,7 @@ import { reais } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 
 /**
- * Créditos de IA na tela Assinatura (090). Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
+ * Créditos de IA na tela Assinatura (095). Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
  * Gestão. O navegador nunca define preço, quantidade, validade ou empresa: só escolhe a oferta e confirma o que viu
  * (preço e versão dos termos), e o servidor recusa se mudou. Cartão é pago na página hospedada do Asaas.
  * Créditos só aparecem depois da confirmação do pagamento pelo Asaas (o retorno da fatura não libera nada).

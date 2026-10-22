@@ -1,7 +1,7 @@
 /**
- * Leitura da tela Assinatura → Créditos de IA (090). Empresa e papel sempre da sessão (withTenantTransaction).
+ * Leitura da tela Assinatura → Créditos de IA (095). Empresa e papel sempre da sessão (withTenantTransaction).
  * Qualquer pessoa da empresa vê o saldo; só a Gestão vê pedidos, cobranças, devoluções, extrato e o catálogo.
- * Sem a 090: { instalado: false } e a tela mostra só o modelo atual (franquia mensal), sem erro.
+ * Sem a 095: { instalado: false } e a tela mostra só o modelo atual (franquia mensal), sem erro.
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';

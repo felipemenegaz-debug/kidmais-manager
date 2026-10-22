@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 090 (créditos de IA, 22/10/2026), derivados dos da 089 (P2-4 da revisão da devolução), no desenho revisado dos blocos 085/086 (P2-A colagem interativa,
+// Blocos de Shell da 095 (créditos de IA, 22/10/2026), derivados dos da 089 (P2-4 da revisão da devolução), no desenho revisado dos blocos 085/086 (P2-A colagem interativa,
 // P3-1 trap/código, P3-2 bind antes da guarda). Ordem decidida em 21/10/2026: o CÓDIGO é publicado antes, já com o
-// aplicador e os SQL da 090 na árvore implantada — por isso o bloco NÃO transporta nem grava arquivos: confere o sha256
+// aplicador e os SQL da 095 na árvore implantada — por isso o bloco NÃO transporta nem grava arquivos: confere o sha256
 // de cada arquivo implantado e roda o aplicador. O operador cola no Web Shell do serviço (bash INTERATIVO):
 //   - `bind` desliga o bracketed paste ANTES da guarda e fora do subshell (vale pelo resto da sessão do operador);
 //   - guarda RENDER_SERVICE_ID ANTES de qualquer leitura de arquivo (outro serviço: nada do corpo executado);
@@ -11,27 +11,27 @@
 //     outro código (127 linha perdida, 143 sinal) ou ausência da linha (Ctrl-C pode não imprimir a linha: PTY real, como na 088) = parar e ler;
 //   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar (referência do export/PITR anotado).
 // O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
-//   node scripts/bloco-shell-090.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>
+//   node scripts/bloco-shell-095.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {ETAPAS} = require('./migration-090-comum.cjs');
+const {ETAPAS} = require('./migration-095-comum.cjs');
 
 const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
-  staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-090-staging.cjs',
-    dependencias: Object.freeze(['scripts/migration-090-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/ia-creditos-090-staging', rotulo: 'STAGING'}),
-  production: Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', nome: 'kidmais-manager-production', aplicador: 'scripts/migration-090-production.cjs',
-    dependencias: Object.freeze(['scripts/migration-090-comum.cjs']), registro: 'data/ia-creditos-090-producao', rotulo: 'PRODUCAO'}),
+  staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-095-staging.cjs',
+    dependencias: Object.freeze(['scripts/migration-095-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/ia-creditos-095-staging', rotulo: 'STAGING'}),
+  production: Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', nome: 'kidmais-manager-production', aplicador: 'scripts/migration-095-production.cjs',
+    dependencias: Object.freeze(['scripts/migration-095-comum.cjs']), registro: 'data/ia-creditos-095-producao', rotulo: 'PRODUCAO'}),
 });
-const COMANDOS = Object.freeze({CONFERIR: '--conferir-090', APLICAR: '--aplicar-090-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
+const COMANDOS = Object.freeze({CONFERIR: '--conferir-095', APLICAR: '--aplicar-095-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({
-  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 3 SQL da 090 IMPLANTADOS e roda --conferir-090',
+  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 3 SQL da 095 IMPLANTADOS e roda --conferir-095',
     '(identidade, estado, privilegios CREATE/REFERENCES e precheck ou postcheck em transacao READ ONLY). Nada e gravado.'],
-  APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da migration 090 neste ambiente. Antes de colar, no mesmo',
-    'shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>". Roda --aplicar-090-autorizado UMA vez.',
+  APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da migration 095 neste ambiente. Antes de colar, no mesmo',
+    'shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>". Roda --aplicar-095-autorizado UMA vez.',
     'Se algo parar, NAO repetir: copiar a saida e revisar (o marcador no disco persistente impede a repeticao).'],
 });
 const sha = b => createHash('sha256').update(b).digest('hex');
@@ -66,9 +66,9 @@ function gerar({ambiente, modo, rotulo, raiz = path.resolve(__dirname, '..'), de
     'printf "%s" "$B" | grep -Eq "^[A-Za-z0-9:._/ -]{6,120}$" || { echo "BACKUP_NAO_INFORMADO defina KIDMAIS_REGISTRO_BACKUP antes de colar"; exit 4; }');
   c.push('codigo=0', `${cmd} || codigo=$?`, `echo '=== REGISTRO (${a.registro}) ==='`, `ls -1 ${a.registro} 2>/dev/null || echo SEM_REGISTRO`, 'exit "$codigo"');
   const linhas = ['#!/usr/bin/env bash',
-    `# BLOCO-SHELL-090-${a.rotulo}-${modo} - Web Shell do ${a.servico} (${a.nome}). Colar inteiro, uma vez, e Enter.`,
+    `# BLOCO-SHELL-095-${a.rotulo}-${modo} - Web Shell do ${a.servico} (${a.nome}). Colar inteiro, uma vez, e Enter.`,
     ...TITULOS[modo].map(t => '# ' + t),
-    `# Gerado da arvore ${rotulo} por scripts/bloco-shell-090.cjs. Conferir sha256 e bytes antes de colar.`,
+    `# Gerado da arvore ${rotulo} por scripts/bloco-shell-095.cjs. Conferir sha256 e bytes antes de colar.`,
     '# O bind abaixo roda ANTES da guarda e FORA do subshell, mesmo em outro servico: desliga o bracketed paste do readline',
     '# pelo resto desta sessao. A guarda de RENDER_SERVICE_ID vem antes de qualquer leitura de arquivo. Corpo em subshell:',
     '# opcoes, umask, cwd e variaveis nao vazam. No fim sai CODIGO_SAIDA_BLOCO=<n> (0/1/2/3 aplicador, 4 bloco); outro codigo',
@@ -87,7 +87,7 @@ if (require.main === module) {
     const [ambiente, modo, rotulo] = process.argv.slice(2);
     const bloco = gerar({ambiente, modo, rotulo});
     process.stdout.write(bloco);
-    console.error(`BLOCO-SHELL-090-${AMBIENTES[ambiente].rotulo}-${modo} sha256 ${sha(Buffer.from(bloco, 'utf8'))} (${Buffer.byteLength(bloco, 'utf8')} bytes)`);
+    console.error(`BLOCO-SHELL-095-${AMBIENTES[ambiente].rotulo}-${modo} sha256 ${sha(Buffer.from(bloco, 'utf8'))} (${Buffer.byteLength(bloco, 'utf8')} bytes)`);
   } catch (e) { console.error('RECUSADO ' + String(e?.message ?? e).slice(0, 160)); process.exitCode = 1; }
 }
 module.exports = {DESTINO, LIMITE, AMBIENTES, COMANDOS, arquivos, gerar};

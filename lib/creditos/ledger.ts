@@ -1,10 +1,10 @@
 /**
- * Extrato e carteiras dos créditos de IA (090), sempre DENTRO da transação de quem chama. Importável sem o driver.
+ * Extrato e carteiras dos créditos de IA (095), sempre DENTRO da transação de quem chama. Importável sem o driver.
  *
  * ORDEM ÚNICA DE TRAVAS (todas as operações): [convite] → [pedido] → carteira (empresa, recurso) → lotes por
  * (vence_em, id) → [orçamento global dos Convites]. A trava da carteira serializa reserva, consumo, liberação, expiração,
  * crédito, bloqueio e devolução da mesma carteira: duas conexões disputando o último crédito esperam uma pela outra e a
- * segunda vê o saldo já reservado. Constraints e gatilhos (090) recusam saldo negativo e extrato alterado; a reconciliação
+ * segunda vê o saldo já reservado. Constraints e gatilhos (095) recusam saldo negativo e extrato alterado; a reconciliação
  * (conferirCarteira) recalcula tudo a partir do extrato e dos lotes.
  *
  * Cada efeito grava UMA linha de extrato por lote, com chave (empresa, recurso, operação, tipo, lote): repetir a mesma
@@ -30,13 +30,13 @@ export class SaldoInsuficiente extends Error {
     constructor() { super('Saldo de créditos insuficiente.'); this.name = 'SaldoInsuficiente'; }
 }
 export class CreditosNaoInstalados extends Error {
-    constructor() { super('Créditos de IA não instalados neste ambiente (090 ausente).'); this.name = 'CreditosNaoInstalados'; }
+    constructor() { super('Créditos de IA não instalados neste ambiente (095 ausente).'); this.name = 'CreditosNaoInstalados'; }
 }
 
-/** 090 aplicada (as onze tabelas nascem juntas numa transação; basta conferir o extrato e a guarda). */
+/** 095 aplicada (as onze tabelas nascem juntas numa transação; basta conferir o extrato e a guarda). */
 export async function creditosInstalados(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>(
-        "SELECT to_regclass('public.ia_credito_lancamentos') IS NOT NULL AND to_regprocedure('public.kidmais_090_guarda()') IS NOT NULL AS ok")).rows[0]?.ok === true;
+        "SELECT to_regclass('public.ia_credito_lancamentos') IS NOT NULL AND to_regprocedure('public.kidmais_095_guarda()') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 export async function exigirInstalados(tx: DbExecutor) {
     if (!await creditosInstalados(tx)) throw new CreditosNaoInstalados();
@@ -55,7 +55,7 @@ export async function lerCarteira(tx: DbExecutor, empresaId: string, recurso: Re
         WHERE empresa_id = $1::uuid AND recurso = $2 ${travar ? 'FOR UPDATE' : ''}`, [empresaId, recurso])).rows[0];
     return r ? carteira(r) : null;
 }
-/** Cria (se preciso) e trava a carteira. CONVITES só nasce pelo corte (corteEm obrigatório; constraint da 090). */
+/** Cria (se preciso) e trava a carteira. CONVITES só nasce pelo corte (corteEm obrigatório; constraint da 095). */
 export async function abrirCarteira(tx: DbExecutor, empresaId: string, recurso: Recurso, corteEm: string | null = null) {
     await tx.query(`INSERT INTO ia_credito_carteiras (empresa_id, recurso, corte_em) VALUES ($1::uuid, $2, $3::timestamptz) ON CONFLICT DO NOTHING`,
         [empresaId, recurso, corteEm]);
@@ -97,16 +97,16 @@ export async function creditarLote(tx: DbExecutor, l: NovoLote): Promise<{ loteI
             [l.empresaId, l.recurso, l.chaveOrigem])).rows[0];
         return { loteId: existente.id, novo: false };
     }
-    // O lote nasce com o saldo inteiro disponível (gatilho da 090); o CREDITO só move a carteira.
+    // O lote nasce com o saldo inteiro disponível (gatilho da 095); o CREDITO só move a carteira.
     await lancar(tx, { empresaId: l.empresaId, recurso: l.recurso, loteId: criado.id, tipo: 'CREDITO', quantidade: l.quantidade,
         operacao: `CREDITO:${l.chaveOrigem.replace(/^[A-Z]+:/, '')}`, protocolo: l.protocolo, ator: l.ator });
     return { loteId: criado.id, novo: true };
 }
 
-type LinhaLote = { id: string; origem: Origem; disponivel: string; reservado: string; vence_ms: string; vencido: boolean; com_devolucao: boolean };
+type LinhaLote = { id: string; origem: Origem; disponivel: string; reservado: string; vence_ms: string; vencido: boolean; cancelado_definitivo: boolean; em_bloqueio: boolean };
 async function lotesTravados(tx: DbExecutor, empresaId: string, recurso: Recurso, ids?: readonly string[]) {
     return (await tx.query<LinhaLote>(`SELECT l.id, l.origem, l.disponivel, l.reservado, (extract(epoch FROM l.vence_em) * 1000)::bigint AS vence_ms,
-            l.vence_em <= clock_timestamp() AS vencido, (l.bloqueado > 0 OR l.cancelado > 0) AS com_devolucao
+            l.vence_em <= clock_timestamp() AS vencido, (l.cancelado > 0) AS cancelado_definitivo, (l.bloqueado > 0) AS em_bloqueio
         FROM ia_credito_lotes l WHERE l.empresa_id = $1::uuid AND l.recurso = $2 AND ${ids ? 'l.id = ANY($3::uuid[])' : '(l.disponivel > 0 AND l.vence_em > clock_timestamp())'}
         ORDER BY l.vence_em, l.id FOR UPDATE`, ids ? [empresaId, recurso, ids] : [empresaId, recurso])).rows;
 }
@@ -146,7 +146,8 @@ export type Encerramento = { estado: 'CONSUMIDA' | 'LIBERADA' | 'SEM_RESERVA'; c
 /**
  * Encerra a reserva da operação: consome `quantidadeFinal` (padrão: o reservado) nos lotes da alocação, na ordem, e devolve
  * o resto. O resto volta ao disponível do lote, ou EXPIRA se o lote venceu durante a operação, ou é CANCELADO se o lote
- * foi bloqueado por devolução/disputa (nunca reabre crédito devolvido). Consumo acima do reservado nunca entra na
+ * teve perda confirmada (devolução/estorno/disputa perdida: nunca reabre crédito devolvido), ou fica BLOQUEADO se o lote
+ * está em disputa aberta (volta inteiro se ela terminar a favor). Consumo acima do reservado nunca entra na
  * carteira (`excedente` = custo absorvido pela plataforma, a registrar como divergência). Idempotente: reserva já
  * encerrada devolve o estado anterior.
  */
@@ -176,10 +177,13 @@ export async function encerrarReserva(tx: DbExecutor, e: { empresaId: string; re
         if (resto > 0) {
             await lancar(tx, { ...base, tipo: 'LIBERACAO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
             const lote = lotes.get(a.lote_id);
-            if (lote?.com_devolucao) {
+            // P2-6 (revisão de 22/10): perda CONFIRMADA (devolução registrada, disputa perdida, estorno) cancela; disputa ABERTA
+            // só bloqueia — o resto liberado fica bloqueado junto e volta inteiro se a disputa terminar a favor (desbloquear).
+            if (lote?.cancelado_definitivo) {
                 await lancar(tx, { ...base, tipo: 'BLOQUEIO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
                 await lancar(tx, { ...base, tipo: 'REVERSAO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
-            } else if (lote?.vencido) await lancar(tx, { ...base, tipo: 'EXPIRACAO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
+            } else if (lote?.em_bloqueio) await lancar(tx, { ...base, tipo: 'BLOQUEIO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
+            else if (lote?.vencido) await lancar(tx, { ...base, tipo: 'EXPIRACAO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
         }
         await tx.query('UPDATE ia_credito_reserva_lotes SET consumido = $3, liberado = $4 WHERE reserva_id = $1::uuid AND lote_id = $2::uuid', [r.id, a.lote_id, consumir, resto]);
     }

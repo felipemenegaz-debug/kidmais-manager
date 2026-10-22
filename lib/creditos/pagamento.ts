@@ -1,5 +1,5 @@
 /**
- * Processamento idempotente dos pedidos de créditos (090) a partir da LEITURA do provedor — o mesmo serviço para o
+ * Processamento idempotente dos pedidos de créditos (095) a partir da LEITURA do provedor — o mesmo serviço para o
  * webhook (lib/assinatura/sincronizacao.ts → processarEvento) e para a reconciliação/manutenção. Nada aqui confia no
  * conteúdo do evento: o pedido é travado (FOR UPDATE) e o Asaas é reconsultado DENTRO da trava (como sincronizarEmpresa),
  * para duas instâncias nunca aplicarem leituras cruzadas. Cada leitura tem 10 s de limite (lib/assinatura/asaas.ts).
@@ -15,7 +15,7 @@
  */
 import type { DbExecutor } from '../db/contracts';
 import { AsaasFalhou, type CobrancaProvedor, type ProvedorCreditos } from '../assinatura/asaas.ts';
-import { decidirPagamento, lerReferenciaExterna, proporcionalCentavos, referenciaExterna, vencimentoEmDias, type Forma } from './dominio.ts';
+import { decidirPagamento, lerReferenciaExterna, proporcionalCentavos, referenciaExterna, STATUS_LIBERA, vencimentoEmDias, type Forma } from './dominio.ts';
 import { abrirCarteira, bloquearDisponivel, cancelarBloqueado, creditarLote, desbloquear, lerCarteira } from './ledger.ts';
 import { enfileirarNotificacao } from './notificacoes.ts';
 import type { Recurso } from './catalogo.ts';
@@ -122,6 +122,33 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
     return { resultado: 'DISPUTA' };
 }
 
+/**
+ * P2-5 (revisão de 22/10): soma dos estornos concluídos (`refunds[]` com status DONE) gravada em `estornado_centavos` (só
+ * aumenta). Com devolução nossa: conclui quando a soma alcança o valor devolvido. Sem devolução nossa (estorno feito fora,
+ * parcial): bloqueia o remanescente do lote e marca a cobrança para o operador decidir (liberar ou cancelar), nunca em silêncio.
+ */
+async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, lido: CobrancaProvedor): Promise<ResultadoPedido | null> {
+    const feitos = (lido.estornos ?? []).filter((e) => e.status === 'DONE' && (e.valorCentavos ?? 0) > 0).reduce((s, e) => s + (e.valorCentavos ?? 0), 0);
+    if (feitos <= 0) return null;
+    if (feitos > Number(c.estornado_centavos))
+        await tx.query('UPDATE ia_credito_cobrancas SET estornado_centavos = LEAST(valor_centavos, $2) WHERE id = $1::uuid', [c.id, feitos]);
+    const devolucao = (await tx.query<{ id: string; estado: string; valor_centavos: string }>('SELECT id, estado, valor_centavos FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid FOR UPDATE',
+        [p.id])).rows[0];
+    if (devolucao) {
+        if (devolucao.estado === 'CONCLUIDO' || feitos < Number(devolucao.valor_centavos)) return null;
+        await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', status_provedor = $2, referencia = $3 WHERE id = $1::uuid`,
+            [devolucao.id, /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null, `asaas:${c.pagamento_id}:REFUND_DONE`]);
+        return { resultado: 'ESTORNO' };
+    }
+    const cob = (await tx.query<{ revisao_motivo: string | null }>('SELECT revisao_motivo FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0];
+    if (cob?.revisao_motivo === 'ESTORNO_EXTERNO_PARCIAL') return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
+    const lote = await loteDoPedido(tx, p);
+    await lerCarteira(tx, p.empresa_id, p.recurso, true);
+    if (lote) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL:${c.id}`, 'SISTEMA', p.protocolo);
+    await tx.query("UPDATE ia_credito_cobrancas SET revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
+    return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
+}
+
 async function canonica(tx: DbExecutor, pedidoId: string) {
     return (await tx.query<Cobranca>(`SELECT id, pagamento_id, canonica, situacao_provedor, disputa, confirmada_em, estornado_centavos FROM ia_credito_cobrancas
         WHERE pedido_id = $1::uuid AND canonica FOR UPDATE`, [pedidoId])).rows[0] ?? null;
@@ -132,9 +159,19 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     const p = await travarPedido(tx, pedidoId);
     if (!p) return { resultado: 'JA_CONCLUIDO', motivo: 'PEDIDO_NAO_ENCONTRADO' };
     if (p.ambiente !== ctx.ambiente) return { resultado: 'SEM_MUDANCA', motivo: 'AMBIENTE_DIVERGENTE' };
-    if (p.estado === 'FALHOU_CRIACAO' || p.estado === 'ENCERRADO') return { resultado: 'JA_CONCLUIDO' };
+    if (p.estado === 'FALHOU_CRIACAO') return { resultado: 'JA_CONCLUIDO' };
     const referencia = referenciaExterna(p.ambiente, p.id);
     let c = await canonica(tx, p.id);
+    // P2-2 (revisão de 22/10): pedido ENCERRADO (cobrança cancelada) que mesmo assim recebeu pagamento vai para REVISAO —
+    // dinheiro nunca fica sem crédito nem sem alarme (D3: o cliente escolhe créditos ou devolução integral).
+    if (p.estado === 'ENCERRADO') {
+        if (!c || p.creditado_em) return { resultado: 'JA_CONCLUIDO' };
+        const lidoEncerrado = await ctx.provedor.obterCobranca(c.pagamento_id);
+        if (!lidoEncerrado || !STATUS_LIBERA.has(lidoEncerrado.status)) return { resultado: 'JA_CONCLUIDO' };
+        await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = $3 WHERE id = $1::uuid', [c.id, lidoEncerrado.status, 'PAGO_APOS_CANCELAMENTO']);
+        await mudarEstado(tx, p, 'REVISAO', 'PAGO_APOS_CANCELAMENTO');
+        return { resultado: 'REVISAO', motivo: 'PAGO_APOS_CANCELAMENTO' };
+    }
     if (!c) {
         if (p.estado === 'CRIACAO_EM_CURSO' && Number(p.idade_s) < MINUTOS_PARADO * 60) return { resultado: 'SEM_MUDANCA', motivo: 'CRIACAO_EM_CURSO' };
         const achadas = await ctx.provedor.listarCobrancasPorReferencia(referencia);
@@ -159,6 +196,11 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     const decisao = decidirPagamento(lido && { id: lido.id, status: lido.status, valorCentavos: lido.valorCentavos ?? null, clienteId: lido.clienteId ?? null,
         externalReference: lido.externalReference ?? null, billingType: lido.billingType ?? null, deleted: lido.deleted },
     { pagamentoId: c.pagamento_id, valorCentavos: Number(p.preco_centavos), clienteId: cliente ?? '', referencia, forma: p.forma });
+    // P2-5: estornos parciais (refunds[] DONE) antes da decisão — o status do pagamento continua RECEIVED nesses casos.
+    if (lido && p.creditado_em && lido.status !== 'REFUNDED') {
+        const parcial = await aplicarEstornosParciais(tx, p, c, lido);
+        if (parcial) return parcial;
+    }
     switch (decisao.acao) {
         case 'CREDITAR':
             if (p.creditado_em) {
@@ -230,8 +272,27 @@ export async function processarEventoCreditos(tx: DbExecutor, ev: EventoCreditos
 export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200) {
     return (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'AGUARDANDO_PAGAMENTO', 'VENCIDO', 'REVISAO')
         OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND (c.disputa = 'ABERTA'))
-        OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.pedido_id = p.id AND d.estado IN ('SOLICITADO', 'SEM_CONFIRMACAO'))
+        OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.pedido_id = p.id AND d.estado IN ('EM_CURSO', 'SOLICITADO', 'SEM_CONFIRMACAO'))
+        -- P2-2: cobrança cancelada há até 90 dias ainda pode ser paga (Pix já aberto, boleto impresso).
+        OR (p.estado = 'ENCERRADO' AND p.creditado_em IS NULL AND p.atualizado_em > clock_timestamp() - interval '90 days'
+            AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica))
         ORDER BY p.criado_em LIMIT $1`, [limite])).rows.map((r) => r.id);
+}
+
+/**
+ * Crédito decidido pelo operador depois de uma REVISAO (P2-3): só com o pagamento CONFIRMED/RECEIVED relido no provedor
+ * agora (divergência aceita: valor com juros, pago após cancelamento). Mesmo crédito único do caminho normal.
+ */
+export async function creditarAposRevisao(tx: DbExecutor, pedidoId: string, ctx: ContextoProvedor): Promise<ResultadoPedido> {
+    const p = await travarPedido(tx, pedidoId);
+    if (!p || p.estado !== 'REVISAO') return { resultado: 'SEM_MUDANCA', motivo: 'PEDIDO_NAO_ESTA_EM_REVISAO' };
+    if (p.ambiente !== ctx.ambiente) return { resultado: 'SEM_MUDANCA', motivo: 'AMBIENTE_DIVERGENTE' };
+    const c = await canonica(tx, p.id);
+    if (!c) return { resultado: 'SEM_MUDANCA', motivo: 'SEM_COBRANCA_CANONICA' };
+    const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
+    if (!lido || lido.id !== c.pagamento_id || !STATUS_LIBERA.has(lido.status)) return { resultado: 'SEM_MUDANCA', motivo: 'PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR' };
+    await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid', [c.id]);
+    return creditar(tx, p, c, lido);
 }
 
 export const ehFalhaDoProvedor = (e: unknown) => e instanceof AsaasFalhou;

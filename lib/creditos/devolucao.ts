@@ -1,5 +1,5 @@
 /**
- * Devolução de pacote de créditos (090), separada da devolução da assinatura (089/L1) e com flag própria
+ * Devolução de pacote de créditos (095), separada da devolução da assinatura (089/L1) e com flag própria
  * (CREDITOS_ESTORNO_ATIVO; nunca ASSINATURA_ESTORNO_ATIVO). Regras PROPOSTAS (sujeitas ao jurídico), em dominio.ts:
  * garantia de 7 dias por compra (integral, mesmo com uso) e, depois, saldo pago não utilizado pelo preço original.
  *
@@ -80,18 +80,18 @@ export async function registrarDevolucao(tx: DbExecutor, r: Registro) {
     for (let tentativa = 0; ; tentativa += 1) {
         protocolo = gerarProtocolo(Date.now(), randomBytes(8));
         if (!PROTOCOLO.test(protocolo)) throw new Error('Protocolo inválido.');
-        await tx.query('SAVEPOINT kidmais_090_devolucao');
+        await tx.query('SAVEPOINT kidmais_095_devolucao');
         try {
             await tx.query(`INSERT INTO ia_credito_devolucoes (id, empresa_id, pedido_id, cobranca_id, lote_id, protocolo, tipo, origem, chave_idempotencia, solicitado_por, regra,
                     quantidade_comprada, quantidade_consumida, quantidade_cancelada, valor_pago_centavos, valor_centavos, forma, prazo, estado)
                 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $9::uuid, $10::uuid, $11, $12, $13, $14, $15, $16, $17, $18::date, 'AGUARDANDO_MANUAL')`,
             [id, r.empresaId, a.pedido.id, a.cobranca.id, a.lote.id, protocolo, c.tipo, r.origem, r.chave, r.solicitadoPor, REGRA_DEVOLUCAO_PACOTE,
                 Number(a.lote.quantidade), c.quantidadeConsumida, c.quantidadeCancelada, Number(a.pedido.preco_centavos), c.valorCentavos, a.pedido.forma, c.prazo]);
-            await tx.query('RELEASE SAVEPOINT kidmais_090_devolucao');
+            await tx.query('RELEASE SAVEPOINT kidmais_095_devolucao');
             break;
         }
         catch (error) {
-            await tx.query('ROLLBACK TO SAVEPOINT kidmais_090_devolucao');
+            await tx.query('ROLLBACK TO SAVEPOINT kidmais_095_devolucao');
             const e = error as { code?: string; constraint?: string };
             if (e.code !== '23505' || e.constraint !== 'ia_credito_devolucoes_protocolo_key' || tentativa >= 1) throw error;
         }

@@ -1,5 +1,5 @@
 /**
- * Regras puras dos créditos de IA (090): alocação de lotes, decisão sobre o pagamento lido no provedor, cálculo da
+ * Regras puras dos créditos de IA (095): alocação de lotes, decisão sobre o pagamento lido no provedor, cálculo da
  * devolução de pacote e datas em São Paulo. Sem banco, sem rede; aritmética inteira (BigInt onde o produto pode passar
  * de 2^53). Testes: lib/creditos/dominio.test.ts.
  */

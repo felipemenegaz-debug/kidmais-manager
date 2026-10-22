@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * Corte do motor legado dos Convites para os créditos de IA (090), UMA empresa por execução (lib/creditos/corte.ts).
+ * Corte do motor legado dos Convites para os créditos de IA (095), UMA empresa por execução (lib/creditos/corte.ts).
  * Nunca roda no startup nem no deploy. Simulação por padrão; aplicação só com a referência da autorização de dados.
  *
  *   node scripts/creditos-corte-legado.cjs --empresa <uuid>                                         simulação (somente leitura)
@@ -9,8 +9,8 @@
  *
  * Antes de aplicar: vendas fechadas para a empresa, gerações pendentes reconciliadas (o corte recusa RESERVADA/INCERTA),
  * conferência da simulação e autorização registrada. Depois do corte, a empresa nunca volta ao motor legado por este
- * caminho (o rollback da 090 recusa com dados). Mesmas regras de alvo da reconciliação (validarAlvo). Produção: só
- * simulação nesta versão.
+ * caminho (o rollback da 095 recusa com dados). Mesmas regras de alvo da reconciliação (validarAlvo). Produção: aplicação
+ * com o mesmo `--autorizacao` obrigatório (P2-3: o corte é necessário antes da venda; a autorização é de Felipe, por empresa).
  */
 const { validarAlvo, opcoesConexao } = require('./assinatura-reconciliar.cjs');
 
@@ -33,7 +33,6 @@ function argumentos(argv) {
 async function main() {
     const args = argumentos(process.argv.slice(2));
     const alvo = validarAlvo(process.env);
-    if (alvo.producao && args.aplicar) throw new Error('Produção aceita só simulação nesta versão: o corte exige pacote e autorização próprios.');
     const corte = await import('../lib/creditos/corte.ts');
     const { Client } = require('pg');
     const client = new Client({ ...opcoesConexao(alvo, process.env), connectionTimeoutMillis: 10_000, application_name: 'kidmais-creditos-corte' });

@@ -1,16 +1,16 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Aplicadores da 090 (staging e produção) com cliente simulado: trava de alvo, identidade, hashes, plano por estado,
+// Aplicadores da 095 (staging e produção) com cliente simulado: trava de alvo, identidade, hashes, plano por estado,
 // privilégios, conferência só leitura (sem gravar no disco), backup obrigatório, marcador anti-repetição, falha
-// registrada e códigos de saída. Sem rede nem banco (a execução real fica em lib/creditos/aplicador-090.postgres.test.ts).
+// registrada e códigos de saída. Sem rede nem banco (a execução real fica em lib/creditos/aplicador-095.postgres.test.ts).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const comum = require('./migration-090-comum.cjs');
-const prod = require('./migration-090-production.cjs');
-const stg = require('./migration-090-staging.cjs');
+const comum = require('./migration-095-comum.cjs');
+const prod = require('./migration-095-production.cjs');
+const stg = require('./migration-095-staging.cjs');
 
 const URL_PROD = 'postgresql://usuario:SENHA_FALSA@dpg-dak750gae00c73fudmg0-a/kidmais_production';
 const URL_STG = 'postgresql://usuario:SENHA_FALSA@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91';
@@ -43,7 +43,7 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falh
   C.log = log;
   return C;
 }
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aplicador-090-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aplicador-095-'));
 const semDisco = () => {};
 const escritas = log => log.filter(x => !x.ro && !/^(BEGIN TRANSACTION READ ONLY|ROLLBACK|COMMIT|SET LOCAL)/.test(x.sql));
 
@@ -54,7 +54,7 @@ test('hashes fixados conferem com os SQL da árvore (CRLF normalizado) e o arqui
     assert.equal(comum.lerRevisado(raiz, arquivo, hash).includes('\r'), false);
   }
   assert.throws(() => comum.lerRevisado(raiz, comum.ETAPAS[1][1], 'f'.repeat(64)), /ARQUIVO_DIVERGENTE/);
-  assert.deepEqual(comum.ETAPAS.map(e => e[0]), ['precheck 090', 'migration 090', 'postcheck 090']);
+  assert.deepEqual(comum.ETAPAS.map(e => e[0]), ['precheck 095', 'migration 095', 'postcheck 095']);
 });
 
 test('trava de alvo de produção: serviço, ambiente, TLS obrigatório, host interno, banco, porta e URL sem query', () => {
@@ -98,15 +98,15 @@ test('identidade provada pelo servidor: banco, TLS/versão e rede privada (produ
 
 test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcial, sem 068/073/084 ou sem privilégio → recusa antes de escrever', () => {
   const e = x => comum.lerEstado(x);
-  assert.deepEqual(comum.planoEtapas(e(AUSENTE)), ['precheck 090', 'migration 090', 'postcheck 090']);
-  assert.deepEqual(comum.planoEtapas(e(COMPLETA)), ['postcheck 090']);
+  assert.deepEqual(comum.planoEtapas(e(AUSENTE)), ['precheck 095', 'migration 095', 'postcheck 095']);
+  assert.deepEqual(comum.planoEtapas(e(COMPLETA)), ['postcheck 095']);
   for (const k of OBJ)
-    assert.throws(() => comum.planoEtapas(e({...AUSENTE, [k]: true})), /APLICACAO_PARCIAL_090/, k);
+    assert.throws(() => comum.planoEtapas(e({...AUSENTE, [k]: true})), /APLICACAO_PARCIAL_095/, k);
   assert.throws(() => comum.planoEtapas(e({...AUSENTE, dependencias: false})), /DEPENDENCIA_AUSENTE_068_073_084/);
   assert.throws(() => comum.planoEtapas(e({...AUSENTE, usuarios: false})), /DEPENDENCIA_AUSENTE_068_073_084/);
-  assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_criar: false})), /SEM_PRIVILEGIO_090 CREATE/);
-  assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_referenciar: false})), /SEM_PRIVILEGIO_090 REFERENCES/);
-  assert.deepEqual(comum.planoEtapas(e({...COMPLETA, pode_criar: false})), ['postcheck 090'], 'já aplicada: só confere');
+  assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_criar: false})), /SEM_PRIVILEGIO_095 CREATE/);
+  assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_referenciar: false})), /SEM_PRIVILEGIO_095 REFERENCES/);
+  assert.deepEqual(comum.planoEtapas(e({...COMPLETA, pode_criar: false})), ['postcheck 095'], 'já aplicada: só confere');
   assert.throws(() => comum.lerEstado({...AUSENTE, gatilhos: 'sim'}), /ESTADO_ILEGIVEL gatilhos/);
   // O estado lê privilégios de current_user (quem executa o DDL) e informa, sem nomes, o SET role do Render.
   assert.match(comum.SQL_ESTADO, /has_schema_privilege\(current_user,'public','CREATE'\)/);
@@ -116,12 +116,12 @@ test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcia
 
 test('modo: plano, conferência e aplicação só com --backup e registro seguro; o resto é recusado', () => {
   assert.deepEqual(comum.modo([]), {modo: 'plano'});
-  assert.deepEqual(comum.modo(['--conferir-090']), {modo: 'conferir'});
-  assert.deepEqual(comum.modo(['--aplicar-090-autorizado', '--backup', 'export 2026-10-22T03:00Z id-123']), {modo: 'aplicar', backup: 'export 2026-10-22T03:00Z id-123'});
-  assert.throws(() => comum.modo(['--aplicar-090-autorizado']), /BACKUP_OBRIGATORIO/);
-  assert.throws(() => comum.modo(['--aplicar-090-autorizado', '--backup', 'x;rm -rf /']), /BACKUP_INVALIDO/);
-  assert.throws(() => comum.modo(['--aplicar-090-autorizado', '--backup', 'a$(id)bcdef']), /BACKUP_INVALIDO/);
-  assert.throws(() => comum.modo(['--conferir-090', '--aplicar-090-autorizado']), /BACKUP_OBRIGATORIO|ARGUMENTOS_RECUSADOS/);
+  assert.deepEqual(comum.modo(['--conferir-095']), {modo: 'conferir'});
+  assert.deepEqual(comum.modo(['--aplicar-095-autorizado', '--backup', 'export 2026-10-22T03:00Z id-123']), {modo: 'aplicar', backup: 'export 2026-10-22T03:00Z id-123'});
+  assert.throws(() => comum.modo(['--aplicar-095-autorizado']), /BACKUP_OBRIGATORIO/);
+  assert.throws(() => comum.modo(['--aplicar-095-autorizado', '--backup', 'x;rm -rf /']), /BACKUP_INVALIDO/);
+  assert.throws(() => comum.modo(['--aplicar-095-autorizado', '--backup', 'a$(id)bcdef']), /BACKUP_INVALIDO/);
+  assert.throws(() => comum.modo(['--conferir-095', '--aplicar-095-autorizado']), /BACKUP_OBRIGATORIO|ARGUMENTOS_RECUSADOS/);
   assert.throws(() => comum.modo(['--aplicar-084-autorizado']), /ARGUMENTOS_RECUSADOS/);
 });
 
@@ -135,21 +135,21 @@ test('conferência: só leitura (toda consulta em READ ONLY), não grava nada no
     const r = await m.conferir({env, Client: Pronta});
     assert.equal(r.resultado, 'PRONTA_PARA_APLICAR', JSON.stringify(r)); assert.equal(r.precheck, 'PASS'); assert.deepEqual(r.contagens, {empresas: 4});
     assert.deepEqual(escritas(Pronta.log), [], 'nenhuma consulta fora de READ ONLY');
-    assert.ok(Pronta.log.some(x => x.ro && x.sql.includes('090 precheck')));
+    assert.ok(Pronta.log.some(x => x.ro && x.sql.includes('095 precheck')));
     const Ja = clienteFalso({estados: [COMPLETA], identidade: id});
     const j = await m.conferir({env, Client: Ja});
     assert.equal(j.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.equal(j.postcheck, 'PASS'); assert.deepEqual(j.contagens, {empresas: 4, carteiras: 0, lotes: 0, pedidos: 0});
     assert.deepEqual(escritas(Ja.log), []);
     const Rec = clienteFalso({estados: [{...AUSENTE, pode_referenciar: false}], identidade: id});
     const x = await m.conferir({env, Client: Rec});
-    assert.equal(x.resultado, 'RECUSARIA'); assert.match(x.motivo, /SEM_PRIVILEGIO_090/);
+    assert.equal(x.resultado, 'RECUSARIA'); assert.match(x.motivo, /SEM_PRIVILEGIO_095/);
     } finally { fs.writeFileSync = orig.w; fs.mkdirSync = orig.m; }
     assert.deepEqual(gravacoes, [], 'a conferência não grava arquivos');
     const Errado = clienteFalso({estados: [AUSENTE], identidade: {...id, db: 'outro_banco'}});
     assert.equal((await m.conferir({env, Client: Errado})).resultado, 'FALHA');
   }
-  assert.equal((await prod.principal(['--conferir-090'], ENV_PROD, {Client: clienteFalso({estados: [{...AUSENTE, carteiras: true}]})})).codigo, 3);
-  await assert.rejects(prod.principal(['--conferir-090'], {...ENV_PROD, RENDER_SERVICE_ID: 'srv-x'}, {Client: clienteFalso()}), /SERVICO_RECUSADO/);
+  assert.equal((await prod.principal(['--conferir-095'], ENV_PROD, {Client: clienteFalso({estados: [{...AUSENTE, carteiras: true}]})})).codigo, 3);
+  await assert.rejects(prod.principal(['--conferir-095'], {...ENV_PROD, RENDER_SERVICE_ID: 'srv-x'}, {Client: clienteFalso()}), /SERVICO_RECUSADO/);
 });
 
 test('aplicação: backup obrigatório, precheck/postcheck em READ ONLY, migration fora, marcador exclusivo e sem repetição', async () => {
@@ -160,10 +160,10 @@ test('aplicação: backup obrigatório, precheck/postcheck em READ ONLY, migrati
       assert.deepEqual(fs.readdirSync(dir), [], 'sem backup: nada gravado');
       const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA], identidade: id});
       const r = await m.executar({env, backup: 'export 22/10 03:00Z', dir, Client: C, disco: semDisco});
-      assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS', JSON.stringify(r)); assert.deepEqual(r.etapas, ['precheck 090', 'migration 090', 'postcheck 090']);
+      assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS', JSON.stringify(r)); assert.deepEqual(r.etapas, ['precheck 095', 'migration 095', 'postcheck 095']);
       const mig = C.log.find(x => x.sql.includes('CREATE TABLE ia_credito_carteiras'));
       assert.ok(mig && !mig.ro, 'a migration roda na própria transação do arquivo');
-      assert.ok(C.log.find(x => x.sql.includes('090 precheck OK')).ro); assert.ok(C.log.find(x => x.sql.includes('090 postcheck OK')).ro);
+      assert.ok(C.log.find(x => x.sql.includes('095 precheck OK')).ro); assert.ok(C.log.find(x => x.sql.includes('095 postcheck OK')).ro);
       assert.equal(escritas(C.log).length, 1, 'a única escrita é a migration');
       const marcador = JSON.parse(fs.readFileSync(path.join(dir, comum.MARCADOR), 'utf8'));
       assert.equal(marcador.situacao, 'CONCLUIDA'); assert.equal(marcador.backup, 'export 22/10 03:00Z'); assert.equal(marcador.ambiente, m === prod ? 'production' : 'staging');
@@ -180,19 +180,19 @@ test('aplicação: falha da migration fica FALHA no marcador (código 2), sem re
   const dir = tmp();
   try {
     const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir, Client: clienteFalso({falharEm: 'CREATE TABLE ia_credito_carteiras'}), disco: semDisco});
-    assert.equal(r.resultado, 'FALHA'); assert.equal(r.falha.etapa, 'migration 090'); assert.equal(r.migracaoCommitada, false);
+    assert.equal(r.resultado, 'FALHA'); assert.equal(r.falha.etapa, 'migration 095'); assert.equal(r.migracaoCommitada, false);
     assert.match(r.falha.mensagem, /falha simulada/);
     const marcador = JSON.parse(fs.readFileSync(path.join(dir, comum.MARCADOR), 'utf8'));
-    assert.equal(marcador.situacao, 'FALHA'); assert.deepEqual(marcador.etapas.map(e => [e.nome, e.ok === true]), [['precheck 090', true], ['migration 090', false]]);
+    assert.equal(marcador.situacao, 'FALHA'); assert.deepEqual(marcador.etapas.map(e => [e.nome, e.ok === true]), [['precheck 095', true], ['migration 095', false]]);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
   const dir2 = tmp();
   try {
     const C = clienteFalso({estados: [COMPLETA]});
     const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir: dir2, Client: C, disco: semDisco});
-    assert.equal(r.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.deepEqual(r.etapas, ['postcheck 090']); assert.deepEqual(escritas(C.log), []);
+    assert.equal(r.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.deepEqual(r.etapas, ['postcheck 095']); assert.deepEqual(escritas(C.log), []);
   } finally { fs.rmSync(dir2, {recursive: true, force: true}); }
   await assert.rejects(prod.executar({env: ENV_PROD, backup: 'export 22/10', dir: tmp(), Client: clienteFalso(), disco: () => assert.fail('DISCO_PERSISTENTE_AUSENTE')}), /DISCO_PERSISTENTE_AUSENTE/);
-  assert.throws(() => prod.exigirDisco(path.join(os.tmpdir(), 'nao-existe-090')), /DISCO_PERSISTENTE_AUSENTE/);
+  assert.throws(() => prod.exigirDisco(path.join(os.tmpdir(), 'nao-existe-095')), /DISCO_PERSISTENTE_AUSENTE/);
 });
 
 test('plano sem conexão: arquivos com sha, ordem código → conferir → aplicar → conferir; CLI devolve 0', async () => {
@@ -200,8 +200,8 @@ test('plano sem conexão: arquivos com sha, ordem código → conferir → aplic
     const {codigo, saida} = await m.principal([], {});
     assert.equal(codigo, 0); assert.equal(saida.conecta, false);
     assert.deepEqual(saida.arquivos.map(a => a.sha256), comum.ETAPAS.map(e => e[2]));
-    assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-1), '--conferir-090');
-    assert.ok(saida.nuncaExecuta.includes('down 090'));
+    assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-1), '--conferir-095');
+    assert.ok(saida.nuncaExecuta.includes('down 095'));
   }
-  assert.equal(prod.DIR, '/opt/render/project/src/data/ia-creditos-090-producao'); assert.equal(stg.DIR, '/opt/render/project/src/data/ia-creditos-090-staging');
+  assert.equal(prod.DIR, '/opt/render/project/src/data/ia-creditos-095-producao'); assert.equal(stg.DIR, '/opt/render/project/src/data/ia-creditos-095-staging');
 });

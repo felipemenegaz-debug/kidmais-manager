@@ -1,12 +1,12 @@
--- 090: créditos de IA (Convites e Wall-e) com carteiras separadas, lotes, extrato imutável, reservas, compra avulsa,
+-- 095: créditos de IA (Convites e Wall-e) com carteiras separadas, lotes, extrato imutável, reservas, compra avulsa,
 -- devolução, cortesia e corte do motor legado. Implementação LOCAL de 22/10/2026 (docs/PACOTES_CREDITOS_IA_20261022.md),
 -- a partir da PROPOSTA docs/PLANO_PACOTES_CREDITOS.md: preços, franquias, validade e cortesias continuam propostas, não
 -- decisões comerciais; o schema só guarda o que o código versionado e as flags permitirem.
 -- Executar somente após autorização própria do ambiente, precheck e backup operacional. Aditiva: só cria tabelas, índices,
 -- funções e gatilhos novos; não altera linha, coluna nem gatilho existente (convite_carteiras/convite_consumos ficam como
 -- estão e continuam valendo para toda empresa sem corte registrado aqui).
--- ORDEM (como a 088/089): o CÓDIGO é publicado primeiro, já com o aplicador e estes SQL na árvore implantada; depois a 090
--- é aplicada por scripts/migration-090-{staging,production}.cjs (blocos de scripts/bloco-shell-090.cjs). Sem a 090, o código
+-- ORDEM (como a 088/089): o CÓDIGO é publicado primeiro, já com o aplicador e estes SQL na árvore implantada; depois a 095
+-- é aplicada por scripts/migration-095-{staging,production}.cjs (blocos de scripts/bloco-shell-095.cjs). Sem a 095, o código
 -- mantém os fluxos antigos e recusa os novos com 503 tratado; com ela aplicada e as flags CREDITOS_* desligadas (padrão),
 -- nenhuma oferta, cobrança, concessão ou consumo novo acontece.
 -- Invariantes (constraints + gatilhos; a reconciliação recalcula de forma independente):
@@ -16,7 +16,7 @@
 --   * toda referência entre tabelas do domínio carrega empresa_id (chaves compostas): lote/pedido de outra empresa é recusado;
 --   * nenhum registro financeiro (pedido, cobrança, devolução, lote, corte, cortesia) é apagado pela aplicação.
 -- Sem prompts, imagens, conteúdo de conversa, nome, telefone, documento ou payload do Asaas.
--- Rollback: database/rollback/20261022_090_ia_creditos_down.sql (recusado se houver qualquer registro).
+-- Rollback: database/rollback/20261022_095_ia_creditos_down.sql (recusado se houver qualquer registro).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -27,8 +27,8 @@ BEGIN
     OR to_regclass('public.convite_carteiras') IS NULL OR to_regclass('public.convite_geracoes') IS NULL
     OR to_regclass('public.cobranca_eventos') IS NULL OR to_regclass('public.empresa_assinaturas') IS NULL
     OR to_regclass('public.ia_credito_carteiras') IS NOT NULL OR to_regclass('public.ia_credito_lancamentos') IS NOT NULL
-    OR to_regprocedure('public.kidmais_090_guarda()') IS NOT NULL THEN
-    RAISE EXCEPTION '090: precheck falhou (empresas/usuarios/073/084/068 ausentes ou 090 anterior/parcial); nada alterado';
+    OR to_regprocedure('public.kidmais_095_guarda()') IS NOT NULL THEN
+    RAISE EXCEPTION '095: precheck falhou (empresas/usuarios/073/084/068 ausentes ou 095 anterior/parcial); nada alterado';
   END IF;
 END $$;
 
@@ -318,67 +318,67 @@ CREATE TABLE ia_credito_notificacoes (
 CREATE INDEX ia_credito_notificacoes_pendentes_idx ON ia_credito_notificacoes (proxima_em) WHERE situacao IN ('PENDENTE', 'FALHOU');
 
 -- Guarda única do domínio: imutabilidade, transições e somas. Mensagens sem dado pessoal.
-CREATE FUNCTION kidmais_090_guarda() RETURNS trigger
+CREATE FUNCTION kidmais_095_guarda() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE devolvido bigint; pago bigint;
 BEGIN
-  IF TG_OP = 'TRUNCATE' THEN RAISE EXCEPTION '090: % não é truncada.', TG_TABLE_NAME USING ERRCODE = 'P0001'; END IF;
+  IF TG_OP = 'TRUNCATE' THEN RAISE EXCEPTION '095: % não é truncada.', TG_TABLE_NAME USING ERRCODE = 'P0001'; END IF;
   IF TG_TABLE_NAME = 'ia_credito_lancamentos' THEN
-    IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION '090: extrato é imutável; corrija por lançamento de compensação.' USING ERRCODE = 'P0001'; END IF;
+    IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION '095: extrato é imutável; corrija por lançamento de compensação.' USING ERRCODE = 'P0001'; END IF;
     NEW.criado_em := clock_timestamp();
     RETURN NEW;
   END IF;
   IF TG_OP = 'DELETE' AND TG_TABLE_NAME <> 'ia_credito_notificacoes' THEN
-    RAISE EXCEPTION '090: registro de % não é apagado.', TG_TABLE_NAME USING ERRCODE = 'P0001';
+    RAISE EXCEPTION '095: registro de % não é apagado.', TG_TABLE_NAME USING ERRCODE = 'P0001';
   END IF;
   IF TG_TABLE_NAME = 'ia_credito_carteiras' THEN
     IF TG_OP = 'UPDATE' AND (NEW.empresa_id, NEW.recurso, NEW.corte_em, NEW.criada_em) IS DISTINCT FROM (OLD.empresa_id, OLD.recurso, OLD.corte_em, OLD.criada_em) THEN
-      RAISE EXCEPTION '090: identidade e corte da carteira são imutáveis.' USING ERRCODE = 'P0001';
+      RAISE EXCEPTION '095: identidade e corte da carteira são imutáveis.' USING ERRCODE = 'P0001';
     END IF;
     NEW.atualizada_em := clock_timestamp();
   ELSIF TG_TABLE_NAME = 'ia_credito_lotes' THEN
     IF TG_OP = 'INSERT' THEN
       IF NEW.disponivel <> NEW.quantidade OR NEW.reservado + NEW.bloqueado + NEW.consumido + NEW.expirado + NEW.cancelado <> 0 THEN
-        RAISE EXCEPTION '090: lote nasce inteiro disponível.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: lote nasce inteiro disponível.' USING ERRCODE = 'P0001';
       END IF;
       NEW.liberado_em := clock_timestamp();
     ELSE
       IF (NEW.id, NEW.empresa_id, NEW.recurso, NEW.origem, NEW.chave_origem, NEW.quantidade, NEW.preco_centavos, NEW.pedido_id, NEW.ciclo, NEW.liberado_em)
          IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.recurso, OLD.origem, OLD.chave_origem, OLD.quantidade, OLD.preco_centavos, OLD.pedido_id, OLD.ciclo, OLD.liberado_em) THEN
-        RAISE EXCEPTION '090: origem, quantidade e preço do lote são imutáveis.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: origem, quantidade e preço do lote são imutáveis.' USING ERRCODE = 'P0001';
       END IF;
-      IF NEW.vence_em < OLD.vence_em THEN RAISE EXCEPTION '090: vencimento do lote só pode ser prorrogado.' USING ERRCODE = 'P0001'; END IF;
+      IF NEW.vence_em < OLD.vence_em THEN RAISE EXCEPTION '095: vencimento do lote só pode ser prorrogado.' USING ERRCODE = 'P0001'; END IF;
       IF NEW.consumido < OLD.consumido OR NEW.expirado < OLD.expirado OR NEW.cancelado < OLD.cancelado THEN
-        RAISE EXCEPTION '090: consumo, expiração e cancelamento do lote não voltam atrás.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: consumo, expiração e cancelamento do lote não voltam atrás.' USING ERRCODE = 'P0001';
       END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_reservas' THEN
     IF TG_OP = 'INSERT' THEN
-      IF NEW.estado <> 'ABERTA' THEN RAISE EXCEPTION '090: reserva nasce ABERTA.' USING ERRCODE = 'P0001'; END IF;
+      IF NEW.estado <> 'ABERTA' THEN RAISE EXCEPTION '095: reserva nasce ABERTA.' USING ERRCODE = 'P0001'; END IF;
       NEW.criada_em := clock_timestamp();
     ELSE
       IF (NEW.id, NEW.empresa_id, NEW.recurso, NEW.operacao_id, NEW.quantidade, NEW.versao_precos, NEW.criada_em)
          IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.recurso, OLD.operacao_id, OLD.quantidade, OLD.versao_precos, OLD.criada_em) THEN
-        RAISE EXCEPTION '090: reserva é imutável (exceto o encerramento).' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: reserva é imutável (exceto o encerramento).' USING ERRCODE = 'P0001';
       END IF;
-      IF OLD.estado <> 'ABERTA' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN RAISE EXCEPTION '090: reserva encerrada é final.' USING ERRCODE = 'P0001'; END IF;
+      IF OLD.estado <> 'ABERTA' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN RAISE EXCEPTION '095: reserva encerrada é final.' USING ERRCODE = 'P0001'; END IF;
       IF NEW.estado <> OLD.estado THEN NEW.encerrada_em := clock_timestamp(); END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_reserva_lotes' THEN
     IF TG_OP = 'UPDATE' AND ((NEW.reserva_id, NEW.lote_id, NEW.empresa_id, NEW.ordem, NEW.quantidade) IS DISTINCT FROM (OLD.reserva_id, OLD.lote_id, OLD.empresa_id, OLD.ordem, OLD.quantidade)
        OR NEW.consumido < OLD.consumido OR NEW.liberado < OLD.liberado) THEN
-      RAISE EXCEPTION '090: alocação da reserva é imutável.' USING ERRCODE = 'P0001';
+      RAISE EXCEPTION '095: alocação da reserva é imutável.' USING ERRCODE = 'P0001';
     END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_pedidos' THEN
     IF TG_OP = 'INSERT' THEN
-      IF NEW.estado <> 'CRIACAO_EM_CURSO' OR NEW.creditado_em IS NOT NULL THEN RAISE EXCEPTION '090: pedido nasce em CRIACAO_EM_CURSO.' USING ERRCODE = 'P0001'; END IF;
+      IF NEW.estado <> 'CRIACAO_EM_CURSO' OR NEW.creditado_em IS NOT NULL THEN RAISE EXCEPTION '095: pedido nasce em CRIACAO_EM_CURSO.' USING ERRCODE = 'P0001'; END IF;
       NEW.criado_em := clock_timestamp(); NEW.atualizado_em := NEW.criado_em;
     ELSE
       IF (NEW.id, NEW.empresa_id, NEW.protocolo, NEW.recurso, NEW.catalogo_versao, NEW.oferta_codigo, NEW.oferta, NEW.termos_versao, NEW.termos_sha256, NEW.quantidade,
           NEW.preco_centavos, NEW.validade_dias, NEW.forma, NEW.ambiente, NEW.chave_idempotencia, NEW.payload_sha256, NEW.solicitado_por, NEW.criado_em, NEW.vencimento_pagamento)
          IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.protocolo, OLD.recurso, OLD.catalogo_versao, OLD.oferta_codigo, OLD.oferta, OLD.termos_versao, OLD.termos_sha256, OLD.quantidade,
           OLD.preco_centavos, OLD.validade_dias, OLD.forma, OLD.ambiente, OLD.chave_idempotencia, OLD.payload_sha256, OLD.solicitado_por, OLD.criado_em, OLD.vencimento_pagamento) THEN
-        RAISE EXCEPTION '090: oferta, valor e protocolo do pedido são imutáveis.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: oferta, valor e protocolo do pedido são imutáveis.' USING ERRCODE = 'P0001';
       END IF;
       IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT ((OLD.estado, NEW.estado) IN (
            ('CRIACAO_EM_CURSO', 'AGUARDANDO_PAGAMENTO'), ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA'), ('CRIACAO_EM_CURSO', 'FALHOU_CRIACAO'),
@@ -386,11 +386,13 @@ BEGIN
            ('FALHOU_CRIACAO', 'REVISAO'),
            ('AGUARDANDO_PAGAMENTO', 'CREDITADO'), ('AGUARDANDO_PAGAMENTO', 'VENCIDO'), ('AGUARDANDO_PAGAMENTO', 'REVISAO'), ('AGUARDANDO_PAGAMENTO', 'ENCERRADO'),
            ('VENCIDO', 'CREDITADO'), ('VENCIDO', 'REVISAO'), ('VENCIDO', 'ENCERRADO'),
-           ('REVISAO', 'CREDITADO'), ('REVISAO', 'ENCERRADO'), ('REVISAO', 'AGUARDANDO_PAGAMENTO'))) THEN
-        RAISE EXCEPTION '090: transição do pedido inválida: % → %.', OLD.estado, NEW.estado USING ERRCODE = 'P0001';
+           ('REVISAO', 'CREDITADO'), ('REVISAO', 'ENCERRADO'), ('REVISAO', 'AGUARDANDO_PAGAMENTO'),
+           -- P2-2 (revisão de 22/10): pagamento confirmado depois do cancelamento da cobrança vai para revisão (nunca fica sem saída).
+           ('ENCERRADO', 'REVISAO'))) THEN
+        RAISE EXCEPTION '095: transição do pedido inválida: % → %.', OLD.estado, NEW.estado USING ERRCODE = 'P0001';
       END IF;
       IF OLD.creditado_em IS NOT NULL AND NEW.creditado_em IS DISTINCT FROM OLD.creditado_em THEN
-        RAISE EXCEPTION '090: crédito do pedido é final.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: crédito do pedido é final.' USING ERRCODE = 'P0001';
       END IF;
       NEW.atualizado_em := clock_timestamp();
     END IF;
@@ -398,14 +400,14 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
       IF (NEW.id, NEW.empresa_id, NEW.pedido_id, NEW.provedor, NEW.ambiente, NEW.conta, NEW.pagamento_id, NEW.referencia_externa, NEW.valor_centavos, NEW.registrada_em)
          IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.pedido_id, OLD.provedor, OLD.ambiente, OLD.conta, OLD.pagamento_id, OLD.referencia_externa, OLD.valor_centavos, OLD.registrada_em) THEN
-        RAISE EXCEPTION '090: vínculo e valor da cobrança são imutáveis.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: vínculo e valor da cobrança são imutáveis.' USING ERRCODE = 'P0001';
       END IF;
-      IF OLD.canonica AND NOT NEW.canonica THEN RAISE EXCEPTION '090: cobrança canônica não deixa de ser canônica.' USING ERRCODE = 'P0001'; END IF;
+      IF OLD.canonica AND NOT NEW.canonica THEN RAISE EXCEPTION '095: cobrança canônica não deixa de ser canônica.' USING ERRCODE = 'P0001'; END IF;
       IF OLD.confirmada_em IS NOT NULL AND NEW.confirmada_em IS DISTINCT FROM OLD.confirmada_em THEN
-        RAISE EXCEPTION '090: confirmação da cobrança é final.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: confirmação da cobrança é final.' USING ERRCODE = 'P0001';
       END IF;
       IF NEW.estornado_centavos < OLD.estornado_centavos OR NEW.exposicao_centavos < OLD.exposicao_centavos THEN
-        RAISE EXCEPTION '090: estorno e exposição só aumentam.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: estorno e exposição só aumentam.' USING ERRCODE = 'P0001';
       END IF;
       NEW.atualizada_em := clock_timestamp();
     ELSE
@@ -414,13 +416,13 @@ BEGIN
   ELSIF TG_TABLE_NAME = 'ia_credito_devolucoes' THEN
     IF TG_OP = 'INSERT' THEN
       IF NEW.estado <> 'AGUARDANDO_MANUAL' OR NEW.modo IS NOT NULL OR NEW.status_provedor IS NOT NULL OR NEW.referencia IS NOT NULL OR NEW.concluido_em IS NOT NULL THEN
-        RAISE EXCEPTION '090: devolução nasce sem estorno executado.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: devolução nasce sem estorno executado.' USING ERRCODE = 'P0001';
       END IF;
       -- Soma das devoluções do pedido nunca passa do valor pago (pedido travado: devoluções concorrentes esperam).
       SELECT preco_centavos INTO pago FROM public.ia_credito_pedidos WHERE id = NEW.pedido_id AND empresa_id = NEW.empresa_id FOR UPDATE;
       SELECT coalesce(sum(valor_centavos), 0) INTO devolvido FROM public.ia_credito_devolucoes WHERE pedido_id = NEW.pedido_id;
       IF pago IS NULL OR NEW.valor_pago_centavos <> pago OR devolvido + NEW.valor_centavos > pago THEN
-        RAISE EXCEPTION '090: devolução acima do valor pago do pedido.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: devolução acima do valor pago do pedido.' USING ERRCODE = 'P0001';
       END IF;
       NEW.solicitado_em := clock_timestamp(); NEW.atualizado_em := NULL;
     ELSE
@@ -428,32 +430,32 @@ BEGIN
           NEW.solicitado_em, NEW.regra, NEW.quantidade_comprada, NEW.quantidade_consumida, NEW.quantidade_cancelada, NEW.valor_pago_centavos, NEW.valor_centavos, NEW.forma, NEW.prazo)
          IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.pedido_id, OLD.cobranca_id, OLD.lote_id, OLD.protocolo, OLD.tipo, OLD.origem, OLD.chave_idempotencia, OLD.solicitado_por,
           OLD.solicitado_em, OLD.regra, OLD.quantidade_comprada, OLD.quantidade_consumida, OLD.quantidade_cancelada, OLD.valor_pago_centavos, OLD.valor_centavos, OLD.forma, OLD.prazo) THEN
-        RAISE EXCEPTION '090: protocolo, valores e cálculo da devolução são imutáveis.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: protocolo, valores e cálculo da devolução são imutáveis.' USING ERRCODE = 'P0001';
       END IF;
       IF NEW.estado IS DISTINCT FROM OLD.estado THEN
         IF NOT ((OLD.estado, NEW.estado) IN (
              ('AGUARDANDO_MANUAL', 'EM_CURSO'), ('AGUARDANDO_MANUAL', 'CONCLUIDO'),
              ('EM_CURSO', 'SOLICITADO'), ('EM_CURSO', 'SEM_CONFIRMACAO'), ('EM_CURSO', 'RECUSADO'), ('EM_CURSO', 'CONCLUIDO'),
              ('SOLICITADO', 'CONCLUIDO'), ('SEM_CONFIRMACAO', 'SOLICITADO'), ('SEM_CONFIRMACAO', 'CONCLUIDO'), ('RECUSADO', 'CONCLUIDO'))) THEN
-          RAISE EXCEPTION '090: transição da devolução inválida: % → %.', OLD.estado, NEW.estado USING ERRCODE = 'P0001';
+          RAISE EXCEPTION '095: transição da devolução inválida: % → %.', OLD.estado, NEW.estado USING ERRCODE = 'P0001';
         END IF;
         IF NEW.estado = 'EM_CURSO' AND NEW.modo IS DISTINCT FROM 'AUTOMATICO' THEN
-          RAISE EXCEPTION '090: chamada automática exige modo AUTOMATICO.' USING ERRCODE = 'P0001';
+          RAISE EXCEPTION '095: chamada automática exige modo AUTOMATICO.' USING ERRCODE = 'P0001';
         END IF;
         NEW.atualizado_em := clock_timestamp();
         IF NEW.estado = 'CONCLUIDO' THEN NEW.concluido_em := clock_timestamp(); NEW.modo := COALESCE(NEW.modo, 'MANUAL'); END IF;
       ELSIF NEW.modo IS DISTINCT FROM OLD.modo OR NEW.concluido_em IS DISTINCT FROM OLD.concluido_em THEN
-        RAISE EXCEPTION '090: modo e conclusão só mudam junto com a situação.' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION '095: modo e conclusão só mudam junto com a situação.' USING ERRCODE = 'P0001';
       END IF;
-      IF OLD.estado = 'CONCLUIDO' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN RAISE EXCEPTION '090: devolução concluída é imutável.' USING ERRCODE = 'P0001'; END IF;
+      IF OLD.estado = 'CONCLUIDO' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN RAISE EXCEPTION '095: devolução concluída é imutável.' USING ERRCODE = 'P0001'; END IF;
     END IF;
   ELSIF TG_TABLE_NAME IN ('ia_credito_cortesias', 'ia_credito_cortes') THEN
-    IF TG_OP = 'UPDATE' THEN RAISE EXCEPTION '090: registro de % é imutável.', TG_TABLE_NAME USING ERRCODE = 'P0001'; END IF;
+    IF TG_OP = 'UPDATE' THEN RAISE EXCEPTION '095: registro de % é imutável.', TG_TABLE_NAME USING ERRCODE = 'P0001'; END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_notificacoes' THEN
-    IF TG_OP = 'DELETE' AND OLD.situacao IN ('PENDENTE', 'FALHOU') THEN RAISE EXCEPTION '090: notificação pendente não é apagada.' USING ERRCODE = 'P0001'; END IF;
+    IF TG_OP = 'DELETE' AND OLD.situacao IN ('PENDENTE', 'FALHOU') THEN RAISE EXCEPTION '095: notificação pendente não é apagada.' USING ERRCODE = 'P0001'; END IF;
     IF TG_OP = 'UPDATE' AND ((NEW.id, NEW.empresa_id, NEW.tipo, NEW.dedupe, NEW.protocolo, NEW.criada_em) IS DISTINCT FROM (OLD.id, OLD.empresa_id, OLD.tipo, OLD.dedupe, OLD.protocolo, OLD.criada_em)
        OR OLD.situacao IN ('ENVIADO', 'DESCARTADO') AND NEW.situacao IS DISTINCT FROM OLD.situacao) THEN
-      RAISE EXCEPTION '090: notificação é imutável depois de enviada.' USING ERRCODE = 'P0001';
+      RAISE EXCEPTION '095: notificação é imutável depois de enviada.' USING ERRCODE = 'P0001';
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   END IF;
@@ -465,11 +467,11 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['ia_credito_carteiras', 'ia_credito_pedidos', 'ia_credito_lotes', 'ia_credito_lancamentos', 'ia_credito_reservas',
       'ia_credito_reserva_lotes', 'ia_credito_cobrancas', 'ia_credito_devolucoes', 'ia_credito_cortesias', 'ia_credito_cortes', 'ia_credito_notificacoes'] LOOP
-    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION kidmais_090_guarda()', t || '_090_guarda_trg', t);
-    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION kidmais_090_guarda()', t || '_090_sem_truncate_trg', t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION kidmais_095_guarda()', t || '_095_guarda_trg', t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION kidmais_095_guarda()', t || '_095_sem_truncate_trg', t);
   END LOOP;
 END $$;
 
-COMMENT ON TABLE ia_credito_carteiras IS '090: carteira de créditos de IA por empresa e recurso (projeção do extrato).';
-COMMENT ON TABLE ia_credito_lancamentos IS '090: extrato imutável de créditos de IA (fonte de verdade).';
+COMMENT ON TABLE ia_credito_carteiras IS '095: carteira de créditos de IA por empresa e recurso (projeção do extrato).';
+COMMENT ON TABLE ia_credito_lancamentos IS '095: extrato imutável de créditos de IA (fonte de verdade).';
 COMMIT;

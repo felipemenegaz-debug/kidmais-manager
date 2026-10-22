@@ -7,10 +7,15 @@ import { CATALOGO_DEMO, fotografiaOferta, termosSha256, validarCatalogo, type Ca
 import { catalogoVisivel, contaProvedor, flagsCreditos, vendaAberta, walleDisponivel } from './config.ts';
 import { AsaasFalhou, criarClienteAsaas } from '../assinatura/asaas.ts';
 import { extrairEvento } from '../assinatura/sincronizacao.ts';
+import { mensagem } from './notificacoes.ts';
+import { criarEnviarEmail } from '../acessos/email.ts';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 /**
- * Regras financeiras puras dos créditos (090), flags e travas de produção, catálogo, cliente Asaas da cobrança avulsa (fetch
- * falso, sem rede), extração do webhook e argumentos dos CLIs. Os efeitos no banco ficam em creditos-090.postgres.test.ts.
+ * Regras financeiras puras dos créditos (095), flags e travas de produção, catálogo, cliente Asaas da cobrança avulsa (fetch
+ * falso, sem rede), extração do webhook e argumentos dos CLIs. Os efeitos no banco ficam em creditos-095.postgres.test.ts.
  */
 const DIA = 86_400_000;
 const agora = Date.parse('2026-10-22T15:00:00.000Z');
@@ -184,12 +189,43 @@ test('webhook: referência de créditos guardada como veio; outras referências 
     assert.equal(JSON.stringify(e).includes('nome da pessoa'), false);
 });
 
+test('e-mails (P2-4): chave por notificação e destinatário; repetição com a mesma chave não reenvia; transporte em arquivo aceita 2 destinatários', async () => {
+    const id1 = '0f8fad5b-d9cb-469f-a165-70867728950e', id2 = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    const a = mensagem('PAGAMENTO_CONFIRMADO', 'gestao1@exemplo.test', 'KM-20261022-AAAAAAAA', id1);
+    const b = mensagem('PAGAMENTO_CONFIRMADO', 'gestao2@exemplo.test', 'KM-20261022-AAAAAAAA', id1);
+    const c = mensagem('LOTE_VENCENDO_30', 'x@exemplo.test', null, id1);
+    const d = mensagem('LOTE_VENCENDO_30', 'x@exemplo.test', null, id2);
+    assert.equal(new Set([a, b, c, d].map((m) => m.idempotencia)).size, 4, 'destinatários e notificações diferentes nunca colidem');
+    assert.equal(mensagem('PAGAMENTO_CONFIRMADO', 'gestao1@exemplo.test', 'KM-20261022-AAAAAAAA', id1).idempotencia, a.idempotencia, 'estável entre tentativas');
+    assert.doesNotMatch(a.idempotencia!, /gestao1|exemplo/, 'a chave não leva o e-mail');
+    const dir = mkdtempSync(path.join(tmpdir(), 'creditos-email-'));
+    try {
+        const enviar = criarEnviarEmail({ EMAIL_PROVIDER: 'arquivo', EMAIL_ARQUIVO_DIR: dir, NODE_ENV: 'test' });
+        await enviar(a); await enviar(b); await enviar(c); await enviar(d);
+        await enviar(a); // nova tentativa da mesma notificação ao mesmo destinatário: idempotente
+        assert.equal(readdirSync(dir).length, 4);
+    }
+    finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Asaas: consulta da cobrança traz refunds[] (estornos parciais DONE) para o serviço de créditos (P2-5)', async () => {
+    const fetch = async () => new Response(JSON.stringify({ id: 'pay_1', status: 'RECEIVED', dueDate: '2026-10-25', value: 159,
+        refunds: [{ status: 'DONE', value: 50.5, description: 'parcial' }, { status: 'PENDING', value: 10 }] }), { status: 200 });
+    const c = criarClienteAsaas({ ambiente: 'sandbox', baseUrl: 'https://api-sandbox.asaas.com/v3', apiKey: '$aact_hmlg_sintetica', webhookToken: 'x'.repeat(40) }, { fetch });
+    const r = await c.obterCobranca('pay_1');
+    assert.deepEqual(r?.estornos, [{ status: 'DONE', valorCentavos: 5050, descricao: 'parcial' }, { status: 'PENDING', valorCentavos: 1000, descricao: null }]);
+});
+
 test('CLIs de manutenção e de corte: argumentos estritos, aplicação só explícita e com registro da autorização', () => {
     const req = createRequire(import.meta.url);
     const man = req('../../scripts/creditos-manutencao.cjs') as { argumentos: (a: string[]) => unknown };
     const corte = req('../../scripts/creditos-corte-legado.cjs') as { argumentos: (a: string[]) => unknown };
-    assert.deepEqual(man.argumentos([]), { aplicar: false, enviar: false });
+    assert.deepEqual(man.argumentos([]), { aplicar: false, enviar: false, autorizacao: null });
     assert.throws(() => man.argumentos(['--enviar-emails']), /exige --aplicar/);
+    // P2-3: escrita em produção só com o registro da autorização (o CLI recusa produção sem ele).
+    assert.deepEqual(man.argumentos(['--aplicar', '--autorizacao', 'Felipe 22/10 manutencao']), { aplicar: true, enviar: false, autorizacao: 'Felipe 22/10 manutencao' });
+    assert.throws(() => man.argumentos(['--autorizacao', 'Felipe 22/10 manutencao']), /exige --aplicar/);
+    assert.throws(() => man.argumentos(['--aplicar', '--autorizacao', 'x;rm']), /registro seguro/);
     assert.throws(() => man.argumentos(['--forcar']), /desconhecido/);
     assert.deepEqual(corte.argumentos(['--empresa', pedido]), { empresa: pedido, aplicar: false, autorizacao: null });
     assert.throws(() => corte.argumentos(['--empresa', pedido, '--aplicar']), /exige --autorizacao/);

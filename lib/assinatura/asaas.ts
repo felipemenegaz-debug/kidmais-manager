@@ -110,7 +110,9 @@ export type CobrancaProvedor = { id: string; status: string; dueDate: string; pa
     /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
     confirmedDate?: string | null;
     /** Correlação gravada por nós na criação (créditos: km:<ambiente>:creditos:<pedido>); nunca prova idempotência. */
-    externalReference?: string | null };
+    externalReference?: string | null;
+    /** `refunds[]` da cobrança, quando o provedor devolve (créditos, P2-5: estornos parciais concluídos = status DONE). */
+    estornos?: EstornoProvedor[] };
 
 /** Situação de cada devolução da cobrança (`refunds[]`): só `DONE` conta como devolvida (docs.asaas.com/docs/estornos). */
 export type EstornoProvedor = { status: string; valorCentavos: number | null; descricao: string | null };
@@ -204,6 +206,7 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
         ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
         ...(o.confirmedDate !== undefined ? { confirmedDate: texto(o.confirmedDate, 10) && DATA.test(String(o.confirmedDate)) ? String(o.confirmedDate) : null } : {}),
         ...(o.externalReference !== undefined ? { externalReference: texto(o.externalReference) } : {}),
+        ...(o.refunds !== undefined ? { estornos: estornos(o.refunds) } : {}),
     };
 }
 

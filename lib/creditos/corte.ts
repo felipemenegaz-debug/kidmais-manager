@@ -1,5 +1,5 @@
 /**
- * Corte do motor legado dos Convites para o motor de créditos (090), POR EMPRESA, com simulação e aplicação explícitas
+ * Corte do motor legado dos Convites para o motor de créditos (095), POR EMPRESA, com simulação e aplicação explícitas
  * (scripts/creditos-corte-legado.cjs). Nunca roda no startup nem no deploy. Exige autorização de dados própria.
  *
  *   - trava convite_carteiras da empresa (a mesma trava da geração legada: geração concorrente espera e, ao continuar,

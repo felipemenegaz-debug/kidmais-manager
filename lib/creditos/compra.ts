@@ -1,8 +1,8 @@
 /**
- * Compra avulsa de pacotes de créditos de IA (090) pela tela Assinatura → Créditos de IA. Só a Gestão, com senha
+ * Compra avulsa de pacotes de créditos de IA (095) pela tela Assinatura → Créditos de IA. Só a Gestão, com senha
  * confirmada há ≤ 5 min (como a devolução da 089), resumo e confirmação explícita na tela.
  *
- *   A. transação curta (tenant): Gestão, 090 instalada, idempotência (mesma chave + mesmo conteúdo devolve o pedido;
+ *   A. transação curta (tenant): Gestão, 095 instalada, idempotência (mesma chave + mesmo conteúdo devolve o pedido;
  *      conteúdo diferente = conflito), assinatura apta, carteira de Convites já cortada do legado, limites persistentes
  *      (pedidos/hora por pessoa e por empresa, pendentes, total do dia) e o pedido em CRIACAO_EM_CURSO com protocolo,
  *      fotografia da oferta, versão/hash dos termos e vencimento — tudo calculado no servidor;
@@ -134,7 +134,7 @@ export async function criarPedido(sessao: SessaoAdmin, empresaSolicitada: string
         for (let tentativa = 0; ; tentativa += 1) {
             const protocolo = gerarProtocolo(agora, randomBytes(8));
             if (!PROTOCOLO.test(protocolo)) throw new Error('Protocolo inválido.');
-            await tx.query('SAVEPOINT kidmais_090_protocolo');
+            await tx.query('SAVEPOINT kidmais_095_protocolo');
             try {
                 const id = randomUUID();
                 await tx.query(`INSERT INTO ia_credito_pedidos (id, empresa_id, protocolo, recurso, catalogo_versao, oferta_codigo, oferta, termos_versao, termos_sha256,
@@ -143,14 +143,14 @@ export async function criarPedido(sessao: SessaoAdmin, empresaSolicitada: string
                 [id, empresaId, protocolo, oferta.recurso, cat.versao, oferta.codigo, JSON.stringify(fotografiaOferta(cat, oferta)), cat.termos.versao, termos,
                     oferta.quantidade, oferta.precoCentavos, oferta.validadeDias, forma, prov.ambiente, chave, payload, sessao.usuario_id,
                     vencimentoPagamento(agora, LIMITES.vencimentoDias)]);
-                await tx.query('RELEASE SAVEPOINT kidmais_090_protocolo');
+                await tx.query('RELEASE SAVEPOINT kidmais_095_protocolo');
                 await auditarCreditos(tx, { usuarioId: sessao.usuario_id, acao: 'CREDITOS_PEDIDO_CRIADO', entidadeTipo: 'IA_CREDITO_PEDIDO', entidadeId: id,
                     dados: { protocolo, recurso: oferta.recurso, oferta: oferta.codigo, precoCentavos: oferta.precoCentavos, forma } });
                 const novo = (await tx.query<LinhaPedido>(`${SELECT_PEDIDO} WHERE p.id = $1::uuid`, [id])).rows[0];
                 return { anterior: null, novo, cliente, empresaId };
             }
             catch (error) {
-                await tx.query('ROLLBACK TO SAVEPOINT kidmais_090_protocolo');
+                await tx.query('ROLLBACK TO SAVEPOINT kidmais_095_protocolo');
                 const e = error as { code?: string; constraint?: string };
                 if (e.code !== '23505' || e.constraint !== 'ia_credito_pedidos_protocolo_key' || tentativa >= 1) throw error;
             }

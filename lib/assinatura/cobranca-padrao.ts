@@ -54,7 +54,7 @@ export async function processarEventoAgendado(eventoInternoId: string) {
     }
 }
 
-/** Dependências reais dos créditos de IA (090): banco do serviço, provedor do ambiente e limites persistentes. */
+/** Dependências reais dos créditos de IA (095): banco do serviço, provedor do ambiente e limites persistentes. */
 export function depsCreditosPadrao(env: Record<string, string | undefined> = process.env): DepsCreditos {
     return { withTenantTransaction, withTransaction, consumirLimite, env, provedor: () => {
         const p = clienteAsaasDoAmbiente(env);

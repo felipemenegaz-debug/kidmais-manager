@@ -30,7 +30,7 @@ const montarEmpresa = (db: Client, letra: string) => montarEmpresaCom(db, letra,
  *   4. cada filtro do inventário segue uma FK real do catálogo (roteiros/cadeias-fk.mts do revisor);
  *   5. tabela pública não classificada recusa a exportação (P2-3), sem pacote nem temporário;
  *   6. limite por empresa/pessoa e auditoria das recusas da guarda sem dados pessoais (P3-2, P3-5).
- * Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; modelo 090 (inclui a 089 da devolução e a 090 dos créditos); dados sintéticos.
+ * Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; modelo 095 (inclui a 089 da devolução e a 095 dos créditos); dados sintéticos.
  */
 
 
