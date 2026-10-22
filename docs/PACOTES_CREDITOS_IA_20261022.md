@@ -241,6 +241,15 @@ EXIT 0; Playwright 8/8; SQL sem mudança (hashes dos aplicadores inalterados). M
 asserção esperada (`creditos-mutacoes-r7.txt`). Não cobertos por teste: a trava do P3-4 (corrida não determinística) e a
 liberação repetida do mesmo episódio.
 
+**Rodada 5 (22/10): revisão do delta 2.** Parecer `revisao-creditos-ia-20261022/PARECER-DELTA-095-R2.md` (APROVADO COM
+RESSALVAS, 0 P1; P2-N1, P3-2/4/5 fechados). **P2-N2** corrigido: o ramo `REVISAO` de `processarPedido` passa a gravar
+`situacao_provedor` com o status lido desta cobrança (leitura de outro pagamento não conta), e o CRÍTICO de cliente/referência
+divergente com dinheiro recebido (D4) dispara no caminho real. O teste do P3-6 foi reescrito para chegar ao estado só pelo
+`processarPedido` com o dublê (PENDING → não crítico; RECEIVED → crítico, nada creditado), sem `replica`. Validação: PG
+créditos 13/13 em duas rodadas (aplicador, exportação e adversarial PASS), `check:v1:static` EXIT 0; mutações R1b/R2/R3
+**3/3** pela asserção esperada (R1 original inconclusivo: quebrava a SQL ao deixar `$3` sem uso; reescrito como R1b).
+SQL da 095 sem mudança. Observação do parecer não tratada (P3): a releitura de estorno já tratado faz uma escrita idempotente.
+
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
 antes de cada execução; sem o banco `kidmais_manager`.
