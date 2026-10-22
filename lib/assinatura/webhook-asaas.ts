@@ -21,6 +21,9 @@ export const CABECALHO_TOKEN = 'asaas-access-token';
 const TEMPO_CORPO_MS = 3000;
 export const REGRA_IP = { namespace: 'WEBHOOK_ASAAS', janelaSegundos: 60, limite: 300 };
 export const REGRA_RECUSA = { namespace: 'WEBHOOK_ASAAS_RECUSA', janelaSegundos: 600, limite: 10 };
+/** Sem IP confiável: baldes separados para token válido e inválido, com teto alto; o registro de recusas segue 10/600 s. */
+export const REGRA_IP_SEM_ORIGEM = { namespace: 'WEBHOOK_ASAAS-sem-origem', janelaSegundos: 60, limite: 3000 };
+export const REGRA_RECUSA_SEM_ORIGEM = { namespace: 'WEBHOOK_ASAAS_RECUSA-sem-origem', janelaSegundos: 600, limite: 10 };
 
 export type ConsumirLimite = (tx: DbExecutor, tipo: 'IDENTIFICADOR' | 'ORIGEM', valor: string, regra: { namespace?: string; janelaSegundos: number; limite: number }) => Promise<boolean>;
 export type DepsWebhook = {
@@ -93,17 +96,21 @@ export async function receberWebhookAsaas(request: Request, deps: DepsWebhook): 
     const estado = configuracaoAsaas(deps.env);
     if (!estado.ligado)
         return resposta(503);
-    const origem = deps.ip ?? 'ORIGEM_NAO_VERIFICADA';
     const recebido = request.headers.get(CABECALHO_TOKEN);
     const valido = tokenConfere(recebido, estado.config.webhookToken);
+    // Sem IP confiável, nunca uma chave única que trave todo mundo: o balde é separado pelo resultado do token (já
+    // conferido em tempo constante), então uma enxurrada com token errado não bloqueia as entregas autênticas.
+    const [origem, regraIp, regraRecusa] = deps.ip
+        ? [deps.ip, REGRA_IP, REGRA_RECUSA]
+        : [valido ? 'SEM_ORIGEM:TOKEN_VALIDO' : 'SEM_ORIGEM:TOKEN_INVALIDO', REGRA_IP_SEM_ORIGEM, REGRA_RECUSA_SEM_ORIGEM];
 
     // Limite por IP e registro da recusa: só o motivo, o IP (quando conhecido) e um id; nada do corpo ou do token.
     const triagem = await deps.withTransaction(async (tx) => {
-        if (!await deps.consumirLimite(tx, 'ORIGEM', origem, REGRA_IP))
+        if (!await deps.consumirLimite(tx, 'ORIGEM', origem, regraIp))
             return 429;
         if (valido)
             return 0;
-        if (await deps.consumirLimite(tx, 'ORIGEM', origem, REGRA_RECUSA)) {
+        if (await deps.consumirLimite(tx, 'ORIGEM', origem, regraRecusa)) {
             await tx.query(
                 `INSERT INTO auditoria (ator_tipo, acao, entidade_tipo, entidade_id, dados_depois, origem, request_id, ip)
                  VALUES ('SISTEMA', 'COBRANCA_WEBHOOK_RECUSADO', 'COBRANCA_WEBHOOK', $1::uuid, $2::jsonb, 'COBRANCA', $1::uuid, $3::inet)`,

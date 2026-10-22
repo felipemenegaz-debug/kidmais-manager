@@ -3,8 +3,9 @@ import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
-import { consumirLimite, prazoDoLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
+import { consumirLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
 import { criarHashSenha as criarHashSenhaPadrao, hashToken } from '../autenticacao/senha.ts';
+import { consumirOrigem } from './limite-origem.ts';
 import { erroAcesso, isAcessoServiceError } from './erros.ts';
 import { criarEnviarEmail, linkComToken, mensagemRecuperacao, type EnviarEmail } from './email.ts';
 import { validarNovaSenha, type ContextoRequisicao } from './senha-propria.ts';
@@ -25,6 +26,8 @@ export const INTERVALO_PEDIDOS_SEGUNDOS = 120;
 const REGRA_PEDIDO_IP = { namespace: 'recuperacao', janelaSegundos: 3600, limite: 10 } as const;
 const REGRA_PEDIDO_EMAIL = { namespace: 'recuperacao', janelaSegundos: 3600, limite: 3 } as const;
 const REGRA_REDEFINIR_IP = { namespace: 'redefinir', janelaSegundos: 900, limite: 10 } as const;
+/** Sem IP confiável (fora do Render ou topologia inesperada): teto global alto só contra envio em massa. */
+export const TETO_PEDIDOS_SEM_ORIGEM = 300;
 
 export type RecuperacaoDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -91,7 +94,7 @@ export function validarPedidoPublico(raw: unknown) {
 /** Processamento do pedido público. Não devolve nada que distinga conta existente de inexistente. */
 export async function processarPedidoPublico(input: { email: string }, ctx: ContextoRequisicao, deps: RecuperacaoDeps = recuperacaoDepsPadrao()) {
     const aberto = await deps.withTransaction(async (tx) => {
-        const ipOk = await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_PEDIDO_IP);
+        const ipOk = !await consumirOrigem(tx, ctx.ip, REGRA_PEDIDO_IP, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM });
         const emailOk = await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_PEDIDO_EMAIL);
         const conta = (await tx.query<Conta>('SELECT id, email FROM usuarios_administrativos WHERE email = $1 AND ativo FOR UPDATE', [input.email])).rows[0];
         let resultado: string;
@@ -139,8 +142,9 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
     // válido e aberto: requisições com token falso ou acima do limite nunca chegam a calcular hash.
     validarNovaSenha(parsed.data.novaSenha, parsed.data.confirmacao);
     const resultado = await deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_REDEFINIR_IP))
-            return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_REDEFINIR_IP.namespace) };
+        const recusa = await consumirOrigem(tx, ctx.ip, REGRA_REDEFINIR_IP, { porIdentificador: hashToken(parsed.data.token) });
+        if (recusa)
+            return { tipo: 'limite' as const, aguardar: recusa.aguardar };
         const pedido = (await tx.query<{ id: string; usuario_id: string; origem: string }>(
             `SELECT r.id, r.usuario_id, r.origem FROM recuperacoes_senha r JOIN usuarios_administrativos u ON u.id = r.usuario_id
               WHERE r.token_hash = $1 AND r.usado_em IS NULL AND r.invalidado_em IS NULL AND r.expira_em > clock_timestamp() AND u.ativo

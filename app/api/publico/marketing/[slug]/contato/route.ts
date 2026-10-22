@@ -32,7 +32,7 @@ function origemAceita(request: NextRequest) {
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!origemAceita(request)) return responder({ ok: false, erro: "Origem recusada.", codigo: "ORIGEM_RECUSADA" }, 403);
-  const espera = limitador.verificar(ipDaRequisicao(request) ?? "ORIGEM_NAO_VERIFICADA", "PEDIDO", `site:${slug.slice(0, 64)}`);
+  const espera = limitador.verificar(ipDaRequisicao(request), "PEDIDO", `site:${slug.slice(0, 64)}`);
   if (espera !== null) return responder({ ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" }, 429, { "Retry-After": String(espera) });
   try {
     const texto = await request.text();

@@ -3,10 +3,11 @@ import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
-import { consumirLimite, criarSessaoAdministrativa, prazoDoLimite, type SessaoAdmin } from '../autenticacao/service.ts';
+import { consumirLimite, criarSessaoAdministrativa, type SessaoAdmin } from '../autenticacao/service.ts';
 import { criarHashSenha as criarHashSenhaPadrao, hashToken } from '../autenticacao/senha.ts';
 import { concederPerfilFesta, criacaoDiretaDisponivel, inserirIdentidadeNeutra, marcarAtor } from '../autenticacao/usuarios.ts';
 import { travarUsuariosNaOrdem } from '../saas/provar-tenant.ts';
+import { consumirOrigem } from '../acessos/limite-origem.ts';
 import { erroAcesso, violacaoUnica } from '../acessos/erros.ts';
 import { criarEnviarEmail, origemPublica, situacaoEmail, type EnviarEmail, type MensagemEmail } from '../acessos/email.ts';
 import { validarNovaSenha, type ContextoRequisicao } from '../acessos/senha-propria.ts';
@@ -38,6 +39,12 @@ const REGRA_ORIGEM = { namespace: 'cadastro', janelaSegundos: 3600, limite: 10 }
 const REGRA_EMAIL = { namespace: 'cadastro-email', janelaSegundos: 3600, limite: 3 } as const;
 const REGRA_CONFIRMAR = { namespace: 'cadastro-confirmar', janelaSegundos: 900, limite: 30 } as const;
 const REGRA_EMPRESA = { namespace: 'cadastro-empresa', janelaSegundos: 86_400, limite: 5 } as const;
+/**
+ * Sem IP confiável (fora do Render ou topologia inesperada) nunca a chave única com o limite de um IP: o pedido (que
+ * envia e-mail para o endereço digitado) tem um teto global alto contra envio em massa; a confirmação conta pelo próprio
+ * link. docs/ACESSOS_SCRYPT_FORA_TX_20261022.md.
+ */
+export const TETO_PEDIDOS_SEM_ORIGEM = 300;
 
 export const MENSAGEM_PEDIDO_CADASTRO = `Se for possível criar a conta com este e-mail, enviamos um link de confirmação. Ele vale por ${VALIDADE_CADASTRO_HORAS} horas. Confira também a caixa de spam.`;
 export const MENSAGEM_CNPJ_EXISTENTE = 'Este CNPJ já está cadastrado no Kidmais Manager. Registramos seu pedido de acesso; a empresa e a Kidmais avaliam e você recebe um convite se for aprovado. Nenhum dado da empresa é exibido aqui.';
@@ -140,7 +147,7 @@ export function mensagemContaExistente(para: string, origem = origemPublica()): 
  */
 export async function processarPedidoCadastro(input: PedidoCadastro, ctx: ContextoRequisicao, deps: CadastroDeps = cadastroDepsPadrao()) {
     const r = await deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM) || !await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_EMAIL))
+        if (await consumirOrigem(tx, ctx.ip, REGRA_ORIGEM, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM }) || !await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_EMAIL))
             return { tipo: 'limite' as const };
         const conta = (await tx.query<{ id: string }>('SELECT id FROM usuarios_administrativos WHERE lower(btrim(email)) = $1', [input.email])).rows[0];
         if (conta) {
@@ -187,8 +194,9 @@ const confirmarSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/
 export async function confirmarCadastro(raw: unknown, ctx: ContextoRequisicao, deps: CadastroDeps = cadastroDepsPadrao()) {
     const parsed = confirmarSchema.safeParse(raw);
     const r = await deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_CONFIRMAR))
-            return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_CONFIRMAR.namespace) };
+        const recusa = await consumirOrigem(tx, ctx.ip, REGRA_CONFIRMAR, { porIdentificador: parsed.success ? hashToken(parsed.data.token) : 'TOKEN_MALFORMADO' });
+        if (recusa)
+            return { tipo: 'limite' as const, aguardar: recusa.aguardar };
         if (!parsed.success)
             return { tipo: 'link' as const };
         const p = (await tx.query<{ id: string; email: string; nome: string; senha_hash: string | null; situacao: string; expirado: boolean; termos_versao: string; termos_hash: string; privacidade_versao: string; privacidade_hash: string }>(

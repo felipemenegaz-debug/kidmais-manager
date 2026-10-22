@@ -9,8 +9,11 @@ import { ipDaRequisicao } from "../acessos/http.ts";
  *   IDENTIDADE → consulta de CPF, envio e recuperação de código: 20 por hora por origem (contra enumeração).
  *
  * Janela fixa em memória, por instância (o web roda com 1 instância; com mais, cada uma conta a sua parte).
- * Sem escrita em banco por pedido. Origem = último X-Forwarded-For no Render (lib/acessos/http.ts); sem origem
- * confiável, todos dividem o mesmo balde. Nunca registra IP em log nem devolve detalhe além do prazo.
+ * Sem escrita em banco por pedido. Origem = penúltimo X-Forwarded-For no Render, conferido (lib/acessos/http.ts).
+ * Sem origem confiável, NUNCA o limite de um IP aplicado a todos: cada grupo conta por endereço de empresa (ou numa
+ * chave comum, quando não há empresa) com teto SEM_ORIGEM_FATOR vezes maior, e o PEDIDO mantém o teto por empresa.
+ * Assim, quem abusa sem origem esgota no máximo o balde daquela empresa, não o de todos. Nunca registra IP em log nem
+ * devolve detalhe além do prazo.
  */
 export type GrupoLimite = "LEITURA" | "PEDIDO" | "IDENTIDADE";
 type Regra = { limite: number; janelaMs: number };
@@ -20,6 +23,7 @@ const REGRAS: Record<GrupoLimite, Regra> = {
   IDENTIDADE: { limite: 20, janelaMs: 3_600_000 },
 };
 const PEDIDO_POR_EMPRESA: Regra = { limite: 60, janelaMs: 3_600_000 };
+export const SEM_ORIGEM_FATOR = 10;
 const MAXIMO_CHAVES = 20_000;
 
 type Balde = { inicio: number; usados: number; janelaMs: number };
@@ -43,8 +47,11 @@ export function criarLimitador(agora: () => number = Date.now) {
   }
   return {
     /** Segundos até liberar, ou null quando o pedido pode seguir. */
-    verificar(origem: string, grupo: GrupoLimite, empresa: string | null = null): number | null {
-      const porOrigem = consumir(`${grupo}:${origem}`, REGRAS[grupo]);
+    verificar(origem: string | null, grupo: GrupoLimite, empresa: string | null = null): number | null {
+      const regra = REGRAS[grupo];
+      const porOrigem = origem
+        ? consumir(`${grupo}:${origem}`, regra)
+        : consumir(`${grupo}_SEM_ORIGEM:${empresa ?? "*"}`, { ...regra, limite: regra.limite * SEM_ORIGEM_FATOR });
       if (porOrigem !== null) return porOrigem;
       if (grupo === "PEDIDO" && empresa) return consumir(`PEDIDO_EMPRESA:${empresa}`, PEDIDO_POR_EMPRESA);
       return null;
@@ -60,7 +67,7 @@ export function limitarPublico(
   request: { headers: { get(nome: string): string | null }; nextUrl?: URL; url?: string },
   grupo: GrupoLimite,
 ) {
-  const origem = ipDaRequisicao(request) ?? "ORIGEM_NAO_VERIFICADA";
+  const origem = ipDaRequisicao(request);
   const url = request.nextUrl ?? (request.url ? new URL(request.url) : null);
   const empresa = url?.searchParams.get("empresa") || null;
   const espera = limitador.verificar(origem, grupo, empresa);

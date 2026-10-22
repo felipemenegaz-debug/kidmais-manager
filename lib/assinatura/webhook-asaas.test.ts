@@ -358,3 +358,20 @@ test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do 
     assert.match(retorno, /adminFetch\('\/api\/admin\/assinatura'\)/);
     assert.ok(!/method:\s*'POST'/.test(retorno), 'o retorno não envia nada ao servidor');
 });
+
+test('sem IP confiável: enxurrada com token errado não bloqueia a entrega autêntica; nenhuma chave única para todos', async () => {
+    const { banco, deps, limites } = ambiente();
+    deps.ip = null;
+    banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
+    for (let i = 0; i < 400; i += 1)
+        assert.equal((await receberWebhookAsaas(req({}, 'x'.repeat(40)), deps)).status, 401);
+    assert.equal((await receberWebhookAsaas(req(evento('evt_s', 'PAYMENT_RECEIVED', 'sub_1', EMP_A)), deps)).status, 200, 'o Asaas não recebe 429 por causa de terceiros');
+    assert.equal(banco.auditoria.length, 10, 'o registro de recusas continua limitado');
+    const chaves = [...limites.keys()];
+    assert.ok(chaves.every((k) => !k.includes('ORIGEM_NAO_VERIFICADA')), chaves.join(','));
+    assert.ok(chaves.includes('WEBHOOK_ASAAS-sem-origem|SEM_ORIGEM:TOKEN_INVALIDO') && chaves.includes('WEBHOOK_ASAAS-sem-origem|SEM_ORIGEM:TOKEN_VALIDO'));
+    // Com IP, a regra por IP continua a mesma (300/60 s por origem).
+    const comIp = ambiente();
+    for (let i = 0; i < 300; i += 1) await receberWebhookAsaas(req({}, 'x'.repeat(40)), comIp.deps);
+    assert.equal((await receberWebhookAsaas(req({}, 'x'.repeat(40)), comIp.deps)).status, 429);
+});
