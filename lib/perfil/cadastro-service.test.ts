@@ -74,6 +74,11 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
             estado.sqls.push(sql);
             if (sql.includes('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
                 return { rows: [], rowCount: 0 };
+            // 091: contratante pessoa física (documento do teste/cadastro). Sem documento modelado, PJ.
+            if (sql.includes("to_regclass('public.empresa_assinaturas') IS NOT NULL AS assinaturas"))
+                return { rows: [{ assinaturas: true, cadastro: true }], rowCount: 1 };
+            if (sql.includes(') AS documento') && sql.includes('JOIN LATERAL'))
+                return { rows: [{ documento: (estado as { documentoContratante?: string }).documentoContratante ?? null }], rowCount: 1 };
             if (sql.includes('perfil_empresa_revisoes') && sql.includes('to_regclass')) {
                 return { rows: [{ empresas: estado.instalada ? 'perfil_empresas' : null, unidades: estado.instalada ? 'perfil_unidades' : null, revisoes: estado.instalada ? 'perfil_empresa_revisoes' : null, colunas_revisao: estado.colunas }], rowCount: 1 };
             }

@@ -1,7 +1,7 @@
 import type { DbExecutor } from '../db/contracts';
 import { ClienteServiceError } from '../clientes/services/errors.ts';
 import type { AppendAuditoriaInput } from '../clientes/repositories/auditoria.repository.ts';
-import { consultarCapacidadesPerfil, exigirCapacidadePerfil } from './autorizacao.ts';
+import { consultarCapacidadesPerfil, EMPRESA_SAAS_DO_PERFIL, exigirCapacidadePerfil } from './autorizacao.ts';
 import { alteracaoSensivel, cadastroVazio, validarAplicacao, validarRascunho, type CadastroPerfil } from './cadastro.ts';
 import { travarEmpresasPerfil } from './protecao-usuarios.ts';
 import { exigirReautenticacaoPerfil } from './reautenticacao.ts';
@@ -35,6 +35,8 @@ export type ContextoCadastro = {
     versao: number;
     cadastro: CadastroPerfil;
     rascunho: IdentidadeRascunho | null;
+    /** Contratante com CPF: CNPJ opcional na aplicação. */
+    pessoaFisica?: boolean;
 };
 
 /** 026 + 027 + 028 instaladas (tabelas e colunas do ciclo de revisão). Exportada para a criação do perfil (criacao.ts). */
@@ -153,6 +155,23 @@ const COLUNAS_EMPRESA = `id, codigo, versao, nome_comercial, razao_social, cnpj,
                 sede_cep, sede_logradouro, sede_numero, sede_sem_numero, sede_complemento,
                 sede_bairro, sede_cidade, sede_uf, sede_pais`;
 
+/**
+ * Contratante pessoa física (091): o documento do teste, ou, sem teste, o do cadastro administrativo, tem 11 dígitos.
+ * Empresa SaaS resolvida pela mesma regra da autorização. Tolerante a schema anterior (sem as tabelas, PJ).
+ */
+export async function contratantePessoaFisica(tx: DbExecutor, perfilId: string) {
+    const r = (await tx.query<{ assinaturas: boolean; cadastro: boolean }>(`SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS assinaturas,
+        to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS cadastro`)).rows[0];
+    if (!r?.assinaturas && !r?.cadastro)
+        return false;
+    const doc = (await tx.query<{ documento: string | null }>(`SELECT coalesce(
+            ${r.assinaturas ? '(SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = e.id)' : 'NULL'},
+            ${r.cadastro ? '(SELECT documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = e.id)' : 'NULL'}) AS documento
+        FROM public.perfil_empresas p JOIN LATERAL (${EMPRESA_SAAS_DO_PERFIL}) e ON e.candidatos = 1
+        WHERE p.id = $1::uuid`, [perfilId])).rows[0]?.documento;
+    return typeof doc === 'string' && /^\d{11}$/.test(doc);
+}
+
 async function contextoUnico(tx: DbExecutor, empresaIdCliente: string | null, travar: boolean, perfilDoServidor?: string) {
     if (travar) {
         const ids = (await tx.query<{ id: string }>(`SELECT id FROM public.perfil_empresas ${perfilDoServidor ? 'WHERE id=$1::uuid' : ''} ORDER BY id`, perfilDoServidor ? [perfilDoServidor] : [])).rows.map((linha) => linha.id);
@@ -227,6 +246,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
             codigoUnidade: unico.unidade.codigo,
             versao: unico.empresa.versao,
             cadastro: { ...cadastroDe(unico.empresa, unico.unidade), logoDataUrl: logo },
+            pessoaFisica: await contratantePessoaFisica(tx, unico.empresa.id),
             rascunho: rascunho
                 ? { numero: rascunho.numero, edicao: rascunho.edicao, versaoBase: rascunho.versao_base, conteudo: rascunho.conteudo }
                 : null,
@@ -344,7 +364,7 @@ export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
     )).rows[0];
     if (!rascunho || rascunho.numero !== input.numero || rascunho.edicao !== input.edicao || Number(rascunho.versao_base) !== input.versaoBase)
         conflito(unico.empresa.versao, rascunho?.edicao ?? null, rascunho?.numero ?? null);
-    const validacao = validarAplicacao(rascunho.conteudo);
+    const validacao = validarAplicacao(rascunho.conteudo, { pessoaFisica: await contratantePessoaFisica(tx, unico.empresa.id) });
     if (validacao.falhas.length)
         throw new ClienteServiceError('PERFIL_CADASTRO_INVALIDO', validacao.falhas[0]!.mensagem, 400, { falhas: validacao.falhas });
     const vigente = cadastroDe(unico.empresa, unico.unidade);
@@ -360,7 +380,7 @@ export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
            versao=versao+1, atualizado_em=clock_timestamp()
          WHERE id=$1 AND versao=$14`,
         [
-            unico.empresa.id, cadastro.nomeComercial, cadastro.razaoSocial, cadastro.cnpj,
+            unico.empresa.id, cadastro.nomeComercial, cadastro.razaoSocial, cadastro.cnpj || null,
             cadastro.sede.cep, cadastro.sede.logradouro, cadastro.sede.numero || null, cadastro.sede.semNumero, cadastro.sede.complemento || null,
             cadastro.sede.bairro, cadastro.sede.cidade, cadastro.sede.uf, cadastro.sede.pais,
             input.versaoBase,

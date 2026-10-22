@@ -251,3 +251,23 @@ test('7. rollback da 091 recusado com CPF registrado', { skip: !opt() }, async (
     await client.query('ROLLBACK').catch(() => undefined);
     assert.equal((await client.query("SELECT to_regprocedure('public.kidmais_091_documento_valido(text)') IS NOT NULL AS ok")).rows[0].ok, true);
 });
+
+test('8. Perfil: contratante PF é reconhecido pela empresa SaaS do perfil (CNPJ opcional ao aplicar); PJ continua exigindo CNPJ', { skip: !opt() }, async () => {
+    const { contratantePessoaFisica } = await import('../perfil/cadastro-service.ts');
+    const { validarAplicacao } = await import('../perfil/cadastro.ts');
+    const perfil = async (empresaId: string) => {
+        const codigo = (await client.query('SELECT codigo FROM empresas WHERE id = $1', [empresaId])).rows[0].codigo;
+        return (await client.query('INSERT INTO perfil_empresas (codigo, nome_comercial) VALUES ($1, $2) RETURNING id', [codigo, 'Perfil sintético'])).rows[0].id as string;
+    };
+    const pfPerfil = await perfil(ids.pf), pjPerfil = await perfil(ids.pj);
+    assert.equal(await contratantePessoaFisica(client as never, pfPerfil), true);
+    assert.equal(await contratantePessoaFisica(client as never, pjPerfil), false);
+    const cadastro = { nomeComercial: 'Buffet da Maria', razaoSocial: 'Maria Sintética da Silva', cnpj: '', unidadeNome: 'Buffet da Maria', mesmoEnderecoSede: true,
+        sede: { cep: '01001000', logradouro: 'Praça da Sé', numero: '1', semNumero: false, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP', pais: 'BR' },
+        telefone: '11999990000', whatsapp: '11999990000', emailComercial: 'contato@exemplo.test' };
+    assert.deepEqual(validarAplicacao(cadastro as never, { pessoaFisica: await contratantePessoaFisica(client as never, pfPerfil) }).falhas, []);
+    assert.ok(validarAplicacao(cadastro as never, { pessoaFisica: await contratantePessoaFisica(client as never, pjPerfil) }).falhas.some((f) => f.campo === 'cnpj'));
+    // Gravação do Perfil PF sem CNPJ respeita o CHECK 027 (CNPJ nulo, nunca vazio nem CPF).
+    await client.query('UPDATE perfil_empresas SET razao_social = $2, cnpj = NULL WHERE id = $1', [pfPerfil, 'Maria Sintética da Silva']);
+    await assert.rejects(client.query('UPDATE perfil_empresas SET cnpj = $2 WHERE id = $1', [pfPerfil, cpf(10)]), /perfil_empresas_cnpj_check/);
+});
