@@ -101,6 +101,8 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // Login: limite por origem (IP confiável, só falhas) e por conta, scrypt sem conexão presa; também depois da 063.
+  "lib/autenticacao/login-origem.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // #157: rebaixar a última administradora do Perfil com id próprio (≠ empresa SaaS), painel e Configurações > Usuários.
   "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
   // R2: remover da empresa e desativar o vínculo com Perfis de id próprio (≠ empresa SaaS), duas empresas, ambiguidade.
@@ -211,6 +213,15 @@ const ESTADO_POSTGRES = {
   "lib/creditos/creditos-095.postgres.test.ts": { descartavel: "089" },
   // Aplicadores reais da 095 (staging e produção) no modelo 089 (095 ausente): conferência, privilégios, parcial, falha e anti-repetição.
   "lib/creditos/aplicador-095.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
+  // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: pacote criado em "Novo pacote" (código P_…) na lista/agenda da empresa, na cotação e no fechamento
+  // público de /b; ordem de exibição por empresa; revisão mantém o código. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-livres.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
+  // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

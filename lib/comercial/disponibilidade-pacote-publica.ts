@@ -1,7 +1,6 @@
 import type { HorarioBase } from "../../components/fechamento/types.ts";
 import type { RegraPacoteEmpresa } from "../agenda/disponibilidade.ts";
 import type { DbExecutor } from "../db/contracts.ts";
-import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 
 type Linha = {
   dia_semana: number;
@@ -46,23 +45,45 @@ export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: s
   return regrasPublicasDoPacote(r.rows);
 }
 
-/** Busca do pacote vigente da empresa por código — a mesma da cotação pública e do servidor (injetada para teste). */
-export type BuscarPacoteDaEmpresa = (empresaId: string, codigo: string, tx: DbExecutor) => Promise<{ id: string } | null>;
+/** Lista dos pacotes contratáveis da empresa — a mesma da cotação pública e do servidor (injetada para teste). */
+export type ListarPacotesDaEmpresa = (empresaId: string, tx: DbExecutor) => Promise<Array<{
+  id: string; codigo: string; nome?: string; convidadosMinimos?: number | null; convidadosMaximos?: number | null;
+}>>;
+
+export type PacotesDaAgendaDaEmpresa = {
+  /** Só os pacotes que a empresa realmente tem (vigentes e ativos), na ordem da tela de Pacotes; empresa nova = []. */
+  pacotes: Array<{ id: string; nome: string; convidadosMinimos: number | null; convidadosMaximos: number | null }>;
+  regras: Record<string, RegraPacoteEmpresa[]>;
+};
 
 /**
- * Regras de disponibilidade de TODOS os pacotes contratáveis da empresa, por id da tela (pocket, mini, …), com a mesma
- * leitura usada por `/api/fechamentos/pacotes?empresa=` — administração e cotação pública decidem com os mesmos dados.
- * Pacote que a empresa não oferece = [] (nada disponível pela regra). Só a empresa informada (comprovada pela sessão).
+ * Pacotes contratáveis da empresa e as regras de disponibilidade de cada um, pelo CÓDIGO do pacote no banco (POCKET,
+ * P_9F…), que é o id da tela fora da dona da agenda pública — inclusive os criados por "Novo pacote". Mesma leitura
+ * de `/api/fechamentos/pacotes?empresa=`: administração e cotação pública decidem com os mesmos dados.
+ * Só a empresa informada (comprovada pela sessão).
  */
+export async function pacotesDaAgendaDaEmpresa(
+  tx: DbExecutor,
+  empresaId: string,
+  listarPacotes: ListarPacotesDaEmpresa,
+): Promise<PacotesDaAgendaDaEmpresa> {
+  const pacotes: PacotesDaAgendaDaEmpresa["pacotes"] = [];
+  const regras: Record<string, RegraPacoteEmpresa[]> = {};
+  for (const pacote of await listarPacotes(empresaId, tx)) {
+    regras[pacote.codigo] = await lerRegrasDisponibilidadePacote(tx, pacote.id);
+    pacotes.push({
+      id: pacote.codigo, nome: pacote.nome?.trim() || pacote.codigo,
+      convidadosMinimos: pacote.convidadosMinimos ?? null, convidadosMaximos: pacote.convidadosMaximos ?? null,
+    });
+  }
+  return { pacotes, regras };
+}
+
+/** Regras de disponibilidade de TODOS os pacotes contratáveis da empresa, por código (ver `pacotesDaAgendaDaEmpresa`). */
 export async function regrasDosPacotesDaEmpresa(
   tx: DbExecutor,
   empresaId: string,
-  buscarPacote: BuscarPacoteDaEmpresa,
+  listarPacotes: ListarPacotesDaEmpresa,
 ): Promise<Record<string, RegraPacoteEmpresa[]>> {
-  const resultado: Record<string, RegraPacoteEmpresa[]> = {};
-  for (const { id, codigo } of PACOTES_CONTRATAVEIS_V1) {
-    const pacote = await buscarPacote(empresaId, codigo, tx);
-    resultado[id] = pacote ? await lerRegrasDisponibilidadePacote(tx, pacote.id) : [];
-  }
-  return resultado;
+  return (await pacotesDaAgendaDaEmpresa(tx, empresaId, listarPacotes)).regras;
 }

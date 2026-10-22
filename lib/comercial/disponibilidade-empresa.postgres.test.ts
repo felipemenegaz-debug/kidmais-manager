@@ -8,13 +8,14 @@ import type { HorarioBase, PacoteId } from "../../components/fechamento/types.ts
 import { lerRegrasDisponibilidadePacote, regrasDosPacotesDaEmpresa } from "./disponibilidade-pacote-publica.ts";
 import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 import { conectarDescartavel, encerrarDescartavel } from "./postgres-descartavel.ts";
-import { buscarElegibilidadePacoteAplicavel, buscarPacoteVigenteDaEmpresaPorCodigo } from "./repositories/comercial.repository.ts";
+import { buscarElegibilidadePacoteAplicavel, buscarPacoteVigenteDaEmpresaPorCodigo, listarPacotesContrataveisDaEmpresa } from "./repositories/comercial.repository.ts";
 
 /**
  * Coerência da disponibilidade do pacote no PostgreSQL DESCARTÁVEL (modelo 063): para cada data e período de uma grade de
  * 5 semanas a partir de hoje + 14 dias, a decisão do SERVIDOR (buscarElegibilidadePacoteAplicavel, usada na cotação) é igual
  * à da TELA com as regras lidas para a cotação pública (lerRegrasDisponibilidadePacote) e para a ADMINISTRAÇÃO
- * (regrasDosPacotesDaEmpresa) — em duas empresas com o MESMO código POCKET e regras diferentes, sem cruzar empresas.
+ * (regrasDosPacotesDaEmpresa, por código do pacote) — em duas empresas com o MESMO código POCKET e regras diferentes, sem
+ * cruzar empresas; A também tem um pacote criado do zero (código P_…), que entra na administração com as regras dele.
  * Kidmais (legado): a regra fixa da tela coincide com a matriz do servidor (006/017).
  */
 let client: Client;
@@ -22,7 +23,8 @@ let tx: DbExecutor;
 const sufixo = randomBytes(3).toString("hex");
 let turno: Record<HorarioBase, string>;
 let A: string; let B: string; let C: string;
-let pocketA: string; let pocketB: string; let miniB: string;
+let pocketA: string; let pocketB: string; let miniB: string; let livreA: string;
+const CODIGO_LIVRE = `P_${randomBytes(16).toString("hex").toUpperCase()}`;
 
 const isoDia = (d: Date) => d.toISOString().slice(0, 10);
 function soma(base: Date, dias: number) { const d = new Date(base); d.setUTCDate(d.getUTCDate() + dias); return d; }
@@ -96,6 +98,7 @@ test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço
   pocketA = await pacote(A, "POCKET");
   pocketB = await pacote(B, "POCKET");
   miniB = await pacote(B, "MINI_FESTA"); // sem regra nenhuma
+  livreA = await pacote(A, CODIGO_LIVRE); // "Novo pacote": só sábado à noite
   const desde = isoDia(soma(hoje, -30));
   for (const dia of [1, 2, 3, 4, 5, 6, 7]) for (const h of HORARIOS) await regra(pocketA, dia, h, "DISPONIVEL", desde);
   for (const dia of [1, 2, 3, 4, 5]) for (const h of HORARIOS) {
@@ -103,6 +106,7 @@ test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço
     await regra(pocketB, dia, h, "DISPONIVEL", desde);
   }
   await regra(pocketB, 6, "almoco", "SOB_CONSULTA", desde);
+  await regra(livreA, 6, "noite", "DISPONIVEL", desde);
   await regra(pocketB, 3, "almoco", "DISPONIVEL", desde, VIGENCIAS_QUARTA.abertaAte);
   await regra(pocketB, 3, "almoco", "INDISPONIVEL", VIGENCIAS_QUARTA.fechadaDe, VIGENCIAS_QUARTA.fechadaAte);
   await regra(pocketB, 3, "almoco", "DISPONIVEL", VIGENCIAS_QUARTA.reabertaDe);
@@ -113,30 +117,34 @@ test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço
 });
 
 test("isolamento: a administração de cada empresa lê só os pacotes dela (o mesmo código POCKET não cruza)", async () => {
-  const pedidos: Array<[string, string]> = [];
-  const espiao = async (empresaId: string, codigo: string, t: DbExecutor) => { pedidos.push([empresaId, codigo]); return buscarPacoteVigenteDaEmpresaPorCodigo(empresaId, codigo, t); };
+  const pedidos: string[] = [];
+  const espiao = async (empresaId: string, t: DbExecutor) => { pedidos.push(empresaId); return listarPacotesContrataveisDaEmpresa(empresaId, t); };
   const deA = await regrasDosPacotesDaEmpresa(tx, A, espiao);
   const deB = await regrasDosPacotesDaEmpresa(tx, B, espiao);
   const deC = await regrasDosPacotesDaEmpresa(tx, C, espiao);
-  assert.ok(pedidos.every(([e]) => e === A || e === B || e === C));
-  assert.deepEqual(Object.keys(deA).sort(), PACOTES_CONTRATAVEIS_V1.map((p) => p.id).sort());
-  assert.equal(deA.pocket.length, 14);
-  assert.equal(deB.pocket.length, 13, "9 períodos de dias úteis + 3 vigências da quarta no almoço + sábado sob consulta");
-  assert.equal(deB.pocket.filter((r) => r.dia === 3 && r.horario === "almoco").length, 3, "aberta, fechada e reaberta");
-  assert.deepEqual(deB.mini, [], "pacote sem regra");
-  assert.deepEqual(deC.pocket, [], "empresa sem POCKET");
-  assert.ok(deA.pocket.every((r) => r.estado === "DISPONIVEL"), "nada das regras de B em A");
+  assert.deepEqual(pedidos, [A, B, C]);
+  assert.deepEqual(Object.keys(deA).sort(), ["POCKET", CODIGO_LIVRE].sort(), "só os pacotes que A tem, pelo código (inclusive P_…)");
+  assert.deepEqual(Object.keys(deB).sort(), ["MINI_FESTA", "POCKET"]);
+  assert.deepEqual(deC, {}, "empresa sem pacote");
+  assert.equal(deA.POCKET.length, 14);
+  assert.deepEqual(deA[CODIGO_LIVRE].map((r) => [r.dia, r.horario, r.estado]), [[6, "noite", "DISPONIVEL"]], "regras do pacote criado do zero");
+  assert.equal(deB.POCKET.length, 13, "9 períodos de dias úteis + 3 vigências da quarta no almoço + sábado sob consulta");
+  assert.equal(deB.POCKET.filter((r) => r.dia === 3 && r.horario === "almoco").length, 3, "aberta, fechada e reaberta");
+  assert.deepEqual(deB.MINI_FESTA, [], "pacote sem regra");
+  assert.ok(deA.POCKET.every((r) => r.estado === "DISPONIVEL"), "nada das regras de B em A");
+  assert.equal(await buscarPacoteVigenteDaEmpresaPorCodigo(B, CODIGO_LIVRE, tx), null, "o código P_ de A não resolve em B");
   // Administração = cotação pública: mesma leitura, mesmo resultado.
-  assert.deepEqual(deA.pocket, await lerRegrasDisponibilidadePacote(tx, pocketA));
-  assert.deepEqual(deB.pocket, await lerRegrasDisponibilidadePacote(tx, pocketB));
+  assert.deepEqual(deA.POCKET, await lerRegrasDisponibilidadePacote(tx, pocketA));
+  assert.deepEqual(deA[CODIGO_LIVRE], await lerRegrasDisponibilidadePacote(tx, livreA));
+  assert.deepEqual(deB.POCKET, await lerRegrasDisponibilidadePacote(tx, pocketB));
 });
 
 test("coerência: tela (cotação pública e administração) = servidor, em toda a grade, nas duas empresas", async () => {
-  const deA = await regrasDosPacotesDaEmpresa(tx, A, buscarPacoteVigenteDaEmpresaPorCodigo);
-  const deB = await regrasDosPacotesDaEmpresa(tx, B, buscarPacoteVigenteDaEmpresaPorCodigo);
+  const deA = await regrasDosPacotesDaEmpresa(tx, A, listarPacotesContrataveisDaEmpresa);
+  const deB = await regrasDosPacotesDaEmpresa(tx, B, listarPacotesContrataveisDaEmpresa);
   const divergencias: string[] = [];
   for (const data of grade) for (const h of HORARIOS) {
-    for (const [nome, regras, pacoteId] of [["A", deA.pocket, pocketA], ["B", deB.pocket, pocketB], ["B-mini", deB.mini, miniB]] as const) {
+    for (const [nome, regras, pacoteId] of [["A", deA.POCKET, pocketA], ["A-livre", deA[CODIGO_LIVRE], livreA], ["B", deB.POCKET, pocketB], ["B-mini", deB.MINI_FESTA, miniB]] as const) {
       const tela = regraDaEmpresa(regras, data, h);
       const srv = await servidor(pacoteId, data, h);
       if (tela !== srv) divergencias.push(`${nome} ${data} ${h}: tela=${tela} servidor=${srv}`);
@@ -145,13 +153,15 @@ test("coerência: tela (cotação pública e administração) = servidor, em tod
   assert.deepEqual(divergencias, []);
   // O cenário exercita disponível, consulta e indisponível por falta de regra (o período fechado: teste seguinte).
   const sabado = grade.find((d) => diaIso(d) === 6)!;
-  assert.equal(regraDaEmpresa(deA.pocket, sabado, "almoco"), "disponivel");
-  assert.equal(regraDaEmpresa(deB.pocket, sabado, "almoco"), "consulta");
-  assert.equal(regraDaEmpresa(deB.pocket, sabado, "noite"), "indisponivel");
+  assert.equal(regraDaEmpresa(deA.POCKET, sabado, "almoco"), "disponivel");
+  assert.equal(regraDaEmpresa(deB.POCKET, sabado, "almoco"), "consulta");
+  assert.equal(regraDaEmpresa(deB.POCKET, sabado, "noite"), "indisponivel");
+  assert.equal(regraDaEmpresa(deA[CODIGO_LIVRE], sabado, "noite"), "disponivel");
+  assert.equal(regraDaEmpresa(deA[CODIGO_LIVRE], sabado, "almoco"), "indisponivel");
 });
 
 test("fronteiras do período fechado: administração = cotação pública = servidor no último dia aberto, primeiro e último fechado e primeiro reaberto", async () => {
-  const daAdministracao = (await regrasDosPacotesDaEmpresa(tx, B, buscarPacoteVigenteDaEmpresaPorCodigo)).pocket;
+  const daAdministracao = (await regrasDosPacotesDaEmpresa(tx, B, listarPacotesContrataveisDaEmpresa)).POCKET;
   const daCotacaoPublica = await lerRegrasDisponibilidadePacote(tx, pocketB);
   const esperado: Record<keyof typeof FRONTEIRA, StatusCalendario> = {
     ultimoAberto: "disponivel", primeiroFechado: "indisponivel", ultimoFechado: "indisponivel", primeiroReaberto: "disponivel",
@@ -161,8 +171,8 @@ test("fronteiras do período fechado: administração = cotação pública = ser
     assert.equal(diaIso(data), 3, `${nome} é quarta`);
     obtido[nome] = {
       // As mesmas chamadas da tela: AdminDisponibilidade e FechamentoWizard usam statusDataPacote com as regras da empresa.
-      administracao: statusDataPacote(CONFIG_VAZIA, "pocket", data, "almoco", daAdministracao).status,
-      cotacao: statusDataPacote(CONFIG_VAZIA, "pocket", data, "almoco", daCotacaoPublica).status,
+      administracao: statusDataPacote(CONFIG_VAZIA, "POCKET", data, "almoco", daAdministracao).status,
+      cotacao: statusDataPacote(CONFIG_VAZIA, "POCKET", data, "almoco", daCotacaoPublica).status,
       servidor: await servidor(pocketB, data, "almoco"),
     };
   }

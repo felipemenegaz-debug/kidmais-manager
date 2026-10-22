@@ -107,7 +107,8 @@ test('link com token vai no fragmento (#), nunca na query; origem é a administr
 test('IP confiável: só no Render e só o ÚLTIMO valor do X-Forwarded-For (o início pode vir do cliente)', () => {
     const ip = http.ipDaRequisicao as (r: { headers: { get(n: string): string | null } }, env: { RENDER?: string }) => string | null;
     const req = (xff: string | null) => ({ headers: { get: (n: string) => (n === 'x-forwarded-for' ? xff : null) } });
-    assert.equal(ip(req('1.2.3.4, 10.0.0.9'), { RENDER: 'true' }), '10.0.0.9');
+    assert.equal(ip(req('1.2.3.4, 177.10.20.30'), { RENDER: 'true' }), '177.10.20.30');
+    assert.equal(ip(req('177.10.20.30, 10.0.0.9'), { RENDER: 'true' }), null, 'salto interno no fim juntaria todos numa chave só');
     assert.equal(ip(req('1.2.3.4'), {}), null, 'fora do deploy não há proxy confiável');
     assert.equal(ip(req('nao-e-ip'), { RENDER: 'true' }), null);
     assert.equal(ip(req(null), { RENDER: 'true' }), null);

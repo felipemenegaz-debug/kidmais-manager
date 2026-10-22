@@ -140,7 +140,8 @@ export function precoReferenciaPacote(
       categoria === "NOBRE"
         ? PRECOS_TRADICIONAIS_NOBRE
         : PRECOS_TRADICIONAIS_PADRAO;
-    return matriz[faixa][pacoteId];
+    // `PacoteId` aceita o código de outras empresas; aqui o id já foi conferido entre os três tradicionais.
+    return matriz[faixa][pacoteId as "essencial" | "completa" | "premium"];
   }
 
   return pacote.precoInicial;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { camposComerciaisFechamento } from "@/lib/fechamentos/comercial-schema";
-import { PACOTE_CODIGO_BANCO, FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
+import { camposComerciaisFechamento, pacoteDaTelaPublicaSchema } from "@/lib/fechamentos/comercial-schema";
+import { FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
 import { CondicaoPagamentoError } from "@/lib/comercial/condicao-pagamento";
 import {
   isAvailabilityServiceError,
@@ -21,7 +21,7 @@ import {
 } from "@/lib/fechamentos/services";
 import { isIdentityServiceError } from "@/lib/identidade/services";
 import { isClienteServiceError } from "@/lib/clientes/services";
-import { pacoteIdContratavelV1 } from "@/lib/comercial/pacotes-v1";
+import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +33,7 @@ const fechamentoSchema = z.object({
   aniversarianteIdExistente: z.string().uuid().nullable().optional(),
 
   ...camposComerciaisFechamento,
+  pacote: pacoteDaTelaPublicaSchema,
   escolhasBuffet: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
 
   nomeCliente: z.string().trim().min(3),
@@ -89,15 +90,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!pacoteIdContratavelV1(dados.data.pacote)) {
-    return NextResponse.json(
-      {
-        ok: false,
-        erro: "O pacote selecionado ainda não está disponível para fechamento online.",
-        codigo: "PACOTE_FORA_ESCOPO_V1",
-      },
-      { status: 409 },
-    );
+  // Pacote antes de qualquer operação, pelo endereço (sem banco): endereço atual (dona da agenda pública) = só os sete
+  // ids V1, como antes (fora deles: 400 "Dados inválidos."); /b/<código> = id V1 ou código do pacote (POCKET, P_…).
+  let enderecoDaEmpresa: boolean;
+  try {
+    enderecoDaEmpresa = codigoEmpresaDoPedido(request.nextUrl) !== null;
+  } catch (error) {
+    // Mesmo formato da recusa do escopo abaixo (código de empresa inválido = 404 do escopo).
+    if (isAvailabilityServiceError(error)) {
+      return NextResponse.json({ ok: false, erro: error.message, codigo: error.code }, { status: error.httpStatus });
+    }
+    return apiErrorResponse(error);
+  }
+  const codigoPacote = codigoDoPacoteDaTela(dados.data.pacote, enderecoDaEmpresa);
+  if (!codigoPacote) {
+    return enderecoDaEmpresa
+      ? NextResponse.json(
+        {
+          ok: false,
+          erro: "O pacote selecionado ainda não está disponível para fechamento online.",
+          codigo: "PACOTE_FORA_ESCOPO_V1",
+        },
+        { status: 409 },
+      )
+      : NextResponse.json({ ok: false, erro: "Dados inválidos." }, { status: 400 });
   }
 
   if (
@@ -155,7 +171,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const codigoPacote = PACOTE_CODIGO_BANCO[dados.data.pacote];
   let pacote;
   try {
     pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
@@ -195,6 +210,7 @@ export async function POST(request: NextRequest) {
       horarioFim: horarioRevalidado.candidato.fim,
       configuracaoAgendaId: horarioRevalidado.periodo.configuracaoId,
       pacoteId: pacote.id,
+      empresaEsperada: escopo.empresaId,
       estabelecimentoId: escopo.estabelecimentoId,
       convidados: dados.data.convidadosPagantes,
       adicionais: adicionais.itens,

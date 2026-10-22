@@ -601,3 +601,7 @@ pós-conferência (`NAO_CLASSIFICADAS NENHUMA`).
 - **Auditoria geral** (`auditoria`): fora do pacote; pedido do titular ou da empresa segue o procedimento de direitos (item 5 do plano).
 - **Exclusão programada** (item 2 do plano): o aviso de 30 dias deve apontar para esta exportação.
 - **Textos legais:** os Termos e o Aviso podem citar o formato e a disponibilidade na suspensão depois da publicação.
+
+## Atualização local de capacidade — 22/10/2026
+
+A pendência acima de carregar cada PDF inteiro foi tratada localmente com blocos de 1 MiB. Ensaio com Next em produção e 5/10/20/40 sessões: sem erros, pico máximo 377 MiB. Não houve limite rígido de 512 MiB nem reprodução da CPU do Render; logins e duas exportações concorrentes continuam pendentes. Detalhes, metodologia e validações em [Exportação e capacidade](EXPORTACAO_CAPACIDADE_20261022.md). Delta ainda não publicado; revisão independente APROVADO com ressalvas P3, fechadas localmente em 22/10 e aguardando conferência.

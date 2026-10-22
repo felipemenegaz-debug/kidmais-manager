@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { isIP } from 'node:net';
 import { NextResponse, type NextRequest } from 'next/server';
 import { ZodError } from 'zod';
 import { isClienteServiceError } from '../clientes/services/errors.ts';
 import { isAcessoServiceError, tabelaAusente } from './erros.ts';
+import { origemConfiavel } from '../http/origem-cliente.ts';
 
 /**
  * HTTP comum dos fluxos de acesso (painel do desenvolvedor, perfil, convite e recuperação).
@@ -15,15 +15,11 @@ export function responder(data: unknown, status = 200) {
 
 /**
  * IP do cliente para limites e auditoria. Em deploy reconhecido (Render), o proxy ACRESCENTA o IP real ao fim do
- * X-Forwarded-For; o começo da lista pode vir do próprio cliente, então só o último valor é confiável.
- * Fora do deploy (local) não há proxy confiável: null.
+ * X-Forwarded-For; o começo da lista pode vir do próprio cliente, então só o último valor é confiável — e só quando
+ * é um endereço público (lib/http/origem-cliente.ts). Fora do deploy (local) não há proxy confiável: null.
  */
 export function ipDaRequisicao(request: { headers: { get(nome: string): string | null } }, env: { RENDER?: string } = { RENDER: process.env.RENDER }) {
-    if (env.RENDER !== 'true')
-        return null;
-    const valores = (request.headers.get('x-forwarded-for') ?? '').split(',').map((v) => v.trim()).filter(Boolean);
-    const ultimo = valores.at(-1) ?? '';
-    return isIP(ultimo) ? ultimo : null;
+    return origemConfiavel(request, env);
 }
 
 export function contextoDaRequisicao(request: NextRequest) {

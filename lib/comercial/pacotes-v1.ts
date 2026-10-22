@@ -33,3 +33,18 @@ export function pacoteIdContratavelV1(id: string) {
 export function pacoteCodigoContratavelV1(codigo: string) {
   return codigos.has(codigo.trim().toUpperCase());
 }
+
+/** Formato do código técnico do pacote (o mesmo da API de Pacotes): POCKET, P_9F…; nunca coincide com um id V1 (minúsculo). */
+export const CODIGO_PACOTE_LIVRE = /^[A-Z][A-Z0-9_]{1,49}$/;
+
+/**
+ * Id do pacote vindo da tela → código no banco.
+ * - Endereço atual da Kidmais (`porCodigo` falso, dona da agenda pública): só os sete ids V1, como antes.
+ * - Endereço da empresa (/b/<código>) e agenda das demais empresas: id V1 (compatibilidade) ou o próprio código do
+ *   pacote da empresa (P_…, POCKET importado). Formato só; a existência na empresa é provada pela busca por código.
+ */
+export function codigoDoPacoteDaTela(id: string, porCodigo: boolean): string | null {
+  const v1 = PACOTES_CONTRATAVEIS_V1.find((pacote) => pacote.id === id);
+  if (v1) return v1.codigo;
+  return porCodigo && CODIGO_PACOTE_LIVRE.test(id) ? id : null;
+}
