@@ -101,6 +101,8 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // Login: limite por origem (IP confiável, só falhas) e por conta, scrypt sem conexão presa; também depois da 063.
+  "lib/autenticacao/login-origem.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // #157: rebaixar a última administradora do Perfil com id próprio (≠ empresa SaaS), painel e Configurações > Usuários.
   "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
   // R2: remover da empresa e desativar o vínculo com Perfis de id próprio (≠ empresa SaaS), duas empresas, ambiguidade.

@@ -28,11 +28,11 @@ services:
       - key: DATABASE_SSL_REJECT_UNAUTHORIZED
         value: "false"
       - key: DATABASE_POOL_MAX
-        value: "10"
+        value: "30"
       - key: DATABASE_IDLE_TIMEOUT_MS
         value: "30000"
       - key: DATABASE_CONNECTION_TIMEOUT_MS
-        value: "5000"
+        value: "10000"
       - key: CONTRATO_ACEITE_DEV_ENABLED
         value: "false"
       - key: KIDMAIS_DEPLOY_ENV
