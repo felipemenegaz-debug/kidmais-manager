@@ -612,3 +612,38 @@ Fonte: `parecer-juridico-cpf-fundador-20261022/PARECER.md` (§6 e §8; análise 
 - Playwright: `cpf-fundador-ui` 7/7 com os textos novos; `cadastro-publico-ui` 8/8.
 - `check:v1:static`: PASS (3296 + 103, com lint, tsc e build).
 - Não executado: Asaas sandbox, staging/produção, revisão do Astra desta rodada.
+
+### Nona rodada: revisão do delta `f30e145..2ffe713` (D5)
+
+A revisão do Astra **REPROVOU** o delta, com três P2 reproduzidos e um P3 (relatório em `revisao-cpf-fundador-2ffe713-20261022/RELATORIO.md`). Os textos D3 foram considerados aderentes. Correções em `a0bb389`:
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-1: continuidade registrada durante o checkout; cliente vinculado com o CPF antigo | O registro e a conclusão disputam a trava de contratação (`kidmais:contratacao`) sem esperar; com contratação ou renovação em curso, recusam com `CONTRATACAO_EM_ANDAMENTO`. A continuidade **sempre** nasce `PENDENTE_PROVEDOR`, porque vínculo local vazio não prova que não há cliente remoto. O vínculo do checkout revalida o documento vigente. Um cliente achado por referência só é reaproveitado se o `cpfCnpj` dele for o vigente; senão, `DOCUMENTO_DIVERGENTE` e nada é vinculado. | 091 caso 9: trava real em outra conexão, cliente órfão com CPF antigo |
+| P2-2: documento intermediário da cadeia ficava livre para novo teste e outra reserva | `documentoVinculado` cobre ficha, teste, beneficiário Fundador e **toda a cadeia** de continuidades (anterior e novo). É usado no cadastro público, no painel (provisionar e editar), no piloto e na própria continuidade. | 091 caso 9: CNPJ intermediário recusado no cadastro público, sem reserva nova |
+| P2-3: data efetiva futura mudava a identidade na hora | Data efetiva futura é recusada no servidor e no gatilho do banco (calendário de Brasília). A tela informa a aplicação imediata e limita a data a hoje. Não há agendamento. | 091 caso 9 |
+| P3-1: rollback parcial não recusava todos os objetos novos | O rollback confere os três gatilhos e os três índices da continuidade antes de qualquer DROP. | 091 caso 7b: gatilho e índice ausentes |
+
+Mutações conferidas (cada uma reverte uma correção, e o caso 9 falha): trava, cadeia, cliente órfão e data futura.
+
+**Roteiro do atendimento, revisto.** Sem jurídico próprio: a redação do instrumento é decisão de Felipe, com risco assumido. À agência contábil vão só as perguntas fiscais curtas.
+1. Conferir o vínculo (certidão do CNPJ, documento do titular; na cessão, a representação) e escolher o tipo.
+2. Inventariar a situação no Asaas antes do registro: links de pagamento abertos, cobranças emitidas, assinatura e próxima renovação. Um pagamento legítimo durante a pendência continua sendo confirmado (D1); a pendência não congela pagamentos.
+3. Registrar no painel **na data efetiva**. A contratação e as ofertas novas ficam bloqueadas.
+4. No Asaas: atualizar o cliente pelo procedimento validado no sandbox (ainda não executado). Se não houver cliente, conferir por referência. Registrar a conferência no painel com o que foi visto.
+5. Se o provedor exigir cliente ou assinatura novos, **parar**: o fluxo atual não remapeia IDs.
+6. Informar a contratante: preço, benefício e data final preservados, sem novo período.
+- Evitar CPF completo nos campos livres (instrumento, evidências, nota), que não são mascarados.
+
+**Validação:**
+- Unitários 426/426.
+- Scripts 63/63 e blocos 20/20.
+- PG descartável 55607:
+  - 091: 10/10;
+  - aplicadores: 1/1;
+  - vizinhos: 72/72.
+  - Cluster removido.
+- Playwright 7/7 e 8/8.
+- `check:v1:static`: PASS (3297 + 103).
+
+**Incidente local:** a primeira execução das mutações restaurou arquivos com `git checkout` e desfez correções ainda não commitadas. Elas foram reaplicadas e conferidas (dois trechos duplicados pela reaplicação foram removidos e o hash refeito) antes do commit. As mutações foram repetidas com tudo commitado.
