@@ -580,7 +580,9 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     if (motor === 'CREDITOS') exigir(flagsCreditos().consumoConvites, MENSAGEM_CREDITOS_MANUTENCAO, 503);
     else {
       await tx.query('SELECT empresa_id FROM convite_carteiras WHERE empresa_id=$1 FOR UPDATE', [c.empresa_id]);
-      // O corte (lib/creditos/corte.ts) trava esta mesma linha: se ele terminou enquanto esperávamos, não usamos o legado.
+      // Defesa em profundidade: a trava da empresa (início desta transação; o corte a pega antes de convite_carteiras)
+      // já serializa geração e corte nas duas ordens (provado no PG). Se um caminho futuro pular essa trava, isto impede
+      // debitar o legado depois de um corte.
       exigir(await motorConvites(tx, c.empresa_id) === 'LEGADO', 'Os créditos desta empresa acabaram de ser atualizados. Tente gerar novamente.', 409);
     }
     const limites = await cotas(tx, c);

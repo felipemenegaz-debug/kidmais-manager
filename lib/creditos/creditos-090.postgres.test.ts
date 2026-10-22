@@ -551,11 +551,18 @@ test("090: expiração, manutenção (franquia só para cortadas), cortesia com 
   const c = await conectarDescartavel();
   try {
     const tx = c as unknown as DbExecutor;
-    // Lote que vence em 300 ms (preparação; a prova é o estado, não o tempo): expira uma única vez, sem negativo.
+    // Lote que vence em 1 h (o primeiro na ordem de consumo de A); depois da reserva, a preparação o faz vencer no banco
+    // descartável (gatilhos desligados só nessa transação). Sem depender de tempo: a prova é o estado.
     await emTx(c)(async (t2) => { await lerCarteira(t2, S.A, "CONVITES", true); await creditarLote(t2, { empresaId: S.A, recurso: "CONVITES", origem: "CORTESIA", chaveOrigem: "CORTESIA:expira-teste",
-      quantidade: 4, venceEm: Date.now() + 300, ator: "PLATAFORMA" }); });
+      quantidade: 4, venceEm: Date.now() + 3_600_000, ator: "PLATAFORMA" }); });
     await emTx(c)((t2) => reservar(t2, { empresaId: S.A, recurso: "CONVITES", operacaoId: "a-expira", quantidade: 1, ator: "EQUIPE" }));
-    await new Promise((f) => setTimeout(f, 400));
+    assert.equal((await c.query("SELECT reservado FROM ia_credito_lotes WHERE empresa_id = $1::uuid AND chave_origem = 'CORTESIA:expira-teste'", [S.A])).rows[0].reservado, "1",
+      "a reserva saiu do lote que vai vencer");
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    await c.query(`UPDATE ia_credito_lotes SET liberado_em = clock_timestamp() - interval '1 day', vence_em = clock_timestamp() - interval '1 second'
+      WHERE empresa_id = $1::uuid AND chave_origem = 'CORTESIA:expira-teste'`, [S.A]);
+    await c.query("COMMIT");
     const exp = await emTx(c)((t2) => expirarVencidos(t2, S.A, "CONVITES"));
     assert.equal(exp, 3, "o disponível do lote vencido expira (a parte reservada fica)");
     assert.equal(await emTx(c)((t2) => expirarVencidos(t2, S.A, "CONVITES")), 0, "expiração idempotente");
@@ -723,6 +730,116 @@ test("090: Convites pelo serviço real com IA dublê — legado intacto, motor n
     globalThis.fetch = fetchOriginal;
     for (const k of Object.keys(process.env)) if (!(k in salvo)) delete process.env[k];
     Object.assign(process.env, salvo);
+    await encerrarDescartavel(c);
+  }
+});
+
+test("090: corte concorrente com geração (duas conexões): a geração espera o corte na trava da empresa e usa só o motor novo; o legado não debita", { timeout: 180_000 }, async (t) => {
+  if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  const c2 = await conectarDescartavel({ travar: false });
+  const obs = await conectarDescartavel({ travar: false });
+  const salvo = { ...process.env };
+  const fetchOriginal = globalThis.fetch;
+  const chamadas: string[] = [];
+  try {
+    globalThis.fetch = (async (u: string | URL | Request) => {
+      const url = typeof u === "string" ? u : u instanceof URL ? u.href : u.url;
+      if (!url.startsWith("https://api.openai.com/")) throw new Error(`rede bloqueada no teste: ${url}`);
+      chamadas.push(url);
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      return new Response(JSON.stringify({ data: [{ b64_json: png }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    Object.assign(process.env, { CONVITES_ENABLED: "true", CONVITES_IA_ENABLED: "true", CONVITES_IA_PROVIDER: "openai", OPENAI_API_KEY: "sk-sintetica-de-teste",
+      CONVITES_IA_TETO_DIARIO_MICROUSD: "10000000", CREDITOS_CONVITES_CONSUMO_ATIVO: "true" });
+    // Empresa E no motor legado (limite 3, nada usado), com festa, convite do cliente e autorização 088 vigente.
+    await c.query("BEGIN");
+    const E = await empresa(c, "Créditos E (corte concorrente)"), uE = await gestao(c, E);
+    await assinaturaPaga(c, E, "cus_E");
+    await legado(c, E, 3, 0);
+    await c.query("COMMIT");
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    const conviteE = await festa(c, E, uE);
+    await c.query("COMMIT");
+    const svc2 = carregarModulo("lib/convites/service.ts", { "db/postgres": { db: () => c2, withTransaction: emTx(c2) } }, new Map()) as {
+      comandar: (a: unknown, raw: unknown) => Promise<Record<string, unknown>> };
+    await svc2.comandar({ tipo: "cliente", token: conviteE.token }, { acao: "autorizar_ia", versao: VERSAO_TEXTOS_IA, provedor: "openai",
+      textoHash: hashTextoIA("openai", "CLIENTE"), responsavelNome: "Responsável Sintético", vinculo: "MAE", declaracao: true });
+    const consumoAntes = (await c.query("SELECT coalesce(sum(usado), 0)::int AS n FROM convite_consumos WHERE empresa_id = $1::uuid", [E])).rows[0].n;
+    // c: corte aberto (FOR SHARE na empresa E, depois convite_carteiras). c2: geração pelo serviço real, que começa travando a
+    // empresa FOR UPDATE: espera o corte inteiro e, depois do COMMIT, vê a carteira nova (um motor por empresa).
+    const pCorte = await pidDe(c), pGera = await pidDe(c2);
+    await c.query("BEGIN");
+    const corteE = await aplicarCorte(c as unknown as DbExecutor, E, "TESTE corte concorrente 22/10");
+    assert.equal(corteE.quantidadeLegado, 3);
+    const geracao = svc2.comandar({ tipo: "cliente", token: conviteE.token }, { acao: "gerar", chave: randomUUID(), prompt: "Tema jardim com borboletas", referencias: [] })
+      .then((x) => x, (e: { status?: number; message?: string }) => e);
+    assert.equal(await esperarBloqueio(obs, pGera, pCorte), true, "a geração espera o corte (trava da empresa)");
+    const espera = (await obs.query<{ q: string }>("SELECT query AS q FROM pg_stat_activity WHERE pid = $1", [pGera])).rows[0].q;
+    assert.match(espera, /FROM empresas WHERE id=\$1 AND status='ATIVA' FOR UPDATE/, "espera na trava da empresa, antes de escolher o motor");
+    assert.equal(chamadas.length, 0, "nada é enviado enquanto o corte está aberto");
+    await c.query("COMMIT");
+    const r = await geracao as { estado?: string };
+    assert.equal(r.estado, "CONCLUIDA", `geração concluída pelo motor novo (obtido: ${JSON.stringify(r)})`);
+    // Um motor só: o legado não debitou; a carteira nova consumiu 1 do lote LEGADO criado pelo corte.
+    assert.equal((await c.query("SELECT coalesce(sum(usado), 0)::int AS n FROM convite_consumos WHERE empresa_id = $1::uuid", [E])).rows[0].n, consumoAntes, "legado intacto");
+    assert.equal((await c.query("SELECT count(*)::int AS n FROM ia_credito_reservas WHERE empresa_id = $1::uuid AND estado = 'CONSUMIDA'", [E])).rows[0].n, 1);
+    assert.equal(chamadas.length, 1, "uma chamada ao provedor (dublê)");
+    const w = (await lerCarteira(c as unknown as DbExecutor, E, "CONVITES"))!;
+    assert.deepEqual([w.saldo, w.reservado], [2, 0], "3 do lote LEGADO menos a geração concluída");
+    assert.deepEqual(await conferirCarteira(c as unknown as DbExecutor, E, "CONVITES"), []);
+    assert.equal(await fotografia(c, S.B), S.fotoB, "B intacta");
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    for (const k of Object.keys(process.env)) if (!(k in salvo)) delete process.env[k];
+    Object.assign(process.env, salvo);
+    await c.query("ROLLBACK").catch(() => {});
+    await encerrarDescartavel(obs, false);
+    await encerrarDescartavel(c2, false);
+    await encerrarDescartavel(c);
+  }
+});
+
+test("090: geração já em curso e corte (duas conexões): o corte espera na trava da empresa, sem deadlock, e vê o consumo legado", { timeout: 120_000 }, async (t) => {
+  if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  const gen = await conectarDescartavel({ travar: false });
+  const obs = await conectarDescartavel({ travar: false });
+  try {
+    await c.query("BEGIN");
+    const F = await empresa(c, "Créditos F (geração antes do corte)");
+    await legado(c, F, 4, 0);
+    await c.query("COMMIT");
+    // `gen` reproduz a ordem de travas da geração legada (lib/convites/service.ts): empresa FOR UPDATE no início,
+    // convite_carteiras FOR UPDATE depois, e o débito mensal.
+    const pGen = await pidDe(gen), pCorte = await pidDe(c);
+    await gen.query("BEGIN");
+    await gen.query("SELECT id FROM empresas WHERE id = $1::uuid AND status = 'ATIVA' FOR UPDATE", [F]);
+    await c.query("BEGIN");
+    await c.query("SET LOCAL lock_timeout = '20s'");
+    const corte = aplicarCorte(c as unknown as DbExecutor, F, "TESTE geracao antes do corte 22/10").then((x) => x, (e) => e);
+    const bloqueou = await esperarBloqueio(obs, pCorte, pGen);
+    const situacaoCorte = await Promise.race([corte.then((x) => (x instanceof Error ? `ERRO ${(x as { code?: string }).code} ${x.message}` : `CONCLUIU ${JSON.stringify(x)}`)),
+      new Promise((f) => setTimeout(() => f("PENDENTE"), 50))]);
+    assert.equal(bloqueou, true, `o corte espera a geração na trava da empresa (corte: ${situacaoCorte})`);
+    // A geração continua sem esperar o corte (ele ainda não pegou convite_carteiras): nenhum ciclo de espera.
+    await gen.query("SET LOCAL lock_timeout = '5s'");
+    await gen.query("SELECT empresa_id FROM convite_carteiras WHERE empresa_id = $1::uuid FOR UPDATE", [F]);
+    await gen.query(`INSERT INTO convite_consumos (empresa_id, mes, usado) VALUES ($1::uuid, date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo')::date, 1)
+      ON CONFLICT (empresa_id, mes) DO UPDATE SET usado = convite_consumos.usado + 1`, [F]);
+    await gen.query("COMMIT");
+    const r = await corte;
+    assert.ok(!(r instanceof Error), `corte concluído sem deadlock (obtido: ${r instanceof Error ? (r as { code?: string }).code + " " + r.message : "ok"})`);
+    await c.query("COMMIT");
+    assert.equal((r as { quantidadeLegado: number }).quantidadeLegado, 3, "a fotografia do corte inclui o consumo legado que terminou antes");
+    assert.equal((await lerCarteira(c as unknown as DbExecutor, F, "CONVITES"))!.saldo, 3);
+    assert.equal(await fotografia(c, S.B), S.fotoB, "B intacta");
+  } finally {
+    await gen.query("ROLLBACK").catch(() => {});
+    await c.query("ROLLBACK").catch(() => {});
+    await encerrarDescartavel(obs, false);
+    await encerrarDescartavel(gen, false);
     await encerrarDescartavel(c);
   }
 });

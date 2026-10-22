@@ -43,6 +43,10 @@ export async function simularCorte(tx: DbExecutor, empresaId: string): Promise<S
 export async function aplicarCorte(tx: DbExecutor, empresaId: string, referenciaAutorizacao: string) {
     await exigirInstalados(tx);
     if (!/^[A-Za-z0-9:._/ -]{6,120}$/.test(referenciaAutorizacao)) throw new Error('REFERENCIA_AUTORIZACAO_INVALIDA');
+    // Trava da empresa PRIMEIRO (mesma ordem da geração: empresa → convite → convite_carteiras). A geração do cliente e a do
+    // buffet (provarTenant) travam a empresa FOR UPDATE no início: com o corte segurando FOR SHARE, uma espera a outra inteira
+    // e a geração seguinte já vê o motor certo. Sem esta trava, o corte seguraria convite_carteiras e só depois pediria
+    // KEY SHARE na empresa (FK da carteira nova) — ordem inversa e deadlock com uma geração legada em curso.
     if (!(await tx.query('SELECT 1 FROM empresas WHERE id = $1::uuid FOR SHARE', [empresaId])).rows.length) throw new Error('EMPRESA_NAO_ENCONTRADA');
     const f = await fotografia(tx, empresaId, true);
     const existente = (await tx.query<{ id: string; quantidade_legado: string }>("SELECT id, quantidade_legado FROM ia_credito_cortes WHERE empresa_id = $1::uuid AND recurso = 'CONVITES'",
