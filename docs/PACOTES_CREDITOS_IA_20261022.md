@@ -132,8 +132,8 @@ Ordem: código com flags off → `--conferir-095` → backup/PITR → `--aplicar
 Aplicadores `scripts/migration-095-{comum,staging,production}.cjs` e blocos `scripts/bloco-shell-095.cjs` derivados dos da
 089 (gerador `creditos-gerar-aplicador-095.cjs` no workspace, mesmas trocas conferidas e hashes calculados dos SQL LF).
 
-Hashes (LF, depois do P3-1 de 22/10; os mesmos fixados nos aplicadores): migration `5852fb3e…6daac02`, precheck
-`470f3b13…9a6438`, postcheck `ee57bb51…4173faa`, rollback `da0c65da…160507`.
+Hashes (LF, depois das correções do parecer R4 de 22/10; os mesmos fixados nos aplicadores): migration `d9f0f68b…f0e833`,
+precheck `470f3b13…9a6438`, postcheck `8b33991e…296f9c`, rollback `da0c65da…160507`.
 
 **Rollback:** preferir desligar as flags e manter o processamento de pagamentos/devoluções. O SQL de rollback recusa com
 qualquer registro (obrigações financeiras) e nunca devolve empresa cortada ao legado.
@@ -286,6 +286,30 @@ parecer e do delta 2:
 Validação da rodada: unitários 15/15; **suíte PostgreSQL completa 117/117 arquivos** (inclui as de pacotes vindas do
 staging); `check:v1:static` EXIT 0; aplicadores/blocos 21/21 com os hashes novos; PTY real 9 sessões, 0 falhas; Playwright
 9/9; mutações T1–T7 **7/7** pela falha esperada (`creditos-mutacoes-r9.txt`).
+
+**Rodada 7 (22/10): parecer R4 do Astra (REPROVADO, 4 P2 + 2 P3).** `revisao-creditos-ia-20261022/PARECER-DELTA-095-R4.md`.
+
+- **R4-P2-1 (reconciliação presa nos mesmos 200):** `selecionarParaReconciliar` com duas filas — pendências primeiro (mais
+  antigas) e creditados dos últimos 90 dias por um cursor durável, `ia_credito_cobrancas.conferida_em` (coluna nova,
+  gravada a cada leitura do provedor, excluída da exportação como controle interno), com cota mínima de 1/4 do limite;
+  filtro por ambiente; `truncado` vira item `RECONCILIACAO_TRUNCADA`/`TRUNCADO` nos relatórios.
+- **R4-P2-2 (conta inválida derrubava assinaturas):** webhook, reconciliador, manutenção e rota do desenvolvedor validam a
+  conta antes e, se inválida, desligam só os créditos (eventos de créditos ficam FALHOU `CREDITOS_SEM_PROVEDOR`; item
+  `CONFIG_CONTA_INVALIDA`); o ciclo das assinaturas segue.
+- **R4-P2-3 (disputa com tudo reservado):** retenção e perda decididas pelo **estado** (cobrança canônica com disputa
+  ABERTA/estorno externo parcial → retém; devolução registrada, disputa PERDIDA ou estorno total externo → cancela), não
+  pela quantidade já bloqueada/cancelada.
+- **R4-P2-4 (página aberta, API bloqueada):** exceções do paywall por método e caminho exatos — GET `/api/admin/creditos`,
+  GET `/api/admin/creditos/pedido` e POST `/api/admin/creditos/devolucao`; compra continua recusada.
+- **R4-P3-1:** o postcheck confere nome, tabela de origem, de destino e o par ordenado de colunas de cada FK nova.
+- **R4-P3-2:** Wall-e liberado sem carteira aparece com saldo zero e pacotes (primeira compra possível).
+
+Validação da rodada: unitários 27 (créditos, paywall, contratação) e 24 (reconciliador); PG dos créditos 13/13; suíte PG
+completa 116/117 na rodada concorrente com o build — `login-origem` (#208) teve 40 timeouts de conexão no teste de 50
+logins simultâneos com scrypt enquanto a regressão estática rodava em paralelo; sozinha passou nos dois estados
+(`creditos-pg-r24-login.log`); `check:v1:static` EXIT 0; aplicadores/blocos 21/21; PTY 9/0; Playwright 9/9 na 2ª tentativa
+(a 1ª abortou a navegação durante a compilação do servidor de desenvolvimento, sem erro no log); mutações U1–U8 **8/8**
+pela falha esperada (`creditos-mutacoes-r10.txt`). Não coberto por teste: R4-P3-2 (Wall-e sem carteira) só por código.
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
