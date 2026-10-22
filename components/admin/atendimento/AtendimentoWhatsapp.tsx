@@ -1,7 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CreditosIA } from '@/components/admin/AssinaturaCreditos';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { ConfiguracaoAtendimento } from '@/lib/whatsapp/atendimento/core';
 import type { ConversaLista, EstadoCanal, MensagemLista } from '@/lib/whatsapp/atendimento/service';
@@ -158,7 +157,6 @@ export default function AtendimentoWhatsapp() {
   return <main className={styles.pagina}>
     <header className={styles.topo}><div><h1>Atendimento</h1><p>Conversas do WhatsApp com o Wall-e e a equipe.</p></div><div className={styles.acoes}><Link href="/admin/atendimento/biblioteca">Biblioteca</Link>{dados?.podeConfigurar && <Link href="/admin/atendimento/configuracao">Configurações</Link>}{dados?.podeConfigurar && <Link href="/admin/atendimento/privacidade">Privacidade</Link>}<button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
     {bloqueio && <section className={styles.bloqueio} role="alert" aria-labelledby="bloqueio-atendimento" data-bloqueio={bloqueio.tipo}><h2 id="bloqueio-atendimento">{bloqueio.titulo}</h2><p>{bloqueio.orientacao}</p></section>}
-    <CreditosIA recurso="WALLE" />
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {statusAcao && <p role="status" className={styles.aviso}>{statusAcao}</p>}
     {!dados && !erro && !bloqueio && <p aria-live="polite">Carregando atendimento…</p>}

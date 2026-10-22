@@ -152,8 +152,8 @@ async function principal() {
             const s = await sessao();
             const r = await contexto.request.post(`${base}/api/admin/autenticacao`, { headers: { origin: base, 'x-csrf-token': s.data.csrf }, data: { acao: 'selecionar-empresa', empresaId: empresas.C.id } });
             assert.equal(r.status(), 200, 'selecionar C');
-            await page.goto(`${base}/admin/assinatura`);
-            await page.locator('[data-creditos]').waitFor();
+            await page.goto(`${base}/admin/configuracoes/creditos`);
+            await page.locator('[data-creditos="CONVITES"]').waitFor();
             const api = async (metodo, url, data) => {
                 const s2 = await sessao();
                 return contexto.request.fetch(`${base}${url}`, { method: metodo, headers: { origin: base, 'x-csrf-token': s2.data.csrf }, ...(data ? { data } : {}) });
@@ -161,7 +161,7 @@ async function principal() {
             return { contexto, page, api };
         };
         const { page, api } = await entrar(emailGestao);
-        const secao = page.locator('[data-creditos]');
+        const secao = page.locator('[data-creditos="CONVITES"]');
         const semRolagem = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
         const disponivel = async () => (await secao.locator('[data-saldo="CONVITES"] [data-disponivel]').textContent()).trim();
 
@@ -271,11 +271,15 @@ async function principal() {
         assert.equal(alterado.status(), 409);
         assert.equal((await api('GET', '/api/admin/creditos/pedido?protocolo=KM-20261022-BBBBBBBB')).status(), 404, 'pedido de outra empresa');
         const eq = await entrar(emailEquipe);
-        const secaoEq = eq.page.locator('[data-creditos]');
+        const secaoEq = eq.page.locator('[data-creditos="CONVITES"]');
         await secaoEq.getByText('Somente a Gestão compra créditos', { exact: false }).waitFor();
         assert.equal(await secaoEq.locator('[data-catalogo], [data-pedidos-creditos], [data-extrato]').count(), 0);
         const compraEq = await eq.api('POST', '/api/admin/creditos', { oferta: 'CONVITES_10', forma: 'PIX', chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: 'creditos-ia-20261022.demo' });
         assert.equal(compraEq.status(), 403);
+        await eq.page.goto(`${base}/admin/configuracoes`);
+        await eq.page.getByRole('heading', { name: 'Configurações' }).waitFor();
+        await espera(1000);
+        assert.equal(await eq.page.getByRole('link', { name: 'Abrir créditos de ia' }).count(), 0, 'Equipe sem o cartão de créditos em Configurações');
         await eq.contexto.close();
         resultados.push('6: preço alterado 409; pedido de outra empresa 404; Equipe vê só o saldo e recebe 403 ao comprar');
 
@@ -288,36 +292,35 @@ async function principal() {
         await page.screenshot({ path: path.join(relatorios, '7-celular.png'), fullPage: true });
         resultados.push('7: celular 390 px sem rolagem horizontal, resumo da compra visível');
 
-        // 9. Créditos em cada página: convite da festa mostra só os créditos de convite (saldo, pacotes, pedidos); Atendimento
-        // não mostra nada do WhatsApp.AI enquanto o Wall-e estiver desligado.
+        // 9. Onde ficam os créditos: cartão "Créditos de IA" em Configurações abre a página própria (convite; WhatsApp.AI oculto
+        // com o Wall-e desligado); Assinatura só com o link; convite da festa e Atendimento sem cartão de créditos.
         await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.goto(`${base}/admin/configuracoes`);
+        await page.getByRole('link', { name: 'Abrir créditos de ia' }).waitFor();
+        await page.screenshot({ path: path.join(relatorios, '9-configuracoes.png'), fullPage: true });
+        await page.getByRole('link', { name: 'Abrir créditos de ia' }).click();
+        await page.waitForURL((url) => url.pathname === '/admin/configuracoes/creditos');
+        await secao.locator(`[data-pedido="${protocolo}"]`).waitFor();
+        assert.equal(await page.locator('[data-creditos="WALLE"]').count(), 0, 'WhatsApp.AI oculto com o Wall-e desligado');
+        await page.screenshot({ path: path.join(relatorios, '9b-creditos.png'), fullPage: true });
+        await page.goto(`${base}/admin/assinatura`);
+        await page.locator('[data-creditos-link]').waitFor();
+        assert.equal(await page.locator('[data-creditos]').count(), 0, 'Assinatura sem os blocos de créditos');
+        await page.screenshot({ path: path.join(relatorios, '9c-assinatura.png'), fullPage: true });
         await page.goto(`${base}/admin/festas/${festaId}/convite`);
-        const noConvite = page.locator('[data-creditos="CONVITES"]');
-        await noConvite.locator('[data-disponivel]').waitFor();
-        await noConvite.getByRole('heading', { name: 'Créditos de convite' }).waitFor();
         await page.getByText('Preparando seu convite', { exact: false }).waitFor({ state: 'detached' });
-        assert.equal(await noConvite.locator('[data-oferta]').count(), 0, 'pacotes fechados até "Comprar mais créditos"');
-        await page.screenshot({ path: path.join(relatorios, '9-convite.png'), fullPage: true });
-        await noConvite.locator('[data-abrir-catalogo]').click();
-        assert.ok(await noConvite.locator('[data-oferta]').count() > 0, 'pacotes de convite na página do convite');
-        assert.equal(await noConvite.locator('[data-saldo="WALLE"]').count(), 0);
-        assert.equal(await noConvite.locator('[data-extrato]').count(), 0, 'extrato só na Assinatura');
-        assert.equal(await noConvite.locator(`[data-pedido="${protocolo}"]`).count(), 0, 'pedido concluído só na Assinatura');
-        assert.ok(await noConvite.locator('[data-pedido][data-estado="AGUARDANDO_PAGAMENTO"]').count() > 0, 'pagamento em andamento visível');
-        assert.equal(await noConvite.locator('[data-pedir-devolucao]').count(), 0, 'devolução só na Assinatura');
-        await page.screenshot({ path: path.join(relatorios, '9b-convite-comprar.png'), fullPage: true });
+        assert.equal(await page.locator('[data-creditos]').count(), 0, 'convite da festa sem cartão de créditos');
         await page.goto(`${base}/admin/atendimento`);
         await page.getByRole('heading', { name: 'Atendimento' }).waitFor();
         await espera(1500);
-        assert.equal(await page.locator('[data-creditos]').count(), 0, 'WhatsApp.AI sem créditos com o Wall-e desligado');
-        await page.screenshot({ path: path.join(relatorios, '10-atendimento.png'), fullPage: true });
-        resultados.push('9: convite da festa com o cartão compacto de convite (saldo, "Comprar mais créditos", pagamentos em andamento; concluídos/devolução/extrato só na Assinatura); Atendimento sem créditos com o Wall-e desligado');
+        assert.equal(await page.locator('[data-creditos]').count(), 0, 'Atendimento sem cartão de créditos');
+        resultados.push('9: Configurações > Créditos de IA abre a página própria (convite; WhatsApp.AI oculto com o Wall-e desligado); Assinatura só com o link; convite e Atendimento sem cartão; Equipe sem o cartão em Configurações');
 
         // 8. Flags desligadas: sem catálogo, compra 503; saldo e histórico continuam.
         await pararServidor();
         await subirServidor({ CREDITOS_CATALOGO_ATIVO: undefined, CREDITOS_COMPRA_ATIVA: undefined, CREDITOS_CONVITES_CONSUMO_ATIVO: undefined });
         await page.setViewportSize({ width: 1440, height: 1000 });
-        await page.goto(`${base}/admin/assinatura`);
+        await page.goto(`${base}/admin/configuracoes/creditos`);
         await secao.locator(`[data-pedido="${protocolo}"]`).waitFor();
         assert.equal(await secao.locator('[data-catalogo]').count(), 0);
         await secao.getByText('A geração com créditos está em manutenção', { exact: false }).waitFor();

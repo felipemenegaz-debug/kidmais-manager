@@ -6,13 +6,12 @@ import { reais } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 
 /**
- * Créditos de IA na tela Assinatura (095). Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
+ * Créditos de IA (095), página própria em Configurações (/admin/configuracoes/creditos): um bloco por recurso — convite e
+ * WhatsApp.AI —, cada um com saldo, pacotes, pedidos, devolução e extrato próprios; o do WhatsApp.AI só aparece com o
+ * Wall-e liberado para a empresa. Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
  * Gestão. O navegador nunca define preço, quantidade, validade ou empresa: só escolhe a oferta e confirma o que viu
  * (preço e versão dos termos), e o servidor recusa se mudou. Cartão é pago na página hospedada do Asaas.
  * Créditos só aparecem depois da confirmação do pagamento pelo Asaas (o retorno da fatura não libera nada).
- * Com `recurso`, o mesmo cartão aparece na página onde o crédito é usado (Convites no editor da festa, WhatsApp.AI em
- * Atendimento), compacto: saldo, "Comprar mais créditos" (abre os pacotes daquele recurso) e só os pagamentos em
- * andamento. Pedidos concluídos, devoluções e o extrato ficam na Assinatura (lugar único do que foi pago).
  */
 type Recurso = 'CONVITES' | 'WALLE';
 type Lote = { origem: string; quantidade: number; disponivel: number; reservado: number; consumido: number; expirado: number; cancelado: number; liberadoEm: string; venceEm: string; protocolo: string | null };
@@ -46,7 +45,6 @@ const ORIGEM: Record<string, string> = { FRANQUIA: 'Franquia do mês', COMPRA: '
 const TIPO_EXTRATO: Record<string, string> = { CREDITO: 'Entrada', RESERVA: 'Reservado', LIBERACAO: 'Devolvido ao saldo', CONSUMO: 'Usado', BLOQUEIO: 'Bloqueado',
     DESBLOQUEIO: 'Desbloqueado', EXPIRACAO: 'Vencido', REVERSAO: 'Cancelado (devolução/estorno)' };
 const UNIDADE: Record<Recurso, string> = { CONVITES: 'gerações', WALLE: 'créditos do Wall-e' };
-const ABERTOS = ['CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'AGUARDANDO_PAGAMENTO', 'REVISAO'];
 const novaChave = () => globalThis.crypto?.randomUUID?.() ?? '';
 const dataIso = (d: string) => d.split('-').reverse().join('/');
 
@@ -79,7 +77,7 @@ const EXPLICACAO: Record<Recurso, string> = {
     WALLE: 'O Wall-e usa créditos conforme o tamanho de cada atendimento. Respostas da equipe não gastam créditos.',
 };
 
-export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
+export function CreditosIA({ recurso }: { recurso: Recurso }) {
     const [c, setC] = useState<Consulta | null>(null);
     const [erro, setErro] = useState('');
     const [ocupado, setOcupado] = useState(false);
@@ -92,7 +90,6 @@ export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
     const [devolver, setDevolver] = useState<{ pedido: string; tipo: 'ARREPENDIMENTO_7_DIAS' | 'SALDO_NAO_UTILIZADO'; valorCentavos: number } | null>(null);
     const [devolucaoFeita, setDevolucaoFeita] = useState<{ protocolo: string; valorCentavos: number; estado: string; prazo: string; tipo: string } | null>(null);
     const enviando = useRef(false);
-    const [abrir, setAbrir] = useState(false);
 
     const [versao, setVersao] = useState(0);
     const carregar = useCallback(() => setVersao((v) => v + 1), []);
@@ -114,11 +111,10 @@ export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
         return () => clearInterval(t);
     }, [resultado, carregar]);
 
-    const titulo = recurso ? TITULO[recurso] : 'Créditos de IA';
-    if (!c) return erro && !recurso ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
-    // Na página do recurso: nada antes da 095 instalada; WhatsApp.AI só com o Wall-e liberado para a empresa.
-    if (recurso && !c.instalado) return null;
-    if (recurso === 'WALLE' && !(c.walleDisponivel && c.walle)) return null;
+    const titulo = TITULO[recurso];
+    if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
+    // WhatsApp.AI: o bloco inteiro só existe com a 095 instalada e o Wall-e liberado para a empresa (sem venda antes disso).
+    if (recurso === 'WALLE' && !(c.instalado && c.walleDisponivel && c.walle)) return null;
 
     async function comprar() {
         if (!oferta || !c?.catalogo || enviando.current) return;
@@ -157,21 +153,20 @@ export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
     }
 
     const conv = c.convites;
-    const cat = c.catalogo && { ...c.catalogo, ofertas: c.catalogo.ofertas.filter((o) => !recurso || o.recurso === recurso) };
-    const pedidos = (c.pedidos ?? []).filter((p) => !recurso || (p.recurso === recurso && ABERTOS.includes(p.estado)));
-    const mostra = (r: Recurso) => !recurso || recurso === r;
-    const ancora = recurso ? `creditos-${recurso.toLowerCase()}` : 'creditos';
-    return <section className={workspace.card} aria-labelledby={`t-${ancora}`} style={recurso ? undefined : { maxWidth: 720 }} id={ancora} data-creditos={recurso ?? 'TODOS'}>
-        <h2 id={`t-${ancora}`} style={recurso ? { color: 'var(--lilac-accent)', fontSize: 16, fontWeight: 800, margin: '0 0 8px' } : undefined}>{titulo}</h2>
-        <p className={workspace.muted}>{EXPLICACAO[recurso ?? 'CONVITES']}</p>
-        {!recurso && <p className={workspace.muted} data-creditos-onde>Os créditos de convite também aparecem no convite de cada festa, e os do WhatsApp.AI na tela Atendimento.</p>}
+    const cat = c.catalogo && { ...c.catalogo, ofertas: c.catalogo.ofertas.filter((o) => o.recurso === recurso) };
+    const pedidos = (c.pedidos ?? []).filter((p) => p.recurso === recurso);
+    const extrato = (c.extrato ?? []).filter((x) => x.recurso === recurso);
+    const ancora = `creditos-${recurso.toLowerCase()}`;
+    return <section className={workspace.card} aria-labelledby={`t-${ancora}`} style={{ maxWidth: 720 }} id={ancora} data-creditos={recurso}>
+        <h2 id={`t-${ancora}`}>{titulo}</h2>
+        <p className={workspace.muted}>{EXPLICACAO[recurso]}</p>
         {erro && <p role="alert">{erro}</p>}
-        {mostra('CONVITES') && (conv.motor === 'CREDITOS'
+        {recurso === 'CONVITES' && (conv.motor === 'CREDITOS'
             ? <SaldoRecurso titulo="Convites" w={conv} emVerificacao={conv.emVerificacao} />
             : <p data-saldo-legado>Convites: franquia mensal de {conv.legado.limiteMensal} gerações ({conv.legado.usadoNoMes} usadas neste mês).
                 {(conv.emVerificacao ?? 0) > 0 && ' Há uma geração em verificação.'}</p>)}
-        {mostra('CONVITES') && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
-        {mostra('WALLE') && c.walleDisponivel && c.walle && <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />}
+        {recurso === 'CONVITES' && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
+        {recurso === 'WALLE' && c.walle && <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />}
         {!c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
         {!c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}
 
@@ -188,8 +183,7 @@ export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
         </div>}
 
         {c.gestao && c.instalado && <>
-            {recurso && cat && c.compraAberta && !oferta && !abrir && cat.ofertas.length > 0 && <p><button type="button" data-abrir-catalogo onClick={() => { setAbrir(true); setResultado(null); }}>Comprar mais créditos</button></p>}
-            {cat && c.compraAberta && !oferta && (!recurso || abrir) && <div data-catalogo>
+            {cat && c.compraAberta && !oferta && <div data-catalogo>
                 <h3>Comprar créditos</h3>
                 {cat.proposta && <p className={workspace.muted} data-catalogo-proposta>Valores de demonstração ({cat.versao}), ainda não aprovados como oferta vigente.</p>}
                 {cat.ofertas.length === 0 && <p className={workspace.muted}>Nenhum pacote disponível para esta empresa agora.</p>}
@@ -221,21 +215,20 @@ export function CreditosIA({ recurso }: { recurso?: Recurso } = {}) {
                 </p>
             </form>}
             {pedidos.length > 0 && <div data-pedidos-creditos>
-                <h3>{recurso ? 'Pagamentos em andamento' : 'Pedidos'}</h3>
+                <h3>Pedidos</h3>
                 <ul>{pedidos.map((p) => <li key={p.protocolo} data-pedido={p.protocolo} data-estado={p.estado}>
                     <strong>{p.protocolo}</strong> — {p.nome}, {reais(p.precoCentavos)}, {FORMA[p.forma] ?? p.forma}, {dataCurta(p.criadoEm)}. {ESTADO[p.estado] ?? p.estado}.
                     {p.urlPagamento && <> <a href={p.urlPagamento} target="_blank" rel="noopener noreferrer">Pagar</a> (vence {dataIso(p.vencimentoPagamento)}).</>}
                     {p.emDisputa && <> Pagamento em contestação: o saldo restante deste pacote está bloqueado.</>}
                     {p.devolucao && <> Devolução {p.devolucao.protocolo} ({reais(p.devolucao.valorCentavos)}): {DEVOLUCAO[p.devolucao.estado] ?? p.devolucao.estado}.</>}
-                    {!recurso && p.opcaoDevolucao && 'tipo' in p.opcaoDevolucao && !devolver && <> <button type="button" className="danger" disabled={ocupado} data-pedir-devolucao={p.protocolo}
+                    {p.opcaoDevolucao && 'tipo' in p.opcaoDevolucao && !devolver && <> <button type="button" className="danger" disabled={ocupado} data-pedir-devolucao={p.protocolo}
                         onClick={() => { const o = p.opcaoDevolucao as Extract<OpcaoDev, { tipo: string }>; setDevolver({ pedido: p.protocolo, tipo: o.tipo, valorCentavos: o.valorCentavos }); setChave(novaChave()); setErro(''); }}>
                         {(p.opcaoDevolucao as { tipo: string }).tipo === 'ARREPENDIMENTO_7_DIAS' ? `Desistir (7 dias): devolver ${reais((p.opcaoDevolucao as { valorCentavos: number }).valorCentavos)}…`
                             : `Devolver saldo não usado: ${reais((p.opcaoDevolucao as { valorCentavos: number }).valorCentavos)}…`}</button></>}
                 </li>)}</ul>
             </div>}
-            {recurso && <p className={workspace.muted}><a href="/admin/assinatura#creditos">Pedidos, devoluções e extrato em Assinatura</a></p>}
-            {!recurso && (c.extrato?.length ?? 0) > 0 && <details data-extrato><summary>Extrato de créditos</summary><ul>{c.extrato!.map((x, i) => <li key={i}>
-                {dataCurta(x.em)} · {x.recurso === 'CONVITES' ? 'Convites' : 'WhatsApp.AI'} · {TIPO_EXTRATO[x.tipo] ?? x.tipo} {x.quantidade} ({ORIGEM[x.origem] ?? x.origem}){x.protocolo ? ` · ${x.protocolo}` : ''}</li>)}</ul></details>}
+            {extrato.length > 0 && <details data-extrato><summary>Extrato</summary><ul>{extrato.map((x, i) => <li key={i}>
+                {dataCurta(x.em)} · {TIPO_EXTRATO[x.tipo] ?? x.tipo} {x.quantidade} ({ORIGEM[x.origem] ?? x.origem}){x.protocolo ? ` · ${x.protocolo}` : ''}</li>)}</ul></details>}
         </>}
     </section>;
 }

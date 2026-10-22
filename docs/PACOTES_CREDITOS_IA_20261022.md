@@ -250,12 +250,15 @@ créditos 13/13 em duas rodadas (aplicador, exportação e adversarial PASS), `c
 **3/3** pela asserção esperada (R1 original inconclusivo: quebrava a SQL ao deixar `$3` sem uso; reescrito como R1b).
 SQL da 095 sem mudança. Observação do parecer não tratada (P3): a releitura de estorno já tratado faz uma escrita idempotente.
 
-**Créditos em cada página (22/10, pedido de Felipe).** Carteiras continuam separadas (Convites em gerações; WhatsApp.AI em
-`µUS$`). O mesmo componente (`CreditosIA` com `recurso`) aparece compacto onde o crédito é usado: no **convite da festa**
-(saldo, "Comprar mais créditos" com os pacotes de convite e só os pagamentos em andamento) e em **Atendimento** (só com o
-Wall-e liberado para a empresa; hoje não aparece). A **Assinatura** segue com tudo: pedidos concluídos, devoluções e extrato
-(lugar único do que foi pago). Equipe vê o saldo, sem comprar. Validação: `check:v1:static` EXIT 0; Playwright 9/9 (passo 9:
-convite da festa e Atendimento); PG créditos 13/13.
+**Onde ficam os créditos (22/10, decisão de Felipe).** Página própria **Configurações › Créditos de IA**
+(`/admin/configuracoes/creditos`, cartão no hub e item no menu de Configurações, autoridade da Gestão como a API
+`exigirGestao`). Dois blocos separados: **Créditos de convite** e **Créditos do WhatsApp.AI** (este só com o Wall-e liberado
+para a empresa; hoje oculto), cada um com saldo, pacotes, pedidos, devolução e extrato próprios. A **Assinatura** fica só com
+o plano e um link "Ver créditos de IA"; o convite da festa mantém a linha de saldo com link para a página. A rota entra nas
+abertas com a empresa bloqueada (ver saldo e pedir devolução de pacote pago; a compra recusa no servidor). Uma tentativa
+anterior (cartões no convite e em Atendimento, `5708892`) foi substituída a pedido de Felipe. Validação: `check:v1:static`
+EXIT 0; Playwright 9/9 (passo 9: Configurações → página, Assinatura com link, convite e Atendimento sem cartão, Equipe sem o
+cartão); PG créditos 13/13.
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada

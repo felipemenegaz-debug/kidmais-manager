@@ -8,7 +8,6 @@ import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
-import { CreditosIA } from './AssinaturaCreditos';
 
 /**
  * Ações de cobrança da tela Assinatura (E8, Asaas sandbox). Só a Gestão contrata ou cancela; a Equipe vê a situação.
@@ -165,7 +164,11 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         </form>}
     </section>
     <EncerramentoComDevolucao dados={dados} recarregar={recarregar} />
-    <CreditosIA /></>;
+    <section className={workspace.card} aria-labelledby="t-creditos-link" style={{ maxWidth: 720 }} data-creditos-link>
+        <h2 id="t-creditos-link">Créditos de IA</h2>
+        <p className={workspace.muted}>Créditos de convite e do WhatsApp.AI são comprados à parte da assinatura, com pedidos, devoluções e extrato próprios.</p>
+        <p><Link href="/admin/configuracoes/creditos">Ver créditos de IA</Link></p>
+    </section></>;
 }
 
 /** Tela Assinatura com as ações de cobrança (componente cliente: a página de servidor não passa funções). */

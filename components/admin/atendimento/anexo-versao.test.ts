@@ -30,7 +30,6 @@ function montar(envios: { status: number; corpo: unknown }[]) {
   const Biblioteca = () => null;
   const h = carregarComponente('components/admin/atendimento/AtendimentoWhatsapp.tsx', {
     'next/link': { default: (p: { children?: unknown }) => p.children },
-    '@/components/admin/AssinaturaCreditos': { CreditosIA: () => null },
     '@/lib/http/admin-fetch': { adminFetch },
     './atendimento.module.css': cssFalso,
     './MensagensProntas': { GerenciarMensagensProntas: () => null, MensagensProntas: Biblioteca },

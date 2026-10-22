@@ -8,6 +8,7 @@ const cards: CartaoConfiguracao[] = [
   { route:'modelo-contrato', title:'Modelo de contrato', text:'Envie o contrato da loja em PDF: os contratos passam a sair no padrão da empresa, com os dados de cada festa.', icon:'pdf' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
+  { route:'creditos', title:'Créditos de IA', text:'Créditos de convite e do WhatsApp.AI: saldo, pacotes, pedidos, devoluções e extrato.', icon:'wallet' },
   { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao Kidmais pelo fluxo oficial da Meta.', icon:'contact' },
   { route:'tabela-pacotes', title:'PDF de Pacotes', text:'Revise e publique o documento consultado pelos clientes. Sua publicação é independente dos preços.', icon:'pdf' },
 ];

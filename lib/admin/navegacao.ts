@@ -49,6 +49,8 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
     // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
     { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
+    // 095: compra e devolução de créditos são da Gestão da empresa (lib/creditos/compra.ts exigirGestao).
+    { href: '/admin/configuracoes/creditos', rotulo: 'Créditos de IA', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
