@@ -8,6 +8,7 @@ import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
+import { CreditosIA } from './AssinaturaCreditos';
 
 /**
  * Ações de cobrança da tela Assinatura (E8, Asaas sandbox). Só a Gestão contrata ou cancela; a Equipe vê a situação.
@@ -163,7 +164,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             </p>
         </form>}
     </section>
-    <EncerramentoComDevolucao dados={dados} recarregar={recarregar} /></>;
+    <EncerramentoComDevolucao dados={dados} recarregar={recarregar} />
+    <CreditosIA /></>;
 }
 
 /** Tela Assinatura com as ações de cobrança (componente cliente: a página de servidor não passa funções). */
