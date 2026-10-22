@@ -186,15 +186,15 @@ test("administração: empresa nova sem pacote não herda o catálogo Kidmais no
   assert.deepEqual(nova.pacotes, [], "buffet novo: nenhum pacote");
   assert.deepEqual(nova.regras, {});
   const comPocket = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET", nome: "Festinha do Buffet A" }]);
-  assert.deepEqual(comPocket.pacotes, [{ id: "POCKET", nome: "Festinha do Buffet A" }]);
+  assert.deepEqual(comPocket.pacotes, [{ id: "POCKET", nome: "Festinha do Buffet A", convidadosMinimos: null, convidadosMaximos: null }]);
   assert.equal(comPocket.regras.POCKET.length, 1);
   const semNome = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET" }]);
-  assert.deepEqual(semNome.pacotes, [{ id: "POCKET", nome: "POCKET" }], "sem nome: o código, nunca o nome do catálogo Kidmais");
+  assert.deepEqual(semNome.pacotes, [{ id: "POCKET", nome: "POCKET", convidadosMinimos: null, convidadosMaximos: null }], "sem nome: o código, nunca o nome do catálogo Kidmais");
   // Pacote criado do zero ("Novo pacote", P_…): entra no seletor e nas regras, na ordem da lista da empresa.
   const { banco: bancoLivre } = bancoDeRegras({ [LIVRE_A]: [linha(6, "TURNO_2")] });
   const comLivre = await pacotesDaAgendaDaEmpresa(bancoLivre, EMPRESA_A, async () => [
-    { id: POCKET_A, codigo: "POCKET", nome: "Pocket" }, { id: LIVRE_A, codigo: CODIGO_LIVRE, nome: "Festa Jardim" }]);
-  assert.deepEqual(comLivre.pacotes, [{ id: "POCKET", nome: "Pocket" }, { id: CODIGO_LIVRE, nome: "Festa Jardim" }]);
+    { id: POCKET_A, codigo: "POCKET", nome: "Pocket" }, { id: LIVRE_A, codigo: CODIGO_LIVRE, nome: "Festa Jardim", convidadosMinimos: 30, convidadosMaximos: 80 }]);
+  assert.deepEqual(comLivre.pacotes, [{ id: "POCKET", nome: "Pocket", convidadosMinimos: null, convidadosMaximos: null }, { id: CODIGO_LIVRE, nome: "Festa Jardim", convidadosMinimos: 30, convidadosMaximos: 80 }], "limites de convidados de cada pacote (wizard do fechamento administrativo)");
   assert.deepEqual(comLivre.regras[CODIGO_LIVRE], regrasPublicasDoPacote([linha(6, "TURNO_2")]));
   const tela = (await import("node:fs")).readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.match(tela, /pacotes: admin\.regrasPacotes \? \(admin\.pacotes \?\? \[\]\) : null/);

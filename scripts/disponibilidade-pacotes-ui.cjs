@@ -11,6 +11,8 @@
  *   - Pacote criado do zero pela tela (Configurações → Pacotes → "Novo pacote", código P_…): entra no seletor da
  *     Disponibilidade com as regras dele; aparece na cotação pública /b/<código> (cartão, sem nada da Kidmais); a cotação e
  *     o envio do fechamento por HTTP gravam com esse pacote (COTACAO_PUBLICA_POR_EMPRESA=true só neste servidor local).
+ *   - Fase 1c: o fechamento administrativo (wizard do painel) do buffet comum lista os pacotes dele, mostra o calendário
+ *     pelas regras dele e cria o fechamento com o pacote novo.
  */
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
@@ -264,6 +266,57 @@ async function principal() {
       await publico.close();
       resultados.push(`Cotação pública /b/${codigoCom}: cartão "Festa Jardim UI" sem nomes Kidmais; cotação 200 (R$ 4.500), envio 201 gravado com o pacote novo; endereço atual recusa (400)`);
       console.log('E2E_COTACAO_PUBLICA_PACOTE_LIVRE_OK');
+
+      // Fase 1c — fechamento ADMINISTRATIVO do buffet comum com o pacote novo: a lista e as regras de disponibilidade vêm
+      // da empresa (antes: catálogo da Kidmais e regra fixa do Pocket no calendário); envio pelo wizard real.
+      const clienteId = (await client.query('SELECT f.cliente_id FROM fechamentos f WHERE f.id = $1', [fechamentoId])).rows[0].cliente_id;
+      const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      // Sábado (uma semana depois do público) cuja segunda seguinte ainda está no mesmo mês, para conferir os dois no calendário.
+      const sabadoAdmin = new Date(sabado); sabadoAdmin.setUTCDate(sabadoAdmin.getUTCDate() + 7);
+      while (sabadoAdmin.getUTCDate() > 26) sabadoAdmin.setUTCDate(sabadoAdmin.getUTCDate() + 7);
+      const segundaAdmin = new Date(sabadoAdmin); segundaAdmin.setUTCDate(segundaAdmin.getUTCDate() + 2);
+      {
+        const { contexto, page } = await entrar('gestao-com-ui@exemplo.test');
+        await page.goto(`${base}/admin/clientes/${clienteId}/fechamento`);
+        const seletor = page.getByLabel('Pacote', { exact: true });
+        await page.waitForFunction(() => {
+          const s = document.querySelector('select[aria-label="Pacote"]');
+          return s && ![...s.options].some((o) => o.textContent.includes('Carregando'));
+        });
+        assert.deepEqual((await seletor.locator('option').allInnerTexts()).map((t) => t.trim()), ['Festinha do Buffet UI', 'Festa Jardim UI'], 'wizard do painel: pacotes da empresa');
+        await seletor.selectOption(codigoLivre);
+        const alvo = `${MESES[sabadoAdmin.getUTCMonth()]} de ${sabadoAdmin.getUTCFullYear()}`;
+        for (let i = 0; i < 6 && !(await page.getByText(alvo, { exact: true }).count()); i++) await page.getByRole('button', { name: 'Próximo mês' }).click();
+        const rotulo = (d) => `${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`;
+        const diaSabado = page.locator(`button[aria-label^="${rotulo(sabadoAdmin)}:"]`);
+        await page.waitForFunction((r) => { const b = document.querySelector(`button[aria-label^="${r}:"]`); return b && !b.getAttribute('aria-label').includes('não carregada'); }, rotulo(sabadoAdmin));
+        assert.match(await diaSabado.getAttribute('aria-label'), /Disponível$/, 'sábado liberado pela regra da empresa');
+        assert.equal(segundaAdmin.getUTCMonth(), sabadoAdmin.getUTCMonth());
+        assert.match(await page.locator(`button[aria-label^="${rotulo(segundaAdmin)}:"]`).getAttribute('aria-label'), /Indisponível$/, 'segunda fechada (sem regra fixa do Pocket)');
+        await diaSabado.click();
+        const horarioAdmin = page.getByLabel('Horário disponível', { exact: true });
+        await page.waitForFunction(() => (document.querySelector('select[aria-label="Horário disponível"]')?.options.length ?? 0) > 1);
+        await horarioAdmin.selectOption({ index: 1 });
+        await page.getByLabel('Convidados pagantes', { exact: true }).fill('40');
+        await page.getByLabel('Aniversariante', { exact: true }).selectOption({ index: 1 });
+        await page.getByLabel('Valor comercial proposto (R$)', { exact: true }).fill('4500,00');
+        await page.waitForFunction(() => !document.body.innerText.includes('Selecione data, pacote e co'));
+        await page.waitForLoadState('networkidle');
+        await page.getByRole('button', { name: 'Revisar contratação', exact: true }).click();
+        const criado = page.waitForResponse((r) => r.url().includes(`/api/admin/clientes/${clienteId}/fechamentos`) && r.request().method() === 'POST');
+        await page.getByRole('button', { name: 'Confirmar e criar fechamento', exact: true }).click();
+        const respostaAdmin = await criado;
+        assert.equal(respostaAdmin.status(), 201, await respostaAdmin.text());
+        await page.getByRole('heading', { name: 'Fechamento criado' }).waitFor();
+        await page.screenshot({ path: path.join(relatorios, 'fechamento-admin-pacote-livre.png'), fullPage: true });
+        const doAdmin = (await client.query(`SELECT p.codigo, f.empresa_id, f.origem_fechamento FROM fechamentos f JOIN pacotes p ON p.id = f.pacote_id
+          WHERE f.cliente_id = $1 AND f.id <> $2 ORDER BY f.criado_em DESC LIMIT 1`, [clienteId, fechamentoId])).rows[0];
+        assert.equal(doAdmin.codigo, codigoLivre);
+        assert.equal(doAdmin.empresa_id, COM);
+        await contexto.close();
+        resultados.push('Fechamento administrativo (wizard do painel): pacotes da empresa no seletor, calendário pelas regras dela (sábado livre, segunda fechada), criado com o pacote novo');
+        console.log('E2E_FECHAMENTO_ADMIN_PACOTE_LIVRE_OK');
+      }
     }
     {
       const { contexto, page } = await entrar('gestao-dona-ui@exemplo.test');

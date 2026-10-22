@@ -38,7 +38,7 @@ export const esquemaConteudoSite = z.object({
   galeria: z.array(z.object({ imagemId: uuid, legenda: texto(140).default("") }).strict()).max(12).default([]),
   estrutura: z.object({ capacidade: texto(80).default(""), itens: z.array(texto(80)).max(20).default([]) }).strict(),
   // imagemId: foto VINCULADA explicitamente a este pacote pela equipe (nunca escolhida automaticamente).
-  pacotes: z.array(z.object({ codigo: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/), destaque: texto(140).default(""), mostrarPreco: z.boolean().default(false),
+  pacotes: z.array(z.object({ codigo: z.string().regex(/^[A-Z][A-Z0-9_]{1,49}$/), destaque: texto(140).default(""), mostrarPreco: z.boolean().default(false),
     imagemId: uuid.nullable().default(null) }).strict())
     .max(10).default([]),
   localizacao: z.object({
