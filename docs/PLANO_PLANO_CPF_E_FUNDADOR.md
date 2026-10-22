@@ -5,8 +5,8 @@ Data: 22/10/2026. Estado original: **proposta técnica, sem implementação ou h
 > **Atualização 22/10/2026: implementação LOCAL** na branch `codex/implementar-cpf-fundador-20261022` (clone
 > `kidmais-manager-cpf-fundador-20261022`, base staging conhecida `326895e`). Migrations **090** (campanha) e **091**
 > (documento CPF/CNPJ), aplicadores, blocos, testes e telas, com a campanha desligada e sem data e o CPF desligado.
-> Nada publicado nem aplicado fora do PostgreSQL descartável. As decisões D1–D5 continuam **pendentes**: nenhuma
-> recomendação abaixo virou regra definitiva. Implementação real, divergências deste plano, validações e lacunas estão em
+> Nada publicado nem aplicado fora do PostgreSQL descartável. **D1–D5 decididas por Felipe em 22/10/2026** (recomendações
+> do §3.2/§3.4/§4.2/§4.3, com validade de 7 dias). A data de abertura continua indefinida; campanha e CPF desligados. Implementação real, divergências deste plano, validações e lacunas estão em
 > [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md). O texto abaixo é preservado como
 > proposta.
 
@@ -226,3 +226,19 @@ Detalhes em [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_
 - Perfil da empresa para pessoa física;
 - textos legais;
 - ensaio no sandbox.
+
+## 12. Decisões de 22/10/2026 (segunda rodada)
+
+Felipe decidiu:
+- **D1:** oferta aceita e persistida pelo servidor.
+- **D2:** 30 dias de calendário em America/Sao_Paulo.
+- **D3:** validade de 7 dias corridos; paga depois do corte e dentro da validade mantém JANELA; vencida só libera com
+  prova; pagamento tardio vai para reconciliação, sem cobrança complementar; o prazo é informado.
+- **D4:** legado preservado, inclusive pendentes; confirmadas não são recicladas.
+- **D5:** benefício por empresa e documento; vínculo CPF↔CNPJ declarado e conferido no atendimento; sócio não bloqueia;
+  continuidade bloqueada no autoatendimento.
+- **Data:** não definida.
+
+Conferência item a item e provas: [CPF_FUNDADOR_IMPLEMENTACAO_20261022.md](CPF_FUNDADOR_IMPLEMENTACAO_20261022.md), §2.
+
+O impedimento técnico do Perfil para PF foi corrigido. A identificação do PF nos documentos continua com a Astra.

@@ -1,6 +1,6 @@
 # CPF do contratante e campanha Fundador em duas fases: implementação local
 
-Data: 22/10/2026. Estado: **implementação LOCAL**. Não houve push, PR, deploy, migration em ambiente real, Asaas real ou sandbox.
+Data: 22/10/2026 (segunda rodada no mesmo dia, com D1–D5 decididas). Estado: **implementação LOCAL**. Não houve push, PR, deploy, migration em ambiente real, Asaas real ou sandbox.
 A campanha nova está desligada e sem data. O CPF fica desligado até a 091 ser aplicada e a chave ser ligada com autorização.
 Plano de origem: [PLANO_PLANO_CPF_E_FUNDADOR.md](PLANO_PLANO_CPF_E_FUNDADOR.md).
 
@@ -16,27 +16,30 @@ Plano de origem: [PLANO_PLANO_CPF_E_FUNDADOR.md](PLANO_PLANO_CPF_E_FUNDADOR.md).
   - `3348f80` (piloto "Iniciar teste grátis"), que virou `35a429b`.
 - O piloto continua **não publicado**. A composição foi revalidada aqui: a suíte PG `comercial` roda no modelo 063.
 
-## 2. Decisões comerciais: recebidas × pendentes
+## 2. Decisões comerciais e conferência da implementação
 
-**Recebidas (pedido de 22/10/2026):**
+**Recebidas no pedido de 22/10/2026:**
 - CPF válido aceito no teste, na assinatura e no Fundador.
-- Fundador com 40% por 12 meses.
-- Nos primeiros 30 dias após a abertura, vale para todos, sem teto. Depois, mais 20 vagas por ordem de contratação.
-- Pilotos que assinarem na janela têm a condição garantida.
-- Cancelamento ou devolução não cobra o desconto de volta.
+- 40% por 12 meses.
+- Janela de 30 dias para todos, sem teto; depois, mais 20 vagas por ordem de contratação.
+- Pilotos que assinarem na janela estão garantidos.
+- Devolução não cobra o desconto de volta.
 
-**Pendentes.** As perguntas foram feitas no início da sessão e não houve resposta até o fechamento deste documento. Nenhuma
-delas foi transformada em regra definitiva:
+**D1–D5, decididas por Felipe em 22/10/2026 (segunda rodada).** A data de abertura **ainda não foi definida**. Ordem
+expressa: não ativar a campanha nem o CPF, não publicar e não acessar ambientes reais.
 
-| # | Decisão | Como o código fica enquanto isso |
-|---|---|---|
-| D1 | O que é "assinar": oferta aceita e persistida, ou pagamento confirmado | A coluna `elegibilidade` aceita os dois valores, mas a guarda 090 e o código só concedem com `OFERTA_PERSISTIDA` (desenho atual do snapshot). Com `PAGAMENTO_CONFIRMADO` a contratação fica indisponível (`CAMPANHA_REGRA_PENDENTE`). |
-| D2 | 30 dias por calendário de Brasília ou pelo horário exato | Os dois modos estão implementados (`CALENDARIO_LOCAL` e `HORARIO_EXATO`). A ativação exige escolher um. Sem escolha, a campanha não ativa. |
-| D3 | Validade da oferta/reserva e pagamento que atravessa o corte | `validade_oferta` é obrigatória para ativar e não tem padrão. Oferta da janela paga depois do corte continua JANELA e não consome as 20 (comportamento estrutural). A expiração é **registrada** (`oferta_valida_ate`), mas não tem efeito automático: não libera vaga, não recusa pagamento e não reprecifica. O efeito depende de D3. |
-| D4 | Reservas legadas e reciclagem | Todas as linhas atuais viram `LEGADO`, com estado, vagas e datas intactos, e não consomem as 20 novas. A pendente legada retoma a própria oferta. A confirmada nunca volta a liberada (regra 074a mantida). |
-| D5 | Unidade do benefício; continuidade CPF → CNPJ | Unicidade por empresa e por documento (índices 074a). Não há vínculo automático CPF↔CNPJ. A troca CPF ↔ CNPJ fica bloqueada no autoatendimento e no painel depois do teste. |
-| — | Data de abertura | Não existe em lugar nenhum: nenhuma campanha é criada nem ativada pela migration ou pelo código. |
-| — | Transição antes da ativação | Sem campanha ativada vale a regra anterior (20 primeiros, `LEGADO`), inclusive no site. Isso preserva o comportamento atual até a ativação autorizada. Felipe deve confirmar se é isso que quer até a abertura. |
+| # | Decisão | Como a implementação cumpre | Prova |
+|---|---|---|---|
+| D1 | Oferta aceita e persistida pelo servidor garante a elegibilidade; o pagamento confirma o benefício e inicia os 12 meses. | A concessão nasce com a oferta persistida (`prepararOferta`); a confirmação do pagamento grava `confirmada_em` e `beneficio_fim` (+12 meses, guarda 074a). O banco só aceita `elegibilidade = 'OFERTA_PERSISTIDA'` (CHECK). | 090 casos 3, 4 e 7 |
+| D2 | 30 dias de calendário em America/Sao_Paulo, `[D 00:00, D+30 00:00)`. | `ativarCampanhaAprovada` fixa `CALENDARIO_LOCAL` e calcula a janela pela data D. O site anuncia "até D+29, 23h59 (horário de Brasília)". **Resíduo:** o schema mantém `HORARIO_EXATO` para o ensaio sintético de fronteira em banco descartável; a ativação real só pode usar a função (controle operacional). | 090 caso 3; unitário de calendário |
+| D3 | Oferta vale 7 dias corridos da aceitação persistida. Paga depois do corte e dentro dos 7 dias: continua JANELA, sem consumir as 20. Vencida: liberação só com prova de cobrança ausente ou cancelada. Pagamento tardio vai para reconciliação, sem cobrança complementar automática. O prazo é informado ao contratante. | O banco fixa `validade_oferta = 7 days`; `oferta_valida_ate = reservada_em + 7 dias`, imutável. O pagamento é comparado pela **data do pagamento no provedor** (`confirmedDate`/`paymentDate`, não a chegada do webhook) com a data local do fim da validade. Até esse dia: confirma JANELA. Depois: `FUNDADOR_OFERTA_EXPIRADA`, sem confirmar, liberar, reprecificar ou cobrar de novo. A reconciliação diária registra o item como erro e alarma. Retomar oferta vencida também é recusado. Não existe liberação automática: a liberação continua manual, com evidência (guarda 074a). A tela de assinatura mostra "pague até DD/MM/AAAA (horário de Brasília)" ou o aviso de vencida; o site e a tela explicam os 7 dias. | 090 caso 8; Playwright `E2E_VALIDADE_OK` |
+| D4 | Reservas legadas preservadas, inclusive pendentes, sem consumir as 20. Pendente legada paga mantém a condição. Vaga posterior confirmada não é reciclada. | Backfill `LEGADO` sem alterar nenhuma coluna antiga (prova coluna a coluna e md5 do aplicador). LEGADO não tem prazo e confirma pelo valor contratado. `CONFIRMADA` nunca volta a `LIBERADA` (074a); vaga posterior continua ocupada. | 090 casos 1, 2, 6 e 9; aplicadores PG |
+| D5 | Benefício por empresa/tenant e documento. Troca CPF→CNPJ da mesma operação não gera novo teste nem novo benefício. Vínculos são declarados e conferidos no atendimento. Ser sócio não bloqueia. Continuidade preserva prazo, preço e benefício, sem nova vaga; bloqueada no autoatendimento. | Unicidade por empresa e por documento (índices 074a e `documento_teste_uk`). `documento_teste` e `documento_beneficiario` são imutáveis. O painel recusa trocar CPF↔CNPJ depois do teste. O checkout recusa documento de outro tipo (`DOCUMENTO_DIVERGENTE`). Nenhuma checagem de sociedade, nome, telefone ou IP. **Resíduo declarado:** um cadastro NOVO com o CNPJ da mesma operação não é detectável automaticamente; depende do vínculo declarado e conferido no atendimento. | 091 casos 5 e 6; unitários |
+
+**Antes da abertura:** sem campanha ativada, o código mantém a regra anterior (20 primeiros, `LEGADO`) **apenas como
+compatibilidade técnica**. Isso não autoriza anunciar a campanha nova nem vender com promessas divergentes. A abertura
+exige data decidida, ativação autorizada e alinhamento dos textos públicos (site, termos e termo do piloto, que fala
+em "sem limite por 30 dias").
 
 ## 3. Numeração das migrations
 
@@ -182,9 +185,19 @@ Arquivos: `database/migrations/20261022_091_documento_fiscal_contratante.sql`, o
     executado);
   - efeito fiscal (contador).
   - Documentos do teste e do beneficiário continuam snapshots.
-- **Perfil da empresa:** continua exigindo razão social e CNPJ válido para aplicar. Esses dados alimentam documentos
-  com os clientes do buffet. Como identificar o buffet PF nesses documentos (nome civil, CPF, endereço) é decisão
-  jurídica: um buffet PF hoje não consegue aplicar o Perfil. Não foi gravado CPF em campo de CNPJ.
+- **Perfil da empresa, separando o técnico do jurídico:**
+  - **Impedimento técnico, CORRIGIDO na segunda rodada.** Antes, a aplicação exigia CNPJ válido, e um buffet PF não
+    aplicava o Perfil.
+    - Agora, se o contratante é PF (documento do teste ou do cadastro com 11 dígitos, resolvido pela empresa SaaS do
+      perfil), o CNPJ fica opcional. Se for informado, continua validado como CNPJ.
+    - "Razão social" vira "Razão social ou nome civil do titular", obrigatório.
+    - O CNPJ vazio é gravado como NULL (CHECK 027).
+    - O CPF nunca é gravado no Perfil.
+    - Os contratos dos buffets vêm do modelo da própria empresa, que já prevê "CNPJ ou CPF" da contratada; não
+      dependem do CNPJ do Perfil.
+  - **Decisões que dependem da Astra (pendentes):** se e como o CPF do titular aparece nos documentos com os clientes do
+    buffet (contratos, recibos, Pix); se o nome civil basta como identificação; endereço residencial × comercial;
+    texto de ajuda definitivo. Até lá, o Perfil PF mostra nome civil e nome comercial, sem CPF.
 - Vínculo CPF↔CNPJ, consulta societária, coleta de CPF de sócios: não criados, por decisão.
 - Textos legais (Termos/Aviso/Acordo v2) **não alterados**: continuam citando CNPJ/razão social.
 
@@ -223,6 +236,18 @@ Só depois disso, com autorização própria, vêm a campanha (rascunho, decisõ
 - 090: só sem campanha registrada e sem concessão nova.
 - 091: só sem CPF ou `TITULAR_PF`.
 - Depois disso: desligar a chave e corrigir para frente.
+
+### 6.1 Aplicadores em PostgreSQL descartável (segunda rodada)
+
+`lib/assinatura/aplicador-090-091.postgres.test.ts` roda os aplicadores REAIS de staging e produção no modelo 089, no
+desenho do teste 088/089. Para cada migration:
+1. conferência só leitura nos dois ambientes;
+2. papel sem CREATE/REFERENCES e depois sem ser dono das tabelas → RECUSARIA e FALHA antes de escrever;
+3. vestígio parcial → recusa;
+4. falha real por `lock_timeout` com outra sessão em ROW EXCLUSIVE → FALHA no marcador, nada fica, sem repetição;
+5. aplicação em produção sobre duas concessões legadas → APLICADA_POSTCHECK_PASS, md5 de preservação igual, saída sem
+   documentos, marcador CONCLUIDA, repetição recusada;
+6. depois disso, só confere.
 
 ## 7. Validação executada (local)
 
@@ -347,10 +372,34 @@ Chrome sem rede externa, checkout interceptado, e-mail em arquivo.
 `scripts/concorrencia-vagas-isolado.test.cjs` falha também na base `326895e` (`INVENTARIO_MUDOU`, pacote histórico
 de 10/10). Não foi alterado.
 
-### Não executado
+### Segunda rodada (decisões D1–D5, Perfil e aplicadores)
+
+Executada sobre os commits `e9f0447`, `d13b6c8` e `b9812cd`, num cluster descartável recriado na mesma porta 55607.
+
+**Aprovado:**
+- Unitários: `lib/assinatura`+`perfil`+`site`+`cadastro`+`acessos` **330/330**.
+- Aplicadores, blocos e produção: **81/81**.
+- PG descartável:
+  - **090: 9/9**, com casos novos:
+    - 3: ativação aprovada D1–D3 no schema;
+    - 8: D3, com pagamento a +6 dias confirmando JANELA, a +8 dias indo para reconciliação sem efeito, retomada
+      vencida recusada e prazo informado;
+    - 9: D4, legado pago depois.
+  - **091: 8/8**, com o caso 8 do Perfil PF. Ele pegou e motivou a correção de um `\d` perdido.
+  - **Aplicadores reais 090/091: 1/1**, cobrindo conferência, privilégios e dono, parcial, falha real, preservação e
+    anti-repetição.
+  - **Regressão de 15 arquivos / 19 execuções: 19/19.** Rodou antes do caso 9 da 090, que só acrescentou um teste e
+    foi rodado à parte, 9/9.
+- `check:v1:static`: **PASS**, com 3278 + 103 testes, ESLint, TypeScript e build.
+- Playwright `cpf-fundador-ui`: **7/7**, acrescentando o prazo "pague até" e o Perfil PF.
+
+**Preexistente e não relacionado:** `scripts/concorrencia-vagas-isolado.test.cjs` (`INVENTARIO_MUDOU`, falha também na
+base `326895e`).
+
+**Pendente ou não executado:**
 - Asaas sandbox.
 - Staging e produção.
-- Aplicadores 090/091 contra PostgreSQL. Eles rodaram só com cliente simulado; não há suíte PG própria como a
-  `aplicador-089`. Os SQL que eles executam (pre/migration/post/down) foram exercitados nas suítes 090/091. Lacuna para
-  a revisão.
 - Revisão independente.
+- Teste automatizado da reconciliação diária com `FUNDADOR_OFERTA_EXPIRADA`. Conferido só por leitura: o item vira
+  `ERRO_`, a conferência fica incompleta/divergente e alarma.
+- Liberação de reserva vencida: continua manual, com prova (sem ferramenta própria).
