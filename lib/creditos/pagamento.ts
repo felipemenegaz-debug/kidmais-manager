@@ -235,7 +235,10 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
         case 'DISPUTA':
             return aplicarEstornoOuDisputa(tx, p, c, lido!, decisao.acao);
         case 'REVISAO':
-            await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2 WHERE id = $1::uuid', [c.id, decisao.motivo]);
+            // P2-N2 (revisão do delta 2): grava também o status lido desta cobrança — o CRÍTICO de cliente/referência
+            // divergente (D4) depende de saber se o dinheiro já foi recebido. Leitura de outro pagamento (id divergente) não conta.
+            await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2, situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid',
+                [c.id, decisao.motivo, lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null]);
             if (!p.creditado_em) await mudarEstado(tx, p, 'REVISAO', decisao.motivo);
             return { resultado: 'REVISAO', motivo: decisao.motivo };
     }

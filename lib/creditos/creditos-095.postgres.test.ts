@@ -944,19 +944,21 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.deepEqual(await loteZ(), { disponivel: "0", bloqueado: "0", cancelado: "10" });
     assert.equal((await emTx(c)((t2) => processarPedido(t2, z.id, ctx))).resultado === "REVISAO", false, "cancelado não realarma");
 
-    // P3-6 (revisão do delta): cliente divergente sem dinheiro recebido não é CRÍTICO; com a cobrança recebida, é.
+    // P3-6 + P2-N2 (revisões do delta): cliente divergente sem dinheiro recebido não é CRÍTICO; recebido, é — tudo pelo
+    // caminho real (processarPedido com o dublê), sem forçar estado no banco.
     const w = await comprar(G, uG);
-    await c.query("BEGIN");
-    await c.query("SET LOCAL session_replication_role = replica");
-    await c.query("UPDATE ia_credito_pedidos SET estado = 'REVISAO', revisao_motivo = 'CLIENTE_DIVERGENTE' WHERE id = $1::uuid", [w.id]);
-    await c.query("COMMIT");
+    const saldoAntesW = (await lerCarteira(tx, G, "CONVITES"))!.saldo;
     const itemW = async () => (await reconciliar.lerPendenciasCreditos(c)).find((i) => i.item === "PEDIDO_CREDITOS" && i.motivo === "CLIENTE_DIVERGENTE");
-    assert.equal((await itemW())?.critico, false);
-    await c.query("BEGIN");
-    await c.query("SET LOCAL session_replication_role = replica");
-    await c.query("UPDATE ia_credito_cobrancas SET situacao_provedor = 'RECEIVED' WHERE pedido_id = $1::uuid AND canonica", [w.id]);
-    await c.query("COMMIT");
-    assert.equal((await itemW())?.critico, true);
+    const situacaoW = async () => (await c.query("SELECT situacao_provedor FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [w.id])).rows[0].situacao_provedor;
+    duble.pagar(w.pagamento, "PENDING", { clienteId: "cus_outro" });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, w.id, ctx)), { resultado: "REVISAO", motivo: "CLIENTE_DIVERGENTE" });
+    assert.equal(await situacaoW(), "PENDING");
+    assert.equal((await itemW())?.critico, false, "sem dinheiro recebido: não crítico");
+    duble.pagar(w.pagamento, "RECEIVED", { clienteId: "cus_outro" });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, w.id, ctx)), { resultado: "REVISAO", motivo: "CLIENTE_DIVERGENTE" });
+    assert.equal(await situacaoW(), "RECEIVED", "o ramo REVISAO grava o status lido");
+    assert.equal((await itemW())?.critico, true, "recebido com cliente divergente: CRÍTICO (D4)");
+    assert.equal((await lerCarteira(tx, G, "CONVITES"))!.saldo, saldoAntesW, "nada creditado");
 
     // P2-6: disputa aberta com geração em andamento; a liberação fica BLOQUEADA (não cancelada) e volta inteira na disputa favorável.
     const h = await comprar(Hh, uH);
