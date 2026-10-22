@@ -33,12 +33,22 @@ export function flagsCreditos(env: Ambiente = process.env): FlagsCreditos {
 }
 
 export const servicoDeProducao = (env: Ambiente = process.env) => env.KIDMAIS_DEPLOY_ENV?.trim() === 'production';
+/**
+ * P3-7 (revisão de 22/10): só staging declarado ou execução local (fora do Render e fora de NODE_ENV=production) vendem
+ * catálogo sem aprovação. Qualquer outro ambiente sem `KIDMAIS_DEPLOY_ENV` reconhecido é tratado como produção.
+ */
+export const ambienteSemAprovacao = (env: Ambiente = process.env) => {
+    const deploy = env.KIDMAIS_DEPLOY_ENV?.trim();
+    if (deploy === 'production') return false;
+    if (deploy === 'staging') return true;
+    return !deploy && env.RENDER !== 'true' && env.NODE_ENV !== 'production';
+};
 
-export type MotivoVendaFechada = 'CATALOGO_DESLIGADO' | 'COMPRA_DESLIGADA' | 'CATALOGO_NAO_APROVADO_PRODUCAO' | 'APROVACAO_DIVERGENTE';
-/** Catálogo visível (ofertas exibidas) — em produção, só com aprovação registrada e confirmada no ambiente. */
+export type MotivoVendaFechada = 'CATALOGO_DESLIGADO' | 'COMPRA_DESLIGADA' | 'CATALOGO_NAO_APROVADO_PRODUCAO' | 'APROVACAO_DIVERGENTE' | 'CONTA_INVALIDA';
+/** Catálogo visível (ofertas exibidas) — fora de staging/local, só com aprovação registrada e confirmada no ambiente. */
 export function catalogoVisivel(cat: Catalogo, env: Ambiente = process.env): { ok: true } | { ok: false; motivo: MotivoVendaFechada } {
     if (!flagsCreditos(env).catalogo) return { ok: false, motivo: 'CATALOGO_DESLIGADO' };
-    if (servicoDeProducao(env)) {
+    if (!ambienteSemAprovacao(env)) {
         if (!cat.aprovacao) return { ok: false, motivo: 'CATALOGO_NAO_APROVADO_PRODUCAO' };
         if (env.CREDITOS_CATALOGO_APROVADO?.trim() !== cat.versao) return { ok: false, motivo: 'APROVACAO_DIVERGENTE' };
     }
@@ -49,6 +59,7 @@ export function vendaAberta(cat: Catalogo, env: Ambiente = process.env): { ok: t
     const v = catalogoVisivel(cat, env);
     if (!v.ok) return v;
     if (!flagsCreditos(env).compra) return { ok: false, motivo: 'COMPRA_DESLIGADA' };
+    if (!contaValida(env)) return { ok: false, motivo: 'CONTA_INVALIDA' };
     return { ok: true };
 }
 
@@ -60,10 +71,16 @@ export function walleDisponivel(env: Ambiente = process.env) {
     return flagsCreditos(env).consumoWalle && atendimentoAtivo(env as NodeJS.ProcessEnv) && modoEntendimento(env as NodeJS.ProcessEnv).modo === 'MODELO';
 }
 
-/** Conta do provedor (rótulo não secreto, ex.: "kidmais-sandbox"); separa ids de contas diferentes do mesmo ambiente. */
+/**
+ * Conta do provedor (rótulo não secreto, ex.: "kidmais-sandbox"); separa ids de contas diferentes do mesmo ambiente.
+ * P3-2 (revisão de 22/10): rótulo inválido falha fechado (a venda fecha com CONTA_INVALIDA; quem processa recusa).
+ */
+const CONTA = /^[a-z0-9_-]{1,40}$/;
+export const contaValida = (env: Ambiente = process.env) => CONTA.test(env.CREDITOS_ASAAS_CONTA?.trim() || 'padrao');
 export function contaProvedor(env: Ambiente = process.env) {
     const c = env.CREDITOS_ASAAS_CONTA?.trim() || 'padrao';
-    return /^[a-z0-9_-]{1,40}$/.test(c) ? c : 'invalida';
+    if (!CONTA.test(c)) throw new Error('CREDITOS_ASAAS_CONTA_INVALIDA');
+    return c;
 }
 
 /** Limites operacionais (sugestões do plano; configuráveis, nunca afrouxados pela compra). */

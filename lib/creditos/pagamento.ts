@@ -26,7 +26,8 @@ export type ResultadoPedido = { resultado: 'CREDITADO' | 'SEM_MUDANCA' | 'VINCUL
 
 type Pedido = { id: string; empresa_id: string; protocolo: string; recurso: Recurso; estado: string; quantidade: string; preco_centavos: string; validade_dias: number;
     forma: Forma; ambiente: 'sandbox' | 'producao'; idade_s: string; creditado_em: string | null };
-type Cobranca = { id: string; pagamento_id: string; canonica: boolean; situacao_provedor: string; disputa: string; confirmada_em: string | null; estornado_centavos: string };
+type Cobranca = { id: string; pagamento_id: string; canonica: boolean; situacao_provedor: string; disputa: string; confirmada_em: string | null; estornado_centavos: string;
+    valor_centavos: string; conta: string };
 
 const MINUTOS_PARADO = 10;
 const HORAS_SEM_COBRANCA = 24;
@@ -115,7 +116,7 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
     }
     // Disputa aberta: bloqueia o remanescente (sem cancelar) e registra a exposição do já usado.
     if (c.disputa !== 'ABERTA') {
-        if (lote && !devolucao) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA:${c.id}`, 'SISTEMA', p.protocolo);
+        if (lote && !devolucao) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA:${c.id}:`, 'BLOQUEIO')}`, 'SISTEMA', p.protocolo);
         const exposicao = lote ? proporcionalCentavos(Number(p.preco_centavos), Number(lote.consumido), Number(lote.quantidade)) : 0;
         await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'ABERTA', exposicao_centavos = GREATEST(exposicao_centavos, $2) WHERE id = $1::uuid`, [c.id, exposicao]);
     }
@@ -133,10 +134,9 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
     const feitos = (lido.estornos ?? []).filter((e) => e.status === 'DONE' && (e.valorCentavos ?? 0) > 0).reduce((s, e) => s + (e.valorCentavos ?? 0), 0);
     if (feitos <= 0) return null;
     const anterior = Number(c.estornado_centavos);
-    const tratado = Number((await tx.query<{ estornado_centavos: string }>(
-        'UPDATE ia_credito_cobrancas SET estornado_centavos = GREATEST(estornado_centavos, LEAST(valor_centavos, $2)) WHERE id = $1::uuid RETURNING estornado_centavos',
-        [c.id, feitos])).rows[0].estornado_centavos);
+    const tratado = Math.min(Number(c.valor_centavos), feitos);
     if (tratado <= anterior) return null;
+    await tx.query('UPDATE ia_credito_cobrancas SET estornado_centavos = $2 WHERE id = $1::uuid AND estornado_centavos < $2', [c.id, tratado]);
     const devolucao = (await tx.query<{ id: string; estado: string; valor_centavos: string }>('SELECT id, estado, valor_centavos FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid FOR UPDATE',
         [p.id])).rows[0];
     if (devolucao) {
@@ -152,9 +152,18 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
 }
 
+/**
+ * P3-3 (revisão de 22/10): cada abertura/resolução de disputa na mesma cobrança é um episódio novo do extrato — uma 2ª
+ * contestação depois de FAVORAVEL bloqueia de novo (a operação repetida seria ignorada pelo ON CONFLICT).
+ */
+async function episodio(tx: DbExecutor, empresaId: string, loteId: string, prefixo: string, tipo: 'BLOQUEIO' | 'DESBLOQUEIO') {
+    return 1 + Number((await tx.query<{ n: string }>(`SELECT count(*) AS n FROM ia_credito_lancamentos WHERE empresa_id = $1::uuid AND lote_id = $2::uuid AND tipo = $3
+        AND left(operacao, char_length($4)) = $4`, [empresaId, loteId, tipo, prefixo])).rows[0].n);
+}
+
 async function canonica(tx: DbExecutor, pedidoId: string) {
-    return (await tx.query<Cobranca>(`SELECT id, pagamento_id, canonica, situacao_provedor, disputa, confirmada_em, estornado_centavos FROM ia_credito_cobrancas
-        WHERE pedido_id = $1::uuid AND canonica FOR UPDATE`, [pedidoId])).rows[0] ?? null;
+    return (await tx.query<Cobranca>(`SELECT id, pagamento_id, canonica, situacao_provedor, disputa, confirmada_em, estornado_centavos, valor_centavos, conta
+        FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica FOR UPDATE`, [pedidoId])).rows[0] ?? null;
 }
 
 /** Serviço único: estado do pedido a partir da leitura do provedor (transação do chamador). */
@@ -165,6 +174,7 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     if (p.estado === 'FALHOU_CRIACAO') return { resultado: 'JA_CONCLUIDO' };
     const referencia = referenciaExterna(p.ambiente, p.id);
     let c = await canonica(tx, p.id);
+    if (c && c.conta !== ctx.conta) return { resultado: 'SEM_MUDANCA', motivo: 'CONTA_DIVERGENTE' };
     // P2-2 (revisão de 22/10): pedido ENCERRADO (cobrança cancelada) que mesmo assim recebeu pagamento vai para REVISAO —
     // dinheiro nunca fica sem crédito nem sem alarme (D3: o cliente escolhe créditos ou devolução integral).
     if (p.estado === 'ENCERRADO') {
@@ -212,7 +222,7 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
                     const lote = await loteDoPedido(tx, p);
                     const devolucao = (await tx.query('SELECT 1 FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid', [p.id])).rows.length > 0;
                     await lerCarteira(tx, p.empresa_id, p.recurso, true);
-                    if (lote && !devolucao) await desbloquear(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA_FAVORAVEL:${c.id}`, 'SISTEMA');
+                    if (lote && !devolucao) await desbloquear(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA_FAVORAVEL:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA_FAVORAVEL:${c.id}:`, 'DESBLOQUEIO')}`, 'SISTEMA');
                     await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'FAVORAVEL', situacao_provedor = $2 WHERE id = $1::uuid`, [c.id, lido!.status]);
                     return { resultado: 'SEM_MUDANCA', motivo: 'DISPUTA_FAVORAVEL' };
                 }
@@ -279,6 +289,8 @@ export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200) {
     return (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'AGUARDANDO_PAGAMENTO', 'VENCIDO', 'REVISAO')
         OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND (c.disputa = 'ABERTA'))
         OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.pedido_id = p.id AND d.estado IN ('EM_CURSO', 'SOLICITADO', 'SEM_CONFIRMACAO'))
+        -- P3-2: creditado há até 90 dias é relido (estorno total feito no painel com o webhook perdido cancela o remanescente).
+        OR (p.estado = 'CREDITADO' AND p.creditado_em > clock_timestamp() - interval '90 days')
         -- P2-2: cobrança cancelada há até 90 dias ainda pode ser paga (Pix já aberto, boleto impresso).
         OR (p.estado = 'ENCERRADO' AND p.creditado_em IS NULL AND p.atualizado_em > clock_timestamp() - interval '90 days'
             AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica))
@@ -295,6 +307,7 @@ export async function creditarAposRevisao(tx: DbExecutor, pedidoId: string, ctx:
     if (p.ambiente !== ctx.ambiente) return { resultado: 'SEM_MUDANCA', motivo: 'AMBIENTE_DIVERGENTE' };
     const c = await canonica(tx, p.id);
     if (!c) return { resultado: 'SEM_MUDANCA', motivo: 'SEM_COBRANCA_CANONICA' };
+    if (c.conta !== ctx.conta) return { resultado: 'SEM_MUDANCA', motivo: 'CONTA_DIVERGENTE' };
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
     if (!lido || lido.id !== c.pagamento_id || !STATUS_LIBERA.has(lido.status)) return { resultado: 'SEM_MUDANCA', motivo: 'PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR' };
     await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid', [c.id]);

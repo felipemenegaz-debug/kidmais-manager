@@ -23,8 +23,8 @@ const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-095.json';
 const ETAPAS = Object.freeze([
   ['precheck 095', 'database/checks/20261022_095_precheck.sql', '470f3b135a1453a9841acdd500f1b52d064cf99109bb67fb3143707d4b9a6438'],
-  ['migration 095', 'database/migrations/20261022_095_ia_creditos.sql', '7e92cfb8c0c0c50b8bdcc820813ce1e7a28cc4f468979f8fafc9898b247026cd'],
-  ['postcheck 095', 'database/checks/20261022_095_postcheck.sql', '2c3fbc333eb726ee12fa28b3622ab8b1db5538185f27950e1c37ab34fd6f0f86'],
+  ['migration 095', 'database/migrations/20261022_095_ia_creditos.sql', '5852fb3ea868c21235cc3bc9997d7752da64fcb9b7ab3f93731e5314b6daac02'],
+  ['postcheck 095', 'database/checks/20261022_095_postcheck.sql', 'ee57bb51c7ee62f61bb6e1acca13c5b8f0c1e9d1b01e2e01d74ce37a24173faa'],
 ]);
 /** Tabelas EXISTENTES que a 095 referencia por FK (REFERENCES exigido); as demais FKs são entre as tabelas novas. */
 const REFERENCIADAS = Object.freeze(['empresas', 'usuarios_administrativos']);

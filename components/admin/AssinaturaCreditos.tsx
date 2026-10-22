@@ -180,7 +180,8 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
         </div>}
         {devolucaoFeita && <div role="status" data-devolucao-resultado data-protocolo={devolucaoFeita.protocolo} style={{ border: '1px solid currentColor', borderRadius: 12, padding: 12 }}>
             <p style={{ marginTop: 0 }}><strong>Devolução registrada.</strong> Protocolo: <strong>{devolucaoFeita.protocolo}</strong>. Valor: {reais(devolucaoFeita.valorCentavos)}.</p>
-            <p>{devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'A restituição é iniciada de imediato, sem desconto de taxas.' : `O processamento começa até ${dataIso(devolucaoFeita.prazo)}.`} O crédito depende do meio de pagamento. Situação: {DEVOLUCAO[devolucaoFeita.estado] ?? devolucaoFeita.estado}.</p>
+            <p>{devolucaoFeita.estado === 'AGUARDANDO_MANUAL' ? `A equipe Kidmais faz a restituição até ${dataIso(devolucaoFeita.prazo)}${devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? ', sem desconto de taxas' : ''}.`
+                : devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'A restituição foi enviada ao Asaas, sem desconto de taxas.' : `O processamento começa até ${dataIso(devolucaoFeita.prazo)}.`} O crédito depende do meio de pagamento. Situação: {DEVOLUCAO[devolucaoFeita.estado] ?? devolucaoFeita.estado}.</p>
         </div>}
 
         {!walleInativo && c.gestao && c.instalado && <>

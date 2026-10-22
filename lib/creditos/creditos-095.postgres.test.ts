@@ -301,7 +301,12 @@ test("095: corte do legado, guardas do extrato, FKs compostas, lote imutável e 
     await recusa(c, () => q("INSERT INTO ia_credito_carteiras (empresa_id, recurso) VALUES ($1::uuid, 'CONVITES')", [S.D]), /ia_credito_carteiras_corte_check/);
     // Reserva com lote de outra empresa: FK composta da alocação recusa.
     const r = (await q(`INSERT INTO ia_credito_reservas (empresa_id, recurso, operacao_id, quantidade) VALUES ($1::uuid, 'CONVITES', 'op-x', 1) RETURNING id`, [S.A])).rows[0].id;
-    await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 1)", [r, loteB, S.A]), /foreign key/);
+    await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 'CONVITES', 1, 1)", [r, loteB, S.A]), /foreign key/);
+    // P3-1 (revisão de 22/10): reserva do Wall-e não aloca lote de Convites (nem com o recurso "trocado" na alocação).
+    await q("INSERT INTO ia_credito_carteiras (empresa_id, recurso) VALUES ($1::uuid, 'WALLE') ON CONFLICT DO NOTHING", [S.A]);
+    const rw = (await q(`INSERT INTO ia_credito_reservas (empresa_id, recurso, operacao_id, quantidade) VALUES ($1::uuid, 'WALLE', 'op-w', 1) RETURNING id`, [S.A])).rows[0].id;
+    await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 'WALLE', 1, 1)", [rw, loteA, S.A]), /ia_credito_reserva_lotes_lote_fk/);
+    await recusa(c, () => q("INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, 'CONVITES', 1, 1)", [rw, loteA, S.A]), /ia_credito_reserva_lotes_reserva_fk/);
     await q("ROLLBACK");
     // A carteira só muda pelo extrato: conferência independente sem divergência.
     for (const e of [S.A, S.B, S.C]) assert.deepEqual(await conferirCarteira(tx, e, "CONVITES"), []);
@@ -890,6 +895,9 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.equal((await lerCarteira(tx, G, "CONVITES"))!.saldo, 10);
     await assert.rejects(emTx(c)((t2) => resolverRevisao(t2, uG, { protocolo: x.protocolo, resultado: "CREDITAR", referencia: "de novo" }, ctx)), /PEDIDO_NAO_ESTA_EM_REVISAO/);
     assert.equal((await c.query("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0].n, 1);
+    // P3-2 (revisão de 22/10): creditado recente é relido pela reconciliação; leitura de outra conta do provedor não mexe em nada.
+    assert.ok((await emTx(c)((t2) => pedidosParaReconciliar(t2))).includes(x.id), "creditado recente revisitado");
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, x.id, { ...ctx, conta: "outra-conta" })), { resultado: "SEM_MUDANCA", motivo: "CONTA_DIVERGENTE" });
     // P3-5 (revisão do delta): a auditoria guarda o preço do pedido e o valor lido no provedor.
     assert.deepEqual((await c.query("SELECT dados_depois->'precoCentavos' AS p, dados_depois->'valorLidoCentavos' AS v FROM auditoria WHERE acao = 'CREDITOS_REVISAO_RESOLVIDA' AND entidade_id = $1::uuid", [x.id])).rows[0], { p: 5900, v: 5900 });
 
@@ -973,6 +981,13 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     duble.pagar(h.pagamento, "RECEIVED");
     await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
     assert.deepEqual(await loteH(), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "disputa favorável devolve tudo");
+    // P3-3 (revisão de 22/10): 2ª contestação na mesma cobrança é episódio novo — bloqueia de novo e volta de novo.
+    duble.pagar(h.pagamento, "CHARGEBACK_REQUESTED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, h.id, ctx))).resultado, "DISPUTA");
+    assert.deepEqual(await loteH(), { disponivel: "0", reservado: "0", bloqueado: "10", cancelado: "0" }, "2ª disputa bloqueia");
+    duble.pagar(h.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, h.id, ctx));
+    assert.deepEqual(await loteH(), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "2ª favorável devolve tudo");
 
     // P2-5: devolução própria (saldo não usado, estorno automático) concluída por estorno PARCIAL DONE com status RECEIVED.
     await c.query("BEGIN");
@@ -991,6 +1006,13 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     duble.pagar(h.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 5900, descricao: null }] });
     assert.equal((await emTx(c)((t2) => processarPedido(t2, h.id, ctx))).resultado, "ESTORNO");
     assert.equal((await c.query("SELECT estado FROM ia_credito_devolucoes WHERE protocolo = $1", [sd.protocolo])).rows[0].estado, "CONCLUIDO");
+    // P3-5 (revisão de 22/10): a Equipe vê o saldo e os vencimentos, sem o protocolo dos pedidos (só a Gestão vê pedidos).
+    const consulta = (papelAtual: string) => consultarCreditos(sessao(uG), null, { env: ENV, withTenantTransaction: (async <T>(_s: unknown, _e: unknown, w: (t2: DbExecutor, t: object) => Promise<T>) =>
+      emTx(c)((t2) => w(t2, { empresaComprovada: G, papelAtual, membershipId: "m", usuarioId: uG }))) as unknown as DepsCreditos["withTenantTransaction"] });
+    const lotesDe = (r: unknown) => ((r as { convites: { lotes?: { protocolo: string | null }[] } }).convites.lotes ?? []);
+    assert.ok(lotesDe(await consulta("REPRESENTANTE_AUTORIZADO")).some((l) => l.protocolo !== null), "Gestão vê o protocolo do pacote");
+    const daEquipe = lotesDe(await consulta("ADMINISTRATIVO"));
+    assert.ok(daEquipe.length > 0 && daEquipe.every((l) => l.protocolo === null), "Equipe sem protocolo");
     for (const e of [G, Hh]) assert.deepEqual(await conferirCarteira(tx, e, "CONVITES"), []);
     assert.equal(await fotografia(c, S.B), S.fotoB, "B intacta");
   } finally {

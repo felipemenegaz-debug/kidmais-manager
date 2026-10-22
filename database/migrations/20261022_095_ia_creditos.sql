@@ -77,6 +77,7 @@ CREATE TABLE ia_credito_pedidos (
   creditado_em timestamptz,
   atualizado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT ia_credito_pedidos_empresa_uk UNIQUE (id, empresa_id),
+  CONSTRAINT ia_credito_pedidos_recurso_uk UNIQUE (id, empresa_id, recurso),
   CONSTRAINT ia_credito_pedidos_idempotencia_uk UNIQUE (empresa_id, chave_idempotencia),
   CONSTRAINT ia_credito_pedidos_creditado_check CHECK ((estado = 'CREDITADO') = (creditado_em IS NOT NULL)),
   CONSTRAINT ia_credito_pedidos_revisao_check CHECK ((estado = 'REVISAO') = (revisao_motivo IS NOT NULL))
@@ -106,9 +107,11 @@ CREATE TABLE ia_credito_lotes (
   liberado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   vence_em timestamptz NOT NULL,
   FOREIGN KEY (empresa_id, recurso) REFERENCES ia_credito_carteiras(empresa_id, recurso),
-  FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
+  -- P3-1: lote de compra só do MESMO recurso do pedido.
+  CONSTRAINT ia_credito_lotes_pedido_fk FOREIGN KEY (pedido_id, empresa_id, recurso) REFERENCES ia_credito_pedidos(id, empresa_id, recurso),
   CONSTRAINT ia_credito_lotes_empresa_uk UNIQUE (id, empresa_id),
   CONSTRAINT ia_credito_lotes_recurso_uk UNIQUE (id, empresa_id, recurso),
+  CONSTRAINT ia_credito_lotes_pedido_lote_uk UNIQUE (id, empresa_id, pedido_id),
   CONSTRAINT ia_credito_lotes_origem_uk UNIQUE (empresa_id, recurso, chave_origem),
   CONSTRAINT ia_credito_lotes_valores_check CHECK (disponivel >= 0 AND reservado >= 0 AND bloqueado >= 0 AND consumido >= 0 AND expirado >= 0
     AND cancelado >= 0 AND disponivel + reservado + bloqueado + consumido + expirado + cancelado = quantidade),
@@ -165,6 +168,7 @@ CREATE TABLE ia_credito_reservas (
   encerrada_em timestamptz,
   FOREIGN KEY (empresa_id, recurso) REFERENCES ia_credito_carteiras(empresa_id, recurso),
   CONSTRAINT ia_credito_reservas_empresa_uk UNIQUE (id, empresa_id),
+  CONSTRAINT ia_credito_reservas_recurso_uk UNIQUE (id, empresa_id, recurso),
   CONSTRAINT ia_credito_reservas_operacao_uk UNIQUE (empresa_id, recurso, operacao_id),
   CONSTRAINT ia_credito_reservas_encerramento_check CHECK ((estado = 'ABERTA') = (encerrada_em IS NULL)),
   CONSTRAINT ia_credito_reservas_consumo_check CHECK (
@@ -179,13 +183,15 @@ CREATE TABLE ia_credito_reserva_lotes (
   reserva_id uuid NOT NULL,
   lote_id uuid NOT NULL,
   empresa_id uuid NOT NULL,
+  recurso text NOT NULL,
   ordem smallint NOT NULL CHECK (ordem >= 1),
   quantidade bigint NOT NULL CHECK (quantidade > 0),
   consumido bigint NOT NULL DEFAULT 0,
   liberado bigint NOT NULL DEFAULT 0,
   PRIMARY KEY (reserva_id, lote_id),
-  FOREIGN KEY (reserva_id, empresa_id) REFERENCES ia_credito_reservas(id, empresa_id),
-  FOREIGN KEY (lote_id, empresa_id) REFERENCES ia_credito_lotes(id, empresa_id),
+  -- P3-1: a reserva só aloca lotes do MESMO recurso (Convites nunca em reserva do Wall-e).
+  CONSTRAINT ia_credito_reserva_lotes_reserva_fk FOREIGN KEY (reserva_id, empresa_id, recurso) REFERENCES ia_credito_reservas(id, empresa_id, recurso),
+  CONSTRAINT ia_credito_reserva_lotes_lote_fk FOREIGN KEY (lote_id, empresa_id, recurso) REFERENCES ia_credito_lotes(id, empresa_id, recurso),
   CONSTRAINT ia_credito_reserva_lotes_ordem_uk UNIQUE (reserva_id, ordem),
   CONSTRAINT ia_credito_reserva_lotes_valores_check CHECK (consumido >= 0 AND liberado >= 0 AND consumido + liberado <= quantidade)
 );
@@ -215,6 +221,7 @@ CREATE TABLE ia_credito_cobrancas (
   atualizada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_empresa_uk UNIQUE (id, empresa_id),
+  CONSTRAINT ia_credito_cobrancas_pedido_cobranca_uk UNIQUE (id, empresa_id, pedido_id),
   CONSTRAINT ia_credito_cobrancas_pagamento_uk UNIQUE (provedor, ambiente, conta, pagamento_id),
   CONSTRAINT ia_credito_cobrancas_estorno_check CHECK (estornado_centavos >= 0 AND estornado_centavos <= valor_centavos),
   CONSTRAINT ia_credito_cobrancas_exposicao_check CHECK (exposicao_centavos <= valor_centavos)
@@ -251,8 +258,9 @@ CREATE TABLE ia_credito_devolucoes (
   atualizado_em timestamptz,
   concluido_em timestamptz,
   FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
-  FOREIGN KEY (cobranca_id, empresa_id) REFERENCES ia_credito_cobrancas(id, empresa_id),
-  FOREIGN KEY (lote_id, empresa_id) REFERENCES ia_credito_lotes(id, empresa_id),
+  -- P3-1: cobrança e lote da devolução são do MESMO pedido.
+  CONSTRAINT ia_credito_devolucoes_cobranca_fk FOREIGN KEY (cobranca_id, empresa_id, pedido_id) REFERENCES ia_credito_cobrancas(id, empresa_id, pedido_id),
+  CONSTRAINT ia_credito_devolucoes_lote_fk FOREIGN KEY (lote_id, empresa_id, pedido_id) REFERENCES ia_credito_lotes(id, empresa_id, pedido_id),
   CONSTRAINT ia_credito_devolucoes_idempotencia_uk UNIQUE (empresa_id, chave_idempotencia),
   CONSTRAINT ia_credito_devolucoes_pedido_uk UNIQUE (pedido_id),
   CONSTRAINT ia_credito_devolucoes_valor_check CHECK (valor_centavos <= valor_pago_centavos
@@ -365,7 +373,7 @@ BEGIN
       IF NEW.estado <> OLD.estado THEN NEW.encerrada_em := clock_timestamp(); END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_reserva_lotes' THEN
-    IF TG_OP = 'UPDATE' AND ((NEW.reserva_id, NEW.lote_id, NEW.empresa_id, NEW.ordem, NEW.quantidade) IS DISTINCT FROM (OLD.reserva_id, OLD.lote_id, OLD.empresa_id, OLD.ordem, OLD.quantidade)
+    IF TG_OP = 'UPDATE' AND ((NEW.reserva_id, NEW.lote_id, NEW.empresa_id, NEW.recurso, NEW.ordem, NEW.quantidade) IS DISTINCT FROM (OLD.reserva_id, OLD.lote_id, OLD.empresa_id, OLD.recurso, OLD.ordem, OLD.quantidade)
        OR NEW.consumido < OLD.consumido OR NEW.liberado < OLD.liberado) THEN
       RAISE EXCEPTION '095: alocação da reserva é imutável.' USING ERRCODE = 'P0001';
     END IF;

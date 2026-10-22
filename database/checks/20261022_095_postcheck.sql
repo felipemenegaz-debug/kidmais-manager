@@ -25,6 +25,12 @@ BEGIN
         AND array_length(conkey, 1) >= 2) < 9 THEN
     RAISE EXCEPTION '095 postcheck: chaves estrangeiras compostas por empresa ausentes';
   END IF;
+  -- P3-1: as amarras de recurso e de pedido, pelos nomes e com as colunas certas.
+  IF (SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND convalidated AND conname IN (
+        'ia_credito_lotes_pedido_fk', 'ia_credito_reserva_lotes_reserva_fk', 'ia_credito_reserva_lotes_lote_fk',
+        'ia_credito_devolucoes_cobranca_fk', 'ia_credito_devolucoes_lote_fk') AND array_length(conkey, 1) = 3) <> 5 THEN
+    RAISE EXCEPTION '095 postcheck: amarras de recurso/pedido ausentes';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = 'public.ia_credito_cobrancas_canonica_uk'::regclass AND indisvalid AND indisunique)
     OR NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = 'public.ia_credito_lotes_pedido_uk'::regclass AND indisvalid AND indisunique)
     OR NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = 'public.ia_credito_lotes_consumo_idx'::regclass AND indisvalid)

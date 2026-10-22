@@ -16,12 +16,13 @@ import { GESTAO, type DepsCreditos } from './compra.ts';
 type Env = Record<string, string | undefined>;
 const ISO = (c: string) => `to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
-function carteiraParaTela(w: ResumoCarteira) {
+/** P3-5 (revisão de 22/10): sem Gestão, os lotes não levam o protocolo do pedido (pedidos são só da Gestão). */
+function carteiraParaTela(w: ResumoCarteira, gestao: boolean) {
     const e = (q: number) => exibir(w.recurso, q);
     return { recurso: w.recurso, disponivel: e(w.disponivel), reservado: e(w.reservado), bloqueado: e(w.bloqueado), corteEm: w.corteEm,
         aviso: avisoSaldo(w.disponivel, w.referencia),
         lotes: w.lotes.map((l) => ({ origem: l.origem, quantidade: e(l.quantidade), disponivel: e(l.disponivel), reservado: e(l.reservado), consumido: e(l.consumido),
-            expirado: e(l.expirado), cancelado: e(l.cancelado), liberadoEm: l.liberadoEm, venceEm: l.venceEm, protocolo: l.protocolo })) };
+            expirado: e(l.expirado), cancelado: e(l.cancelado), liberadoEm: l.liberadoEm, venceEm: l.venceEm, protocolo: gestao ? l.protocolo : null })) };
 }
 
 async function legadoConvites(tx: DbExecutor, empresaId: string) {
@@ -47,8 +48,8 @@ export async function consultarCreditos(sessao: SessaoAdmin, empresaSolicitada: 
         const base = {
             instalado: true as const, gestao, walleDisponivel: walle,
             consumoConvitesAtivo: flagsCreditos(env).consumoConvites,
-            convites: convites ? { motor: 'CREDITOS' as const, ...carteiraParaTela(convites), emVerificacao } : { motor: 'LEGADO' as const, legado, emVerificacao },
-            walle: carteiraWalle && walle ? carteiraParaTela(carteiraWalle) : null,
+            convites: convites ? { motor: 'CREDITOS' as const, ...carteiraParaTela(convites, gestao), emVerificacao } : { motor: 'LEGADO' as const, legado, emVerificacao },
+            walle: carteiraWalle && walle ? carteiraParaTela(carteiraWalle, gestao) : null,
         };
         if (!gestao) return base;
         const pedidos = (await tx.query<Record<string, unknown>>(`SELECT p.protocolo, p.estado, p.recurso, p.oferta_codigo, p.oferta, p.preco_centavos, p.forma,

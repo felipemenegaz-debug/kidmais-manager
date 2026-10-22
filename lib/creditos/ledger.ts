@@ -135,8 +135,8 @@ export async function reservar(tx: DbExecutor, r: { empresaId: string; recurso: 
     let ordem = 0;
     for (const a of alocacao) {
         ordem += 1;
-        await tx.query('INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)',
-            [reserva.id, a.loteId, r.empresaId, ordem, a.quantidade]);
+        await tx.query('INSERT INTO ia_credito_reserva_lotes (reserva_id, lote_id, empresa_id, recurso, ordem, quantidade) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)',
+            [reserva.id, a.loteId, r.empresaId, r.recurso, ordem, a.quantidade]);
         await lancar(tx, { empresaId: r.empresaId, recurso: r.recurso, loteId: a.loteId, tipo: 'RESERVA', quantidade: a.quantidade, operacao: `RESERVA:${reserva.id}`, ator: r.ator });
     }
     return { id: reserva.id, estado: 'ABERTA', quantidade: r.quantidade, consumido: null, repetida: false };

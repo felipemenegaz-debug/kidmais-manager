@@ -121,7 +121,14 @@ test('flags: tudo desligado por padrão; só o texto "true" liga; produção nun
     assert.deepEqual(catalogoVisivel(aprovado, { ...ligado, KIDMAIS_DEPLOY_ENV: 'production' }), { ok: false, motivo: 'APROVACAO_DIVERGENTE' });
     assert.deepEqual(vendaAberta(aprovado, { ...ligado, KIDMAIS_DEPLOY_ENV: 'production', CREDITOS_CATALOGO_APROVADO: 'APROVADO-TESTE-1' }), { ok: true });
     assert.equal(contaProvedor({}), 'padrao');
-    assert.equal(contaProvedor({ CREDITOS_ASAAS_CONTA: 'Conta Real!' }), 'invalida');
+    // P3-2: conta inválida falha fechado (venda fechada; quem processa recusa).
+    assert.throws(() => contaProvedor({ CREDITOS_ASAAS_CONTA: 'Conta Real!' }), /CREDITOS_ASAAS_CONTA_INVALIDA/);
+    assert.deepEqual(vendaAberta(CATALOGO_DEMO, { ...ligado, KIDMAIS_DEPLOY_ENV: 'staging', CREDITOS_ASAAS_CONTA: 'Conta Real!' }), { ok: false, motivo: 'CONTA_INVALIDA' });
+    // P3-7: sem KIDMAIS_DEPLOY_ENV reconhecido, só a execução local (fora do Render e de NODE_ENV=production) vende sem aprovação.
+    assert.deepEqual(vendaAberta(CATALOGO_DEMO, { ...ligado, NODE_ENV: 'test' }), { ok: true });
+    assert.deepEqual(vendaAberta(CATALOGO_DEMO, { ...ligado, NODE_ENV: 'production' }), { ok: false, motivo: 'CATALOGO_NAO_APROVADO_PRODUCAO' });
+    assert.deepEqual(vendaAberta(CATALOGO_DEMO, { ...ligado, RENDER: 'true' }), { ok: false, motivo: 'CATALOGO_NAO_APROVADO_PRODUCAO' });
+    assert.deepEqual(vendaAberta(CATALOGO_DEMO, { ...ligado, KIDMAIS_DEPLOY_ENV: 'prod' }), { ok: false, motivo: 'CATALOGO_NAO_APROVADO_PRODUCAO' });
 });
 
 test('Wall-e só disponível com o consumo novo E os gates do atendimento (saldo nunca reativa o atendimento)', () => {

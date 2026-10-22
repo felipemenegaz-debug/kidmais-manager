@@ -1716,6 +1716,7 @@
     "reserva_id",
     "lote_id",
     "empresa_id",
+    "recurso",
     "ordem",
     "quantidade",
     "consumido",
