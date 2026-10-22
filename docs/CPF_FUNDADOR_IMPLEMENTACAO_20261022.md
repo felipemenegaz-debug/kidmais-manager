@@ -560,3 +560,55 @@ Limites que continuam declarados:
 - relógio do processo × relógio do banco.
 
 Validação: site e campanha 29/29, ESLint e tsc PASS.
+
+### Oitava rodada: grupo A do parecer jurídico de apoio (D3 nos textos, D5 executável)
+
+Fonte: `parecer-juridico-cpf-fundador-20261022/PARECER.md` (§6 e §8; análise de apoio por IA, sem parecer profissional assinado). Commits `bcb0c6e` (textos) e `a10a1c7` (D5).
+
+**Bloqueante 4, textos de prazo (`bcb0c6e`).** Os textos ficam todos em `lib/assinatura/textos-fundador.ts` e são usados pelo site, pela tela de assinatura e pelas mensagens de domínio.
+- "Assinar" é confirmar plano e valor: a condição fica **reservada**. O primeiro pagamento **confirma** o benefício e inicia os 12 meses.
+- Data individual: "pague até DD/MM/AAAA, fim do dia (23h59, horário de Brasília)". O prazo conta dias de calendário, não 168 horas, e não se confunde com o arrependimento.
+- Pagamento tardio: vai para análise do atendimento, sem cobrança complementar automática, e uma solução é oferecida (inclusive devolução, quando cabível).
+- Lote posterior: "a vaga fica reservada ao assinar e o benefício é confirmado com o primeiro pagamento".
+- **Não decidido** (o parecer pede, mas não é técnico): o prazo de retorno do atendimento no pagamento tardio. Nenhum prazo foi inventado.
+
+**Bloqueante 5, continuidade D5 (`a10a1c7`).** A 091 (ainda não aplicada) ganhou `empresa_documento_continuidades`.
+- Tipos:
+  - `RETIFICACAO`: mesmo tipo de documento, para erro de digitação; atende também à "retificação de CPF digitado errado" do parecer;
+  - `MESMA_TITULARIDADE`: CPF → CNPJ de empresário individual/MEI (aditivo);
+  - `CESSAO`: CPF → CNPJ de sociedade (cessão de posição contratual).
+- Cada linha guarda o instrumento assinado (identificação e versão), as evidências do vínculo, a data efetiva e um retrato das condições (assinatura, Fundador e contratações, sem documentos).
+- Banco:
+  - o registro é imutável e não pode ser apagado;
+  - o documento anterior tem de ser o documento vigente;
+  - o DV do documento novo é conferido;
+  - só uma continuidade pendente por empresa;
+  - o documento novo é único.
+- **Os snapshots não são reescritos.** O beneficiário Fundador continua sendo o documento do teste (guarda 074a), e a continuidade liga esse registro ao documento novo. Preço, ciclo, benefício e datas originais seguem os registros; não há novo teste nem novo período.
+- Documento **vigente** = o da última continuidade. É o que valem a ficha do painel, o checkout (cliente criado com o CNPJ e a razão social) e o Perfil (passa a PJ).
+- Com cliente já criado no provedor: `PENDENTE_PROVEDOR`. A contratação e uma nova oferta são recusadas (`CONTINUIDADE_PENDENTE`) até o atendimento registrar a conferência do provedor. Sem cliente no provedor, a continuidade conclui na hora.
+- Painel comercial: "Continuidade de documento…" e "Registrar conferência do provedor", com concessão, senha recente, motivo e auditoria (documentos mascarados).
+- A chave `ASSINATURA_CONTINUIDADE_ATIVA` fica **desligada**. Sem ela, ou sem a 091, a resposta é `CONTINUIDADE_INDISPONIVEL`.
+- Aplicadores 091: hashes novos. O estado inclui a tabela e a guarda, e o plano exige REFERENCES em `empresas` e `usuarios_administrativos`.
+
+**Roteiro do atendimento (D5).** É uma proposta; o instrumento e a parte fiscal dependem da Astra e do contador.
+1. Receber o pedido da contratante pelo canal de atendimento. Conferir o vínculo: certidão do CNPJ, documento do titular e, na cessão, a representação da sociedade.
+2. Definir o tipo: retificação, mesma titularidade ou cessão. Colher o instrumento assinado, com a versão aprovada pela Astra.
+3. Antes de registrar, conferir com o contador o corte fiscal (competência, notas já emitidas, cobranças pagas).
+4. Registrar no painel: tipo, documento novo, nome civil ou razão social, instrumento, evidências, data efetiva e motivo.
+5. Se houver cliente no provedor, atualizar o cliente no Asaas conforme o procedimento validado no **sandbox** (ainda não executado) e registrar a conferência no painel. Até lá, a contratação fica bloqueada.
+6. Informar a contratante: preço, benefício e data final preservados, sem novo período.
+
+**Ainda depende de fora:** redação do instrumento (Astra), corte fiscal e NFS-e (contador), alteração de `cpfCnpj` no Asaas (sandbox autorizado).
+
+**Validação:**
+- Unitários: 422/422 e render do painel 1/1.
+- Scripts: 63/63 e blocos 20/20.
+- PG descartável 55607:
+  - 091: 10/10 (caso 9 novo);
+  - aplicadores: 1/1;
+  - vizinhos: 72/72 (090, cobrança, gratuidade, painel comercial, exportação, painel 063).
+  - Cluster removido.
+- Playwright: `cpf-fundador-ui` 7/7 com os textos novos; `cadastro-publico-ui` 8/8.
+- `check:v1:static`: PASS (3296 + 103, com lint, tsc e build).
+- Não executado: Asaas sandbox, staging/produção, revisão do Astra desta rodada.
