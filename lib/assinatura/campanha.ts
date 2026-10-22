@@ -22,6 +22,23 @@ export type CampanhaFundador = {
 };
 export type FaseCampanha = 'ANTES' | 'JANELA' | 'POS_JANELA' | 'ENCERRADA';
 
+/** Regra decidida por Felipe em 22/10/2026 (D1, D2, D3). O banco fixa D1 e D3; D2 é fixada aqui, na ativação. */
+export const REGRA_APROVADA = Object.freeze({ elegibilidade: 'OFERTA_PERSISTIDA', contagem: 'CALENDARIO_LOCAL', validadeDias: 7, decididaEm: '2026-10-22' } as const);
+
+/**
+ * Ativação autorizada de uma campanha em rascunho com a regra aprovada. NÃO é chamada por nenhum fluxo do produto:
+ * ativar exige data de abertura decidida e autorização registrada (operação própria). Datas calculadas pela guarda 090.
+ */
+export async function ativarCampanhaAprovada(tx: DbExecutor, input: { codigo: string; aberturaData: string; autorizacao: string; operadorId: string }) {
+    meiaNoiteLocal(input.aberturaData);
+    const r = (await tx.query<{ id: string }>(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = $2, elegibilidade = $3,
+        validade_oferta = make_interval(days => $4::int), abertura_data = $5::date, autorizacao = $6, ativada_por = $7::uuid
+        WHERE codigo = $1 AND estado = 'RASCUNHO' RETURNING id`,
+        [input.codigo, REGRA_APROVADA.contagem, REGRA_APROVADA.elegibilidade, REGRA_APROVADA.validadeDias, input.aberturaData, input.autorizacao, input.operadorId])).rows[0];
+    if (!r) throw new Error('Campanha em rascunho não encontrada.');
+    return r.id;
+}
+
 /** 090 completa: tabela de campanhas e colunas de origem. Sem ela, o código segue a regra anterior. */
 export async function schemaCampanhaInstalado(tx: DbExecutor) {
     return (await tx.query<{ instalado090: boolean }>(`SELECT to_regclass('public.assinatura_campanhas') IS NOT NULL

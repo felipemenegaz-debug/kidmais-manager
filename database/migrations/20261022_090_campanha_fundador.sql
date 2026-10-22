@@ -39,10 +39,13 @@ CREATE TABLE assinatura_campanhas (
   versao_regra text NOT NULL CHECK (char_length(btrim(versao_regra)) BETWEEN 3 AND 80),
   estado text NOT NULL DEFAULT 'RASCUNHO' CHECK (estado IN ('RASCUNHO','ATIVA','ENCERRADA')),
   fuso text NOT NULL DEFAULT 'America/Sao_Paulo' CHECK (fuso = 'America/Sao_Paulo'),
-  -- Decisões comerciais (D1–D3): obrigatórias para ativar; nenhum valor padrão é presumido.
+  -- Decisões de Felipe em 22/10/2026 (obrigatórias para ativar; sem valor padrão):
+  --   D1 assinar = oferta aceita e persistida pelo servidor; D3 validade de 7 dias corridos da aceitação.
+  --   D2 calendário de Brasília (CALENDARIO_LOCAL). HORARIO_EXATO existe só para ensaio sintético de fronteira em banco
+  --   descartável; a ativação real usa ativarCampanhaAprovada (lib/assinatura/campanha.ts), que fixa CALENDARIO_LOCAL.
   contagem text CHECK (contagem IN ('CALENDARIO_LOCAL','HORARIO_EXATO')),
-  elegibilidade text CHECK (elegibilidade IN ('OFERTA_PERSISTIDA','PAGAMENTO_CONFIRMADO')),
-  validade_oferta interval CHECK (validade_oferta > interval '0' AND validade_oferta <= interval '90 days'),
+  elegibilidade text CHECK (elegibilidade = 'OFERTA_PERSISTIDA'),
+  validade_oferta interval CHECK (validade_oferta = interval '7 days'),
   abertura_data date,
   inicio timestamptz,
   janela_fim timestamptz,

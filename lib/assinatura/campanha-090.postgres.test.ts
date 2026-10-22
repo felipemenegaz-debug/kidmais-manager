@@ -6,7 +6,7 @@ import type { Client } from 'pg';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
 import { iniciarTeste } from './servico.ts';
 import { consultarOfertas, prepararOferta, type PedidoOferta } from './ofertas.ts';
-import { janelaCalculada, resumoCampanha } from './campanha.ts';
+import { ativarCampanhaAprovada, janelaCalculada, REGRA_APROVADA, resumoCampanha } from './campanha.ts';
 import { sincronizarEmpresa } from './sincronizacao.ts';
 import { repositorioRenovacao } from './renovacao-repositorio.ts';
 import { consultarEncerramento, solicitarEncerramento, type DepsDevolucao } from './devolucao.ts';
@@ -145,16 +145,22 @@ test('3. guardas da campanha: rascunho, decisões obrigatórias, datas do banco,
     await assert.rejects(q("INSERT INTO assinatura_campanhas (codigo, versao_regra, estado) VALUES ('x-ativa', 'v1', 'ATIVA')"), /nasce em RASCUNHO/);
     campanhaId = (await q("INSERT INTO assinatura_campanhas (codigo, versao_regra) VALUES ('fundador-teste', 'fundador-2026-sintetica-v1') RETURNING id")).rows[0].id;
     await assert.rejects(q("UPDATE assinatura_campanhas SET estado = 'ATIVA' WHERE id = $1", [campanhaId]), /contagem da janela não decidida/);
+    // D1/D3 no schema: só oferta persistida e só 7 dias.
+    await assert.rejects(q("UPDATE assinatura_campanhas SET elegibilidade = 'PAGAMENTO_CONFIRMADO' WHERE id = $1", [campanhaId]), /elegibilidade_check/);
+    await assert.rejects(q("UPDATE assinatura_campanhas SET validade_oferta = '8 days' WHERE id = $1", [campanhaId]), /validade_oferta_check/);
     await assert.rejects(q(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = 'CALENDARIO_LOCAL', abertura_data = (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 2
         WHERE id = $1`, [campanhaId]), /assinatura_campanhas_ativacao_check/);
     // Calendário local numa data futura (em transação desfeita): datas = cálculo TS; antes da abertura não há venda nem LEGADO.
     const e3 = await empresaEmTeste();
     await q('BEGIN');
     try {
-        const r = (await q(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = 'CALENDARIO_LOCAL', elegibilidade = 'OFERTA_PERSISTIDA', validade_oferta = '7 days',
-            abertura_data = (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 2, autorizacao = 'Teste sintético sem autorização real', ativada_por = $2
-            WHERE id = $1 RETURNING to_char(abertura_data, 'YYYY-MM-DD') AS d,
-              to_char(inicio AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS i, to_char(janela_fim AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS f`, [campanhaId, usuario])).rows[0];
+        // D1–D3 (22/10/2026): a ativação aprovada fixa calendário de Brasília, oferta persistida e 7 dias de validade.
+        const daqui2 = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 2, 'YYYY-MM-DD') AS d")).rows[0].d;
+        await ativarCampanhaAprovada(client as never, { codigo: 'fundador-teste', aberturaData: daqui2, autorizacao: 'Teste sintético sem autorização real', operadorId: usuario });
+        const r = (await q(`SELECT to_char(abertura_data, 'YYYY-MM-DD') AS d, contagem, elegibilidade, extract(epoch FROM validade_oferta)::int AS v,
+              to_char(inicio AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS i, to_char(janela_fim AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS f
+            FROM assinatura_campanhas WHERE id = $1`, [campanhaId])).rows[0];
+        assert.deepEqual([r.d, r.contagem, r.elegibilidade, r.v], [daqui2, REGRA_APROVADA.contagem, REGRA_APROVADA.elegibilidade, 7 * 86400]);
         assert.deepEqual({ inicio: r.i, janelaFim: r.f }, janelaCalculada('CALENDARIO_LOCAL', { data: r.d }));
         await assert.rejects(prepararOferta(client as never, e3, usuario, COM_DESCONTO, ENV), (x) => codigo(x) === 'CAMPANHA_ANTES_DA_ABERTURA');
     } finally { await q('ROLLBACK'); }
@@ -322,4 +328,75 @@ test('7. pagamento tardio da janela: confirma como JANELA, não consome o lote; 
     // A concessão é histórico: continua CONFIRMADA (não volta, não gera cobrança complementar).
     assert.equal((await concessao(w)).estado, 'CONFIRMADA');
     assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id = $1", [w])).rows[0].n, 1);
+});
+
+test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; pago depois da validade vai para reconciliação; retomar oferta vencida é recusado; nada é liberado sozinho', { skip: !opt() }, async () => {
+    const hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    const dia = (n: number) => { const d = new Date(`${hoje}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const provedorDe = (empresa: string, sufixo: string, pagoEm: string) => {
+        const sub: AssinaturaProvedor = { id: `sub_${sufixo}`, customer: `cus_${sufixo}`, externalReference: empresa, cycle: 'MONTHLY', status: 'ACTIVE', deleted: false, valorCentavos: 11820 };
+        const pay = { id: `pay_${sufixo}`, status: 'RECEIVED', dueDate: hoje, paymentDate: pagoEm, deleted: false, invoiceUrl: null, valorCentavos: 11820,
+            assinaturaId: sub.id, clienteId: sub.customer, billingType: 'PIX' } as CobrancaProvedor;
+        return { sub, provedor: {
+            async obterAssinatura(id: string) { return id === sub.id ? { ...sub } : null; },
+            async listarCobrancasDaAssinatura(id: string) { return id === sub.id ? [{ ...pay }] : []; },
+            async listarAssinaturasPorReferencia(ref: string) { return ref === empresa ? [{ ...sub }] : []; },
+        } };
+    };
+    const sincronizar = async (empresa: string, sufixo: string, pagoEm: string) => {
+        const { sub, provedor } = provedorDe(empresa, sufixo, pagoEm);
+        await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1 AND provedor_assinatura_id IS NULL", [empresa, sub.customer, sub.id]);
+        return emTx(() => sincronizarEmpresa(client as never, empresa, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    };
+    const posAntes = (await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND estado <> 'LIBERADA'")).rows[0].n;
+    // Dentro da validade (6 dias depois de hoje; a janela já fechou): confirma JANELA.
+    const dentro = janela[3];
+    const r1 = await sincronizar(dentro, 'd3a', dia(6));
+    assert.equal(r1.resultado === 'SINCRONIZADA' && r1.depois, 'ATIVA');
+    assert.deepEqual([(await concessao(dentro)).origem, (await concessao(dentro)).estado], ['JANELA', 'CONFIRMADA']);
+    // Depois da validade (8 dias): FUNDADOR_OFERTA_EXPIRADA; nada muda (sem confirmar, liberar ou cobrar de novo).
+    const fora = janela[4];
+    const antes = (await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0];
+    await assert.rejects(sincronizar(fora, 'd3b', dia(8)), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
+    const depois = (await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0];
+    assert.deepEqual(depois, antes, 'reserva e contrato intactos: reconciliação manual');
+    assert.equal((await q('SELECT situacao FROM empresa_assinaturas WHERE empresa_id = $1', [fora])).rows[0].situacao, 'TESTE');
+    // Passagem de 7 dias SIMULADA no fixture (gatilhos suspensos só nesta sessão do banco descartável).
+    const vencida = janela[5];
+    await q("SET session_replication_role = replica");
+    try {
+        await q(`UPDATE assinatura_fundadores SET reservada_em = clock_timestamp() - interval '8 days', oferta_valida_ate = clock_timestamp() - interval '1 day'
+            WHERE empresa_id = $1`, [vencida]);
+    } finally { await q("SET session_replication_role = origin"); }
+    const consulta = await emTx(() => consultarOfertas(client as never, vencida, ENV));
+    assert.equal(consulta?.pendente?.fundadorValidoAte?.vencida, true);
+    await assert.rejects(ofertaEm(client, vencida), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
+    assert.equal((await concessao(vencida)).estado, 'RESERVADA', 'sem liberação automática');
+    // Validade informada a quem ainda está no prazo.
+    const noPrazo = await emTx(() => consultarOfertas(client as never, janela[6], ENV));
+    assert.equal(noPrazo?.pendente?.fundadorValidoAte?.vencida, false);
+    assert.match(String(noPrazo?.pendente?.fundadorValidoAte?.dia), /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND estado <> 'LIBERADA'")).rows[0].n, posAntes, 'lote posterior intacto');
+});
+
+test('9. D4: pendente legada paga depois da ativação (mesmo 30 dias depois) mantém a condição LEGADO contratada, sem prazo da campanha e sem vaga nova', { skip: !opt() }, async () => {
+    const e = legado[4];
+    const hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    const d = new Date(`${hoje}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 30);
+    const pagoEm = d.toISOString().slice(0, 10);
+    const sub: AssinaturaProvedor = { id: 'sub_legado', customer: 'cus_legado', externalReference: e, cycle: 'MONTHLY', status: 'ACTIVE', deleted: false, valorCentavos: 11820 };
+    const pay = { id: 'pay_legado', status: 'RECEIVED', dueDate: hoje, paymentDate: pagoEm, deleted: false, invoiceUrl: null, valorCentavos: 11820, assinaturaId: sub.id, clienteId: sub.customer, billingType: 'PIX' } as CobrancaProvedor;
+    const provedor = {
+        async obterAssinatura(id: string) { return id === sub.id ? { ...sub } : null; },
+        async listarCobrancasDaAssinatura(id: string) { return id === sub.id ? [{ ...pay }] : []; },
+        async listarAssinaturasPorReferencia(ref: string) { return ref === e ? [{ ...sub }] : []; },
+    };
+    const antes = (await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem <> 'LEGADO'")).rows[0].n;
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [e, sub.customer, sub.id]);
+    const r = await emTx(() => sincronizarEmpresa(client as never, e, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(r.resultado === 'SINCRONIZADA' && r.depois, 'ATIVA');
+    const f = await concessao(e);
+    assert.deepEqual([f.origem, f.estado, f.campanha_id, f.oferta_valida_ate], ['LEGADO', 'CONFIRMADA', null, null]);
+    assert.equal((await q("SELECT valor_final_centavos FROM assinatura_contratacoes WHERE empresa_id = $1 AND estado = 'CONFIRMADA'", [e])).rows[0].valor_final_centavos, 11820);
+    assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem <> 'LEGADO'")).rows[0].n, antes, 'nenhuma concessão nova');
 });

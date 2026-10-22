@@ -124,6 +124,22 @@ async function situacaoFundador(tx: DbExecutor, empresaId: string, travar: boole
         resumo: { fase, vagasRestantes: Math.max(0, limite - o.ocupadas), emConfirmacao: o.ocupadas - o.confirmadas, limite } };
 }
 
+/**
+ * Validade da condição reservada na campanha 090 (D3 de 22/10/2026: 7 dias corridos a partir da aceitação persistida).
+ * Concessão LEGADO, sem a 090 ou já confirmada: sem prazo (null). `dia` é a data local (America/Sao_Paulo) do fim.
+ */
+export async function validadeDaConcessao(tx: DbExecutor, fundadorId: string | null) {
+    if (!fundadorId || !await schemaCampanhaInstalado(tx)) return null;
+    const r = (await tx.query<{ estado: string; ate: string | null; dia: string | null; vencida: boolean }>(`SELECT estado,
+        to_char(oferta_valida_ate AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ate,
+        to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS dia,
+        coalesce(oferta_valida_ate <= clock_timestamp(), false) AS vencida
+        FROM assinatura_fundadores WHERE id = $1::uuid`, [fundadorId])).rows[0];
+    if (!r?.ate || !r.dia || r.estado !== 'RESERVADA') return null;
+    return { ate: r.ate, dia: r.dia, vencida: r.vencida };
+}
+const EXPIRADA = 'A condição Fundador reservada venceu sem pagamento. Fale com o atendimento: a reserva só é liberada depois de conferirmos que não há cobrança em aberto.';
+
 /** Insere a concessão da fase decidida. Guarda 090 recusa (fase virou, lote esgotado) → o cliente confirma de novo. */
 async function reservarConcessao(tx: DbExecutor, empresaId: string, documento: string, s: SituacaoFundador): Promise<string | null> {
     try {
@@ -168,7 +184,8 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
         campanha: campanha ? campanha.resumo : null,
         bloqueio: campanha?.bloqueio ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,
         versao: condicoesComerciais.versao,
-        pendente: pendente ? { plano: pendente.plano.toLowerCase() as PlanoComercialId, ciclo: pendente.ciclo, valorCentavos: pendente.valor_final_centavos } : null,
+        pendente: pendente ? { plano: pendente.plano.toLowerCase() as PlanoComercialId, ciclo: pendente.ciclo, valorCentavos: pendente.valor_final_centavos,
+            fundadorValidoAte: await validadeDaConcessao(tx, pendente.fundador_id) } : null,
         planos: Object.entries(planosComerciais).map(([id, plano]) => ({
             id: id as PlanoComercialId, nome: plano.nome,
             mensal: valorComercial(id as PlanoComercialId, 'mensal', campanha?.elegivel ?? false),
@@ -200,6 +217,9 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
     if (aberta) {
         if (aberta.plano !== pedido.plano.toUpperCase() || aberta.ciclo !== pedido.ciclo || aberta.valor_final_centavos !== pedido.valorEsperadoCentavos)
             throw erroAcesso('OFERTA_EM_ANDAMENTO', 'Há uma contratação em andamento. Retome as condições já confirmadas.', 409);
+        // D3: retomar oferta com a condição vencida não reabre o prazo; a liberação exige prova (atendimento).
+        if ((await validadeDaConcessao(tx, aberta.fundador_id))?.vencida)
+            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
         return aberta;
     }
     if (linha.provedor_assinatura_id || linha.plano !== 'UNICO')
@@ -245,6 +265,14 @@ export async function confirmarOfertaPaga(tx: DbExecutor, empresaId: string, ass
     await tx.query('SELECT id FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE', [empresaId, oferta.id]);
     const pagamento = pagamentoDaOferta(oferta, assinatura, pagamentos, clienteId, beneficio?.beneficio_fim ?? null);
     if (!pagamento) throw erroAcesso('PAGAMENTO_OFERTA_DIVERGENTE', 'O pagamento não corresponde à oferta contratada.', 409);
+    // D3: pagamento depois da validade (data do pagamento no provedor, não a chegada do webhook) não confirma sozinho:
+    // fica para reconciliação, sem liberar a vaga, sem reprecificar e sem cobrança complementar automática.
+    const validade = oferta.estado === 'EM_ABERTO' && beneficio?.estado === 'RESERVADA' ? await validadeDaConcessao(tx, oferta.fundador_id) : null;
+    if (validade) {
+        const pagoEm = pagamento.confirmedDate ?? pagamento.paymentDate ?? (await tx.query<{ d: string }>("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS d")).rows[0]!.d;
+        if (pagoEm > validade.dia)
+            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', 'Pagamento recebido depois da validade da condição Fundador: a contratação fica em reconciliação pelo atendimento.', 409);
+    }
     if (!ativar) return null;
     if (oferta.estado === 'EM_ABERTO') {
         if (beneficio?.estado === 'RESERVADA') await tx.query(`UPDATE assinatura_fundadores SET estado = 'CONFIRMADA',

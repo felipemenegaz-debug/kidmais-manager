@@ -41,6 +41,11 @@ BEGIN
              AND NOT EXISTS (SELECT 1 FROM assinatura_campanhas c WHERE c.id = f.campanha_id AND c.estado <> 'RASCUNHO')) THEN
     RAISE EXCEPTION '090 postcheck: concessão da campanha sem campanha ativada';
   END IF;
+  -- Decisões D1–D3 de 22/10/2026 gravadas no schema.
+  IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conrelid = 'public.assinatura_campanhas'::regclass AND conname = 'assinatura_campanhas_elegibilidade_check')) NOT LIKE '%OFERTA_PERSISTIDA%'
+    OR pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conrelid = 'public.assinatura_campanhas'::regclass AND conname = 'assinatura_campanhas_validade_oferta_check')) NOT LIKE '%7 days%' THEN
+    RAISE EXCEPTION '090 postcheck: regra aprovada (D1/D3) ausente no schema';
+  END IF;
   RAISE NOTICE '090 postcheck OK';
 END $$;
 -- Contagem informativa (sem ids nem documentos).

@@ -5,7 +5,7 @@
  * Redação da janela e do significado de "assinar" é PROPOSTA técnica: depende da decisão D1 e da revisão da Astra.
  */
 import { condicoesComerciais } from '../assinatura/planos-comerciais.ts';
-import type { ResumoCampanha } from '../assinatura/campanha.ts';
+import { REGRA_APROVADA, type ResumoCampanha } from '../assinatura/campanha.ts';
 
 const { descontoPercentual: pct, meses, vagas } = condicoesComerciais.fundador;
 export type TextoFundador = { barra: string; titulo: string; descricao: string; faq: string; cta: string | null };
@@ -23,7 +23,7 @@ export function textoFundador(resumo: ResumoCampanha | null): TextoFundador {
         case 'JANELA':
             return { barra: `${base} para quem assinar ${resumo.prazo.texto}.`,
                 titulo: `Plano Fundador para quem assinar ${resumo.prazo.texto}.`,
-                descricao: `${base}, sem limite de vagas até o prazo. Assinar é confirmar, na sua conta, o plano e o valor com a condição Fundador; o desconto começa com o primeiro pagamento confirmado e vale por ${meses} meses. Depois do prazo, a condição segue para mais ${condicoesComerciais.fundador.vagas} buffets, por ordem de contratação. ${opiniao}`,
+                descricao: `${base}, sem limite de vagas até o prazo. Assinar é confirmar, na sua conta, o plano e o valor com a condição Fundador; ela fica reservada por ${REGRA_APROVADA.validadeDias} dias corridos para o pagamento, e o desconto começa com o primeiro pagamento confirmado e vale por ${meses} meses. Depois do prazo, a condição segue para mais ${condicoesComerciais.fundador.vagas} buffets, por ordem de contratação. ${opiniao}`,
                 faq: `Quem assinar ${resumo.prazo.texto} tem ${pct}% de desconto por ${meses} meses em qualquer plano, sem limite de vagas. Depois do prazo, a condição segue para mais ${condicoesComerciais.fundador.vagas} buffets, por ordem de contratação. A disponibilidade é confirmada na hora de assinar.`,
                 cta: 'Quero ser Fundador →' };
         case 'POS_JANELA':

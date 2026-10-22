@@ -8,6 +8,7 @@ import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
+import { REGRA_APROVADA } from '@/lib/assinatura/campanha';
 
 /**
  * Ações de cobrança da tela Assinatura (E8, Asaas sandbox). Só a Gestão contrata ou cancela; a Equipe vê a situação.
@@ -121,7 +122,10 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         {dados.gestao && cobranca?.disponivel && dados.ofertas?.habilitado && !pagamento?.urlPagamento && <div>
             <p>Escolha o plano para continuar após o teste. O acesso pago depende da confirmação do pagamento.</p>
             {dados.ofertas.fundador && <p>Fundador: 40% de desconto por 12 meses. Depois, renovação pelo preço normal, com aviso prévio.</p>}
-            {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'JANELA' && <p>Condição válida para quem assinar {dados.ofertas.campanha.prazo.texto}. A disponibilidade é confirmada ao assinar.</p>}
+            {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'JANELA' && <p>Condição válida para quem assinar {dados.ofertas.campanha.prazo.texto}. A disponibilidade é confirmada ao assinar. Depois de confirmar o plano, a condição fica reservada por {REGRA_APROVADA.validadeDias} dias corridos para o pagamento.</p>}
+            {dados.ofertas.pendente?.fundadorValidoAte && (dados.ofertas.pendente.fundadorValidoAte.vencida
+                ? <p role="alert" data-fundador-vencido>A condição Fundador reservada venceu em {dados.ofertas.pendente.fundadorValidoAte.dia.split('-').reverse().join('/')} sem pagamento. Fale com o atendimento antes de pagar.</p>
+                : <p role="status" data-fundador-validade>Condição Fundador reservada: pague até {dados.ofertas.pendente.fundadorValidoAte.dia.split('-').reverse().join('/')} (horário de Brasília). Pagamento depois disso fica em análise pelo atendimento.</p>)}
             {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'POS_JANELA' && <p>Restam {dados.ofertas.campanha.vagasRestantes} vagas Fundador (indicativo). A vaga é confirmada ao assinar.</p>}
             {dados.ofertas.aguardandoVaga ? <p role="status">As vagas Fundador estão em confirmação. Aguarde antes de contratar.</p> : <>
                 <label>Ciclo <select value={cicloPlano} onChange={e => setCicloPlano(e.target.value as 'MENSAL' | 'ANUAL')} disabled={ocupado || Boolean(dados.ofertas.pendente)}>

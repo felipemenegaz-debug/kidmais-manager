@@ -22,8 +22,8 @@ const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-090.json';
 const ETAPAS = Object.freeze([
   ['precheck 090', 'database/checks/20261022_090_precheck.sql', '87c7f08c827d0f7762520d33a9a2391e53a3ef9e682f55e2edccc1869083711f'],
-  ['migration 090', 'database/migrations/20261022_090_campanha_fundador.sql', '0148216897149ec96f392966163aad35e8fe42b187713bc341af5220fbdb8b56'],
-  ['postcheck 090', 'database/checks/20261022_090_postcheck.sql', 'fcb82c0f64aac22e8aa9279632e3c5cde93616fbe8b6ce26ad353cefcabc4770'],
+  ['migration 090', 'database/migrations/20261022_090_campanha_fundador.sql', '9415b2e8cbcf82b0bed99e8d24b9ccbcb1bc1f1f988b36503f21a6f9edfbf68f'],
+  ['postcheck 090', 'database/checks/20261022_090_postcheck.sql', '90bd9cb7226cd66d70814ac59066233735a2bb603d30bfd8e581b8819eb7ef0a'],
 ]);
 /** Tabelas que a 090 referencia por FK (REFERENCES exigido) e a tabela que ela altera (dono exigido). */
 const REFERENCIADAS = Object.freeze(['usuarios_administrativos']);
