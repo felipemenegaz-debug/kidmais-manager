@@ -47,7 +47,7 @@ import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, validadeDaConcessao, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
 import { documentoFiscalValido, tipoDocumentoFiscal } from '../acessos/validacao.ts';
-import { cpfDisponivel, MENSAGEM_CPF_INDISPONIVEL } from './documento-contratante.ts';
+import { cpfDisponivel, MENSAGEM_CPF_INDISPONIVEL, MENSAGEM_NOME_CIVIL } from './documento-contratante.ts';
 import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido,
     type PedidoResumo } from './devolucao-registro.ts';
 
@@ -114,25 +114,29 @@ async function linhaDaEmpresa(tx: DbExecutor, empresaId: string, travar: boolean
 /**
  * Titular fiscal para o cliente no provedor (cpfCnpj): PJ = razão social + CNPJ; PF = nome civil + CPF (ambos em
  * nome_empresarial). Documento do teste primeiro; senão o do cadastro da plataforma (063), validado e, se CPF, só com a
- * 091 e ASSINATURA_CPF_ATIVO. CPF ↔ CNPJ entre teste e cadastro não é trocado aqui (fluxo assistido): `divergente`.
+ * 091 e ASSINATURA_CPF_ATIVO. Documento do teste diferente do cadastro (qualquer tipo) não é trocado aqui (fluxo
+ * assistido): `divergente`. CPF sem nome civil no cadastro: `semNomeCivil` (nunca o nome do buffet; revisão 22/10, P2-1/P2-2).
  * Aceite do cliente no provedor não comprova emissão fiscal.
  */
 async function dadosDoCliente(tx: DbExecutor, empresaId: string, linha: Linha, env: Record<string, string | undefined>) {
-    let nome = linha.nome, documento = linha.documento_teste, divergente = false;
+    let nome = linha.nome, documento = linha.documento_teste, divergente = false, nomeCivil = false;
     if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.plataforma_empresas_cadastro') IS NOT NULL AS ok")).rows[0]?.ok) {
         const c = (await tx.query<{ nome_empresarial: string | null; documento_fiscal: string | null }>(
             'SELECT nome_empresarial, documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresaId])).rows[0];
-        if (c?.nome_empresarial?.trim())
+        if (c?.nome_empresarial?.trim()) {
             nome = c.nome_empresarial.trim();
+            nomeCivil = true;
+        }
         const cadastro = documentoFiscalValido(c?.documento_fiscal);
         if (!documento && cadastro) {
             if (cadastro.tipo === 'CPF' && !await cpfDisponivel(tx, env))
                 throw erroAcesso('CPF_INDISPONIVEL', MENSAGEM_CPF_INDISPONIVEL, 409);
             documento = cadastro.numero;
         }
-        divergente = Boolean(documento && cadastro && tipoDocumentoFiscal(documento) !== cadastro.tipo);
+        divergente = Boolean(documento && cadastro && documento !== cadastro.numero);
     }
-    return { nome, documento, divergente };
+    const semNomeCivil = Boolean(documento && tipoDocumentoFiscal(documento) === 'CPF' && !nomeCivil);
+    return { nome, documento, divergente, semNomeCivil };
 }
 
 const ativa = (a: AssinaturaProvedor | null) => Boolean(a && !a.deleted && a.status === 'ACTIVE');
@@ -249,7 +253,9 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 if (!a.cliente.documento)
                     throw erroAcesso('CONFLITO', 'Cadastre o CPF ou CNPJ da contratante antes de assinar (atendimento Kidmais).', 409);
                 if (a.cliente.divergente)
-                    throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O documento do teste e o do cadastro são de tipos diferentes (CPF e CNPJ). A troca é feita pelo atendimento, sem perder condições já garantidas.', 409);
+                    throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O documento do teste e o do cadastro são diferentes. A troca de CPF ou CNPJ é feita pelo atendimento, sem perder condições já garantidas.', 409);
+                if (a.cliente.semNomeCivil)
+                    throw erroAcesso('DADOS_INVALIDOS', MENSAGEM_NOME_CIVIL + ' Peça ao atendimento Kidmais para completar o cadastro.', 409, { campo: 'nomeEmpresarial' });
                 clienteId = (await provedor.criarCliente({ nome: a.cliente.nome, cpfCnpj: a.cliente.documento, referencia: empresaId })).id;
             }
         }

@@ -7,7 +7,7 @@
  */
 import type { DbExecutor } from '../db/contracts';
 import { erroAcesso } from '../acessos/erros.ts';
-import { documentoFiscalValido, type TipoDocumentoFiscal } from '../acessos/validacao.ts';
+import { documentoFiscalValido, tipoDocumentoFiscal, type TipoDocumentoFiscal } from '../acessos/validacao.ts';
 
 type Ambiente = Record<string, string | undefined>;
 export const cpfContratacaoLigado = (env: Ambiente = process.env) => env.ASSINATURA_CPF_ATIVO === 'true';
@@ -35,6 +35,17 @@ export async function exigirDocumentoContratante(tx: DbExecutor, valor: string |
     if (doc.tipo === 'CPF' && !await cpfDisponivel(tx, env))
         throw erroAcesso('CPF_INDISPONIVEL', MENSAGEM_CPF_INDISPONIVEL, 409, { campo: 'documento' });
     return doc;
+}
+
+export const MENSAGEM_NOME_CIVIL = 'Com CPF, informe o nome civil do titular no campo "Nome empresarial / nome civil". O nome do buffet não substitui o titular.';
+
+/**
+ * Titular PF: CPF exige nome civil próprio (nome_empresarial). Nunca é substituído pelo nome do buffet nem do responsável
+ * (revisão completa de 22/10/2026, P2-1). Vale no painel (provisionar, editar, iniciar teste) e é conferido de novo no checkout.
+ */
+export function exigirNomeCivil(documento: string | null | undefined, nomeEmpresarial: string | null | undefined) {
+    if (documento && tipoDocumentoFiscal(documento) === 'CPF' && !nomeEmpresarial?.trim())
+        throw erroAcesso('DADOS_INVALIDOS', MENSAGEM_NOME_CIVIL, 400, { campo: 'nomeEmpresarial' });
 }
 
 /** Trava do documento (antes de conferir duplicidade), igual no cadastro público, no painel e no teste. */

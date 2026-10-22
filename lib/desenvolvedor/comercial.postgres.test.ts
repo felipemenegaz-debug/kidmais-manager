@@ -152,6 +152,8 @@ async function contratante(chave: string, documento: string | null, status: 'ATI
 test('piloto: iniciar teste recusa empresa sem documento, com CPF sem a 091 e a chave (CPF_INDISPONIVEL), suspensa, a Kidmais, sem cadastro e prazo fora de 1–90; nada é gravado', async () => {
     await contratante('piloto', PILOTO_CNPJ);
     await contratante('pilotoCpf', '52998224725');
+    await contratante('pilotoCpfSemNome', '00000000191');
+    await client.query('UPDATE plataforma_empresas_cadastro SET nome_empresarial = NULL WHERE empresa_id = $1', [ids.pilotoCpfSemNome]);
     await contratante('pilotoSemDoc', null);
     await contratante('pilotoSuspensa', '27865757000102', 'SUSPENSA');
     const kidmais = (await client.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'kidmais'")).rows[0]?.id;
@@ -163,6 +165,8 @@ test('piloto: iniciar teste recusa empresa sem documento, com CPF sem a 091 e a 
     assert.equal(await erro(operar(dev, ids.pilotoSemDoc, pedido(30))), 'DADOS_INVALIDOS');
     // Decisão A de 22/10/2026: CPF participa do teste, mas só com a 091 e ASSINATURA_CPF_ATIVO (aceite na suíte documento-091).
     assert.equal(await erro(operar(dev, ids.pilotoCpf, pedido(30))), 'CPF_INDISPONIVEL');
+    // Revisão completa 22/10 (P2-1): CPF sem nome civil na ficha não inicia teste (o nome do buffet não substitui o titular).
+    assert.equal(await erro(operar(dev, ids.pilotoCpfSemNome, pedido(30))), 'DADOS_INVALIDOS');
     assert.equal(await erro(operar(dev, ids.pilotoSuspensa, pedido(30))), 'CONFLITO');
     assert.equal(await erro(operar(dev, kidmais, pedido(30))), 'CONFLITO');
     assert.equal(await erro(operar(dev, ids.semCobranca, pedido(30))), 'DADOS_INVALIDOS', 'empresa sem cadastro administrativo');

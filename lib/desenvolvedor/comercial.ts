@@ -9,7 +9,7 @@ import { empresaIsenta } from '../assinatura/ofertas.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
-import { travarDocumento } from '../assinatura/documento-contratante.ts';
+import { exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -87,10 +87,12 @@ async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; 
         throw erroAcesso('CONFLITO', 'A Kidmais não tem cobrança.', 409);
     if (await empresaIsenta(tx, empresa.id))
         throw erroAcesso('CONFLITO', 'Empresa isenta não recebe teste nem cobrança.', 409);
-    const documento = (await tx.query<{ documento_fiscal: string | null }>(
-        'SELECT documento_fiscal FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresa.id])).rows[0]?.documento_fiscal ?? null;
+    const cadastro = (await tx.query<{ documento_fiscal: string | null; nome_empresarial: string | null }>(
+        'SELECT documento_fiscal, nome_empresarial FROM plataforma_empresas_cadastro WHERE empresa_id = $1::uuid', [empresa.id])).rows[0];
+    const documento = cadastro?.documento_fiscal ?? null;
     if (!documento)
         throw erroAcesso('DADOS_INVALIDOS', 'Cadastre o CPF ou CNPJ da contratante na ficha antes de iniciar o teste.', 400, { campo: 'documentoFiscal' });
+    exigirNomeCivil(documento, cadastro?.nome_empresarial);
     await travarDocumento(tx, documento);
     return iniciarTeste(tx, { empresaId: empresa.id, documento, dias, env });
 }

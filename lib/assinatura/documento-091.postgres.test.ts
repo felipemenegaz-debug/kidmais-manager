@@ -18,7 +18,7 @@ import { iniciarAssinatura, type DepsCobranca } from './cobranca.ts';
  *   4. duplicidade: mesmo CPF por outra pessoa (pedido de acesso neutro), corrida real de duas pessoas e trava do painel;
  *   5. banco: DV no INSERT, documento do teste imutável (CPF → CNPJ recusado), CHECK de formato;
  *   6. Fundador com CPF na janela e checkout: cliente do provedor com nome civil + CPF (PJ: razão social + CNPJ);
- *      CPF ↔ CNPJ divergente entre teste e cadastro não cria cliente;
+ *      documento do cadastro diferente do teste (CPF ↔ CNPJ ou CPF A → B) e CPF sem nome civil não criam cliente;
  *   7. rollback recusado depois de existir CPF.
  */
 const ler = (f: string) => readFileSync(f, 'utf8');
@@ -256,6 +256,18 @@ test('6. Fundador com CPF na janela; checkout cria o cliente do provedor com nom
     const total = criados.length;
     assert.equal(await erro(iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(rg.empresaId!))), 'DOCUMENTO_DIVERGENTE');
     assert.equal(criados.length, total, 'nenhum cliente criado');
+    // Revisão completa 22/10, P2-2: mesmo tipo, outro documento (CPF A → B na ficha). Nome B + CPF A nunca vai ao provedor.
+    const h = await conta('hugo');
+    const rh = await cadastrar(h.sessao, pf(cpf(61)));
+    await client.query('UPDATE plataforma_empresas_cadastro SET documento_fiscal = $2, nome_empresarial = $3 WHERE empresa_id = $1', [rh.empresaId, cpf(62), 'Outro Titular Sintético']);
+    assert.equal(await erro(iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(rh.empresaId!))), 'DOCUMENTO_DIVERGENTE');
+    assert.equal(criados.length, total, 'nenhum cliente criado (CPF A → B)');
+    // P2-1: CPF sem nome civil na ficha (estado que o painel permitia): recusa acionável, nunca nome do buffet + CPF.
+    const iv = await conta('ivo');
+    const ri = await cadastrar(iv.sessao, pf(cpf(63)));
+    await client.query('UPDATE plataforma_empresas_cadastro SET nome_empresarial = NULL WHERE empresa_id = $1', [ri.empresaId]);
+    assert.equal(await erro(iniciarAssinatura(sessao as never, null, pedido, { requestId: randomUUID() }, depsDe(ri.empresaId!))), 'DADOS_INVALIDOS');
+    assert.equal(criados.length, total, 'nenhum cliente criado (sem nome civil)');
 });
 
 test('7b. postcheck recusa gatilho com o nome certo e tipo errado; rollback em estado parcial recusa com motivo explícito', { skip: !opt() }, async () => {

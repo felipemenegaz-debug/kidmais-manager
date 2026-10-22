@@ -7,7 +7,7 @@ import { marcarAtor } from '../autenticacao/usuarios.ts';
 import { nomePapelSistema } from '../autenticacao/papeis.ts';
 import { erroAcesso, isAcessoServiceError, violacaoUnica } from '../acessos/erros.ts';
 import { CODIGO_EMPRESA, emailObrigatorio, mascararEmail, nomeObrigatorio, normalizarDocumentoFiscal, normalizarTelefone, observacoes, sugerirCodigoEmpresa, textoOpcional } from '../acessos/validacao.ts';
-import { travarDocumento } from '../assinatura/documento-contratante.ts';
+import { exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { criarConviteNaTransacao, enviarConvite, listarConvitesDaEmpresa, type ResultadoEnvioConvite } from '../acessos/convites.ts';
 import { criarEnviarEmail, situacaoEmail, type EnviarEmail } from '../acessos/email.ts';
 import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
@@ -213,6 +213,7 @@ const provisionarSchema = z.object({
 
 function dadosProvisionamento(raw: unknown) {
     const input = provisionarSchema.parse(raw);
+    exigirNomeCivil(normalizarDocumentoFiscal(input.documentoFiscal), input.nomeEmpresarial);
     const codigo = input.codigo || sugerirCodigoEmpresa(input.nome);
     if (!CODIGO_EMPRESA.test(codigo))
         throw erroAcesso('DADOS_INVALIDOS', 'Código inválido: use letras minúsculas, números e hífen (4 a 64 caracteres, começando por letra).', 400, { campo: 'codigo' });
@@ -374,18 +375,20 @@ export async function atualizarCadastroEmpresa(sessao: SessaoAdmin, id: string, 
         nome: input.nome, nomeEmpresarial: input.nomeEmpresarial ?? null, documentoFiscal: normalizarDocumentoFiscal(input.documentoFiscal),
         responsavelNome: input.responsavelNome, email: input.email, telefone: normalizarTelefone(input.telefone), observacoes: input.observacoes ?? null,
     };
+    exigirNomeCivil(dados.documentoFiscal, dados.nomeEmpresarial);
     try {
         return await deps.withTransaction(async (tx) => {
             await exigirDesenvolvedorNaTransacao(tx, sessao);
             const atual = await empresaTravada(tx, empresaId);
-            if (dados.documentoFiscal && dados.documentoFiscal !== atual.documento_fiscal) {
-                await travarDocumento(tx, dados.documentoFiscal);
-                // CPF ↔ CNPJ depois do teste: documento do teste é imutável e a continuidade exige fluxo assistido (não implementado).
+            if ((dados.documentoFiscal ?? null) !== (atual.documento_fiscal ?? null)) {
+                if (dados.documentoFiscal) await travarDocumento(tx, dados.documentoFiscal);
+                // Depois do teste, a identidade fiscal é o par titular + documento do teste (imutável, 068/074a). Trocar o
+                // documento (CPF ↔ CNPJ, CPF A → B, CNPJ A → B) ou apagá-lo exige fluxo assistido, não implementado (P2-2).
                 const teste = await assinaturasInstaladas(tx)
                     ? (await tx.query<{ documento_teste: string | null }>('SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = $1::uuid', [empresaId])).rows[0]?.documento_teste
                     : null;
-                if (teste && teste.length !== dados.documentoFiscal.length)
-                    throw erroAcesso('CONFLITO', 'O teste ou a assinatura desta empresa usa outro tipo de documento. A troca entre CPF e CNPJ é feita pelo atendimento, com análise própria.', 409);
+                if (teste && teste !== dados.documentoFiscal)
+                    throw erroAcesso('CONFLITO', 'O teste ou a assinatura desta empresa usa outro documento. A troca de CPF ou CNPJ da contratante é feita pelo atendimento, com análise própria.', 409, { campo: 'documentoFiscal' });
             }
             if ((atual.cad_revisao ?? null) !== input.revisao)
                 throw erroAcesso('REVISAO_DESATUALIZADA', 'O cadastro foi alterado por outra pessoa. Recarregue antes de salvar.', 409);
