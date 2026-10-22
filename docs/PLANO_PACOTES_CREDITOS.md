@@ -2,6 +2,11 @@
 
 Data: 22/10/2026. **PROPOSTA para decisão de Felipe; nenhuma implementação ou homologação nesta entrega.**
 
+> **Atualização 22/10/2026 (mesma data):** há implementação **LOCAL** em `docs/PACOTES_CREDITOS_IA_20261022.md`
+> (branch `codex/creditos-ia-20261022`, migration 090, catálogo de demonstração `PROPOSTA-20261022-DEMO`). Este plano
+> continua sendo a **proposta**: nenhuma sugestão abaixo foi aprovada comercial, jurídica ou fiscalmente, nada foi
+> homologado no sandbox, publicado ou aplicado. As diferenças entre plano e implementação estão no documento novo (§1–§8).
+
 ## 1. Escopo, base e evidências
 
 Entrega exclusivamente documental. Clone novo `kidmais-manager-plano-creditos-20261022`, criado de objetos locais de `kidmais-manager-capacidade-20261022`; `core.autocrlf=false` definido antes do checkout. Branch `codex/plano-pacotes-creditos-20261022`, base da referência local de staging `3bb7b4b286cc0844757a8be4eb502140ae1f0550` (#201). Não houve fetch: essa é a base local identificada, não uma certificação do HEAD remoto atual. Antes da implementação, atualizar staging mediante escopo autorizado e rever este mapa. AGENTS.md, CLAUDE.md e docs/OPERACAO_AGENTES.md lidos. Não houve consulta a Render, bancos, contas Asaas ou credenciais.
