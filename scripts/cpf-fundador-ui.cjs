@@ -154,11 +154,13 @@ async function principal() {
       const body = route.request().postDataJSON();
       assert.equal(body.plano, 'essencial'); assert.equal(body.ciclo, 'MENSAL'); assert.equal(body.valorEsperadoCentavos, 11820);
       checkouts++;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'MENSAL', reaproveitada: false } }) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'MENSAL', reaproveitada: false, fundadorValidoAte: '2099-01-31' } }) });
     });
     await page.getByRole('button', { name: /Assinar Essencial/ }).click();
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
+    // D3: o prazo acompanha o link de pagamento (revisão de 22/10/2026).
+    await page.locator('[data-fundador-validade-link]').getByText('pague até 31/01/2099 (horário de Brasília)', { exact: false }).waitFor();
     assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antes);
     await page.screenshot({ path: path.join(relatorios, 'pf-assinatura.png'), fullPage: true });
     resultados.push('Assinatura PF: prazo da janela na tela; checkout interceptado com Essencial mensal Fundador R$ 118,20; nenhuma assinatura alterada');

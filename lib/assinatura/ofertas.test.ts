@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { DbExecutor } from '../db/contracts';
-import { conferirCheckoutLegado, confirmarOfertaPaga, consultarOfertas, novosPlanosLigados, prepararOferta, validarPedidoOferta, type Oferta } from './ofertas.ts';
+import { conferirCheckoutLegado, confirmarOfertaPaga, consultarOfertas, dataDoPagamento, novosPlanosLigados, prepararOferta, validarPedidoOferta, type Oferta } from './ofertas.ts';
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
 import { valorDoProvedor, type AssinaturaProvedor, type CobrancaProvedor, type ClienteAsaas } from './asaas.ts';
 import { iniciarAssinatura, type DepsCobranca } from './cobranca.ts';
@@ -286,4 +286,12 @@ test('plano confirmado retoma cobrança sem preços legados; encerrado nunca rec
     f.deps.provedor()!.obterAssinatura = async () => null;
     await assert.rejects(iniciarAssinatura(s, null, { ciclo: 'MENSAL' }, { requestId: 'r' }, f.deps), /recontratação/);
     assert.equal(f.criacoes(), 1);
+});
+
+test('D3: data do pagamento é a mais antiga informada pelo provedor (boleto: dia pago); sem data, null (nunca o relógio)', () => {
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-11', confirmedDate: null, clientPaymentDate: '2026-11-08' }), '2026-11-08');
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-09', confirmedDate: '2026-11-07' }), '2026-11-07');
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-09' }), '2026-11-09');
+    assert.equal(dataDoPagamento({ paymentDate: null, confirmedDate: null, clientPaymentDate: null }), null);
+    assert.equal(dataDoPagamento({ paymentDate: '11/09/2026', clientPaymentDate: 'x' }), null, 'formato inválido não conta');
 });

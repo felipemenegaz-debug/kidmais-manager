@@ -44,7 +44,7 @@ import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, int
     registrarPendencia, registrarResultadoRemocao, removerComResultado, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
-import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
+import { novosPlanosLigados, validarPedidoOferta, prepararOferta, validadeDaConcessao, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
 import { documentoFiscalValido, tipoDocumentoFiscal } from '../acessos/validacao.ts';
 import { cpfDisponivel, MENSAGEM_CPF_INDISPONIVEL } from './documento-contratante.ts';
@@ -169,12 +169,15 @@ export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: 
             exigirGestao(tenant); return tenant.empresaComprovada;
         });
         return deps.travarContratacao(empresaId, async () => {
-            const oferta = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+            const { oferta, validade } = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
                 exigirGestao(tenant);
                 if (tenant.empresaComprovada !== empresaId) throw erroAcesso('CONFLITO', 'A empresa da sessão mudou.', 409);
-                return prepararOferta(tx, empresaId, sessao.usuario_id, pedido, deps.env ?? process.env);
+                const o = await prepararOferta(tx, empresaId, sessao.usuario_id, pedido, deps.env ?? process.env);
+                return { oferta: o, validade: await validadeDaConcessao(tx, o.fundador_id) };
             });
-            return contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
+            const r = await contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
+            // D3: o prazo da condição reservada acompanha o link de pagamento (data local, inclusive).
+            return { ...r, fundadorValidoAte: validade?.dia ?? null };
         });
     }
     const ciclo = (raw as { ciclo?: unknown } | null)?.ciclo;

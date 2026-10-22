@@ -15,7 +15,7 @@ import { REGRA_APROVADA } from '@/lib/assinatura/campanha';
  * Assinar devolve a página hospedada de pagamento do provedor. Voltar dela não libera nada: o acesso muda só quando o
  * pagamento é confirmado pelo provedor (webhook + reconsulta no servidor).
  */
-type Pagamento = { urlPagamento: string | null; vencimento: string | null; ciclo: 'MENSAL' | 'ANUAL'; reaproveitada: boolean };
+type Pagamento = { urlPagamento: string | null; vencimento: string | null; ciclo: 'MENSAL' | 'ANUAL'; reaproveitada: boolean; fundadorValidoAte?: string | null };
 const novaChave = () => globalThis.crypto?.randomUUID?.() ?? '';
 export const MENSAGEM_PROCESSANDO = 'Processando: o acesso é liberado quando o pagamento for confirmado.';
 
@@ -117,6 +117,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                 <a href={pagamento.urlPagamento} target="_blank" rel="noopener noreferrer">Abrir página de pagamento</a>
                 <Link href="/admin/assinatura/retorno">Já paguei — acompanhar confirmação</Link>
             </p>
+            {(pagamento.fundadorValidoAte ?? (dados.ofertas?.pendente?.fundadorValidoAte && !dados.ofertas.pendente.fundadorValidoAte.vencida ? dados.ofertas.pendente.fundadorValidoAte.dia : null))
+                && <p role="status" data-fundador-validade-link>Condição Fundador reservada: pague até {(pagamento.fundadorValidoAte ?? dados.ofertas!.pendente!.fundadorValidoAte!.dia).split('-').reverse().join('/')} (horário de Brasília). Pagamento depois disso fica em análise pelo atendimento.</p>}
             <p className={workspace.muted}>{MENSAGEM_PROCESSANDO}</p>
         </div>}
         {dados.gestao && cobranca?.disponivel && dados.ofertas?.habilitado && !pagamento?.urlPagamento && <div>

@@ -204,7 +204,9 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         }
         catch (error) {
             await client.query('ROLLBACK');
-            return { erro: error instanceof Error ? error.name : 'Erro' };
+            // Recusa de domínio vira ERRO_<código> (ex.: ERRO_FUNDADOR_OFERTA_EXPIRADA): continua alarmando e o atendimento vê a causa.
+            const codigo = error instanceof Error && error.name === 'AcessoServiceError' && /^[A-Z0-9_]{1,80}$/.test(String(error.code)) ? String(error.code) : null;
+            return { erro: codigo ?? (error instanceof Error ? error.name : 'Erro') };
         }
     };
     const relatorio = { modo, banco, eventos: {}, empresas: {} };

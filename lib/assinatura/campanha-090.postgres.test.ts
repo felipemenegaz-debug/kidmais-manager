@@ -8,6 +8,7 @@ import { iniciarTeste } from './servico.ts';
 import { consultarOfertas, prepararOferta, type PedidoOferta } from './ofertas.ts';
 import { ativarCampanhaAprovada, janelaCalculada, REGRA_APROVADA, resumoCampanha } from './campanha.ts';
 import { sincronizarEmpresa } from './sincronizacao.ts';
+import { createRequire } from 'node:module';
 import { repositorioRenovacao } from './renovacao-repositorio.ts';
 import { consultarEncerramento, solicitarEncerramento, type DepsDevolucao } from './devolucao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
@@ -330,21 +331,21 @@ test('7. pagamento tardio da janela: confirma como JANELA, não consome o lote; 
     assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id = $1", [w])).rows[0].n, 1);
 });
 
-test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; pago depois da validade vai para reconciliação; retomar oferta vencida é recusado; nada é liberado sozinho', { skip: !opt() }, async () => {
+test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; boleto vale o dia pago; sem data ou depois da validade vai para reconciliação (código visível, alarme); critério único por dia; retomar vencida é recusado', { skip: !opt() }, async () => {
     const hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d as string;
     const dia = (n: number) => { const d = new Date(`${hoje}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-    const provedorDe = (empresa: string, sufixo: string, pagoEm: string) => {
+    const provedorDe = (empresa: string, sufixo: string, pagoEm: string | null, datas: Partial<CobrancaProvedor> = {}) => {
         const sub: AssinaturaProvedor = { id: `sub_${sufixo}`, customer: `cus_${sufixo}`, externalReference: empresa, cycle: 'MONTHLY', status: 'ACTIVE', deleted: false, valorCentavos: 11820 };
         const pay = { id: `pay_${sufixo}`, status: 'RECEIVED', dueDate: hoje, paymentDate: pagoEm, deleted: false, invoiceUrl: null, valorCentavos: 11820,
-            assinaturaId: sub.id, clienteId: sub.customer, billingType: 'PIX' } as CobrancaProvedor;
+            assinaturaId: sub.id, clienteId: sub.customer, billingType: 'PIX', ...datas } as CobrancaProvedor;
         return { sub, provedor: {
             async obterAssinatura(id: string) { return id === sub.id ? { ...sub } : null; },
             async listarCobrancasDaAssinatura(id: string) { return id === sub.id ? [{ ...pay }] : []; },
             async listarAssinaturasPorReferencia(ref: string) { return ref === empresa ? [{ ...sub }] : []; },
         } };
     };
-    const sincronizar = async (empresa: string, sufixo: string, pagoEm: string) => {
-        const { sub, provedor } = provedorDe(empresa, sufixo, pagoEm);
+    const sincronizar = async (empresa: string, sufixo: string, pagoEm: string | null, datas: Partial<CobrancaProvedor> = {}) => {
+        const { sub, provedor } = provedorDe(empresa, sufixo, pagoEm, datas);
         await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1 AND provedor_assinatura_id IS NULL", [empresa, sub.customer, sub.id]);
         return emTx(() => sincronizarEmpresa(client as never, empresa, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     };
@@ -361,6 +362,24 @@ test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; pago depois
     const depois = (await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0];
     assert.deepEqual(depois, antes, 'reserva e contrato intactos: reconciliação manual');
     assert.equal((await q('SELECT situacao FROM empresa_assinaturas WHERE empresa_id = $1', [fora])).rows[0].situacao, 'TESTE');
+    // Reconciliação diária real (simulação): o código da recusa fica visível e a conferência de produção alarma.
+    const reconciliar = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
+        executarCiclo: (o: Record<string, unknown>) => Promise<{ empresas: Record<string, number>; incompleto: boolean }>; codigoDeSaida: (r: unknown, p: boolean) => number };
+    const sinc = await import('./sincronizacao.ts');
+    const rel = await reconciliar.executarCiclo({ client, provedor: provedorDe(fora, 'd3b', dia(8)).provedor, aplicar: false, banco: 'kidmais_pacotes_v1_descartavel', sinc });
+    assert.ok((rel.empresas.ERRO_FUNDADOR_OFERTA_EXPIRADA ?? 0) >= 1, JSON.stringify(rel.empresas));
+    assert.deepEqual([rel.incompleto, reconciliar.codigoDeSaida(rel, true)], [true, 2]);
+    assert.deepEqual((await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0], antes);
+    // Boleto pago no ÚLTIMO dia da validade e compensado depois: vale o dia em que o cliente pagou (clientPaymentDate).
+    const boleto = janela[7];
+    const ultimoDia = (await q(`SELECT to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d FROM assinatura_fundadores WHERE empresa_id = $1`, [boleto])).rows[0].d as string;
+    const aposUltimo = (n: number) => { const x = new Date(`${ultimoDia}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const rb = await sincronizar(boleto, 'd3c', aposUltimo(3), { clientPaymentDate: ultimoDia, confirmedDate: aposUltimo(3), billingType: 'BOLETO' });
+    assert.equal(rb.resultado === 'SINCRONIZADA' && rb.depois, 'ATIVA');
+    assert.deepEqual([(await concessao(boleto)).origem, (await concessao(boleto)).estado], ['JANELA', 'CONFIRMADA']);
+    // Sem nenhuma data de pagamento no provedor: reconciliação (nunca o relógio).
+    await assert.rejects(sincronizar(janela[8], 'd3d', null), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
+    assert.equal((await concessao(janela[8])).estado, 'RESERVADA');
     // Passagem de 7 dias SIMULADA no fixture (gatilhos suspensos só nesta sessão do banco descartável).
     const vencida = janela[5];
     await q("SET session_replication_role = replica");
@@ -372,6 +391,17 @@ test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; pago depois
     assert.equal(consulta?.pendente?.fundadorValidoAte?.vencida, true);
     await assert.rejects(ofertaEm(client, vencida), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
     assert.equal((await concessao(vencida)).estado, 'RESERVADA', 'sem liberação automática');
+    // Critério único por DIA local: fim da validade hoje, horas atrás, ainda vale hoje (tela e retomada).
+    const ultimo = janela[9];
+    await q("SET session_replication_role = replica");
+    try {
+        await q(`UPDATE assinatura_fundadores SET
+            oferta_valida_ate = (date_trunc('day', clock_timestamp() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') + interval '1 second',
+            reservada_em = (date_trunc('day', clock_timestamp() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') + interval '1 second' - interval '7 days'
+            WHERE empresa_id = $1`, [ultimo]);
+    } finally { await q("SET session_replication_role = origin"); }
+    assert.equal((await emTx(() => consultarOfertas(client as never, ultimo, ENV)))?.pendente?.fundadorValidoAte?.vencida, false);
+    assert.equal((await ofertaEm(client, ultimo)).fundador_id, (await concessao(ultimo)).id, 'retomada aceita no último dia');
     // Validade informada a quem ainda está no prazo.
     const noPrazo = await emTx(() => consultarOfertas(client as never, janela[6], ENV));
     assert.equal(noPrazo?.pendente?.fundadorValidoAte?.vencida, false);

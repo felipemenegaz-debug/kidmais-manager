@@ -127,16 +127,23 @@ async function situacaoFundador(tx: DbExecutor, empresaId: string, travar: boole
 /**
  * Validade da condição reservada na campanha 090 (D3 de 22/10/2026: 7 dias corridos a partir da aceitação persistida).
  * Concessão LEGADO, sem a 090 ou já confirmada: sem prazo (null). `dia` é a data local (America/Sao_Paulo) do fim.
+ * Critério ÚNICO (revisão de 22/10/2026): a condição vale até o fim desse dia local, inclusive — para a tela, para a
+ * retomada e para o pagamento (comparado pela data do pagamento no provedor).
  */
 export async function validadeDaConcessao(tx: DbExecutor, fundadorId: string | null) {
     if (!fundadorId || !await schemaCampanhaInstalado(tx)) return null;
     const r = (await tx.query<{ estado: string; ate: string | null; dia: string | null; vencida: boolean }>(`SELECT estado,
         to_char(oferta_valida_ate AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ate,
         to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS dia,
-        coalesce(oferta_valida_ate <= clock_timestamp(), false) AS vencida
+        coalesce((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date > (oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo')::date, false) AS vencida
         FROM assinatura_fundadores WHERE id = $1::uuid`, [fundadorId])).rows[0];
     if (!r?.ate || !r.dia || r.estado !== 'RESERVADA') return null;
     return { ate: r.ate, dia: r.dia, vencida: r.vencida };
+}
+/** Data do pagamento para D3: a mais antiga entre as datas válidas que o provedor informou. */
+export function dataDoPagamento(p: Pick<CobrancaProvedor, 'paymentDate' | 'confirmedDate' | 'clientPaymentDate'>): string | null {
+    const datas = [p.clientPaymentDate, p.confirmedDate, p.paymentDate].filter((d): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d));
+    return datas.length ? datas.sort()[0]! : null;
 }
 const EXPIRADA = 'A condição Fundador reservada venceu sem pagamento. Fale com o atendimento: a reserva só é liberada depois de conferirmos que não há cobrança em aberto.';
 
@@ -265,13 +272,16 @@ export async function confirmarOfertaPaga(tx: DbExecutor, empresaId: string, ass
     await tx.query('SELECT id FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE', [empresaId, oferta.id]);
     const pagamento = pagamentoDaOferta(oferta, assinatura, pagamentos, clienteId, beneficio?.beneficio_fim ?? null);
     if (!pagamento) throw erroAcesso('PAGAMENTO_OFERTA_DIVERGENTE', 'O pagamento não corresponde à oferta contratada.', 409);
-    // D3: pagamento depois da validade (data do pagamento no provedor, não a chegada do webhook) não confirma sozinho:
-    // fica para reconciliação, sem liberar a vaga, sem reprecificar e sem cobrança complementar automática.
+    // D3: pagamento depois da validade não confirma sozinho: fica para reconciliação, sem liberar a vaga, sem reprecificar
+    // e sem cobrança complementar automática. Vale a data MAIS ANTIGA informada pelo provedor (`clientPaymentDate` do
+    // boleto, `confirmedDate` do cartão, `paymentDate`); nunca a chegada do webhook nem o relógio.
     const validade = oferta.estado === 'EM_ABERTO' && beneficio?.estado === 'RESERVADA' ? await validadeDaConcessao(tx, oferta.fundador_id) : null;
     if (validade) {
-        const pagoEm = pagamento.confirmedDate ?? pagamento.paymentDate ?? (await tx.query<{ d: string }>("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS d")).rows[0]!.d;
-        if (pagoEm > validade.dia)
-            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', 'Pagamento recebido depois da validade da condição Fundador: a contratação fica em reconciliação pelo atendimento.', 409);
+        const pagoEm = dataDoPagamento(pagamento);
+        if (!pagoEm || pagoEm > validade.dia)
+            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', pagoEm
+                ? 'Pagamento recebido depois da validade da condição Fundador: a contratação fica em reconciliação pelo atendimento.'
+                : 'O provedor não informou a data do pagamento: a contratação Fundador fica em reconciliação pelo atendimento.', 409);
     }
     if (!ativar) return null;
     if (oferta.estado === 'EM_ABERTO') {
