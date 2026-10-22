@@ -544,3 +544,19 @@ As mutações foram conferidas: com o código anterior, os testes de painel falh
 - Playwright `cpf-fundador-ui`: 7/7.
 - tsc, ESLint e build: PASS. `check:v1:static`: PASS (3291 + 103).
 - Não executado: Asaas sandbox, staging/produção, revisão do delta pelo Astra.
+
+### Sétima rodada: P3-N1 da revisão de `1b9cf5c..feb4735`
+
+A revisão do Astra foi **APROVADA COM RESSALVAS**: P2-1, P2-2 e P3-1 fechados; P3-1 com o limite declarado dos relógios.
+O único P3 novo (P3-N1) foi corrigido:
+
+| P3 | Correção | Prova |
+|---|---|---|
+| P3-N1: o teste do cache dependia de 60 ms reais e podia falhar sob carga | O teste usa `mock.timers` só para `Date` e avança o relógio explicitamente. A carga do módulo não entra no critério. Fronteira a 10 s: 1 ms antes usa o cache; na fronteira lê de novo. Vale para a abertura e para o fim da janela. | `fundador-servidor.test.ts`; com o TTL antigo, de 30 s fixos, o teste falha |
+
+Limites que continuam declarados:
+- clientes já criados no provedor não são saneados;
+- a oferta reservada continua existindo depois de uma recusa do checkout;
+- relógio do processo × relógio do banco.
+
+Validação: site e campanha 29/29, ESLint e tsc PASS.
