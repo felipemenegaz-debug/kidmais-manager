@@ -119,17 +119,29 @@ test('1. sem a 091: CPF recusado no teste e no cadastro (nada gravado); PJ pelo 
     assert.equal((await client.query('SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = $1', [ids.pj])).rows[0].documento_teste, cnpj(1));
     await assert.rejects(client.query("INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste) VALUES ($1, 'TESTE', now(), now() + interval '1 day', $2)", [e, cpf(3)]),
         /empresa_assinaturas_documento_teste_check/);
+    // Linha LEGADA com DV de CNPJ inválido (antes da 091 só havia CHECK de formato): a 091 não pode travá-la.
+    const legado = cnpj(9).slice(0, 13) + ((Number(cnpj(9)[13]) + 1) % 10);
+    ids.legadoDv = (await client.query("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Legado DV', 'PROVISIONAMENTO') RETURNING id", [`d091l-${sufixo}`])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [ids.legadoDv]);
+    await client.query("INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste) VALUES ($1, 'TESTE', clock_timestamp(), clock_timestamp() + interval '15 days', $2)", [ids.legadoDv, legado]);
 });
 
 test('2. 091: precheck, aplicação, postcheck, preservação, reaplicação recusada, rollback vazio e reaplicação', { skip: !opt() }, async () => {
     const antes = (await client.query(SNAP)).rows[0];
-    await client.query(SQL.pre); await client.query(SQL.up); await client.query(SQL.post);
+    // O precheck só INFORMA linhas antigas com DV inválido (não recusa nem altera).
+    const resultados = await client.query(SQL.pre) as unknown as { rows: { tabela?: string; cnpj_dv_invalido?: string }[] }[];
+    const dv = resultados.at(-1)!.rows.find((r) => r.tabela === 'empresa_assinaturas');
+    assert.ok(Number(dv?.cnpj_dv_invalido) >= 1, 'precheck conta o legado com DV inválido');
+    await client.query(SQL.up); await client.query(SQL.post);
     assert.deepEqual((await client.query(SNAP)).rows[0], antes, 'nenhum documento, estado ou qualificação muda');
     await assert.rejects(client.query(SQL.up), /091 já aplicada/); await client.query('ROLLBACK').catch(() => undefined);
     await assert.rejects(client.query(SQL.pre), /aplicação anterior ou parcial/);
     await client.query(SQL.down);
     assert.deepEqual((await client.query(SNAP)).rows[0], antes);
     await client.query(SQL.pre); await client.query(SQL.up); await client.query(SQL.post);
+    // Bloqueante da revisão: a linha legada com DV inválido continua atualizável (nada de CHECK em todo UPDATE).
+    await client.query("UPDATE empresa_assinaturas SET teste_fim = teste_fim + interval '1 day' WHERE empresa_id = $1", [ids.legadoDv]);
+    assert.equal((await client.query('SELECT versao FROM empresa_assinaturas WHERE empresa_id = $1', [ids.legadoDv])).rows[0].versao, 2);
 });
 
 test('3. cadastro público PF: CPF + nome civil, TITULAR_PF, sem sócios, idempotente, auditoria mascarada; chave desligada e combinações inválidas recusadas', { skip: !opt() }, async () => {
@@ -193,9 +205,9 @@ test('5. banco: DV no INSERT, documento do teste imutável, formato', { skip: !o
     await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [e]);
     const ruim = cpf(40).slice(0, 10) + ((Number(cpf(40)[10]) + 1) % 10);
     await assert.rejects(client.query("INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste) VALUES ($1, 'TESTE', now(), now() + interval '1 day', $2)", [e, ruim]),
-        /documento_teste_dv_check/);
+        /dígito verificador inválido/);
     await assert.rejects(client.query("INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste) VALUES ($1, 'TESTE', now(), now() + interval '1 day', '529.982.247-25')", [e]),
-        /documento_teste_check/);
+        /documento_teste_check|dígito verificador inválido/); // gatilho de DV (BEFORE) ou CHECK de formato: recusa nos dois casos
     await assert.rejects(client.query('UPDATE empresa_assinaturas SET documento_teste = $2 WHERE empresa_id = $1', [ids.pf, cnpj(50)]), /Identidade da assinatura é imutável/);
     // O teste do piloto/painel aceita CPF com a 091 e a chave (mesmo iniciarTeste).
     await client.query('BEGIN');

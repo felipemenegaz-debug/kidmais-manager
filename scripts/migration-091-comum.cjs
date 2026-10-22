@@ -21,9 +21,9 @@ const FLAG_APLICAR = '--aplicar-091-autorizado';
 const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-091.json';
 const ETAPAS = Object.freeze([
-  ['precheck 091', 'database/checks/20261022_091_precheck.sql', '6b336cfc8d7b9b0428cbf975251bd2e5841c307bf41a95e3171efab9dd6d065c'],
-  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', '148f3f3b7baac310b4e283a1b080351008a2cbcb40873c5d94ce94ef2f3325a9'],
-  ['postcheck 091', 'database/checks/20261022_091_postcheck.sql', '569e9ba7d4aeb97c818277728eb49398b79e85271940ac044520191a8d90bb55'],
+  ['precheck 091', 'database/checks/20261022_091_precheck.sql', 'c1de8e307fa3b42b270653cc7f1ac64ec7a118c755cda691457749f593182adb'],
+  ['migration 091', 'database/migrations/20261022_091_documento_fiscal_contratante.sql', '2556cc24dd946b94ce4d10cca94879bb18cf7000e99d39d7ff0ce8258a0a6507'],
+  ['postcheck 091', 'database/checks/20261022_091_postcheck.sql', 'a854bc718cea7fc7a81bb23d17c7f739511c7d448cef7caf45ae0ef049263872'],
 ]);
 /** A 091 não cria FK; altera CHECKs destas tabelas (dono exigido). */
 const REFERENCIADAS = Object.freeze([]);
@@ -36,8 +36,9 @@ const SQL_ESTADO = `SELECT
   (to_regclass('public.cadastros_empresas') IS NOT NULL AND to_regclass('public.solicitacoes_acesso_empresa') IS NOT NULL) AS m069,
   to_regclass('public.assinatura_fundadores') IS NOT NULL AS m074a,
   to_regprocedure('public.kidmais_091_documento_valido(text)') IS NOT NULL AS funcao,
-  EXISTS (SELECT 1 FROM pg_constraint WHERE conname='empresa_assinaturas_documento_teste_dv_check') AS dv_teste,
-  EXISTS (SELECT 1 FROM pg_constraint WHERE conname='assinatura_fundadores_documento_dv_check') AS dv_fundador,
+  to_regprocedure('public.kidmais_091_documento_guarda()') IS NOT NULL AS guarda,
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='empresa_assinaturas_091_documento' AND tgrelid=to_regclass('public.empresa_assinaturas')) AS dv_teste,
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='assinatura_fundadores_091_documento' AND tgrelid=to_regclass('public.assinatura_fundadores')) AS dv_fundador,
   ${def('empresa_assinaturas_documento_teste_check')} LIKE '%[0-9]{11}|%' AS formato_teste,
   ${def('assinatura_fundadores_documento_beneficiario_check')} LIKE '%[0-9]{11}|%' AS formato_fundador,
   ${def('cadastros_empresas_documento_check')} LIKE '%[0-9]{11}|%' AS formato_cadastro,
@@ -49,17 +50,28 @@ const SQL_ESTADO = `SELECT
     WHERE c.oid IN (SELECT to_regclass('public.'||t) FROM unnest(ARRAY[${lista(ALTERADAS)}]) t)), false)
     AND (SELECT count(*) FROM unnest(ARRAY[${lista(ALTERADAS)}]) t WHERE to_regclass('public.'||t) IS NOT NULL)=${ALTERADAS.length} AS dono_alteradas,
   session_user <> current_user AS papel_trocado`;
-const OBJETOS = Object.freeze(['funcao', 'dv_teste', 'dv_fundador', 'formato_teste', 'formato_fundador', 'formato_cadastro', 'formato_solicitacao', 'qualificacao_pf']);
-/** Resumo das colunas que a 091 NÃO pode mudar (só o md5 agregado sai; nenhum documento). */
-const SQL_PRESERVACAO = `SELECT
-  (SELECT count(*)::int FROM empresa_assinaturas) AS assinaturas,
-  (SELECT coalesce(md5(string_agg(concat_ws('|', empresa_id, documento_teste, situacao, versao), ',' ORDER BY empresa_id)), 'vazio') FROM empresa_assinaturas) AS resumo_assinaturas,
-  (SELECT count(*)::int FROM assinatura_fundadores) AS fundadores,
-  (SELECT coalesce(md5(string_agg(concat_ws('|', id, documento_beneficiario, estado), ',' ORDER BY id)), 'vazio') FROM assinatura_fundadores) AS resumo_fundadores,
-  (SELECT count(*)::int FROM cadastros_empresas) AS cadastros,
-  (SELECT coalesce(md5(string_agg(concat_ws('|', usuario_id, chave, documento), ',' ORDER BY usuario_id, chave)), 'vazio') FROM cadastros_empresas) AS resumo_cadastros,
-  (SELECT coalesce(md5(string_agg(concat_ws('|', id, documento, situacao), ',' ORDER BY id)), 'vazio') FROM solicitacoes_acesso_empresa) AS resumo_solicitacoes,
-  (SELECT coalesce(md5(string_agg(concat_ws('|', id, qualificacao, situacao), ',' ORDER BY id)), 'vazio') FROM empresa_representacoes) AS resumo_representacoes`;
+const OBJETOS = Object.freeze(['funcao', 'guarda', 'dv_teste', 'dv_fundador', 'formato_teste', 'formato_fundador', 'formato_cadastro', 'formato_solicitacao', 'qualificacao_pf']);
+/** Corte lido no banco ANTES da migration: a prova compara só linhas criadas até ele (tráfego durante a janela não conta). */
+const SQL_CORTE = `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS corte`;
+const CORTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const tx = c => `coalesce((${c})::text,'~')`;
+/**
+ * Resumo só das colunas IMUTÁVEIS que a 091 poderia afetar (documentos e qualificação), das linhas criadas até o corte;
+ * situação, versão e decisões mudam com o tráfego e ficam fora (revisão de 22/10/2026). Só o md5 agregado sai.
+ */
+function SQL_PRESERVACAO(corte) {
+  assert.match(String(corte), CORTE, 'CORTE_INVALIDO');
+  const ate = `'${corte}'::timestamptz`;
+  return `/* preservacao-091 */ SELECT
+  (SELECT count(*)::int FROM empresa_assinaturas WHERE criado_em <= ${ate}) AS assinaturas,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', empresa_id, ${tx('documento_teste')}), ',' ORDER BY empresa_id)), 'vazio') FROM empresa_assinaturas WHERE criado_em <= ${ate}) AS resumo_assinaturas,
+  (SELECT count(*)::int FROM assinatura_fundadores WHERE reservada_em <= ${ate}) AS fundadores,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', id, documento_beneficiario), ',' ORDER BY id)), 'vazio') FROM assinatura_fundadores WHERE reservada_em <= ${ate}) AS resumo_fundadores,
+  (SELECT count(*)::int FROM cadastros_empresas WHERE criado_em <= ${ate}) AS cadastros,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', usuario_id, chave, documento), ',' ORDER BY usuario_id, chave)), 'vazio') FROM cadastros_empresas WHERE criado_em <= ${ate}) AS resumo_cadastros,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', id, usuario_id, documento), ',' ORDER BY id)), 'vazio') FROM solicitacoes_acesso_empresa WHERE criado_em <= ${ate}) AS resumo_solicitacoes,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', id, qualificacao), ',' ORDER BY id)), 'vazio') FROM empresa_representacoes WHERE declarado_em <= ${ate}) AS resumo_representacoes`;
+}
 
 function lerRevisado(raiz, arquivo, hash) {
   const sql = fs.readFileSync(path.join(raiz, arquivo), 'utf8').replace(/\r\n/g, '\n');
@@ -95,8 +107,8 @@ async function somenteLeitura(db, sql) {
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
 /** Contagens e resumos agregados (sem documentos); com a 091 completa, contratantes por tipo. */
-async function contagens(db, estado) {
-  const r = {...(await somenteLeitura(db, SQL_PRESERVACAO)).rows[0]};
+async function contagens(db, estado, corte) {
+  const r = {...(await somenteLeitura(db, SQL_PRESERVACAO(corte))).rows[0]};
   if (estado.m091 === 'completa') Object.assign(r, (await somenteLeitura(db, `SELECT
     (SELECT count(*) FROM empresa_assinaturas WHERE length(documento_teste) = 11)::int AS teste_cpf,
     (SELECT count(*) FROM empresa_representacoes WHERE qualificacao = 'TITULAR_PF')::int AS titulares_pf`)).rows[0]);
@@ -109,7 +121,7 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   try { r.plano = planoEtapas(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
-  r.contagens = await contagens(db, r.estado);
+  r.contagens = await contagens(db, r.estado, (await somenteLeitura(db, SQL_CORTE)).rows[0]?.corte);
   const [nome, arquivo, hash] = r.estado.m091 === 'completa' ? ETAPAS[2] : ETAPAS[0];
   await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
   r[nome.split(' ')[0]] = 'PASS';
@@ -123,7 +135,9 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  r.plano = planoEtapas(r.estadoAntes); r.contagensAntes = await contagens(db, r.estadoAntes); registrar(r);
+  r.plano = planoEtapas(r.estadoAntes);
+  r.corte = (await somenteLeitura(db, SQL_CORTE)).rows[0]?.corte;
+  r.contagensAntes = await contagens(db, r.estadoAntes, r.corte); registrar(r);
   for (const nome of r.plano) {
     r.etapas.push({nome, inicio: new Date().toISOString()}); registrar(r);
     if (nome === 'migration 091') {
@@ -135,7 +149,7 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   }
   r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   assert.equal(r.estadoDepois.m091, 'completa', 'ESTADO_FINAL_091');
-  r.contagensDepois = await contagens(db, r.estadoDepois);
+  r.contagensDepois = await contagens(db, r.estadoDepois, r.corte);
   // Prova agregada: nenhum documento, qualificação ou estado existente mudou (a 091 só alarga CHECKs).
   for (const k of ['assinaturas', 'resumo_assinaturas', 'fundadores', 'resumo_fundadores', 'cadastros', 'resumo_cadastros', 'resumo_solicitacoes', 'resumo_representacoes'])
     assert.equal(r.contagensDepois[k], r.contagensAntes[k], 'PRESERVACAO_DIVERGENTE ' + k);
@@ -221,5 +235,5 @@ function criarAplicador(amb) {
   return {plano, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO,
+module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO, SQL_CORTE,
   lerRevisado, lerEstado, planoEtapas, conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

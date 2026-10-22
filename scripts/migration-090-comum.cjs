@@ -56,14 +56,28 @@ const SQL_ESTADO = `SELECT
   session_user <> current_user AS papel_trocado`;
 const OBJETOS = Object.freeze(['tabela', 'funcao_campanha', 'funcao_fundador', 'coluna_origem', 'indice_legado', 'indice_pos', 'indice_ativa',
   'indice_campanha', 'gatilho_campanha', 'gatilho_truncate', 'gatilho_fundador']);
-/** Resumo das colunas que a 090 NÃO pode mudar (as da 074a), ordem estável; só o md5 agregado sai. */
-const SQL_PRESERVACAO = `SELECT count(*)::int AS fundadores,
-  coalesce(md5(string_agg(concat_ws('|', id, empresa_id, documento_beneficiario, vaga, estado, to_char(reservada_em AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'),
-    to_char(confirmada_em AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'), to_char(beneficio_fim AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'),
-    pagamento_confirmacao_id, to_char(liberada_em AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'), evidencia_liberacao), ',' ORDER BY id)), 'vazio') AS resumo_fundadores,
-  (SELECT count(*)::int FROM assinatura_contratacoes) AS contratacoes,
-  (SELECT coalesce(md5(string_agg(to_jsonb(c)::text, ',' ORDER BY c.id)), 'vazio') FROM assinatura_contratacoes c) AS resumo_contratacoes
-  FROM assinatura_fundadores`;
+/** Corte lido no banco ANTES da migration: a prova compara só linhas criadas até ele (tráfego durante a janela não conta). */
+const SQL_CORTE = `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS corte`;
+const CORTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+const ts = c => `coalesce(to_char(${c} AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'),'~')`;
+const tx = c => `coalesce((${c})::text,'~')`;
+/**
+ * Resumo só das colunas IMUTÁVEIS que a 090 não pode mudar (identidade da concessão e snapshot da contratação; estado,
+ * confirmação e pagamento mudam com o tráfego normal e ficam fora — revisão de 22/10/2026). NULL explícito ('~'); só o
+ * md5 agregado sai.
+ */
+function SQL_PRESERVACAO(corte) {
+  assert.match(String(corte), CORTE, 'CORTE_INVALIDO');
+  const ate = `'${corte}'::timestamptz`;
+  return `/* preservacao-090 */ SELECT
+  (SELECT count(*)::int FROM assinatura_fundadores WHERE reservada_em <= ${ate}) AS fundadores,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', id, empresa_id, documento_beneficiario, ${tx('vaga')}, ${ts('reservada_em')}), ',' ORDER BY id)), 'vazio')
+     FROM assinatura_fundadores WHERE reservada_em <= ${ate}) AS resumo_fundadores,
+  (SELECT count(*)::int FROM assinatura_contratacoes WHERE criada_em <= ${ate}) AS contratacoes,
+  (SELECT coalesce(md5(string_agg(concat_ws('|', id, empresa_id, chave_idempotencia, plano, ciclo, catalogo_versao, valor_regular_centavos, desconto_percentual,
+       valor_final_centavos, ${tx('fundador_id')}, criada_por, ${ts('criada_em')}), ',' ORDER BY id)), 'vazio')
+     FROM assinatura_contratacoes WHERE criada_em <= ${ate}) AS resumo_contratacoes`;
+}
 
 function lerRevisado(raiz, arquivo, hash) {
   const sql = fs.readFileSync(path.join(raiz, arquivo), 'utf8').replace(/\r\n/g, '\n');
@@ -101,9 +115,10 @@ async function somenteLeitura(db, sql) {
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
 /** Contagens e resumos agregados (sem ids nem documentos); com a 090 completa, concessões por origem e campanhas por estado. */
-async function contagens(db, estado) {
-  const r = {...(await somenteLeitura(db, SQL_PRESERVACAO)).rows[0]};
+async function contagens(db, estado, corte) {
+  const r = {...(await somenteLeitura(db, SQL_PRESERVACAO(corte))).rows[0]};
   if (estado.m090 === 'completa') Object.assign(r, (await somenteLeitura(db, `SELECT
+    (SELECT count(*) FROM assinatura_fundadores WHERE origem = 'LEGADO' AND reservada_em <= '${corte}'::timestamptz)::int AS legado_ate_corte,
     (SELECT count(*) FROM assinatura_fundadores WHERE origem = 'LEGADO')::int AS legado,
     (SELECT count(*) FROM assinatura_fundadores WHERE origem = 'JANELA')::int AS janela,
     (SELECT count(*) FROM assinatura_fundadores WHERE origem = 'POS_JANELA')::int AS pos_janela,
@@ -117,7 +132,7 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   try { r.plano = planoEtapas(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
-  r.contagens = await contagens(db, r.estado);
+  r.contagens = await contagens(db, r.estado, (await somenteLeitura(db, SQL_CORTE)).rows[0]?.corte);
   const [nome, arquivo, hash] = r.estado.m090 === 'completa' ? ETAPAS[2] : ETAPAS[0];
   await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
   r[nome.split(' ')[0]] = 'PASS';
@@ -131,7 +146,9 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  r.plano = planoEtapas(r.estadoAntes); r.contagensAntes = await contagens(db, r.estadoAntes); registrar(r);
+  r.plano = planoEtapas(r.estadoAntes);
+  r.corte = (await somenteLeitura(db, SQL_CORTE)).rows[0]?.corte;
+  r.contagensAntes = await contagens(db, r.estadoAntes, r.corte); registrar(r);
   for (const nome of r.plano) {
     r.etapas.push({nome, inicio: new Date().toISOString()}); registrar(r);
     if (nome === 'migration 090') {
@@ -143,11 +160,11 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   }
   r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   assert.equal(r.estadoDepois.m090, 'completa', 'ESTADO_FINAL_090');
-  r.contagensDepois = await contagens(db, r.estadoDepois);
+  r.contagensDepois = await contagens(db, r.estadoDepois, r.corte);
   // Prova agregada: nenhuma coluna antiga de concessão nem contratação mudou (a migration só acrescenta origem/campanha).
   for (const k of ['fundadores', 'resumo_fundadores', 'contratacoes', 'resumo_contratacoes'])
     assert.equal(r.contagensDepois[k], r.contagensAntes[k], 'PRESERVACAO_DIVERGENTE ' + k);
-  if (r.plano.length > 1) assert.equal(r.contagensDepois.legado, r.contagensAntes.fundadores, 'BACKFILL_LEGADO_INCOMPLETO');
+  if (r.plano.length > 1) assert.equal(r.contagensDepois.legado_ate_corte, r.contagensAntes.fundadores, 'BACKFILL_LEGADO_INCOMPLETO');
   r.resultado = r.plano.length === 1 ? 'JA_APLICADA_POSTCHECK_PASS' : 'APLICADA_POSTCHECK_PASS';
   registrar(r);
   return r;
@@ -230,5 +247,5 @@ function criarAplicador(amb) {
   return {plano, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO,
+module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO, SQL_CORTE,
   lerRevisado, lerEstado, planoEtapas, conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

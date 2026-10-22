@@ -16,7 +16,12 @@ BEGIN
   IF (SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND convalidated AND conname IN ('empresa_assinaturas_documento_teste_check',
         'assinatura_fundadores_documento_beneficiario_check','cadastros_empresas_documento_check','solicitacoes_documento_check',
         'empresa_representacoes_qualificacao_check')) <> 5
-    OR (SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND conname IN ('empresa_assinaturas_documento_teste_dv_check','assinatura_fundadores_documento_dv_check')) <> 2 THEN
+    OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND (
+          (tgrelid = 'public.empresa_assinaturas'::regclass AND tgname = 'empresa_assinaturas_091_documento')
+          OR (tgrelid = 'public.assinatura_fundadores'::regclass AND tgname = 'assinatura_fundadores_091_documento'))) <> 2
+    OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL
+    -- O DV não é CHECK (valeria em todo UPDATE de linha antiga).
+    OR EXISTS (SELECT 1 FROM pg_constraint WHERE contype = 'c' AND pg_get_constraintdef(oid) LIKE '%kidmais_091_documento_valido%') THEN
     RAISE EXCEPTION '091 postcheck: CHECKs ausentes';
   END IF;
   IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'empresa_assinaturas_documento_teste_check')) NOT LIKE '%[0-9]{11}|%'

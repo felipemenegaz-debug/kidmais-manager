@@ -37,8 +37,9 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falh
       if (falharEm && sql.includes(falharEm)) throw new Error('falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_ESTADO) return {rows: [estados[Math.min(i++, estados.length - 1)]]};
-      if (sql === comum.SQL_PRESERVACAO) return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]};
-      if (sql.includes("origem = 'LEGADO'")) return {rows: [{legado: 6, janela: 0, pos_janela: 0, campanhas_ativadas: 0}]};
+      if (sql === comum.SQL_CORTE) return {rows: [{corte: '2026-10-22T12:00:00.000000Z'}]};
+      if (sql.startsWith('/* preservacao-')) { assert.ok(sql.includes("'2026-10-22T12:00:00.000000Z'::timestamptz"), 'mesmo corte antes e depois'); return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]}; }
+      if (sql.includes("origem = 'LEGADO'")) return {rows: [{legado_ate_corte: 6, legado: 7, janela: 0, pos_janela: 0, campanhas_ativadas: 0}]};
       return {rows: []};
     }
   };
@@ -120,7 +121,11 @@ test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcia
   assert.match(comum.SQL_ESTADO, /pg_has_role\(current_user, c\.relowner, 'USAGE'\)/);
   assert.deepEqual([...comum.REFERENCIADAS], ['usuarios_administrativos']); assert.deepEqual([...comum.ALTERADAS], ['assinatura_fundadores']);
   // A prova de preservação só lê colunas da 074a e devolve md5 agregado (nenhum id ou documento na saída).
-  assert.doesNotMatch(comum.SQL_PRESERVACAO, /origem|campanha_id|regra_versao|oferta_valida_ate/); assert.match(comum.SQL_PRESERVACAO, /md5\(string_agg/);
+  // Revisão de 22/10/2026: só colunas imutáveis, só linhas até o corte; NULL explícito; corte validado.
+  const p = comum.SQL_PRESERVACAO('2026-10-22T12:00:00.000000Z');
+  assert.doesNotMatch(p, /origem|campanha_id|regra_versao|oferta_valida_ate|\bestado\b|confirmada_em|pagamento_confirmacao_id|to_jsonb/); assert.match(p, /md5\(string_agg/);
+  assert.match(p, /reservada_em <= '2026-10-22T12:00:00.000000Z'::timestamptz/); assert.match(p, /coalesce\(\(vaga\)::text,'~'\)/);
+  for (const ruim of ["2026-10-22'; DROP TABLE x; --", '2026-10-22', undefined]) assert.throws(() => comum.SQL_PRESERVACAO(ruim), /CORTE_INVALIDO/);
 });
 
 test('modo: plano, conferência e aplicação só com --backup e registro seguro; o resto é recusado', () => {
@@ -147,7 +152,7 @@ test('conferência: só leitura (toda consulta em READ ONLY), não grava nada no
     assert.ok(Pronta.log.some(x => x.ro && x.sql.includes('090 precheck')));
     const Ja = clienteFalso({estados: [COMPLETA], identidade: id});
     const j = await m.conferir({env, Client: Ja});
-    assert.equal(j.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.equal(j.postcheck, 'PASS'); assert.deepEqual(j.contagens, {...PRESERVA, legado: 6, janela: 0, pos_janela: 0, campanhas_ativadas: 0});
+    assert.equal(j.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.equal(j.postcheck, 'PASS'); assert.deepEqual(j.contagens, {...PRESERVA, legado_ate_corte: 6, legado: 7, janela: 0, pos_janela: 0, campanhas_ativadas: 0});
     assert.deepEqual(escritas(Ja.log), []);
     const Rec = clienteFalso({estados: [{...AUSENTE, pode_referenciar: false}], identidade: id});
     const x = await m.conferir({env, Client: Rec});

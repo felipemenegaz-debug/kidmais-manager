@@ -38,7 +38,8 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falh
       if (falharEm && sql.includes(falharEm)) throw new Error('falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_ESTADO) return {rows: [estados[Math.min(i++, estados.length - 1)]]};
-      if (sql === comum.SQL_PRESERVACAO) return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]};
+      if (sql === comum.SQL_CORTE) return {rows: [{corte: '2026-10-22T12:00:00.000000Z'}]};
+      if (sql.startsWith('/* preservacao-')) { assert.ok(sql.includes("'2026-10-22T12:00:00.000000Z'::timestamptz"), 'mesmo corte antes e depois'); return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]}; }
       if (sql.includes('AS teste_cpf')) return {rows: [{teste_cpf: 0, titulares_pf: 0}]};
       return {rows: []};
     }
@@ -118,7 +119,10 @@ test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcia
   assert.deepEqual([...comum.REFERENCIADAS], []);
   assert.deepEqual([...comum.ALTERADAS], ['empresa_assinaturas', 'assinatura_fundadores', 'cadastros_empresas', 'solicitacoes_acesso_empresa', 'empresa_representacoes']);
   // A prova de preservação devolve só contagens e md5 agregados (nenhum documento na saída).
-  assert.match(comum.SQL_PRESERVACAO, /md5\(string_agg/); assert.doesNotMatch(comum.SQL_PRESERVACAO, /SELECT documento_teste\b/);
+  const p = comum.SQL_PRESERVACAO('2026-10-22T12:00:00.000000Z');
+  assert.match(p, /md5\(string_agg/); assert.doesNotMatch(p, /SELECT documento_teste\b|\bversao\b|\bsituacao\b/);
+  assert.match(p, /criado_em <= '2026-10-22T12:00:00.000000Z'::timestamptz/);
+  assert.throws(() => comum.SQL_PRESERVACAO('x'), /CORTE_INVALIDO/);
 });
 
 test('modo: plano, conferência e aplicação só com --backup e registro seguro; o resto é recusado', () => {

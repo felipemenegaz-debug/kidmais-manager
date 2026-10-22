@@ -11,7 +11,7 @@ BEGIN
     RAISE EXCEPTION '091 rollback recusado: migration ausente ou parcial.';
   END IF;
 END $$;
-LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes IN ACCESS EXCLUSIVE MODE;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM empresa_assinaturas WHERE documento_teste ~ '^[0-9]{11}$')
@@ -22,12 +22,13 @@ BEGIN
     RAISE EXCEPTION '091 rollback recusado: já há contratante pessoa física registrado. Preserve e corrija para frente.';
   END IF;
 END $$;
+DROP TRIGGER empresa_assinaturas_091_documento ON empresa_assinaturas;
+DROP TRIGGER assinatura_fundadores_091_documento ON assinatura_fundadores;
+DROP FUNCTION kidmais_091_documento_guarda();
 ALTER TABLE empresa_assinaturas
-  DROP CONSTRAINT empresa_assinaturas_documento_teste_dv_check,
   DROP CONSTRAINT empresa_assinaturas_documento_teste_check,
   ADD CONSTRAINT empresa_assinaturas_documento_teste_check CHECK (documento_teste IS NULL OR documento_teste ~ '^[0-9A-Z]{12}[0-9]{2}$');
 ALTER TABLE assinatura_fundadores
-  DROP CONSTRAINT assinatura_fundadores_documento_dv_check,
   DROP CONSTRAINT assinatura_fundadores_documento_beneficiario_check,
   ADD CONSTRAINT assinatura_fundadores_documento_beneficiario_check CHECK (documento_beneficiario ~ '^[0-9A-Z]{12}[0-9]{2}$');
 ALTER TABLE cadastros_empresas

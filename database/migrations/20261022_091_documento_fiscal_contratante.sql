@@ -2,8 +2,10 @@
 -- LOCAL, preparada em 22/10/2026 (docs/PLANO_PLANO_CPF_E_FUNDADOR.md). NÃO aplicada em staging/produção. Exige 067/068/069/074a.
 -- Independente da 090. Ordem: código compatível publicado ANTES (sem a 091 o código recusa CPF com CPF_INDISPONIVEL) →
 -- conferência → autorização → aplicação → postcheck → só então ASSINATURA_CPF_ATIVO=true.
--- O que muda: os CHECKs de formato aceitam também 11 dígitos; novas linhas precisam de DV válido (CHECK NOT VALID: as linhas
--- antigas não são revalidadas nem alteradas); a qualificação TITULAR_PF (a própria pessoa contratante) passa a existir.
+-- O que muda: os CHECKs de formato aceitam também 11 dígitos; o DV é exigido só no INSERT, por gatilho (revisão de
+-- 22/10/2026: um CHECK NOT VALID também valeria em todo UPDATE das linhas antigas e travaria sincronização e confirmação
+-- de um documento legado com DV inválido; como o documento é imutável, conferir na inserção basta); a qualificação
+-- TITULAR_PF (a própria pessoa contratante) passa a existir.
 -- O que NÃO muda: documento_teste e documento_beneficiario continuam imutáveis (guardas 068/074a intactas); isenção
 -- (assinatura_isencoes) continua só CNPJ; perfil_empresas.cnpj continua CNPJ; nenhuma linha é atualizada.
 BEGIN;
@@ -18,7 +20,8 @@ DO $$ BEGIN
     RAISE EXCEPTION '091 exige 067, 068, 069 e 074a instaladas.';
   END IF;
   IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NOT NULL
-     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname IN ('empresa_assinaturas_documento_teste_dv_check','assinatura_fundadores_documento_dv_check')) THEN
+     OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento')) THEN
     RAISE EXCEPTION '091 já aplicada total ou parcialmente.';
   END IF;
   IF (SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND conname IN ('empresa_assinaturas_documento_teste_check',
@@ -27,8 +30,9 @@ DO $$ BEGIN
     RAISE EXCEPTION '091: CHECKs de documento ou qualificação divergiram da base revisada.';
   END IF;
 END $$;
--- Mesma ordem dos caminhos de contratação: empresa → assinatura → concessões.
-LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes IN SHARE ROW EXCLUSIVE MODE;
+-- Mesma ordem dos caminhos de contratação: empresa → assinatura → concessões. ACCESS EXCLUSIVE já de início: os ALTER
+-- abaixo precisam dele, e subir a trava no meio arrisca lock_timeout ou impasse com leitores.
+LOCK TABLE empresa_assinaturas, assinatura_fundadores, cadastros_empresas, solicitacoes_acesso_empresa, empresa_representacoes IN ACCESS EXCLUSIVE MODE;
 
 -- DV oficial: CPF (11 dígitos, sem sequência repetida, dois DVs módulo 11) e CNPJ numérico/alfanumérico (ASCII − 48,
 -- pesos 2–9). Não consulta cadastro nem titularidade. A raiz repetida de CNPJ é política local do código (cnpj.ts).
@@ -56,12 +60,25 @@ END $$;
 
 ALTER TABLE empresa_assinaturas
   DROP CONSTRAINT empresa_assinaturas_documento_teste_check,
-  ADD CONSTRAINT empresa_assinaturas_documento_teste_check CHECK (documento_teste ~ '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$'),
-  ADD CONSTRAINT empresa_assinaturas_documento_teste_dv_check CHECK (kidmais_091_documento_valido(documento_teste)) NOT VALID;
+  ADD CONSTRAINT empresa_assinaturas_documento_teste_check CHECK (documento_teste ~ '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$');
 ALTER TABLE assinatura_fundadores
   DROP CONSTRAINT assinatura_fundadores_documento_beneficiario_check,
-  ADD CONSTRAINT assinatura_fundadores_documento_beneficiario_check CHECK (documento_beneficiario ~ '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$'),
-  ADD CONSTRAINT assinatura_fundadores_documento_dv_check CHECK (kidmais_091_documento_valido(documento_beneficiario)) NOT VALID;
+  ADD CONSTRAINT assinatura_fundadores_documento_beneficiario_check CHECK (documento_beneficiario ~ '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$');
+
+-- DV só na INSERÇÃO (documento imutável depois: guardas 068/074a). Linhas antigas continuam atualizáveis.
+CREATE FUNCTION kidmais_091_documento_guarda() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+DECLARE doc text;
+BEGIN
+  -- Ramos separados: NEW só tem o campo da própria tabela.
+  IF TG_TABLE_NAME = 'empresa_assinaturas' THEN doc := NEW.documento_teste; ELSE doc := NEW.documento_beneficiario; END IF;
+  IF doc IS NOT NULL AND NOT public.kidmais_091_documento_valido(doc) THEN
+    RAISE EXCEPTION '091: documento com dígito verificador inválido.' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER empresa_assinaturas_091_documento BEFORE INSERT ON empresa_assinaturas FOR EACH ROW EXECUTE FUNCTION kidmais_091_documento_guarda();
+CREATE TRIGGER assinatura_fundadores_091_documento BEFORE INSERT ON assinatura_fundadores FOR EACH ROW EXECUTE FUNCTION kidmais_091_documento_guarda();
 ALTER TABLE cadastros_empresas
   DROP CONSTRAINT cadastros_empresas_documento_check,
   ADD CONSTRAINT cadastros_empresas_documento_check CHECK (documento ~ '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$');
