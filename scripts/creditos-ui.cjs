@@ -102,6 +102,33 @@ async function principal() {
             await client.query('BEGIN'); await corte.aplicarCorte(client, id, 'E2E LOCAL 22/10'); await client.query('COMMIT');
             empresas[chave] = { id };
         }
+        // Festa sintética da empresa C com contrato assinado (fixture de lib/creditos/creditos-095.postgres.test.ts), só para abrir
+        // o convite da festa e ver o cartão de créditos de convite naquela página.
+        const { hashSnapshotContrato } = carregar('lib/contratos/services/snapshot-core.ts');
+        const festaId = await (async () => {
+            const q = async (sql, v) => (await client.query(sql, v)).rows[0]?.id;
+            const e = empresas.C.id, cod = () => `cr${randomBytes(3).toString('hex')}`;
+            await client.query('BEGIN');
+            await client.query('SET LOCAL session_replication_role = replica');
+            const pacote = await q(`INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES ($1, $2, 'Festa UI', 1, true, true) RETURNING id`, [e, cod().toUpperCase()]);
+            const tabela = await q(`INSERT INTO tabelas_preco (codigo, nome, vigencia_inicio, ativa, empresa_id) VALUES ($1, 'Tabela UI', '2026-01-01', false, $2) RETURNING id`, [cod(), e]);
+            const preco = await q(`INSERT INTO precos_pacote (tabela_preco_id, pacote_id, convidados_min, tipo_calculo, valor, categoria_horario) VALUES ($1, $2, 1, 'FIXO', 100, 'PADRAO') RETURNING id`, [tabela, pacote]);
+            const agenda = await q(`INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, ordem_exibicao) VALUES ($1, 'Agenda UI', '10:00', '18:00', 9) RETURNING id`, [cod()]);
+            const cliente = await q(`INSERT INTO clientes (nome_completo, empresa_id) VALUES ('Cliente UI', $1) RETURNING id`, [e]);
+            const fechamento = await q(`INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+                categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status)
+                VALUES ('2099-09-01', '14:00', '18:00', $1, $2, $3, $4, $5, 'PADRAO', 'PADRAO', 20, 20, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $6, 'AGUARDANDO_PAGAMENTO') RETURNING id`,
+                [agenda, e, pacote, tabela, preco, cliente]);
+            const contrato = await q(`INSERT INTO contratos (fechamento_id, status, assinado_em, versao_atual) VALUES ($1, 'ASSINADO', now(), 1) RETURNING id`, [fechamento]);
+            const snapshot = { comercial: { valorFinalContrato: 100 }, evento: { data: '2099-09-01', convidados: 20, pacote: { codigo: 'UI', nome: 'Festa UI' } }, contratacao: { buffet: {}, adicionais: [] } };
+            const versao = await q(`INSERT INTO contrato_versoes (contrato_id, numero_versao, status, snapshot, snapshot_hash, assinado_em, documento_template_versao, documento_pdf_hash, aceite_metodo)
+                VALUES ($1, 1, 'ASSINADA', $2::jsonb, $3, now(), 1, $4, 'OTP') RETURNING id`, [contrato, JSON.stringify(snapshot), hashSnapshotContrato(snapshot), 'b'.repeat(64)]);
+            await client.query('INSERT INTO contrato_fluxos (contrato_id, versao_vigente_id) VALUES ($1, $2)', [contrato, versao]);
+            const festa = await q(`INSERT INTO festas (contrato_id, versao_contratual_criacao_id, chave_criacao, payload_hash, criado_por) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+                [contrato, versao, randomUUID(), 'c'.repeat(64), gestao]);
+            await client.query('COMMIT');
+            return festa;
+        })();
         // Pedido sintético da empresa B (para o teste de isolamento por protocolo).
         await client.query(`INSERT INTO ia_credito_pedidos (empresa_id, protocolo, recurso, catalogo_versao, oferta_codigo, oferta, termos_versao, termos_sha256, quantidade, preco_centavos,
             validade_dias, forma, ambiente, chave_idempotencia, payload_sha256, estado, solicitado_por, vencimento_pagamento)
@@ -260,6 +287,31 @@ async function principal() {
         assert.ok(await semRolagem(), 'sem rolagem horizontal no celular');
         await page.screenshot({ path: path.join(relatorios, '7-celular.png'), fullPage: true });
         resultados.push('7: celular 390 px sem rolagem horizontal, resumo da compra visível');
+
+        // 9. Créditos em cada página: convite da festa mostra só os créditos de convite (saldo, pacotes, pedidos); Atendimento
+        // não mostra nada do WhatsApp.AI enquanto o Wall-e estiver desligado.
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.goto(`${base}/admin/festas/${festaId}/convite`);
+        const noConvite = page.locator('[data-creditos="CONVITES"]');
+        await noConvite.locator('[data-disponivel]').waitFor();
+        await noConvite.getByRole('heading', { name: 'Créditos de convite' }).waitFor();
+        await page.getByText('Preparando seu convite', { exact: false }).waitFor({ state: 'detached' });
+        assert.equal(await noConvite.locator('[data-oferta]').count(), 0, 'pacotes fechados até "Comprar mais créditos"');
+        await page.screenshot({ path: path.join(relatorios, '9-convite.png'), fullPage: true });
+        await noConvite.locator('[data-abrir-catalogo]').click();
+        assert.ok(await noConvite.locator('[data-oferta]').count() > 0, 'pacotes de convite na página do convite');
+        assert.equal(await noConvite.locator('[data-saldo="WALLE"]').count(), 0);
+        assert.equal(await noConvite.locator('[data-extrato]').count(), 0, 'extrato só na Assinatura');
+        assert.equal(await noConvite.locator(`[data-pedido="${protocolo}"]`).count(), 0, 'pedido concluído só na Assinatura');
+        assert.ok(await noConvite.locator('[data-pedido][data-estado="AGUARDANDO_PAGAMENTO"]').count() > 0, 'pagamento em andamento visível');
+        assert.equal(await noConvite.locator('[data-pedir-devolucao]').count(), 0, 'devolução só na Assinatura');
+        await page.screenshot({ path: path.join(relatorios, '9b-convite-comprar.png'), fullPage: true });
+        await page.goto(`${base}/admin/atendimento`);
+        await page.getByRole('heading', { name: 'Atendimento' }).waitFor();
+        await espera(1500);
+        assert.equal(await page.locator('[data-creditos]').count(), 0, 'WhatsApp.AI sem créditos com o Wall-e desligado');
+        await page.screenshot({ path: path.join(relatorios, '10-atendimento.png'), fullPage: true });
+        resultados.push('9: convite da festa com o cartão compacto de convite (saldo, "Comprar mais créditos", pagamentos em andamento; concluídos/devolução/extrato só na Assinatura); Atendimento sem créditos com o Wall-e desligado');
 
         // 8. Flags desligadas: sem catálogo, compra 503; saldo e histórico continuam.
         await pararServidor();

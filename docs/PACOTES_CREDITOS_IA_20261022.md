@@ -250,6 +250,13 @@ créditos 13/13 em duas rodadas (aplicador, exportação e adversarial PASS), `c
 **3/3** pela asserção esperada (R1 original inconclusivo: quebrava a SQL ao deixar `$3` sem uso; reescrito como R1b).
 SQL da 095 sem mudança. Observação do parecer não tratada (P3): a releitura de estorno já tratado faz uma escrita idempotente.
 
+**Créditos em cada página (22/10, pedido de Felipe).** Carteiras continuam separadas (Convites em gerações; WhatsApp.AI em
+`µUS$`). O mesmo componente (`CreditosIA` com `recurso`) aparece compacto onde o crédito é usado: no **convite da festa**
+(saldo, "Comprar mais créditos" com os pacotes de convite e só os pagamentos em andamento) e em **Atendimento** (só com o
+Wall-e liberado para a empresa; hoje não aparece). A **Assinatura** segue com tudo: pedidos concluídos, devoluções e extrato
+(lugar único do que foi pago). Equipe vê o saldo, sem comprar. Validação: `check:v1:static` EXIT 0; Playwright 9/9 (passo 9:
+convite da festa e Atendimento); PG créditos 13/13.
+
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
 antes de cada execução; sem o banco `kidmais_manager`.

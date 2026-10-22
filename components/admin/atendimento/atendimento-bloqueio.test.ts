@@ -20,6 +20,7 @@ function montar(respostas: { status: number; corpo: unknown }[]) {
   const adminFetch = async () => { const r = fila.shift() ?? respostas[respostas.length - 1]; return { ok: r.status < 400, status: r.status, json: async () => r.corpo }; };
   const h = carregarComponente('components/admin/atendimento/AtendimentoWhatsapp.tsx', {
     'next/link': { default: (p: { children?: unknown }) => p.children },
+    '@/components/admin/AssinaturaCreditos': { CreditosIA: () => null },
     '@/lib/http/admin-fetch': { adminFetch },
     './atendimento.module.css': cssFalso,
     './MensagensProntas': { GerenciarMensagensProntas: () => null, MensagensProntas: () => null },
