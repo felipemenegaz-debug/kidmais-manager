@@ -161,12 +161,11 @@ test("L4–L5: cotação e fechamento público com o pacote P_; revisão mantém
   assert.equal(gravado.pacote_id, livre.id, "L4: FK para a linha vigente do pacote");
   assert.equal(gravado.codigo, livre.codigo, "L4: snapshot com o código P_");
 
-  // L5 — o pacote agora está em uso: editar cria uma revisão (nova linha vigente, mesmo código). Disponibilidade vazia
-  // de propósito: re-salvar mantendo um dia/horário com regra aberta esbarra no gatilho de vigência da 006 (defeito
-  // anterior, independente do código P_, registrado à parte em 22/10/2026).
+  // L5 — o pacote agora está em uso: editar cria uma revisão (nova linha vigente, mesmo código), mantendo os mesmos dias
+  // e horários (possível desde a correção da vigência sobreposta, PR #204).
   const revisado = await emTransacao(() => salvarPacoteComercial(tx, {
     id: livre.id, nome: "Festa Jardim 2", descricao: "Revisado", duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 80,
-    disponibilidade: [],
+    disponibilidade: [1, 2, 3, 4, 5, 6, 7].flatMap((dia) => turnos.map((horarioId) => ({ dia, horarioId }))),
     faixas: [{ convidadosMin: 30, convidadosMax: 80, valor: "4800.00" }], categorias: [],
   }, ctx(A)));
   const vigente = await buscarPacoteVigenteDaEmpresaPorCodigo(A.empresa, livre.codigo, tx);
@@ -177,4 +176,5 @@ test("L4–L5: cotação e fechamento público com o pacote P_; revisão mantém
   assert.equal(revisado.pacote.codigo, livre.codigo, "L5: revisão com o mesmo código");
   const agenda = await pacotesDaAgendaDaEmpresa(tx, A.empresa, listarPacotesContrataveisDaEmpresa);
   assert.deepEqual(agenda.pacotes, [{ id: livre.codigo, nome: "Festa Jardim 2" }], "L5: a agenda segue pelo código");
+  assert.equal(agenda.regras[livre.codigo].length, 14, "L5: a revisão mantém os 7 dias × 2 períodos");
 });
