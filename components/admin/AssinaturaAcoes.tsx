@@ -121,6 +121,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         {dados.gestao && cobranca?.disponivel && dados.ofertas?.habilitado && !pagamento?.urlPagamento && <div>
             <p>Escolha o plano para continuar após o teste. O acesso pago depende da confirmação do pagamento.</p>
             {dados.ofertas.fundador && <p>Fundador: 40% de desconto por 12 meses. Depois, renovação pelo preço normal, com aviso prévio.</p>}
+            {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'JANELA' && <p>Condição válida para quem assinar {dados.ofertas.campanha.prazo.texto}. A disponibilidade é confirmada ao assinar.</p>}
+            {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'POS_JANELA' && <p>Restam {dados.ofertas.campanha.vagasRestantes} vagas Fundador (indicativo). A vaga é confirmada ao assinar.</p>}
             {dados.ofertas.aguardandoVaga ? <p role="status">As vagas Fundador estão em confirmação. Aguarde antes de contratar.</p> : <>
                 <label>Ciclo <select value={cicloPlano} onChange={e => setCicloPlano(e.target.value as 'MENSAL' | 'ANUAL')} disabled={ocupado || Boolean(dados.ofertas.pendente)}>
                     <option value="MENSAL">Mensal</option><option value="ANUAL">Anual — pagamento único, valor de 10 mensalidades</option>
@@ -135,6 +137,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                 </small>}</p>)}
             </>}
         </div>}
+        {dados.gestao && cobranca?.disponivel && dados.ofertas?.bloqueio && !pagamento?.urlPagamento && <p role="status">{dados.ofertas.bloqueio.mensagem}</p>}
         {dados.gestao && cobranca?.disponivel && !dados.ofertas?.habilitado && !pagamento?.urlPagamento && <>
             {(a.situacao === 'EM_ATRASO' || pendenteDeConfirmacao) && a.ciclo
                 ? <p><button type="button" disabled={ocupado} onClick={() => void assinar(a.ciclo as 'MENSAL' | 'ANUAL')}>{ocupado ? 'Abrindo…' : 'Continuar pagamento'}</button></p>

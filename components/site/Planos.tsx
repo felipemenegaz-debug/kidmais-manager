@@ -2,8 +2,9 @@ import { adicionais, ancora, ancoraExibivel, comercial, planos, precoExibido, va
 import { Cadastro, Contato, Recurso, type ContatoSite } from './elementos';
 import { cx } from './estilos';
 import CicloPlanos from './CicloPlanos';
+import { textoFundador, type TextoFundador } from '@/lib/site/fundador';
 
-export default function Planos({ publicado, aberto, contato }: { publicado: boolean; aberto: boolean; contato: ContatoSite }) {
+export default function Planos({ publicado, aberto, contato, fundador = textoFundador({ fase: 'LEGADO' }) }: { publicado: boolean; aberto: boolean; contato: ContatoSite; fundador?: TextoFundador }) {
     const moeda = (centavos: number | null) => precoExibido(centavos, publicado);
     const premium = planos.find(plano => plano.id === 'premium')!;
     return <section className={cx('block')} id="planos" aria-labelledby="t-planos"><div className={cx('wrap')}>
@@ -23,7 +24,7 @@ export default function Planos({ publicado, aberto, contato }: { publicado: bool
         </div>)}</div></div>
             {ancoraExibivel(ancora) && <div className={cx('receipt')} role="group" aria-labelledby="t-rec"><h4 id="t-rec">Se fosse comprar separado</h4>{ancora.map(item => <div key={item.nome} className={cx('line')}><Recurso ids={item.recursos}>{item.nome}</Recurso><span>{moeda(item.centavos)}</span></div>)}<div className={cx('sum')}><span>Total por mês</span><s>{moeda(ancora.reduce((soma, item) => soma + item.centavos, 0))}</s></div><div className={cx('deal')}><span>Tudo no Premium</span><b>{moeda(premium.mensalCentavos)}{publicado && '/mês'}</b></div></div>}
         </div>
-        <div className={cx('founder')} id="fundador"><div className={cx('pct')}>{comercial.fundador.descontoPercentual}%<small>por {comercial.fundador.meses} meses</small></div><div><h3>Plano Fundador: {comercial.fundador.vagas} vagas para os primeiros buffets que assinarem.</h3><p>Desconto travado por {comercial.fundador.meses} meses em qualquer plano, aplicado automaticamente enquanto houver vagas. Também vamos pedir a sua opinião sobre o sistema e um depoimento depois de usar.</p></div><Contato config={contato} fundador /></div>
+        <div className={cx('founder')} id="fundador"><div className={cx('pct')}>{comercial.fundador.descontoPercentual}%<small>por {comercial.fundador.meses} meses</small></div><div><h3>{fundador.titulo}</h3><p>{fundador.descricao}</p></div><Contato config={contato} fundador /></div>
         <div className={cx('trial-line')} role="group" aria-label="Como funciona o teste grátis"><div><b>HOJE</b><p>Crie a conta, confirme o e-mail e cadastre a empresa pelo CNPJ. Sem cartão.</p></div><div><b>DIAS 1 A {comercial.testeDias}</b><p>Experimente os recursos disponíveis, com implantação guiada. Os itens Em breve ainda não estão liberados.</p></div><div><b>SE ASSINAR</b><p>Confira as condições de assinatura na sua conta. Nada do que você cadastrou muda.</p></div><div><b>SE NÃO ASSINAR</b><p>A empresa passa a somente leitura e depois fica suspensa. Seus dados não são apagados por vencimento e podem ser exportados.</p></div></div>
     </div></section>;
 }
