@@ -2,8 +2,9 @@
 
 **Origem:** Felipe pediu ao agente, em 22/10/2026, para "definir da melhor forma" cinco pontos pendentes do plano
 (`docs/PLANO_PACOTES_CREDITOS.md`). As definições abaixo são **decisões de Felipe por delegação**, com base na
-recomendação do agente. Os pontos jurídicos e fiscais continuam **dependentes do parecer** do jurídico (Astra) e do
-contador: até lá, o catálogo segue com `aprovacao: null` e a venda em produção fica tecnicamente bloqueada
+recomendação do agente. **Revisão de 22/10 (D5):** Felipe não tem jurídico; os pontos jurídicos passam a ser **decisão de
+Felipe, com risco assumido** (sem parecer). Os pontos fiscais dependem das 4 respostas da agência contábil. Até a aprovação
+do catálogo por Felipe, ele segue com `aprovacao: null` e a venda em produção fica tecnicamente bloqueada
 (`lib/creditos/config.ts`). Nada aqui autoriza publicação, sandbox, staging ou produção.
 
 ## D1. Preços, franquias e validade
@@ -40,7 +41,7 @@ Consumo pelo menor vencimento, franquia/cortesia antes do pago no empate (implem
 - **Implementação pendente:** a franquia por plano e a proporcionalidade ainda não estão no código (hoje: só o limite legado).
 
 **Catálogo:** a aprovação de venda exige uma **nova versão** do catálogo no código (ex.: `PILOTO-20261022`, só Convites 10
-e 30), com o registro desta decisão em `aprovacao`, depois do gate de preço e do parecer jurídico sobre os termos; só então
+e 30), com o registro desta decisão em `aprovacao`, depois do gate de preço, das respostas fiscais e da aprovação de Felipe dos termos (sem parecer jurídico, D5); só então
 `CREDITOS_CATALOGO_APROVADO` pode repetir essa versão em produção. A versão atual (`PROPOSTA-20261022-DEMO`) continua de
 demonstração.
 
@@ -57,8 +58,8 @@ Salvaguardas:
   negativa automática do direito legal. (A regra de revisão ainda não está no código; no piloto todas são manuais.)
 - Excluir o pacote de 100 do piloto (D1) limita o custo de abuso.
 
-Depende do jurídico: texto da garantia, marco dos 7 dias (liberação do lote) e convivência com o CDC art. 49 e o Decreto
-7.962/2013 para pessoa jurídica.
+Sem parecer jurídico (D5 revista): texto da garantia, marco dos 7 dias (liberação do lote) e convivência com o CDC art. 49
+e o Decreto 7.962/2013 para pessoa jurídica ficam como decisão de Felipe, com risco assumido.
 
 ## D3. Pagamento que chega depois do vencimento
 
@@ -88,17 +89,28 @@ pendência de pessoa, necessária antes de abrir a venda (o arrependimento exige
 
 ## D5. Jurídico e contador
 
-**Decidido: enviar** o pacote `D:/glass/KidMais Manager/pacote-revisao-creditos-juridico-contador-20261022/` (preparado pelo
-agente; o **envio é de Felipe**, que tem o canal com a Astra e com o contador). A venda só abre com os dois pareceres e com
-o gate de preço da D1.
+**Revisto por Felipe em 22/10/2026** (antes: "enviar aos dois pareceres"):
+
+- **Jurídico: não há.** As decisões D1 (validade), D2 (garantia), D3 e os textos (minutas de Termos e Aviso de
+  privacidade do plano) ficam como **decisão de Felipe, com risco assumido**, sem parecer. A política já é conservadora:
+  garantia de 7 dias integral mesmo com uso e para CNPJ (acima do mínimo legal), devolução proporcional depois, avisos de
+  vencimento a 30 e 7 dias, prorrogação por indisponibilidade, créditos descritos como direito de uso (não dinheiro).
+  **Ponto de maior risco:** a validade de 12 meses de crédito pago (pode ser questionada por consumidor/Procon).
+  Gatilhos para rever: primeira reclamação formal sobre vencimento, contratação de advogado ou consulta avulsa (opcional,
+  só sobre a validade). Publicar os textos continua sendo um ato próprio de Felipe, junto com a aprovação do catálogo.
+- **Contador (agência virtual):** só as 4 perguntas que bloqueiam a primeira venda — e-mail pronto em
+  `D:/glass/KidMais Manager/pacote-revisao-creditos-juridico-contador-20261022/03-EMAIL-CONTADOR.md` (código de serviço
+  e momento da NFS-e; documento na devolução; tributação no regime do CNPJ; emissão automática pelo Asaas no município).
+  As outras 5 perguntas de `02-CONTADOR.md` ficam para depois da abertura. **Envio por Felipe.**
+- A venda abre com: respostas fiscais, gate de preço da D1 e aprovação do catálogo por Felipe.
 
 ## Situação
 
 | Ponto | Decisão | Código | Bloqueia a venda? |
 |---|---|---|---|
-| D1 preços/validade | piloto Convites 10/30; validade 12 meses | catálogo de demonstração (nova versão na aprovação) | sim: gate de preço + jurídico |
+| D1 preços/validade | piloto Convites 10/30; validade 12 meses | catálogo de demonstração (nova versão na aprovação) | sim: gate de preço + aprovação de Felipe (risco assumido, sem jurídico) |
 | D1 franquia | legado preservado; 5/15/30 por plano depois | só o legado | não para o piloto com empresas migradas |
-| D2 garantia | integral com uso; fila manual no piloto | implementada (sem a regra da 3ª) | sim: jurídico |
+| D2 garantia | integral com uso; fila manual no piloto | implementada (sem a regra da 3ª) | não (decisão de Felipe, risco assumido) |
 | D3 pagamento tardio | honrar a fotografia; cancelada → revisão | implementada (P2-2 fechada em 22/10) | não (sandbox pendente) |
 | D4 CRÍTICO | aprovado | implementado | sim: substituto de Felipe |
-| D5 pareceres | enviar | — | sim |
+| D5 pareceres | sem jurídico (risco assumido); contador: 4 perguntas fiscais | — | sim: respostas fiscais |

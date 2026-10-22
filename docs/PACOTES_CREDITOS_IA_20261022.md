@@ -263,11 +263,12 @@ antes de cada execução; sem o banco `kidmais_manager`.
   para a fila (há rota `/api/desenvolvedor/creditos`, sem UI); e-mails de saldo baixo (aviso só na tela).
 - Uma devolução por pedido (a devolução cancela todo o remanescente). Saldo não usado fora da garantia exige nenhuma geração
   em andamento no lote.
-- Textos legais e preços **não** publicados; minutas do plano seguem pendentes de jurídico.
+- Textos legais e preços **não** publicados; as minutas do plano seguem sem parecer jurídico (Felipe não tem jurídico: publicar
+  é decisão dele com risco assumido, D5 revista em 22/10).
 - Decisões de 22/10 por delegação de Felipe: `docs/DECISOES_CREDITOS_IA_20261022.md` (D1 preços do piloto e validade,
   D2 garantia, D3 pagamento tardio, D4 CRÍTICO, D5 pareceres). Pendentes de código: franquia por plano/proporcional, regra
   da 3ª devolução, nova versão aprovada do catálogo (a lacuna do pedido `ENCERRADO` pago foi fechada na P2-2). Pendentes externos:
-  pareceres do jurídico e do contador (pacote `pacote-revisao-creditos-juridico-contador-20261022/`), medição de custo,
+  4 respostas fiscais da agência contábil (`pacote-revisao-creditos-juridico-contador-20261022/03-EMAIL-CONTADOR.md`), medição de custo,
   substituto de Felipe.
 
 ### Roteiro de homologação em sandbox (NÃO EXECUTADO)
