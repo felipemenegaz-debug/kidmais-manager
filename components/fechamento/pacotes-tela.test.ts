@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CONTATO_KIDMAIS, PACOTES_FECHAMENTO_V1 } from './data.ts';
-import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela.ts';
+import { CODIGO_PACOTE, codigoDoPacoteNaTela, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela.ts';
 import { contatoPublicoDe } from '../../lib/fechamentos/marca-publica.ts';
 import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregador.ts';
 
@@ -32,12 +32,31 @@ function render(props: Record<string, unknown>) {
 
 test('outra empresa: só os pacotes que o servidor devolveu, com nome, preço e descrição dela', () => {
     const itens = pacotesExibidos(false, PACOTES_FECHAMENTO_V1, SO_POCKET);
-    assert.deepEqual(itens, [{ id: 'pocket', nome: 'Pocket sintético', preco: 2100, descricao: 'Descrição não cadastrada.', disponibilidade: null, destaque: null }]);
+    // Em /b o id da tela é o código do pacote da empresa (o mesmo que a API devolve).
+    assert.deepEqual(itens, [{ id: 'POCKET', nome: 'Pocket sintético', preco: 2100, descricao: 'Descrição não cadastrada.', disponibilidade: null, destaque: null }]);
     const html = render({ itens });
     assert.match(html, /Pocket sintético/);
     assert.match(html, /A partir de R\$\s?2\.100,00/);
     assert.equal((html.match(/<button/g) ?? []).length, 1, 'um cartão só');
     semKidmais(html);
+});
+
+test('outra empresa: pacote criado em Novo pacote (P_…) aparece com os dados dela, na ordem do servidor', () => {
+    const LIVRE = 'P_9F2C4E1A7B3D4C5E8F6A0B1C2D3E4F5A';
+    const fatos: FatosPacote = { ...SO_POCKET, [LIVRE]: { nome: 'Festa Jardim', descricao: 'Ao ar livre', duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 80, precoMinimo: '4500.00' } };
+    const itens = pacotesExibidos(false, PACOTES_FECHAMENTO_V1, fatos)!;
+    assert.deepEqual(itens.map((i) => i.id), ['POCKET', LIVRE]);
+    const html = render({ itens, selecionado: LIVRE });
+    assert.match(html, /Festa Jardim/);
+    assert.match(html, /Ao ar livre/);
+    assert.equal((html.match(/<button/g) ?? []).length, 2);
+    semKidmais(html);
+    assert.deepEqual(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, fatos, LIVRE), { id: LIVRE, nome: 'Festa Jardim', precoInicial: 4500, minPagantes: 30, maxPagantes: 80,
+        limiteCadastrado: true, descricao: 'Ao ar livre', disponibilidade: '', duracao: '240 minutos', buffet: '' });
+    assert.equal(codigoDoPacoteNaTela(false, LIVRE), LIVRE, 'catálogo do buffet e adicionais pedidos pelo código');
+    assert.equal(codigoDoPacoteNaTela(true, LIVRE), undefined, 'endereço atual: só os sete');
+    assert.equal(codigoDoPacoteNaTela(true, 'pocket'), 'POCKET');
+    assert.equal(codigoDoPacoteNaTela(false, ''), undefined);
 });
 
 test('outra empresa: carregando, falha e lista vazia nunca caem no catálogo da Kidmais', () => {
@@ -57,14 +76,15 @@ test('outra empresa: carregando, falha e lista vazia nunca caem no catálogo da 
 });
 
 test('outra empresa: pacote não oferecido não é escolhido; o escolhido não herda texto, regra ou limite da Kidmais', () => {
-    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'mini'), undefined);
-    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, null, 'pocket'), undefined, 'antes da lista chegar');
-    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { PIZZA_PARTY: { ...SO_POCKET.POCKET!, nome: 'Pizza da casa' } }, 'pizza_party_scienza')?.sobConsulta, undefined);
-    const pocket = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'pocket');
-    assert.deepEqual(pocket, { id: 'pocket', nome: 'Pocket sintético', precoInicial: 2100, minPagantes: 10, maxPagantes: 60, limiteCadastrado: true,
+    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'MINI_FESTA'), undefined);
+    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'pocket'), undefined, 'em /b o id V1 não é traduzido');
+    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, null, 'POCKET'), undefined, 'antes da lista chegar');
+    assert.equal(pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { PIZZA_PARTY: { ...SO_POCKET.POCKET!, nome: 'Pizza da casa' } }, 'PIZZA_PARTY')?.sobConsulta, undefined);
+    const pocket = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'POCKET');
+    assert.deepEqual(pocket, { id: 'POCKET', nome: 'Pocket sintético', precoInicial: 2100, minPagantes: 10, maxPagantes: 60, limiteCadastrado: true,
         descricao: '', disponibilidade: '', duracao: '180 minutos', buffet: '' });
     semKidmais(JSON.stringify(pocket));
-    const semLimite = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { POCKET: { ...SO_POCKET.POCKET!, convidadosMinimos: null, convidadosMaximos: null, precoMinimo: null } }, 'pocket');
+    const semLimite = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { POCKET: { ...SO_POCKET.POCKET!, convidadosMinimos: null, convidadosMaximos: null, precoMinimo: null } }, 'POCKET');
     assert.equal(semLimite?.limiteCadastrado, false);
     assert.equal(semLimite?.minPagantes, 1);
     assert.equal(semLimite?.precoInicial, null);
@@ -156,17 +176,17 @@ test('tela: a etapa de pacote não percorre o catálogo fixo nem mostra contato 
 
 test('convidados: outra empresa só com mínimo e máximo dela, sem regras nem texto da Kidmais', async () => {
     const { erroConvidadosEmpresa, erroConvidadosFechamento } = await import('../../lib/fechamentos/convidados.ts');
-    const pocket = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'pocket')!;
+    const pocket = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, SO_POCKET, 'POCKET')!;
     assert.equal(erroConvidadosEmpresa(30, pocket), null);
     assert.equal(erroConvidadosEmpresa(61, pocket), 'Pocket sintético atende até 60 convidados neste pacote.');
     assert.equal(erroConvidadosEmpresa(9, pocket), 'Pocket sintético possui mínimo de 10 pagantes.');
     assert.equal(erroConvidadosEmpresa(0, pocket), 'Informe a quantidade de convidados pagantes.');
-    const compacta = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { COMPACTA: { ...SO_POCKET.POCKET!, nome: 'Compacta da casa', convidadosMaximos: 300 } }, 'compacta')!;
+    const compacta = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { COMPACTA: { ...SO_POCKET.POCKET!, nome: 'Compacta da casa', convidadosMaximos: 300 } }, 'COMPACTA')!;
     assert.equal(erroConvidadosEmpresa(41, compacta), null, 'sem a regra de 40 da Festa Compacta');
     // Teto do pedido online = o do servidor (comercial-schema, 150), com redação neutra (sem “A Kidmais atende…”).
     assert.equal(erroConvidadosEmpresa(150, compacta), null);
     assert.equal(erroConvidadosEmpresa(151, compacta), 'O pedido online aceita até 150 convidados. Para mais, fale com o buffet.');
-    const semLimite = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { POCKET: { ...SO_POCKET.POCKET!, convidadosMaximos: null } }, 'pocket')!;
+    const semLimite = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { POCKET: { ...SO_POCKET.POCKET!, convidadosMaximos: null } }, 'POCKET')!;
     assert.equal(erroConvidadosEmpresa(150, semLimite), null, 'máximo não cadastrado: vale o teto do pedido online');
     assert.equal(semLimite.maxPagantes, 150);
     // Endereço atual: a regra da Kidmais continua a mesma.

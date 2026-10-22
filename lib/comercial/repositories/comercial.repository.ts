@@ -324,6 +324,31 @@ export async function buscarPacoteVigenteDaEmpresaPorCodigo(
 }
 
 /**
+ * Todos os pacotes contratáveis da empresa (vigentes, ativos, não arquivados), na ordem da tela de Pacotes — os
+ * mesmos filtros de `buscarPacoteVigenteDaEmpresaPorCodigo`, para a lista e a busca por código nunca divergirem.
+ * Inclui os criados por "Novo pacote" (código P_…).
+ */
+export async function listarPacotesContrataveisDaEmpresa(
+  empresaId: string,
+  customDb: DbExecutor,
+): Promise<PacoteRecord[]> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empresaId)) recusarCatalogoPublicoSemTenant();
+  const result = await customDb.query<PacoteRow>(
+    `SELECT ${pacoteColumns}
+       FROM pacotes
+      WHERE empresa_id = $1::uuid
+        AND vigente
+        AND ativo
+        AND arquivado_em IS NULL
+      ORDER BY ordem_exibicao, codigo`,
+    [empresaId],
+  );
+  return result.rows
+    .filter((row) => String(row.empresa_id ?? "").toLowerCase() === empresaId.toLowerCase())
+    .map(mapPacote);
+}
+
+/**
  * Retorna a tabela ativa aplicável à data informada.
  * Caso futuramente exista mais de uma tabela ativa por erro/configuração,
  * a de vigência mais recente prevalece de forma determinística.

@@ -207,6 +207,9 @@ const ESTADO_POSTGRES = {
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: pacote criado em "Novo pacote" (código P_…) na lista/agenda da empresa, na cotação e no fechamento
+  // público de /b; ordem de exibição por empresa; revisão mantém o código. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-livres.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

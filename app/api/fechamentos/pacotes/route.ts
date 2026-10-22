@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
-import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
+import { buscarPacoteVigenteDaEmpresaPorCodigo, listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
 import { PACOTES_CONTRATAVEIS_V1 } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
@@ -27,8 +27,12 @@ export async function GET(request: NextRequest) {
     // Tabela ambígua ou ilegível não derruba a lista: o preço só some (a cotação da etapa seguinte explica).
     const precos = await lerPrecosCorrentes(db(), escopo.empresaId).catch(() => ({ pacotes: [] as Array<{ pacoteId: string; porConvidado: boolean; min: number; valor: number }> }));
     const pacotes = [];
-    for (const { codigo } of PACOTES_CONTRATAVEIS_V1) {
-      const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigo, db());
+    // Endereço atual (dona): os sete, na ordem do catálogo. /b/<código>: todos os pacotes ativos da empresa, na ordem da
+    // tela de Pacotes — inclusive os criados por "Novo pacote" (P_…).
+    const daEmpresa = [];
+    if (enderecoDaEmpresa) daEmpresa.push(...await listarPacotesContrataveisDaEmpresa(escopo.empresaId, db()));
+    else for (const { codigo } of PACOTES_CONTRATAVEIS_V1) daEmpresa.push(await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigo, db()));
+    for (const pacote of daEmpresa) {
       if (pacote) pacotes.push({
         codigo: pacote.codigo, nome: pacote.nome, descricao: pacote.descricao,
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
