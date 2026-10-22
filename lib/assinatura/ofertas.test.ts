@@ -34,6 +34,7 @@ class Banco implements DbExecutor {
         this.sql.push(sql);
         let rows: object[] = [];
         if (sql.includes('AS instalado074')) rows = [{ instalado074: this.instalado }];
+        else if (sql.includes('AS instalado090')) rows = [{ instalado090: false }];
         else if (sql.startsWith('SELECT to_regclass')) rows = [{ ok: sql.includes('cobranca_eventos') }];
         else if (sql.startsWith('SELECT to_char((clock_timestamp())')) rows = [{ agora: '2026-10-09T12:00:00.000Z' }];
         else if (sql.includes('AS isenta')) rows = [{ isenta: this.isenta }];
