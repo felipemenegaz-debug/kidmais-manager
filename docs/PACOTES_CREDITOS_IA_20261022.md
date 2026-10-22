@@ -16,8 +16,9 @@
   095. A 087 continua reservada aos avisos de cobrança (clone `kidmais-manager-emails-cobranca-20261019`, não integrada).
   Livre numa leitura não é reserva: repetir antes de congelar a candidata e antes de aplicar; a ordem de aplicação com
   090–094 (se integradas antes) não muda nada na 095, que não depende delas.
-- **Integração pendente:** `origin/staging` andou para **f2cd0fc** (#203–#205, sem migrations) depois da base 326895e; a
-  candidata precisa ser rebaseada/integrada e revalidada antes de qualquer PR.
+- **Integrada localmente com o staging (22/10):** merge local de `origin/staging` **9e096a7** (#203–#208, sem migration
+  depois da 089) no commit `e68d402`; único conflito em `scripts/regressao-v1-selecao.cjs` (mantidas as suítes dos créditos
+  e as novas de pacotes). Revalidado depois do merge (ver §7, rodada 6). Nada foi enviado ao remoto.
 
 ## 1. Arquitetura
 
@@ -131,8 +132,8 @@ Ordem: código com flags off → `--conferir-095` → backup/PITR → `--aplicar
 Aplicadores `scripts/migration-095-{comum,staging,production}.cjs` e blocos `scripts/bloco-shell-095.cjs` derivados dos da
 089 (gerador `creditos-gerar-aplicador-095.cjs` no workspace, mesmas trocas conferidas e hashes calculados dos SQL LF).
 
-Hashes (LF, depois da renumeração e da P2-2; os mesmos fixados nos aplicadores): migration `7e92cfb8…7026cd`, precheck
-`470f3b13…9a6438`, postcheck `2c3fbc33…0f86`, rollback `da0c65da…160507`.
+Hashes (LF, depois do P3-1 de 22/10; os mesmos fixados nos aplicadores): migration `5852fb3e…6daac02`, precheck
+`470f3b13…9a6438`, postcheck `ee57bb51…4173faa`, rollback `da0c65da…160507`.
 
 **Rollback:** preferir desligar as flags e manter o processamento de pagamentos/devoluções. O SQL de rollback recusa com
 qualquer registro (obrigações financeiras) e nunca devolve empresa cortada ao legado.
@@ -259,6 +260,32 @@ abertas com a empresa bloqueada (ver saldo e pedir devolução de pacote pago; a
 anterior (cartões no convite e em Atendimento, `5708892`) foi substituída a pedido de Felipe. Validação: `check:v1:static`
 EXIT 0; Playwright 9/9 (passo 9: Configurações → página, Assinatura com link, convite e Atendimento sem cartão, Equipe sem o
 cartão); PG créditos 13/13.
+
+**Rodada 6 (22/10): integração com o staging e P3 residuais.** Merge local de `origin/staging` 9e096a7. P3 do primeiro
+parecer e do delta 2:
+
+- **P3-1 (banco):** amarras novas e nomeadas — lote de compra só do recurso do pedido (`ia_credito_lotes_pedido_fk`);
+  alocação da reserva com `recurso` nas duas FKs (`ia_credito_reserva_lotes_{reserva,lote}_fk`; coluna `recurso` nova em
+  `ia_credito_reserva_lotes`, imutável na guarda e no retrato da exportação); devolução com cobrança e lote do **mesmo**
+  pedido (`ia_credito_devolucoes_{cobranca,lote}_fk`). O postcheck confere as cinco pelo nome e com três colunas.
+  **Não feito:** gatilho que impeça UPDATE direto de contadores sem lançamento (segue detectado só pela conferência).
+- **P3-2:** conta da cobrança conferida (`CONTA_DIVERGENTE`); `CREDITOS_ASAAS_CONTA` inválida falha fechado (venda
+  `CONTA_INVALIDA`; `contaProvedor` lança); pedidos `CREDITADO` dos últimos 90 dias são relidos pela reconciliação (estorno
+  total feito fora com webhook perdido).
+- **P3-3:** cada disputa da mesma cobrança é um episódio do extrato (`DISPUTA:<cobrança>:<n>`); a 2ª contestação bloqueia
+  de novo e a 2ª favorável devolve de novo.
+- **P3-5:** sem Gestão, os lotes não levam o protocolo do pedido.
+- **P3-6:** o texto da devolução diz que a equipe Kidmais faz a restituição até o prazo quando ela está na fila manual
+  (piloto), e "enviada ao Asaas" só quando o estorno automático está ligado.
+- **P3-7:** catálogo sem aprovação só em `KIDMAIS_DEPLOY_ENV=staging` ou execução local (fora do Render e de
+  `NODE_ENV=production`); qualquer outro ambiente é tratado como produção.
+- **Delta 2, P3:** a releitura de um estorno já tratado não escreve mais na cobrança.
+- **Não tratados:** P3-8 (HTTP dentro da transação, decisão documentada), P3-9 (pontos do sandbox), P3-1/P3-3 do delta
+  (limites documentados).
+
+Validação da rodada: unitários 15/15; **suíte PostgreSQL completa 117/117 arquivos** (inclui as de pacotes vindas do
+staging); `check:v1:static` EXIT 0; aplicadores/blocos 21/21 com os hashes novos; PTY real 9 sessões, 0 falhas; Playwright
+9/9; mutações T1–T7 **7/7** pela falha esperada (`creditos-mutacoes-r9.txt`).
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
