@@ -22,3 +22,22 @@ test('falha de leitura vira null; leitura normal limita a consulta e devolve o r
     assert.deepEqual(await carregar((t) => t(tx)).resumoCampanhaSite(1000), { fase: 'LEGADO' });
     assert.match(sqls[0]!, /SET LOCAL statement_timeout = '2s'/);
 });
+
+test('uma leitura em andamento por vez; resultado guardado por instantes; falha não é guardada', async () => {
+    let chamadas = 0;
+    let liberar: () => void = () => {};
+    const tx: Tx = { query: async (sql) => ({ rows: sql.includes('AS instalado090') ? [{ instalado090: false }] : [] }) };
+    const { resumoCampanhaSite } = carregar(async (t) => { chamadas++; await new Promise<void>((ok) => { liberar = ok; }); return t(tx); });
+    const duas = Promise.all([resumoCampanhaSite(1000), resumoCampanhaSite(1000)]);
+    await new Promise((r) => setTimeout(r, 10));
+    liberar();
+    assert.deepEqual(await duas, [{ fase: 'LEGADO' }, { fase: 'LEGADO' }]);
+    assert.equal(chamadas, 1, 'duas visitas simultâneas, uma transação');
+    assert.deepEqual(await resumoCampanhaSite(1000), { fase: 'LEGADO' });
+    assert.equal(chamadas, 1, 'dentro do cache não consulta de novo');
+    let falhas = 0;
+    const falho = carregar(async () => { falhas++; throw new Error('sem banco'); });
+    assert.equal(await falho.resumoCampanhaSite(100), null);
+    assert.equal(await falho.resumoCampanhaSite(100), null);
+    assert.equal(falhas, 2, 'falha não fica guardada');
+});

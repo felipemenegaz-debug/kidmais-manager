@@ -191,11 +191,13 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     const habilitado = novosPlanosLigados(env) && !isenta && elegivel;
     const campanha = habilitado ? await situacaoFundador(tx, empresaId, false, env) : null;
     return {
-        isenta, habilitado: habilitado && !campanha?.bloqueio, planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
+        // Oferta já aceita e persistida (D1) continua retomável mesmo com a campanha bloqueada, como em prepararOferta, que a
+        // devolve antes de olhar a campanha (a vencida é recusada lá). Sem oferta pendente, o bloqueio fecha a venda.
+        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
         fundador: campanha?.elegivel ?? false,
         // Indicativo: o checkout recalcula sob trava e pede nova confirmação se a fase ou as vagas mudarem.
         campanha: campanha ? campanha.resumo : null,
-        bloqueio: campanha?.bloqueio ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,
+        bloqueio: campanha?.bloqueio && !pendente ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,
         versao: condicoesComerciais.versao,
         pendente: pendente ? { plano: pendente.plano.toLowerCase() as PlanoComercialId, ciclo: pendente.ciclo, valorCentavos: pendente.valor_final_centavos,
             fundadorValidoAte: await validadeDaConcessao(tx, pendente.fundador_id) } : null,

@@ -82,9 +82,9 @@ async function confirmarDireto(empresaId: string) {
     });
 }
 /** Espera até as conexões indicadas estarem bloqueadas por trava no servidor (pg_stat_activity), observadas pela terceira. */
-async function esperarNoServidor(pids: number[]) {
+async function esperarNoServidor(pids: number[], eventos: string[]) {
     for (let i = 0; i < 150; i++) {
-        const n = (await terceiro.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND wait_event_type = 'Lock'", [pids])).rows[0].n;
+        const n = (await terceiro.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND wait_event_type = 'Lock' AND wait_event = ANY($2::text[])", [pids, eventos])).rows[0].n;
         if (n === pids.length) return;
         await new Promise(r => setTimeout(r, 20));
     }
@@ -202,12 +202,13 @@ test('3. guardas da campanha: rascunho, decisões obrigatórias, datas do banco,
     const legadoTardio = outro.query("INSERT INTO assinatura_fundadores (empresa_id, documento_beneficiario, vaga, origem) SELECT empresa_id, documento_teste, 20, 'LEGADO' FROM empresa_assinaturas WHERE empresa_id = $1", [corrida])
         .then(() => 'GRAVOU', (x: Error) => x.message);
     let esperando = false;
-    for (let i = 0; i < 100 && !esperando; i++) {
-        esperando = (await terceiro.query("SELECT wait_event_type = 'Lock' AS w FROM pg_stat_activity WHERE pid = $1", [pidOutro])).rows[0]?.w === true;
-        if (!esperando) await new Promise(r => setTimeout(r, 20));
-    }
-    assert.ok(esperando, 'a reserva LEGADO espera a ativação no servidor');
-    await q('COMMIT');
+    try {
+        for (let i = 0; i < 100 && !esperando; i++) {
+            esperando = (await terceiro.query("SELECT wait_event_type = 'Lock' AND wait_event = 'advisory' AS w FROM pg_stat_activity WHERE pid = $1", [pidOutro])).rows[0]?.w === true;
+            if (!esperando) await new Promise(r => setTimeout(r, 20));
+        }
+    } finally { await q('COMMIT'); }
+    assert.ok(esperando, 'a reserva LEGADO espera a trava da alocação (advisory) tomada pela ativação');
     assert.match(await legadoTardio, /concessão legada encerrada/);
     const c = (await q('SELECT janela_fim - inicio AS d, abertura_data IS NOT NULL AS a, ativada_em IS NOT NULL AS t FROM assinatura_campanhas WHERE id = $1', [campanhaId])).rows[0];
     assert.deepEqual([c.d.hours ?? c.d.days * 24, c.a, c.t], [720, true, true]);
@@ -261,8 +262,7 @@ test('4. janela: 22 adesões sem vaga numerada, chave operacional, inserções d
     const pids = [(await q('SELECT pg_backend_pid() AS p')).rows[0].p, (await outro.query('SELECT pg_backend_pid() AS p')).rows[0].p];
     await terceiro.query('BEGIN'); await terceiro.query('SELECT id FROM empresas WHERE id = $1 FOR UPDATE', [e]);
     const duas = Promise.all([ofertaEm(client, e), ofertaEm(outro, e)]);
-    await esperarNoServidor(pids);
-    await terceiro.query('COMMIT');
+    try { await esperarNoServidor(pids, ['transactionid', 'tuple']); } finally { await terceiro.query('COMMIT'); }
     const [a, b] = await duas;
     assert.equal(a.id, b.id);
     assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_fundadores WHERE empresa_id = $1', [e])).rows[0].n, 1);
@@ -309,8 +309,7 @@ test('6. lote posterior: 20 vagas, disputa real da última, em confirmação e d
     const pids = [(await q('SELECT pg_backend_pid() AS p')).rows[0].p, (await outro.query('SELECT pg_backend_pid() AS p')).rows[0].p];
     await terceiro.query('BEGIN'); await terceiro.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:fundadores:2026'))");
     const disputa = Promise.allSettled([ofertaEm(client, a), ofertaEm(outro, b)]);
-    await esperarNoServidor(pids);
-    await terceiro.query('COMMIT');
+    try { await esperarNoServidor(pids, ['advisory']); } finally { await terceiro.query('COMMIT'); }
     const resultados = await disputa;
     const ok = resultados.filter(x => x.status === 'fulfilled'), falha = resultados.filter(x => x.status === 'rejected') as PromiseRejectedResult[];
     assert.equal(ok.length, 1); assert.equal(codigo(falha[0].reason), 'FUNDADOR_AGUARDANDO');
@@ -487,4 +486,32 @@ test('9. D4: pendente legada paga depois da ativação (mesmo 30 dias depois) ma
     assert.deepEqual([f.origem, f.estado, f.campanha_id, f.oferta_valida_ate], ['LEGADO', 'CONFIRMADA', null, null]);
     assert.equal((await q("SELECT valor_final_centavos FROM assinatura_contratacoes WHERE empresa_id = $1 AND estado = 'CONFIRMADA'", [e])).rows[0].valor_final_centavos, 11820);
     assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem <> 'LEGADO'")).rows[0].n, antes, 'nenhuma concessão nova');
+});
+
+test('10. concessão própria sem oferta aberta: chave desligada bloqueia, ligada reaproveita a concessão, vencida recusa; oferta aberta continua retomável com a chave desligada (tela = servidor)', { skip: !opt() }, async () => {
+    const cancelar = (e: string) => q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética cancelada' WHERE empresa_id = $1 AND estado = 'EM_ABERTO'", [e]);
+    const propria = janela[10];
+    await cancelar(propria);
+    const concessaoAntes = await concessao(propria);
+    assert.equal(concessaoAntes.estado, 'RESERVADA');
+    await assert.rejects(ofertaEm(client, propria, COM_DESCONTO, ENV_DESLIGADA), (x) => codigo(x) === 'CAMPANHA_DESLIGADA');
+    const fechada = await emTx(() => consultarOfertas(client as never, propria, ENV_DESLIGADA));
+    assert.deepEqual([fechada?.habilitado, fechada?.bloqueio?.codigo], [false, 'CAMPANHA_DESLIGADA']);
+    const nova = await ofertaEm(client, propria);
+    assert.deepEqual([nova.fundador_id, nova.valor_final_centavos], [concessaoAntes.id, 11820], 'reaproveita a concessão: sem vaga nova nem 12 meses novos');
+    assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_fundadores WHERE empresa_id = $1', [propria])).rows[0].n, 1);
+    // Vencida e sem oferta aberta: não gera oferta nova com desconto.
+    const vencida = janela[11];
+    await cancelar(vencida);
+    await q("SET session_replication_role = replica");
+    try {
+        await q(`UPDATE assinatura_fundadores SET reservada_em = clock_timestamp() - interval '9 days', oferta_valida_ate = clock_timestamp() - interval '2 days' WHERE empresa_id = $1`, [vencida]);
+    } finally { await q("SET session_replication_role = origin"); }
+    await assert.rejects(ofertaEm(client, vencida), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
+    // Oferta aberta e chave desligada: a tela mostra a retomada, e o servidor devolve a mesma oferta.
+    const aberta = janela[12];
+    const consulta = await emTx(() => consultarOfertas(client as never, aberta, ENV_DESLIGADA));
+    assert.deepEqual([consulta?.habilitado, consulta?.bloqueio, Boolean(consulta?.pendente)], [true, null, true]);
+    const original = (await q("SELECT id FROM assinatura_contratacoes WHERE empresa_id = $1 AND estado = 'EM_ABERTO'", [aberta])).rows[0].id;
+    assert.equal((await ofertaEm(client, aberta, COM_DESCONTO, ENV_DESLIGADA)).id, original);
 });
