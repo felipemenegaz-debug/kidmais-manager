@@ -196,6 +196,8 @@ const ESTADO_POSTGRES = {
   // 21/10/2026: cancelamento e devolução da assinatura (089, L1), aplicada pela suíte sobre o modelo 086 (sem a 087 de
   // outro trabalho local); provedor e e-mail falsos; inclui a reconciliação simulada com a regra D-C4.
   "lib/assinatura/devolucao-089.postgres.test.ts": { descartavel: "086" },
+  // P2-4 da revisão da devolução: aplicadores reais da 089 (staging e produção) no modelo 086 (089 ausente).
+  "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
