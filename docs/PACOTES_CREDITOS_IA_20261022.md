@@ -219,6 +219,28 @@ durante disputa continua bloqueada. P3-4 também (e-mail não configurado não c
 | Playwright `scripts/creditos-ui.cjs` | 8/8 |
 | Mutações das correções (N1–N12; harness do implementador) | **12/12 eliminadas** pela falha esperada (N1 pela guarda: `ENCERRADO → CREDITADO` recusado; N11/N12 pela unitária). Relatório `creditos-mutacoes-r6.txt` |
 
+**Rodada 4 (22/10): revisão do delta 095.** Parecer `revisao-creditos-ia-20261022/PARECER-DELTA-095.md` (APROVADO COM
+RESSALVAS, 0 P1; P2-1/2/4/6 fechados, P2-3 parcial aceito, P2-5 parcial com o P2-N1 novo; 6 P3 novos). Correções:
+
+- **P2-N1:** `estornado_centavos` passa a ser o valor de estorno já **tratado**; só um aumento é episódio novo. A mesma soma
+  relida depois de `resolver_bloqueio` não realarma nem bloqueia; um 2º estorno maior bloqueia de novo. As operações do
+  extrato levam o valor (`ESTORNO_PARCIAL:<cobrança>:<tratado>`, `…_LIBERADO/_CANCELADO:<cobrança>:<tratado>`).
+- **P3-2:** `resolver_revisao ENCERRAR` relê a cobrança canônica e recusa `PAGAMENTO_CONFIRMADO_DEVOLVER_ANTES` enquanto o
+  pagamento estiver CONFIRMED/RECEIVED (devolver no painel do Asaas antes); sem leitura, recusa.
+- **P3-4:** as ações por protocolo travam o pedido (`FOR UPDATE`) antes de ler o estado; ENCERRAR confere o `rowCount`.
+- **P3-5:** a auditoria de `resolver_revisao` grava `precoCentavos` e `valorLidoCentavos` (aceitar valor divergente segue
+  sendo decisão do operador, agora com os dois valores registrados).
+- **P3-6:** `CLIENTE_DIVERGENTE`/`REFERENCIA_DIVERGENTE` só são CRÍTICOS com a cobrança canônica CONFIRMED/RECEIVED.
+- **Limites aceitos (documentados, sem código):** P3-1 — pedido em revisão por `COBRANCA_DUPLICADA` (sem cobrança canônica)
+  só pode ser encerrado e devolvido (`concluir_cobranca_extra`), não creditado; a escolha do cliente por créditos nesse caso
+  pede uma nova compra. P3-3 — a janela de 90 dias para revisitar pedido `ENCERRADO` cobre Pix e boleto do piloto; um
+  pagamento depois disso ainda chega pelo webhook (que relê e vai a revisão), só deixa de ser procurado pela reconciliação.
+
+Validação: unitários 15/15; PG créditos 13/13 em duas rodadas (aplicador, exportação e adversarial PASS); `check:v1:static`
+EXIT 0; Playwright 8/8; SQL sem mudança (hashes dos aplicadores inalterados). Mutações Q1–Q6: **6/6 eliminadas** pela
+asserção esperada (`creditos-mutacoes-r7.txt`). Não cobertos por teste: a trava do P3-4 (corrida não determinística) e a
+liberação repetida do mesmo episódio.
+
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
 antes de cada execução; sem o banco `kidmais_manager`.
