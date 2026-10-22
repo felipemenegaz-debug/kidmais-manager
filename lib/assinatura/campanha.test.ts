@@ -45,3 +45,11 @@ test('chave operacional só com "true" literal', () => {
     assert.equal(campanhaFundadorLigada({ ASSINATURA_CAMPANHA_FUNDADOR_ATIVA: 'true' }), true);
     for (const v of [undefined, 'TRUE', '1', 'sim', ' true']) assert.equal(campanhaFundadorLigada({ ASSINATURA_CAMPANHA_FUNDADOR_ATIVA: v }), false);
 });
+
+test('090: horário exato recusado nos bancos de staging e produção conhecidos (só calendário lá; D2)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sql = readFileSync('database/migrations/20261022_090_campanha_fundador.sql', 'utf8');
+    const ramo = sql.slice(sql.indexOf("ELSIF NEW.contagem = 'HORARIO_EXATO' THEN"), sql.indexOf("ELSE\n      RAISE EXCEPTION '090: contagem da janela não decidida."));
+    assert.match(ramo, /current_database\(\) IN \('kidmais_production','kidmais_staging_1z91'\)/);
+    assert.match(ramo, /horário exato só em banco de ensaio/);
+});

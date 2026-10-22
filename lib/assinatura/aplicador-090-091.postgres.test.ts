@@ -153,9 +153,18 @@ test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono
       assert.match(falha.falha!.mensagem, /lock timeout/); assert.equal(falha.migracaoCommitada, false);
       await nada();
       await assert.rejects(prod.executar({ env: ENV_PROD, backup: BACKUP, dir: dirFalha, raiz, disco: () => {}, Client: cli() }), /TENTATIVA_ANTERIOR_REVISAR/);
-      // 5. Aplicação real (produção) com prova agregada de preservação.
+      // 5. Aplicação real (produção) com prova agregada de preservação. Uma transação aberta ANTES do corte termina durante
+      //    a espera (a pausa a confirma): o aplicador espera de verdade e segue.
       const dir = novoDir(caso.n);
-      const ok = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir, raiz, disco: () => {}, Client: cli() });
+      const pendente = await conectarDescartavel({ travar: false });
+      let ok: Resultado & { esperaCorte?: { esperas: number; sessoesInvisiveis: number } };
+      try {
+        await pendente.query("BEGIN"); await pendente.query("SELECT count(*) FROM empresas");
+        ok = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir, raiz, disco: () => {}, Client: cli(),
+          pausa: async () => { await pendente.query("COMMIT"); }, tentativas: 5 });
+      } finally { await pendente.query("ROLLBACK").catch(() => {}); await pendente.end(); }
+      assert.ok((ok.esperaCorte?.esperas ?? 0) >= 1, `esperou a transação anterior ao corte: ${JSON.stringify(ok.esperaCorte)}`);
+      assert.equal(ok.esperaCorte?.sessoesInvisiveis, 0);
       assert.equal(ok.resultado, "APLICADA_POSTCHECK_PASS", JSON.stringify(ok));
       assert.deepEqual(ok.etapas, [`precheck ${caso.n}`, `migration ${caso.n}`, `postcheck ${caso.n}`]);
       assert.equal((ok.estadoDepois as Record<string, unknown>)[caso.chaveEstado], "completa");

@@ -239,6 +239,7 @@ test('aplicação espera transações abertas antes do corte; se não terminam, 
     const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA], anteriores: [2, 1, 0]});
     const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir, Client: C, disco: semDisco, pausa, tentativas: 5});
     assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS', JSON.stringify(r)); assert.deepEqual(pausas, [500, 500]);
+    assert.deepEqual(r.esperaCorte, {esperas: 2, sessoesInvisiveis: 0}, 'espera e sessões invisíveis informadas');
     assert.ok(C.log.filter(x => x.sql.includes('xact_start <=')).every(x => x.ro), 'a espera só lê');
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
   const dir2 = tmp();
@@ -249,4 +250,5 @@ test('aplicação espera transações abertas antes do corte; se não terminam, 
     assert.deepEqual(escritas(C.log), [], 'nada escrito');
   } finally { fs.rmSync(dir2, {recursive: true, force: true}); }
   assert.ok(comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z').includes('pid <> pg_backend_pid() AND datname = current_database()'));
+  assert.ok(comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z').includes("backend_type = 'client backend'")); assert.ok(comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z').includes('<insufficient privilege>'));
 });

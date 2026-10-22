@@ -136,12 +136,17 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
  * transação aberta desde antes do corte; sem isso, recusa ANTES de qualquer escrita. Limite: o papel precisa enxergar
  * `xact_start` das outras sessões (mesmo papel ou pg_read_all_stats); sessões invisíveis não são esperadas.
  */
-const SQL_ANTERIORES = corte => `SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = current_database()
-  AND xact_start IS NOT NULL AND xact_start <= '${corte}'::timestamptz`;
+// Só sessões de cliente (autovacuum e processos de fundo não escrevem nessas tabelas). Sessões cujo detalhe o papel não
+// enxerga ('<insufficient privilege>') são CONTADAS e informadas no registro: não dá para esperá-las (revisão de 22/10/2026).
+const SQL_ANTERIORES = corte => `SELECT
+  count(*) FILTER (WHERE xact_start IS NOT NULL AND xact_start <= '${corte}'::timestamptz)::int AS n,
+  count(*) FILTER (WHERE query = '<insufficient privilege>')::int AS invisiveis
+  FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = current_database() AND backend_type = 'client backend'`;
 async function esperarTransacoesAnteriores(db, corte, pausa, tentativas) {
   assert.match(String(corte), CORTE, 'CORTE_INVALIDO');
   for (let i = 0; i < tentativas; i++) {
-    if (Number((await somenteLeitura(db, SQL_ANTERIORES(corte))).rows[0]?.n ?? 1) === 0) return i;
+    const linha = (await somenteLeitura(db, SQL_ANTERIORES(corte))).rows[0];
+    if (Number(linha?.n ?? 1) === 0) return {esperas: i, sessoesInvisiveis: Number(linha?.invisiveis ?? 0)};
     await pausa(500);
   }
   assert.fail('TRANSACOES_ANTERIORES_AO_CORTE');
@@ -231,7 +236,7 @@ function criarAplicador(amb) {
         registrar: x => { ultimo = JSON.parse(JSON.stringify(x)); salvar({...ultimo, situacao: 'EM_ANDAMENTO'}); }});
       salvar({...r, situacao: 'CONCLUIDA'});
       return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, estadoDepois: r.estadoDepois,
-        contagensAntes: r.contagensAntes, contagensDepois: r.contagensDepois, etapas: r.etapas.map(e => e.nome)};
+        contagensAntes: r.contagensAntes, contagensDepois: r.contagensDepois, esperaCorte: r.esperasCorte, etapas: r.etapas.map(e => e.nome)};
     } catch (e) {
       const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: curta(e)};
       salvar({...ultimo, situacao: 'FALHA', falha});

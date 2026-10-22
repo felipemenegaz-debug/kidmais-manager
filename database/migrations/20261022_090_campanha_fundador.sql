@@ -130,7 +130,11 @@ BEGIN
       NEW.inicio := (NEW.abertura_data::timestamp) AT TIME ZONE NEW.fuso;
       NEW.janela_fim := ((NEW.abertura_data + NEW.janela_dias)::timestamp) AT TIME ZONE NEW.fuso;
     ELSIF NEW.contagem = 'HORARIO_EXATO' THEN
-      -- Só para ensaio sintético de fronteira (D2 decidiu calendário); o início pode estar no passado.
+      -- Só para ensaio sintético de fronteira (D2 decidiu calendário); o início pode estar no passado. Recusado nos
+      -- bancos de staging e produção conhecidos (revisão de 22/10/2026), onde vale só o calendário.
+      IF current_database() IN ('kidmais_production','kidmais_staging_1z91') THEN
+        RAISE EXCEPTION '090: horário exato só em banco de ensaio; use o calendário (D2).' USING ERRCODE = 'P0001';
+      END IF;
       IF NEW.inicio IS NULL THEN RAISE EXCEPTION '090: horário de abertura obrigatório.' USING ERRCODE = 'P0001'; END IF;
       NEW.abertura_data := (NEW.inicio AT TIME ZONE NEW.fuso)::date;
       NEW.janela_fim := NEW.inicio + make_interval(hours => 24 * NEW.janela_dias);
