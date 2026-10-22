@@ -65,7 +65,8 @@ CREATE TABLE assinatura_campanhas (
        AND inicio IS NOT NULL AND janela_fim IS NOT NULL AND janela_fim > inicio
        AND (contagem = 'HORARIO_EXATO' OR abertura_data IS NOT NULL)
        AND autorizacao IS NOT NULL AND ativada_por IS NOT NULL AND ativada_em IS NOT NULL
-       AND (estado = 'ATIVA') = (encerrada_em IS NULL AND motivo_encerramento IS NULL))
+       AND (estado = 'ATIVA') = (encerrada_em IS NULL AND motivo_encerramento IS NULL)
+       AND (estado <> 'ENCERRADA' OR motivo_encerramento IS NOT NULL))
 );
 -- No máximo uma campanha ativa por vez.
 CREATE UNIQUE INDEX assinatura_campanhas_ativa_uk ON assinatura_campanhas ((true)) WHERE estado = 'ATIVA';
@@ -116,12 +117,20 @@ BEGIN
     RETURN NEW;
   END IF;
   IF OLD.estado = 'RASCUNHO' AND NEW.estado = 'ATIVA' THEN
+    -- Mesma trava da alocação: uma reserva LEGADO em andamento termina antes (ou enxerga a ativação depois). Só a
+    -- ativação a toma; o encerramento não (a concessão segura a campanha ATIVA com FOR SHARE).
+    PERFORM pg_advisory_xact_lock(hashtext('kidmais:fundadores:2026'));
     -- Datas sempre derivadas da regra aprovada; o chamador não informa o fim da janela.
     IF NEW.contagem = 'CALENDARIO_LOCAL' THEN
       IF NEW.abertura_data IS NULL THEN RAISE EXCEPTION '090: data de abertura obrigatória.' USING ERRCODE = 'P0001'; END IF;
+      -- Sem ativação retroativa: a janela de 30 dias não pode nascer encurtada.
+      IF NEW.abertura_data < (clock_timestamp() AT TIME ZONE NEW.fuso)::date THEN
+        RAISE EXCEPTION '090: data de abertura no passado.' USING ERRCODE = 'P0001';
+      END IF;
       NEW.inicio := (NEW.abertura_data::timestamp) AT TIME ZONE NEW.fuso;
       NEW.janela_fim := ((NEW.abertura_data + NEW.janela_dias)::timestamp) AT TIME ZONE NEW.fuso;
     ELSIF NEW.contagem = 'HORARIO_EXATO' THEN
+      -- Só para ensaio sintético de fronteira (D2 decidiu calendário); o início pode estar no passado.
       IF NEW.inicio IS NULL THEN RAISE EXCEPTION '090: horário de abertura obrigatório.' USING ERRCODE = 'P0001'; END IF;
       NEW.abertura_data := (NEW.inicio AT TIME ZONE NEW.fuso)::date;
       NEW.janela_fim := NEW.inicio + make_interval(hours => 24 * NEW.janela_dias);
@@ -141,6 +150,9 @@ BEGIN
        IS DISTINCT FROM ROW(OLD.codigo,OLD.versao_regra,OLD.fuso,OLD.contagem,OLD.elegibilidade,OLD.validade_oferta,OLD.abertura_data,OLD.inicio,OLD.janela_fim,
            OLD.janela_dias,OLD.vagas_pos_janela,OLD.desconto_percentual,OLD.beneficio_meses,OLD.autorizacao,OLD.ativada_por,OLD.ativada_em) THEN
       RAISE EXCEPTION '090: condições da campanha ativada são imutáveis.' USING ERRCODE = 'P0001';
+    END IF;
+    IF NEW.motivo_encerramento IS NULL OR char_length(btrim(NEW.motivo_encerramento)) < 5 THEN
+      RAISE EXCEPTION '090: encerramento exige motivo.' USING ERRCODE = 'P0001';
     END IF;
     NEW.encerrada_em := clock_timestamp();
     RETURN NEW;

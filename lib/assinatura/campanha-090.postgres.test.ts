@@ -37,10 +37,12 @@ const ENV = { ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox', ASAAS
 const ENV_DESLIGADA = { ...ENV, ASSINATURA_CAMPANHA_FUNDADOR_ATIVA: undefined };
 const COM_DESCONTO: PedidoOferta = { plano: 'essencial', ciclo: 'MENSAL', valorEsperadoCentavos: 11820, versao: '2026-10-20' };
 const CHEIO: PedidoOferta = { ...COM_DESCONTO, valorEsperadoCentavos: 19700 };
-const JANELA_SEGUNDOS = 45;
+// 90 s: o caso 4 cabe com folga mesmo numa máquina lenta; o caso 5 espera até o corte.
+const JANELA_SEGUNDOS = 90;
 
 let client: Client;
 let outro: Client;
+let terceiro: Client;
 let usuario = '';
 let campanhaId = '';
 let seq = 0;
@@ -79,6 +81,15 @@ async function confirmarDireto(empresaId: string) {
             [c.id, pay, `sub_${pay}`]);
     });
 }
+/** Espera até as conexões indicadas estarem bloqueadas por trava no servidor (pg_stat_activity), observadas pela terceira. */
+async function esperarNoServidor(pids: number[]) {
+    for (let i = 0; i < 150; i++) {
+        const n = (await terceiro.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND wait_event_type = 'Lock'", [pids])).rows[0].n;
+        if (n === pids.length) return;
+        await new Promise(r => setTimeout(r, 20));
+    }
+    assert.fail('as duas conexões não chegaram a esperar a trava no servidor');
+}
 /** Linhas antigas da 074a (sem as colunas novas), para provar preservação. */
 const SNAP = `SELECT id, empresa_id, documento_beneficiario, vaga, estado, reservada_em, confirmada_em, beneficio_fim, pagamento_confirmacao_id,
     liberada_em, evidencia_liberacao FROM assinatura_fundadores ORDER BY id`;
@@ -87,11 +98,13 @@ test.before(async () => {
     if (!opt()) return;
     client = await conectarDescartavel();
     outro = await conectarDescartavel({ travar: false });
+    terceiro = await conectarDescartavel({ travar: false });
     usuario = (await q("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Gestão Campanha', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id",
         [`cp${randomBytes(3).toString('hex')}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`])).rows[0].id;
 });
 test.after(async () => {
     if (outro) await outro.end().catch(() => undefined);
+    if (terceiro) await terceiro.end().catch(() => undefined);
     if (client) await encerrarDescartavel(client);
 });
 
@@ -164,11 +177,38 @@ test('3. guardas da campanha: rascunho, decisões obrigatórias, datas do banco,
         assert.deepEqual([r.d, r.contagem, r.elegibilidade, r.v], [daqui2, REGRA_APROVADA.contagem, REGRA_APROVADA.elegibilidade, 7 * 86400]);
         assert.deepEqual({ inicio: r.i, janelaFim: r.f }, janelaCalculada('CALENDARIO_LOCAL', { data: r.d }));
         await assert.rejects(prepararOferta(client as never, e3, usuario, COM_DESCONTO, ENV), (x) => codigo(x) === 'CAMPANHA_ANTES_DA_ABERTURA');
+        // Encerrar exige motivo (gatilho e CHECK).
+        await q('SAVEPOINT s');
+        await assert.rejects(q("UPDATE assinatura_campanhas SET estado = 'ENCERRADA' WHERE id = $1", [campanhaId]), /encerramento exige motivo/);
+        await q('ROLLBACK TO SAVEPOINT s');
+        await q("UPDATE assinatura_campanhas SET estado = 'ENCERRADA', motivo_encerramento = 'Teste sintético de encerramento' WHERE id = $1", [campanhaId]);
     } finally { await q('ROLLBACK'); }
+    // Sem ativação retroativa no calendário (função aprovada e guarda do banco).
+    const ontem = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date - 1, 'YYYY-MM-DD') AS d")).rows[0].d;
+    await q('BEGIN');
+    try {
+        await assert.rejects(ativarCampanhaAprovada(client as never, { codigo: 'fundador-teste', aberturaData: ontem, autorizacao: 'Teste sintético sem autorização real', operadorId: usuario }), /no passado/);
+        await assert.rejects(q(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = 'CALENDARIO_LOCAL', elegibilidade = 'OFERTA_PERSISTIDA', validade_oferta = '7 days',
+            abertura_data = $2::date, autorizacao = 'Teste sintético sem autorização real', ativada_por = $3 WHERE id = $1`, [campanhaId, ontem, usuario]), /data de abertura no passado/);
+    } finally { await q('ROLLBACK'); }
+    // Corrida LEGADO × ativação: com a ativação em andamento (trava da alocação), a reserva LEGADO espera e depois é recusada.
+    const corrida = await empresaEmTeste();
+    const pidOutro = (await outro.query('SELECT pg_backend_pid() AS p')).rows[0].p;
+    await q('BEGIN');
     // Ativação real: horário exato, janela terminando em JANELA_SEGUNDOS (720 h depois de um início no passado).
     await q(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = 'HORARIO_EXATO', elegibilidade = 'OFERTA_PERSISTIDA', validade_oferta = '7 days',
         inicio = clock_timestamp() - interval '720 hours' + make_interval(secs => $3), autorizacao = 'Teste sintético sem autorização real', ativada_por = $2
         WHERE id = $1`, [campanhaId, usuario, JANELA_SEGUNDOS]);
+    const legadoTardio = outro.query("INSERT INTO assinatura_fundadores (empresa_id, documento_beneficiario, vaga, origem) SELECT empresa_id, documento_teste, 20, 'LEGADO' FROM empresa_assinaturas WHERE empresa_id = $1", [corrida])
+        .then(() => 'GRAVOU', (x: Error) => x.message);
+    let esperando = false;
+    for (let i = 0; i < 100 && !esperando; i++) {
+        esperando = (await terceiro.query("SELECT wait_event_type = 'Lock' AS w FROM pg_stat_activity WHERE pid = $1", [pidOutro])).rows[0]?.w === true;
+        if (!esperando) await new Promise(r => setTimeout(r, 20));
+    }
+    assert.ok(esperando, 'a reserva LEGADO espera a ativação no servidor');
+    await q('COMMIT');
+    assert.match(await legadoTardio, /concessão legada encerrada/);
     const c = (await q('SELECT janela_fim - inicio AS d, abertura_data IS NOT NULL AS a, ativada_em IS NOT NULL AS t FROM assinatura_campanhas WHERE id = $1', [campanhaId])).rows[0];
     assert.deepEqual([c.d.hours ?? c.d.days * 24, c.a, c.t], [720, true, true]);
     for (const sql of ["UPDATE assinatura_campanhas SET janela_fim = janela_fim + interval '1 day' WHERE id = $1",
@@ -216,8 +256,14 @@ test('4. janela: 22 adesões sem vaga numerada, chave operacional, inserções d
     await assert.rejects(q("INSERT INTO assinatura_fundadores (empresa_id, documento_beneficiario, origem, campanha_id) SELECT empresa_id, documento_teste, 'JANELA', $2 FROM empresa_assinaturas WHERE empresa_id = $1", [e, rascunho]),
         /campanha não está ativa/);
     await q('DELETE FROM assinatura_campanhas WHERE id = $1', [rascunho]);
-    // Mesma empresa em duas conexões ao mesmo tempo: uma oferta, uma concessão.
-    const [a, b] = await Promise.all([ofertaEm(client, e), ofertaEm(outro, e)]);
+    // Mesma empresa em duas conexões ao mesmo tempo: uma oferta, uma concessão. A terceira conexão segura a linha da
+    // empresa até as duas estarem esperando no servidor (corrida observada, não sequencial por acaso).
+    const pids = [(await q('SELECT pg_backend_pid() AS p')).rows[0].p, (await outro.query('SELECT pg_backend_pid() AS p')).rows[0].p];
+    await terceiro.query('BEGIN'); await terceiro.query('SELECT id FROM empresas WHERE id = $1 FOR UPDATE', [e]);
+    const duas = Promise.all([ofertaEm(client, e), ofertaEm(outro, e)]);
+    await esperarNoServidor(pids);
+    await terceiro.query('COMMIT');
+    const [a, b] = await duas;
     assert.equal(a.id, b.id);
     assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_fundadores WHERE empresa_id = $1', [e])).rows[0].n, 1);
     janela.push(e);
@@ -260,7 +306,12 @@ test('6. lote posterior: 20 vagas, disputa real da última, em confirmação e d
     const r19 = await emTx(() => resumoCampanha(client as never, ENV));
     assert.deepEqual(r19, { fase: 'POS_JANELA', vagasRestantes: 1, emConfirmacao: 19, limite: 20 });
     const a = await empresaEmTeste(), b = await empresaEmTeste();
-    const resultados = await Promise.allSettled([ofertaEm(client, a), ofertaEm(outro, b)]);
+    const pids = [(await q('SELECT pg_backend_pid() AS p')).rows[0].p, (await outro.query('SELECT pg_backend_pid() AS p')).rows[0].p];
+    await terceiro.query('BEGIN'); await terceiro.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:fundadores:2026'))");
+    const disputa = Promise.allSettled([ofertaEm(client, a), ofertaEm(outro, b)]);
+    await esperarNoServidor(pids);
+    await terceiro.query('COMMIT');
+    const resultados = await disputa;
     const ok = resultados.filter(x => x.status === 'fulfilled'), falha = resultados.filter(x => x.status === 'rejected') as PromiseRejectedResult[];
     assert.equal(ok.length, 1); assert.equal(codigo(falha[0].reason), 'FUNDADOR_AGUARDANDO');
     const vagas = (await q("SELECT vaga FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND campanha_id = $1 ORDER BY vaga", [campanhaId])).rows.map(r => r.vaga);
@@ -333,7 +384,6 @@ test('7. pagamento tardio da janela: confirma como JANELA, não consome o lote; 
 
 test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; boleto vale o dia pago; sem data ou depois da validade vai para reconciliação (código visível, alarme); critério único por dia; retomar vencida é recusado', { skip: !opt() }, async () => {
     const hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d as string;
-    const dia = (n: number) => { const d = new Date(`${hoje}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
     const provedorDe = (empresa: string, sufixo: string, pagoEm: string | null, datas: Partial<CobrancaProvedor> = {}) => {
         const sub: AssinaturaProvedor = { id: `sub_${sufixo}`, customer: `cus_${sufixo}`, externalReference: empresa, cycle: 'MONTHLY', status: 'ACTIVE', deleted: false, valorCentavos: 11820 };
         const pay = { id: `pay_${sufixo}`, status: 'RECEIVED', dueDate: hoje, paymentDate: pagoEm, deleted: false, invoiceUrl: null, valorCentavos: 11820,
@@ -352,13 +402,16 @@ test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; boleto vale
     const posAntes = (await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND estado <> 'LIBERADA'")).rows[0].n;
     // Dentro da validade (6 dias depois de hoje; a janela já fechou): confirma JANELA.
     const dentro = janela[3];
-    const r1 = await sincronizar(dentro, 'd3a', dia(6));
+    const diaFinal = async (empresa: string) => (await q("SELECT to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d FROM assinatura_fundadores WHERE empresa_id = $1", [empresa])).rows[0].d as string;
+    const depoisDe = (data: string, n: number) => { const x = new Date(`${data}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const r1 = await sincronizar(dentro, 'd3a', depoisDe(await diaFinal(dentro), -1));
     assert.equal(r1.resultado === 'SINCRONIZADA' && r1.depois, 'ATIVA');
     assert.deepEqual([(await concessao(dentro)).origem, (await concessao(dentro)).estado], ['JANELA', 'CONFIRMADA']);
     // Depois da validade (8 dias): FUNDADOR_OFERTA_EXPIRADA; nada muda (sem confirmar, liberar ou cobrar de novo).
     const fora = janela[4];
     const antes = (await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0];
-    await assert.rejects(sincronizar(fora, 'd3b', dia(8)), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
+    const diaFinalFora = await diaFinal(fora);
+    await assert.rejects(sincronizar(fora, 'd3b', depoisDe(diaFinalFora, 1)), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
     const depois = (await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0];
     assert.deepEqual(depois, antes, 'reserva e contrato intactos: reconciliação manual');
     assert.equal((await q('SELECT situacao FROM empresa_assinaturas WHERE empresa_id = $1', [fora])).rows[0].situacao, 'TESTE');
@@ -366,8 +419,10 @@ test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; boleto vale
     const reconciliar = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
         executarCiclo: (o: Record<string, unknown>) => Promise<{ empresas: Record<string, number>; incompleto: boolean }>; codigoDeSaida: (r: unknown, p: boolean) => number };
     const sinc = await import('./sincronizacao.ts');
-    const rel = await reconciliar.executarCiclo({ client, provedor: provedorDe(fora, 'd3b', dia(8)).provedor, aplicar: false, banco: 'kidmais_pacotes_v1_descartavel', sinc });
-    assert.ok((rel.empresas.ERRO_FUNDADOR_OFERTA_EXPIRADA ?? 0) >= 1, JSON.stringify(rel.empresas));
+    // Ciclo só desta empresa (sem eventos): o resultado é dela, não de outra empresa da suíte.
+    const soFora = { ...sinc, empresasComProvedor: async () => [fora], eventosPendentes: async () => [] };
+    const rel = await reconciliar.executarCiclo({ client, provedor: provedorDe(fora, 'd3b', depoisDe(diaFinalFora, 1)).provedor, aplicar: false, banco: 'kidmais_pacotes_v1_descartavel', sinc: soFora });
+    assert.deepEqual(rel.empresas, { ERRO_FUNDADOR_OFERTA_EXPIRADA: 1 });
     assert.deepEqual([rel.incompleto, reconciliar.codigoDeSaida(rel, true)], [true, 2]);
     assert.deepEqual((await q('SELECT to_jsonb(f) AS f, (SELECT to_jsonb(c) FROM assinatura_contratacoes c WHERE c.empresa_id = f.empresa_id) AS c FROM assinatura_fundadores f WHERE empresa_id = $1', [fora])).rows[0], antes);
     // Boleto pago no ÚLTIMO dia da validade e compensado depois: vale o dia em que o cliente pagou (clientPaymentDate).
@@ -391,7 +446,10 @@ test('8. D3: pago depois do corte e dentro de 7 dias mantém JANELA; boleto vale
     assert.equal(consulta?.pendente?.fundadorValidoAte?.vencida, true);
     await assert.rejects(ofertaEm(client, vencida), (x) => codigo(x) === 'FUNDADOR_OFERTA_EXPIRADA');
     assert.equal((await concessao(vencida)).estado, 'RESERVADA', 'sem liberação automática');
-    // Critério único por DIA local: fim da validade hoje, horas atrás, ainda vale hoje (tela e retomada).
+    // Critério único por DIA local: fim da validade hoje, horas atrás, ainda vale hoje (tela e retomada). Perto da
+    // meia-noite local, espera virar o dia para o bloco não atravessá-la.
+    const faltam = Number((await q("SELECT extract(epoch FROM (date_trunc('day', clock_timestamp() AT TIME ZONE 'America/Sao_Paulo') + interval '1 day') - clock_timestamp() AT TIME ZONE 'America/Sao_Paulo') AS s")).rows[0].s);
+    if (faltam < 120) await new Promise(r => setTimeout(r, (faltam + 2) * 1000));
     const ultimo = janela[9];
     await q("SET session_replication_role = replica");
     try {

@@ -27,7 +27,8 @@ const ID_PROD = {db: 'kidmais_production', tls: true, tls_versao: 'TLSv1.3', ser
 const ID_STG = {db: 'kidmais_staging_1z91', tls: false, servidor_privado: true};
 
 /** Cliente simulado: devolve a sequência de estados; registra cada SQL e se rodou dentro de READ ONLY. */
-function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falharEm, preservacao} = {}) {
+function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falharEm, preservacao, anteriores = [0]} = {}) {
+  let k = 0;
   const log = []; let i = 0, ro = false;
   const C = class {
     on() {} async connect() {} async end() {}
@@ -39,6 +40,7 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falh
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_ESTADO) return {rows: [estados[Math.min(i++, estados.length - 1)]]};
       if (sql === comum.SQL_CORTE) return {rows: [{corte: '2026-10-22T12:00:00.000000Z'}]};
+      if (sql === comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z')) return {rows: [{n: anteriores[Math.min(k++, anteriores.length - 1)]}]};
       if (sql.startsWith('/* preservacao-')) { assert.ok(sql.includes("'2026-10-22T12:00:00.000000Z'::timestamptz"), 'mesmo corte antes e depois'); return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]}; }
       if (sql.includes('AS teste_cpf')) return {rows: [{teste_cpf: 0, titulares_pf: 0}]};
       return {rows: []};
@@ -227,4 +229,24 @@ test('aplicação: resumo das colunas antigas diferente depois da migration → 
     assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /PRESERVACAO_DIVERGENTE resumo_assinaturas/); assert.equal(r.migracaoCommitada, true);
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, comum.MARCADOR), 'utf8')).situacao, 'FALHA');
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('aplicação espera transações abertas antes do corte; se não terminam, recusa ANTES de escrever (sem falso PRESERVACAO_DIVERGENTE)', async () => {
+  const pausas = [];
+  const pausa = async ms => { pausas.push(ms); };
+  const dir = tmp();
+  try {
+    const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA], anteriores: [2, 1, 0]});
+    const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir, Client: C, disco: semDisco, pausa, tentativas: 5});
+    assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS', JSON.stringify(r)); assert.deepEqual(pausas, [500, 500]);
+    assert.ok(C.log.filter(x => x.sql.includes('xact_start <=')).every(x => x.ro), 'a espera só lê');
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  const dir2 = tmp();
+  try {
+    const C = clienteFalso({estados: [AUSENTE], anteriores: [1]});
+    const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir: dir2, Client: C, disco: semDisco, pausa, tentativas: 3});
+    assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /TRANSACOES_ANTERIORES_AO_CORTE/); assert.equal(r.migracaoCommitada, false);
+    assert.deepEqual(escritas(C.log), [], 'nada escrito');
+  } finally { fs.rmSync(dir2, {recursive: true, force: true}); }
+  assert.ok(comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z').includes('pid <> pg_backend_pid() AND datname = current_database()'));
 });

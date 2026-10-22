@@ -38,12 +38,18 @@ const PAPEL = "kidmais_teste_aplicador_090_091";
 const BACKUP = "export 2026-10-22T12:00Z teste";
 const opt = () => process.env.KIDMAIS_POSTGRES_DESCARTAVEL === "kidmais_pacotes_v1_descartavel";
 
-function clienteDescartavel(identidades: Map<string, unknown>, cfg: { papel?: string } = {}) {
+function clienteDescartavel(identidades: Map<string, unknown>, cfg: { papel?: string; antesDaMigration?: () => Promise<void> } = {}) {
   return class {
     c: Client | null = null;
     on() {}
     async connect() { this.c = await conectarDescartavel({ travar: false }); if (cfg.papel) await this.c.query(`SET ROLE ${cfg.papel}`); }
-    async query(sql: string) { const id = identidades.get(sql); return id ? { rows: [id] } : this.c!.query(sql); }
+    async query(sql: string) {
+      const id = identidades.get(sql);
+      if (id) return { rows: [id] };
+      // Gancho do teste: tráfego que começa DEPOIS do corte e antes da migration (o arquivo começa por "-- 09x —").
+      if (cfg.antesDaMigration && /^-- 09[01] —/.test(sql)) { const h = cfg.antesDaMigration; cfg.antesDaMigration = undefined; await h(); }
+      return this.c!.query(sql);
+    }
     async end() { if (this.c) await this.c.end(); }
   };
 }
@@ -90,7 +96,7 @@ test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono
       const { stg, prod } = carregar(caso.n);
       const ids = new Map<string, unknown>([[stg.SQL_IDENTIDADE, { db: "kidmais_staging_1z91", tls: false, servidor_privado: true }],
         [prod.SQL_IDENTIDADE, { db: "kidmais_production", tls: true, tls_versao: "TLSv1.3", servidor_privado: true }]]);
-      const cli = (cfg: { papel?: string } = {}) => clienteDescartavel(ids, cfg);
+      const cli = (cfg: { papel?: string; antesDaMigration?: () => Promise<void> } = {}) => clienteDescartavel(ids, cfg);
       const nada = async () => assert.ok((await caso.objetos(c)).every((x) => x === false), `${caso.n}: nada criado`);
       await nada();
       // 1. Conferência só leitura.
@@ -123,14 +129,25 @@ test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono
       const parcial = await stg.executar({ env: ENV_STG, backup: BACKUP, dir: novoDir(caso.n), raiz, disco: () => {}, Client: cli() });
       assert.equal(parcial.resultado, "FALHA"); assert.match(parcial.falha!.mensagem, new RegExp(`APLICACAO_PARCIAL_${caso.n}`));
       await c.query(caso.parcial[1]);
-      // 4. Falha REAL na migration: outra sessão em ROW EXCLUSIVE na tabela alterada (leituras do precheck passam; o LOCK da
-      //    migration espera o lock_timeout de 5 s e a transação do arquivo é desfeita por inteiro).
+      // 4a. Transação aberta ANTES do corte (escrita ainda não confirmada): o aplicador espera e, sem fim, recusa antes de
+      //     escrever (sem falso PRESERVACAO_DIVERGENTE depois). Revisão de 22/10/2026.
+      const antiga = await conectarDescartavel({ travar: false });
+      let recusa: Resultado;
+      try {
+        await antiga.query("BEGIN"); await antiga.query(caso.trafego);
+        recusa = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir: novoDir(caso.n), raiz, disco: () => {}, Client: cli(), pausa: async () => {}, tentativas: 3 });
+      } finally { await antiga.query("ROLLBACK").catch(() => {}); await antiga.end(); }
+      assert.equal(recusa.resultado, "FALHA", JSON.stringify(recusa)); assert.match(recusa.falha!.mensagem, /TRANSACOES_ANTERIORES_AO_CORTE/);
+      assert.equal(recusa.migracaoCommitada, false);
+      await nada();
+      // 4b. Falha REAL na migration: tráfego que começa DEPOIS do corte, em ROW EXCLUSIVE na tabela alterada (leituras
+      //     passam; o LOCK da migration espera o lock_timeout de 5 s e a transação do arquivo é desfeita por inteiro).
       const outra = await conectarDescartavel({ travar: false });
       const dirFalha = novoDir(caso.n);
       let falha: Resultado;
       try {
-        await outra.query("BEGIN"); await outra.query(caso.trafego);
-        falha = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir: dirFalha, raiz, disco: () => {}, Client: cli() });
+        falha = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir: dirFalha, raiz, disco: () => {},
+          Client: cli({ antesDaMigration: async () => { await outra.query("BEGIN"); await outra.query(caso.trafego); } }) });
       } finally { await outra.query("ROLLBACK").catch(() => {}); await outra.end(); }
       assert.equal(falha.resultado, "FALHA", JSON.stringify(falha)); assert.equal(falha.falha!.etapa, `migration ${caso.n}`);
       assert.match(falha.falha!.mensagem, /lock timeout/); assert.equal(falha.migracaoCommitada, false);

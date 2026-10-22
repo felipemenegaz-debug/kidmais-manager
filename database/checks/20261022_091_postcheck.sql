@@ -1,6 +1,9 @@
 -- Somente leitura: função de DV correta (casos sintéticos conhecidos), CHECKs alargados e DV para linhas novas.
 DO $$
 BEGIN
+  IF to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL THEN
+    RAISE EXCEPTION '091 postcheck: função de guarda ausente';
+  END IF;
   IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NULL
     OR (SELECT provolatile FROM pg_proc WHERE oid = 'public.kidmais_091_documento_valido(text)'::regprocedure) <> 'i' THEN
     RAISE EXCEPTION '091 postcheck: função de DV ausente ou não imutável';
@@ -16,10 +19,11 @@ BEGIN
   IF (SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND convalidated AND conname IN ('empresa_assinaturas_documento_teste_check',
         'assinatura_fundadores_documento_beneficiario_check','cadastros_empresas_documento_check','solicitacoes_documento_check',
         'empresa_representacoes_qualificacao_check')) <> 5
-    OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND (
+    -- ROW + BEFORE + INSERT só (tgtype = 7) e a função de guarda da 091 (revisão de 22/10/2026).
+    OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND tgtype = 7
+          AND tgfoid = 'public.kidmais_091_documento_guarda()'::regprocedure AND (
           (tgrelid = 'public.empresa_assinaturas'::regclass AND tgname = 'empresa_assinaturas_091_documento')
           OR (tgrelid = 'public.assinatura_fundadores'::regclass AND tgname = 'assinatura_fundadores_091_documento'))) <> 2
-    OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL
     -- O DV não é CHECK (valeria em todo UPDATE de linha antiga).
     OR EXISTS (SELECT 1 FROM pg_constraint WHERE contype = 'c' AND pg_get_constraintdef(oid) LIKE '%kidmais_091_documento_valido%') THEN
     RAISE EXCEPTION '091 postcheck: CHECKs ausentes';

@@ -7,7 +7,9 @@ SET LOCAL statement_timeout = '60s';
 SET LOCAL search_path = public, pg_catalog;
 DO $$
 BEGIN
-  IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NULL THEN
+  -- Todos os objetos da 091 presentes; estado parcial é recusado com motivo explícito, antes de qualquer DROP.
+  IF to_regprocedure('public.kidmais_091_documento_valido(text)') IS NULL OR to_regprocedure('public.kidmais_091_documento_guarda()') IS NULL
+     OR (SELECT count(*) FROM pg_trigger WHERE tgname IN ('empresa_assinaturas_091_documento','assinatura_fundadores_091_documento')) <> 2 THEN
     RAISE EXCEPTION '091 rollback recusado: migration ausente ou parcial.';
   END IF;
 END $$;

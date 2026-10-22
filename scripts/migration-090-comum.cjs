@@ -22,8 +22,8 @@ const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-090.json';
 const ETAPAS = Object.freeze([
   ['precheck 090', 'database/checks/20261022_090_precheck.sql', '87c7f08c827d0f7762520d33a9a2391e53a3ef9e682f55e2edccc1869083711f'],
-  ['migration 090', 'database/migrations/20261022_090_campanha_fundador.sql', '9415b2e8cbcf82b0bed99e8d24b9ccbcb1bc1f1f988b36503f21a6f9edfbf68f'],
-  ['postcheck 090', 'database/checks/20261022_090_postcheck.sql', '90bd9cb7226cd66d70814ac59066233735a2bb603d30bfd8e581b8819eb7ef0a'],
+  ['migration 090', 'database/migrations/20261022_090_campanha_fundador.sql', '8296b98e9487159fbe9746914484f01de9c7eb1a2741d986d60e756f1692da72'],
+  ['postcheck 090', 'database/checks/20261022_090_postcheck.sql', '7c30693ce3b0c9f6516f677708afdeff4ee1f340f5f472e6d4298285b9fdfaf4'],
 ]);
 /** Tabelas que a 090 referencia por FK (REFERENCES exigido) e a tabela que ela altera (dono exigido). */
 const REFERENCIADAS = Object.freeze(['usuarios_administrativos']);
@@ -141,13 +141,32 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
 }
 
 /** Aplicação: precheck (READ ONLY) → migration (transação do arquivo) → estado completo → postcheck → preservação. */
-async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}}) {
+/**
+ * Uma escrita feita ANTES do corte, mas ainda não confirmada quando o corte é lido, entraria no "depois" e não no "antes"
+ * (falso PRESERVACAO_DIVERGENTE; revisão de 22/10/2026). Espera, só lendo, até nenhuma outra sessão deste banco ter
+ * transação aberta desde antes do corte; sem isso, recusa ANTES de qualquer escrita. Limite: o papel precisa enxergar
+ * `xact_start` das outras sessões (mesmo papel ou pg_read_all_stats); sessões invisíveis não são esperadas.
+ */
+const SQL_ANTERIORES = corte => `SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = current_database()
+  AND xact_start IS NOT NULL AND xact_start <= '${corte}'::timestamptz`;
+async function esperarTransacoesAnteriores(db, corte, pausa, tentativas) {
+  assert.match(String(corte), CORTE, 'CORTE_INVALIDO');
+  for (let i = 0; i < tentativas; i++) {
+    if (Number((await somenteLeitura(db, SQL_ANTERIORES(corte))).rows[0]?.n ?? 1) === 0) return i;
+    await pausa(500);
+  }
+  assert.fail('TRANSACOES_ANTERIORES_AO_CORTE');
+}
+const dormir = ms => new Promise(fim => setTimeout(fim, ms));
+
+async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}, pausa = dormir, tentativas = 60}) {
   const sqls = new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   r.plano = planoEtapas(r.estadoAntes);
   r.corte = (await somenteLeitura(db, SQL_CORTE)).rows[0]?.corte;
+  r.esperasCorte = await esperarTransacoesAnteriores(db, r.corte, pausa, tentativas);
   r.contagensAntes = await contagens(db, r.estadoAntes, r.corte); registrar(r);
   for (const nome of r.plano) {
     r.etapas.push({nome, inicio: new Date().toISOString()}); registrar(r);
@@ -205,7 +224,7 @@ function criarAplicador(amb) {
     catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', resultado: 'FALHA', mensagem: curta(e)}; }
     finally { await db.end().catch(() => {}); }
   }
-  async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
+  async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco(), pausa, tentativas}) {
     const opts = amb.alvo(env); disco();
     assert.match(String(backup ?? ''), /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_OBRIGATORIO');
     for (const [, arquivo, hash] of ETAPAS) lerRevisado(raiz, arquivo, hash);
@@ -220,7 +239,7 @@ function criarAplicador(amb) {
     const db = new Client(opts); db.on?.('error', () => undefined);
     try {
       await db.connect();
-      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env),
+      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), pausa, tentativas,
         registrar: x => { ultimo = JSON.parse(JSON.stringify(x)); salvar({...ultimo, situacao: 'EM_ANDAMENTO'}); }});
       salvar({...r, situacao: 'CONCLUIDA'});
       return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, estadoDepois: r.estadoDepois,
@@ -247,5 +266,5 @@ function criarAplicador(amb) {
   return {plano, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO, SQL_CORTE,
+module.exports = {ETAPAS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, REFERENCIADAS, ALTERADAS, OBJETOS, SQL_ESTADO, SQL_PRESERVACAO, SQL_CORTE, SQL_ANTERIORES,
   lerRevisado, lerEstado, planoEtapas, conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

@@ -31,6 +31,9 @@ export const REGRA_APROVADA = Object.freeze({ elegibilidade: 'OFERTA_PERSISTIDA'
  */
 export async function ativarCampanhaAprovada(tx: DbExecutor, input: { codigo: string; aberturaData: string; autorizacao: string; operadorId: string }) {
     meiaNoiteLocal(input.aberturaData);
+    // A guarda 090 também recusa data passada; aqui a mensagem é do domínio.
+    const hoje = (await tx.query<{ d: string }>("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0]?.d;
+    if (hoje && input.aberturaData < hoje) throw new Error('Data de abertura no passado.');
     const r = (await tx.query<{ id: string }>(`UPDATE assinatura_campanhas SET estado = 'ATIVA', contagem = $2, elegibilidade = $3,
         validade_oferta = make_interval(days => $4::int), abertura_data = $5::date, autorizacao = $6, ativada_por = $7::uuid
         WHERE codigo = $1 AND estado = 'RASCUNHO' RETURNING id`,

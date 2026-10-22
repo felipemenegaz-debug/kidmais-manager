@@ -258,6 +258,20 @@ test('6. Fundador com CPF na janela; checkout cria o cliente do provedor com nom
     assert.equal(criados.length, total, 'nenhum cliente criado');
 });
 
+test('7b. postcheck recusa gatilho com o nome certo e tipo errado; rollback em estado parcial recusa com motivo explícito', { skip: !opt() }, async () => {
+    await client.query('BEGIN');
+    try {
+        await client.query('DROP TRIGGER empresa_assinaturas_091_documento ON empresa_assinaturas');
+        await client.query('CREATE TRIGGER empresa_assinaturas_091_documento BEFORE INSERT OR UPDATE ON empresa_assinaturas FOR EACH ROW EXECUTE FUNCTION kidmais_091_documento_guarda()');
+        await client.query('SAVEPOINT a');
+        await assert.rejects(client.query(SQL.post), /091 postcheck/);
+        await client.query('ROLLBACK TO SAVEPOINT a');
+        await client.query('DROP TRIGGER empresa_assinaturas_091_documento ON empresa_assinaturas');
+        await assert.rejects(client.query(SQL.down.replace(/^BEGIN;$/m, '').replace(/^COMMIT;$/m, '')), /migration ausente ou parcial/);
+    } finally { await client.query('ROLLBACK'); }
+    await client.query(SQL.post);
+});
+
 test('7. rollback da 091 recusado com CPF registrado', { skip: !opt() }, async () => {
     await assert.rejects(client.query(SQL.down), /rollback recusado/);
     await client.query('ROLLBACK').catch(() => undefined);

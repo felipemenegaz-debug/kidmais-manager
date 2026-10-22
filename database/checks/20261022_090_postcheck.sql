@@ -37,6 +37,13 @@ BEGIN
             AND tgname IN ('assinatura_fundadores_090_campanha','assinatura_fundadores_074_guarda','assinatura_fundadores_074_truncate')))) <> 5 THEN
     RAISE EXCEPTION '090 postcheck: gatilhos ausentes';
   END IF;
+  -- Tipo (bits de tgtype: 1 ROW, 2 BEFORE, 4 INSERT, 8 DELETE, 16 UPDATE, 32 TRUNCATE) e função de cada gatilho da 090.
+  IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND (
+        (tgname = 'assinatura_campanhas_090_guarda' AND tgtype = 31 AND tgfoid = 'public.kidmais_090_campanha_guarda()'::regprocedure)
+        OR (tgname = 'assinatura_campanhas_090_truncate' AND tgtype = 34 AND tgfoid = 'public.kidmais_090_campanha_guarda()'::regprocedure)
+        OR (tgname = 'assinatura_fundadores_090_campanha' AND tgtype = 23 AND tgfoid = 'public.kidmais_090_fundador_guarda()'::regprocedure))) <> 3 THEN
+    RAISE EXCEPTION '090 postcheck: gatilho com tipo ou função divergente';
+  END IF;
   IF EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.origem <> 'LEGADO'
              AND NOT EXISTS (SELECT 1 FROM assinatura_campanhas c WHERE c.id = f.campanha_id AND c.estado <> 'RASCUNHO')) THEN
     RAISE EXCEPTION '090 postcheck: concessão da campanha sem campanha ativada';
