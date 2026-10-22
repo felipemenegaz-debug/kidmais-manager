@@ -204,6 +204,9 @@ const ESTADO_POSTGRES = {
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
+  // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
+  "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
