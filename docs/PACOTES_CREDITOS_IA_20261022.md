@@ -252,8 +252,8 @@ SQL da 095 sem mudança. Observação do parecer não tratada (P3): a releitura 
 
 **Onde ficam os créditos (22/10, decisão de Felipe).** Página própria **Configurações › Créditos de IA**
 (`/admin/configuracoes/creditos`, cartão no hub e item no menu de Configurações, autoridade da Gestão como a API
-`exigirGestao`). Dois blocos separados: **Créditos de convite** e **Créditos do WhatsApp.AI** (este só com o Wall-e liberado
-para a empresa; hoje oculto), cada um com saldo, pacotes, pedidos, devolução e extrato próprios. A **Assinatura** fica só com
+`exigirGestao`). Dois blocos separados: **Créditos de convite** e **Créditos do WhatsApp.AI** (sempre visível; sem o Wall-e liberado
+para a empresa mostra só "ainda não está ativo", sem venda), cada um com saldo, pacotes, pedidos, devolução e extrato próprios. A **Assinatura** fica só com
 o plano e um link "Ver créditos de IA"; o convite da festa mantém a linha de saldo com link para a página. A rota entra nas
 abertas com a empresa bloqueada (ver saldo e pedir devolução de pacote pago; a compra recusa no servidor). Uma tentativa
 anterior (cartões no convite e em Atendimento, `5708892`) foi substituída a pedido de Felipe. Validação: `check:v1:static`

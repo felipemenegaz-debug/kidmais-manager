@@ -7,8 +7,8 @@ import { dataCurta } from './AvisoComercial';
 
 /**
  * Créditos de IA (095), página própria em Configurações (/admin/configuracoes/creditos): um bloco por recurso — convite e
- * WhatsApp.AI —, cada um com saldo, pacotes, pedidos, devolução e extrato próprios; o do WhatsApp.AI só aparece com o
- * Wall-e liberado para a empresa. Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
+ * WhatsApp.AI —, cada um com saldo, pacotes, pedidos, devolução e extrato próprios; sem o Wall-e liberado para a empresa,
+ * o bloco do WhatsApp.AI mostra só o aviso de que ainda não está ativo (nada à venda). Saldo para toda a empresa; compra, histórico, protocolos e devolução só para a
  * Gestão. O navegador nunca define preço, quantidade, validade ou empresa: só escolhe a oferta e confirma o que viu
  * (preço e versão dos termos), e o servidor recusa se mudou. Cartão é pago na página hospedada do Asaas.
  * Créditos só aparecem depois da confirmação do pagamento pelo Asaas (o retorno da fatura não libera nada).
@@ -113,8 +113,8 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
 
     const titulo = TITULO[recurso];
     if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
-    // WhatsApp.AI: o bloco inteiro só existe com a 095 instalada e o Wall-e liberado para a empresa (sem venda antes disso).
-    if (recurso === 'WALLE' && !(c.instalado && c.walleDisponivel && c.walle)) return null;
+    // WhatsApp.AI: o bloco sempre aparece; sem o Wall-e liberado para a empresa, só o aviso (sem saldo, pacotes ou pedidos).
+    const walleInativo = recurso === 'WALLE' && !(c.walleDisponivel && c.walle);
 
     async function comprar() {
         if (!oferta || !c?.catalogo || enviando.current) return;
@@ -167,8 +167,9 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
                 {(conv.emVerificacao ?? 0) > 0 && ' Há uma geração em verificação.'}</p>)}
         {recurso === 'CONVITES' && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
         {recurso === 'WALLE' && c.walle && <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />}
-        {!c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
-        {!c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}
+        {walleInativo && <p data-walle-inativo>O atendimento com IA (Wall-e) ainda não está ativo para a sua empresa. Os créditos do WhatsApp.AI ficam disponíveis quando ele for ativado.</p>}
+        {!walleInativo && !c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
+        {!walleInativo && !c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}
 
         {resultado && <div role="status" data-pedido-resultado={resultado.estado} data-protocolo={resultado.protocolo} style={{ border: '1px solid currentColor', borderRadius: 12, padding: 12 }}>
             <p style={{ marginTop: 0 }}><strong>Pedido {resultado.protocolo}</strong>: {ESTADO[resultado.estado] ?? resultado.estado}.</p>
@@ -182,7 +183,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
             <p>{devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'A restituição é iniciada de imediato, sem desconto de taxas.' : `O processamento começa até ${dataIso(devolucaoFeita.prazo)}.`} O crédito depende do meio de pagamento. Situação: {DEVOLUCAO[devolucaoFeita.estado] ?? devolucaoFeita.estado}.</p>
         </div>}
 
-        {c.gestao && c.instalado && <>
+        {!walleInativo && c.gestao && c.instalado && <>
             {cat && c.compraAberta && !oferta && <div data-catalogo>
                 <h3>Comprar créditos</h3>
                 {cat.proposta && <p className={workspace.muted} data-catalogo-proposta>Valores de demonstração ({cat.versao}), ainda não aprovados como oferta vigente.</p>}

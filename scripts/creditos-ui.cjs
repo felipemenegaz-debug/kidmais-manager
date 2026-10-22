@@ -301,7 +301,10 @@ async function principal() {
         await page.getByRole('link', { name: 'Abrir créditos de ia' }).click();
         await page.waitForURL((url) => url.pathname === '/admin/configuracoes/creditos');
         await secao.locator(`[data-pedido="${protocolo}"]`).waitFor();
-        assert.equal(await page.locator('[data-creditos="WALLE"]').count(), 0, 'WhatsApp.AI oculto com o Wall-e desligado');
+        const blocoWalle = page.locator('[data-creditos="WALLE"]');
+        await blocoWalle.getByRole('heading', { name: 'Créditos do WhatsApp.AI' }).waitFor();
+        await blocoWalle.locator('[data-walle-inativo]').waitFor();
+        assert.equal(await blocoWalle.locator('[data-oferta], [data-pedidos-creditos], [data-extrato]').count(), 0, 'WhatsApp.AI sem venda com o Wall-e desligado');
         await page.screenshot({ path: path.join(relatorios, '9b-creditos.png'), fullPage: true });
         await page.goto(`${base}/admin/assinatura`);
         await page.locator('[data-creditos-link]').waitFor();
@@ -314,7 +317,7 @@ async function principal() {
         await page.getByRole('heading', { name: 'Atendimento' }).waitFor();
         await espera(1500);
         assert.equal(await page.locator('[data-creditos]').count(), 0, 'Atendimento sem cartão de créditos');
-        resultados.push('9: Configurações > Créditos de IA abre a página própria (convite; WhatsApp.AI oculto com o Wall-e desligado); Assinatura só com o link; convite e Atendimento sem cartão; Equipe sem o cartão em Configurações');
+        resultados.push('9: Configurações > Créditos de IA abre a página própria (convite; WhatsApp.AI com aviso de inativo e sem venda); Assinatura só com o link; convite e Atendimento sem cartão; Equipe sem o cartão em Configurações');
 
         // 8. Flags desligadas: sem catálogo, compra 503; saldo e histórico continuam.
         await pararServidor();
