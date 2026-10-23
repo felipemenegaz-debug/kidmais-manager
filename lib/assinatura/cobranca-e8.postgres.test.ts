@@ -64,8 +64,10 @@ class AsaasFalso implements ClienteAsaas {
     remocoes = 0;
     private seq = 0;
     private checar(op: string) { if (this.fora) throw new AsaasFalhou(op, 503, 'HTTP'); }
-    async buscarClientePorReferencia(ref: string) { this.checar('listar clientes'); const id = this.clientes.get(ref); return id ? { id, externalReference: ref } : null; }
-    async criarCliente(i: { referencia: string }) { this.checar('criar cliente'); const id = `cus_${++this.seq}`; this.clientes.set(i.referencia, id); return { id, externalReference: i.referencia }; }
+    /** Documento com que o cliente foi criado (devolvido na busca por referência, como o Asaas). */
+    readonly documentos = new Map<string, string>();
+    async buscarClientePorReferencia(ref: string) { this.checar('listar clientes'); const id = this.clientes.get(ref); return id ? { id, externalReference: ref, cpfCnpj: this.documentos.get(ref) ?? documentoDaEmpresa.get(ref) ?? null } : null; }
+    async criarCliente(i: { referencia: string; cpfCnpj?: string }) { this.checar('criar cliente'); const id = `cus_${++this.seq}`; this.clientes.set(i.referencia, id); if (i.cpfCnpj) this.documentos.set(i.referencia, i.cpfCnpj); return { id, externalReference: i.referencia }; }
     async obterAssinatura(id: string) {
         this.checar('consultar assinatura');
         const a = this.assinaturas.get(id);
@@ -139,10 +141,13 @@ async function linha(empresaId: string) {
 const nivel = async (empresaId: string) => { const e = await lerEstadoComercial(client as never, empresaId); return [e.acesso.nivel, e.acesso.motivo]; };
 const fimDoCiclo = (data: string) => { const [a, m, d] = data.split('-').map(Number); const ultimo = new Date(Date.UTC(a, m + 1, 0)).getUTCDate(); return new Date(Date.UTC(a + Math.floor(m / 12), m % 12, Math.min(d, ultimo), 3)).toISOString(); };
 
+/** Documento do teste de cada empresa: o provedor falso o devolve na busca por referência, como o Asaas. */
+const documentoDaEmpresa = new Map<string, string>();
 async function novaEmpresa(documento: string) {
     const id = (await q("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet E8', 'PROVISIONAMENTO') RETURNING id", [`e8${randomBytes(3).toString('hex')}`])).rows[0].id as string;
     await q("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [id]);
     await emTx(() => iniciarTeste(client as never, { empresaId: id, documento }));
+    documentoDaEmpresa.set(id, documento);
     return id;
 }
 

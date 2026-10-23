@@ -184,16 +184,23 @@ async function menorDuracaoDosPacotes(db: DbExecutor | undefined, empresaId: str
   return duracaoAceita(r.rows[0]?.menor == null ? null : Number(r.rows[0].menor));
 }
 
-/** Salões permitidos pelo pacote vigente da empresa (vazio = todos; null sem a 093). */
-async function saloesDoPacoteDaEmpresa(db: DbExecutor | undefined, empresaId: string | null | undefined, codigo: string | undefined) {
+/**
+ * Salões permitidos pelo pacote vigente da empresa (vazio = todos; null sem a 093).
+ * Revisão da integração d6ddbc6 (P2-I1): a existência da 093 é conferida em consulta SEPARADA. Na mesma consulta, o
+ * PostgreSQL resolve `pacote_saloes` antes de avaliar o WHERE: sem a tabela dava 42P01, e o catch seguia com a transação
+ * abortada (25P02 na consulta seguinte). Sem catch: um erro real propaga em vez de virar "sem restrição de salão".
+ */
+export async function saloesDoPacoteDaEmpresa(db: DbExecutor | undefined, empresaId: string | null | undefined, codigo: string | undefined) {
   if (!empresaId || !codigo) return null;
   const ex = db ?? (await import("../../db/postgres.ts")).db();
+  const instalada = await ex.query<{ ok: boolean }>(`SELECT to_regclass('public.pacote_saloes') IS NOT NULL AS ok`);
+  if (instalada.rows[0]?.ok !== true) return null;
   const r = await ex.query<{ salao_id: string | null }>(
     `SELECT ps.salao_id::text AS salao_id
        FROM pacotes p LEFT JOIN pacote_saloes ps ON ps.pacote_id = p.id
-      WHERE to_regclass('public.pacote_saloes') IS NOT NULL AND p.empresa_id = $1::uuid AND p.codigo = $2 AND p.vigente`,
+      WHERE p.empresa_id = $1::uuid AND p.codigo = $2 AND p.vigente`,
     [empresaId, codigo],
-  ).catch(() => ({ rows: [] as Array<{ salao_id: string | null }> }));
+  );
   const ids = r.rows.map((l) => l.salao_id).filter((x): x is string => Boolean(x));
   return ids.length ? ids : null;
 }

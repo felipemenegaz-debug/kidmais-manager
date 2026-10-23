@@ -205,6 +205,18 @@ const ESTADO_POSTGRES = {
   "lib/agenda/aplicador-092-094.postgres.test.ts": { descartavel: "089" },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
+  // 22/10/2026: campanha Fundador em duas fases (090), aplicada pela suíte sobre o modelo 089.
+  "lib/assinatura/campanha-090.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: CPF do contratante (091) e Fundador com CPF (090 aplicada pela própria suíte), sobre o modelo 089.
+  "lib/assinatura/documento-091.postgres.test.ts": { descartavel: "089" },
+  // Aplicadores reais da 090 e da 091 (staging e produção) no modelo 089: conferência, privilégios/dono, parcial, falha real, preservação e anti-repetição.
+  "lib/assinatura/aplicador-090-091.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026 (grupo B): comprovante da contratação e arquivo das versões (096), aplicada pela suíte sobre o modelo 089.
+  "lib/assinatura/comprovante-096.postgres.test.ts": { descartavel: "089" },
+  // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
+  "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
+  // Revisão f6b6fbb (P2-N5): controle físico da 097 SEM a 089 (modelo 086: 068 e 074a, sem assinatura_encerramentos).
+  "lib/assinatura/arrependimento-097-sem-089.postgres.test.ts": { descartavel: "086" },
   // 22/10/2026: o inventário passou a citar as tabelas da 093 (agenda por unidade): modelo 093 (inclui a 092).
   // 22/10/2026 (gate da agenda): modelo 094 — fechamentos.salao_id e fechamento_revisoes.salao_id no retrato.
   // 23/10/2026: com os créditos de IA (095), o inventário inteiro vai até a 095 (inclui 092–094); a compatibilidade sem a
@@ -242,7 +254,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/pacotes-livres.postgres.test.ts": { descartavel: "089" },
   // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
   // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
-  "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
+  // Revisão da integração d6ddbc6 (P2-I1): também no 094 — 089 prova o caminho SEM a 093 (antes abortava a transação), 094 o caminho com salões.
+  "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089", tambem: ["094"] },
   // 22/10/2026 (fase 1d): a IA (preparar contratação) resolve o pacote contra os pacotes reais da empresa comprovada
   // (nome ou código P_…); a dona da agenda pública continua só com os sete ids V1. Schema vigente (089), sem migration.
   "lib/inteligencia/acoes/pacotes-1d.postgres.test.ts": { descartavel: "089" },

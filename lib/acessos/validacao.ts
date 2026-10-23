@@ -12,7 +12,8 @@ export function somenteDigitos(valor: string | null | undefined) {
     return (valor ?? '').replace(/\D/g, '');
 }
 
-function cpfValido(cpf: string) {
+/** CPF: 11 dígitos (zeros à esquerda contam), sequência repetida recusada, os dois DVs (módulo 11). Não prova titularidade. */
+export function cpfValido(cpf: string) {
     if (!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf))
         return false;
     const digito = (base: string, peso: number) => {
@@ -37,6 +38,29 @@ export function normalizarDocumentoFiscal(valor: string | null | undefined): str
     if (cnpjValido(cnpj) && !cnpjRaizPlaceholder(cnpj))
         return cnpj;
     return documentoInvalido();
+}
+
+export type TipoDocumentoFiscal = 'CPF' | 'CNPJ';
+/** Tipo pela forma NORMALIZADA (11 dígitos = CPF; 14 caracteres = CNPJ). Formato já conferido pelo validador e pelos CHECKs. */
+export function tipoDocumentoFiscal(normalizado: string): TipoDocumentoFiscal | null {
+    if (/^\d{11}$/.test(normalizado)) return 'CPF';
+    if (/^[0-9A-Z]{12}\d{2}$/.test(normalizado)) return 'CNPJ';
+    return null;
+}
+
+/**
+ * Validação única do documento de quem contrata (cadastro público, painel, teste, checkout, Fundador): mesma regra de
+ * normalizarDocumentoFiscal, sem lançar. Recusa vazio e qualquer caractere fora da máscara conhecida.
+ */
+export function documentoFiscalValido(valor: string | null | undefined): { numero: string; tipo: TipoDocumentoFiscal } | null {
+    try {
+        const numero = normalizarDocumentoFiscal(valor);
+        const tipo = numero ? tipoDocumentoFiscal(numero) : null;
+        return numero && tipo ? { numero, tipo } : null;
+    }
+    catch {
+        return null;
+    }
 }
 
 function documentoInvalido(): never {

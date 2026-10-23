@@ -31,6 +31,8 @@
  * (somente leitura, sem ids nem dados pessoais) e cada pedido VENCIDO vira um item da mesma regra por idade:
  *   - DEVOLUCAO_PENDENTE: estorno AGUARDANDO_MANUAL/EM_CURSO/SEM_CONFIRMACAO/RECUSADO depois do prazo (arrependimento:
  *     1 h após o pedido; proporcional: fim do dia de prazo_processamento, Brasília);
+ *   - ARREPENDIMENTO_PENDENTE: manifestação de arrependimento (097) ainda RECEBIDA depois de 1 h, sem comunicação ao
+ *     intermediador (SEM_COMUNICACAO) ou sem conclusão (SEM_CONCLUSAO); o prazo legal é imediato;
  *   - RENOVACAO_NAO_REMOVIDA: remoção da assinatura PENDENTE/SEM_CONFIRMACAO/RECUSADO há mais de 1 h (a renovação pode
  *     continuar gerando cobrança no Asaas).
  * A idade conta do vencimento do prazo (dia 0 = NOVO; 1, 3, 7 e semanais). Em staging o relatório só conta (`encerramentos`).
@@ -214,7 +216,9 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         }
         catch (error) {
             await client.query('ROLLBACK');
-            return { erro: error instanceof Error ? error.name : 'Erro' };
+            // Recusa de domínio vira ERRO_<código> (ex.: ERRO_FUNDADOR_OFERTA_EXPIRADA): continua alarmando e o atendimento vê a causa.
+            const codigo = error instanceof Error && error.name === 'AcessoServiceError' && /^[A-Z0-9_]{1,80}$/.test(String(error.code)) ? String(error.code) : null;
+            return { erro: codigo ?? (error instanceof Error ? error.name : 'Erro') };
         }
     };
     const relatorio = { modo, banco, eventos: {}, empresas: {} };
@@ -237,7 +241,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         conta(relatorio.empresas, chave);
         if (chave !== 'SEM_MUDANCA') itens.push({ item: 'EMPRESA', resultado: chave, motivo: r.motivo, recebidoMs: null });
     }
-    // 089: pedidos de cancelamento/devolução vencidos (fora das transações por item; só leitura).
+    // 089/097: pedidos de cancelamento/devolução e manifestações de arrependimento vencidos (fora das transações por item; só leitura).
     if (pendenciasEncerramento) {
         relatorio.encerramentos = {};
         for (const p of await pendenciasEncerramento(client)) {
@@ -293,10 +297,20 @@ const SQL_PENDENCIAS_ENCERRAMENTO = `SELECT item, resultado, motivo, (extract(ep
     SELECT 'RENOVACAO_NAO_REMOVIDA', cancelamento_provedor, tipo, solicitado_em + interval '1 hour'
       FROM assinatura_encerramentos WHERE cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')
   ) x WHERE limite <= coalesce($1::timestamptz, clock_timestamp()) ORDER BY limite`;
+// 097: manifestações de arrependimento ainda RECEBIDAS depois de 1 h (o prazo é imediato) — somente leitura.
+const SQL_PENDENCIAS_ARREPENDIMENTO = `SELECT 'ARREPENDIMENTO_PENDENTE' AS item,
+    CASE WHEN intermediador_comunicado_em IS NULL THEN 'SEM_COMUNICACAO' ELSE 'SEM_CONCLUSAO' END AS resultado, canal AS motivo,
+    (extract(epoch FROM solicitado_em + interval '1 hour') * 1000)::float8 AS limite_ms
+  FROM assinatura_arrependimentos WHERE situacao = 'RECEBIDO' AND solicitado_em + interval '1 hour' <= coalesce($1::timestamptz, clock_timestamp())
+  ORDER BY solicitado_em`;
 async function lerPendenciasEncerramento(client, instanteMs = null) {
-    if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
-    return (await client.query(SQL_PENDENCIAS_ENCERRAMENTO, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
-        .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) }));
+    const instante = [instanteMs === null ? null : new Date(instanteMs).toISOString()];
+    const linhas = [];
+    if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        linhas.push(...(await client.query(SQL_PENDENCIAS_ENCERRAMENTO, instante)).rows);
+    if ((await client.query("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        linhas.push(...(await client.query(SQL_PENDENCIAS_ARREPENDIMENTO, instante)).rows);
+    return linhas.map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) })).sort((a, b) => a.recebidoMs - b.recebidoMs);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -565,4 +579,4 @@ if (require.main === module) {
 
 module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
-    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };
+    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, SQL_PENDENCIAS_ARREPENDIMENTO, motivoSeguro, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };

@@ -210,11 +210,17 @@ async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     return null;
 }
 
-const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
+export const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
     ? `LISTA_INCOMPLETA: ${error.operacao} (mais registros que o limite conferido; revisão humana)`.slice(0, 500)
     : error instanceof AsaasFalhou
     ? `PROVEDOR_INDISPONIVEL: ${error.operacao}${error.status ? ` (${error.status})` : ''}`.slice(0, 500)
-    : `ERRO_INTERNO: ${error instanceof Error ? error.name : typeof error}`.slice(0, 500);
+    // Recusa de domínio (ex.: FUNDADOR_OFERTA_EXPIRADA) guarda SÓ o código, no formato que a conferência D-C4 preserva
+    // (motivoSeguro: "ERRO_INTERNO: <CÓDIGO>"); o prefixo mantém o alarme. A mensagem fica fora: pode citar dados.
+    : `ERRO_INTERNO: ${codigoDominio(error) ?? (error instanceof Error ? error.name : typeof error)}`.slice(0, 500);
+function codigoDominio(error: unknown) {
+    const codigo = error instanceof Error && error.name === 'AcessoServiceError' ? (error as { code?: unknown }).code : null;
+    return typeof codigo === 'string' && /^[A-Z][A-Z0-9_]{0,59}$/.test(codigo) ? codigo : null;
+}
 
 export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' | 'JA_CONCLUIDO'; empresaId: string | null; motivo?: string };
 

@@ -6,11 +6,16 @@ import { condicoesComerciais, planosComerciais, planoComercialValido, valorComer
 import type { Ciclo } from './configuracao.ts';
 import { ambienteAsaas, type AssinaturaProvedor, type CobrancaProvedor } from './asaas.ts';
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
+import { campanhaFundadorLigada, faseCampanha, lerCampanhaAtivada, ocupacaoPosJanela, prazoAnunciado, schemaCampanhaInstalado,
+    type CampanhaFundador, type ResumoCampanha } from './campanha.ts';
+import { PAGAMENTO_TARDIO } from './textos-fundador.ts';
+import { documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE } from './documento-contratante.ts';
+import { comprovanteInstalado, exigirDocumentosConfirmados, registrarComprovante } from './comprovante.ts';
 
 export type Oferta = {
     id: string; empresa_id: string; plano: 'ESSENCIAL' | 'PROFISSIONAL' | 'PREMIUM'; ciclo: Ciclo;
     valor_regular_centavos: number; valor_final_centavos: number; fundador_id: string | null;
-    estado: 'EM_ABERTO' | 'CONFIRMADA' | 'CANCELADA'; catalogo_versao: string;
+    estado: 'EM_ABERTO' | 'CONFIRMADA' | 'CANCELADA'; catalogo_versao: string; desconto_percentual?: number;
     pagamento_confirmacao_id?: string | null;
 };
 type Ambiente = Record<string, string | undefined>;
@@ -71,19 +76,112 @@ export async function conferirCheckoutLegado(tx: DbExecutor, empresaId: string, 
     return false;
 }
 
-/** Serializa alocação da campanha, sem rede. Quem disputa a última vaga relê sob o mesmo lock. */
-async function situacaoFundador(tx: DbExecutor, empresaId: string, travar: boolean) {
+type OrigemConcessao = 'LEGADO' | 'JANELA' | 'POS_JANELA';
+type BloqueioCampanha = { codigo: 'CAMPANHA_DESLIGADA' | 'CAMPANHA_REGRA_PENDENTE' | 'CAMPANHA_ANTES_DA_ABERTURA'; mensagem: string; status: number };
+type SituacaoFundador = {
+    id: string | null; elegivel: boolean; aguardando: boolean; origem: OrigemConcessao | null;
+    campanha: CampanhaFundador | null; instalado090: boolean; bloqueio: BloqueioCampanha | null; resumo: ResumoCampanha;
+};
+const ISO_AGORA = `SELECT to_char((clock_timestamp()) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS agora`;
+
+/**
+ * Serializa alocação da campanha, sem rede. Quem disputa a última vaga relê sob o mesmo lock.
+ * Sem a 090 (ou sem campanha ativada): regra anterior, 20 primeiros (LEGADO). Com campanha ativada: a fase é decidida
+ * pelo relógio do banco lido DEPOIS da trava; a guarda 090 confere de novo na inserção.
+ */
+async function situacaoFundador(tx: DbExecutor, empresaId: string, travar: boolean, env: Ambiente): Promise<SituacaoFundador> {
     if (travar) await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:fundadores:2026'))");
+    const instalado090 = await schemaCampanhaInstalado(tx);
+    const base = { instalado090, bloqueio: null, campanha: null } as const;
     const propria = (await tx.query<{ id: string; estado: string; vigente: boolean }>(`SELECT id, estado,
         (estado = 'RESERVADA' OR beneficio_fim > clock_timestamp()) AS vigente
         FROM assinatura_fundadores WHERE empresa_id = $1::uuid AND estado <> 'LIBERADA'`, [empresaId])).rows[0];
-    if (propria) return { id: propria.id, elegivel: propria.vigente, aguardando: false };
-    const ocupacao = (await tx.query<{ confirmadas: number; ocupadas: number }>(`SELECT
-        count(*) FILTER (WHERE estado = 'CONFIRMADA')::int AS confirmadas,
-        count(*) FILTER (WHERE estado <> 'LIBERADA')::int AS ocupadas FROM assinatura_fundadores`)).rows[0];
-    if (!ocupacao) throw new Error('Estado da campanha indisponível.');
-    return { id: null, elegivel: ocupacao.ocupadas < condicoesComerciais.fundador.vagas,
-        aguardando: ocupacao.ocupadas >= condicoesComerciais.fundador.vagas && ocupacao.confirmadas < condicoesComerciais.fundador.vagas };
+    // Concessão existente (de qualquer origem) é retomada: não reinicia 12 meses nem ocupa vaga nova.
+    if (propria) {
+        // Revisão de 22/10/2026: concessão própria também respeita a chave operacional da campanha ativada.
+        if (instalado090 && !campanhaFundadorLigada(env) && await lerCampanhaAtivada(tx))
+            return { ...base, id: null, elegivel: false, aguardando: false, origem: null, resumo: { fase: 'DESLIGADA' }, bloqueio: { codigo: 'CAMPANHA_DESLIGADA', status: 503,
+                mensagem: 'A contratação está temporariamente indisponível. Nenhuma cobrança foi criada.' } };
+        return { ...base, id: propria.id, elegivel: propria.vigente, aguardando: false, origem: null, resumo: { fase: 'LEGADO' } };
+    }
+    const campanha = instalado090 ? await lerCampanhaAtivada(tx, travar) : null;
+    if (!campanha) {
+        const ocupacao = (await tx.query<{ confirmadas: number; ocupadas: number }>(`SELECT
+            count(*) FILTER (WHERE estado = 'CONFIRMADA')::int AS confirmadas,
+            count(*) FILTER (WHERE estado <> 'LIBERADA')::int AS ocupadas FROM assinatura_fundadores${instalado090 ? " WHERE origem = 'LEGADO'" : ''}`)).rows[0];
+        if (!ocupacao) throw new Error('Estado da campanha indisponível.');
+        return { ...base, id: null, origem: 'LEGADO', resumo: { fase: 'LEGADO' }, elegivel: ocupacao.ocupadas < condicoesComerciais.fundador.vagas,
+            aguardando: ocupacao.ocupadas >= condicoesComerciais.fundador.vagas && ocupacao.confirmadas < condicoesComerciais.fundador.vagas };
+    }
+    const sem = { ...base, campanha, id: null, elegivel: false, aguardando: false, origem: null };
+    if (!campanhaFundadorLigada(env))
+        return { ...sem, resumo: { fase: 'DESLIGADA' }, bloqueio: { codigo: 'CAMPANHA_DESLIGADA', status: 503,
+            mensagem: 'A contratação está temporariamente indisponível. Nenhuma cobrança foi criada.' } };
+    if (campanha.elegibilidade !== 'OFERTA_PERSISTIDA')
+        return { ...sem, resumo: { fase: 'DESLIGADA' }, bloqueio: { codigo: 'CAMPANHA_REGRA_PENDENTE', status: 503,
+            mensagem: 'A contratação está temporariamente indisponível. Nenhuma cobrança foi criada.' } };
+    const agora = (await tx.query<{ agora: string }>(ISO_AGORA)).rows[0]?.agora;
+    const fase = faseCampanha(campanha, Date.parse(String(agora)));
+    if (fase === 'ANTES')
+        return { ...sem, resumo: { fase, inicio: campanha.inicio }, bloqueio: { codigo: 'CAMPANHA_ANTES_DA_ABERTURA', status: 409,
+            mensagem: 'A contratação abre junto com a campanha Fundador. Nenhuma cobrança foi criada.' } };
+    if (fase === 'JANELA') return { ...sem, elegivel: true, origem: 'JANELA', resumo: { fase, prazo: prazoAnunciado(campanha) } };
+    if (fase === 'ENCERRADA') return { ...sem, resumo: { fase } };
+    const o = await ocupacaoPosJanela(tx, campanha.id);
+    const limite = campanha.vagasPosJanela;
+    return { ...sem, origem: 'POS_JANELA', elegivel: o.ocupadas < limite, aguardando: o.ocupadas >= limite && o.confirmadas < limite,
+        resumo: { fase, vagasRestantes: Math.max(0, limite - o.ocupadas), emConfirmacao: o.ocupadas - o.confirmadas, limite } };
+}
+
+/**
+ * Validade da condição reservada na campanha 090 (D3 de 22/10/2026: 7 dias corridos a partir da aceitação persistida).
+ * Concessão LEGADO, sem a 090 ou já confirmada: sem prazo (null). `dia` é a data local (America/Sao_Paulo) do fim.
+ * Critério ÚNICO (revisão de 22/10/2026): a condição vale até o fim desse dia local, inclusive — para a tela, para a
+ * retomada e para o pagamento (comparado pela data do pagamento no provedor).
+ */
+export async function validadeDaConcessao(tx: DbExecutor, fundadorId: string | null) {
+    if (!fundadorId || !await schemaCampanhaInstalado(tx)) return null;
+    const r = (await tx.query<{ estado: string; ate: string | null; dia: string | null; vencida: boolean }>(`SELECT estado,
+        to_char(oferta_valida_ate AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ate,
+        to_char(oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS dia,
+        coalesce((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date > (oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo')::date, false) AS vencida
+        FROM assinatura_fundadores WHERE id = $1::uuid`, [fundadorId])).rows[0];
+    if (!r?.ate || !r.dia || r.estado !== 'RESERVADA') return null;
+    return { ate: r.ate, dia: r.dia, vencida: r.vencida };
+}
+/** Data do pagamento para D3: a mais antiga entre as datas válidas que o provedor informou. */
+export function dataDoPagamento(p: Pick<CobrancaProvedor, 'paymentDate' | 'confirmedDate' | 'clientPaymentDate'>): string | null {
+    const datas = [p.clientPaymentDate, p.confirmedDate, p.paymentDate].filter((d): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d));
+    return datas.length ? datas.sort()[0]! : null;
+}
+const EXPIRADA = 'A condição Fundador reservada venceu sem pagamento. Fale com o atendimento: a reserva só é liberada depois de conferirmos que não há cobrança em aberto.';
+
+/** Insere a concessão da fase decidida. Guarda 090 recusa (fase virou, lote esgotado) → o cliente confirma de novo. */
+async function reservarConcessao(tx: DbExecutor, empresaId: string, documento: string, s: SituacaoFundador): Promise<string | null> {
+    try {
+        if (s.origem === 'JANELA') return (await tx.query<{ id: string }>(`INSERT INTO assinatura_fundadores
+            (empresa_id,documento_beneficiario,vaga,origem,campanha_id) VALUES ($1::uuid,$2,NULL,'JANELA',$3::uuid) RETURNING id`,
+            [empresaId, documento, s.campanha!.id])).rows[0]?.id ?? null;
+        if (s.origem === 'POS_JANELA') return (await tx.query<{ id: string }>(`INSERT INTO assinatura_fundadores
+            (empresa_id,documento_beneficiario,vaga,origem,campanha_id)
+            SELECT $1::uuid,$2,v,'POS_JANELA',$3::uuid FROM generate_series(1,$4::int) v
+            WHERE NOT EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.campanha_id = $3::uuid AND f.origem = 'POS_JANELA'
+                AND f.vaga = v AND f.estado <> 'LIBERADA')
+            ORDER BY v LIMIT 1 RETURNING id`, [empresaId, documento, s.campanha!.id, s.campanha!.vagasPosJanela])).rows[0]?.id ?? null;
+        if (s.instalado090) return (await tx.query<{ id: string }>(`INSERT INTO assinatura_fundadores (empresa_id,documento_beneficiario,vaga,origem)
+            SELECT $1::uuid,$2,v,'LEGADO' FROM generate_series(1,20) v
+            WHERE NOT EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.origem = 'LEGADO' AND f.vaga = v AND f.estado <> 'LIBERADA')
+            ORDER BY v LIMIT 1 RETURNING id`, [empresaId, documento])).rows[0]?.id ?? null;
+        return (await tx.query<{ id: string }>(`INSERT INTO assinatura_fundadores (empresa_id,documento_beneficiario,vaga)
+            SELECT $1::uuid,$2,v FROM generate_series(1,20) v
+            WHERE NOT EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.vaga = v AND f.estado <> 'LIBERADA')
+            ORDER BY v LIMIT 1 RETURNING id`, [empresaId, documento])).rows[0]?.id ?? null;
+    }
+    catch (e) {
+        if (String((e as Error)?.message ?? '').startsWith('090:'))
+            throw erroAcesso('OFERTA_ALTERADA', 'As condições disponíveis mudaram. Atualize e confirme o novo valor antes de continuar.', 409);
+        throw e;
+    }
 }
 
 export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: Ambiente = process.env) {
@@ -94,12 +192,18 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     const pendente = (await tx.query<Oferta>("SELECT * FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND estado = 'EM_ABERTO'", [empresaId])).rows[0];
     const elegivel = Boolean(linha && linha.plano === 'UNICO' && (!linha.provedor_assinatura_id || pendente));
     const habilitado = novosPlanosLigados(env) && !isenta && elegivel;
-    const campanha = habilitado ? await situacaoFundador(tx, empresaId, false) : null;
+    const campanha = habilitado ? await situacaoFundador(tx, empresaId, false, env) : null;
     return {
-        isenta, habilitado, planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
+        // Oferta já aceita e persistida (D1) continua retomável mesmo com a campanha bloqueada, como em prepararOferta, que a
+        // devolve antes de olhar a campanha (a vencida é recusada lá). Sem oferta pendente, o bloqueio fecha a venda.
+        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
         fundador: campanha?.elegivel ?? false,
+        // Indicativo: o checkout recalcula sob trava e pede nova confirmação se a fase ou as vagas mudarem.
+        campanha: campanha ? campanha.resumo : null,
+        bloqueio: campanha?.bloqueio && !pendente ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,
         versao: condicoesComerciais.versao,
-        pendente: pendente ? { plano: pendente.plano.toLowerCase() as PlanoComercialId, ciclo: pendente.ciclo, valorCentavos: pendente.valor_final_centavos } : null,
+        pendente: pendente ? { plano: pendente.plano.toLowerCase() as PlanoComercialId, ciclo: pendente.ciclo, valorCentavos: pendente.valor_final_centavos,
+            fundadorValidoAte: await validadeDaConcessao(tx, pendente.fundador_id) } : null,
         planos: Object.entries(planosComerciais).map(([id, plano]) => ({
             id: id as PlanoComercialId, nome: plano.nome,
             mensal: valorComercial(id as PlanoComercialId, 'mensal', campanha?.elegivel ?? false),
@@ -110,7 +214,9 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     };
 }
 
-export type PedidoOferta = { plano: PlanoComercialId; ciclo: Ciclo; valorEsperadoCentavos: number; versao: string };
+export type PedidoOferta = { plano: PlanoComercialId; ciclo: Ciclo; valorEsperadoCentavos: number; versao: string;
+    /** Versões e hashes apresentados na síntese (grupo B): com a 096, exigidos e iguais aos vigentes. */
+    documentos?: unknown };
 export function validarPedidoOferta(raw: unknown): PedidoOferta {
     const o = raw as Partial<PedidoOferta> | null;
     if (!o || !planoComercialValido(o.plano) || !['MENSAL', 'ANUAL'].includes(o.ciclo ?? '')
@@ -120,22 +226,34 @@ export function validarPedidoOferta(raw: unknown): PedidoOferta {
 }
 
 /** Chamar sob trava de contratação da empresa e transação tenant, depois de exigir Gestão. */
-export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioId: string, pedido: PedidoOferta): Promise<Oferta> {
+export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioId: string, pedido: PedidoOferta, env: Ambiente = process.env): Promise<Oferta> {
     if (!await schemaPlanosInstalado(tx)) throw erroAcesso('PLANOS_NAO_INSTALADOS', 'Os novos planos ainda não estão disponíveis neste ambiente.', 503);
     await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId]);
     await exigirEmpresaCobravel(tx, empresaId);
     const linha = (await tx.query<{ documento_teste: string | null; provedor_assinatura_id: string | null; plano: string }>(
         'SELECT plano, documento_teste, provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha) throw erroAcesso('EMPRESA_SEM_COBRANCA', 'Esta empresa mantém seu acesso atual sem cobrança.', 409);
+    // D5: continuidade aguardando a conferência do provedor não abre oferta.
+    const vigente = await documentoVigente(tx, empresaId, linha.documento_teste);
+    if (vigente.pendente) throw erroAcesso('CONTINUIDADE_PENDENTE', MENSAGEM_CONTINUIDADE_PENDENTE, 409);
     const aberta = (await tx.query<Oferta>("SELECT * FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND estado = 'EM_ABERTO' FOR UPDATE", [empresaId])).rows[0];
     if (aberta) {
         if (aberta.plano !== pedido.plano.toUpperCase() || aberta.ciclo !== pedido.ciclo || aberta.valor_final_centavos !== pedido.valorEsperadoCentavos)
             throw erroAcesso('OFERTA_EM_ANDAMENTO', 'Há uma contratação em andamento. Retome as condições já confirmadas.', 409);
+        // D3: retomar oferta com a condição vencida não reabre o prazo; a liberação exige prova (atendimento).
+        if ((await validadeDaConcessao(tx, aberta.fundador_id))?.vencida)
+            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
         return aberta;
     }
+    // Oferta NOVA: com a 096, os documentos apresentados na síntese precisam ser os vigentes (aba antiga → reler e confirmar).
+    const documentos = await comprovanteInstalado(tx) ? exigirDocumentosConfirmados(pedido.documentos) : null;
     if (linha.provedor_assinatura_id || linha.plano !== 'UNICO')
         throw erroAcesso('TROCA_PLANO_NAO_DISPONIVEL', 'A assinatura existente mantém suas condições. A mudança de plano exige atendimento.', 409);
-    const campanha = await situacaoFundador(tx, empresaId, true);
+    const campanha = await situacaoFundador(tx, empresaId, true, env);
+    if (campanha.bloqueio) throw erroAcesso(campanha.bloqueio.codigo, campanha.bloqueio.mensagem, campanha.bloqueio.status);
+    // D3: concessão própria reservada com a validade vencida não gera oferta nova com desconto (atendimento).
+    if (campanha.id && (await validadeDaConcessao(tx, campanha.id))?.vencida)
+        throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
     if (campanha.aguardando) throw erroAcesso('FUNDADOR_AGUARDANDO', 'As vagas Fundador estão em confirmação. Tente novamente mais tarde; nenhuma cobrança foi criada.', 409);
     const ciclo = pedido.ciclo === 'ANUAL' ? 'anual' : 'mensal';
     const valor = valorComercial(pedido.plano, ciclo, campanha.elegivel);
@@ -143,11 +261,9 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         throw erroAcesso('OFERTA_ALTERADA', 'As condições disponíveis mudaram. Atualize e confirme o novo valor antes de continuar.', 409);
     let fundadorId = campanha.elegivel ? campanha.id : null;
     if (campanha.elegivel && !fundadorId) {
+        // O beneficiário é o documento do TESTE (guarda 074a); a continuidade (D5) liga esse snapshot ao documento vigente.
         if (!linha.documento_teste) throw erroAcesso('DOCUMENTO_NAO_CONFIRMADO', 'A assinatura precisa do documento cadastrado para participar da campanha.', 409);
-        fundadorId = (await tx.query<{ id: string }>(`INSERT INTO assinatura_fundadores (empresa_id,documento_beneficiario,vaga)
-            SELECT $1::uuid,$2,v FROM generate_series(1,20) v
-            WHERE NOT EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.vaga = v AND f.estado <> 'LIBERADA')
-            ORDER BY v LIMIT 1 RETURNING id`, [empresaId, linha.documento_teste])).rows[0]?.id ?? null;
+        fundadorId = await reservarConcessao(tx, empresaId, linha.documento_teste, campanha);
         if (!fundadorId) throw erroAcesso('FUNDADOR_AGUARDANDO', 'Aguarde a confirmação das vagas disponíveis.', 409);
     }
     const oferta = (await tx.query<Oferta>(`INSERT INTO assinatura_contratacoes
@@ -156,6 +272,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         [empresaId, randomUUID(), pedido.plano.toUpperCase(), pedido.ciclo, condicoesComerciais.versao,
             valorComercial(pedido.plano,ciclo), campanha.elegivel ? 40 : 0, valor, fundadorId, usuarioId])).rows[0];
     if (!oferta) throw new Error('Oferta não foi persistida.');
+    // Grupo B (096): comprovante com as versões CONFIRMADAS na síntese, na MESMA transação da oferta; sem a 096, nada muda.
+    if (documentos) await registrarComprovante(tx, { empresaId, usuarioId, oferta, pagueAte: (await validadeDaConcessao(tx, fundadorId))?.dia ?? null, documentos });
     return oferta;
 }
 
@@ -178,6 +296,17 @@ export async function confirmarOfertaPaga(tx: DbExecutor, empresaId: string, ass
     await tx.query('SELECT id FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE', [empresaId, oferta.id]);
     const pagamento = pagamentoDaOferta(oferta, assinatura, pagamentos, clienteId, beneficio?.beneficio_fim ?? null);
     if (!pagamento) throw erroAcesso('PAGAMENTO_OFERTA_DIVERGENTE', 'O pagamento não corresponde à oferta contratada.', 409);
+    // D3: pagamento depois da validade não confirma sozinho: fica para reconciliação, sem liberar a vaga, sem reprecificar
+    // e sem cobrança complementar automática. Vale a data MAIS ANTIGA informada pelo provedor (`clientPaymentDate` do
+    // boleto, `confirmedDate` do cartão, `paymentDate`); nunca a chegada do webhook nem o relógio.
+    const validade = oferta.estado === 'EM_ABERTO' && beneficio?.estado === 'RESERVADA' ? await validadeDaConcessao(tx, oferta.fundador_id) : null;
+    if (validade) {
+        const pagoEm = dataDoPagamento(pagamento);
+        if (!pagoEm || pagoEm > validade.dia)
+            throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', pagoEm
+                ? PAGAMENTO_TARDIO
+                : 'O provedor não informou a data do pagamento: a contratação Fundador fica em reconciliação pelo atendimento.', 409);
+    }
     if (!ativar) return null;
     if (oferta.estado === 'EM_ABERTO') {
         if (beneficio?.estado === 'RESERVADA') await tx.query(`UPDATE assinatura_fundadores SET estado = 'CONFIRMADA',

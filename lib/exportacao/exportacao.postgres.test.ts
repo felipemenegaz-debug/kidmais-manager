@@ -121,7 +121,9 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     const noInventario = new Set(ENTIDADES.map((e) => e.tabela));
     const semDecisao = tabelas.filter((t) => !noInventario.has(t) && !Object.hasOwn(FORA_DO_ESCOPO, t));
     assert.deepEqual(semDecisao, [], "tabela nova precisa entrar no inventário ou em FORA_DO_ESCOPO com motivo");
-    for (const e of ENTIDADES) assert.ok(tabelas.includes(e.tabela), `${e.tabela} existe no schema 095`);
+    // Entidades de migrations posteriores ao schema do inventário (campo `migracao`) podem faltar aqui; todas as outras existem.
+    for (const e of ENTIDADES) if (!e.migracao) assert.ok(tabelas.includes(e.tabela), `${e.tabela} existe no schema 095`);
+    const posteriores = ENTIDADES.filter((e) => e.migracao && !tabelas.includes(e.tabela));
 
     // Pacote de uma empresa vazia: o manifesto traz as colunas efetivamente exportadas de cada tabela.
     await c.query("BEGIN");
@@ -138,7 +140,9 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     for (const lista of Object.values(colunas)) for (const col of lista) assert.doesNotMatch(col.replace(/__(bytes|sha256|arquivo)$/, ""), SEGREDO, `coluna de segredo exportada: ${col}`);
     if (process.env.KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO === "1") writeFileSync(RETRATO, `${JSON.stringify(colunas, null, 2)}\n`);
     assert.deepEqual(colunas, JSON.parse(readFileSync(RETRATO, "utf8")), "colunas exportadas mudaram: revise segredos e atualize o retrato");
-    assert.deepEqual(p.manifesto.entidadesAusentes, []);
+    // Só as entidades de migrations posteriores à 089 ficam ausentes, com o motivo no manifesto.
+    assert.deepEqual(p.manifesto.entidadesAusentes.map((a) => a.tabela), posteriores.map((e) => e.tabela));
+    assert.ok(p.manifesto.entidadesAusentes.every((a) => /migration não aplicada/.test(a.motivo)));
 
     // Fluxo real das três fases com transações de verdade (SET TRANSACTION como primeiro comando da leitura): uma
     // empresa só com a Gestão. A fase de leitura é READ ONLY: qualquer escrita nela falharia.

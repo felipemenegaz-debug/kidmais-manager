@@ -6,7 +6,7 @@ import { lembrarCsrf } from '@/components/admin/sair';
 import { reautenticarSessao } from '@/lib/http/admin-fetch';
 
 type Socio = { nome: string; qualificacao: 'SOCIO' | 'ADMINISTRADOR' | 'SOCIO_ADMINISTRADOR' };
-type Sessao = { nome: string; termos: string; privacidade: string };
+type Sessao = { nome: string; termos: string; privacidade: string; cpf: boolean };
 const QUALIFICACAO = [
     { valor: 'SOCIO_ADMINISTRADOR', rotulo: 'Sou sócio(a) ou administrador(a) da empresa' },
     { valor: 'PROCURADOR', rotulo: 'Sou procurador(a) da empresa' },
@@ -14,16 +14,20 @@ const QUALIFICACAO = [
 ] as const;
 
 /**
- * Passo 3: dados da empresa (também para quem já tem conta e quer cadastrar outro CNPJ). Envio idempotente: a mesma
- * chave devolve a mesma empresa se o botão for usado duas vezes ou a conexão cair.
+ * Passo 3: dados de quem contrata (também para quem já tem conta e quer cadastrar outro documento). Pessoa jurídica: CNPJ,
+ * razão social, qualificação e sócios. Pessoa física (só quando a contratação por CPF está ligada): CPF e nome civil do
+ * próprio titular, sem sócios. O nome do buffet é sempre separado. Envio idempotente: a mesma chave devolve a mesma
+ * empresa se o botão for usado duas vezes ou a conexão cair. O servidor valida tudo de novo.
  */
 export default function CadastroEmpresa() {
     const chave = useMemo(() => crypto.randomUUID(), []);
     const [sessao, setSessao] = useState<Sessao | null>(null);
     const csrf = useRef('');
     const [semSessao, setSemSessao] = useState(false);
-    const [cnpj, setCnpj] = useState('');
+    const [tipoPessoa, setTipoPessoa] = useState<'PJ' | 'PF'>('PJ');
+    const [documento, setDocumento] = useState('');
     const [razaoSocial, setRazaoSocial] = useState('');
+    const [nomeCivil, setNomeCivil] = useState('');
     const [nomeFantasia, setNomeFantasia] = useState('');
     const [telefone, setTelefone] = useState('');
     const [qualificacao, setQualificacao] = useState<string>('SOCIO_ADMINISTRADOR');
@@ -39,7 +43,7 @@ export default function CadastroEmpresa() {
             if (!a?.ok || !a.data?.usuarioId) { setSemSessao(true); return; }
             csrf.current = a.data.csrf;
             lembrarCsrf(a.data.csrf);
-            setSessao({ nome: a.data.nome, termos: c?.data?.termos ?? '', privacidade: c?.data?.privacidade ?? '' });
+            setSessao({ nome: a.data.nome, termos: c?.data?.termos ?? '', privacidade: c?.data?.privacidade ?? '', cpf: c?.data?.cpf === true });
         }).catch(() => setErro('Falha de conexão. Tente novamente.'));
     }, []);
     async function postar(url: string, corpo: unknown) {
@@ -70,9 +74,11 @@ export default function CadastroEmpresa() {
             setSenha('');
             setPedirSenha(false);
         }
+        const pf = tipoPessoa === 'PF';
         const r = await postar('/api/cadastro/empresa', {
-            chave, cnpj, razaoSocial: razaoSocial.trim(), nomeFantasia: nomeFantasia.trim(), telefone: telefone.trim() || null, qualificacao,
-            socios: socios.filter((s) => s.nome.trim()).map((s) => ({ ...s, nome: s.nome.trim() })),
+            chave, tipoPessoa, documento, nomeFantasia: nomeFantasia.trim(), telefone: telefone.trim() || null,
+            ...(pf ? { nomeCivil: nomeCivil.trim() } : { razaoSocial: razaoSocial.trim(), qualificacao,
+                socios: socios.filter((s) => s.nome.trim()).map((s) => ({ ...s, nome: s.nome.trim() })) }),
             aceiteTermos: aceite, aceitePrivacidade: aceite, termosVersao: sessao!.termos, privacidadeVersao: sessao!.privacidade,
         });
         if (r.status === 403 && r.corpo?.codigo === 'REAUTENTICACAO') { setOcupado(false); setPedirSenha(true); setErro('Por segurança, confirme sua senha para cadastrar a empresa.'); return; }
@@ -90,12 +96,23 @@ export default function CadastroEmpresa() {
         {!sessao && !erro && <p aria-live="polite">Carregando…</p>}
         {sessao && <form onSubmit={(e) => { e.preventDefault(); void enviar(); }}>
             <p>Olá, {sessao.nome}. Você será a pessoa responsável (Gestão) por esta empresa no sistema.</p>
-            <label>CNPJ<input value={cnpj} onChange={(e) => setCnpj(e.target.value)} required maxLength={20} inputMode="text" autoComplete="off" /></label>
-            <small>Conferimos os dígitos do CNPJ. Isso não comprova a existência da empresa nem quem a representa.</small>
-            <label>Razão social<input value={razaoSocial} onChange={(e) => setRazaoSocial(e.target.value)} required maxLength={200} /></label>
-            <label>Nome fantasia (como aparece para seus clientes)<input value={nomeFantasia} onChange={(e) => setNomeFantasia(e.target.value)} required maxLength={160} /></label>
-            <label>Telefone da empresa (opcional)<input value={telefone} onChange={(e) => setTelefone(e.target.value)} maxLength={20} inputMode="tel" autoComplete="tel" /></label>
-            <fieldset>
+            {sessao.cpf && <fieldset>
+                <legend>Quem contrata</legend>
+                {([['PJ', 'Empresa (CNPJ)'], ['PF', 'Pessoa física (CPF), em nome próprio']] as const).map(([valor, rotulo]) => <label key={valor} style={{ display: 'flex', gap: 8 }}>
+                    <input type="radio" name="tipoPessoa" value={valor} checked={tipoPessoa === valor} onChange={() => { setTipoPessoa(valor); setDocumento(''); }} style={{ width: 'auto' }} />{rotulo}</label>)}
+            </fieldset>}
+            {tipoPessoa === 'PF' ? <>
+                <label>CPF<input value={documento} onChange={(e) => setDocumento(e.target.value)} required maxLength={14} inputMode="numeric" autoComplete="off" aria-describedby="ajuda-documento" /></label>
+                <small id="ajuda-documento">Conferimos os dígitos do CPF. Isso não comprova quem é o titular. Use o seu próprio CPF: você contrata em nome próprio.</small>
+                <label>Nome civil completo<input value={nomeCivil} onChange={(e) => setNomeCivil(e.target.value)} required maxLength={200} autoComplete="name" /></label>
+            </> : <>
+                <label>CNPJ<input value={documento} onChange={(e) => setDocumento(e.target.value)} required maxLength={20} inputMode="text" autoComplete="off" aria-describedby="ajuda-documento" /></label>
+                <small id="ajuda-documento">Conferimos os dígitos do CNPJ. Isso não comprova a existência da empresa nem quem a representa.</small>
+                <label>Razão social<input value={razaoSocial} onChange={(e) => setRazaoSocial(e.target.value)} required maxLength={200} /></label>
+            </>}
+            <label>{tipoPessoa === 'PF' ? 'Nome do buffet' : 'Nome fantasia'} (como aparece para seus clientes)<input value={nomeFantasia} onChange={(e) => setNomeFantasia(e.target.value)} required maxLength={160} /></label>
+            <label>{tipoPessoa === 'PF' ? 'Telefone de contato' : 'Telefone da empresa'} (opcional)<input value={telefone} onChange={(e) => setTelefone(e.target.value)} maxLength={20} inputMode="tel" autoComplete="tel" /></label>
+            {tipoPessoa === 'PJ' && <><fieldset>
                 <legend>Sua relação com a empresa</legend>
                 {QUALIFICACAO.map((q) => <label key={q.valor} style={{ display: 'flex', gap: 8 }}><input type="radio" name="qualificacao" value={q.valor} checked={qualificacao === q.valor} onChange={() => setQualificacao(q.valor)} style={{ width: 'auto' }} />{q.rotulo}</label>)}
                 <small>A representação fica registrada como declarada e pode ser confirmada pela Kidmais. Ela não muda o seu acesso.</small>
@@ -109,9 +126,9 @@ export default function CadastroEmpresa() {
                     <button type="button" onClick={() => setSocios(socios.filter((_, j) => j !== i))}>Remover</button>
                 </div>)}
                 {socios.length < 10 && <button type="button" onClick={() => setSocios([...socios, { nome: '', qualificacao: 'SOCIO_ADMINISTRADOR' }])}>Adicionar sócio</button>}
-            </fieldset>
+            </fieldset></>}
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} required style={{ width: 'auto' }} />
-                <span>Em nome da empresa, aceito os <Link href="/termos" target="_blank">termos de uso</Link> e li o <Link href="/privacidade" target="_blank">aviso de privacidade</Link>.</span></label>
+                <span>{tipoPessoa === 'PF' ? 'Em meu nome, aceito os' : 'Em nome da empresa, aceito os'} <Link href="/termos" target="_blank">termos de uso</Link>, incluindo o <Link href="/acordo-de-tratamento" target="_blank">Acordo de Tratamento de Dados</Link>, e li o <Link href="/privacidade" target="_blank">aviso de privacidade</Link>.</span></label>
             {pedirSenha && <label>Sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} required maxLength={512} /></label>}
             {aviso && <p role="status" data-cnpj-existente>{aviso}</p>}
             <p role="alert">{erro}</p>

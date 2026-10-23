@@ -11,6 +11,9 @@
  *                                     estorno (flag desligada) e grava o e-mail; o histórico lista o protocolo;
  *   B anual paga há 100 dias       → garantia encerrada; proporcional com o cálculo (dias e valor) na tela;
  *   C mensal paga há 10 dias       → sem devolução; "Cancelar ao fim do período" devolve o protocolo na tela.
+ *   Arrependimento pela ferramenta (097, grupo C de 23/10/2026): sem a 097 a seção indica o canal oficial; com a 097
+ *   aplicada aqui, a empresa C (mensal, fora da garantia de 7 dias) registra o arrependimento com senha e recebe o
+ *   protocolo KA-… na hora, sem nenhuma chamada ao dublê, com e-mail à Gestão e aviso interno.
  *   Celular (390 px): sem rolagem horizontal.
  */
 const assert = require('node:assert/strict');
@@ -22,6 +25,7 @@ const receita = require('./regressao-v1-postgres-receita.cjs');
 
 const PORTA_WEB = 3147;
 const UP = 'database/migrations/20261021_089_assinatura_encerramentos.sql';
+const UP_097 = 'database/migrations/20261023_097_assinatura_arrependimentos.sql';
 
 const dataBr = (deslocamentoDias) => new Date(Date.now() - 3 * 3600_000 + deslocamentoDias * 86400_000).toISOString().slice(0, 10);
 function somarCiclo(data, ciclo) {
@@ -120,6 +124,9 @@ async function principal() {
 
         // A: arrependimento em 7 dias.
         await selecionar('A');
+        // Sem a 097: a seção do arrependimento indica o canal oficial (o pedido vale a partir do envio).
+        await page.locator('[data-arrependimento]').getByText('O pedido vale a partir do envio', { exact: false }).waitFor();
+        assert.equal(await page.locator('[data-arrependimento] a[href^="mailto:contato@demerzellabs.com.br"]').count(), 1);
         await secao.getByText('Nos primeiros 7 dias da primeira ativação paga', { exact: false }).waitFor();
         // P3-9: durante a garantia, o formulário de "cancelar ao fim do período" indica o arrependimento integral.
         await page.getByRole('button', { name: 'Cancelar ao fim do período…' }).click();
@@ -211,6 +218,49 @@ async function principal() {
         await page.screenshot({ path: path.join(relatorios, 'c-cancelamento.png'), fullPage: true });
         resultados.push('C (mensal, 10 dias): sem devolução (textos corretos); "Cancelar ao fim do período" com protocolo na tela; CANCELADA_FIM_PERIODO');
         console.log('E2E_DEVOLUCAO_CANCELAMENTO_OK');
+
+        // D (097): arrependimento pela ferramenta na empresa C — mensal, fora da garantia, já cancelada ao fim do período.
+        await client.query(fs.readFileSync(UP_097, 'utf8'));
+        const chamadasAntes = lerDuble().chamadas.length;
+        const emailsAntes = fs.readdirSync(path.join(relatorios, 'emails')).length;
+        await selecionar('C');
+        const arr = page.locator('[data-arrependimento]');
+        await arr.getByText('mesmo que a devolução automática não esteja disponível', { exact: false }).waitFor();
+        await arr.getByRole('button', { name: 'Registrar arrependimento…' }).click();
+        const formD = arr.locator('[data-form-arrependimento]');
+        assert.equal(await formD.getByRole('button', { name: 'Confirmar arrependimento' }).isDisabled(), true, 'sem confirmação marcada, botão desabilitado');
+        await formD.getByLabel('Motivo (opcional)').fill('Teste E2E: arrependimento fora da garantia');
+        await formD.getByLabel('Quero desistir da contratação do Kidmais Manager.').check();
+        await formD.getByLabel('Sua senha').fill(password);
+        await formD.getByRole('button', { name: 'Confirmar arrependimento' }).click();
+        const protD = arr.locator('[data-protocolo-arrependimento]');
+        await protD.waitFor();
+        const protocoloD = await protD.getAttribute('data-protocolo-arrependimento');
+        assert.match(protocoloD, /^KA-\d{8}-[0-9A-HJKMNP-TV-Z]{8}$/);
+        await protD.getByText(`Protocolo: ${protocoloD}`, { exact: false }).waitFor();
+        await protD.getByText('Enviamos a confirmação para o seu e-mail.').waitFor();
+        await page.screenshot({ path: path.join(relatorios, 'd-arrependimento.png'), fullPage: true });
+        const linhaD = (await client.query("SELECT canal, situacao, situacao_assinatura, email_confirmacao, aviso_interno, provedor_disponivel FROM assinatura_arrependimentos WHERE protocolo=$1", [protocoloD])).rows[0];
+        assert.deepEqual([linhaD.canal, linhaD.situacao, linhaD.situacao_assinatura, linhaD.email_confirmacao, linhaD.aviso_interno, linhaD.provedor_disponivel],
+            ['FERRAMENTA', 'RECEBIDO', 'CANCELADA_FIM_PERIODO', 'ENVIADO', 'ENVIADO', true]);
+        assert.equal(lerDuble().chamadas.length, chamadasAntes, 'o registro do arrependimento não chama o provedor');
+        const novos = fs.readdirSync(path.join(relatorios, 'emails')).map((f) => JSON.parse(fs.readFileSync(path.join(relatorios, 'emails', f), 'utf8')))
+            .filter((m) => new RegExp(protocoloD).test(m.assunto));
+        assert.equal(fs.readdirSync(path.join(relatorios, 'emails')).length, emailsAntes + 2);
+        assert.deepEqual(novos.map((m) => m.para).sort(), [email, 'plataforma@exemplo.test'].sort());
+        assert.doesNotMatch(novos.find((m) => m.para !== email).texto, /Buffet|@exemplo/);
+        await page.reload();
+        await arr.locator('ul[aria-label="Pedidos de arrependimento"]').getByText(protocoloD, { exact: false }).waitFor();
+        // Isolamento: a mesma Gestão, na empresa B, não vê o protocolo de C (tela e API).
+        await selecionar('B');
+        await page.locator('[data-arrependimento]').getByRole('button', { name: 'Registrar arrependimento…' }).waitFor();
+        assert.equal(await page.locator('[data-arrependimento]').getByText(protocoloD, { exact: false }).count(), 0, 'B não vê o protocolo de C');
+        const consultaB = await contexto.request.get(`${base}/api/admin/assinatura/arrependimento`).then((r) => r.json());
+        assert.equal(consultaB.ok, true);
+        assert.deepEqual(consultaB.data.manifestacoes, [], 'B sem manifestações');
+        assert.ok(!JSON.stringify(consultaB).includes(protocoloD));
+        resultados.push(`D (097, mensal fora da garantia, cancelada ao fim do período): arrependimento pela ferramenta com protocolo ${protocoloD} na hora; sem chamada ao dublê; e-mail à Gestão e aviso interno; lista após recarregar; empresa B não vê o protocolo (tela e API)`);
+        console.log('E2E_ARREPENDIMENTO_097_OK');
 
         await page.setViewportSize({ width: 390, height: 844 });
         await selecionar('A');

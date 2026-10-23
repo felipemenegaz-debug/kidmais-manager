@@ -133,3 +133,89 @@ test('ficha e lista mostram plano, situação, datas, exceções e histórico; e
     assert.deepEqual([por[ids.teste].cobrado, por[ids.teste].nivel], [true, 'COMPLETO']);
     assert.deepEqual([por[ids.semCobranca].cobrado, por[ids.semCobranca].nivel], [false, 'COMPLETO']);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// Piloto gratuito (22/10/2026): contratante provisionada pelo painel nasce sem cobrança; "iniciar-teste" cria a
+// assinatura em TESTE com o CNPJ do cadastro, para que a Gestão possa contratar pela tela (Fundador incluído).
+// ---------------------------------------------------------------------------------------------------------------
+
+const PILOTO_CNPJ = '11444777000161';
+async function contratante(chave: string, documento: string | null, status: 'ATIVA' | 'SUSPENSA' = 'ATIVA') {
+    ids[chave] = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id", [`e5-${chave.toLowerCase()}-${sufixo}`, `Buffet piloto ${chave}`])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [ids[chave]]);
+    await client.query(`INSERT INTO plataforma_empresas_cadastro (empresa_id, nome_empresarial, documento_fiscal, responsavel_nome, email, criado_por, atualizado_por)
+        VALUES ($1, $2, $3, 'Responsável piloto', $4, $5, $5)`, [ids[chave], `Buffet piloto ${chave} Ltda`, documento, email(chave.toLowerCase()), ids.dev]);
+    if (status === 'SUSPENSA')
+        await client.query("UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1", [ids[chave]]);
+}
+
+test('piloto: iniciar teste recusa empresa sem documento, com CPF sem a 091 e a chave (CPF_INDISPONIVEL), suspensa, a Kidmais, sem cadastro e prazo fora de 1–90; nada é gravado', async () => {
+    await contratante('piloto', PILOTO_CNPJ);
+    await contratante('pilotoCpf', '52998224725');
+    await contratante('pilotoCpfSemNome', '00000000191');
+    await client.query('UPDATE plataforma_empresas_cadastro SET nome_empresarial = NULL WHERE empresa_id = $1', [ids.pilotoCpfSemNome]);
+    await contratante('pilotoSemDoc', null);
+    await contratante('pilotoSuspensa', '27865757000102', 'SUSPENSA');
+    const kidmais = (await client.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'kidmais'")).rows[0]?.id;
+    assert.ok(kidmais, 'linha de base tem a empresa Kidmais');
+    const dev = await sessaoDe(ids.dev);
+    const fotografia = async () => [await contar('SELECT count(*)::int AS n FROM empresa_assinaturas'), await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'COMERCIAL_TESTE_INICIADO'")];
+    const antes = await fotografia();
+    const pedido = (dias: number) => ({ operacao: 'iniciar-teste', dias, motivo: 'Piloto gratuito antes da venda' });
+    assert.equal(await erro(operar(dev, ids.pilotoSemDoc, pedido(30))), 'DADOS_INVALIDOS');
+    // Decisão A de 22/10/2026: CPF participa do teste, mas só com a 091 e ASSINATURA_CPF_ATIVO (aceite na suíte documento-091).
+    assert.equal(await erro(operar(dev, ids.pilotoCpf, pedido(30))), 'CPF_INDISPONIVEL');
+    // Revisão completa 22/10 (P2-1): CPF sem nome civil na ficha não inicia teste (o nome do buffet não substitui o titular).
+    assert.equal(await erro(operar(dev, ids.pilotoCpfSemNome, pedido(30))), 'DADOS_INVALIDOS');
+    assert.equal(await erro(operar(dev, ids.pilotoSuspensa, pedido(30))), 'CONFLITO');
+    assert.equal(await erro(operar(dev, kidmais, pedido(30))), 'CONFLITO');
+    assert.equal(await erro(operar(dev, ids.semCobranca, pedido(30))), 'DADOS_INVALIDOS', 'empresa sem cadastro administrativo');
+    assert.match(await erro(operar(dev, ids.piloto, pedido(91))), /too_big/);
+    assert.match(await erro(operar(dev, ids.piloto, pedido(0))), /too_small/);
+    assert.equal(await erro(operar(await sessaoDe(ids.gestao), ids.piloto, pedido(30))), 'NAO_ENCONTRADO');
+    assert.equal(await erro(operar(await sessaoDe(ids.dev, 10), ids.piloto, pedido(30))), 'REAUTENTICACAO');
+    assert.deepEqual(await fotografia(), antes);
+});
+
+test('piloto: iniciar teste grava TESTE com o CNPJ do cadastro e o prazo pedido, audita e não mexe em papel, vínculo nem concessão', async () => {
+    const dev = await sessaoDe(ids.dev);
+    const fotografia = async () => [await contar('SELECT count(*)::int AS n FROM plataforma_desenvolvedores WHERE revogado_em IS NULL'),
+        await contar("SELECT count(*)::int AS n FROM memberships WHERE status = 'ATIVA'"), await contar('SELECT count(*)::int AS n FROM empresa_excecoes_comerciais')];
+    const antes = await fotografia();
+    const r = await operar(dev, ids.piloto, { operacao: 'iniciar-teste', dias: 70, motivo: 'Piloto gratuito até 31/12/2026' }) as unknown as { testeInicio: string; testeFim: string; comercial: { cobrado: boolean; situacao: string; nivel: string; motivo: string; ate: string } };
+    assert.equal(Date.parse(r.testeFim) - Date.parse(r.testeInicio), 70 * 86_400_000);
+    assert.deepEqual([r.comercial.cobrado, r.comercial.situacao, r.comercial.nivel, r.comercial.motivo, r.comercial.ate], [true, 'TESTE', 'COMPLETO', 'TESTE', r.testeFim]);
+    const a = (await client.query('SELECT situacao, plano, documento_teste, provedor, provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id = $1', [ids.piloto])).rows[0];
+    assert.deepEqual([a.situacao, a.plano, a.documento_teste, a.provedor, a.provedor_assinatura_id], ['TESTE', 'UNICO', PILOTO_CNPJ, null, null]);
+    const audit = (await client.query("SELECT justificativa, origem, usuario_id, dados_depois FROM auditoria WHERE acao = 'COMERCIAL_TESTE_INICIADO' AND entidade_id = $1", [ids.piloto])).rows;
+    assert.equal(audit.length, 1);
+    assert.deepEqual([audit[0].justificativa, audit[0].origem, audit[0].usuario_id, audit[0].dados_depois.dias, audit[0].dados_depois.empresaId], ['Piloto gratuito até 31/12/2026', 'PAINEL_DESENVOLVEDOR', ids.dev, 70, ids.piloto]);
+    assert.deepEqual(await fotografia(), antes);
+    // Segunda vez: a empresa já tem situação comercial (nada muda); a extensão existente passa a valer.
+    assert.equal(await erro(operar(dev, ids.piloto, { operacao: 'iniciar-teste', dias: 10, motivo: 'Repetição indevida' })), 'CONFLITO');
+    const e = await operar(dev, ids.piloto, { operacao: 'estender-teste', dias: 7, motivo: 'Venda abriu mais tarde' }) as unknown as { testeFim: string };
+    assert.equal(Date.parse(e.testeFim) - Date.parse(r.testeFim), 7 * 86_400_000);
+    const ficha = await svc.empresas.obterEmpresa(dev as never, ids.piloto as never) as unknown as { comercial: { historico: Array<{ acao: string }> } };
+    assert.deepEqual(ficha.comercial.historico.map((h) => h.acao).sort(), ['COMERCIAL_TESTE_ESTENDIDO', 'COMERCIAL_TESTE_INICIADO']);
+});
+
+test('piloto + 074a: com a venda ligada, a contratante em teste vê os planos com Fundador e reserva a vaga com o CNPJ; a sem cobrança não', async () => {
+    await client.query(readFileSync('database/migrations/20261009_074a_planos_comerciais.sql', 'utf8'));
+    const ofertas = carregar('lib/assinatura/ofertas.ts');
+    const planos = carregar('lib/assinatura/planos-comerciais.ts') as unknown as { valorComercial: (p: string, c: string, f: boolean) => number; condicoesComerciais: { versao: string } };
+    const ligada = { ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox' };
+    type Ofertas = { habilitado: boolean; fundador: boolean } | null;
+    const ver = (empresa: string, env: Record<string, string>) => withTransaction((tx) => (ofertas.consultarOfertas as unknown as (tx: Client, e: string, env: Record<string, string>) => Promise<Ofertas>)(tx, empresa, env));
+    const resumo = (o: Ofertas) => [o?.habilitado, o?.fundador];
+    assert.deepEqual(resumo(await ver(ids.piloto, {})), [false, false], 'venda desligada: nada a contratar');
+    assert.deepEqual(resumo(await ver(ids.semCobranca, ligada)), [false, false], 'sem assinatura: sem planos');
+    assert.deepEqual(resumo(await ver(ids.piloto, ligada)), [true, true]);
+    const valor = planos.valorComercial('essencial', 'mensal', true);
+    const preparar = (empresa: string) => withTransaction((tx) => (ofertas.prepararOferta as unknown as (tx: Client, e: string, u: string, p: unknown) => Promise<{ desconto_percentual: number; valor_final_centavos: number; fundador_id: string | null }>)(tx, empresa, ids.dev,
+        { plano: 'essencial', ciclo: 'MENSAL', valorEsperadoCentavos: valor, versao: planos.condicoesComerciais.versao }));
+    const oferta = await preparar(ids.piloto);
+    assert.deepEqual([oferta.desconto_percentual, oferta.valor_final_centavos, Boolean(oferta.fundador_id)], [40, valor, true]);
+    const vaga = (await client.query('SELECT documento_beneficiario, estado FROM assinatura_fundadores WHERE empresa_id = $1', [ids.piloto])).rows;
+    assert.deepEqual(vaga.map((v) => [v.documento_beneficiario, v.estado]), [[PILOTO_CNPJ, 'RESERVADA']]);
+    assert.equal(await erro(preparar(ids.semCobranca)), 'EMPRESA_SEM_COBRANCA');
+});

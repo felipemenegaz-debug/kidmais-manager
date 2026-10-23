@@ -186,3 +186,44 @@ Validação local em 20/10/2026 (nenhum envio, rede bloqueada nos testes, nada e
   TypeScript real com rede simulada, sigilo na CLI real; 8 dos blocos: estrutura/ASCII/≤ 32 KB, carga, guarda de serviço,
   execução com bash, recusas do bloco, **colagem com `bash -i`** (executada, não pulada) e colagem truncada, LIMPEZA, fixação byte a byte dos 3 blocos no mesmo gerador).
 - `npx tsc --noEmit`: OK. ESLint dos 4 arquivos novos: OK. `npm run check:v1:static`: PASS (testes, lint, TypeScript e build).
+
+## 11. Revalidação de 23/10/2026: novo `lib/acessos/erros.ts` (mudança só de tipo)
+
+Pedido de Felipe (23/10): revalidar o pacote para o novo `erros.ts` da integração CPF/Fundador + textos/comprovante +
+arrependimento (branch `codex/integracao-cpf-textos-arrependimento-20261023`), com justificativa e revisão do Astra.
+
+**Motivo:** o executor fixa por hash (LF) os dois arquivos do transporte. A integração muda `erros.ts`, e o passo 5 do CI
+(estes testes) falhava com `TRANSPORTE_DIVERGENTE ERROS` (8 de 20).
+
+**A mudança é só de tipo:**
+- o diff de `erros.ts` contra o staging é **uma linha**: a união `AcessoErroCodigo` ganha 10 códigos
+  (`FUNDADOR_OFERTA_EXPIRADA`, `CAMPANHA_DESLIGADA`, `CAMPANHA_REGRA_PENDENTE`, `CAMPANHA_ANTES_DA_ABERTURA`,
+  `CPF_INDISPONIVEL`, `CONTINUIDADE_PENDENTE`, `CONTINUIDADE_INDISPONIVEL`, `DOCUMENTOS_ATUALIZADOS`,
+  `ARREPENDIMENTO_INDISPONIVEL`, `DOCUMENTO_DIVERGENTE`). Nenhuma classe, função ou valor muda;
+- `typescript.transpileModule` (TypeScript 5.9.3) emite **JavaScript idêntico** para a versão antiga e a nova;
+- `stripTypeScriptTypes` do Node (o que o executor usa ao importar `email.ts`) dá saída idêntica, ignorando espaços;
+- `lib/acessos/email.ts` **não mudou** e continua com o hash fixado `0ff9c138…`;
+- o hash antigo de `erros.ts` só estava fixado no executor.
+
+**O que mudou no pacote:**
+
+| Item | Antes | Depois |
+|---|---|---|
+| `erros.ts` fixado no executor (LF) | `883b0944b061aabb0f68bb654ab647f6368c018f2dad22247e0be3e777f574d2` | `77ebaaf0791d82f38464869f57d94bbd494ad70bb19ad83e1be9d56da0ea3dd1` |
+| Executor `email-producao-20261020.cjs` (LF) | `ba56b8ce…` | `1f9ec23b6e8a0b730f72ef1a0e5649b85205e74c8e7e9ef6564619307e07b028` |
+| Bloco CONFERIR | `8f77a397…` (9612 bytes) | `dd8ebb2fb2a75e3cf5f1a3f851088eb6fde274d81b38d34ab0bed61640e63c97` (9985 bytes) |
+| Bloco ENVIAR | `7cdbb59c…` (9743 bytes) | `85218447e5fc14fb674896ac8de598faf44e67fcb265435c6a68ec4744503ecb` (10116 bytes) |
+| Bloco LIMPEZA | `9e9967a0…` (2285 bytes) | `03bcae5b5b9ba4553dc1f62afd639d413b2c9690d5de8836cb63fa654468af5c` (2285 bytes) |
+
+- O executor muda só no hash fixado e no comentário de justificativa. Os blocos mudam porque carregam o executor (CONFERIR e ENVIAR) ou o seu sha (LIMPEZA).
+- O rótulo dos blocos continua `7494087`.
+- Mesmo gerador da §10: Windows, Node 24.20.0, zlib 1.3.2.1-motley-42c2f19.
+
+**Validação:** `node --test scripts/email-producao-20261020.test.cjs scripts/bloco-shell-email-producao-20261020.test.cjs`:
+**20/20** (antes: 12/20). Nenhum envio; nada executado em Render ou produção.
+
+**Consequência operacional:**
+- O pacote anterior (`8f77a397…`/`7cdbb59c…`/`9e9967a0…`) continua sendo o que confere com o `erros.ts` da produção atual.
+- O pacote novo só confere num deploy que já tenha o novo `erros.ts`, isto é, depois que esta integração chegar ao ambiente.
+- Nos dois casos o executor recusa com `TRANSPORTE_DIVERGENTE ERROS` logo depois de validar a env, antes do disco, do replay, de carregar o transporte e de qualquer envio, e sem gravar nada (código 1).
+- O envio V6 não foi executado. Ao usá-lo, gerar os blocos a partir do commit do deploy alvo e conferir os sha acima.

@@ -24,6 +24,9 @@ import { concederCortesia } from "./cortesia.ts";
 import { manutencaoEmpresa } from "./manutencao.ts";
 import { liquidarChamada, reservarChamada } from "./walle.ts";
 import { proporcionalCentavos as proporcional, referenciaExterna } from "./dominio.ts";
+import { ENTIDADES } from "../exportacao/entidades.ts";
+/** Ausências esperadas sem contar entidades de migrations posteriores (campo `migracao`, ex.: 097), que o inventário tolera. */
+const ausentesProprias = (lista: { tabela: string }[]) => lista.filter((a) => !ENTIDADES.find((e) => e.tabela === a.tabela)?.migracao);
 
 /**
  * 095 — créditos de IA no PostgreSQL DESCARTÁVEL sobre o modelo 094 (inventário inteiro até a 094 do staging; a 095 é aplicada aqui).
@@ -100,10 +103,18 @@ async function gestao(db: Client, empresaId: string) {
   await db.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
   return u;
 }
+/** CNPJ sintético com dígitos verificadores válidos (a 091 valida o documento da contratante). */
+function cnpjSintetico() {
+  const d = Array.from(randomBytes(12), (b) => b % 10);
+  const dv = (n: number[]) => { const p = n.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const r = n.reduce((s, x, i) => s + x * p[i], 0) % 11; return r < 2 ? 0 : 11 - r; };
+  d.push(dv(d)); d.push(dv(d));
+  return d.join("");
+}
 /** Assinatura paga ATIVA no Asaas (sintética), como o E2E da devolução. */
 async function assinaturaPaga(db: Client, empresaId: string, cliente: string) {
   await db.query(`INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste)
-    VALUES ($1::uuid, 'TESTE', clock_timestamp() - interval '40 days', clock_timestamp() - interval '25 days', $2)`, [empresaId, `${randomBytes(6).toString("hex").toUpperCase()}01`]);
+    VALUES ($1::uuid, 'TESTE', clock_timestamp() - interval '40 days', clock_timestamp() - interval '25 days', $2)`, [empresaId, cnpjSintetico()]);
   await db.query(`UPDATE empresa_assinaturas SET situacao = 'ATIVA', ciclo = 'MENSAL', periodo_atual_fim = clock_timestamp() + interval '20 days', provedor = 'ASAAS',
     provedor_cliente_id = $2, provedor_assinatura_id = $3, provedor_situacao = 'ACTIVE' WHERE empresa_id = $1::uuid`, [empresaId, cliente, `sub_${randomBytes(4).toString("hex")}`]);
 }
@@ -213,7 +224,7 @@ test("095 ausente: código novo tolera o schema antigo (instalado=false, compra 
     const p = await gerarPacote(c as unknown as DbExecutor, E);
     await c.query("COMMIT");
     await p.limpar();
-    assert.deepEqual(p.manifesto.entidadesAusentes.map((a) => a.tabela).sort(), ["ia_credito_carteiras", "ia_credito_cobrancas", "ia_credito_cortes", "ia_credito_cortesias",
+    assert.deepEqual(ausentesProprias(p.manifesto.entidadesAusentes).map((a) => a.tabela).sort(), ["ia_credito_carteiras", "ia_credito_cobrancas", "ia_credito_cortes", "ia_credito_cortesias",
       "ia_credito_devolucoes", "ia_credito_lancamentos", "ia_credito_lotes", "ia_credito_pedidos", "ia_credito_reserva_lotes", "ia_credito_reservas"]);
   } finally {
     await encerrarDescartavel(c);
@@ -1172,7 +1183,7 @@ test("095: exportação com os créditos (colunas excluídas, filtro por empresa
     await c.query("COMMIT");
     const zip = lerZip(readFileSync(p.zipCaminho));
     await p.limpar();
-    assert.deepEqual(p.manifesto.entidadesAusentes, []);
+    assert.deepEqual(ausentesProprias(p.manifesto.entidadesAusentes), []);
     const csv = (nome: string) => zip.get(`dados/creditos/${nome}.csv`)?.toString("utf8") ?? "";
     const arq = (t2: string) => p.manifesto.arquivos.find((a) => a.tabela === t2)!;
     assert.ok(arq("ia_credito_pedidos").linhas! >= 4);

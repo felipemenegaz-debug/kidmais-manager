@@ -3,6 +3,7 @@ import { Recurso, Cadastro, Contato } from './elementos';
 import { comercial, adicionais, precoExibido } from '@/lib/site/catalogo';
 import type { ConfiguracaoSite } from '@/lib/site/configuracao';
 import { dias } from '@/lib/assinatura/texto';
+import { textoFundador, type TextoFundador } from '@/lib/site/fundador';
 
 export function Hero({ aberto, config }: { aberto: boolean; config: ConfiguracaoSite }) { return (<section className={cx('hero')} aria-labelledby="t-hero">
     <div className={cx('wrap')}>
@@ -251,7 +252,7 @@ export function Confianca() { return (<section className={cx('block')} id="confi
     </div>
   </section>); }
 
-export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas">
+export function Duvidas({ config, fundador = textoFundador({ fase: 'LEGADO' }) }: { config: ConfiguracaoSite; fundador?: TextoFundador }) { return (<section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas">
     <div className={cx('wrap')}>
       <div className={cx('head')}><div className={cx('eyebrow')}>Dúvidas</div><h2 id="t-duvidas">Perguntas de quem está decidindo.</h2></div>
       <div className={cx('faq')}>
@@ -267,7 +268,7 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
           <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp"]}>É a inteligência artificial do iA.Fest. Ele atende seus clientes no WhatsApp, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
           <details><summary>O que é o copiloto?</summary><p><Recurso ids={["copiloto"]}>É a parte da IA que trabalha dentro do sistema. Ele mostra o que precisa da sua atenção e prepara cadastros a partir de um pedido escrito. Você sempre revisa e confirma antes de gravar.</Recurso></p></details>
           <details><summary>Posso mudar de plano depois?</summary><p>As condições para mudar entre os planos estão em definição. O teste começa pelo mesmo cadastro; fale com a equipe para conhecer a oferta.</p></details>
-          <details><summary>O que é o Plano Fundador?</summary><p>Uma condição para os {comercial.fundador.vagas} primeiros buffets que assinarem: {comercial.fundador.descontoPercentual}% de desconto travado por {comercial.fundador.meses} meses, aplicado automaticamente enquanto houver vagas. Também vamos pedir a sua opinião sobre o sistema e um depoimento depois de usar.</p></details>
+          <details><summary>O que é o Plano Fundador?</summary><p>{fundador.faq}</p></details>
           <details><summary>Posso cancelar quando quiser?</summary><p>O cancelamento é solicitado pelos canais de atendimento. Consulte os termos para as condições de acesso, exportação e retenção de dados.</p></details>
           <details><summary>Tenho mais de uma unidade. Como fica?</summary><p>Cada unidade é uma empresa com CNPJ próprio. <Recurso ids={["multiunidade"]}>A contratação de unidade extra, por {precoExibido(adicionais[0].centavos, config.precosPublicados)}{config.precosPublicados ? "/mês" : ""} a mais, ainda não está aberta; fale com a equipe.</Recurso></p></details>
         </div>
