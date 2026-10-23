@@ -212,6 +212,9 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
     const comHistorico = tela.render('default', { ...props, mensagens: historico });
     assert.match(texto(comHistorico), /Essa análise ainda não está disponível no Kidmais/);
     assert.equal(achar(comHistorico, RespostaAtencao).props.dados, dados);
+    const desligada = tela.render('default', { ...props, mensagens: [{ id: 3, pergunta: 'quero fechar um contrato', fase: 'desativada' }] });
+    assert.match(texto(desligada), /O assistente está desligado para esta empresa neste ambiente/);
+    assert.doesNotMatch(texto(desligada), /Essa análise ainda não está disponível/);
 
     const aguardando = tela.render('default', { ...props, aguardando: true });
     assert.equal(achar(aguardando, 'button', 'Enviar').props.disabled, true);
@@ -258,7 +261,8 @@ test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador
     assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { capacidade: 'atencao_hoje' });
 
     const mensagens = achar(provider(), DrawerKidmais).props.mensagens as conversa.Mensagem[];
-    assert.deepEqual(mensagens.map((m) => m.fase), ['indisponivel', 'resposta']);
+    // IA desligada por flag no servidor: mensagem própria (não "análise não disponível"), teste de Felipe em 23/10.
+    assert.deepEqual(mensagens.map((m) => m.fase), ['desativada', 'resposta']);
 
     (achar(provider(), DrawerKidmais).props.onFechar as () => void)();
     assert.equal(elementos(provider()).some((e) => e.type === DrawerKidmais), false);

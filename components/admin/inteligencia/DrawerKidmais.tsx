@@ -122,6 +122,10 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
             <p className={styles.erro} role="alert">{mensagem.mensagem}</p>
             {mensagem.reenviavel && onReenviar && <button type="button" className={styles.sugestaoCurta} disabled={aguardando} onClick={() => onReenviar(mensagem.id)}>Tentar de novo</button>}
           </div>}
+          {mensagem.fase === 'desativada' && <div className={styles.indisponivel}>
+            <p role="status">O assistente está desligado para esta empresa neste ambiente.</p>
+            <p>Peça a um administrador do Kidmais para ativá-lo. O resto do sistema funciona normalmente.</p>
+          </div>}
           {mensagem.fase === 'indisponivel' && <div className={styles.indisponivel}>
             <p>Essa análise ainda não está disponível no Kidmais.</p>
             <p>Por enquanto, consigo responder:</p>

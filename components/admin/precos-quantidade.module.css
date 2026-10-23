@@ -3,6 +3,11 @@
 .gerador p { margin:0; color:var(--secondary-text); font-size:13px; line-height:2.4; }
 .gerador strong { color:var(--lilac-accent); font-size:12px; font-weight:800; }
 .inline { display:inline-block !important; width:84px !important; margin:0 6px !important; padding:6px 10px !important; }
+/* Completar os preços vazios pelo ritmo (pedido de Felipe, 23/10/2026): mesmo fundo do gerador, abaixo da lista. */
+.completar { border:1px dashed color-mix(in srgb, var(--emerald-accent) 35%, transparent); border-radius:12px; padding:14px 16px; background:rgba(93,227,176,.05); margin:12px 0 0; }
+.completar p { margin:0; color:var(--secondary-text); font-size:13px; line-height:2.4; }
+.completar p + p { line-height:1.5; margin:2px 0 10px; }
+.completar strong { color:var(--emerald-accent); font-size:12px; font-weight:800; }
 .lista { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); overflow:hidden; }
 .linha { display:grid; grid-template-columns:96px minmax(0,1fr) minmax(0,1.3fr) 44px; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
 .linha:first-child { border-top:0; }
