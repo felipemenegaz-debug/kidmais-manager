@@ -16,6 +16,14 @@
   095. A 087 continua reservada aos avisos de cobrança (clone `kidmais-manager-emails-cobranca-20261019`, não integrada).
   Livre numa leitura não é reserva: repetir antes de congelar a candidata e antes de aplicar; a ordem de aplicação com
   090–094 (se integradas antes) não muda nada na 095, que não depende delas.
+- **PR #222 para staging (23/10):** aberto com `b788cb8`; logo depois a #221 (CPF/Fundador: 090, 091, 096, 097) entrou no
+  staging (`7804da1`) e o PR ficou com conflito. Merge local `8b3081a`: conflitos por acréscimo (Assinatura com o
+  arrependimento e o link dos créditos; campos `clientPaymentDate` e `refunds` do Asaas; exclusões da exportação; inventário
+  de produção com 090–097 em ordem). Testes dos créditos ajustados: CNPJ sintético válido (a 091 valida o dígito) e ausências
+  esperadas sem as entidades de migrations posteriores (097). Revalidado: 22 passos do CI locais OK; suíte PG completa 135/136
+  (só `transacao-com-prazo`, de tempo, que passou sozinha nos dois estados; a `pacotes-1c` passou com o staging novo);
+  Playwright 9/9; PTY 9/0. **Ordem das migrations:** a 095 deve ser aplicada em staging antes da 096/097 (ou, se elas forem
+  primeiro, a aplicação fica fora de ordem numérica — os aplicadores são independentes, mas o inventário pede revisão).
 - **Candidata do PR (23/10):** parecer R8 do Astra **APROVADO, sem P1/P2/P3** sobre `53a5d17`. Depois: merge local de
   `origin/staging` **a55ab53** (#219/#220) em `fcd2411` — conflitos só na lista de Configurações (o PDF de Pacotes saiu do
   menu no staging; Créditos de IA fica depois do WhatsApp), ajuste do teste do hub (`3c4f11b`) e os passos da 095 no CI
