@@ -85,8 +85,9 @@ test('P2 preparação da IA: a porta de horários consulta com a duração do pa
   assert.ok(agenda?.horarios.some((h) => h.inicio === '15:00' && h.fim === '18:00'));
   assert.ok(agenda?.horarios.every((h) => minutos(h.fim) - minutos(h.inicio) === 180));
   const chamadas = ['lib/inteligencia/acoes/contratacao.ts', 'lib/inteligencia/acoes/contratacao-revisao.ts'].map((f) => readFileSync(f, 'utf8'));
-  assert.match(chamadas[0], /porta\.horarios\(tx, empresaId, p\.data, p\.turno, CODIGO_BANCO\[p\.pacote\]\)/);
-  assert.match(chamadas[1], /porta\.horarios\(tx, ctx\.empresaId, payload\.data, payload\.turno, CODIGO_BANCO\[payload\.pacote\]\)/);
+  // Fase 1d: o código do pacote resolvido (id V1 traduzido ou P_… da empresa), não o texto informado.
+  assert.match(chamadas[0], /porta\.horarios\(tx, empresaId, p\.data, p\.turno, codigoBancoDoPacote\(idDaTela\) \?\? undefined\)/);
+  assert.match(chamadas[1], /porta\.horarios\(tx, ctx\.empresaId, payload\.data, payload\.turno, codigoBancoDoPacote\(payload\.pacote\) \?\? undefined\)/);
 });
 
 // Parecer do Astra (delta 5): P2-1 calendário público / entrada sem pacote; P2-2 duração cadastrada fora do limite.

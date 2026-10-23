@@ -119,7 +119,8 @@ test("cálculo de refrigerante: mL inteiros, conversão exata, embalagem indivis
 
 test("contratação: extração da frase exata, ano nunca presumido, data impossível e horários conflitantes", () => {
   const p = extrairContratacao("crie uma festa do Felipe, pacote premium 50 convidados, beatriz 1 ano; tema unicórnio", null);
-  assert.deepEqual(p, { cliente: "Felipe", pacote: "premium", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio" });
+  // pacoteTexto: o trecho até a pontuação, que o Core confronta com o catálogo da empresa (fase 1d).
+  assert.deepEqual(p, { cliente: "Felipe", pacote: "premium", pacoteTexto: "premium 50 convidados", pacoteResto: "beatriz 1 ano; tema unicórnio", pacoteRecusas: null, convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio" });
   assert.deepEqual(faltandoContratacao(p), ["data", "turno"]);
   const semAno = { ...p, ...extrairContratacao("dia 15/11", "data") };
   assert.deepEqual(faltandoContratacao(semAno), ["ano", "turno"]);

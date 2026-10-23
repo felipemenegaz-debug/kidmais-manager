@@ -71,6 +71,11 @@ export type FerramentaAcao<P extends Record<string, unknown> = Record<string, un
    * A ação só aceita os campos e tipos dela; tudo passa depois por `validar` e `verificar` no Core. Ausente ⇒ ignorado.
    */
   doModelo?(valores: Readonly<Record<string, unknown>>): Record<string, unknown>;
+  /**
+   * Combina o que a mensagem atual disse (`extrair`) com o que a Luna entendeu (`doModelo`). Ausente ⇒ a Luna vence campo a
+   * campo. A ação usa quando o texto da mensagem é mais fiel que o modelo (ex.: nome completo que o modelo encurtou).
+   */
+  combinar?(extraido: Record<string, unknown>, doModelo: Record<string, unknown>): Record<string, unknown>;
   /** Campos que ainda faltam, na ordem em que serão perguntados. */
   faltando(payload: Record<string, unknown>): string[];
   /** Normaliza e valida o payload completo. Lança InteligenciaError com mensagem humana se inválido. */

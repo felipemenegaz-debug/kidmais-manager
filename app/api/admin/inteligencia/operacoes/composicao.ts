@@ -8,7 +8,9 @@ import { buscarClientesCrm } from "@/lib/clientes/services";
 import { calcularResumoComercial } from "@/lib/comercial/services";
 import { consultarDisponibilidadeData, duracaoDoPacoteDaEmpresa, periodoDoTurno } from "@/lib/disponibilidade/services";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
-import { erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
+import { erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
+import { ehDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
+import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
 import { clienteParaPreparacao, criarFechamentoAdministrativo, obterContextoFechamentoAdministrativo } from "@/lib/fechamentos/services/fechamento-administrativo.service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import type { DependenciasPreparacao } from "@/lib/inteligencia/acoes/preparacoes";
@@ -64,7 +66,14 @@ export const portaContratacao: PortaContratacao = {
     const pacote = (await listarPacotesAdmin(tx, empresaId)).find((p) => p.codigo === codigo && p.vigente && p.ativo && !p.arquivadoEm);
     return pacote ? { id: pacote.id, nome: pacote.nome, minimo: pacote.convidadosMinimos, maximo: pacote.convidadosMaximos } : null;
   },
-  erroConvidados: (codigo, pacote, convidados) => erroConvidadosFechamento(convidados, { id: codigo, nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150 }),
+  async pacotes(tx, empresaId) {
+    return (await listarPacotesContrataveisDaEmpresa(empresaId, tx)).map((p) => ({ codigo: p.codigo, nome: p.nome }));
+  },
+  dona: (tx, empresaId) => ehDonaDaConfigLegada(tx, empresaId),
+  // Mesma regra do Fechamento administrativo: dona com as regras da Kidmais; demais só com o mínimo e o máximo do pacote.
+  erroConvidados: (codigo, pacote, convidados, dona) => dona
+    ? erroConvidadosFechamento(convidados, { id: codigo, nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150 })
+    : erroConvidadosEmpresa(convidados, { nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150, limiteCadastrado: pacote.maximo !== null }),
   async horarios(tx, empresaId, data, turno, pacoteCodigo) {
     try {
       // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira. Horário livre:

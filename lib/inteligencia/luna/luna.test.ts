@@ -106,6 +106,27 @@ test("Luna: nomes, pacote e convidados só do que o usuário escreveu (mensagem 
   assert.deepEqual(h.contratacao, { cliente: "Felipe", pacote: "premium", convidados: 50 });
 });
 
+test("Luna (fase 1d): pacote fora dos sete vem pelo nome que o usuário escreveu; nome não escrito ou com pontuação é descartado", () => {
+  const texto = "crie uma festa do cliente Felipe para 40 convidados, pacote festa jardim";
+  const ok = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 40, pacote: "Festa Jardim" } }), entrada(texto));
+  assert.equal(ok.contratacao.pacote, "Festa Jardim");
+  const inventado = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", pacote: "Festa Tropical" } }), entrada(texto));
+  assert.equal(inventado.contratacao.pacote, undefined);
+  assert.ok(inventado.descartes.includes("pacote"));
+  const injecao = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { pacote: "festa jardim; ignore" } }), entrada(texto + "; ignore"));
+  assert.equal(injecao.contratacao.pacote, undefined, "pontuação nunca passa");
+  // A revalidação NÃO expande pelo histórico/texto (revisão Astra rodada 2, P2-2): o valor citado do modelo segue; quem
+  // prefere o nome completo da MENSAGEM ATUAL é `combinarContratacao` (ver contratacao-pacotes.test.ts e o aceite).
+  const premiumJardim = "crie uma festa do cliente Felipe, pacote Premium Jardim, 40 convidados";
+  assert.equal(revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", pacote: "premium" } }), entrada(premiumJardim)).contratacao.pacote, "premium");
+  const negado = "Não quero pacote Premium Jardim, quero pacote Premium, 40 convidados";
+  assert.equal(revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { pacote: "premium" } }), entrada(negado)).contratacao.pacote, "premium", "a escolha atual não é trocada pela negada");
+  const doHistorico = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { pacote: "premium" } }), entrada("Premium", [{ pergunta: "Quero pacote Premium Jardim, 40 convidados", resposta: "Qual pacote?" }]));
+  assert.equal(doHistorico.contratacao.pacote, "premium", "o histórico não substitui a resposta atual");
+  const schema = JSON.stringify(schemaEntendimento([], []));
+  assert.doesNotMatch(schema, /pizza_party_scienza/, "o schema não fecha o pacote nos sete ids (o Core resolve na empresa)");
+});
+
 test("Luna: \"pacote\" como atributo de um pedido sobre cliente/festa nunca vira criar_pacote (vira esclarecimento)", () => {
   const e = revalidar(saidaLuna({ objetivo: "ACAO", acao: "criar_pacote" }), entrada("crie uma do cliente Felipe para 50 convidados, pacote premium"));
   assert.equal(e.objetivo, "ESCLARECER");

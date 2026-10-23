@@ -42,7 +42,7 @@ const CAMPOS_ABERTOS = new Set(["pacote", "turno", "data", "diaMes", "horario", 
 export function preenchidosDe(payload: Readonly<Record<string, unknown>>): Record<string, string | number | null> {
   const saida: Record<string, string | number | null> = {};
   for (const [chave, valor] of Object.entries(payload)) {
-    if (/Id$|Hash$|^pendencias$/.test(chave) || valor === null || valor === undefined || Array.isArray(valor) || typeof valor === "object") continue;
+    if (/Id$|Hash$|^pendencias$|^pacoteTexto$|^pacoteResto$|^pacoteRecusas$/.test(chave) || valor === null || valor === undefined || Array.isArray(valor) || typeof valor === "object") continue;
     if (typeof valor === "number" || typeof valor === "boolean") saida[chave] = typeof valor === "boolean" ? String(valor) : valor;
     else if (typeof valor === "string") saida[chave] = CAMPOS_ABERTOS.has(chave) ? valor.slice(0, 20) : "(informado)";
   }
