@@ -10,10 +10,14 @@ test("agenda: 'Ver tela do cliente' leva ao endereço público da empresa ativa,
   const rota = readFileSync("app/api/admin/disponibilidade/route.ts", "utf8");
   assert.match(rota, /telaDoCliente: configuracaoComercial \? "\/disponibilidade" : await telaDoClienteDaEmpresa\(tx, empresaComprovada\)/);
   assert.match(rota, /SELECT codigo FROM empresas WHERE id = \$1::uuid/);
+  // Só oferece o endereço que abriria: a mesma decisão da página /b/<código>, num savepoint (recusa não aborta a tx).
+  const ajuda = rota.slice(rota.indexOf("async function telaDoClienteDaEmpresa"));
+  assert.match(ajuda, /SAVEPOINT kidmais_tela_do_cliente[\s\S]*escopoCotacaoPublica\(\(\) => tx, codigo\)[\s\S]*ROLLBACK TO SAVEPOINT kidmais_tela_do_cliente[\s\S]*return null;/);
   assert.equal(paginaPublica("/disponibilidade", "buffet-novo"), "/b/buffet-novo/disponibilidade");
   const tela = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.doesNotMatch(tela, /href="\/disponibilidade"/, "sem endereço fixo da Kidmais");
-  assert.match(tela, /\{telaDoCliente && <div className=\{styles\.contentActions\}><a className=\{styles\.clientView\} href=\{telaDoCliente\}>/);
+  assert.match(tela, /\{telaDoCliente\s*\?\s*<div className=\{styles\.contentActions\}><a className=\{styles\.clientView\} href=\{telaDoCliente\}>/);
+  assert.match(tela, /A tela do cliente desta empresa ainda não está disponível\./, "sem endereço público: explica em vez de levar a um 404");
   assert.equal((tela.match(/setTelaDoCliente\(dados\.telaDoCliente\);/g) ?? []).length, 2, "carga inicial e recarga");
 });
 
