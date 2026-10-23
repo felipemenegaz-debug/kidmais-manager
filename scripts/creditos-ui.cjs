@@ -25,6 +25,13 @@ const receita = require('./regressao-v1-postgres-receita.cjs');
 const PORTA_WEB = 3157;
 const UP = 'database/migrations/20261022_095_ia_creditos.sql';
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+// O dev server pode abortar a 1ª navegação enquanto compila a página (net::ERR_ABORTED): repete só esse caso, até 3 vezes.
+const irPara = async (pg, url) => {
+    for (let i = 0; ; i++) {
+        try { return await pg.goto(url); }
+        catch (e) { if (i >= 2 || !/ERR_ABORTED/.test(String(e && e.message))) throw e; await espera(1500); }
+    }
+};
 
 async function principal() {
     const base = `http://localhost:${PORTA_WEB}`;
@@ -145,7 +152,7 @@ async function principal() {
             await contexto.addInitScript(() => { try { window.sessionStorage.setItem('kidmais-agenda-assistente-depois', '1'); } catch { /* sem armazenamento */ } });
             contexto.setDefaultTimeout(60000);
             const page = await contexto.newPage();
-            await page.goto(`${base}/admin/login`);
+            await irPara(page, `${base}/admin/login`);
             await page.getByLabel('Email', { exact: true }).fill(email);
             await page.getByLabel('Senha', { exact: true }).fill(password);
             await page.getByRole('button', { name: 'Entrar', exact: true }).click();
@@ -154,7 +161,7 @@ async function principal() {
             const s = await sessao();
             const r = await contexto.request.post(`${base}/api/admin/autenticacao`, { headers: { origin: base, 'x-csrf-token': s.data.csrf }, data: { acao: 'selecionar-empresa', empresaId: empresas.C.id } });
             assert.equal(r.status(), 200, 'selecionar C');
-            await page.goto(`${base}/admin/configuracoes/creditos`);
+            await irPara(page, `${base}/admin/configuracoes/creditos`);
             await page.locator('[data-creditos="CONVITES"]').waitFor();
             const api = async (metodo, url, data) => {
                 const s2 = await sessao();
@@ -278,7 +285,7 @@ async function principal() {
         assert.equal(await secaoEq.locator('[data-catalogo], [data-pedidos-creditos], [data-extrato]').count(), 0);
         const compraEq = await eq.api('POST', '/api/admin/creditos', { oferta: 'CONVITES_10', forma: 'PIX', chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: 'creditos-ia-20261022.demo' });
         assert.equal(compraEq.status(), 403);
-        await eq.page.goto(`${base}/admin/configuracoes`);
+        await irPara(eq.page, `${base}/admin/configuracoes`);
         await eq.page.getByRole('heading', { name: 'Configurações' }).waitFor();
         await espera(1000);
         assert.equal(await eq.page.getByRole('link', { name: 'Abrir créditos de ia' }).count(), 0, 'Equipe sem o cartão de créditos em Configurações');
@@ -297,7 +304,7 @@ async function principal() {
         // 9. Onde ficam os créditos: cartão "Créditos de IA" em Configurações abre a página própria (convite; WhatsApp.AI oculto
         // com o Wall-e desligado); Assinatura só com o link; convite da festa e Atendimento sem cartão de créditos.
         await page.setViewportSize({ width: 1440, height: 1000 });
-        await page.goto(`${base}/admin/configuracoes`);
+        await irPara(page, `${base}/admin/configuracoes`);
         await page.getByRole('link', { name: 'Abrir créditos de ia' }).waitFor();
         await page.screenshot({ path: path.join(relatorios, '9-configuracoes.png'), fullPage: true });
         await page.getByRole('link', { name: 'Abrir créditos de ia' }).click();
@@ -308,14 +315,14 @@ async function principal() {
         await blocoWalle.locator('[data-walle-inativo]').waitFor();
         assert.equal(await blocoWalle.locator('[data-oferta], [data-pedidos-creditos], [data-extrato]').count(), 0, 'WhatsApp.AI sem venda com o Wall-e desligado');
         await page.screenshot({ path: path.join(relatorios, '9b-creditos.png'), fullPage: true });
-        await page.goto(`${base}/admin/assinatura`);
+        await irPara(page, `${base}/admin/assinatura`);
         await page.locator('[data-creditos-link]').waitFor();
         assert.equal(await page.locator('[data-creditos]').count(), 0, 'Assinatura sem os blocos de créditos');
         await page.screenshot({ path: path.join(relatorios, '9c-assinatura.png'), fullPage: true });
-        await page.goto(`${base}/admin/festas/${festaId}/convite`);
+        await irPara(page, `${base}/admin/festas/${festaId}/convite`);
         await page.getByText('Preparando seu convite', { exact: false }).waitFor({ state: 'detached' });
         assert.equal(await page.locator('[data-creditos]').count(), 0, 'convite da festa sem cartão de créditos');
-        await page.goto(`${base}/admin/atendimento`);
+        await irPara(page, `${base}/admin/atendimento`);
         await page.getByRole('heading', { name: 'Atendimento' }).waitFor();
         await espera(1500);
         assert.equal(await page.locator('[data-creditos]').count(), 0, 'Atendimento sem cartão de créditos');
@@ -325,7 +332,7 @@ async function principal() {
         await pararServidor();
         await subirServidor({ CREDITOS_CATALOGO_ATIVO: undefined, CREDITOS_COMPRA_ATIVA: undefined, CREDITOS_CONVITES_CONSUMO_ATIVO: undefined });
         await page.setViewportSize({ width: 1440, height: 1000 });
-        await page.goto(`${base}/admin/configuracoes/creditos`);
+        await irPara(page, `${base}/admin/configuracoes/creditos`);
         await secao.locator(`[data-pedido="${protocolo}"]`).waitFor();
         assert.equal(await secao.locator('[data-catalogo]').count(), 0);
         await secao.getByText('A geração com créditos está em manutenção', { exact: false }).waitFor();

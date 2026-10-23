@@ -137,7 +137,7 @@ Ordem: código com flags off → `--conferir-095` → backup/PITR → `--aplicar
 Aplicadores `scripts/migration-095-{comum,staging,production}.cjs` e blocos `scripts/bloco-shell-095.cjs` derivados dos da
 089 (gerador `creditos-gerar-aplicador-095.cjs` no workspace, mesmas trocas conferidas e hashes calculados dos SQL LF).
 
-Hashes (LF, depois das correções do parecer R5 de 23/10; os mesmos fixados nos aplicadores): migration `0dac1771…dd9af7e4e`,
+Hashes (LF, depois da correção do parecer R6 de 23/10; os mesmos fixados nos aplicadores): migration `00db4fa0…aa6653e`,
 precheck `470f3b13…9a6438`, postcheck `8b33991e…296f9c`, rollback `da0c65da…160507`.
 
 **Rollback:** preferir desligar as flags e manter o processamento de pagamentos/devoluções. O SQL de rollback recusa com
@@ -334,6 +334,23 @@ adversarial PASS (modelos 094/095); **suíte PG completa 128/129** — a falha �
 `creditos-pg-r28-staging-pacotes1c.log`), sem relação com os créditos; `check:v1:static` EXIT 0 (1 aviso de lint
 preexistente); aplicadores/blocos 21/21; PTY 9/0; Playwright 9/9 (o E2E passou a escolher "Fazer depois" no assistente da
 agenda que o staging abre para empresa sem agenda); mutações V1–V7 **7/7** (`creditos-mutacoes-r11.txt`).
+
+**Rodada 9 (23/10): parecer R6 do Astra (REPROVADO, 1 P2; R5-P2-1 fechado no modo que aplica).**
+`revisao-creditos-ia-20261022/PARECER-DELTA-095-R6.md` (sha256 `b443b84b…`).
+
+- **R6-P2-1 (diagnóstico novo apagava o CANCELAR):** a decisão definitiva saiu de `revisao_motivo` (que guarda
+  diagnósticos transitórios) para a coluna nova `ia_credito_cobrancas.perda_definitiva_em`, gravada uma vez — CANCELAR do
+  operador, estorno total externo e disputa perdida — e **imutável** na guarda. A liberação de reservas e o episódio de
+  estorno maior leem essa coluna. O ramo REVISAO de `processarPedido` também deixou de apagar um
+  `ESTORNO_EXTERNO_PARCIAL` ainda à espera da decisão do operador (alarme e retenção preservados). Coluna excluída da
+  exportação (o extrato já mostra o cancelamento). `ESTORNO_PARCIAL_CANCELADO` deixou de ser gravado em `revisao_motivo`.
+
+Validação da rodada: PG dos créditos 13/13 (novos: CANCELAR + cobrança ausente; CANCELAR + valor divergente; pendente
+preservado com valor divergente e retido até a decisão; coluna imutável); suíte PG completa 128/129 (a falha é de novo
+`pacotes-1c`, a mesma do staging puro); `check:v1:static` EXIT 0; aplicadores/blocos 21/21; PTY 9/0; Playwright 9/9 — o
+E2E agora repete a navegação só em `net::ERR_ABORTED` (até 3 vezes) e precisou de `.next/dev` limpo depois do build da
+regressão estática (o servidor de desenvolvimento respondia 404 com o cache misto); mutações W1–W5 **5/5**
+(`creditos-mutacoes-r12.txt`).
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
