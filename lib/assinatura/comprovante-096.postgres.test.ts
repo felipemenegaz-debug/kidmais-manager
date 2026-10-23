@@ -8,7 +8,8 @@ import { iniciarTeste } from './servico.ts';
 import { prepararOferta, type PedidoOferta } from './ofertas.ts';
 import { arquivarVersoesVigentes, enviarCopiaComprovante, lerComprovante, sinteseContratacao, versaoArquivada } from './comprovante.ts';
 import { linhasComprovante } from './comprovante-texto.ts';
-import { DOCUMENTOS, hashDocumento, textoCanonico } from '../cadastro/documentos-legais.ts';
+import { DOCUMENTOS, IDENTIFICACAO_KIDMAIS, hashDocumento, textoCanonico } from '../cadastro/documentos-legais.ts';
+import { VERSOES_PUBLICADAS } from '../cadastro/documentos-legais-historico.ts';
 
 /**
  * 096 — comprovante da contratação e arquivo das versões dos documentos legais (grupo B do parecer de apoio, 22/10/2026),
@@ -19,7 +20,9 @@ import { DOCUMENTOS, hashDocumento, textoCanonico } from '../cadastro/documentos
  *   4. oferta nova grava o comprovante na mesma transação (contratante mascarado, condições, versões); retomada não duplica;
  *      comprovante imutável; síntese e leitura;
  *   5. cópia por e-mail: chave desligada não envia; enviada uma vez; falha registrada sem apagar; registro único;
- *   6. rollback recusado com comprovante registrado.
+ *   6. rollback recusado com comprovante registrado;
+ *   7. revisão 00cecac: versões confirmadas na síntese (aba antiga recusada), catálogo histórico recuperável, prestadora
+ *      gravada no comprovante (não relida do código) e postcheck que confere a definição das restrições.
  */
 const ler = (f: string) => readFileSync(f, 'utf8');
 const SQL = {
@@ -55,7 +58,10 @@ async function empresaEmTeste() {
     await emTx(() => iniciarTeste(client as never, { empresaId, documento: cnpj(n) }));
     return { empresaId, documento: cnpj(n) };
 }
-const oferta = (empresaId: string) => emTx(() => prepararOferta(client as never, empresaId, usuario, PEDIDO, ENV));
+/** Versões e hashes que a síntese apresenta (os vigentes). */
+const docsVigentes = () => Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, { versao: d.versao, hash: hashDocumento(d) }]));
+const ofertaCom = (empresaId: string, documentos: unknown) => emTx(() => prepararOferta(client as never, empresaId, usuario, { ...PEDIDO, documentos }, ENV));
+const oferta = (empresaId: string) => ofertaCom(empresaId, docsVigentes());
 const contar = async (sql: string, p: unknown[] = []) => Number((await q(sql, p)).rows[0].n);
 
 test.before(async () => {
@@ -90,8 +96,8 @@ test('3. arquivo das versões: idempotente, SHA-256 conferido pelo banco, imutá
     const v1 = await emTx(() => arquivarVersoesVigentes(client as never));
     const v2 = await emTx(() => arquivarVersoesVigentes(client as never));
     assert.deepEqual(v1, v2);
-    assert.deepEqual(v1, { DPA: DOCUMENTOS.DPA.versao, TERMOS_USO: DOCUMENTOS.TERMOS_USO.versao, PRIVACIDADE: DOCUMENTOS.PRIVACIDADE.versao });
-    assert.equal(await contar('SELECT count(*)::int AS n FROM documentos_legais_versoes'), 3);
+    assert.deepEqual(v1, docsVigentes());
+    assert.equal(await contar('SELECT count(*)::int AS n FROM documentos_legais_versoes'), 3 + VERSOES_PUBLICADAS.length, 'vigentes + publicadas do catálogo');
     for (const d of Object.values(DOCUMENTOS)) {
         const a = await emTx(() => versaoArquivada(client as never, d.documento, d.versao));
         assert.equal(a?.conteudo, textoCanonico(d)); assert.equal(a?.hash, hashDocumento(d));
@@ -136,6 +142,7 @@ test('4. oferta nova grava o comprovante na mesma transação; retomada não dup
     assert.equal(s.comprovante?.contratacaoId, o.id);
     assert.match(s.fornecedora, /\[RAZÃO SOCIAL DO NOVO CNPJ\]/, 'identidade da Kidmais segue por marcador (decisão de Felipe)');
     assert.deepEqual(s.documentos.map((d) => d.documento).sort(), ['DPA', 'PRIVACIDADE', 'TERMOS_USO']);
+    assert.equal((await q('SELECT prestadora FROM assinatura_comprovantes WHERE contratacao_id = $1', [o.id])).rows[0].prestadora, IDENTIFICACAO_KIDMAIS, 'snapshot da prestadora');
     empresaB = empresaId; ofertaB = o.id;
 });
 
@@ -158,6 +165,44 @@ test('5. cópia por e-mail: chave desligada não envia; enviada uma vez; falha r
     const c = await emTx(() => lerComprovante(client as never, empresaId));
     assert.ok(c?.emailFalhouEm && !c.emailEnviadoEm);
     await assert.rejects(q('UPDATE assinatura_comprovantes SET email_enviado_em = now() WHERE contratacao_id = $1', [o.id]), /só o envio da cópia por e-mail é registrado, uma vez/);
+});
+
+test('7. revisão 00cecac: versões confirmadas (aba antiga recusada), catálogo histórico, prestadora gravada, postcheck pela definição', { skip: !opt() }, async () => {
+    // P2-B1: sem documentos ou com versão/hash diferente do vigente → recusa, nenhuma oferta nem comprovante.
+    const { empresaId } = await empresaEmTeste();
+    const antiga = { ...docsVigentes(), TERMOS_USO: { versao: '2026-10-20-minuta', hash: VERSOES_PUBLICADAS.find((v) => v.documento === 'TERMOS_USO' && v.versao === '2026-10-20-minuta')!.hash } };
+    const adulterada = { ...docsVigentes(), DPA: { versao: DOCUMENTOS.DPA.versao, hash: '0'.repeat(64) } };
+    for (const docs of [undefined, null, {}, antiga, adulterada])
+        assert.equal(await erro(ofertaCom(empresaId, docs)), 'DOCUMENTOS_ATUALIZADOS', JSON.stringify(docs)?.slice(0, 60));
+    assert.equal(await contar('SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id = $1', [empresaId]), 0, 'nenhuma oferta');
+    const o = await oferta(empresaId);
+    // Retomada da oferta já aceita não exige reconfirmar nem cria comprovante novo.
+    assert.equal((await ofertaCom(empresaId, undefined)).id, o.id);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM assinatura_comprovantes WHERE empresa_id = $1', [empresaId]), 1);
+    const c = await emTx(() => lerComprovante(client as never, empresaId));
+    assert.match(linhasComprovante(c!).join('\n'), /Termos de uso \(aceito\).+Aviso de privacidade \(ciência\)|Aviso de privacidade \(ciência\)/s);
+    // P2-B2: aceite antigo (hash de uma versão publicada) tem o texto recuperável e conferido pelo banco.
+    for (const v of VERSOES_PUBLICADAS) {
+        const a = await emTx(() => versaoArquivada(client as never, v.documento, v.versao));
+        assert.equal(a?.hash, v.hash, `${v.documento} ${v.versao}`); assert.equal(a?.conteudo, v.conteudo);
+    }
+    // P2-B3: a leitura usa a prestadora GRAVADA (simula identidade antiga sem gatilhos, em transação desfeita).
+    await q('BEGIN');
+    try {
+        await q("SET LOCAL session_replication_role = replica");
+        await q("UPDATE assinatura_comprovantes SET prestadora = 'Prestadora Antiga Sintética Ltda, CNPJ 00.000.000/0001-91' WHERE contratacao_id = $1", [o.id]);
+        const lida = await lerComprovante(client as never, empresaId);
+        assert.equal(lida?.fornecedora, 'Prestadora Antiga Sintética Ltda, CNPJ 00.000.000/0001-91');
+        assert.notEqual(lida?.fornecedora, IDENTIFICACAO_KIDMAIS);
+    } finally { await q('ROLLBACK'); }
+    // P3-B1: CHECK do hash trocado por CHECK (true) com o mesmo nome → postcheck recusa.
+    await q('BEGIN');
+    try {
+        await q('ALTER TABLE documentos_legais_versoes DROP CONSTRAINT documentos_legais_versoes_conteudo_hash_check');
+        await q('ALTER TABLE documentos_legais_versoes ADD CONSTRAINT documentos_legais_versoes_conteudo_hash_check CHECK (true)');
+        await assert.rejects(q(SQL.post), /definição divergente/);
+    } finally { await q('ROLLBACK'); }
+    await q(SQL.post);
 });
 
 test('6. rollback da 096 recusado com comprovante registrado; estado parcial recusado', { skip: !opt() }, async () => {

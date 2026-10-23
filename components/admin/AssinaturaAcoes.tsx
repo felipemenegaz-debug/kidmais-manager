@@ -55,9 +55,15 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
 
     async function assinar(ciclo: 'MENSAL' | 'ANUAL', plano?: PlanoComercialId, valorEsperadoCentavos?: number) {
         setOcupado(true); setErro(''); setAviso('');
-        const r = await postar<Pagamento>('/api/admin/assinatura/checkout', { ciclo, ...(plano ? { plano, valorEsperadoCentavos, versao: dados.ofertas?.versao } : {}) });
+        const documentos = dados.contratacao ? Object.fromEntries(dados.contratacao.documentos.map((d) => [d.documento, { versao: d.versao, hash: d.hash }])) : undefined;
+        const r = await postar<Pagamento>('/api/admin/assinatura/checkout', { ciclo, ...(plano ? { plano, valorEsperadoCentavos, versao: dados.ofertas?.versao, documentos } : {}) });
         setOcupado(false);
-        if (!r.ok) { setErro(r.erro); return; }
+        if (!r.ok) {
+            setErro(r.erro);
+            // Documentos atualizados enquanto a síntese estava aberta: recarrega para mostrar as versões novas.
+            if (r.codigo === 'DOCUMENTOS_ATUALIZADOS') { setSintese(null); recarregar(); }
+            return;
+        }
         setPagamento(r.data);
         setSintese(null);
         if (!r.data.urlPagamento)

@@ -15,6 +15,8 @@ export type Comprovante = {
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataHoraBrasilia = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
 export const TITULO_DOCUMENTO: Record<DocumentoComprovante, string> = { TERMOS_USO: 'Termos de uso', PRIVACIDADE: 'Aviso de privacidade', DPA: 'Acordo de Tratamento de Dados' };
+/** Aceite dos Termos (com o Acordo incorporado) e ciência do Aviso: papéis distintos (revisão 00cecac, P2-B1). */
+export const PAPEL_DOCUMENTO: Record<DocumentoComprovante, string> = { TERMOS_USO: 'aceito', DPA: 'aceito, integra os Termos de uso', PRIVACIDADE: 'ciência' };
 /** Página pública com o texto integral arquivado de uma versão (096). */
 export const linkVersao = (d: { documento: DocumentoComprovante; versao: string }) => `/documentos/${d.documento.toLowerCase()}/${d.versao}`;
 
@@ -37,7 +39,7 @@ export function linhasComprovante(c: Comprovante) {
             ? `A condição Fundador está reservada: pague até ${k.fundador.pagueAte.split('-').reverse().join('/')}, fim do dia (23h59, horário de Brasília). O benefício começa com a confirmação do pagamento.`
             : 'A condição Fundador está reservada; o benefício começa com a confirmação do pagamento.');
     for (const d of c.documentos)
-        linhas.push(`${TITULO_DOCUMENTO[d.documento]}: versão ${d.versao}, impressão digital ${d.hash} (texto integral em ${linkVersao(d)}).`);
+        linhas.push(`${TITULO_DOCUMENTO[d.documento]} (${PAPEL_DOCUMENTO[d.documento]}): versão ${d.versao}, impressão digital ${d.hash} (texto integral em ${linkVersao(d)}).`);
     linhas.push('Cancelamento, devolução e seus direitos legais: Termos de uso, seção “Cancelamento e devolução”.');
     return linhas;
 }

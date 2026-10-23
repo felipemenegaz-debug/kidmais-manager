@@ -153,6 +153,9 @@ async function principal() {
     await page.route('**/api/admin/assinatura/checkout', async route => {
       const body = route.request().postDataJSON();
       assert.equal(body.plano, 'essencial'); assert.equal(body.ciclo, 'MENSAL'); assert.equal(body.valorEsperadoCentavos, 11820);
+      // Revisão 00cecac (P2-B1): o pedido leva as versões e impressões digitais apresentadas na síntese.
+      assert.deepEqual(Object.keys(body.documentos ?? {}).sort(), ['DPA', 'PRIVACIDADE', 'TERMOS_USO']);
+      for (const d of Object.values(body.documentos)) { assert.match(d.versao, /^2026-/); assert.match(d.hash, /^[0-9a-f]{64}$/); }
       checkouts++;
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'MENSAL', reaproveitada: false, fundadorValidoAte: '2099-01-31' } }) });
     });

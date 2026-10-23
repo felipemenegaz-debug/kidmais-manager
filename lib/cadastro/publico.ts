@@ -155,6 +155,8 @@ export async function processarPedidoCadastro(input: PedidoCadastro, ctx: Contex
         }
         const token = deps.gerarToken();
         const termos = versaoVigente('TERMOS_USO'), privacidade = versaoVigente('PRIVACIDADE');
+        // 096: o texto apresentado neste pedido fica arquivado já agora (a confirmação pode vir depois de nova versão).
+        if (await comprovanteInstalado(tx)) await arquivarVersoesVigentes(tx);
         await tx.query("UPDATE cadastros_publicos SET situacao = 'SUBSTITUIDO', senha_hash = NULL WHERE email = $1 AND situacao = 'PENDENTE'", [input.email]);
         const id = (await tx.query<{ id: string }>(
             `INSERT INTO cadastros_publicos (email, nome, senha_hash, token_hash, expira_em, termos_versao, termos_hash, privacidade_versao, privacidade_hash)

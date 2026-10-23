@@ -5,8 +5,9 @@
 -- O que muda:
 --  - documentos_legais_versoes: texto canônico integral de cada versão publicada dos Termos, do Aviso e do Acordo, com o
 --    SHA-256 conferido pelo próprio banco; imutável (versões antigas continuam recuperáveis depois de novas versões);
---  - assinatura_comprovantes: um comprovante por oferta confirmada pelo contratante (instante, contratante mascarado,
---    condições e versões aceitas); imutável, exceto o registro único do envio ou da falha da cópia por e-mail.
+--  - assinatura_comprovantes: um comprovante por oferta confirmada pelo contratante (instante, prestadora apresentada,
+--    contratante mascarado, condições e versões confirmadas); imutável, exceto o registro único do envio ou da falha da
+--    cópia por e-mail. A prestadora é a da época (snapshot), nunca relida da configuração atual (revisão 00cecac, P2-B3).
 -- O que NÃO muda: nenhuma linha existente é alterada; aceites da 069 e ofertas da 074a ficam como estão.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -41,6 +42,7 @@ CREATE TABLE assinatura_comprovantes (
   registrado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   contratante jsonb NOT NULL CHECK (jsonb_typeof(contratante) = 'object'),
   condicoes jsonb NOT NULL CHECK (jsonb_typeof(condicoes) = 'object'),
+  prestadora text NOT NULL CHECK (char_length(btrim(prestadora)) BETWEEN 5 AND 500),
   termos_versao text NOT NULL,
   privacidade_versao text NOT NULL,
   dpa_versao text NOT NULL,
@@ -66,8 +68,8 @@ BEGIN
     RETURN NEW;
   END IF;
   IF TG_OP = 'UPDATE' THEN
-    IF (NEW.contratacao_id, NEW.empresa_id, NEW.usuario_id, NEW.registrado_em, NEW.contratante, NEW.condicoes, NEW.termos_versao, NEW.privacidade_versao, NEW.dpa_versao)
-         IS DISTINCT FROM (OLD.contratacao_id, OLD.empresa_id, OLD.usuario_id, OLD.registrado_em, OLD.contratante, OLD.condicoes, OLD.termos_versao, OLD.privacidade_versao, OLD.dpa_versao)
+    IF (NEW.contratacao_id, NEW.empresa_id, NEW.usuario_id, NEW.registrado_em, NEW.contratante, NEW.condicoes, NEW.prestadora, NEW.termos_versao, NEW.privacidade_versao, NEW.dpa_versao)
+         IS DISTINCT FROM (OLD.contratacao_id, OLD.empresa_id, OLD.usuario_id, OLD.registrado_em, OLD.contratante, OLD.condicoes, OLD.prestadora, OLD.termos_versao, OLD.privacidade_versao, OLD.dpa_versao)
        OR OLD.email_enviado_em IS NOT NULL OR OLD.email_falhou_em IS NOT NULL THEN
       RAISE EXCEPTION '096: comprovante é imutável; só o envio da cópia por e-mail é registrado, uma vez.' USING ERRCODE = 'P0001';
     END IF;

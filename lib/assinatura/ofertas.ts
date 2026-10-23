@@ -10,7 +10,7 @@ import { campanhaFundadorLigada, faseCampanha, lerCampanhaAtivada, ocupacaoPosJa
     type CampanhaFundador, type ResumoCampanha } from './campanha.ts';
 import { PAGAMENTO_TARDIO } from './textos-fundador.ts';
 import { documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE } from './documento-contratante.ts';
-import { registrarComprovante } from './comprovante.ts';
+import { comprovanteInstalado, exigirDocumentosConfirmados, registrarComprovante } from './comprovante.ts';
 
 export type Oferta = {
     id: string; empresa_id: string; plano: 'ESSENCIAL' | 'PROFISSIONAL' | 'PREMIUM'; ciclo: Ciclo;
@@ -214,7 +214,9 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     };
 }
 
-export type PedidoOferta = { plano: PlanoComercialId; ciclo: Ciclo; valorEsperadoCentavos: number; versao: string };
+export type PedidoOferta = { plano: PlanoComercialId; ciclo: Ciclo; valorEsperadoCentavos: number; versao: string;
+    /** Versões e hashes apresentados na síntese (grupo B): com a 096, exigidos e iguais aos vigentes. */
+    documentos?: unknown };
 export function validarPedidoOferta(raw: unknown): PedidoOferta {
     const o = raw as Partial<PedidoOferta> | null;
     if (!o || !planoComercialValido(o.plano) || !['MENSAL', 'ANUAL'].includes(o.ciclo ?? '')
@@ -243,6 +245,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
             throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
         return aberta;
     }
+    // Oferta NOVA: com a 096, os documentos apresentados na síntese precisam ser os vigentes (aba antiga → reler e confirmar).
+    const documentos = await comprovanteInstalado(tx) ? exigirDocumentosConfirmados(pedido.documentos) : null;
     if (linha.provedor_assinatura_id || linha.plano !== 'UNICO')
         throw erroAcesso('TROCA_PLANO_NAO_DISPONIVEL', 'A assinatura existente mantém suas condições. A mudança de plano exige atendimento.', 409);
     const campanha = await situacaoFundador(tx, empresaId, true, env);
@@ -268,8 +272,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         [empresaId, randomUUID(), pedido.plano.toUpperCase(), pedido.ciclo, condicoesComerciais.versao,
             valorComercial(pedido.plano,ciclo), campanha.elegivel ? 40 : 0, valor, fundadorId, usuarioId])).rows[0];
     if (!oferta) throw new Error('Oferta não foi persistida.');
-    // Grupo B (096): comprovante e versões aceitas na MESMA transação da oferta; sem a 096, nada muda.
-    await registrarComprovante(tx, { empresaId, usuarioId, oferta, pagueAte: (await validadeDaConcessao(tx, fundadorId))?.dia ?? null });
+    // Grupo B (096): comprovante com as versões CONFIRMADAS na síntese, na MESMA transação da oferta; sem a 096, nada muda.
+    if (documentos) await registrarComprovante(tx, { empresaId, usuarioId, oferta, pagueAte: (await validadeDaConcessao(tx, fundadorId))?.dia ?? null, documentos });
     return oferta;
 }
 

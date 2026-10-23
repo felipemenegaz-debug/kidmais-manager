@@ -9,7 +9,9 @@ import type { DbExecutor } from '../db/contracts';
 import { mascararDocumento, tipoDocumentoFiscal } from '../acessos/validacao.ts';
 import { DOCUMENTOS, IDENTIFICACAO_KIDMAIS, hashDocumento, textoCanonico, type DocumentoPublicado } from '../cadastro/documentos-legais.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
+import { erroAcesso } from '../acessos/erros.ts';
 import { documentoVigente } from './documento-contratante.ts';
+import { VERSOES_PUBLICADAS } from '../cadastro/documentos-legais-historico.ts';
 import { linhasComprovante, TITULO_DOCUMENTO, type Comprovante, type Contratante } from './comprovante-texto.ts';
 export type { Comprovante } from './comprovante-texto.ts';
 
@@ -20,22 +22,41 @@ export async function comprovanteInstalado(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_comprovantes') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 
+async function arquivar(tx: DbExecutor, documento: DocumentoPublicado, versao: string, hash: string, conteudo: string) {
+    await tx.query(`INSERT INTO documentos_legais_versoes (documento, versao, hash, conteudo) VALUES ($1, $2, $3, $4)
+        ON CONFLICT (documento, versao) DO NOTHING`, [documento, versao, hash, conteudo]);
+    const guardado = (await tx.query<{ hash: string }>('SELECT hash FROM documentos_legais_versoes WHERE documento = $1 AND versao = $2', [documento, versao])).rows[0]?.hash;
+    if (guardado !== hash)
+        throw new Error(`096: a versão ${documento} ${versao} já foi arquivada com outro texto; publique uma nova versão.`);
+}
+
 /**
- * Arquiva as versões vigentes (idempotente). Uma versão já arquivada com outro conteúdo é erro de publicação: o texto
- * mudou sem nova versão — recusa (a versão aceita precisa corresponder ao texto guardado).
+ * Arquiva as versões vigentes e as publicadas do catálogo histórico (idempotente; o banco confere cada SHA-256). Uma
+ * versão já arquivada com outro conteúdo é erro de publicação: o texto mudou sem nova versão — recusa.
+ * Chamar quando a versão é APRESENTADA (pedido de cadastro, síntese) e quando é aceita (revisão 00cecac, P2-B2).
  */
 export async function arquivarVersoesVigentes(tx: DbExecutor) {
-    const versoes = {} as Record<DocumentoPublicado, string>;
+    const versoes = {} as Record<DocumentoPublicado, { versao: string; hash: string }>;
+    for (const v of VERSOES_PUBLICADAS) await arquivar(tx, v.documento, v.versao, v.hash, v.conteudo);
     for (const d of Object.values(DOCUMENTOS)) {
         const hash = hashDocumento(d);
-        await tx.query(`INSERT INTO documentos_legais_versoes (documento, versao, hash, conteudo) VALUES ($1, $2, $3, $4)
-            ON CONFLICT (documento, versao) DO NOTHING`, [d.documento, d.versao, hash, textoCanonico(d)]);
-        const guardado = (await tx.query<{ hash: string }>('SELECT hash FROM documentos_legais_versoes WHERE documento = $1 AND versao = $2', [d.documento, d.versao])).rows[0]?.hash;
-        if (guardado !== hash)
-            throw new Error(`096: a versão ${d.documento} ${d.versao} já foi arquivada com outro texto; publique uma nova versão.`);
-        versoes[d.documento] = d.versao;
+        await arquivar(tx, d.documento, d.versao, hash, textoCanonico(d));
+        versoes[d.documento] = { versao: d.versao, hash };
     }
     return versoes;
+}
+
+export type DocumentosConfirmados = Record<DocumentoPublicado, { versao: string; hash: string }>;
+/** Versões e impressões digitais que a tela apresentou na síntese; diferente das vigentes → recusa (releia e confirme). */
+export function exigirDocumentosConfirmados(raw: unknown): DocumentosConfirmados {
+    const docs = raw as Partial<DocumentosConfirmados> | null | undefined;
+    const ok = Boolean(docs) && Object.values(DOCUMENTOS).every((d) => {
+        const v = docs?.[d.documento];
+        return v && v.versao === d.versao && v.hash === hashDocumento(d);
+    });
+    if (!ok)
+        throw erroAcesso('DOCUMENTOS_ATUALIZADOS', 'Os Termos de uso, o Acordo de Tratamento de Dados ou o Aviso de privacidade foram atualizados. Releia a síntese e confirme de novo.', 409);
+    return docs as DocumentosConfirmados;
 }
 
 export type OfertaComprovante = { id: string; plano: string; ciclo: string; catalogo_versao: string; valor_regular_centavos: number;
@@ -52,9 +73,15 @@ export async function contratanteDaEmpresa(tx: DbExecutor, empresaId: string): P
 }
 
 /** Chamar na transação que persistiu a oferta nova. Idempotente por oferta. */
-export async function registrarComprovante(tx: DbExecutor, input: { empresaId: string; usuarioId: string; oferta: OfertaComprovante; pagueAte: string | null }) {
+export async function registrarComprovante(tx: DbExecutor, input: { empresaId: string; usuarioId: string; oferta: OfertaComprovante; pagueAte: string | null;
+    documentos: DocumentosConfirmados }) {
     if (!await comprovanteInstalado(tx)) return null;
-    const versoes = await arquivarVersoesVigentes(tx);
+    const vigentes = await arquivarVersoesVigentes(tx);
+    // As versões gravadas são as CONFIRMADAS na síntese, que precisam ser as vigentes (conferidas antes pelo pedido).
+    for (const k of Object.keys(vigentes) as DocumentoPublicado[])
+        if (input.documentos[k]?.versao !== vigentes[k].versao || input.documentos[k]?.hash !== vigentes[k].hash)
+            throw erroAcesso('DOCUMENTOS_ATUALIZADOS', 'Os documentos foram atualizados durante a contratação. Releia a síntese e confirme de novo.', 409);
+    const versoes = { TERMOS_USO: input.documentos.TERMOS_USO.versao, PRIVACIDADE: input.documentos.PRIVACIDADE.versao, DPA: input.documentos.DPA.versao };
     const contratante = await contratanteDaEmpresa(tx, input.empresaId);
     const o = input.oferta;
     const condicoes = {
@@ -62,9 +89,9 @@ export async function registrarComprovante(tx: DbExecutor, input: { empresaId: s
         valorRegularCentavos: o.valor_regular_centavos, descontoPercentual: o.desconto_percentual ?? 0, valorFinalCentavos: o.valor_final_centavos,
         fundador: o.fundador_id ? { reservada: true, pagueAte: input.pagueAte } : null,
     };
-    await tx.query(`INSERT INTO assinatura_comprovantes (contratacao_id, empresa_id, usuario_id, contratante, condicoes, termos_versao, privacidade_versao, dpa_versao)
-        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb, $6, $7, $8) ON CONFLICT (contratacao_id) DO NOTHING`,
-        [o.id, input.empresaId, input.usuarioId, JSON.stringify(contratante), JSON.stringify(condicoes), versoes.TERMOS_USO, versoes.PRIVACIDADE, versoes.DPA]);
+    await tx.query(`INSERT INTO assinatura_comprovantes (contratacao_id, empresa_id, usuario_id, contratante, condicoes, prestadora, termos_versao, privacidade_versao, dpa_versao)
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb, $6, $7, $8, $9) ON CONFLICT (contratacao_id) DO NOTHING`,
+        [o.id, input.empresaId, input.usuarioId, JSON.stringify(contratante), JSON.stringify(condicoes), IDENTIFICACAO_KIDMAIS, versoes.TERMOS_USO, versoes.PRIVACIDADE, versoes.DPA]);
     return o.id;
 }
 
@@ -74,8 +101,8 @@ const ISO = (c: string) => `to_char((${c}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH2
 export async function lerComprovante(tx: DbExecutor, empresaId: string, contratacaoId: string | null = null): Promise<Comprovante | null> {
     if (!await comprovanteInstalado(tx)) return null;
     const r = (await tx.query<{ contratacao_id: string; registrado_em: string; contratante: Comprovante['contratante']; condicoes: Comprovante['condicoes'];
-        termos_versao: string; privacidade_versao: string; dpa_versao: string; email_enviado_em: string | null; email_falhou_em: string | null }>(
-        `SELECT contratacao_id, ${ISO('registrado_em')} AS registrado_em, contratante, condicoes, termos_versao, privacidade_versao, dpa_versao,
+        prestadora: string; termos_versao: string; privacidade_versao: string; dpa_versao: string; email_enviado_em: string | null; email_falhou_em: string | null }>(
+        `SELECT contratacao_id, ${ISO('registrado_em')} AS registrado_em, contratante, condicoes, prestadora, termos_versao, privacidade_versao, dpa_versao,
                 ${ISO('email_enviado_em')} AS email_enviado_em, ${ISO('email_falhou_em')} AS email_falhou_em
            FROM assinatura_comprovantes WHERE empresa_id = $1::uuid AND ($2::uuid IS NULL OR contratacao_id = $2::uuid)
           ORDER BY registrado_em DESC LIMIT 1`, [empresaId, contratacaoId])).rows[0];
@@ -84,7 +111,7 @@ export async function lerComprovante(tx: DbExecutor, empresaId: string, contrata
         `SELECT documento, versao, hash FROM documentos_legais_versoes WHERE (documento, versao) IN (('TERMOS_USO', $1), ('PRIVACIDADE', $2), ('DPA', $3)) ORDER BY documento`,
         [r.termos_versao, r.privacidade_versao, r.dpa_versao])).rows;
     return { contratacaoId: r.contratacao_id, registradoEm: r.registrado_em, contratante: r.contratante, condicoes: r.condicoes, documentos: docs,
-        fornecedora: IDENTIFICACAO_KIDMAIS, emailEnviadoEm: r.email_enviado_em, emailFalhouEm: r.email_falhou_em };
+        fornecedora: r.prestadora, emailEnviadoEm: r.email_enviado_em, emailFalhouEm: r.email_falhou_em };
 }
 
 /** Texto integral arquivado de uma versão (para a página pública de versões). */
@@ -94,11 +121,17 @@ export async function versaoArquivada(tx: DbExecutor, documento: DocumentoPublic
         `SELECT conteudo, hash, ${ISO('registrado_em')} AS registrado_em FROM documentos_legais_versoes WHERE documento = $1 AND versao = $2`, [documento, versao])).rows[0] ?? null;
 }
 
+/** Texto de uma versão publicada anterior pelo catálogo histórico (sem banco); null se não houver prova do texto. */
+export function versaoDoCatalogo(documento: DocumentoPublicado, versao: string) {
+    const v = VERSOES_PUBLICADAS.find((x) => x.documento === documento && x.versao === versao);
+    return v ? { conteudo: v.conteudo, hash: v.hash } : null;
+}
+
 /** Síntese antes de confirmar (só a Gestão): prestadora, contratante, versões vigentes e o último comprovante. */
 export async function sinteseContratacao(tx: DbExecutor, empresaId: string) {
     return {
         fornecedora: IDENTIFICACAO_KIDMAIS, contratante: await contratanteDaEmpresa(tx, empresaId),
-        documentos: Object.values(DOCUMENTOS).map((d) => ({ documento: d.documento, titulo: TITULO_DOCUMENTO[d.documento], versao: d.versao, rota: d.rota })),
+        documentos: Object.values(DOCUMENTOS).map((d) => ({ documento: d.documento, titulo: TITULO_DOCUMENTO[d.documento], versao: d.versao, hash: hashDocumento(d), rota: d.rota })),
         comprovante: await lerComprovante(tx, empresaId),
     };
 }
