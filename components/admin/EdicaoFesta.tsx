@@ -6,6 +6,7 @@ import type { fontesEdicao } from '@/lib/contratos/services/administrativo.servi
 import type { CatalogoAdicionais, PacoteComercialResumo, ResumoComercial } from '@/lib/comercial/services/models';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import { atalhosConvidados } from '@/lib/fechamentos/convidados';
+import { duracaoDoIntervalo } from '@/lib/disponibilidade/services/horario.utils';
 import { calcularCondicaoComercial } from '@/lib/comercial/condicao-pagamento';
 import { percentualDaForma, type RegrasPagamento } from '@/lib/comercial/regras-pagamento';
 import { formatarMoeda } from '@/lib/contratos/documento/formatters';
@@ -59,7 +60,9 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
         }).catch(e => setErro(e.message));
         return () => { alive = false; };
     }, [url, revisao]);
-    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais) }).toString() : '';
+    // Horário livre: as opções de horário preservam a duração atual do formulário (parecer do Astra, P2).
+    const duracao = form ? duracaoDoIntervalo(form.horarioInicio, form.horarioFim) : null;
+    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais), ...(duracao ? { duracao: String(duracao) } : {}) }).toString() : '';
     useEffect(() => { if (!consulta)
         return; let alive = true; const timer = setTimeout(() => { setCalculando(true); adminFetch(url + '?' + consulta).then(r => r.json()).then(b => { if (!b.ok)
         throw Error(b.erro); if (alive) {
@@ -102,7 +105,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
   <label>Idade no evento<input type="number" min="0" max="120" value={form.idadeAniversarianteEvento ?? ''} onChange={e => patch({ idadeAniversarianteEvento: e.target.value === '' ? null : Number(e.target.value) })}/></label>
   <label>Tema<input value={form.temaFesta} onChange={e => patch({ temaFesta: e.target.value })}/></label>
   <label>Data da festa<input required type="date" value={form.dataEvento} onChange={e => patch({ dataEvento: e.target.value })}/></label>
-  <label>Período<select aria-label="Período" value={form.configuracaoAgendaId} onChange={e => patch({ configuracaoAgendaId: e.target.value })}>{ctx.disponibilidade.periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId}>{p.nome}</option>)}</select></label>
+  <label>Período<select aria-label="Período" value={form.configuracaoAgendaId} onChange={e => patch({ configuracaoAgendaId: e.target.value })}>{!ctx.disponibilidade.periodos.some(p => p.configuracaoId === form.configuracaoAgendaId) && <option value={form.configuracaoAgendaId}>Horário atual da festa (não oferecido agora)</option>}{ctx.disponibilidade.periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId}>{p.nome}</option>)}</select></label>
   <label>Horário<select aria-label="Horário" value={form.horarioInicio + '|' + form.horarioFim} onChange={e => { const [horarioInicio, horarioFim] = e.target.value.split('|'); patch({ horarioInicio, horarioFim }); }}><option value={form.horarioInicio + '|' + form.horarioFim}>{form.horarioInicio}–{form.horarioFim} (selecionado)</option>{periodo?.horarios.map(h => <option disabled={h.status !== 'DISPONIVEL'} key={h.inicio} value={h.inicio + '|' + h.fim}>{h.inicio}–{h.fim} · {h.status}</option>)}</select></label></div><p>Disponibilidade será conferida novamente ao salvar. Consulte a situação da reserva e da proteção provisória no painel da revisão.</p></fieldset></details>
   <details open><summary>Pacote e convidados</summary><fieldset disabled={busy}><div className={styles.grid}><label>Pacote<select aria-label="Pacote" value={form.pacoteId} onChange={e => patch({ pacoteId: e.target.value, buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '', buffetDoces: '', buffetBolo: '', buffetOutros: '', buffetLembrancinha: '', buffetEmpratado: '', buffetBombom: '' })}>{!ctx.pacotes.some(p => p.pacote.id === form.pacoteId) && <option value={form.pacoteId}>Pacote do contrato importado</option>}{ctx.pacotes.map(p => <option key={p.pacote.id} value={p.pacote.id} disabled={p.elegibilidade !== 'DISPONIVEL'}>{p.pacote.nome} · {p.elegibilidade}</option>)}</select></label>
   <label>Convidados pagantes<input required type="number" min={preservarHistorico ? 1 : pacote?.convidadosMinimos ?? 1} max={preservarHistorico ? 5000 : pacote?.convidadosMaximos ?? 150} step="1" value={form.convidados} onChange={e => patch({ convidados: Number(e.target.value) })}/></label></div><div className={styles.actions}>{atalhosConvidados(pacote?.convidadosMinimos ?? 1, pacote?.convidadosMaximos ?? 150).map(n => <button type="button" key={n} onClick={() => patch({ convidados: n })}>{n}</button>)}</div><p>Você também pode digitar a quantidade manualmente.</p></fieldset></details>

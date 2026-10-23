@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 import * as errosPreco from '../../lib/comercial/services/errors.ts';
 import { preservarPrecoHistorico } from '../../lib/fechamentos/revisao-preco.ts';
+import { duracaoDoIntervalo } from '../../lib/disponibilidade/services/horario.utils.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
 const fonte = {
@@ -26,7 +27,7 @@ async function consultar(erroCatalogo: Error = erroPreco) {
     '@/lib/contratos/services/administrativo.service': { versaoDoTenant: async () => ({ versao: { id }, empresaId: id }) },
     '@/lib/contratos/services/revisao-inicial': {},
     '@/lib/fechamentos/services/revisao-operacional.service': { fontesPreparacao: async () => fonte },
-    '@/lib/disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [] }) },
+    '@/lib/disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [] }), duracaoDoIntervalo, duracaoAceita: () => null },
     '@/lib/comercial/composicao': { listarCodigosInclusos: async () => [] },
     '@/lib/comercial/services/errors': errosPreco,
     '@/lib/comercial/regras-pagamento': { lerRegrasPagamento: async () => null },
@@ -61,6 +62,7 @@ test('editor abre sem catálogo, salva cadastro preservando adicionais e bloquei
   const tela = carregarComponente('components/admin/EdicaoFesta.tsx', {
     '@/lib/http/admin-fetch': { adminFetch: async () => Response.json(resposta) },
     '@/lib/fechamentos/convidados': { atalhosConvidados: () => [] },
+    '@/lib/disponibilidade/services/horario.utils': { duracaoDoIntervalo },
     '@/lib/comercial/condicao-pagamento': { calcularCondicaoComercial: () => ({ valorFinalContrato: 7811.5 }) },
     '@/lib/comercial/regras-pagamento': { percentualDaForma: () => 0 },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String },

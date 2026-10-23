@@ -46,9 +46,10 @@ test('Festa invalidada não é ressuscitada nem por reconciliação', async () =
 test('lock e revalidação são statements separados no mesmo executor', async () => {
     const { tx, chamadas } = executor();
     await bloquearAgendaFormalizacao(tx, 'c');
-    assert.equal(chamadas.length, 2);
+    // 094: entre o lock e a revalidação, a escolha do salão (só leitura quando não há fechamento/094).
     assert.match(chamadas[0].sql, /bloquear_contrato/);
-    assert.match(chamadas[1].sql, /validar_destino/);
+    assert.match(chamadas.at(-1)!.sql, /validar_destino/);
+    assert.equal(chamadas.slice(1, -1).every((c) => /^s*SELECT/i.test(c.sql)), true);
 });
 test('criação automática registra sistema, duas assinaturas, request e chave comum sem sessão administrativa', async () => {
     const { tx, chamadas } = executor();

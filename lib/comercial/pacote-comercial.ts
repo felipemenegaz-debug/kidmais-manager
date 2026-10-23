@@ -1,8 +1,9 @@
 import type { DbExecutor } from "../db/contracts.ts";
-import type { FaixaFixa } from "./modelo-preco.ts";
 import { ModeloPrecoError } from "./modelo-preco.ts";
 import { MOTIVOS_PACOTE, motivoOu } from "./motivos-pacote.ts";
-import { aplicarPrecoDaRevisao, copiarPrecosPacote, gravarFaixasPacote, lerFaixasPacote } from "./pacote-precos.ts";
+import { duracaoAceita } from "../disponibilidade/services/horario.utils.ts";
+import { definirSaloesPacote, saloesDoPacote } from "../agenda/configuracao-unidade.ts";
+import { aplicarPrecoDaRevisao, copiarPrecosPacote, gravarFaixasPacote, lerFaixasPacote, type PrecosInformados } from "./pacote-precos.ts";
 import {
   PacoteAdminError,
   consultarPacoteAdmin,
@@ -27,9 +28,12 @@ export type SalvarPacoteComercial = {
   convidadosMinimos: number;
   convidadosMaximos: number;
   disponibilidade: Array<{ dia: number; horarioId: string }>;
-  faixas: FaixaFixa[] | null;
+  /** Faixas (modelo anterior) ou { pontos } por quantidades cheias (092). null mantém o preço atual. */
+  faixas: PrecosInformados | null;
   categorias: Array<{ categoriaId: string; escolhas: number }>;
   itens?: string[];
+  /** 093: salões permitidos (vazio = todos); ausente mantém. */
+  saloes?: string[];
 };
 
 function recusar(code: string, message: string, status: number): never {
@@ -40,7 +44,8 @@ function capacidade(input: SalvarPacoteComercial) {
   if (input.convidadosMaximos < input.convidadosMinimos) {
     recusar("DADOS_INVALIDOS", "O máximo de convidados não pode ser menor que o mínimo.", 409);
   }
-  if (input.duracaoMinutos < 1) recusar("DADOS_INVALIDOS", "Informe a duração da festa.", 409);
+  // Limite único de duração (parecer do Astra, P2-2): o mesmo da agenda.
+  if (duracaoAceita(input.duracaoMinutos) === null) recusar("DADOS_INVALIDOS", "Informe uma duração entre 5 min e 23h59.", 409);
 }
 
 export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: string) {
@@ -69,7 +74,9 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
       ORDER BY categoria_id`,
     [id],
   );
-  const faixas = await lerFaixasPacote(tx, empresaId, id);
+  const faixas = await lerFaixasPacote(tx, empresaId, id, atual.convidadosMinimos != null && atual.convidadosMaximos != null
+    ? { minimo: atual.convidadosMinimos, maximo: atual.convidadosMaximos }
+    : undefined);
   const especificos = await tx.query<{ ok: boolean }>(
     `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS ok`,
   );
@@ -92,6 +99,7 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
     })),
     faixas,
     itens: itens.rows.map((linha) => linha.item_id),
+    saloes: await saloesDoPacote(tx, id),
   };
 }
 
@@ -168,6 +176,7 @@ export async function salvarPacoteComercial(
     if (error instanceof ModeloPrecoError) recusar("DADOS_INVALIDOS", error.message, 409);
     throw error;
   }
+  await definirSaloesPacote(tx, ctx.empresaId, pacote.id, input.saloes);
   return { pacote, avisoPrecos };
 }
 

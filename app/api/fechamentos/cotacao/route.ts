@@ -6,6 +6,7 @@ import { calcularResumoComercial, isPricingServiceError } from "@/lib/comercial/
 import { db } from "@/lib/db/postgres";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { isAvailabilityServiceError, revalidarHorarioSelecionado } from "@/lib/disponibilidade/services";
+import { mensagemPeriodoDoPedido, periodoDoPedido, temPeriodoDoPedido } from "@/lib/fechamentos/comercial-schema";
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
@@ -21,12 +22,14 @@ const entrada = z.object({
   // Id V1 (endereço atual) ou código do pacote da empresa (/b/<código>); traduzido pelo endereço abaixo.
   pacote: z.string().min(1).max(50),
   dataFesta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  horarioBase: z.enum(["almoco", "noite"]),
-  ajusteHorario: z.enum(["-30", "0", "30"]),
+  // Horário configurado (configuracao_agenda.id); horarioBase é o legado TURNO_1/TURNO_2.
+  configuracaoId: z.string().uuid().optional(),
+  horarioBase: z.enum(["almoco", "noite"]).optional(),
+  ajusteHorario: z.string().regex(/^-?\d{1,4}$/),
   horarioInicio: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   horarioFim: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   convidados: z.coerce.number().int().min(1).max(1000),
-});
+}).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
 
 const semCache = { "Cache-Control": "no-store" };
 const CATEGORIA: Record<string, string> = { NOBRE: "Horário nobre", PADRAO: "Horário promocional", GERAL: "Todos os horários" };
@@ -44,7 +47,8 @@ export async function POST(request: NextRequest) {
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     const horario = await revalidarHorarioSelecionado({
       data: dados.data.dataFesta,
-      codigoPeriodo: dados.data.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2",
+      ...periodoDoPedido(dados.data),
+      pacoteCodigo: codigoPacote,
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),

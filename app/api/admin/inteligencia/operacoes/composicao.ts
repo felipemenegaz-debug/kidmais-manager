@@ -6,7 +6,7 @@ import { alterarSituacaoPacoteAdmin, criarRevisaoPacoteAdmin, editarPacoteNaoUti
 import { repositorioOperacoesPostgres } from "@/lib/ia-persistencia/operacoes";
 import { buscarClientesCrm } from "@/lib/clientes/services";
 import { calcularResumoComercial } from "@/lib/comercial/services";
-import { consultarDisponibilidadeData } from "@/lib/disponibilidade/services";
+import { consultarDisponibilidadeData, duracaoDoPacoteDaEmpresa, periodoDoTurno } from "@/lib/disponibilidade/services";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
 import { ehDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
@@ -74,13 +74,18 @@ export const portaContratacao: PortaContratacao = {
   erroConvidados: (codigo, pacote, convidados, dona) => dona
     ? erroConvidadosFechamento(convidados, { id: codigo, nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150 })
     : erroConvidadosEmpresa(convidados, { nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150, limiteCadastrado: pacote.maximo !== null }),
-  async horarios(tx, empresaId, data, turno) {
+  async horarios(tx, empresaId, data, turno, pacoteCodigo) {
     try {
-      // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira.
-      const dia = await consultarDisponibilidadeData(data, tx, undefined, await escopoDaEmpresa(tx, empresaId));
-      const periodo = dia.periodos.find((p) => p.codigo === (turno === "almoco" ? "TURNO_1" : "TURNO_2"));
+      // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira. Horário livre:
+      // duração do pacote vigente da empresa (parecer do Astra, P2).
+      const dia = await consultarDisponibilidadeData(data, tx, undefined, await escopoDaEmpresa(tx, empresaId),
+        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(tx, empresaId, pacoteCodigo) });
+      // 2c-2: TURNO_1/TURNO_2 quando existem; senão o horário mais cedo (almoço) ou mais tarde (noite) da empresa.
+      const periodo = periodoDoTurno(dia.periodos, turno);
       return periodo ? { configuracaoId: periodo.configuracaoId, horarios: periodo.horarios.filter((h) => h.status === "DISPONIVEL").map((h) => ({ inicio: h.inicio, fim: h.fim })) } : null;
-    } catch {
+    } catch (erro) {
+      // Parecer do Astra (P2): cadastro do pacote, não data/turno — a mensagem do Core diz onde corrigir.
+      if ((erro as { code?: string }).code === "PACOTE_DURACAO_INVALIDA") throw new InteligenciaError("PACOTE_DURACAO_INVALIDA", (erro as Error).message, 409);
       return null;
     }
   },

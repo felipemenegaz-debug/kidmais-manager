@@ -47,7 +47,7 @@ const ESTADO_POSTGRES = {
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
-  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
+  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063", tambem: ["094"] },
   // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
   "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
@@ -71,7 +71,7 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
-  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
+  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063", "094"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/uso-custos.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/migration-058.postgres.test.ts": { descartavel: "atual" },
@@ -87,8 +87,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/migration-081.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-082.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/walle-worker.postgres.test.ts": { descartavel: "atual" },
-  "lib/whatsapp/atendimento/walle/agenda-escopo.postgres.test.ts": { descartavel: "063" },
-  "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
+  "lib/whatsapp/atendimento/walle/agenda-escopo.postgres.test.ts": { descartavel: "063", tambem: ["094"] },
+  "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "094"] },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg6-kidmais.postgres.test.ts": { descartavel: "045-sem-040" },
   "lib/saas/hg8-catalogo.postgres.test.ts": { descartavel: "atual" },
@@ -202,10 +202,27 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: o inventário passou a citar as tabelas da 093 (agenda por unidade): modelo 093 (inclui a 092).
+  // 22/10/2026 (gate da agenda): modelo 094 — fechamentos.salao_id e fechamento_revisoes.salao_id no retrato.
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "094" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
-  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "089" },
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "094" },
+  // 22/10/2026: preço por quantidades cheias (092, PONTO), aplicada pela suíte sobre o modelo 089.
+  "lib/comercial/precos-por-quantidade-092.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026: agenda por unidade (093, etapa 2a), aplicada pela suíte sobre o modelo 092.
+  "lib/agenda/configuracao-unidade-093.postgres.test.ts": { descartavel: "092" },
+  // 22/10/2026: capacidade, limite do dia e intervalo na regra de conflito (094, etapa 2b), aplicada pela suíte sobre o modelo 093.
+  "lib/agenda/capacidade-094.postgres.test.ts": { descartavel: "093" },
+  // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
+  // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
+  "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },
+  // Conferência do gate (Astra): remarcação pelos serviços reais com POR_SALAO e COMMIT, deduplicação origem × hold
+  // (capacidade e limite diário) e concorrência determinística (segunda conexão esperando o lock da data).
+  "lib/agenda/remarcacao-salao-094.postgres.test.ts": { descartavel: "094" },
+  // Correções do navegador (22–23/10): revisão de festa importada/nativa no horário fixo que o modo livre deixou de
+  // oferecer, com a regra da 094 (salão com/sem vaga, limite do dia, bloqueio), COMMIT real e outra conexão.
+  "lib/agenda/historico-livre-094.postgres.test.ts": { descartavel: "094" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },

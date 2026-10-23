@@ -1,6 +1,7 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { centavosComerciais } from "./condicao-pagamento.ts";
+import { centavosPorPontos } from "./modelo-preco.ts";
 import { exigirVinculoNaEmpresa, sqlPrecoPacoteMesmaEmpresa } from "./integridade-tenant.ts";
 import { listarPacotesAdmin, PacoteAdminError } from "./pacotes-admin.ts";
 
@@ -84,6 +85,37 @@ export async function simularTabelaPublicada(
   input: { empresaId: string; data: string; pacoteId: string; convidados: number; categoriaHorario: string; sobConsulta: boolean },
 ): Promise<ResultadoSimulacao> {
   if (input.sobConsulta) return { tipo: "SOB_CONSULTA" };
+  // 092: com pontos (quantidades cheias) na tabela de hoje, o valor vem da diferença até o próximo ponto.
+  const pontos = await tx.query<{ convidados: number; valor: string; categoria_horario: string }>(
+    `SELECT pp.convidados_min AS convidados, pp.valor::text AS valor, pp.categoria_horario
+       FROM tabelas_preco t
+       JOIN precos_pacote pp ON pp.tabela_preco_id = t.id AND pp.ativo AND pp.tipo_calculo = 'PONTO'
+      WHERE t.empresa_id = $1::uuid
+        AND t.publicada_em IS NOT NULL
+        AND t.substituida_em IS NULL
+        AND t.vigencia_inicio <= $2::date
+        AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= $2::date)
+        AND pp.pacote_id = $3::uuid
+        AND pp.categoria_horario IN ($4, 'GERAL')
+      ORDER BY pp.convidados_min`,
+    [input.empresaId, input.data, input.pacoteId, input.categoriaHorario],
+  );
+  // Categoria antes do tipo de cálculo (parecer do Astra, P2): pontos só em GERAL não valem se a categoria exata tem preço próprio.
+  const categoriaPropria = pontos.rows.some((p) => p.categoria_horario === input.categoriaHorario)
+    ? false
+    : (await tx.query<{ existe: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM tabelas_preco t JOIN precos_pacote pp ON pp.tabela_preco_id = t.id AND pp.ativo
+        WHERE t.empresa_id = $1::uuid AND t.publicada_em IS NOT NULL AND t.substituida_em IS NULL
+          AND t.vigencia_inicio <= $2::date AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= $2::date)
+          AND pp.pacote_id = $3::uuid AND pp.categoria_horario = $4 AND pp.tipo_calculo <> 'PONTO') AS existe`,
+      [input.empresaId, input.data, input.pacoteId, input.categoriaHorario],
+    )).rows[0]?.existe === true;
+  if (pontos.rows.length > 0 && !categoriaPropria) {
+    const exata = pontos.rows.filter((p) => p.categoria_horario === input.categoriaHorario);
+    const linhas = exata.length > 0 ? exata : pontos.rows;
+    const calculo = centavosPorPontos(linhas.map((p) => ({ convidados: Number(p.convidados), valor: p.valor })), input.convidados);
+    return simularPrecoPacote({ valor: calculo ? (calculo.centavos / 100).toFixed(2) : null, sobConsulta: false });
+  }
   const resultado = await tx.query<{ valor: string | null }>(
     `SELECT pp.valor::text AS valor
        FROM tabelas_preco t

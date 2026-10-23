@@ -290,7 +290,7 @@ function rotaEdicao(estado: { tenant: string; empresaFechamento: string | null; 
         'lib/contratos/services/revisao-inicial.ts': { fonteDaRevisaoInicial: async () => fonte },
         'lib/comercial/services/index.ts': { calcularResumoComercial: async () => { lidos.push('resumo'); return null; },
             listarPacotesComerciais: async (i: any) => { lidos.push('pacotes:' + i.empresaId); return []; }, listarCatalogoAdicionais: async () => [] },
-        'lib/disponibilidade/services/index.ts': { consultarDisponibilidadeData: async () => ({}) },
+        'lib/disponibilidade/services/index.ts': { consultarDisponibilidadeData: async () => ({}), duracaoDoIntervalo: () => null },
         'lib/comercial/composicao.ts': { listarCodigosInclusos: async () => [] },
     }) as any;
     const get = () => rota.GET({ nextUrl: new URL('https://x.invalid/api/admin/contratos/versoes/v1/edicao') }, { params: Promise.resolve({ versaoId: uuid(7) }) });

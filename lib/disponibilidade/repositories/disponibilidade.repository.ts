@@ -8,6 +8,7 @@ import type {
   ConfiguracaoAgendaRecord,
   CriarBloqueioAgendaInput,
   OcupacaoConfirmadaRecord,
+  RegraCapacidadeAgenda,
 } from "./models.ts";
 
 // Escopo (062): toda função abaixo aceita um EscopoAgenda opcional. Sem a 062 instalada as consultas são as
@@ -25,6 +26,8 @@ type ConfiguracaoAgendaRow = {
   passo_inicio_minutos: number;
   ordem_exibicao: number;
   ativo: boolean;
+  dias_semana?: number[] | null;
+  desativado_a_partir_de?: string | null;
 };
 
 type BloqueioAgendaRow = {
@@ -58,6 +61,8 @@ function mapConfiguracao(row: ConfiguracaoAgendaRow): ConfiguracaoAgendaRecord {
     passoInicioMinutos: Number(row.passo_inicio_minutos),
     ordemExibicao: Number(row.ordem_exibicao),
     ativo: row.ativo,
+    diasSemana: Array.isArray(row.dias_semana) ? row.dias_semana.map(Number) : null,
+    desativadoAPartirDe: row.desativado_a_partir_de ?? null,
   };
 }
 
@@ -109,7 +114,11 @@ const configuracaoColumns = `
        tolerancia_inicio_minutos,
        passo_inicio_minutos,
        ordem_exibicao,
-       ativo`;
+       ativo,
+       to_jsonb(configuracao_agenda) -> 'dias_semana' AS dias_semana,
+       to_jsonb(configuracao_agenda) ->> 'desativado_a_partir_de' AS desativado_a_partir_de`;
+/** 093: o horário técnico do modo livre não é um horário fixo oferecido (etapa 2c). */
+const semHorarioLivre = `coalesce((to_jsonb(configuracao_agenda) ->> 'horario_livre')::boolean, false) = false`;
 
 const parametrosEscopo = (escopo?: EscopoAgenda) => [escopo?.empresaId ?? null, escopo?.estabelecimentoId ?? null];
 
@@ -126,7 +135,7 @@ export async function listarConfiguracoesAgendaAtivas(
     const result = await ex.query<ConfiguracaoAgendaRow>(
       `SELECT ${configuracaoColumns}
      FROM configuracao_agenda
-     WHERE ativo = true
+     WHERE ativo = true AND ${semHorarioLivre}
      ORDER BY ordem_exibicao ASC, codigo ASC`,
     );
     return result.rows.map(mapConfiguracao);
@@ -137,11 +146,12 @@ export async function listarConfiguracoesAgendaAtivas(
               CASE WHEN estabelecimento_id IS NOT NULL THEN 2 WHEN empresa_id IS NOT NULL THEN 1 ELSE 0 END AS nivel
          FROM configuracao_agenda
         WHERE ativo = true
+          AND ${semHorarioLivre}
           AND (empresa_id IS NULL
                OR (empresa_id = $1::uuid AND (estabelecimento_id IS NULL OR estabelecimento_id = $2::uuid)))
      )
      SELECT id, codigo, nome, horario_inicio_padrao, horario_fim_padrao, tolerancia_inicio_minutos,
-            passo_inicio_minutos, ordem_exibicao, ativo
+            passo_inicio_minutos, ordem_exibicao, ativo, dias_semana, desativado_a_partir_de
        FROM candidatas
       WHERE nivel = (SELECT max(nivel) FROM candidatas)
       ORDER BY ordem_exibicao ASC, codigo ASC`,
@@ -346,6 +356,57 @@ export async function existeBloqueioAgendaAtivoExato(
   return result.rows[0]?.existe === true;
 }
 
+/** 094 instalada: a regra de conflito considera capacidade, limite do dia, intervalo e salão. */
+export async function capacidadeAgendaInstalada(customDb?: DbExecutor) {
+  const r = await executor(customDb).query<{ ok: boolean }>(
+    `SELECT to_regprocedure('public.kidmais094_conflito_ocupacao(uuid,date,time without time zone,time without time zone,uuid,uuid,uuid,uuid)') IS NOT NULL AS ok`,
+  );
+  return r.rows[0]?.ok === true;
+}
+
+/** 094: regra do escopo configurado na 093; null quando o escopo não foi configurado (regra de antes). */
+export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda): Promise<RegraCapacidadeAgenda | null> {
+  const ex = executor(customDb);
+  if (!escopo?.empresaId || !(await capacidadeAgendaInstalada(ex))) return null;
+  const config = await ex.query<{ modo: "FIXO" | "LIVRE"; capacidade_tipo: "POR_HORARIO" | "POR_SALAO"; limite_festas_dia: number | null; intervalo_minimo_minutos: number }>(
+    `SELECT modo, capacidade_tipo, limite_festas_dia, intervalo_minimo_minutos FROM agenda_escopo_config
+      WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`,
+    [escopo.empresaId, escopo.estabelecimentoId ?? null],
+  );
+  const c = config.rows[0];
+  if (!c) return null;
+  const horarios = await ex.query<{ id: string; capacidade: number; saloes: string[] | null }>(
+    `SELECT ca.id::text AS id, ca.capacidade,
+            array_agg(cs.salao_id::text) FILTER (WHERE cs.salao_id IS NOT NULL) AS saloes
+       FROM configuracao_agenda ca LEFT JOIN configuracao_agenda_saloes cs ON cs.configuracao_agenda_id = ca.id
+      WHERE ca.empresa_id = $1::uuid AND ca.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+      GROUP BY ca.id, ca.capacidade`,
+    [escopo.empresaId, escopo.estabelecimentoId ?? null],
+  );
+  const saloes = await ex.query<{ id: string }>(
+    `SELECT id::text AS id FROM agenda_saloes WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`,
+    [escopo.empresaId, escopo.estabelecimentoId ?? null],
+  );
+  // Modo livre: o horário técnico do escopo (preço, disponibilidade e descontos por dia da semana).
+  const livre = c.modo === "LIVRE"
+    ? await ex.query<ConfiguracaoAgendaRow>(
+      `SELECT ${configuracaoColumns} FROM configuracao_agenda
+        WHERE ativo AND horario_livre AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`,
+      [escopo.empresaId, escopo.estabelecimentoId ?? null],
+    )
+    : null;
+  return {
+    modo: c.modo,
+    horarioLivre: livre?.rows[0] ? mapConfiguracao(livre.rows[0]) : null,
+    capacidadeTipo: c.capacidade_tipo,
+    limiteFestasDia: c.limite_festas_dia == null ? null : Number(c.limite_festas_dia),
+    intervaloMinimoMinutos: Number(c.intervalo_minimo_minutos),
+    capacidadePorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, Number(h.capacidade)])),
+    saloesPorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, h.saloes ?? []])),
+    saloesDoEscopo: saloes.rows.map((s) => s.id),
+  };
+}
+
 export async function listarFechamentosConfirmadosPorPeriodo(
   inicio: string,
   fim: string,
@@ -354,6 +415,24 @@ export async function listarFechamentosConfirmadosPorPeriodo(
 ): Promise<OcupacaoConfirmadaRecord[]> {
   const ex = executor(customDb);
   const v062 = await agendaPorEscopoInstalada(ex);
+  if (v062 && (await capacidadeAgendaInstalada(ex))) {
+    const r = await ex.query<{ fechamento_id: string; data: string; horario_inicio: string; horario_fim: string; configuracao_agenda_id: string | null; salao_id: string | null }>(
+      `SELECT fechamento_id, data::text AS data, horario_inicio::text AS horario_inicio, horario_fim::text AS horario_fim,
+              configuracao_agenda_id::text AS configuracao_agenda_id, salao_id::text AS salao_id
+         FROM kidmais094_ocupacoes($1::date,$2::date) o
+        WHERE kidmais062_mesmo_recurso($3::uuid, $4::uuid, o.empresa_id, o.estabelecimento_id)
+        ORDER BY data ASC, horario_inicio ASC`,
+      [inicio, fim, ...parametrosEscopo(escopo)],
+    );
+    return r.rows.map((row) => ({
+      fechamentoId: row.fechamento_id,
+      data: row.data,
+      horarioInicio: row.horario_inicio,
+      horarioFim: row.horario_fim,
+      configuracaoAgendaId: row.configuracao_agenda_id,
+      salaoId: row.salao_id,
+    }));
+  }
   const result = await ex.query<{
     fechamento_id: string;
     data: string;
@@ -420,11 +499,28 @@ export async function verificarConflitoAgendaParaConfirmacao(
 ): Promise<{ bloqueioAgenda: boolean; fechamentoConfirmado: boolean }> {
   const ex = executor(customDb);
   const v062 = await agendaPorEscopoInstalada(ex);
+  const v094 = v062 && (await capacidadeAgendaInstalada(ex));
   const result = await ex.query<{
     bloqueio_agenda: boolean;
     fechamento_confirmado: boolean;
   }>(
-    v062
+    v094
+      ? `WITH alvo AS (
+         SELECT empresa_id AS e, estabelecimento_id AS u, configuracao_agenda_id AS c, salao_id AS s FROM fechamentos WHERE id = $1::uuid
+       )
+       SELECT
+       EXISTS (
+         SELECT 1
+           FROM bloqueios_agenda b, alvo
+          WHERE b.ativo = true
+            AND b.data = $2::date
+            AND kidmais062_bloqueio_aplica(b.empresa_id, b.estabelecimento_id, alvo.e, alvo.u)
+            AND (b.dia_inteiro = true OR b.horario_inicio IS NULL OR b.horario_fim IS NULL
+                 OR (b.horario_inicio < $4::time AND b.horario_fim > $3::time))
+       ) AS bloqueio_agenda,
+       coalesce((SELECT kidmais094_conflito_ocupacao($1::uuid, $2::date, $3::time, $4::time, alvo.e, alvo.u, alvo.c, alvo.s) FROM alvo), true)
+         AS fechamento_confirmado`
+      : v062
       ? `WITH alvo AS (
          SELECT (SELECT empresa_id FROM fechamentos WHERE id = $1::uuid) AS e,
                 (SELECT estabelecimento_id FROM fechamentos WHERE id = $1::uuid) AS u

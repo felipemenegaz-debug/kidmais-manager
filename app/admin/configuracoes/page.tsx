@@ -3,6 +3,7 @@ import styles from '@/components/admin/workspace.module.css';
 
 const cards: CartaoConfiguracao[] = [
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
+  { route:'agenda', title:'Agenda', text:'Horários de festa, salões, quantas festas por dia e o intervalo entre elas, por unidade.', icon:'calendar' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'importar-tabela', title:'Importar tabela de preços', text:'Envie o PDF da tabela: pacotes, preços e adicionais são lidos para você revisar antes de publicar.', icon:'pdf' },
   { route:'modelo-contrato', title:'Modelo de contrato', text:'Envie o contrato da loja em PDF: os contratos passam a sair no padrão da empresa, com os dados de cada festa.', icon:'pdf' },

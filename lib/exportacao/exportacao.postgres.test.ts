@@ -102,7 +102,7 @@ test('PDF em blocos no PostgreSQL: o filtro da empresa vale em cada bloco (id de
 });
 
 /**
- * Exportação verificável no PostgreSQL descartável, modelo 089 (inventário inteiro até a 089 da devolução). Só pelo
+ * Exportação verificável no PostgreSQL descartável, modelo 093 (inventário inteiro até a 093 da agenda por unidade). Só pelo
  * check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; dados sintéticos de DUAS empresas. Prova:
  *   1. completude: toda tabela do schema está no inventário ou em FORA_DO_ESCOPO; colunas exportadas = retrato;
  *   2. pacote: ZIP legível, SHA-256 de cada arquivo = manifesto = SHA256SUMS, linhas do CSV = manifesto = contagem
@@ -113,7 +113,7 @@ test('PDF em blocos no PostgreSQL: o filtro da empresa vale em cada bloco (id de
  *   5. auditoria só com contagens e hashes; limites recusam o pacote inteiro.
  * Os cenários adversariais da revisão independente estão em exportacao-adversarial.postgres.test.ts.
  */
-test("exportação: completude do inventário e retrato das colunas no schema 089", { timeout: 120_000 }, async (t) => {
+test("exportação: completude do inventário e retrato das colunas no schema 094", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
@@ -121,7 +121,7 @@ test("exportação: completude do inventário e retrato das colunas no schema 08
     const noInventario = new Set(ENTIDADES.map((e) => e.tabela));
     const semDecisao = tabelas.filter((t) => !noInventario.has(t) && !Object.hasOwn(FORA_DO_ESCOPO, t));
     assert.deepEqual(semDecisao, [], "tabela nova precisa entrar no inventário ou em FORA_DO_ESCOPO com motivo");
-    for (const e of ENTIDADES) assert.ok(tabelas.includes(e.tabela), `${e.tabela} existe no schema 089`);
+    for (const e of ENTIDADES) assert.ok(tabelas.includes(e.tabela), `${e.tabela} existe no schema 094`);
 
     // Pacote de uma empresa vazia: o manifesto traz as colunas efetivamente exportadas de cada tabela.
     await c.query("BEGIN");

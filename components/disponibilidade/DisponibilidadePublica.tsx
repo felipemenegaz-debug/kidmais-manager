@@ -6,6 +6,7 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/
 import PacotesPdf from "@/components/fechamento/PacotesPdf";
 import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
+import { horarioLegadoDoCodigo } from "@/components/fechamento/periodos";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -50,9 +51,7 @@ function formatarData(dataIso: string) {
   }).format(new Date(Date.UTC(ano, mes - 1, dia)));
 }
 
-function basePeriodo(codigo: string) {
-  return codigo === "TURNO_1" ? "almoco" : "noite";
-}
+
 
 async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: string | null) {
   const inicio = iso(ano, mes, 1);
@@ -151,13 +150,15 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
     const params = new URLSearchParams({
       origem: "DISPONIBILIDADE",
       data: dataSelecionada,
-      periodo: basePeriodo(periodoSelecionado.codigo),
       codigoPeriodo: periodoSelecionado.codigo,
       configuracaoId: periodoSelecionado.configuracaoId,
       inicio: horarioSelecionado.inicio,
       fim: horarioSelecionado.fim,
       ajuste: String(horarioSelecionado.ajusteMinutos),
     });
+    // Legado almoco/noite só existe para TURNO_1/TURNO_2; os demais horários seguem só pelo configuracaoId.
+    const legado = horarioLegadoDoCodigo(periodoSelecionado.codigo);
+    if (legado) params.set("periodo", legado);
 
     router.push(`${paginaPublica("/fechamento", empresa)}?${params.toString()}`);
   }
@@ -288,7 +289,8 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                         <span>{periodo.codigo === "TURNO_1" ? "☀" : "✦"}</span>
                         <div>
                           <strong>{periodo.nome}</strong>
-                          <small>{periodo.horarioInicioPadrao}–{periodo.horarioFimPadrao}</small>
+                          {/* 2d: horário livre — o cliente escolhe a hora de início (sem faixa fixa). */}
+                          <small>{periodo.codigo === "HORARIO_LIVRE" ? "Você escolhe a hora de início" : `${periodo.horarioInicioPadrao}–${periodo.horarioFimPadrao}`}</small>
                           <b>{periodo.status === "DISPONIVEL" ? "Disponível" : "Indisponível"}</b>
                         </div>
                       </button>
@@ -301,13 +303,15 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                     <div className={styles.stepHeading}>
                       <span>3</span>
                       <div>
-                        <strong>Escolha o horário exato</strong>
-                        <small>O horário padrão aparece no centro das opções.</small>
+                        <strong>{periodoSelecionado.codigo === "HORARIO_LIVRE" ? "Escolha a hora de início" : "Escolha o horário exato"}</strong>
+                        <small>{periodoSelecionado.codigo === "HORARIO_LIVRE" ? "Aparecem só os inícios livres nesse dia." : "O horário padrão aparece no centro das opções."}</small>
                       </div>
                     </div>
 
                     <div className={styles.timeList}>
-                      {periodoSelecionado.horarios.map((horario) => {
+                      {periodoSelecionado.horarios
+                        .filter((horario) => periodoSelecionado.codigo !== "HORARIO_LIVRE" || horario.status === "DISPONIVEL")
+                        .map((horario) => {
                         const indisponivel = horario.status !== "DISPONIVEL";
                         const selecionado = horarioSelecionado?.inicio === horario.inicio && horarioSelecionado?.fim === horario.fim;
                         return (

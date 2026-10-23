@@ -23,16 +23,21 @@ import {
 import {
   calcularTotalPagamento,
   formatarMoedaDigitada,
-  horarioExibicao,
-  intervaloHorario,
   moedaParaNumero,
   numeroParaMoeda,
 } from "./calculos";
 import {
-  AjusteHorario,
   FechamentoForm,
   PacoteId,
 } from "./types";
+import {
+  candidatoPreferido,
+  candidatosDisponiveis,
+  codigoDoHorarioLegado,
+  horarioLegadoDoCodigo,
+  rotuloAjuste,
+} from "./periodos";
+import type { HorarioCandidatoPublico, PeriodoDisponibilidadePublica } from "@/lib/disponibilidade/services/models";
 import {
   aplicarDesconto,
   descontoEfetivo,
@@ -125,8 +130,11 @@ const OPCOES_VISIVEIS_BUFFET = 12;
 
 const FORM_INICIAL: FechamentoForm = {
   dataFesta: "",
+  configuracaoId: "",
   horarioBase: "",
   ajusteHorario: "0",
+  horarioInicio: "",
+  horarioFim: "",
   statusDisponibilidade: "",
 
   pacote: "",
@@ -254,8 +262,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro';codigo?:string}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
-  const [ajustesDisponiveis, setAjustesDisponiveis] =
-    useState<AjusteHorario[]>([]);
+  // Candidatos livres do horário escolhido na data e os horários configurados do dia (qualquer quantidade).
+  const [candidatosHorario, setCandidatosHorario] =
+    useState<HorarioCandidatoPublico[]>([]);
+  const [periodosDoDia, setPeriodosDoDia] =
+    useState<PeriodoDisponibilidadePublica[]>([]);
   const [origemInterna, setOrigemInterna] = useState(false);
   const [preselecaoDisponibilidade, setPreselecaoDisponibilidade] = useState(false);
   const [entradaResolvida, setEntradaResolvida] = useState(false);
@@ -372,21 +383,18 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       const origemDisponibilidade = params.get("origem") === "DISPONIBILIDADE";
       const dataPreselecionada = params.get("data") ?? "";
-      const periodoParam = params.get("periodo");
+      // Horário configurado: configuracaoId (atual); senão codigoPeriodo; senão o legado periodo=almoco|noite.
+      const configuracaoIdParam = params.get("configuracaoId") ?? "";
+      const codigoPeriodoParam =
+        params.get("codigoPeriodo") || codigoDoHorarioLegado(params.get("periodo")) || "";
       const ajusteParam = params.get("ajuste");
       const inicioParam = params.get("inicio");
       const fimParam = params.get("fim");
-      const horarioBasePreselecionado =
-        periodoParam === "almoco" || periodoParam === "noite"
-          ? periodoParam
-          : null;
       const ajustePreselecionado =
-        ajusteParam === "-30" || ajusteParam === "0" || ajusteParam === "30"
-          ? ajusteParam
-          : null;
+        ajusteParam && /^-?\d{1,3}$/.test(ajusteParam) ? ajusteParam : null;
       const parametrosDisponibilidadeValidos =
         /^\d{4}-\d{2}-\d{2}$/.test(dataPreselecionada) &&
-        Boolean(horarioBasePreselecionado) &&
+        Boolean(configuracaoIdParam || codigoPeriodoParam) &&
         Boolean(ajustePreselecionado) &&
         /^([01]\d|2[0-3]):[0-5]\d$/.test(inicioParam ?? "") &&
         /^([01]\d|2[0-3]):[0-5]\d$/.test(fimParam ?? "");
@@ -404,7 +412,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       if (
         origemDisponibilidade &&
-        horarioBasePreselecionado &&
+        (configuracaoIdParam || codigoPeriodoParam) &&
         ajustePreselecionado &&
         inicioParam &&
         fimParam
@@ -416,12 +424,14 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           );
           if (!resposta.ok) throw new Error();
           const json = await resposta.json();
-          const codigo = horarioBasePreselecionado === "almoco" ? "TURNO_1" : "TURNO_2";
-          const periodo = json.data?.periodos?.find(
-            (item: { codigo?: string }) => item.codigo === codigo,
+          const periodos: PeriodoDisponibilidadePublica[] = json.data?.periodos ?? [];
+          const periodo = periodos.find((item) =>
+            configuracaoIdParam
+              ? item.configuracaoId === configuracaoIdParam
+              : item.codigo === codigoPeriodoParam,
           );
           const candidato = periodo?.horarios?.find(
-            (item: { inicio?: string; fim?: string; ajusteMinutos?: number; status?: string }) =>
+            (item) =>
               item.ajusteMinutos === Number(ajustePreselecionado) &&
               item.inicio === inicioParam &&
               item.fim === fimParam,
@@ -429,7 +439,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
           if (cancelado) return;
 
-          if (!candidato || candidato.status !== "DISPONIVEL") {
+          if (!periodo || !candidato || candidato.status !== "DISPONIVEL") {
             setErro(
               "O horário escolhido não está mais disponível. Volte à disponibilidade e escolha uma nova opção.",
             );
@@ -438,24 +448,22 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             return;
           }
 
-          const ajustes = (periodo.horarios ?? [])
-            .filter((item: { status?: string }) => item.status === "DISPONIVEL")
-            .map((item: { ajusteMinutos?: number }) => String(item.ajusteMinutos))
-            .filter((item: string): item is AjusteHorario =>
-              item === "-30" || item === "0" || item === "30",
-            );
-
           setConfigDisponibilidade({
             agenda: [],
             pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
             descontos: json.comercial?.descontos ?? [],
           });
-          setAjustesDisponiveis(ajustes);
+          setCandidatosHorario(candidatosDisponiveis(periodo));
+          setPeriodosDoDia(periodos);
+          // Início e fim vêm do candidato escolhido, exatamente como a agenda devolveu.
           setForm((anterior) => ({
             ...anterior,
             dataFesta: dataPreselecionada,
-            horarioBase: horarioBasePreselecionado,
-            ajusteHorario: ajustePreselecionado,
+            configuracaoId: periodo.configuracaoId,
+            horarioBase: horarioLegadoDoCodigo(periodo.codigo),
+            ajusteHorario: String(candidato.ajusteMinutos),
+            horarioInicio: candidato.inicio,
+            horarioFim: candidato.fim,
             statusDisponibilidade: "disponivel",
           }));
           setPreselecaoDisponibilidade(true);
@@ -489,15 +497,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     };
   }, [router, empresa]);
 
-  const horario = useMemo(
-    () => horarioExibicao(form.horarioBase, form.ajusteHorario),
-    [form.horarioBase, form.ajusteHorario]
-  );
-
+  // Início e fim do candidato escolhido (a agenda é a fonte; nada é recalculado na tela).
   const intervaloSelecionado = useMemo(
-    () => intervaloHorario(form.horarioBase, form.ajusteHorario),
-    [form.horarioBase, form.ajusteHorario],
+    () => form.horarioInicio && form.horarioFim ? { inicio: form.horarioInicio, fim: form.horarioFim } : null,
+    [form.horarioInicio, form.horarioFim],
   );
+  const horario = intervaloSelecionado ? `${intervaloSelecionado.inicio} às ${intervaloSelecionado.fim}` : "";
 
   const indicesEtapasVisiveis = preselecaoDisponibilidade
     ? [0, 2, 3, 4, 5, 6, 7, 8]
@@ -510,8 +515,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Preço do pacote: cotação do servidor, o mesmo cálculo do envio (tabela publicada, horário, faixa e desconto).
   const inicioCotacao = intervaloSelecionado?.inicio ?? '';
   const fimCotacao = intervaloSelecionado?.fim ?? '';
-  const chaveCotacao = form.pacote && form.dataFesta && form.horarioBase && inicioCotacao && convidados >= 1
-    ? [form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
+  const chaveCotacao = form.pacote && form.dataFesta && form.configuracaoId && inicioCotacao && convidados >= 1
+    ? [form.pacote, form.dataFesta, form.configuracaoId, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
     : null;
   const [cotacao, setCotacao] = useState<{ chave: string; estado: 'ok' | 'erro'; dados?: Cotacao; erro?: string } | null>(null);
   useEffect(() => {
@@ -520,7 +525,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     const temporizador = setTimeout(() => {
       void fetch(apiPublica('/api/fechamentos/cotacao', empresa), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
-        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, horarioBase: form.horarioBase, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
+        // horarioBase (legado) só vai para TURNO_1/TURNO_2; o servidor revalida pelo configuracaoId.
+        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, configuracaoId: form.configuracaoId, horarioBase: form.horarioBase || undefined, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
       }).then(async (r) => {
         const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
         if (controller.signal.aborted) return;
@@ -529,7 +535,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined, undefined, marca.equipe) }); });
     }, 250);
     return () => { clearTimeout(temporizador); controller.abort(); };
-  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.configuracaoId, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
   // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
@@ -591,6 +597,21 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     valor: FechamentoForm[K]
   ) {
     setForm((anterior) => ({ ...anterior, [campo]: valor }));
+    setErro("");
+  }
+
+  /** Troca (ou limpa) o horário configurado: data e início precisam ser escolhidos de novo. */
+  function limparHorario(horarioEscolhido: Pick<FechamentoForm, "configuracaoId" | "horarioBase">) {
+    setCandidatosHorario([]);
+    setForm((anterior) => ({
+      ...anterior,
+      ...horarioEscolhido,
+      dataFesta: "",
+      statusDisponibilidade: "",
+      ajusteHorario: "0",
+      horarioInicio: "",
+      horarioFim: "",
+    }));
     setErro("");
   }
 
@@ -912,7 +933,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   async function revalidarHorarioAtual() {
-    if (!form.dataFesta || !form.horarioBase || !intervaloSelecionado) {
+    if (!form.dataFesta || !form.configuracaoId || !intervaloSelecionado) {
       setErro("Escolha uma data e um horário válidos para continuar.");
       return false;
     }
@@ -920,37 +941,35 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     setValidandoDisponibilidade(true);
     try {
       const resposta = await fetch(
-        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}`, empresa),
+        // 2c-2: no horário livre, o fim vem da duração do pacote escolhido.
+        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}${fato?.duracaoMinutos ? `&duracao=${fato.duracaoMinutos}` : ""}`, empresa),
         { cache: "no-store" },
       );
       if (!resposta.ok) throw new Error();
 
       const json = await resposta.json();
-      const codigo = form.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2";
-      const periodo = json.data?.periodos?.find(
-        (item: { codigo?: string }) => item.codigo === codigo,
-      );
+      const periodos: PeriodoDisponibilidadePublica[] = json.data?.periodos ?? [];
+      const periodo = periodos.find((item) => item.configuracaoId === form.configuracaoId);
+      const livre = periodo?.codigo === "HORARIO_LIVRE";
       const candidato = periodo?.horarios?.find(
-        (item: { inicio?: string; fim?: string; ajusteMinutos?: number; status?: string }) =>
+        (item) =>
           item.inicio === intervaloSelecionado.inicio &&
-          item.fim === intervaloSelecionado.fim &&
+          (livre || item.fim === intervaloSelecionado.fim) &&
           item.ajusteMinutos === Number(form.ajusteHorario),
       );
+      if (livre && candidato && candidato.fim !== intervaloSelecionado.fim) {
+        setForm((atual) => ({ ...atual, horarioFim: candidato.fim }));
+      }
 
-      if (!candidato || candidato.status !== "DISPONIVEL") {
+      if (!periodo || !candidato || candidato.status !== "DISPONIVEL") {
         setErro(
           "Este horário não está mais disponível. Volte à disponibilidade e escolha uma nova opção.",
         );
         return false;
       }
 
-      const ajustes = (periodo.horarios ?? [])
-        .filter((item: { status?: string }) => item.status === "DISPONIVEL")
-        .map((item: { ajusteMinutos?: number }) => String(item.ajusteMinutos))
-        .filter((item: string): item is AjusteHorario =>
-          item === "-30" || item === "0" || item === "30",
-        );
-      setAjustesDisponiveis(ajustes);
+      setCandidatosHorario(candidatosDisponiveis(periodo));
+      setPeriodosDoDia(periodos);
       setConfigDisponibilidade({
         agenda: [],
         pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
@@ -984,7 +1003,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       preselecaoDisponibilidade &&
       form.pacote &&
       form.dataFesta &&
-      form.horarioBase
+      form.configuracaoId
     ) {
       const comercial = statusDataPacote(
         configDisponibilidade,
@@ -992,6 +1011,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         form.dataFesta,
         form.horarioBase,
         regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote),
+        form.configuracaoId,
       );
       if (comercial.status === "indisponivel") {
         setErro(
@@ -1004,7 +1024,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
     if (
       etapa === 1 &&
-      (!form.dataFesta || !form.horarioBase || !form.statusDisponibilidade)
+      (!form.dataFesta || !form.configuracaoId || !intervaloSelecionado || !form.statusDisponibilidade)
     ) {
       setErro("Escolha o horário e uma data no calendário.");
       return false;
@@ -1149,7 +1169,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     if (!validarEtapaAtual()) return;
 
     const aindaDisponivel = await revalidarHorarioAtual();
-    if (!aindaDisponivel || !intervaloSelecionado || !form.horarioBase) return;
+    if (!aindaDisponivel || !intervaloSelecionado || !form.configuracaoId) return;
 
     setEnviando(true);
     setErro("");
@@ -1182,6 +1202,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             valorParcela: form.pixParcela ? form.pixParcela.replace(",", ".") : null,
             quantidadeParcelas: form.pixQuantidade ? Number(form.pixQuantidade) : null,
           } : null,
+          // Horário configurado; horarioBase (legado) só para TURNO_1/TURNO_2.
+          configuracaoId: form.configuracaoId,
+          horarioBase: form.horarioBase || undefined,
           horarioInicio: intervaloSelecionado.inicio,
           horarioFim: intervaloSelecionado.fim,
           horarioExibicao: horario,
@@ -1389,7 +1412,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       if (
                         preselecaoDisponibilidade &&
                         form.dataFesta &&
-                        form.horarioBase
+                        form.configuracaoId
                       ) {
                         const comercial = statusDataPacote(
                           configDisponibilidade,
@@ -1397,6 +1420,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           form.dataFesta,
                           form.horarioBase,
                           regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, novoPacote),
+                          form.configuracaoId,
                         );
                         atualizar(
                           "statusDisponibilidade",
@@ -1411,10 +1435,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         return;
                       }
 
-                      atualizar("dataFesta", "");
-                      atualizar("horarioBase", "");
-                      atualizar("statusDisponibilidade", "");
-                      setAjustesDisponiveis([]);
+                      limparHorario({ configuracaoId: "", horarioBase: "" });
                 }}
               />
               {!marca.kidmais && pacotesDaEtapa?.length === 0 && <ContatoEmpresa nome={marca.nome} contato={marca.contato} />}
@@ -1464,7 +1485,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   : "O horário funciona como filtro do calendário. Assim cada dia mostra um único status, sem misturar disponibilidade da manhã e da noite."}
               </StepTitle>
 
-              {preselecaoDisponibilidade && form.dataFesta && form.horarioBase ? (
+              {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
                   <strong>Data e horário selecionados antes do fechamento</strong>
                   <p>
@@ -1526,41 +1547,29 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 </small>
               </div>
 
-              <div className={styles.fieldGroup}>
-                <span className={styles.groupLabel}>1. Escolha o período</span>
-                <div className={styles.optionGridTwo}>
-                  <ChoiceCard
-                    selected={form.horarioBase === "almoco"}
-                    icon="☀"
-                    title="11h às 15h"
-                    text="Ver disponibilidade deste horário"
-                    onClick={() => {
-                      setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", "almoco");
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
-                    }}
-                  />
-                  <ChoiceCard
-                    selected={form.horarioBase === "noite"}
-                    icon="✦"
-                    title="17h às 21h"
-                    text="Ver disponibilidade deste horário"
-                    onClick={() => {
-                      setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", "noite");
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
-                    }}
-                  />
+              {periodosDoDia.length > 0 ? (
+                <div className={styles.fieldGroup}>
+                  <span className={styles.groupLabel}>1. Escolha o horário</span>
+                  {/* Horários configurados da agenda (qualquer quantidade); trocar refaz a escolha da data. */}
+                  <div className={styles.optionGridTwo}>
+                    {periodosDoDia.map((periodo) => (
+                      <ChoiceCard
+                        key={periodo.configuracaoId}
+                        selected={form.configuracaoId === periodo.configuracaoId}
+                        icon={periodo.codigo === "TURNO_1" ? "☀" : "✦"}
+                        title={periodo.nome || `${periodo.horarioInicioPadrao} às ${periodo.horarioFimPadrao}`}
+                        text={`${periodo.horarioInicioPadrao}–${periodo.horarioFimPadrao} · ver disponibilidade deste horário`}
+                        onClick={() => {
+                          setPreselecaoDisponibilidade(false);
+                          limparHorario({ configuracaoId: periodo.configuracaoId, horarioBase: horarioLegadoDoCodigo(periodo.codigo) });
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
-              {form.horarioBase ? (
+              {pacote ? (
                 <>
                   <span className={styles.calendarSectionLabel}>2. Escolha a data</span>
 
@@ -1583,28 +1592,31 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     descontoDiaUtil={pagamento.descontoDiaUtil}
                     pacote={form.pacote as PacoteId}
                     regrasPacote={regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote)}
-                    horario={form.horarioBase}
+                    duracaoMinutos={fato?.duracaoMinutos ?? null}
+                    configuracaoId={form.configuracaoId}
                     dataSelecionada={form.dataFesta}
-                    onSelecionar={(data, status, ajustes) => {
+                    onSelecionar={(data, status, candidatos, periodo, periodos) => {
                       setPreselecaoDisponibilidade(false);
-                      atualizar("dataFesta", data);
-                      atualizar("statusDisponibilidade", status);
-                      setAjustesDisponiveis(ajustes);
-
-                      if (data) {
-                        const preferido: AjusteHorario = ajustes.includes("0")
-                          ? "0"
-                          : ajustes[0] ?? "0";
-                        atualizar("ajusteHorario", preferido);
-                      }
+                      setCandidatosHorario(candidatos);
+                      if (periodos.length > 0) setPeriodosDoDia(periodos);
+                      const preferido = candidatoPreferido(candidatos);
+                      setForm((anterior) => ({
+                        ...anterior,
+                        dataFesta: data,
+                        statusDisponibilidade: status,
+                        ...(periodo ? {
+                          configuracaoId: periodo.configuracaoId,
+                          horarioBase: horarioLegadoDoCodigo(periodo.codigo),
+                        } : {}),
+                        ajusteHorario: preferido ? String(preferido.ajusteMinutos) : "0",
+                        horarioInicio: preferido?.inicio ?? "",
+                        horarioFim: preferido?.fim ?? "",
+                      }));
                     }}
-                    onTrocarHorario={(novoHorario) => {
+                    onTrocarHorario={(novoId) => {
                       setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", novoHorario);
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
+                      const periodo = periodosDoDia.find((item) => item.configuracaoId === novoId);
+                      limparHorario({ configuracaoId: novoId, horarioBase: horarioLegadoDoCodigo(periodo?.codigo) });
                     }}
                     onConfigChange={setConfigDisponibilidade}
                   />
@@ -1615,7 +1627,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <div className={styles.infoBox}>
                   <strong>Escolha um horário para visualizar o calendário.</strong>
                   <p>
-                    As cores são calculadas separadamente para 11h–15h e 17h–21h.
+                    As cores são calculadas separadamente para cada horário configurado.
                   </p>
                 </div>
               )}
@@ -1623,26 +1635,32 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {form.dataFesta && (
                 <>
                   <label className={styles.field}>
-                    <span>Ajuste do início</span>
+                    <span>Início da festa</span>
                     <select
                       value={form.ajusteHorario}
-                      onChange={(e) =>
-                        atualizar(
-                          "ajusteHorario",
-                          e.target.value as "-30" | "0" | "30"
-                        )
-                      }
+                      onChange={(e) => {
+                        const escolhido = candidatosHorario.find((item) => String(item.ajusteMinutos) === e.target.value);
+                        if (!escolhido) return;
+                        setForm((anterior) => ({
+                          ...anterior,
+                          ajusteHorario: String(escolhido.ajusteMinutos),
+                          horarioInicio: escolhido.inicio,
+                          horarioFim: escolhido.fim,
+                        }));
+                      }}
                     >
-                      <option value="-30" disabled={!ajustesDisponiveis.includes("-30")}>30 minutos antes</option>
-                      <option value="0" disabled={!ajustesDisponiveis.includes("0")}>Horário-base</option>
-                      <option value="30" disabled={!ajustesDisponiveis.includes("30")}>30 minutos depois</option>
+                      {candidatosHorario.map((item) => (
+                        <option key={item.ajusteMinutos} value={String(item.ajusteMinutos)}>
+                          {item.inicio} às {item.fim} · {rotuloAjuste(item.ajusteMinutos)}
+                        </option>
+                      ))}
                     </select>
                     <small>
-                      Apenas os inícios realmente livres para esta data ficam habilitados.
+                      Apenas os inícios realmente livres para esta data aparecem.
                     </small>
                     <small>
-                      Horário desejado: {horario}. O ajuste de ±30 minutos será
-                      revalidado pela equipe antes da confirmação.
+                      Horário desejado: {horario || "-"}. O horário será
+                      revalidado antes da confirmação.
                     </small>
                   </label>
 

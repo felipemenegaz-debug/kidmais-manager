@@ -263,7 +263,13 @@ test('reparos (D2/D3): levantamento só lê; aplicação exige variável de sess
 test('módulo Festa: conjunto 062 = 061 com as quatro regras da 062; nenhum outro corpo muda', () => {
   const conjuntos: Record<string, Record<string, string>> = {};
   for (const [, c, nome, hash] of estruturaFesta019Sql.matchAll(/\('(\d{3})','(\w+)','([0-9a-f]{64})'\)/g)) (conjuntos[c] ??= {})[nome] = hash;
-  assert.deepEqual(Object.keys(conjuntos).sort(), ['019', '061', '062']);
+  assert.deepEqual(Object.keys(conjuntos).sort(), ['019', '061', '062', '094']);
+  // 094: igual à 062 exceto destino, contrato e agenda da revisão (capacidade, limite do dia e intervalo).
+  const de094 = ['kidmais019_validar_destino', 'kidmais019_validar_contrato', 'kidmais_validar_agenda_revisao'];
+  const M094 = ler('database/migrations/20261022_094_agenda_capacidade.sql');
+  for (const nome of Object.keys(conjuntos['062'])) {
+    assert.equal(conjuntos['094'][nome], de094.includes(nome) ? sha(corpo(M094, nome)) : conjuntos['062'][nome], `094 ${nome}`);
+  }
   for (const nome of Object.keys(conjuntos['061'])) {
     const esperado = SUBSTITUIDAS.some(([n]) => n === nome) ? sha(corpo(M062, nome)) : conjuntos['061'][nome];
     assert.equal(conjuntos['062'][nome], esperado, nome);

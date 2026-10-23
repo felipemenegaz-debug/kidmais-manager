@@ -602,3 +602,15 @@ test("verificação: o payload segue para a revisão com o código do pacote da 
   assert.equal(v1.payload.pacote, "premium");
   assert.deepEqual(dona.chamadas.convidados, [["premium", true]]);
 });
+
+test("horário livre (092–094): a porta de horários recebe o código do pacote resolvido, V1 traduzido ou P_… da empresa", async () => {
+  const pedidos: Array<string | undefined> = [];
+  const horarios: PortaContratacao["horarios"] = async (_tx, _e, _d, _t, codigo) => {
+    pedidos.push(codigo);
+    return { configuracaoId: "33333333-3333-4333-8333-333333333333", horarios: [{ inicio: "12:00", fim: "16:00" }] };
+  };
+  const base = validarContratacao({ cliente: "Felipe Souza", pacote: "festa jardim", convidados: 40, aniversariante: "Beatriz", data: "2098-12-12", turno: "almoco" });
+  await verificarContratacao(tx, EMPRESA, base, porta(DA_EMPRESA, false, { horarios }).p, "2026-10-22");
+  await verificarContratacao(tx, EMPRESA, { ...base, pacote: "premium" }, porta([pacote("PREMIUM", "Festa Premium")], true, { horarios }).p, "2026-10-22");
+  assert.deepEqual(pedidos, [LIVRE, "PREMIUM"]);
+});

@@ -86,6 +86,12 @@ const MODELOS = {
   // neste repositório (trabalho local de cobrança, não integrado).
   "088": { banco: "kidmais_v1_modelo_088", ate: "088", sem: [] },
   "089": { banco: "kidmais_v1_modelo_089", ate: "089", sem: [] },
+  // Preço por quantidades cheias (22/10/2026): inventário inteiro até a 092 (sem 087, 090 e 091, que não existem aqui).
+  "092": { banco: "kidmais_v1_modelo_092", ate: "092", sem: [] },
+  // Agenda por unidade (etapa 2a, 22/10/2026): inventário inteiro até a 093.
+  "093": { banco: "kidmais_v1_modelo_093", ate: "093", sem: [] },
+  // Capacidade da agenda (etapa 2b, 22/10/2026): inventário inteiro até a 094.
+  "094": { banco: "kidmais_v1_modelo_094", ate: "094", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

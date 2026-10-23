@@ -8,6 +8,10 @@ export type ConfiguracaoAgendaRecord = {
   passoInicioMinutos: number;
   ordemExibicao: number;
   ativo: boolean;
+  /** 093: dias ISO (1 = segunda) em que o horário existe; null = todos. */
+  diasSemana?: number[] | null;
+  /** 093: a partir desta data (inclusive) o horário não é mais oferecido. */
+  desativadoAPartirDe?: string | null;
 };
 
 export type BloqueioAgendaRecord = {
@@ -45,9 +49,25 @@ export type CriarBloqueioAgendaInput = {
 };
 
 
+/** 094: regra de capacidade do escopo (093). null = regra de antes (qualquer sobreposição é conflito). */
+export type RegraCapacidadeAgenda = {
+  /** 093/2c-2: no modo livre, o horário técnico substitui os horários fixos no cálculo. */
+  modo?: "FIXO" | "LIVRE";
+  horarioLivre?: ConfiguracaoAgendaRecord | null;
+  capacidadeTipo: "POR_HORARIO" | "POR_SALAO";
+  limiteFestasDia: number | null;
+  intervaloMinimoMinutos: number;
+  capacidadePorHorario: Record<string, number>;
+  saloesPorHorario: Record<string, string[]>;
+  saloesDoEscopo: string[];
+};
+
 export type OcupacaoConfirmadaRecord = {
   fechamentoId: string;
   data: string;
   horarioInicio: string;
   horarioFim: string;
+  /** 094: horário e salão da ocupação. */
+  configuracaoAgendaId?: string | null;
+  salaoId?: string | null;
 };

@@ -57,6 +57,8 @@ test("a simulação da empresa usa a tabela publicada na data da festa", async (
       assert.match(text, /t\.vigencia_inicio <= \$2::date/);
       assert.equal(text.includes("fechamentos"), false);
       assert.equal(values?.[0], empresa);
+      // 092: a primeira leitura procura pontos (quantidades cheias); sem pontos, vale a faixa.
+      if (text.includes("tipo_calculo = 'PONTO'")) return { rows: [], rowCount: 0 };
       return { rows: [{ valor: "64.90" } as Row], rowCount: 1 };
     },
   };
@@ -72,6 +74,37 @@ test("a simulação da empresa usa a tabela publicada na data da festa", async (
   assert.deepEqual(await simularTabelaPublicada(vazio, {
     empresaId: empresa, data: "2026-10-10", pacoteId: "22222222-2222-4222-8222-222222222222", convidados: 40, categoriaHorario: "PADRAO", sobConsulta: false,
   }), { tipo: "AUSENTE" });
+});
+
+test("092: a simulação calcula entre duas quantidades cheias", async () => {
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      // Pontos só em GERAL: confere se a categoria pedida tem preço próprio (aqui não tem).
+      if (text.includes("AS existe")) return { rows: [{ existe: false } as Row], rowCount: 1 };
+      assert.match(text, /tipo_calculo = 'PONTO'/);
+      return {
+        rows: [
+          { convidados: 50, valor: "4500.00", categoria_horario: "GERAL" },
+          { convidados: 60, valor: "4900.00", categoria_horario: "GERAL" },
+        ] as Row[],
+        rowCount: 2,
+      };
+    },
+  };
+  const base = { empresaId: "11111111-1111-4111-8111-111111111111", data: "2026-10-10", pacoteId: "22222222-2222-4222-8222-222222222222", categoriaHorario: "PADRAO", sobConsulta: false };
+  assert.deepEqual(await simularTabelaPublicada(tx, { ...base, convidados: 53 }), { tipo: "PRECO", centavos: 462000 });
+  assert.deepEqual(await simularTabelaPublicada(tx, { ...base, convidados: 61 }), { tipo: "AUSENTE" });
+});
+
+test("092 (parecer do Astra, P2): pontos GERAL não sobrepõem a faixa da categoria exata", async () => {
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      if (text.includes("AS existe")) return { rows: [{ existe: true } as Row], rowCount: 1 };
+      if (text.includes("tipo_calculo = 'PONTO'")) return { rows: [{ convidados: 50, valor: "150.00", categoria_horario: "GERAL" }, { convidados: 100, valor: "150.00", categoria_horario: "GERAL" }] as Row[], rowCount: 2 };
+      return { rows: [{ valor: "900.00" } as Row], rowCount: 1 };
+    },
+  };
+  assert.deepEqual(await simularTabelaPublicada(tx, { empresaId: "11111111-1111-4111-8111-111111111111", data: "2026-10-10", pacoteId: "22222222-2222-4222-8222-222222222222", categoriaHorario: "NOBRE", sobConsulta: false, convidados: 60 }), { tipo: "PRECO", centavos: 90000 });
 });
 
 const empresa = "11111111-1111-4111-8111-111111111111";

@@ -9,13 +9,9 @@ import { DurationField } from './DurationField';
 import { formatarDuracao, juntarDuracao, separarDuracao } from '@/lib/comercial/duracao';
 import { AjudaCampo } from './AjudaCampo';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
-
-function normalizarValor(texto: string) {
-  const limpo = texto.trim().replace(/\s/g, '').replace(/^R\$/i, '');
-  if (limpo.includes(',') && limpo.includes('.')) return limpo.replace(/\./g, '').replace(',', '.');
-  if (limpo.includes(',')) return limpo.replace(',', '.');
-  return limpo;
-}
+import { ConfirmarPrecosPacote } from './ConfirmarPrecosPacote';
+import { erroDosPontos, PrecosPorQuantidade, pontosDaTela, valorDigitado, type PontoForm } from './PrecosPorQuantidade';
+import type { PontoPreco } from '@/lib/comercial/modelo-preco';
 
 type Pacote = {
   id: string;
@@ -29,7 +25,8 @@ type Pacote = {
   arquivadoEm: string | null;
 };
 
-type Horario = { id: string; nome: string; inicio: string; fim: string };
+type Horario = { id: string; nome: string; inicio: string; fim: string; dias?: number[] | null };
+type Salao = { id: string; nome: string; unidade: string | null };
 type Categoria = { id: string; nome: string };
 type ItemBuffet = { id: string; nome: string; categoria_id: string | null };
 type FaixaForm = { convidadosMin: string; convidadosMax: string; valor: string };
@@ -43,7 +40,18 @@ type Painel = {
   disponibilidade: ParDisponibilidade[];
   categorias: { categoriaId: string; escolhas: number; ativo: boolean }[];
   itens?: string[];
-  faixas: { editavel: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[]; aviso: string | null; grades?: GradeLeitura[] };
+  saloes?: string[];
+  faixas: {
+    editavel: boolean;
+    faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[];
+    /** 092: preço por quantidades cheias. */
+    pontos?: PontoPreco[];
+    /** Faixas antigas: o pacote cobra por elas até o buffet confirmar a conversão (proposta). */
+    aConfirmar?: boolean;
+    proposta?: PontoPreco[];
+    aviso: string | null;
+    grades?: GradeLeitura[];
+  };
 };
 
 const DIAS = [
@@ -63,6 +71,12 @@ function faixaConvidados(minimo: number | null, maximo: number | null) {
   return 'Convidados não definidos';
 }
 
+function minutosDoHorario(horario: Horario) {
+  const [hi, mi] = horario.inicio.split(':').map(Number);
+  const [hf, mf] = horario.fim.split(':').map(Number);
+  return ((hf ?? 0) * 60 + (mf ?? 0)) - ((hi ?? 0) * 60 + (mi ?? 0));
+}
+
 function diasTexto(dias: number[]) {
   const nomes = DIAS.filter(([valor]) => dias.includes(valor)).map(([, rotulo]) => rotulo);
   return nomes.length ? nomes.join(' ') : 'Dias não definidos';
@@ -71,17 +85,23 @@ function diasTexto(dias: number[]) {
 export type VitrinePacotes = {
   pacotes: Pacote[];
   horarios: Horario[];
+  saloes?: Salao[];
   categorias: Categoria[];
   itens?: ItemBuffet[];
   filtro?: 'todos' | 'ativos' | 'arquivados';
   edicao?: Painel | null;
+  precosAConfirmar?: string[];
 };
+
+const pontosDoPainel = (pontos?: PontoPreco[]): PontoForm[] => (pontos ?? []).map((p) => ({ convidados: String(p.convidados), valor: valorDigitado(p.valor) }));
 
 export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'ativos' | 'arquivados'>(vitrine?.filtro ?? 'todos');
   const [pacotes, setPacotes] = useState<Pacote[] | null>(vitrine?.pacotes ?? null);
   const [horarios, setHorarios] = useState<Horario[]>(vitrine?.horarios ?? []);
+  const [saloes, setSaloes] = useState<Salao[]>(vitrine?.saloes ?? []);
+  const [saloesEscolhidos, setSaloesEscolhidos] = useState<string[]>(vitrine?.edicao?.saloes ?? []);
   const [categorias, setCategorias] = useState<Categoria[]>(vitrine?.categorias ?? []);
   const [itensBuffet, setItensBuffet] = useState<ItemBuffet[]>(vitrine?.itens ?? []);
   const edicao = vitrine?.edicao;
@@ -102,7 +122,13 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     convidadosMax: faixa.convidadosMax == null ? '' : String(faixa.convidadosMax),
     valor: Number(faixa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   })) : [{ convidadosMin: '', convidadosMax: '', valor: '' }]);
-  const [faixasEditaveis, setFaixasEditaveis] = useState(true);
+  const [faixasEditaveis, setFaixasEditaveis] = useState(edicao?.faixas.editavel ?? true);
+  const [pontos, setPontos] = useState<PontoForm[]>(pontosDoPainel(edicao?.faixas.pontos));
+  const [conversao, setConversao] = useState<{ faixas: Painel['faixas']['faixas']; proposta: PontoPreco[] } | null>(
+    edicao?.faixas.aConfirmar ? { faixas: edicao.faixas.faixas, proposta: edicao.faixas.proposta ?? [] } : null,
+  );
+  const [confirmando, setConfirmando] = useState(false);
+  const [aConfirmar, setAConfirmar] = useState<string[]>(vitrine?.precosAConfirmar ?? []);
   const [avisoFaixas, setAvisoFaixas] = useState('');
   const [gradesLeitura, setGradesLeitura] = useState<GradeLeitura[]>([]);
   const [inclusos, setInclusos] = useState<Record<string, { incluso: boolean; escolhas: string }>>(() => {
@@ -128,7 +154,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     const lista = await adminFetch('/api/admin/configuracoes/pacotes');
     const json = await ler(lista);
     setPacotes(json.data.pacotes);
+    setAConfirmar(json.data.precosAConfirmar ?? []);
     setHorarios(json.data.horarios);
+    setSaloes(json.data.saloes ?? []);
     setCategorias(json.data.categorias);
     setItensBuffet(json.data.itens ?? []);
     setInclusos((atual) => {
@@ -148,7 +176,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         const json = await ler(lista);
         if (!ativo) return;
         setPacotes(json.data.pacotes);
+        setAConfirmar(json.data.precosAConfirmar ?? []);
         setHorarios(json.data.horarios);
+        setSaloes(json.data.saloes ?? []);
         setCategorias(json.data.categorias);
         setItensBuffet(json.data.itens ?? []);
         setInclusos((atual) => {
@@ -169,6 +199,10 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     setForm(vazio);
     setPares([]);
     setFaixas([{ convidadosMin: '', convidadosMax: '', valor: '' }]);
+    setPontos([]);
+    setSaloesEscolhidos([]);
+    setConversao(null);
+    setConfirmando(false);
     setFaixasEditaveis(true);
     setAvisoFaixas('');
     setInclusos((atual) => Object.fromEntries(Object.entries(atual).map(([id, valor]) => [id, { ...valor, incluso: false, escolhas: '1' }])));
@@ -193,7 +227,11 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         maximo: painel.pacote.convidadosMaximos == null ? '' : String(painel.pacote.convidadosMaximos),
       });
       setPares(painel.disponibilidade);
+      setSaloesEscolhidos(painel.saloes ?? []);
       setFaixasEditaveis(painel.faixas.editavel);
+      setPontos(pontosDoPainel(painel.faixas.pontos));
+      setConversao(painel.faixas.aConfirmar ? { faixas: painel.faixas.faixas, proposta: painel.faixas.proposta ?? [] } : null);
+      setConfirmando(false);
       setAvisoFaixas(painel.faixas.aviso ?? '');
       setGradesLeitura(painel.faixas.grades ?? []);
       setFaixas(painel.faixas.faixas.length
@@ -219,17 +257,27 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     }
   }
 
-  async function salvar(event: FormEvent) {
-    event.preventDefault();
+  function precosParaEnvio(confirmados?: PontoPreco[]) {
+    if (confirmados) return { faixas: null, pontos: confirmados, conversao: true };
+    if (!faixasEditaveis || conversao) return { faixas: null };
+    return { faixas: null, pontos: pontosDaTela(pontos) };
+  }
+
+  async function salvar(event: FormEvent | null, confirmados?: PontoPreco[]) {
+    event?.preventDefault();
     if (pares.some((par) => !par.horarioId)) {
       setErro('Escolha o horário de cada dia marcado.');
+      return;
+    }
+    const erroPontos = !confirmados && faixasEditaveis && !conversao ? erroDosPontos(pontos, Number(form.minimo), Number(form.maximo)) : null;
+    if (erroPontos) {
+      setErro(erroPontos);
       return;
     }
     setErro('');
     setAviso('');
     setCarregando(true);
     try {
-      const faixasPreenchidas = faixas.filter((faixa) => faixa.convidadosMin || faixa.convidadosMax || faixa.valor);
       const resposta = await adminFetch('/api/admin/configuracoes/pacotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,22 +290,21 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
           convidadosMinimos: Number(form.minimo),
           convidadosMaximos: Number(form.maximo),
           disponibilidade: pares.filter((par) => par.horarioId),
-          faixas: faixasEditaveis ? faixasPreenchidas.map((faixa) => ({
-            convidadosMin: Number(faixa.convidadosMin),
-            convidadosMax: faixa.convidadosMax.trim() ? Number(faixa.convidadosMax) : null,
-            valor: normalizarValor(faixa.valor),
-          })) : null,
+          ...precosParaEnvio(confirmados),
           categorias: categorias.filter((categoria) => inclusos[categoria.id]?.incluso).map((categoria) => ({
             categoriaId: categoria.id,
             escolhas: Number(inclusos[categoria.id]?.escolhas || 1),
           })),
           itens: itensEscolhidos,
+          ...(saloes.length > 0 ? { saloes: saloesEscolhidos } : {}),
         }),
       });
       const json = await ler(resposta);
-      setAviso(selecionado ? 'Alterações salvas.' : 'Pacote salvo.');
-      setSelecionado(json.data.pacote?.id ?? selecionado);
+      setAviso(confirmados ? 'Novos preços confirmados.' : selecionado ? 'Alterações salvas.' : 'Pacote salvo.');
+      const id = json.data.pacote?.id ?? selecionado;
+      setSelecionado(id);
       await carregar();
+      if (id && (confirmados || selecionado)) await editar(id);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao salvar.');
     } finally {
@@ -345,6 +392,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     return nome && estado;
   });
   const atual = pacotes?.find((pacote) => pacote.id === selecionado) ?? null;
+  const duracaoPacote = (() => { try { return juntarDuracao(form.horas, form.minutos) ?? 0; } catch { return 0; } })();
 
   return <main className={styles.page} data-admin-workspace aria-busy={carregando}>
     <header className={styles.header}>
@@ -358,8 +406,22 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     <div className={styles.content}>
       {erro && <p role="alert" className={styles.error}>{erro}</p>}
       {aviso && <p role="status" className={styles.notice}>{aviso}</p>}
+      {aConfirmar.length > 0 && !confirmando && <p role="status" className={styles.notice} data-aviso-precos-a-confirmar>{aConfirmar.length === 1 ? '1 pacote tem' : `${aConfirmar.length} pacotes têm`} preços a confirmar. Abra o pacote marcado na lista para revisar a conversão para quantidades cheias.</p>}
       <div className={styles.layout}>
-        <form className={styles.principal} onSubmit={(event) => void salvar(event)}>
+        {confirmando && conversao && <div className={styles.principal}>
+          <ConfirmarPrecosPacote
+            nome={form.nome}
+            faixas={conversao.faixas}
+            proposta={conversao.proposta}
+            minimo={Number(form.minimo)}
+            maximo={Number(form.maximo)}
+            posicao={aConfirmar.length > 0 ? `Pacote ${Math.max(1, aConfirmar.indexOf(selecionado ?? '') + 1)} de ${aConfirmar.length} com preços a confirmar` : undefined}
+            carregando={carregando}
+            onVoltar={() => setConfirmando(false)}
+            onConfirmar={(confirmados) => void salvar(null, confirmados)}
+          />
+        </div>}
+        <form className={styles.principal} hidden={confirmando && Boolean(conversao)} onSubmit={(event) => void salvar(event)}>
           <section className={styles.card}>
             <h2 className={styles.secaoTitulo}>1. Informações básicas</h2>
             <label htmlFor="pacote-nome">Nome do pacote *<input id="pacote-nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} maxLength={160} required /></label>
@@ -379,13 +441,23 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             {DIAS.filter(([valor]) => pares.some((par) => par.dia === valor)).map(([valor, rotulo]) => <div key={valor}>
               <p className={styles.intro}>Horários de {rotulo}</p>
               <div className={styles.dias} role="group" aria-label={`Horários de ${rotulo}`}>
-                {horarios.map((horario) => <button key={horario.id} type="button" aria-pressed={pares.some((par) => par.dia === valor && par.horarioId === horario.id)} onClick={() => alternarHorario(valor, horario.id)}>{horario.nome} · {horaCurta(horario.inicio)}–{horaCurta(horario.fim)}</button>)}
+                {horarios.filter((horario) => !horario.dias || horario.dias.includes(valor)).map((horario) => {
+                  const marcado = pares.some((par) => par.dia === valor && par.horarioId === horario.id);
+                  const naoCabe = duracaoPacote > 0 && minutosDoHorario(horario) < duracaoPacote;
+                  return <button key={horario.id} type="button" aria-pressed={marcado} disabled={naoCabe && !marcado} title={naoCabe ? 'O horário é mais curto que a duração do pacote.' : undefined} onClick={() => alternarHorario(valor, horario.id)}>{horario.nome} · {horaCurta(horario.inicio)}–{horaCurta(horario.fim)}{naoCabe ? ' · não cabe' : ''}</button>;
+                })}
               </div>
             </div>)}
+            {saloes.length > 0 && <>
+              <p className={styles.intro}>Salões permitidos <span className={styles.muted}>· nenhum marcado = todos</span></p>
+              <div className={styles.dias} role="group" aria-label="Salões permitidos">
+                {saloes.map((salao) => <button key={salao.id} type="button" aria-pressed={saloesEscolhidos.includes(salao.id)} onClick={() => setSaloesEscolhidos((atual) => atual.includes(salao.id) ? atual.filter((id) => id !== salao.id) : [...atual, salao.id])}>{salao.nome}{salao.unidade ? ` (${salao.unidade})` : ''}</button>)}
+              </div>
+            </>}
           </section>
           <section className={styles.card}>
             <h2>3. Preços</h2>
-            <p className={styles.intro}>Defina quanto custa este pacote para cada quantidade de convidados.</p>
+            {(!faixasEditaveis || conversao) && <p className={styles.intro}>Defina quanto custa este pacote para cada quantidade de convidados.</p>}
             {avisoFaixas && <p>{avisoFaixas}</p>}
             {!faixasEditaveis && gradesLeitura.length > 0 && <div className={styles.grid}>
               {gradesLeitura.map((g) => <div key={g.categoria}>
@@ -394,13 +466,14 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
               </div>)}
               <p>Para mudar estes preços, importe a tabela de novo em <a href="/admin/configuracoes/importar-tabela">Importar tabela</a>.</p>
             </div>}
-            {faixasEditaveis && faixas.map((faixa, indice) => <div className={styles.faixa} key={indice}>
-              <label>De<input inputMode="numeric" value={faixa.convidadosMin} onChange={(e) => setFaixas(faixas.map((item, i) => i === indice ? { ...item, convidadosMin: e.target.value } : item))} /></label>
-              <label>Até<input inputMode="numeric" value={faixa.convidadosMax} onChange={(e) => setFaixas(faixas.map((item, i) => i === indice ? { ...item, convidadosMax: e.target.value } : item))} /></label>
-              <label>Preço<input inputMode="decimal" value={faixa.valor} placeholder="0,00" onChange={(e) => setFaixas(faixas.map((item, i) => i === indice ? { ...item, valor: e.target.value } : item))} /></label>
-              <button type="button" aria-label="Excluir faixa" onClick={() => setFaixas(faixas.filter((_, i) => i !== indice))}>×</button>
-            </div>)}
-            {faixasEditaveis && <button type="button" onClick={() => setFaixas([...faixas, { convidadosMin: '', convidadosMax: '', valor: '' }])}>+ Adicionar faixa</button>}
+            {faixasEditaveis && conversao && <div className={styles.notice} data-precos-a-confirmar>
+              <div>
+                <h2>Preços a confirmar</h2>
+                <p>Este pacote ainda cobra pelas faixas antigas ({faixas.map((f) => f.convidadosMax.trim() ? `${f.convidadosMin} a ${f.convidadosMax}` : `a partir de ${f.convidadosMin}`).join(', ')}). Agora o preço é informado só nas quantidades cheias. Revise a proposta e confirme; até lá nada muda.</p>
+              </div>
+              <AdminPrimaryButton type="button" onClick={() => setConfirmando(true)}>Revisar e confirmar</AdminPrimaryButton>
+            </div>}
+            {faixasEditaveis && !conversao && <PrecosPorQuantidade pontos={pontos} onChange={setPontos} minimo={Number(form.minimo)} maximo={Number(form.maximo)} />}
           </section>
           <section className={styles.card}>
             <div className={styles.actions}>
@@ -432,6 +505,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             </div>}
           </section>
           <div className={styles.actions}>
+            {erro && <p className={styles.error} data-erro-junto-do-salvar>{erro}</p>}
             <AdminPrimaryButton type="submit" disabled={carregando}>{atual ? 'Salvar alterações' : 'Salvar pacote'}</AdminPrimaryButton>
           </div>
         </form>
@@ -445,6 +519,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
           {visiveis.map((pacote) => <article className={`${styles.card} ${styles.pacoteCard}`} key={pacote.id}>
             <h3>{pacote.nome}</h3>
             <span className={styles.badge} data-active={pacote.ativo && !pacote.arquivadoEm}>{pacote.arquivadoEm ? 'Arquivado' : pacote.ativo ? 'Ativo' : 'Inativo'}</span>
+            {aConfirmar.includes(pacote.id) && <span className={styles.badge} data-precos-a-confirmar style={{ marginLeft: 6, color: '#fdba74', background: 'rgba(249,115,22,.12)' }}>Preços a confirmar</span>}
             <p>{faixaConvidados(pacote.convidadosMinimos, pacote.convidadosMaximos)}</p>
             <p>{formatarDuracao(pacote.duracaoMinutos)}</p>
             <p>{diasTexto(pacote.diasPermitidos)}</p>

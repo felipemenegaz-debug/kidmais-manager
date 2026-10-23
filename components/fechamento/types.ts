@@ -20,14 +20,21 @@ export type FormaPagamento =
   | "cartao_cielo";
 
 export type HorarioBase = "almoco" | "noite";
-export type AjusteHorario = "-30" | "0" | "30";
+/** Deslocamento em minutos do candidato escolhido, como texto ("0", "-15", "30"...): vem da tolerância/passo de cada horário. */
+export type AjusteHorario = string;
 export type StatusDisponibilidade = "disponivel" | "consulta" | "excecao" | "";
 export type MomentoDefinicaoBuffet = "agora" | "depois";
 
 export type FechamentoForm = {
   dataFesta: string;
+  /** Horário configurado da agenda (configuracao_agenda.id); "" = ainda não escolhido. */
+  configuracaoId: string;
+  /** Legado almoco/noite: só para TURNO_1/TURNO_2 (regras fixas Kidmais e ajustes manuais); "" nos demais. */
   horarioBase: HorarioBase | "";
   ajusteHorario: AjusteHorario;
+  /** Início e fim do candidato escolhido, exatamente como a agenda devolveu. */
+  horarioInicio: string;
+  horarioFim: string;
   statusDisponibilidade: StatusDisponibilidade;
 
   pacote: PacoteId | "";
