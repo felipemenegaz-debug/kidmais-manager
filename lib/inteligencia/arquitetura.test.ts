@@ -109,7 +109,11 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // de tabela, regra de convidados), a criação oficial do Fechamento (envio do formulário, com o vínculo) e o serviço
   // de parâmetros de consumo da 059. Nenhuma escrita própria da IA: só os serviços de domínio.
   "lib/fechamentos/services/fechamento-administrativo.service": ["clienteParaPreparacao", "criarFechamentoAdministrativo", "obterContextoFechamentoAdministrativo"],
-  "lib/fechamentos/convidados": ["erroConvidadosFechamento"],
+  "lib/fechamentos/convidados": ["erroConvidadosFechamento", "erroConvidadosEmpresa"],
+  // Pacotes com código livre (fase 1d): pacotes da empresa comprovada e a decisão "dona da agenda pública" — as mesmas
+  // leituras do Fechamento administrativo; a IA resolve o pacote informado contra elas (somente leitura).
+  "lib/comercial/repositories": ["listarPacotesContrataveisDaEmpresa"],
+  "lib/disponibilidade/config-legada": ["ehDonaDaConfigLegada"],
   "lib/disponibilidade/services": ["consultarDisponibilidadeData"],
   // Agenda por empresa/unidade (062): escopo da empresa comprovada para a consulta oficial de horários.
   "lib/disponibilidade/escopo": ["escopoDaEmpresa"],
@@ -134,7 +138,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
-  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em"], // @pr:IMPORT
 };

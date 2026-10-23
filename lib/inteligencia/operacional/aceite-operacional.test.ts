@@ -5,7 +5,7 @@ import { criarAcaoContratacao, extrairContratacao, type PortaContratacao } from 
 import { criarAcaoContaPagar } from "../acoes/conta-pagar.ts";
 import { criarVinculo, lerPreparacao, type ResultadoCriacao } from "../acoes/contratacao-revisao.ts";
 import { criarRepositorioOperacoesEmMemoria } from "../acoes/memoria.ts";
-import { criarModuloAcoes } from "../acoes/modulo.ts";
+import { criarModuloAcoes, preenchidosDe } from "../acoes/modulo.ts";
 import { atenderOperacao } from "../acoes/operacoes.ts";
 import { criarAcoesPacote, type PortaPacotes } from "../acoes/pacotes.ts";
 import { criarAcaoParametroConsumo, type PortaParametrosAcao, type RegraVigente } from "../acoes/parametros-consumo.ts";
@@ -43,6 +43,10 @@ const AGENDA_NOITE = "99999999-0000-4000-8000-000000000002";
 
 type Opcoes = {
   operacional?: boolean;
+  /** Fase 1d: a empresa A não é a dona da agenda pública e tem o pacote próprio "Festa Jardim" (código P_…). */
+  buffetComum?: boolean;
+  /** Pedido de contratação enviado por `preparada` (padrão: FRASE, pacote premium). */
+  frase?: string;
   convidados?: number | null;
   doces?: string | null;
   bebidas?: string | null;
@@ -111,8 +115,15 @@ function ambiente(o: Opcoes = {}) {
       return c && empresaId === EMPRESA_A ? { nome: c.nome, ativo: true, camposFaltantes: [], aniversariantes: [{ id: BEATRIZ, nome: "Beatriz" }] } : null;
     },
     async pacote(_tx, empresaId, codigo) {
-      return empresaId === EMPRESA_A && codigo === "PREMIUM" ? { id: PREMIUM, nome: "Premium", minimo: 20, maximo: 100 } : null;
+      if (empresaId !== EMPRESA_A) return null;
+      if (codigo === "PREMIUM") return { id: PREMIUM, nome: "Premium", minimo: 20, maximo: 100 };
+      if (o.buffetComum && codigo === PACOTE_PJ) return { id: PREMIUM, nome: "Premium Jardim", minimo: 10, maximo: 80 };
+      return o.buffetComum && codigo === PACOTE_LIVRE ? { id: PREMIUM, nome: "Festa Jardim", minimo: 10, maximo: 80 } : null;
     },
+    // A empresa A é a dona da agenda pública nestes cenários (ids V1, como antes da fase 1d), salvo `buffetComum`.
+    pacotes: async (_tx, empresaId) => (empresaId !== EMPRESA_A ? [] : o.buffetComum
+      ? [{ codigo: "PREMIUM", nome: "Premium" }, { codigo: PACOTE_LIVRE, nome: "Festa Jardim" }, { codigo: PACOTE_PJ, nome: "Premium Jardim" }] : [{ codigo: "PREMIUM", nome: "Premium" }]),
+    dona: async (_tx, empresaId) => empresaId === EMPRESA_A && !o.buffetComum,
     erroConvidados: (_c, p, n) => (n > (p.maximo ?? 150) ? `${p.nome} atende até ${p.maximo} convidados neste pacote.` : n < (p.minimo ?? 1) ? `${p.nome} possui mínimo de ${p.minimo} pagantes.` : null),
     async horarios(_tx, _empresa, _data, turno) {
       return { configuracaoId: AGENDA_NOITE, horarios: turno === "noite" ? [{ inicio: "19:00", fim: "23:00" }] : [{ inicio: "12:00", fim: "16:00" }] };
@@ -170,6 +181,8 @@ const leitura = (r: AIResponse | null) => {
 };
 const fatos = (d: RespostaLeitura) => d.fatos.map((f) => `${f.natureza}:${f.texto}`);
 const FRASE = "crie uma festa do Felipe, pacote premium 50 convidados, beatriz 1 ano; tema unicórnio";
+const PACOTE_LIVRE = "P_9F2C4E1A7B3D4C5E8F6A0B1C2D3E4F5A";
+const PACOTE_PJ = "P_1111AAAA2222BBBB3333CCCC4444DDDD";
 
 // ---------------------------------------------------------------- criar festa ≠ criar pacote
 
@@ -498,7 +511,7 @@ test("aceite — outra empresa, acesso revogado e instrução embutida: bloqueio
 
 async function preparada(o: Opcoes = {}) {
   const a = ambiente(o);
-  await a.enviar(`${FRASE}, dia 15/11/2026 à noite`);
+  await a.enviar(`${o.frase ?? FRASE}, dia 15/11/2026 à noite`);
   const op = a.operacaoAtual()!;
   assert.equal(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO");
   const criacoes: ResultadoCriacao[] = [];
@@ -572,6 +585,29 @@ test("aceite — abrir a revisão: preenchida, sem nenhuma escrita; concluir dua
   // Reabrir a revisão de uma preparação consumida: avisa e não preenche.
   const reaberta = await atenderPreparacao(async () => ({ acao: "abrir", clienteId: FELIPE, operacaoId: op }), depsPreparacao());
   assert.equal((reaberta.corpo as { data: { disponivel: boolean } }).data.disponivel, false);
+});
+
+test("aceite (fase 1d) — buffet comum: o pacote dito pelo nome vira o código dele (P_…) na revisão; concluir e preço mudado como na dona", async () => {
+  const frase = "crie uma festa do Felipe, pacote festa jardim 50 convidados, beatriz 1 ano; tema unicórnio";
+  const { a, op, criacoes, depsPreparacao } = await preparada({ buffetComum: true, frase });
+  const aberta = await atenderPreparacao(async () => ({ acao: "abrir", clienteId: FELIPE, operacaoId: op }), depsPreparacao());
+  const p = (aberta.corpo as { data: { campos: Record<string, unknown>; referencia: { versao: number; payloadHash: string } } }).data;
+  assert.equal(p.campos.pacote, PACOTE_LIVRE, "revisão recebe o código do pacote da empresa");
+  const referencia = { operacaoId: op, versao: p.referencia.versao, payloadHash: p.referencia.payloadHash };
+  const doBuffet = { ...formulario, pacote: PACOTE_LIVRE };
+  // Preço mudado depois da preparação: a conferência do vínculo roda com o código (antes, id V1 × código nunca batia).
+  const precoOriginal = a.contratacao.precoTabela;
+  a.contratacao.precoTabela = async () => 480000;
+  const mudou = await atenderPreparacao(async () => ({ acao: "concluir", clienteId: FELIPE, referencia, formulario: doBuffet }), depsPreparacao());
+  assert.equal((mudou.corpo as { codigo: string }).codigo, "PREPARACAO_PRECO_ALTERADO");
+  a.contratacao.precoTabela = precoOriginal;
+  const ok = await atenderPreparacao(async () => ({ acao: "concluir", clienteId: FELIPE, referencia, formulario: doBuffet }), depsPreparacao());
+  assert.equal(ok.status, 201);
+  assert.equal(criacoes.length, 1);
+  // Nome que a empresa não tem: a IA pergunta com os nomes reais, nunca escolhe por palpite.
+  const b = ambiente({ buffetComum: true });
+  const resposta = await b.enviar("crie uma festa do Felipe, pacote festa tropical 50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite");
+  assert.match(JSON.stringify(resposta.data), /Não encontrei o pacote \\?"festa tropical\\?" nesta empresa\. Pacotes disponíveis: Premium; Festa Jardim/);
 });
 
 test("aceite — prévia alterada, expirada ou com preço mudado: aprovação antiga rejeitada, nada criado", async () => {
@@ -1185,6 +1221,313 @@ test("Luna — A: elipse \"crie uma do cliente Felipe… pacote premium\": sem c
   const rasc = ok.data as Extract<AIResponse, { tipo: "rascunho" }>;
   assert.equal(rasc.rascunho.capacidade, "preparar_contratacao");
   assert.equal(rasc.rascunho.campos.find((c) => c.id === "convidados")?.valor, "50");
+});
+
+test("Luna (fase 1d, revisão Astra rodada 2 e rodada 3): no Human Gate, o nome completo da mensagem vence o encurtado pela Luna; a negação e o histórico não trocam a escolha atual", async () => {
+  // Resposta direta à pergunta do pacote: "Premium Jardim", a Luna devolve premium.
+  const a = ambiente({ buffetComum: true });
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: "premium" } }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  await a.enviar("crie uma festa do Felipe 50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite");
+  const op = a.operacaoAtual()!;
+  await a.enviar("Premium Jardim");
+  assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_PJ, "a preparação segue com Premium Jardim, não com Premium");
+
+  // Negação na mesma mensagem: a escolha atual (Premium) segue, mesmo com o nome negado contendo o dela.
+  const b = ambiente({ buffetComum: true });
+  comLuna(b, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+  await b.enviar("crie uma festa do Felipe, não quero pacote Premium Jardim, quero pacote Premium, 50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite");
+  assert.equal((b.linha(b.operacaoAtual()!).payload as { pacote?: string }).pacote, "PREMIUM");
+
+  // Negação DEPOIS da escolha (revisão Astra rodada 3): a escolha atual segue Premium.
+  const d = ambiente({ buffetComum: true });
+  comLuna(d, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+  await d.enviar("crie uma festa do Felipe, quero pacote Premium e não o pacote Premium Jardim, 50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite");
+  assert.equal((d.linha(d.operacaoAtual()!).payload as { pacote?: string }).pacote, "PREMIUM");
+
+  // Histórico com "pacote Premium Jardim"; a resposta atual é "Premium": segue Premium.
+  const c = ambiente({ buffetComum: true });
+  const roteiroC = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: "premium" } }),
+  ];
+  comLuna(c, { entender: (_d, n) => roteiroC[n - 1] });
+  await c.enviar("crie uma festa do Felipe 50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite; antes eu pensei no pacote Premium Jardim? não");
+  const opC = c.operacaoAtual()!;
+  await c.enviar("Premium");
+  assert.equal((c.linha(opC).payload as { pacote?: string }).pacote, "PREMIUM");
+});
+
+test("revisão Astra rodada 4 (Human Gate, com e sem Luna): negada/excluída ou alternativas perguntam o pacote; nome com 'sem' segue inteiro", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const pacoteDito of ["quero o pacote Premium ou o pacote Premium Jardim", "não quero o pacote Premium Jardim", "tirando o pacote Premium Jardim"]) {
+    for (const luna of [true, false]) {
+      const a = ambiente({ buffetComum: true });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      const r = await a.enviar(`crie uma festa do Felipe, ${pacoteDito}, ${resto}`);
+      const rotulo = `${pacoteDito} (${luna ? "com" : "sem"} Luna)`;
+      const op = a.operacaoAtual();
+      assert.ok(op, rotulo);
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, undefined, `sem pacote escolhido: ${rotulo}`);
+      const rasc = r.data as Extract<AIResponse, { tipo: "rascunho" }>;
+      assert.equal(rasc.tipo, "rascunho", rotulo);
+      assert.deepEqual(rasc.faltando, ["pacote"], rotulo);
+      assert.match(rasc.pergunta, /Qual pacote\?/, rotulo);
+    }
+  }
+  // Resposta direta incerta à pergunta do pacote: pergunta de novo; depois a resposta clara segue.
+  const b = ambiente({ buffetComum: true });
+  await b.enviar(`crie uma festa do Felipe, ${resto}`);
+  const opB = b.operacaoAtual()!;
+  const incerta = await b.enviar("Premium ou Premium Jardim");
+  assert.equal((b.linha(opB).payload as { pacote?: string }).pacote, undefined);
+  assert.match((incerta.data as Extract<AIResponse, { tipo: "rascunho" }>).pergunta, /Qual pacote\?/);
+  await b.enviar("Premium Jardim");
+  assert.equal((b.linha(opB).payload as { pacote?: string }).pacote, PACOTE_PJ);
+});
+
+test("revisão Astra rodada 5 (Human Gate, com e sem Luna): alternativas com o mesmo nome provável perguntam o pacote nas duas ordens", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const pacoteDito of ["pacote Festa Jardim com bolo ou pacote Festa Jardim com doces", "pacote Festa Jardim com doces ou pacote Festa Jardim com bolo"]) {
+    for (const luna of [true, false]) {
+      const a = ambiente({ buffetComum: true });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "Festa Jardim", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      const r = await a.enviar(`crie uma festa do Felipe, ${pacoteDito}, ${resto}`);
+      const rotulo = `${pacoteDito} (${luna ? "com" : "sem"} Luna)`;
+      const op = a.operacaoAtual();
+      assert.ok(op, rotulo);
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, undefined, `sem escolha pela ordem: ${rotulo}`);
+      const rasc = r.data as Extract<AIResponse, { tipo: "rascunho" }>;
+      assert.deepEqual(rasc.faltando, ["pacote"], rotulo);
+      assert.match(rasc.pergunta, /Qual pacote\?/, rotulo);
+    }
+  }
+});
+
+test("revisão Astra rodada 5, P2-2 (Human Gate, regra da rodada 6): a Luna devolvendo o pacote recusado ou o do histórico não vence a escolha da mensagem", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  const completo = { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" as const };
+  // Recusado na mesma frase, sem prefixo comum com o escolhido.
+  const a = ambiente({ buffetComum: true });
+  comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { ...completo, pacote: "premium" } }) });
+  await a.enviar(`crie uma festa do Felipe, quero pacote Festa Jardim, não o pacote Premium, ${resto}`);
+  assert.equal((a.linha(a.operacaoAtual()!).payload as { pacote?: string }).pacote, PACOTE_LIVRE, "a escolha afirmada, nunca o Premium recusado");
+  // Sem Luna, a escolha afirmada segue.
+  const b = ambiente({ buffetComum: true });
+  await b.enviar(`crie uma festa do Felipe, quero pacote Festa Jardim, não o pacote Premium, ${resto}`);
+  assert.equal((b.linha(b.operacaoAtual()!).payload as { pacote?: string }).pacote, PACOTE_LIVRE);
+  // Histórico: "Premium" numa troca anterior do drawer (vai à Luna como contexto); a resposta atual é "Festa Jardim" e a
+  // Luna devolve premium. (Uma menção afirmativa anterior no MESMO rascunho já seria o pacote dele.)
+  const c = ambiente({ buffetComum: true });
+  const roteiro = [
+    saida({ objetivo: "CONSULTA" }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: completo }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: "premium" } }),
+  ];
+  comLuna(c, { entender: (_d, n) => roteiro[n - 1] });
+  await c.enviar("quanto custa o Premium?");
+  await c.enviar(`crie uma festa do Felipe, ${resto}`);
+  const op = c.operacaoAtual()!;
+  await c.enviar("Festa Jardim");
+  assert.equal((c.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, "o histórico não vence a resposta atual");
+});
+
+test("revisão Astra rodada 6 (Human Gate): resposta composta não deixa o histórico escolher; nome/apelido V1 conclui na primeira resposta; a seguinte sempre conclui", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  const completo = { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" as const };
+  const comHistorico = (pacoteDaLuna: string) => {
+    const a = ambiente({ buffetComum: true });
+    const roteiro = [
+      saida({ objetivo: "CONSULTA" }),
+      saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: completo }),
+      saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: pacoteDaLuna } }),
+    ];
+    // A partir da 3ª mensagem a Luna repete sempre o mesmo pacote (como se o histórico continuasse puxando).
+    comLuna(a, { entender: (_d, n) => roteiro[Math.min(n, roteiro.length) - 1] });
+    return a;
+  };
+  // P2-1: consulta sobre o Premium, contratação sem pacote, resposta composta com a Luna devolvendo premium.
+  for (const resposta of ["Festa Jardim, por favor", "o pacote Festa Jardim, obrigado"]) {
+    const a = comHistorico("premium");
+    await a.enviar("quanto custa o Premium?");
+    await a.enviar(`crie uma festa do Felipe, ${resto}`);
+    const op = a.operacaoAtual()!;
+    await a.enviar(resposta);
+    assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, resposta);
+  }
+  // Resposta ilegível: pergunta de novo (nem o premium do histórico); a resposta seguinte conclui.
+  const b = comHistorico("premium");
+  await b.enviar("quanto custa o Premium?");
+  await b.enviar(`crie uma festa do Felipe, ${resto}`);
+  const opB = b.operacaoAtual()!;
+  const ilegivel = await b.enviar("hmm, (??)");
+  assert.notEqual((b.linha(opB).payload as { pacote?: string }).pacote, "PREMIUM", "o histórico não completa a resposta ilegível");
+  assert.match((ilegivel.data as Extract<AIResponse, { tipo: "rascunho" }>).pergunta, /Qual pacote\?/);
+  await b.enviar("Festa Jardim, por favor");
+  assert.equal((b.linha(opB).payload as { pacote?: string }).pacote, PACOTE_LIVRE, "a resposta seguinte conclui");
+  // P2-2: "Festa Premium" com a Luna copiando "Festa Premium" conclui na primeira resposta (sem laço).
+  const c = comHistorico("Festa Premium");
+  await c.enviar("quanto custa?");
+  await c.enviar(`crie uma festa do Felipe, ${resto}`);
+  const opC = c.operacaoAtual()!;
+  await c.enviar("Festa Premium");
+  assert.equal((c.linha(opC).payload as { pacote?: string }).pacote, "PREMIUM", "conclui na primeira resposta");
+  // E "Premium Jardim" com a Luna devolvendo "Festa Premium" continua Premium Jardim.
+  const d = comHistorico("Festa Premium");
+  await d.enviar("quanto custa?");
+  await d.enviar(`crie uma festa do Felipe, ${resto}`);
+  const opD = d.operacaoAtual()!;
+  await d.enviar("Premium Jardim");
+  assert.equal((d.linha(opD).payload as { pacote?: string }).pacote, PACOTE_PJ);
+});
+
+test("revisão Astra rodada 7 (Human Gate, com e sem Luna): resposta com correção ou negação no resto pergunta; a resposta seguinte conclui", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  const completo = { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" as const };
+  for (const resposta of ["Premium, não; Festa Jardim", "Premium, quer dizer, Festa Jardim"]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${resposta} (${luna ? "Luna devolvendo Festa Jardim" : "sem Luna"})`;
+      const a = ambiente({ buffetComum: true });
+      if (luna) {
+        const roteiro = [
+          saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: completo }),
+          saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: "Festa Jardim" } }),
+        ];
+        comLuna(a, { entender: (_d, n) => roteiro[Math.min(n, roteiro.length) - 1] });
+      }
+      await a.enviar(`crie uma festa do Felipe, ${resto}`);
+      const op = a.operacaoAtual()!;
+      const r = await a.enviar(resposta);
+      assert.notEqual((a.linha(op).payload as { pacote?: string }).pacote, "PREMIUM", `nunca o corrigido: ${rotulo}`);
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, undefined, rotulo);
+      const rasc = r.data as Extract<AIResponse, { tipo: "rascunho" }>;
+      assert.deepEqual(rasc.faltando, ["pacote"], rotulo);
+      assert.match(rasc.pergunta, /Qual pacote\?/, rotulo);
+      await a.enviar("Festa Jardim");
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, `a resposta seguinte conclui: ${rotulo}`);
+    }
+  }
+});
+
+test("revisão Astra rodada 8 (Human Gate, com e sem Luna): 'pacote Premium, Festa Jardim' e '…, troque para Festa Jardim' perguntam; a resposta seguinte conclui", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  const completo = { cliente: "Felipe", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" as const };
+  for (const resposta of ["pacote Premium, Festa Jardim", "pacote Premium, troque para Festa Jardim", "Premium, troque para Festa Jardim"]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${resposta} (${luna ? "Luna devolvendo Festa Jardim" : "sem Luna"})`;
+      const a = ambiente({ buffetComum: true });
+      if (luna) {
+        const roteiro = [
+          saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: completo }),
+          saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { pacote: "Festa Jardim" } }),
+        ];
+        comLuna(a, { entender: (_d, n) => roteiro[Math.min(n, roteiro.length) - 1] });
+      }
+      await a.enviar(`crie uma festa do Felipe, ${resto}`);
+      const op = a.operacaoAtual()!;
+      const r = await a.enviar(resposta);
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, undefined, `nunca PREMIUM: ${rotulo}`);
+      assert.match((r.data as Extract<AIResponse, { tipo: "rascunho" }>).pergunta, /Qual pacote\?/, rotulo);
+      await a.enviar("pacote Festa Jardim, por favor");
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, `a resposta seguinte conclui: ${rotulo}`);
+    }
+  }
+});
+
+test("revisão Astra rodada 9 (Human Gate, com e sem Luna): frase completa com troca ou 2ª escolha não prepara o primeiro pacote; a resposta seguinte conclui", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const pacoteDito of ["pacote Premium, troque para Festa Jardim", "pacote Premium troque para Festa Jardim", "pacote Premium, Festa Jardim"]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${pacoteDito} (${luna ? "Luna devolvendo Festa Jardim" : "sem Luna"})`;
+      const a = ambiente({ buffetComum: true });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "Festa Jardim", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      const r = await a.enviar(`crie uma festa do Felipe, ${pacoteDito}, ${resto}`);
+      const op = a.operacaoAtual()!;
+      assert.ok(op, rotulo);
+      assert.notEqual(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO", `não abre a revisão: ${rotulo}`);
+      assert.notEqual((a.linha(op).payload as { pacote?: string }).pacote, "PREMIUM", `nunca o primeiro: ${rotulo}`);
+      const rasc = r.data as Extract<AIResponse, { tipo: "rascunho" }>;
+      assert.equal(rasc.tipo, "rascunho", rotulo);
+      assert.match(rasc.pergunta ?? "", /pacote/i, rotulo);
+      await a.enviar("Festa Jardim");
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, `a resposta seguinte conclui: ${rotulo}`);
+    }
+  }
+});
+
+test("revisão Astra rodada 10 (Human Gate, com e sem Luna): nome menor citado à parte não abre a revisão; a resposta seguinte conclui; evidência interna fora do contexto da Luna", async () => {
+  const resto = "50 convidados, beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const pacoteDito of ["pacote Premium Jardim, Premium", "pacote Premium Jardim, depois Premium", "pacote Premium, depois Premium Jardim"]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${pacoteDito} (${luna ? "Luna devolvendo Premium Jardim" : "sem Luna"})`;
+      const a = ambiente({ buffetComum: true });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "Premium Jardim", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      await a.enviar(`crie uma festa do Felipe, ${pacoteDito}, ${resto}`);
+      const op = a.operacaoAtual()!;
+      assert.notEqual(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO", `não abre a revisão: ${rotulo}`);
+      await a.enviar("Premium Jardim");
+      assert.equal((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_PJ, `a resposta seguinte conclui: ${rotulo}`);
+    }
+  }
+  assert.deepEqual(preenchidosDe({ pacote: "Festa", pacoteTexto: "Festa 15 anos", pacoteResto: "beatriz 1 ano", convidados: 50 }), { pacote: "Festa", convidados: 50 });
+});
+
+test("revisão Astra rodada 11 (Human Gate, comum/dona, com e sem Luna): 'não Premium e sim Completa' não fica com o Premium recusado; 'não Completa' segue Premium", async () => {
+  const resto = "beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const buffetComum of [true, false]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${buffetComum ? "comum" : "dona"}, ${luna ? "Luna devolvendo Completa" : "sem Luna"}`;
+      const a = ambiente({ buffetComum });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "completa", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      await a.enviar(`crie uma festa do Felipe, pacote Premium, 50 convidados, não Premium e sim Completa, ${resto}`);
+      const op = a.operacaoAtual()!;
+      assert.notEqual(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO", `não abre a revisão: ${rotulo}`);
+      assert.notEqual((a.linha(op).payload as { pacote?: string }).pacote, buffetComum ? "PREMIUM" : "premium", `nunca o recusado: ${rotulo}`);
+    }
+    const b = ambiente({ buffetComum });
+    await b.enviar(`crie uma festa do Felipe, pacote Premium, 50 convidados, não Completa, ${resto}`);
+    assert.equal((b.linha(b.operacaoAtual()!).payload as { pacote?: string }).pacote, buffetComum ? "PREMIUM" : "premium", `'não Completa' segue (${buffetComum ? "comum" : "dona"})`);
+  }
+});
+
+test("revisão Astra rodada 12 (Human Gate, comum/dona, com e sem Luna): 'não quero Premium' e 'não quero o pacote Premium' depois de escolher Premium não abrem a revisão", async () => {
+  const resto = "beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const recusa of ["não quero Premium", "não quero o pacote Premium"]) {
+    for (const buffetComum of [true, false]) {
+      for (const luna of [true, false]) {
+        const rotulo = `${recusa} (${buffetComum ? "comum" : "dona"}, ${luna ? "Luna devolvendo Completa" : "sem Luna"})`;
+        const a = ambiente({ buffetComum });
+        if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "completa", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+        await a.enviar(`crie uma festa do Felipe, pacote Premium, 50 convidados, ${recusa}, ${resto}`);
+        const op = a.operacaoAtual()!;
+        assert.notEqual(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO", `não abre a revisão: ${rotulo}`);
+        assert.notEqual((a.linha(op).payload as { pacote?: string }).pacote, buffetComum ? "PREMIUM" : "premium", `nunca o recusado: ${rotulo}`);
+      }
+    }
+  }
+  assert.deepEqual(preenchidosDe({ pacote: "Festa", pacoteRecusas: "Premium", convidados: 50 }), { pacote: "Festa", convidados: 50 });
+});
+
+test("revisão Astra rodada 13 (Human Gate, com e sem Luna): recusar o próprio nome composto ('não quero o pacote Festa Jardim') não abre a revisão", async () => {
+  const resto = "beatriz 1 ano; tema unicórnio, dia 15/11/2026 à noite";
+  for (const recusa of ["não quero o pacote Festa Jardim", "não quero Festa Jardim"]) {
+    for (const luna of [true, false]) {
+      const rotulo = `${recusa} (${luna ? "Luna devolvendo premium" : "sem Luna"})`;
+      const a = ambiente({ buffetComum: true });
+      if (luna) comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "Beatriz", idade: 1, tema: "unicórnio", diaMes: "15/11", turno: "noite" } }) });
+      await a.enviar(`crie uma festa do Felipe, pacote Festa Jardim, 50 convidados, ${recusa}, ${resto}`);
+      const op = a.operacaoAtual()!;
+      assert.notEqual(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO", `não abre a revisão: ${rotulo}`);
+      assert.notEqual((a.linha(op).payload as { pacote?: string }).pacote, PACOTE_LIVRE, `nunca o recusado: ${rotulo}`);
+    }
+  }
+  // Recusa de outro pacote segue com o escolhido.
+  const b = ambiente({ buffetComum: true });
+  await b.enviar(`crie uma festa do Felipe, pacote Festa Jardim, 50 convidados, não quero o pacote Premium Jardim, ${resto}`);
+  assert.equal((b.linha(b.operacaoAtual()!).payload as { pacote?: string }).pacote, PACOTE_LIVRE);
 });
 
 test("Luna — A: \"Quero criar uma festa e não um pacote\" substitui o rascunho errado, aproveita só os dados válidos e invalida a prévia antiga", async () => {

@@ -215,6 +215,9 @@ const ESTADO_POSTGRES = {
   // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
   // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
+  // 22/10/2026 (fase 1d): a IA (preparar contratação) resolve o pacote contra os pacotes reais da empresa comprovada
+  // (nome ou código P_…); a dona da agenda pública continua só com os sete ids V1. Schema vigente (089), sem migration.
+  "lib/inteligencia/acoes/pacotes-1d.postgres.test.ts": { descartavel: "089" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

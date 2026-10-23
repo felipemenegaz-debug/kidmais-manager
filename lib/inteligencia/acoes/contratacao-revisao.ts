@@ -1,7 +1,7 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { HumanGateDraft } from "../contratos.ts";
 import { InteligenciaError } from "../politica.ts";
-import { CAPACIDADE_CONTRATACAO, CODIGO_BANCO, payloadContratacaoSchema, type PayloadContratacao, type PortaContratacao } from "./contratacao.ts";
+import { CAPACIDADE_CONTRATACAO, codigoBancoDoPacote, payloadContratacaoSchema, type PayloadContratacao, type PortaContratacao } from "./contratacao.ts";
 import { hashPayload } from "./hash.ts";
 import type { RepositorioOperacoes } from "./tipos.ts";
 
@@ -122,7 +122,8 @@ export function criarVinculo(
       if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) throw new InteligenciaError("PREPARACAO_EXPIRADA", "A preparação expirou. Envie sem ela ou peça uma nova ao Kidmais.", 409);
       const mesmo = ctx.input.pacote === payload.pacote && ctx.input.convidadosPagantes === payload.convidados && ctx.input.dataFesta === payload.data && ctx.input.horarioBase === payload.turno;
       if (mesmo && payload.precoTabelaCentavos !== null) {
-        const pacote = await porta.pacote(tx, ctx.empresaId, CODIGO_BANCO[payload.pacote]);
+        // Id da tela conferido em `verificar`: id V1 (dona) ou o código do pacote da empresa.
+        const pacote = await porta.pacote(tx, ctx.empresaId, codigoBancoDoPacote(payload.pacote) ?? "");
         const agenda = await porta.horarios(tx, ctx.empresaId, payload.data, payload.turno);
         const atual = pacote && agenda ? await porta.precoTabela(tx, ctx.empresaId, { data: payload.data, configuracaoAgendaId: agenda.configuracaoId, pacoteId: pacote.id, convidados: payload.convidados }) : null;
         if (atual !== payload.precoTabelaCentavos) {
