@@ -253,7 +253,7 @@ test("administração: dona da agenda pública mantém a regra legada (null); de
   assert.match(rota, /const daEmpresa = configuracaoComercial\s*\?\s*null\s*:\s*await pacotesDaAgendaDaEmpresa\(tx, empresaComprovada, listarPacotesContrataveisDaEmpresa\);/);
   assert.match(rota, /const regrasPacotes = daEmpresa \? daEmpresa\.regras : null;/);
   assert.match(rota, /const pacotes = daEmpresa \? daEmpresa\.pacotes : null;/);
-  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,\s*bloqueios,/);
+  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,[\s\S]{0,260}?telaDoCliente:[^\n]*\n\s*bloqueios,/);
   assert.doesNotMatch(rota, /(regrasDosPacotesDaEmpresa|pacotesDaAgendaDaEmpresa)\(tx, (q\.|body|alvo|request)/, "empresa só da sessão comprovada");
   const tela = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.match(tela, /regrasPacotes: admin\.regrasPacotes \?\? null/);
