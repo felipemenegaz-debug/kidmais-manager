@@ -52,3 +52,9 @@ Build/TypeScript concluídos com 78 páginas após executar fora do isolamento d
 Seção Marketing: push fast-forward fe0878d → 53b02951ad612e0a63441e85d7f1eb30a81e9a98. Deploy staging dep-dbdhec5g1s2s73bh5il0 iniciado às 08:13:36Z de 23/10/2026. Sem variáveis, banco, cron ou produção alterados. Servidor local encerrado.
 
 Resultado Marketing: deploy dep-dbdhec5g1s2s73bh5il0 LIVE em 23/10/2026 08:24:01Z, SHA 53b02951ad612e0a63441e85d7f1eb30a81e9a98. Após 502 transitório da troca, página pública carregou; link Marketing navega para a seção, quatro cartões e nota de limitações presentes, sem overflow desktop. Evidência: evidencias/site-marketing-staging-20261023.png. Staging mantido aberto. Nenhuma alteração operacional além do deploy web autorizado.
+
+## Ampliação dos módulos — 23/10/2026
+
+Solicitados importação do modelo jurídico, festas fechadas e preços; financeiro detalhado; vários salões na mesma unidade; site do buffet dentro do Marketing. Conferidos ModeloContrato, IntegracaoContrato, AgendaConfiguracao, FinanceiroTelas e MarketingSite. Criadas seções #importacao (3 cartões), #financeiro (4), #saloes (3) e destaque de site/SEO em #marketing. Atualizadas abas e descrição de unidade extra, preservados selos existentes de importação e limitações das mensagens. Plano Essencial/financeiro completo diferenciados.
+
+Código c8529e3 integrado sem conflito com origin/staging 030e833 (PR216, documentos por empresa), preservando a atualização concorrente. Testes unitários pertinentes após merge: 25/25; lint, TypeScript e build de 78 páginas passaram. Revisão independente aprovada. Navegador local conferiu cartões, âncoras e ausência de overflow desktop. Deploy concorrente dep-dbdiedg473hc73ei2n50 concluído antes da publicação desta frente. Sem banco, variável, cron ou produção alterados.
