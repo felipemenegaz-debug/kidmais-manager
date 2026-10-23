@@ -25,6 +25,12 @@ export type Entidade = {
     somente?: readonly string[];
     /** Coluna bytea exportada como arquivo do pacote (PDFs dos contratos). As demais bytea viram tamanho + SHA-256. */
     arquivoBinario?: { coluna: string; pasta: string; extensao: string };
+    /**
+     * Migration POSTERIOR ao schema 089 em que o inventário é conferido (ex.: '097'). Sem ela no ambiente, a entidade sai
+     * em `entidadesAusentes` do manifesto; com ela, entra no pacote. Conteúdo, colunas e FK são provados na suíte da
+     * própria migration (ex.: arrependimento-097.postgres.test.ts).
+     */
+    migracao?: string;
 };
 
 /** Defesa em profundidade: nenhum nome de coluna que case com este padrão sai no pacote, mesmo sem exclusão declarada. */
@@ -78,6 +84,11 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
     assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
+    // 097 (arrependimento): protocolo, datas, situação da assinatura no registro, informativos, comunicação ao
+    // intermediador, conclusão (referência ou justificativa) e valor restituído saem, com a situação do e-mail de
+    // confirmação. Ficam fora a chave de repetição, o aviso interno e quem do atendimento da plataforma concluiu.
+    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe Kidmais)',
+        concluido_por: 'pessoa do atendimento da plataforma (não é da empresa)' },
 };
 
 const BASE: readonly Entidade[] = [
@@ -96,6 +107,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_encerramentos', tabela: 'assinatura_encerramentos', grupo: 'Empresa', descricao: 'Pedidos de cancelamento e devolução da assinatura (protocolo).', onde: EMP },
+    { arquivo: 'empresa/assinatura_arrependimentos', tabela: 'assinatura_arrependimentos', grupo: 'Empresa', descricao: 'Manifestações do direito de arrependimento (protocolo, comunicação ao intermediador e conclusão).', onde: EMP, migracao: '097' },
     {
         arquivo: 'empresa/usuarios', tabela: 'usuarios_administrativos', grupo: 'Empresa', descricao: 'Pessoas com vínculo nesta empresa (sem senha nem papel global).',
         onde: em(USUARIOS, 'id'), somente: ['id', 'nome', 'email', 'cargo', 'ativo', 'criado_em'],
@@ -273,7 +285,6 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     assinatura_campanhas: 'Configuração da campanha Fundador da plataforma (090): datas, regra e autorização; sem dado de empresa.',
     documentos_legais_versoes: 'Texto integral das versões publicadas dos documentos legais da plataforma (096); sem dado de empresa e público em /documentos.',
     assinatura_comprovantes: 'Comprovante da contratação da assinatura (096), disponível à Gestão na tela Assinatura para salvar ou imprimir.',
-    assinatura_arrependimentos: 'Manifestações do direito de arrependimento (097), com protocolo e situação visíveis à Gestão na tela Assinatura; o inventário é conferido no schema 089.',
     empresa_documento_continuidades: 'Registro interno do atendimento sobre retificação ou continuidade CPF → CNPJ da contratante (091), com instrumento e evidências.',
     assinatura_isencoes: 'Concessões internas da plataforma.',
     empresa_excecoes_comerciais: 'Decisões comerciais internas da plataforma.',

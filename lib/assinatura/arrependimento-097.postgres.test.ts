@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Client } from 'pg';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
+import { gerarPacote } from '../exportacao/pacote.ts';
+import { lerZip } from '../exportacao/zip.ts';
 import type { MensagemEmail } from '../acessos/email.ts';
 import { iniciarTeste } from './servico.ts';
 import { lerEstadoComercial } from './estado.ts';
@@ -25,7 +27,9 @@ import { concluirArrependimento, consultarArrependimento, manifestacoesDaEmpresa
  *   5. guarda: núcleo imutável, acompanhamento uma vez só, nasce RECEBIDA, sem DELETE; restrições de conclusão;
  *   6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso; NAO_APLICAVEL não muda o acesso;
  *   7. conferência D-C4: manifestação RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO);
- *   8. rollback recusado com manifestação registrada.
+ *   8. exportação: com a 097, as manifestações da empresa entram no pacote (colunas conferidas, sem chave, aviso interno,
+ *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
+ *   9. rollback recusado com manifestação registrada.
  */
 const ler = (f: string) => readFileSync(f, 'utf8');
 const SQL = {
@@ -259,7 +263,34 @@ test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNI
     assert.ok(daqui2h.every((x) => !JSON.stringify(x).includes(a.protocolo) && !JSON.stringify(x).includes(b.protocolo)), 'protocolo não vai para o alarme');
 });
 
-test('8. rollback recusado com manifestação registrada', { skip: !opt() }, async () => {
+test('8. exportação da empresa: manifestações dela no pacote, colunas conferidas, sem dados internos nem de outra empresa', { skip: !opt() }, async () => {
+    // FK direta empresa_id → empresa_assinaturas(empresa_id) no catálogo (o filtro do inventário segue uma FK real).
+    assert.equal((await q(`SELECT count(*)::int AS n FROM pg_constraint WHERE contype = 'f' AND conrelid = 'public.assinatura_arrependimentos'::regclass
+        AND pg_get_constraintdef(oid) = 'FOREIGN KEY (empresa_id) REFERENCES empresa_assinaturas(empresa_id)'`)).rows[0].n, 1);
+    const esta = ids.atual;
+    const protocolos = (await q('SELECT protocolo FROM assinatura_arrependimentos WHERE empresa_id = $1 ORDER BY protocolo', [esta])).rows.map((r) => r.protocolo as string);
+    const deOutra = (await q('SELECT protocolo FROM assinatura_arrependimentos WHERE empresa_id <> $1', [esta])).rows.map((r) => r.protocolo as string);
+    assert.ok(protocolos.length >= 2 && deOutra.length >= 1);
+    await q('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    let pacote: Awaited<ReturnType<typeof gerarPacote>>;
+    try { pacote = await gerarPacote(client as never, esta); }
+    finally { await q('COMMIT'); }
+    const zip = readFileSync(pacote.zipCaminho);
+    await pacote.limpar();
+    const a = pacote.manifesto.arquivos.find((x) => x.tabela === 'assinatura_arrependimentos');
+    assert.ok(a, 'entidade no pacote com a 097 instalada');
+    assert.ok(!pacote.manifesto.entidadesAusentes.some((x) => x.tabela === 'assinatura_arrependimentos'));
+    assert.deepEqual(a!.colunas, ['id', 'protocolo', 'empresa_id', 'canal', 'solicitado_por', 'solicitado_em', 'motivo', 'situacao_assinatura', 'contratado_em',
+        'dentro_de_7_dias', 'provedor_disponivel', 'intermediador_comunicado_em', 'intermediador_referencia', 'situacao', 'concluido_em', 'conclusao_referencia',
+        'valor_restituido_centavos', 'email_confirmacao']);
+    assert.equal(a!.linhas, protocolos.length);
+    const csv = lerZip(zip).get(a!.caminho)!.toString('utf8');
+    for (const p of protocolos) assert.ok(csv.includes(p), `protocolo ${p} no CSV`);
+    for (const p of deOutra) assert.ok(!csv.includes(p), 'nada de outra empresa');
+    assert.ok(!csv.includes(ids.atendimento), 'quem do atendimento concluiu não sai');
+});
+
+test('9. rollback recusado com manifestação registrada', { skip: !opt() }, async () => {
     await assert.rejects(q(SQL.down), /rollback recusado: já há manifestação/);
     await q('ROLLBACK').catch(() => undefined);
     assert.equal((await q("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0].ok, true);
