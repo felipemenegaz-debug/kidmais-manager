@@ -821,3 +821,26 @@ Mutações: sem a conferência dos documentos confirmados, o caso 7 falha; lendo
 - o caminho legado de checkout segue sem síntese nem comprovante;
 - histórico de comprovantes e acesso após suspensão, no procedimento de direitos;
 - a preservação do aplicador compara um subconjunto de colunas, não uma fotografia integral.
+
+### Décima quarta rodada: P3-R1 e diagnóstico de lacunas (revisão de `00cecac..9b84bd9`)
+
+A revisão do Astra aprovou localmente os três P2 e o P3-B2. O P3-B1 ficou **parcial**: o postcheck aceitava o CHECK do hash acrescido de `OR true` (P3-R1).
+
+**Correção:**
+- **Postcheck da 096:** compara a definição do CHECK do hash por **igualdade exata** com a forma canônica do PostgreSQL (`CHECK ((encode(sha256(convert_to(conteudo, 'UTF8'::name)), 'hex'::text) = hash))`, obtida no PG 18.6), sem aceitar sufixos. FK e CHECK do envio já eram por igualdade. Hash do aplicador 096 atualizado.
+- **Testes negativos no caso 7 da 096:** `CHECK (true)`, a expressão correta seguida de `OR true` e uma expressão sobre outra coluna seguida de `OR true` são recusadas.
+- **Controle positivo:** o DDL original recriado passa.
+- **Mutação:** voltar ao `LIKE` faz o caso 7 falhar.
+- **Limite:** a forma canônica foi conferida no PG 18. Se o PostgreSQL do Render tiver outra versão com forma diferente, o postcheck recusa (falso negativo seguro, nunca aceite indevido); a conferência no ambiente fica para o roteiro de aplicação.
+
+**Diagnóstico de lacunas dos aceites** (sugestão da revisão, agora no repositório e validado):
+- `lib/cadastro/diagnostico-lacunas.ts` e `scripts/gerar-diagnostico-lacunas.mjs` geram `database/checks/diagnostico_lacunas_aceites.sql`. É uma consulta somente leitura que lista, agrupado e sem pessoas nem empresas, os aceites e pedidos com versão/hash fora do catálogo (8 publicadas + 3 vigentes).
+- Unitário: o SQL do repositório corresponde ao catálogo atual, o que obriga a regerar quando houver versão nova.
+- PG: aceite com hash do catálogo não aparece; hash desconhecido aparece com a contagem.
+- **Não executado em ambiente real.** Rodar em staging ou produção exige autorização própria e é o que atesta a cobertura dos aceites reais.
+
+**Validação:**
+- Unitários 433/433, scripts 76/76, bloco 096 10/10.
+- PG descartável 55607: 096 7/7 e aplicadores reais 1/1. Cluster removido.
+- `check:v1:static`: PASS (3304 + 103).
+- Não repetidos nesta rodada (o delta não toca neles): Playwright e suítes PG vizinhas.
