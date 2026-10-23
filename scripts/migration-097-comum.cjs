@@ -29,7 +29,6 @@ const ETAPAS = Object.freeze([
 const REFERENCIADAS = Object.freeze(['empresa_assinaturas', 'usuarios_administrativos']);
 const ALTERADAS = Object.freeze([]);
 const lista = xs => xs.map(x => `'${x}'`).join(',');
-const def = nome => `coalesce((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='${nome}' AND contype='c' LIMIT 1), '')`;
 /** Estado estrutural (leitura): dependências, cada objeto da 097 e privilégios. Sem dados. */
 const SQL_ESTADO = `SELECT
   to_regclass('public.empresa_assinaturas') IS NOT NULL AS m068,
@@ -47,7 +46,6 @@ const OBJETOS = Object.freeze(['tabela', 'guarda', 'gatilho']);
 /** Corte lido no banco ANTES da migration: a prova compara só linhas criadas até ele (tráfego durante a janela não conta). */
 const SQL_CORTE = `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS corte`;
 const CORTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
-const tx = c => `coalesce((${c})::text,'~')`;
 /**
  * Resumo das colunas que a 097 não pode tocar nas assinaturas criadas até o corte (empresa e criação); situação e datas
  * mudam com o tráfego e ficam fora. A 097 só cria uma tabela. Só o md5 agregado sai.
