@@ -29,6 +29,7 @@ import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
 import { paginaPublica } from "@/lib/fechamentos/rota-publica";
+import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
@@ -196,9 +197,23 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
   };
 }
 
+/**
+ * Só oferece o endereço que abriria: a mesma decisão da página pública /b/<código> (escopoCotacaoPublica — chave
+ * COTACAO_PUBLICA_POR_EMPRESA, empresa ATIVA, Orçamento online no plano, situação comercial, unidade). Recusada,
+ * null (a tela explica em vez de levar a um 404). A consulta roda num savepoint para não abortar a transação.
+ */
 async function telaDoClienteDaEmpresa(tx: DbExecutor, empresaId: string) {
   const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
-  return codigo ? paginaPublica("/disponibilidade", codigo) : null;
+  if (!codigo) return null;
+  await tx.query("SAVEPOINT kidmais_tela_do_cliente");
+  try {
+    const escopo = await escopoCotacaoPublica(() => tx, codigo);
+    await tx.query("RELEASE SAVEPOINT kidmais_tela_do_cliente");
+    return escopo.empresaId === empresaId ? paginaPublica("/disponibilidade", codigo) : null;
+  } catch {
+    await tx.query("ROLLBACK TO SAVEPOINT kidmais_tela_do_cliente");
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
