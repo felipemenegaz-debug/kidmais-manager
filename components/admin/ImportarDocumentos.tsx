@@ -1,22 +1,25 @@
 import Link from 'next/link';
 import ImportacaoTabelaPrecos from './ImportacaoTabelaPrecos';
 import ModeloContrato from './ModeloContrato';
+import ImportacaoContrato from './importacao/ImportacaoContrato';
 import css from './importar-documentos.module.css';
 
 /**
- * Importar documentos (pedido de Felipe, 23/10/2026): a tabela de preços e o modelo de contrato chegam em PDF, são
- * lidos pela IA e revisados antes de publicar — a mesma entrada em Configurações, uma aba por documento. Cada aba é a
- * tela que já existia (mesmos serviços e permissões); as rotas antigas redirecionam para cá.
+ * Importar documentos (pedido de Felipe, 23/10/2026): a tabela de preços, o modelo de contrato e o contrato antigo de
+ * uma festa chegam em PDF, são lidos pela IA e revisados antes de valer — a mesma entrada em Configurações, uma aba por
+ * documento. Cada aba é a tela que já existia (mesmos serviços e permissões): "Contrato de festa" é o mesmo fluxo de
+ * Contratos › Importar contrato antigo. As rotas antigas de tabela e modelo redirecionam para cá.
  */
-export type DocumentoImportado = 'tabela' | 'contrato';
+export type DocumentoImportado = 'tabela' | 'contrato' | 'festa';
 
 export const ABAS: ReadonlyArray<{ documento: DocumentoImportado; rotulo: string; descricao: string }> = [
   { documento: 'tabela', rotulo: 'Tabela de preços', descricao: 'Pacotes, preços e adicionais' },
   { documento: 'contrato', rotulo: 'Modelo de contrato', descricao: 'O contrato no padrão da empresa' },
+  { documento: 'festa', rotulo: 'Contrato de festa', descricao: 'Contrato antigo de uma festa' },
 ];
 
 export function documentoDaUrl(valor: string | string[] | undefined): DocumentoImportado {
-  return valor === 'contrato' ? 'contrato' : 'tabela';
+  return valor === 'contrato' || valor === 'festa' ? valor : 'tabela';
 }
 
 export default function ImportarDocumentos({ documento }: { documento: DocumentoImportado }) {
@@ -30,6 +33,6 @@ export default function ImportarDocumentos({ documento }: { documento: Documento
         </Link>)}
       </div>
     </nav>
-    {documento === 'contrato' ? <ModeloContrato /> : <ImportacaoTabelaPrecos />}
+    {documento === 'contrato' ? <ModeloContrato /> : documento === 'festa' ? <ImportacaoContrato /> : <ImportacaoTabelaPrecos />}
   </>;
 }
