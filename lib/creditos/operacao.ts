@@ -102,7 +102,9 @@ export async function resolverBloqueio(tx: DbExecutor, operadorId: string, r: { 
     const quantidade = !lote ? 0 : r.resultado === 'LIBERAR'
         ? await desbloquear(tx, c.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_LIBERADO:${c.id}:${c.estornado_centavos}`, 'PLATAFORMA')
         : await cancelarBloqueado(tx, c.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_CANCELADO:${c.id}:${c.estornado_centavos}`, 'PLATAFORMA', p.protocolo);
-    await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid', [c.id]);
+    // R5-P2-2: CANCELAR fica gravado (perda definitiva, sem alarme) — reservas em andamento canceladas ao liberar,
+    // mesmo com zero cancelado agora; LIBERAR limpa o motivo.
+    await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2 WHERE id = $1::uuid', [c.id, r.resultado === 'CANCELAR' ? 'ESTORNO_PARCIAL_CANCELADO' : null]);
     await auditarCreditos(tx, { usuarioId: operadorId, acao: 'CREDITOS_BLOQUEIO_RESOLVIDO', entidadeTipo: 'IA_CREDITO_COBRANCA', entidadeId: c.id,
         dados: { protocolo: p.protocolo, resultado: r.resultado, quantidade, referencia } });
     return { resultado: r.resultado, quantidade };

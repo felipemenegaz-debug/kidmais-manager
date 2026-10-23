@@ -148,6 +148,12 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
     const lote = await loteDoPedido(tx, p);
     await lerCarteira(tx, p.empresa_id, p.recurso, true);
     if (lote) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
+    // R5-P2-2: o operador já decidiu CANCELAR (perda definitiva): um estorno maior depois não reabre a decisão.
+    const motivo = (await tx.query<{ revisao_motivo: string | null }>('SELECT revisao_motivo FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0]?.revisao_motivo;
+    if (motivo === 'ESTORNO_PARCIAL_CANCELADO') {
+        if (lote) await cancelarBloqueado(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_CANCELADO:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
+        return { resultado: 'ESTORNO', motivo: 'ESTORNO_PARCIAL_CANCELADO' };
+    }
     await tx.query("UPDATE ia_credito_cobrancas SET revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
 }
@@ -288,7 +294,8 @@ export async function processarEventoCreditos(tx: DbExecutor, ev: EventoCreditos
 
 /**
  * Pedidos que a reconciliação revisita. R4-P2-1 (revisão de 22/10): duas filas com cota — as PENDÊNCIAS (abertos, em
- * revisão, disputa/estorno/devolução em curso, encerrados recentes) vêm primeiro, pelo mais antigo; os CREDITADOS dos
+ * revisão, disputa/estorno/devolução em curso, encerrados recentes) vêm primeiro, pela tentativa mais antiga
+ * (`reconciliado_em`, nunca tentados primeiro; R5-P2-1: pendência que continua pendente vai para o fim); os CREDITADOS dos
  * últimos 90 dias entram pela leitura mais antiga (`conferida_em`, nunca lidos primeiro), com pelo menos 1/4 do limite
  * quando houver. Cada leitura move o cursor, então todos avançam entre execuções. `truncado` = sobrou alguém para a
  * próxima execução. `ambiente` restringe aos pedidos do ambiente do provedor em uso.
@@ -301,7 +308,7 @@ export async function selecionarParaReconciliar(tx: DbExecutor, limite = 200, am
         -- P2-2: cobrança cancelada há até 90 dias ainda pode ser paga (Pix já aberto, boleto impresso).
         OR (p.estado = 'ENCERRADO' AND p.creditado_em IS NULL AND p.atualizado_em > clock_timestamp() - interval '90 days'
             AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica)))
-        ORDER BY p.criado_em LIMIT $1`, [limite + 1, ambiente])).rows.map((r) => r.id);
+        ORDER BY p.reconciliado_em NULLS FIRST, p.criado_em LIMIT $1`, [limite + 1, ambiente])).rows.map((r) => r.id);
     // P3-2: creditado há até 90 dias é relido (estorno total feito no painel com o webhook perdido cancela o remanescente).
     const creditados = (await tx.query<{ id: string }>(`SELECT p.id FROM ia_credito_pedidos p JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica
         WHERE ($2::text IS NULL OR p.ambiente = $2) AND p.estado = 'CREDITADO' AND p.creditado_em > clock_timestamp() - interval '90 days'
@@ -311,6 +318,13 @@ export async function selecionarParaReconciliar(tx: DbExecutor, limite = 200, am
     const dePendentes = pendentes.slice(0, limite - cotaCreditados);
     const deCreditados = creditados.slice(0, limite - dePendentes.length);
     return { ids: [...dePendentes, ...deCreditados], truncado: pendentes.length + creditados.length > dePendentes.length + deCreditados.length };
+}
+/**
+ * R5-P2-1: marca a tentativa da reconciliação ANTES de processar, em transação própria do chamador (confirmada mesmo se o
+ * processamento falhar), para que pendências estáveis ou com erro não ocupem a frente da fila para sempre.
+ */
+export async function marcarTentativa(tx: DbExecutor, pedidoId: string) {
+    await tx.query('UPDATE ia_credito_pedidos SET reconciliado_em = clock_timestamp() WHERE id = $1::uuid', [pedidoId]);
 }
 export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200, ambiente: 'sandbox' | 'producao' | null = null) {
     return (await selecionarParaReconciliar(tx, limite, ambiente)).ids;

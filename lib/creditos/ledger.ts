@@ -111,7 +111,7 @@ async function lotesTravados(tx: DbExecutor, empresaId: string, recurso: Recurso
             -- quantidade já cancelada — com tudo reservado no momento da perda, nada foi cancelado e mesmo assim é perda.
             (l.cancelado > 0 OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.lote_id = l.id AND d.empresa_id = l.empresa_id)
               OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
-                AND (c.disputa = 'PERDIDA' OR c.revisao_motivo = 'ESTORNO_SEM_PEDIDO'))) AS cancelado_definitivo,
+                AND (c.disputa = 'PERDIDA' OR c.revisao_motivo IN ('ESTORNO_SEM_PEDIDO', 'ESTORNO_PARCIAL_CANCELADO')))) AS cancelado_definitivo,
             -- R4-P2-3: retenção pelo ESTADO (disputa aberta, estorno externo parcial em análise), mesmo com bloqueio inicial zero.
             (l.bloqueado > 0 OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
                 AND (c.disputa = 'ABERTA' OR c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'))) AS em_bloqueio

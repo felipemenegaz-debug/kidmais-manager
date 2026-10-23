@@ -16,7 +16,7 @@ import { abrirCarteira, conferirCarteira, creditarLote, creditosInstalados, ence
 import { aplicarCorte, simularCorte } from "./corte.ts";
 import { criarPedido, type DepsCreditos } from "./compra.ts";
 import { consultarCreditos } from "./servico.ts";
-import { processarEventoCreditos, processarPedido, pedidosParaReconciliar, selecionarParaReconciliar } from "./pagamento.ts";
+import { marcarTentativa, processarEventoCreditos, processarPedido, pedidosParaReconciliar, selecionarParaReconciliar } from "./pagamento.ts";
 import { concluirCobrancaExtra, reprocessarPedido, resolverBloqueio, resolverRevisao } from "./operacao.ts";
 import { createRequire } from "node:module";
 import { registrarDevolucao, solicitarDevolucao } from "./devolucao.ts";
@@ -873,8 +873,11 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     const Hh = await empresa(c, "Créditos H (P2-6)"), uH = await gestao(c, Hh);
     await assinaturaPaga(c, Hh, "cus_H");
     await legado(c, Hh, 0, 0);
+    const Qq = await empresa(c, "Créditos Q (R5)"), uQ = await gestao(c, Qq);
+    await assinaturaPaga(c, Qq, "cus_Q");
+    await legado(c, Qq, 0, 0);
     await c.query("COMMIT");
-    for (const e of [G, Hh]) await emTx(c)((t2) => aplicarCorte(t2, e, "TESTE P2 22/10"));
+    for (const e of [G, Hh, Qq]) await emTx(c)((t2) => aplicarCorte(t2, e, "TESTE P2 22/10"));
     const tenant = (empresaId: string, u: string) => (async <T>(_s: unknown, _e: unknown, w: (t2: DbExecutor, t: object) => Promise<T>) =>
       emTx(c)((t2) => w(t2, { empresaComprovada: empresaId, papelAtual: "REPRESENTANTE_AUTORIZADO", membershipId: "m", usuarioId: u }))) as unknown as DepsCreditos["withTenantTransaction"];
     const deps = (empresaId: string, u: string, env: Record<string, string> = ENV): DepsCreditos => ({ withTenantTransaction: tenant(empresaId, u), withTransaction: emTx(c),
@@ -920,6 +923,34 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.ok(!(await emTx(c)((t2) => selecionarParaReconciliar(t2, 500, "sandbox"))).ids.includes(pend.id), "outro ambiente fica de fora");
     duble.pagar(pend.pagamento, "RECEIVED");
     assert.equal((await emTx(c)((t2) => processarPedido(t2, pend.id, ctxProd))).resultado, "CREDITADO");
+
+    // R5-P2-1: pendências ESTÁVEIS (continuam PENDING) rodam pela marca de tentativa — com limite 2 e 1 vaga de creditados,
+    // 3 pendências são todas visitadas em 3 execuções; a marca não renova atualizado_em.
+    const depsQ = { ...deps(Qq, uQ), provedor: () => ({ cliente: duble.cliente, ambiente: "producao" as const }) };
+    const pendQ: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await criarPedido(sessao(uQ), null, { oferta: "CONVITES_10", forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: "creditos-ia-20261022.demo" }, depsQ);
+      pendQ.push((await c.query("SELECT id FROM ia_credito_pedidos WHERE protocolo = $1", [r.protocolo])).rows[0].id);
+    }
+    const antes = (await c.query("SELECT atualizado_em FROM ia_credito_pedidos WHERE id = $1::uuid", [pendQ[0]])).rows[0].atualizado_em;
+    const visitados = new Set<string>();
+    for (let rodada = 0; rodada < 3; rodada++) {
+      const sel = await emTx(c)((t2) => selecionarParaReconciliar(t2, 2, "producao"));
+      assert.equal(sel.truncado, true);
+      for (const id of sel.ids) {
+        if (pendQ.includes(id)) visitados.add(id);
+        await emTx(c)((t2) => marcarTentativa(t2, id));
+        await emTx(c)((t2) => processarPedido(t2, id, ctxProd));
+      }
+    }
+    assert.deepEqual([...visitados].sort(), [...pendQ].sort(), "todas as pendências estáveis visitadas em 3 execuções");
+    assert.equal((await c.query("SELECT estado FROM ia_credito_pedidos WHERE id = $1::uuid", [pendQ[2]])).rows[0].estado, "AGUARDANDO_PAGAMENTO");
+    assert.deepEqual((await c.query("SELECT atualizado_em FROM ia_credito_pedidos WHERE id = $1::uuid", [pendQ[0]])).rows[0].atualizado_em, antes, "a marca não renova a janela");
+    for (const id of pendQ) {
+      const pag = (await c.query("SELECT pagamento_id FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [id])).rows[0].pagamento_id;
+      duble.pagar(pag, "PENDING", { deleted: true });
+      await emTx(c)((t2) => processarPedido(t2, id, ctxProd));
+    }
     // P3-2 (revisão de 22/10): creditado recente é relido pela reconciliação; leitura de outra conta do provedor não mexe em nada.
     assert.ok((await emTx(c)((t2) => pedidosParaReconciliar(t2))).includes(x.id), "creditado recente revisitado");
     assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, x.id, { ...ctx, conta: "outra-conta" })), { resultado: "SEM_MUDANCA", motivo: "CONTA_DIVERGENTE" });
@@ -1041,6 +1072,33 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "k-tudo-2", quantidadeFinal: 0, ator: "SISTEMA" }));
     assert.deepEqual(await loteK(), { disponivel: "0", reservado: "0", bloqueado: "0", cancelado: "10" }, "perdida: liberado depois é cancelado");
     assert.equal(await livreH(), 10, "o pacote h segue intacto");
+
+    // R5-P2-2: estorno externo parcial com o pacote INTEIRO reservado (bloqueio inicial zero). CANCELAR fica gravado e a
+    // liberação posterior é cancelada; um estorno maior depois não reabre; controle: LIBERAR devolve ao saldo.
+    const pacoteReservado = async (op: string) => {
+      const m = await comprar(Hh, uH);
+      duble.pagar(m.pagamento, "RECEIVED");
+      await emTx(c)((t2) => processarPedido(t2, m.id, ctx));
+      await emTx(c)((t2) => reservar(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: op, quantidade: 20, ator: "EQUIPE" }));
+      duble.pagar(m.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 1000, descricao: null }] });
+      assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, m.id, ctx)), { resultado: "REVISAO", motivo: "ESTORNO_EXTERNO_PARCIAL" });
+      return m;
+    };
+    const loteDe = async (id: string) => (await c.query("SELECT disponivel, reservado, bloqueado, cancelado FROM ia_credito_lotes WHERE pedido_id = $1::uuid", [id])).rows[0];
+    const m = await pacoteReservado("m-tudo");
+    assert.deepEqual(await loteDe(m.id), { disponivel: "0", reservado: "10", bloqueado: "0", cancelado: "0" });
+    await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: m.pagamento, resultado: "CANCELAR", referencia: "Reembolso parcial mantido (conferido)" }));
+    assert.equal((await c.query("SELECT revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [m.id])).rows[0].revisao_motivo, "ESTORNO_PARCIAL_CANCELADO");
+    assert.ok(!(await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL"), "decisão tomada não alarma");
+    await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "m-tudo", quantidadeFinal: 0, ator: "SISTEMA" }));
+    assert.deepEqual(await loteDe(m.id), { disponivel: "0", reservado: "0", bloqueado: "0", cancelado: "10" }, "CANCELAR com tudo reservado: liberado depois é cancelado");
+    assert.equal(await livreH(), 10, "só o pacote h volta ao saldo");
+    duble.pagar(m.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 3000, descricao: null }] });
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, m.id, ctx)), { resultado: "ESTORNO", motivo: "ESTORNO_PARCIAL_CANCELADO" }, "estorno maior não reabre a decisão");
+    const n2 = await pacoteReservado("n-tudo");
+    await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: n2.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
+    await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "n-tudo", quantidadeFinal: 0, ator: "SISTEMA" }));
+    assert.deepEqual(await loteDe(n2.id), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" }, "LIBERAR com tudo reservado: volta ao saldo");
 
     // P2-5: devolução própria (saldo não usado, estorno automático) concluída por estorno PARCIAL DONE com status RECEIVED.
     await c.query("BEGIN");

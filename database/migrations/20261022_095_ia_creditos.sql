@@ -76,6 +76,8 @@ CREATE TABLE ia_credito_pedidos (
   vencimento_pagamento date NOT NULL,
   creditado_em timestamptz,
   atualizado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  -- R5-P2-1: última tentativa da reconciliação (cursor da fila de pendências; gravado à parte, sobrevive a erro).
+  reconciliado_em timestamptz,
   CONSTRAINT ia_credito_pedidos_empresa_uk UNIQUE (id, empresa_id),
   CONSTRAINT ia_credito_pedidos_recurso_uk UNIQUE (id, empresa_id, recurso),
   CONSTRAINT ia_credito_pedidos_idempotencia_uk UNIQUE (empresa_id, chave_idempotencia),
@@ -404,7 +406,13 @@ BEGIN
       IF OLD.creditado_em IS NOT NULL AND NEW.creditado_em IS DISTINCT FROM OLD.creditado_em THEN
         RAISE EXCEPTION '095: crédito do pedido é final.' USING ERRCODE = 'P0001';
       END IF;
-      NEW.atualizado_em := clock_timestamp();
+      -- R5-P2-1: a marca de tentativa da reconciliação não renova atualizado_em (a janela de 90 dias do ENCERRADO não cresce).
+      IF NEW.reconciliado_em IS DISTINCT FROM OLD.reconciliado_em
+         AND (NEW.estado, NEW.revisao_motivo, NEW.creditado_em) IS NOT DISTINCT FROM (OLD.estado, OLD.revisao_motivo, OLD.creditado_em) THEN
+        NEW.atualizado_em := OLD.atualizado_em;
+      ELSE
+        NEW.atualizado_em := clock_timestamp();
+      END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'ia_credito_cobrancas' THEN
     IF TG_OP = 'UPDATE' THEN

@@ -253,6 +253,8 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         if (!creditos.contexto) conta(relatorio.creditos, 'CONFIG_CONTA_INVALIDA');
         if (selecao.truncado) conta(relatorio.creditos, 'RECONCILIACAO_TRUNCADA');
         for (const pedidoId of selecao.ids) {
+            // R5-P2-1: a tentativa vai para o fim da fila mesmo se o processamento falhar (simulação não grava nada).
+            await item(() => creditos.marcar(client, pedidoId));
             const r = await item(() => creditos.processar(client, pedidoId, provedorUsado));
             const chave = r.erro ? `ERRO_${r.erro}` : r.resultado;
             conta(relatorio.creditosPedidos, chave);
@@ -540,6 +542,7 @@ async function creditosDaExecucao(config, env) {
         contexto,
         instalados: (c) => ledger.creditosInstalados(c),
         pedidos: (c) => pagamento.selecionarParaReconciliar(c, 200, config.ambiente),
+        marcar: (c, pedidoId) => pagamento.marcarTentativa(c, pedidoId),
         processar: (c, pedidoId, provedor) => pagamento.processarPedido(c, pedidoId, { provedor, ...contexto }),
         pendencias: (c) => lerPendenciasCreditos(c),
         divergencias: async (c) => {

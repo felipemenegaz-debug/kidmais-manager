@@ -84,6 +84,10 @@ async function main() {
             if (!ctx) { relatorio.pedidos.CONFIG_CONTA_INVALIDA = 1; relatorio.falhas += 1; }
             if (selecao.truncado) relatorio.pedidos.TRUNCADO = 1;
             for (const pedidoId of selecao.ids) {
+                // R5-P2-1: marca a tentativa em transação própria (fica mesmo se o processamento falhar).
+                await client.query('BEGIN');
+                await pagamento.marcarTentativa(client, pedidoId);
+                await client.query(aplicar ? 'COMMIT' : 'ROLLBACK');
                 await client.query('BEGIN');
                 try {
                     const r = await pagamento.processarPedido(client, pedidoId, ctx);
