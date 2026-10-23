@@ -25,11 +25,11 @@ export default function DocumentoLegal({ documento }: { documento: TextoLegal })
             <p className={workspace.muted}>Versão {documento.versao} · impressão digital {hashDocumento(documento).slice(0, 12)}</p>
             {documento.secoes.map((s) => <section key={s.titulo} id={s.id} className={workspace.card} style={{ marginTop: 16 }}>
                 <h2>{s.titulo}</h2>
-                {s.paragrafos.map((p, i) => <p key={i}><Texto texto={p} /></p>)}
+                {s.paragrafos.map((p, i) => <p key={i} style={{ overflowWrap: 'anywhere' }}><Texto texto={p} /></p>)}
                 {s.tabela && <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92em' }}>
                         <thead><tr>{s.tabela.colunas.map((c) => <th key={c} scope="col" style={{ textAlign: 'left', padding: '6px 8px', borderBottom: borda }}>{c}</th>)}</tr></thead>
-                        <tbody>{s.tabela.linhas.map((l, i) => <tr key={i}>{l.map((c, j) => <td key={j} style={{ verticalAlign: 'top', padding: '6px 8px', borderBottom: borda }}><Texto texto={c} /></td>)}</tr>)}</tbody>
+                        <tbody>{s.tabela.linhas.map((l, i) => <tr key={i}>{l.map((c, j) => <td key={j} style={{ verticalAlign: 'top', padding: '6px 8px', borderBottom: borda, overflowWrap: 'anywhere' }}><Texto texto={c} /></td>)}</tr>)}</tbody>
                     </table>
                 </div>}
             </section>)}

@@ -47,6 +47,7 @@ import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, validadeDaConcessao, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 import type { EnviarEmail } from '../acessos/email.ts';
 import { documentoFiscalValido, tipoDocumentoFiscal } from '../acessos/validacao.ts';
+import { enviarCopiaComprovante } from './comprovante.ts';
 import { cpfDisponivel, documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE, MENSAGEM_CPF_INDISPONIVEL, MENSAGEM_NOME_CIVIL } from './documento-contratante.ts';
 import { atualizarCancelamentoProvedor, chaveDoPedido, emailDoSolicitante, encerramentosInstalados, enviarAvisoInterno, enviarConfirmacao, mensagemConfirmacao, pedidoPorChave, registrarPedido,
     type PedidoResumo } from './devolucao-registro.ts';
@@ -184,6 +185,8 @@ export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: 
                 const o = await prepararOferta(tx, empresaId, sessao.usuario_id, pedido, deps.env ?? process.env);
                 return { oferta: o, validade: await validadeDaConcessao(tx, o.fundador_id) };
             });
+            // Cópia do comprovante por e-mail (reforço, chave própria): depois do COMMIT da oferta; nunca bloqueia a contratação.
+            await enviarCopiaComprovante(deps, { empresaId, contratacaoId: oferta.id, usuarioId: sessao.usuario_id }, deps.env ?? process.env);
             const r = await contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
             // D3: o prazo da condição reservada acompanha o link de pagamento (data local, inclusive).
             return { ...r, fundadorValidoAte: validade?.dia ?? null };

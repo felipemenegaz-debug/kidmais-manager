@@ -157,14 +157,37 @@ async function principal() {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'MENSAL', reaproveitada: false, fundadorValidoAte: '2099-01-31' } }) });
     });
     await page.getByRole('button', { name: /Assinar Essencial/ }).click();
+    // Grupo B: síntese antes de confirmar; nada é enviado até "Confirmar contratação"; "Voltar" corrige a escolha.
+    const sintese = page.getByRole('region', { name: 'Confira sua contratação' });
+    await sintese.waitFor();
+    assert.equal(checkouts, 0, 'a síntese não envia o pedido');
+    const textoSintese = await sintese.innerText();
+    for (const trecho of [/Prestadora: \[RAZÃO SOCIAL DO NOVO CNPJ\]/, /Contratante: .+, CPF \*{7}\d{4}.*pessoa física em nome próprio/, /Plano Essencial, mensal: R\$\s?118,20\/mês/,
+        /Condição Fundador: 40% de desconto por 12 meses/, /fim do 7º dia seguinte à confirmação, às 23h59/, /Renovação: a assinatura renova/, /Termos de uso \(versão /, /Acordo de Tratamento de Dados \(versão /])
+        assert.match(textoSintese, trecho);
+    await sintese.getByRole('button', { name: 'Voltar' }).click();
+    await page.getByRole('button', { name: /Assinar Essencial/ }).click();
+    await page.getByRole('button', { name: 'Confirmar contratação' }).click();
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
+    await page.locator('[data-link-comprovante]').getByRole('link', { name: 'Ver comprovante da contratação' }).waitFor();
     // D3: o prazo acompanha o link de pagamento (revisão de 22/10/2026).
     await page.locator('[data-fundador-validade-link]').getByText('pague até 31/01/2099, fim do dia (23h59, horário de Brasília)', { exact: false }).waitFor();
     assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antes);
     await page.screenshot({ path: path.join(relatorios, 'pf-assinatura.png'), fullPage: true });
-    resultados.push('Assinatura PF: prazo da janela na tela; checkout interceptado com Essencial mensal Fundador R$ 118,20; nenhuma assinatura alterada');
+    resultados.push('Assinatura PF: síntese antes de confirmar (prestadora por marcador, contratante PF com CPF mascarado, plano, Fundador com prazo, renovação, documentos), Voltar corrige; checkout só no Confirmar, Essencial mensal Fundador R$ 118,20; link do comprovante; nenhuma assinatura alterada');
     console.log('E2E_ASSINATURA_PF_OK');
+
+    // Grupo B: página do comprovante (sem a 096 neste ensaio: explica onde ficam as condições) e versão integral do documento.
+    await page.goto(`${base}/admin/assinatura/comprovante`);
+    await page.getByRole('heading', { name: 'Comprovante da contratação' }).waitFor();
+    await page.getByText(/Ainda não há comprovante registrado|Recebemos sua confirmação/).first().waitFor();
+    const versaoTermos = fs.readFileSync('lib/cadastro/documentos-legais.ts', 'utf8').match(/documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '([^']+)'/)[1];
+    await page.goto(`${base}/documentos/termos_uso/${versaoTermos}`);
+    await page.getByRole('heading', { name: 'Termos de uso do Kidmais Manager' }).waitFor();
+    assert.equal((await page.goto(`${base}/documentos/termos_uso/1999-01-01`)).status(), 404, 'versão inexistente');
+    resultados.push('Comprovante: página da Gestão carrega; versão vigente dos Termos em /documentos; versão inexistente 404');
+    console.log('E2E_COMPROVANTE_OK');
 
     // 3b. D3: oferta Fundador persistida (como o checkout grava, aqui direto no banco sintético) mostra o prazo de pagamento.
     const empresaPf = e[0].id;

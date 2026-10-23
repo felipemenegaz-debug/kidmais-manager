@@ -12,7 +12,8 @@ import { iniciarTeste } from "./servico.ts";
 import { prepararOferta } from "./ofertas.ts";
 
 /**
- * Aplicadores REAIS da 090 (campanha Fundador) e da 091 (documento CPF/CNPJ), staging e produção, no PostgreSQL
+ * Aplicadores REAIS da 090 (campanha Fundador), da 091 (documento CPF/CNPJ) e da 096 (comprovante da contratação e
+ * arquivo das versões; grupo B, 22/10/2026), staging e produção, no PostgreSQL
  * DESCARTÁVEL (modelo 089, as duas ausentes), no desenho do teste dos aplicadores 088/089. Única substituição: o cliente
  * conecta ao cluster descartável (identidade provada por conectarDescartavel) e responde à consulta de identidade como o
  * banco do ambiente responderia. Para cada migration:
@@ -47,7 +48,7 @@ function clienteDescartavel(identidades: Map<string, unknown>, cfg: { papel?: st
       const id = identidades.get(sql);
       if (id) return { rows: [id] };
       // Gancho do teste: tráfego que começa DEPOIS do corte e antes da migration (o arquivo começa por "-- 09x —").
-      if (cfg.antesDaMigration && /^-- 09[01] —/.test(sql)) { const h = cfg.antesDaMigration; cfg.antesDaMigration = undefined; await h(); }
+      if (cfg.antesDaMigration && /^-- 09[016] —/.test(sql)) { const h = cfg.antesDaMigration; cfg.antesDaMigration = undefined; await h(); }
       return this.c!.query(sql);
     }
     async end() { if (this.c) await this.c.end(); }
@@ -59,7 +60,7 @@ function cnpj(n: number) {
   const d1 = dv(base); return base + d1 + dv(base + d1);
 }
 
-type Caso = { n: "090" | "091"; objetos: (c: Client) => Promise<boolean[]>; parcial: [string, string]; trafego: string; motivoSemPrivilegio: RegExp; chaveEstado: string };
+type Caso = { n: "090" | "091" | "096"; objetos: (c: Client) => Promise<boolean[]>; parcial: [string, string]; trafego: string; motivoSemPrivilegio: RegExp; chaveEstado: string };
 const CASOS: Caso[] = [
   { n: "090", chaveEstado: "m090",
     objetos: async (c) => Object.values((await c.query(`SELECT to_regclass('public.assinatura_campanhas') IS NOT NULL AS t,
@@ -72,6 +73,12 @@ const CASOS: Caso[] = [
       EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'empresa_assinaturas_091_documento') AS d`)).rows[0]),
     parcial: ["CREATE FUNCTION kidmais_091_documento_valido(text) RETURNS boolean LANGUAGE sql IMMUTABLE AS 'SELECT true'", "DROP FUNCTION kidmais_091_documento_valido(text)"],
     trafego: "LOCK TABLE empresa_assinaturas IN ROW EXCLUSIVE MODE", motivoSemPrivilegio: /SEM_PRIVILEGIO_091 CREATE REFERENCES DONO/ },
+  // 096 só cria tabelas (sem exigir dono de tabela existente); a FK para assinatura_contratacoes disputa a trava do tráfego.
+  { n: "096", chaveEstado: "m096",
+    objetos: async (c) => Object.values((await c.query(`SELECT to_regclass('public.documentos_legais_versoes') IS NOT NULL AS v,
+      to_regclass('public.assinatura_comprovantes') IS NOT NULL AS c, to_regprocedure('public.kidmais_096_guarda()') IS NOT NULL AS g`)).rows[0]),
+    parcial: ["CREATE FUNCTION kidmais_096_guarda() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$", "DROP FUNCTION kidmais_096_guarda()"],
+    trafego: "LOCK TABLE assinatura_contratacoes IN ROW EXCLUSIVE MODE", motivoSemPrivilegio: /SEM_PRIVILEGIO_096 CREATE REFERENCES/ },
 ];
 
 test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono, parcial, falha real, aplicação com preservação, anti-repetição",
@@ -114,7 +121,12 @@ test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono
         assert.equal(r1.resultado, "RECUSARIA"); assert.match(r1.motivo!, caso.motivoSemPrivilegio);
         await c.query(`GRANT CREATE ON SCHEMA public TO ${PAPEL}`); await c.query(`GRANT REFERENCES ON ALL TABLES IN SCHEMA public TO ${PAPEL}`);
         const r2 = await stg.conferir({ env: ENV_STG, raiz, Client: cli({ papel: PAPEL }) });
-        assert.equal(r2.resultado, "RECUSARIA"); assert.match(r2.motivo!, new RegExp(`SEM_PRIVILEGIO_${caso.n} +DONO`));
+        if (caso.n === "096") {
+          // Sem tabela existente alterada: CREATE + REFERENCES bastam (não executa com este papel, que ficaria dono).
+          assert.equal(r2.resultado, "PRONTA_PARA_APLICAR", JSON.stringify(r2));
+          await c.query(`REVOKE CREATE ON SCHEMA public FROM ${PAPEL}`);
+        }
+        else { assert.equal(r2.resultado, "RECUSARIA"); assert.match(r2.motivo!, new RegExp(`SEM_PRIVILEGIO_${caso.n} +DONO`)); }
         const dir = novoDir(caso.n);
         const r3 = await prod.executar({ env: ENV_PROD, backup: BACKUP, dir, raiz, disco: () => {}, Client: cli({ papel: PAPEL }) });
         assert.equal(r3.resultado, "FALHA"); assert.match(r3.falha!.mensagem, new RegExp(`SEM_PRIVILEGIO_${caso.n}`)); assert.equal(r3.migracaoCommitada, false);
@@ -172,8 +184,11 @@ test("aplicadores 090 e 091 reais no modelo 089: conferência, privilégios/dono
       if (caso.n === "090") {
         assert.equal(ok.contagensAntes!.fundadores, 2); assert.equal(ok.contagensDepois!.legado, 2);
         assert.equal(ok.contagensDepois!.resumo_fundadores, ok.contagensAntes!.resumo_fundadores);
-      } else {
+      } else if (caso.n === "091") {
         assert.equal(ok.contagensDepois!.resumo_assinaturas, ok.contagensAntes!.resumo_assinaturas); assert.equal(ok.contagensDepois!.teste_cpf, 0);
+      } else {
+        assert.equal(ok.contagensAntes!.ofertas, 2); assert.equal(ok.contagensDepois!.resumo_ofertas, ok.contagensAntes!.resumo_ofertas);
+        assert.equal(ok.contagensDepois!.resumo_aceites, ok.contagensAntes!.resumo_aceites); assert.equal(ok.contagensDepois!.comprovantes, 0, "nada retroativo");
       }
       assert.ok(!JSON.stringify(ok).includes(cnpj(1)), "saída sem documentos");
       assert.deepEqual(readdirSync(dir), [`migration-${caso.n}.json`]);

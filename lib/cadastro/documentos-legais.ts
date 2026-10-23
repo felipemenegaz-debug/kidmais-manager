@@ -35,7 +35,9 @@ export const MARCADORES = {
 } as const;
 
 const CANAL = 'contato@demerzellabs.com.br';
-const RESPONSAVEL = '[RAZÃO SOCIAL DO NOVO CNPJ], CNPJ [CNPJ], com sede em [ENDEREÇO]';
+/** Identificação da prestadora (Kidmais) — marcador até o novo CNPJ (decisão de Felipe, 22/10: manter marcador). */
+export const IDENTIFICACAO_KIDMAIS = '[RAZÃO SOCIAL DO NOVO CNPJ], CNPJ [CNPJ], com sede em [ENDEREÇO]';
+const RESPONSAVEL = IDENTIFICACAO_KIDMAIS;
 
 const DPA: TextoLegal = {
     documento: 'DPA', titulo: 'Acordo de Tratamento de Dados do Kidmais Manager', versao: '2026-10-22-minuta2', minuta: true, rota: '/acordo-de-tratamento',

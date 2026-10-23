@@ -138,6 +138,9 @@ async function principal() {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'ANUAL', reaproveitada: false } }) });
     });
     await page.getByRole('button', { name: /Assinar Profissional/ }).click();
+    await page.getByRole('region', { name: 'Confira sua contratação' }).getByText(/anual \(pagamento único, valor de 10 mensalidades\)/).waitFor();
+    assert.equal(checkouts, 0, 'a síntese não envia o pedido');
+    await page.getByRole('button', { name: 'Confirmar contratação' }).click();
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
     for (const width of [1280, 375]) {

@@ -10,11 +10,12 @@ import { campanhaFundadorLigada, faseCampanha, lerCampanhaAtivada, ocupacaoPosJa
     type CampanhaFundador, type ResumoCampanha } from './campanha.ts';
 import { PAGAMENTO_TARDIO } from './textos-fundador.ts';
 import { documentoVigente, MENSAGEM_CONTINUIDADE_PENDENTE } from './documento-contratante.ts';
+import { registrarComprovante } from './comprovante.ts';
 
 export type Oferta = {
     id: string; empresa_id: string; plano: 'ESSENCIAL' | 'PROFISSIONAL' | 'PREMIUM'; ciclo: Ciclo;
     valor_regular_centavos: number; valor_final_centavos: number; fundador_id: string | null;
-    estado: 'EM_ABERTO' | 'CONFIRMADA' | 'CANCELADA'; catalogo_versao: string;
+    estado: 'EM_ABERTO' | 'CONFIRMADA' | 'CANCELADA'; catalogo_versao: string; desconto_percentual?: number;
     pagamento_confirmacao_id?: string | null;
 };
 type Ambiente = Record<string, string | undefined>;
@@ -267,6 +268,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         [empresaId, randomUUID(), pedido.plano.toUpperCase(), pedido.ciclo, condicoesComerciais.versao,
             valorComercial(pedido.plano,ciclo), campanha.elegivel ? 40 : 0, valor, fundadorId, usuarioId])).rows[0];
     if (!oferta) throw new Error('Oferta não foi persistida.');
+    // Grupo B (096): comprovante e versões aceitas na MESMA transação da oferta; sem a 096, nada muda.
+    await registrarComprovante(tx, { empresaId, usuarioId, oferta, pagueAte: (await validadeDaConcessao(tx, fundadorId))?.dia ?? null });
     return oferta;
 }
 

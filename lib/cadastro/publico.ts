@@ -15,6 +15,7 @@ import { exigirReautenticacaoRecente } from '../desenvolvedor/autorizacao.ts';
 import { iniciarTeste } from '../assinatura/servico.ts';
 import { documentoVinculado, exigirDocumentoContratante, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { versaoVigente, type DocumentoLegal } from './documentos-legais.ts';
+import { arquivarVersoesVigentes, comprovanteInstalado } from '../assinatura/comprovante.ts';
 
 /**
  * Cadastro público (E6), em três passos:
@@ -88,6 +89,8 @@ function exigirVersoesVigentes(termosVersao: string, privacidadeVersao: string) 
         throw erroAcesso('DADOS_INVALIDOS', 'Os termos ou o aviso de privacidade foram atualizados. Recarregue a página e leia a versão atual.', 409);
 }
 async function registrarAceites(tx: DbExecutor, usuarioId: string, empresaId: string | null, origem: 'CADASTRO' | 'NOVA_EMPRESA', ctx: ContextoRequisicao, versoes?: Record<DocumentoLegal, { versao: string; hash: string }>) {
+    // 096: o texto integral das versões vigentes fica arquivado junto com o aceite (sem a 096, nada muda).
+    if (await comprovanteInstalado(tx)) await arquivarVersoesVigentes(tx);
     for (const documento of ['TERMOS_USO', 'PRIVACIDADE'] as const) {
         const v = versoes?.[documento] ?? versaoVigente(documento);
         await tx.query(`INSERT INTO aceites_documentos_legais (usuario_id, empresa_id, documento, versao, hash_conteudo, origem, ip, user_agent)

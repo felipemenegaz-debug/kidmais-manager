@@ -9,6 +9,7 @@ import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
 import { REGRA_RESERVA, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
+import { linhaContratante } from '@/lib/assinatura/comprovante-texto';
 
 /**
  * Ações de cobrança da tela Assinatura (E8, Asaas sandbox). Só a Gestão contrata ou cancela; a Equipe vê a situação.
@@ -41,6 +42,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
     const [chaveCancelamento, setChaveCancelamento] = useState('');
     const [garantia, setGarantia] = useState<{ valorCentavos: number } | null>(null);
     const [cicloPlano, setCicloPlano] = useState<'MENSAL' | 'ANUAL'>('MENSAL');
+    // Grupo B: síntese antes de confirmar (Decreto 7.962/2013; parecer de apoio §2). O pedido só sai em "Confirmar".
+    const [sintese, setSintese] = useState<{ ciclo: 'MENSAL' | 'ANUAL'; plano: PlanoComercialId; nome: string; valor: number; regular: number } | null>(null);
     const a = dados.assinatura;
     if (!a)
         return null;
@@ -56,6 +59,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         setOcupado(false);
         if (!r.ok) { setErro(r.erro); return; }
         setPagamento(r.data);
+        setSintese(null);
         if (!r.data.urlPagamento)
             setAviso(a?.situacao === 'ATIVA' ? 'Sua assinatura está em dia: não há cobrança em aberto.' : 'A cobrança está sendo gerada pelo provedor. Atualize em instantes.');
     }
@@ -121,6 +125,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                 && <p role="status" data-fundador-validade-link>{textoPagueAte(pagamento.fundadorValidoAte ?? dados.ofertas!.pendente!.fundadorValidoAte!.dia)}</p>}
             <p className={workspace.muted}>{MENSAGEM_PROCESSANDO}</p>
         </div>}
+        {dados.gestao && (dados.contratacao?.comprovante || pagamento?.urlPagamento) && <p data-link-comprovante><Link href="/admin/assinatura/comprovante">Ver comprovante da contratação</Link></p>}
         {dados.gestao && cobranca?.disponivel && dados.ofertas?.habilitado && !pagamento?.urlPagamento && <div>
             <p>Escolha o plano para continuar após o teste. O acesso pago depende da confirmação do pagamento.</p>
             {dados.ofertas.fundador && <p>Fundador: 40% de desconto por 12 meses. Depois, renovação pelo preço normal, com aviso prévio.</p>}
@@ -129,14 +134,32 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                 ? <p role="alert" data-fundador-vencido>{textoReservaVencida(dados.ofertas.pendente.fundadorValidoAte.dia)}</p>
                 : <p role="status" data-fundador-validade>{textoPagueAte(dados.ofertas.pendente.fundadorValidoAte.dia)}</p>)}
             {dados.ofertas.fundador && dados.ofertas.campanha?.fase === 'POS_JANELA' && <p>Restam {dados.ofertas.campanha.vagasRestantes} vagas Fundador (indicativo). A vaga fica reservada ao assinar e o benefício é confirmado com o primeiro pagamento.</p>}
-            {dados.ofertas.aguardandoVaga ? <p role="status">As vagas Fundador estão em confirmação. Aguarde antes de contratar.</p> : <>
+            {sintese && <div role="region" aria-label="Confira sua contratação" data-sintese>
+                <h3>Confira sua contratação</h3>
+                <ul>
+                    <li>Prestadora: {dados.contratacao?.fornecedora ?? '—'}.</li>
+                    <li>Contratante: {dados.contratacao ? linhaContratante(dados.contratacao.contratante) : '—'}.</li>
+                    <li>Plano {sintese.nome}, {sintese.ciclo === 'ANUAL' ? 'anual (pagamento único, valor de 10 mensalidades)' : 'mensal'}: {reais(sintese.valor)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}{sintese.ciclo === 'ANUAL' ? `, total do ano ${reais(sintese.valor)}` : ''}.</li>
+                    {dados.ofertas.fundador && <li>Condição Fundador: 40% de desconto por 12 meses sobre {reais(sintese.regular)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}; depois, o preço vigente do plano, com aviso de pelo menos 30 dias. {REGRA_RESERVA}</li>}
+                    <li>Renovação: a assinatura renova ao fim de cada ciclo, no mesmo plano e ciclo, até você cancelar.</li>
+                    <li>Cancelamento e devolução: <Link href="/termos#cancelamento" target="_blank">Termos de uso, seção “Cancelamento e devolução”</Link>. Seus direitos legais permanecem preservados.</li>
+                    <li>Documentos: {(dados.contratacao?.documentos ?? []).map((d, i) => <span key={d.documento}>{i ? ' · ' : ''}<Link href={d.rota} target="_blank">{d.titulo} (versão {d.versao})</Link></span>)}.</li>
+                </ul>
+                <p className={workspace.muted}>Você pode voltar e corrigir a escolha antes de confirmar. Ao confirmar, a oferta é registrada e o comprovante fica disponível aqui.</p>
+                <p style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <button type="button" disabled={ocupado} onClick={() => void assinar(sintese.ciclo, sintese.plano, sintese.valor)}>{ocupado ? 'Abrindo…' : 'Confirmar contratação'}</button>
+                    <button type="button" disabled={ocupado} onClick={() => setSintese(null)}>Voltar</button>
+                </p>
+            </div>}
+            {sintese ? null : dados.ofertas.aguardandoVaga ? <p role="status">As vagas Fundador estão em confirmação. Aguarde antes de contratar.</p> : <>
                 <label>Ciclo <select value={cicloPlano} onChange={e => setCicloPlano(e.target.value as 'MENSAL' | 'ANUAL')} disabled={ocupado || Boolean(dados.ofertas.pendente)}>
                     <option value="MENSAL">Mensal</option><option value="ANUAL">Anual — pagamento único, valor de 10 mensalidades</option>
                 </select></label>
                 {dados.ofertas.pendente ? <p><button type="button" disabled={ocupado} onClick={() => {
                     const p = dados.ofertas!.pendente!; void assinar(p.ciclo,p.plano,p.valorCentavos);
                 }}>{ocupado ? 'Abrindo…' : `Retomar ${dados.ofertas.pendente.plano} — ${reais(dados.ofertas.pendente.valorCentavos)}`}</button></p> :
-                dados.ofertas.planos.map(p => <p key={p.id}><button type="button" disabled={ocupado} onClick={() => void assinar(cicloPlano,p.id,cicloPlano === 'ANUAL' ? p.anual : p.mensal)}>
+                dados.ofertas.planos.map(p => <p key={p.id}><button type="button" disabled={ocupado} onClick={() => setSintese({ ciclo: cicloPlano, plano: p.id, nome: p.nome,
+                    valor: cicloPlano === 'ANUAL' ? p.anual : p.mensal, regular: cicloPlano === 'ANUAL' ? p.anualRegular : p.mensalRegular })}>
                     {ocupado ? 'Abrindo…' : `Assinar ${p.nome} — ${reais(cicloPlano === 'ANUAL' ? p.anual : p.mensal)}/${cicloPlano === 'ANUAL' ? 'ano' : 'mês'}`}
                 </button>{dados.ofertas?.fundador && <small style={{ display: 'block' }}>
                     Após 12 meses: {reais(cicloPlano === 'ANUAL' ? p.anualRegular : p.mensalRegular)}/{cicloPlano === 'ANUAL' ? 'ano' : 'mês'}, com aviso prévio.
