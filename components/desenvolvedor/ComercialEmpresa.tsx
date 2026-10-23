@@ -26,7 +26,8 @@ export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'si
 }
 
 type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string }
-    | ({ operacao: 'registrar-continuidade' } & FormContinuidade) | { operacao: 'concluir-continuidade'; continuidadeId: string; motivo: string };
+    | ({ operacao: 'registrar-continuidade' } & FormContinuidade) | { operacao: 'concluir-continuidade'; continuidadeId: string; motivo: string }
+    | { operacao: 'recuperar-vinculo'; assinaturaId: string; motivo: string };
 
 export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar }: {
     empresaId: string; comercial: Comercial; ocupado: boolean;
@@ -37,6 +38,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     const [revogar, setRevogar] = useState<{ id: string; motivo: string } | null>(null);
     const [continuidade, setContinuidade] = useState<FormContinuidade | null>(null);
     const [concluir, setConcluir] = useState<{ id: string; motivo: string } | null>(null);
+    const [recuperar, setRecuperar] = useState<{ assinaturaId: string; motivo: string } | null>(null);
     const pendente = comercial.continuidades?.find((x) => x.situacao === 'PENDENTE_PROVEDOR');
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
     const enviar = (dados: Operacao, texto: string) => operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), () => ({ tipo: 'ok', texto }));
@@ -130,6 +132,17 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                         {x.situacao === 'PENDENTE_PROVEDOR' && <> · <button type="button" disabled={ocupado} onClick={() => setConcluir({ id: x.id, motivo: '' })}>Registrar conferência do provedor</button></>}</span>
                 </li>)}
             </ul>
+            {!pendente && <div className={estilos.acoesLinha}><button type="button" disabled={ocupado} onClick={() => setRecuperar({ assinaturaId: '', motivo: '' })}>Recuperar vínculo da assinatura…</button></div>}
+            {recuperar && <form aria-label="Recuperar vínculo" onSubmit={(e) => {
+                e.preventDefault();
+                enviar({ operacao: 'recuperar-vinculo', assinaturaId: recuperar.assinaturaId.trim(), motivo: recuperar.motivo }, 'Vínculo recuperado; o pagamento segue a sincronização.');
+                setRecuperar(null);
+            }}>
+                <label>Id da assinatura no provedor (conferida)<input required minLength={3} maxLength={100} value={recuperar.assinaturaId} onChange={(e) => setRecuperar({ ...recuperar, assinaturaId: e.target.value })} /></label>
+                <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={recuperar.motivo} onChange={(e) => setRecuperar({ ...recuperar, motivo: e.target.value })} /></label>
+                <p className={workspace.muted}>Para assinatura criada no provedor sem vínculo aqui, depois da continuidade concluída. O sistema confere que ela é a única ativa da empresa e que o cliente dela tem o CPF/CNPJ vigente; não cria nem exclui nada no provedor. O pagamento segue a regra normal: feito no prazo da oferta confirma a condição; tardio vai para análise, sem cobrança complementar. Sua senha será pedida.</p>
+                <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Recuperar</button><button type="button" onClick={() => setRecuperar(null)}>Cancelar</button></div>
+            </form>}
             {concluir && <form aria-label="Conferência do provedor" onSubmit={(e) => {
                 e.preventDefault();
                 enviar({ operacao: 'concluir-continuidade', continuidadeId: concluir.id, motivo: concluir.motivo }, 'Continuidade concluída.');

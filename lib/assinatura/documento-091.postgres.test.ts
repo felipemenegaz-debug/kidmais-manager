@@ -440,6 +440,53 @@ test('9. continuidade assistida (D5): sempre pendente até a conferência; trava
     const z = (await cadastrar((await conta('zeca')).sessao, pf(cpf(81)))).empresaId!;
     const rz = await tx((t) => reconciliarContratacao(t as never, z, provedorRec(z))) as { resultado: string };
     assert.equal(rz.resultado, 'VINCULADA', 'sem continuidade, o comportamento anterior continua');
+    // P2-N3: recuperação assistida do vínculo depois da continuidade concluída — oferta Fundador persistida, assinatura criada
+    // no provedor e vínculo local perdido. Pagamento dentro da validade original confirma pela sincronização; tardio não.
+    const { recuperarVinculo } = await import('../desenvolvedor/continuidade.ts');
+    const { sincronizarEmpresa } = await import('./sincronizacao.ts');
+    const cenario = async (nome: string, n: number, pagoNoPrazo: boolean) => {
+        const e = (await cadastrar((await conta(nome)).sessao, pf(cpf(n)))).empresaId!;
+        await tx((t) => prepararOferta(t as never, e, operador, pedido as never, env));
+        const dia = (await client.query("SELECT ((oferta_valida_ate AT TIME ZONE 'America/Sao_Paulo')::date)::text AS d FROM assinatura_fundadores WHERE empresa_id = $1", [e])).rows[0].d as string;
+        const pago = pagoNoPrazo ? hoje : (await client.query("SELECT (($1::date + 1))::text AS d", [dia])).rows[0].d as string;
+        const sub = { id: `sub_rec_${n}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_rec_${n}`, externalReference: e, valorCentavos: 11820 };
+        const estado = { cpfCnpj: cpf(n) as string | null, extras: [] as typeof sub[] };
+        const prov = {
+            async obterAssinatura(id: string) { return id === sub.id ? { ...sub } : null; },
+            async listarAssinaturasPorReferencia() { return [{ ...sub }, ...estado.extras]; },
+            async buscarClientePorReferencia() { return { id: sub.customer, externalReference: e, cpfCnpj: estado.cpfCnpj }; },
+            async listarCobrancasDaAssinatura() { return [{ id: `pay_rec_${n}`, status: 'RECEIVED', dueDate: dia, paymentDate: pago, clientPaymentDate: pago, confirmedDate: pago,
+                invoiceUrl: null, deleted: false, valorCentavos: 11820, assinaturaId: sub.id, clienteId: sub.customer }]; },
+        };
+        const recuperar = () => tx((t) => recuperarVinculo(t as never, { empresaId: e, assinaturaId: sub.id }, prov as never, ENV_CONT));
+        const c = await registrar(e, { documentoNovo: cnpj(n) });
+        assert.equal(await erro(recuperar()), 'CONTINUIDADE_PENDENTE', 'pendente: não recupera');
+        await concluir(e, c.continuidadeId, 'Cliente do provedor atualizado para o CNPJ (sintético)');
+        assert.equal((await tx((t) => reconciliarContratacao(t as never, e, prov as never)) as { motivo?: string }).motivo, 'CONTINUIDADE_DOCUMENTO', 'automático continua recusando');
+        for (const doc of [cpf(n), null]) {
+            estado.cpfCnpj = doc;
+            assert.equal(await erro(recuperar()), 'DOCUMENTO_DIVERGENTE', String(doc));
+        }
+        estado.cpfCnpj = cnpj(n);
+        estado.extras = [{ ...sub, id: `sub_rec_${n}_dup` }];
+        assert.equal(await erro(recuperar()), 'CONFLITO', 'duplicata ativa');
+        estado.extras = [];
+        assert.equal(await erro(tx((t) => recuperarVinculo(t as never, { empresaId: e, assinaturaId: 'sub_outra' }, prov as never, ENV_CONT))), 'CONFLITO', 'id que não é da empresa');
+        assert.deepEqual(await recuperar(), { assinaturaId: sub.id, clienteId: sub.customer });
+        assert.equal(await erro(recuperar()), 'CONFLITO', 'já vinculada');
+        assert.deepEqual((await client.query('SELECT provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1', [e])).rows[0],
+            { provedor_assinatura_id: sub.id, provedor_cliente_id: sub.customer });
+        const sinc = await erro(tx((t) => sincronizarEmpresa(t as never, e, { provedor: prov as never }, { tipo: 'RECONCILIACAO', requestId: null } as never)));
+        const estados = (await client.query(`SELECT c.estado AS oferta, f.estado AS fundador FROM assinatura_contratacoes c JOIN assinatura_fundadores f ON f.id = c.fundador_id
+            WHERE c.empresa_id = $1`, [e])).rows[0];
+        return { sinc, estados };
+    };
+    const noPrazo = await cenario('rita', 86, true);
+    assert.equal(noPrazo.sinc, 'OK');
+    assert.deepEqual(noPrazo.estados, { oferta: 'CONFIRMADA', fundador: 'CONFIRMADA' }, 'pagamento no prazo confirma sem renovar a reserva');
+    const tardio = await cenario('tito', 87, false);
+    assert.equal(tardio.sinc, 'FUNDADOR_OFERTA_EXPIRADA', 'pagamento tardio vai para reconciliação');
+    assert.notEqual(tardio.estados.oferta, 'CONFIRMADA');
     // Guardas do banco: registro imutável, sem DELETE, encadeamento, DV e data futura.
     await assert.rejects(client.query("UPDATE empresa_documento_continuidades SET nome_novo = 'Outro' WHERE id = $1", [p.continuidadeId]), /registro é imutável/);
     await assert.rejects(client.query('DELETE FROM empresa_documento_continuidades WHERE id = $1', [p.continuidadeId]), /não é apagada/);

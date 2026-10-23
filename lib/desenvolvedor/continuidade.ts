@@ -1,4 +1,6 @@
 import type { DbExecutor } from '../db/contracts';
+import type { ClienteAsaas } from '../assinatura/asaas.ts';
+import { marcadoresDeRemocao } from '../assinatura/reconciliacao-contratacao.ts';
 import { erroAcesso, violacaoUnica } from '../acessos/erros.ts';
 import { documentoFiscalValido, mascararDocumento } from '../acessos/validacao.ts';
 import { continuidadeInstalada, continuidadeLigada, cpfDisponivel, documentoVigente, documentoVinculado, exigirNomeCivil, MENSAGEM_CPF_INDISPONIVEL,
@@ -105,6 +107,53 @@ export async function concluirContinuidade(tx: DbExecutor, input: { empresaId: s
     if (!r)
         throw erroAcesso('CONFLITO', 'Não há continuidade pendente com este identificador nesta empresa.', 409);
     return { continuidadeId: r.id, documentoNovo: r.documento_novo };
+}
+
+export type ProvedorRecuperacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarAssinaturasPorReferencia' | 'buscarClientePorReferencia'>;
+
+/**
+ * Recuperação assistida do vínculo (revisão 6e9d09f, P2-N3): assinatura criada no provedor sem vínculo local, com a
+ * continuidade de documento já CONCLUÍDA, quando a reconciliação automática não adota (CONTINUIDADE_DOCUMENTO) e o
+ * checkout não retoma (oferta vencida). O atendimento informa o id da assinatura conferida; o sistema confere de novo:
+ * trava de contratação livre; empresa sem vínculo; última continuidade concluída; assinatura ativa, da empresa, a única
+ * ativa da referência, sem remoção incerta; cliente dela achado por referência com o CPF/CNPJ VIGENTE (presente e igual);
+ * cliente já vinculado, se houver, igual. Só então grava o vínculo (sem POST nem DELETE no provedor). NÃO consulta a
+ * validade atual da oferta: o pagamento segue a sincronização normal (D1/D3) — feito dentro da validade original
+ * confirma; tardio ou sem data vai para reconciliação (FUNDADOR_OFERTA_EXPIRADA), sem cobrança complementar.
+ */
+export async function recuperarVinculo(tx: DbExecutor, input: { empresaId: string; assinaturaId: string }, provedor: ProvedorRecuperacao, env: Ambiente = process.env) {
+    await exigirDisponivel(tx, env);
+    await exigirSemContratacao(tx, input.empresaId);
+    const linha = (await tx.query<{ situacao: string; provedor_cliente_id: string | null; provedor_assinatura_id: string | null; documento_teste: string | null }>(
+        'SELECT situacao, provedor_cliente_id, provedor_assinatura_id, documento_teste FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [input.empresaId])).rows[0];
+    if (!linha)
+        throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada.', 409);
+    if (linha.provedor_assinatura_id)
+        throw erroAcesso('CONFLITO', 'A empresa já tem assinatura vinculada; a recuperação vale só para assinatura sem vínculo.', 409);
+    const temContinuidade = (await tx.query('SELECT 1 FROM empresa_documento_continuidades WHERE empresa_id = $1::uuid LIMIT 1', [input.empresaId])).rows.length > 0;
+    const vigente = await documentoVigente(tx, input.empresaId, linha.documento_teste);
+    if (!temContinuidade)
+        throw erroAcesso('CONFLITO', 'Sem continuidade de documento, a reconciliação automática cuida do vínculo.', 409);
+    if (vigente.pendente)
+        throw erroAcesso('CONTINUIDADE_PENDENTE', 'Conclua a continuidade (conferência do provedor) antes de recuperar o vínculo.', 409);
+    const ativa = (s: { status: string; deleted: boolean } | null) => Boolean(s && !s.deleted && s.status === 'ACTIVE');
+    const s = await provedor.obterAssinatura(input.assinaturaId);
+    if (!s || !ativa(s) || s.externalReference !== input.empresaId || !s.customer)
+        throw erroAcesso('CONFLITO', 'A assinatura informada não está ativa no provedor para esta empresa.', 409);
+    const ativas = (await provedor.listarAssinaturasPorReferencia(input.empresaId)).filter(ativa);
+    if (ativas.some((x) => x.id !== s.id))
+        throw erroAcesso('CONFLITO', 'Há mais de uma assinatura ativa desta empresa no provedor: resolva as duplicatas antes.', 409);
+    if ((await marcadoresDeRemocao(tx, input.empresaId)).some((m) => m.assinatura_provedor_id === s.id))
+        throw erroAcesso('CONFLITO', 'Há exclusão sem confirmação para esta assinatura: a reconciliação decide primeiro.', 409);
+    if (linha.provedor_cliente_id && linha.provedor_cliente_id !== s.customer)
+        throw erroAcesso('CONFLITO', 'A assinatura é de outro cliente no provedor.', 409);
+    const cliente = await provedor.buscarClientePorReferencia(input.empresaId);
+    if (!cliente || cliente.id !== s.customer || !cliente.cpfCnpj || cliente.cpfCnpj !== vigente.documento)
+        throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O cliente da assinatura no provedor não tem o CPF ou CNPJ vigente: atualize o cliente e confira antes de recuperar.', 409);
+    await tx.query(
+        `UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = COALESCE(provedor_cliente_id, $2), provedor_assinatura_id = $3,
+                provedor_situacao = $4 WHERE empresa_id = $1::uuid`, [input.empresaId, s.customer, s.id, s.status.slice(0, 40)]);
+    return { assinaturaId: s.id, clienteId: s.customer };
 }
 
 /** Lista para a ficha (documentos mascarados). Vazia sem a 091. */

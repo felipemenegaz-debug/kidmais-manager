@@ -10,7 +10,8 @@ import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './a
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
-import { concluirContinuidade, continuidadesDaEmpresa, registrarContinuidade } from './continuidade.ts';
+import { concluirContinuidade, continuidadesDaEmpresa, recuperarVinculo, registrarContinuidade, type ProvedorRecuperacao } from './continuidade.ts';
+import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -23,7 +24,7 @@ import { concluirContinuidade, continuidadesDaEmpresa, registrarContinuidade } f
  */
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA',
-    'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA'] as const;
+    'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA', 'COMERCIAL_VINCULO_RECUPERADO'] as const;
 
 export type ComercialResumo = { instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null };
 
@@ -77,6 +78,7 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
         nomeNovo: z.string().trim().min(2).max(200), instrumento: z.string().trim().min(5).max(300), evidencias: z.string().trim().min(5).max(1000),
         dataEfetiva: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), motivo }).strict(),
     z.object({ operacao: z.literal('concluir-continuidade'), continuidadeId: z.string().uuid(), motivo }).strict(),
+    z.object({ operacao: z.literal('recuperar-vinculo'), assinaturaId: z.string().trim().min(3).max(100).regex(/^[A-Za-z0-9_-]+$/), motivo }).strict(),
 ]);
 
 /**
@@ -107,7 +109,8 @@ async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; 
     return iniciarTeste(tx, { empresaId: empresa.id, documento, dias, env });
 }
 
-export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: PainelDeps = painelDepsPadrao) {
+export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel,
+    deps: PainelDeps & { provedor?: () => ProvedorRecuperacao | null } = painelDepsPadrao) {
     exigirReautenticacaoRecente(sessao);
     const empresaId = z.string().uuid().parse(id);
     const input = operacaoSchema.parse(raw);
@@ -142,6 +145,14 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_CONTINUIDADE_REGISTRADA', antes: { documentoAnterior: r.documentoAnterior },
                 depois: { continuidadeId: r.continuidadeId, tipo: r.tipo, situacao: r.situacao, documentoNovo: r.documentoNovo, instrumento: input.instrumento, dataEfetiva: input.dataEfetiva } });
             resultado = { continuidadeId: r.continuidadeId, situacao: r.situacao };
+        }
+        else if (input.operacao === 'recuperar-vinculo') {
+            const provedor = deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente;
+            if (!provedor) throw erroAcesso('CONTINUIDADE_INDISPONIVEL', 'O provedor de cobrança não está configurado neste ambiente.', 503);
+            const r = await recuperarVinculo(tx, { empresaId, assinaturaId: input.assinaturaId }, provedor);
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_VINCULO_RECUPERADO', antes: { vinculada: false },
+                depois: { assinaturaId: r.assinaturaId, clienteId: r.clienteId } });
+            resultado = { assinaturaId: r.assinaturaId };
         }
         else if (input.operacao === 'concluir-continuidade') {
             const r = await concluirContinuidade(tx, { empresaId, continuidadeId: input.continuidadeId, nota: input.motivo, usuarioId: sessao.usuario_id });

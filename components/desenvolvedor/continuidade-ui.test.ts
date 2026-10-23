@@ -25,4 +25,6 @@ test('sem continuidade: oferece registrar; com pendência: mostra a conferência
     assert.match(pendente, /\*{7}4725 → \*{10}0161/, 'documentos mascarados');
     const concluida = html({ ...base, continuidades: [linha('CONCLUIDA')] });
     assert.match(concluida, /concluída/); assert.match(concluida, /Continuidade de documento…/);
+    assert.match(concluida, /Recuperar vínculo da assinatura…/, 'recuperação assistida (P2-N3) só sem pendência');
+    assert.doesNotMatch(pendente, /Recuperar vínculo da assinatura…/);
 });
