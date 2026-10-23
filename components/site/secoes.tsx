@@ -89,6 +89,24 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
     </div>
   </section>); }
 
+export function Marketing() { return (<section className={cx('block')} id="marketing" aria-labelledby="t-marketing">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto>
+        <div className={cx('eyebrow')}>Marketing · Campanhas e automação</div>
+        <h2 id="t-marketing">Da campanha nas redes<br /><em>à próxima festa.</em></h2>
+        <p className={cx('lead')}>Conecte sua divulgação à gestão do buffet. Organize campanhas, acompanhe de onde chegam os contatos e prepare o próximo atendimento no iA.Fest.</p>
+      </div>
+      <div className={cx('pain')}>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Instagram, Facebook, Google e WhatsApp</span><h3>Um link para cada campanha</h3><p>Use links rastreáveis nos seus anúncios e publicações. Quem chega ao site do buffet e pede orçamento pode ser associado à campanha de origem.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Da origem ao contrato</span><h3>Saiba o que chega pela divulgação</h3><p>Acompanhe cliques, contatos, negociações, contratos e receitas por origem e campanha, com filtros de período.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Relacionamento com o cliente</span><h3>Automação para acompanhar oportunidades</h3><p>Configure regras para retomar propostas paradas, organizar o pós-festa e lembrar oportunidades de recompra, com tarefas para a equipe.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Agenda e divulgação juntas</span><h3>Encontre datas para divulgar</h3><p>Consulte sugestões de horários livres na agenda e revise as oportunidades antes de montar sua próxima campanha.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>A conexão com as redes sociais é feita por links rastreáveis. A publicação de posts e a gestão dos anúncios continuam nas plataformas. O envio automático de mensagens está em validação, ainda sem disparos reais pelo módulo.</p>
+      <div className={cx('actions')} data-fundo-proteger><a href="#demonstracao" className={cx('btn', 'btn-secondary')}>Conhecer o módulo de Marketing →</a></div>
+    </div>
+  </section>); }
+
 export function WallE() { return (<section className={cx('block')} id="wall-e" aria-labelledby="t-walle">
     <div className={cx('wrap')}>
       <div className={cx('head')}>

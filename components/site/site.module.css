@@ -473,3 +473,6 @@
 .site .brandLogo{display:block;width:148px;height:auto;max-width:100%;filter:brightness(1.1) contrast(1.2);mix-blend-mode:screen}
 .site .brandSymbol{display:block;width:42px;height:48px;object-fit:contain;flex:none;mix-blend-mode:screen}
 @media(max-width:600px){.site .brandLogo{width:128px}.site .brandSymbol{width:34px;height:39px}}
+
+.site .marketingNota{max-width:90ch;margin:24px 0;color:var(--muted);font-size:14px;line-height:1.7}
+.site .marketingKicker{display:block;color:var(--mint);font-size:12px;margin-bottom:12px;line-height:1.5}

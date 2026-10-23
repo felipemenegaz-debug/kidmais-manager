@@ -38,3 +38,14 @@ Alvo único: web staging `srv-daif418ae00c73e8k2gg`, My Workspace `tea-daidbj95e
 Felipe rejeitou o símbolo da logo flutuando. Removido todo o carregamento/máscara da marca do renderer de fundo; voltam apenas as figuras de festa. O componente Marca, compartilhado por cabeçalho e rodapé de `/conheca` e `/planos`, agora mostra o símbolo original à esquerda do nome, alinhado por flex, com tamanhos menores no celular e símbolo decorativo sem duplicar o nome acessível.
 
 Validação: 18/18 testes pertinentes, lint, TypeScript e build passaram. Revisão independente aprovada. Navegador local em 1280 e 390 px: símbolo e nome na ordem correta nas duas marcas, sem overflow, sem dataset/carregamento de logo no fundo. Resultado remoto desta correção ainda pendente neste registro. Mantém os limites de operação anteriores.
+
+Staging avançou para `bbb0b0f` durante a preparação (aplicadores manuais de agenda/CI/testes, sem delta runtime do site). Integrado sem conflito, sem executar aplicadores. Push fast-forward resultou em `fe0878dd9535a0cbe9793315b44b136cc9a17cef`. Aguardado o deploy da outra frente `dep-dbdgu8vb9u1s739lv090` ficar LIVE antes de iniciar o deploy desta correção `dep-dbdh35dg1s2s73bg11fg`, às 07:49:41Z. Sem deploys simultâneos; resultado final ainda pendente.
+
+Correção da logo confirmada LIVE em 23/10/2026 às 08:00:03Z, SHA fe0878d, deploy dep-dbdh35dg1s2s73bg11fg. DOM público confirmou símbolo à esquerda do nome em cabeçalho e rodapé e ausência de overflow.
+
+## Marketing no site — 23/10/2026
+
+Pedido: incluir a seção do módulo existente. Conferidos os componentes administrativos e lib/marketing: campanhas por canal com links rastreáveis, métricas por origem/campanha, tarefas para propostas paradas, pós-festa e recompra, sugestões de datas vagas. O transporte de mensagens é exclusivamente simulado (transporte.ts); a seção explica essa limitação e que publicação/gestão de anúncios continua nas plataformas. Não se trata do Wall-e publicitário pausado.
+
+Seção com quatro cartões no padrão visual existente, fundo animado compartilhado, CTA para demonstração e links no menu/rodapé. Revisão independente conferiu fidelidade funcional e identificou o estilo riscado herdado; corrigido com classe própria. Testes pertinentes 18/18 e lint passaram. Primeiro build local interrompido sem conclusão; reexecução com mock local de fontes para não depender do download externo. Publicação desta seção ainda pendente.
+Build/TypeScript concluídos com 78 páginas após executar fora do isolamento do terminal, com mock de fontes. Revisão independente final aprovada. Navegador local confirmou seção, quatro cartões sem risco no texto e sem overflow desktop. Nenhum formulário enviado.
