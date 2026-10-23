@@ -1255,3 +1255,68 @@ Cluster 127.0.0.1:55607, recriado pelo script da tarefa e depois removido.
 
 **Limites:** formulário do painel sem E2E (fluxo HTTP); envio sem fila durável (queda depois do COMMIT pode deixar o
 e-mail não registrado: tratado no procedimento).
+
+### Vigésima segunda rodada: ressalvas P3 da revisão de `939c90f` (APROVADO COM RESSALVAS)
+
+A revisão do Astra (`revisao-arrependimento-l1-939c90f-20261023/RELATORIO.md`) aprovou com ressalvas: P2-N6 e P3-N2
+fechados, dois P3. Correções em `c81516b`:
+- **P3-R1:** quando o pedido é da contratação anterior, o e-mail diz "Este pedido se refere à contratação anterior e não
+  altera a sua contratação atual". Não afirma que ela está ativa, o que vale também para EM_ATRASO e
+  CANCELADA_FIM_PERIODO. O comentário do código registra que é a situação lida no envio, não o efeito histórico. O caso
+  6f cobre a contratação atual em atraso há 30 dias.
+- **P3-T1:** o leitor de e-mail dos E2E de cadastro e CPF/Fundador só aceita arquivos criados **depois** da ação
+  (fotografia dos nomes antes do clique). Enquanto houver arquivo novo inválido, não devolve nada. No tempo esgotado,
+  diagnostica o nome do arquivo e o tipo do erro, sem conteúdo nem tokens. A espera ad hoc de "Ana de Novo" foi substituída
+  pelo mesmo mecanismo.
+
+**Validação** (cluster 55607 recriado pelo script da tarefa):
+- **Bateria PG completa** sobre `c81516b`: 116/116 arquivos, 702/706 testes, 0 falhas, 4 pulados de propósito.
+- **E2E:** cadastro 8/8 (a primeira tentativa parou em "modelo 079 inexistente": cluster novo ainda sem o modelo, ordem
+  de ambiente já conhecida; repetida depois de criar o modelo), CPF/Fundador 8/8, devolução 5 cenários.
+- **Mutações:** m24, m25 e a nova m26 (texto "permanece ativa" de volta) detectadas pelo caso 6f, com controle PASS.
+- `check:v1:static`: PASS (3423).
+
+## Integração com o staging (23/10/2026, `fetch` autorizado por Felipe; sem push, PR ou deploy)
+
+**Branch `codex/integracao-cpf-textos-arrependimento-20261023`**, criada de `github/staging` **`ab0a3d6`** (#217). Merge
+`75fd866` de `codex/arrependimento-l1-20261023` (`c81516b`), que contém as branches de textos/comprovante e de CPF/Fundador.
+- **Remote:** `github` (https://github.com/felipemenegaz-debug/kidmais-manager), adicionado só para o `fetch` da branch
+  `staging`, com **push desativado** (`pushurl = DISABLED_NO_PUSH`).
+- **Divergência desde a base `326895e`:** staging +49 commits, esta frente +72.
+- **Migrations:** sem colisão. O staging tem 092–094 (agenda e preços) e esta frente 090, 091, 096 e 097; a 088 e a 089 são
+  idênticas nos dois lados. Dependências (`package.json` e lock) iguais.
+- **Conflitos resolvidos (5):**
+  - `components/site/Site.tsx`: conteúdo **iA.Fest** do staging, mais as propriedades `fundador`/`cpf` desta frente;
+  - `lib/exportacao/exportacao.postgres.test.ts`: schema 094 do staging, mais as entidades condicionais (`migracao`);
+  - `scripts/production/check-migrations.mjs` e `production.test.mjs`: listas unidas em ordem (090–094, 096, 097);
+  - `scripts/regressao-v1-selecao.cjs`: suítes desta frente, mais a exportação no modelo 094 do staging.
+- **Nome iA.Fest:** o staging trocou só o site de venda. Os documentos legais mantêm "Kidmais Manager" na versão aceita,
+  com uma nota de transição (`docs/SITE_IAFEST_IDENTIDADE_20261023.md`). Os Termos (minuta4) e os e-mails desta frente
+  continuam coerentes com essa decisão.
+
+**Validação da integração (`75fd866`):**
+- `check:v1:static`: **PASS** (3582 testes, lint, TypeScript e build).
+- **Bateria PG completa:** **132/133 arquivos**, 783 testes, 778 pass, **1 fail**, 4 pulados.
+  - A falha é `lib/comercial/pacotes-1c.postgres.test.ts` (suíte do staging), caso "C1/C3/C4", erro `25P02` (transação
+    abortada; a causa original fica escondida).
+  - **Falha igual no staging puro `ab0a3d6`**, no mesmo cluster e pela mesma suíte. É **preexistente no staging**, não
+    vem da integração; precisa de diagnóstico próprio na frente de pacotes.
+- **E2E:** `assinatura-devolucao-ui` (5 cenários), `cpf-fundador-ui` 8/8 e `cadastro-publico-ui` 8/8, todos na primeira
+  execução.
+- **Testes de scripts:** sete arquivos falharam na integração. Seis falham **igualmente** no staging puro e na branch antes
+  do merge, logo são preexistentes e fora do CI estático:
+  - `concorrencia-vagas-isolado`;
+  - `email-producao-20261020` (8);
+  - `festa-016-reparo-encoding`;
+  - `festa-navegacao-manual`;
+  - `navegador-local-seed`;
+  - `ux-contratos-perfil`.
+
+  O sétimo, `bloco-shell-migracoes-producao-20261019`, falhou uma vez enquanto a bateria PG rodava em paralelo. Depois
+  passou 16/16 em duas execuções seguidas: intermitente sob carga, não reproduzido.
+- **Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/integracao-20261023/`. Cluster removido.
+
+**Próximo:**
+1. Revisão do Astra da integração.
+2. Com autorização: push da branch de integração e PR para `staging`.
+3. Aplicação das migrations 090, 091, 096 e 097 com os aplicadores, nesta ordem e com backup, com as flags desligadas.
