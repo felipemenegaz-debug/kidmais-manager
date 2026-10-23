@@ -1161,3 +1161,55 @@ os três E2E passaram na primeira execução.
   contratação confirmada, sem pedido da 089 e sem a referência da empresa no Asaas é recusada; o caminho é recuperar o
   vínculo ou conferir no Asaas.
 - Não foram executados: concorrência entre duas conexões, webhook HTTP e fluxo pelo painel ponta a ponta.
+
+### Vigésima rodada: atendimento pelo canal oficial e resultado ao contratante (depois da aprovação de `d155a62`)
+
+Pedido de Felipe (23/10): manter a tela do cliente como está e fechar as lacunas operacionais apontadas nas revisões.
+Commit `6bcd5f2`, local.
+
+**O que entrou:**
+- **Registro pelo atendimento** do pedido recebido por e-mail: operação `arrependimento-registrar` no painel e
+  `registrarArrependimentoAtendimento` no serviço. Substitui o lançamento por SQL.
+  - **Validação:** a data real do recebimento fica entre a criação da assinatura e agora, até 90 dias; o solicitante tem
+    de ser da Gestão ativa e ter o mesmo e-mail que enviou o pedido.
+  - **Registro:** idempotente, com auditoria do atendente.
+  - **Depois do COMMIT:** confirmação ao solicitante e aviso interno (`notificarRegistro`).
+  - **Contagem:** idade e alarmes contam da data do recebimento.
+- **E-mail do resultado** ao contratante na conclusão (`enviarEmailConclusao`), depois do COMMIT. Restituição com
+  valor, sem referência interna; não se aplica com a justificativa. Coluna nova `email_conclusao`: nasce vazia, só
+  existe depois da conclusão (`assinatura_arrependimentos_conclusao_email_check`) e é gravada uma vez (guarda).
+- **`comPosCommit`** no painel: os e-mails só saem depois do COMMIT. Se a transação é desfeita, eles não saem; se o envio
+  falha, a operação gravada continua.
+- **Schema e verificações:** postcheck regenerado (25 restrições, colunas, tipos e NOT NULL) e hashes atualizados.
+  Exportação com a coluna nova.
+- **§5.1:** procedimentos de pagamento no mesmo dia e de quando ativar o vigia.
+
+**Validação:**
+Cluster 127.0.0.1:55607, recriado pelo script da tarefa e depois removido.
+- **Bateria PG completa** sobre `6bcd5f2`: 116/116 arquivos, 705 testes, 701 pass, 0 fail, 4 pulados (os mesmos de
+  propósito). `arrependimento-097` 14/14 (caso 6e novo) e `sem-089` 1/1. Relatório:
+  `…-relatorios/2026-10-23T08-21-21-883Z-check-v1-postgres.log`.
+- **Caso 6e:**
+  - **Recusas:** remetente fora da Gestão, data antes da assinatura, data futura e data com mais de 90 dias, sem gravar
+    nada.
+  - **Registro:** canal ATENDIMENTO, solicitante, data real exata (milissegundos), motivo e auditoria do atendente;
+    chave repetida devolve o mesmo protocolo.
+  - **Depois do COMMIT:** confirmação e aviso interno.
+  - **Alarme:** vigia vencido contado da data do recebimento.
+  - **Conclusão:** não se aplica com e-mail enviado uma vez (sem reenviar) e imutável; restituição com falha de envio
+    registrada como FALHOU, sem desfazer a conclusão; RECEBIDO sem e-mail de conclusão (restrição).
+- **Unitários:** `comPosCommit` (ordem BEGIN → grava → COMMIT → e-mail; falha do e-mail não derruba; ROLLBACK não envia),
+  texto do e-mail de conclusão e validações antes do banco: 31/31 com devolução e exportação.
+- **E2E:** `assinatura-devolucao-ui` (5 cenários), `cpf-fundador-ui` 8/8 e `cadastro-publico-ui` 8/8, na primeira
+  execução.
+- **Mutações:** 23/23 detectadas em cópia isolada de `6bcd5f2`, com controle PASS antes e depois. Novas: m21 (qualquer
+  remetente), m22 (reenvia o e-mail de conclusão) e m23 (data sem janela), todas detectadas pelo caso 6e.
+- **Scripts:** 96/96. `check:v1:static`: PASS (3421).
+- **Logs:** `…-relatorios/grupo-c-097-rodada6-20261023/`.
+
+**Limites:**
+- O formulário do painel não tem E2E: o fluxo HTTP ponta a ponta não foi executado. O serviço é coberto pela suíte PG e a
+  composição posterior ao COMMIT pelos unitários.
+- O campo de data do painel assume o horário de Brasília (UTC−3).
+
+**Continua com Felipe:** responsável pelo atendimento; identidade da Kidmais.

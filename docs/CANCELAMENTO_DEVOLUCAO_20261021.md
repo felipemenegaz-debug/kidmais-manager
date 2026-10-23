@@ -226,6 +226,18 @@ arrependimento)”** (`components/admin/ArrependimentoLegal.tsx`):
 **Acompanhamento pelo atendimento** (painel do desenvolvedor → situação comercial da empresa → “Arrependimento (direito
 legal)”, com senha recente, motivo e auditoria):
 
+0. **Pedido que chegou por e-mail** (canal oficial): “Registrar pedido recebido pelo canal oficial…”.
+   - **Dados pedidos:**
+     - e-mail de quem enviou: precisa ser de uma pessoa da **Gestão ativa** desta empresa; qualquer outro remetente é
+       recusado, e a identidade deve ser confirmada pelo canal oficial antes;
+     - data e hora **reais** do recebimento, no horário de Brasília: entre a criação da assinatura e agora, até 90 dias
+       atrás;
+     - resumo da mensagem.
+   - **O que o sistema faz:**
+     - gera o protocolo `KA-` no canal ATENDIMENTO, valendo da data do recebimento;
+     - grava a auditoria e o solicitante;
+     - depois do COMMIT, envia a confirmação ao solicitante e o aviso interno.
+   - **Antes:** só por SQL.
 1. **Comunicar o intermediador** de imediato (no painel do Asaas: remover a renovação e pedir o estorno, se houver
    cobrança) e registrar a referência → “Registrar comunicação ao intermediador”.
 2. **Concluir:**
@@ -237,19 +249,34 @@ legal)”, com senha recente, motivo e auditoria):
      conclusão): a sincronização (webhook, reconciliação, tela) não deixa cobranças dessa assinatura com vencimento até o
      limite, nem pagas até ele (antecipadas), reabrirem o período, e as cobranças declaradas nunca mais sustentam período. Só
      pagamento feito depois da conclusão, ou de outra assinatura (recontratação), reativa. Pagamento novo no mesmo dia, na
-     mesma assinatura, não reativa sozinho (o provedor só informa a data): tratar no atendimento.
+     mesma assinatura, não reativa sozinho (o provedor só informa a data): ver o procedimento abaixo.
      Pedido antigo concluído depois da recontratação não encerra a assinatura nova;
-   - **Não se aplica** (exige justificativa, enviada ao cliente pelo atendimento): não muda o acesso.
-3. Responder ao cliente pelo canal oficial, citando o protocolo (o sistema não avisa o contratante na conclusão).
+   - **Não se aplica** (exige justificativa): não muda o acesso.
+3. **Resultado ao contratante:** depois do COMMIT da conclusão, o sistema envia ao solicitante o e-mail com o resultado.
+   - Restituição: o valor e a informação de que o período foi encerrado (sem a referência interna).
+   - Não se aplica: a justificativa.
+   - A situação fica gravada uma vez em `email_conclusao` (ENVIADO / FALHOU / SEM_DESTINATARIO) e aparece no painel. Com
+     FALHOU ou SEM_DESTINATARIO, responder pelo canal oficial, citando o protocolo.
 
 O sistema registra a comunicação e a conclusão, mas não as executa: remoção da renovação e estorno são feitos à mão no
 painel do Asaas, e o valor e a referência da restituição são **declarados** pelo atendimento (não conferidos no Asaas).
 
 Cada etapa é registrada uma vez só (guarda da 097).
 
+**Pagamento novo no mesmo dia da conclusão, na mesma assinatura (procedimento):**
+1. **Prevenção:** na etapa 1, remover a renovação no Asaas antes de concluir. Sem assinatura ativa, o Asaas não gera
+   cobrança nova nela, e o caso não acontece.
+2. **Se acontecer:** conferir no Asaas se a cobrança foi gerada e paga depois da conclusão.
+   - Gerada pela renovação esquecida: estornar também essa cobrança e responder ao contratante pelo canal oficial.
+   - O contratante quer voltar: orientar a contratação pela tela. A contratação nova cria outra assinatura, que reativa
+     sozinha, sem mexer no registro da restituição.
+3. **Nunca:** alterar o registro restituído nem reativar o acesso por SQL.
+
 **Alarmes:**
 - **Vigia** `scripts/arrependimento-vigia.cjs`, somente leitura, proposto a cada 15 min em
-  `infra/render-arrependimento-vigia-production.yaml` (não aplicado). Alarma já quando o aviso interno não foi entregue e,
+  `infra/render-arrependimento-vigia-production.yaml` (não aplicado). **Quando ativar:** criar o cron junto com a
+  aplicação da 097 em produção. Ele fica em `aguardando` até a 097 existir e passa para `conferir` logo depois do
+  postcheck, antes de anunciar o registro pela tela. Alarma já quando o aviso interno não foi entregue e,
   depois de 1 h, enquanto a manifestação estiver RECEBIDA. Latência máxima: 1 h + 15 min (vencida); 5 + 15 min (aviso não
   entregue).
 - **D-C4 diária** (`ARREPENDIMENTO_PENDENTE`) continua como segunda camada.
