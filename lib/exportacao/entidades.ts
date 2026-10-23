@@ -78,6 +78,10 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
     assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
+    // 097 (arrependimento): protocolo, datas, situação, comunicação ao intermediador, conclusão, valor e o e-mail de
+    // confirmação saem; ficam fora a chave de repetição, o aviso interno e quem do atendimento concluiu.
+    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe Kidmais)',
+        concluido_por: 'pessoa do atendimento da plataforma (não é da empresa)' },
 };
 
 const BASE: readonly Entidade[] = [
@@ -96,6 +100,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_encerramentos', tabela: 'assinatura_encerramentos', grupo: 'Empresa', descricao: 'Pedidos de cancelamento e devolução da assinatura (protocolo).', onde: EMP },
+    { arquivo: 'empresa/assinatura_arrependimentos', tabela: 'assinatura_arrependimentos', grupo: 'Empresa', descricao: 'Manifestações do direito de arrependimento (protocolo e andamento).', onde: EMP },
     {
         arquivo: 'empresa/usuarios', tabela: 'usuarios_administrativos', grupo: 'Empresa', descricao: 'Pessoas com vínculo nesta empresa (sem senha nem papel global).',
         onde: em(USUARIOS, 'id'), somente: ['id', 'nome', 'email', 'cargo', 'ativo', 'criado_em'],

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Aplicadores da 097 (comprovante da contratação e arquivo das versões; staging e produção) com cliente simulado: trava de alvo, identidade, hashes, plano por estado,
+// Aplicadores da 097 (manifestações do direito de arrependimento; staging e produção) com cliente simulado: trava de alvo, identidade, hashes, plano por estado,
 // privilégios, conferência só leitura (sem gravar no disco), backup obrigatório, marcador anti-repetição, falha
-// registrada e códigos de saída. Sem rede nem banco (a execução real fica em lib/assinatura/comprovante-097.postgres.test.ts).
+// registrada e códigos de saída. Sem rede nem banco (a execução real fica em lib/assinatura/arrependimento-097.postgres.test.ts).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,11 +17,11 @@ const URL_STG = 'postgresql://usuario:SENHA_FALSA@dpg-daidko3m8hqs73ce4jt0-a:543
 const ENV_PROD = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-dak77m2d0e5s73b8rkkg', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_SSL: 'true',
   DATABASE_SSL_REJECT_UNAUTHORIZED: 'false', DATABASE_URL: URL_PROD});
 const ENV_STG = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-daif418ae00c73e8k2gg', KIDMAIS_DEPLOY_ENV: 'staging', DATABASE_SSL: 'false', DATABASE_URL: URL_STG});
-const BASE = {m069: true, m074a: true, pode_criar: true, pode_referenciar: true, dono_alteradas: true, papel_trocado: true};
+const BASE = {m068: true, usuarios: true, pode_criar: true, pode_referenciar: true, dono_alteradas: true, papel_trocado: true};
 const OBJ = [...comum.OBJETOS];
 const AUSENTE = {...BASE, ...Object.fromEntries(OBJ.map(k => [k, false]))};
 const COMPLETA = {...BASE, ...Object.fromEntries(OBJ.map(k => [k, true]))};
-const PRESERVA = {ofertas: 4, resumo_ofertas: 'o1', aceites: 6, resumo_aceites: 'a1'};
+const PRESERVA = {assinaturas: 4, resumo_assinaturas: 's1'};
 const ID_PROD = {db: 'kidmais_production', tls: true, tls_versao: 'TLSv1.3', servidor_privado: true};
 const ID_STG = {db: 'kidmais_staging_1z91', tls: false, servidor_privado: true};
 
@@ -41,7 +41,7 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], identidade = ID_PROD, falh
       if (sql === comum.SQL_CORTE) return {rows: [{corte: '2026-10-22T12:00:00.000000Z'}]};
       if (sql === comum.SQL_ANTERIORES('2026-10-22T12:00:00.000000Z')) return {rows: [{n: anteriores[Math.min(k++, anteriores.length - 1)]}]};
       if (sql.startsWith('/* preservacao-')) { assert.ok(sql.includes("'2026-10-22T12:00:00.000000Z'::timestamptz"), 'mesmo corte antes e depois'); return {rows: [{...PRESERVA, ...(preservacao ? preservacao(i) : {})}]}; }
-      if (sql.includes('AS versoes_arquivadas')) return {rows: [{versoes_arquivadas: 0, comprovantes: 0}]};
+      if (sql.includes('AS manifestacoes_abertas')) return {rows: [{manifestacoes: 0, manifestacoes_abertas: 0}]};
       return {rows: []};
     }
   };
@@ -101,31 +101,31 @@ test('identidade provada pelo servidor: banco, TLS/versão e rede privada (produ
   assert.throws(() => stg.identidade({...ID_STG, db: 'kidmais_production'}, ENV_STG), /IDENTIDADE_RECUSADA/);
 });
 
-test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcial, sem 069/074a ou sem privilégio → recusa antes de escrever', () => {
+test('plano por estado: ausente → 3 etapas; completa → só postcheck; parcial, sem 068/usuários ou sem privilégio → recusa antes de escrever', () => {
   const e = x => comum.lerEstado(x);
   assert.deepEqual(comum.planoEtapas(e(AUSENTE)), ['precheck 097', 'migration 097', 'postcheck 097']);
   assert.deepEqual(comum.planoEtapas(e(COMPLETA)), ['postcheck 097']);
   for (const k of OBJ)
     assert.throws(() => comum.planoEtapas(e({...AUSENTE, [k]: true})), /APLICACAO_PARCIAL_097/, k);
-  for (const k of ['m069', 'm074a'])
-    assert.throws(() => comum.planoEtapas(e({...AUSENTE, [k]: false})), /DEPENDENCIA_AUSENTE_069_074A/, k);
-  // A 097 só cria tabelas: não exige ser dono de tabela existente.
+  for (const k of ['m068', 'usuarios'])
+    assert.throws(() => comum.planoEtapas(e({...AUSENTE, [k]: false})), /DEPENDENCIA_AUSENTE_068_USUARIOS/, k);
+  // A 097 só cria uma tabela: não exige ser dono de tabela existente.
   assert.deepEqual(comum.planoEtapas(e({...AUSENTE, dono_alteradas: false})), ['precheck 097', 'migration 097', 'postcheck 097']);
   assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_criar: false})), /SEM_PRIVILEGIO_097 CREATE/);
   assert.deepEqual(comum.planoEtapas(e({...COMPLETA, pode_criar: false})), ['postcheck 097'], 'já aplicada: só confere');
-  assert.throws(() => comum.lerEstado({...AUSENTE, comprovantes: 'sim'}), /ESTADO_ILEGIVEL comprovantes/);
+  assert.throws(() => comum.lerEstado({...AUSENTE, gatilho: 'sim'}), /ESTADO_ILEGIVEL gatilho/);
   // O estado lê privilégios de current_user (quem executa o DDL) e informa, sem nomes, o SET role do Render.
   assert.match(comum.SQL_ESTADO, /has_schema_privilege\(current_user,'public','CREATE'\)/);
   assert.match(comum.SQL_ESTADO, /session_user <> current_user AS papel_trocado/);
   assert.match(comum.SQL_ESTADO, /true AS dono_alteradas/);
-  assert.deepEqual([...comum.REFERENCIADAS], ['assinatura_contratacoes', 'usuarios_administrativos']);
+  assert.deepEqual([...comum.REFERENCIADAS], ['empresa_assinaturas', 'usuarios_administrativos']);
   assert.throws(() => comum.planoEtapas(e({...AUSENTE, pode_referenciar: false})), /SEM_PRIVILEGIO_097 REFERENCES/);
   assert.match(comum.SQL_ESTADO, /has_table_privilege\(current_user,to_regclass\('public\.'\|\|t\),'REFERENCES'\)/);
   assert.deepEqual([...comum.ALTERADAS], []);
   // A prova de preservação devolve só contagens e md5 agregados das colunas imutáveis (sem estado nem dado pessoal).
   const p = comum.SQL_PRESERVACAO('2026-10-22T12:00:00.000000Z');
   assert.match(p, /md5\(string_agg/); assert.doesNotMatch(p, /\bestado\b|\bip\b|user_agent|email/);
-  assert.match(p, /criada_em <= '2026-10-22T12:00:00.000000Z'::timestamptz/); assert.match(p, /aceito_em <= '2026-10-22T12:00:00.000000Z'::timestamptz/);
+  assert.match(p, /FROM empresa_assinaturas WHERE criado_em <= '2026-10-22T12:00:00.000000Z'::timestamptz/);
   assert.throws(() => comum.SQL_PRESERVACAO('x'), /CORTE_INVALIDO/);
 });
 
@@ -153,7 +153,7 @@ test('conferência: só leitura (toda consulta em READ ONLY), não grava nada no
     assert.ok(Pronta.log.some(x => x.ro && x.sql.includes('097 precheck')));
     const Ja = clienteFalso({estados: [COMPLETA], identidade: id});
     const j = await m.conferir({env, Client: Ja});
-    assert.equal(j.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.equal(j.postcheck, 'PASS'); assert.deepEqual(j.contagens, {...PRESERVA, versoes_arquivadas: 0, comprovantes: 0});
+    assert.equal(j.resultado, 'JA_APLICADA_POSTCHECK_PASS'); assert.equal(j.postcheck, 'PASS'); assert.deepEqual(j.contagens, {...PRESERVA, manifestacoes: 0, manifestacoes_abertas: 0});
     assert.deepEqual(escritas(Ja.log), []);
     const Rec = clienteFalso({estados: [{...AUSENTE, pode_criar: false}], identidade: id});
     const x = await m.conferir({env, Client: Rec});
@@ -215,20 +215,20 @@ test('plano sem conexão: arquivos com sha, ordem código → conferir → aplic
     const {codigo, saida} = await m.principal([], {});
     assert.equal(codigo, 0); assert.equal(saida.conecta, false);
     assert.deepEqual(saida.arquivos.map(a => a.sha256), comum.ETAPAS.map(e => e[2]));
-    assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-2), '--conferir-097'); assert.match(saida.ordem.at(-1), /ASSINATURA_COMPROVANTE_EMAIL continua desligada/);
+    assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-2), '--conferir-097'); assert.match(saida.ordem.at(-1), /aviso interno \(SITE_ATENDIMENTO_EMAIL\) e a D-C4/);
     assert.ok(saida.nuncaExecuta.includes('down 097'));
   }
   assert.equal(prod.DIR, '/opt/render/project/src/data/assinatura-arrependimento-097-producao'); assert.equal(stg.DIR, '/opt/render/project/src/data/assinatura-arrependimento-097-staging');
-  for (const m of [prod, stg]) assert.ok(m.plano().nuncaExecuta.includes('alteração de env (ASSINATURA_COMPROVANTE_EMAIL)'));
+  for (const m of [prod, stg]) assert.ok(m.plano().nuncaExecuta.includes('alteração de env'));
 });
 
 test('aplicação: resumo das colunas antigas diferente depois da migration → FALHA (migração commitada, marcador FALHA, sem repetir)', async () => {
   const dir = tmp();
   try {
     let n = 0;
-    const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA], preservacao: () => (n++ === 0 ? {} : {resumo_ofertas: 'o2'})});
+    const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA], preservacao: () => (n++ === 0 ? {} : {resumo_assinaturas: 's2'})});
     const r = await prod.executar({env: ENV_PROD, backup: 'export 22/10', dir, Client: C, disco: semDisco});
-    assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /PRESERVACAO_DIVERGENTE resumo_ofertas/); assert.equal(r.migracaoCommitada, true);
+    assert.equal(r.resultado, 'FALHA'); assert.match(r.falha.mensagem, /PRESERVACAO_DIVERGENTE resumo_assinaturas/); assert.equal(r.migracaoCommitada, true);
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, comum.MARCADOR), 'utf8')).situacao, 'FALHA');
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });

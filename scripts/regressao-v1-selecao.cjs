@@ -208,6 +208,8 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/aplicador-090-091.postgres.test.ts": { descartavel: "089" },
   // 22/10/2026 (grupo B): comprovante da contratação e arquivo das versões (096), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/comprovante-096.postgres.test.ts": { descartavel: "089" },
+  // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
+  "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
   "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
