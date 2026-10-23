@@ -116,7 +116,7 @@ test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configur
     assert.equal(gestao.some((item) => item.href.includes('tabela-pacotes')), false);
     const documentos = gestao.find((item) => item.href === '/admin/configuracoes/importar-documentos');
     assert.deepEqual(documentos, { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações' });
-    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp']);
+    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'Créditos de IA']);
     const hub = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
     assert.doesNotMatch(hub, /tabela-pacotes|PDF de Pacotes/);
     assert.match(hub, /route:'importar-documentos'/);
