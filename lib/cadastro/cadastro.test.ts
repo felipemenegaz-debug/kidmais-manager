@@ -51,7 +51,8 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
 
 test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões novas, responsável por marcador, DPA incorporado aos Termos e pendências listadas', () => {
     // Grupo B (22/10, contratante PF/PJ, síntese e comprovante, CPF): novas versões das três minutas.
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-22-minuta2');
+    // Grupo C (23/10): Termos conciliados com a L1 e o arrependimento pela ferramenta (097).
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-23-minuta3');
     assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-22-minuta7');
     assert.equal(DOCUMENTOS.DPA.versao, '2026-10-22-minuta2');
     for (const d of Object.values(DOCUMENTOS)) {
@@ -109,11 +110,14 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     assert.equal(decisoes.length, 1, 'só o ponto urgente 4 (IA no WhatsApp) continua sem decisão');
     assert.match(decisoes[0], /^\[DECISÃO PENDENTE: ponto urgente 4 /);
     assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261021.2) está publicado; o aviso descreve o que existe');
-    assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 9, 'mais o envio do comprovante por e-mail ligado em produção');
+    assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 7, 'comprovante por e-mail entra; protocolo/arrependimento e anual proporcional saem (grupo C)');
+    assert.match(termos, /em “Desistir da contratação”, mesmo quando a devolução automática não estiver disponível/);
+    assert.match(termos, /vale a partir do registro, com protocolo/);
+    assert.doesNotMatch(termos, /hoje a devolução é pedida pelo canal oficial e processada manualmente/);
     assert.equal(privacidade.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 5);
     assert.equal(dpa.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 3);
     // Lista completa: qualquer marcador novo ou resolvido aparece na revisão do teste.
-    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 14, PRIVACIDADE: 17, DPA: 9 });
+    assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 12, PRIVACIDADE: 17, DPA: 9 });
 });
 
 test('grupo B (22/10): contratante PF/PJ, teste por documento, Fundador com reserva e prazo, continuidade, síntese, comprovante e CPF no aviso', () => {

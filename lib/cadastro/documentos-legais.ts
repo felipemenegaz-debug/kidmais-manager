@@ -116,7 +116,7 @@ const DPA: TextoLegal = {
 };
 
 const TERMOS: TextoLegal = {
-    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-22-minuta2', minuta: true, rota: '/termos',
+    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-23-minuta3', minuta: true, rota: '/termos',
     secoes: [
         { titulo: 'Minuta', paragrafos: [
             'Este texto é uma minuta para homologação. Os trechos entre colchetes indicam dados, decisões, evidências ou controles ainda pendentes; a versão definitiva só será publicada depois de concluí-los e da revisão jurídica.',
@@ -152,8 +152,8 @@ const TERMOS: TextoLegal = {
         ] },
         { titulo: 'Cancelamento e devolução', id: 'cancelamento', paragrafos: [
             'Você pode cancelar a renovação a qualquer momento, sem multa. Nos primeiros 7 dias da primeira ativação paga, devolveremos integralmente o valor pago, inclusive para contratações por CPF ou CNPJ, sem prejuízo dos direitos previstos em lei. Depois desse período, no plano mensal o acesso permanece até o fim do ciclo pago, sem devolução pelo período disponibilizado. No anual, você pode manter o acesso até o fim do período ou pedir encerramento antecipado com devolução proporcional aos dias não utilizados, calculada sobre o valor efetivamente pago. Não recalculamos os meses utilizados pelo preço mensal nem cobramos de volta o desconto Fundador. Em devoluções ordinárias, iniciaremos o processamento em até 5 dias úteis; o crédito depende do meio de pagamento e será acompanhado por nós. No arrependimento legal, a restituição e a comunicação ao intermediador serão imediatas. Falha do serviço, cobrança indevida e outros direitos legais serão tratados separadamente.',
-            `O cancelamento da renovação pode ser feito na área Assinatura do sistema, com confirmação na tela, ou pelo canal oficial ${CANAL}. [CONTROLE AINDA NÃO IMPLEMENTADO: protocolo do cancelamento e pedido de arrependimento ou de devolução pela mesma ferramenta usada na contratação; hoje a devolução é pedida pelo canal oficial e processada manualmente no Asaas]`,
-            '[CONTROLE AINDA NÃO IMPLEMENTADO: encerramento antecipado do plano anual com devolução proporcional no produto e no Asaas, encerrando o período correspondente]',
+            `O cancelamento da renovação e os pedidos de devolução são feitos na área Assinatura do sistema, seção “Cancelamento e devolução”, com protocolo e confirmação imediatos na tela e por e-mail. No plano anual, o encerramento antecipado é pedido na mesma área: o valor proporcional é calculado na hora e o período correspondente é encerrado no registro do pedido.`,
+            `O arrependimento também pode ser registrado na área Assinatura, em “Desistir da contratação”, mesmo quando a devolução automática não estiver disponível — por exemplo, fora da garantia de 7 dias da primeira ativação ou com o provedor de pagamento indisponível —, e vale a partir do registro, com protocolo. Se não for possível acessar o sistema, use o canal oficial ${CANAL}. Confirmamos o recebimento imediatamente; no arrependimento legal, a equipe Kidmais comunica o intermediador de pagamento e providencia a restituição de imediato, acompanhando o crédito conforme o meio de pagamento.`,
         ] },
         { titulo: 'Depois do teste ou da assinatura', id: 'encerramento', paragrafos: [
             'Ao fim do teste sem assinatura, ao fim do período já pago de uma assinatura cancelada ou depois dos 7 dias para regularizar um pagamento, a empresa passa a somente leitura por 60 dias e, depois, tem o acesso suspenso.',
