@@ -41,6 +41,10 @@ services:
         value: staging
       - key: KIDMAIS_STAGING_OTP_DISABLED
         value: "SIM"
+      # Borda confirmada para a origem do cliente (lib/http/origem-cliente.ts): G1-A e G1-B aprovados em staging em
+      # 23/10/2026 (ambientes-locais/g1-origem-20261023). Remover = origem null, com limites por fluxo (rollback).
+      - key: ORIGEM_CLIENTE_BORDA
+        value: render-cloudflare-sobrescreve
       - key: DATABASE_URL
         sync: false
       - key: ADMIN_AUTH_ORIGIN
