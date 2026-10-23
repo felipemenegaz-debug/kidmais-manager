@@ -32,3 +32,9 @@ Alvo único: web staging `srv-daif418ae00c73e8k2gg`, My Workspace `tea-daidbj95e
 - Navegador em staging: título iA.Fest, imagem do cabeçalho carregada, máscara do símbolo `pronta`, sem Kidmais Manager ou Wall-e publicitário no texto de `/conheca`, sem overflow horizontal/erros observados.
 - Screenshot: `evidencias/site-iafest-staging-20261023.png`. Staging mantido aberto; servidor e aba locais encerrados.
 - Nenhuma mudança de banco, env, domínios, cron, painel administrativo ou produção.
+
+## Ajuste solicitado após a prévia — símbolo ao lado do nome
+
+Felipe rejeitou o símbolo da logo flutuando. Removido todo o carregamento/máscara da marca do renderer de fundo; voltam apenas as figuras de festa. O componente Marca, compartilhado por cabeçalho e rodapé de `/conheca` e `/planos`, agora mostra o símbolo original à esquerda do nome, alinhado por flex, com tamanhos menores no celular e símbolo decorativo sem duplicar o nome acessível.
+
+Validação: 18/18 testes pertinentes, lint, TypeScript e build passaram. Revisão independente aprovada. Navegador local em 1280 e 390 px: símbolo e nome na ordem correta nas duas marcas, sem overflow, sem dataset/carregamento de logo no fundo. Resultado remoto desta correção ainda pendente neste registro. Mantém os limites de operação anteriores.

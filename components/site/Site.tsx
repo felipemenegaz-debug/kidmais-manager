@@ -14,7 +14,7 @@ import { TelaIlustrativa } from './telas';
 import { AntesDepois, ComoFunciona, Confianca, Convite, Diferenciais, Duvidas, Hero, WallE } from './secoes';
 
 function Marca({ href }: { href: string }) {
-    return <a className={cx('brand')} href={href} aria-label="iA.Fest, início"><Image src="/site/iafest/logotipo.png" alt="iA.Fest" width={280} height={79} className={cx('brandLogo')} unoptimized /></a>;
+    return <a className={cx('brand')} href={href} aria-label="iA.Fest, início"><Image src="/site/iafest/simbolo.svg" alt="" aria-hidden="true" width={42} height={48} className={cx('brandSymbol')} unoptimized /><Image src="/site/iafest/logotipo.png" alt="iA.Fest" width={280} height={79} className={cx('brandLogo')} unoptimized /></a>;
 }
 function SecaoAnimada({ children }: { children: ReactNode }) {
     return <div className={cx('aberturaAnimada')} data-abertura-animada><FundoFesta />{children}</div>;

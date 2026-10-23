@@ -471,4 +471,5 @@
 .site .fundoPausa{position:absolute;right:24px;bottom:12px;background:#080b1699;border:1px solid #ffffff26;border-radius:24px;padding:7px 13px;color:#adb8d0;font-size:11px;cursor:pointer}
 
 .site .brandLogo{display:block;width:148px;height:auto;max-width:100%;filter:brightness(1.1) contrast(1.2);mix-blend-mode:screen}
-@media(max-width:600px){.site .brandLogo{width:128px}}
+.site .brandSymbol{display:block;width:42px;height:48px;object-fit:contain;flex:none;mix-blend-mode:screen}
+@media(max-width:600px){.site .brandLogo{width:128px}.site .brandSymbol{width:34px;height:39px}}
