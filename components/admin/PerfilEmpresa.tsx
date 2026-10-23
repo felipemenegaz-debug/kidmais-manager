@@ -34,6 +34,8 @@ type Resposta = {
         versao: number;
         cadastro: CadastroPerfil;
         rascunho: Rascunho | null;
+        /** Contratante com CPF (091): CNPJ opcional na aplicação. */
+        pessoaFisica?: boolean;
     } | null;
     historico: Historico[];
     capacidades: CapacidadesTela | null;
@@ -52,12 +54,12 @@ function Ajuda({ texto }: { texto: string }) {
 }
 
 // Nome acessível do campo: inclui a exigência na aplicação, já que o asterisco visual fica oculto para leitores de tela.
-function nomeAcessivel(texto: string, campo: string, mesmoEndereco: boolean) {
-    return campoExigidoNaAplicacao(campo, mesmoEndereco) ? `${texto} (obrigatório ao aplicar)` : texto;
+function nomeAcessivel(texto: string, campo: string, mesmoEndereco: boolean, pessoaFisica = false) {
+    return campoExigidoNaAplicacao(campo, mesmoEndereco, pessoaFisica) ? `${texto} (obrigatório ao aplicar)` : texto;
 }
 
-function Rotulo({ texto, campo, mesmoEndereco, ajuda }: { texto: string; campo?: string; mesmoEndereco: boolean; ajuda?: string }) {
-    const exigido = campo ? campoExigidoNaAplicacao(campo, mesmoEndereco) : false;
+function Rotulo({ texto, campo, mesmoEndereco, ajuda, pessoaFisica = false }: { texto: string; campo?: string; mesmoEndereco: boolean; ajuda?: string; pessoaFisica?: boolean }) {
+    const exigido = campo ? campoExigidoNaAplicacao(campo, mesmoEndereco, pessoaFisica) : false;
     // O asterisco é só visual; leitores de tela recebem o texto "obrigatório ao aplicar".
     return <span className={styles.rotulo}>{texto}{exigido && <><span className={styles.asterisco} aria-hidden="true">*</span><span className={styles.srOnly}> (obrigatório ao aplicar)</span></>}{ajuda && <Ajuda texto={ajuda} />}</span>;
 }
@@ -441,6 +443,7 @@ export default function PerfilEmpresa() {
     const comparacao = dados?.contexto ? linhasAntesDepois(dados.contexto.cadastro, salvo) : [];
     const grupos = agruparComparacao(comparacao);
     const mesmo = form.mesmoEnderecoSede;
+    const pf = dados?.contexto?.pessoaFisica === true;
     async function resolver() {
         if (!identidadeConflito || bloqueio.current)
             return;
@@ -527,8 +530,8 @@ export default function PerfilEmpresa() {
                 <h2 className={styles.titulo}><AdminIcon name="profile" size={12} />Identificação</h2>
                 <div className={styles.grade + ' ' + styles.identificacao}>
                     <label className={styles.campo}><Rotulo texto="Nome comercial" campo="nomeComercial" mesmoEndereco={mesmo} ajuda="Nome usado na operação. A razão social fica no documento." /><input aria-label={nomeAcessivel("Nome comercial", "nomeComercial", mesmo)} value={form.nomeComercial} placeholder="Nome que seus clientes veem" onChange={(evento) => atualizar({ nomeComercial: evento.target.value })} /></label>
-                    <label className={styles.campo}><Rotulo texto="Razão social" campo="razaoSocial" mesmoEndereco={mesmo} ajuda="Nome jurídico exigido para aplicar o cadastro." /><input aria-label={nomeAcessivel("Razão social", "razaoSocial", mesmo)} value={form.razaoSocial} placeholder="Nome utilizado nos documentos" onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
-                    <label className={styles.campo}><Rotulo texto="CNPJ" campo="cnpj" mesmoEndereco={mesmo} ajuda="Pode ficar vazio no rascunho. Na aplicação precisa ser um CNPJ válido." /><input aria-label={nomeAcessivel("CNPJ", "cnpj", mesmo)} value={form.cnpj} placeholder="ID Fiscal" inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /><small>Aceita formatos numéricos ou alfanuméricos.</small></label>
+                    <label className={styles.campo}><Rotulo texto={pf ? "Razão social ou nome civil do titular" : "Razão social"} campo="razaoSocial" mesmoEndereco={mesmo} ajuda={pf ? "Contratante pessoa física: informe o nome civil do titular. A forma de identificação nos documentos ainda depende de revisão jurídica." : "Nome jurídico exigido para aplicar o cadastro."} /><input aria-label={nomeAcessivel(pf ? "Razão social ou nome civil do titular" : "Razão social", "razaoSocial", mesmo)} value={form.razaoSocial} placeholder="Nome utilizado nos documentos" onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="CNPJ" campo="cnpj" mesmoEndereco={mesmo} pessoaFisica={pf} ajuda={pf ? "Contratante pessoa física: o CNPJ é opcional. Preencha só se o buffet tiver CNPJ próprio; isso não troca o documento da assinatura." : "Pode ficar vazio no rascunho. Na aplicação precisa ser um CNPJ válido."} /><input aria-label={nomeAcessivel("CNPJ", "cnpj", mesmo, pf)} value={form.cnpj} placeholder="ID Fiscal" inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /><small>Aceita formatos numéricos ou alfanuméricos.</small></label>
                     <label className={styles.campo}><span className={styles.rotulo}>Código da empresa</span><input readOnly value={dados.contexto.codigoEmpresa} /></label>
                 </div>
             </fieldset>

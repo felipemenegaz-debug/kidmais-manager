@@ -102,11 +102,13 @@ export class AsaasFalhou extends Error {
     }
 }
 
-export type ClienteProvedor = { id: string; externalReference: string | null };
+export type ClienteProvedor = { id: string; externalReference: string | null; /** Só dígitos/letras, quando o provedor informa. */ cpfCnpj?: string | null };
 export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
 export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null;
     /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
-    confirmedDate?: string | null };
+    confirmedDate?: string | null;
+    /** `clientPaymentDate`: dia em que o cliente pagou (boleto compensa depois; `paymentDate` é a compensação). */
+    clientPaymentDate?: string | null };
 
 /** Situação de cada devolução da cobrança (`refunds[]`): só `DONE` conta como devolvida (docs.asaas.com/docs/estornos). */
 export type EstornoProvedor = { status: string; valorCentavos: number | null; descricao: string | null };
@@ -187,6 +189,7 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
         ...(o.customer !== undefined ? { clienteId: texto(o.customer, 100) } : {}),
         ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
         ...(o.confirmedDate !== undefined ? { confirmedDate: texto(o.confirmedDate, 10) && DATA.test(String(o.confirmedDate)) ? String(o.confirmedDate) : null } : {}),
+        ...(o.clientPaymentDate !== undefined ? { clientPaymentDate: texto(o.clientPaymentDate, 10) && DATA.test(String(o.clientPaymentDate)) ? String(o.clientPaymentDate) : null } : {}),
     };
 }
 
@@ -317,7 +320,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (!data)
                 throw new AsaasFalhou('listar clientes', null, 'RESPOSTA_INVALIDA');
             const c = data.find((d) => d && d.deleted !== true && d.externalReference === referencia);
-            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia } : null;
+            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia, cpfCnpj: typeof c.cpfCnpj === 'string' ? c.cpfCnpj.replace(/[^0-9A-Za-z]/g, '').toUpperCase() || null : null } : null;
         },
         // POST /v3/customers — https://docs.asaas.com/reference/criar-novo-cliente
         // notificationDisabled: true — em qualquer ambiente o provedor não envia e-mail/SMS ao cliente: a fatura e os avisos

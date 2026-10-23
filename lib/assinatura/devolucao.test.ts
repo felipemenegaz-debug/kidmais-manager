@@ -80,6 +80,17 @@ test('P2-1: na assinatura com devolução, cobrança devolvida ou com vencimento
     assert.equal(cobrancaDevolvidaOuAnterior({ ids: new Set(), limites: new Map() }, 'sub_1', { id: 'pay_1', dueDate: '2026-11-10' }), false);
 });
 
+test('097 (revisão d72d8b8, P2-N2): na assinatura restituída, cobrança paga até o limite não sustenta período, mesmo com vencimento futuro', async () => {
+    const { cobrancaDevolvidaOuAnterior } = await import('./devolucao-registro.ts');
+    const d = { ids: new Set(['pay_declarada']), limites: new Map([['sub_1', '2026-10-23']]), pagosAte: new Map([['sub_1', '2026-10-23']]) };
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_ant', dueDate: '2026-10-24', paymentDate: '2026-10-23' }), true, 'antecipada');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_ant2', dueDate: '2026-11-23', paymentDate: '2026-10-25', clientPaymentDate: '2026-10-20' }), true, 'cliente pagou antes (boleto compensado depois)');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_novo', dueDate: '2026-11-23', paymentDate: '2026-10-24' }), false, 'pagamento novo');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_1', { id: 'pay_aberta', dueDate: '2026-11-23', paymentDate: null }), false, 'em aberto não é pagamento anterior');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_2', { id: 'pay_declarada', dueDate: '2027-01-01', paymentDate: '2027-01-01' }), true, 'declarada vale em qualquer assinatura');
+    assert.equal(cobrancaDevolvidaOuAnterior(d, 'sub_2', { id: 'pay_outra', dueDate: '2026-10-01', paymentDate: '2026-10-01' }), false, 'outra assinatura (recontratação)');
+});
+
 test('P2-3: aviso interno só com protocolo, tipo, valor, prazo e situação; urgente no arrependimento e na renovação não removida', async () => {
     const { mensagemAvisoInterno, canalDaPlataforma } = await import('./devolucao-registro.ts');
     assert.equal(canalDaPlataforma({}), null);

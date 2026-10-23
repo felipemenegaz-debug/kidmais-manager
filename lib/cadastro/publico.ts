@@ -11,11 +11,12 @@ import { consumirOrigem } from '../acessos/limite-origem.ts';
 import { erroAcesso, violacaoUnica } from '../acessos/erros.ts';
 import { criarEnviarEmail, origemPublica, situacaoEmail, type EnviarEmail, type MensagemEmail } from '../acessos/email.ts';
 import { validarNovaSenha, type ContextoRequisicao } from '../acessos/senha-propria.ts';
-import { emailObrigatorio, mascararDocumento, nomeObrigatorio, normalizarTelefone, sugerirCodigoEmpresa } from '../acessos/validacao.ts';
+import { documentoFiscalValido, emailObrigatorio, mascararDocumento, nomeObrigatorio, normalizarTelefone, sugerirCodigoEmpresa } from '../acessos/validacao.ts';
 import { exigirReautenticacaoRecente } from '../desenvolvedor/autorizacao.ts';
 import { iniciarTeste } from '../assinatura/servico.ts';
-import { cnpjRaizPlaceholder, cnpjValido, normalizarCnpj } from './cnpj.ts';
+import { documentoVinculado, exigirDocumentoContratante, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { versaoVigente, type DocumentoLegal } from './documentos-legais.ts';
+import { arquivarVersoesVigentes, comprovanteInstalado } from '../assinatura/comprovante.ts';
 
 /**
  * Cadastro público (E6), em três passos:
@@ -24,10 +25,12 @@ import { versaoVigente, type DocumentoLegal } from './documentos-legais.ts';
  *      E-mail sem conta recebe o link de confirmação (uso único, 24 h, token só em hash, no fragmento #t=); e-mail com
  *      conta recebe um aviso para entrar. Nenhuma conta nasce aqui.
  *   2. Confirmação: abrir o link cria a identidade com papel global NEUTRO, registra os aceites e abre a sessão.
- *   3. Empresa (sessão autenticada, inclusive de quem já tem conta e quer outro CNPJ): CNPJ (dígitos), razão social, nome
- *      fantasia, qualificação de quem cadastra e sócios declarados. Numa transação idempotente cria empresa ATIVA,
- *      cadastro administrativo, vínculo de Gestão SÓ para esta pessoa, teste grátis do CNPJ, representação DECLARADA
- *      e os aceites. CNPJ já cadastrado vira pedido de acesso, sem revelar nada da empresa existente e sem vínculo.
+ *   3. Empresa (sessão autenticada, inclusive de quem já tem conta e quer outro documento): pessoa jurídica (CNPJ, razão
+ *      social, qualificação de quem cadastra e sócios declarados) ou pessoa física (CPF e nome civil do próprio titular,
+ *      sem sócios; só com a 091 e ASSINATURA_CPF_ATIVO), sempre com o nome do buffet separado. Numa transação idempotente
+ *      cria empresa ATIVA, cadastro administrativo, vínculo de Gestão SÓ para esta pessoa, teste grátis do documento,
+ *      representação DECLARADA (TITULAR_PF na pessoa física) e os aceites. Documento já cadastrado vira pedido de acesso,
+ *      sem revelar nada da empresa existente e sem vínculo. Clientes antigos que mandam só `cnpj` seguem como PJ.
  *
  * Dígitos do CNPJ corretos não comprovam existência da empresa nem autoridade de quem cadastra: a representação fica
  * DECLARADA até decisão da plataforma. Nenhum fluxo daqui concede papel global, autoridade de plataforma ou concessão
@@ -47,7 +50,7 @@ const REGRA_EMPRESA = { namespace: 'cadastro-empresa', janelaSegundos: 86_400, l
 export const TETO_PEDIDOS_SEM_ORIGEM = 300;
 
 export const MENSAGEM_PEDIDO_CADASTRO = `Se for possível criar a conta com este e-mail, enviamos um link de confirmação. Ele vale por ${VALIDADE_CADASTRO_HORAS} horas. Confira também a caixa de spam.`;
-export const MENSAGEM_CNPJ_EXISTENTE = 'Este CNPJ já está cadastrado no Kidmais Manager. Registramos seu pedido de acesso; a empresa e a Kidmais avaliam e você recebe um convite se for aprovado. Nenhum dado da empresa é exibido aqui.';
+export const MENSAGEM_CNPJ_EXISTENTE = 'Este CPF ou CNPJ já está cadastrado no Kidmais Manager. Registramos seu pedido de acesso; a empresa e a Kidmais avaliam e você recebe um convite se for aprovado. Nenhum dado da empresa é exibido aqui.';
 
 export type CadastroDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -93,6 +96,8 @@ function exigirVersoesVigentes(termosVersao: string, privacidadeVersao: string) 
         throw erroAcesso('DADOS_INVALIDOS', 'Os termos ou o aviso de privacidade foram atualizados. Recarregue a página e leia a versão atual.', 409);
 }
 async function registrarAceites(tx: DbExecutor, usuarioId: string, empresaId: string | null, origem: 'CADASTRO' | 'NOVA_EMPRESA', ctx: ContextoRequisicao, versoes?: Record<DocumentoLegal, { versao: string; hash: string }>) {
+    // 096: o texto integral das versões vigentes fica arquivado junto com o aceite (sem a 096, nada muda).
+    if (await comprovanteInstalado(tx)) await arquivarVersoesVigentes(tx);
     for (const documento of ['TERMOS_USO', 'PRIVACIDADE'] as const) {
         const v = versoes?.[documento] ?? versaoVigente(documento);
         await tx.query(`INSERT INTO aceites_documentos_legais (usuario_id, empresa_id, documento, versao, hash_conteudo, origem, ip, user_agent)
@@ -162,6 +167,8 @@ export async function processarPedidoCadastro(input: PedidoCadastro, ctx: Contex
         }
         const token = deps.gerarToken();
         const termos = versaoVigente('TERMOS_USO'), privacidade = versaoVigente('PRIVACIDADE');
+        // 096: o texto apresentado neste pedido fica arquivado já agora (a confirmação pode vir depois de nova versão).
+        if (await comprovanteInstalado(tx)) await arquivarVersoesVigentes(tx);
         await tx.query("UPDATE cadastros_publicos SET situacao = 'SUBSTITUIDO', senha_hash = NULL WHERE email = $1 AND situacao = 'PENDENTE'", [input.email]);
         const id = (await tx.query<{ id: string }>(
             `INSERT INTO cadastros_publicos (email, nome, senha_hash, token_hash, expira_em, termos_versao, termos_hash, privacidade_versao, privacidade_hash)
@@ -238,16 +245,26 @@ export async function confirmarCadastro(raw: unknown, ctx: ContextoRequisicao, d
 // ---------------------------------------------------------------------------------------------------------------
 
 const QUALIFICACOES_REPRESENTACAO = ['SOCIO_ADMINISTRADOR', 'PROCURADOR', 'RESPONSAVEL_INDICADO'] as const;
+// PJ: CNPJ + razão social + qualificação (+ sócios declarados). PF: CPF + nome civil do próprio titular, sem sócios.
+// `cnpj` é o campo antigo (só PJ); `documento` é o novo. Nome do buffet (nomeFantasia) é separado nos dois casos.
 const empresaSchema = z.object({
     chave: z.string().uuid(),
-    cnpj: z.string().max(40),
-    razaoSocial: nomeObrigatorio(2, 200),
+    tipoPessoa: z.enum(['PJ', 'PF']).default('PJ'),
+    documento: z.string().max(40).optional(),
+    cnpj: z.string().max(40).optional(),
+    razaoSocial: nomeObrigatorio(2, 200).optional(),
+    nomeCivil: nomeObrigatorio(2, 200).optional(),
     nomeFantasia: nomeObrigatorio(2, 160),
     telefone: z.string().max(40).nullish(),
-    qualificacao: z.enum(QUALIFICACOES_REPRESENTACAO),
+    qualificacao: z.enum(QUALIFICACOES_REPRESENTACAO).optional(),
     socios: z.array(z.object({ nome: nomeObrigatorio(2, 160), qualificacao: z.enum(['SOCIO', 'ADMINISTRADOR', 'SOCIO_ADMINISTRADOR']) }).strict()).max(10).default([]),
     ...aceiteSchema,
-}).strict();
+}).strict().superRefine((d, ctx) => {
+    const pf = d.tipoPessoa === 'PF';
+    if (pf ? (d.cnpj !== undefined || !d.documento || !d.nomeCivil || d.razaoSocial !== undefined || d.qualificacao !== undefined || d.socios.length > 0)
+        : ((d.documento === undefined) === (d.cnpj === undefined) || !d.razaoSocial || !d.qualificacao || d.nomeCivil !== undefined))
+        ctx.addIssue({ code: 'custom', message: 'Campos incompatíveis com o tipo de pessoa.' });
+});
 
 export type ResultadoEmpresa = { situacao: 'CRIADA'; empresaId: string; testeFim: string; repetido: boolean } | { situacao: 'CNPJ_EXISTENTE' };
 
@@ -256,12 +273,17 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
     exigirReautenticacaoRecente(sessao);
     const parsed = empresaSchema.safeParse(raw);
     if (!parsed.success)
-        throw erroAcesso('DADOS_INVALIDOS', 'Confira CNPJ, razão social, nome fantasia, sua qualificação e o aceite dos termos.', 400);
+        throw erroAcesso('DADOS_INVALIDOS', 'Confira o tipo de pessoa, o CPF ou CNPJ, o nome civil ou a razão social, o nome do buffet, sua qualificação e o aceite dos termos.', 400);
     const d = parsed.data;
     exigirVersoesVigentes(d.termosVersao, d.privacidadeVersao);
-    const documento = normalizarCnpj(d.cnpj);
-    if (!cnpjValido(documento) || cnpjRaizPlaceholder(documento))
-        throw erroAcesso('DADOS_INVALIDOS', 'CNPJ inválido. Confira os números.', 400, { campo: 'cnpj' });
+    const pf = d.tipoPessoa === 'PF';
+    const esperado = pf ? 'CPF' as const : 'CNPJ' as const;
+    const valido = documentoFiscalValido(d.documento ?? d.cnpj);
+    if (!valido || valido.tipo !== esperado)
+        throw erroAcesso('DADOS_INVALIDOS', `${esperado} inválido. Confira os números.`, 400, { campo: d.cnpj !== undefined ? 'cnpj' : 'documento' });
+    const documento = valido.numero;
+    const titular = pf ? d.nomeCivil! : d.razaoSocial!;
+    const qualificacao = pf ? 'TITULAR_PF' : d.qualificacao!;
     let telefone: string | null;
     try {
         telefone = normalizarTelefone(d.telefone ?? null);
@@ -295,11 +317,13 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
             await exigirAgendaSemBloqueioGlobal(tx);
             if (!await consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_EMPRESA))
                 throw erroAcesso('LIMITE_TENTATIVAS', 'Limite diário de cadastros de empresa atingido. Fale com a Kidmais.', 429);
-            await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:cnpj:' || $1))", [documento]);
-            const existente = (await tx.query<{ empresa_id: string | null }>(
-                `SELECT empresa_id::text FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1
-                 UNION ALL SELECT empresa_id::text FROM empresa_assinaturas WHERE documento_teste = $1
-                 UNION ALL SELECT NULL FROM perfil_empresas WHERE cnpj = $1 LIMIT 1`, [documento])).rows[0];
+            // CPF só com a 091 e a chave ligada; antes de qualquer escrita. Mesma trava do painel e do teste.
+            await exigirDocumentoContratante(tx, documento, env, esperado);
+            await travarDocumento(tx, documento);
+            // Ficha, teste, Fundador e toda a cadeia de continuidades (091), mais o CNPJ de um Perfil (P2-2 da revisão de 22/10).
+            const vinculo = await documentoVinculado(tx, documento)
+                ?? ((await tx.query('SELECT 1 FROM perfil_empresas WHERE cnpj = $1 LIMIT 1', [documento])).rows.length ? { empresaId: null } : null);
+            const existente = vinculo ? { empresa_id: vinculo.empresaId } : null;
             if (existente) {
                 await tx.query(`INSERT INTO solicitacoes_acesso_empresa (usuario_id, documento, empresa_id) VALUES ($1::uuid, $2, $3::uuid)
                                 ON CONFLICT (usuario_id, documento) WHERE situacao = 'PENDENTE' DO NOTHING`, [sessao.usuario_id, documento, existente.empresa_id]);
@@ -314,26 +338,29 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
             await tx.query(
                 `INSERT INTO plataforma_empresas_cadastro (empresa_id, nome_empresarial, documento_fiscal, responsavel_nome, email, telefone, implantacao, criado_por, atualizado_por)
                  VALUES ($1::uuid, $2, $3, $4, lower(btrim($5)), $6, 'EM_CONFIGURACAO', $7::uuid, $7::uuid)`,
-                [empresaId, d.razaoSocial, documento, usuario.nome, usuario.email, telefone, sessao.usuario_id]);
+                [empresaId, titular, documento, usuario.nome, usuario.email, telefone, sessao.usuario_id]);
             const membershipId = (await tx.query<{ id: string }>(
                 `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), 'REPRESENTANTE_AUTORIZADO') RETURNING id`,
                 [empresaId, sessao.usuario_id])).rows[0].id;
             await tx.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1 AND empresa_id = $2", [membershipId, empresaId]);
             await concederPerfilFesta(tx, empresaId, membershipId, 'GESTAO', sessao.usuario_id);
-            const teste = await iniciarTeste(tx, { empresaId, documento });
-            await tx.query('INSERT INTO empresa_representacoes (empresa_id, usuario_id, qualificacao) VALUES ($1::uuid, $2::uuid, $3)', [empresaId, sessao.usuario_id, d.qualificacao]);
+            const teste = await iniciarTeste(tx, { empresaId, documento, env });
+            await tx.query('INSERT INTO empresa_representacoes (empresa_id, usuario_id, qualificacao) VALUES ($1::uuid, $2::uuid, $3)', [empresaId, sessao.usuario_id, qualificacao]);
             for (const s of d.socios)
                 await tx.query('INSERT INTO empresa_socios (empresa_id, nome, qualificacao, declarado_por) VALUES ($1::uuid, $2, $3, $4::uuid)', [empresaId, s.nome, s.qualificacao, sessao.usuario_id]);
             await registrarAceites(tx, sessao.usuario_id, empresaId, 'NOVA_EMPRESA', ctx);
             await tx.query('INSERT INTO cadastros_empresas (usuario_id, chave, empresa_id, documento) VALUES ($1::uuid, $2::uuid, $3::uuid, $4)', [sessao.usuario_id, d.chave, empresaId, documento]);
             await deps.registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'EMPRESA_CADASTRADA_PUBLICO', entidadeTipo: 'EMPRESA', entidadeId: empresaId,
-                dadosDepois: { empresaId, codigo, documento: mascararDocumento(documento), qualificacao: d.qualificacao, socios: d.socios.length, testeFim: teste.testeFim, resultado: 'SUCESSO' },
+                // O DPA não tem linha própria na 069: é aceito por incorporação aos Termos (que citam versão e hash dele).
+                // A auditoria repete a referência para facilitar a consulta, sem substituir o aceite dos Termos.
+                dadosDepois: { empresaId, codigo, tipoPessoa: d.tipoPessoa, documento: mascararDocumento(documento), qualificacao, socios: d.socios.length, testeFim: teste.testeFim,
+                    acordoTratamento: { versao: versaoVigente('DPA').versao, hash: versaoVigente('DPA').hash }, resultado: 'SUCESSO' },
                 origem: 'CADASTRO_PUBLICO', requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent }, tx);
             return { situacao: 'CRIADA' as const, empresaId, testeFim: teste.testeFim, repetido: false };
         });
     }
     catch (error) {
-        // Corrida com outro cadastro do mesmo CNPJ (índice único do cadastro ou do teste): mesma resposta neutra.
+        // Corrida com outro cadastro do mesmo documento (índice único do cadastro ou do teste): mesma resposta neutra.
         if (violacaoUnica(error, 'kidmais_063_cad_documento_uk') || violacaoUnica(error, 'empresa_assinaturas_documento_teste_uk'))
             return { situacao: 'CNPJ_EXISTENTE' };
         throw error;

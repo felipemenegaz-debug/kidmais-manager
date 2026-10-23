@@ -39,14 +39,25 @@ async function principal() {
   fs.mkdirSync(caixa, { recursive: true });
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
-  const ultimoEmail = async (para) => {
+  const ultimoEmail = async (para, antes) => {
+    const validos = new Map();
+    const invalidos = new Map();
     for (let n = 0; n < 60; n++) {
-      const msgs = fs.readdirSync(caixa).sort().map((f) => JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8'))).filter((m) => m.para === para);
-      if (msgs.length) return msgs.at(-1);
+      // Só arquivos criados depois da ação (antes = nomes já existentes); arquivo ainda sendo escrito pelo transporte em
+      // arquivo é relido na volta seguinte e, enquanto houver um inválido, nenhuma mensagem é devolvida (revisão 939c90f, P3-T1).
+      for (const f of fs.readdirSync(caixa).sort()) {
+        if (antes.has(f) || validos.has(f)) continue;
+        try { validos.set(f, JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8'))); invalidos.delete(f); }
+        catch (e) { invalidos.set(f, e && e.name ? e.name : 'Erro'); }
+      }
+      const msgs = [...validos.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, m]) => m).filter((m) => m.para === para);
+      if (msgs.length && invalidos.size === 0) return msgs.at(-1);
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw Error(`E2E_SEM_EMAIL ${para}`);
+    // Sem conteúdo nem tokens no diagnóstico: só o nome do arquivo e o tipo do erro.
+    throw Error(`E2E_SEM_EMAIL ${para}${invalidos.size ? ` (arquivos inválidos: ${[...invalidos].map(([f, e]) => `${f}=${e}`).join(', ')})` : ''}`);
   };
+  const caixaAntes = () => new Set(fs.readdirSync(caixa));
   try {
     await receita.restaurar(admin, receita.TRABALHO[0], '079');
     client = await receita.conectar(porta, receita.TRABALHO[0]);
@@ -79,11 +90,13 @@ async function principal() {
       await page.getByLabel('Confirme a senha').fill(senha);
       await page.getByRole('checkbox').nth(0).check();
       await page.getByRole('checkbox').nth(1).check();
+      const antes = caixaAntes();
       await page.getByRole('button', { name: 'Continuar', exact: true }).click();
       await page.getByText('Se for possível criar a conta com este e-mail', { exact: false }).waitFor();
+      return antes;
     }
-    async function confirmarEEmpresa(page, email, cnpj, fantasia) {
-      const m = await ultimoEmail(email);
+    async function confirmarEEmpresa(page, email, cnpj, fantasia, antes) {
+      const m = await ultimoEmail(email, antes);
       const link = m.texto.match(/https?:\/\/\S+#t=[A-Za-z0-9_-]{43}/)[0];
       await page.goto(link);
       await page.waitForURL(`${base}/cadastro/empresa`);
@@ -111,9 +124,9 @@ async function principal() {
     // 2. Cadastro completo.
     const emailAna = 'ana-cadastro-ui@exemplo.test';
     const usuariosAntes = Number((await client.query('SELECT count(*)::int AS n FROM usuarios_administrativos')).rows[0].n);
-    await pedirConta(page, 'Ana Cadastro UI', emailAna);
+    const antesAna = await pedirConta(page, 'Ana Cadastro UI', emailAna);
     assert.equal(Number((await client.query('SELECT count(*)::int AS n FROM usuarios_administrativos')).rows[0].n), usuariosAntes, 'nenhuma conta antes da confirmação');
-    await confirmarEEmpresa(page, emailAna, '80.123.456/0001-88', 'Buffet Festa UI');
+    await confirmarEEmpresa(page, emailAna, '80.123.456/0001-88', 'Buffet Festa UI', antesAna);
     await page.waitForURL(`${base}/admin/inicio`);
     await page.getByRole('heading', { name: 'Primeiros passos', exact: true }).waitFor();
     await page.locator('[data-passo="PERFIL"]').getByRole('link', { name: 'Fazer agora' }).waitFor();
@@ -138,6 +151,9 @@ async function principal() {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'ANUAL', reaproveitada: false } }) });
     });
     await page.getByRole('button', { name: /Assinar Profissional/ }).click();
+    await page.getByRole('region', { name: 'Confira sua contratação' }).getByText(/anual \(pagamento único, valor de 10 mensalidades\)/).waitFor();
+    assert.equal(checkouts, 0, 'a síntese não envia o pedido');
+    await page.getByRole('button', { name: 'Confirmar contratação' }).click();
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
     for (const width of [1280, 375]) {
@@ -154,8 +170,8 @@ async function principal() {
     const ctx2 = await novoContexto();
     const p2 = await ctx2.newPage();
     const emailBeto = 'beto-cadastro-ui@exemplo.test';
-    await pedirConta(p2, 'Beto Cadastro UI', emailBeto);
-    await confirmarEEmpresa(p2, emailBeto, '80123456000188', 'Outro Nome');
+    const antesBeto = await pedirConta(p2, 'Beto Cadastro UI', emailBeto);
+    await confirmarEEmpresa(p2, emailBeto, '80123456000188', 'Outro Nome', antesBeto);
     await p2.locator('[data-cnpj-existente]').waitFor();
     const texto = await p2.locator('main').innerText();
     assert.doesNotMatch(texto, /Buffet Festa UI|Ana Cadastro UI|Festa UI Festas/, 'nada da empresa existente aparece');
@@ -175,14 +191,14 @@ async function principal() {
     const ctxR = await novoContexto();
     const pR = await ctxR.newPage();
     const emailCaio = 'caio-cadastro-ui@exemplo.test';
-    await pedirConta(pR, 'Caio Cadastro UI', emailCaio);
+    const antesCaio = await pedirConta(pR, 'Caio Cadastro UI', emailCaio);
     let perdidas = 0;
     await pR.route('**/api/cadastro/empresa', async (route) => {
       await route.fetch();
       perdidas++;
       await route.abort('connectionreset');
     });
-    await confirmarEEmpresa(pR, emailCaio, '81567891000164', 'Buffet Retomada UI');
+    await confirmarEEmpresa(pR, emailCaio, '81567891000164', 'Buffet Retomada UI', antesCaio);
     await pR.getByText('A conexão falhou antes da resposta', { exact: false }).waitFor();
     assert.equal(await pR.getByRole('button', { name: 'Cadastrar empresa e começar o teste', exact: true }).isEnabled(), true, 'botão liberado');
     assert.equal(perdidas, 1);
@@ -204,10 +220,8 @@ async function principal() {
     // 4. Mesmo e-mail de novo: resposta idêntica, e-mail de conta existente.
     const ctx3 = await novoContexto();
     const p3 = await ctx3.newPage();
-    const antes = fs.readdirSync(caixa).length;
-    await pedirConta(p3, 'Ana de Novo', emailAna);
-    for (let n = 0; n < 60 && fs.readdirSync(caixa).length === antes; n++) await new Promise((r) => setTimeout(r, 500));
-    const aviso = await ultimoEmail(emailAna);
+    const antesAviso = await pedirConta(p3, 'Ana de Novo', emailAna);
+    const aviso = await ultimoEmail(emailAna, antesAviso);
     assert.match(aviso.texto, /já tem uma conta/);
     assert.doesNotMatch(aviso.texto, /#t=/);
     resultados.push('E-mail já cadastrado: a tela responde igual; o e-mail recebido é o aviso de conta existente, sem link de confirmação');

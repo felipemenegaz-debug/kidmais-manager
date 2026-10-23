@@ -66,6 +66,15 @@ test('produção: a configuração inválida nunca vaza a chave nas mensagens', 
     catch (e) { assert.equal(String((e as Error).message).includes('segredo'), false); }
 });
 
+test('busca por referência devolve o documento do provedor normalizado; ausente, nulo ou vazio viram null (P2-N1)', async () => {
+    const REF = '5f1d7c1e-0000-4000-8000-000000000001';
+    for (const [valor, esperado] of [['11.222.333/0001-81', '11222333000181'], ['529.982.247-25', '52998224725'], [null, null], [undefined, null], ['', null], ['  ', null]] as const) {
+        const cliente = { id: 'cus_000002', externalReference: REF, ...(valor === undefined ? {} : { cpfCnpj: valor }) };
+        const { f } = fetchFalso([json({ object: 'list', hasMore: false, data: [cliente] })]);
+        assert.equal((await criarClienteAsaas(config, { fetch: f }).buscarClientePorReferencia(REF))?.cpfCnpj, esperado, String(valor));
+    }
+});
+
 test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDisabled e referência externa', async () => {
     const { f, chamadas } = fetchFalso([json({ object: 'list', hasMore: false, data: [] }), json({ id: 'cus_000001', externalReference: 'emp-1' })]);
     const c = criarClienteAsaas(config, { fetch: f });
