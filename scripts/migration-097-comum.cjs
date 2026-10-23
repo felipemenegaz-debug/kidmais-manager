@@ -23,7 +23,7 @@ const MARCADOR = 'migration-097.json';
 const ETAPAS = Object.freeze([
   ['precheck 097', 'database/checks/20261023_097_precheck.sql', 'cbd89bdfc1e2e7012f6a405ba03849eb1550bb4bd75b1f04c57fe7c0755dd137'],
   ['migration 097', 'database/migrations/20261023_097_assinatura_arrependimentos.sql', '9b10f5ccae95e32717c75ad6718afad4f6015b8c5b49a852f423861e3361813d'],
-  ['postcheck 097', 'database/checks/20261023_097_postcheck.sql', 'd9f7206b402745d5876670811c4f4ae423dc98f515be3ebe5df8341e23466aa7'],
+  ['postcheck 097', 'database/checks/20261023_097_postcheck.sql', '10e96188cbb4a96a8a69baa9bd26e7774ec51233d8272d5b744cc2d12fcb6b4d'],
 ]);
 /** FKs das manifestações: REFERENCES exigido nestas tabelas. A 097 só CRIA uma tabela: nenhuma tabela existente é alterada. */
 const REFERENCIADAS = Object.freeze(['empresa_assinaturas', 'usuarios_administrativos']);
