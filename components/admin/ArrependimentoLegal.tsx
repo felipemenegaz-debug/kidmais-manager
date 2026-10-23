@@ -15,7 +15,7 @@ type Consulta = { instalado: boolean; canalOficial: string; manifestacoes: Manif
 const SITUACAO: Record<Manifestacao['situacao'], string> = {
     RECEBIDO: 'Recebido: em processamento pela equipe Kidmais',
     RESTITUIDO: 'Concluído com restituição',
-    NAO_APLICAVEL: 'Concluído pelo atendimento: não se aplica (resposta pelo canal oficial)',
+    NAO_APLICAVEL: 'Concluído pelo atendimento: não se aplica (resultado enviado por e-mail)',
 };
 const horaBr = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
 const novaChave = () => globalThis.crypto?.randomUUID?.() ?? '';

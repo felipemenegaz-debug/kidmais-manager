@@ -17,7 +17,7 @@ export type Comercial = {
 };
 type TipoContinuidade = 'RETIFICACAO' | 'MESMA_TITULARIDADE' | 'CESSAO';
 type Arrependimento = { protocolo: string; canal: string; solicitadoEm: string; situacao: 'RECEBIDO' | 'RESTITUIDO' | 'NAO_APLICAVEL'; dentroDe7Dias: boolean | null;
-    provedorDisponivel: boolean; intermediadorComunicadoEm: string | null; concluidoEm: string | null; valorRestituidoCentavos: number | null };
+    provedorDisponivel: boolean; intermediadorComunicadoEm: string | null; concluidoEm: string | null; valorRestituidoCentavos: number | null; emailConclusao?: string | null };
 const CONTINUIDADE: Record<TipoContinuidade, string> = { RETIFICACAO: 'Retificação (mesmo tipo de documento)', MESMA_TITULARIDADE: 'CPF → CNPJ da mesma titularidade (empresário individual/MEI)', CESSAO: 'CPF → CNPJ de sociedade (cessão de posição contratual)' };
 type FormContinuidade = { tipo: TipoContinuidade; documentoNovo: string; nomeNovo: string; instrumento: string; evidencias: string; dataEfetiva: string; motivo: string };
 const SITUACAO: Record<string, string> = { TESTE: 'Teste grátis', ATIVA: 'Assinatura ativa', EM_ATRASO: 'Pagamento pendente', CANCELADA_FIM_PERIODO: 'Cancelada no fim do período', ENCERRADA: 'Encerrada' };
@@ -31,6 +31,7 @@ export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'si
 type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { operacao: 'estender-teste'; dias: number; motivo: string } | { operacao: 'conceder-excecao'; tipo: 'CORTESIA' | 'ACESSO_TEMPORARIO'; dias: number; motivo: string } | { operacao: 'revogar-excecao'; excecaoId: string; motivo: string }
     | ({ operacao: 'registrar-continuidade' } & FormContinuidade) | { operacao: 'concluir-continuidade'; continuidadeId: string; motivo: string }
     | { operacao: 'recuperar-vinculo'; assinaturaId: string; motivo: string }
+    | { operacao: 'arrependimento-registrar'; chave: string; emailSolicitante: string; recebidoEm: string; referencia: string; motivo: string }
     | { operacao: 'arrependimento-comunicar'; protocolo: string; referencia: string; motivo: string }
     | { operacao: 'arrependimento-concluir'; protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valorCentavos: number | null; cobrancaIds: string[] | null; assinaturaId: string | null; motivo: string };
 
@@ -44,6 +45,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     const [continuidade, setContinuidade] = useState<FormContinuidade | null>(null);
     const [concluir, setConcluir] = useState<{ id: string; motivo: string } | null>(null);
     const [recuperar, setRecuperar] = useState<{ assinaturaId: string; motivo: string } | null>(null);
+    const [registro, setRegistro] = useState<{ chave: string; emailSolicitante: string; recebidoEm: string; referencia: string; motivo: string } | null>(null);
     const [arrep, setArrep] = useState<{ protocolo: string; acao: 'comunicar' | 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valor: string; cobranca: string; assinatura: string; motivo: string } | null>(null);
     const pendente = comercial.continuidades?.find((x) => x.situacao === 'PENDENTE_PROVEDOR');
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
@@ -158,18 +160,34 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                 <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Concluir</button><button type="button" onClick={() => setConcluir(null)}>Cancelar</button></div>
             </form>}
         </>}
-        {(c.arrependimentos?.length ?? 0) > 0 && <>
+        {c.arrependimentos !== undefined && <>
             <h3>Arrependimento (direito legal)</h3>
-            <ul className={estilos.lista} aria-label="Manifestações de arrependimento">
+            {!registro ? <p><button type="button" disabled={ocupado} onClick={() => setRegistro({ chave: globalThis.crypto?.randomUUID?.() ?? '', emailSolicitante: '', recebidoEm: '', referencia: '', motivo: '' })}>Registrar pedido recebido pelo canal oficial…</button></p>
+                : <form aria-label="Registro de arrependimento recebido pelo canal oficial" onSubmit={(e) => {
+                    e.preventDefault();
+                    // O campo é a hora de Brasília (UTC−3, sem horário de verão desde 2019).
+                    enviar({ operacao: 'arrependimento-registrar', chave: registro.chave, emailSolicitante: registro.emailSolicitante, recebidoEm: `${registro.recebidoEm}:00-03:00`,
+                        referencia: registro.referencia, motivo: registro.motivo }, 'Pedido registrado; confirmação enviada ao solicitante.');
+                    setRegistro(null);
+                }}>
+                    <label>E-mail de quem enviou o pedido (Gestão ativa desta empresa)<input type="email" required maxLength={320} value={registro.emailSolicitante} onChange={(e) => setRegistro({ ...registro, emailSolicitante: e.target.value })} /></label>
+                    <label>Recebido em (horário de Brasília)<input type="datetime-local" required value={registro.recebidoEm} onChange={(e) => setRegistro({ ...registro, recebidoEm: e.target.value })} /></label>
+                    <label>Mensagem recebida (assunto, data e hora, trecho)<input required minLength={5} maxLength={400} value={registro.referencia} onChange={(e) => setRegistro({ ...registro, referencia: e.target.value })} /></label>
+                    <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={registro.motivo} onChange={(e) => setRegistro({ ...registro, motivo: e.target.value })} /></label>
+                    <p className={workspace.muted}>O pedido vale da data do recebimento. Remetente que não é da Gestão ativa desta empresa é recusado: confirme a identidade pelo canal oficial antes. Sua senha será pedida.</p>
+                    <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Registrar pedido</button><button type="button" onClick={() => setRegistro(null)}>Cancelar</button></div>
+                </form>}
+            {(c.arrependimentos?.length ?? 0) > 0 && <ul className={estilos.lista} aria-label="Manifestações de arrependimento">
                 {c.arrependimentos!.map((x) => <li key={x.protocolo}>
                     <strong>{x.protocolo}: {x.situacao === 'RECEBIDO' ? 'aguardando o atendimento (prazo imediato)' : x.situacao === 'RESTITUIDO' ? 'restituído' : 'não se aplica'}</strong>
                     <span>{formatarData(x.solicitadoEm)} · {x.dentroDe7Dias === null ? 'sem contratação confirmada' : x.dentroDe7Dias ? 'dentro de 7 dias da contratação' : 'mais de 7 dias da contratação'} (informativo) · provedor {x.provedorDisponivel ? 'configurado' : 'indisponível'}
                         {x.intermediadorComunicadoEm ? ` · intermediador comunicado em ${formatarData(x.intermediadorComunicadoEm)}` : ''}
+                        {x.situacao !== 'RECEBIDO' ? ` · e-mail do resultado ao contratante: ${x.emailConclusao === 'ENVIADO' ? 'enviado' : x.emailConclusao === 'FALHOU' ? 'falhou (responder pelo canal oficial)' : x.emailConclusao === 'SEM_DESTINATARIO' ? 'sem destinatário (responder pelo canal oficial)' : 'não registrado'}` : ''}
                         {x.situacao === 'RECEBIDO' && !x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'comunicar', referencia: '', valor: '', cobranca: '', assinatura: '', motivo: '' })}>Registrar comunicação ao intermediador</button></>}
                         {x.situacao === 'RECEBIDO' && x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'RESTITUIDO', referencia: '', valor: '', cobranca: '', assinatura: '', motivo: '' })}>Concluir com restituição</button></>}
                         {x.situacao === 'RECEBIDO' && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'NAO_APLICAVEL', referencia: '', valor: '', cobranca: '', assinatura: '', motivo: '' })}>Não se aplica…</button></>}</span>
                 </li>)}
-            </ul>
+            </ul>}
             {arrep && <form aria-label="Acompanhamento do arrependimento" onSubmit={(e) => {
                 e.preventDefault();
                 if (arrep.acao === 'comunicar') enviar({ operacao: 'arrependimento-comunicar', protocolo: arrep.protocolo, referencia: arrep.referencia, motivo: arrep.motivo }, 'Comunicação registrada.');
@@ -179,7 +197,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                     assinaturaId: arrep.acao === 'RESTITUIDO' && arrep.assinatura.trim() ? arrep.assinatura.trim() : null, motivo: arrep.motivo }, 'Arrependimento concluído.');
                 setArrep(null);
             }}>
-                <label>{arrep.acao === 'comunicar' ? 'Referência da comunicação ao intermediador (ex.: estorno solicitado no painel do Asaas, data)' : arrep.acao === 'RESTITUIDO' ? 'Referência da restituição (comprovante/estorno)' : 'Justificativa (o atendimento a envia ao contratante pelo canal oficial; o sistema não envia)'}
+                <label>{arrep.acao === 'comunicar' ? 'Referência da comunicação ao intermediador (ex.: estorno solicitado no painel do Asaas, data)' : arrep.acao === 'RESTITUIDO' ? 'Referência da restituição (comprovante/estorno)' : 'Justificativa (enviada ao contratante por e-mail na conclusão)'}
                     <input required minLength={arrep.acao === 'comunicar' ? 3 : 5} maxLength={arrep.acao === 'comunicar' ? 300 : 500} value={arrep.referencia} onChange={(e) => setArrep({ ...arrep, referencia: e.target.value })} /></label>
                 {arrep.acao === 'RESTITUIDO' && <label>Valor restituído (R$)<input required inputMode="decimal" value={arrep.valor} onChange={(e) => setArrep({ ...arrep, valor: e.target.value })} /></label>}
                 {arrep.acao === 'RESTITUIDO' && <label>Cobranças restituídas no Asaas (pay_…, separadas por vírgula; todas as pagas que foram devolvidas, inclusive antecipadas)<input required value={arrep.cobranca} onChange={(e) => setArrep({ ...arrep, cobranca: e.target.value })} /></label>}

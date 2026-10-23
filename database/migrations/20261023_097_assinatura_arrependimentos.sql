@@ -58,7 +58,10 @@ CREATE TABLE assinatura_arrependimentos (
     AND array_to_string(restituicao_cobranca_ids, ',') ~ '^[A-Za-z0-9_-]{1,100}(,[A-Za-z0-9_-]{1,100})*$')),
   email_confirmacao text NOT NULL DEFAULT 'PENDENTE' CHECK (email_confirmacao IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'SEM_DESTINATARIO')),
   aviso_interno text NOT NULL DEFAULT 'PENDENTE' CHECK (aviso_interno IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'NAO_CONFIGURADO')),
+  -- E-mail ao contratante com o resultado da conclusão (23/10/2026): gravado uma vez, só depois da conclusão.
+  email_conclusao text CHECK (email_conclusao IS NULL OR email_conclusao IN ('ENVIADO', 'FALHOU', 'SEM_DESTINATARIO')),
   CONSTRAINT assinatura_arrependimentos_chave_uk UNIQUE (empresa_id, chave_idempotencia),
+  CONSTRAINT assinatura_arrependimentos_conclusao_email_check CHECK (situacao <> 'RECEBIDO' OR email_conclusao IS NULL),
   CONSTRAINT assinatura_arrependimentos_restituicao_check CHECK (situacao = 'RESTITUIDO'
     OR (restituicao_limite IS NULL AND restituicao_assinatura_id IS NULL AND restituicao_cobranca_ids IS NULL)),
   -- Assinatura restituída: a do registro, quando havia; só sem vínculo no registro o atendimento a informa.
@@ -84,7 +87,7 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.situacao IS DISTINCT FROM 'RECEBIDO' OR NEW.intermediador_comunicado_em IS NOT NULL OR NEW.email_confirmacao IS DISTINCT FROM 'PENDENTE'
-       OR NEW.aviso_interno IS DISTINCT FROM 'PENDENTE' THEN
+       OR NEW.aviso_interno IS DISTINCT FROM 'PENDENTE' OR NEW.email_conclusao IS NOT NULL THEN
       RAISE EXCEPTION '097: manifestação nasce RECEBIDA, sem acompanhamento.' USING ERRCODE = 'P0001';
     END IF;
     RETURN NEW;
@@ -100,7 +103,8 @@ BEGIN
          IS DISTINCT FROM (OLD.situacao, OLD.concluido_em, OLD.concluido_por, OLD.conclusao_referencia, OLD.valor_restituido_centavos,
          OLD.restituicao_limite, OLD.restituicao_assinatura_id, OLD.restituicao_cobranca_ids))
      OR (OLD.email_confirmacao IS DISTINCT FROM 'PENDENTE' AND NEW.email_confirmacao IS DISTINCT FROM OLD.email_confirmacao)
-     OR (OLD.aviso_interno IS DISTINCT FROM 'PENDENTE' AND NEW.aviso_interno IS DISTINCT FROM OLD.aviso_interno) THEN
+     OR (OLD.aviso_interno IS DISTINCT FROM 'PENDENTE' AND NEW.aviso_interno IS DISTINCT FROM OLD.aviso_interno)
+     OR (OLD.email_conclusao IS NOT NULL AND NEW.email_conclusao IS DISTINCT FROM OLD.email_conclusao) THEN
     RAISE EXCEPTION '097: manifestação imutável; acompanhamento registrado uma vez só.' USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;

@@ -12,7 +12,7 @@ import { iniciarTeste } from './servico.ts';
 import { lerEstadoComercial } from './estado.ts';
 import { processarEvento, registrarEvento, sincronizarEmpresa } from './sincronizacao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
-import { concluirArrependimento, consultarArrependimento, evidenciaDaAssinatura, manifestacoesDaEmpresa, PROTOCOLO_ARREPENDIMENTO, registrarArrependimento,
+import { concluirArrependimento, consultarArrependimento, enviarEmailConclusao, evidenciaDaAssinatura, notificarRegistro, registrarArrependimentoAtendimento, manifestacoesDaEmpresa, PROTOCOLO_ARREPENDIMENTO, registrarArrependimento,
     registrarComunicacaoIntermediador, type DepsArrependimento } from './arrependimento.ts';
 
 /**
@@ -31,6 +31,7 @@ import { concluirArrependimento, consultarArrependimento, evidenciaDaAssinatura,
  *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
  *   9. vigia (P2-C3): aviso interno não entregue alarma já; RECEBIDA há 1 h ou mais alarma; leitura READ ONLY;
  *  10. rollback recusado com manifestação registrada.
+ * 23/10/2026: registro pelo atendimento de pedido recebido pelo canal oficial e e-mail do resultado na conclusão (caso 6e).
  * Revisão f6b6fbb: P2-N4 (evento roteado não prova titularidade) no caso 6c; P2-N5 (tabelas opcionais ausentes) no caso 6d.
  * Revisão 5a129de: P2-N3 (assinatura restituída sem vínculo atual ou anterior à recontratação) no caso 6c.
  * Revisão d72d8b8: P2-N1 (pedido sem vínculo) no caso 6b; P2-N2 (cobrança antecipada) no caso 6.
@@ -485,6 +486,73 @@ test('6d. evidências sem as tabelas opcionais da 074a e da 089 (P2-N5): consult
     assert.equal(await emTx(() => evidenciaDaAssinatura(client as never, ids.atual, atual, null)), 'ATUAL');
 });
 
+test('6e. atendimento: pedido recebido pelo canal oficial registrado com a data real; e-mail do resultado na conclusão', { skip: !opt() }, async () => {
+    ids.atual = await empresaAtivaAntiga('33222111000100');
+    const m = (await q("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), 'REPRESENTANTE_AUTORIZADO') RETURNING id",
+        [ids.atual, ids.usuario])).rows[0].id;
+    await q("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+    const emailGestao = (await q('SELECT email FROM usuarios_administrativos WHERE id = $1', [ids.usuario])).rows[0].email as string;
+    const registrar = (o: Partial<{ chave: string; emailSolicitante: string; recebidoEm: string; referencia: string }>) => emTx(() => registrarArrependimentoAtendimento(client as never,
+        { empresaId: ids.atual, atendenteId: ids.atendimento, chave: randomUUID(), emailSolicitante: emailGestao, recebidoEm: '', referencia: 'E-mail recebido em contato@ com assunto Desistência', ...o }));
+    const instante = async (expr: string) => (await q(`SELECT to_char((${expr}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS t`)).rows[0].t as string;
+    // A assinatura de teste acabou de nascer: recebimento antes dela é recusado (a regra vale também aqui).
+    assert.equal(await erro(registrar({ recebidoEm: await instante("clock_timestamp() - interval '2 hours'") })), 'DADOS_INVALIDOS', 'antes da assinatura');
+    // Remetente que não é Gestão ativa da empresa: recusa (confirmar a identidade antes).
+    assert.equal(await erro(registrar({ emailSolicitante: 'outra.pessoa@example.test', recebidoEm: await instante('clock_timestamp()') })), 'CONFLITO');
+    // Data fora da janela: futura, ou mais de 90 dias atrás.
+    assert.equal(await erro(registrar({ recebidoEm: await instante("clock_timestamp() + interval '1 hour'") })), 'DADOS_INVALIDOS');
+    assert.equal(await erro(registrar({ recebidoEm: await instante("clock_timestamp() - interval '91 days'") })), 'DADOS_INVALIDOS');
+    const antes = Number((await q('SELECT count(*) AS n FROM assinatura_arrependimentos WHERE empresa_id = $1', [ids.atual])).rows[0].n);
+    assert.equal(antes, 0, 'recusas não gravam');
+    // Válido.
+    const recebidoEm = await instante('clock_timestamp()');
+    const chave = randomUUID();
+    const r = await registrar({ chave, recebidoEm, emailSolicitante: emailGestao.toUpperCase() });
+    assert.equal(r.repetido, false);
+    const l = await linha(r.m.protocolo);
+    assert.deepEqual([l.canal, l.solicitado_por, l.situacao, l.email_confirmacao, l.aviso_interno], ['ATENDIMENTO', ids.usuario, 'RECEBIDO', 'PENDENTE', 'PENDENTE']);
+    assert.equal(new Date(l.solicitado_em).toISOString(), new Date(recebidoEm).toISOString(), 'vale a data REAL do recebimento');
+    assert.match(l.motivo, /^Recebido pelo canal oficial: E-mail recebido/);
+    const aud = (await q("SELECT usuario_id, dados_depois FROM auditoria WHERE acao = 'ARREPENDIMENTO_REGISTRADO' AND entidade_id = $1", [ids.atual])).rows;
+    assert.equal(aud.length, 1); assert.equal(aud[0].usuario_id, ids.atendimento); assert.equal(aud[0].dados_depois.canal, 'ATENDIMENTO');
+    // Mesma chave: mesmo protocolo, nada novo.
+    const de2 = await registrar({ chave, recebidoEm });
+    assert.equal(de2.repetido, true); assert.equal(de2.m.protocolo, r.m.protocolo);
+    // Depois do COMMIT: confirmação ao solicitante e aviso interno.
+    enviados.length = 0;
+    const n = await notificarRegistro({ withTransaction: (t) => emTx(() => t(client as never)), env: SEM_PROVEDOR, enviarEmail }, r);
+    assert.deepEqual(n, { emailConfirmacao: 'ENVIADO', avisoInterno: 'ENVIADO' });
+    assert.deepEqual(enviados.map((x) => x.para).sort(), [CANAL, emailGestao].sort());
+    // A idade conta da data do recebimento: daqui a 2 h, vencido para o vigia.
+    const v = await vigia.lerVigia(client, Date.parse(recebidoEm) + 2 * 3600_000);
+    assert.ok(v.alarmes.some((a) => a.tipo === 'VENCIDO_SEM_COMUNICACAO'));
+
+    // Conclusão NAO_APLICAVEL → e-mail do resultado com a justificativa; gravado uma vez.
+    const deps = { withTransaction: <T,>(t: (tx: never) => Promise<T>) => emTx(() => t(client as never)), env: SEM_PROVEDOR, enviarEmail };
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, r.m.protocolo), null, 'RECEBIDO: nada a enviar');
+    await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r.m.protocolo, usuarioId: ids.atendimento, situacao: 'NAO_APLICAVEL',
+        referencia: 'O pedido foi retirado pelo cliente por e-mail' }));
+    enviados.length = 0;
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, r.m.protocolo), 'ENVIADO');
+    assert.equal(enviados.length, 1); assert.equal(enviados[0].para, emailGestao);
+    assert.match(enviados[0].texto, /Resultado: não se aplica\. Motivo: O pedido foi retirado pelo cliente por e-mail/);
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, r.m.protocolo), 'ENVIADO', 'não reenvia');
+    assert.equal(enviados.length, 1);
+    await assert.rejects(q("UPDATE assinatura_arrependimentos SET email_conclusao = 'FALHOU' WHERE protocolo = $1", [r.m.protocolo]), /imutável/);
+    // Restituição com falha de envio: FALHOU registrado, conclusão mantida.
+    const r2 = await registrar({ recebidoEm: await instante('clock_timestamp()') });
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, referencia: 'estorno pedido' }));
+    const sub = (await q('SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE empresa_id = $1', [ids.atual])).rows[0].s as string;
+    await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
+        referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`] }));
+    const falha = async () => { throw new Error('smtp'); };
+    assert.equal(await enviarEmailConclusao({ ...deps, enviarEmail: falha }, ids.atual, r2.m.protocolo), 'FALHOU');
+    assert.deepEqual([(await linha(r2.m.protocolo)).situacao, (await linha(r2.m.protocolo)).email_conclusao], ['RESTITUIDO', 'FALHOU']);
+    // Banco: RECEBIDO não tem e-mail de conclusão; nasce sem ele.
+    const r3 = await registrar({ recebidoEm: await instante('clock_timestamp()') });
+    await assert.rejects(q("UPDATE assinatura_arrependimentos SET email_conclusao = 'ENVIADO' WHERE protocolo = $1", [r3.m.protocolo]), /conclusao_email_check/);
+});
+
 test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO); concluídas não', { skip: !opt() }, async () => {
     ids.atual = await empresaAtivaAntiga('55666777000181');
     const a = await pedir('Sem comunicação');
@@ -522,7 +590,7 @@ test('8. exportação da empresa: manifestações dela no pacote, colunas confer
     assert.ok(!pacote.manifesto.entidadesAusentes.some((x) => x.tabela === 'assinatura_arrependimentos'));
     assert.deepEqual(a!.colunas, ['id', 'protocolo', 'empresa_id', 'canal', 'solicitado_por', 'solicitado_em', 'motivo', 'situacao_assinatura', 'contratado_em',
         'dentro_de_7_dias', 'provedor_disponivel', 'provedor_assinatura_id', 'intermediador_comunicado_em', 'intermediador_referencia', 'situacao', 'concluido_em',
-        'conclusao_referencia', 'valor_restituido_centavos', 'restituicao_limite', 'restituicao_assinatura_id', 'restituicao_cobranca_ids', 'email_confirmacao']);
+        'conclusao_referencia', 'valor_restituido_centavos', 'restituicao_limite', 'restituicao_assinatura_id', 'restituicao_cobranca_ids', 'email_confirmacao', 'email_conclusao']);
     assert.equal(a!.linhas, protocolos.length);
     const csv = lerZip(zip).get(a!.caminho)!.toString('utf8');
     for (const p of protocolos) assert.ok(csv.includes(p), `protocolo ${p} no CSV`);

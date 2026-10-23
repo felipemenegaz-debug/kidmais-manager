@@ -12,7 +12,9 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { concluirContinuidade, continuidadesDaEmpresa, recuperarVinculo, registrarContinuidade, type ProvedorRecuperacao } from './continuidade.ts';
 import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
-import { concluirArrependimento, manifestacoesDaEmpresa, registrarComunicacaoIntermediador } from '../assinatura/arrependimento.ts';
+import { concluirArrependimento, enviarEmailConclusao, manifestacoesDaEmpresa, notificarRegistro, registrarArrependimentoAtendimento,
+    registrarComunicacaoIntermediador } from '../assinatura/arrependimento.ts';
+import { criarEnviarEmail, type EnviarEmail } from '../acessos/email.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -26,7 +28,7 @@ import { concluirArrependimento, manifestacoesDaEmpresa, registrarComunicacaoInt
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA',
     'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA', 'COMERCIAL_VINCULO_RECUPERADO',
-    'COMERCIAL_ARREPENDIMENTO_COMUNICADO', 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO'] as const;
+    'COMERCIAL_ARREPENDIMENTO_COMUNICADO', 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO', 'COMERCIAL_ARREPENDIMENTO_REGISTRADO'] as const;
 
 export type ComercialResumo = { instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null };
 
@@ -82,6 +84,9 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
         dataEfetiva: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), motivo }).strict(),
     z.object({ operacao: z.literal('concluir-continuidade'), continuidadeId: z.string().uuid(), motivo }).strict(),
     // Grupo C (097): acompanhamento das manifestações de arrependimento pelo atendimento.
+    // Pedido recebido pelo canal oficial (e-mail), registrado pelo atendimento com a data real do recebimento.
+    z.object({ operacao: z.literal('arrependimento-registrar'), chave: z.string().uuid(), emailSolicitante: z.string().trim().email().max(320),
+        recebidoEm: z.string().trim().max(40), referencia: z.string().trim().min(5).max(400), motivo }).strict(),
     z.object({ operacao: z.literal('arrependimento-comunicar'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
         referencia: z.string().trim().min(3).max(300), motivo }).strict(),
     z.object({ operacao: z.literal('arrependimento-concluir'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
@@ -119,12 +124,26 @@ async function iniciarTesteDaContratante(tx: DbExecutor, empresa: { id: string; 
     return iniciarTeste(tx, { empresaId: empresa.id, documento, dias, env });
 }
 
+/**
+ * Executa o trabalho na transação e, só depois do COMMIT, a ação posterior (e-mails do arrependimento). A ação posterior
+ * é melhor esforço: o resultado dela entra na resposta, mas falha nunca desfaz o que foi gravado.
+ */
+export async function comPosCommit<T extends Record<string, unknown>>(withTransaction: PainelDeps['withTransaction'],
+    trabalho: (tx: DbExecutor, depois: (acao: () => Promise<Record<string, unknown>>) => void) => Promise<T>): Promise<T> {
+    let posterior: (() => Promise<Record<string, unknown>>) | null = null;
+    const r = await withTransaction((tx) => trabalho(tx as unknown as DbExecutor, (acao) => { posterior = acao; }));
+    if (!posterior) return r;
+    try { return { ...r, ...await (posterior as () => Promise<Record<string, unknown>>)() }; }
+    catch { return r; }
+}
+
 export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel,
-    deps: PainelDeps & { provedor?: () => ProvedorRecuperacao | null } = painelDepsPadrao) {
+    deps: PainelDeps & { provedor?: () => ProvedorRecuperacao | null; enviarEmail?: EnviarEmail | null } = painelDepsPadrao) {
     exigirReautenticacaoRecente(sessao);
     const empresaId = z.string().uuid().parse(id);
     const input = operacaoSchema.parse(raw);
-    return deps.withTransaction(async (tx) => {
+    const notificacao = { withTransaction: deps.withTransaction as never, env: process.env, enviarEmail: deps.enviarEmail === undefined ? criarEnviarEmail() : deps.enviarEmail };
+    return comPosCommit(deps.withTransaction, async (tx, depois) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         const empresa = (await tx.query<{ status: string; codigo: string }>('SELECT status, codigo FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
         if (!empresa)
@@ -156,6 +175,15 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
                 depois: { continuidadeId: r.continuidadeId, tipo: r.tipo, situacao: r.situacao, documentoNovo: r.documentoNovo, instrumento: input.instrumento, dataEfetiva: input.dataEfetiva } });
             resultado = { continuidadeId: r.continuidadeId, situacao: r.situacao };
         }
+        else if (input.operacao === 'arrependimento-registrar') {
+            const r = await registrarArrependimentoAtendimento(tx, { empresaId, atendenteId: sessao.usuario_id, chave: input.chave, emailSolicitante: input.emailSolicitante,
+                recebidoEm: input.recebidoEm, referencia: input.referencia, requestId: ctx.requestId });
+            if (!r.repetido)
+                await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_REGISTRADO', antes: null,
+                    depois: { protocolo: r.m.protocolo, canal: 'ATENDIMENTO', recebidoEm: r.m.solicitadoEm } });
+            resultado = { protocolo: r.m.protocolo, repetido: r.repetido };
+            if (!r.repetido) depois(() => notificarRegistro(notificacao, r));
+        }
         else if (input.operacao === 'arrependimento-comunicar') {
             const r = await registrarComunicacaoIntermediador(tx, { empresaId, protocolo: input.protocolo, referencia: input.referencia });
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_COMUNICADO', antes: { comunicado: false },
@@ -170,6 +198,7 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
                 depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null,
                     encerrouAcesso: r.encerrou, mesmaAssinatura: r.mesmaAssinatura, evidenciaAssinatura: r.evidencia } });
             resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou, mesmaAssinatura: r.mesmaAssinatura, evidencia: r.evidencia };
+            depois(async () => ({ emailConclusao: await enviarEmailConclusao(notificacao, empresaId, r.protocolo) }));
         }
         else if (input.operacao === 'recuperar-vinculo') {
             const provedor = deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente;

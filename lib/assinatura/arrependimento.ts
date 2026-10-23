@@ -39,7 +39,7 @@ export type DepsArrependimento = {
 export type Manifestacao = {
     id: string; protocolo: string; canal: 'FERRAMENTA' | 'ATENDIMENTO'; solicitadoEm: string; situacao: 'RECEBIDO' | 'RESTITUIDO' | 'NAO_APLICAVEL';
     dentroDe7Dias: boolean | null; provedorDisponivel: boolean; intermediadorComunicadoEm: string | null; concluidoEm: string | null;
-    valorRestituidoCentavos: number | null; emailConfirmacao: string; avisoInterno: string;
+    valorRestituidoCentavos: number | null; emailConfirmacao: string; avisoInterno: string; emailConclusao: string | null;
 };
 
 export async function arrependimentosInstalados(tx: DbExecutor) {
@@ -48,7 +48,7 @@ export async function arrependimentosInstalados(tx: DbExecutor) {
 
 const COLUNAS = `id, protocolo, canal, ${ISO('solicitado_em')} AS "solicitadoEm", situacao, dentro_de_7_dias AS "dentroDe7Dias", provedor_disponivel AS "provedorDisponivel",
     ${ISO('intermediador_comunicado_em')} AS "intermediadorComunicadoEm", ${ISO('concluido_em')} AS "concluidoEm", valor_restituido_centavos AS "valorRestituidoCentavos",
-    email_confirmacao AS "emailConfirmacao", aviso_interno AS "avisoInterno"`;
+    email_confirmacao AS "emailConfirmacao", aviso_interno AS "avisoInterno", email_conclusao AS "emailConclusao"`;
 
 export async function manifestacoesDaEmpresa(tx: DbExecutor, empresaId: string, limite = 10): Promise<Manifestacao[]> {
     if (!await arrependimentosInstalados(tx)) return [];
@@ -80,8 +80,9 @@ async function inserirComProtocolo(tx: DbExecutor, valores: unknown[]): Promise<
         await tx.query('SAVEPOINT kidmais_097_protocolo');
         try {
             const r = (await tx.query<Manifestacao>(`INSERT INTO assinatura_arrependimentos (protocolo, empresa_id, chave_idempotencia, canal, solicitado_por, motivo,
-                    situacao_assinatura, contratado_em, dentro_de_7_dias, provedor_disponivel, provedor_assinatura_id)
-                VALUES ($1, $2::uuid, $3::uuid, $4, $5::uuid, $6, $7, $8::timestamptz, $9, $10, $11) RETURNING ${COLUNAS}`, [protocolo, ...valores])).rows[0];
+                    situacao_assinatura, contratado_em, dentro_de_7_dias, provedor_disponivel, provedor_assinatura_id, solicitado_em)
+                VALUES ($1, $2::uuid, $3::uuid, $4, $5::uuid, $6, $7, $8::timestamptz, $9, $10, $11, coalesce($12::timestamptz, clock_timestamp())) RETURNING ${COLUNAS}`,
+                [protocolo, ...valores, ...(valores.length === 10 ? [null] : [])])).rows[0];
             await tx.query('RELEASE SAVEPOINT kidmais_097_protocolo');
             return r;
         }
@@ -129,10 +130,7 @@ export async function registrarArrependimento(sessao: SessaoAdmin, empresaSolici
         return { m, repetido: false, para, nome: a.nome };
     });
     let m = r.m;
-    if (!r.repetido) {
-        m = { ...m, emailConfirmacao: await enviarConfirmacaoArrependimento(deps, m, r.para, r.nome) };
-        m = { ...m, avisoInterno: await enviarAvisoArrependimento(deps, m) };
-    }
+    if (!r.repetido) m = { ...m, ...await notificarRegistro(deps, r) };
     return { ...semId(m), repetido: r.repetido };
 }
 
@@ -150,14 +148,16 @@ export function mensagemConfirmacaoArrependimento(para: string, empresa: string,
     ], `arrependimento:${m.protocolo}`);
 }
 
-async function registrarSituacao(deps: DepsArrependimento, protocolo: string, coluna: 'email_confirmacao' | 'aviso_interno', situacao: string) {
+type DepsNotificacao = Pick<DepsArrependimento, 'withTransaction' | 'env' | 'enviarEmail'>;
+async function registrarSituacao(deps: DepsNotificacao, protocolo: string, coluna: 'email_confirmacao' | 'aviso_interno' | 'email_conclusao', situacao: string) {
     try {
-        await deps.withTransaction((tx) => tx.query(`UPDATE assinatura_arrependimentos SET ${coluna} = $2 WHERE protocolo = $1 AND ${coluna} = 'PENDENTE'`, [protocolo, situacao]));
+        const pendente = coluna === 'email_conclusao' ? 'IS NULL' : "= 'PENDENTE'";
+        await deps.withTransaction((tx) => tx.query(`UPDATE assinatura_arrependimentos SET ${coluna} = $2 WHERE protocolo = $1 AND ${coluna} ${pendente}`, [protocolo, situacao]));
     }
     catch (error) { console.error('[assinatura] situação do e-mail de arrependimento não gravada', error instanceof Error ? error.name : typeof error); }
 }
 
-async function enviarConfirmacaoArrependimento(deps: DepsArrependimento, m: Manifestacao, para: string | null, empresa: string) {
+async function enviarConfirmacaoArrependimento(deps: DepsNotificacao, m: Manifestacao, para: string | null, empresa: string) {
     if (!deps.enviarEmail) return m.emailConfirmacao;
     let situacao: 'ENVIADO' | 'FALHOU' | 'SEM_DESTINATARIO' = 'SEM_DESTINATARIO';
     if (para) {
@@ -177,7 +177,7 @@ export function mensagemAvisoArrependimento(para: string, m: Pick<Manifestacao, 
     ], `arrependimento-interno:${m.protocolo}`);
 }
 
-async function enviarAvisoArrependimento(deps: DepsArrependimento, m: Manifestacao) {
+async function enviarAvisoArrependimento(deps: DepsNotificacao, m: Manifestacao) {
     if (!deps.enviarEmail) return m.avisoInterno;
     const para = canalDaPlataforma(deps.env ?? process.env);
     let situacao: 'ENVIADO' | 'FALHOU' | 'NAO_CONFIGURADO' = 'NAO_CONFIGURADO';
@@ -189,9 +189,108 @@ async function enviarAvisoArrependimento(deps: DepsArrependimento, m: Manifestac
     return situacao;
 }
 
+/** Depois do COMMIT do registro: confirmação ao solicitante e aviso interno (melhor esforço; a situação fica gravada). */
+export async function notificarRegistro(deps: DepsNotificacao, r: { m: Manifestacao; para: string | null; nome: string }) {
+    const emailConfirmacao = await enviarConfirmacaoArrependimento(deps, r.m, r.para, r.nome);
+    const avisoInterno = await enviarAvisoArrependimento(deps, { ...r.m, emailConfirmacao });
+    return { emailConfirmacao, avisoInterno };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
-// Atendimento (painel do desenvolvedor): comunicação ao intermediador e conclusão, com registro e auditoria.
+// Atendimento (painel do desenvolvedor): registro de pedido recebido pelo canal oficial, comunicação ao intermediador e
+// conclusão, com registro e auditoria.
+
+/**
+ * Pedido recebido pelo canal oficial (e-mail), registrado pelo atendimento (23/10/2026; antes só por SQL). Mesmo registro
+ * da tela, canal ATENDIMENTO: protocolo KA-, data REAL do recebimento (não a do lançamento), solicitante = pessoa da
+ * Gestão ativa desta empresa cujo e-mail enviou o pedido (outro remetente: recusa — confirmar a identidade antes),
+ * idempotente pela chave, auditoria, e depois do COMMIT confirmação ao solicitante e aviso interno (notificarRegistro).
+ * Não chama o provedor e não depende de elegibilidade, como o registro pela tela.
+ */
+export async function registrarArrependimentoAtendimento(tx: DbExecutor, input: { empresaId: string; atendenteId: string; chave: string;
+    emailSolicitante: string; recebidoEm: string; referencia: string; requestId?: string | null }, env: Ambiente = process.env) {
+    const chave = chaveValida(input.chave);
+    const email = input.emailSolicitante.trim().toLowerCase();
+    if (!/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(email)) throw erroAcesso('DADOS_INVALIDOS', 'Informe o e-mail de quem enviou o pedido.', 400, { campo: 'emailSolicitante' });
+    const referencia = input.referencia.trim();
+    if (referencia.length < 5 || referencia.length > 400) throw erroAcesso('DADOS_INVALIDOS', 'Descreva a mensagem recebida (assunto, data e hora), de 5 a 400 caracteres.', 400, { campo: 'referencia' });
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(input.recebidoEm) || Number.isNaN(Date.parse(input.recebidoEm)))
+        throw erroAcesso('DADOS_INVALIDOS', 'Informe a data e a hora em que o pedido foi recebido.', 400, { campo: 'recebidoEm' });
+    if (!await arrependimentosInstalados(tx)) throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', 'A 097 não está instalada neste ambiente.', 503);
+    const anterior = (await tx.query<Manifestacao>(`SELECT ${COLUNAS} FROM assinatura_arrependimentos WHERE empresa_id = $1::uuid AND chave_idempotencia = $2::uuid`,
+        [input.empresaId, chave])).rows[0];
+    if (anterior) return { m: anterior, repetido: true, para: null as string | null, nome: '' };
+    await travarEmpresaComercial(tx, input.empresaId);
+    const a = (await tx.query<{ situacao: string; contratado_em: string | null; dentro: boolean | null; nome: string; assinatura: string | null; valido: boolean }>(`SELECT a.situacao, e.nome,
+            a.provedor_assinatura_id AS assinatura, ${ISO('ref.contratado_em')} AS contratado_em, (ref.contratado_em >= $2::timestamptz - interval '7 days') AS dentro,
+            ($2::timestamptz <= clock_timestamp() AND $2::timestamptz >= a.criado_em AND $2::timestamptz >= clock_timestamp() - interval '90 days') AS valido
+          FROM empresa_assinaturas a JOIN empresas e ON e.id = a.empresa_id
+          LEFT JOIN LATERAL (SELECT max(confirmada_em) AS contratado_em FROM assinatura_contratacoes c WHERE c.empresa_id = a.empresa_id AND c.estado = 'CONFIRMADA'
+            AND c.confirmada_em <= $2::timestamptz) ref ON true
+         WHERE a.empresa_id = $1::uuid`, [input.empresaId, input.recebidoEm])).rows[0];
+    if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no Kidmais Manager.', 409);
+    if (!a.valido) throw erroAcesso('DADOS_INVALIDOS', 'A data do recebimento precisa estar entre a criação da assinatura e agora (até 90 dias atrás).', 400, { campo: 'recebidoEm' });
+    const solicitante = (await tx.query<{ id: string; email: string }>(`SELECT u.id, u.email FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
+        WHERE m.empresa_id = $1::uuid AND m.status = 'ATIVA' AND m.papel = $2 AND u.ativo AND lower(u.email) = $3 LIMIT 1`, [input.empresaId, GESTAO, email])).rows[0];
+    if (!solicitante)
+        throw erroAcesso('CONFLITO', 'O e-mail não é de uma pessoa da Gestão ativa desta empresa. Confirme a identidade de quem pediu pelo canal oficial antes de registrar.', 409, { campo: 'emailSolicitante' });
+    const motivo = `Recebido pelo canal oficial: ${referencia}`.slice(0, 500);
+    const m = await inserirComProtocolo(tx, [input.empresaId, chave, 'ATENDIMENTO', solicitante.id, motivo, a.situacao, a.contratado_em, a.dentro,
+        configuracaoAsaas(env).ligado, a.assinatura, input.recebidoEm]);
+    await auditarCobranca(tx, { acao: 'ARREPENDIMENTO_REGISTRADO', empresaId: input.empresaId, origem: { tipo: 'DESENVOLVEDOR', usuarioId: input.atendenteId, requestId: input.requestId ?? null },
+        justificativa: motivo, depois: { protocolo: m.protocolo, canal: 'ATENDIMENTO', situacaoAssinatura: a.situacao, recebidoEm: m.solicitadoEm } });
+    return { m, repetido: false, para: solicitante.email, nome: a.nome };
+}
 // ---------------------------------------------------------------------------------------------------------------------
+
+const reais = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** Resultado da conclusão ao contratante. Restituição: valor (sem referência interna). Não se aplica: a justificativa. */
+export function mensagemConclusaoArrependimento(para: string, empresa: string, d: { protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
+    valorRestituidoCentavos: number | null; justificativa: string | null }): MensagemEmail {
+    const linhas = d.situacao === 'RESTITUIDO' ? [
+        `Concluímos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
+        `A restituição de ${reais(d.valorRestituidoCentavos ?? 0)} foi solicitada ao intermediador de pagamento. O prazo do crédito depende do meio de pagamento.`,
+        'O período contratado foi encerrado; a área do sistema fica disponível em somente leitura pelo prazo informado nos Termos, com exportação dos dados.',
+        `Dúvidas: ${CANAL_OFICIAL}, informando o protocolo.`,
+    ] : [
+        `Analisamos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
+        `Resultado: não se aplica. Motivo: ${d.justificativa ?? ''}`,
+        `Se discordar ou tiver dúvidas, responda pelo canal oficial ${CANAL_OFICIAL}, informando o protocolo.`,
+    ];
+    return mensagem(para, `Kidmais Manager — resultado do pedido de arrependimento, protocolo ${d.protocolo}`, linhas, `arrependimento-conclusao:${d.protocolo}`);
+}
+
+/**
+ * Depois do COMMIT da conclusão: e-mail ao solicitante com o resultado; a situação (ENVIADO / FALHOU / SEM_DESTINATARIO)
+ * fica gravada uma vez em email_conclusao (evidência da comunicação; nunca desfaz a conclusão).
+ */
+export async function enviarEmailConclusao(deps: DepsNotificacao, empresaId: string, protocolo: string): Promise<string | null> {
+    try {
+        const d = (await deps.withTransaction((tx) => tx.query<{ situacao: 'RECEBIDO' | 'RESTITUIDO' | 'NAO_APLICAVEL'; valor: number | null; justificativa: string | null;
+                email_conclusao: string | null; para: string | null; nome: string }>(`SELECT r.situacao, r.valor_restituido_centavos AS valor, r.conclusao_referencia AS justificativa,
+                r.email_conclusao, u.email AS para, e.nome
+              FROM assinatura_arrependimentos r JOIN empresas e ON e.id = r.empresa_id LEFT JOIN usuarios_administrativos u ON u.id = r.solicitado_por
+             WHERE r.empresa_id = $1::uuid AND r.protocolo = $2`, [empresaId, protocolo]))).rows[0];
+        if (!d || d.situacao === 'RECEBIDO' || d.email_conclusao !== null) return d?.email_conclusao ?? null;
+        if (!deps.enviarEmail) return null;
+        let situacao: 'ENVIADO' | 'FALHOU' | 'SEM_DESTINATARIO' = 'SEM_DESTINATARIO';
+        if (d.para) {
+            try {
+                await deps.enviarEmail(mensagemConclusaoArrependimento(d.para, d.nome, { protocolo, situacao: d.situacao, valorRestituidoCentavos: d.valor,
+                    justificativa: d.situacao === 'NAO_APLICAVEL' ? d.justificativa : null }));
+                situacao = 'ENVIADO';
+            }
+            catch { situacao = 'FALHOU'; }
+        }
+        await registrarSituacao(deps, protocolo, 'email_conclusao', situacao);
+        return situacao;
+    }
+    catch (error) {
+        console.error('[assinatura] e-mail de conclusão do arrependimento não registrado', error instanceof Error ? error.name : typeof error);
+        return null;
+    }
+}
 
 export async function registrarComunicacaoIntermediador(tx: DbExecutor, input: { empresaId: string; protocolo: string; referencia: string }) {
     if (!await arrependimentosInstalados(tx)) throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', 'A 097 não está instalada neste ambiente.', 503);

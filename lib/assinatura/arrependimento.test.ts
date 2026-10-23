@@ -81,6 +81,29 @@ test('atendimento sem a 097 ou sem valor na restituição: recusa antes de escre
         assert.equal(await codigo(concluirArrependimento(instalado as never, { empresaId: 'e', protocolo: M.protocolo, usuarioId: 'u', situacao: 'RESTITUIDO', referencia: 'estorno', valorCentavos })), 'DADOS_INVALIDOS');
 });
 
+test('e-mail de conclusão: restituição com valor, sem referência interna; não se aplica com a justificativa', async () => {
+    const { mensagemConclusaoArrependimento } = await import('./arrependimento.ts');
+    const r = mensagemConclusaoArrependimento('gestao@exemplo.test', 'Buffet', { protocolo: M.protocolo, situacao: 'RESTITUIDO', valorRestituidoCentavos: 19_700, justificativa: 'nota interna' });
+    assert.equal(r.assunto, 'Kidmais Manager — resultado do pedido de arrependimento, protocolo KA-20261023-ABCDEFGH');
+    assert.match(r.texto, /restituição de R\$\s?197,00 foi solicitada ao intermediador/);
+    assert.doesNotMatch(r.texto, /nota interna/);
+    assert.equal(r.idempotencia, 'arrependimento-conclusao:KA-20261023-ABCDEFGH');
+    const n = mensagemConclusaoArrependimento('gestao@exemplo.test', 'Buffet', { protocolo: M.protocolo, situacao: 'NAO_APLICAVEL', valorRestituidoCentavos: null, justificativa: 'Pedido retirado pelo cliente <b>' });
+    assert.match(n.texto, /Resultado: não se aplica\. Motivo: Pedido retirado pelo cliente/);
+    assert.match(n.html, /&lt;b&gt;/);
+    assert.match(n.texto, /contato@demerzellabs\.com\.br/);
+});
+
+test('registro pelo atendimento: e-mail, texto e data conferidos antes de consultar o banco', async () => {
+    const { registrarArrependimentoAtendimento } = await import('./arrependimento.ts');
+    const consultas: string[] = [];
+    const tx = { query: async (sql: string) => { consultas.push(sql); return { rows: [{ ok: true }], rowCount: 1 }; } };
+    const base = { empresaId: 'e', atendenteId: 'u', chave: CHAVE, emailSolicitante: 'gestao@exemplo.test', recebidoEm: '2026-10-23T10:00:00-03:00', referencia: 'E-mail de 23/10 10h' };
+    for (const errado of [{ chave: 'x' }, { emailSolicitante: 'sem-arroba' }, { referencia: 'oi' }, { recebidoEm: '23/10/2026' }, { recebidoEm: '2026-10-23T10:00' }])
+        assert.equal(await codigo(registrarArrependimentoAtendimento(tx as never, { ...base, ...errado })), 'DADOS_INVALIDOS', JSON.stringify(errado));
+    assert.deepEqual(consultas, []);
+});
+
 test('097 (texto): só cria a tabela, guarda própria, down recusa com dados, sem tocar tabelas existentes', () => {
     const up = readFileSync('database/migrations/20261023_097_assinatura_arrependimentos.sql', 'utf8');
     const down = readFileSync('database/rollback/20261023_097_assinatura_arrependimentos_down.sql', 'utf8');
