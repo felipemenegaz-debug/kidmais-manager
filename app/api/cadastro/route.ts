@@ -25,7 +25,7 @@ export async function GET() {
         catch {
             // Configuração comercial inválida: a página mostra "a definir", nunca um valor inventado.
         }
-        return responder({ ok: true, data: { ativo: s.ativo, testeDias, precos, termos: versaoVigente('TERMOS_USO').versao, privacidade: versaoVigente('PRIVACIDADE').versao, cpf: cpfContratacaoLigado() } });
+        return responder({ ok: true, data: { ativo: s.ativo, testeDias, precos, termos: versaoVigente('TERMOS_USO').versao, privacidade: versaoVigente('PRIVACIDADE').versao, acordoTratamento: versaoVigente('DPA').versao, cpf: cpfContratacaoLigado() } });
     }
     catch (error) {
         return falhar(error);

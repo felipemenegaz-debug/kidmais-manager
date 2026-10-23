@@ -333,7 +333,10 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
             await registrarAceites(tx, sessao.usuario_id, empresaId, 'NOVA_EMPRESA', ctx);
             await tx.query('INSERT INTO cadastros_empresas (usuario_id, chave, empresa_id, documento) VALUES ($1::uuid, $2::uuid, $3::uuid, $4)', [sessao.usuario_id, d.chave, empresaId, documento]);
             await deps.registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'EMPRESA_CADASTRADA_PUBLICO', entidadeTipo: 'EMPRESA', entidadeId: empresaId,
-                dadosDepois: { empresaId, codigo, tipoPessoa: d.tipoPessoa, documento: mascararDocumento(documento), qualificacao, socios: d.socios.length, testeFim: teste.testeFim, resultado: 'SUCESSO' },
+                // O DPA não tem linha própria na 069: é aceito por incorporação aos Termos (que citam versão e hash dele).
+                // A auditoria repete a referência para facilitar a consulta, sem substituir o aceite dos Termos.
+                dadosDepois: { empresaId, codigo, tipoPessoa: d.tipoPessoa, documento: mascararDocumento(documento), qualificacao, socios: d.socios.length, testeFim: teste.testeFim,
+                    acordoTratamento: { versao: versaoVigente('DPA').versao, hash: versaoVigente('DPA').hash }, resultado: 'SUCESSO' },
                 origem: 'CADASTRO_PUBLICO', requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent }, tx);
             return { situacao: 'CRIADA' as const, empresaId, testeFim: teste.testeFim, repetido: false };
         });
