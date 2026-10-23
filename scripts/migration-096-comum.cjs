@@ -24,7 +24,7 @@ const MARCADOR = 'migration-096.json';
 const ETAPAS = Object.freeze([
   ['precheck 096', 'database/checks/20261022_096_precheck.sql', 'ed272122f76bd66eb1d2c308928a48301f31a764f310498ae0af8ea713de332e'],
   ['migration 096', 'database/migrations/20261022_096_comprovante_contratacao.sql', '08e096dba939a7807e4789f5f1e50eb772b86cb6db7fb41a6d5794db83dccf84'],
-  ['postcheck 096', 'database/checks/20261022_096_postcheck.sql', '21391ce49db308cba876e0cfa7927d60da548fd19a9c3b3772c77f2a759178e4'],
+  ['postcheck 096', 'database/checks/20261022_096_postcheck.sql', '04bae96f04a4e0b06f7d290f691c5fe6fb561f60b2afee8aee90579b955dade9'],
 ]);
 /** FKs do comprovante: REFERENCES exigido nestas tabelas. A 096 só CRIA tabelas: nenhuma tabela existente é alterada. */
 const REFERENCIADAS = Object.freeze(['assinatura_contratacoes', 'usuarios_administrativos']);

@@ -6,10 +6,11 @@ BEGIN
     OR to_regclass('public.assinatura_comprovantes_empresa_idx') IS NULL OR to_regprocedure('public.kidmais_096_guarda()') IS NULL THEN
     RAISE EXCEPTION '096 postcheck: objeto ausente';
   END IF;
-  -- Não basta o nome: relação, tipo e definição de cada garantia anunciada (revisão 00cecac, P3-B1).
+  -- Não basta o nome: relação, tipo e definição COMPLETA de cada garantia anunciada (revisão 00cecac, P3-B1; revisão
+  -- 9b84bd9, P3-R1: igualdade exata com a forma canônica do PostgreSQL, sem aceitar sufixos como "OR true").
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE convalidated AND contype = 'c' AND conname = 'documentos_legais_versoes_conteudo_hash_check'
         AND conrelid = 'public.documentos_legais_versoes'::regclass
-        AND pg_get_constraintdef(oid) LIKE '%encode(sha256(convert_to(conteudo, ''UTF8''::name)), ''hex''::text) = hash%')
+        AND pg_get_constraintdef(oid) = 'CHECK ((encode(sha256(convert_to(conteudo, ''UTF8''::name)), ''hex''::text) = hash))')
     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE convalidated AND contype = 'f' AND conname = 'assinatura_comprovantes_contratacao_fk'
         AND conrelid = 'public.assinatura_comprovantes'::regclass AND confrelid = 'public.assinatura_contratacoes'::regclass
         AND pg_get_constraintdef(oid) = 'FOREIGN KEY (empresa_id, contratacao_id) REFERENCES assinatura_contratacoes(empresa_id, id)')

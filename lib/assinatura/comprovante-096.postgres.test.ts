@@ -195,14 +195,31 @@ test('7. revisão 00cecac: versões confirmadas (aba antiga recusada), catálogo
         assert.equal(lida?.fornecedora, 'Prestadora Antiga Sintética Ltda, CNPJ 00.000.000/0001-91');
         assert.notEqual(lida?.fornecedora, IDENTIFICACAO_KIDMAIS);
     } finally { await q('ROLLBACK'); }
-    // P3-B1: CHECK do hash trocado por CHECK (true) com o mesmo nome → postcheck recusa.
-    await q('BEGIN');
-    try {
+    // P3-B1/P3-R1: CHECK do hash enfraquecido com o mesmo nome (CHECK (true), "… OR true", outra coluna) → postcheck recusa;
+    // o DDL original recriado (controle positivo) passa.
+    const trocar = async (definicao: string) => {
         await q('ALTER TABLE documentos_legais_versoes DROP CONSTRAINT documentos_legais_versoes_conteudo_hash_check');
-        await q('ALTER TABLE documentos_legais_versoes ADD CONSTRAINT documentos_legais_versoes_conteudo_hash_check CHECK (true)');
-        await assert.rejects(q(SQL.post), /definição divergente/);
-    } finally { await q('ROLLBACK'); }
+        await q(`ALTER TABLE documentos_legais_versoes ADD CONSTRAINT documentos_legais_versoes_conteudo_hash_check CHECK (${definicao}) NOT VALID`);
+        await q('ALTER TABLE documentos_legais_versoes VALIDATE CONSTRAINT documentos_legais_versoes_conteudo_hash_check');
+    };
+    for (const fraca of ['true', "(encode(sha256(convert_to(conteudo, 'UTF8')), 'hex') = hash) OR true", "encode(sha256(convert_to(versao, 'UTF8')), 'hex') <> hash OR true"]) {
+        await q('BEGIN');
+        try { await trocar(fraca); await assert.rejects(q(SQL.post), /definição divergente/, fraca); }
+        finally { await q('ROLLBACK'); }
+    }
+    await q('BEGIN');
+    try { await trocar("encode(sha256(convert_to(conteudo, 'UTF8')), 'hex') = hash"); await q(SQL.post); }
+    finally { await q('ROLLBACK'); }
     await q(SQL.post);
+    // Diagnóstico de lacunas (revisão 9b84bd9): aceite com hash do catálogo não aparece; hash desconhecido aparece agrupado,
+    // sem identificar a pessoa. A consulta é somente leitura.
+    const conhecido = VERSOES_PUBLICADAS.find((v) => v.documento === 'TERMOS_USO' && v.versao === '2026-10-20-minuta')!;
+    await q(`INSERT INTO aceites_documentos_legais (usuario_id, documento, versao, hash_conteudo, origem) VALUES
+        ($1, 'TERMOS_USO', $2, $3, 'CADASTRO'), ($1, 'PRIVACIDADE', '2026-09-01-minuta', $4, 'CADASTRO'), ($1, 'PRIVACIDADE', '2026-09-01-minuta', $4, 'CADASTRO')`,
+        [usuario, conhecido.versao, conhecido.hash, 'f'.repeat(64)]);
+    const saida = await q(readFileSync('database/checks/diagnostico_lacunas_aceites.sql', 'utf8')) as unknown as { rows: Record<string, unknown>[] }[];
+    const lacunas = saida.find((r) => Array.isArray(r.rows) && r.rows.length && 'ocorrencias' in r.rows[0])?.rows ?? [];
+    assert.deepEqual(lacunas, [{ origem: 'ACEITE', documento: 'PRIVACIDADE', versao: '2026-09-01-minuta', hash: 'f'.repeat(64), ocorrencias: 2 }]);
 });
 
 test('6. rollback da 096 recusado com comprovante registrado; estado parcial recusado', { skip: !opt() }, async () => {

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { VERSOES_PUBLICADAS } from './documentos-legais-historico.ts';
 import { DOCUMENTOS } from './documentos-legais.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
+import { sqlDiagnosticoLacunas } from './diagnostico-lacunas.ts';
 
 /** Catálogo histórico (revisão 00cecac, P2-B2) e página pública de versões (P3-B2). */
 test('catálogo: cada versão publicada confere com o próprio SHA-256, é única e não colide com a vigente', () => {
@@ -44,4 +45,11 @@ test('página de versões: nomes herdados do protótipo e documento desconhecido
     // Versão publicada do catálogo sem banco: renderiza (não é 404).
     const v = VERSOES_PUBLICADAS[0];
     assert.ok(await pagina({ params: Promise.resolve({ documento: v.documento.toLowerCase(), versao: v.versao }) }));
+});
+
+test('diagnóstico de lacunas: o SQL do repositório corresponde ao catálogo e às vigentes (regerar ao publicar versão nova)', () => {
+    assert.equal(readFileSync('database/checks/diagnostico_lacunas_aceites.sql', 'utf8').replace(/\r\n/g, '\n'), sqlDiagnosticoLacunas(),
+        'rode node --experimental-strip-types scripts/gerar-diagnostico-lacunas.mjs');
+    assert.match(sqlDiagnosticoLacunas(), /^BEGIN TRANSACTION READ ONLY;$/m);
+    assert.doesNotMatch(sqlDiagnosticoLacunas(), /email|usuario_id|empresa_id|\bnome\b/, 'sem identificar pessoas ou empresas');
 });
