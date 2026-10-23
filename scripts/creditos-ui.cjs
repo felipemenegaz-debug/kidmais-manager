@@ -141,6 +141,8 @@ async function principal() {
         browser = await playwright.chromium.launch({ headless: true, channel: process.env.KIDMAIS_PLAYWRIGHT_CHANNEL || 'chrome' });
         const entrar = async (email, viewport = { width: 1440, height: 1000 }) => {
             const contexto = await browser.newContext({ viewport });
+            // Staging (23/10) abre o assistente da agenda para empresa sem agenda; o E2E dos créditos escolhe "Fazer depois".
+            await contexto.addInitScript(() => { try { window.sessionStorage.setItem('kidmais-agenda-assistente-depois', '1'); } catch { /* sem armazenamento */ } });
             contexto.setDefaultTimeout(60000);
             const page = await contexto.newPage();
             await page.goto(`${base}/admin/login`);
@@ -342,4 +344,4 @@ async function principal() {
         await client?.end(); await admin.end();
     }
 }
-principal().catch((e) => { console.error('E2E_FALHOU', e.code || e.name, String(e.message).split('\n').slice(0, 8).join(' | ')); process.exitCode = 1; });
+principal().catch((e) => { console.error('E2E_FALHOU', e.code || e.name, String(e.message).split('\n').slice(0, 30).join(' | ')); process.exitCode = 1; });

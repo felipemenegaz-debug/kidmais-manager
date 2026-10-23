@@ -16,6 +16,11 @@
   095. A 087 continua reservada aos avisos de cobrança (clone `kidmais-manager-emails-cobranca-20261019`, não integrada).
   Livre numa leitura não é reserva: repetir antes de congelar a candidata e antes de aplicar; a ordem de aplicação com
   090–094 (se integradas antes) não muda nada na 095, que não depende delas.
+- **Reintegrada localmente com o staging `b3735a9` (23/10, até #218):** merge local `3152e3f`; conflitos só por acréscimo dos
+  dois lados (staging com 092–094 aplicadas em staging, branch com 095): seletor e receita PG, checagem de migrations de
+  produção e seu teste, contexto e exportação. A 095 vem depois da 094; as suítes dos créditos e o E2E usam o modelo 094; a
+  exportação, o 095 (inclui 092–094). Número 095 conferido em 23/10: livre em todas as `origin/*`; clones locais com 096/097
+  (CPF/Fundador). Nada enviado ao remoto.
 - **Integrada localmente com o staging (22/10):** merge local de `origin/staging` **9e096a7** (#203–#208, sem migration
   depois da 089) no commit `e68d402`; único conflito em `scripts/regressao-v1-selecao.cjs` (mantidas as suítes dos créditos
   e as novas de pacotes). Revalidado depois do merge (ver §7, rodada 6). Nada foi enviado ao remoto.
@@ -132,7 +137,7 @@ Ordem: código com flags off → `--conferir-095` → backup/PITR → `--aplicar
 Aplicadores `scripts/migration-095-{comum,staging,production}.cjs` e blocos `scripts/bloco-shell-095.cjs` derivados dos da
 089 (gerador `creditos-gerar-aplicador-095.cjs` no workspace, mesmas trocas conferidas e hashes calculados dos SQL LF).
 
-Hashes (LF, depois das correções do parecer R4 de 22/10; os mesmos fixados nos aplicadores): migration `d9f0f68b…f0e833`,
+Hashes (LF, depois das correções do parecer R5 de 23/10; os mesmos fixados nos aplicadores): migration `0dac1771…dd9af7e4e`,
 precheck `470f3b13…9a6438`, postcheck `8b33991e…296f9c`, rollback `da0c65da…160507`.
 
 **Rollback:** preferir desligar as flags e manter o processamento de pagamentos/devoluções. O SQL de rollback recusa com
@@ -310,6 +315,25 @@ logins simultâneos com scrypt enquanto a regressão estática rodava em paralel
 (`creditos-pg-r24-login.log`); `check:v1:static` EXIT 0; aplicadores/blocos 21/21; PTY 9/0; Playwright 9/9 na 2ª tentativa
 (a 1ª abortou a navegação durante a compilação do servidor de desenvolvimento, sem erro no log); mutações U1–U8 **8/8**
 pela falha esperada (`creditos-mutacoes-r10.txt`). Não coberto por teste: R4-P3-2 (Wall-e sem carteira) só por código.
+
+**Rodada 8 (23/10): parecer R5 do Astra (REPROVADO, 2 P2; quatro dos seis itens R4 fechados).**
+`revisao-creditos-ia-20261022/PARECER-DELTA-095-R5.md` (sha256 `462954d7…`).
+
+- **R5-P2-1 (pendências estáveis travavam a fila):** coluna nova `ia_credito_pedidos.reconciliado_em` como cursor da fila de
+  pendências (`ORDER BY reconciliado_em NULLS FIRST, criado_em`). `marcarTentativa` grava a tentativa em transação própria
+  ANTES de processar (reconciliador e manutenção), então pendência estável ou com erro vai para o fim da fila; a guarda não
+  renova `atualizado_em` quando só a marca muda (a janela de 90 dias do ENCERRADO não cresce). Excluída da exportação.
+  Simulação/conferência (ROLLBACK) não grava a marca: ali a fila não avança — a recuperação real é pelo modo que aplica.
+- **R5-P2-2 (CANCELAR com tudo reservado se perdia):** `resolverBloqueio` CANCELAR grava `ESTORNO_PARCIAL_CANCELADO` na
+  cobrança (não alarma); a liberação posterior cancela por esse estado; um estorno maior depois não reabre a decisão
+  (bloqueia e cancela na hora). LIBERAR continua limpando o motivo.
+
+Validação da rodada (sobre o merge `3152e3f` com o staging `b3735a9`): PG dos créditos 13/13; aplicador 095, exportação e
+adversarial PASS (modelos 094/095); **suíte PG completa 128/129** — a falha é `lib/comercial/pacotes-1c.postgres.test.ts`
+("current transaction is aborted"), que falha **igual no staging puro `b3735a9`** (worktree temporária, mesma suíte:
+`creditos-pg-r28-staging-pacotes1c.log`), sem relação com os créditos; `check:v1:static` EXIT 0 (1 aviso de lint
+preexistente); aplicadores/blocos 21/21; PTY 9/0; Playwright 9/9 (o E2E passou a escolher "Fazer depois" no assistente da
+agenda que o staging abre para empresa sem agenda); mutações V1–V7 **7/7** (`creditos-mutacoes-r11.txt`).
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
