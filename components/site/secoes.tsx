@@ -89,13 +89,50 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
     </div>
   </section>); }
 
+export function ImportacaoDocumentos() { return (<section className={cx('block')} id="importacao" aria-labelledby="t-importacao">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Importação de documentos</div><h2 id="t-importacao">Seu buffet já tem história.<br /><em>Traga ela para o iA.Fest.</em></h2><p className={cx('lead')}>Modelo jurídico, festas já fechadas e tabela de preços: cada documento tem um caminho de importação, sempre com revisão antes de aplicar.</p></div>
+      <div className={cx('detailGrid')}>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Seu modelo jurídico de contrato</Recurso></h3><p>Envie o PDF do contrato usado pela empresa. A IA prepara as cláusulas e os campos automáticos de cliente, data e valores. Revise o texto e a prévia antes de aprovar o modelo.</p><p>A revisão jurídica continua com a sua empresa.</p></article>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Festas que você já vendeu</Recurso></h3><p>Importe os contratos das festas já fechadas e confira cliente, evento e valores. Depois, revise a integração com a festa, a agenda e as contas a receber, incluindo os pagamentos já realizados.</p><p>O documento original fica preservado para consulta.</p></article>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_precos"]}>Sua tabela de preços</Recurso></h3><p>A IA lê o PDF e prepara pacotes, faixas de convidados, grades de horário e adicionais. Você confere os valores e corrige o que precisar antes de publicar.</p><p>Seus preços continuam sendo a referência.</p></article>
+      </div>
+    </div>
+  </section>); }
+
+export function FinanceiroDetalhes() { return (<section className={cx('block')} id="financeiro" aria-labelledby="t-financeiro">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Módulo financeiro</div><h2 id="t-financeiro">Da parcela do cliente<br /><em>ao caixa do buffet.</em></h2><p className={cx('lead')}>Veja o que entrou, o que falta receber e o que precisa pagar. Contratos, parcelas e movimentações ficam ligados à operação da sua empresa.</p></div>
+      <div className={cx('pain')}>
+        <article data-fundo-proteger><h3>Contas a receber</h3><p>Acompanhe parcelas, vencimentos, atrasos e saldos. Registre recebimentos, confira o histórico e disponibilize Pix copia e cola com a chave da sua empresa.</p></article>
+        <article data-fundo-proteger><h3>Contas a pagar</h3><p>Organize despesas por categoria e favorecido, acompanhe vencimentos e registre pagamentos para saber o que ainda está em aberto.</p></article>
+        <article data-fundo-proteger><h3>Fluxo de caixa e relatórios</h3><p>Consulte entradas, saídas e saldos por período. Veja os recebimentos e as despesas para acompanhar o movimento financeiro do buffet.</p></article>
+        <article data-fundo-proteger><h3>Financeiro de cada festa</h3><p>Reúna parcelas, recebimentos, adicionais e despesas do evento. Confira custos e pendências para concluir o fechamento com os valores registrados.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>Contas a pagar, fluxo de caixa, relatórios e visão de custos fazem parte do financeiro completo dos planos Profissional e Premium. O Essencial mantém contas a receber e Pix. O dinheiro das festas vai direto para a conta do buffet.</p>
+    </div>
+  </section>); }
+
+export function AgendaSaloes() { return (<section className={cx('block')} id="saloes" aria-labelledby="t-saloes">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Agenda por salão</div><h2 id="t-saloes">Mais de um salão.<br /><em>A mesma unidade, organizada.</em></h2><p className={cx('lead')}>Organize os espaços do seu buffet na mesma unidade. Na configuração por salão, cada espaço recebe uma festa por vez, respeitando os horários e intervalos definidos.</p></div>
+      <div className={cx('detailGrid')}>
+        <article data-fundo-proteger><h3>Disponibilidade por espaço</h3><p>Associe cada festa ao seu salão e acompanhe a ocupação. Salões diferentes podem receber festas no mesmo horário, conforme a configuração da agenda.</p></article>
+        <article data-fundo-proteger><h3>Horários e intervalos</h3><p>Defina os períodos de funcionamento e o intervalo mínimo entre festas, considerando o tempo necessário para preparar o espaço.</p></article>
+        <article data-fundo-proteger><h3>Bloqueios e organização</h3><p>Registre bloqueios e confira conflitos antes de confirmar a data. Festas sem salão definido protegem a disponibilidade até a equipe escolher o espaço.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>Vários salões na mesma unidade são espaços da mesma operação. A contratação de outra unidade é uma condição separada.</p>
+    </div>
+  </section>); }
+
 export function Marketing() { return (<section className={cx('block')} id="marketing" aria-labelledby="t-marketing">
     <div className={cx('wrap')}>
       <div className={cx('head')} data-fundo-texto>
         <div className={cx('eyebrow')}>Marketing · Campanhas e automação</div>
         <h2 id="t-marketing">Da campanha nas redes<br /><em>à próxima festa.</em></h2>
-        <p className={cx('lead')}>Conecte sua divulgação à gestão do buffet. Organize campanhas, acompanhe de onde chegam os contatos e prepare o próximo atendimento no iA.Fest.</p>
+        <p className={cx('lead')}>Seu site, suas campanhas e o relacionamento com os clientes no mesmo módulo. Conecte a divulgação à gestão do buffet e acompanhe o caminho até o contrato.</p>
       </div>
+      <article className={cx('marketingSite')} data-fundo-proteger><div><span className={cx('marketingKicker')}>Site do buffet · dentro do Marketing</span><h3>Uma vitrine com a identidade da sua unidade.</h3><p>Monte o site com sua marca, fotos, pacotes e contatos. Edite o conteúdo, confira a prévia e escolha quando publicar.</p></div><ul className={cx('checks')}><li>Galeria de fotos e apresentação dos pacotes</li><li>Formulário para pedidos de orçamento e contato pelo WhatsApp</li><li>Título e descrição para mecanismos de busca (SEO)</li><li>Links de campanhas ligados à origem dos contatos</li></ul></article>
       <div className={cx('pain')}>
         <article data-fundo-proteger><span className={cx('marketingKicker')}>Instagram, Facebook, Google e WhatsApp</span><h3>Um link para cada campanha</h3><p>Use links rastreáveis nos seus anúncios e publicações. Quem chega ao site do buffet e pede orçamento pode ser associado à campanha de origem.</p></article>
         <article data-fundo-proteger><span className={cx('marketingKicker')}>Da origem ao contrato</span><h3>Saiba o que chega pela divulgação</h3><p>Acompanhe cliques, contatos, negociações, contratos e receitas por origem e campanha, com filtros de período.</p></article>

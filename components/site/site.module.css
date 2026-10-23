@@ -476,3 +476,9 @@
 
 .site .marketingNota{max-width:90ch;margin:24px 0;color:var(--muted);font-size:14px;line-height:1.7}
 .site .marketingKicker{display:block;color:var(--mint);font-size:12px;margin-bottom:12px;line-height:1.5}
+.site .detailGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.site .detailGrid article,.site .marketingSite{padding:28px;border:1px solid #6d93e84d;border-radius:16px;background:linear-gradient(145deg,#122344ed,#0d1429ed)}
+.site .detailGrid h3,.site .marketingSite h3{margin:0 0 14px;font-size:23px;line-height:1.2}
+.site .detailGrid p,.site .marketingSite p{color:var(--muted);line-height:1.7;font-size:15px;margin:12px 0 0}
+.site .marketingSite{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:24px}
+@media(max-width:760px){.site .detailGrid,.site .marketingSite{grid-template-columns:1fr}}
