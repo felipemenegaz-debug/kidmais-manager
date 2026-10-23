@@ -34,6 +34,49 @@ export function erroDosPontos(pontos: PontoForm[], minimo: number, maximo: numbe
   }
 }
 
+const paraTexto = (centavosValor: number) => (centavosValor / 100).toFixed(2).replace('.', ',');
+
+/**
+ * Acréscimo sugerido para "Completar os preços": o ritmo das duas últimas quantidades com preço (diferença por
+ * convidado), levado ao intervalo da tela. Sem duas quantidades com preço, ou com preço caindo, não há sugestão.
+ */
+export function acrescimoSugerido(pontos: PontoForm[], intervalo: number): number | null {
+  const comPreco = pontos
+    .map((p) => ({ q: numero(p.convidados), c: centavos(p.valor) }))
+    .filter((p): p is { q: number; c: number } => Number.isInteger(p.q) && p.c != null)
+    .sort((a, b) => a.q - b.q);
+  if (comPreco.length < 2 || !(intervalo > 0)) return null;
+  const [a, b] = comPreco.slice(-2);
+  if (b.q <= a.q || b.c < a.c) return null;
+  return Math.round(((b.c - a.c) / (b.q - a.q)) * intervalo);
+}
+
+/**
+ * Preenche SÓ os preços vazios: cada um parte do último preço DIGITADO acima dele (na ordem de convidados) e soma
+ * `acrescimo` a cada `intervalo` convidados. Preço digitado nunca muda; texto inválido ("abc") também não — fica para
+ * o operador corrigir (parecer do Astra, 23/10, P2). A âncora é sempre o digitado, nunca um valor já preenchido, para o
+ * arredondamento não se acumular linha a linha (P3). Quantidade sem preço digitado acima dela fica vazia.
+ */
+export function completarPrecos(pontos: PontoForm[], acrescimo: number, intervalo: number): PontoForm[] {
+  if (!(acrescimo >= 0) || !(intervalo > 0)) return pontos;
+  const porConvidado = acrescimo / intervalo;
+  const ordem = pontos.map((ponto, indice) => ({ ponto, indice })).sort((x, y) => numero(x.ponto.convidados) - numero(y.ponto.convidados));
+  const novos = [...pontos];
+  let ancora: { q: number; c: number } | null = null;
+  for (const { ponto, indice } of ordem) {
+    const q = numero(ponto.convidados);
+    if (!Number.isInteger(q)) continue;
+    if (ponto.valor.trim()) {
+      const c = centavos(ponto.valor);
+      if (c != null) ancora = { q, c };
+      continue;
+    }
+    if (!ancora) continue;
+    novos[indice] = { ...ponto, valor: paraTexto(Math.round(ancora.c + (q - ancora.q) * porConvidado)) };
+  }
+  return novos;
+}
+
 export function PrecosPorQuantidade({ pontos, onChange, minimo, maximo }: {
   pontos: PontoForm[];
   onChange: (pontos: PontoForm[]) => void;
@@ -42,7 +85,20 @@ export function PrecosPorQuantidade({ pontos, onChange, minimo, maximo }: {
 }) {
   const [passo, setPasso] = useState('10');
   const [simular, setSimular] = useState('');
+  /** null = o operador não mexeu: vale a sugestão pelo ritmo dos preços digitados. */
+  const [acrescimo, setAcrescimo] = useState<string | null>(null);
   const limitesOk = Number.isInteger(minimo) && Number.isInteger(maximo) && minimo >= 1 && maximo >= minimo;
+  const intervaloTela = Math.max(1, Math.round(numero(passo) || 10));
+  const sugestao = acrescimoSugerido(pontos, intervaloTela);
+  const acrescimoTexto = acrescimo ?? (sugestao != null ? paraTexto(sugestao) : '');
+  const acrescimoCentavos = centavos(acrescimoTexto);
+  const vazios = pontos.filter((p) => p.convidados.trim() && !p.valor.trim()).length;
+  const completados = acrescimoCentavos != null && acrescimoCentavos >= 0 ? completarPrecos(pontos, acrescimoCentavos, intervaloTela) : pontos;
+  const aCompletar = completados.filter((p, i) => p.valor !== pontos[i].valor).length;
+
+  function completar() {
+    if (aCompletar > 0) onChange(completados);
+  }
 
   function criarQuantidades() {
     if (!limitesOk) return;
@@ -113,9 +169,25 @@ export function PrecosPorQuantidade({ pontos, onChange, minimo, maximo }: {
         </div>;
       })}
     </div>}
+    {vazios > 0 && <div className={styles.completar} data-completar-precos>
+      <strong>Completar os preços</strong>
+      <p>Somar R$
+        <input className={styles.inline} inputMode="decimal" aria-label="Valor a somar a cada intervalo de convidados" placeholder="0,00" value={acrescimoTexto}
+          onChange={(e) => setAcrescimo(e.target.value)} />
+        a cada <b>{intervaloTela}</b> convidados, a partir do último preço digitado.</p>
+      <p className={styles.fraco}>Só os preços vazios são preenchidos; os que você já digitou não mudam.</p>
+      <button type="button" onClick={completar} disabled={aCompletar === 0}>
+        {aCompletar > 0 ? `Completar ${aCompletar} ${aCompletar === 1 ? 'preço' : 'preços'}` : 'Completar preços'}
+      </button>
+      {aCompletar === 0 && <p className={styles.fraco}>{prontos.length === 0
+        ? `Digite o preço de ${minimo} convidados para começar.`
+        : acrescimoCentavos == null ? 'Informe quanto somar.' : `Digite o preço de ${minimo} convidados para completar o resto.`}</p>}
+    </div>}
     <div className={styles.acoes}>
       <button type="button" onClick={adicionar} disabled={!limitesOk}>+ Adicionar quantidade</button>
-      {prontos.length > 0 && limitesOk && <span className={`${styles.selo} ${cobre ? '' : styles.seloAviso}`}>{cobre ? `Cobre ${minimo} a ${maximo} convidados` : `A primeira deve ser ${minimo} e a última ${maximo}`}</span>}
+      {prontos.length > 0 && limitesOk && <span className={`${styles.selo} ${cobre && vazios === 0 ? '' : styles.seloAviso}`}>{vazios > 0
+        ? `Faltam ${vazios} ${vazios === 1 ? 'preço' : 'preços'}`
+        : cobre ? `Cobre ${minimo} a ${maximo} convidados` : `A primeira deve ser ${minimo} e a última ${maximo}`}</span>}
     </div>
     {prontos.length > 0 && <div className={styles.simulador}>
       <label htmlFor="simular-convidados" style={{ margin: 0 }}>Simular para</label>

@@ -11,6 +11,8 @@ const PRINCIPAL: ItemNavegacao[] = [
 const OPERACAO: ItemNavegacao[] = [
     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
+    // Atalho do menu para Contratos › Importar contrato antigo (pedido de Felipe, 23/10/2026); a API decide quem pode.
+    { href: '/admin/contratos/importar', rotulo: 'Importar contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/disponibilidade', rotulo: 'Agenda', grupo: 'Operação' },
     { href: '/admin/atendimento', rotulo: 'Atendimento WhatsApp', grupo: 'Operação' },

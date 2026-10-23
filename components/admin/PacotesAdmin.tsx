@@ -399,7 +399,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       <h1>Pacotes</h1>
       <div className={styles.actions}>
         <label className={styles.search}><span className={styles.srOnly}>Buscar pacote</span><input type="search" placeholder="Buscar pacote…" value={busca} onChange={(e) => setBusca(e.target.value)} /></label>
-        <a className={visual.secundario} href="/admin/configuracoes/importar-tabela"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><path d="M12 15V3m0 12-4-4m4 4 4-4" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>Importar tabela</a>
+        <a className={visual.secundario} href="/admin/configuracoes/importar-documentos?documento=tabela"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><path d="M12 15V3m0 12-4-4m4 4 4-4" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>Importar tabela</a>
         <AdminPrimaryButton onClick={limpar}>Novo pacote</AdminPrimaryButton>
       </div>
     </header>
@@ -464,7 +464,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
                 <h3>{NOME_GRADE[g.categoria] ?? g.categoria}</h3>
                 <table><tbody>{g.faixas.map((f) => <tr key={f.convidadosMin}><td>{g.porConvidado ? `por convidado (mín. ${f.convidadosMin})` : `${textoFaixa(f.convidadosMin, f.convidadosMax)} convidados`}</td><td>{reais(f.valor)}</td></tr>)}</tbody></table>
               </div>)}
-              <p>Para mudar estes preços, importe a tabela de novo em <a href="/admin/configuracoes/importar-tabela">Importar tabela</a>.</p>
+              <p>Para mudar estes preços, importe a tabela de novo em <a href="/admin/configuracoes/importar-documentos?documento=tabela">Importar documentos</a>.</p>
             </div>}
             {faixasEditaveis && conversao && <div className={styles.notice} data-precos-a-confirmar>
               <div>

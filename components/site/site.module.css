@@ -482,3 +482,13 @@
 .site .detailGrid p,.site .marketingSite p{color:var(--muted);line-height:1.7;font-size:15px;margin:12px 0 0}
 .site .marketingSite{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:24px}
 @media(max-width:760px){.site .detailGrid,.site .marketingSite{grid-template-columns:1fr}}
+/* Navegação completa também em telas estreitas. */
+.site .nav{gap:16px;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+.site .nav a{white-space:nowrap;font-size:13px}
+@media(max-width:1200px){
+  .site .header .wrap{flex-wrap:wrap;gap:10px}
+  .site .nav{width:100%;flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;padding-block:6px;gap:20px;scrollbar-width:thin}
+  .site .nav a:not(.login):not(.btn){display:block}
+  .site .nav a{flex:none;padding-block:5px}
+  .site main section[id]{scroll-margin-top:150px}
+}

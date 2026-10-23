@@ -231,6 +231,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('pacotes')) return 'packages';
     if (href.includes('catalogo')) return 'buffet';
     if (href.includes('clientes') || href.includes('acessos')) return 'users';
+    if (href.endsWith('/contratos/importar')) return 'import';
     if (href.includes('contratos')) return 'contract';
     if (href.includes('festas')) return 'cake';
     if (href.includes('disponibilidade')) return 'calendar';

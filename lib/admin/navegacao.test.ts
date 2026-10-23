@@ -9,6 +9,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         '/admin/dashboard',
         '/clientes',
         '/admin/contratos',
+        '/admin/contratos/importar',
         '/admin/festas',
         '/admin/disponibilidade',
         '/admin/atendimento',
@@ -105,4 +106,15 @@ test('o hub filtra os cartões pelas permissões do shell, e a tela do WhatsApp 
     const whatsapp = readFileSync('components/admin/WhatsappConfiguracao.tsx', 'utf8');
     assert.ok(!whatsapp.includes("catch { if (ativo) setErro('Não foi possível carregar"), 'não esconde a mensagem do servidor');
     assert.ok(whatsapp.includes('falhaCarga ? null : <p>Carregando…</p>'), 'sem "Carregando…" depois da falha');
+});
+
+test('menu: "Importar contratos" leva ao mesmo fluxo de Contratos e só ele fica ativo na tela de importação', () => {
+    const itens = itensNavegacao(false);
+    const importar = itens.find((item) => item.href === '/admin/contratos/importar');
+    assert.deepEqual(importar, { href: '/admin/contratos/importar', rotulo: 'Importar contratos', grupo: 'Operação' });
+    assert.equal(itemAtivo('/admin/contratos/importar', '/admin/contratos/importar', itens), true);
+    assert.equal(itemAtivo('/admin/contratos/importar', '/admin/contratos', itens), false);
+    assert.equal(itemAtivo('/admin/contratos', '/admin/contratos', itens), true);
+    assert.equal(itemAtivo('/admin/contratos', '/admin/contratos/importar', itens), false);
+    assert.match(readFileSync('components/admin/AdminShell.tsx', 'utf8'), /href\.endsWith\('\/contratos\/importar'\)\) return 'import'/);
 });
