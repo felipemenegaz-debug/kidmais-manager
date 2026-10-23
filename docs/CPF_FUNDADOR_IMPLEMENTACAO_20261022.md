@@ -974,3 +974,8 @@ aplicar → conferir (sem a 097, a tela indica o canal oficial).
 - registro pelo atendimento de pedidos recebidos por e-mail (hoje só por SQL autorizado);
 - acesso do contratante ao registro depois do somente leitura (BLOQUEADO) ou com a empresa desativada: não verificado;
 - Perfil PF, promessas dos pilotos, retenção e e-mail do comprovante (grupos anteriores).
+
+**Encerramento do ambiente:**
+- Cluster 127.0.0.1:55607 encerrado (`pg_ctl` parado) e removido: o diretório não existe mais e a porta está livre.
+- Relatórios preservados em `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/`. A subpasta `grupo-c-097-20261023/` guarda a bateria, as 7 mutações com diff e log, o static e o resultado do E2E.
+- Cópia isolada das mutações removida; a junção foi desfeita antes e o `node_modules` original ficou intacto.
