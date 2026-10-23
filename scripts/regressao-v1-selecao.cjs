@@ -200,6 +200,9 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/devolucao-089.postgres.test.ts": { descartavel: "086" },
   // P2-4 da revisão da devolução: aplicadores reais da 089 (staging e produção) no modelo 086 (089 ausente).
   "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
+  // 23/10/2026: aplicador real da 092 → 093 → 094 (staging) no modelo 089 (092–094 ausentes): conferência, privilégios,
+  // parcial, falha real no meio (092 commitada), retomada pelo prefixo e anti-repetição.
+  "lib/agenda/aplicador-092-094.postgres.test.ts": { descartavel: "089" },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
   // 22/10/2026: o inventário passou a citar as tabelas da 093 (agenda por unidade): modelo 093 (inclui a 092).
