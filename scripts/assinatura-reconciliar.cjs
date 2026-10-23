@@ -314,8 +314,9 @@ const SQL_PENDENCIAS_CREDITOS = `SELECT item, resultado, motivo, critico, (extra
     SELECT 'PEDIDO_CREDITOS', 'PAGAMENTO_DUPLICADO', c.situacao_provedor, true, c.atualizada_em
       FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'PAGAMENTO_DUPLICADO'
     UNION ALL
-    SELECT 'PEDIDO_CREDITOS', 'ESTORNO_EXTERNO_PARCIAL', c.situacao_provedor, true, c.atualizada_em
-      FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'
+    -- R7-P3-1: o motivo do item traz o diagnóstico que coexiste com a retenção (ex.: VALOR_DIVERGENTE), senão o status lido.
+    SELECT 'PEDIDO_CREDITOS', 'ESTORNO_EXTERNO_PARCIAL', coalesce(c.revisao_motivo, c.situacao_provedor), true, c.atualizada_em
+      FROM ia_credito_cobrancas c WHERE c.retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL'
     UNION ALL
     SELECT 'DEVOLUCAO_CREDITOS', estado, tipo, tipo = 'ARREPENDIMENTO_7_DIAS',
            CASE WHEN tipo = 'ARREPENDIMENTO_7_DIAS' THEN solicitado_em + interval '1 hour'

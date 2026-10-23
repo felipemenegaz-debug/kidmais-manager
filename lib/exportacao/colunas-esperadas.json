@@ -1798,7 +1798,8 @@
     "estornado_centavos",
     "disputa",
     "registrada_em",
-    "atualizada_em"
+    "atualizada_em",
+    "perda_definitiva_em"
   ],
   "ia_credito_devolucoes": [
     "id",

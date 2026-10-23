@@ -226,6 +226,9 @@ CREATE TABLE ia_credito_cobrancas (
   -- R6-P2-1: perda definitiva do remanescente (CANCELAR do operador, estorno total externo, disputa perdida). Estado
   -- próprio, gravado uma vez e nunca apagado — independente do diagnóstico transitório em revisao_motivo.
   perda_definitiva_em timestamptz,
+  -- R7-P3-1: retenção à espera da decisão do operador (estorno externo parcial), separada do último diagnóstico
+  -- (revisao_motivo): os dois coexistem e a decisão limpa só a retenção.
+  retencao_motivo text CHECK (retencao_motivo IS NULL OR retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL'),
   FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_empresa_uk UNIQUE (id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_pedido_cobranca_uk UNIQUE (id, empresa_id, pedido_id),

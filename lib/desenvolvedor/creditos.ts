@@ -54,9 +54,9 @@ export async function filaCreditos(sessao: SessaoAdmin, deps: PainelDeps = paine
             FROM ia_credito_pedidos p JOIN empresas e ON e.id = p.empresa_id WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO') ORDER BY p.criado_em LIMIT 100`)).rows;
         const devolucoes = (await tx.query(`SELECT d.protocolo, d.tipo, d.estado, d.valor_centavos, d.forma, d.prazo, d.solicitado_em, e.nome AS empresa_nome
             FROM ia_credito_devolucoes d JOIN empresas e ON e.id = d.empresa_id WHERE d.estado <> 'CONCLUIDO' ORDER BY d.prazo, d.solicitado_em LIMIT 100`)).rows;
-        const cobrancas = (await tx.query(`SELECT c.pagamento_id, c.situacao_provedor, c.disputa, c.exposicao_centavos, c.revisao_motivo, p.protocolo, e.nome AS empresa_nome
+        const cobrancas = (await tx.query(`SELECT c.pagamento_id, c.situacao_provedor, c.disputa, c.exposicao_centavos, c.revisao_motivo, c.retencao_motivo, p.protocolo, e.nome AS empresa_nome
             FROM ia_credito_cobrancas c JOIN ia_credito_pedidos p ON p.id = c.pedido_id JOIN empresas e ON e.id = c.empresa_id
-            WHERE c.disputa = 'ABERTA' OR c.revisao_motivo IS NOT NULL ORDER BY c.atualizada_em LIMIT 100`)).rows;
+            WHERE c.disputa = 'ABERTA' OR c.revisao_motivo IS NOT NULL OR c.retencao_motivo IS NOT NULL ORDER BY c.atualizada_em LIMIT 100`)).rows;
         return { instalado: true, pedidos, devolucoes, cobrancas, campanhas: CAMPANHAS };
     });
 }

@@ -78,8 +78,8 @@ async function cobrancaPorPagamento(tx: DbExecutor, pagamentoId: string) {
     const achadas = (await tx.query<{ id: string; pedido_id: string }>('SELECT id, pedido_id FROM ia_credito_cobrancas WHERE pagamento_id = $1', [pagamentoId])).rows;
     if (achadas.length !== 1) throw new OperacaoRecusada(achadas.length ? 'PAGAMENTO_AMBIGUO' : 'COBRANCA_NAO_ENCONTRADA');
     await tx.query('SELECT id FROM ia_credito_pedidos WHERE id = $1::uuid FOR UPDATE', [achadas[0].pedido_id]);
-    return (await tx.query<{ id: string; empresa_id: string; pedido_id: string; valor_centavos: string; revisao_motivo: string | null; canonica: boolean; estornado_centavos: string }>(
-        'SELECT id, empresa_id, pedido_id, valor_centavos, revisao_motivo, canonica, estornado_centavos FROM ia_credito_cobrancas WHERE id = $1::uuid FOR UPDATE', [achadas[0].id])).rows[0];
+    return (await tx.query<{ id: string; empresa_id: string; pedido_id: string; valor_centavos: string; revisao_motivo: string | null; retencao_motivo: string | null; canonica: boolean; estornado_centavos: string }>(
+        'SELECT id, empresa_id, pedido_id, valor_centavos, revisao_motivo, retencao_motivo, canonica, estornado_centavos FROM ia_credito_cobrancas WHERE id = $1::uuid FOR UPDATE', [achadas[0].id])).rows[0];
 }
 
 export async function concluirCobrancaExtra(tx: DbExecutor, operadorId: string, r: { pagamentoId: string; referencia: string }) {
@@ -95,7 +95,7 @@ export async function concluirCobrancaExtra(tx: DbExecutor, operadorId: string, 
 export async function resolverBloqueio(tx: DbExecutor, operadorId: string, r: { pagamentoId: string; resultado: 'LIBERAR' | 'CANCELAR'; referencia: string }) {
     const referencia = exigirReferencia(r.referencia);
     const c = await cobrancaPorPagamento(tx, r.pagamentoId);
-    if (c.revisao_motivo !== 'ESTORNO_EXTERNO_PARCIAL') throw new OperacaoRecusada('SEM_BLOQUEIO_PENDENTE');
+    if (c.retencao_motivo !== 'ESTORNO_EXTERNO_PARCIAL') throw new OperacaoRecusada('SEM_BLOQUEIO_PENDENTE');
     const p = (await tx.query<{ recurso: Recurso; protocolo: string }>('SELECT recurso, protocolo FROM ia_credito_pedidos WHERE id = $1::uuid', [c.pedido_id])).rows[0];
     const lote = (await tx.query<{ id: string }>('SELECT id FROM ia_credito_lotes WHERE pedido_id = $1::uuid AND empresa_id = $2::uuid', [c.pedido_id, c.empresa_id])).rows[0];
     await lerCarteira(tx, c.empresa_id, p.recurso, true);
@@ -103,8 +103,9 @@ export async function resolverBloqueio(tx: DbExecutor, operadorId: string, r: { 
         ? await desbloquear(tx, c.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_LIBERADO:${c.id}:${c.estornado_centavos}`, 'PLATAFORMA')
         : await cancelarBloqueado(tx, c.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_CANCELADO:${c.id}:${c.estornado_centavos}`, 'PLATAFORMA', p.protocolo);
     // R5-P2-2/R6-P2-1: CANCELAR grava a perda definitiva em coluna própria (nenhum diagnóstico posterior a apaga) — reservas
-    // em andamento são canceladas ao liberar, mesmo com zero cancelado agora. O alarme (revisao_motivo) é limpo nos dois casos.
-    await tx.query(`UPDATE ia_credito_cobrancas SET revisao_motivo = NULL,
+    // em andamento são canceladas ao liberar, mesmo com zero cancelado agora. R7-P3-1: a decisão limpa só a retenção; o
+    // último diagnóstico (revisao_motivo, ex.: valor divergente) continua visível.
+    await tx.query(`UPDATE ia_credito_cobrancas SET retencao_motivo = NULL,
         perda_definitiva_em = CASE WHEN $2 THEN coalesce(perda_definitiva_em, clock_timestamp()) ELSE perda_definitiva_em END WHERE id = $1::uuid`,
         [c.id, r.resultado === 'CANCELAR']);
     await auditarCreditos(tx, { usuarioId: operadorId, acao: 'CREDITOS_BLOQUEIO_RESOLVIDO', entidadeTipo: 'IA_CREDITO_COBRANCA', entidadeId: c.id,

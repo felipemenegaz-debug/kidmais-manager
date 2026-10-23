@@ -115,7 +115,7 @@ async function lotesTravados(tx: DbExecutor, empresaId: string, recurso: Recurso
                 AND (c.disputa = 'PERDIDA' OR c.perda_definitiva_em IS NOT NULL))) AS cancelado_definitivo,
             -- R4-P2-3: retenção pelo ESTADO (disputa aberta, estorno externo parcial em análise), mesmo com bloqueio inicial zero.
             (l.bloqueado > 0 OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
-                AND (c.disputa = 'ABERTA' OR c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'))) AS em_bloqueio
+                AND (c.disputa = 'ABERTA' OR c.retencao_motivo IS NOT NULL))) AS em_bloqueio
         FROM ia_credito_lotes l WHERE l.empresa_id = $1::uuid AND l.recurso = $2 AND ${ids ? 'l.id = ANY($3::uuid[])' : '(l.disponivel > 0 AND l.vence_em > clock_timestamp())'}
         ORDER BY l.vence_em, l.id FOR UPDATE`, ids ? [empresaId, recurso, ids] : [empresaId, recurso])).rows;
 }

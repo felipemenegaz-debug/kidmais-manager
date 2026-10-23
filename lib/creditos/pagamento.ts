@@ -155,7 +155,8 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
         if (lote) await cancelarBloqueado(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_CANCELADO:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
         return { resultado: 'ESTORNO', motivo: 'PERDA_DEFINITIVA' };
     }
-    await tx.query("UPDATE ia_credito_cobrancas SET revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
+    // R7-P3-1: a retenção tem coluna própria; o diagnóstico (revisao_motivo) segue livre para o que a leitura encontrar.
+    await tx.query("UPDATE ia_credito_cobrancas SET retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
 }
 
@@ -256,10 +257,9 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
         case 'REVISAO':
             // P2-N2 (revisão do delta 2): grava também o status lido desta cobrança — o CRÍTICO de cliente/referência
             // divergente (D4) depende de saber se o dinheiro já foi recebido. Leitura de outro pagamento (id divergente) não conta.
-            // R6-P2-1: estorno externo parcial à espera da decisão do operador não é apagado por um diagnóstico novo (o alarme
-            // e a retenção dependem dele); a perda definitiva fica em coluna própria e nunca passa por aqui.
-            await tx.query(`UPDATE ia_credito_cobrancas SET revisao_motivo = CASE WHEN revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' THEN revisao_motivo ELSE $2 END,
-                situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid`,
+            // R6-P2-1/R7-P3-1: retenção (retencao_motivo) e perda definitiva (perda_definitiva_em) têm colunas próprias; o
+            // diagnóstico novo vai para revisao_motivo e coexiste com elas.
+            await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2, situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid',
                 [c.id, decisao.motivo, lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null]);
             if (!p.creditado_em) await mudarEstado(tx, p, 'REVISAO', decisao.motivo);
             return { resultado: 'REVISAO', motivo: decisao.motivo };

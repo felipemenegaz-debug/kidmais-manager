@@ -990,15 +990,15 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, z.id, ctx)), { resultado: "REVISAO", motivo: "ESTORNO_EXTERNO_PARCIAL" });
     const loteZ = async () => (await c.query("SELECT disponivel, bloqueado, cancelado FROM ia_credito_lotes WHERE pedido_id = $1::uuid", [z.id])).rows[0];
     assert.deepEqual(await loteZ(), { disponivel: "0", bloqueado: "10", cancelado: "0" });
-    assert.deepEqual((await c.query("SELECT estornado_centavos, revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0],
-      { estornado_centavos: "2000", revisao_motivo: "ESTORNO_EXTERNO_PARCIAL" });
+    assert.deepEqual((await c.query("SELECT estornado_centavos, retencao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0],
+      { estornado_centavos: "2000", retencao_motivo: "ESTORNO_EXTERNO_PARCIAL" });
     assert.ok((await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL" && i.critico));
     await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: z.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
     assert.deepEqual(await loteZ(), { disponivel: "10", bloqueado: "0", cancelado: "0" });
     // P2-N1 (revisão do delta): o mesmo estorno relido depois da decisão do operador não realarma nem bloqueia...
     assert.notEqual((await emTx(c)((t2) => processarPedido(t2, z.id, ctx))).resultado, "REVISAO");
     assert.deepEqual(await loteZ(), { disponivel: "10", bloqueado: "0", cancelado: "0" });
-    assert.equal((await c.query("SELECT revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0].revisao_motivo, null);
+    assert.equal((await c.query("SELECT retencao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [z.id])).rows[0].retencao_motivo, null);
     assert.ok(!(await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL"), "sem alarme depois da decisão");
     // ...e um 2º estorno maior é episódio novo: bloqueia de novo; CANCELAR leva o bloqueado à perda definitiva.
     duble.pagar(z.pagamento, "RECEIVED", { estornos: [{ status: "DONE", valorCentavos: 2000, descricao: null }, { status: "DONE", valorCentavos: 1500, descricao: null }] });
@@ -1089,8 +1089,8 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     const m = await pacoteReservado("m-tudo");
     assert.deepEqual(await loteDe(m.id), { disponivel: "0", reservado: "10", bloqueado: "0", cancelado: "0" });
     await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: m.pagamento, resultado: "CANCELAR", referencia: "Reembolso parcial mantido (conferido)" }));
-    assert.deepEqual((await c.query("SELECT revisao_motivo, perda_definitiva_em IS NOT NULL AS perda FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [m.id])).rows[0],
-      { revisao_motivo: null, perda: true }, "decisão em coluna própria; alarme limpo");
+    assert.deepEqual((await c.query("SELECT retencao_motivo, perda_definitiva_em IS NOT NULL AS perda FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [m.id])).rows[0],
+      { retencao_motivo: null, perda: true }, "decisão em coluna própria; alarme limpo");
     // R6-P2-1: a cobrança some no provedor (diagnóstico novo de revisão) antes da liberação — a decisão continua valendo.
     const cobM = duble.s.cobrancas.get(m.pagamento)!;
     duble.s.cobrancas.delete(m.pagamento);
@@ -1115,11 +1115,16 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
     const q = await pacoteReservado("q-tudo");
     duble.pagar(q.pagamento, "RECEIVED", { valorCentavos: 6100, estornos: [{ status: "DONE", valorCentavos: 1000, descricao: null }] });
     await emTx(c)((t2) => processarPedido(t2, q.id, ctx));
-    assert.equal((await c.query("SELECT revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [q.id])).rows[0].revisao_motivo, "ESTORNO_EXTERNO_PARCIAL", "pendente preservado");
+    // R7-P3-1: retenção e diagnóstico coexistem; o item da fila mostra o diagnóstico junto do estorno pendente.
+    assert.deepEqual((await c.query("SELECT retencao_motivo, revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [q.id])).rows[0],
+      { retencao_motivo: "ESTORNO_EXTERNO_PARCIAL", revisao_motivo: "VALOR_DIVERGENTE" }, "pendente preservado e diagnóstico novo visível");
+    assert.ok((await reconciliar.lerPendenciasCreditos(c)).some((i) => i.resultado === "ESTORNO_EXTERNO_PARCIAL" && i.motivo === "VALOR_DIVERGENTE" && i.critico), "fila com o contexto");
     await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "q-tudo", quantidadeFinal: 0, ator: "SISTEMA" }));
     assert.deepEqual(await loteDe(q.id), { disponivel: "0", reservado: "0", bloqueado: "10", cancelado: "0" }, "retido até a decisão");
     await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: q.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
     assert.deepEqual(await loteDe(q.id), { disponivel: "10", reservado: "0", bloqueado: "0", cancelado: "0" });
+    assert.deepEqual((await c.query("SELECT retencao_motivo, revisao_motivo FROM ia_credito_cobrancas WHERE pedido_id = $1::uuid AND canonica", [q.id])).rows[0],
+      { retencao_motivo: null, revisao_motivo: "VALOR_DIVERGENTE" }, "a decisão limpa só a retenção; a divergência continua visível");
     const n2 = await pacoteReservado("n-tudo");
     await emTx(c)((t2) => resolverBloqueio(t2, uG, { pagamentoId: n2.pagamento, resultado: "LIBERAR", referencia: "Estorno era de outra venda (conferido)" }));
     await emTx(c)((t2) => encerrarReserva(t2, { empresaId: Hh, recurso: "CONVITES", operacaoId: "n-tudo", quantidadeFinal: 0, ator: "SISTEMA" }));
