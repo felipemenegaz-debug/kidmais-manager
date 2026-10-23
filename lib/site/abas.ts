@@ -73,7 +73,7 @@ export const abas: Record<AbaId, ConteudoAba> = {
         ]
     },
     "copiloto": {
-        "titulo": "Pergunte ao Kidmais. Ele mostra o que precisa de você.",
+        "titulo": "Pergunte ao iA.Fest. Ele mostra o que precisa de você.",
         "texto": "O copiloto lê os dados que você já tem permissão para ver e aponta o que pede atenção, com o link para resolver. Quando você pede um cadastro, ele prepara o rascunho e abre o formulário preenchido. Nada é gravado sem a sua confirmação.",
         "itens": [
             "Contratos parados, festas com pendência e parcelas atrasadas",

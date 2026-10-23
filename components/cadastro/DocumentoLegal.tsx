@@ -9,6 +9,7 @@ import { hashDocumento, type TextoLegal } from '@/lib/cadastro/documentos-legais
 export default function DocumentoLegal({ documento }: { documento: TextoLegal }) {
     return <div className={`${fonteAdmin.variable} ${tokens.tema}`} style={{ minHeight: '100svh' }}>
         <main className={admin.page} style={{ maxWidth: 820, margin: '0 auto' }}>
+            <p className={workspace.muted}>iA.Fest é o novo nome do Kidmais Manager. Os documentos abaixo preservam o nome e a versão aos quais seus registros de aceite se referem.</p>
             {documento.minuta && <p role="status" style={{ padding: '12px 16px', borderRadius: 14, border: '1px solid color-mix(in srgb, #FF7A3D 35%, transparent)', background: 'color-mix(in srgb, #FF7A3D 8%, transparent)' }}>
                 <strong>Minuta para homologação.</strong> Este texto ainda passa por revisão jurídica e não é a versão definitiva.</p>}
             <h1>{documento.titulo}</h1>

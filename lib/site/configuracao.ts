@@ -1,5 +1,5 @@
 export const ROTA_SITE = '/conheca';
-export const CADASTRO_FECHADO = 'O cadastro on-line abre em breve. Fale com a Kidmais para começar.';
+export const CADASTRO_FECHADO = 'O cadastro on-line abre em breve. Fale com a equipe iA.Fest para começar.';
 export type AmbienteSite = Record<string, string | undefined>;
 export function linkWhatsApp(numero: string | undefined, mensagem: string): string | null {
     const informado = numero?.trim() ?? '';
@@ -28,11 +28,11 @@ export function configuracaoSite(env: AmbienteSite = process.env) {
         precosPublicados: env.SITE_PRECOS_PUBLICADOS === 'true', origem,
         razaoSocial: dado('SITE_RAZAO_SOCIAL'), cnpj: dado('SITE_CNPJ'), endereco: dado('SITE_ENDERECO'),
         email: dado('SITE_ATENDIMENTO_EMAIL'), whatsapp: dado('SITE_ATENDIMENTO_WHATSAPP'), horario: dado('SITE_ATENDIMENTO_HORARIO'), encarregado: dado('SITE_ENCARREGADO_DADOS'),
-        contato: linkWhatsApp(whatsapp, 'Olá! Quero conhecer o Kidmais Manager e conversar com a equipe.'),
-        fundador: linkWhatsApp(whatsapp, 'Olá! Quero ser fundador do Kidmais Manager. Podem me explicar as condições?'),
+        contato: linkWhatsApp(whatsapp, 'Olá! Quero conhecer o iA.Fest e conversar com a equipe.'),
+        fundador: linkWhatsApp(whatsapp, 'Olá! Quero ser fundador do iA.Fest. Podem me explicar as condições?'),
         // Sem WhatsApp, o e-mail de atendimento é a saída: o visitante nunca fica sem uma ação clicável.
-        emailHref: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero conhecer o Kidmais Manager'),
-        fundadorEmail: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero ser fundador do Kidmais Manager'),
+        emailHref: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero conhecer o iA.Fest'),
+        fundadorEmail: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero ser fundador do iA.Fest'),
     };
 }
 export type ConfiguracaoSite = ReturnType<typeof configuracaoSite>;

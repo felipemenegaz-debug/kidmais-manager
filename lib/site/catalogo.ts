@@ -16,7 +16,6 @@ export const recursos = {
     exportacao: { nome: 'Exportação dos dados', status: 'disponivel', evidencia: implementado },
     permissoes: { nome: 'Papéis e permissões', status: 'disponivel', evidencia: implementado },
     walle_whatsapp: { nome: 'Wall-e no WhatsApp', status: 'em_breve', evidencia: 'Planejamento; entrega de mensagens não comprovada em production.' },
-    walle_publicitario: { nome: 'Wall-e publicitário', status: 'em_breve', evidencia: 'Protótipo local informado por Felipe; sem ativação comprovada.' },
     cartao: { nome: 'Cartão de crédito nas parcelas', status: 'em_breve', evidencia: 'Depende da conexão Asaas da conta do buffet; não comprovada.' },
     convite: { nome: 'Convite da festa', status: 'em_breve', evidencia: 'Módulo desenvolvido, sem homologação e ativação comprovadas.' },
     assinatura_whatsapp: { nome: 'Assinatura com código pelo WhatsApp', status: 'em_breve', evidencia: 'Depende da entrega Gupshup; não comprovada.' },
@@ -76,7 +75,6 @@ export const planos: Plano[] = [
 export const adicionais: { nome: string; recursos: RecursoId[]; centavos: number | null; periodo: string; descricao: string }[] = [
     { nome: 'Unidade extra', recursos: ['multiunidade'], centavos: 14700, periodo: '/mês', descricao: 'Outro salão com CNPJ próprio, na mesma conta.' },
     { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Com franquia de conversas. O que passar da franquia é cobrado por uso.' },
-    { nome: 'Wall-e publicitário', recursos: ['walle_publicitario'], centavos: null, periodo: '', descricao: 'Criação e calendário de publicações para as redes do buffet.' },
     { nome: 'Créditos extras de IA', recursos: ['copiloto', 'importacao_contratos'], centavos: null, periodo: '', descricao: 'Para quem usa o copiloto e a importação além da franquia do plano. Condições a definir.' },
     { nome: 'Implantação assistida', recursos: ['implantacao', 'importacao_precos', 'importacao_contratos'], centavos: 99000, periodo: 'avulsa · grátis no plano anual', descricao: 'Nossa equipe importa sua tabela de preços e seus contratos, configura os pacotes e treina a sua equipe.' },
 ];

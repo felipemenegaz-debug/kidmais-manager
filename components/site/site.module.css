@@ -170,10 +170,10 @@
 .site .bar-prog span{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--mint),var(--lilac))}
 
 /* Wall-e */
-.site .walle{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.site .walle{display:grid;grid-template-columns:minmax(0,760px);justify-content:center;gap:18px}
 .site .walle article{border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface);padding:30px;display:grid;gap:18px;align-content:start;min-width:0}
 .site .walle article:first-child{background:linear-gradient(170deg,#0f2a1f,#101114 55%);border-color:#80f5c440}
-.site .walle article:last-child{background:linear-gradient(170deg,#24183a,#101114 55%);border-color:#b990ff40}
+.site .walle article:only-child{background:linear-gradient(170deg,#0f2a1f,#101114 55%);border-color:#80f5c440}
 .site .walle .tag{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .site .walle .tag b{font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:.02em}
 .site .bot{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--mint);color:var(--mint-ink);font-weight:700;font-size:14px;font-family:var(--display);flex:none}
@@ -469,3 +469,6 @@
 .site .fundoFesta canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .site .fundoGradiente{position:absolute;inset:0;opacity:.9}
 .site .fundoPausa{position:absolute;right:24px;bottom:12px;background:#080b1699;border:1px solid #ffffff26;border-radius:24px;padding:7px 13px;color:#adb8d0;font-size:11px;cursor:pointer}
+
+.site .brandLogo{display:block;width:148px;height:auto;max-width:100%;filter:brightness(1.1) contrast(1.2);mix-blend-mode:screen}
+@media(max-width:600px){.site .brandLogo{width:128px}}

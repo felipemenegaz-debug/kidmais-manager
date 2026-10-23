@@ -19,7 +19,7 @@ const Planos = componente('components/site/Planos.tsx', 'default');
 const metadataSiteDescricao = () => String((carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as () => { description: string })().description);
 
 test('catálogo: status obrigatório; cada recurso futuro renderiza selo, inclusive em grupos', () => {
-    const futuros: RecursoId[] = ['walle_whatsapp','walle_publicitario','cartao','convite','assinatura_whatsapp','copiloto','importacao_contratos','importacao_precos'];
+    const futuros: RecursoId[] = ['walle_whatsapp','cartao','convite','assinatura_whatsapp','copiloto','importacao_contratos','importacao_precos'];
     for (const [id, recurso] of Object.entries(recursos)) {
         assert.ok(['disponivel', 'em_breve'].includes(recurso.status));
         assert.ok(recurso.evidencia.length > 20);
@@ -121,7 +121,7 @@ test('contato por e-mail: sem WhatsApp, o visitante ainda tem uma ação clicáv
 test('rodapé: e-mail de atendimento clicável e ano corrente', () => {
     const html = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' }) }));
     assert.match(html, /E-mail: <a href="mailto:contato@exemplo\.com\.br\?subject=[^"]*">contato@exemplo\.com\.br<\/a>/);
-    assert.match(html, new RegExp(`© ${new Date().getFullYear()} Kidmais Manager`));
+    assert.match(html, new RegExp(`© ${new Date().getFullYear()} iA.Fest`));
 });
 test('metadados: /planos tem título e descrição próprios, sem recurso Em breve', () => {
     const metadataSite = carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as (rota?: string) => { title: string; description: string };
@@ -161,4 +161,16 @@ test('suporte só por e-mail (19/10): nenhum plano promete canal de suporte que 
     const suporte = planos.flatMap(p => p.itens.filter(i => i.recursos.includes('suporte')).map(i => `${p.id}: ${i.texto}`));
     assert.deepEqual(suporte, ['essencial: Suporte por e-mail', 'premium: Suporte prioritário por e-mail']);
     for (const plano of planos) assert.doesNotMatch(plano.descricao, /vender pela internet|IA trabalhando/);
+});
+
+test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine', () => {
+    const html = ['Hero', 'Diferenciais', 'WallE', 'Duvidas', 'Confianca'].map(nome =>
+        renderToStaticMarkup(createElement(componente('components/site/secoes.tsx', nome), { aberto: false, config: configuracaoSite({}) }))
+    ).join('') + renderToStaticMarkup(createElement(Planos, { publicado: false, aberto: false, contato: configuracaoSite({}) }));
+    assert.match(html, /iA\.Fest/);
+    assert.doesNotMatch(html, /Kidmais Manager|Wall-e publicitário|departamento de marketing|cria a divulgação|Calendário de publicações/);
+    assert.equal(adicionais.some(a => /publicitário/i.test(a.nome)), false);
+    const footer = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({}) }));
+    assert.match(footer, /alt="iA\.Fest"/);
+    assert.match(footer, /site\/iafest\/logotipo\.png/);
 });

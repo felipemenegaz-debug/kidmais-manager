@@ -10,7 +10,8 @@ const formas = {
  hat:'M50 4 L89 88 Q50 105 11 88 Z M46 1 A5 5 0 1 0 56 1 A5 5 0 1 0 46 1 Z',
  gift:'M13 41 L87 41 L87 94 L13 94 Z M7 29 L93 29 L93 43 L7 43 Z M46 29 C-4 29 14 -4 37 14 L50 28 L63 14 C86 -4 104 29 54 29 Z'
 } as const;
-const itens: [keyof typeof formas, number, number, number][] = [
+type NomeForma = keyof typeof formas | 'marca';
+const itens: [NomeForma, number, number, number][] = [
     ['balloon', .60, .12, 65], ['heart', .92, .26, 50], ['rocket', .88, .72, 66],
     ['star', .12, .56, 40], ['cake', .68, .91, 56], ['gift', .43, .78, 49],
 ];
@@ -89,13 +90,32 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     if (!shader) gradiente.style.visibility = 'hidden';
     const perderContexto = () => { shader?.liberar(); shader = null; gradiente.style.visibility = 'hidden'; gradiente.dataset.renderer = 'fallback'; };
     gradiente.addEventListener('webglcontextlost', perderContexto);
-    const mascaras = Object.fromEntries(Object.entries(formas).map(([nome, fonte]) => {
+    type Ponto = { x: number; y: number; n: number };
+    const mascaras: Record<NomeForma, Ponto[]> = { marca: [], ...Object.fromEntries(Object.entries(formas).map(([nome, fonte]) => {
         const path = new Path2D(fonte), pontos: { x: number; y: number; n: number }[] = [];
         for (let y = 0; y < 104; y += 6.3) for (let x = 0; x < 100; x += 5)
             if (ctx.isPointInPath(path, x, y)) pontos.push({ x: x - 50, y: y - 50, n: pontos.length });
         return [nome, pontos];
-    }));
-    let lugares: (Posicao & { nome: keyof typeof formas; tamanho: number; indice: number })[] = [];
+    })) as Record<keyof typeof formas, Ponto[]> };
+    // A mesma imagem aprovada fornece só o símbolo: a máscara luminosa vira caracteres,
+    // sem retângulo de fundo nem o nome, com a mesma flutuação dos itens de festa.
+    const logo = new Image();
+    logo.onload = () => {
+        if (encerrado) return;
+        const amostra = document.createElement('canvas'); amostra.width = 100; amostra.height = 100;
+        const amostraCtx = amostra.getContext('2d', { willReadFrequently: true });
+        if (!amostraCtx) return;
+        amostraCtx.drawImage(logo, 245, 180, 330, 375, 0, 0, 100, 100);
+        const pixels = amostraCtx.getImageData(0, 0, 100, 100).data;
+        for (let y = 0; y < 100; y += 3) for (let x = 0; x < 100; x += 2.5) {
+            const p = (Math.floor(y) * 100 + Math.floor(x)) * 4;
+            if (Math.max(pixels[p], pixels[p + 1], pixels[p + 2]) > 105)
+                mascaras.marca.push({ x: x - 50, y: y - 50, n: mascaras.marca.length });
+        }
+        camada.dataset.marca = 'pronta'; desenhar(performance.now());
+    };
+    logo.src = '/site/iafest/identidade-vertical.png';
+    let lugares: (Posicao & { nome: NomeForma; tamanho: number; indice: number })[] = [];
     let gotas: { x: number; y: number; inicio: number }[] = [];
     function distribuir() {
         const base = raiz.getBoundingClientRect();
@@ -117,6 +137,7 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
         const limite = abertura ? (mobile ? 3 : 6) : (mobile ? 2 : 3);
         const inicio = abertura ? 0 : Array.from(raiz.parentElement!.children).indexOf(raiz) % itens.length;
         Array.from({ length: limite }, (_, i) => itens[(inicio + i) % itens.length]).forEach(([nome, x, y, tamanho], indice) => {
+            if (indice === 0) { nome = 'marca'; tamanho = 94; x = .86; y = .24; }
             const s = tamanho * (mobile ? .64 : 1);
             const lugar = localizarEspaco({ x: largura * x, y: altura * y, raio: s * .58 + 11 }, largura, altura, areas, lugares);
             if (lugar) lugares.push({ ...lugar, nome, tamanho: s, indice });
@@ -225,6 +246,7 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
             raiz.removeEventListener('pointerdown', clicar); reduzir.removeEventListener('change', preferencia);
             document.removeEventListener('visibilitychange', visibilidade); window.removeEventListener('resize', dimensionar);
             gradiente.removeEventListener('webglcontextlost', perderContexto); shader?.liberar(); gotas = [];
+            logo.onload = null;
             gradiente.getContext('webgl')?.getExtension('WEBGL_lose_context')?.loseContext();
             gradiente.remove();
             for (const c of [canvas, coracoes]) { c.width = 1; c.height = 1; }
