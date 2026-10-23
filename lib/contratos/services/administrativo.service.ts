@@ -358,7 +358,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if (!modeloEmpresa && await migration072Aplicada(tx)) {
                 const codigoEmpresa = (await tx.query<{ codigo: string }>('SELECT codigo FROM empresas WHERE id=$1::uuid', [empresaAutorizada])).rows[0]?.codigo;
                 if (codigoEmpresa !== 'kidmais')
-                    conflito('Esta empresa ainda não tem modelo de contrato. Cadastre em Configurações › Modelo de contrato.');
+                    conflito('Esta empresa ainda não tem modelo de contrato. Cadastre em Configurações › Importar documentos › Modelo de contrato.');
             }
             const rendered = modeloEmpresa
                 ? renderizarModeloEmpresa(modeloEmpresa, { snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash })

@@ -54,6 +54,25 @@
 .resumo li { display:grid; grid-template-columns:110px minmax(0,1fr); gap:12px; margin:0 !important; padding:10px 14px; border-top:1px solid var(--border-navy); color:var(--main-text); font-size:13px; }
 .resumo li:first-child { border-top:0; }
 .resumo li > span { color:var(--secondary-text); font-size:11px; font-weight:800; }
+/* Assistente (painel estreito): cada horário é um cartão. O nome tem a largura livre da primeira linha; dias e
+   salões ganham linha própria, para nunca espremer o nome nem passar por baixo do botão de remover. */
+.cartaoHorario { display:grid; grid-template-columns:minmax(0,1fr) 112px 112px 44px; grid-template-areas:"nome inicio fim remover" "dias dias dias dias" "extra extra extra extra"; gap:10px; align-items:end; padding:14px 12px; border-top:1px solid var(--border-navy); }
+.cartaoHorario > :nth-child(1) { grid-area:nome; }
+.cartaoHorario > :nth-child(2) { grid-area:inicio; }
+.cartaoHorario > :nth-child(3) { grid-area:fim; }
+.cartaoHorario > :nth-child(4) { grid-area:dias; }
+.cartaoHorario > :nth-child(5) { grid-area:extra; }
+.cartaoHorario > :nth-child(6) { grid-area:remover; }
+.campoRotulado { display:grid !important; gap:4px; min-width:0; }
+.campoRotulado > span:first-child, .linhaRotulada > span:first-child { color:var(--secondary-text); font-size:11px; font-weight:800; }
+.campoRotulado input { width:100%; min-width:0; }
+.linhaRotulada { display:grid; grid-template-columns:minmax(64px,max-content) minmax(0,1fr); align-items:center; gap:8px; min-width:0; }
+.linhaRotulada input { max-width:96px; }
+.linhaRotulada .chips button { white-space:nowrap; }
+@media(max-width:560px) {
+  .cartaoHorario { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px; grid-template-areas:"nome nome remover" "inicio fim fim" "dias dias dias" "extra extra extra"; }
+  .linhaRotulada { grid-template-columns:1fr; }
+}
 @media(max-width:800px) {
   .opcoes, .campos { grid-template-columns:1fr; }
   .linhaSalao { grid-template-columns:minmax(0,1fr) 110px 44px; }

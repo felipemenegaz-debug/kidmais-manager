@@ -13,8 +13,38 @@ export type ObjetoCriacao = "FESTA" | "PACOTE" | "CONTA_PAGAR";
 
 export const CAPACIDADE_DO_OBJETO: Readonly<Record<ObjetoCriacao, string>> = { FESTA: "preparar_contratacao", PACOTE: "criar_pacote", CONTA_PAGAR: "criar_conta_pagar" };
 
-const VERBO_CRIAR = /\b(crie|criar|cria|crio|cadastr(?:e|ar|a)|mont(?:e|ar)|agend(?:e|ar|a)|marc(?:ar|que)|fech(?:ar|e)|nov[oa]|prepar\w* (?:a |uma )?contratacao)\b/;
-const FESTA = /\b(festa|aniversario|contratacao|fechamento)\b/;
+const VERBO_CRIAR = /\b(crie|criar|cria|crio|cadastr(?:e|ar|a)|mont(?:e|ar)|agend(?:e|ar|a)|marc(?:ar|que)|fech(?:ar|e)|faz(?:er)?|faca|contrat(?:ar|e)|nov[oa]|prepar\w* (?:a |uma )?contratacao)\b/;
+// "Fechar um contrato" / "fazer um contrato novo" é a contratação de uma festa (o contrato nasce do fechamento).
+const FESTA = /\b(festa|aniversario|contratacao|fechamento|contratos?)\b/;
+const VERBO_CRIAR_TODOS = new RegExp(VERBO_CRIAR.source, "g");
+
+/**
+ * Escopo da negação (parecer do Astra, 23/10, rodadas 1–4). Uma negação ("não", "nunca", "jamais", "nem") alcança
+ * tudo o que vem depois dela até um RECOMEÇO AFIRMATIVO REAL: uma pausa (pontuação ou "mas/porém/então/e sim")
+ * seguida de um pedido novo ("quero", "vamos", "pode", "preciso", "feche", "crie"…). Só a pausa não basta: vírgula de
+ * inciso ("não quero, por enquanto, fechar"), "então" intercalado ("não quero, então, fechar") e coordenação
+ * ("criar um pacote ou fechar um contrato") continuam negados. "Não, quero fechar…" e "Não. Quero…" recomeçam.
+ * Analisado no texto original, sem limite de palavras. Na dúvida fica negado: o pedido segue as outras regras e nunca
+ * vira criação (o Human Gate continua valendo de qualquer forma).
+ */
+const NEGACAO = /\b(nao|nunca|jamais|nem)\b/g;
+const PAUSA = String.raw`(?:[,.;:!?]|\b(?:mas|porem|entao|e sim)\b)[\s,]*(?:(?:mas|porem|entao|e sim|sim|eu|agora|so)[\s,]+)*`;
+const PEDIDO = "quero|queria|vamos|preciso|precisamos|pode|podemos|gostaria|faca|feche|crie|prepare|agende|marque|monte";
+const RECOMECO = new RegExp(`${PAUSA}(?:${PEDIDO})\\b`);
+/** Na correção de objetivo, "é"/"sim" depois da pausa também afirmam o alvo ("não é pacote, é uma festa"). */
+const RECOMECO_CORRECAO = new RegExp(`${PAUSA}(?:e|eh|seria|sim|${PEDIDO})\\b`);
+
+/** O trecho [inicio, fim) de `n` está no escopo de alguma negação anterior sem recomeço afirmativo até ele. */
+export function noEscopoDeNegacao(n: string, inicio: number, fim: number, recomeco: RegExp = RECOMECO): boolean {
+  for (const negacao of n.slice(0, inicio).matchAll(NEGACAO)) {
+    if (!recomeco.test(n.slice((negacao.index ?? 0) + negacao[0].length, fim))) return true;
+  }
+  return false;
+}
+const verboNegado = (n: string, m: RegExpMatchArray) => noEscopoDeNegacao(n, m.index ?? 0, (m.index ?? 0) + m[0].length);
+
+/** Contrato JÁ existente ("fechar o contrato", "este contrato"): não é uma contratação nova. */
+const CONTRATO_EXISTENTE = /\b(o|os|este|esse|estes|esses|deste|desse|neste|nesse|do|no|seu|meu)\s+contratos?\b/;
 const PACOTE = /\bpacotes?\b/;
 export function pedeContaPagar(texto: string): boolean {
   const n = normalizar(texto);
@@ -30,15 +60,18 @@ export function objetoDeCriacao(texto: string): ObjetoCriacao | null {
   // Pergunta ("quem vai montar a festa?", "como crio um pacote?") nunca é pedido de criação.
   if (ehPergunta(texto)) return null;
   if (pedeContaPagar(texto)) return "CONTA_PAGAR";
-  const n = normalizar(texto).replace(NEGADO, " ");
-  const verbo = VERBO_CRIAR.exec(n);
-  if (!verbo) return null;
+  const n = normalizar(texto);
+  // O primeiro verbo de criar que NÃO está no escopo de uma negação (decidido no texto original).
+  const verbo = [...n.matchAll(VERBO_CRIAR_TODOS)].find((m) => !verboNegado(n, m));
+  if (!verbo || verbo.index === undefined) return null;
   if (/contratacao$/.test(verbo[0])) return "FESTA";
-  // O OBJETO do verbo é o primeiro substantivo depois dele (artigos e "nova/novo" à parte): "crie uma TAREFA nesta
-  // festa" cria tarefa, não festa; "crie uma festa … pacote premium" cria festa (o pacote vem depois, como atributo).
-  const palavras = n.slice(verbo.index + verbo[0].length).replace(/[^a-z0-9 ]/g, " ").split(" ").filter(Boolean);
+  // O OBJETO do verbo é o primeiro substantivo depois dele (artigos e "nova/novo" à parte), sem os objetos negados
+  // ("…uma festa e não um pacote"): "crie uma TAREFA nesta festa" cria tarefa; "crie uma festa … pacote premium" cria festa.
+  const depois = n.slice(verbo.index + verbo[0].length).replace(NEGADO, " ");
+  const palavras = depois.replace(/[^a-z0-9 ]/g, " ").split(" ").filter(Boolean);
   const objeto = palavras.find((p) => !/^(um|uma|o|a|os|as|nov[oa]s?|outr[oa]|mais|de|da|do|essa|esse|esta|este|minha|meu)$/.test(p));
   if (!objeto) return null;
+  if (/^contratos?$/.test(objeto) && CONTRATO_EXISTENTE.test(n.slice(verbo.index))) return null;
   if (FESTA.test(objeto)) return "FESTA";
   if (PACOTE.test(objeto)) return "PACOTE";
   return null;
@@ -51,8 +84,14 @@ export function objetoDeCriacao(texto: string): ObjetoCriacao | null {
 export function correcaoDeObjetivo(texto: string): ObjetoCriacao | null {
   const n = normalizar(texto);
   if (!FESTA.test(n) || !PACOTE.test(n) || !/\bnao\b/.test(n)) return null;
-  if (/\b(festa|contratacao)\b.{0,25}\bnao\b.{0,15}\bpacotes?\b/.test(n) || /\bnao\b.{0,15}\bpacotes?\b.{0,30}\bfesta\b/.test(n)) return "FESTA";
-  if (/\bpacotes?\b.{0,25}\bnao\b.{0,15}\bfestas?\b/.test(n) || /\bnao\b.{0,15}\bfestas?\b.{0,30}\bpacote\b/.test(n)) return "PACOTE";
+  // O ALVO da correção precisa estar afirmado (parecer do Astra, rodada 4): em "não quero criar uma festa e não um
+  // pacote" os dois estão negados — nada muda.
+  const afirmado = (alvo: RegExp) => {
+    const m = alvo.exec(n);
+    return m !== null && !noEscopoDeNegacao(n, m.index, m.index + m[0].length, RECOMECO_CORRECAO);
+  };
+  if ((/\b(festa|contratacao)\b.{0,25}\bnao\b.{0,15}\bpacotes?\b/.test(n) || /\bnao\b.{0,15}\bpacotes?\b.{0,30}\bfesta\b/.test(n)) && afirmado(/\b(festa|contratacao)\b/)) return "FESTA";
+  if ((/\bpacotes?\b.{0,25}\bnao\b.{0,15}\bfestas?\b/.test(n) || /\bnao\b.{0,15}\bfestas?\b.{0,30}\bpacote\b/.test(n)) && afirmado(/\bpacotes?\b/)) return "PACOTE";
   return null;
 }
 

@@ -286,14 +286,14 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
       <h2 id={titulo} ref={tituloRef} tabIndex={-1}>Quais são os horários?</h2>
       <p className={css.fraco}>Já preenchemos com os horários que o sistema usava. Ajuste o que for diferente.</p>
       {form.horarios.length > 0 && <div className={css.lista} role="table" aria-label="Horários de festa">
-        {form.horarios.map((h, i) => <div key={h.chave} className={css.linhaHorario} role="row">
-          <label><span className={ws.srOnly}>Nome do horário</span><input placeholder="Nome" value={h.nome} maxLength={80} onChange={(e) => alterarHorario(i, { nome: e.target.value })} /></label>
-          <label><span className={ws.srOnly}>Início de {h.nome || 'este horário'}</span><input type="time" value={h.inicio} onChange={(e) => alterarHorario(i, { inicio: e.target.value })} /></label>
-          <label><span className={ws.srOnly}>Fim de {h.nome || 'este horário'}</span><input type="time" value={h.fim} onChange={(e) => alterarHorario(i, { fim: e.target.value })} /></label>
-          <DiasChips dias={h.dias} rotulo={h.nome} onChange={(dias) => alterarHorario(i, { dias })} />
+        {form.horarios.map((h, i) => <div key={h.chave} className={css.cartaoHorario} role="row">
+          <label className={css.campoRotulado}><span>Nome do horário</span><input placeholder="Ex.: Almoço" value={h.nome} maxLength={80} aria-invalid={!h.nome.trim() || undefined} onChange={(e) => alterarHorario(i, { nome: e.target.value })} /></label>
+          <label className={css.campoRotulado}><span>Início</span><input type="time" aria-label={`Início de ${h.nome || 'este horário'}`} value={h.inicio} onChange={(e) => alterarHorario(i, { inicio: e.target.value })} /></label>
+          <label className={css.campoRotulado}><span>Fim</span><input type="time" aria-label={`Fim de ${h.nome || 'este horário'}`} value={h.fim} onChange={(e) => alterarHorario(i, { fim: e.target.value })} /></label>
+          <div className={css.linhaRotulada}><span aria-hidden="true">Dias</span><DiasChips dias={h.dias} rotulo={h.nome} onChange={(dias) => alterarHorario(i, { dias })} /></div>
           {form.capacidadeTipo === 'POR_SALAO'
-            ? <SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} />
-            : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><input inputMode="numeric" title="Festas ao mesmo tempo" value={h.capacidade} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
+            ? <div className={css.linhaRotulada}><span aria-hidden="true">Salões</span><SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} /></div>
+            : <label className={css.linhaRotulada}><span>Festas ao mesmo tempo</span><input inputMode="numeric" aria-label={`Festas ao mesmo tempo em ${h.nome || 'este horário'}`} value={h.capacidade} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
           <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
         </div>)}
       </div>}
