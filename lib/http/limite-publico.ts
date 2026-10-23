@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ipDaRequisicao } from "../acessos/http.ts";
-import { empresaPublicaConfirmada } from "./empresas-publicas.ts";
+import { idDaEmpresaPublica, type CarregarEmpresasAtivas } from "./empresas-publicas.ts";
 
 /**
  * Limite de requisições das APIs públicas de cotação/fechamento/agenda (sem sessão).
@@ -15,9 +15,10 @@ import { empresaPublicaConfirmada } from "./empresas-publicas.ts";
  * SEM_ORIGEM_FATOR vezes maior, e o PEDIDO mantém o teto por empresa.
  *
  * Empresa = chave CANÔNICA, nunca o texto bruto de `?empresa=` (revisão de 22/10, P2-R3-1: 20.000 códigos inventados
- * enchiam o mapa e todos recebiam 429). Código já resolvido pelo servidor (lib/http/empresas-publicas.ts, alimentado
- * pela página /b/<código> e pelas APIs) conta pelo id da empresa; código inexistente, inválido ou ainda não visto cai num
- * balde comum próprio ("empresa-nao-confirmada"), que não toca o das empresas confirmadas; sem código, o endereço padrão.
+ * enchiam o mapa e todos recebiam 429). Código de empresa ATIVA conta pelo id da empresa: o registro
+ * (lib/http/empresas-publicas.ts) é alimentado pelo resolvedor e por uma carga de todos os códigos ativos, feita antes de
+ * cobrar um código desconhecido (no máximo uma carga por intervalo; P2-R4-1). Só código inexistente, inválido ou de
+ * empresa criada depois da última carga cai no balde comum "empresa-nao-confirmada"; sem código, o endereço padrão.
  * Os baldes por IP e os demais têm capacidades separadas: nenhum dos dois esgota o outro. Nunca registra IP em log nem
  * devolve detalhe além do prazo.
  */
@@ -73,21 +74,31 @@ export function criarLimitador(agora: () => number = Date.now) {
 
 const limitador = criarLimitador();
 
-/** Chave canônica da empresa do endereço: null = endereço padrão; código resolvido = id; o resto, um balde comum. */
-export function chaveDaEmpresaPublica(codigo: string | null) {
+/** Todos os códigos de empresas ATIVAS (uma consulta; import tardio para o módulo não abrir banco ao carregar). */
+const carregarEmpresasAtivas: CarregarEmpresasAtivas = async (limite) => {
+  const { db } = await import("../db/postgres.ts");
+  return (await db().query<{ codigo: string; id: string }>(
+    "SELECT codigo, id::text AS id FROM public.empresas WHERE status = 'ATIVA' AND codigo IS NOT NULL ORDER BY codigo LIMIT $1",
+    [limite],
+  )).rows;
+};
+
+/** Chave canônica da empresa do endereço: null = endereço padrão; empresa ATIVA = id; o resto, um balde comum. */
+export async function chaveDaEmpresaPublica(codigo: string | null, carregar: CarregarEmpresasAtivas = carregarEmpresasAtivas) {
   if (!codigo) return null;
-  const empresaId = empresaPublicaConfirmada(codigo);
+  const empresaId = await idDaEmpresaPublica(codigo, carregar);
   return empresaId ? `empresa:${empresaId}` : "empresa-nao-confirmada";
 }
 
 /** null = segue; senão a resposta 429 pronta (no-store, Retry-After). */
-export function limitarPublico(
+export async function limitarPublico(
   request: { headers: { get(nome: string): string | null }; nextUrl?: URL; url?: string },
   grupo: GrupoLimite,
+  carregar: CarregarEmpresasAtivas = carregarEmpresasAtivas,
 ) {
   const origem = ipDaRequisicao(request);
   const url = request.nextUrl ?? (request.url ? new URL(request.url) : null);
-  const espera = limitador.verificar(origem, grupo, chaveDaEmpresaPublica(url?.searchParams.get("empresa") || null));
+  const espera = limitador.verificar(origem, grupo, await chaveDaEmpresaPublica(url?.searchParams.get("empresa") || null, carregar));
   if (espera === null) return null;
   return NextResponse.json(
     { ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" },

@@ -33,15 +33,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
   if (!origemAceita(request)) return responder({ ok: false, erro: "Origem recusada.", codigo: "ORIGEM_RECUSADA" }, 403);
   try {
-    const texto = await request.text();
-    if (texto.length > 16_000) return responder({ ok: false, erro: "Pedido grande demais.", codigo: "DADOS_INVALIDOS" }, 413);
-    const corpo = esquemaFormularioPublico.parse(texto ? JSON.parse(texto) : {});
-    // O site é resolvido ANTES do limite, que conta pelo id do site publicado: slug inventado dá 404 e não cria balde
-    // (revisão de 22/10, P2-R3-1). A mesma leitura já acontece sem limite na página pública do site.
+    // Ordem (revisões de 22–23/10, P2-R3-1 e P2-R4-2): resolver o site (slug inventado dá 404 sem criar balde; a mesma
+    // leitura já acontece sem limite na página pública), aplicar o limite pelo id do site e só então ler o corpo — acima
+    // do limite, ou com tamanho declarado acima do teto, o corpo nem é lido.
     const site = await sitePublicoPorSlug(db(), slug);
     if (!site || site.conteudo.formulario?.ativo !== true) return naoEncontrado();
     const espera = limitador.verificar(ipDaRequisicao(request), "PEDIDO", `site:${site.siteId}`);
     if (espera !== null) return responder({ ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" }, 429, { "Retry-After": String(espera) });
+    if (Number(request.headers.get("content-length") ?? 0) > 16_000) return responder({ ok: false, erro: "Pedido grande demais.", codigo: "DADOS_INVALIDOS" }, 413);
+    const texto = await request.text();
+    if (texto.length > 16_000) return responder({ ok: false, erro: "Pedido grande demais.", codigo: "DADOS_INVALIDOS" }, 413);
+    const corpo = esquemaFormularioPublico.parse(texto ? JSON.parse(texto) : {});
     if (corpo.website) return responder({ ok: true, data: { mensagem: MENSAGEM } }, 202);
     const captura = capturarCampanha({ utm_source: corpo.utm_source, utm_medium: corpo.utm_medium, utm_campaign: corpo.utm_campaign,
       utm_content: corpo.utm_content, utm_term: corpo.utm_term, kc: corpo.kc });

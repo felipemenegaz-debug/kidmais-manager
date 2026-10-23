@@ -36,7 +36,7 @@ test('rotas públicas aplicam o limite antes de qualquer leitura do pedido ou do
     ];
     for (const [arquivo, metodo, grupo] of rotas) {
         const fonte = readFileSync(arquivo, 'utf8').replace(/\r\n/g, '\n');
-        assert.match(fonte, new RegExp(`export async function ${metodo}\\(request: NextRequest\\) \\{\\n  const limite = limitarPublico\\(request, "${grupo}"\\);\\n  if \\(limite\\) return limite;`), arquivo);
+        assert.match(fonte, new RegExp(`export async function ${metodo}\\(request: NextRequest\\) \\{\\n  const limite = await limitarPublico\\(request, "${grupo}"\\);\\n  if \\(limite\\) return limite;`), arquivo);
     }
 });
 
@@ -56,67 +56,102 @@ test('sem origem confiável: nunca o teto de um IP para todos; baldes por empres
     assert.ok(l.verificar(null, 'IDENTIDADE')! > 0, 'identidade sem origem e sem empresa: teto global alto (200/h)');
 });
 
+type Carregar = (limite: number) => Promise<Array<{ codigo: string; id: string }>>;
+type Registro = {
+    confirmarEmpresaPublica(c: string, id: string): void;
+    empresaPublicaConfirmada(c: string | null): string | null;
+    idDaEmpresaPublica(c: string, carregar: Carregar, agora?: number): Promise<string | null>;
+    INTERVALO_CARGA_MS: number;
+    CAPACIDADE_EMPRESAS_CONFIRMADAS: number;
+};
+/** Instância nova dos módulos reais (equivale a um processo recém-iniciado: registro vazio). */
 function carregarReal() {
     const json = (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => new Response(JSON.stringify(body), { status: init?.status ?? 200, headers: init?.headers });
     const cache = new Map<string, Record<string, unknown>>();
-    const registro = carregarModulo('lib/http/empresas-publicas.ts', {}, cache) as { confirmarEmpresaPublica(c: string, id: string): void };
-    const mod = carregarModulo('lib/http/limite-publico.ts', { 'next/server': { NextResponse: { json } } }, cache) as { limitarPublico(r: unknown, g: string): Response | null };
+    const registro = carregarModulo('lib/http/empresas-publicas.ts', {}, cache) as unknown as Registro;
+    const mod = carregarModulo('lib/http/limite-publico.ts', { 'next/server': { NextResponse: { json } } }, cache) as { limitarPublico(r: unknown, g: string, carregar?: Carregar): Promise<Response | null> };
     return { ...mod, ...registro };
 }
-function comAmbiente(env: Record<string, string | undefined>, corpo: () => void) {
+/** Carga sintética das empresas ATIVAS, contando as chamadas. */
+function cargaDe(ativas: Record<string, string>) {
+    const carga = Object.assign(async () => { carga.chamadas += 1; return Object.entries(ativas).map(([codigo, id]) => ({ codigo, id })); }, { chamadas: 0 });
+    return carga;
+}
+async function comAmbiente(env: Record<string, string | undefined>, corpo: () => Promise<void>) {
     const anterior = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
     for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
-    try { corpo(); } finally {
+    try { await corpo(); } finally {
         for (const [k, v] of Object.entries(anterior)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
 }
 const pedidoPublico = (empresa: string | null, cabecalhos: Record<string, string> = { 'x-forwarded-for': '177.10.20.30, 104.23.190.11' }) => ({
     headers: { get: (n: string) => cabecalhos[n] ?? null }, url: `https://k.example/api/fechamentos${empresa === null ? '' : `?empresa=${empresa}`}`,
 });
+const SEM_ORIGEM = { RENDER: 'true', ORIGEM_CLIENTE_BORDA: undefined };
+const COM_BORDA = { RENDER: 'true', ORIGEM_CLIENTE_BORDA: 'render-cloudflare-sobrescreve' };
 
-test('limitarPublico real (reprodução da revisão): 10 PEDIDO de A sem CF não dão 429 ao primeiro de B, nem em outra empresa', () => {
-    const { limitarPublico, confirmarEmpresaPublica } = carregarReal();
-    confirmarEmpresaPublica('buffet-a', 'id-a');
-    confirmarEmpresaPublica('buffet-b', 'id-b');
-    comAmbiente({ RENDER: 'true', ORIGEM_CLIENTE_BORDA: undefined }, () => {
-        for (let i = 0; i < 10; i++) assert.equal(limitarPublico(pedidoPublico('buffet-a'), 'PEDIDO'), null);
-        assert.equal(limitarPublico(pedidoPublico('buffet-a', { 'x-forwarded-for': '189.6.16.247, 104.23.190.11' }), 'PEDIDO'), null, 'B na mesma empresa');
-        assert.equal(limitarPublico(pedidoPublico('buffet-b', { 'x-forwarded-for': '189.6.16.247, 104.23.190.11' }), 'PEDIDO'), null, 'B em outra empresa');
+test('limitarPublico real (reprodução da revisão): 10 PEDIDO de A sem CF não dão 429 ao primeiro de B, nem em outra empresa', async () => {
+    const { limitarPublico } = carregarReal();
+    const carga = cargaDe({ 'buffet-a': 'id-a', 'buffet-b': 'id-b' });
+    await comAmbiente(SEM_ORIGEM, async () => {
+        for (let i = 0; i < 10; i++) assert.equal(await limitarPublico(pedidoPublico('buffet-a'), 'PEDIDO', carga), null);
+        assert.equal(await limitarPublico(pedidoPublico('buffet-a', { 'x-forwarded-for': '189.6.16.247, 104.23.190.11' }), 'PEDIDO', carga), null, 'B na mesma empresa');
+        assert.equal(await limitarPublico(pedidoPublico('buffet-b', { 'x-forwarded-for': '189.6.16.247, 104.23.190.11' }), 'PEDIDO', carga), null, 'B em outra empresa');
     });
 });
 
-test('P2-R3-1: 20.000 códigos de empresa inventados (sem origem) não esgotam o limitador; empresa confirmada e origem nova seguem', () => {
-    const { limitarPublico, confirmarEmpresaPublica } = carregarReal();
-    confirmarEmpresaPublica('buffet-b', 'id-b');
-    comAmbiente({ RENDER: 'true', ORIGEM_CLIENTE_BORDA: undefined }, () => {
+test('P2-R3-1/P2-R4-1: processo recém-iniciado, 20.000 códigos inventados saturam o balde comum — empresa legítima nunca vista e origem nova seguem', async () => {
+    const { limitarPublico, empresaPublicaConfirmada } = carregarReal(); // registro vazio: como depois de reinício/deploy
+    const carga = cargaDe({ 'buffet-b': 'id-b' });
+    await comAmbiente(SEM_ORIGEM, async () => {
         let limitados = 0;
-        for (let i = 0; i < 20_000; i++) limitados += limitarPublico(pedidoPublico(`invalido_${i}`), 'IDENTIDADE') ? 1 : 0;
-        assert.equal(limitados, 20_000 - 200, 'códigos não confirmados dividem UM balde (200/h): a proteção contra abuso continua');
-        for (let i = 0; i < 500; i++) limitarPublico(pedidoPublico(`buffet-falso-${i}`), 'LEITURA');
+        for (let i = 0; i < 20_000; i++) limitados += await limitarPublico(pedidoPublico(`codigo-falso-${i}`), 'IDENTIDADE', carga) ? 1 : 0;
+        assert.equal(limitados, 20_000 - 200, 'inventados dividem UM balde (200/h): a proteção contra abuso continua');
+        for (let i = 0; i < 1_300; i++) await limitarPublico(pedidoPublico(`leitura-falsa-${i}`), 'LEITURA', carga);
+        for (let i = 0; i < 120; i++) await limitarPublico(pedidoPublico(`pedido-falso-${i}`), 'PEDIDO', carga);
+        assert.equal(carga.chamadas, 1, '21.420 códigos desconhecidos custaram UMA carga (intervalo de 30 s), nenhuma consulta por código');
+        assert.equal(empresaPublicaConfirmada('buffet-b'), 'id-b', 'a carga reconheceu a empresa legítima sem visita à página');
         for (const grupo of ['IDENTIDADE', 'LEITURA', 'PEDIDO'])
-            assert.equal(limitarPublico(pedidoPublico('buffet-b'), grupo), null, `empresa confirmada em ${grupo}`);
-        assert.equal(limitarPublico(pedidoPublico(null), 'IDENTIDADE'), null, 'endereço padrão tem balde próprio');
+            assert.equal(await limitarPublico(pedidoPublico('buffet-b'), grupo, carga), null, `empresa legítima (nunca vista neste processo) em ${grupo}`);
+        assert.equal(await limitarPublico(pedidoPublico(null), 'IDENTIDADE', carga), null, 'endereço padrão tem balde próprio');
     });
-    comAmbiente({ RENDER: 'true', ORIGEM_CLIENTE_BORDA: 'render-cloudflare-sobrescreve' }, () => {
+    await comAmbiente(COM_BORDA, async () => {
         const origemNova = { 'x-forwarded-for': '189.6.16.247, 104.23.190.11', 'cf-connecting-ip': '189.6.16.247' };
-        for (let i = 0; i < 20; i++) limitarPublico(pedidoPublico(`outro-invalido-${i}`, { 'x-forwarded-for': `8.8.${i}.1, 104.23.190.11`, 'cf-connecting-ip': `8.8.${i}.1` }), 'PEDIDO');
+        for (let i = 0; i < 10; i++)
+            for (let j = 0; j < 10; j++) await limitarPublico(pedidoPublico(`outro-falso-${i}-${j}`, { 'x-forwarded-for': `8.8.${i}.1, 104.23.190.11`, 'cf-connecting-ip': `8.8.${i}.1` }), 'PEDIDO', carga);
         for (const grupo of ['IDENTIDADE', 'LEITURA', 'PEDIDO'])
-            assert.equal(limitarPublico(pedidoPublico('buffet-b', origemNova), grupo), null, `origem confiável nova em ${grupo}`);
+            assert.equal(await limitarPublico(pedidoPublico('buffet-b', origemNova), grupo, carga), null, `origem confiável nova em ${grupo} (PEDIDO_EMPRESA da B não é o comum)`);
     });
 });
 
-test('limitador: chaves só canônicas — pedidos não confirmados ocupam um balde; com origem, um por IP e um teto comum', () => {
+test('P2-R4-1: depois de sair do registro (capacidade), a empresa volta pela carga antes de ser cobrada; intervalo, formato e falha da carga', async () => {
+    const { idDaEmpresaPublica, confirmarEmpresaPublica, empresaPublicaConfirmada, INTERVALO_CARGA_MS, CAPACIDADE_EMPRESAS_CONFIRMADAS } = carregarReal();
+    const carga = cargaDe({ 'buffet-b': 'id-b' });
+    let t = 1_000_000;
+    assert.equal(await idDaEmpresaPublica('buffet-b', carga, t), 'id-b');
+    for (let i = 0; i <= CAPACIDADE_EMPRESAS_CONFIRMADAS; i++) confirmarEmpresaPublica(`outra-${i}`, `id-${i}`);
+    assert.equal(empresaPublicaConfirmada('buffet-b'), null, 'saiu do registro');
+    assert.equal(await idDaEmpresaPublica('buffet-b', carga, t + 1), null, 'dentro do intervalo, sem nova consulta');
+    assert.equal(carga.chamadas, 1);
+    t += INTERVALO_CARGA_MS;
+    assert.equal(await idDaEmpresaPublica('buffet-b', carga, t), 'id-b', 'intervalo vencido: a carga a traz de volta');
+    assert.equal(carga.chamadas, 2);
+    for (const ruim of ['A', 'x', 'buffet_a', '../a', 'a'.repeat(70), 'invalido_1'])
+        assert.equal(await idDaEmpresaPublica(ruim, carga, t + 10 * INTERVALO_CARGA_MS), null, ruim);
+    assert.equal(carga.chamadas, 2, 'formato inválido nunca consulta');
+    const falha = Object.assign(async () => { throw new Error('banco fora'); }, {});
+    const novo = carregarReal();
+    assert.equal(await novo.idDaEmpresaPublica('buffet-c', falha, t), null, 'falha da carga: desconhecido, sem lançar');
+});
+
+test('limitador: chaves só canônicas — pedidos não confirmados ocupam um balde; com origem, um por IP e um teto comum', async () => {
     const l = criarLimitador(() => 0) as unknown as { verificar(o: string | null, g: string, e?: string | null): number | null; tamanho(): number };
     for (let i = 0; i < 1000; i++) l.verificar(null, 'IDENTIDADE', 'empresa-nao-confirmada');
     assert.equal(l.tamanho(), 1, 'mil pedidos não confirmados: um balde');
     for (let i = 0; i < 5; i++) l.verificar(`8.8.8.${i}`, 'PEDIDO', 'empresa-nao-confirmada');
     assert.equal(l.tamanho(), 1 + 5 + 1, 'cinco IPs + um teto comum de PEDIDO para não confirmadas');
-    const { limitarPublico } = carregarReal();
-    comAmbiente({ RENDER: 'true', ORIGEM_CLIENTE_BORDA: undefined }, () => {
-        const fonte = readFileSync('lib/http/limite-publico.ts', 'utf8');
-        assert.match(fonte, /verificar\(origem, grupo, chaveDaEmpresaPublica\(/, 'limitarPublico só passa a chave canônica');
-        assert.equal(limitarPublico(pedidoPublico('qualquer-coisa'), 'LEITURA'), null);
-    });
+    const fonte = readFileSync('lib/http/limite-publico.ts', 'utf8');
+    assert.match(fonte, /verificar\(origem, grupo, await chaveDaEmpresaPublica\(/, 'limitarPublico só passa a chave canônica');
 });
 
 test('formulário do site: slug inventado não cria balde — o site é resolvido antes e o limite conta pelo id do site', () => {

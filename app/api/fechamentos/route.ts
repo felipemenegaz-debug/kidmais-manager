@@ -70,7 +70,7 @@ function requestMetadata(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const limite = limitarPublico(request, "PEDIDO");
+  const limite = await limitarPublico(request, "PEDIDO");
   if (limite) return limite;
   let body: unknown;
   try {

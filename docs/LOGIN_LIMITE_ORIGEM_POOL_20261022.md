@@ -1,6 +1,6 @@
 # Login: limite por origem real e pool do PostgreSQL (22/10/2026)
 
-Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1). As correções da rodada 4 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3" e "Rodada 4"). Nada de push, PR, deploy, env ou banco real nesta rodada.
+Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1), e a rodada 4 (`931f669`) também (2 P2, sem P1). As correções da rodada 5 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3", "Rodada 4" e "Rodada 5"). Nada de push, PR, deploy, env ou banco real nesta rodada.
 
 Origem: achados X-1, X-2 e X-3 da revisão de 22/10/2026 (`ambientes-locais/revisao-exportacao-blocos-20261022/PARECER.md`).
 
@@ -267,4 +267,44 @@ Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r4
   - clusters encerrados (`pg_ctl status` 3) e removidos.
 - **Mutantes**: **21/21 mortos por asserção** (os 14 da rodada 3 + 7 novos: texto bruto de `?empresa=`, código não confirmado com balde próprio, resolução sem confirmar, cota antes da elegibilidade na recuperação, cota antes do limite do e-mail no cadastro, marca sem teto, slug bruto no formulário); controles 66/66 antes e depois.
 - **`npm run check:v1:static`**: **PASS único**, saída 0 (3304/3304 unitários, 103/103 mocks, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.
+
+## Rodada 5 — correções da revisão da rodada 4 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r4-independente-20261023/PARECER.md`. P2-R3-2 (cota de e-mail) e P3-R3-3 (marca) foram **fechados** localmente.
+
+### P2-R4-1 — empresa legítima fora do registro era cobrada como desconhecida
+
+- Antes, o registro só conhecia códigos confirmados por visita à página ou às APIs. Depois de reinício/deploy ou de saída do registro, uma página já aberta chamava a API, e a empresa caía no balde comum, possivelmente saturado.
+- Agora `idDaEmpresaPublica` (`lib/http/empresas-publicas.ts`) é chamada **antes** de cobrar um código fora do registro:
+  - formato inválido → desconhecido, sem consulta;
+  - código fora do registro → espera a carga em curso, ou dispara uma carga de **todos** os códigos de empresas ATIVAS (uma consulta, até 20.000 linhas);
+  - no máximo uma carga a cada 30 s; uma enxurrada de códigos inventados custa uma consulta por intervalo, nenhuma por código;
+  - falha da carga → desconhecido, sem lançar (a rota recusa do mesmo jeito).
+- Com isso, `limitarPublico` ficou **assíncrono**. As 9 rotas e as 2 chamadas de `rotas-publicas.ts` passaram a usar `await`. A ordem "limite antes de qualquer leitura" está preservada e testada.
+- Com origem confiável, `PEDIDO_EMPRESA` também usa o id: empresas legítimas não dividem mais o teto das não confirmadas.
+- **Residual declarado:** uma empresa criada depois da última carga, durante os ≤30 s seguintes, ainda conta como desconhecida.
+
+### P2-R4-2 — o formulário lia e validava o corpo antes do limite
+
+- Nova ordem: resolver o site → limite por `site:<siteId>` → recusar `content-length` acima de 16.000 sem ler → ler e validar o corpo.
+- Acima do limite, o corpo não é lido nem validado: 429 com zero leituras, coberto por teste.
+
+### Validação local (rodada 5, 23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r5-*.log`, `carga-empresas-sql.json`, `mutantes.*`, `check-v1-static-r5.log`).
+
+- **Unitários focados** (acessos, autenticação, cadastro, http, webhook, cotação pública, rotas públicas de pacotes/adicionais/disponibilidade/CPF, marketing): **249/249**. Cenários incluídos:
+  - processo recém-iniciado com o balde comum saturado por 20.000 códigos: a empresa legítima nunca vista passa em IDENTIDADE, LEITURA e PEDIDO, e 21.420 códigos desconhecidos custaram **uma** carga;
+  - saída do registro por capacidade, com volta pela carga depois do intervalo;
+  - formato inválido nunca consulta;
+  - falha da carga não lança;
+  - formulário: 429 e 413 com **zero** leituras do corpo.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo):
+  - `r5-1`: login-origem 7/7 em `atual` e em `063`, mais cobranca-e8 [atual, 075], cadastro-069, fixture-atualizacao-staging [078], painel-063 e marketing-a [086], todos PASS;
+  - consulta da carga (o SQL exato do código, em transação somente leitura) válida nos modelos `atual`, `063` e `086` (`carga-empresas-sql.json`);
+  - `r5-2`: login-origem 7/7 em `atual` e em `063`;
+  - cluster encerrado (`pg_ctl status` 3) e removido.
+- **Mutantes**: **26/26 mortos por asserção** (os 21 anteriores + 5 novos: código desconhecido sem carga, carga sem intervalo, formato não conferido antes da consulta, formulário sem corte pelo tamanho declarado, corpo lido antes do limite); controles 75/75 antes e depois.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3306/3306, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
 - Nada remoto; `.env.local` não lido.

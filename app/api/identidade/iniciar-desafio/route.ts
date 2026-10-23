@@ -26,7 +26,7 @@ function noStore(response: NextResponse) {
 }
 
 export async function POST(request: NextRequest) {
-  const limite = limitarPublico(request, "IDENTIDADE");
+  const limite = await limitarPublico(request, "IDENTIDADE");
   if (limite) return limite;
   // Empresa pelo endereço (servidor): CPF só é procurado nela; nunca em cadastro de outra empresa.
   let escopo: Awaited<ReturnType<typeof escopoIdentidadePublica>>;
