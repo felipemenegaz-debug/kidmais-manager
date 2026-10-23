@@ -12,6 +12,7 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { concluirContinuidade, continuidadesDaEmpresa, recuperarVinculo, registrarContinuidade, type ProvedorRecuperacao } from './continuidade.ts';
 import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
+import { concluirArrependimento, manifestacoesDaEmpresa, registrarComunicacaoIntermediador } from '../assinatura/arrependimento.ts';
 
 /**
  * Painel comercial do desenvolvedor (E5): situação comercial por empresa, exceções, eventos do provedor e histórico
@@ -24,7 +25,8 @@ import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
  */
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 export const ACOES_COMERCIAIS = ['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO','COMERCIAL_EXCECAO_CONCEDIDA', 'COMERCIAL_EXCECAO_REVOGADA', 'COMERCIAL_ACAO_RECUSADA',
-    'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA', 'COMERCIAL_VINCULO_RECUPERADO'] as const;
+    'COMERCIAL_CONTINUIDADE_REGISTRADA', 'COMERCIAL_CONTINUIDADE_CONCLUIDA', 'COMERCIAL_VINCULO_RECUPERADO',
+    'COMERCIAL_ARREPENDIMENTO_COMUNICADO', 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO'] as const;
 
 export type ComercialResumo = { instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null };
 
@@ -40,7 +42,7 @@ export async function comercialResumo(tx: DbExecutor, empresaId: string): Promis
 export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
     const resumo = await comercialResumo(tx, empresaId);
     if (!resumo.instalado)
-        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [] };
+        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [], arrependimentos: [] };
     const a = (await tx.query<{ ciclo: string | null; teste_inicio: string; em_atraso_desde: string | null; versao: number }>(
         `SELECT ciclo, ${ISO('teste_inicio')} AS teste_inicio, ${ISO('em_atraso_desde')} AS em_atraso_desde, versao FROM empresa_assinaturas WHERE empresa_id = $1::uuid`, [empresaId])).rows[0];
     const excecoes = (await tx.query<{ id: string; tipo: string; valida_ate: string; motivo: string; criado_em: string; criado_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; vigente: boolean }>(
@@ -64,6 +66,7 @@ export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
         eventos: eventos.map((ev) => ({ tipo: ev.tipo, situacao: ev.situacao, recebidoEm: ev.recebido_em, processadoEm: ev.processado_em, tentativas: ev.tentativas })),
         historico,
         continuidades: await continuidadesDaEmpresa(tx, empresaId),
+        arrependimentos: await manifestacoesDaEmpresa(tx, empresaId, 20),
     };
 }
 
@@ -78,6 +81,11 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
         nomeNovo: z.string().trim().min(2).max(200), instrumento: z.string().trim().min(5).max(300), evidencias: z.string().trim().min(5).max(1000),
         dataEfetiva: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), motivo }).strict(),
     z.object({ operacao: z.literal('concluir-continuidade'), continuidadeId: z.string().uuid(), motivo }).strict(),
+    // Grupo C (097): acompanhamento das manifestações de arrependimento pelo atendimento.
+    z.object({ operacao: z.literal('arrependimento-comunicar'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
+        referencia: z.string().trim().min(3).max(300), motivo }).strict(),
+    z.object({ operacao: z.literal('arrependimento-concluir'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
+        situacao: z.enum(['RESTITUIDO', 'NAO_APLICAVEL']), referencia: z.string().trim().min(5).max(500), valorCentavos: z.number().int().positive().nullish(), motivo }).strict(),
     z.object({ operacao: z.literal('recuperar-vinculo'), assinaturaId: z.string().trim().min(3).max(100).regex(/^[A-Za-z0-9_-]+$/), motivo }).strict(),
 ]);
 
@@ -145,6 +153,19 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_CONTINUIDADE_REGISTRADA', antes: { documentoAnterior: r.documentoAnterior },
                 depois: { continuidadeId: r.continuidadeId, tipo: r.tipo, situacao: r.situacao, documentoNovo: r.documentoNovo, instrumento: input.instrumento, dataEfetiva: input.dataEfetiva } });
             resultado = { continuidadeId: r.continuidadeId, situacao: r.situacao };
+        }
+        else if (input.operacao === 'arrependimento-comunicar') {
+            const r = await registrarComunicacaoIntermediador(tx, { empresaId, protocolo: input.protocolo, referencia: input.referencia });
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_COMUNICADO', antes: { comunicado: false },
+                depois: { protocolo: r.protocolo, referencia: input.referencia } });
+            resultado = { protocolo: r.protocolo };
+        }
+        else if (input.operacao === 'arrependimento-concluir') {
+            const r = await concluirArrependimento(tx, { empresaId, protocolo: input.protocolo, usuarioId: sessao.usuario_id, situacao: input.situacao,
+                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null });
+            await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO', antes: { situacao: 'RECEBIDO' },
+                depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, encerrouAcesso: r.encerrou } });
+            resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou };
         }
         else if (input.operacao === 'recuperar-vinculo') {
             const provedor = deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente;

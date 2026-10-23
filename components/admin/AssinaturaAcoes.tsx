@@ -8,6 +8,7 @@ import Assinatura, { reais, type DadosAssinatura } from './Assinatura';
 import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
+import { ArrependimentoLegal } from './ArrependimentoLegal';
 import { REGRA_RESERVA, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
 import { linhaContratante } from '@/lib/assinatura/comprovante-texto';
 
@@ -201,7 +202,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             </p>
         </form>}
     </section>
-    <EncerramentoComDevolucao dados={dados} recarregar={recarregar} /></>;
+    <EncerramentoComDevolucao dados={dados} recarregar={recarregar} />
+    <ArrependimentoLegal dados={dados} /></>;
 }
 
 /** Tela Assinatura com as ações de cobrança (componente cliente: a página de servidor não passa funções). */
