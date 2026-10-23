@@ -979,3 +979,62 @@ aplicar → conferir (sem a 097, a tela indica o canal oficial).
 - Cluster 127.0.0.1:55607 encerrado (`pg_ctl` parado) e removido: o diretório não existe mais e a porta está livre.
 - Relatórios preservados em `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/`. A subpasta `grupo-c-097-20261023/` guarda a bateria, as 7 mutações com diff e log, o static e o resultado do E2E.
 - Cópia isolada das mutações removida; a junção foi desfeita antes e o `node_modules` original ficou intacto.
+
+### Décima sexta rodada: revisão de `8da88ba` (grupo C) — três P2 e um P3
+
+A revisão do Astra **REPROVOU** o grupo C (relatório em `revisao-arrependimento-l1-8da88ba-20261023/RELATORIO.md`). Registro
+independente do provedor, protocolo, autorização e exportação passaram. Correções no commit `d9bf69f`; nenhum commit
+anterior foi reescrito.
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-C1: a sincronização reabria a assinatura concluída com restituição (provedor ainda com a assinatura ACTIVE e a cobrança antiga RECEIVED) | A 097 grava no **registro** a assinatura do provedor vigente (`provedor_assinatura_id`, núcleo imutável). Na conclusão **RESTITUIDO** grava `restituicao_limite` (data da conclusão, Brasília) e, se o atendimento informar, `restituicao_cobranca_id`. `cobrancasDevolvidas` (a mesma regra da 089, usada pelo webhook, pela reconciliação e pela tela) passa a incluir essas restituições: na assinatura do registro, nenhuma cobrança com vencimento até o limite sustenta período; só pagamento com vencimento posterior, ou de outra assinatura, reativa. A conclusão só encerra o acesso se a empresa **ainda estiver na assinatura do registro**: concluir um pedido antigo não encerra a recontratação (`encerrou=false`, `mesmaAssinatura=false`). Restrição nova: limite e cobrança só existem na restituição. | caso 6: a reprodução do Astra (REVIEW C1) continua ENCERRADA; outra cobrança antiga também não reabre; pagamento novo reativa; recontratação (cancelada → assinatura nova paga → ATIVA) não é encerrada pelo pedido antigo, e o limite antigo não alcança a assinatura nova |
+| P2-C2: o e-mail prometia restituição antes da análise; os Termos chamavam o e-mail de confirmação imediata | E-mail: “Este e-mail confirma o registro do pedido. A equipe Kidmais vai analisá-lo e, quando cabível, comunicar o intermediador de pagamento e providenciar a restituição dos valores pagos, informando o resultado pelo canal oficial.” Tela no mesmo sentido; “não se aplica” deixa de dizer que a resposta foi enviada (“resposta pelo canal oficial”); o painel avisa que o sistema não envia a justificativa. **Termos `2026-10-23-minuta4`**: protocolo na tela no registro e **cópia** por e-mail (se o e-mail não chegar, o protocolo da tela vale); depois do registro, a equipe analisa: no arrependimento legal, comunicação e restituição de imediato (compromisso mantido); nos demais casos, resultado pelo canal oficial. | unitário do e-mail (sem “Vamos providenciar”/“imediatamente”); textos 20/20 |
+| P2-C3: limiar de 1 h não é latência; a conferência versionada é diária | **Vigia** `scripts/arrependimento-vigia.cjs`, somente leitura (READ ONLY, sem Asaas, sem e-mail, sem gravar): alarma (saída 2) quando o aviso interno **não foi entregue** (FALHOU, NAO_CONFIGURADO, ou PENDENTE 5 min depois do registro) — sem esperar 1 h — e quando há manifestação RECEBIDA há 1 h ou mais (sem comunicação ou sem conclusão). Mesmas travas de alvo e TLS da conferência de pagamentos; `KIDMAIS_VIGIA_MODO=aguardando` por padrão. Agendamento proposto a cada 15 min em `infra/render-arrependimento-vigia-production.yaml` (**não aplicado**; cron real não alterado). Latência máxima do alarme: 1 h + 15 min (vencida); 5 + 15 min (aviso não entregue). A D-C4 diária continua. O limiar de 1 h passa a ser descrito como **limiar de alarme**, não prazo de atendimento. | unitário do vigia 4/4; caso 9 (aviso não configurado alarma já; daqui a 2 h todas as RECEBIDAS alarmam; nada é gravado) |
+| P3-C1: o postcheck não conferia NOT NULL | Postcheck compara por igualdade exata a lista de colunas (ordem, tipo e NOT NULL) e as 21 restrições na forma canônica do PG 18. A guarda passou a `IS DISTINCT FROM` (nascer com situação NULL é recusado mesmo sem o NOT NULL). Hashes dos aplicadores atualizados. | caso 2: NOT NULL retirado de `situacao`/`aviso_interno`, tipo trocado e coluna a mais são recusados; caso 5: sem o NOT NULL, a guarda recusa situação NULL |
+
+**Processo de atendimento (P2-C3), como fica descrito:**
+1. **Registro:** protocolo na hora; o aviso interno `[AÇÃO HOJE]` é tentado logo depois.
+2. **Alarme:** se o aviso não foi entregue, o vigia alarma na execução seguinte. Se a manifestação continua RECEBIDA depois de 1 h, alarma a cada execução até a conclusão. O alarme chega a quem recebe as falhas do cron no Render; **o responsável pelo atendimento ainda precisa ser definido por Felipe** (pendente).
+3. **Ação:** comunicar o intermediador no painel do Asaas, registrar a referência, concluir e responder ao contratante pelo canal oficial (§5.1 do documento de devolução).
+4. **Evidência:** referência da comunicação, conclusão e auditoria no painel. A entrega da resposta ao contratante continua manual, e o sistema não a comprova.
+
+**Validação:**
+Cluster descartável 127.0.0.1:55607 (PG 18), recriado com o mesmo script, diretório e autorização da tarefa.
+- **Bateria PG completa** sobre `d9bf69f`: **115/115 arquivos**, 700 testes, 696 pass, 0 fail. Os 4 pulados são os mesmos de
+  propósito: `contratacao-e8` no modelo `atual`. Inclui `arrependimento-097` **10/10**, aplicadores reais 090/091/096/097,
+  devolução 089, sincronização, exportação e exportação adversarial. Relatório:
+  `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/2026-10-23T05-29-02-544Z-check-v1-postgres.log`.
+- **E2E:** `assinatura-devolucao-ui` com 5 cenários (canal oficial sem a 097, registro fora da regra comercial, protocolo,
+  consulta depois de recarregar, isolamento entre empresas na tela e na API, celular); `cpf-fundador-ui` 8/8;
+  `cadastro-publico-ui` 8/8.
+- **Mutações** em cópia isolada (`git clone` local de `d9bf69f`; checkout intocado). Controle original PASS antes e
+  depois, e **12/12 detectadas**:
+
+  | Mutação | Alteração | Detectada por |
+  |---|---|---|
+  | m1 | `RESTITUIDO` sem exigir a comunicação | caso 6 |
+  | m2 | `RESTITUIDO` não encerra o acesso | caso 6 |
+  | m3 | sem idempotência pela chave | caso 3 (5 e 6 em cascata) |
+  | m4 | guarda deixa o motivo mutável | caso 5 |
+  | m5 | postcheck sem as definições das restrições | caso 2 |
+  | m6 | D-C4 com 100 h em vez de 1 h | caso 7 |
+  | m7 | exportação da 097 sem linhas | caso 8 |
+  | m8 | sincronização ignora a restituição da 097 | caso 6: ENCERRADA → ATIVA (o defeito do Astra volta) |
+  | m9 | conclusão encerra qualquer assinatura | caso 6 (recontratação) |
+  | m10 | postcheck sem a conferência de colunas | caso 2 (NOT NULL retirado passa) |
+  | m11 | guarda com `<>` (insegura contra NULL) | caso 5 |
+  | m12 | vigia ignora aviso interno não entregue | caso 9 |
+- **Scripts:** aplicadores 097, bloco 097, vigia, reconciliação, cron e production: 89/89. Unitários de arrependimento,
+  devolução e exportação: 24/24. Cadastro e textos: 20/20.
+- `check:v1:static` sobre `d9bf69f`: PASS (3414 testes, lint, TypeScript, build).
+- **Ambiente:** cluster encerrado e removido (diretório inexistente, porta livre). Cópia das mutações removida com a
+  junção desfeita antes. Logs em `…-relatorios/grupo-c-097-rodada2-20261023/` (bateria, 12 mutações com diff e log,
+  static, E2E).
+
+**Notas da revisão mantidas como pendência:**
+- a lista da Gestão mostra 10 pedidos e o painel 20, sem busca por protocolo;
+- a consulta da tela não devolve motivo, referência nem justificativa (a exportação devolve);
+- os pedidos recebidos por e-mail precisam de um roteiro seguro: autoria, data real de recebimento, protocolo, confirmação e auditoria. Um INSERT isolado não executa os e-mails nem a auditoria do serviço;
+- a forma canônica das restrições só foi conferida no PG 18;
+- o acesso nos estados SOMENTE_LEITURA e BLOQUEADO não foi provado por E2E. A leitura do paywall pelo Astra indica que a área Assinatura continua acessível.

@@ -229,19 +229,34 @@ legal)”, com senha recente, motivo e auditoria):
 1. **Comunicar o intermediador** de imediato (no painel do Asaas: remover a renovação e pedir o estorno, se houver
    cobrança) e registrar a referência → “Registrar comunicação ao intermediador”.
 2. **Concluir:**
-   - **Restituído** (exige a comunicação já registrada, o valor e a referência do estorno): encerra o período pago na hora
-     (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60 dias, com exportação);
+   - **Restituído** (exige a comunicação já registrada, o valor e a referência do estorno; a cobrança restituída, `pay_…`,
+     é opcional): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
+     dias, com exportação) **se a empresa ainda estiver na assinatura do provedor do registro**. Grava o limite (data da
+     conclusão): a sincronização (webhook, reconciliação, tela) não deixa cobranças dessa assinatura com vencimento até o
+     limite reabrirem o período. Só pagamento com vencimento posterior, ou de outra assinatura (recontratação), reativa.
+     Pedido antigo concluído depois da recontratação não encerra a assinatura nova;
    - **Não se aplica** (exige justificativa, enviada ao cliente pelo atendimento): não muda o acesso.
 3. Responder ao cliente pelo canal oficial, citando o protocolo (o sistema não avisa o contratante na conclusão).
 
 O sistema registra a comunicação e a conclusão, mas não as executa: remoção da renovação e estorno são feitos à mão no
 painel do Asaas, e o valor e a referência da restituição são **declarados** pelo atendimento (não conferidos no Asaas).
 
-Cada etapa é registrada uma vez só (guarda da 097). A conferência D-C4 alarma toda manifestação ainda **RECEBIDA** depois
-de 1 hora (`ARREPENDIMENTO_PENDENTE`, resultado `SEM_COMUNICACAO` ou `SEM_CONCLUSAO`), sem protocolo nem empresa no alarme.
+Cada etapa é registrada uma vez só (guarda da 097).
 
-**Premissas assumidas (decisão de Felipe pendente de confirmação):** o acesso só fecha na conclusão com restituição (não no
-registro); os informativos de prazo e provedor não bloqueiam nada; o alarme de 1 hora é o "imediato" operacional.
+**Alarmes:**
+- **Vigia** `scripts/arrependimento-vigia.cjs`, somente leitura, proposto a cada 15 min em
+  `infra/render-arrependimento-vigia-production.yaml` (não aplicado). Alarma já quando o aviso interno não foi entregue e,
+  depois de 1 h, enquanto a manifestação estiver RECEBIDA. Latência máxima: 1 h + 15 min (vencida); 5 + 15 min (aviso não
+  entregue).
+- **D-C4 diária** (`ARREPENDIMENTO_PENDENTE`) continua como segunda camada.
+- **1 h é o limiar de alarme, não o prazo de atendimento.** O responsável pelo atendimento ainda precisa ser definido por
+  Felipe.
+
+**Premissas assumidas (decisão de Felipe pendente de confirmação):**
+- o acesso só fecha na conclusão com restituição, não no registro;
+- os informativos de prazo e provedor não bloqueiam nada.
+
+A equivalência "imediato = alarme de 1 h" foi retirada (revisão 8da88ba, P2-C3).
 
 Fila (somente leitura, com autorização de leitura no ambiente):
 
