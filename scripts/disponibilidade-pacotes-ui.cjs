@@ -13,6 +13,7 @@
  *     o envio do fechamento por HTTP gravam com esse pacote (COTACAO_PUBLICA_POR_EMPRESA=true só neste servidor local).
  *   - Fase 1c: o fechamento administrativo (wizard do painel) do buffet comum lista os pacotes dele, mostra o calendário
  *     pelas regras dele e cria o fechamento com o pacote novo.
+ *   - Fase 1d: no Perguntar ao Kidmais do buffet comum, "pacote Festa Jardim UI" abre a revisão preparada com o código P_.
  */
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
@@ -102,8 +103,10 @@ async function principal() {
 
     const env = { ...process.env, DATABASE_URL: `postgresql://kidmais_descartavel@127.0.0.1:${porta}/${receita.TRABALHO[0]}`,
       DATABASE_SSL: 'false', ADMIN_AUTH_SECRET: randomBytes(32).toString('hex'), ADMIN_AUTH_ORIGIN: base,
-      AGENDA_PUBLICA_EMPRESA_ID: DONA, COTACAO_PUBLICA_POR_EMPRESA: 'true', EMAIL_PROVIDER: 'desativado', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1' };
-    for (const k of ['RESEND_API_KEY', 'EMAIL_REMETENTE', 'EMAIL_ARQUIVO_DIR', 'OPENAI_API_KEY', 'KIDMAIS_DEPLOY_ENV', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_HOSTNAME',
+      AGENDA_PUBLICA_EMPRESA_ID: DONA, COTACAO_PUBLICA_POR_EMPRESA: 'true',
+      // Fase 1d: IA ligada só neste servidor local, sem provedor (caminho determinístico, nenhuma rede).
+      INTELIGENCIA_ENABLED: 'true', AI_READ_ENABLED: 'true', AI_ADMIN_ACTIONS_ENABLED: 'true', AI_OPERACIONAL_ENABLED: 'true', EMAIL_PROVIDER: 'desativado', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1' };
+    for (const k of ['RESEND_API_KEY', 'EMAIL_REMETENTE', 'EMAIL_ARQUIVO_DIR', 'OPENAI_API_KEY', 'CONVITES_OPENAI_API_KEY', 'CONVITES_GEMINI_API_KEY', 'GUPSHUP_API_KEY', 'AI_PROVIDER_PRIMARY', 'AI_PROVIDER_ECONOMY', 'KIDMAIS_DEPLOY_ENV', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_HOSTNAME',
       'RECUPERACAO_SENHA_ATIVA', 'ASAAS_API_KEY', 'ASAAS_WEBHOOK_TOKEN']) delete env[k];
     servidor = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(PORTA_WEB)],
       { cwd: process.cwd(), env, stdio: ['ignore', logfile, logfile], windowsHide: true });
@@ -316,6 +319,28 @@ async function principal() {
         await contexto.close();
         resultados.push('Fechamento administrativo (wizard do painel): pacotes da empresa no seletor, calendário pelas regras dela (sábado livre, segunda fechada), criado com o pacote novo');
         console.log('E2E_FECHAMENTO_ADMIN_PACOTE_LIVRE_OK');
+      }
+      // Fase 1d — IA: "crie uma festa … pacote Festa Jardim UI" no Perguntar ao Kidmais do buffet comum abre a revisão
+      // preparada com o pacote DELE (código P_…), resolvido no Core pelo nome; nada é gravado até concluir o formulário.
+      {
+        const sabadoIa = new Date(sabadoAdmin); sabadoIa.setUTCDate(sabadoIa.getUTCDate() + 7);
+        const dataIa = `${String(sabadoIa.getUTCDate()).padStart(2, '0')}/${String(sabadoIa.getUTCMonth() + 1).padStart(2, '0')}/${sabadoIa.getUTCFullYear()}`;
+        const { contexto, page } = await entrar('gestao-com-ui@exemplo.test');
+        await page.goto(`${base}/admin/dashboard`);
+        await page.getByRole('button', { name: 'Perguntar ao Kidmais' }).first().click();
+        const caixa = page.getByPlaceholder('Pergunte sobre sua operação…');
+        await caixa.fill(`crie uma festa do cliente Cliente Sintético, pacote Festa Jardim UI 40 convidados, beatriz 6 anos, dia ${dataIa} à noite`);
+        const antes = (await client.query('SELECT count(*)::int AS n FROM fechamentos WHERE empresa_id = $1', [COM])).rows[0].n;
+        await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+        await page.waitForURL((url) => url.pathname.endsWith(`/admin/clientes/${clienteId}/fechamento`) && url.searchParams.has('rascunho'), { timeout: 90000 });
+        await page.getByLabel('Preparado pelo Kidmais').waitFor();
+        await page.waitForFunction((codigo) => document.querySelector('select[aria-label="Pacote"]')?.value === codigo, codigoLivre);
+        assert.equal(await page.getByText('O pacote da preparação não existe nesta empresa', { exact: false }).count(), 0);
+        assert.equal((await client.query('SELECT count(*)::int AS n FROM fechamentos WHERE empresa_id = $1', [COM])).rows[0].n, antes, 'preparar não grava fechamento');
+        await page.screenshot({ path: path.join(relatorios, 'ia-revisao-pacote-livre.png'), fullPage: true });
+        await contexto.close();
+        resultados.push('IA (Perguntar ao Kidmais): "pacote Festa Jardim UI" abre a revisão preparada com o código P_ do buffet, sem gravar nada');
+        console.log('E2E_IA_PACOTE_LIVRE_OK');
       }
     }
     {

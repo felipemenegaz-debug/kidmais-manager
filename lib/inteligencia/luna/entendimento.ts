@@ -23,6 +23,7 @@ export type ObjetivoLuna = (typeof OBJETIVOS)[number];
 export const RELACOES = ["SEM_RASCUNHO", "RESPONDE", "CORRIGE", "TROCA_OBJETIVO", "CONSULTA_PARALELA"] as const;
 export const FESTAS = ["NENHUMA", "PROXIMA", "DA_TELA", "DA_CONVERSA", "POR_DATA"] as const;
 export const CATEGORIAS = ["DOCES", "REFRIGERANTES"] as const;
+/** Ids V1 dos sete pacotes do catálogo da Kidmais; outro pacote vem como o nome dito pelo usuário (o Core resolve na empresa). */
 export const PACOTES = ["pocket", "mini", "compacta", "essencial", "completa", "premium", "pizza_party_scienza"] as const;
 export const LIMITE_HISTORICO = 4;
 
@@ -98,7 +99,8 @@ export function schemaEntendimento(consultas: readonly string[], acoes: readonly
         required: ["cliente", "pacote", "convidados", "aniversariante", "idade", "tema", "data", "diaMes", "turno", "horario"],
         properties: {
           cliente: textoOuNulo(80),
-          pacote: { type: ["string", "null"], enum: [...PACOTES, null] },
+          // Id V1 quando o usuário cita um dos sete; senão o nome do pacote como ele disse (o Core confere na empresa).
+          pacote: textoOuNulo(60),
           convidados: inteiroOuNulo(1, 500),
           aniversariante: textoOuNulo(60),
           idade: inteiroOuNulo(0, 120),
@@ -153,7 +155,7 @@ const saidaSchema = z.object({
   }).strict(),
   contratacao: z.object({
     cliente: texto(80),
-    pacote: n(z.enum(PACOTES)).catch(null),
+    pacote: texto(60),
     convidados: numero(1, 500),
     aniversariante: texto(60),
     idade: numero(0, 120),
@@ -209,6 +211,7 @@ const INSTRUCAO = [
   "- O OBJETO PRINCIPAL governa. \"crie uma festa do cliente X, pacote premium\" é PREPARAR_CONTRATACAO (o pacote é um atributo da festa); só é ACAO criar_pacote quando o usuário quer cadastrar um pacote novo do catálogo (ex.: \"crie um pacote chamado Premium\").",
   "- Elipse (\"crie uma do cliente Felipe…\"): use o histórico e o rascunho. Se o cadastro desejado continuar incerto, objetivo ESCLARECER com uma pergunta curta. Nunca escolha criar_pacote só porque a palavra pacote aparece.",
   "- Correção explícita (\"quero criar uma festa e não um pacote\"): correcao=true, objetivo é o objeto afirmado; relacaoRascunho=TROCA_OBJETIVO se o rascunho atual for de outro objetivo.",
+  "- contratacao.pacote: copie o nome do pacote COMPLETO, exatamente como o usuário escreveu, com números e qualificadores (ex.: \"Premium Jardim\", \"Festa 2026\"). Use o id (pocket, mini, compacta, essencial, completa, premium, pizza_party_scienza) só quando o nome citado for exatamente Pocket, Mini Festa, Compacta, Essencial, Completa, Premium ou Pizza Party, sem outras palavras. Nunca invente, encurte nem complete um pacote: o Core confere na empresa.",
   "- Quantidades de doces/refrigerantes para uma festa: CALCULO_CONSUMO. Com consumoPendente, respostas como \"4\" ou \"refrigerante de 2l\" continuam esse cálculo: mantenha TODAS as categorias pendentes em consumo.categorias.",
   "- Perguntas sobre dados do sistema: CONSULTA, com as consultas do catálogo necessárias (no máximo 4). Durante um rascunho, consulta é CONSULTA_PARALELA e não mexe no rascunho.",
   "- Resposta a uma pergunta do rascunho, ou novos dados dele: RESPONDE ou CORRIGE, com o objetivo DO PRÓPRIO rascunho (PREPARAR_CONTRATACAO para preparar_contratacao; ACAO com acao = a capacidade do rascunho nos demais) e os dados em contratacao (contratação) — inclua TODOS os dados que a mensagem e o histórico trouxerem, não só o perguntado.",
@@ -396,9 +399,16 @@ export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "
   nome("cliente");
   nome("aniversariante");
   if (k.pacote) {
-    // O pacote precisa ter sido citado pelo nome (o Core confirma a existência na empresa depois).
-    const citadoPacote = k.pacote === "pizza_party_scienza" ? /\bpizza\s*party\b/.test(normalizar(textoUsuario)) : normalizar(textoUsuario).includes(k.pacote === "mini" ? "mini" : k.pacote);
-    if (citadoPacote) contratacao.pacote = k.pacote;
+    // O pacote precisa ter sido citado pelo usuário (o Core resolve e confirma na empresa depois): id V1 pelo nome do
+    // catálogo da Kidmais; outro pacote pelo próprio nome dito, sem pontuação e com até 60 caracteres.
+    const pacote = k.pacote.trim();
+    const dito = normalizar(textoUsuario);
+    const citadoPacote = pacote === "pizza_party_scienza" ? /\bpizza\s*party\b/.test(dito)
+      : (PACOTES as readonly string[]).includes(pacote) ? dito.includes(pacote === "mini" ? "mini" : pacote)
+        : /^[\p{L}\p{N}][\p{L}\p{N} '_-]{1,59}$/u.test(pacote) && dito.includes(normalizar(pacote));
+    // Nome encurtado pelo modelo ("premium" para "Premium Jardim") não é corrigido aqui, pelo histórico: a ação combina
+    // com o que a MENSAGEM ATUAL disse (`combinar` da contratação), que respeita resposta direta, correção e negação.
+    if (citadoPacote) contratacao.pacote = pacote;
     else descartes.push("pacote");
   }
   const convidados = doUsuario("convidados", k.convidados);

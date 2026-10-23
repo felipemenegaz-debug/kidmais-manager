@@ -128,7 +128,9 @@ async function avancar(acao: FerramentaAcao, draft: HumanGateDraft, ctx: Context
 
 /** Extração da mensagem: regras da ação e, por cima, o que a Luna entendeu (só os campos que a ação aceita). */
 function extraidosDa(acao: FerramentaAcao, texto: string, perguntado: string | null, doModelo?: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  return { ...acao.extrair(texto, perguntado), ...(doModelo && acao.doModelo ? acao.doModelo(doModelo) : {}) };
+  const extraido = acao.extrair(texto, perguntado);
+  const doLuna = doModelo && acao.doModelo ? acao.doModelo(doModelo) : {};
+  return acao.combinar ? acao.combinar(extraido, doLuna) : { ...extraido, ...doLuna };
 }
 
 export async function iniciarRascunho(acao: FerramentaAcao, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate, doModelo?: Readonly<Record<string, unknown>>): Promise<Avanco> {
