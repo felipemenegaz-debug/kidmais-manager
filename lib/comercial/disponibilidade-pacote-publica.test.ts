@@ -13,6 +13,8 @@ const KIDMAIS = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const POCKET_A = "11111111-1111-4111-8111-111111111111";
 const POCKET_B = "22222222-2222-4222-8222-222222222222";
 const POCKET_K = "33333333-3333-4333-8333-333333333333";
+const LIVRE_A = "44444444-4444-4444-8444-444444444444";
+const CODIGO_LIVRE = "P_9F2C4E1A7B3D4C5E8F6A0B1C2D3E4F5A";
 
 const linha = (dia_semana: number, codigo: string, estado = "DISPONIVEL", vigencia_inicio = "2026-01-01", vigencia_fim: string | null = null) =>
   ({ dia_semana, codigo, estado: estado as "DISPONIVEL", vigencia_inicio, vigencia_fim });
@@ -56,22 +58,28 @@ test("leitura das regras: só o pacote pedido, só regras ativas e não expirada
   assert.deepEqual(Object.keys(regras[0]).sort(), ["dia", "estado", "horario", "vigenciaFim", "vigenciaInicio"]);
 });
 
-test("tela: Kidmais = null (regra legada); empresa = só as regras do próprio pacote dela; pacote não oferecido = []", () => {
+test("tela: Kidmais = null (regra legada); empresa = só as regras do próprio pacote dela, pelo código; pacote não oferecido = []", () => {
   const fatos: FatosPacote = {
     POCKET: { nome: "Pocket A", descricao: null, duracaoMinutos: null, convidadosMinimos: 20, convidadosMaximos: 30, precoMinimo: "1500.00",
       disponibilidade: regrasPublicasDoPacote([linha(6, "TURNO_1")]) },
   };
   assert.equal(regrasDisponibilidadeDaTela(true, fatos, "pocket"), null);
-  assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "pocket"), fatos.POCKET.disponibilidade);
-  assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "mini"), [], "pacote que a empresa não oferece");
-  assert.deepEqual(regrasDisponibilidadeDaTela(false, null, "pocket"), [], "antes da resposta: nada liberado pela regra");
-  assert.deepEqual(regrasDisponibilidadeDaTela(false, { POCKET: { ...fatos.POCKET, disponibilidade: undefined } }, "pocket"), []);
+  assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "POCKET"), fatos.POCKET.disponibilidade);
+  assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "MINI_FESTA"), [], "pacote que a empresa não oferece");
+  assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "pocket"), [], "em /b o id da tela é o código; id V1 não é traduzido");
+  assert.deepEqual(regrasDisponibilidadeDaTela(false, null, "POCKET"), [], "antes da resposta: nada liberado pela regra");
+  assert.deepEqual(regrasDisponibilidadeDaTela(false, { POCKET: { ...fatos.POCKET, disponibilidade: undefined } }, "POCKET"), []);
 });
 
 // ---- Rota /api/fechamentos/pacotes com dublês: escopo, repositórios e banco falsos; a leitura das regras é a real.
-function rota(empresas: Record<string, string>, pacotes: Record<string, string>, regras: Record<string, ReturnType<typeof linha>[]>) {
+function rota(empresas: Record<string, string>, pacotes: Record<string, string>, regras: Record<string, ReturnType<typeof linha>[]>, livres: Record<string, Array<{ id: string; codigo: string; nome: string }>> = {}) {
   const pedidosDeRegra: unknown[][] = [];
   const pacotesPedidos: Array<[string, string]> = [];
+  const listasPedidas: string[] = [];
+  const pocketDe = (empresaId: string) => {
+    const id = pacotes[empresaId];
+    return id ? { id, codigo: "POCKET", nome: `Pocket ${empresaId.slice(0, 1)}`, descricao: null, duracaoMinutos: null, convidadosMinimos: 20, convidadosMaximos: 30 } : null;
+  };
   const banco = {
     async query(sql: string, params: unknown[] = []) {
       if (/FROM regras_disponibilidade_pacote/.test(sql)) { pedidosDeRegra.push(params); return { rows: regras[String(params[0])] ?? [], rowCount: 0 }; }
@@ -90,8 +98,13 @@ function rota(empresas: Record<string, string>, pacotes: Record<string, string>,
     "lib/comercial/repositories": {
       buscarPacoteVigenteDaEmpresaPorCodigo: async (empresaId: string, codigo: string) => {
         pacotesPedidos.push([empresaId, codigo]);
-        const id = codigo === "POCKET" ? pacotes[empresaId] : undefined;
-        return id ? { id, codigo, nome: `Pocket ${empresaId.slice(0, 1)}`, descricao: null, duracaoMinutos: null, convidadosMinimos: 20, convidadosMaximos: 30 } : null;
+        return codigo === "POCKET" ? pocketDe(empresaId) : null;
+      },
+      listarPacotesContrataveisDaEmpresa: async (empresaId: string) => {
+        listasPedidas.push(empresaId);
+        const pocket = pocketDe(empresaId);
+        const extras = (livres[empresaId] ?? []).map((p) => ({ ...p, descricao: null, duracaoMinutos: null, convidadosMinimos: null, convidadosMaximos: null }));
+        return [...(pocket ? [pocket] : []), ...extras];
       },
     },
     "lib/comercial/pacote-precos": { lerPrecosCorrentes: async () => ({ pacotes: [] }) },
@@ -99,7 +112,7 @@ function rota(empresas: Record<string, string>, pacotes: Record<string, string>,
   };
   const { GET } = carregarModulo("app/api/fechamentos/pacotes/route.ts", dubles, new Map()) as { GET: (r: unknown) => Promise<{ body: { pacotes: Array<Record<string, unknown>> } }> };
   const chamar = (consulta: string) => GET({ nextUrl: new URL(`http://localhost/api/fechamentos/pacotes${consulta}`) });
-  return { chamar, pedidosDeRegra, pacotesPedidos };
+  return { chamar, pedidosDeRegra, pacotesPedidos, listasPedidas };
 }
 
 test("rota: cada empresa recebe só as regras do POCKET dela; o mesmo código em duas empresas não se mistura", async () => {
@@ -112,12 +125,27 @@ test("rota: cada empresa recebe só as regras do POCKET dela; o mesmo código em
   assert.equal((a[0].disponibilidade as unknown[]).length, 7);
   assert.deepEqual(b[0].disponibilidade, regrasPublicasDoPacote([linha(3, "TURNO_1")]));
   assert.deepEqual(r.pedidosDeRegra, [[POCKET_A], [POCKET_B]], "regras lidas só pelo id do pacote da empresa do endereço");
-  assert.ok(r.pacotesPedidos.every(([empresa]) => empresa === EMPRESA_A || empresa === EMPRESA_B));
-  // O caso encontrado, de ponta a ponta na tela: sábado no almoço.
+  assert.deepEqual(r.listasPedidas, [EMPRESA_A, EMPRESA_B], "lista só da empresa do endereço");
+  assert.deepEqual(r.pacotesPedidos, [], "endereço da empresa: lista dela, não a busca dos sete códigos");
+  // O caso encontrado, de ponta a ponta na tela: sábado no almoço. Em /b o id da tela é o código do pacote.
   const fatos = (pacotes: Array<Record<string, unknown>>) => Object.fromEntries(pacotes.map((p) => [p.codigo, p])) as FatosPacote;
-  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", "2026-11-14", "almoco", regrasDisponibilidadeDaTela(false, fatos(a), "pocket")).status, "disponivel");
-  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", "2026-11-14", "almoco", regrasDisponibilidadeDaTela(false, fatos(b), "pocket")).status, "indisponivel",
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "POCKET", "2026-11-14", "almoco", regrasDisponibilidadeDaTela(false, fatos(a), "POCKET")).status, "disponivel");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "POCKET", "2026-11-14", "almoco", regrasDisponibilidadeDaTela(false, fatos(b), "POCKET")).status, "indisponivel",
     "B só liberou quarta: o sábado de A não vale para B");
+});
+
+test("rota: pacote criado em Novo pacote (P_…) aparece em /b com as regras dele, na ordem da empresa; não vaza para outra", async () => {
+  const r = rota({ "buffet-a": EMPRESA_A, "buffet-b": EMPRESA_B }, { [EMPRESA_A]: POCKET_A }, {
+    [POCKET_A]: [linha(1, "TURNO_1")], [LIVRE_A]: [linha(6, "TURNO_2")],
+  }, { [EMPRESA_A]: [{ id: LIVRE_A, codigo: CODIGO_LIVRE, nome: "Festa Jardim" }] });
+  const a = (await r.chamar("?empresa=buffet-a")).body.pacotes;
+  assert.deepEqual(a.map((p) => p.codigo), ["POCKET", CODIGO_LIVRE]);
+  assert.equal(a[1].nome, "Festa Jardim");
+  const fatos = Object.fromEntries(a.map((p) => [p.codigo, p])) as FatosPacote;
+  assert.equal(statusDataPacote(CONFIG_VAZIA, CODIGO_LIVRE, "2026-11-14", "noite", regrasDisponibilidadeDaTela(false, fatos, CODIGO_LIVRE)).status, "disponivel");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, CODIGO_LIVRE, "2026-11-14", "almoco", regrasDisponibilidadeDaTela(false, fatos, CODIGO_LIVRE)).status, "indisponivel");
+  const b = (await r.chamar("?empresa=buffet-b")).body.pacotes;
+  assert.deepEqual(b, [], "buffet B não vê o pacote de A");
 });
 
 test("rota: endereço atual da Kidmais sem o campo e sem ler regras (comportamento legado)", async () => {
@@ -127,6 +155,8 @@ test("rota: endereço atual da Kidmais sem o campo e sem ler regras (comportamen
   assert.equal("disponibilidade" in legado[0], false);
   assert.deepEqual(r.pedidosDeRegra, []);
   assert.ok(r.pacotesPedidos.every(([empresa]) => empresa === KIDMAIS));
+  assert.deepEqual(r.pacotesPedidos.map(([, codigo]) => codigo), PACOTES_CONTRATAVEIS_V1.map((p) => p.codigo), "dona: os sete, na ordem do catálogo");
+  assert.deepEqual(r.listasPedidas, [], "dona: nunca a lista livre");
 });
 
 test("tela: toda decisão de disponibilidade do pacote no fechamento passa as regras da empresa (nenhuma chamada sem elas)", async () => {
@@ -156,32 +186,36 @@ function bancoDeRegras(regras: Record<string, ReturnType<typeof linha>[]>) {
 
 test("administração: regras de todos os pacotes da empresa ativa, pela mesma leitura; pacote que ela não oferece = []", async () => {
   const { banco, pedidos } = bancoDeRegras({ [POCKET_A]: [1, 2, 3, 4, 5, 6, 7].map((d) => linha(d, "TURNO_1")), [POCKET_B]: [linha(3, "TURNO_1")] });
-  const buscas: Array<[string, string]> = [];
-  const buscar = async (empresaId: string, codigo: string) => {
-    buscas.push([empresaId, codigo]);
-    return codigo === "POCKET" ? { id: empresaId === EMPRESA_A ? POCKET_A : POCKET_B } : null;
+  const listas: string[] = [];
+  const listar = async (empresaId: string) => {
+    listas.push(empresaId);
+    return [{ id: empresaId === EMPRESA_A ? POCKET_A : POCKET_B, codigo: "POCKET" }];
   };
-  const deA = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, buscar);
-  assert.deepEqual(Object.keys(deA), PACOTES_CONTRATAVEIS_V1.map((p) => p.id));
-  assert.equal(deA.pocket.length, 7);
-  for (const id of ["mini", "compacta", "essencial", "completa", "premium", "pizza_party_scienza"]) assert.deepEqual(deA[id], [], id);
-  assert.ok(buscas.every(([empresa]) => empresa === EMPRESA_A), "só a empresa informada (comprovada pela sessão)");
+  const deA = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, listar);
+  assert.deepEqual(Object.keys(deA), ["POCKET"], "por código do pacote, só os que a empresa tem");
+  assert.equal(deA.POCKET.length, 7);
+  assert.deepEqual(listas, [EMPRESA_A], "só a empresa informada (comprovada pela sessão)");
   assert.deepEqual(pedidos, [POCKET_A]);
-  const deB = await regrasDosPacotesDaEmpresa(banco, EMPRESA_B, buscar);
-  assert.deepEqual(deB.pocket, regrasPublicasDoPacote([linha(3, "TURNO_1")]), "mesmo código, regras da outra empresa não vazam");
+  const deB = await regrasDosPacotesDaEmpresa(banco, EMPRESA_B, listar);
+  assert.deepEqual(deB.POCKET, regrasPublicasDoPacote([linha(3, "TURNO_1")]), "mesmo código, regras da outra empresa não vazam");
 });
 
 test("administração: empresa nova sem pacote não herda o catálogo Kidmais no seletor; lista só os pacotes dela, com o nome dela", async () => {
   const { banco } = bancoDeRegras({ [POCKET_A]: [linha(1, "TURNO_1")] });
-  const nova = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_B, async () => null);
+  const nova = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_B, async () => []);
   assert.deepEqual(nova.pacotes, [], "buffet novo: nenhum pacote");
-  assert.deepEqual(Object.keys(nova.regras), PACOTES_CONTRATAVEIS_V1.map((p) => p.id));
-  assert.ok(Object.values(nova.regras).every((r) => r.length === 0));
-  const comPocket = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A, nome: "Festinha do Buffet A" } : null));
-  assert.deepEqual(comPocket.pacotes, [{ id: "pocket", nome: "Festinha do Buffet A" }]);
-  assert.equal(comPocket.regras.pocket.length, 1);
-  const semNome = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A } : null));
-  assert.deepEqual(semNome.pacotes, [{ id: "pocket", nome: "POCKET" }], "sem nome: o código, nunca o nome do catálogo Kidmais");
+  assert.deepEqual(nova.regras, {});
+  const comPocket = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET", nome: "Festinha do Buffet A" }]);
+  assert.deepEqual(comPocket.pacotes, [{ id: "POCKET", nome: "Festinha do Buffet A", convidadosMinimos: null, convidadosMaximos: null }]);
+  assert.equal(comPocket.regras.POCKET.length, 1);
+  const semNome = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET" }]);
+  assert.deepEqual(semNome.pacotes, [{ id: "POCKET", nome: "POCKET", convidadosMinimos: null, convidadosMaximos: null }], "sem nome: o código, nunca o nome do catálogo Kidmais");
+  // Pacote criado do zero ("Novo pacote", P_…): entra no seletor e nas regras, na ordem da lista da empresa.
+  const { banco: bancoLivre } = bancoDeRegras({ [LIVRE_A]: [linha(6, "TURNO_2")] });
+  const comLivre = await pacotesDaAgendaDaEmpresa(bancoLivre, EMPRESA_A, async () => [
+    { id: POCKET_A, codigo: "POCKET", nome: "Pocket" }, { id: LIVRE_A, codigo: CODIGO_LIVRE, nome: "Festa Jardim", convidadosMinimos: 30, convidadosMaximos: 80 }]);
+  assert.deepEqual(comLivre.pacotes, [{ id: "POCKET", nome: "Pocket", convidadosMinimos: null, convidadosMaximos: null }, { id: CODIGO_LIVRE, nome: "Festa Jardim", convidadosMinimos: 30, convidadosMaximos: 80 }], "limites de convidados de cada pacote (wizard do fechamento administrativo)");
+  assert.deepEqual(comLivre.regras[CODIGO_LIVRE], regrasPublicasDoPacote([linha(6, "TURNO_2")]));
   const tela = (await import("node:fs")).readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.match(tela, /pacotes: admin\.regrasPacotes \? \(admin\.pacotes \?\? \[\]\) : null/);
   assert.match(tela, /const opcoesPacote = pacotesEmpresa \?\? PACOTES;/);
@@ -195,16 +229,17 @@ test("coerência administração = cotação pública: mesmas regras e mesmo sta
   const r = rota({ "buffet-a": EMPRESA_A }, { [EMPRESA_A]: POCKET_A }, regrasA);
   const publico = Object.fromEntries((await r.chamar("?empresa=buffet-a")).body.pacotes.map((p) => [p.codigo, p])) as FatosPacote;
   const { banco } = bancoDeRegras(regrasA);
-  const admin = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A } : null));
+  const admin = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET" }]);
   const divergencias: string[] = [];
-  for (const { id } of PACOTES_CONTRATAVEIS_V1) {
+  // Mesmo id (código) dos dois lados; códigos que a empresa não tem: [] dos dois lados.
+  for (const id of ["POCKET", ...PACOTES_CONTRATAVEIS_V1.map((p) => p.codigo).filter((c) => c !== "POCKET"), CODIGO_LIVRE]) {
     const daTela = regrasDisponibilidadeDaTela(false, publico, id);
-    assert.deepEqual(admin[id], daTela, id);
+    assert.deepEqual(admin[id] ?? [], daTela, id);
     for (let i = 0; i < 35; i++) {
       const data = new Date(Date.UTC(2026, 10, 2 + i)).toISOString().slice(0, 10);
       for (const h of ["almoco", "noite"] as const) {
-        const a = statusDataPacote(CONFIG_VAZIA, id as never, data, h, admin[id]).status;
-        const p = statusDataPacote(CONFIG_VAZIA, id as never, data, h, daTela).status;
+        const a = statusDataPacote(CONFIG_VAZIA, id, data, h, admin[id] ?? []).status;
+        const p = statusDataPacote(CONFIG_VAZIA, id, data, h, daTela).status;
         if (a !== p) divergencias.push(`${id} ${data} ${h}`);
       }
     }
@@ -215,7 +250,7 @@ test("coerência administração = cotação pública: mesmas regras e mesmo sta
 test("administração: dona da agenda pública mantém a regra legada (null); demais empresas recebem as regras delas", async () => {
   const { readFileSync } = await import("node:fs");
   const rota = readFileSync("app/api/admin/disponibilidade/route.ts", "utf8");
-  assert.match(rota, /const daEmpresa = configuracaoComercial\s*\?\s*null\s*:\s*await pacotesDaAgendaDaEmpresa\(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo\);/);
+  assert.match(rota, /const daEmpresa = configuracaoComercial\s*\?\s*null\s*:\s*await pacotesDaAgendaDaEmpresa\(tx, empresaComprovada, listarPacotesContrataveisDaEmpresa\);/);
   assert.match(rota, /const regrasPacotes = daEmpresa \? daEmpresa\.regras : null;/);
   assert.match(rota, /const pacotes = daEmpresa \? daEmpresa\.pacotes : null;/);
   assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,\s*bloqueios,/);

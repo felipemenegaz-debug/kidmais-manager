@@ -1,6 +1,7 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import { db } from "../../db/postgres.ts";
 import { erroConvidadosPizzaParty } from "../pacotes-v1.ts";
+import { empresaDonaDaConfigLegada } from "../../disponibilidade/config-legada.ts";
 import {
   buscarCategoriaHorarioAplicavel,
   buscarElegibilidadePacoteAplicavel,
@@ -98,6 +99,15 @@ async function executarConsultasCompatíveisComTransacao<A, B>(
   }
 
   return Promise.all([primeira(), segunda()]);
+}
+
+/**
+ * Regras comerciais fixas da Kidmais pelo código (Pizza Party 20–100 sob consulta, Compacta só na condição configurada)
+ * valem só para pacotes da dona da agenda pública (ou legados sem empresa). Só é consultado para esses dois códigos.
+ */
+async function regrasDaKidmais(empresaId: string | null | undefined, customDb?: DbExecutor) {
+  if (!empresaId) return true;
+  return (await empresaDonaDaConfigLegada(customDb ?? db())) === empresaId;
 }
 
 async function tabelaParaContratacao(data: string, empresaId: string | null | undefined, customDb?: DbExecutor) {
@@ -262,10 +272,12 @@ export async function precificarPacote(
     );
   }
 
-  const erroPizza = erroConvidadosPizzaParty(pacote.codigo, input.convidados, {
-    minimo: pacote.convidadosMinimos,
-    maximo: pacote.convidadosMaximos,
-  });
+  const erroPizza = pacote.codigo === "PIZZA_PARTY" && await regrasDaKidmais(pacote.empresaId, customDb)
+    ? erroConvidadosPizzaParty(pacote.codigo, input.convidados, {
+      minimo: pacote.convidadosMinimos,
+      maximo: pacote.convidadosMaximos,
+    })
+    : null;
   if (erroPizza) throw new PricingServiceError('DADOS_INVALIDOS', erroPizza, 400);
   if (
     pacote.convidadosMaximos !== null &&
@@ -364,7 +376,7 @@ export async function precificarPacote(
     );
 
   if (!precoRegra) {
-    if (pacote.codigo === "COMPACTA") {
+    if (pacote.codigo === "COMPACTA" && await regrasDaKidmais(pacote.empresaId, customDb)) {
       throw new PricingServiceError(
         "PACOTE_SOB_CONSULTA",
         "A Festa Compacta possui preço automático somente para a condição comercial configurada. Consulte a Kidmais para outra quantidade de convidados.",

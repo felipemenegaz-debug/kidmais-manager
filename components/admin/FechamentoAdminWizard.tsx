@@ -7,7 +7,9 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import type { obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/services/fechamento-administrativo.service';
 import type { FechamentoAdministrativoInput } from '@/lib/fechamentos/administrativo-schema';
 import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo-schema';
-import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import { erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import type { RegraPacoteEmpresa } from '@/lib/agenda/disponibilidade';
+import { PACOTES_CONTRATAVEIS_V1 } from '@/lib/comercial/pacotes-v1';
 import type { DisponibilidadeDataPublica, PeriodoDisponibilidadePublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade, { type ConsultaAgendaMes } from '@/components/fechamento/CalendarioDisponibilidade';
 import { candidatosDisponiveis, horarioLegadoDoCodigo, periodoDoTurno, rotuloPeriodo } from '@/components/fechamento/periodos';
@@ -19,6 +21,19 @@ import styles from './revisao-fechamento.module.css';
 type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>>;
 type Horario = DisponibilidadeDataPublica['periodos'][number]['horarios'][number];
 type AdicionalDisponivel = AdicionalDaEtapa;
+/** Pacote da empresa ativa (id = código do pacote, POCKET ou P_…), como /api/admin/disponibilidade devolve. */
+type PacoteDaEmpresa = { id: string; nome: string; convidadosMinimos: number | null; convidadosMaximos: number | null };
+/**
+ * Pacote do formulário na lista da empresa ativa: mantém se existir; id V1 (preparação do Kidmais) vira o código dela;
+ * sem correspondência, `padrao` escolhe o primeiro (valor inicial do formulário) e, senão, deixa vazio para a escolha.
+ */
+function pacoteNaEmpresa(form: FechamentoAdministrativoInput, lista: PacoteDaEmpresa[] | null | undefined, padrao: boolean) {
+    if (!lista || lista.some(p => p.id === form.pacote)) return { form, encontrado: true };
+    const doV1 = PACOTES_CONTRATAVEIS_V1.find(p => p.id === form.pacote)?.codigo;
+    const correspondente = lista.find(p => p.id === doV1)?.id;
+    const pacote = correspondente ?? (padrao ? lista[0]?.id ?? '' : '');
+    return { form: pacote === form.pacote ? form : { ...form, pacote }, encontrado: Boolean(correspondente) };
+}
 const inicial: FechamentoAdministrativoInput = {
     pacote: 'pocket', dataFesta: '', ajusteHorario: '0', horarioInicio: '', horarioFim: '',
     statusDisponibilidade: 'disponivel', convidadosPagantes: 20, buffetDefinicao: 'depois',
@@ -49,6 +64,12 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const revisaoRef = useRef<HTMLDivElement>(null);
     const edicaoRef = useRef<HTMLFieldSetElement>(null);
     const [resultado, setResultado] = useState<{ fechamentoId: string; status: string } | null>(null);
+    // Pacotes da empresa ativa: undefined = carregando; null = dona da agenda pública (catálogo V1, regras da Kidmais);
+    // lista = pacotes dela (inclusive os de "Novo pacote"), com as regras de disponibilidade de cada um.
+    const [pacotesEmpresa, setPacotesEmpresa] = useState<PacoteDaEmpresa[] | null | undefined>(undefined);
+    const [regrasEmpresa, setRegrasEmpresa] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
+    const pacotesEmpresaRef = useRef<PacoteDaEmpresa[] | null | undefined>(undefined);
+    const formAlterado = useRef(false);
     const consultando = useRef(0);
     const envioEmCurso = useRef(false);
     const endpoint = `/api/admin/clientes/${encodeURIComponent(clienteId)}/fechamentos`;
@@ -83,7 +104,10 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 if (!response.ok || !body.ok || !p) return setAvisoPreparacao(typeof body?.erro === 'string' ? body.erro : 'A preparação do Kidmais não está disponível. Preencha o formulário normalmente.');
                 if (!p.disponivel) return setAvisoPreparacao(p.motivo);
                 const aplicada = formularioPreparado(inicial, p);
-                setForm(aplicada.form);
+                const naEmpresa = pacoteNaEmpresa(aplicada.form, pacotesEmpresaRef.current, false);
+                formAlterado.current = true;
+                setForm(naEmpresa.form);
+                if (!naEmpresa.encontrado) setAvisoPreparacao('O pacote da preparação não existe nesta empresa. Escolha um pacote antes de continuar.');
                 setPreparacao(aplicada);
                 void selecionarData(aplicada.form.dataFesta, { horarioBase: aplicada.form.horarioBase }, aplicada.horarioDesejado, aplicada.form.pacote);
             }).catch(() => { if (ativo) setAvisoPreparacao('A preparação do Kidmais não está disponível. Preencha o formulário normalmente.'); });
@@ -107,6 +131,17 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         return ()=>controller.abort();
     },[form.pacote,form.dataFesta,form.convidadosPagantes]);
 
+    /** Pacote escolhido para validação e resumo: dona = catálogo V1 (regras da Kidmais); demais = dados da empresa. */
+    function pacoteEscolhido(id: string) {
+        if (!pacotesEmpresa) {
+            const v1 = PACOTES_FECHAMENTO_V1.find(p => p.id === id);
+            return v1 && { nome: v1.nome, minPagantes: v1.minPagantes, maxPagantes: v1.maxPagantes, erro: (n: number) => erroConvidadosFechamento(n, v1) };
+        }
+        const p = pacotesEmpresa.find(x => x.id === id);
+        if (!p) return undefined;
+        const limites = { nome: p.nome, minPagantes: p.convidadosMinimos ?? 1, maxPagantes: p.convidadosMaximos ?? 150, limiteCadastrado: p.convidadosMaximos !== null };
+        return { ...limites, erro: (n: number) => erroConvidadosEmpresa(n, limites) };
+    }
     function campo<K extends keyof FechamentoAdministrativoInput>(key: K, value: FechamentoAdministrativoInput[K]) {
         setForm(atual => ({ ...atual, [key]: value }));
     }
@@ -126,6 +161,21 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         const body = await response.json();
         if (!response.ok) throw Error(body.erro ?? 'Falha ao consultar disponibilidade.');
         setUnidades(body.unidades ?? []);
+        if ('pacotes' in body) {
+            const lista: PacoteDaEmpresa[] | null = body.pacotes ?? null;
+            pacotesEmpresaRef.current = lista;
+            setPacotesEmpresa(lista);
+            setRegrasEmpresa(body.regrasPacotes ?? null);
+            // Valor inicial ('pocket') vira o primeiro pacote da empresa; o que a pessoa ou a preparação escolheu, só se existir.
+            setForm(atual => {
+                const naEmpresa = pacoteNaEmpresa(atual, lista, !formAlterado.current);
+                // Preparação aplicada antes da lista: o pacote dela pode não existir nesta empresa (mesmo aviso da preparação).
+                if (formAlterado.current && !naEmpresa.encontrado && naEmpresa.form.pacote === '' && atual.pacote !== '') {
+                    setAvisoPreparacao('O pacote da preparação não existe nesta empresa. Escolha um pacote antes de continuar.');
+                }
+                return naEmpresa.form;
+            });
+        }
         return body as { dias: DisponibilidadeDataPublica[] | null; pacoteOverrides?: []; descontos?: [] };
     }, [unidadeId]);
     // Parecer do Astra (P2): horário livre com a duração do pacote (lida no servidor); trocar o pacote limpa a agenda.
@@ -184,8 +234,9 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         setErro('');
         try {
             if(adicionaisDisponiveis===null)throw Error(falhaAdicionais ?? 'Não foi possível consultar os adicionais deste pacote.');
-            const pacote = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
-            const mensagem = erroConvidadosFechamento(form.convidadosPagantes, pacote);
+            const pacote = pacoteEscolhido(form.pacote);
+            if (!pacote) throw Error('Escolha um pacote desta empresa.');
+            const mensagem = pacote.erro(form.convidadosPagantes);
             if (mensagem) throw Error(mensagem);
             const parsed = fechamentoAdministrativoSchema.safeParse(form);
             if (!parsed.success) throw Error('Confira os campos obrigatórios, horário e condição de pagamento.');
@@ -227,8 +278,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         const nome = String(falha.path[0]);
         errosCampos[nome] = nome === 'aniversarianteId' ? 'Selecione um aniversariante cadastrado.' : nome === 'horarioInicio' || nome === 'horarioFim' ? 'Selecione um horário disponível.' : nome === 'configuracaoId' ? 'Selecione o horário da festa.' : nome === 'dataFesta' ? 'Selecione a data completa no calendário.' : nome === 'valorCombinado' ? 'Informe o valor comercial proposto.' : 'Confira este campo.';
     }
-    const pacoteAtual = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
-    const convidadosErro = erroConvidadosFechamento(form.convidadosPagantes, pacoteAtual);
+    const pacoteAtual = pacoteEscolhido(form.pacote);
+    const convidadosErro = pacoteAtual ? pacoteAtual.erro(form.convidadosPagantes) : 'Escolha um pacote desta empresa.';
     if (convidadosErro) errosCampos.convidadosPagantes = convidadosErro;
     const pendencias = [...new Set(Object.values(errosCampos)), ...(adicionaisDisponiveis === null ? [falhaAdicionais ?? 'Aguardando consulta dos adicionais.'] : form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis.find(x => x.id === id); return a ? pendenciaEscolhas(a, form.adicionaisEscolhas?.[id] ?? []) : null; }).filter((p): p is string => Boolean(p)))];
     const nomeAniversariante = contexto?.aniversariantes.find(a => a.id === form.aniversarianteId)?.nome;
@@ -265,12 +316,19 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         <div className={styles.layout}><form noValidate onSubmit={concluir}>
             <fieldset ref={edicaoRef} hidden={revisando} disabled={enviando} className={styles.card}>
                 <legend>Festa</legend>
-                <label>Pacote<select aria-label="Pacote" value={form.pacote} onChange={e => { limparAgenda(); campo('pacote', e.target.value as typeof form.pacote); }}>
-                    {PACOTES_FECHAMENTO_V1.map(p => <option key={p.id} value={p.id} disabled={p.sobConsulta}>{p.nome}{p.sobConsulta ? ' — sob consulta' : ''}</option>)}
+                <label>Pacote<select aria-label="Pacote" value={pacotesEmpresa === undefined ? '' : form.pacote} disabled={!pacotesEmpresa?.length && pacotesEmpresa !== null}
+                    onChange={e => { formAlterado.current = true; limparAgenda(); campo('pacote', e.target.value); }}>
+                    {pacotesEmpresa === undefined && <option value="">Carregando pacotes…</option>}
+                    {pacotesEmpresa === null && PACOTES_FECHAMENTO_V1.map(p => <option key={p.id} value={p.id} disabled={p.sobConsulta}>{p.nome}{p.sobConsulta ? ' — sob consulta' : ''}</option>)}
+                    {pacotesEmpresa && (pacotesEmpresa.length
+                        ? [...(form.pacote === '' ? [<option key="" value="" disabled>Escolha um pacote</option>] : []),
+                            ...pacotesEmpresa.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)]
+                        : <option value="">Nenhum pacote criado</option>)}
                 </select></label>
+                {pacotesEmpresa && !pacotesEmpresa.length && <p>Nenhum pacote criado ainda. Cadastre em <a href="/admin/configuracoes/pacotes">Configurações → Pacotes</a>.</p>}
                 {unidades.length > 1 && <label>Unidade<select required value={unidadeId} onChange={e => { limparAgenda(); campo('estabelecimentoId', e.target.value || null); }}>
                     <option value="">Selecione</option>{unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
-                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} configuracaoId={form.configuracaoId ?? ''} dataSelecionada={form.dataFesta} consultar={consultarMes}
+                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} regrasPacote={pacotesEmpresa ? (regrasEmpresa?.[form.pacote] ?? []) : null} configuracaoId={form.configuracaoId ?? ''} dataSelecionada={form.dataFesta} consultar={consultarMes}
                     onSelecionar={(data, _status, _candidatos, periodo) => void selecionarData(data, periodo ? { configuracaoId: periodo.configuracaoId } : undefined)}
                     onTrocarHorario={id => { const periodo = periodos.find(p => p.configuracaoId === id); limparAgenda(); setForm(atual => ({ ...atual, ...horarioDoPeriodo(periodo), configuracaoId: id })); }} />
                 {periodos.length > 0 && <label >Horário da festa<select {...acessibilidade('configuracaoId')} required value={form.configuracaoId ?? ''} onChange={e => void selecionarData(form.dataFesta, { configuracaoId: e.target.value })}>
@@ -279,7 +337,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                     const h = horarios.find(h => h.inicio === e.target.value);
                     if (h) setForm(atual => ({ ...atual, horarioInicio: h.inicio, horarioFim: h.fim, ajusteHorario: String(h.ajusteMinutos) }));
                 }}><option value="">Selecione</option>{horarios.map(h => <option key={h.inicio} value={h.inicio}>{h.inicio}–{h.fim}</option>)}</select>{erroCampo('horarioInicio')}</label>
-                <label >Convidados pagantes<input {...acessibilidade('convidadosPagantes')} required type="number" min={PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote)?.minPagantes ?? 1} max={PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote)?.maxPagantes ?? 150} value={form.convidadosPagantes} onChange={e => campo('convidadosPagantes', Number(e.target.value))} />{erroCampo('convidadosPagantes')}</label>
+                <label >Convidados pagantes<input {...acessibilidade('convidadosPagantes')} required type="number" min={pacoteAtual?.minPagantes ?? 1} max={pacoteAtual?.maxPagantes ?? 150} value={form.convidadosPagantes} onChange={e => campo('convidadosPagantes', Number(e.target.value))} />{erroCampo('convidadosPagantes')}</label>
                 <label >Aniversariante<select {...acessibilidade('aniversarianteId')} required value={form.aniversarianteId} onChange={e => campo('aniversarianteId', e.target.value)}><option value="">Selecione o cadastro existente</option>{contexto.aniversariantes.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select>{erroCampo('aniversarianteId')}</label>
                 {!contexto.aniversariantes.length && <p>Cadastre o aniversariante no CRM antes de continuar.</p>}
                 <label >Responsável adicional (opcional)<select {...acessibilidade('responsavelAdicionalId')} value={form.responsavelAdicionalId ?? ''} onChange={e => campo('responsavelAdicionalId', e.target.value || null)}><option value="">Nenhum</option>{contexto.responsaveis.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>{erroCampo('responsavelAdicionalId')}</label>

@@ -52,6 +52,8 @@ function ambiente() {
             revogada: false, ativo: true, expirada: false, ociosa: false, senhaAlterada: false },
         pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true, empresaId: empresaA } as any,
         consultasPacote: [] as Array<{ empresaId: unknown; codigo: unknown }>, pacotesExtras: [] as any[],
+        // Dona da agenda pública (sete ids V1 e regras da Kidmais); por padrão a empresa A, como nos cenários existentes.
+        dona: empresaA as string | null,
         indisponivel: false, pricingError: false, auditError: false, pricingInput: null as any,
         fechamentos: [] as any[], adicionais: [] as any[], aprovacoes: [] as any[], historico: [] as any[], auditoria: [] as any[], sql: [] as string[],
     };
@@ -68,6 +70,10 @@ function ambiente() {
         if (sql.includes('FROM memberships m JOIN empresas e ON e.id = m.empresa_id') && sql.includes('LIMIT 2')) return { rows: state.tenantRecusado ? [] : [{ id: state.tenant }] };
         if (sql.includes('to_char(clock_timestamp() AT TIME ZONE')) return { rows: [{ agora: '2026-10-07T12:00:00.000Z' }] };
         if (sql.includes("to_regclass('public.empresa_assinaturas')")) return { rows: [{ ok: false }] };
+        // empresaDonaDaConfigLegada: sem AGENDA_PUBLICA_EMPRESA_ID, a empresa de código kidmais.
+        if (sql === "SELECT id FROM empresas WHERE codigo = 'kidmais'") return { rows: state.dona ? [{ id: state.dona }] : [] };
+        if (sql === "SELECT id FROM empresas WHERE status <> 'DESATIVADA' LIMIT 2") return { rows: [{ id: empresaA }, { id: empresaB }] };
+        if (sql === 'SELECT id FROM empresas WHERE id = $1::uuid') return { rows: [] };
         if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
             // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
             for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));
@@ -430,6 +436,34 @@ test('busca de pacote pela empresa comprovada: vigente, ativo, não arquivado e 
     const repositorio = ok.load('lib/comercial/repositories/comercial.repository.ts');
     await assert.rejects(repositorio.buscarPacoteAtivoPorCodigo('POCKET'), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
     await assert.rejects(repositorio.buscarPacoteVigenteDaEmpresaPorCodigo('', 'POCKET', { query: async () => { throw Error('não deveria consultar'); } }), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
+});
+test('fase 1c: empresa que não é a dona usa o código do pacote dela (P_…), sem as regras da Kidmais; a dona continua com os sete', async () => {
+    const LIVRE = 'P_9F2C4E1A7B3D4C5E8F6A0B1C2D3E4F5A';
+    const comum = ambiente();
+    comum.state.dona = empresaB;
+    comum.state.pacote = { ...comum.state.pacote, codigo: LIVRE, nome: 'Festa Jardim', convidadosMinimos: 10, convidadosMaximos: 60 };
+    assert.equal((await comum.chamar({ ...payload, pacote: LIVRE, convidadosPagantes: 12 })).status, 201);
+    assert.deepEqual(comum.state.consultasPacote, [{ empresaId: empresaA, codigo: LIVRE }], 'buscado na empresa comprovada, pelo código');
+    assert.equal(comum.state.pricingInput.pacoteId, 'pacote');
+    const acima = ambiente(); acima.state.dona = empresaB;
+    acima.state.pacote = { ...acima.state.pacote, codigo: LIVRE, nome: 'Festa Jardim', convidadosMinimos: 10, convidadosMaximos: 60 };
+    const recusa = await acima.chamar({ ...payload, pacote: LIVRE, convidadosPagantes: 61 });
+    assert.notEqual(recusa.status, 201);
+    assert.match(JSON.stringify(await recusa.json()), /Festa Jardim atende até 60/, 'limite do pacote da empresa, redação neutra');
+    assert.equal(acima.state.fechamentos.length, 0);
+    // Fora da dona, pizza_party_scienza não é "sob consulta" da Kidmais: vira PIZZA_PARTY e é buscado na empresa (404 sem ele).
+    const pizza = ambiente(); pizza.state.dona = empresaB;
+    assert.equal((await pizza.chamar({ ...payload, pacote: 'pizza_party_scienza' })).status, 404);
+    assert.deepEqual(pizza.state.consultasPacote, [{ empresaId: empresaA, codigo: 'PIZZA_PARTY' }]);
+    // Dona: o código livre continua fora (só os sete); o Pizza Party segue sob consulta, sem consultar pacote.
+    const dona = ambiente();
+    const fora = await dona.chamar({ ...payload, pacote: LIVRE });
+    assert.equal(fora.status, 409);
+    assert.match(JSON.stringify(await fora.json()), /PACOTE_FORA_ESCOPO_V1/);
+    const pizzaDona = ambiente();
+    assert.equal((await pizzaDona.chamar({ ...payload, pacote: 'pizza_party_scienza' })).status, 409);
+    assert.deepEqual(pizzaDona.state.consultasPacote, []);
+    assert.equal(dona.state.fechamentos.length + pizzaDona.state.fechamentos.length, 0);
 });
 test('adicional novo do banco usa o próprio código; id antigo segue mapeado; escolhas acompanham o item', () => {
     const traduzir = ambiente().load('lib/fechamentos/comercial-input').traduzirAdicionais;

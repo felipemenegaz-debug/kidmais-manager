@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import { camposComerciaisFechamento, mensagemPeriodoDoPedido, temPeriodoDoPedido } from './comercial-schema';
+import { camposComerciaisFechamento, mensagemPeriodoDoPedido, pacoteDaTelaPublicaSchema, temPeriodoDoPedido } from './comercial-schema';
 
 // Dados pessoais, origem e ator nunca são aceitos neste contrato de entrada.
 export const fechamentoAdministrativoSchema = z.object({
     ...camposComerciaisFechamento,
+    /** Id V1 (dona da agenda pública) ou código do pacote da empresa (POCKET, P_…); conferido no serviço. */
+    pacote: pacoteDaTelaPublicaSchema,
     aniversarianteId: z.string().uuid(),
     responsavelAdicionalId: z.string().uuid().nullable().optional(),
     idadeAniversariante: z.union([z.number().int().min(0).max(120), z.literal('')]),

@@ -72,7 +72,7 @@ test('P2 wizard administrativo: a rota da agenda usa a duração do pacote da em
   assert.match(fonte, /agendaAdmin\(\{ data, pacote \}\)/);
   assert.match(fonte, /agendaAdmin\(\{ inicio, fim, pacote: form\.pacote \}\)/);
   assert.match(fonte, /aplicada\.horarioDesejado, aplicada\.form\.pacote\)/);
-  assert.match(fonte, /onChange=\{e => \{ limparAgenda\(\); campo\('pacote'/, 'trocar o pacote limpa a agenda e exige nova consulta');
+  assert.match(fonte, /onChange=\{e => \{[^}]*limparAgenda\(\); campo\('pacote'/, 'trocar o pacote limpa a agenda e exige nova consulta');
 });
 
 test('P2 preparação da IA: a porta de horários consulta com a duração do pacote', async () => {

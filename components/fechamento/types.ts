@@ -1,4 +1,5 @@
-export type PacoteId =
+/** Ids dos sete pacotes do catálogo da Kidmais (endereço atual, dona da agenda pública). */
+export type PacoteIdV1 =
   | "pocket"
   | "mini"
   | "compacta"
@@ -6,6 +7,12 @@ export type PacoteId =
   | "completa"
   | "premium"
   | "pizza_party_scienza";
+
+/**
+ * Id do pacote na tela: na dona da agenda pública, um id V1; nas demais empresas (/b/<código> e agenda delas), o
+ * código do pacote no banco (POCKET, P_9F…), inclusive os criados por "Novo pacote".
+ */
+export type PacoteId = PacoteIdV1 | (string & {});
 
 export type FormaPagamento =
   | "pix_avista"

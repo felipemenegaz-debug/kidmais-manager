@@ -3,8 +3,19 @@ import type { PacoteId } from "./types.ts";
 import { LIMITE_CONVIDADOS_PEDIDO_ONLINE } from "../../lib/fechamentos/convidados.ts";
 import type { RegraPacoteEmpresa } from "../../lib/agenda/disponibilidade.ts";
 
-/** Código do pacote no servidor (pacotes/preços da empresa) para cada id da tela. */
+/** Código do pacote no servidor (pacotes/preços da empresa) para cada id V1 da tela (endereço atual da Kidmais). */
 export const CODIGO_PACOTE: Record<string, string> = { pocket: 'POCKET', mini: 'MINI_FESTA', compacta: 'COMPACTA', essencial: 'ESSENCIAL', completa: 'COMPLETA', premium: 'PREMIUM', pizza_party_scienza: 'PIZZA_PARTY' };
+
+/**
+ * Código do pacote no servidor para o id da tela, pela MARCA da página (não valida formato nem existência: quem valida é
+ * `codigoDoPacoteDaTela` no servidor, que também aceita id V1 em /b).
+ * - Kidmais (endereço atual): o id V1 traduzido; id fora dos sete = undefined.
+ * - Outra empresa (/b/<código>): o id da tela JÁ é o código do pacote dela (POCKET, P_9F…), vindo do servidor.
+ */
+export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): string | undefined {
+    if (!id) return undefined;
+    return kidmais ? CODIGO_PACOTE[id] : id;
+}
 
 /**
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
@@ -44,10 +55,10 @@ export function pacotesExibidos(kidmais: boolean, catalogo: readonly Pacote[], f
             };
         });
     if (!fatos) return null;
-    return catalogo.flatMap((item) => {
-        const fato = fatos[CODIGO_PACOTE[item.id]!];
-        return fato ? [{ id: item.id, nome: fato.nome, preco: precoDe(fato), descricao: fato.descricao || "Descrição não cadastrada.", disponibilidade: null, destaque: null }] : [];
-    });
+    // Na ordem do servidor (a da tela de Pacotes da empresa); o id é o código do pacote — inclusive "Novo pacote" (P_…).
+    return Object.entries(fatos).map(([codigo, fato]) => ({
+        id: codigo, nome: fato.nome, preco: precoDe(fato), descricao: fato.descricao || "Descrição não cadastrada.", disponibilidade: null, destaque: null,
+    }));
 }
 
 /**
@@ -57,10 +68,10 @@ export function pacotesExibidos(kidmais: boolean, catalogo: readonly Pacote[], f
  *   (sob consulta, observação, buffet, horários) ou limite do catálogo da Kidmais é herdado.
  */
 export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fatos: FatosPacote | null, id: string): PacoteDaTela | undefined {
-    const base = catalogo.find((item) => item.id === id);
-    if (!base) return undefined;
-    const fato = fatos?.[CODIGO_PACOTE[base.id]!];
     if (kidmais) {
+        const base = catalogo.find((item) => item.id === id);
+        if (!base) return undefined;
+        const fato = fatos?.[CODIGO_PACOTE[base.id]!];
         if (!fato) return { ...base, limiteCadastrado: true };
         return {
             ...base, limiteCadastrado: true,
@@ -71,9 +82,10 @@ export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fato
             duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
         };
     }
+    const fato = id ? fatos?.[id] : undefined;
     if (!fato) return undefined;
     return {
-        id: base.id,
+        id,
         nome: fato.nome,
         precoInicial: precoDe(fato),
         minPagantes: fato.convidadosMinimos ?? 1,
@@ -94,6 +106,5 @@ export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fato
  */
 export function regrasDisponibilidadeDaTela(kidmais: boolean, fatos: FatosPacote | null, id: string): RegraPacoteEmpresa[] | null {
     if (kidmais) return null;
-    const codigo = CODIGO_PACOTE[id];
-    return (codigo && fatos?.[codigo]?.disponibilidade) || [];
+    return (id && fatos?.[id]?.disponibilidade) || [];
 }

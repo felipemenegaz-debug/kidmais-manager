@@ -25,9 +25,9 @@ import {
   duracaoAceita,
   duracaoDoPacoteDaEmpresa,
 } from "@/lib/disponibilidade/services";
-import { PACOTE_CODIGO_BANCO } from "@/lib/fechamentos/comercial-input";
+import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
-import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
+import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
@@ -168,10 +168,11 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
   const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
   // Status comercial dos pacotes: a dona da agenda pública mantém a regra legada (null, como em /fechamento); as demais
   // empresas, as regras configuradas por ELAS — a mesma leitura da cotação pública em /b/<código> e do servidor.
-  // O seletor de pacote dessas empresas lista só os pacotes que elas têm (empresa nova = nenhum, sem catálogo Kidmais).
+  // O seletor de pacote dessas empresas lista só os pacotes que elas têm (empresa nova = nenhum, sem catálogo Kidmais),
+  // inclusive os criados por "Novo pacote"; o id de cada um é o código do pacote no banco (POCKET, P_…).
   const daEmpresa = configuracaoComercial
     ? null
-    : await pacotesDaAgendaDaEmpresa(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo);
+    : await pacotesDaAgendaDaEmpresa(tx, empresaComprovada, listarPacotesContrataveisDaEmpresa);
   const regrasPacotes = daEmpresa ? daEmpresa.regras : null;
   const pacotes = daEmpresa ? daEmpresa.pacotes : null;
 
@@ -201,9 +202,11 @@ export async function GET(request: NextRequest) {
     const fim = q.get("fim");
     // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas. Parecer do Astra (P2): com
     // `?pacote=` (id da tela), a do pacote vigente da empresa comprovada, lida no servidor.
-    const pacoteCodigo = PACOTE_CODIGO_BANCO[(q.get("pacote") ?? "") as keyof typeof PACOTE_CODIGO_BANCO];
     const resposta = await withTenantTransaction(sessao, q.get("empresaId"), async (tx, tenant) => {
       const escopo = await escopoDoPedido(tx, tenant.empresaComprovada, q.get("unidadeId"));
+      // Id da tela → código, como no fechamento administrativo: dona da agenda pública = ids V1; demais = código próprio.
+      const pacoteDaTela = q.get("pacote");
+      const pacoteCodigo = pacoteDaTela ? codigoDoPacoteDaTela(pacoteDaTela, !(await ehDonaDaConfigLegada(tx, tenant.empresaComprovada))) ?? undefined : undefined;
       const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo) };
       // Horários calculados do recurso (substitui, no painel, a API pública sem tenant).
       const dias = data
