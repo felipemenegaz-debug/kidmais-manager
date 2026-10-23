@@ -18,7 +18,7 @@ import type { TenantComprovado } from '../saas/provar-tenant.ts';
 import type { EnviarEmail, MensagemEmail } from '../acessos/email.ts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { exigirReautenticacaoRecente } from '../desenvolvedor/autorizacao.ts';
-import { configuracaoAsaas } from './asaas.ts';
+import { configuracaoAsaas, type AssinaturaProvedor } from './asaas.ts';
 import { gerarProtocolo } from './devolucao-calculo.ts';
 import { canalDaPlataforma } from './devolucao-registro.ts';
 import { travarEmpresaComercial } from './ofertas.ts';
@@ -207,8 +207,34 @@ export async function registrarComunicacaoIntermediador(tx: DbExecutor, input: {
  * (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; 60 dias de somente leitura). NAO_APLICAVEL exige justificativa e não
  * muda o acesso.
  */
+/** Evidência de que a assinatura restituída é desta empresa (revisão 5a129de, P2-N3). */
+export type EvidenciaAssinatura = 'REGISTRO' | 'ATUAL' | 'CONTRATACAO' | 'ENCERRAMENTO' | 'EVENTO' | 'PROVEDOR';
+export type ProvedorConferencia = { obterAssinatura(id: string): Promise<AssinaturaProvedor | null> };
+
+/**
+ * Prova de pertinência da assinatura informada pelo atendimento: primeiro os registros locais da empresa (assinatura
+ * atual, contratações, pedidos da 089, eventos de cobrança); sem eles, a leitura da assinatura no provedor com a
+ * referência externa desta empresa. Sem prova: null (a conclusão é recusada com instrução).
+ */
+export async function evidenciaDaAssinatura(tx: DbExecutor, empresaId: string, assinaturaId: string, provedor?: ProvedorConferencia | null): Promise<EvidenciaAssinatura | null> {
+    const r = (await tx.query<{ atual: boolean; contratacao: boolean; encerramento: boolean; evento: boolean }>(`SELECT
+        EXISTS (SELECT 1 FROM empresa_assinaturas WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2) AS atual,
+        (to_regclass('public.assinatura_contratacoes') IS NOT NULL
+          AND EXISTS (SELECT 1 FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2)) AS contratacao,
+        (to_regclass('public.assinatura_encerramentos') IS NOT NULL
+          AND EXISTS (SELECT 1 FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2)) AS encerramento,
+        EXISTS (SELECT 1 FROM cobranca_eventos WHERE empresa_id = $1::uuid AND assinatura_provedor_id = $2) AS evento`, [empresaId, assinaturaId])).rows[0];
+    if (r?.atual) return 'ATUAL';
+    if (r?.contratacao) return 'CONTRATACAO';
+    if (r?.encerramento) return 'ENCERRAMENTO';
+    if (r?.evento) return 'EVENTO';
+    if (!provedor) return null;
+    const remota = await provedor.obterAssinatura(assinaturaId);
+    return remota && remota.id === assinaturaId && remota.externalReference === empresaId ? 'PROVEDOR' : null;
+}
+
 export async function concluirArrependimento(tx: DbExecutor, input: { empresaId: string; protocolo: string; usuarioId: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
-    referencia: string; valorCentavos?: number | null; cobrancaIds?: readonly string[] | null; assinaturaId?: string | null }) {
+    referencia: string; valorCentavos?: number | null; cobrancaIds?: readonly string[] | null; assinaturaId?: string | null }, provedor?: ProvedorConferencia | null) {
     if (!await arrependimentosInstalados(tx)) throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', 'A 097 não está instalada neste ambiente.', 503);
     if (input.situacao === 'RESTITUIDO' && !(Number.isSafeInteger(input.valorCentavos) && (input.valorCentavos ?? 0) > 0))
         throw erroAcesso('DADOS_INVALIDOS', 'Informe o valor restituído.', 400, { campo: 'valorCentavos' });
@@ -229,22 +255,26 @@ export async function concluirArrependimento(tx: DbExecutor, input: { empresaId:
     if (!m) throw erroAcesso('CONFLITO', 'Não há manifestação aberta com este protocolo nesta empresa.', 409);
     if (input.situacao === 'RESTITUIDO' && !m.intermediador)
         throw erroAcesso('CONFLITO', 'Registre antes a comunicação ao intermediador.', 409);
-    // Assinatura restituída (P2-N1). Com vínculo no registro, é a dele (informada diferente: recusa). Sem vínculo no registro
-    // e com assinatura atual, ausência de vínculo NÃO prova recontratação: o atendimento confirma no Asaas e informa a
-    // assinatura, que tem de ser a atual desta empresa; sem isso, a conclusão é recusada (o registro já vale).
+    // Assinatura restituída (P2-N1/P2-N3) ≠ assinatura atual. Com vínculo no registro, é a dele (informada diferente: recusa).
+    // Sem vínculo no registro, o atendimento SEMPRE informa a assinatura restituída — a atual ou uma anterior (recontratação
+    // depois do pedido) —, aceita só com prova de que é desta empresa (evidenciaDaAssinatura) e gravada; nunca descartada em
+    // silêncio, nunca substituída pela atual. Sem ela ou sem prova, a conclusão é recusada (o registro já vale).
     let assinatura: string | null = m.assinatura;
+    let evidencia: EvidenciaAssinatura | null = m.assinatura ? 'REGISTRO' : null;
     if (restituido) {
         if (m.assinatura && input.assinaturaId && input.assinaturaId !== m.assinatura)
             throw erroAcesso('CONFLITO', 'A assinatura informada não é a do registro deste pedido.', 409, { campo: 'assinaturaId' });
-        if (!m.assinatura && m.atual) {
+        if (!m.assinatura) {
             if (!input.assinaturaId)
-                throw erroAcesso('CONFLITO', 'Pedido registrado sem vínculo com o provedor: confira no Asaas e informe a assinatura restituída (sub_…) para concluir.', 409, { campo: 'assinaturaId' });
-            if (input.assinaturaId !== m.atual)
-                throw erroAcesso('CONFLITO', 'A assinatura informada não é a atual desta empresa.', 409, { campo: 'assinaturaId' });
+                throw erroAcesso('CONFLITO', 'Pedido registrado sem vínculo com o provedor: confira no Asaas e informe a assinatura restituída (sub_…), atual ou anterior, para concluir.', 409, { campo: 'assinaturaId' });
+            evidencia = await evidenciaDaAssinatura(tx, input.empresaId, input.assinaturaId, provedor);
+            if (!evidencia)
+                throw erroAcesso('CONFLITO', 'Não há prova de que esta assinatura é desta empresa (nenhum registro local e nenhuma referência desta empresa no provedor). Confira o id no Asaas ou recupere o vínculo antes de concluir.', 409, { campo: 'assinaturaId' });
             assinatura = input.assinaturaId;
         }
     }
-    const mesma = assinatura === m.atual;
+    // Só a assinatura restituída igual à atual encerra o acesso; outra (anterior) não encerra a recontratação.
+    const mesma = assinatura !== null && assinatura === m.atual;
     await tx.query(`UPDATE assinatura_arrependimentos SET situacao = $3, concluido_em = clock_timestamp(), concluido_por = $4::uuid, conclusao_referencia = $5,
         valor_restituido_centavos = $6,
         restituicao_limite = CASE WHEN $3 = 'RESTITUIDO' THEN (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date END,
@@ -259,5 +289,5 @@ export async function concluirArrependimento(tx: DbExecutor, input: { empresaId:
         encerrou = (await tx.query(`UPDATE empresa_assinaturas SET situacao = 'ENCERRADA', encerrada_em = clock_timestamp(), periodo_atual_fim = clock_timestamp(),
                 cancelada_em = COALESCE(cancelada_em, clock_timestamp()), em_atraso_desde = NULL
             WHERE empresa_id = $1::uuid AND situacao IN ('ATIVA', 'EM_ATRASO', 'CANCELADA_FIM_PERIODO')`, [input.empresaId])).rowCount === 1;
-    return { protocolo: input.protocolo, situacao: input.situacao, encerrou, mesmaAssinatura: mesma };
+    return { protocolo: input.protocolo, situacao: input.situacao, encerrou, mesmaAssinatura: mesma, evidencia: restituido ? evidencia : null };
 }

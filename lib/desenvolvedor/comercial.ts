@@ -164,11 +164,12 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
         }
         else if (input.operacao === 'arrependimento-concluir') {
             const r = await concluirArrependimento(tx, { empresaId, protocolo: input.protocolo, usuarioId: sessao.usuario_id, situacao: input.situacao,
-                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null });
+                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null },
+                deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente);
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO', antes: { situacao: 'RECEBIDO' },
                 depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null,
-                    encerrouAcesso: r.encerrou, mesmaAssinatura: r.mesmaAssinatura } });
-            resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou, mesmaAssinatura: r.mesmaAssinatura };
+                    encerrouAcesso: r.encerrou, mesmaAssinatura: r.mesmaAssinatura, evidenciaAssinatura: r.evidencia } });
+            resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou, mesmaAssinatura: r.mesmaAssinatura, evidencia: r.evidencia };
         }
         else if (input.operacao === 'recuperar-vinculo') {
             const provedor = deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente;

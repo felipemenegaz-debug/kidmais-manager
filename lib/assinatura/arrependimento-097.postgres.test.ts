@@ -31,6 +31,7 @@ import { concluirArrependimento, consultarArrependimento, manifestacoesDaEmpresa
  *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
  *   9. vigia (P2-C3): aviso interno não entregue alarma já; RECEBIDA há 1 h ou mais alarma; leitura READ ONLY;
  *  10. rollback recusado com manifestação registrada.
+ * Revisão 5a129de: P2-N3 (assinatura restituída sem vínculo atual ou anterior à recontratação) no caso 6c.
  * Revisão d72d8b8: P2-N1 (pedido sem vínculo) no caso 6b; P2-N2 (cobrança antecipada) no caso 6.
  * Revisão 8da88ba: P2-C1 (sincronização não reabre a restituída; pagamento novo reativa; pedido antigo não encerra a
  * recontratação) no caso 6; P3-C1 (postcheck confere colunas, tipos e NOT NULL; guarda segura contra NULL) nos casos 2 e 5.
@@ -270,7 +271,7 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
         referencia: 'estorno', valorCentavos: 1, cobrancaIds: ['pay_x'], assinaturaId: 'sub_outra' }))), 'CONFLITO', 'assinatura diferente da do registro');
     const r = await emTx(() => concluirArrependimento(client as never, { empresaId, protocolo: p, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
         referencia: 'estorno Asaas 23/10', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`] }));
-    assert.deepEqual(r, { protocolo: p, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true });
+    assert.deepEqual(r, { protocolo: p, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true, evidencia: 'REGISTRO' });
     assert.equal(await situacaoAssinatura(empresaId), 'ENCERRADA');
     const l6 = await linha(p);
     assert.deepEqual(l6.restituicao_cobranca_ids, [`pay_${sub}_1`]);
@@ -306,7 +307,7 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     const n = await pedir('Pedido duplicado por engano');
     const rn = await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: n.protocolo, usuarioId: ids.atendimento, situacao: 'NAO_APLICAVEL',
         referencia: 'Cliente retirou o pedido por e-mail' }));
-    assert.deepEqual(rn, { protocolo: n.protocolo, situacao: 'NAO_APLICAVEL', encerrou: false, mesmaAssinatura: true });
+    assert.deepEqual(rn, { protocolo: n.protocolo, situacao: 'NAO_APLICAVEL', encerrou: false, mesmaAssinatura: true, evidencia: null });
     assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA');
     const ln = await linha(n.protocolo);
     assert.deepEqual([ln.restituicao_limite, ln.restituicao_assinatura_id, ln.restituicao_cobranca_ids], [null, null, null]);
@@ -328,7 +329,7 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: antigo.protocolo, referencia: 'estorno da assinatura antiga' }));
     const ra = await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: antigo.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
         referencia: 'estorno da assinatura antiga', valorCentavos: 19_700, cobrancaIds: [`pay_${subAntiga}_1`] }));
-    assert.deepEqual(ra, { protocolo: antigo.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false });
+    assert.deepEqual(ra, { protocolo: antigo.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'REGISTRO' });
     assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA', 'recontratação não é encerrada por pedido antigo');
     const sn = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(sn.resultado === 'SINCRONIZADA' && sn.depois, 'ATIVA', 'o limite da assinatura antiga não alcança a nova');
@@ -355,9 +356,9 @@ test('6b. pedido registrado sem vínculo com o provedor (P2-N1): conclusão exig
         situacao: 'RESTITUIDO', referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`], assinaturaId }));
     // Ausência de vínculo não é tratada como recontratação: sem a assinatura confirmada, a conclusão é recusada.
     assert.equal(await erro(concluir(null)), 'CONFLITO');
-    assert.equal(await erro(concluir('sub_de_outra_empresa')), 'CONFLITO', 'só a assinatura atual desta empresa');
+    assert.equal(await erro(concluir('sub_de_outra_empresa')), 'CONFLITO', 'sem prova de que é desta empresa');
     assert.equal((await linha(r.protocolo)).situacao, 'RECEBIDO', 'recusa não grava nada');
-    assert.deepEqual(await concluir(sub), { protocolo: r.protocolo, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true });
+    assert.deepEqual(await concluir(sub), { protocolo: r.protocolo, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true, evidencia: 'ATUAL' });
     const l = await linha(r.protocolo);
     assert.deepEqual([l.provedor_assinatura_id, l.restituicao_assinatura_id, l.restituicao_cobranca_ids], [null, sub, [`pay_${sub}_1`]]);
     // A reconsulta com a cobrança ainda RECEIVED não reabre (antes: ATIVA).
@@ -388,6 +389,59 @@ test('6b. pedido registrado sem vínculo com o provedor (P2-N1): conclusão exig
     try {
         await assert.rejects(q(`UPDATE assinatura_arrependimentos SET restituicao_cobranca_ids = ARRAY['pay x'] WHERE protocolo = $1`, [r.protocolo]), /cobranca_ids_check|imutável/);
     } finally { await q('ROLLBACK'); }
+});
+
+test('6c. pedido sem vínculo (P2-N3): assinatura restituída ≠ atual — sem vínculo nenhum e recontratação antes da conclusão', { skip: !opt() }, async () => {
+    const hoje = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    const concluirCom = (empresaId: string, protocolo: string, assinaturaId: string | null, cobranca: string, comProvedor = true) =>
+        emTx(() => concluirArrependimento(client as never, { empresaId, protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO', referencia: 'estorno Asaas',
+            valorCentavos: 19_700, cobrancaIds: [cobranca], assinaturaId }, comProvedor ? provedor as never : null));
+
+    // Ramo A (REVIEW N3-A): sem vínculo no registro NEM na conclusão. A assinatura remota é desta empresa (referência no
+    // provedor). Antes: aceita e descartada em silêncio. Agora: sem prova recusa; com prova é GRAVADA.
+    ids.atual = await empresaEmTeste('88999000000198');
+    const a = await pedir('Sem vínculo nenhum');
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: a.protocolo, referencia: 'estorno pedido' }));
+    const subA = `sub_ar_a_${++seq}`;
+    assert.equal(await erro(concluirCom(ids.atual, a.protocolo, null, `pay_${subA}_1`)), 'CONFLITO', 'sem a assinatura: recusa');
+    assert.equal(await erro(concluirCom(ids.atual, a.protocolo, subA, `pay_${subA}_1`)), 'CONFLITO', 'desconhecida no provedor: recusa');
+    assinaturas.set(subA, { id: subA, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_a_${seq}`, externalReference: ids.atual, valorCentavos: 19_700 });
+    assert.equal(await erro(concluirCom(ids.atual, a.protocolo, subA, `pay_${subA}_1`, false)), 'CONFLITO', 'sem provedor e sem registro local: recusa');
+    const outraEmpresa = await empresaEmTeste('99000111000165');
+    assinaturas.set(`${subA}_alheia`, { id: `${subA}_alheia`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_x', externalReference: outraEmpresa, valorCentavos: 1 });
+    assert.equal(await erro(concluirCom(ids.atual, a.protocolo, `${subA}_alheia`, 'pay_x')), 'CONFLITO', 'assinatura de outra empresa: recusa');
+    assert.equal((await linha(a.protocolo)).situacao, 'RECEBIDO', 'recusas não gravam');
+    const ra = await concluirCom(ids.atual, a.protocolo, subA, `pay_${subA}_1`);
+    assert.deepEqual(ra, { protocolo: a.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'PROVEDOR' });
+    assert.equal((await linha(a.protocolo)).restituicao_assinatura_id, subA, 'assinatura informada gravada, não descartada');
+    // O vínculo é recuperado depois: a assinatura restituída e suas cobranças pagas até o limite não levam a ATIVA.
+    cobrancas.set(subA, [{ id: `pay_${subA}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: subA },
+        { id: `pay_${subA}_2`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: subA }]);
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [ids.atual, `cus_a_${seq}`, subA]);
+    const sA = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.notEqual(sA.resultado === 'SINCRONIZADA' && sA.depois, 'ATIVA', 'cobranças restituídas (declarada e paga até o limite) não ativam: ' + JSON.stringify(sA));
+
+    // Ramo B (REVIEW N3-B): pedido sem vínculo; a empresa RECONTRATA (assinatura nova paga, ATIVA) antes da conclusão.
+    // O atendimento identifica a assinatura ANTIGA: aceita com prova, gravada, sem encerrar a nova.
+    ids.atual = await empresaEmTeste('11000222000120');
+    const b = await pedir('Pedido da contratação antiga');
+    const subAntiga = `sub_ar_b_${++seq}`, subNova = `${subAntiga}_nova`;
+    assinaturas.set(subAntiga, { id: subAntiga, status: 'INACTIVE', deleted: true, cycle: 'MONTHLY', customer: `cus_b_${seq}`, externalReference: ids.atual, valorCentavos: 19_700 });
+    assinaturas.set(subNova, { id: subNova, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_b_${seq}`, externalReference: ids.atual, valorCentavos: 19_700 });
+    cobrancas.set(subNova, [{ id: `pay_${subNova}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: subNova }]);
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [ids.atual, `cus_b_${seq}`, subNova]);
+    const s0 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s0.resultado === 'SINCRONIZADA' && s0.depois, 'ATIVA');
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: b.protocolo, referencia: 'estorno da antiga' }));
+    // Evidência LOCAL (evento de cobrança desta empresa com a assinatura antiga), sem consultar o provedor.
+    await q(`INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, cobranca_provedor_id, referencia_externa, empresa_id)
+        VALUES ('ASAAS', $1, 'PAYMENT_RECEIVED', $2, $3, $4, $5::uuid)`, [`evt_${subAntiga}`, subAntiga, `pay_${subAntiga}_1`, ids.atual, ids.atual]);
+    const rb = await concluirCom(ids.atual, b.protocolo, subAntiga, `pay_${subAntiga}_1`, false);
+    assert.deepEqual(rb, { protocolo: b.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'EVENTO' });
+    assert.equal((await linha(b.protocolo)).restituicao_assinatura_id, subAntiga);
+    assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA', 'a assinatura nova não é encerrada');
+    const s1 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s1.resultado === 'SINCRONIZADA' && s1.depois, 'ATIVA', 'o corte da antiga não alcança a nova');
 });
 
 test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO); concluídas não', { skip: !opt() }, async () => {
