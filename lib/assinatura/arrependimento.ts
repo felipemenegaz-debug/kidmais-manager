@@ -4,8 +4,10 @@
  * (primeira ativação, garantia de 7 dias) e da disponibilidade do provedor de cobrança: nada aqui chama o provedor. Os
  * dados de prazo e provedor gravados são informativos; quem decide é o atendimento, com registro:
  *   - comunicação ao intermediador (Asaas) — imediata, com referência;
- *   - conclusão RESTITUIDO (valor e referência; encerra o período pago, como o encerramento com devolução da 089) ou
- *     NAO_APLICAVEL (justificativa). Pendências entram na conferência D-C4 (alarme na primeira hora).
+ *   - conclusão RESTITUIDO (valor e referência; encerra o período pago, como o encerramento com devolução da 089, se a
+ *     empresa ainda estiver na assinatura do provedor do registro) ou NAO_APLICAVEL (justificativa). A restituição grava o
+ *     limite: a sincronização não deixa as cobranças daquela assinatura até ele reabrirem o período (P2-C1).
+ *   Pendências: vigia de 15 min (scripts/arrependimento-vigia.cjs, alarme imediato com aviso interno falho) e D-C4 diária.
  * Confirmação por e-mail ao solicitante e aviso interno [AÇÃO HOJE] à plataforma: melhor esforço, nunca desfazem o registro.
  * O fluxo automático da 089 (ARREPENDIMENTO_7_DIAS, quando elegível) continua; este registro cobre todos os outros casos.
  */
@@ -78,8 +80,8 @@ async function inserirComProtocolo(tx: DbExecutor, valores: unknown[]): Promise<
         await tx.query('SAVEPOINT kidmais_097_protocolo');
         try {
             const r = (await tx.query<Manifestacao>(`INSERT INTO assinatura_arrependimentos (protocolo, empresa_id, chave_idempotencia, canal, solicitado_por, motivo,
-                    situacao_assinatura, contratado_em, dentro_de_7_dias, provedor_disponivel)
-                VALUES ($1, $2::uuid, $3::uuid, $4, $5::uuid, $6, $7, $8::timestamptz, $9, $10) RETURNING ${COLUNAS}`, [protocolo, ...valores])).rows[0];
+                    situacao_assinatura, contratado_em, dentro_de_7_dias, provedor_disponivel, provedor_assinatura_id)
+                VALUES ($1, $2::uuid, $3::uuid, $4, $5::uuid, $6, $7, $8::timestamptz, $9, $10, $11) RETURNING ${COLUNAS}`, [protocolo, ...valores])).rows[0];
             await tx.query('RELEASE SAVEPOINT kidmais_097_protocolo');
             return r;
         }
@@ -113,13 +115,14 @@ export async function registrarArrependimento(sessao: SessaoAdmin, empresaSolici
             [empresaId, chave])).rows[0];
         if (anterior) return { m: anterior, repetido: true, para: null as string | null, nome: '' };
         await travarEmpresaComercial(tx, empresaId);
-        const a = (await tx.query<{ situacao: string; contratado_em: string | null; dentro: boolean | null; nome: string }>(`SELECT a.situacao, e.nome,
+        const a = (await tx.query<{ situacao: string; contratado_em: string | null; dentro: boolean | null; nome: string; assinatura: string | null }>(`SELECT a.situacao, e.nome,
+                a.provedor_assinatura_id AS assinatura,
                 ${ISO('ref.contratado_em')} AS contratado_em, (ref.contratado_em >= clock_timestamp() - interval '7 days') AS dentro
               FROM empresa_assinaturas a JOIN empresas e ON e.id = a.empresa_id
               LEFT JOIN LATERAL (SELECT max(confirmada_em) AS contratado_em FROM assinatura_contratacoes c WHERE c.empresa_id = a.empresa_id AND c.estado = 'CONFIRMADA') ref ON true
              WHERE a.empresa_id = $1::uuid`, [empresaId])).rows[0];
         if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no Kidmais Manager.', 409);
-        const m = await inserirComProtocolo(tx, [empresaId, chave, 'FERRAMENTA', sessao.usuario_id, motivo || null, a.situacao, a.contratado_em, a.dentro, configuracaoAsaas(env).ligado]);
+        const m = await inserirComProtocolo(tx, [empresaId, chave, 'FERRAMENTA', sessao.usuario_id, motivo || null, a.situacao, a.contratado_em, a.dentro, configuracaoAsaas(env).ligado, a.assinatura]);
         await auditarCobranca(tx, { acao: 'ARREPENDIMENTO_REGISTRADO', empresaId, origem: { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId },
             ip: ctx.ip ?? null, justificativa: motivo || null, depois: { protocolo: m.protocolo, canal: 'FERRAMENTA', situacaoAssinatura: a.situacao } });
         const para = (await tx.query<{ email: string | null }>('SELECT email FROM usuarios_administrativos WHERE id = $1::uuid', [sessao.usuario_id])).rows[0]?.email ?? null;
@@ -142,7 +145,7 @@ export function mensagemConfirmacaoArrependimento(para: string, empresa: string,
     return mensagem(para, `Kidmais Manager — arrependimento registrado, protocolo ${m.protocolo}`, [
         `Recebemos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}.`,
         `Protocolo: ${m.protocolo}. Registrado em ${horaBr(m.solicitadoEm)} (horário de Brasília).`,
-        'Vamos providenciar a restituição dos valores pagos e a comunicação ao intermediador de pagamento imediatamente, e informar o andamento por este e-mail. O prazo do crédito depende do meio de pagamento.',
+        'Este e-mail confirma o registro do pedido. A equipe Kidmais vai analisá-lo e, quando cabível, comunicar o intermediador de pagamento e providenciar a restituição dos valores pagos, informando o resultado pelo canal oficial. O prazo do crédito depende do meio de pagamento.',
         `Dúvidas: ${CANAL_OFICIAL}, informando o protocolo.`,
     ], `arrependimento:${m.protocolo}`);
 }
@@ -205,23 +208,33 @@ export async function registrarComunicacaoIntermediador(tx: DbExecutor, input: {
  * muda o acesso.
  */
 export async function concluirArrependimento(tx: DbExecutor, input: { empresaId: string; protocolo: string; usuarioId: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
-    referencia: string; valorCentavos?: number | null }) {
+    referencia: string; valorCentavos?: number | null; cobrancaId?: string | null }) {
     if (!await arrependimentosInstalados(tx)) throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', 'A 097 não está instalada neste ambiente.', 503);
     if (input.situacao === 'RESTITUIDO' && !(Number.isSafeInteger(input.valorCentavos) && (input.valorCentavos ?? 0) > 0))
         throw erroAcesso('DADOS_INVALIDOS', 'Informe o valor restituído.', 400, { campo: 'valorCentavos' });
     await travarEmpresaComercial(tx, input.empresaId);
-    const m = (await tx.query<{ intermediador: boolean }>(`SELECT intermediador_comunicado_em IS NOT NULL AS intermediador FROM assinatura_arrependimentos
-        WHERE empresa_id = $1::uuid AND protocolo = $2 AND situacao = 'RECEBIDO' FOR UPDATE`, [input.empresaId, input.protocolo])).rows[0];
+    if (input.cobrancaId != null && !/^[A-Za-z0-9_-]{1,100}$/.test(input.cobrancaId))
+        throw erroAcesso('DADOS_INVALIDOS', 'Identificador da cobrança inválido.', 400, { campo: 'cobrancaId' });
+    const m = (await tx.query<{ intermediador: boolean; assinatura: string | null; mesma: boolean }>(`SELECT r.intermediador_comunicado_em IS NOT NULL AS intermediador,
+            r.provedor_assinatura_id AS assinatura, (a.provedor_assinatura_id IS NOT DISTINCT FROM r.provedor_assinatura_id) AS mesma
+          FROM assinatura_arrependimentos r JOIN empresa_assinaturas a ON a.empresa_id = r.empresa_id
+         WHERE r.empresa_id = $1::uuid AND r.protocolo = $2 AND r.situacao = 'RECEBIDO' FOR UPDATE OF r`, [input.empresaId, input.protocolo])).rows[0];
     if (!m) throw erroAcesso('CONFLITO', 'Não há manifestação aberta com este protocolo nesta empresa.', 409);
     if (input.situacao === 'RESTITUIDO' && !m.intermediador)
         throw erroAcesso('CONFLITO', 'Registre antes a comunicação ao intermediador.', 409);
+    const restituido = input.situacao === 'RESTITUIDO';
     await tx.query(`UPDATE assinatura_arrependimentos SET situacao = $3, concluido_em = clock_timestamp(), concluido_por = $4::uuid, conclusao_referencia = $5,
-        valor_restituido_centavos = $6 WHERE empresa_id = $1::uuid AND protocolo = $2`,
-        [input.empresaId, input.protocolo, input.situacao, input.usuarioId, input.referencia.trim(), input.situacao === 'RESTITUIDO' ? input.valorCentavos : null]);
+        valor_restituido_centavos = $6,
+        restituicao_limite = CASE WHEN $3 = 'RESTITUIDO' THEN (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date END, restituicao_cobranca_id = $7
+        WHERE empresa_id = $1::uuid AND protocolo = $2`,
+        [input.empresaId, input.protocolo, input.situacao, input.usuarioId, input.referencia.trim(), restituido ? input.valorCentavos : null,
+            restituido ? input.cobrancaId ?? null : null]);
+    // Só encerra o acesso se a empresa ainda estiver na assinatura do provedor do registro: concluir um pedido antigo não
+    // encerra uma recontratação (outra assinatura). Nesse caso o registro fica RESTITUIDO e encerrou=false.
     let encerrou = false;
-    if (input.situacao === 'RESTITUIDO')
+    if (restituido && m.mesma)
         encerrou = (await tx.query(`UPDATE empresa_assinaturas SET situacao = 'ENCERRADA', encerrada_em = clock_timestamp(), periodo_atual_fim = clock_timestamp(),
                 cancelada_em = COALESCE(cancelada_em, clock_timestamp()), em_atraso_desde = NULL
             WHERE empresa_id = $1::uuid AND situacao IN ('ATIVA', 'EM_ATRASO', 'CANCELADA_FIM_PERIODO')`, [input.empresaId])).rowCount === 1;
-    return { protocolo: input.protocolo, situacao: input.situacao, encerrou };
+    return { protocolo: input.protocolo, situacao: input.situacao, encerrou, mesmaAssinatura: m.mesma };
 }

@@ -32,7 +32,7 @@ type Operacao = { operacao: 'iniciar-teste'; dias: number; motivo: string } | { 
     | ({ operacao: 'registrar-continuidade' } & FormContinuidade) | { operacao: 'concluir-continuidade'; continuidadeId: string; motivo: string }
     | { operacao: 'recuperar-vinculo'; assinaturaId: string; motivo: string }
     | { operacao: 'arrependimento-comunicar'; protocolo: string; referencia: string; motivo: string }
-    | { operacao: 'arrependimento-concluir'; protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valorCentavos: number | null; motivo: string };
+    | { operacao: 'arrependimento-concluir'; protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valorCentavos: number | null; cobrancaId: string | null; motivo: string };
 
 export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar }: {
     empresaId: string; comercial: Comercial; ocupado: boolean;
@@ -44,7 +44,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     const [continuidade, setContinuidade] = useState<FormContinuidade | null>(null);
     const [concluir, setConcluir] = useState<{ id: string; motivo: string } | null>(null);
     const [recuperar, setRecuperar] = useState<{ assinaturaId: string; motivo: string } | null>(null);
-    const [arrep, setArrep] = useState<{ protocolo: string; acao: 'comunicar' | 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valor: string; motivo: string } | null>(null);
+    const [arrep, setArrep] = useState<{ protocolo: string; acao: 'comunicar' | 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valor: string; cobranca: string; motivo: string } | null>(null);
     const pendente = comercial.continuidades?.find((x) => x.situacao === 'PENDENTE_PROVEDOR');
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
     const enviar = (dados: Operacao, texto: string) => operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), () => ({ tipo: 'ok', texto }));
@@ -165,23 +165,25 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                     <strong>{x.protocolo}: {x.situacao === 'RECEBIDO' ? 'aguardando o atendimento (prazo imediato)' : x.situacao === 'RESTITUIDO' ? 'restituído' : 'não se aplica'}</strong>
                     <span>{formatarData(x.solicitadoEm)} · {x.dentroDe7Dias === null ? 'sem contratação confirmada' : x.dentroDe7Dias ? 'dentro de 7 dias da contratação' : 'mais de 7 dias da contratação'} (informativo) · provedor {x.provedorDisponivel ? 'configurado' : 'indisponível'}
                         {x.intermediadorComunicadoEm ? ` · intermediador comunicado em ${formatarData(x.intermediadorComunicadoEm)}` : ''}
-                        {x.situacao === 'RECEBIDO' && !x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'comunicar', referencia: '', valor: '', motivo: '' })}>Registrar comunicação ao intermediador</button></>}
-                        {x.situacao === 'RECEBIDO' && x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'RESTITUIDO', referencia: '', valor: '', motivo: '' })}>Concluir com restituição</button></>}
-                        {x.situacao === 'RECEBIDO' && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'NAO_APLICAVEL', referencia: '', valor: '', motivo: '' })}>Não se aplica…</button></>}</span>
+                        {x.situacao === 'RECEBIDO' && !x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'comunicar', referencia: '', valor: '', cobranca: '', motivo: '' })}>Registrar comunicação ao intermediador</button></>}
+                        {x.situacao === 'RECEBIDO' && x.intermediadorComunicadoEm && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'RESTITUIDO', referencia: '', valor: '', cobranca: '', motivo: '' })}>Concluir com restituição</button></>}
+                        {x.situacao === 'RECEBIDO' && <> · <button type="button" disabled={ocupado} onClick={() => setArrep({ protocolo: x.protocolo, acao: 'NAO_APLICAVEL', referencia: '', valor: '', cobranca: '', motivo: '' })}>Não se aplica…</button></>}</span>
                 </li>)}
             </ul>
             {arrep && <form aria-label="Acompanhamento do arrependimento" onSubmit={(e) => {
                 e.preventDefault();
                 if (arrep.acao === 'comunicar') enviar({ operacao: 'arrependimento-comunicar', protocolo: arrep.protocolo, referencia: arrep.referencia, motivo: arrep.motivo }, 'Comunicação registrada.');
                 else enviar({ operacao: 'arrependimento-concluir', protocolo: arrep.protocolo, situacao: arrep.acao, referencia: arrep.referencia,
-                    valorCentavos: arrep.acao === 'RESTITUIDO' ? Math.round(Number(arrep.valor.replace(',', '.')) * 100) : null, motivo: arrep.motivo }, 'Arrependimento concluído.');
+                    valorCentavos: arrep.acao === 'RESTITUIDO' ? Math.round(Number(arrep.valor.replace(',', '.')) * 100) : null,
+                    cobrancaId: arrep.acao === 'RESTITUIDO' && arrep.cobranca.trim() ? arrep.cobranca.trim() : null, motivo: arrep.motivo }, 'Arrependimento concluído.');
                 setArrep(null);
             }}>
-                <label>{arrep.acao === 'comunicar' ? 'Referência da comunicação ao intermediador (ex.: estorno solicitado no painel do Asaas, data)' : arrep.acao === 'RESTITUIDO' ? 'Referência da restituição (comprovante/estorno)' : 'Justificativa (enviada ao cliente pelo atendimento)'}
+                <label>{arrep.acao === 'comunicar' ? 'Referência da comunicação ao intermediador (ex.: estorno solicitado no painel do Asaas, data)' : arrep.acao === 'RESTITUIDO' ? 'Referência da restituição (comprovante/estorno)' : 'Justificativa (o atendimento a envia ao contratante pelo canal oficial; o sistema não envia)'}
                     <input required minLength={arrep.acao === 'comunicar' ? 3 : 5} maxLength={arrep.acao === 'comunicar' ? 300 : 500} value={arrep.referencia} onChange={(e) => setArrep({ ...arrep, referencia: e.target.value })} /></label>
                 {arrep.acao === 'RESTITUIDO' && <label>Valor restituído (R$)<input required inputMode="decimal" value={arrep.valor} onChange={(e) => setArrep({ ...arrep, valor: e.target.value })} /></label>}
+                {arrep.acao === 'RESTITUIDO' && <label>Cobrança restituída no Asaas (opcional, ex.: pay_…)<input pattern="[A-Za-z0-9_-]{1,100}" value={arrep.cobranca} onChange={(e) => setArrep({ ...arrep, cobranca: e.target.value })} /></label>}
                 <label>Motivo (fica na auditoria)<textarea required minLength={5} maxLength={500} value={arrep.motivo} onChange={(e) => setArrep({ ...arrep, motivo: e.target.value })} /></label>
-                {arrep.acao === 'RESTITUIDO' && <p className={workspace.muted}>Concluir com restituição encerra o período pago (somente leitura por 60 dias, com exportação). Sua senha será pedida.</p>}
+                {arrep.acao === 'RESTITUIDO' && <p className={workspace.muted}>Concluir com restituição encerra o período pago (somente leitura por 60 dias, com exportação) se a empresa ainda estiver na assinatura do registro, e as cobranças dessa assinatura até hoje deixam de reabrir o acesso. Sua senha será pedida.</p>}
                 <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Registrar</button><button type="button" onClick={() => setArrep(null)}>Cancelar</button></div>
             </form>}
         </>}

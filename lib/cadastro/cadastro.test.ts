@@ -52,7 +52,8 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
 test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões novas, responsável por marcador, DPA incorporado aos Termos e pendências listadas', () => {
     // Grupo B (22/10, contratante PF/PJ, síntese e comprovante, CPF): novas versões das três minutas.
     // Grupo C (23/10): Termos conciliados com a L1 e o arrependimento pela ferramenta (097).
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-23-minuta3');
+    // Revisão 8da88ba (P2-C2): registro ≠ análise ≠ restituição; e-mail é cópia, não a confirmação.
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-23-minuta4');
     assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-22-minuta7');
     assert.equal(DOCUMENTOS.DPA.versao, '2026-10-22-minuta2');
     for (const d of Object.values(DOCUMENTOS)) {
@@ -113,6 +114,9 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 7, 'comprovante por e-mail entra; protocolo/arrependimento e anual proporcional saem (grupo C)');
     assert.match(termos, /em “Desistir da contratação”, mesmo quando a devolução automática não estiver disponível/);
     assert.match(termos, /vale a partir do registro, com protocolo/);
+    assert.match(termos, /a equipe Kidmais analisa o pedido: tratando-se de arrependimento legal/);
+    assert.match(termos, /se o e-mail não chegar, o protocolo da tela continua valendo/);
+    assert.doesNotMatch(termos, /confirmação imediatos na tela e por e-mail|Confirmamos o recebimento imediatamente/);
     assert.doesNotMatch(termos, /hoje a devolução é pedida pelo canal oficial e processada manualmente/);
     assert.equal(privacidade.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 5);
     assert.equal(dpa.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 3);

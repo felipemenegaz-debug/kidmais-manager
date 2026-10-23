@@ -30,12 +30,15 @@ test('protocolo KA-: formato próprio, distinto do KM- da devolução', () => {
     assert.doesNotMatch('KA-20261023-ABCDEFGI', PROTOCOLO_ARREPENDIMENTO, 'sem I/L/O/U (Crockford)');
 });
 
-test('confirmação à Gestão: protocolo, hora de Brasília, restituição e canal; HTML escapado', () => {
+test('confirmação à Gestão: protocolo, hora de Brasília, registro ≠ deferimento e canal; HTML escapado', () => {
     const m = mensagemConfirmacaoArrependimento('gestao@exemplo.test', 'Buffet <Alegria>', M);
     assert.equal(m.para, 'gestao@exemplo.test');
     assert.equal(m.assunto, 'Kidmais Manager — arrependimento registrado, protocolo KA-20261023-ABCDEFGH');
     assert.match(m.texto, /Registrado em 23\/10\/2026,? 10:05 \(horário de Brasília\)/);
-    assert.match(m.texto, /restituição dos valores pagos e a comunicação ao intermediador de pagamento imediatamente/);
+    // Revisão 8da88ba (P2-C2): confirma o REGISTRO; análise e restituição só quando cabível, sem prometer deferimento.
+    assert.match(m.texto, /Este e-mail confirma o registro do pedido/);
+    assert.match(m.texto, /vai analisá-lo e, quando cabível, comunicar o intermediador de pagamento e providenciar a restituição/);
+    assert.doesNotMatch(m.texto, /Vamos providenciar a restituição|imediatamente/);
     assert.match(m.texto, /contato@demerzellabs\.com\.br, informando o protocolo/);
     assert.match(m.html, /Buffet &lt;Alegria&gt;/); assert.doesNotMatch(m.html, /<Alegria>/);
     assert.equal(m.idempotencia, 'arrependimento:KA-20261023-ABCDEFGH');

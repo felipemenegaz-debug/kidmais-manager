@@ -13,7 +13,7 @@ export async function encerramentosInstalados(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 
-/** Cobranças com pedido de devolução (089): nunca sustentam período pago na sincronização. Sem a 089: nenhuma. */
+/** Cobranças com pedido de devolução (089) ou arrependimento restituído (097): nunca sustentam período pago na sincronização. */
 export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string> };
 /**
  * Cobranças com pedido de devolução (089) e, por assinatura do provedor, o vencimento da cobrança devolvida mais recente
@@ -22,14 +22,22 @@ export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, strin
  * só um pagamento com vencimento posterior, ou de outra assinatura (recontratação), reativa. Sem a 089: nada.
  */
 export async function cobrancasDevolvidas(tx: DbExecutor, empresaId: string): Promise<CobrancasDevolvidas> {
-    if (!await encerramentosInstalados(tx)) return { ids: new Set(), limites: new Map() };
-    const linhas = (await tx.query<{ id: string; assinatura: string; inicio: string }>(
-        `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
-           FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows;
+    const linhas: { id: string | null; assinatura: string; inicio: string }[] = [];
+    if (await encerramentosInstalados(tx))
+        linhas.push(...(await tx.query<{ id: string; assinatura: string; inicio: string }>(
+            `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
+               FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows);
+    // 097 (revisão 8da88ba, P2-C1): arrependimento concluído com restituição. Na assinatura do provedor do registro, nenhuma
+    // cobrança com vencimento até a data da conclusão sustenta período (nem a restituída, se informada); só pagamento com
+    // vencimento posterior, ou de outra assinatura (recontratação), reativa.
+    if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        linhas.push(...(await tx.query<{ id: string | null; assinatura: string; inicio: string }>(
+            `SELECT restituicao_cobranca_id AS id, provedor_assinatura_id AS assinatura, to_char(restituicao_limite, 'YYYY-MM-DD') AS inicio
+               FROM assinatura_arrependimentos WHERE empresa_id = $1::uuid AND situacao = 'RESTITUIDO' AND provedor_assinatura_id IS NOT NULL`, [empresaId])).rows);
     const limites = new Map<string, string>();
     for (const l of linhas)
         if (!limites.has(l.assinatura) || limites.get(l.assinatura)! < l.inicio) limites.set(l.assinatura, l.inicio);
-    return { ids: new Set(linhas.map((l) => l.id)), limites };
+    return { ids: new Set(linhas.flatMap((l) => (l.id ? [l.id] : []))), limites };
 }
 /** Cobrança que não sustenta período na sincronização (ver cobrancasDevolvidas). */
 export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string, c: { id: string; dueDate: string }) => {

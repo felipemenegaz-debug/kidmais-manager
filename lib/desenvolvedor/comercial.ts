@@ -85,7 +85,8 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
     z.object({ operacao: z.literal('arrependimento-comunicar'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
         referencia: z.string().trim().min(3).max(300), motivo }).strict(),
     z.object({ operacao: z.literal('arrependimento-concluir'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
-        situacao: z.enum(['RESTITUIDO', 'NAO_APLICAVEL']), referencia: z.string().trim().min(5).max(500), valorCentavos: z.number().int().positive().nullish(), motivo }).strict(),
+        situacao: z.enum(['RESTITUIDO', 'NAO_APLICAVEL']), referencia: z.string().trim().min(5).max(500), valorCentavos: z.number().int().positive().nullish(),
+        cobrancaId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).nullish(), motivo }).strict(),
     z.object({ operacao: z.literal('recuperar-vinculo'), assinaturaId: z.string().trim().min(3).max(100).regex(/^[A-Za-z0-9_-]+$/), motivo }).strict(),
 ]);
 
@@ -162,10 +163,11 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
         }
         else if (input.operacao === 'arrependimento-concluir') {
             const r = await concluirArrependimento(tx, { empresaId, protocolo: input.protocolo, usuarioId: sessao.usuario_id, situacao: input.situacao,
-                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null });
+                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null, cobrancaId: input.cobrancaId ?? null });
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO', antes: { situacao: 'RECEBIDO' },
-                depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, encerrouAcesso: r.encerrou } });
-            resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou };
+                depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, cobrancaId: input.cobrancaId ?? null,
+                    encerrouAcesso: r.encerrou, mesmaAssinatura: r.mesmaAssinatura } });
+            resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou, mesmaAssinatura: r.mesmaAssinatura };
         }
         else if (input.operacao === 'recuperar-vinculo') {
             const provedor = deps.provedor ? deps.provedor() : clienteAsaasDoAmbiente(process.env).cliente;
