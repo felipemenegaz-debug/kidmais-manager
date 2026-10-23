@@ -26,6 +26,25 @@ test("regras públicas: TURNO_1 = almoço, TURNO_2 = noite; período desconhecid
   ]);
 });
 
+test("2c-1: com o id do horário configurado, HORARIO_n entra (legado vazio) e a tela casa pelo configuracaoId", () => {
+  const T1 = "44444444-4444-4444-8444-444444444444";
+  const H3 = "55555555-5555-4555-8555-555555555555";
+  const regras = regrasPublicasDoPacote([
+    { ...linha(6, "TURNO_1"), configuracao_id: T1 },
+    { ...linha(6, "HORARIO_3", "SOB_CONSULTA"), configuracao_id: H3 },
+  ]);
+  assert.deepEqual(regras, [
+    { dia: 6, horario: "almoco", configuracaoId: T1, estado: "DISPONIVEL", vigenciaInicio: "2026-01-01", vigenciaFim: null },
+    { dia: 6, horario: "", configuracaoId: H3, estado: "SOB_CONSULTA", vigenciaInicio: "2026-01-01", vigenciaFim: null },
+  ]);
+  const SABADO = "2026-11-14";
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", SABADO, "", regras, H3).status, "consulta");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", SABADO, "almoco", regras, T1).status, "disponivel");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", SABADO, "almoco", regras).status, "disponivel", "sem id: legado almoco");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", SABADO, "", regras).status, "indisponivel", "sem id e sem legado: nada casa");
+  assert.equal(statusDataPacote(CONFIG_VAZIA, "pocket", SABADO, "", regras, "66666666-6666-4666-8666-666666666666").status, "indisponivel");
+});
+
 test("leitura das regras: só o pacote pedido, só regras ativas e não expiradas; nenhum dado além de dia/período/estado/vigência", async () => {
   const banco = executorFalso([[/FROM regras_disponibilidade_pacote/, () => [linha(6, "TURNO_1")]]]);
   const regras = await lerRegrasDisponibilidadePacote(banco as unknown as DbExecutor, POCKET_A);
@@ -151,7 +170,8 @@ test("tela: toda decisão de disponibilidade do pacote no fechamento passa as re
   assert.match(wizard, /regrasPacote=\{regrasDisponibilidadeDaTela\(marca\.kidmais, fatosPacote, form\.pacote\)\}/);
   const doCalendario = chamadas(calendario);
   assert.equal(doCalendario.length, 3);
-  assert.ok(doCalendario.every((c) => /regrasPacote\s*$/.test(c.trim())), doCalendario.join(" | "));
+  // 2c-1: depois das regras vem só o horário configurado (configuracaoId) da própria agenda.
+  assert.ok(doCalendario.every((c) => /regrasPacote(, [\w.]+\.configuracaoId)?\s*$/.test(c.trim())), doCalendario.join(" | "));
 });
 
 // ---- Administração (AdminDisponibilidade): mesmas regras da cotação pública, só da empresa ativa; dona da agenda = legado.
@@ -233,14 +253,15 @@ test("administração: dona da agenda pública mantém a regra legada (null); de
   assert.match(rota, /const daEmpresa = configuracaoComercial\s*\?\s*null\s*:\s*await pacotesDaAgendaDaEmpresa\(tx, empresaComprovada, listarPacotesContrataveisDaEmpresa\);/);
   assert.match(rota, /const regrasPacotes = daEmpresa \? daEmpresa\.regras : null;/);
   assert.match(rota, /const pacotes = daEmpresa \? daEmpresa\.pacotes : null;/);
-  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,\s*bloqueios,/);
+  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*pacotes,[\s\S]{0,260}?telaDoCliente:[^\n]*\n\s*bloqueios,/);
   assert.doesNotMatch(rota, /(regrasDosPacotesDaEmpresa|pacotesDaAgendaDaEmpresa)\(tx, (q\.|body|alvo|request)/, "empresa só da sessão comprovada");
   const tela = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   assert.match(tela, /regrasPacotes: admin\.regrasPacotes \?\? null/);
   assert.match(tela, /const regrasDoPacote = regrasPacotes \? \(regrasPacotes\[pacote\] \?\? \[\]\) : null;/);
   const chamadas = [...tela.matchAll(/statusDataPacote\(([^)]*)\)/g)].map((m) => m[1]);
   assert.equal(chamadas.length, 2);
-  assert.ok(chamadas.every((c) => /, regrasDoPacote$/.test(c.trim())), chamadas.join(" | "));
+  // 2c-1: depois das regras vem só o horário configurado em foco (idHorario).
+  assert.ok(chamadas.every((c) => /, regrasDoPacote(, idHorario)?$/.test(c.trim())), chamadas.join(" | "));
   assert.equal((tela.match(/setRegrasPacotes\(dados\.regrasPacotes\);/g) ?? []).length, 2, "carga inicial e recarga");
   // Com null, o status é exatamente o legado (mesmos casos da regra fixa).
   for (const [id, data, h] of [["pocket", "2026-11-14", "almoco"], ["compacta", "2026-11-14", "noite"], ["mini", "2026-11-13", "noite"], ["pizza_party_scienza", "2026-11-18", "almoco"]] as const)

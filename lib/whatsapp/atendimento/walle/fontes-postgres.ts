@@ -4,8 +4,8 @@ import { ARQUIVO_DISPONIVEL_SQL } from '../arquivos.ts';
 import { calcularResumoComercial } from '../../../comercial/services/pricing.service.ts';
 import { lerPrecosCorrentes } from '../../../comercial/pacote-precos.ts';
 import { agendaPorEscopoInstalada, unidadesDaEmpresa, type EscopoAgenda } from '../../../disponibilidade/escopo.ts';
-import { listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
-import { consultarDisponibilidadePeriodo } from '../../../disponibilidade/services/availability.service.ts';
+import { lerRegraCapacidadeAgenda, listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
+import { consultarDisponibilidadePeriodo, duracaoDoPacoteDaEmpresa } from '../../../disponibilidade/services/availability.service.ts';
 import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import type { FontesWallE, PeriodoAgenda, PrecoAdicional, PrecoCalculado, ProntaAutorizada } from './resolver.ts';
@@ -61,9 +61,19 @@ async function itensBuffet(ex: DbExecutor, pacoteIds: string[]) {
   return r.rows.map((x) => x.nome);
 }
 
+/**
+ * 2d: horários que o Wall-e oferece no escopo: no modo livre (093), o horário técnico "Horário livre" (o cliente
+ * escolhe o início); senão os horários fixos de sempre.
+ */
+async function horariosDoEscopo(ex: DbExecutor, alvo: { empresaId: string | null; estabelecimentoId: string | null }) {
+  const regra = await lerRegraCapacidadeAgenda(ex, alvo);
+  if (regra?.modo === 'LIVRE' && regra.horarioLivre) return [regra.horarioLivre];
+  return listarConfiguracoesAgendaAtivas(ex, alvo);
+}
+
 export async function catalogosWallE(ex: DbExecutor, empresaId: string, config: ConfiguracaoAtendimento, hoje: string): Promise<Catalogos> {
   const [pacotes, lista, agenda] = [await pacotesVigentes(ex, empresaId), await unidades(ex, empresaId), await unidadesAgenda(ex, empresaId)];
-  const turnos = await listarConfiguracoesAgendaAtivas(ex, { empresaId, estabelecimentoId: agenda.length === 1 ? agenda[0] : null });
+  const turnos = await horariosDoEscopo(ex, { empresaId, estabelecimentoId: agenda.length === 1 ? agenda[0] : null });
   const itens = await itensBuffet(ex, pacotes.map((p) => p.id));
   return {
     pacotes: pacotes.map((p) => ({ codigo: p.codigo, nome: p.nome })),
@@ -84,8 +94,19 @@ const ERRO_PRECO: Record<string, Extract<PrecoCalculado, { erro: string }>['erro
 /** `linkContratoProprio`: porta do link protegido (resolverLinkFechamento com os repositórios reais), montada por quem chama. */
 export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambiente: string; hoje: string; linkContratoProprio: () => Promise<string | null>; linkDisponibilidade?: string | null }): FontesWallE {
   const { empresaId, ambiente } = alvo;
+  // 2d: no horário livre, a faixa mostrada é a dos inícios livres do dia (não 00:00–23:59).
   const periodos = (d: Awaited<ReturnType<typeof consultarDisponibilidadePeriodo>>[number]): PeriodoAgenda[] =>
-    d.periodos.map((p) => ({ codigo: p.codigo, nome: p.nome, inicio: p.horarioInicioPadrao, fim: p.horarioFimPadrao, disponivel: p.status === 'DISPONIVEL' }));
+    d.periodos.map((p) => {
+      const livres = p.horarios.filter((h) => h.status === 'DISPONIVEL');
+      const livre = p.codigo === 'HORARIO_LIVRE';
+      return {
+        codigo: p.codigo,
+        nome: livre && livres.length ? `${p.nome} (início entre ${livres[0]!.inicio} e ${livres[livres.length - 1]!.inicio})` : p.nome,
+        inicio: livre && livres.length ? livres[0]!.inicio : p.horarioInicioPadrao,
+        fim: livre && livres.length ? livres[livres.length - 1]!.fim : p.horarioFimPadrao,
+        disponivel: p.status === 'DISPONIVEL',
+      };
+    });
   return {
     async prontasAutorizadas(finalidade: Finalidade) {
       const r = await ex.query<{ id: string; versao: string; titulo: string; tipo: ProntaAutorizada['tipo']; texto: string; link: string | null; midia_url: string | null; arquivo_id: string | null; arquivo_nome: string | null; finalidade: Finalidade; pacote_codigo: string | null; estabelecimento_id: string | null }>(
@@ -145,7 +166,7 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
     },
     async preco(codigo, data, turno, convidados): Promise<PrecoCalculado> {
       const pacote = (await pacotesVigentes(ex, empresaId)).find((p) => p.codigo === codigo);
-      const config = (await listarConfiguracoesAgendaAtivas(ex, await escopo(ex, empresaId, null))).find((c) => c.codigo === turno);
+      const config = (await horariosDoEscopo(ex, await escopo(ex, empresaId, null))).find((c) => c.codigo === turno);
       if (!pacote || !config) return { erro: 'FALHA' };
       if (pacote.convidadosMaximos !== null && convidados > pacote.convidadosMaximos) return { erro: 'ACIMA_CAPACIDADE', maximo: pacote.convidadosMaximos };
       try {
@@ -160,14 +181,15 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
         return { erro: ERRO_PRECO[codigoErro] ?? 'FALHA', maximo: pacote.convidadosMaximos };
       }
     },
-    async disponibilidade(data, unidade) {
+    async disponibilidade(data, unidade, pacote) {
       const { escopo: e, consultado } = await escopoDaConsulta(ex, empresaId, unidade);
-      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e);
+      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e, { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
       return { periodos: periodos(dia), escopo: consultado };
     },
-    async alternativas(data, unidade, turno, quantas) {
+    async alternativas(data, unidade, turno, quantas, pacote) {
       const inicio = data > alvo.hoje ? (somarDias(data, -7) > alvo.hoje ? somarDias(data, -7) : alvo.hoje) : alvo.hoje;
-      const dias = await consultarDisponibilidadePeriodo(inicio, somarDias(data, 28), ex, undefined, await escopo(ex, empresaId, unidade));
+      const dias = await consultarDisponibilidadePeriodo(inicio, somarDias(data, 28), ex, undefined, await escopo(ex, empresaId, unidade),
+        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
       const distancia = (d: string) => Math.abs(Date.parse(d) - Date.parse(data));
       return dias.filter((d) => d.data !== data).map((d) => ({ data: d.data, periodos: periodos(d).filter((p) => p.disponivel && (!turno || p.codigo === turno)) }))
         .filter((d) => d.periodos.length).sort((a, b) => distancia(a.data) - distancia(b.data) || a.data.localeCompare(b.data)).slice(0, quantas)

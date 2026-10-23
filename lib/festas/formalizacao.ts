@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { FestaError } from './domain.ts';
+import { escolherSalaoDoContrato } from '../agenda/salao-festa.ts';
 
 export type ContextoFormalizacao = { requestId?: string | null; userAgent?: string | null };
 
 /** Uses the caller's transaction exclusively; never authenticates an administrative session. */
 export async function bloquearAgendaFormalizacao(tx: DbExecutor, contratoId: string) {
     await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contratoId]);
+    // 094: com capacidade por salão, o sistema escolhe o salão livre antes da conferência (decisão de Felipe).
+    await escolherSalaoDoContrato(tx, contratoId);
     // Separate statement after the advisory lock: READ COMMITTED sees the last winner.
     await tx.query('SELECT public.kidmais019_validar_destino($1::uuid)', [contratoId]);
 }

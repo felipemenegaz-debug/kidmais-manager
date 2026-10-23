@@ -134,6 +134,8 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
       }
       return linhas([{ id: id(tabela.slice(0, 2)) }]);
     }
+    // 094 (parecer do Astra, P1): escolha de salão da festa importada; sem a 094 no banco simulado, nada a escolher.
+    if (sql.includes("SELECT fechamento_id::text AS fechamento_id FROM contratos")) return linhas([]);
     throw new Error(`SQL não previsto no teste: ${sql.slice(0, 120)}`);
   };
   return { query, estado } as unknown as DbExecutor & { estado: Estado };

@@ -62,7 +62,11 @@ function carregarRota(arquivo: string, memberships: Array<{ id: string; empresa_
           consultas.push(`${sql}\n${JSON.stringify(values ?? [])}`);
           const prova = responderProva(sql, memberships);
           if (prova) return prova;
-          if (/^\s*SELECT\b/i.test(sql) && (sql.includes("pacotes") || sql.includes("configuracao_agenda") || sql.includes("buffet_categorias") || sql.includes("buffet_itens"))) {
+          if (/^\s*SELECT\b/i.test(sql) && (sql.includes("pacotes") || sql.includes("configuracao_agenda") || sql.includes("buffet_categorias") || sql.includes("buffet_itens")
+            // 092: a lista de pacotes lê a tabela de preço corrente da própria empresa (preços a confirmar).
+            || sql.includes("tabelas_preco")
+            // 093: conferência de instalação (sem dado de empresa).
+            || sql.includes("to_regclass"))) {
             return { rows: [], rowCount: 0 };
           }
           throw new Error("DB_NAO_DEVE_RODAR");

@@ -66,6 +66,8 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
   // Importação da tabela de preços (071): só o esquema puro da leitura; a escrita segue no Core.
   "lib/comercial/importacao-tabela/esquema": ["INSTRUCAO_LEITURA_TABELA", "LEITURA_JSON_SCHEMA", "leituraSchema", "LeituraTabela"],
+  // Limite único de duração (parecer do Astra, P2-2): só constantes puras; a IA segue sem acesso à agenda.
+  "lib/disponibilidade/services/horario.utils": ["DURACAO_MAXIMA_MINUTOS", "DURACAO_MINIMA_MINUTOS"],
   // Modelo de contrato da empresa (072): só o esquema puro da leitura; publicar e gerar contrato seguem no Core.
   "lib/contratos/modelo-empresa/leitura": ["INSTRUCAO_LEITURA_CONTRATO", "LEITURA_CONTRATO_JSON_SCHEMA", "leituraContratoSchema", "LeituraContrato"],
 };
@@ -109,8 +111,14 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // de tabela, regra de convidados), a criação oficial do Fechamento (envio do formulário, com o vínculo) e o serviço
   // de parâmetros de consumo da 059. Nenhuma escrita própria da IA: só os serviços de domínio.
   "lib/fechamentos/services/fechamento-administrativo.service": ["clienteParaPreparacao", "criarFechamentoAdministrativo", "obterContextoFechamentoAdministrativo"],
-  "lib/fechamentos/convidados": ["erroConvidadosFechamento"],
-  "lib/disponibilidade/services": ["consultarDisponibilidadeData"],
+  "lib/fechamentos/convidados": ["erroConvidadosFechamento", "erroConvidadosEmpresa"],
+  // Pacotes com código livre (fase 1d): pacotes da empresa comprovada e a decisão "dona da agenda pública" — as mesmas
+  // leituras do Fechamento administrativo; a IA resolve o pacote informado contra elas (somente leitura).
+  "lib/comercial/repositories": ["listarPacotesContrataveisDaEmpresa"],
+  "lib/disponibilidade/config-legada": ["ehDonaDaConfigLegada"],
+  // 2c-2: almoço/noite da conversa resolvidos nos horários configurados da empresa (função pura, sem SQL).
+  // duracaoDoPacoteDaEmpresa: leitura do serviço de disponibilidade (horário livre com a duração do pacote).
+  "lib/disponibilidade/services": ["consultarDisponibilidadeData", "duracaoDoPacoteDaEmpresa", "periodoDoTurno"],
   // Agenda por empresa/unidade (062): escopo da empresa comprovada para a consulta oficial de horários.
   "lib/disponibilidade/escopo": ["escopoDaEmpresa"],
   "lib/comercial/services": ["calcularResumoComercial"],
@@ -134,7 +142,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
-  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em"], // @pr:IMPORT
 };

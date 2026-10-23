@@ -10,7 +10,7 @@ import { buscarFechamentoPorId, listarAdicionaisDoFechamento, type FechamentoAdi
 import { buscarResponsavelPorId, registrarAuditoria } from '../../clientes/repositories';
 import { validarCadastroBasicoCliente } from '../../clientes/services/validators';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
-import { consultarDisponibilidadeData } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
 import { montarSnapshotContratoV1 } from './contrato.service';
 import { hashSnapshotContrato } from './snapshot-core';
 import { ContratoServiceError } from './errors';
@@ -84,7 +84,9 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         recusar('O fechamento mudou durante a preparação. Revise a proposta antes de formalizar.');
     for (const dia of [...new Set([atual.dataEvento, proposta.fechamento.dataEvento])].sort()) await adquirirLockConfirmacaoAgenda(dia, tx);
     const f = proposta.fechamento;
-    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id });
+    // Horário livre: duração do próprio intervalo da proposta (parecer do Astra, P2).
+    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id },
+        { duracaoMinutos: duracaoDoIntervalo(f.horarioInicio, f.horarioFim) });
     if (!disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId)?.horarios.some(h =>
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');

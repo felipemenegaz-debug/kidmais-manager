@@ -102,7 +102,7 @@ test('PDF em blocos no PostgreSQL: o filtro da empresa vale em cada bloco (id de
 });
 
 /**
- * Exportação verificável no PostgreSQL descartável, modelo 095 (inventário inteiro até a 095 dos créditos de IA; a 089 da devolução incluída). Só pelo
+ * Exportação verificável no PostgreSQL descartável, modelo 095 (inventário inteiro até a 095 dos créditos de IA; inclui 092–094 da agenda/preços e a 089 da devolução). Só pelo
  * check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; dados sintéticos de DUAS empresas. Prova:
  *   1. completude: toda tabela do schema está no inventário ou em FORA_DO_ESCOPO; colunas exportadas = retrato;
  *   2. pacote: ZIP legível, SHA-256 de cada arquivo = manifesto = SHA256SUMS, linhas do CSV = manifesto = contagem

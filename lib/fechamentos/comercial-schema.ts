@@ -10,8 +10,12 @@ export const pacoteDaTelaPublicaSchema = z.string().min(1).max(50);
 
 export const camposComerciaisFechamento = {
   dataFesta: z.string().min(1),
-  horarioBase: z.enum(["almoco", "noite"]),
-  ajusteHorario: z.enum(["-30", "0", "30"]),
+  /** Horário configurado da agenda (configuracao_agenda.id): qualquer quantidade de horários por empresa. */
+  configuracaoId: z.string().uuid().optional(),
+  /** Legado (TURNO_1/TURNO_2): aceito quando não vier configuracaoId; scripts e testes ainda enviam só ele. */
+  horarioBase: z.enum(["almoco", "noite"]).optional(),
+  // Deslocamento do candidato escolhido; tolerância e passo vêm de cada horário (só 0, ±15, ±30...).
+  ajusteHorario: z.string().regex(/^-?\d{1,4}$/),
   horarioInicio: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   horarioFim: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   statusDisponibilidade: z.enum(["disponivel", "consulta", "excecao"]),
@@ -52,5 +56,17 @@ export const camposComerciaisFechamento = {
   condicaoAprovada: z.never().optional(),
   valorAprovado: z.never().optional(),
 };
-export const comercialFechamentoSchema = z.object(camposComerciaisFechamento);
+/** O pedido precisa identificar o horário: configuracaoId (atual) ou horarioBase (legado). */
+export function temPeriodoDoPedido(d: { configuracaoId?: string; horarioBase?: string }) {
+  return Boolean(d.configuracaoId || d.horarioBase);
+}
+export const mensagemPeriodoDoPedido = { message: "Selecione o horário da festa.", path: ["configuracaoId"] };
+
+/** Chave da revalidação: configuracaoId quando houver; senão o código legado do turno (almoco→TURNO_1, noite→TURNO_2). */
+export function periodoDoPedido(d: { configuracaoId?: string; horarioBase?: "almoco" | "noite" }): { configuracaoId: string } | { codigoPeriodo: string } {
+  if (d.configuracaoId) return { configuracaoId: d.configuracaoId };
+  return { codigoPeriodo: d.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2" };
+}
+
+export const comercialFechamentoSchema = z.object(camposComerciaisFechamento).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
 export type ComercialFechamentoInput = z.infer<typeof comercialFechamentoSchema>;

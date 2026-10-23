@@ -1,6 +1,6 @@
 # Login: limite por origem real e pool do PostgreSQL (22/10/2026)
 
-Estado: **implementação LOCAL**, sem commit, sem push, PR, deploy, env ou banco real. Branch `codex/login-limite-pool-20261022`, base `staging` `a102611`. Aguarda revisão independente.
+Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1), a rodada 4 (`931f669`) também (2 P2, sem P1), e a rodada 5 (`2ddac7b`) também (1 P2 + 1 P3, sem P1). As correções da rodada 6 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3" a "Rodada 6"). Nada de push, PR, deploy, env ou banco real nesta rodada.
 
 Origem: achados X-1, X-2 e X-3 da revisão de 22/10/2026 (`ambientes-locais/revisao-exportacao-blocos-20261022/PARECER.md`).
 
@@ -12,16 +12,36 @@ Diretriz de Felipe (22/10/2026): "coloque o limite bem alto de pessoas ao mesmo 
 - **X-2.** O pool tinha `max` 10 e espera de 5 s. Cada login segurava uma conexão durante o scrypt, inclusive na fila do semáforo de 2 scrypts. Com 0,5 CPU, o pool esgotava.
 - **X-3.** `fail()` devolvia 500 genérico sem log. O controle positivo desta tarefa reproduziu a causa provável: com a base, 35 de 50 logins simultâneos terminaram em `timeout exceeded when trying to connect` (pool esgotado).
 
-## Decisão: IP confiável no Render
+## Decisão: IP confiável no Render (revista depois do G1)
 
-Fonte única: `lib/http/origem-cliente.ts` (`origemConfiavel`). `lib/acessos/http.ts` (`ipDaRequisicao`) delega para ela.
+Fonte única: `lib/http/origem-cliente.ts` (`origemConfiavel`). `lib/acessos/http.ts` (`ipDaRequisicao`) delega para ela, então a regra vale para o login, convites, recuperação, cadastro, webhook do Asaas e o limite público em memória.
 
-- No Render, a requisição passa pela borda (Cloudflare) e pelo balanceador do Render. Os dois **acrescentam** valores ao `X-Forwarded-For` e nenhum limpa o que o cliente mandou. Isso consta na documentação da Cloudflare ("append") e num teste de usuário publicado no fórum de feedback do Render em 03/2024. O começo da lista é, portanto, forjável. A origem confiável é o **último** valor, a mesma regra que o repositório já usava para convites, recuperação e cadastro.
-- **Novo:** o último valor só vale se for um **endereço público**. Um endereço privado, de loopback, CGNAT ou reservado no fim indicaria um salto interno acrescentado depois do cliente. Usá-lo juntaria todos os clientes numa chave só, o mesmo defeito do X-1. Nesse caso a origem fica `null`.
-- `True-Client-IP` e `CF-Connecting-IP` **não decidem**. A Cloudflare só garante `True-Client-IP` com uma transformação gerenciada ligada ("sem ela, o valor pode ser forjado"), e o Render não documenta nenhum dos dois. Eles servem apenas ao diagnóstico.
-- **Diagnóstico sem endereço** (`registrarFormatoDaOrigem`): no primeiro login de cada processo, e em todo login cuja origem seja recusada no Render, o log recebe uma linha `[origem] ...`. Ela mostra quantos valores há no XFF, se o último é público e se `True-Client-IP` e `CF-Connecting-IP` concordam com ele. **Pendência de homologação:** depois do deploy em staging (com autorização), leia essa linha. Se aparecer `ultimo: "nao-publico"` ou `trueClientIp: "outra-posicao"` de forma consistente, o Render mudou a topologia e a regra precisa ser revista. Até lá, o login segue protegido pelo limite por conta.
-- IPv6 é agrupado por **/64** na chave do limite de login. Sem isso, quem tem um /64 trocaria de endereço a cada tentativa.
-- Falsificação testada: XFF com o IP da empresa no começo, mais `True-Client-IP` forjado → a chave é o IP real do fim (`lib/http/origem-cliente.test.ts` e a suíte PG).
+- **Regra atual:** no Render **com a borda confirmada** (`ORIGEM_CLIENTE_BORDA=render-cloudflare-sobrescreve`, ver "Rodada 3"), o cliente é o **penúltimo** valor do `X-Forwarded-For`. Ele só vale se:
+  - o XFF não tiver elemento vazio e o **último** valor (salto da infraestrutura) for um IP público válido;
+  - for um endereço público válido;
+  - coincidir com `CF-Connecting-IP`;
+  - coincidir também com `True-Client-IP`, quando esse cabeçalho vier.
+- Em qualquer outro caso (menos de 2 valores, divergência, cabeçalho ausente ou inválido, penúltimo não público), a origem é `null`. Nunca vira o último valor nem uma chave global.
+- **Por que o penúltimo:** o G1 mostrou o formato real, `[valores do cliente (forjáveis)…, IP do cliente, salto público da infraestrutura]`. A borda (Cloudflare) acrescenta o IP de quem conectou nela, e depois mais um salto público entra no fim. Esse último valor é compartilhado por muitos clientes. Com a regra anterior (o último), o limite de 300 falhas por IP virava um limite comum a todos.
+- **Por que conferir com `CF-Connecting-IP`:** a borda grava nele o mesmo IP que acrescenta ao XFF. O penúltimo valor sozinho seria forjável se alguém chegasse ao balanceador do Render sem passar pela borda (o cliente escreveria o penúltimo e o balanceador acrescentaria o último). Exigir que os dois coincidam reduz esse caminho, e qualquer divergência dá `null`.
+- **Por que não `True-Client-IP` sozinho:** a Cloudflare só garante esse cabeçalho com uma transformação gerenciada ligada ("sem ela, o valor pode ser forjado"). O Render não documenta nenhum dos dois cabeçalhos. E um cabeçalho isolado não tem com o que ser conferido. Quando ele vem, precisa concordar.
+- **Diagnóstico de posição, sem endereço** (`formatoDaOrigem`/`registrarFormatoDaOrigem`): no primeiro login de cada processo, e em todo login cuja origem é recusada no Render, o log recebe uma linha `[origem] …` com estes campos:
+  - `valoresNoEncaminhamento`;
+  - a classe do `penultimo` e do `ultimo` (`publico`, `nao-publico`, `invalido` ou `ausente`);
+  - a **posição contada do fim** (1 = último) em que `cfConnectingIp` e `trueClientIp` aparecem na lista (ou `ausente`, `invalido`, `fora-da-lista`);
+  - `aceito`.
+- **Esperado no novo G1:** `valoresNoEncaminhamento` 3 (com a forja) ou 2, `penultimo: "publico"`, `cfConnectingIp: 2`, `trueClientIp: 2` e `aceito: true`.
+- IPv6 é agrupado por **/64** na chave do limite de login. Grafias diferentes do mesmo IPv6 entre o XFF e o `CF-Connecting-IP` não são canonizadas: dão recusa, o lado seguro.
+- **Falsificação testada:**
+  - XFF com o IP da empresa no começo → a chave é o IP real (penúltimo);
+  - `CF-Connecting-IP` ou `True-Client-IP` forjados para outra empresa → `null`;
+  - lista de 2 valores sem salto (como no acesso direto ao balanceador) → recusa sem conferência.
+  - Testes em `lib/http/origem-cliente.test.ts`, `lib/acessos/acessos.test.ts` e na suíte PG.
+- **Dependência:** a sessão "Convites e recuperação: scrypt fora da transação" (clone `kidmais-manager-acessos-scrypt-20261022`) usa a mesma `ipDaRequisicao`. Esta correção não muda a assinatura da função, só a regra. Para evitar conflito, integrar esta branch antes, ou rebasear aquela sobre ela. As duas mexem em `lib/http/origem-cliente.ts` e nos testes de `lib/acessos/acessos.test.ts`.
+
+### Regra anterior (v1, mergeada na #208): o último valor
+
+A primeira versão usava o **último** valor do XFF, desde que público. O argumento era que a borda e o balanceador só acrescentam valores. O G1 provou que o último valor é um salto de infraestrutura. Essa regra, também usada antes por convites, recuperação e cadastro, **não deve ir para produção**.
 
 ## Novo desenho do login (`lib/autenticacao/service.ts`)
 
@@ -63,9 +83,11 @@ O login passa a ter três fases. Nenhuma conexão fica presa durante o scrypt.
 
 `fail()` passa a registrar a causa de qualquer 500 no log, nunca na resposta. A linha `[autenticacao] falha não tratada {...}` traz nome, código do driver e mensagem curta, com e-mails trocados por `<email>`. JSON inválido no corpo agora responde 400, não 500.
 
-## Outros usos de `ORIGEM_NAO_VERIFICADA` (verificados, não alterados)
+## Outros usos de `ORIGEM_NAO_VERIFICADA` (histórico — substituídos na rodada 3)
 
-Esses fluxos recebem `ctx.ip` de `ipDaRequisicao`. No Render, o IP é conhecido, e cada IP tem a própria chave. A chave global só aparece fora do Render ou com topologia inesperada, e nesse caso a regra nova (último valor não público → `null`) equivale ao comportamento anterior: um salto interno como chave já era compartilhado por todos.
+> A tabela abaixo descreve o estado ANTES da rodada 3. A revisão de 22/10 mostrou que esse fallback continuava produzindo limite global. Ele foi removido de todos os fluxos; ver "Rodada 3".
+
+Esses fluxos recebem `ctx.ip` de `ipDaRequisicao`. No Render, o IP é conhecido, e cada IP tem a própria chave. A chave global só aparece fora do Render ou com topologia inesperada, e nesse caso a regra (sem origem confiável → `null`) equivale ao comportamento anterior, em que uma chave de salto já era compartilhada por todos. **Com a regra v1 (último valor), esses fluxos usavam em staging o salto da infraestrutura como chave, compartilhada por todos. A regra do penúltimo corrige isso também para eles.**
 
 | Fluxo | Regra de origem | Observação |
 |---|---|---|
@@ -97,7 +119,8 @@ Esses fluxos recebem `ctx.ip` de `ipDaRequisicao`. No Render, o IP é conhecido,
 
 ## Riscos e rollback
 
-- Se o Render passar a acrescentar um salto **público** (por exemplo, um IP da Cloudflare) depois do cliente, a chave vira por ponto de presença. Sinal no log: `trueClientIp: "outra-posicao"`. O efeito seria um limite compartilhado, mas alto (300 falhas, sucessos não contam). Ação: rever a regra com a linha de diagnóstico.
+- Se o Render mudar a topologia (outro salto, ou `CF-Connecting-IP` fora da posição 2), a origem passa a ser `null`. O login segue só com o limite por conta, sem bloqueio global. Sinal no log: `aceito: false` e a posição do `cfConnectingIp`. Ação: rever a regra com a linha de diagnóstico.
+- Risco residual (antes da rodada 3): uma requisição que chegue ao balanceador do Render sem passar pela borda e forje o XFF e o `CF-Connecting-IP` de forma coerente escolhe a chave. Na rodada 3 isso passou a depender da prova operacional: sem `ORIGEM_CLIENTE_BORDA`, nenhum cabeçalho vale.
 - Rollback: reverter o commit. Não há migration nem dado novo além das linhas da namespace `login-falhas`, que expiram sozinhas.
 
 ## Revisão independente — 22/10/2026
@@ -113,3 +136,231 @@ Esses fluxos recebem `ctx.ip` de `ipDaRequisicao`. No Render, o IP é conhecido,
   - o IP gravado em sessões e na auditoria precisa constar do aviso de privacidade e da política de retenção.
 
 Parecer: `../ambientes-locais/revisao-p3-login-20261022/PARECER.md`.
+
+## G1 em staging: REPROVADO (22/10/2026, 11:45 UTC) → regra do penúltimo
+
+- O G1 foi autorizado por Felipe e executado por outra sessão: uma tentativa só, com conta inexistente, senha errada e XFF forjado `203.0.113.9` → 401. Deploy `dep-dbcv7l5g…`, merge `9e096a7`.
+- Linha do log: `[origem] formato {"render":true,"valoresNoEncaminhamento":3,"ultimo":"publico","trueClientIp":"outra-posicao","cfConnectingIp":"outra-posicao"}`.
+- Leitura: a forja não controla a chave, mas o último valor é um salto público de infraestrutura, e o IP real é o anterior.
+- **Correção local** (branch `codex/login-origem-penultimo-20261022`, sem commit): regra do penúltimo conferido (seção de decisão acima), diagnóstico de posição sem endereço, testes de 3 valores (forjado, cliente, salto), 2 valores sem forja, divergência com `CF-Connecting-IP`, `True-Client-IP` discordante, penúltimo não público e IPv6. A suíte PG `login-origem` passou a montar o cabeçalho no formato do G1.
+- **Próximo G1:** repetir a mesma tentativa única depois do deploy autorizado. Esperado: `penultimo: "publico"`, `cfConnectingIp: 2`, `trueClientIp: 2` e `aceito: true`.
+- Parecer da revisão e resultado do G1: `../ambientes-locais/revisao-p3-login-20261022/PARECER.md`.
+
+## Rodada 3 — correções da revisão de 22/10/2026 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-penultimo-20261022/PARECER.md`. Evidências desta rodada: `../ambientes-locais/revisao-ip-correcao-20261022/`.
+
+### P2 — fallback global (`ORIGEM_NAO_VERIFICADA`) → limite por fluxo/identificador
+
+Origem `null` não vira mais uma chave única com o teto de um IP em nenhum fluxo:
+
+| Fluxo | Com IP confiável | Sem IP confiável (antes: chave global com o teto de um IP) |
+|---|---|---|
+| Convite (consultar/aceitar) | 30 / 900 s por IP (IPv6 por /64) | 30 / 900 s **por link** (hash do token; token malformado tem chave própria) |
+| Recuperação — pedido | 10 / 3600 s por IP | teto global **alto**, 300 / 3600 s, só contra envio em massa; o limite por e-mail (3/h) continua |
+| Recuperação — redefinir | 10 / 900 s por IP | 10 / 900 s **por link** |
+| Cadastro — pedido | 10 / 3600 s por IP | teto global alto, 300 / 3600 s; limite por e-mail continua |
+| Cadastro — confirmar | 30 / 900 s por IP | 30 / 900 s **por link** |
+| Webhook do Asaas | 300 / 60 s por IP; registro de recusas 10 / 600 s | baldes **separados por resultado do token** (válido × inválido, 3000 / 60 s cada); registro de recusas 10 / 600 s. Uma enxurrada com token errado não trava as entregas autênticas |
+| Limite público em memória (cotação, fechamento, agenda, identidade) e formulário do site | 120/min, 10/h, 20/h por IP; PEDIDO também 60/h por empresa | balde **por endereço de empresa** (chave comum só quando não há empresa) com teto **10×**; PEDIDO mantém 60/h por empresa |
+
+- `lib/acessos/limite-origem.ts` é **idêntico** ao do clone `kidmais-manager-acessos-scrypt-20261022` (mesmo `consumirOrigem`, mesmas namespaces `<fluxo>-sem-origem`, mesmos tetos de 300). As chamadas em convites/recuperação/cadastro foram escritas como lá, para a integração não divergir. Ao integrar aquele clone, **manter a regra de origem desta branch** (o clone ainda seleciona o último XFF).
+- Os tetos globais altos (recuperação/cadastro 300/h, identidade 200/h sem empresa) continuam sendo uma chave comum, mas com teto muito acima do de um IP: protegem contra envio em massa e enumeração, e não travam o uso normal. Isso é declarado, não escondido.
+- Testes: `lib/acessos/limite-origem.test.ts` (duas origens recusadas por fluxo; tetos preservados), `lib/http/limite-publico.test.ts` (duas origens recusadas × duas empresas; reprodução da revisão com o `limitarPublico` real), `lib/assinatura/webhook-asaas.test.ts` (400 recusas sem origem e a entrega autêntica segue 200).
+
+### P2 — a igualdade dos cabeçalhos não autentica a borda → confirmação operacional obrigatória
+
+- `origemConfiavel` só aceita cabeçalhos com `RENDER=true` **e** `ORIGEM_CLIENTE_BORDA=render-cloudflare-sobrescreve` no ambiente do processo. Sem isso, a origem é `null` em todo pedido (e os fluxos usam a tabela acima). A confirmação vem do ambiente, nunca de cabeçalho.
+- Motivo: uma regra baseada só em cabeçalhos não distingue a lista legítima `[cliente, salto]` com CF = cliente da forja coerente `[forjado, salto]` com CF = forjado, feita por quem chega ao balanceador sem passar por uma borda que sobrescreve o CF. A confirmação declara a garantia operacional; ela **só pode ser ligada depois do G1-A abaixo**, com autorização de Felipe.
+- **Garantia operacional ainda NÃO comprovada.** Não se sabe se existe entrada alternativa no Render (nada foi testado remotamente nesta rodada). Até o G1-A, staging e produção ficam sem limite por IP depois do deploy desta versão; o limite por conta e os limites por fluxo continuam.
+- O diagnóstico ganhou `bordaConfirmada` e `vazios`, e uma **marca de diagnóstico** opcional (`x-kidmais-diagnostico`, só `[A-Za-z0-9-]{8,64}`): quando válida, força a linha `[origem]` e entra nela como `marca`, para correlacionar o pedido com a linha, sem endereço. Marca inválida é ignorada.
+
+### P3 — estrutura do XFF
+
+- Elementos vazios **não são mais compactados**: `a, ,b`, `a,,b`, vírgula no começo ou no fim → `null` (o diagnóstico conta `vazios` e classifica a posição como `vazio`).
+- O **último** valor precisa ser IP público válido (lixo, privado, documentação, `IP:porta` → `null`). Os valores à esquerda do penúltimo vêm do cliente e continuam livres; espaços ao redor dos valores continuam aceitos.
+- Validação sintática não é autenticação: a autenticação da borda é o item anterior.
+
+### Validação local (rodada 3, 22/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/`.
+
+- **Unitários focados** (acessos, autenticação, cadastro, http, webhook do Asaas): 193/193.
+- **PostgreSQL descartável próprio** (cluster novo em 127.0.0.1:55943, papel `kidmais_descartavel`, sem herdar URL de banco; harness `pg-ip-correcao.cjs`):
+  - rodada 1: `login-origem` **7/7 em `atual` e 7/7 em `063`**, mais `cadastro-069` [063], `painel-063` [063] e `cobranca-e8` [atual, 075], todos PASS (`execucao-1.log`);
+  - rodada 2, sobre a árvore final: `login-origem` 7/7 em `atual` e em `063` (`execucao-2.log`);
+  - depois: cluster encerrado (`pg_ctl status` 3, sem `postmaster.pid`) e diretório removido (`relatorios-pg/*encerramento.json`, `*limpeza.json`).
+- **Mutantes** (cópia isolada, checkout intocado; `mutantes.cjs`/`mutantes.json`): **14/14 mortos por asserção**, controles 50/50 antes e depois. Os pontos mutados foram:
+  - borda só com `RENDER`;
+  - vazios compactados;
+  - vazio aceito;
+  - último salto sem validação;
+  - limite público com chave global, com o teto de um IP e sem a empresa;
+  - teto global igual ao de um IP;
+  - identificador virando chave única;
+  - convite de volta ao fallback;
+  - webhook com balde único e com o teto de um IP;
+  - marca sem validação;
+  - marca que não força a linha.
+- **`npm run check:v1:static`**: **PASS único** do comando completo (3299/3299 unitários, 103/103 mocks, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e leitura de PDF no asset; saída 0; `check-v1-static.log`).
+- Nada remoto: sem push, PR, Render, deploy, env ou banco real; `.env.local` não lido.
+
+### Novo G1 (só depois de deploy e autorização de Felipe; nada disto foi executado)
+
+Pré-condições: commit aprovado implantado em staging por PR/deploy autorizados, e o commit realmente implantado identificado pelo deploy (id do deploy e commit). `ORIGEM_CLIENTE_BORDA` **ainda desligada**. Conta sintética **inexistente**, senha errada, uma tentativa por passo. Cada passo usa uma marca nova (`x-kidmais-diagnostico: g1-<nonce>`), e a linha do log é localizada pela marca.
+
+**G1-A — entrada alternativa (com a confirmação desligada; todo login recusado no Render gera linha):**
+
+0. **Inventário das entradas** antes de testar: o endereço padrão do serviço; todo domínio próprio, alias e domínio legado ainda ligado; o ingresso direto que o Render documenta, com `Host`/SNI corretos; e os caminhos IPv4 e IPv6 que existirem. Fonte: o painel e a documentação do Render no dia. Não inventar IP e não varrer.
+1. Em cada entrada do inventário: `X-Forwarded-For: 8.8.8.8, 1.1.1.1`, `CF-Connecting-IP: 1.1.1.1`, `True-Client-IP: 1.1.1.1`. Esperado: 401 (sem 429/500), correlacionado pela marca, e a linha mostrando `render:true`, `bordaConfirmada:false`, `aceito:false`, `vazios:0`, **`valoresNoEncaminhamento:4`** e **`cfConnectingIp:2`** (o CF foi sobrescrito com o IP real de quem testou, que fica no penúltimo lugar). Se aparecer `valoresNoEncaminhamento:3` com `cfConnectingIp:2`, o CF forjado atravessou: **reprovado, não ligar a confirmação**. `trueClientIp:3` (forjado não sobrescrito) é registrado: com a confirmação ligada ele só causa recusa, que é o lado seguro.
+2. Uma entrada só conta como fechada com evidência de recusa no ingresso (resposta do provedor que não chega ao serviço). Timeout isolado, falha de DNS/TLS ou teste incompleto são **INCONCLUSIVOS** e não liberam a env. Qualquer `valoresNoEncaminhamento:3` com `cfConnectingIp:2` reprova.
+3. **Rede privada (premissa, não prova):** o G1-A não cobre a rede privada do Render. Antes de ligar a env, verificar quem alcança o listener do serviço web (serviços e crons do workspace) e se algum deles repassa cabeçalhos de usuários (proxy ou forwarder). Se algum repassar, ele precisa remover ou sobrescrever XFF/CF/TCI, ou a env fica desligada. Registrar a justificativa.
+- A marca tem teto de 10 linhas por minuto por processo (rodada 4). Espaçar os passos e usar uma marca nova por passo.
+
+**G1-B — regra positiva (depois do G1-A aprovado e da troca de env autorizada, que reinicia o serviço):**
+
+4. `X-Forwarded-For: 203.0.113.9` forjado, sem CF/TCI enviados. Esperado: 401 (sem 429/500) e a linha `[origem] formato` com a marca: `render:true`, `bordaConfirmada:true`, `valoresNoEncaminhamento:3`, `vazios:0`, `penultimo:"publico"`, `ultimo:"publico"`, `cfConnectingIp:2`, `trueClientIp:2` **ou** `"ausente"`, `aceito:true`. Nenhum endereço na linha.
+5. Negativos (uma tentativa cada): XFF com vírgula vazia (`203.0.113.9, ,8.8.8.8`) → linha com `vazios:1`, `aceito:false`, 401. Nenhum pedido de terceiros recebe 429 por causa disso (não há chave global).
+6. `cfConnectingIp:2, aceito:true` sozinho **não** aprova: só vale junto com o G1-A aprovado.
+
+Rollback do G1: desligar `ORIGEM_CLIENTE_BORDA` (volta a origem `null` com limites por fluxo), ou reverter o commit.
+
+## Rodada 4 — correções da revisão da rodada 3 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r3-independente-20261022/PARECER.md`. A borda (trava local) e a estrutura ficaram fechadas localmente; o fallback ficou parcial por dois P2 novos e um P3.
+
+### P2-R3-1 — códigos de empresa inventados enchiam o limitador público
+
+- O limitador não usa mais o texto bruto de `?empresa=`. A chave da empresa é **canônica** (`chaveDaEmpresaPublica`):
+  - código já resolvido pelo servidor → `empresa:<id>`;
+  - código inexistente, inválido ou ainda não visto → **um** balde comum, `empresa-nao-confirmada` (com o teto do grupo, 10× sem origem);
+  - sem código → endereço padrão.
+- `lib/http/empresas-publicas.ts` guarda só os códigos que `escopoCotacaoPublica` resolveu (empresa ATIVA, com orçamento online), associados ao id. Capacidade fixa de 5.000, sai o menos recente. A página `/b/<código>` passa pelo mesmo resolvedor, então o cliente legítimo confirma a empresa ao abrir a página, antes das APIs.
+- Os baldes por IP e os demais (empresa/sem origem, conjunto limitado) ficam em **mapas separados**. Nenhum esgota o outro.
+- O formulário do site resolve o site antes do limite e conta pelo `siteId`. Slug inventado dá 404 sem criar balde (a mesma leitura já acontece, sem limite, na página pública do site).
+- **Residual declarado:** sem origem, um código ainda não visto neste processo divide o balde `empresa-nao-confirmada` com os inventados. Abrir a página da empresa confirma o código e o tira desse balde.
+
+### P2-R3-2 — pedidos inelegíveis gastavam a cota global de e-mail
+
+- **Recuperação:** sem IP, nada global antes do pedido.
+  - A proteção preliminar é o limite do próprio e-mail (3/h).
+  - A cota global de 300 envios/h só é reservada quando o pedido vai abrir (conta ativa e sem pedido recente), na mesma transação, com a conta travada.
+  - Com IP, o limite por IP continua primeiro.
+  - A resposta pública segue indistinguível.
+- **Cadastro:** a cota global de envios só é consumida depois do limite do e-mail. Todo pedido que passa desse limite gera um envio (confirmação ou aviso de conta existente).
+- Uma falha de envio consome a cota. É o lado conservador para o provedor de e-mail.
+
+### P3-R3-3 — a marca pública forçava uma linha por pedido
+
+- Teto fixo por processo de 10 linhas forçadas por minuto (`MARCAS_POR_JANELA`/`JANELA_MARCAS_MS`). É um contador, sem guardar marcas.
+- Acima do teto, a marca é ignorada e vale a amostragem normal. As origens recusadas continuam sendo registradas, como antes.
+
+### Validação local (rodada 4, 22–23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r4-*.log`, `mutantes.*`, `check-v1-static-r4.log`).
+
+- **Unitários focados** (acessos, autenticação, cadastro, http, webhook, cotação pública, rotas de marketing): 215/215, mais 8/8 no limitador depois do teste de ordem do formulário. Inclui a reprodução da revisão: 20.000 códigos inventados sem origem → a empresa confirmada e uma origem confiável nova seguem em IDENTIDADE, LEITURA e PEDIDO; 300 repetições sem envio → a conta ativa de B recebe o link; o 301º envio elegível é recusado; 1.000 marcas → 10 linhas.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo a cada subida, sem herdar URL de banco):
+  - `r4-1`: login-origem 7/7 em `atual` e em `063`, mais cobranca-e8 [atual, 075], cadastro-069, fixture-atualizacao-staging [078], painel-063 e marketing-a [086], todos PASS;
+  - `r4-2`: login-origem `atual` PASS, mas **`063` FALHOU** em "sem IP confiável" com 10/50 `timeout exceeded when trying to connect` (pool real de 10, espera de 10 s; testes levaram 22–24 s contra 15 s). A CPU da máquina estava em 84% por processos de fora. Esta rodada não toca login nem pool, e a suíte já era registrada como sensível a tempo. Registrado como falha, não omitido;
+  - `r4-3` (cluster novo): login-origem 7/7 em `atual` e em `063`;
+  - clusters encerrados (`pg_ctl status` 3) e removidos.
+- **Mutantes**: **21/21 mortos por asserção** (os 14 da rodada 3 + 7 novos: texto bruto de `?empresa=`, código não confirmado com balde próprio, resolução sem confirmar, cota antes da elegibilidade na recuperação, cota antes do limite do e-mail no cadastro, marca sem teto, slug bruto no formulário); controles 66/66 antes e depois.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3304/3304 unitários, 103/103 mocks, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.
+
+## Rodada 5 — correções da revisão da rodada 4 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r4-independente-20261023/PARECER.md`. P2-R3-2 (cota de e-mail) e P3-R3-3 (marca) foram **fechados** localmente.
+
+### P2-R4-1 — empresa legítima fora do registro era cobrada como desconhecida
+
+- Antes, o registro só conhecia códigos confirmados por visita à página ou às APIs. Depois de reinício/deploy ou de saída do registro, uma página já aberta chamava a API, e a empresa caía no balde comum, possivelmente saturado.
+- Agora `idDaEmpresaPublica` (`lib/http/empresas-publicas.ts`) é chamada **antes** de cobrar um código fora do registro:
+  - formato inválido → desconhecido, sem consulta;
+  - código fora do registro → espera a carga em curso, ou dispara uma carga de **todos** os códigos de empresas ATIVAS (uma consulta, até 20.000 linhas);
+  - no máximo uma carga a cada 30 s; uma enxurrada de códigos inventados custa uma consulta por intervalo, nenhuma por código;
+  - falha da carga → desconhecido, sem lançar (a rota recusa do mesmo jeito).
+- Com isso, `limitarPublico` ficou **assíncrono**. As 9 rotas e as 2 chamadas de `rotas-publicas.ts` passaram a usar `await`. A ordem "limite antes de qualquer leitura" está preservada e testada.
+- Com origem confiável, `PEDIDO_EMPRESA` também usa o id: empresas legítimas não dividem mais o teto das não confirmadas.
+- **Residual declarado:** uma empresa criada depois da última carga, durante os ≤30 s seguintes, ainda conta como desconhecida.
+
+### P2-R4-2 — o formulário lia e validava o corpo antes do limite
+
+- Nova ordem: resolver o site → limite por `site:<siteId>` → recusar `content-length` acima de 16.000 sem ler → ler e validar o corpo.
+- Acima do limite, o corpo não é lido nem validado: 429 com zero leituras, coberto por teste.
+
+### Validação local (rodada 5, 23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r5-*.log`, `carga-empresas-sql.json`, `mutantes.*`, `check-v1-static-r5.log`).
+
+- **Unitários focados** (acessos, autenticação, cadastro, http, webhook, cotação pública, rotas públicas de pacotes/adicionais/disponibilidade/CPF, marketing): **249/249**. Cenários incluídos:
+  - processo recém-iniciado com o balde comum saturado por 20.000 códigos: a empresa legítima nunca vista passa em IDENTIDADE, LEITURA e PEDIDO, e 21.420 códigos desconhecidos custaram **uma** carga;
+  - saída do registro por capacidade, com volta pela carga depois do intervalo;
+  - formato inválido nunca consulta;
+  - falha da carga não lança;
+  - formulário: 429 e 413 com **zero** leituras do corpo.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo):
+  - `r5-1`: login-origem 7/7 em `atual` e em `063`, mais cobranca-e8 [atual, 075], cadastro-069, fixture-atualizacao-staging [078], painel-063 e marketing-a [086], todos PASS;
+  - consulta da carga (o SQL exato do código, em transação somente leitura) válida nos modelos `atual`, `063` e `086` (`carga-empresas-sql.json`);
+  - `r5-2`: login-origem 7/7 em `atual` e em `063`;
+  - cluster encerrado (`pg_ctl status` 3) e removido.
+- **Mutantes**: **26/26 mortos por asserção** (os 21 anteriores + 5 novos: código desconhecido sem carga, carga sem intervalo, formato não conferido antes da consulta, formulário sem corte pelo tamanho declarado, corpo lido antes do limite); controles 75/75 antes e depois.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3306/3306, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.
+
+## Rodada 6 — correções da revisão da rodada 5 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r5-2ddac7b-local-b/PARECER.md`. Os dois P2 da rodada 4 foram **fechados** nos cenários originais.
+
+### P2-R5-1 — capacidades incompatíveis entre o registro e o limitador
+
+- Antes: o registro admitia 20.000 empresas, mas o limitador guardava cada contador (três grupos + teto de PEDIDO por empresa) como chave solta num mapa de 50.000. Cerca de 16.667 empresas ativas na mesma janela enchiam o mapa, e a seguinte recebia 429 em tudo.
+- Agora os contadores de cada **entidade canônica** (empresa, site, endereço padrão, não confirmadas) ficam **juntos numa entrada**.
+  - O número de entradas é derivado do registro: `MAXIMO_ENTIDADES = 2 × 20.000 + 64`. O dobro cobre a troca de empresas no registro durante uma janela, que só acontece acima do teto dele.
+  - Cheio de entradas vigentes, só a entrada **nova** é recusada; as existentes mantêm as cotas. Entradas vencidas saem antes.
+  - O mapa por IP continua separado e com o teto anterior (20.000).
+- Teste: 20.000 empresas usando IDENTIDADE, LEITURA, PEDIDO e o teto de PEDIDO. A seguinte passa nos três grupos e em PEDIDO com IP confiável novo; ocupam-se 20.003 entradas, e o teto de 60 PEDIDO por empresa continua valendo.
+
+### P3-R5-2 — teto da carga de empresas
+
+- A carga continua limitada a 20.000 códigos, sempre o mesmo prefixo por ordem de código.
+- Quando volta cheia, isso fica marcado (`estadoDaCarga().noTeto`) e é avisado **uma vez por processo** no log, sem dado de empresa.
+- As empresas além do teto só entram pelo resolvedor e, até lá, contam como desconhecidas. Rever o teto antes de passar de 20.000 empresas ativas.
+
+### Validação local (rodada 6, 23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r6-*.log`, `mutantes.*`, `check-v1-static-r6.log`).
+
+- **Unitários focados**: **252/252**. Inclui o registro cheio (20.000 empresas, a seguinte passa nos três grupos e em PEDIDO com IP novo), o limite de entradas derivado do registro (cheio de vigentes: só a nova é recusada; vencidas saem) e a carga no teto avisada uma vez sem dado de empresa.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo):
+  - `r6-1`: login-origem 7/7 em `atual` e em `063`, mais marketing-a [086] e fixture-atualizacao-staging [078];
+  - `r6-2`: login-origem 7/7 em `atual` e em `063`;
+  - cluster encerrado (`pg_ctl status` 3) e removido.
+- **Mutantes**: **29/29 mortos por asserção** (os 26 anteriores, com o M7 ajustado ao novo código, + contador por entrada sem agrupar, entradas sem folga sobre o registro, teto da carga não detectado); controles 78/78.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3309/3309, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.
+
+## Revisão da rodada 6 — APROVADO COM RESSALVAS (23/10/2026)
+
+Parecer: `../ambientes-locais/revisao-ip-r6-3085c22-local-b/PARECER.md`. Sem P1/P2.
+- **P2-R5-1:** FECHADO.
+- **P3-R5-2:** FECHADO pela detecção e documentação. Isso não resolve empresas fora do prefixo; o desenho precisa ser revisto antes de passar de 20.000 empresas ativas.
+
+### P3-R6-1 (ressalva de escala, registrada; sem mudança de código)
+
+- **Orçamento por janela:** cada limitador em memória aceita até `MAXIMO_ENTIDADES` (40.064) entidades canônicas **vigentes ao mesmo tempo** por processo. São empresas, endereço padrão e não confirmadas no limitador das APIs; sites, no limitador próprio do formulário. A janela é de 1 h para PEDIDO/IDENTIDADE e de 1 min para LEITURA.
+  - A fórmula cobre duas levas do registro, não uma rotatividade ilimitada.
+  - Acima disso, a entidade nova recebe 429 até as vencidas saírem, e as existentes mantêm as cotas.
+  - Com mais de uma instância, cada uma conta a sua parte, e as cargas se multiplicam pelo número de instâncias.
+- **Sites:** o formulário usa um mapa próprio por `site:<id>`. Se o número de sites (por exemplo, um por unidade) se aproximar desse teto, dimensionar esse limitador separadamente.
+- **Monitorar antes de crescer:** número de empresas ativas (contra 20.000), sites publicados (contra 40.064) e 429 do limite público. Hoje o código não expõe ocupação nem contagem de recusas por capacidade; se a escala chegar perto, acrescentar essa métrica.
+
+### Próximo passo
+
+O código local está aprovado. O que falta depende de autorização de Felipe, nesta ordem:
+1. PR para staging e deploy;
+2. inventário das entradas e verificação da premissa da rede privada;
+3. G1-A com `ORIGEM_CLIENTE_BORDA` desligada;
+4. só com o G1-A aprovado e autorização específica, a troca de env e o G1-B.
+Até a env ser ligada, o deploy deixa staging sem limite por IP; continuam os limites por conta e por fluxo.

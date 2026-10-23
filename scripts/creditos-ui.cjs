@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-/** E2E opt-in dos créditos de IA (095) no navegador, com PostgreSQL DESCARTÁVEL (modelo 089 + 095 aplicada aqui) e dados
+/** E2E opt-in dos créditos de IA (095) no navegador, com PostgreSQL DESCARTÁVEL (modelo 094 + 095 aplicada aqui) e dados
  * sintéticos. O Asaas é o DUBLÊ dentro do `next dev` (scripts/teste-asaas-duble.cjs: o fetch para o sandbox é atendido em
  * memória; qualquer outro endereço do Asaas é recusado). E-mail em ARQUIVO local. Nenhum .env, banco real, provedor real ou
  * serviço Render. Execute com os três KIDMAIS_* de autorização do descartável, KIDMAIS_PLAYWRIGHT_MODULE e Chrome.
@@ -71,7 +71,7 @@ async function principal() {
     };
     const segredo = randomBytes(32).toString('hex');
     try {
-        await receita.restaurar(admin, receita.TRABALHO[0], '089');
+        await receita.restaurar(admin, receita.TRABALHO[0], '094');
         client = await receita.conectar(porta, receita.TRABALHO[0]);
         await client.query(fs.readFileSync(UP, 'utf8'));
         const carregar = (f) => carregarModulo(f, { 'db/postgres': { db: () => client, withTransaction: async (w) => w(client) } }, new Map());

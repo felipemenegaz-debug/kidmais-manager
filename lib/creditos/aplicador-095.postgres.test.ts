@@ -10,7 +10,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 
 /**
  * Créditos de IA (22/10/2026), derivado do teste dos aplicadores da 089 — os APLICADORES REAIS da 095 (scripts/migration-095-staging.cjs e -production.cjs) no
- * PostgreSQL descartável, modelo 089 (095 ausente). Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL.
+ * PostgreSQL descartável, modelo 094 (095 ausente). Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL.
  * Única substituição: o cliente do aplicador conecta ao cluster descartável (identidade provada por conectarDescartavel)
  * e responde à consulta de identidade como o banco do ambiente responderia. Trava de alvo, identidade e marcador são
  * provados sem banco (scripts/migration-095.test.cjs); aqui, as fases com SQL REAL:
@@ -50,14 +50,14 @@ const objetos = async (c: Client) => (await c.query<Record<string, boolean>>(`SE
   to_regprocedure('public.kidmais_095_guarda()') IS NOT NULL AS funcao, to_regclass('public.ia_credito_cobrancas_canonica_uk') IS NOT NULL AS indice`)).rows[0];
 const NADA = { tabela: false, funcao: false, indice: false };
 
-test("aplicadores 095 reais no modelo 089: conferência, privilégios, parcial, falha real, aplicação, anti-repetição", { timeout: 300_000 }, async (t) => {
+test("aplicadores 095 reais no modelo 094: conferência, privilégios, parcial, falha real, aplicação, anti-repetição", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   const dirs: string[] = [];
   const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-095-")); dirs.push(d); return d; };
   const BACKUP = "export 2026-10-22T03:00Z teste";
   try {
-    assert.deepEqual(await objetos(c), NADA, "modelo 089: 095 ausente");
+    assert.deepEqual(await objetos(c), NADA, "modelo 094: 095 ausente");
     // 1. Conferência só leitura nos dois ambientes.
     for (const [m, env] of [[stg, ENV_STG], [prod, ENV_PROD]] as const) {
       const conf = await m.conferir({ env, raiz, Client: clienteDescartavel() });

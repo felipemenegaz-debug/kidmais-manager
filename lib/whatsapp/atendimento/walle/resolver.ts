@@ -30,10 +30,13 @@ export interface FontesWallE {
   pacotes(): Promise<PacoteResumo[]>;
   composicao(pacoteCodigo: string): Promise<Composicao | null>;
   preco(pacoteCodigo: string, data: string, turno: string, convidados: number): Promise<PrecoCalculado>;
-  /** Períodos do dia e o escopo REAL consultado (a unidade pedida pode não ter agenda própria). */
-  disponibilidade(data: string, unidade: string | null): Promise<{ periodos: PeriodoAgenda[]; escopo: EscopoAgendaConsultado }>;
-  /** Datas próximas com período livre, no MESMO escopo da consulta principal. */
-  alternativas(data: string, unidade: string | null, turno: string | null, quantas: number): Promise<{ data: string; periodos: PeriodoAgenda[] }[]>;
+  /**
+   * Períodos do dia e o escopo REAL consultado (a unidade pedida pode não ter agenda própria). Parecer do Astra (P2):
+   * com pacote já escolhido (código), o horário livre usa a duração dele; sem pacote, a do mais curto da empresa.
+   */
+  disponibilidade(data: string, unidade: string | null, pacote?: string | null): Promise<{ periodos: PeriodoAgenda[]; escopo: EscopoAgendaConsultado }>;
+  /** Datas próximas com período livre, no MESMO escopo (e com o mesmo pacote) da consulta principal. */
+  alternativas(data: string, unidade: string | null, turno: string | null, quantas: number, pacote?: string | null): Promise<{ data: string; periodos: PeriodoAgenda[] }[]>;
   linkContratoProprio(): Promise<string | null>;
   /** Rodada 40: link público de disponibilidade/fechamento da empresa (null/ausente: sem página pública para ela). */
   linkDisponibilidade?(): string | null;
@@ -316,8 +319,14 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
   if ((e.catalogos.unidadesAgenda ?? []).length > 1 && !e.ctx.unidade) { perguntar(e, 'unidade', para); return null; }
   let periodos: PeriodoAgenda[], escopo: EscopoAgendaConsultado;
   const consultadoEm = new Date().toISOString();
-  try { ({ periodos, escopo } = await e.fontes.disponibilidade(e.ctx.data, e.ctx.unidade ?? null)); }
-  catch { dizer(e, 'Não consegui consultar a agenda agora.'); passar(e, 'FALHA'); return null; }
+  try { ({ periodos, escopo } = await e.fontes.disponibilidade(e.ctx.data, e.ctx.unidade ?? null, e.ctx.pacote ?? null)); }
+  catch (erro) {
+    // Duração cadastrada inválida no pacote escolhido: não é a data — a equipe confere o cadastro (sem expor detalhes).
+    dizer(e, (erro as { code?: string }).code === 'PACOTE_DURACAO_INVALIDA'
+      ? 'Não consigo confirmar os horários deste pacote por aqui: vou pedir para a equipe conferir e te responder.'
+      : 'Não consegui consultar a agenda agora.');
+    passar(e, 'FALHA'); return null;
+  }
   // A resposta diz o escopo que FOI consultado: "na unidade X" só quando a agenda é da própria unidade. Unidade pedida
   // sem agenda própria: a consulta é da empresa (todas as unidades) e a resposta diz isso, sem atribuir à unidade.
   const unidadeConsultada = escopo.tipo === 'UNIDADE' ? escopo.unidadeId : null;
@@ -345,7 +354,7 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
   }
   if (!disponivel && !mesmoDia) {
     try {
-      const alt = await e.fontes.alternativas(e.ctx.data, e.ctx.unidade ?? null, e.ctx.turno ?? null, 3);
+      const alt = await e.fontes.alternativas(e.ctx.data, e.ctx.unidade ?? null, e.ctx.turno ?? null, 3, e.ctx.pacote ?? null);
       if (alt.length) dizer(e, `Datas próximas com horário livre: ${lista(alt.map((a) => `${dataBr(a.data)} (${diaSemana(a.data)}, ${lista(a.periodos.map((p) => p.nome.toLowerCase()))})`))}.`, alt.map((a) => ({ tipo: 'AGENDA', data: a.data, escopo: escopo.tipo, unidade: unidadeConsultada, consultadoEm } as Fonte)));
     } catch { /* alternativas são opcionais: a resposta principal já foi dada */ }
   }

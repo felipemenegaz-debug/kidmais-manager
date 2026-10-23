@@ -31,6 +31,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
         'Perfil da empresa',
+        'Agenda',
         'Pacotes',
         'Itens do Buffet',
         'Usuários e acessos',
@@ -77,6 +78,9 @@ test('hub de Configurações: cartões da plataforma só para a plataforma; da e
     assert.equal(configuracaoVisivel('/admin/configuracoes/perfil-empresa', empresaSemPlataforma), true);
     const equipe = { gestaoEmpresa: false, plataforma: false };
     assert.equal(configuracaoVisivel('/admin/configuracoes/acessos', equipe), false);
+    // 093: a tela da agenda é de Gestão (o assistente da primeira entrada é de qualquer usuário, fora do hub).
+    assert.equal(configuracaoVisivel('/admin/configuracoes/agenda', equipe), false);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/agenda', empresaSemPlataforma), true);
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', equipe), false, 'Equipe não configura o WhatsApp');
     const plataforma = { gestaoEmpresa: false, plataforma: true };
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', plataforma), false, 'a plataforma sem Gestão na empresa não configura o WhatsApp dela');
@@ -87,7 +91,7 @@ test('hub de Configurações: cartões da plataforma só para a plataforma; da e
     // Para toda rota do menu, o cartão segue exatamente o item do menu.
     for (const p of [empresaSemPlataforma, equipe, plataforma, { gestaoEmpresa: true, plataforma: true }]) {
         const menu = new Set(itensNavegacao(p).map((i) => i.href));
-        for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes'])
+        for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes'])
             assert.equal(configuracaoVisivel(href, p), menu.has(href), href);
     }
 });

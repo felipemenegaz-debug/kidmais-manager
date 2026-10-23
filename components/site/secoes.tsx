@@ -17,7 +17,7 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           </div>
           <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão de crédito</span><span>Implantação guiada</span></div>
         </div>
-        <div className={cx('halo')} data-fundo-proteger><div className={cx('app')} role="img" aria-label="Tela de exemplo do Kidmais Manager com as próximas festas">
+        <div className={cx('halo')} data-fundo-proteger><div className={cx('app')} role="img" aria-label="Tela de exemplo do iA.Fest com as próximas festas">
           <div className={cx('app-bar')}><i></i><i></i><i></i><span>manager.kidmaisfestas.com/admin/festas</span></div>
           <div className={cx('app-body')}>
             <div className={cx('app-head')}><strong>Próximas festas</strong><small>OUTUBRO</small></div>
@@ -33,7 +33,7 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           </div>
         </div></div>
       </div>
-      <div className={cx('ribbon')} data-fundo-proteger><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O Kidmais não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">Entenda →</a></div>
+      <div className={cx('ribbon')} data-fundo-proteger><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O iA.Fest não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">Entenda →</a></div>
     </div>
   </section>); }
 
@@ -51,7 +51,7 @@ export function AntesDepois() { return (<section className={cx('block')} aria-la
 
 export function Diferenciais() { return (<section className={cx('block')} id="diferenciais" aria-labelledby="t-diff">
     <div className={cx('wrap')}>
-      <div className={cx('head')}><div className={cx('eyebrow')}>Diferenciais</div><h2 id="t-diff">O que o Kidmais faz<br /><em>e uma planilha não faz.</em></h2></div>
+      <div className={cx('head')}><div className={cx('eyebrow')}>Diferenciais</div><h2 id="t-diff">O que o iA.Fest faz<br /><em>e uma planilha não faz.</em></h2></div>
       <div className={cx('diff')}>
         <article className={cx('hero-card')}>
           <span className={cx('n')}>01 · DA DATA AO CONTRATO</span>
@@ -67,7 +67,7 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
         <article className={cx('money')}>
           <span className={cx('n')}>02 · SEU DINHEIRO</span>
           <div className={cx('big-num')}>0%</div>
-          <h3>do valor das festas fica com o Kidmais.</h3>
+          <h3>do valor das festas fica com o iA.Fest.</h3>
           <p>Pix copia e cola com a chave da sua empresa. Tudo cai direto na sua conta.</p>
         </article>
         <article>
@@ -82,19 +82,74 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
         </article>
         <article>
           <span className={cx('n')}>05 · WALL-E</span>
-          <h3><Recurso ids={["walle_whatsapp", "walle_publicitario"]}>Atendimento e marketing com IA</Recurso></h3>
-          <p><Recurso ids={["walle_publicitario"]}>O Wall-e responde seus clientes no WhatsApp e cria a divulgação do seu buffet. <a href="#wall-e" style={{"color":"var(--lilac)"}}>Conheça →</a></Recurso></p>
+          <h3><Recurso ids={["walle_whatsapp"]}>Atendimento com IA</Recurso></h3>
+          <p><Recurso ids={["walle_whatsapp"]}>O Wall-e responde seus clientes no WhatsApp usando a agenda e os preços do seu buffet. <a href="#wall-e" style={{"color":"var(--lilac)"}}>Conheça →</a></Recurso></p>
         </article>
       </div>
+    </div>
+  </section>); }
+
+export function ImportacaoDocumentos() { return (<section className={cx('block')} id="importacao" aria-labelledby="t-importacao">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Importação de documentos</div><h2 id="t-importacao">Seu buffet já tem história.<br /><em>Traga ela para o iA.Fest.</em></h2><p className={cx('lead')}>Modelo jurídico, festas já fechadas e tabela de preços: cada documento tem um caminho de importação, sempre com revisão antes de aplicar.</p></div>
+      <div className={cx('detailGrid')}>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Seu modelo jurídico de contrato</Recurso></h3><p>Envie o PDF do contrato usado pela empresa. A IA prepara as cláusulas e os campos automáticos de cliente, data e valores. Revise o texto e a prévia antes de aprovar o modelo.</p><p>A revisão jurídica continua com a sua empresa.</p></article>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Festas que você já vendeu</Recurso></h3><p>Importe os contratos das festas já fechadas e confira cliente, evento e valores. Depois, revise a integração com a festa, a agenda e as contas a receber, incluindo os pagamentos já realizados.</p><p>O documento original fica preservado para consulta.</p></article>
+        <article data-fundo-proteger><h3><Recurso ids={["importacao_precos"]}>Sua tabela de preços</Recurso></h3><p>A IA lê o PDF e prepara pacotes, faixas de convidados, grades de horário e adicionais. Você confere os valores e corrige o que precisar antes de publicar.</p><p>Seus preços continuam sendo a referência.</p></article>
+      </div>
+    </div>
+  </section>); }
+
+export function FinanceiroDetalhes() { return (<section className={cx('block')} id="financeiro" aria-labelledby="t-financeiro">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Módulo financeiro</div><h2 id="t-financeiro">Da parcela do cliente<br /><em>ao caixa do buffet.</em></h2><p className={cx('lead')}>Veja o que entrou, o que falta receber e o que precisa pagar. Contratos, parcelas e movimentações ficam ligados à operação da sua empresa.</p></div>
+      <div className={cx('pain')}>
+        <article data-fundo-proteger><h3>Contas a receber</h3><p>Acompanhe parcelas, vencimentos, atrasos e saldos. Registre recebimentos, confira o histórico e disponibilize Pix copia e cola com a chave da sua empresa.</p></article>
+        <article data-fundo-proteger><h3>Contas a pagar</h3><p>Organize despesas por categoria e favorecido, acompanhe vencimentos e registre pagamentos para saber o que ainda está em aberto.</p></article>
+        <article data-fundo-proteger><h3>Fluxo de caixa e relatórios</h3><p>Consulte entradas, saídas e saldos por período. Veja os recebimentos e as despesas para acompanhar o movimento financeiro do buffet.</p></article>
+        <article data-fundo-proteger><h3>Financeiro de cada festa</h3><p>Reúna parcelas, recebimentos, adicionais e despesas do evento. Confira custos e pendências para concluir o fechamento com os valores registrados.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>Contas a pagar, fluxo de caixa, relatórios e visão de custos fazem parte do financeiro completo dos planos Profissional e Premium. O Essencial mantém contas a receber e Pix. O dinheiro das festas vai direto para a conta do buffet.</p>
+    </div>
+  </section>); }
+
+export function AgendaSaloes() { return (<section className={cx('block')} id="saloes" aria-labelledby="t-saloes">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Agenda por salão</div><h2 id="t-saloes">Mais de um salão.<br /><em>A mesma unidade, organizada.</em></h2><p className={cx('lead')}>Organize os espaços do seu buffet na mesma unidade. Na configuração por salão, cada espaço recebe uma festa por vez, respeitando os horários e intervalos definidos.</p></div>
+      <div className={cx('detailGrid')}>
+        <article data-fundo-proteger><h3>Disponibilidade por espaço</h3><p>Associe cada festa ao seu salão e acompanhe a ocupação. Salões diferentes podem receber festas no mesmo horário, conforme a configuração da agenda.</p></article>
+        <article data-fundo-proteger><h3>Horários e intervalos</h3><p>Defina os períodos de funcionamento e o intervalo mínimo entre festas, considerando o tempo necessário para preparar o espaço.</p></article>
+        <article data-fundo-proteger><h3>Bloqueios e organização</h3><p>Registre bloqueios e confira conflitos antes de confirmar a data. Festas sem salão definido protegem a disponibilidade até a equipe escolher o espaço.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>Vários salões na mesma unidade são espaços da mesma operação. A contratação de outra unidade é uma condição separada.</p>
+    </div>
+  </section>); }
+
+export function Marketing() { return (<section className={cx('block')} id="marketing" aria-labelledby="t-marketing">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto>
+        <div className={cx('eyebrow')}>Marketing · Campanhas e automação</div>
+        <h2 id="t-marketing">Da campanha nas redes<br /><em>à próxima festa.</em></h2>
+        <p className={cx('lead')}>Seu site, suas campanhas e o relacionamento com os clientes no mesmo módulo. Conecte a divulgação à gestão do buffet e acompanhe o caminho até o contrato.</p>
+      </div>
+      <article className={cx('marketingSite')} data-fundo-proteger><div><span className={cx('marketingKicker')}>Site do buffet · dentro do Marketing</span><h3>Uma vitrine com a identidade da sua unidade.</h3><p>Monte o site com sua marca, fotos, pacotes e contatos. Edite o conteúdo, confira a prévia e escolha quando publicar.</p></div><ul className={cx('checks')}><li>Galeria de fotos e apresentação dos pacotes</li><li>Formulário para pedidos de orçamento e contato pelo WhatsApp</li><li>Título e descrição para mecanismos de busca (SEO)</li><li>Links de campanhas ligados à origem dos contatos</li></ul></article>
+      <div className={cx('pain')}>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Instagram, Facebook, Google e WhatsApp</span><h3>Um link para cada campanha</h3><p>Use links rastreáveis nos seus anúncios e publicações. Quem chega ao site do buffet e pede orçamento pode ser associado à campanha de origem.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Da origem ao contrato</span><h3>Saiba o que chega pela divulgação</h3><p>Acompanhe cliques, contatos, negociações, contratos e receitas por origem e campanha, com filtros de período.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Relacionamento com o cliente</span><h3>Automação para acompanhar oportunidades</h3><p>Configure regras para retomar propostas paradas, organizar o pós-festa e lembrar oportunidades de recompra, com tarefas para a equipe.</p></article>
+        <article data-fundo-proteger><span className={cx('marketingKicker')}>Agenda e divulgação juntas</span><h3>Encontre datas para divulgar</h3><p>Consulte sugestões de horários livres na agenda e revise as oportunidades antes de montar sua próxima campanha.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>A conexão com as redes sociais é feita por links rastreáveis. A publicação de posts e a gestão dos anúncios continuam nas plataformas. O envio automático de mensagens está em validação, ainda sem disparos reais pelo módulo.</p>
+      <div className={cx('actions')} data-fundo-proteger><a href="#demonstracao" className={cx('btn', 'btn-secondary')}>Conhecer o módulo de Marketing →</a></div>
     </div>
   </section>); }
 
 export function WallE() { return (<section className={cx('block')} id="wall-e" aria-labelledby="t-walle">
     <div className={cx('wrap')}>
       <div className={cx('head')}>
-        <div className={cx('eyebrow')}>Wall-e · Inteligência artificial do Kidmais</div>
-        <h2 id="t-walle"><Recurso ids={["walle_whatsapp", "walle_publicitario"]}>Um atendente e um departamento de marketing<br /><em>que não tiram folga.</em></Recurso></h2>
-        <p className={cx('lead')}><Recurso ids={["walle_whatsapp"]}>O Wall-e trabalha com os dados que já estão no Kidmais: sua agenda, seus pacotes e seus preços oficiais. Ele não inventa preço e não publica nada sem a sua aprovação.</Recurso></p>
+        <div className={cx('eyebrow')}>Wall-e · Inteligência artificial do iA.Fest</div>
+        <h2 id="t-walle"><Recurso ids={["walle_whatsapp"]}>Um atendente para o seu buffet<br /><em>que não tira folga.</em></Recurso></h2>
+        <p className={cx('lead')}><Recurso ids={["walle_whatsapp"]}>O Wall-e trabalha com os dados que já estão no iA.Fest: sua agenda, seus pacotes e seus preços oficiais. Ele consulta as informações do buffet antes de responder e passa a conversa para a sua equipe quando precisa.</Recurso></p>
       </div>
       <div className={cx('walle')}>
         <article aria-labelledby="t-w1">
@@ -114,20 +169,6 @@ export function WallE() { return (<section className={cx('block')} id="wall-e" a
               .map(texto => <li key={texto}><Recurso ids={["walle_whatsapp"]}>{texto}</Recurso></li>)}
           </ul>
         </article>
-        <article aria-labelledby="t-w2">
-          <div className={cx('tag')}><span className={cx('bot')}>W</span><b><Recurso ids={["walle_publicitario"]}>Wall-e publicitário</Recurso></b></div>
-          <h3 id="t-w2"><Recurso ids={["walle_publicitario"]}>O marketing de quem não tem um departamento de marketing.</Recurso></h3>
-          <div className={cx('cal')} role="img" aria-label="Exemplo de calendário de publicações do Wall-e. Dados fictícios.">
-            <div className={cx('post')}><span className={cx('thumb')} style={{"background":"linear-gradient(135deg,#ff9fbe,#c9a8ff)"}}>Reels</span><span><b>Bastidores da festa Fundo do Mar</b><small>Sáb 17/10 · com suas fotos e a voz da marca</small></span><span className={cx('pill wait')}>Para aprovar</span></div>
-            <div className={cx('post')}><span className={cx('thumb')} style={{"background":"linear-gradient(135deg,#80f5c4,#7cc4ff)"}}>Carrossel</span><span><b>3 sábados livres em novembro</b><small>Ter 20/10 · criado a partir da sua agenda</small></span><span className={cx('pill ok')}>Aprovado</span></div>
-            <div className={cx('post')}><span className={cx('thumb')} style={{"background":"linear-gradient(135deg,#ffd58a,#ff9a7a)"}}>Story</span><span><b>Pacote Diversão para até 40 crianças</b><small>Qui 22/10 · oferta autorizada por você</small></span><span className={cx('pill mute')}>Agendado</span></div>
-            <div className={cx('caption')}>Dados fictícios</div>
-          </div>
-          <ul className={cx('checks')}>
-            {['Cria posts, carrosséis, Stories e Reels com as fotos do seu buffet', 'Sugere divulgar as datas livres da sua agenda', 'Vídeos com legenda, música, logotipo e narração com a voz da marca', 'Calendário de publicações. Nada sai sem a sua aprovação']
-              .map(texto => <li key={texto}><Recurso ids={["walle_publicitario"]}>{texto}</Recurso></li>)}
-          </ul>
-        </article>
       </div>
     </div>
   </section>); }
@@ -145,7 +186,7 @@ export function Convite() { return (<section className={cx('block')} id="convite
           <li><span><Recurso ids={["convite"]}><b>Os convidados confirmam presença</b> sem criar conta, informando adultos e crianças.</Recurso></span></li>
         </ol>
         <ul className={cx('checks')}>
-          {['Textos separados da arte: corrigir horário ou endereço não gasta crédito de IA', 'Limites de geração por festa e por cliente protegem a franquia do buffet', 'Tudo ligado à festa no Kidmais, com histórico do que cada um fez']
+          {['Textos separados da arte: corrigir horário ou endereço não gasta crédito de IA', 'Limites de geração por festa e por cliente protegem a franquia do buffet', 'Tudo ligado à festa no iA.Fest, com histórico do que cada um fez']
             .map(texto => <li key={texto}><Recurso ids={["convite"]}>{texto}</Recurso></li>)}
         </ul>
       </div>
@@ -201,9 +242,9 @@ export function Confianca() { return (<section className={cx('block')} id="confi
       <div className={cx('trust')}>
         <article className={cx('wide')}>
           <div className={cx('big')}>Feito dentro de um buffet</div>
-          <p>O Kidmais Manager nasceu para organizar a operação da Kidmais Festas, que usa o sistema todos os dias. Cada tela foi construída com quem atende, organiza e recebe.</p>
+          <p>O iA.Fest nasceu para organizar a operação da Kidmais Festas, que usa o sistema todos os dias. Cada tela foi construída com quem atende, organiza e recebe.</p>
         </article>
-        <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo Kidmais</h3><p>O Pix usa a chave da sua empresa. O Kidmais não intermedia o pagamento nem fica com parte do valor.</p></article>
+        <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo iA.Fest</h3><p>O Pix usa a chave da sua empresa. O iA.Fest não intermedia o pagamento nem fica com parte do valor.</p></article>
         <article><div className={cx('big')}>CSV · PDF</div><h3>Exportação a qualquer hora</h3><p>Clientes e contas a receber em CSV e cada contrato em PDF saem do sistema quando você quiser, conforme as condições de acesso e exportação dos termos de uso.</p></article>
         <article><div className={cx('big')}>Gestão e equipe</div><h3>Cada um no seu papel</h3><p>A Gestão cuida da empresa, dos usuários e das configurações. A equipe opera o dia a dia com o próprio acesso.</p></article>
       </div>
@@ -216,14 +257,14 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
       <div className={cx('faq')}>
         <div>
           <details><summary>Preciso cadastrar cartão para testar?</summary><p>Não. O teste de {dias(comercial.testeDias)} começa sem cartão e nada é cobrado automaticamente quando ele termina.</p></details>
-          <details><summary>O Kidmais recebe o pagamento dos meus clientes?</summary><p>Não. O Pix usa a chave da sua empresa e o dinheiro vai direto para você.</p></details>
+          <details><summary>O iA.Fest recebe o pagamento dos meus clientes?</summary><p>Não. O Pix usa a chave da sua empresa e o dinheiro vai direto para você.</p></details>
           <details><summary>Meu cliente pode pagar no cartão?</summary><p><Recurso ids={["cartao"]}>O cartão nas parcelas está em preparação e depende da conexão da conta de pagamento do buffet. O Pix copia e cola usa a chave da empresa. As taxas do cartão são as da conta de pagamento da sua empresa.</Recurso></p></details>
           <details><summary>Meu cliente precisa instalar algum aplicativo?</summary><p>Não. Ele abre o link do contrato no celular e confere tudo por ali.</p></details>
           <details><summary>A família consegue fazer o convite sozinha?</summary><p><Recurso ids={["convite"]}>O buffet libera um link de edição e a família escolhe o modelo, troca a imagem e publica. O buffet acompanha e pode ajudar quando precisar.</Recurso></p></details>
           <details><summary>Já tenho tabela de preços e contratos em PDF. Perco o que fiz?</summary><p><Recurso ids={["importacao_contratos","importacao_precos"]}>Não. A IA lê seus PDFs e prepara os pacotes e contratos. Você confere antes de publicar.</Recurso></p></details>
         </div>
         <div>
-          <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp", "walle_publicitario"]}>É a inteligência artificial do Kidmais. Ele atende seus clientes no WhatsApp e cria a divulgação do buffet, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
+          <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp"]}>É a inteligência artificial do iA.Fest. Ele atende seus clientes no WhatsApp, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
           <details><summary>O que é o copiloto?</summary><p><Recurso ids={["copiloto"]}>É a parte da IA que trabalha dentro do sistema. Ele mostra o que precisa da sua atenção e prepara cadastros a partir de um pedido escrito. Você sempre revisa e confirma antes de gravar.</Recurso></p></details>
           <details><summary>Posso mudar de plano depois?</summary><p>As condições para mudar entre os planos estão em definição. O teste começa pelo mesmo cadastro; fale com a equipe para conhecer a oferta.</p></details>
           <details><summary>O que é o Plano Fundador?</summary><p>Uma condição para os {comercial.fundador.vagas} primeiros buffets que assinarem: {comercial.fundador.descontoPercentual}% de desconto travado por {comercial.fundador.meses} meses, aplicado automaticamente enquanto houver vagas. Também vamos pedir a sua opinião sobre o sistema e um depoimento depois de usar.</p></details>

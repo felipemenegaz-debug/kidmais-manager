@@ -1,0 +1,43 @@
+/* Preço por quantidades cheias (092). Listas no fundo dos campos, nunca brancas (pedido de Felipe, 22/10/2026). */
+.gerador { border:1px dashed color-mix(in srgb, var(--lilac-accent) 35%, transparent); border-radius:12px; padding:16px; background:rgba(124,58,237,.06); margin:0 0 16px; }
+.gerador p { margin:0; color:var(--secondary-text); font-size:13px; line-height:2.4; }
+.gerador strong { color:var(--lilac-accent); font-size:12px; font-weight:800; }
+.inline { display:inline-block !important; width:84px !important; margin:0 6px !important; padding:6px 10px !important; }
+/* Completar os preços vazios pelo ritmo (pedido de Felipe, 23/10/2026): mesmo fundo do gerador, abaixo da lista. */
+.completar { border:1px dashed color-mix(in srgb, var(--emerald-accent) 35%, transparent); border-radius:12px; padding:14px 16px; background:rgba(93,227,176,.05); margin:12px 0 0; }
+.completar p { margin:0; color:var(--secondary-text); font-size:13px; line-height:2.4; }
+.completar p + p { line-height:1.5; margin:2px 0 10px; }
+.completar strong { color:var(--emerald-accent); font-size:12px; font-weight:800; }
+.lista { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); overflow:hidden; }
+.linha { display:grid; grid-template-columns:96px minmax(0,1fr) minmax(0,1.3fr) 44px; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
+.linha:first-child { border-top:0; }
+.linha label { margin:0 !important; }
+.linha input { margin:0 !important; padding:8px 12px !important; }
+.cabecalho { font-size:11px; font-weight:800; color:var(--secondary-text); }
+.porConvidado { color:var(--emerald-accent); font-weight:800; font-size:13px; }
+.fraco { color:var(--secondary-text); font-size:11px; }
+.erroLinha { padding:0 12px 10px; color:#fda4af; font-size:12px; }
+.invalido { border-color:#fb7185 !important; background:rgba(251,113,133,.08) !important; }
+.selo { display:inline-block; border-radius:999px; padding:4px 10px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; background:rgba(93,227,176,.12); color:var(--emerald-accent); }
+.seloAviso { background:rgba(249,115,22,.12); color:#fdba74; }
+.acoes { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+.simulador { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:16px; padding:12px 14px; border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); }
+.simulador input { width:80px !important; margin:0 !important; padding:6px 10px !important; }
+.simulador output { margin-left:auto; color:var(--emerald-accent); font-weight:900; font-size:16px; }
+.conta { flex-basis:100%; margin:0; color:var(--secondary-text); font-size:12px; }
+.alerta { border:1px solid rgba(249,115,22,.35); border-radius:10px; background:rgba(249,115,22,.10); color:#fdba74; padding:12px 14px; font-size:13px; margin:0 0 12px; }
+.alerta p { margin:0 0 8px; }
+.metricas { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 16px; }
+.metrica { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); padding:12px 14px; }
+.metrica span { display:block; font-size:11px; font-weight:800; color:var(--secondary-text); }
+.metrica strong { display:block; font-size:22px; font-weight:900; margin:2px 0; }
+.lado { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:16px; }
+.comparacao { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr); gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); font-size:13px; }
+.comparacao:first-child { border-top:0; }
+.mais { color:#fdba74; font-weight:800; }
+@media(max-width:800px) {
+  .linha { grid-template-columns:72px minmax(0,1fr) 44px; }
+  .linha > :nth-child(3) { grid-column:1 / -1; }
+  .lado { grid-template-columns:1fr; }
+  .comparacao { grid-template-columns:1fr 1fr; }
+}

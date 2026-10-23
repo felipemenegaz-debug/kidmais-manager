@@ -152,8 +152,10 @@ test('conflito no destino impede aplicação; cancelamento da revisão conserva 
     const mod = carregar('lib/fechamentos/services/revisao-operacional.service.ts', {
         '../repositories': { buscarFechamentoPorId: async () => f, buscarFechamentoPorIdParaAtualizacao: async () => f },
         '../repositories/revisao.repository': { aplicarOperacaoPreparada: async () => { aplicacoes++; } },
-        '../../disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: 'cfg', horarios: [{ status: livre ? 'DISPONIVEL' : 'OCUPADO', inicio: '11:00', fim: '15:00' }] }] }) },
+        '../../disponibilidade/services': { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: 'cfg', horarios: [{ status: livre ? 'DISPONIVEL' : 'OCUPADO', inicio: '11:00', fim: '15:00' }] }] }) },
         '../../clientes/repositories': { registrarAuditoria: async () => {} },
+        // 094: sem capacidade por salão neste cenário, o destino não exige salão.
+        '../../agenda/salao-festa.ts': { escolherSalaoDestinoRevisao: async () => ({ exigido: false, salao: null }) },
         './errors': { FechamentoServiceError: class extends Error { constructor(_code: string, message: string) { super(message); } } },
     });
     const concluir = mod.concluirPreparacao as unknown as (tx: object, r: object, c: object) => Promise<void>;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ipDaRequisicao } from "../acessos/http.ts";
+import { CAPACIDADE_EMPRESAS_CONFIRMADAS, idDaEmpresaPublica, type CarregarEmpresasAtivas } from "./empresas-publicas.ts";
 
 /**
  * Limite de requisições das APIs públicas de cotação/fechamento/agenda (sem sessão).
@@ -9,8 +10,19 @@ import { ipDaRequisicao } from "../acessos/http.ts";
  *   IDENTIDADE → consulta de CPF, envio e recuperação de código: 20 por hora por origem (contra enumeração).
  *
  * Janela fixa em memória, por instância (o web roda com 1 instância; com mais, cada uma conta a sua parte).
- * Sem escrita em banco por pedido. Origem = último X-Forwarded-For no Render (lib/acessos/http.ts); sem origem
- * confiável, todos dividem o mesmo balde. Nunca registra IP em log nem devolve detalhe além do prazo.
+ * Sem escrita em banco por pedido. Origem = penúltimo X-Forwarded-For no Render, conferido (lib/acessos/http.ts).
+ * Sem origem confiável, NUNCA o limite de um IP aplicado a todos: cada grupo conta pela empresa com teto
+ * SEM_ORIGEM_FATOR vezes maior, e o PEDIDO mantém o teto por empresa.
+ *
+ * Empresa = chave CANÔNICA, nunca o texto bruto de `?empresa=` (revisão de 22/10, P2-R3-1: 20.000 códigos inventados
+ * enchiam o mapa e todos recebiam 429). Código de empresa ATIVA conta pelo id da empresa: o registro
+ * (lib/http/empresas-publicas.ts) é alimentado pelo resolvedor e por uma carga de todos os códigos ativos, feita antes de
+ * cobrar um código desconhecido (no máximo uma carga por intervalo; P2-R4-1). Só código inexistente, inválido ou de
+ * empresa criada depois da última carga cai no balde comum "empresa-nao-confirmada"; sem código, o endereço padrão.
+ * Os baldes por IP e os demais têm capacidades separadas: nenhum dos dois esgota o outro. Os contadores de cada entidade
+ * canônica (empresa, site, endereço padrão, não confirmadas) ficam JUNTOS numa entrada só, e o número de entradas é
+ * dimensionado pelo registro de empresas (P2-R5-1: três grupos por empresa enchiam um mapa de chaves soltas). Nunca registra IP em log nem
+ * devolve detalhe além do prazo.
  */
 export type GrupoLimite = "LEITURA" | "PEDIDO" | "IDENTIDADE";
 type Regra = { limite: number; janelaMs: number };
@@ -20,50 +32,97 @@ const REGRAS: Record<GrupoLimite, Regra> = {
   IDENTIDADE: { limite: 20, janelaMs: 3_600_000 },
 };
 const PEDIDO_POR_EMPRESA: Regra = { limite: 60, janelaMs: 3_600_000 };
+export const SEM_ORIGEM_FATOR = 10;
 const MAXIMO_CHAVES = 20_000;
+/**
+ * Entradas por entidade canônica: até o dobro da capacidade do registro de empresas (o registro troca de empresas ao
+ * longo de uma janela só acima do seu teto, ver empresas-publicas.ts) + endereço padrão, não confirmadas e folga.
+ * Cada entrada guarda todos os contadores da entidade (os três grupos e o teto de PEDIDO por empresa).
+ */
+export const MAXIMO_ENTIDADES = 2 * CAPACIDADE_EMPRESAS_CONFIRMADAS + 64;
 
 type Balde = { inicio: number; usados: number; janelaMs: number };
-export function criarLimitador(agora: () => number = Date.now) {
-  const baldes = new Map<string, Balde>();
-  function consumir(chave: string, regra: Regra): number | null {
+const vencido = (b: Balde, t: number) => t - b.inicio >= b.janelaMs;
+
+/** Conta uma tentativa no contador `chave` de `baldes` (janela fixa); segundos até liberar, ou null. */
+function contar(baldes: Map<string, Balde>, chave: string, regra: Regra, t: number): number | null {
+  let balde = baldes.get(chave);
+  if (!balde || vencido(balde, t)) {
+    balde = { inicio: t, usados: 0, janelaMs: regra.janelaMs };
+    baldes.set(chave, balde);
+  }
+  if (balde.usados >= regra.limite) return Math.max(1, Math.ceil((balde.inicio + regra.janelaMs - t) / 1000));
+  balde.usados += 1;
+  return null;
+}
+
+export function criarLimitador(agora: () => number = Date.now, maximoEntidades = MAXIMO_ENTIDADES) {
+  // Por IP (cresce com as origens; fail-closed no teto) e por entidade canônica (conjunto limitado, contadores juntos).
+  const porIp = new Map<string, Balde>();
+  const porEntidade = new Map<string, Map<string, Balde>>();
+  /** Recusa uma chave NOVA quando o mapa está cheio mesmo depois de tirar os vencidos (fail-closed sob ataque). */
+  function semEspaco<T>(mapa: Map<string, T>, maximo: number, venceu: (v: T) => boolean) {
+    if (mapa.size < maximo) return false;
+    for (const [k, v] of mapa) if (venceu(v)) mapa.delete(k);
+    return mapa.size >= maximo;
+  }
+  function porOrigem(chave: string, regra: Regra): number | null {
     const t = agora();
-    let balde = baldes.get(chave);
-    if (!balde || t - balde.inicio >= regra.janelaMs) {
-      if (!balde && baldes.size >= MAXIMO_CHAVES) {
-        for (const [k, b] of baldes) if (t - b.inicio >= b.janelaMs) baldes.delete(k);
-        // Ainda cheio: recusa nova origem em vez de crescer sem limite (fail-closed sob ataque).
-        if (baldes.size >= MAXIMO_CHAVES) return Math.ceil(regra.janelaMs / 1000);
-      }
-      balde = { inicio: t, usados: 0, janelaMs: regra.janelaMs };
-      baldes.set(chave, balde);
+    if (!porIp.has(chave) && semEspaco(porIp, MAXIMO_CHAVES, (b) => vencido(b, t))) return Math.ceil(regra.janelaMs / 1000);
+    return contar(porIp, chave, regra, t);
+  }
+  function daEntidade(entidade: string, contador: string, regra: Regra): number | null {
+    const t = agora();
+    let baldes = porEntidade.get(entidade);
+    if (!baldes) {
+      if (semEspaco(porEntidade, maximoEntidades, (m) => [...m.values()].every((b) => vencido(b, t)))) return Math.ceil(regra.janelaMs / 1000);
+      baldes = new Map();
+      porEntidade.set(entidade, baldes);
     }
-    if (balde.usados >= regra.limite) return Math.max(1, Math.ceil((balde.inicio + regra.janelaMs - t) / 1000));
-    balde.usados += 1;
-    return null;
+    return contar(baldes, contador, regra, t);
   }
   return {
-    /** Segundos até liberar, ou null quando o pedido pode seguir. */
-    verificar(origem: string, grupo: GrupoLimite, empresa: string | null = null): number | null {
-      const porOrigem = consumir(`${grupo}:${origem}`, REGRAS[grupo]);
-      if (porOrigem !== null) return porOrigem;
-      if (grupo === "PEDIDO" && empresa) return consumir(`PEDIDO_EMPRESA:${empresa}`, PEDIDO_POR_EMPRESA);
+    /** Segundos até liberar, ou null. `empresa` é chave canônica (chaveDaEmpresaPublica ou `site:<id>`), nunca texto bruto. */
+    verificar(origem: string | null, grupo: GrupoLimite, empresa: string | null = null): number | null {
+      const regra = REGRAS[grupo];
+      const espera = origem
+        ? porOrigem(`${grupo}:${origem}`, regra)
+        : daEntidade(empresa ?? "*", `${grupo}_SEM_ORIGEM`, { ...regra, limite: regra.limite * SEM_ORIGEM_FATOR });
+      if (espera !== null) return espera;
+      if (grupo === "PEDIDO" && empresa) return daEntidade(empresa, "PEDIDO_EMPRESA", PEDIDO_POR_EMPRESA);
       return null;
     },
-    tamanho: () => baldes.size,
+    tamanho: () => porIp.size + porEntidade.size,
   };
 }
 
 const limitador = criarLimitador();
 
+/** Todos os códigos de empresas ATIVAS (uma consulta; import tardio para o módulo não abrir banco ao carregar). */
+const carregarEmpresasAtivas: CarregarEmpresasAtivas = async (limite) => {
+  const { db } = await import("../db/postgres.ts");
+  return (await db().query<{ codigo: string; id: string }>(
+    "SELECT codigo, id::text AS id FROM public.empresas WHERE status = 'ATIVA' AND codigo IS NOT NULL ORDER BY codigo LIMIT $1",
+    [limite],
+  )).rows;
+};
+
+/** Chave canônica da empresa do endereço: null = endereço padrão; empresa ATIVA = id; o resto, um balde comum. */
+export async function chaveDaEmpresaPublica(codigo: string | null, carregar: CarregarEmpresasAtivas = carregarEmpresasAtivas) {
+  if (!codigo) return null;
+  const empresaId = await idDaEmpresaPublica(codigo, carregar);
+  return empresaId ? `empresa:${empresaId}` : "empresa-nao-confirmada";
+}
+
 /** null = segue; senão a resposta 429 pronta (no-store, Retry-After). */
-export function limitarPublico(
+export async function limitarPublico(
   request: { headers: { get(nome: string): string | null }; nextUrl?: URL; url?: string },
   grupo: GrupoLimite,
+  carregar: CarregarEmpresasAtivas = carregarEmpresasAtivas,
 ) {
-  const origem = ipDaRequisicao(request) ?? "ORIGEM_NAO_VERIFICADA";
+  const origem = ipDaRequisicao(request);
   const url = request.nextUrl ?? (request.url ? new URL(request.url) : null);
-  const empresa = url?.searchParams.get("empresa") || null;
-  const espera = limitador.verificar(origem, grupo, empresa);
+  const espera = limitador.verificar(origem, grupo, await chaveDaEmpresaPublica(url?.searchParams.get("empresa") || null, carregar));
   if (espera === null) return null;
   return NextResponse.json(
     { ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" },

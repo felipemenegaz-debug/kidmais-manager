@@ -17,11 +17,11 @@ export const abas: Record<AbaId, ConteudoAba> = {
     },
     "agenda": {
         "titulo": "Saiba na hora se a data está livre.",
-        "texto": "Datas, horários e salões num só calendário. Bloqueie dias e mostre a disponibilidade sem abrir planilha.",
+        "texto": "Organize mais de um salão na mesma unidade. Acompanhe datas, horários, intervalos e ocupação de cada espaço conforme a configuração da agenda.",
         "itens": [
-            "Vários salões ou espaços na mesma agenda",
+            "Vários salões da mesma unidade, com ocupação por espaço",
             "Bloqueio e liberação de datas",
-            "Aniversariantes e histórico de cada cliente"
+            "Horários e intervalo mínimo entre festas"
         ],
         "nome": "Agenda",
         "recursos": [
@@ -44,27 +44,26 @@ export const abas: Record<AbaId, ConteudoAba> = {
         ]
     },
     "financeiro": {
-        "titulo": "Cada parcela no Pix ou no cartão.",
-        "texto": "As parcelas do contrato viram contas a receber. O cliente paga por Pix copia e cola ou cartão, e o dinheiro vai direto para a conta da sua empresa.",
+        "titulo": "Recebimentos, despesas e caixa no mesmo lugar.",
+        "texto": "Acompanhe parcelas, vencimentos e atrasos. Nos planos com financeiro completo, organize também despesas, fluxo de caixa e relatórios. O dinheiro das festas vai direto para a conta do buffet.",
         "itens": [
-            "Contas a receber e a pagar",
-            "Pix copia e cola e cartão em cada parcela",
+            "Contas a receber; contas a pagar no financeiro completo",
+            "Pix copia e cola, recebimentos e saldos",
             "Fechamento financeiro por festa"
         ],
         "nome": "Financeiro",
         "recursos": [
             "financeiro",
-            "pix",
-            "cartao"
+            "pix"
         ]
     },
     "ia": {
-        "titulo": "Mande o PDF. A IA monta os pacotes.",
-        "texto": "Envie a sua tabela de preços e os seus contratos antigos em PDF. A IA encontra pacotes, grades de horário e adicionais e deixa tudo pronto para você revisar antes de publicar.",
+        "titulo": "Seus documentos, prontos para revisão.",
+        "texto": "Importe o modelo jurídico de contrato, os documentos das festas já fechadas e a tabela de preços em PDF. Confira os dados extraídos antes de aplicar ao sistema.",
         "itens": [
-            "Leitura da tabela de preços em PDF",
-            "Importação de contratos antigos",
-            "Nada é publicado sem a sua revisão"
+            "Modelo jurídico com cláusulas e campos automáticos",
+            "Festas já fechadas: revisão de agenda e pagamentos",
+            "Tabela de preços: pacotes, horários e adicionais"
         ],
         "nome": "Importação por IA",
         "recursos": [
@@ -73,7 +72,7 @@ export const abas: Record<AbaId, ConteudoAba> = {
         ]
     },
     "copiloto": {
-        "titulo": "Pergunte ao Kidmais. Ele mostra o que precisa de você.",
+        "titulo": "Pergunte ao iA.Fest. Ele mostra o que precisa de você.",
         "texto": "O copiloto lê os dados que você já tem permissão para ver e aponta o que pede atenção, com o link para resolver. Quando você pede um cadastro, ele prepara o rascunho e abre o formulário preenchido. Nada é gravado sem a sua confirmação.",
         "itens": [
             "Contratos parados, festas com pendência e parcelas atrasadas",

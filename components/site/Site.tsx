@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import Image from 'next/image';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { configuracaoSite, ROTA_SITE, type ConfiguracaoSite } from '@/lib/site/configuracao';
 import { comercial } from '@/lib/site/catalogo';
@@ -10,10 +11,10 @@ import Abas from './Abas';
 import FundoFesta from './FundoFesta';
 import Planos from './Planos';
 import { TelaIlustrativa } from './telas';
-import { AntesDepois, ComoFunciona, Confianca, Convite, Diferenciais, Duvidas, Hero, WallE } from './secoes';
+import { AgendaSaloes, AntesDepois, ComoFunciona, Confianca, Convite, Diferenciais, Duvidas, FinanceiroDetalhes, Hero, ImportacaoDocumentos, Marketing, WallE } from './secoes';
 
 function Marca({ href }: { href: string }) {
-    return <a className={cx('brand')} href={href} aria-label="Kidmais Manager, início"><span className={cx('mark')}>+</span><span>kidmais<small>MANAGER</small></span></a>;
+    return <a className={cx('brand')} href={href} aria-label="iA.Fest, início"><Image src="/site/iafest/simbolo.svg" alt="" aria-hidden="true" width={42} height={48} className={cx('brandSymbol')} unoptimized /><Image src="/site/iafest/logotipo.png" alt="iA.Fest" width={280} height={79} className={cx('brandLogo')} unoptimized /></a>;
 }
 function SecaoAnimada({ children }: { children: ReactNode }) {
     return <div className={cx('aberturaAnimada')} data-abertura-animada><FundoFesta />{children}</div>;
@@ -21,10 +22,10 @@ function SecaoAnimada({ children }: { children: ReactNode }) {
 export function Rodape({ config, prefixo = '' }: { config: ConfiguracaoSite; prefixo?: string }) {
     return <footer><div className={cx('wrap')}><div className={cx('foot')}>
         <div><Marca href={`${prefixo}#topo`} /><p style={{ marginTop: 14, maxWidth: '34ch' }}>Gestão para buffets infantis e espaços de festa.</p></div>
-        <div><h4>Produto</h4><ul><li><a href={`${prefixo}#diferenciais`}>Diferenciais</a></li><li><a href={`${prefixo}#wall-e`}>Wall-e</a></li><li><a href={`${prefixo}#convite`}>Convite</a></li><li><a href="#planos">Planos</a></li><li><a href="/admin/login">Entrar</a></li></ul></div>
+        <div><h4>Produto</h4><ul><li><a href={`${prefixo}#diferenciais`}>Diferenciais</a></li><li><a href={`${prefixo}#importacao`}>Importação</a></li><li><a href={`${prefixo}#financeiro`}>Financeiro</a></li><li><a href={`${prefixo}#saloes`}>Agenda por salão</a></li><li><a href={`${prefixo}#marketing`}>Marketing e site</a></li><li><a href={`${prefixo}#wall-e`}>Wall-e</a></li><li><a href={`${prefixo}#convite`}>Convite</a></li><li><a href="#planos">Planos</a></li><li><a href="/admin/login">Entrar</a></li></ul></div>
         <div><h4>Legal</h4><ul><li><a href="/termos">Termos de uso</a></li><li><a href="/privacidade">Privacidade</a></li><li><a href="/termos#cancelamento">Cancelamento</a></li><li><a href="/privacidade#tratamento-de-dados">Tratamento de dados</a></li></ul></div>
         <div><h4>Atendimento</h4><ul><li>E-mail: {config.emailHref ? <a href={config.emailHref}>{config.email}</a> : config.email}</li>{config.whatsapp !== 'a definir' && <li>WhatsApp: {config.whatsapp}</li>}{config.horario !== 'a definir' && <li>Horário: {config.horario}</li>}<li>Cancelamento pelos mesmos canais</li></ul></div>
-    </div><div className={cx('legal')}><span>Kidmais Manager é um produto de {config.razaoSocial} · CNPJ {config.cnpj} · {config.endereco} · {config.encarregado !== 'a definir' ? <>Encarregado de dados: {config.encarregado}</> : <>Privacidade e dados pessoais: {config.email}</>}</span><span>© {new Date().getFullYear()} Kidmais Manager</span></div></div></footer>;
+    </div><div className={cx('legal')}><span>iA.Fest é um produto de {config.razaoSocial} · CNPJ {config.cnpj} · {config.endereco} · {config.encarregado !== 'a definir' ? <>Encarregado de dados: {config.encarregado}</> : <>Privacidade e dados pessoais: {config.email}</>}</span><span>© {new Date().getFullYear()} iA.Fest</span></div></div></footer>;
 }
 export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: boolean }) {
     const config = configuracaoSite();
@@ -35,14 +36,14 @@ export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: b
         <a href="#topo" className={cx('btn', 'skip')}>Ir para o conteúdo</a>
         <div className={cx('founder-bar')}><div className={cx('wrap')}><span><strong>Plano Fundador:</strong> {comercial.fundador.descontoPercentual}% de desconto por {comercial.fundador.meses} meses para os {comercial.fundador.vagas} primeiros buffets.</span><a href="#fundador">Quero uma vaga →</a></div></div>
         <header className={cx('header')}><div className={cx('wrap')}><Marca href={`${prefixo}#topo`} /><nav className={cx('nav')} aria-label="Principal">
-            <a href={`${prefixo}#diferenciais`}>Diferenciais</a><a href={`${prefixo}#recursos`}>Recursos</a><a href={`${prefixo}#wall-e`}>Wall-e</a><a href={`${prefixo}#convite`}>Convite</a><a href="#planos">Planos</a><a href={`${prefixo}#duvidas`}>Dúvidas</a><a className={cx('login')} href="/admin/login">Entrar</a>
+            <a href={`${prefixo}#diferenciais`}>Diferenciais</a><a href={`${prefixo}#recursos`}>Recursos</a><a href={`${prefixo}#saloes`}>Agenda</a><a href={`${prefixo}#financeiro`}>Financeiro</a><a href={`${prefixo}#importacao`}>Importação</a><a href={`${prefixo}#marketing`}>Marketing</a><a href={`${prefixo}#wall-e`}>Wall-e</a><a href={`${prefixo}#convite`}>Convite</a><a href="#planos">Planos</a><a href={`${prefixo}#duvidas`}>Dúvidas</a><a className={cx('login')} href="/admin/login">Entrar</a>
             {aberto && <a className={cx('btn', 'btn-primary', 'btn-sm')} href="/cadastro">Testar grátis</a>}
         </nav></div></header>
         <main id="topo" data-planos={somentePlanos || undefined}>
-            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos Kidmais Manager</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Diferenciais /></SecaoAnimada><SecaoAnimada><Abas telas={telas} /></SecaoAnimada><SecaoAnimada><WallE /></SecaoAnimada><SecaoAnimada><Convite /></SecaoAnimada><SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
+            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos iA.Fest</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Diferenciais /></SecaoAnimada><SecaoAnimada><Abas telas={telas} /></SecaoAnimada><SecaoAnimada><ImportacaoDocumentos /></SecaoAnimada><SecaoAnimada><FinanceiroDetalhes /></SecaoAnimada><SecaoAnimada><AgendaSaloes /></SecaoAnimada><SecaoAnimada><Marketing /></SecaoAnimada><SecaoAnimada><WallE /></SecaoAnimada><SecaoAnimada><Convite /></SecaoAnimada><SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
             {somentePlanos ? <Planos publicado={config.precosPublicados} aberto={aberto} contato={config} /> : <SecaoAnimada><Planos publicado={config.precosPublicados} aberto={aberto} contato={config} /></SecaoAnimada>}
             {!somentePlanos && <><SecaoAnimada><Duvidas config={config} /></SecaoAnimada><SecaoAnimada><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} /></div></div>
-                <div className={cx('panel', 'contactPanel')}><h3>Conheça o Kidmais</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
+                <div className={cx('panel', 'contactPanel')}><h3>Conheça o iA.Fest</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
             </div></section></SecaoAnimada></>}
         </main>
         <Rodape config={config} prefixo={prefixo} /><Contato config={config} flutuante />

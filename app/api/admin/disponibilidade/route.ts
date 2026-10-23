@@ -22,9 +22,14 @@ import {
   AvailabilityServiceError,
   consultarDisponibilidadeData,
   consultarDisponibilidadePeriodo,
+  duracaoAceita,
+  duracaoDoPacoteDaEmpresa,
 } from "@/lib/disponibilidade/services";
+import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
+import { paginaPublica } from "@/lib/fechamentos/rota-publica";
+import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
@@ -64,14 +69,18 @@ const operacaoSchema = z.discriminatedUnion("tipo", [
   z.object({
     tipo: z.literal("agenda"),
     data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    horario: horarioSchema,
+    // Horário configurado (configuracao_agenda.id); `horario` é o legado almoco/noite (TURNO_1/TURNO_2).
+    configuracaoId: z.string().uuid().optional(),
+    horario: horarioSchema.optional(),
     status: z.enum(["bloqueado", "livre"]),
     motivo: z.string().trim().min(1).max(200).optional(),
   }),
   z.object({
     tipo: z.literal("criar_bloqueio"),
     data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    escopo: z.enum(["dia_inteiro", "turno_1", "turno_2", "personalizado"]),
+    // "horario": um horário configurado qualquer, pelo configuracaoId; turno_1/turno_2 seguem aceitos (legado).
+    escopo: z.enum(["dia_inteiro", "turno_1", "turno_2", "horario", "personalizado"]),
+    configuracaoId: z.string().uuid().optional(),
     horarioInicio: horaSchema.optional(),
     horarioFim: horaSchema.optional(),
     motivo: z.string().trim().min(1).max(200),
@@ -182,8 +191,29 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     configuracaoComercial,
     regrasPacotes,
     pacotes,
+    // "Ver tela do cliente": a dona continua no endereço atual; as demais, no endereço público delas (/b/<código>).
+    telaDoCliente: configuracaoComercial ? "/disponibilidade" : await telaDoClienteDaEmpresa(tx, empresaComprovada),
     bloqueios,
   };
+}
+
+/**
+ * Só oferece o endereço que abriria: a mesma decisão da página pública /b/<código> (escopoCotacaoPublica — chave
+ * COTACAO_PUBLICA_POR_EMPRESA, empresa ATIVA, Orçamento online no plano, situação comercial, unidade). Recusada,
+ * null (a tela explica em vez de levar a um 404). A consulta roda num savepoint para não abortar a transação.
+ */
+async function telaDoClienteDaEmpresa(tx: DbExecutor, empresaId: string) {
+  const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
+  if (!codigo) return null;
+  await tx.query("SAVEPOINT kidmais_tela_do_cliente");
+  try {
+    const escopo = await escopoCotacaoPublica(() => tx, codigo);
+    await tx.query("RELEASE SAVEPOINT kidmais_tela_do_cliente");
+    return escopo.empresaId === empresaId ? paginaPublica("/disponibilidade", codigo) : null;
+  } catch {
+    await tx.query("ROLLBACK TO SAVEPOINT kidmais_tela_do_cliente");
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -193,13 +223,19 @@ export async function GET(request: NextRequest) {
     const data = q.get("data");
     const inicio = q.get("inicio");
     const fim = q.get("fim");
+    // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas. Parecer do Astra (P2): com
+    // `?pacote=` (id da tela), a do pacote vigente da empresa comprovada, lida no servidor.
     const resposta = await withTenantTransaction(sessao, q.get("empresaId"), async (tx, tenant) => {
       const escopo = await escopoDoPedido(tx, tenant.empresaComprovada, q.get("unidadeId"));
+      // Id da tela → código, como no fechamento administrativo: dona da agenda pública = ids V1; demais = código próprio.
+      const pacoteDaTela = q.get("pacote");
+      const pacoteCodigo = pacoteDaTela ? codigoDoPacoteDaTela(pacoteDaTela, !(await ehDonaDaConfigLegada(tx, tenant.empresaComprovada))) ?? undefined : undefined;
+      const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo) };
       // Horários calculados do recurso (substitui, no painel, a API pública sem tenant).
       const dias = data
-        ? [await consultarDisponibilidadeData(dataSchema.parse(data), tx, undefined, escopo)]
+        ? [await consultarDisponibilidadeData(dataSchema.parse(data), tx, undefined, escopo, opcoes)]
         : inicio && fim
-          ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo)
+          ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo, opcoes)
           : null;
       return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
@@ -238,11 +274,15 @@ export async function POST(request: NextRequest) {
 
       if (op.tipo === "agenda") {
         const configs = await listarConfiguracoesAgendaAtivas(tx, escopo);
-        const config = configs.find((item) =>
-          op.horario === "almoco"
-            ? item.codigo === "TURNO_1" || item.ordemExibicao === 1
-            : item.codigo === "TURNO_2" || item.ordemExibicao === 2,
-        );
+        const config = op.configuracaoId
+          ? configs.find((item) => item.id === op.configuracaoId)
+          : op.horario
+            ? configs.find((item) =>
+                op.horario === "almoco"
+                  ? item.codigo === "TURNO_1" || item.ordemExibicao === 1
+                  : item.codigo === "TURNO_2" || item.ordemExibicao === 2,
+              )
+            : undefined;
 
         if (!config) {
           return NextResponse.json(
@@ -327,9 +367,11 @@ export async function POST(request: NextRequest) {
           const configs = await listarConfiguracoesAgendaAtivas(tx, escopo);
           const codigo = op.escopo === "turno_1" ? "TURNO_1" : "TURNO_2";
           const ordem = op.escopo === "turno_1" ? 1 : 2;
-          const config = configs.find(
-            (item) => item.codigo === codigo || item.ordemExibicao === ordem,
-          );
+          const config = op.escopo === "horario"
+            ? (op.configuracaoId ? configs.find((item) => item.id === op.configuracaoId) : undefined)
+            : configs.find(
+                (item) => item.codigo === codigo || item.ordemExibicao === ordem,
+              );
 
           if (!config) {
             return NextResponse.json(

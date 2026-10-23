@@ -28,6 +28,9 @@ export function fixture(root, env, smokeId) {
     else if (q.startsWith('SELECT public.kidmais019_formalizacao')) { state.calls.push('formalization-validation'); rows = [{ valida: state.signatures.length === 2 && state.version.status === 'ASSINADA' }]; }
     else if (q.startsWith('SELECT id,invalidada_em FROM public.festas')) rows = state.parties;
     else if (q.startsWith('SELECT public.kidmais019_bloquear_contrato') || q.startsWith('SELECT public.kidmais019_validar_destino')) rows = [];
+    // 094 (salão da festa na formalização): a festa do contrato e a função da 094 ausente (schema do smoke = antes da 094).
+    else if (q.startsWith('SELECT fechamento_id::text AS fechamento_id FROM contratos')) rows = [{ fechamento_id: 'fechamento' }];
+    else if (q.startsWith("SELECT to_regprocedure('public.kidmais094_conflito_ocupacao")) rows = [{ ok: false }];
     else if (q.startsWith('SELECT id,parte FROM public.contrato_assinaturas')) rows = state.signatures;
     else if (q.startsWith('INSERT INTO public.festas')) { state.calls.push('automatic-party'); state.parties.push({ id: 'party', invalidada_em: null, origem: 'AUTOMATICA_FORMALIZACAO' }); rows = [{ id: 'party' }]; }
     else if (q.startsWith('INSERT INTO public.festa_eventos')) state.events.push('FESTA_CRIADA');

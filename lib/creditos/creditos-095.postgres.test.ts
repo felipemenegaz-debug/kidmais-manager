@@ -26,7 +26,7 @@ import { liquidarChamada, reservarChamada } from "./walle.ts";
 import { proporcionalCentavos as proporcional, referenciaExterna } from "./dominio.ts";
 
 /**
- * 095 — créditos de IA no PostgreSQL DESCARTÁVEL sobre o modelo 089 (inventário inteiro até a 089; a 095 é aplicada aqui).
+ * 095 — créditos de IA no PostgreSQL DESCARTÁVEL sobre o modelo 094 (inventário inteiro até a 094 do staging; a 095 é aplicada aqui).
  * Asaas e IA são DUBLÊS em memória (nenhuma rede); dados sintéticos. Só pelo check:v1:postgres com o opt-in do descartável.
  *   1. sem a 095: código novo tolera o schema antigo (instalado=false, compra 503, exportação com tabelas ausentes);
  *   2. precheck, aplicação, postcheck, reaplicação recusada, rollback vazio e reaplicação;
@@ -184,7 +184,7 @@ async function recusa(c: Client, fn: () => Promise<unknown>, motivo: RegExp) {
   await c.query("ROLLBACK TO SAVEPOINT recusa");
 }
 
-// Estado compartilhado entre os passos da suíte (um banco de trabalho restaurado do modelo 089 por execução).
+// Estado compartilhado entre os passos da suíte (um banco de trabalho restaurado do modelo 094 por execução).
 const S = {} as { A: string; B: string; C: string; D: string; uA: string; uB: string; uC: string; uD: string; fotoB: string; pedidoC: string; protocoloC: string;
   conviteA: Awaited<ReturnType<typeof festa>>; conviteD: Awaited<ReturnType<typeof festa>> };
 

@@ -57,7 +57,7 @@ export function hojeIsoLocal() {
 export function regraPadraoPacote(
   pacote: PacoteId,
   dataIso: string,
-  horario: HorarioBase
+  horario: HorarioBase | ""
 ): StatusCalendario {
   const dia = diaSemanaUTC(dataIso); // 0 dom, 1 seg ... 6 sáb
 
@@ -102,10 +102,13 @@ export function regraPadraoPacote(
 /**
  * Regra semanal configurada pela PRÓPRIA empresa para o pacote (regras_disponibilidade_pacote):
  * dia ISO (1 = segunda … 7 = domingo), período e vigência. Mesma fonte que o servidor usa na cotação.
+ * `configuracaoId` identifica o horário configurado (qualquer quantidade); `horario` é o legado almoco/noite,
+ * "" para horários que não são TURNO_1/TURNO_2.
  */
 export type RegraPacoteEmpresa = {
   dia: number;
-  horario: HorarioBase;
+  horario: HorarioBase | "";
+  configuracaoId?: string;
   estado: "DISPONIVEL" | "INDISPONIVEL" | "SOB_CONSULTA";
   vigenciaInicio: string;
   vigenciaFim: string | null;
@@ -118,14 +121,20 @@ export type RegraPacoteEmpresa = {
 export function regraDaEmpresa(
   regras: readonly RegraPacoteEmpresa[],
   dataIso: string,
-  horario: HorarioBase
+  horario: HorarioBase | "",
+  configuracaoId?: string
 ): StatusCalendario {
   const dia = diaSemanaUTC(dataIso) || 7;
+  // Com o horário configurado, casa pelo id; regra sem id (legado) só casa pelo almoco/noite.
+  const mesmoHorario = (regra: RegraPacoteEmpresa) =>
+    configuracaoId && regra.configuracaoId
+      ? regra.configuracaoId === configuracaoId
+      : !!horario && regra.horario === horario;
   const vigente = regras
     .filter(
       (regra) =>
         regra.dia === dia &&
-        regra.horario === horario &&
+        mesmoHorario(regra) &&
         regra.vigenciaInicio <= dataIso &&
         (regra.vigenciaFim === null || regra.vigenciaFim >= dataIso)
     )
@@ -144,8 +153,10 @@ export function statusDataPacote(
   config: DisponibilidadeConfig,
   pacote: PacoteId,
   dataIso: string,
-  horario: HorarioBase,
-  regrasDaEmpresa?: readonly RegraPacoteEmpresa[] | null
+  horario: HorarioBase | "",
+  regrasDaEmpresa?: readonly RegraPacoteEmpresa[] | null,
+  /** Horário configurado (configuracao_agenda.id): quando presente, as regras da empresa casam por ele. */
+  configuracaoId?: string
 ): {
   status: StatusCalendario;
   origem: "agenda" | "override" | "regra";
@@ -193,7 +204,7 @@ export function statusDataPacote(
 
   // 3º prioridade (empresa): a configuração dela para o pacote.
   if (regrasDaEmpresa) {
-    const daEmpresa = regraDaEmpresa(regrasDaEmpresa, dataIso, horario);
+    const daEmpresa = regraDaEmpresa(regrasDaEmpresa, dataIso, horario, configuracaoId);
     if (daEmpresa === "indisponivel")
       return { status: daEmpresa, origem: "regra", motivo: "Este pacote não está disponível neste dia e período, conforme a configuração do buffet." };
     if (daEmpresa === "consulta")

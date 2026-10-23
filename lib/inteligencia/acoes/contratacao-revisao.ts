@@ -1,7 +1,7 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { HumanGateDraft } from "../contratos.ts";
 import { InteligenciaError } from "../politica.ts";
-import { CAPACIDADE_CONTRATACAO, CODIGO_BANCO, payloadContratacaoSchema, type PayloadContratacao, type PortaContratacao } from "./contratacao.ts";
+import { CAPACIDADE_CONTRATACAO, codigoBancoDoPacote, payloadContratacaoSchema, type PayloadContratacao, type PortaContratacao } from "./contratacao.ts";
 import { hashPayload } from "./hash.ts";
 import type { RepositorioOperacoes } from "./tipos.ts";
 
@@ -70,7 +70,8 @@ export async function lerPreparacao(repositorio: RepositorioOperacoes, tx: DbExe
 }
 
 export type ResultadoCriacao = { fechamentoId: string; status: string; clienteId: string };
-export type EntradaFormulario = { pacote: string; convidadosPagantes: number; dataFesta: string; horarioBase: string };
+/** 2c-2: configuracaoId identifica o horário quando ele não é TURNO_1/TURNO_2 (horarioBase vazio). */
+export type EntradaFormulario = { pacote: string; convidadosPagantes: number; dataFesta: string; horarioBase: string; configuracaoId?: string };
 
 export type VinculoPreparacao = {
   validar(tx: DbExecutor, ctx: { empresaId: string; usuarioId: string; clienteId: string; input: EntradaFormulario }): Promise<{ repetido: ResultadoCriacao | null }>;
@@ -120,10 +121,14 @@ export function criarVinculo(
       }
       if (draft.estado !== "AGUARDANDO_CONFIRMACAO") throw new InteligenciaError("PREPARACAO_ENCERRADA", "Esta preparação foi encerrada. Envie sem ela ou peça uma nova ao Kidmais.", 409);
       if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) throw new InteligenciaError("PREPARACAO_EXPIRADA", "A preparação expirou. Envie sem ela ou peça uma nova ao Kidmais.", 409);
-      const mesmo = ctx.input.pacote === payload.pacote && ctx.input.convidadosPagantes === payload.convidados && ctx.input.dataFesta === payload.data && ctx.input.horarioBase === payload.turno;
+      const mesmosDados = ctx.input.pacote === payload.pacote && ctx.input.convidadosPagantes === payload.convidados && ctx.input.dataFesta === payload.data;
+      // O horário do envio é o da preparação: o mesmo almoço/noite ou o mesmo horário resolvido pela agenda da empresa.
+      const agenda = mesmosDados ? await porta.horarios(tx, ctx.empresaId, payload.data, payload.turno, codigoBancoDoPacote(payload.pacote) ?? undefined) : null;
+      const mesmo = mesmosDados && (ctx.input.horarioBase === payload.turno
+        || (Boolean(ctx.input.configuracaoId) && agenda?.configuracaoId === ctx.input.configuracaoId));
       if (mesmo && payload.precoTabelaCentavos !== null) {
-        const pacote = await porta.pacote(tx, ctx.empresaId, CODIGO_BANCO[payload.pacote]);
-        const agenda = await porta.horarios(tx, ctx.empresaId, payload.data, payload.turno);
+        // Id da tela conferido em `verificar`: id V1 (dona) ou o código do pacote da empresa.
+        const pacote = await porta.pacote(tx, ctx.empresaId, codigoBancoDoPacote(payload.pacote) ?? "");
         const atual = pacote && agenda ? await porta.precoTabela(tx, ctx.empresaId, { data: payload.data, configuracaoAgendaId: agenda.configuracaoId, pacoteId: pacote.id, convidados: payload.convidados }) : null;
         if (atual !== payload.precoTabelaCentavos) {
           throw new InteligenciaError("PREPARACAO_PRECO_ALTERADO", "O valor de tabela mudou desde a preparação. Confira o valor e envie sem a preparação, ou peça uma nova ao Kidmais.", 409);

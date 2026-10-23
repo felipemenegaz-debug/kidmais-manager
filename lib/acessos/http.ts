@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { ZodError } from 'zod';
 import { isClienteServiceError } from '../clientes/services/errors.ts';
 import { isAcessoServiceError, tabelaAusente } from './erros.ts';
-import { origemConfiavel } from '../http/origem-cliente.ts';
+import { ambienteDaOrigem, origemConfiavel } from '../http/origem-cliente.ts';
 
 /**
  * HTTP comum dos fluxos de acesso (painel do desenvolvedor, perfil, convite e recuperação).
@@ -14,11 +14,12 @@ export function responder(data: unknown, status = 200) {
 }
 
 /**
- * IP do cliente para limites e auditoria. Em deploy reconhecido (Render), o proxy ACRESCENTA o IP real ao fim do
- * X-Forwarded-For; o começo da lista pode vir do próprio cliente, então só o último valor é confiável — e só quando
- * é um endereço público (lib/http/origem-cliente.ts). Fora do deploy (local) não há proxy confiável: null.
+ * IP do cliente para limites e auditoria. No Render com a borda confirmada (ORIGEM_CLIENTE_BORDA), o penúltimo valor
+ * do X-Forwarded-For (o último é um salto da infraestrutura; o começo da lista pode vir do próprio cliente), público e
+ * conferido com CF-Connecting-IP (lib/http/origem-cliente.ts). Fora disso, em divergência ou formato inesperado: null.
+ * Quem recebe null limita pelo fluxo/identificador (lib/acessos/limite-origem.ts), nunca por uma chave global de IP.
  */
-export function ipDaRequisicao(request: { headers: { get(nome: string): string | null } }, env: { RENDER?: string } = { RENDER: process.env.RENDER }) {
+export function ipDaRequisicao(request: { headers: { get(nome: string): string | null } }, env: { RENDER?: string; ORIGEM_CLIENTE_BORDA?: string } = ambienteDaOrigem()) {
     return origemConfiavel(request, env);
 }
 

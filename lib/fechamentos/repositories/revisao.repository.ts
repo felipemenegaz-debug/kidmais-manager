@@ -2,6 +2,7 @@ import {escolhasDisponiveis,colunasEscolhas} from './escolhas-buffet';
 import { fotografarEstadoFechamento } from '../services/pacote-snapshot';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
+import { aplicarSalaoDaRevisao } from '../../agenda/salao-festa';
 import type { FechamentoRecord, FechamentoAdicionalRecord } from './models';
 export const camposOperacao = ['cliente_id', 'responsavel_adicional_id', 'aniversariante_id', 'idade_aniversariante_evento', 'tema_festa', 'data_evento', 'horario_inicio', 'horario_fim', 'configuracao_agenda_id', 'pacote_id', 'tabela_preco_id', 'preco_pacote_id', 'regra_desconto_pacote_id', 'categoria_horario', 'categoria_preco_aplicada', 'convidados', 'convidados_faturados', 'valor_pacote_base', 'desconto_percentual', 'valor_desconto_pacote', 'valor_pacote_aplicado', 'valor_adicionais', 'valor_tabela', 'valor_negociado', 'valor_aprovado', 'motivo_negociacao', 'observacoes_negociacao', 'forma_pagamento_pretendida', 'condicao_pagamento', 'alteracoes_pacote', 'observacoes_cliente', 'observacoes_equipe', 'usuario_responsavel_id', 'buffet_status', 'buffet_salgados', 'buffet_bebidas', 'buffet_doces', 'buffet_bolo', 'buffet_outros', 'buffet_lembrancinha', 'buffet_empratado', 'buffet_bombom'] as const;
 const camposItens = ['adicional_id', 'preco_adicional_id', 'nome_aplicado', 'unidade_cobranca_aplicada', 'quantidade', 'valor_unitario_aplicado', 'valor_total', 'observacoes'] as const;
@@ -83,6 +84,8 @@ export async function aplicarOperacaoPreparada(tx: DbExecutor, r: RevisaoOperaci
     await tx.query(`UPDATE fechamentos f SET ${camposOperacao.map(k => `${k}=r.${k}`).join(',')} FROM fechamento_revisoes r WHERE r.id=$1 AND f.id=r.fechamento_id`, [r.id]);
     await tx.query('DELETE FROM fechamento_adicionais WHERE fechamento_id=$1', [r.fechamento_id]);
     await tx.query(`INSERT INTO fechamento_adicionais(fechamento_id,${camposItens.join(',')}) SELECT $2,${camposItens.join(',')} FROM fechamento_revisao_adicionais WHERE fechamento_revisao_id=$1`, [r.id, r.fechamento_id]);
+    // 094: a festa passa ao salão escolhido para o destino no hold (parecer do Astra, P1).
+    await aplicarSalaoDaRevisao(tx, r.id);
     await tx.query("UPDATE fechamento_revisoes SET estado='APLICADA',aplicado_em=clock_timestamp() WHERE id=$1", [r.id]);
     const fotografia = await fotografarEstadoFechamento(tx, r.fechamento_id, { motivo: r.motivo, atorUsuarioId });
     return fotografia?.id ?? null;

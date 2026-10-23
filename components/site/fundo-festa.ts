@@ -10,7 +10,8 @@ const formas = {
  hat:'M50 4 L89 88 Q50 105 11 88 Z M46 1 A5 5 0 1 0 56 1 A5 5 0 1 0 46 1 Z',
  gift:'M13 41 L87 41 L87 94 L13 94 Z M7 29 L93 29 L93 43 L7 43 Z M46 29 C-4 29 14 -4 37 14 L50 28 L63 14 C86 -4 104 29 54 29 Z'
 } as const;
-const itens: [keyof typeof formas, number, number, number][] = [
+type NomeForma = keyof typeof formas;
+const itens: [NomeForma, number, number, number][] = [
     ['balloon', .60, .12, 65], ['heart', .92, .26, 50], ['rocket', .88, .72, 66],
     ['star', .12, .56, 40], ['cake', .68, .91, 56], ['gift', .43, .78, 49],
 ];
@@ -89,13 +90,14 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     if (!shader) gradiente.style.visibility = 'hidden';
     const perderContexto = () => { shader?.liberar(); shader = null; gradiente.style.visibility = 'hidden'; gradiente.dataset.renderer = 'fallback'; };
     gradiente.addEventListener('webglcontextlost', perderContexto);
+    type Ponto = { x: number; y: number; n: number };
     const mascaras = Object.fromEntries(Object.entries(formas).map(([nome, fonte]) => {
         const path = new Path2D(fonte), pontos: { x: number; y: number; n: number }[] = [];
         for (let y = 0; y < 104; y += 6.3) for (let x = 0; x < 100; x += 5)
             if (ctx.isPointInPath(path, x, y)) pontos.push({ x: x - 50, y: y - 50, n: pontos.length });
         return [nome, pontos];
-    }));
-    let lugares: (Posicao & { nome: keyof typeof formas; tamanho: number; indice: number })[] = [];
+    })) as Record<NomeForma, Ponto[]>;
+    let lugares: (Posicao & { nome: NomeForma; tamanho: number; indice: number })[] = [];
     let gotas: { x: number; y: number; inicio: number }[] = [];
     function distribuir() {
         const base = raiz.getBoundingClientRect();

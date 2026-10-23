@@ -18,6 +18,7 @@ import LogoEmpresa from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
+import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
@@ -207,7 +208,7 @@ export default function AdminShell({ children, vitrine }: {
                 <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
+        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário). */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section><ExportacaoEmpresasSuspensas /></main>)
             : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>

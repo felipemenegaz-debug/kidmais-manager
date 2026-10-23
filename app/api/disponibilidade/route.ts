@@ -4,6 +4,7 @@ import path from "path";
 import {
   consultarDisponibilidadeData,
   consultarDisponibilidadePeriodo,
+  duracaoAceita,
   isAvailabilityServiceError,
 } from "@/lib/disponibilidade/services";
 import { escopoPublico } from "@/lib/disponibilidade/escopo";
@@ -64,13 +65,15 @@ async function lerComercialPublico() {
 }
 
 export async function GET(request: NextRequest) {
-  const limite = limitarPublico(request, "LEITURA");
+  const limite = await limitarPublico(request, "LEITURA");
   if (limite) return limite;
   try {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get("data")?.trim();
     const inicio = searchParams.get("inicio")?.trim();
     const fim = searchParams.get("fim")?.trim();
+    // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas.
+    const opcoes = { duracaoMinutos: duracaoAceita(searchParams.get("duracao")) };
     // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
     const codigo = codigoEmpresaDoPedido(request.nextUrl);
     const escopo = codigo === null
@@ -79,9 +82,9 @@ export async function GET(request: NextRequest) {
 
     const [resultado, comercial] = await Promise.all([
       data
-        ? consultarDisponibilidadeData(data, undefined, undefined, escopo)
+        ? consultarDisponibilidadeData(data, undefined, undefined, escopo, opcoes)
         : inicio && fim
-          ? consultarDisponibilidadePeriodo(inicio, fim, undefined, undefined, escopo)
+          ? consultarDisponibilidadePeriodo(inicio, fim, undefined, undefined, escopo, opcoes)
           : Promise.reject(
               new Error(
                 "Informe data=YYYY-MM-DD ou inicio=YYYY-MM-DD&fim=YYYY-MM-DD.",
