@@ -219,6 +219,31 @@
     "estorno_concluido_em",
     "email_situacao"
   ],
+  "assinatura_arrependimentos": [
+    "id",
+    "protocolo",
+    "empresa_id",
+    "canal",
+    "solicitado_por",
+    "solicitado_em",
+    "motivo",
+    "situacao_assinatura",
+    "contratado_em",
+    "dentro_de_7_dias",
+    "provedor_disponivel",
+    "provedor_assinatura_id",
+    "intermediador_comunicado_em",
+    "intermediador_referencia",
+    "situacao",
+    "concluido_em",
+    "conclusao_referencia",
+    "valor_restituido_centavos",
+    "restituicao_limite",
+    "restituicao_assinatura_id",
+    "restituicao_cobranca_ids",
+    "email_confirmacao",
+    "email_conclusao"
+  ],
   "usuarios_administrativos": [
     "id",
     "email",
@@ -1304,7 +1329,9 @@
     "capacidade_convidados",
     "ordem",
     "ativo",
-    "criado_em"
+    "criado_em",
+    "combinado",
+    "membros"
   ],
   "configuracao_agenda_saloes": [
     "configuracao_agenda_id",

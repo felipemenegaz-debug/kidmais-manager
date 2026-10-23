@@ -2,6 +2,7 @@
 import { adminFetch } from "@/lib/http/admin-fetch";
 
 import { useEffect, useMemo, useState } from "react";
+import { SaloesDoDia } from "./SaloesDoDia";
 import { PACOTES } from "@/components/fechamento/data";
 import { HorarioBase, PacoteId } from "@/components/fechamento/types";
 import { horarioLegadoDoCodigo, rotuloPeriodo } from "@/components/fechamento/periodos";
@@ -740,6 +741,11 @@ export default function AdminDisponibilidade() {
                       </div>
                     </div>
                   )}
+
+                  <SaloesDoDia data={selecionada} unidadeId={unidadeId} classes={{
+                    painel: styles.candidatePanel, lista: styles.candidateList,
+                    livre: styles.candidateAvailable, ocupado: styles.candidateUnavailable,
+                  }} />
 
                   {bloqueiosSelecionados.length > 0 && (
                     <div className={styles.blockList}>

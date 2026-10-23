@@ -94,6 +94,10 @@ const MODELOS = {
   "094": { banco: "kidmais_v1_modelo_094", ate: "094", sem: [] },
   // Créditos de IA (095, 22/10/2026): inventário inteiro até a 095 (inclui 092–094); exportação verificável no 095.
   "095": { banco: "kidmais_v1_modelo_095", ate: "095", sem: [] },
+  // Salões fase 1 (23/10/2026): inventário inteiro ANTES da 098 (inclui 090, 091 e 095–097), base da suíte da 098.
+  "097": { banco: "kidmais_v1_modelo_097", ate: "097", sem: [] },
+  // Salão combinado (fase 1 dos salões, 23/10/2026): inventário inteiro até a 098.
+  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as utils from './horario.utils.ts';
+import * as conjuntos from '../../agenda/saloes-conjuntos.ts';
 import { EMPRESA, transpilar } from './duracao-pacote-livre.test-apoio.ts';
 
 /**
@@ -32,6 +33,7 @@ const m = transpilar('lib/disponibilidade/services/availability.service.ts', {
     '../repositories/disponibilidade.repository.ts': {},
     './errors.ts': erros,
     './horario.utils.ts': utils,
+    '../../agenda/saloes-conjuntos.ts': conjuntos,
 }) as unknown as { saloesDoPacoteDaEmpresa: (tx: unknown, e: string | null, c?: string) => Promise<string[] | null> };
 
 test('sem a 093: null, sem citar pacote_saloes; a transação continua utilizável (antes: 42P01 + 25P02)', async () => {

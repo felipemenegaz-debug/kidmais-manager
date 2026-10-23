@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as utils from './horario.utils.ts';
 import * as erros from './errors.ts';
+import * as conjuntos from '../../agenda/saloes-conjuntos.ts';
 
 /** Apoio dos testes de duração do pacote no horário livre: serviço real de disponibilidade com repositórios simulados. */
 export const EMPRESA = '00000000-0000-4000-8000-0000000000e1';
@@ -43,6 +44,7 @@ export function servico(modo: 'LIVRE' | 'FIXO', pacoteDuracao: number | null, bl
     },
     './errors.ts': erros,
     './horario.utils.ts': utils,
+    '../../agenda/saloes-conjuntos.ts': conjuntos,
   }) as unknown as {
     consultarDisponibilidadeData: (d: string, tx: unknown, ex?: string, esc?: unknown, op?: unknown) => Promise<{ periodos: Array<{ configuracaoId: string; horarios: Array<{ inicio: string; fim: string; ajusteMinutos: number; status: string }> }> }>;
     revalidarHorarioSelecionado: (i: unknown, tx: unknown, esc?: unknown) => Promise<{ candidato: { inicio: string; fim: string } }>;

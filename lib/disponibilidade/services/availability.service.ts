@@ -9,6 +9,7 @@ import {
 import type { BloqueioAgendaRecord, ConfiguracaoAgendaRecord, OcupacaoConfirmadaRecord, RegraCapacidadeAgenda } from "../repositories/models.ts";
 import { lerRegraCapacidadeAgenda } from "../repositories/disponibilidade.repository.ts";
 import { AvailabilityServiceError } from "./errors.ts";
+import { saloesCruzam } from "../../agenda/saloes-conjuntos.ts";
 import {
   adicionarDiasIso,
   bloqueioConflitaComCandidato,
@@ -268,6 +269,9 @@ const minutosDe = (hora: string) => {
  * 094: mesma regra de kidmais094_conflito_ocupacao para um candidato do horário `configId`: limite do dia; por salão,
  * algum salão do horário livre (com o intervalo); por horário, sem sobreposição com outro horário e abaixo da
  * capacidade no mesmo horário (com o intervalo). Sem regra: qualquer sobreposição ocupa (como antes).
+ * 098: por salão, a ocupação impede o candidato quando os CONJUNTOS de salões se cruzam (kidmais098_saloes_cruzam):
+ * A ocupado não impede B, mas impede o combinado AB; AB ocupado impede A, B e BC. Origem e destino de um hold são
+ * ocupações separadas (não se consolida por festa). Sem salão candidato elegível, o horário é indisponível.
  */
 export function ocupacaoImpedeCandidato(
   regra: RegraCapacidadeAgenda | null,
@@ -282,12 +286,14 @@ export function ocupacaoImpedeCandidato(
   if (regra.limiteFestasDia != null && new Set(ocupacoes.map((o) => o.fechamentoId)).size >= regra.limiteFestasDia) return true;
   const folga = regra.intervaloMinimoMinutos;
   if (regra.capacidadeTipo === "POR_SALAO") {
-    const doHorario = regra.saloesPorHorario[configId]?.length ? regra.saloesPorHorario[configId]! : regra.saloesDoEscopo;
+    const listados = regra.saloesPorHorario[configId]?.length ? regra.saloesPorHorario[configId]! : regra.saloesDoEscopo;
+    // 098: como em salao-festa.ts, só salões elegíveis são candidatos (permissão por identidade: A e B não liberam AB).
+    const doHorario = regra.conjuntos ? listados.filter((s) => regra.saloesDoEscopo.includes(s)) : listados;
     // Horário × pacote: sem salão em comum, a festa não tem onde acontecer (parecer do Astra, P1).
     const saloes = saloesDoPacote?.length ? doHorario.filter((s) => saloesDoPacote.includes(s)) : doHorario;
     if (saloesDoPacote?.length && saloes.length === 0) return true;
-    if (saloes.length === 0) return ocupacoes.some((o) => sobrepoe(o, folga));
-    return !saloes.some((salao) => !ocupacoes.some((o) => (o.salaoId == null || o.salaoId === salao) && sobrepoe(o, folga)));
+    if (saloes.length === 0) return regra.conjuntos ? true : ocupacoes.some((o) => sobrepoe(o, folga));
+    return !saloes.some((salao) => !ocupacoes.some((o) => saloesCruzam(o.salaoId, salao, regra.conjuntos) && sobrepoe(o, folga)));
   }
   if (ocupacoes.some((o) => (o.configuracaoAgendaId ?? null) !== configId && sobrepoe(o, 0))) return true;
   const capacidade = regra.capacidadePorHorario[configId] ?? 1;
