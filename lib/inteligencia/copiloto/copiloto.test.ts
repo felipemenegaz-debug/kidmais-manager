@@ -51,6 +51,17 @@ test("Copiloto por tela: as perguntas do produto chegam à leitura certa (ou ped
   for (const [texto, contexto, esperado] of casos) assert.equal(alvo(texto, contexto), esperado, `${texto} @ ${contexto?.tela ?? "-"}`);
 });
 
+test("navegação (parecer do Astra, 23/10): importar documentos ≠ publicar o PDF de pacotes ≠ importar contrato antigo", () => {
+  const tema = (texto: string) => (interpretarDeterministico(texto, null) as { parametros?: { tema?: string } }).parametros?.tema;
+  for (const t of ["Onde importo a tabela de preços?", "Como importo o modelo de contrato?", "Onde eu importo documentos?", "Onde fica o modelo de contrato?"]) {
+    assert.equal(tema(t), "importar_documentos", t);
+  }
+  for (const t of ["Onde publico o PDF de pacotes?", "Como publico a tabela de pacotes para as famílias?"]) assert.equal(tema(t), "pdf_pacotes", t);
+  assert.equal(tema("Como importo um contrato antigo?"), "importar_contrato");
+  assert.equal(TEMAS_NAVEGACAO.importar_documentos.destino, "/admin/configuracoes/importar-documentos");
+  assert.equal(TEMAS_NAVEGACAO.pdf_pacotes.destino, "/admin/configuracoes/tabela-pacotes");
+});
+
 test("navegação: todo destino aponta para uma tela que existe (menu do Admin ou rota em app/)", () => {
   const menu = readFileSync(join(raiz, "lib", "admin", "navegacao.ts"), "utf8");
   for (const [tema, alvo] of Object.entries(TEMAS_NAVEGACAO)) {

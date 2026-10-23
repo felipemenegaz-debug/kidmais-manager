@@ -7,7 +7,7 @@ import { usePermissoesAdmin } from './PermissoesAdmin';
 
 export type CartaoConfiguracao = { route: string; title: string; text: string; icon: AdminIconName };
 
-/** Só os cartões que a conta pode abrir (D7): os da empresa exigem Gestão; o PDF de Pacotes é da plataforma. */
+/** Só os cartões que a conta pode abrir (D7): os da empresa exigem Gestão; os da plataforma, a autoridade de plataforma. */
 export default function CartoesConfiguracoes({ cards }: { cards: CartaoConfiguracao[] }) {
   const permissoes = usePermissoesAdmin();
   const visiveis = cards.filter((card) => configuracaoVisivel('/admin/configuracoes/' + card.route, permissoes));
