@@ -1126,3 +1126,38 @@ Cluster 127.0.0.1:55607 (PG 18), recriado pelo script da tarefa e depois removid
   registro local é recusada: o caminho é recuperar o vínculo ou registrar a evidência antes.
 - A conferência no provedor ocorre na transação do painel, como na recuperação de vínculo.
 - Não foi executado o fluxo ponta a ponta pelo painel (HTTP).
+
+### Décima nona rodada: revisão de `f6b6fbb` — P2-N4 e P2-N5
+
+A revisão do Astra (`revisao-arrependimento-l1-f6b6fbb-20261023/RELATORIO.md`) confirmou N3-A e N3-B e reproduziu dois P2
+novos na resolução da assinatura. Correção no commit `46c6463`, sem reescrever commits.
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-N4: um evento de cobrança roteado para a empresa era aceito como prova de titularidade (o `empresa_id` do evento pode vir só da referência de roteamento) | `EVENTO` sai das evidências. As fontes locais ficam restritas a vínculos gravados **depois** da conferência de isolamento: assinatura atual, contratação **CONFIRMADA** (gravada pela sincronização da assinatura desta empresa, que confere referência externa e cliente) e pedido da 089 (cópia do vínculo da empresa). Sem elas, a leitura no provedor com a referência desta empresa. Indisponibilidade do provedor não faz o sistema aceitar evidência fraca: a conclusão é recusada. | caso 6c pela cadeia real `registrarEvento` → `processarEvento` → conclusão. Assinatura alheia, referência de roteamento desta empresa, um evento PROCESSADO e um FALHOU (leitura do provedor falha), os dois com `empresa_id` desta empresa. Sem provedor: CONFLITO. Com provedor: o provedor é consultado (contagem de chamadas sobe) e devolve CONFLITO, porque a referência é de outra empresa. As recusas não gravam. A assinatura antiga legítima é aceita como `PROVEDOR`. |
+| P2-N5: sem a tabela opcional da 089 (ou da 074a), a consulta das evidências falhava com 42P01 (o PostgreSQL resolve os nomes antes do `AND`) | A existência das tabelas opcionais é verificada numa consulta separada (`to_regclass` sobre a lista). Cada fonte só é consultada quando sua tabela existe, na ordem. | caso 6d: tabelas da 089 e da 074a renomeadas numa transação desfeita; ATUAL, sem prova e PROVEDOR respondem sem 42P01. **Controle físico novo**: `arrependimento-097-sem-089.postgres.test.ts`, sobre o **modelo 086** (068 e 074a, sem `assinatura_encerramentos`), aplica a 097 e cobre registro sem vínculo, evidência, conclusão com restituição, sincronização sem reabrir (`cobrancasDevolvidas` só com a 097), vigia e rollback recusado. A 089 continua ausente ao final. |
+
+**Validação:**
+Cluster 127.0.0.1:55607 (PG 18), recriado pelo script da tarefa e depois removido.
+- **Bateria PG completa** sobre `46c6463`: **116/116 arquivos** (a suíte nova incluída), 704 testes, 700 pass, 0 fail, 4
+  pulados (os mesmos de propósito da e8). `arrependimento-097` 13/13 e `arrependimento-097-sem-089` 1/1. Relatório:
+  `…-relatorios/2026-10-23T07-31-19-916Z-check-v1-postgres.log`.
+- **E2E:** `assinatura-devolucao-ui` (5 cenários), `cpf-fundador-ui` 8/8 e `cadastro-publico-ui` 8/8, todos na primeira
+  execução, com a saída preservada.
+- **Mutações:** 20/20 detectadas, em cópia isolada de `46c6463`, nas duas suítes da 097, com controle PASS antes e depois.
+  As novas:
+  - m19, evento volta a valer como titularidade: detectada pelo caso 6c, em "evento roteado não prova titularidade";
+  - m20, tabela opcional sem o filtro de existência: detectada pelo controle sem 089 e pelo caso 6d, com 42P01.
+- **Scripts:** 96/96 (os 89 de antes mais os 7 de `regressao-v1-estatica.test`, por causa da suíte nova na seleção).
+  `check:v1:static`: PASS (3415).
+- **Logs:** `…-relatorios/grupo-c-097-rodada5-20261023/`.
+
+**Sobre o E2E de cadastro da rodada anterior:** acolhida a qualificação do Astra. A primeira execução de `b4bfcda` fica
+registrada como **inconclusiva por indisponibilidade da rota no ambiente de teste**, sem diagnóstico de causa. Nesta rodada,
+os três E2E passaram na primeira execução.
+
+**Limites:**
+- A evidência local agora depende de vínculos que passaram pela conferência de isolamento. Uma assinatura antiga sem
+  contratação confirmada, sem pedido da 089 e sem a referência da empresa no Asaas é recusada; o caminho é recuperar o
+  vínculo ou conferir no Asaas.
+- Não foram executados: concorrência entre duas conexões, webhook HTTP e fluxo pelo painel ponta a ponta.
