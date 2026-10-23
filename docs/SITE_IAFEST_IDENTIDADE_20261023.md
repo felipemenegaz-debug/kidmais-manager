@@ -24,3 +24,11 @@ Worktree isolada `kidmais-manager-iafest-20261023`, base `8abbf66c0993fa5ee2bc05
 - Ajuste CSS final para o fundo da marca e ícone incluídos no build final; conferência remota após deploy ainda pendente neste registro.
 
 Alvo único: web staging `srv-daif418ae00c73e8k2gg`, My Workspace `tea-daidbj95efls73d2bcf0`. Auto-deploy OFF; produção usa production e cron também tem auto-deploy OFF. Nenhuma configuração alterada. Deploy manual único, acompanhado até LIVE, health e conferência da página pública. Deploy anterior: `dep-dbdfv1rncjis73a2o6m0`.
+
+## Resultado remoto confirmado
+
+- SHA `aaaf2696cc7cb2521950ed96cf8af65a0cdbabaf`, deploy `dep-dbdgirvb9u1s739korng` LIVE em 23/10/2026 07:25:12Z (04:25 Brasília).
+- Render: regressão estática completa aprovada (testes, lint, TypeScript e build). Health e `/conheca` HTTP 200.
+- Navegador em staging: título iA.Fest, imagem do cabeçalho carregada, máscara do símbolo `pronta`, sem Kidmais Manager ou Wall-e publicitário no texto de `/conheca`, sem overflow horizontal/erros observados.
+- Screenshot: `evidencias/site-iafest-staging-20261023.png`. Staging mantido aberto; servidor e aba locais encerrados.
+- Nenhuma mudança de banco, env, domínios, cron, painel administrativo ou produção.
