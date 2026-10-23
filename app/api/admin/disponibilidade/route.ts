@@ -28,6 +28,7 @@ import {
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
+import { paginaPublica } from "@/lib/fechamentos/rota-publica";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
@@ -189,8 +190,15 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     configuracaoComercial,
     regrasPacotes,
     pacotes,
+    // "Ver tela do cliente": a dona continua no endereço atual; as demais, no endereço público delas (/b/<código>).
+    telaDoCliente: configuracaoComercial ? "/disponibilidade" : await telaDoClienteDaEmpresa(tx, empresaComprovada),
     bloqueios,
   };
+}
+
+async function telaDoClienteDaEmpresa(tx: DbExecutor, empresaId: string) {
+  const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
+  return codigo ? paginaPublica("/disponibilidade", codigo) : null;
 }
 
 export async function GET(request: NextRequest) {
