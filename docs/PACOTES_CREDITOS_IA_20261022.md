@@ -16,6 +16,11 @@
   095. A 087 continua reservada aos avisos de cobrança (clone `kidmais-manager-emails-cobranca-20261019`, não integrada).
   Livre numa leitura não é reserva: repetir antes de congelar a candidata e antes de aplicar; a ordem de aplicação com
   090–094 (se integradas antes) não muda nada na 095, que não depende delas.
+- **Candidata do PR (23/10):** parecer R8 do Astra **APROVADO, sem P1/P2/P3** sobre `53a5d17`. Depois: merge local de
+  `origin/staging` **a55ab53** (#219/#220) em `fcd2411` — conflitos só na lista de Configurações (o PDF de Pacotes saiu do
+  menu no staging; Créditos de IA fica depois do WhatsApp), ajuste do teste do hub (`3c4f11b`) e os passos da 095 no CI
+  (`87b30d7`). Revalidado: os 22 passos do workflow de CI rodados localmente, todos OK (Node 24 local; o CI usa 22); suíte
+  PG completa 128/129 (só a `pacotes-1c`, a mesma do staging puro); Playwright 9/9; PTY 9/0.
 - **Reintegrada localmente com o staging `b3735a9` (23/10, até #218):** merge local `3152e3f`; conflitos só por acréscimo dos
   dois lados (staging com 092–094 aplicadas em staging, branch com 095): seletor e receita PG, checagem de migrations de
   produção e seu teste, contexto e exportação. A 095 vem depois da 094; as suítes dos créditos e o E2E usam o modelo 094; a
