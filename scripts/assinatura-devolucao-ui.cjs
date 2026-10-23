@@ -251,7 +251,15 @@ async function principal() {
         assert.doesNotMatch(novos.find((m) => m.para !== email).texto, /Buffet|@exemplo/);
         await page.reload();
         await arr.locator('ul[aria-label="Pedidos de arrependimento"]').getByText(protocoloD, { exact: false }).waitFor();
-        resultados.push(`D (097, mensal fora da garantia, cancelada ao fim do período): arrependimento pela ferramenta com protocolo ${protocoloD} na hora; sem chamada ao dublê; e-mail à Gestão e aviso interno; lista após recarregar`);
+        // Isolamento: a mesma Gestão, na empresa B, não vê o protocolo de C (tela e API).
+        await selecionar('B');
+        await page.locator('[data-arrependimento]').getByRole('button', { name: 'Registrar arrependimento…' }).waitFor();
+        assert.equal(await page.locator('[data-arrependimento]').getByText(protocoloD, { exact: false }).count(), 0, 'B não vê o protocolo de C');
+        const consultaB = await contexto.request.get(`${base}/api/admin/assinatura/arrependimento`).then((r) => r.json());
+        assert.equal(consultaB.ok, true);
+        assert.deepEqual(consultaB.data.manifestacoes, [], 'B sem manifestações');
+        assert.ok(!JSON.stringify(consultaB).includes(protocoloD));
+        resultados.push(`D (097, mensal fora da garantia, cancelada ao fim do período): arrependimento pela ferramenta com protocolo ${protocoloD} na hora; sem chamada ao dublê; e-mail à Gestão e aviso interno; lista após recarregar; empresa B não vê o protocolo (tela e API)`);
         console.log('E2E_ARREPENDIMENTO_097_OK');
 
         await page.setViewportSize({ width: 390, height: 844 });
