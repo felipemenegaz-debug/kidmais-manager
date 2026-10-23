@@ -1427,3 +1427,14 @@ Os textos legais seguem "Kidmais Manager" com nota de transição até a versão
    desativado; reativar só com o OK). Rodar antes os passos do CI.
 2. Depois do merge e do deploy em staging, aplicar 090 → 091 → 096 → 097 com os aplicadores e backup, flags desligadas.
 3. Criar o cron do vigia em `aguardando` e passá-lo a `conferir` depois da 097.
+
+### Utilitário de e-mail V6 revalidado para o novo `erros.ts` (23/10/2026)
+
+Passo 5 do CI (`email-producao-20261020` + blocos) falhava com `TRANSPORTE_DIVERGENTE ERROS`, porque esta frente amplia a
+união de tipos `AcessoErroCodigo`.
+
+- A mudança é **só de tipo**: o JavaScript emitido é idêntico e `email.ts` não mudou.
+- O hash fixado passa de `883b0944…` para `77ebaaf0…`, e os 3 blocos foram regenerados.
+- Os testes do passo 5 dão **20/20**.
+- Justificativa, tabela antigo → novo e consequência operacional: `docs/EMAIL_PRODUCAO_20261020.md` §11.
+- Aguarda revisão do Astra antes do CI completo, do push e da PR.

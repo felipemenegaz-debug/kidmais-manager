@@ -25,10 +25,16 @@ const ASSUNTO = '[TESTE] Kidmais Manager: prova de e-mail de producao';
 const IDEMPOTENCIA_PREFIXO = 'kidmais-email-producao-20261020/';
 /** Flags da venda: devem estar desligadas (ausentes ou "false"); qualquer outro valor recusa antes de tudo (§2 do doc). */
 const FLAGS_VENDA = Object.freeze(['CADASTRO_PUBLICO_ATIVO', 'ASSINATURA_PLANOS_ATIVOS', 'RECUPERACAO_SENHA_ATIVA']);
-/** Transporte do produto conferido por conteúdo (LF) da árvore 7ce0916 (production): o mesmo módulo que o app usa. */
+/**
+ * Transporte do produto conferido por conteúdo (LF): o mesmo módulo que o app usa. email.ts da árvore 7ce0916 (production),
+ * inalterado. erros.ts REVALIDADO em 23/10/2026 para a integração CPF/Fundador + textos/comprovante + arrependimento: a
+ * mudança desde 883b0944… (7ce0916) é só de TIPO — novos códigos na união AcessoErroCodigo, sem efeito em execução; o
+ * JavaScript emitido pelo TypeScript é idêntico nas duas versões (docs/EMAIL_PRODUCAO_20261020.md, "Revalidação de
+ * 23/10/2026"). Com este hash, o utilitário recusa um deploy que ainda tenha o erros.ts antigo (produção atual).
+ */
 const TRANSPORTE = Object.freeze({
   'lib/acessos/email.ts': '0ff9c1388da510f5ca4f145831ee285bdd41984e670a19107f83b1152af0363b',
-  'lib/acessos/erros.ts': '883b0944b061aabb0f68bb654ab647f6368c018f2dad22247e0be3e777f574d2',
+  'lib/acessos/erros.ts': '77ebaaf0791d82f38464869f57d94bbd494ad70bb19ad83e1be9d56da0ea3dd1',
 });
 const MOTIVO = /^[A-Z][A-Z0-9_]{2,60}(?: [A-Z][A-Z0-9_]{2,60})?$/;
 
