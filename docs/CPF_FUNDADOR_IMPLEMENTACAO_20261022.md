@@ -1303,20 +1303,53 @@ fechados, dois P3. Correções em `c81516b`:
     vem da integração; precisa de diagnóstico próprio na frente de pacotes.
 - **E2E:** `assinatura-devolucao-ui` (5 cenários), `cpf-fundador-ui` 8/8 e `cadastro-publico-ui` 8/8, todos na primeira
   execução.
-- **Testes de scripts:** sete arquivos falharam na integração. Seis falham **igualmente** no staging puro e na branch antes
-  do merge, logo são preexistentes e fora do CI estático:
-  - `concorrencia-vagas-isolado`;
-  - `email-producao-20261020` (8);
-  - `festa-016-reparo-encoding`;
-  - `festa-navegacao-manual`;
-  - `navegador-local-seed`;
-  - `ux-contratos-perfil`.
-
-  O sétimo, `bloco-shell-migracoes-producao-20261019`, falhou uma vez enquanto a bateria PG rodava em paralelo. Depois
-  passou 16/16 em duas execuções seguidas: intermitente sob carga, não reproduzido.
+- **Testes de scripts:** sete arquivos falharam na integração. **Classificação corrigida pela revisão do Astra**
+  (`revisao-integracao-cpf-textos-arrependimento-d6ddbc6-20261023`, P3-I1); veja "Ressalvas da revisão da integração"
+  abaixo.
 - **Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/integracao-20261023/`. Cluster removido.
 
 **Próximo:**
 1. Revisão do Astra da integração.
 2. Com autorização: push da branch de integração e PR para `staging`.
 3. Aplicação das migrations 090, 091, 096 e 097 com os aplicadores, nesta ordem e com backup, com as flags desligadas.
+
+### Ressalvas da revisão da integração (`d6ddbc6`, APROVADO COM RESSALVAS sobre schema 094)
+
+A revisão do Astra aprovou a integração **com a premissa do schema 094**. Ela não identificou perda no merge e validou a
+sequência das migrations num cluster sintético. Ficam três ressalvas:
+
+**P2-I1 — pacotes-1c: defeito real do staging, preexistente, fora desta frente.**
+- **Onde:** `lib/disponibilidade/services/availability.service.ts:190–196`.
+- **Defeito:** o fallback "sem a 093" referencia `pacote_saloes` na mesma consulta que testa a existência dela. Sem a
+  tabela, o PostgreSQL falha com 42P01; o `catch` devolve lista vazia, mas deixa a transação abortada (25P02 na consulta
+  seguinte).
+- **Reprodução:** acontece no staging puro `ab0a3d6` no modelo 089. No modelo 094, o mesmo código passa 2/2.
+- **Nível de risco:** é defeito de produto, não ruído de teste.
+- **Encaminhamento:** fica para a **frente de agenda/pacotes**. Correção indicada: `to_regclass` em consulta separada e
+  uma prova explícita sem a 093, ou tornar a dependência da 093 explícita.
+- **Para esta frente:** a aplicação em qualquer ambiente pressupõe as **092–094 já aplicadas** (o caso validado) ou o
+  fallback corrigido antes. **Atenção:** pela memória de 23/10, as 092–094 estão no código de staging mas **não aplicadas**
+  no banco de staging. Se for assim, o staging atual pode estar exposto a esse defeito. Conferir no ambiente antes de
+  qualquer passo, com autorização.
+
+**P3-I1 — `email-producao-20261020`: a falha é desta frente, não do staging (classificação corrigida).**
+- **Causa:** o utilitário operacional do e-mail V6 (20/10) fixa o hash de `lib/acessos/erros.ts` (`883b…`). Esse hash
+  bate com o staging puro, onde os testes **passam**. Esta frente acrescentou o código `ARREPENDIMENTO_INDISPONIVEL` a
+  `erros.ts` (hash novo `77eb…`); daí a recusa `TRANSPORTE_DIVERGENTE ERROS`, de modo seguro e antes de qualquer envio.
+- **Origem da minha classificação errada:** a cópia de comparação estava numa pasta temporária, com `node_modules` por
+  junção, e o utilitário recusa disco e pasta fora do padrão.
+- **Decisão registrada:** o hash não é atualizado mecanicamente. O utilitário é histórico (V6 executado em 20/10). Se
+  precisar ser usado de novo, revalidar o pacote para a versão alvo, com autorização própria.
+- **Outros scripts:**
+  - `concorrencia-vagas-isolado` e `navegador-local-seed` falham pelo inventário fixado também no staging puro;
+  - `festa-016-reparo-encoding`, `festa-navegacao-manual` e `ux-contratos-perfil` são roteiros com pré-requisitos
+    próprios (registro, clone, servidor ou navegador), não unitários offline. Não há prova A/B de causa para eles nem são
+    promovidos a defeito.
+
+**Blocos de Shell: inconclusivos na revisão, executados aqui com log.**
+- **`bloco-shell-migracoes-producao-20261019`:** **16/16 em duas execuções** (cerca de 6,3 min cada, o que explica a
+  interrupção na revisão), com o bash do ambiente (Cygwin 5.3).
+- **Blocos 090/091/096/097:** **40/40**.
+- **Logs:** `…-relatorios/integracao-20261023/blocos-shell-*.log`.
+- A hipótese "intermitente sob carga" para a falha única anterior continua **não comprovada**: só se registra que não se
+  repetiu.
