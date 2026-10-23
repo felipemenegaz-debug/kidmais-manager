@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BORDA_CONFIRMADA, ambienteDaOrigem, causaDoErro, chaveDaOrigem, formatoDaOrigem, ipPublico, normalizarIp, origemConfiavel, registrarFormatoDaOrigem } from './origem-cliente.ts';
+import { BORDA_CONFIRMADA, JANELA_MARCAS_MS, MARCAS_POR_JANELA, ambienteDaOrigem, causaDoErro, chaveDaOrigem, formatoDaOrigem, ipPublico, normalizarIp, origemConfiavel, registrarFormatoDaOrigem } from './origem-cliente.ts';
 import { opcoesDoPool, POOL_PADRAO } from '../db/postgres.ts';
 
 // Render com a borda provada (ORIGEM_CLIENTE_BORDA); só RENDER=true não basta (revisão de 22/10).
@@ -125,6 +125,25 @@ test('marca de diagnóstico do G1: força a linha e entra nela; formato fora de 
     assert.equal(linhas.length, 1, 'marca inválida não força linha');
     registrarFormatoDaOrigem(comMarca('177-10-20-30-x'), null, RENDER, log);
     assert.doesNotMatch(linhas.join('\n'), /177\.10|104\.23|203\.0/, 'nenhum endereço no log');
+});
+
+test('P3-R3-3: marca repetida mil vezes gera no máximo MARCAS_POR_JANELA linhas por janela; nova janela libera de novo', () => {
+    const linhas: string[] = [];
+    const log = (m: string) => linhas.push(m);
+    let t = Date.now() + 3_600_000; // à frente das janelas usadas pelos outros testes deste processo
+    const pedido = render(`${FORJADO}, ${CLIENTE}, ${SALTO}`, { 'cf-connecting-ip': CLIENTE, 'x-kidmais-diagnostico': 'g1-repetida-01' });
+    for (let i = 0; i < 1000; i++)
+        registrarFormatoDaOrigem(pedido, CLIENTE, RENDER, log, () => t);
+    assert.equal(linhas.length, MARCAS_POR_JANELA);
+    assert.ok(linhas.every((l) => l.includes('"marca":"g1-repetida-01"')));
+    t += JANELA_MARCAS_MS;
+    registrarFormatoDaOrigem(pedido, CLIENTE, RENDER, log, () => t);
+    assert.equal(linhas.length, MARCAS_POR_JANELA + 1, 'janela seguinte: a marca volta a valer (o G1 continua correlacionável)');
+    // Recusadas continuam registradas (comportamento anterior), mas sem a marca acima do teto.
+    for (let i = 0; i < MARCAS_POR_JANELA; i++)
+        registrarFormatoDaOrigem(pedido, CLIENTE, RENDER, () => undefined, () => t);
+    registrarFormatoDaOrigem(render(`${CLIENTE}, 10.0.0.1`, { 'x-kidmais-diagnostico': 'g1-repetida-01' }), null, RENDER, log, () => t);
+    assert.match(linhas.at(-1)!, /"marca":null/);
 });
 
 test('causa do 500 vai ao log sem e-mail e sem texto longo', () => {

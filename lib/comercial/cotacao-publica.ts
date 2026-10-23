@@ -4,6 +4,7 @@ import { recursoIncluido } from "../assinatura/recursos-plano.ts";
 import { agendaPorEscopoInstalada, escopoDaEmpresa } from "../disponibilidade/escopo.ts";
 import { AvailabilityServiceError } from "../disponibilidade/services/errors.ts";
 import { escopoCatalogoPublico } from "./catalogo-publico.ts";
+import { confirmarEmpresaPublica } from "../http/empresas-publicas.ts";
 
 /**
  * Cotação/fechamento públicos por empresa (Etapa 3). Dois caminhos:
@@ -86,6 +87,8 @@ export async function escopoCotacaoPublica(
     // Escopo V1: uma unidade. Zero unidade = agenda da empresa; uma = ela; mais de uma = recusa (UNIDADE_OBRIGATORIA →
     // 404). Nunca escolhe uma unidade por conta própria: a escolha pública de unidade ainda não existe.
     const unidade = await escopoDaEmpresa(db, empresaId, null, { exigirUnidade: true });
+    // Daqui em diante o limite público conta este código pela empresa (lib/http/empresas-publicas.ts).
+    confirmarEmpresaPublica(codigo, empresaId);
     return { empresaId, estabelecimentoId: unidade.estabelecimentoId, porCodigo: true };
   } catch {
     // Plano ilegível, estado comercial ou unidade: mesma resposta, sem detalhe da empresa.

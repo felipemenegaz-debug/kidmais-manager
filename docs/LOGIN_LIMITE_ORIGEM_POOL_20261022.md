@@ -1,6 +1,6 @@
 # Login: limite por origem real e pool do PostgreSQL (22/10/2026)
 
-Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). As correções desses achados estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seção "Rodada 3"). Nada de push, PR, deploy, env ou banco real nesta rodada.
+Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1). As correções da rodada 4 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3" e "Rodada 4"). Nada de push, PR, deploy, env ou banco real nesta rodada.
 
 Origem: achados X-1, X-2 e X-3 da revisão de 22/10/2026 (`ambientes-locais/revisao-exportacao-blocos-20261022/PARECER.md`).
 
@@ -207,13 +207,15 @@ Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/`.
 
 ### Novo G1 (só depois de deploy e autorização de Felipe; nada disto foi executado)
 
-Pré-condições: commit desta rodada implantado em staging por PR/deploy autorizados, e o commit realmente implantado identificado pelo deploy (id do deploy e commit). `ORIGEM_CLIENTE_BORDA` **ainda desligada**. Conta sintética **inexistente**, senha errada, uma tentativa por passo. Cada passo usa uma marca nova (`x-kidmais-diagnostico: g1-<nonce>`), e a linha do log é localizada pela marca.
+Pré-condições: commit aprovado implantado em staging por PR/deploy autorizados, e o commit realmente implantado identificado pelo deploy (id do deploy e commit). `ORIGEM_CLIENTE_BORDA` **ainda desligada**. Conta sintética **inexistente**, senha errada, uma tentativa por passo. Cada passo usa uma marca nova (`x-kidmais-diagnostico: g1-<nonce>`), e a linha do log é localizada pela marca.
 
 **G1-A — entrada alternativa (com a confirmação desligada; todo login recusado no Render gera linha):**
 
-1. Pelo endereço público do serviço: `X-Forwarded-For: 8.8.8.8, 1.1.1.1`, `CF-Connecting-IP: 1.1.1.1`, `True-Client-IP: 1.1.1.1`. Esperado: 401 (sem 429/500) e a linha com a marca mostrando `render:true`, `bordaConfirmada:false`, `aceito:false`, **`valoresNoEncaminhamento:4`** e **`cfConnectingIp:2`** (o CF foi sobrescrito com o IP real de quem testou, que fica no penúltimo lugar). Se aparecer `valoresNoEncaminhamento:3` com `cfConnectingIp:2`, o CF forjado atravessou: **reprovado, não ligar a confirmação**. `trueClientIp:3` (forjado não sobrescrito) é registrado: com a confirmação ligada ele só causa recusa, que é o lado seguro.
-2. Repetir o passo 1 por toda outra entrada pública conhecida do serviço: domínio próprio, quando existir, e o endereço de entrada que o Render documenta para domínio próprio, com o `Host` do serviço (consultar a documentação do Render no dia; não inventar IP). Esperado: o mesmo resultado do passo 1, ou nenhuma resposta do serviço. Qualquer `valoresNoEncaminhamento:3` com `cfConnectingIp:2` reprova.
-3. Registrar como aceito, não testável de fora: a rede privada do Render (outros serviços do mesmo workspace) não passa pela borda. São só serviços do próprio Kidmais.
+0. **Inventário das entradas** antes de testar: o endereço padrão do serviço; todo domínio próprio, alias e domínio legado ainda ligado; o ingresso direto que o Render documenta, com `Host`/SNI corretos; e os caminhos IPv4 e IPv6 que existirem. Fonte: o painel e a documentação do Render no dia. Não inventar IP e não varrer.
+1. Em cada entrada do inventário: `X-Forwarded-For: 8.8.8.8, 1.1.1.1`, `CF-Connecting-IP: 1.1.1.1`, `True-Client-IP: 1.1.1.1`. Esperado: 401 (sem 429/500), correlacionado pela marca, e a linha mostrando `render:true`, `bordaConfirmada:false`, `aceito:false`, `vazios:0`, **`valoresNoEncaminhamento:4`** e **`cfConnectingIp:2`** (o CF foi sobrescrito com o IP real de quem testou, que fica no penúltimo lugar). Se aparecer `valoresNoEncaminhamento:3` com `cfConnectingIp:2`, o CF forjado atravessou: **reprovado, não ligar a confirmação**. `trueClientIp:3` (forjado não sobrescrito) é registrado: com a confirmação ligada ele só causa recusa, que é o lado seguro.
+2. Uma entrada só conta como fechada com evidência de recusa no ingresso (resposta do provedor que não chega ao serviço). Timeout isolado, falha de DNS/TLS ou teste incompleto são **INCONCLUSIVOS** e não liberam a env. Qualquer `valoresNoEncaminhamento:3` com `cfConnectingIp:2` reprova.
+3. **Rede privada (premissa, não prova):** o G1-A não cobre a rede privada do Render. Antes de ligar a env, verificar quem alcança o listener do serviço web (serviços e crons do workspace) e se algum deles repassa cabeçalhos de usuários (proxy ou forwarder). Se algum repassar, ele precisa remover ou sobrescrever XFF/CF/TCI, ou a env fica desligada. Registrar a justificativa.
+- A marca tem teto de 10 linhas por minuto por processo (rodada 4). Espaçar os passos e usar uma marca nova por passo.
 
 **G1-B — regra positiva (depois do G1-A aprovado e da troca de env autorizada, que reinicia o serviço):**
 
@@ -222,3 +224,47 @@ Pré-condições: commit desta rodada implantado em staging por PR/deploy autori
 6. `cfConnectingIp:2, aceito:true` sozinho **não** aprova: só vale junto com o G1-A aprovado.
 
 Rollback do G1: desligar `ORIGEM_CLIENTE_BORDA` (volta a origem `null` com limites por fluxo), ou reverter o commit.
+
+## Rodada 4 — correções da revisão da rodada 3 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r3-independente-20261022/PARECER.md`. A borda (trava local) e a estrutura ficaram fechadas localmente; o fallback ficou parcial por dois P2 novos e um P3.
+
+### P2-R3-1 — códigos de empresa inventados enchiam o limitador público
+
+- O limitador não usa mais o texto bruto de `?empresa=`. A chave da empresa é **canônica** (`chaveDaEmpresaPublica`):
+  - código já resolvido pelo servidor → `empresa:<id>`;
+  - código inexistente, inválido ou ainda não visto → **um** balde comum, `empresa-nao-confirmada` (com o teto do grupo, 10× sem origem);
+  - sem código → endereço padrão.
+- `lib/http/empresas-publicas.ts` guarda só os códigos que `escopoCotacaoPublica` resolveu (empresa ATIVA, com orçamento online), associados ao id. Capacidade fixa de 5.000, sai o menos recente. A página `/b/<código>` passa pelo mesmo resolvedor, então o cliente legítimo confirma a empresa ao abrir a página, antes das APIs.
+- Os baldes por IP e os demais (empresa/sem origem, conjunto limitado) ficam em **mapas separados**. Nenhum esgota o outro.
+- O formulário do site resolve o site antes do limite e conta pelo `siteId`. Slug inventado dá 404 sem criar balde (a mesma leitura já acontece, sem limite, na página pública do site).
+- **Residual declarado:** sem origem, um código ainda não visto neste processo divide o balde `empresa-nao-confirmada` com os inventados. Abrir a página da empresa confirma o código e o tira desse balde.
+
+### P2-R3-2 — pedidos inelegíveis gastavam a cota global de e-mail
+
+- **Recuperação:** sem IP, nada global antes do pedido.
+  - A proteção preliminar é o limite do próprio e-mail (3/h).
+  - A cota global de 300 envios/h só é reservada quando o pedido vai abrir (conta ativa e sem pedido recente), na mesma transação, com a conta travada.
+  - Com IP, o limite por IP continua primeiro.
+  - A resposta pública segue indistinguível.
+- **Cadastro:** a cota global de envios só é consumida depois do limite do e-mail. Todo pedido que passa desse limite gera um envio (confirmação ou aviso de conta existente).
+- Uma falha de envio consome a cota. É o lado conservador para o provedor de e-mail.
+
+### P3-R3-3 — a marca pública forçava uma linha por pedido
+
+- Teto fixo por processo de 10 linhas forçadas por minuto (`MARCAS_POR_JANELA`/`JANELA_MARCAS_MS`). É um contador, sem guardar marcas.
+- Acima do teto, a marca é ignorada e vale a amostragem normal. As origens recusadas continuam sendo registradas, como antes.
+
+### Validação local (rodada 4, 22–23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r4-*.log`, `mutantes.*`, `check-v1-static-r4.log`).
+
+- **Unitários focados** (acessos, autenticação, cadastro, http, webhook, cotação pública, rotas de marketing): 215/215, mais 8/8 no limitador depois do teste de ordem do formulário. Inclui a reprodução da revisão: 20.000 códigos inventados sem origem → a empresa confirmada e uma origem confiável nova seguem em IDENTIDADE, LEITURA e PEDIDO; 300 repetições sem envio → a conta ativa de B recebe o link; o 301º envio elegível é recusado; 1.000 marcas → 10 linhas.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo a cada subida, sem herdar URL de banco):
+  - `r4-1`: login-origem 7/7 em `atual` e em `063`, mais cobranca-e8 [atual, 075], cadastro-069, fixture-atualizacao-staging [078], painel-063 e marketing-a [086], todos PASS;
+  - `r4-2`: login-origem `atual` PASS, mas **`063` FALHOU** em "sem IP confiável" com 10/50 `timeout exceeded when trying to connect` (pool real de 10, espera de 10 s; testes levaram 22–24 s contra 15 s). A CPU da máquina estava em 84% por processos de fora. Esta rodada não toca login nem pool, e a suíte já era registrada como sensível a tempo. Registrado como falha, não omitido;
+  - `r4-3` (cluster novo): login-origem 7/7 em `atual` e em `063`;
+  - clusters encerrados (`pg_ctl status` 3) e removidos.
+- **Mutantes**: **21/21 mortos por asserção** (os 14 da rodada 3 + 7 novos: texto bruto de `?empresa=`, código não confirmado com balde próprio, resolução sem confirmar, cota antes da elegibilidade na recuperação, cota antes do limite do e-mail no cadastro, marca sem teto, slug bruto no formulário); controles 66/66 antes e depois.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3304/3304 unitários, 103/103 mocks, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.

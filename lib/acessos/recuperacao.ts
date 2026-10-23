@@ -54,11 +54,18 @@ type Conta = { id: string; email: string };
  * Abre um pedido para a conta (invalidando o anterior) dentro da transação do chamador.
  * Devolve null quando o último pedido é recente demais (proteção contra repetição).
  */
-export async function abrirPedidoNaTransacao(tx: DbExecutor, deps: Pick<RecuperacaoDeps, 'gerarToken'>, conta: Conta, origem: 'PUBLICA' | 'PAINEL', solicitadoPor: string | null) {
+/** Segundos até poder pedir de novo (pedido aberto há menos de INTERVALO_PEDIDOS_SEGUNDOS), ou null. */
+async function esperaPorPedidoRecente(tx: DbExecutor, contaId: string) {
     const recente = (await tx.query<{ segundos: number }>(
-        `SELECT extract(epoch FROM clock_timestamp() - max(criado_em))::int AS segundos FROM recuperacoes_senha WHERE usuario_id = $1`, [conta.id])).rows[0];
-    if (recente?.segundos !== null && recente?.segundos !== undefined && recente.segundos < INTERVALO_PEDIDOS_SEGUNDOS)
-        return { tipo: 'recente' as const, aguardar: INTERVALO_PEDIDOS_SEGUNDOS - recente.segundos };
+        `SELECT extract(epoch FROM clock_timestamp() - max(criado_em))::int AS segundos FROM recuperacoes_senha WHERE usuario_id = $1`, [contaId])).rows[0];
+    return recente?.segundos !== null && recente?.segundos !== undefined && recente.segundos < INTERVALO_PEDIDOS_SEGUNDOS
+        ? INTERVALO_PEDIDOS_SEGUNDOS - recente.segundos : null;
+}
+
+export async function abrirPedidoNaTransacao(tx: DbExecutor, deps: Pick<RecuperacaoDeps, 'gerarToken'>, conta: Conta, origem: 'PUBLICA' | 'PAINEL', solicitadoPor: string | null) {
+    const aguardar = await esperaPorPedidoRecente(tx, conta.id);
+    if (aguardar !== null)
+        return { tipo: 'recente' as const, aguardar };
     const invalidados = (await tx.query<{ id: string }>(
         'UPDATE recuperacoes_senha SET invalidado_em = clock_timestamp() WHERE usuario_id = $1 AND usado_em IS NULL AND invalidado_em IS NULL RETURNING id', [conta.id])).rows.length;
     const token = deps.gerarToken();
@@ -94,7 +101,10 @@ export function validarPedidoPublico(raw: unknown) {
 /** Processamento do pedido público. Não devolve nada que distinga conta existente de inexistente. */
 export async function processarPedidoPublico(input: { email: string }, ctx: ContextoRequisicao, deps: RecuperacaoDeps = recuperacaoDepsPadrao()) {
     const aberto = await deps.withTransaction(async (tx) => {
-        const ipOk = !await consumirOrigem(tx, ctx.ip, REGRA_PEDIDO_IP, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM });
+        // Com IP: o limite dele, antes de tudo. Sem IP: nada global aqui; a preliminar é o limite do próprio e-mail, e o
+        // teto global de envios só é reservado para um envio de fato (conta ativa, sem pedido recente) — revisão de
+        // 22/10, P2-R3-2: repetições recusadas ou sem conta não gastam a cota de quem precisa recuperar a senha.
+        const ipOk = ctx.ip === null || !await consumirOrigem(tx, ctx.ip, REGRA_PEDIDO_IP, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM });
         const emailOk = await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_PEDIDO_EMAIL);
         const conta = (await tx.query<Conta>('SELECT id, email FROM usuarios_administrativos WHERE email = $1 AND ativo FOR UPDATE', [input.email])).rows[0];
         let resultado: string;
@@ -103,6 +113,10 @@ export async function processarPedidoPublico(input: { email: string }, ctx: Cont
             resultado = 'LIMITE';
         else if (!conta)
             resultado = 'SEM_CONTA_ATIVA';
+        else if (await esperaPorPedidoRecente(tx, conta.id) !== null)
+            resultado = 'RECENTE'; // a conta está travada (FOR UPDATE): a conferência vale até o fim da transação
+        else if (ctx.ip === null && await consumirOrigem(tx, null, REGRA_PEDIDO_IP, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM }))
+            resultado = 'LIMITE';
         else {
             const r = await abrirPedidoNaTransacao(tx, deps, conta, 'PUBLICA', null);
             resultado = r.tipo === 'ok' ? 'ABERTO' : 'RECENTE';

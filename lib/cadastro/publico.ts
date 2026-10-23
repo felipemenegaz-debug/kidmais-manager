@@ -147,7 +147,12 @@ export function mensagemContaExistente(para: string, origem = origemPublica()): 
  */
 export async function processarPedidoCadastro(input: PedidoCadastro, ctx: ContextoRequisicao, deps: CadastroDeps = cadastroDepsPadrao()) {
     const r = await deps.withTransaction(async (tx) => {
-        if (await consumirOrigem(tx, ctx.ip, REGRA_ORIGEM, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM }) || !await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_EMAIL))
+        // Com IP, o limite dele vem primeiro. Sem IP, o teto global de envios só depois do limite do próprio e-mail: todo
+        // pedido que passa dele gera um envio (confirmação ou aviso de conta existente), e repetição já recusada para um
+        // endereço não gasta a cota dos outros (revisão de 22/10, P2-R3-2).
+        if ((ctx.ip !== null && await consumirOrigem(tx, ctx.ip, REGRA_ORIGEM, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM }))
+            || !await consumirLimite(tx, 'IDENTIFICADOR', input.email, REGRA_EMAIL)
+            || (ctx.ip === null && await consumirOrigem(tx, null, REGRA_ORIGEM, { tetoGlobal: TETO_PEDIDOS_SEM_ORIGEM })))
             return { tipo: 'limite' as const };
         const conta = (await tx.query<{ id: string }>('SELECT id FROM usuarios_administrativos WHERE lower(btrim(email)) = $1', [input.email])).rows[0];
         if (conta) {

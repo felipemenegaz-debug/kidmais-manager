@@ -169,14 +169,34 @@ function marcaDeDiagnostico(request: Cabecalhos) {
     return valor !== null && /^[A-Za-z0-9-]{8,64}$/.test(valor) ? valor : null;
 }
 
+/**
+ * Teto das linhas forçadas por marca (revisão de 22/10, P3-R3-3: a marca é pública e forçava uma linha por pedido).
+ * Um contador fixo por processo, sem guardar marcas: no máximo MARCAS_POR_JANELA linhas a cada JANELA_MARCAS_MS. O G1
+ * precisa de poucas; acima do teto a marca é ignorada (vale a amostragem normal).
+ */
+export const MARCAS_POR_JANELA = 10;
+export const JANELA_MARCAS_MS = 60_000;
+const janelaMarcas = { inicio: Number.NEGATIVE_INFINITY, usadas: 0 };
+function marcaDentroDoTeto(agora: number) {
+    if (agora - janelaMarcas.inicio >= JANELA_MARCAS_MS) {
+        janelaMarcas.inicio = agora;
+        janelaMarcas.usadas = 0;
+    }
+    if (janelaMarcas.usadas >= MARCAS_POR_JANELA)
+        return false;
+    janelaMarcas.usadas += 1;
+    return true;
+}
+
 let formatoRegistrado = false;
 /**
- * Registra o formato uma vez por processo (no primeiro login), sempre que a origem for recusada no Render e sempre que o
- * pedido trouxer uma marca de diagnóstico válida (que vai na linha, para correlacionar).
+ * Registra o formato uma vez por processo (no primeiro login), sempre que a origem for recusada no Render e quando o
+ * pedido trouxer uma marca de diagnóstico válida dentro do teto (que vai na linha, para correlacionar).
  */
-export function registrarFormatoDaOrigem(request: Cabecalhos, ip: string | null, env: Ambiente = ambienteDaOrigem(), log: (m: string) => void = console.warn) {
+export function registrarFormatoDaOrigem(request: Cabecalhos, ip: string | null, env: Ambiente = ambienteDaOrigem(), log: (m: string) => void = console.warn, agora: () => number = Date.now) {
     const recusada = env.RENDER === 'true' && ip === null;
-    const marca = marcaDeDiagnostico(request);
+    const valida = marcaDeDiagnostico(request);
+    const marca = valida !== null && marcaDentroDoTeto(agora()) ? valida : null;
     if (formatoRegistrado && !recusada && !marca)
         return;
     formatoRegistrado = true;

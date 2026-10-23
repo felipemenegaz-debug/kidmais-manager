@@ -88,10 +88,32 @@ test('recuperação sem origem: 10 pedidos de A não bloqueiam B; teto global al
         await pedir({ email: `a${i}@exemplo.test` }, semOrigem, deps);
     await pedir({ email: 'b@exemplo.test' }, semOrigem, deps);
     assert.deepEqual(new Set(resultados), new Set(['SEM_CONTA_ATIVA']), 'nenhum LIMITE por origem no 11º nem para B');
+
+    // P2-R3-2 (reprodução da revisão): 300 repetições para o MESMO e-mail inexistente, nenhum envio; a conta ativa de B
+    // continua recebendo o pedido. Só pedido que abre (conta ativa, sem pedido recente) reserva a cota global.
+    let envios = 0;
+    const contaAtiva = (prefixo: string) => executorFalso([
+        [/FROM usuarios_administrativos WHERE email/, (p) => (String(p[0]).startsWith(prefixo) ? [{ id: `00000000-0000-4000-8000-${String(p[0]).length.toString().padStart(12, '0')}`, email: p[0] }] : [])],
+        [/INSERT INTO recuperacoes_senha/, () => [{ id: 'pedido' }]],
+    ]);
+    const depsConta = (prefixo: string) => depsTx(contaAtiva(prefixo), {
+        registrarAuditoria: async (a: { dadosDepois: { resultado: string } }) => { resultados.push(a.dadosDepois.resultado); },
+        enviarEmail: async () => { envios += 1; },
+    });
     resultados.length = 0;
     for (let i = 0; i < 300; i++)
-        await pedir({ email: `m${i}@exemplo.test` }, semOrigem, deps);
-    assert.equal(resultados.filter((r) => r === 'LIMITE').length, 12, 'o teto global de 300 continua valendo (12 + 300 − 300)');
+        await pedir({ email: 'naoexiste@exemplo.test' }, semOrigem, depsConta('b'));
+    assert.equal(envios, 0);
+    assert.deepEqual([resultados.slice(0, 3), new Set(resultados.slice(3))], [['SEM_CONTA_ATIVA', 'SEM_CONTA_ATIVA', 'SEM_CONTA_ATIVA'], new Set(['LIMITE'])]);
+    resultados.length = 0;
+    await pedir({ email: 'b-ativa@exemplo.test' }, semOrigem, depsConta('b'));
+    assert.deepEqual([resultados, envios], [['ABERTO'], 1], 'a conta ativa de B recebe o link');
+
+    // O teto global (300 envios/h) continua contra envio em massa: o 301º envio elegível é recusado.
+    resultados.length = 0;
+    for (let i = 0; i < 300; i++)
+        await pedir({ email: `m${i}@exemplo.test` }, semOrigem, depsConta('m'));
+    assert.deepEqual([resultados.filter((r) => r === 'ABERTO').length, resultados.filter((r) => r === 'LIMITE').length], [299, 1], '1 (B) + 299 = 300 envios; o seguinte, LIMITE');
 
     const redefinir = mod.redefinirSenhaComToken as (raw: unknown, ctx: unknown, deps: unknown) => Promise<unknown>;
     const corpo = (c: string) => ({ token: token(c), novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' });
@@ -115,6 +137,15 @@ test('cadastro sem origem: 10 pedidos de A não bloqueiam B; teto global alto; c
     for (let i = 0; i < 300; i++)
         limitados += (await pedir(pedido(`m${i}@exemplo.test`), semOrigem, depsTx(tx))).motivo === 'LIMITE' ? 1 : 0;
     assert.equal(limitados, 12, 'teto global de 300');
+
+    // P2-R3-2: repetição já recusada pelo limite do e-mail não gasta a cota global de envio.
+    const { mod: mod2 } = carregar('lib/cadastro/publico.ts');
+    const pedir2 = mod2.processarPedidoCadastro as typeof pedir;
+    let repetidosLimitados = 0;
+    for (let i = 0; i < 400; i++)
+        repetidosLimitados += (await pedir2(pedido('repete@exemplo.test'), semOrigem, depsTx(tx))).motivo === 'LIMITE' ? 1 : 0;
+    assert.equal(repetidosLimitados, 397, 'o limite do próprio e-mail segura a repetição');
+    assert.equal((await pedir2(pedido('outra@exemplo.test'), semOrigem, depsTx(tx))).enviado, true, 'outro e-mail continua recebendo');
 
     const confirmar = mod.confirmarCadastro as (raw: unknown, ctx: unknown, deps: unknown) => Promise<unknown>;
     for (let i = 0; i < 30; i++)
