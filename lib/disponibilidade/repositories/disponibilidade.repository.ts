@@ -2,6 +2,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { db, withTransaction } from "../../db/postgres.ts";
 import { agendaPorEscopoInstalada, type EscopoAgenda } from "../escopo.ts";
 import { AvailabilityServiceError } from "../services/errors.ts";
+import { conjuntosDosSaloes, salaoElegivel, type SalaoDoEscopo } from "../../agenda/saloes-conjuntos.ts";
 import type {
   AlcanceBloqueio,
   BloqueioAgendaRecord,
@@ -364,6 +365,14 @@ export async function capacidadeAgendaInstalada(customDb?: DbExecutor) {
   return r.rows[0]?.ok === true;
 }
 
+/** 098 instalada: salão combinado (conjunto de salões simples) e elegibilidade. */
+export async function saloesCombinadosInstalados(customDb?: DbExecutor) {
+  const r = await executor(customDb).query<{ ok: boolean }>(
+    `SELECT to_regprocedure('public.kidmais098_saloes_cruzam(uuid,uuid)') IS NOT NULL AS ok`,
+  );
+  return r.rows[0]?.ok === true;
+}
+
 /** 094: regra do escopo configurado na 093; null quando o escopo não foi configurado (regra de antes). */
 export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda): Promise<RegraCapacidadeAgenda | null> {
   const ex = executor(customDb);
@@ -383,8 +392,15 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
       GROUP BY ca.id, ca.capacidade`,
     [escopo.empresaId, escopo.estabelecimentoId ?? null],
   );
-  const saloes = await ex.query<{ id: string }>(
-    `SELECT id::text AS id FROM agenda_saloes WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`,
+  // 098: todos os salões do escopo (inclusive inativos, para o conjunto das ocupações) com tipo e membros; candidatos
+  // só os elegíveis (mesma regra de kidmais098_salao_elegivel). Sem a 098, os salões ativos, cada um por ele mesmo.
+  const v098 = await saloesCombinadosInstalados(ex);
+  const saloes = await ex.query<SalaoDoEscopo & { ordem: number; nome: string }>(
+    v098
+      ? `SELECT id::text AS id, ativo, combinado, membros::text[] AS membros, ordem, nome FROM agenda_saloes
+          WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`
+      : `SELECT id::text AS id, ativo, false AS combinado, NULL::text[] AS membros, ordem, nome FROM agenda_saloes
+          WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`,
     [escopo.empresaId, escopo.estabelecimentoId ?? null],
   );
   // Modo livre: o horário técnico do escopo (preço, disponibilidade e descontos por dia da semana).
@@ -403,7 +419,8 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
     intervaloMinimoMinutos: Number(c.intervalo_minimo_minutos),
     capacidadePorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, Number(h.capacidade)])),
     saloesPorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, h.saloes ?? []])),
-    saloesDoEscopo: saloes.rows.map((s) => s.id),
+    saloesDoEscopo: saloes.rows.filter((s) => salaoElegivel(s, saloes.rows)).map((s) => s.id),
+    ...(v098 ? { conjuntos: conjuntosDosSaloes(saloes.rows) } : {}),
   };
 }
 

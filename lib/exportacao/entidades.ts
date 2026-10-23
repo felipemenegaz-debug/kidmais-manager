@@ -209,7 +209,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'agenda/configuracao_agenda', tabela: 'configuracao_agenda', grupo: 'Agenda', descricao: 'Horários e configuração da agenda.', onde: EMP },
     // 093: configuração da agenda por unidade (etapa 2a).
     { arquivo: 'agenda/agenda_escopo_config', tabela: 'agenda_escopo_config', grupo: 'Agenda', descricao: 'Modo, capacidade, festas por dia e intervalo de cada unidade.', onde: EMP },
-    { arquivo: 'agenda/agenda_saloes', tabela: 'agenda_saloes', grupo: 'Agenda', descricao: 'Salões de cada unidade.', onde: EMP },
+    { arquivo: 'agenda/agenda_saloes', tabela: 'agenda_saloes', grupo: 'Agenda', descricao: 'Salões de cada unidade; combinados (098) com os salões que os compõem (membros, lista de ids).', onde: EMP },
     { arquivo: 'agenda/configuracao_agenda_saloes', tabela: 'configuracao_agenda_saloes', grupo: 'Agenda', descricao: 'Salões de cada horário.', onde: em(AGENDAS, 'configuracao_agenda_id') },
     { arquivo: 'catalogo/pacote_saloes', tabela: 'pacote_saloes', grupo: 'Catálogo', descricao: 'Salões permitidos de cada pacote.', onde: em(PACOTES, 'pacote_id') },
     { arquivo: 'agenda/regras_categoria_horario', tabela: 'regras_categoria_horario', grupo: 'Agenda', descricao: 'Regras de categoria por horário.', onde: em(AGENDAS, 'configuracao_agenda_id') },

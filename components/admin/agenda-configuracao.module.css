@@ -14,6 +14,9 @@
 .lista { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); overflow:hidden; margin:8px 0 0; }
 .linhaSalao { display:grid; grid-template-columns:minmax(0,1fr) 180px 44px; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
 .linhaHorario { display:grid; grid-template-columns:minmax(0,1.1fr) 96px 96px auto minmax(0,1fr) 44px; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
+/* 098: salões combinados (nome, composição, ação) e o grupo de salões ocupando a linha inteira. */
+.linhaCombinado { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
+.linhaInteira { grid-column:1 / -1; }
 .lista > :first-child, .lista > :first-child > :first-child { border-top:0; }
 .bloco { border-top:1px solid var(--border-navy); }
 .bloco > .linhaHorario { border-top:0; }
@@ -76,6 +79,8 @@
 @media(max-width:800px) {
   .opcoes, .campos { grid-template-columns:1fr; }
   .linhaSalao { grid-template-columns:minmax(0,1fr) 110px 44px; }
+  .linhaCombinado { grid-template-columns:1fr; }
+  .linhaCombinado.cabecalho { display:none; }
   .linhaHorario { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .linhaHorario > :first-child { grid-column:1 / -1; }
   .linhaHorario > :nth-child(4), .linhaHorario > :nth-child(5) { grid-column:1 / -1; }

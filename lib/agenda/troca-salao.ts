@@ -1,13 +1,14 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "../comercial/auditoria-comercial.ts";
 import { AgendaConfiguracaoError } from "./configuracao-unidade.ts";
+import { combinadosInstalados } from "./salao-festa.ts";
 
 /**
  * 094 (decisão de Felipe em 22/10/2026): o sistema escolhe o salão da festa (lib/agenda/salao-festa.ts) e a equipe
  * pode trocá-lo depois, na tela da festa, por outro salão ativo do mesmo escopo que o horário e o pacote permitem e
  * que esteja livre no horário da festa (mesma regra de kidmais094_conflito_ocupacao).
  */
-export type OpcaoSalao = { id: string; nome: string; livre: boolean; permitido: boolean };
+export type OpcaoSalao = { id: string; nome: string; livre: boolean; permitido: boolean; combinado?: boolean; membros?: string[] };
 export type SalaoDaFesta = { salaoAtual: { id: string; nome: string } | null; opcoes: OpcaoSalao[]; confirmada: boolean };
 
 const FUNCAO_094 =
@@ -47,10 +48,15 @@ async function festaDaEmpresa(tx: DbExecutor, empresaId: string, fechamentoId: s
   return festa;
 }
 
-/** Salões ativos do escopo da festa: permitido pelo horário e pelo pacote (lista vazia = todos) e livre no horário. */
+/**
+ * Salões ativos do escopo da festa: permitido pelo horário e pelo pacote (lista vazia = todos) e livre no horário.
+ * 098: só elegíveis (combinado com membro inativo sai da lista), com o tipo e os nomes dos membros.
+ */
 async function opcoesDaFesta(tx: DbExecutor, fechamentoId: string) {
+  const v098 = await combinadosInstalados(tx);
   const r = await tx.query<OpcaoSalao>(
     `SELECT s.id::text AS id, s.nome,
+            ${v098 ? "s.combinado, ARRAY(SELECT m.nome FROM agenda_saloes m WHERE m.id = ANY (s.membros) ORDER BY m.ordem, m.nome) AS membros," : ""}
             ((NOT EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = f.configuracao_agenda_id)
               OR EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = f.configuracao_agenda_id AND h.salao_id = s.id))
              AND (NOT EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = f.pacote_id)
@@ -59,11 +65,14 @@ async function opcoesDaFesta(tx: DbExecutor, fechamentoId: string) {
                                              f.estabelecimento_id, f.configuracao_agenda_id, s.id) AS livre
        FROM fechamentos f
        JOIN agenda_saloes s ON s.empresa_id = f.empresa_id AND s.estabelecimento_id IS NOT DISTINCT FROM f.estabelecimento_id AND s.ativo
-      WHERE f.id = $1::uuid
+      WHERE f.id = $1::uuid${v098 ? " AND kidmais098_salao_elegivel(s.id)" : ""}
       ORDER BY s.ordem, s.nome`,
     [fechamentoId],
   );
-  return r.rows.map((o) => ({ id: o.id, nome: o.nome, livre: o.livre === true, permitido: o.permitido === true }));
+  return r.rows.map((o) => ({
+    id: o.id, nome: o.nome, livre: o.livre === true, permitido: o.permitido === true,
+    ...(o.combinado ? { combinado: true, membros: o.membros ?? [] } : {}),
+  }));
 }
 
 function montar(festa: Festa, opcoes: OpcaoSalao[]): SalaoDaFesta {

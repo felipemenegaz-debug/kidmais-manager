@@ -220,17 +220,23 @@ const ESTADO_POSTGRES = {
   // 22/10/2026: o inventário passou a citar as tabelas da 093 (agenda por unidade): modelo 093 (inclui a 092).
   // 22/10/2026 (gate da agenda): modelo 094 — fechamentos.salao_id e fechamento_revisoes.salao_id no retrato.
   // 23/10/2026: com os créditos de IA (095), o inventário inteiro vai até a 095 (inclui 092–094); a compatibilidade sem a
-  // 095 é provada em lib/creditos/creditos-095.postgres.test.ts sobre o modelo 094.
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "095" },
+  // 095 é provada em lib/creditos/creditos-095.postgres.test.ts sobre o modelo 094. Com a 098 (salões, 23/10/2026),
+  // o inventário inteiro vai até a 098 (retrato com combinado e membros).
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
-  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "095" },
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },
   // 22/10/2026: preço por quantidades cheias (092, PONTO), aplicada pela suíte sobre o modelo 089.
   "lib/comercial/precos-por-quantidade-092.postgres.test.ts": { descartavel: "089" },
   // 22/10/2026: agenda por unidade (093, etapa 2a), aplicada pela suíte sobre o modelo 092.
   "lib/agenda/configuracao-unidade-093.postgres.test.ts": { descartavel: "092" },
   // 22/10/2026: capacidade, limite do dia e intervalo na regra de conflito (094, etapa 2b), aplicada pela suíte sobre o modelo 093.
   "lib/agenda/capacidade-094.postgres.test.ts": { descartavel: "093" },
+  // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
+  // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
+  "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097" },
+  // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
+  "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "098" },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

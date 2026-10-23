@@ -4,6 +4,8 @@ import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { agendaPorEscopoInstalada, unidadesDaEmpresa } from "../disponibilidade/escopo.ts";
 import { listarConfiguracoesAgendaAtivas } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { linhaDoTempo, type Trecho } from "./vigencias.ts";
+import { combinadosInstalados } from "./salao-festa.ts";
+import { membrosCanonicos } from "./saloes-conjuntos.ts";
 
 /**
  * Configuração da agenda por unidade (093, etapa 2a das decisões de Felipe em 22/10/2026).
@@ -39,9 +41,26 @@ export type AgendaEscopo = {
     configuradoPor: string | null;
     configuradoEm: string;
   };
+  /** Salões simples ativos (com a 098; sem ela, todos os ativos). */
   saloes: Array<{ id: string; nome: string; capacidadeConvidados: number | null }>;
+  /** 098: salões combinados ativos ("salão inteiro" = A+B), com a composição; vazio sem a 098. */
+  combinados: SalaoCombinado[];
+  /** 098 instalada: a tela oferece criar salões combinados. */
+  combinadosDisponiveis?: boolean;
   horarios: HorarioAgenda[];
 };
+
+export type SalaoCombinado = {
+  id: string;
+  nome: string;
+  capacidadeConvidados: number | null;
+  membros: Array<{ id: string; nome: string; ativo: boolean }>;
+  /** Todos os membros ativos: pode receber festa nova. */
+  elegivel: boolean;
+};
+
+/** D5: ocupação de hoje em diante (São Paulo, kidmais098_hoje) que impede desativar um salão. */
+export type ImpedimentoSalao = { fechamentoId: string; data: string; inicio: string; fim: string; salao: string; remarcacao: boolean };
 
 export type HorarioInformado = {
   id?: string;
@@ -182,13 +201,15 @@ export async function lerAgendaEscopo(db: DbExecutor, empresaId: string, estabel
       WHERE c.empresa_id = $1::uuid AND coalesce(c.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)`,
     [empresaId, estabelecimentoId, SEM_UNIDADE],
   );
+  const v098 = await combinadosInstalados(db);
   const saloes = await db.query<{ id: string; nome: string; capacidade_convidados: number | null }>(
     `SELECT id::text AS id, nome, capacidade_convidados
        FROM agenda_saloes
-      WHERE ativo AND empresa_id = $1::uuid AND coalesce(estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
+      WHERE ativo AND empresa_id = $1::uuid AND coalesce(estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)${v098 ? " AND NOT combinado" : ""}
       ORDER BY ordem, nome`,
     [empresaId, estabelecimentoId, SEM_UNIDADE],
   );
+  const combinados = v098 ? await combinadosDoEscopo(db, empresaId, estabelecimentoId) : [];
   const proprios = await horariosProprios(db, empresaId, estabelecimentoId);
   let horarios: HorarioAgenda[];
   if (proprios.length > 0) {
@@ -218,8 +239,73 @@ export async function lerAgendaEscopo(db: DbExecutor, empresaId: string, estabel
       intervaloMinimoMinutos: Number(c.intervalo_minimo_minutos), configuradoPor: c.configurado_por, configuradoEm: c.configurado_em,
     } : null,
     saloes: saloes.rows.map((s) => ({ id: s.id, nome: s.nome, capacidadeConvidados: s.capacidade_convidados == null ? null : Number(s.capacidade_convidados) })),
+    combinados,
+    combinadosDisponiveis: v098,
     horarios,
   };
+}
+
+/** 098: combinados ativos do escopo, com a composição (membros na ordem dos salões) e a elegibilidade. */
+async function combinadosDoEscopo(db: DbExecutor, empresaId: string, estabelecimentoId: string | null): Promise<SalaoCombinado[]> {
+  const r = await db.query<{ id: string; nome: string; capacidade_convidados: number | null; membros: Array<{ id: string; nome: string; ativo: boolean }> }>(
+    `SELECT c.id::text AS id, c.nome, c.capacidade_convidados,
+            coalesce((SELECT json_agg(json_build_object('id', m.id::text, 'nome', m.nome, 'ativo', m.ativo) ORDER BY m.ordem, m.nome)
+                        FROM agenda_saloes m WHERE m.id = ANY (c.membros)), '[]'::json) AS membros
+       FROM agenda_saloes c
+      WHERE c.combinado AND c.ativo AND c.empresa_id = $1::uuid AND coalesce(c.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
+      ORDER BY c.ordem, c.nome`,
+    [empresaId, estabelecimentoId, SEM_UNIDADE],
+  );
+  return r.rows.map((c) => ({
+    id: c.id, nome: c.nome, capacidadeConvidados: c.capacidade_convidados == null ? null : Number(c.capacidade_convidados),
+    membros: c.membros, elegivel: c.membros.length >= 2 && c.membros.every((m) => m.ativo),
+  }));
+}
+
+/** "Hoje" da agenda: data de São Paulo (kidmais098_hoje), o MESMO corte do gatilho do D5 e do invariante da 098. */
+export async function hojeDaAgenda(db: DbExecutor) {
+  const v098 = await combinadosInstalados(db);
+  const r = await db.query<{ d: string }>(v098
+    ? `SELECT kidmais098_hoje()::text AS d`
+    : `SELECT (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date::text AS d`);
+  return r.rows[0]!.d;
+}
+
+/**
+ * D5 (decisão de Felipe, 23/10/2026): ocupações de hoje em diante (origem e destino de hold, como kidmais094_ocupacoes)
+ * no próprio salão ou num combinado que o contém. Mesmo corte do gatilho da 098 (kidmais098_hoje()).
+ */
+export async function impedimentosDesativacao(db: DbExecutor, salaoIds: string[]): Promise<ImpedimentoSalao[]> {
+  if (salaoIds.length === 0 || !(await combinadosInstalados(db))) return [];
+  const r = await db.query<{ fechamento_id: string; data: string; inicio: string; fim: string; salao: string; origem: string }>(
+    `SELECT o.fechamento_id::text AS fechamento_id, o.data::text AS data, o.horario_inicio::text AS inicio,
+            o.horario_fim::text AS fim, s.nome AS salao, o.origem
+       FROM kidmais094_ocupacoes(kidmais098_hoje(), 'infinity'::date) o
+       JOIN agenda_saloes s ON s.id = o.salao_id
+      WHERE o.salao_id = ANY ($1::uuid[])
+         OR o.salao_id IN (SELECT c.id FROM agenda_saloes c WHERE c.combinado AND c.membros && $1::uuid[])
+      ORDER BY o.data, o.horario_inicio, s.nome`,
+    [salaoIds],
+  );
+  return r.rows.map((l) => ({
+    fechamentoId: l.fechamento_id, data: l.data, inicio: hora(l.inicio), fim: hora(l.fim), salao: l.salao,
+    remarcacao: l.origem === "REVISAO_DESTINO",
+  }));
+}
+
+function mensagemImpedimentos(nome: string, lista: ImpedimentoSalao[]) {
+  const datas = lista.slice(0, 5).map((i) => `${i.data.split("-").reverse().join("/")} ${i.inicio}–${i.fim} (${i.salao}${i.remarcacao ? ", remarcação" : ""})`);
+  const resto = lista.length > 5 ? ` e mais ${lista.length - 5}` : "";
+  return `Não dá para desativar ${nome}: há ${lista.length} festa(s) de hoje em diante usando este salão: ${datas.join("; ")}${resto}. Remarque ou cancele essas festas antes.`;
+}
+
+/** Trava TODOS os salões do escopo, por id, antes de qualquer DML do cadastro (mesma ordem da reserva: id crescente). */
+async function travarSaloesDoEscopo(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null) {
+  await tx.query(
+    `SELECT id FROM agenda_saloes WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+      ORDER BY id FOR NO KEY UPDATE`,
+    [empresaId, estabelecimentoId],
+  );
 }
 
 export async function escopoJaConfigurado(db: DbExecutor, empresaId: string, estabelecimentoId: string | null) {
@@ -398,7 +484,13 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
   validarEntrada(input);
   await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
   await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
+  // 098 (P2-3 da revisão 3): logo depois do lock da configuração e antes de qualquer DML, todos os salões do escopo
+  // (mantidos, omitidos e membros) numa única consulta, em ordem de id — a mesma ordem da reserva.
+  if (await combinadosInstalados(tx)) await travarSaloesDoEscopo(tx, ctx.empresaId, input.estabelecimentoId);
   const antes = await lerAgendaEscopo(tx, ctx.empresaId, input.estabelecimentoId);
+  const nomesCombinados = new Map(antes.combinados.map((c) => [c.nome.trim().toLocaleLowerCase("pt-BR"), c]));
+  const repetido = input.saloes.find((s) => nomesCombinados.has(s.nome.trim().toLocaleLowerCase("pt-BR")));
+  if (repetido) recusar("DADOS_INVALIDOS", `Já existe um salão combinado chamado ${repetido.nome.trim()}. Dê outro nome ao salão.`);
   if (origem === "ASSISTENTE" && antes.config) recusar("AGENDA_JA_CONFIGURADA", "A agenda desta unidade já foi configurada. Altere em Configurações › Agenda.");
 
   // Configuração do escopo.
@@ -435,9 +527,16 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
     idsSalao.set(salao.nome.trim().toLocaleLowerCase("pt-BR"), r.rows[0]!.id);
   }
   const mantidos = [...idsSalao.values()];
-  for (const salao of antes.saloes) {
-    if (!mantidos.includes(salao.id)) await tx.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [salao.id]);
+  const omitidos = antes.saloes.filter((s) => !mantidos.includes(s.id));
+  // D5: salão (ou membro de combinado) com festa de hoje em diante não é desativado; o salvamento inteiro é recusado e
+  // a mensagem lista as festas (o gatilho da 098 é a última barreira, com o mesmo corte de "hoje").
+  for (const salao of omitidos) {
+    const impedimentos = await impedimentosDesativacao(tx, [salao.id]);
+    if (impedimentos.length > 0) recusar("SALAO_COM_FESTAS", mensagemImpedimentos(salao.nome, impedimentos));
   }
+  for (const salao of omitidos) await tx.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [salao.id]);
+  // Combinados ativos podem ser escolhidos nos horários pelo nome (A e B liberados não liberam AB).
+  for (const c of antes.combinados) idsSalao.set(c.nome.trim().toLocaleLowerCase("pt-BR"), c.id);
 
   // Horários fixos.
   const herdados = antes.horarios.every((h) => h.herdado);
@@ -590,6 +689,83 @@ export async function cancelarDesativacao(tx: DbExecutor, ctx: Contexto, horario
   });
 }
 
+export type NovoCombinado = { estabelecimentoId: string | null; nome: string; capacidadeConvidados: number | null; membros: string[] };
+
+/**
+ * 098: cria um salão combinado ("salão inteiro" = A+B). A composição é imutável: para mudar, cria-se outro e desativa-se
+ * o antigo. Ordem de locks do cadastro: agenda-config → todos os salões do escopo por id (FOR NO KEY UPDATE) → INSERT
+ * (o gatilho da 098 trava os membros FOR SHARE, já cobertos, valida e confere de novo no COMMIT).
+ */
+export async function criarSalaoCombinado(tx: DbExecutor, ctx: Contexto, input: NovoCombinado) {
+  const nome = input.nome.trim();
+  if (!nome || nome.length > 80) recusar("DADOS_INVALIDOS", "Dê um nome ao salão combinado.");
+  if (input.capacidadeConvidados != null && (!Number.isInteger(input.capacidadeConvidados) || input.capacidadeConvidados < 1)) {
+    recusar("DADOS_INVALIDOS", "Informe a capacidade em número de convidados.");
+  }
+  const membros = membrosCanonicos(input.membros);
+  if (membros.length < 2) recusar("DADOS_INVALIDOS", "Escolha pelo menos dois salões diferentes para combinar.");
+  if (!(await combinadosInstalados(tx))) recusar("SALOES_COMBINADOS_INDISPONIVEIS", "Salões combinados ainda não estão disponíveis.", 503);
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
+  await travarSaloesDoEscopo(tx, ctx.empresaId, input.estabelecimentoId);
+  const validos = await tx.query<{ id: string; nome: string }>(
+    `SELECT id::text AS id, nome FROM agenda_saloes
+      WHERE id = ANY ($1::uuid[]) AND empresa_id = $2::uuid AND estabelecimento_id IS NOT DISTINCT FROM $3::uuid
+        AND ativo AND NOT combinado ORDER BY ordem, nome`,
+    [membros, ctx.empresaId, input.estabelecimentoId],
+  );
+  if (validos.rows.length !== membros.length) recusar("DADOS_INVALIDOS", "Escolha salões simples e ativos desta unidade.");
+  const mesmoNome = await tx.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM agenda_saloes WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+                     AND lower(btrim(nome)) = lower(btrim($3))) AS ok`,
+    [ctx.empresaId, input.estabelecimentoId, nome],
+  );
+  if (mesmoNome.rows[0]?.ok) recusar("DADOS_INVALIDOS", `Já existe um salão chamado ${nome} nesta unidade.`);
+  const ordem = await tx.query<{ n: number }>(
+    `SELECT coalesce(max(ordem), 0)::int + 1 AS n FROM agenda_saloes WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`,
+    [ctx.empresaId, input.estabelecimentoId],
+  );
+  const criado = await tx.query<{ id: string }>(
+    `INSERT INTO agenda_saloes (empresa_id, estabelecimento_id, nome, capacidade_convidados, ordem, combinado, membros)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, true, $6::uuid[]) RETURNING id::text AS id`,
+    [ctx.empresaId, input.estabelecimentoId, nome, input.capacidadeConvidados, Math.min(Number(ordem.rows[0]?.n ?? 1), 32767), membros],
+  );
+  const id = criado.rows[0]!.id;
+  await auditarMutacaoComercial(tx, {
+    usuarioId: ctx.usuarioId, requestId: ctx.requestId, motivo: "Criar salão combinado",
+    acao: "AGENDA_SALAO_COMBINADO_CRIADO", entidadeTipo: "AGENDA_SALAO", entidadeId: id, empresaId: ctx.empresaId,
+    antes: null, depois: { estabelecimentoId: input.estabelecimentoId, nome, capacidadeConvidados: input.capacidadeConvidados, membros: validos.rows },
+  });
+  return { id, nome, membros: validos.rows };
+}
+
+/**
+ * 098 / D5: desativa um salão (simples ou combinado). Recusa, listando as festas, se ele ou um combinado que o contém
+ * tiver ocupação de hoje em diante (kidmais098_hoje). Mesmos locks do cadastro.
+ */
+export async function desativarSalao(tx: DbExecutor, ctx: Contexto, salaoId: string) {
+  if (!(await combinadosInstalados(tx))) recusar("SALOES_COMBINADOS_INDISPONIVEIS", "Esta ação ainda não está disponível.", 503);
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  const salao = (await tx.query<{ id: string; nome: string; estabelecimento_id: string | null; ativo: boolean; combinado: boolean }>(
+    `SELECT id::text AS id, nome, estabelecimento_id::text AS estabelecimento_id, ativo, combinado FROM agenda_saloes
+      WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    [salaoId, ctx.empresaId],
+  )).rows[0] ?? recusar("NAO_ENCONTRADO", "Salão não encontrado nesta empresa.", 404);
+  await travarSaloesDoEscopo(tx, ctx.empresaId, salao.estabelecimento_id);
+  if (!salao.ativo) return { desativado: true, id: salao.id };
+  const impedimentos = await impedimentosDesativacao(tx, [salao.id]);
+  if (impedimentos.length > 0) {
+    throw Object.assign(new AgendaConfiguracaoError("SALAO_COM_FESTAS", mensagemImpedimentos(salao.nome, impedimentos), 409), { impedimentos });
+  }
+  await tx.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [salao.id]);
+  await auditarMutacaoComercial(tx, {
+    usuarioId: ctx.usuarioId, requestId: ctx.requestId, motivo: salao.combinado ? "Desativar salão combinado" : "Desativar salão",
+    acao: "AGENDA_SALAO_DESATIVADO", entidadeTipo: "AGENDA_SALAO", entidadeId: salao.id, empresaId: ctx.empresaId,
+    antes: { ativo: true }, depois: { ativo: false },
+  });
+  return { desativado: true, id: salao.id };
+}
+
 /** Salões permitidos do pacote (vazio = todos). */
 export async function definirSaloesPacote(tx: DbExecutor, empresaId: string, pacoteId: string, saloes: string[] | undefined) {
   if (saloes === undefined) return;
@@ -611,13 +787,16 @@ export async function definirSaloesPacote(tx: DbExecutor, empresaId: string, pac
 export async function saloesDaEmpresa(db: DbExecutor, empresaId: string) {
   const instalada = await db.query<{ ok: boolean }>(`SELECT to_regclass('public.agenda_saloes') IS NOT NULL AS ok`);
   if (!instalada.rows[0]?.ok) return [];
-  const r = await db.query<{ id: string; nome: string; unidade: string | null }>(
-    `SELECT s.id::text AS id, s.nome, e.nome AS unidade
+  // 098: combinados aparecem com a composição (permissão por identidade: A e B liberados não liberam AB).
+  const v098 = await combinadosInstalados(db);
+  const r = await db.query<{ id: string; nome: string; unidade: string | null; combinado?: boolean; membros?: string[] }>(
+    `SELECT s.id::text AS id, s.nome, e.nome AS unidade${v098 ? `, s.combinado,
+            ARRAY(SELECT m.nome FROM agenda_saloes m WHERE m.id = ANY (s.membros) ORDER BY m.ordem, m.nome) AS membros` : ""}
        FROM agenda_saloes s LEFT JOIN estabelecimentos e ON e.id = s.estabelecimento_id
       WHERE s.empresa_id = $1::uuid AND s.ativo ORDER BY e.nome NULLS FIRST, s.ordem, s.nome`,
     [empresaId],
   );
-  return r.rows;
+  return r.rows.map(({ combinado, membros, ...s }) => (combinado ? { ...s, combinado: true, membros: membros ?? [] } : s));
 }
 
 export async function saloesDoPacote(db: DbExecutor, pacoteId: string) {

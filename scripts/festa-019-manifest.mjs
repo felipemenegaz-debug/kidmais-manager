@@ -29,7 +29,8 @@ SELECT
 //   019 — como instalada pela 019;
 //   061 — 019 com formalização, ocupações e agenda da revisão da 061 (regra explícita da importação histórica);
 //   062 — 061 com destino, contrato, bloqueio e agenda da revisão da 062 (agenda por empresa e unidade);
-//   094 — 062 com destino, contrato e agenda da revisão da 094 (capacidade, limite do dia e intervalo).
+//   094 — 062 com destino, contrato e agenda da revisão da 094 (capacidade, limite do dia e intervalo);
+//   098 — 094 com contrato e agenda da revisão da 098 (invariante de elegibilidade do salão combinado).
 // kidmais019_ocupa, bloquear_contrato, lock_ocupacao e proteger_invalidacao são da 019 nos três. O postcheck da 019
 // continua exigindo exatamente a 019.
 const corpos = (arquivo, nomes) => {
@@ -46,11 +47,14 @@ const de062 = de061.length ? corpos('database/migrations/20261002_062_agenda_emp
 // 094 (22/10/2026): destino, contrato e agenda da revisão passam a chamar kidmais094_conflito_ocupacao (capacidade,
 // limite do dia e intervalo da 093); bloqueio e o resto ficam como na 062.
 const de094 = de062.length ? corpos('database/migrations/20261022_094_agenda_capacidade.sql', ['kidmais019_validar_destino', 'kidmais019_validar_contrato', 'kidmais_validar_agenda_revisao']) : [];
+// 098 (23/10/2026): contrato e agenda da revisão passam a conferir a elegibilidade do salão (salão combinado).
+const de098 = de094.length ? corpos('database/migrations/20261023_098_saloes_combinados.sql', ['kidmais019_validar_contrato', 'kidmais_validar_agenda_revisao']) : [];
 const sobre = (base, novos) => base.map(([n, h]) => novos.find(([x]) => x === n) ?? [n, h]);
 const conjuntos = [['019', functions]];
 if (de061.length) conjuntos.push(['061', sobre(functions, de061)]);
 if (de062.length) conjuntos.push(['062', sobre(sobre(functions, de061), de062)]);
 if (de094.length) conjuntos.push(['094', sobre(sobre(sobre(functions, de061), de062), de094)]);
+if (de098.length) conjuntos.push(['098', sobre(sobre(sobre(sobre(functions, de061), de062), de094), de098)]);
 for (const [, lista] of conjuntos) if (lista.length !== 10) throw Error('Conjunto incompleto');
 const estrito = ` NOT EXISTS(SELECT 1 FROM esperadas e WHERE NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='public' AND p.proname=e.nome AND NOT p.prosecdef

@@ -1,13 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgendaEscopo, EscopoConfiguravel } from '@/lib/agenda/configuracao-unidade';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import {
-  corpoSalvar, DiasChips, EditorSaloes, erroDoForm, formDaAgenda, horarioNovo, INTERVALOS, ler, nomesDosSaloes, SalaoChips,
+  corpoSalvar, DiasChips, EditorSaloes, erroDoForm, formAlterado, formDaAgenda, horarioNovo, INTERVALOS, ler, nomesDosSaloes, SalaoChips,
   type AgendaForm, type HorarioForm,
 } from './AssistenteAgenda';
+import { AVISO_PENDENTE, SaloesCombinados } from './SaloesCombinados';
+
+/** Rodada 3 do Astra (P2-2): ações de horário e troca de unidade também gravam ou recarregam a agenda inteira. */
+const AVISO_PENDENTE_AGENDA = 'Há alterações da agenda ainda não salvas. Salve ou descarte (Cancelar) antes de desativar um horário ou cancelar a desativação.';
+const AVISO_PENDENTE_UNIDADE = 'Há alterações da agenda ainda não salvas. Salve ou descarte (Cancelar) antes de trocar de unidade.';
 import css from './agenda-configuracao.module.css';
 import ws from './workspace.module.css';
 
@@ -96,6 +101,24 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
     }
   }
 
+  /**
+   * Recarrega depois de criar/desativar um combinado SEM descartar rascunho: se o formulário mudou durante a requisição
+   * (não deveria: os controles ficam bloqueados), mantém o que foi digitado e só atualiza a agenda salva e a lista de
+   * combinados escolhíveis. Devolve true quando preservou o rascunho.
+   */
+  async function recarregarPreservando(antes: AgendaForm | null) {
+    setCarregando(true);
+    try {
+      const novos = await buscar(unidadeId);
+      if (formAtual.current === antes) { aplicar(novos); return false; }
+      setDados(novos);
+      setForm((atual) => (atual && novos.agenda ? { ...atual, combinados: novos.agenda.combinados.map((c) => c.nome) } : atual));
+      return true;
+    } finally {
+      setCarregando(false);
+    }
+  }
+
   async function enviar(corpo: object) {
     return (await ler(await adminFetch(URL_AGENDA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }))).data;
   }
@@ -104,6 +127,12 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
   const config = agenda?.config ?? null;
   const leitura = !dados?.gestao;
   const totalFestas = agenda?.horarios.reduce((soma, h) => soma + h.festasFuturas.quantidade, 0) ?? 0;
+  const pendente = Boolean(form && agenda && formAlterado(form, agenda));
+  // Rodada 2 do Astra (P2-2): enquanto grava ou recarrega, nenhum controle da agenda aceita edição (o recarregamento
+  // substituiria o formulário). Defesa em profundidade: o rascunho mais recente fica no ref e é preservado no retorno.
+  const bloqueado = leitura || salvando || carregando;
+  const formAtual = useRef(form);
+  useEffect(() => { formAtual.current = form; }, [form]);
   const mudouRegra = Boolean(form && config && (form.modo !== config.modo || form.capacidadeTipo !== config.capacidadeTipo));
 
   async function salvar(confirmado = false) {
@@ -131,6 +160,8 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
     if (!desativar?.horario.id) return;
     const { horario, data } = desativar;
     setErro('');
+    // Rodada 3 do Astra (P2-2): toda ação que grava e recarrega a agenda exige salvar ou descartar a edição pendente.
+    if (pendente) { setDesativar(null); setErro(AVISO_PENDENTE_AGENDA); return; }
     if (vitrine) { setDesativar(null); setAviso('Prévia: nada foi salvo.'); return; }
     setSalvando(true);
     try {
@@ -151,6 +182,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
     if (!horario.id) return;
     setErro('');
     setAviso('');
+    if (pendente) { setErro(AVISO_PENDENTE_AGENDA); return; }
     if (vitrine) { setAviso('Prévia: nada foi salvo.'); return; }
     setSalvando(true);
     try {
@@ -159,6 +191,48 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
       setAviso(`A desativação de ${horario.nome} foi cancelada.`);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Não foi possível cancelar a desativação.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // 098: salões combinados (criar e desativar). A desativação com festas de hoje em diante é recusada pelo servidor (D5),
+  // que lista as festas na mensagem.
+  async function criarCombinado(dados: { nome: string; capacidadeConvidados: number | null; membros: string[] }) {
+    if (!agenda) return false;
+    setErro('');
+    setAviso('');
+    // P2-2: gravar e recarregar descartaria a edição pendente; exige salvar ou descartar antes.
+    if (pendente) { setErro(AVISO_PENDENTE); return false; }
+    if (vitrine) { setAviso('Prévia: nada foi salvo.'); return false; }
+    const antes = form;
+    setSalvando(true);
+    try {
+      await enviar({ acao: 'criar_combinado', estabelecimentoId: agenda.escopo.estabelecimentoId, ...dados });
+      const mantido = await recarregarPreservando(antes);
+      setAviso(`${dados.nome} criado. Escolha-o nos pacotes e horários em que ele pode ser reservado.${mantido ? ' Suas alterações ainda não salvas foram mantidas.' : ''}`);
+      return true;
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Não foi possível criar o salão combinado.');
+      return false;
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function desativarSalao(salao: { id: string; nome: string }) {
+    setErro('');
+    setAviso('');
+    if (pendente) { setErro(AVISO_PENDENTE); return; }
+    if (vitrine) { setAviso('Prévia: nada foi salvo.'); return; }
+    const antes = form;
+    setSalvando(true);
+    try {
+      await enviar({ acao: 'desativar_salao', salaoId: salao.id });
+      const mantido = await recarregarPreservando(antes);
+      setAviso(`${salao.nome} foi desativado.${mantido ? ' Suas alterações ainda não salvas foram mantidas.' : ''}`);
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Não foi possível desativar o salão.');
     } finally {
       setSalvando(false);
     }
@@ -180,7 +254,8 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
         <p className={css.subtitulo}>Vale para a agenda, os orçamentos, o site e o Wall-e.</p>
       </div>
       {dados && dados.escopos.length > 1 && <label className={css.unidade}>Unidade
-        <select value={unidadeId} disabled={carregando || salvando} onChange={(e) => { setUnidadeId(e.target.value); setAviso(''); setErro(''); void recarregar(e.target.value); }}>
+        <select value={unidadeId} disabled={carregando || salvando || pendente} title={pendente ? AVISO_PENDENTE_UNIDADE : undefined}
+          onChange={(e) => { if (pendente) { setErro(AVISO_PENDENTE_UNIDADE); return; } setUnidadeId(e.target.value); setAviso(''); setErro(''); void recarregar(e.target.value); }}>
           {dados.escopos.map((e) => <option key={e.estabelecimentoId ?? ''} value={e.estabelecimentoId ?? ''}>{e.nome}{e.configurado ? '' : ' (não configurada)'}</option>)}
         </select>
       </label>}
@@ -192,13 +267,14 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
       {aviso && <p role="status" className={ws.notice}>{aviso}</p>}
       {dados && !dados.instalada && <p role="status" className={ws.notice}>A configuração da agenda ainda não está disponível neste ambiente.</p>}
       {dados?.instalada && leitura && <p role="status" className={ws.notice}>Só quem tem Gestão pode alterar a agenda.</p>}
+      {dados?.instalada && !leitura && pendente && <p role="status" className={ws.notice} data-aviso-pendente-agenda>Há alterações não salvas. Salve ou descarte (Cancelar) antes de desativar horários, criar ou desativar salões combinados ou trocar de unidade.</p>}
 
       {dados?.instalada && form && agenda && <>
         <section className={ws.card} aria-labelledby="agenda-modo">
           <h2 id="agenda-modo">1. Modo da agenda</h2>
           <div className={css.opcoes}>
-            <Opcao ativo={form.modo === 'FIXO'} titulo="Horários fixos" texto="O buffet cadastra os horários" disabled={leitura} onClick={() => setForm({ ...form, modo: 'FIXO' })} />
-            <Opcao ativo={form.modo === 'LIVRE'} titulo="Horário livre" texto="O cliente escolhe a hora de início" disabled={leitura} onClick={() => setForm({ ...form, modo: 'LIVRE' })} />
+            <Opcao ativo={form.modo === 'FIXO'} titulo="Horários fixos" texto="O buffet cadastra os horários" disabled={bloqueado} onClick={() => setForm({ ...form, modo: 'FIXO' })} />
+            <Opcao ativo={form.modo === 'LIVRE'} titulo="Horário livre" texto="O cliente escolhe a hora de início" disabled={bloqueado} onClick={() => setForm({ ...form, modo: 'LIVRE' })} />
           </div>
           {form.modo === 'LIVRE' && <p className={css.fraco} data-aviso-modo-livre>Qualquer hora de início é aceita. O sistema confere o limite do dia, o intervalo entre festas e a capacidade.{form.capacidadeTipo === 'POR_HORARIO' ? ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda: um horário livre que se sobreponha a elas fica indisponível, mesmo com capacidade sobrando.' : ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda.'}</p>}
         </section>
@@ -206,15 +282,15 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
         <section className={ws.card} aria-labelledby="agenda-capacidade">
           <h2 id="agenda-capacidade">2. Capacidade</h2>
           <div className={css.opcoes}>
-            <Opcao ativo={form.capacidadeTipo === 'POR_HORARIO'} titulo="Por horário" texto="Número de festas ao mesmo tempo" disabled={leitura} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_HORARIO' })} />
-            <Opcao ativo={form.capacidadeTipo === 'POR_SALAO'} titulo="Por salão" texto="Uma festa por salão por vez" disabled={leitura} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_SALAO' })} />
+            <Opcao ativo={form.capacidadeTipo === 'POR_HORARIO'} titulo="Por horário" texto="Número de festas ao mesmo tempo" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_HORARIO' })} />
+            <Opcao ativo={form.capacidadeTipo === 'POR_SALAO'} titulo="Por salão" texto="Uma festa por salão por vez" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_SALAO' })} />
           </div>
           <div className={css.campos}>
             <label>Limite de festas por dia
-              <input inputMode="numeric" placeholder="Sem limite" value={form.limite} disabled={leitura} onChange={(e) => setForm({ ...form, limite: e.target.value })} />
+              <input inputMode="numeric" placeholder="Sem limite" value={form.limite} disabled={bloqueado} onChange={(e) => setForm({ ...form, limite: e.target.value })} />
             </label>
             <label>Intervalo mínimo entre festas
-              <select value={form.intervalo} disabled={leitura} onChange={(e) => setForm({ ...form, intervalo: e.target.value })}>
+              <select value={form.intervalo} disabled={bloqueado} onChange={(e) => setForm({ ...form, intervalo: e.target.value })}>
                 {intervalos.map((m) => <option key={m} value={String(m)}>{m} min</option>)}
               </select>
             </label>
@@ -222,7 +298,9 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
           {form.capacidadeTipo === 'POR_SALAO' && <p className={css.fraco} data-aviso-sem-salao>{AVISO_SEM_SALAO}</p>}
           {form.capacidadeTipo === 'POR_SALAO' && <>
             <h3>Salões</h3>
-            <EditorSaloes form={form} onChange={setForm} disabled={leitura} />
+            <EditorSaloes form={form} onChange={setForm} disabled={bloqueado} />
+            {agenda.combinadosDisponiveis && <SaloesCombinados agenda={agenda} leitura={leitura} ocupado={salvando || carregando}
+              pendenteSalvar={pendente} onCriar={criarCombinado} onDesativar={desativarSalao} />}
           </>}
         </section>
 
@@ -242,20 +320,20 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
               return <div key={h.chave} className={css.bloco} role="rowgroup">
                 <div className={css.linhaHorario} role="row">
                   <label className={css.nomeTravado}>{trava && <Cadeado />}<span className={ws.srOnly}>Nome do horário</span>
-                    <input placeholder="Nome" value={h.nome} maxLength={80} disabled={leitura} onChange={(e) => alterarHorario(i, { nome: e.target.value })} /></label>
-                  <label><span className={ws.srOnly}>Início de {h.nome || 'este horário'}</span><input type="time" value={h.inicio} disabled={leitura || trava} onChange={(e) => alterarHorario(i, { inicio: e.target.value })} /></label>
-                  <label><span className={ws.srOnly}>Fim de {h.nome || 'este horário'}</span><input type="time" value={h.fim} disabled={leitura || trava} onChange={(e) => alterarHorario(i, { fim: e.target.value })} /></label>
-                  <DiasChips dias={h.dias} rotulo={h.nome} disabled={leitura || trava} onChange={(dias) => alterarHorario(i, { dias })} />
+                    <input placeholder="Nome" value={h.nome} maxLength={80} disabled={bloqueado} onChange={(e) => alterarHorario(i, { nome: e.target.value })} /></label>
+                  <label><span className={ws.srOnly}>Início de {h.nome || 'este horário'}</span><input type="time" value={h.inicio} disabled={bloqueado || trava} onChange={(e) => alterarHorario(i, { inicio: e.target.value })} /></label>
+                  <label><span className={ws.srOnly}>Fim de {h.nome || 'este horário'}</span><input type="time" value={h.fim} disabled={bloqueado || trava} onChange={(e) => alterarHorario(i, { fim: e.target.value })} /></label>
+                  <DiasChips dias={h.dias} rotulo={h.nome} disabled={bloqueado || trava} onChange={(dias) => alterarHorario(i, { dias })} />
                   {form.capacidadeTipo === 'POR_SALAO'
-                    ? <SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} disabled={leitura} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} />
-                    : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><input inputMode="numeric" value={h.capacidade} disabled={leitura} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
+                    ? <SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} disabled={bloqueado} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} />
+                    : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><input inputMode="numeric" value={h.capacidade} disabled={bloqueado} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
                   {!leitura && !(futuras && futuras.quantidade > 0)
-                    ? <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
+                    ? <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} disabled={bloqueado} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
                     : <span />}
                 </div>
                 {desativadoEm && <div className={css.desativado}>
                   <span className={`${ws.badge} ${css.badgeAviso}`}>Desativado a partir de {diaMes(desativadoEm)}</span>
-                  {!leitura && desativadoEm > hojeIso && <button type="button" className={ws.textButton} disabled={salvando} onClick={() => void cancelarDesativacao(h)}>Cancelar desativação</button>}
+                  {!leitura && desativadoEm > hojeIso && <button type="button" className={ws.textButton} disabled={salvando || pendente} onClick={() => void cancelarDesativacao(h)}>Cancelar desativação</button>}
                 </div>}
                 {trava && !desativadoEm && futuras && <div className={css.aviso} role="note">
                   <strong>Não dá para editar o horário {h.nome}</strong>
@@ -264,13 +342,13 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
                     <label>Desativar a partir de
                       <input type="date" min={minimo} value={data} onChange={(e) => setDatas({ ...datas, [h.chave]: e.target.value })} />
                     </label>
-                    <button type="button" disabled={!data || data < minimo || salvando} onClick={() => setDesativar({ horario: h, data })}>Desativar a partir desta data</button>
+                    <button type="button" disabled={!data || data < minimo || salvando || pendente} onClick={() => setDesativar({ horario: h, data })}>Desativar a partir desta data</button>
                   </div>}
                 </div>}
               </div>;
             })}
           </div>}
-          {!leitura && <div className={css.acoes}><button type="button" onClick={() => setForm({ ...form, horarios: [...form.horarios, horarioNovo(form)] })}>+ Adicionar horário</button></div>}
+          {!leitura && <div className={css.acoes}><button type="button" disabled={bloqueado} onClick={() => setForm({ ...form, horarios: [...form.horarios, horarioNovo(form)] })}>+ Adicionar horário</button></div>}
         </section>}
 
         {!leitura && (confirmarTroca

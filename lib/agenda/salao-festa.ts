@@ -6,6 +6,9 @@ import type { DbExecutor } from "../db/contracts.ts";
  * Pareceres do Astra (P1): sem salão elegível livre, a festa NÃO pode ocupar a agenda (quem chama recusa), e o salão
  * já gravado nunca é aceito sem revalidar; a remarcação valida o salão contra o DESTINO.
  * Chamar com os locks da data já adquiridos e ANTES da conferência de conflito.
+ * 098 (salão combinado): candidato só se ELEGÍVEL (ativo e, se combinado, com todos os membros ativos) e permitido por
+ * identidade no horário e no pacote (A e B liberados não liberam AB); o conflito é por interseção de salões (função
+ * da 094 com a regra da 098). A trava dos salões fica na validação diferida do banco, por último e em ordem de id.
  */
 export type EscolhaSalao = { exigido: boolean; salao: string | null };
 
@@ -30,10 +33,11 @@ async function instalada(tx: DbExecutor) {
 
 /** Primeiro salão elegível e livre para o alvo, preferindo o atual; null quando não há nenhum. */
 async function salaoElegivelLivre(tx: DbExecutor, alvo: Alvo): Promise<string | null> {
+  const elegivel = (await combinadosInstalados(tx)) ? "AND kidmais098_salao_elegivel(s.id)" : "";
   const r = await tx.query<{ id: string }>(
     `SELECT s.id::text AS id
        FROM agenda_saloes s
-      WHERE s.ativo AND s.empresa_id = $6::uuid AND s.estabelecimento_id IS NOT DISTINCT FROM $7::uuid
+      WHERE s.ativo AND s.empresa_id = $6::uuid AND s.estabelecimento_id IS NOT DISTINCT FROM $7::uuid ${elegivel}
         AND (NOT EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = $5::uuid)
              OR EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = $5::uuid AND h.salao_id = s.id))
         AND (NOT EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = $8::uuid)
@@ -46,7 +50,13 @@ async function salaoElegivelLivre(tx: DbExecutor, alvo: Alvo): Promise<string | 
   return r.rows[0]?.id ?? null;
 }
 
-const POR_SALAO = `EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = f.empresa_id
+/** 098 instalada (salão combinado e elegibilidade). */
+export async function combinadosInstalados(tx: DbExecutor) {
+  const r = await tx.query<{ ok: boolean }>(`SELECT to_regprocedure('public.kidmais098_salao_elegivel(uuid)') IS NOT NULL AS ok`);
+  return r.rows[0]?.ok === true;
+}
+
+const POR_SALAO =`EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = f.empresa_id
                      AND c.estabelecimento_id IS NOT DISTINCT FROM f.estabelecimento_id AND c.capacidade_tipo = 'POR_SALAO')`;
 
 export async function escolherSalaoDaFesta(tx: DbExecutor, fechamentoId: string): Promise<string | null> {

@@ -10,7 +10,8 @@ import ws from './workspace.module.css';
 /** Formulário da agenda (tela e assistente): texto como digitado; o servidor valida de novo (salvarAgendaEscopo). */
 export type SalaoForm = { chave: string; id?: string; nome: string; capacidade: string };
 export type HorarioForm = { chave: string; id?: string; nome: string; inicio: string; fim: string; dias: number[]; capacidade: string; saloes: string[]; original?: HorarioAgenda };
-export type AgendaForm = { modo: Modo; capacidadeTipo: CapacidadeTipo; limite: string; intervalo: string; saloes: SalaoForm[]; horarios: HorarioForm[] };
+/** combinados: nomes dos salões combinados ativos (098), escolhíveis nos horários; não são editados neste formulário. */
+export type AgendaForm = { modo: Modo; capacidadeTipo: CapacidadeTipo; limite: string; intervalo: string; saloes: SalaoForm[]; horarios: HorarioForm[]; combinados?: string[] };
 
 export const DIAS = [
   { n: 1, letra: 'S', nome: 'Seg' }, { n: 2, letra: 'T', nome: 'Ter' }, { n: 3, letra: 'Q', nome: 'Qua' }, { n: 4, letra: 'Q', nome: 'Qui' },
@@ -31,7 +32,7 @@ export async function ler(response: Response) {
 
 export function formDaAgenda(agenda: AgendaEscopo): AgendaForm {
   const c = agenda.config;
-  const nomeDoSalao = new Map(agenda.saloes.map((s) => [s.id, s.nome]));
+  const nomeDoSalao = new Map([...agenda.saloes, ...(agenda.combinados ?? [])].map((s) => [s.id, s.nome]));
   return {
     modo: c?.modo ?? 'FIXO',
     capacidadeTipo: c?.capacidadeTipo ?? (agenda.saloes.length > 1 ? 'POR_SALAO' : 'POR_HORARIO'),
@@ -42,10 +43,12 @@ export function formDaAgenda(agenda: AgendaEscopo): AgendaForm {
       chave: h.id, id: h.id, nome: h.nome, inicio: h.inicio.slice(0, 5), fim: h.fim.slice(0, 5), dias: [...h.dias].sort((a, b) => a - b),
       capacidade: String(h.capacidade), saloes: h.saloes.map((id) => nomeDoSalao.get(id) ?? id), original: h,
     })),
+    combinados: (agenda.combinados ?? []).map((c) => c.nome),
   };
 }
 
-export const nomesDosSaloes = (form: AgendaForm) => form.saloes.map((s) => s.nome.trim()).filter(Boolean);
+/** Salões escolhíveis nos horários: os simples do formulário e os combinados ativos (098; A e B não liberam AB). */
+export const nomesDosSaloes = (form: AgendaForm) => [...form.saloes.map((s) => s.nome.trim()).filter(Boolean), ...(form.combinados ?? [])];
 
 /** Renomear um salão leva junto a escolha dos horários (eles guardam o nome até salvar). */
 export function renomearSalao(form: AgendaForm, indice: number, nome: string): AgendaForm {
@@ -97,7 +100,7 @@ export const erroDoForm = (form: AgendaForm) => erroDosSaloes(form) ?? erroDosHo
 
 export function corpoSalvar(form: AgendaForm, estabelecimentoId: string | null, origem: 'ASSISTENTE' | 'CONFIGURACOES') {
   const saloes = form.saloes.filter((s) => s.nome.trim());
-  const existentes = new Set(saloes.map((s) => s.nome.trim()));
+  const existentes = new Set([...saloes.map((s) => s.nome.trim()), ...(form.combinados ?? [])]);
   return {
     acao: 'salvar',
     origem,
@@ -120,6 +123,26 @@ export function corpoSalvar(form: AgendaForm, estabelecimentoId: string | null, 
       };
     }),
   };
+}
+
+/**
+ * Retrato do que está DIGITADO no formulário (texto como está, linhas incompletas incluídas): nada é convertido nem
+ * filtrado, para que "abc" numa capacidade ou um salão sem nome contem como alteração (rodada 2 do Astra, P2-2).
+ */
+function retratoDoForm(f: AgendaForm) {
+  return JSON.stringify({
+    modo: f.modo, capacidadeTipo: f.capacidadeTipo, limite: f.limite, intervalo: f.intervalo,
+    saloes: f.saloes.map((s) => [s.id ?? null, s.nome, s.capacidade]),
+    horarios: f.horarios.map((h) => [h.id ?? null, h.nome, h.inicio, h.fim, [...h.dias].sort((a, b) => a - b), h.capacidade, [...h.saloes].sort()]),
+  });
+}
+
+/**
+ * Há alteração não salva quando o texto do formulário difere do formulário montado da agenda salva (qualquer campo,
+ * inclusive valor inválido ou linha incompleta). Usado para não descartar edições ao criar/desativar um combinado.
+ */
+export function formAlterado(form: AgendaForm, agenda: AgendaEscopo) {
+  return retratoDoForm(form) !== retratoDoForm(formDaAgenda(agenda));
 }
 
 export function textoDias(dias: number[]) {

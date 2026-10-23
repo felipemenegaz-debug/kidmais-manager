@@ -59,7 +59,10 @@ export type RegraCapacidadeAgenda = {
   intervaloMinimoMinutos: number;
   capacidadePorHorario: Record<string, number>;
   saloesPorHorario: Record<string, string[]>;
+  /** Salões candidatos do escopo: com a 098, só os elegíveis (ativos e, se combinados, com todos os membros ativos). */
   saloesDoEscopo: string[];
+  /** 098: conjunto de salões simples de cada salão do escopo (combinado = membros). Ausente = cada salão é ele mesmo. */
+  conjuntos?: Record<string, string[]>;
 };
 
 export type OcupacaoConfirmadaRecord = {

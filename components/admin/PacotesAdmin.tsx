@@ -10,6 +10,7 @@ import { formatarDuracao, juntarDuracao, separarDuracao } from '@/lib/comercial/
 import { AjudaCampo } from './AjudaCampo';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import { ConfirmarPrecosPacote } from './ConfirmarPrecosPacote';
+import { AVISO_COMBINADO } from './SaloesCombinados';
 import { erroDosPontos, PrecosPorQuantidade, pontosDaTela, valorDigitado, type PontoForm } from './PrecosPorQuantidade';
 import type { PontoPreco } from '@/lib/comercial/modelo-preco';
 
@@ -26,7 +27,8 @@ type Pacote = {
 };
 
 type Horario = { id: string; nome: string; inicio: string; fim: string; dias?: number[] | null };
-type Salao = { id: string; nome: string; unidade: string | null };
+/** 098: combinado = "salão inteiro" (membros pelo nome). A e B liberados não liberam o combinado. */
+type Salao = { id: string; nome: string; unidade: string | null; combinado?: boolean; membros?: string[] };
 type Categoria = { id: string; nome: string };
 type ItemBuffet = { id: string; nome: string; categoria_id: string | null };
 type FaixaForm = { convidadosMin: string; convidadosMax: string; valor: string };
@@ -451,8 +453,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             {saloes.length > 0 && <>
               <p className={styles.intro}>Salões permitidos <span className={styles.muted}>· nenhum marcado = todos</span></p>
               <div className={styles.dias} role="group" aria-label="Salões permitidos">
-                {saloes.map((salao) => <button key={salao.id} type="button" aria-pressed={saloesEscolhidos.includes(salao.id)} onClick={() => setSaloesEscolhidos((atual) => atual.includes(salao.id) ? atual.filter((id) => id !== salao.id) : [...atual, salao.id])}>{salao.nome}{salao.unidade ? ` (${salao.unidade})` : ''}</button>)}
+                {saloes.map((salao) => <button key={salao.id} type="button" aria-pressed={saloesEscolhidos.includes(salao.id)} onClick={() => setSaloesEscolhidos((atual) => atual.includes(salao.id) ? atual.filter((id) => id !== salao.id) : [...atual, salao.id])}>{salao.nome}{salao.combinado && salao.membros?.length ? ` = ${salao.membros.join(' + ')}` : ''}{salao.unidade ? ` (${salao.unidade})` : ''}</button>)}
               </div>
+              {saloes.some((s) => s.combinado) && <p className={styles.muted} data-aviso-combinado>{AVISO_COMBINADO}</p>}
             </>}
           </section>
           <section className={styles.card}>

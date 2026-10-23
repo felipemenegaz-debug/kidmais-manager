@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   agendaConfiguravelInstalada,
   cancelarDesativacao,
+  criarSalaoCombinado,
   desativarHorarioAPartirDe,
+  desativarSalao,
   escopoJaConfigurado,
   escoposDaEmpresa,
   lerAgendaEscopo,
@@ -44,7 +46,16 @@ const salvar = z.object({
 }).strict();
 const desativar = z.object({ acao: z.literal("desativar"), horarioId: uuid, aPartirDe: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict();
 const cancelar = z.object({ acao: z.literal("cancelar_desativacao"), horarioId: uuid }).strict();
-const corpo = z.discriminatedUnion("acao", [salvar, desativar, cancelar]);
+// 098: salão combinado ("salão inteiro") e desativação de salão (D5: recusada com festas de hoje em diante).
+const criarCombinado = z.object({
+  acao: z.literal("criar_combinado"),
+  estabelecimentoId: uuid.nullable(),
+  nome: z.string().trim().min(1).max(80),
+  capacidadeConvidados: z.number().int().positive().max(10000).nullable(),
+  membros: z.array(uuid).min(2).max(30),
+}).strict();
+const desativarSalaoCorpo = z.object({ acao: z.literal("desativar_salao"), salaoId: uuid }).strict();
+const corpo = z.discriminatedUnion("acao", [salvar, desativar, cancelar, criarCombinado, desativarSalaoCorpo]);
 
 const GESTAO = "Apenas quem tem Gestão pode alterar a agenda.";
 
@@ -90,6 +101,12 @@ export async function POST(request: NextRequest) {
       }
       exigirGestaoNoTenant(tenant, GESTAO);
       if (input.acao === "desativar") return desativarHorarioAPartirDe(tx, ctx, input.horarioId, input.aPartirDe);
+      if (input.acao === "criar_combinado") {
+        const { acao: _acao, ...dados } = input;
+        void _acao;
+        return criarSalaoCombinado(tx, ctx, dados);
+      }
+      if (input.acao === "desativar_salao") return desativarSalao(tx, ctx, input.salaoId);
       await cancelarDesativacao(tx, ctx, input.horarioId);
       return { cancelado: true };
     });

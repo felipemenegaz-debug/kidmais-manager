@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as utils from "../disponibilidade/services/horario.utils.ts";
 import * as erros from "../disponibilidade/services/errors.ts";
+import * as conjuntos from "./saloes-conjuntos.ts";
 import { transpilar } from "../disponibilidade/services/duracao-pacote-livre.test-apoio.ts";
 import { mensagemLacuna } from "../comercial/pacote-precos.ts";
 
@@ -36,6 +37,7 @@ function servico(o: { com094: boolean; conflito?: boolean; bloqueios?: unknown[]
     },
     "./errors.ts": erros,
     "./horario.utils.ts": utils,
+    "../../agenda/saloes-conjuntos.ts": conjuntos,
   }) as unknown as { intervaloSemConflito: (d: string, i: string, f: string, tx: unknown, fid: string, cfg?: string | null) => Promise<boolean> };
   return { m, tx, consultas };
 }
