@@ -148,9 +148,18 @@ async function principal() {
       assert.equal(await page.getByRole('link', { name: 'Configurações → Pacotes', exact: true }).getAttribute('href'), '/admin/configuracoes/pacotes');
       const texto = await page.locator('main').innerText();
       for (const nome of ['Kidmais Pocket', 'Mini Festa Kidmais', 'Pizza Party Scienza', '-15% Dia útil']) assert.ok(!texto.includes(nome), nome);
+      // "Ver tela do cliente": o endereço público do buffet novo, nunca o da Kidmais.
+      const codigoNova = (await client.query('SELECT codigo FROM empresas WHERE id=$1', [NOVA])).rows[0].codigo;
+      assert.equal(await page.getByRole('link', { name: 'Ver tela do cliente →', exact: true }).getAttribute('href'), `/b/${codigoNova}/disponibilidade`);
       await page.screenshot({ path: path.join(relatorios, 'buffet-novo.png'), fullPage: true });
+      // PDF de pacotes: vazio, sem o documento da instalação nem o envio.
+      await page.goto(`${base}/admin/configuracoes/tabela-pacotes`);
+      await page.getByRole('heading', { name: 'Nenhuma tabela publicada', exact: true }).waitFor();
+      assert.equal(await page.locator('input[type=file]').count(), 0);
+      assert.equal(await page.locator('a[href^="/api/fechamentos/tabela-pacotes"]').count(), 0);
+      await page.screenshot({ path: path.join(relatorios, 'buffet-novo-pdf.png'), fullPage: true });
       await contexto.close();
-      resultados.push('Buffet novo: seletor "Nenhum pacote criado" (desabilitado), aviso com link para Configurações → Pacotes, nenhum nome do catálogo Kidmais na tela');
+      resultados.push('Buffet novo: seletor "Nenhum pacote criado" (desabilitado), aviso com link para Configurações → Pacotes, nenhum nome do catálogo Kidmais na tela; "Ver tela do cliente" no /b/ do buffet; PDF de pacotes vazio, sem envio');
       console.log('E2E_DISPONIBILIDADE_NOVA_OK');
     }
     {
@@ -347,9 +356,12 @@ async function principal() {
       const { contexto, page } = await entrar('gestao-dona-ui@exemplo.test');
       const { opcoes } = await seletorDePacote(page);
       assert.deepEqual(opcoes, ['Kidmais Pocket', 'Mini Festa Kidmais', 'Festa Compacta', 'Festa Essencial', 'Festa Completa', 'Festa Premium', 'Pizza Party Scienza']);
+      assert.equal(await page.getByRole('link', { name: 'Ver tela do cliente →', exact: true }).getAttribute('href'), '/disponibilidade');
       await page.screenshot({ path: path.join(relatorios, 'dona-da-agenda.png'), fullPage: true });
+      await page.goto(`${base}/admin/configuracoes/tabela-pacotes`);
+      await page.locator('input[type=file]').waitFor({ state: 'attached' });
       await contexto.close();
-      resultados.push('Dona da agenda pública: os sete pacotes do catálogo legado, como antes');
+      resultados.push('Dona da agenda pública: os sete pacotes do catálogo legado, como antes; "Ver tela do cliente" no endereço atual; PDF de pacotes com envio');
       console.log('E2E_DISPONIBILIDADE_DONA_OK');
     }
     fs.writeFileSync(path.join(relatorios, 'resultados.txt'), `${resultados.join('\n')}\n`);

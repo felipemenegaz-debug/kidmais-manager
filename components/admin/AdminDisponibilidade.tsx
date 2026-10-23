@@ -67,6 +67,8 @@ type AdminPayload = DisponibilidadeConfig & {
   regrasPacotes?: Record<string, RegraPacoteEmpresa[]> | null;
   /** Pacotes que a empresa ativa realmente tem (empresa nova = []); null/ausente = dona da agenda pública (catálogo legado). */
   pacotes?: Array<{ id: string; nome: string }> | null;
+  /** Endereço público da empresa ativa ("Ver tela do cliente"); null = sem endereço público. */
+  telaDoCliente?: string | null;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
 };
@@ -104,6 +106,8 @@ export default function AdminDisponibilidade() {
   const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
   const [regrasPacotes, setRegrasPacotes] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
   const [pacotesEmpresa, setPacotesEmpresa] = useState<Array<{ id: string; nome: string }> | null>(null);
+  // Só depois da carga: antes dela o link não aponta para o endereço de outra empresa (nem para o da Kidmais).
+  const [telaDoCliente, setTelaDoCliente] = useState<string | null>(null);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
@@ -185,6 +189,7 @@ export default function AdminDisponibilidade() {
       configuracaoComercial: admin.configuracaoComercial !== false,
       regrasPacotes: admin.regrasPacotes ?? null,
       pacotes: admin.regrasPacotes ? (admin.pacotes ?? []) : null,
+      telaDoCliente: admin.telaDoCliente ?? null,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -240,6 +245,7 @@ export default function AdminDisponibilidade() {
       setConfiguracaoComercial(dados.configuracaoComercial);
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
+      setTelaDoCliente(dados.telaDoCliente);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -272,6 +278,7 @@ export default function AdminDisponibilidade() {
         setConfiguracaoComercial(dados.configuracaoComercial);
         setRegrasPacotes(dados.regrasPacotes);
         aplicarPacotesEmpresa(dados.pacotes);
+        setTelaDoCliente(dados.telaDoCliente);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -562,7 +569,7 @@ export default function AdminDisponibilidade() {
           </p>
         )}
 
-        <div className={styles.contentActions}><a className={styles.clientView} href="/disponibilidade">Ver tela do cliente →</a></div>
+        {telaDoCliente && <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>}
 
         <section className={styles.layout}>
           <div className={styles.calendarPanel}>

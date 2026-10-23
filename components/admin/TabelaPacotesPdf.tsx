@@ -9,8 +9,10 @@ type Atual = { nome: string; publicadoEm: string } | null;
 export default function TabelaPacotesPdf() {
   const [atual,setAtual]=useState<Atual>(null),[arquivo,setArquivo]=useState<File|null>(null);
   const [erro,setErro]=useState(''),[mensagem,setMensagem]=useState(''),[enviando,setEnviando]=useState(false);
+  // null = carregando; false = empresa que não é a dona da agenda pública (o PDF publicado é da instalação).
+  const [daInstalacao,setDaInstalacao]=useState<boolean|null>(null);
   useEffect(()=>{adminFetch('/api/admin/configuracoes/tabela-pacotes').then(r=>r.json()).then(b=>{
-    if(!b.ok)throw Error(b.erro);setAtual(b.data);
+    if(!b.ok)throw Error(b.erro);setAtual(b.data);setDaInstalacao(b.daInstalacao!==false);
   }).catch(e=>setErro(e instanceof Error?e.message:'Não foi possível carregar a tabela.'));},[]);
   async function enviar(e:React.FormEvent<HTMLFormElement>){
     e.preventDefault();if(!arquivo)return;
@@ -27,10 +29,12 @@ export default function TabelaPacotesPdf() {
   return <main className={styles.page}><VoltarConfiguracoes /><h1>PDF de Pacotes</h1>
     <p>O cliente poderá abrir o PDF durante o Fechamento. Sempre haverá no máximo uma tabela publicada.</p>
     <p role="alert">{erro}</p><p role="status">{mensagem}</p>
-    {atual?<section className={styles.card}><h2>Tabela atual</h2><p>{atual.nome} · Publicada em {new Date(atual.publicadoEm).toLocaleString('pt-BR')}</p>
+    {daInstalacao===false?<section className={styles.card}><h2>Nenhuma tabela publicada</h2>
+      <p>Esta empresa ainda não tem PDF de pacotes. O envio do PDF próprio da empresa ainda não está disponível; enquanto isso, os clientes veem os pacotes e preços cadastrados.</p></section>:
+    daInstalacao===null?null:atual?<section className={styles.card}><h2>Tabela atual</h2><p>{atual.nome} · Publicada em {new Date(atual.publicadoEm).toLocaleString('pt-BR')}</p>
       <p className={styles.linksPdf}><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Abrir PDF em nova aba</a><a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF para abrir no seu leitor</a></p>
       <p>Se o visualizador ficar em branco, baixe o arquivo e abra no leitor de PDF do seu dispositivo.</p>
     </section>:<p>Nenhuma tabela publicada.</p>}
-    <form onSubmit={enviar}><label>Substituir por PDF<input type="file" accept="application/pdf,.pdf" required onChange={e=>setArquivo(e.target.files?.[0]??null)}/></label><p>Até 10 MB. A tabela atual permanece disponível se o envio falhar.</p><AdminPrimaryButton type="submit" carregando={enviando} disabled={!arquivo}>Publicar tabela</AdminPrimaryButton></form>
+    {daInstalacao&&<form onSubmit={enviar}><label>Substituir por PDF<input type="file" accept="application/pdf,.pdf" required onChange={e=>setArquivo(e.target.files?.[0]??null)}/></label><p>Até 10 MB. A tabela atual permanece disponível se o envio falhar.</p><AdminPrimaryButton type="submit" carregando={enviando} disabled={!arquivo}>Publicar tabela</AdminPrimaryButton></form>}
   </main>;
 }
