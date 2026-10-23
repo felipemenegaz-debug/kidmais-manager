@@ -210,6 +210,44 @@ Para cada linha:
 Outros pedidos fora da tela (por e-mail) seguem o mesmo cálculo. Hoje eles não geram protocolo automático: usar a tela
 pela Gestão, ou registrar no atendimento.
 
+### 5.1 Arrependimento pela ferramenta (097, grupo C de 23/10/2026; LOCAL, não aplicada)
+
+O fluxo acima (089) só cobre o arrependimento **elegível** pela regra comercial (primeira ativação paga, 7 dias) e com o
+Asaas configurado. Para todos os outros casos, a área Assinatura tem a seção **“Desistir da contratação (direito de
+arrependimento)”** (`components/admin/ArrependimentoLegal.tsx`):
+
+- a Gestão marca a confirmação, digita a senha e recebe o protocolo **KA-…** na hora, com e-mail de confirmação;
+- vale **independentemente** da garantia comercial, da situação (TESTE, ATIVA, EM_ATRASO, CANCELADA_FIM_PERIODO, ENCERRADA)
+  e da disponibilidade do Asaas: o registro **não chama o provedor**;
+- a equipe recebe o aviso interno `[AÇÃO HOJE]` (só protocolo, hora e dois informativos: dentro de 7 dias da última
+  contratação confirmada e provedor configurado — nenhum dos dois decide);
+- sem a 097 no ambiente, a seção indica o canal oficial (`contato@demerzellabs.com.br`; o pedido vale a partir do envio).
+
+**Acompanhamento pelo atendimento** (painel do desenvolvedor → situação comercial da empresa → “Arrependimento (direito
+legal)”, com senha recente, motivo e auditoria):
+
+1. **Comunicar o intermediador** de imediato (no painel do Asaas: remover a renovação e pedir o estorno, se houver
+   cobrança) e registrar a referência → “Registrar comunicação ao intermediador”.
+2. **Concluir:**
+   - **Restituído** (exige a comunicação já registrada, o valor e a referência do estorno): encerra o período pago na hora
+     (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60 dias, com exportação);
+   - **Não se aplica** (exige justificativa, enviada ao cliente pelo atendimento): não muda o acesso.
+3. Responder ao cliente pelo canal oficial, citando o protocolo.
+
+Cada etapa é registrada uma vez só (guarda da 097). A conferência D-C4 alarma toda manifestação ainda **RECEBIDA** depois
+de 1 hora (`ARREPENDIMENTO_PENDENTE`, resultado `SEM_COMUNICACAO` ou `SEM_CONCLUSAO`), sem protocolo nem empresa no alarme.
+
+**Premissas assumidas (decisão de Felipe pendente de confirmação):** o acesso só fecha na conclusão com restituição (não no
+registro); os informativos de prazo e provedor não bloqueiam nada; o alarme de 1 hora é o "imediato" operacional.
+
+Fila (somente leitura, com autorização de leitura no ambiente):
+
+```sql
+SELECT protocolo, canal, to_char(solicitado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS pedido,
+       situacao_assinatura, dentro_de_7_dias, provedor_disponivel, intermediador_comunicado_em IS NOT NULL AS comunicado
+  FROM assinatura_arrependimentos WHERE situacao = 'RECEBIDO' ORDER BY solicitado_em;
+```
+
 **Aviso interno (P2-3, rodada 2):** cada pedido (devolução ou cancelamento) envia na hora um e-mail ao canal da plataforma
 (`SITE_ATENDIMENTO_EMAIL`, o mesmo endereço validado da tela de suporte), pelo transporte do app, só com protocolo, tipo,
 valor, meio de pagamento, prazo e situação no provedor — sem nome da empresa, pessoa, e-mail, documento ou ids. Assunto
