@@ -137,7 +137,7 @@ Ordem: código com flags off → `--conferir-095` → backup/PITR → `--aplicar
 Aplicadores `scripts/migration-095-{comum,staging,production}.cjs` e blocos `scripts/bloco-shell-095.cjs` derivados dos da
 089 (gerador `creditos-gerar-aplicador-095.cjs` no workspace, mesmas trocas conferidas e hashes calculados dos SQL LF).
 
-Hashes (LF, depois da correção do parecer R6 de 23/10; os mesmos fixados nos aplicadores): migration `00db4fa0…aa6653e`,
+Hashes (LF, depois dos P3 do parecer R7 de 23/10; os mesmos fixados nos aplicadores): migration `f6e03075…376cb4f61`,
 precheck `470f3b13…9a6438`, postcheck `8b33991e…296f9c`, rollback `da0c65da…160507`.
 
 **Rollback:** preferir desligar as flags e manter o processamento de pagamentos/devoluções. O SQL de rollback recusa com
@@ -351,6 +351,23 @@ preservado com valor divergente e retido até a decisão; coluna imutável); su�
 E2E agora repete a navegação só em `net::ERR_ABORTED` (até 3 vezes) e precisou de `.next/dev` limpo depois do build da
 regressão estática (o servidor de desenvolvimento respondia 404 com o cache misto); mutações W1–W5 **5/5**
 (`creditos-mutacoes-r12.txt`).
+
+**Rodada 10 (23/10): parecer R7 do Astra — APROVADO COM RESSALVAS** (R6-P2-1 fechado; sem P1/P2).
+`revisao-creditos-ia-20261022/PARECER-DELTA-095-R7.md` (sha256 `8c683f09…`). Os dois P3:
+
+- **R7-P3-1 (diagnóstico secundário sumia):** coluna nova `ia_credito_cobrancas.retencao_motivo` (só
+  `ESTORNO_EXTERNO_PARCIAL`) guarda a retenção à espera do operador; `revisao_motivo` volta a ser só o último diagnóstico
+  (o CASE do R6 saiu). A liberação de reservas retém pela coluna nova; LIBERAR/CANCELAR limpam só a retenção, e o
+  diagnóstico (ex.: VALOR_DIVERGENTE) continua visível. O item `ESTORNO_EXTERNO_PARCIAL` da fila traz o diagnóstico no
+  motivo; o painel do desenvolvedor lista a retenção. Coluna excluída da exportação (pendência interna).
+- **R7-P3-2 (perda invisível antes da liberação):** `perda_definitiva_em` passa a ser **exportada** (retrato atualizado):
+  a decisão aparece no pacote mesmo antes de a liberação gerar o REVERSAO no extrato.
+
+Validação da rodada: unitários 40/40; PG dos créditos 13/13, aplicador, exportação (retrato com `perda_definitiva_em`) e
+adversarial PASS; suíte PG completa 126/129 na rodada inteira — `pacotes-1c` (a mesma do staging puro) e duas suítes de
+tempo fora deste delta (`transacao-com-prazo`, `pacotes-v1-remediacao`: "statement timeout"), que **passaram sozinhas**
+em todos os estados (`creditos-pg-r33-reexec.log`); `check:v1:static` EXIT 0; aplicadores/blocos 21/21; PTY 9/0;
+Playwright 9/9; mutações X1–X4 **4/4** (`creditos-mutacoes-r13.txt`; X4 pela suíte de exportação).
 
 Cluster PostgreSQL 18 descartável: `127.0.0.1:55667`, `cluster_name=kidmais_descartavel`, diretório
 `ambientes-locais/pg-descartavel-creditos-20261022`, bancos `kidmais_pacotes_v1_*`/`kidmais_v1_modelo_*`; identidade provada
