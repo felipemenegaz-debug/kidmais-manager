@@ -3,14 +3,13 @@ import Image from 'next/image';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { configuracaoSite, ROTA_SITE, type ConfiguracaoSite } from '@/lib/site/configuracao';
 import { comercial } from '@/lib/site/catalogo';
-import { abas, type AbaId } from '@/lib/site/abas';
 import { fonteTexto, fonteTitulo } from './fonte';
 import { cx } from './estilos';
 import { Cadastro, Contato } from './elementos';
-import Abas from './Abas';
+import RecursosGaleria from './RecursosGaleria';
+import NavegacaoSite from './NavegacaoSite';
 import FundoFesta from './FundoFesta';
 import Planos from './Planos';
-import { TelaIlustrativa } from './telas';
 import { AgendaSaloes, AntesDepois, ComoFunciona, Confianca, Convite, Diferenciais, Duvidas, FinanceiroDetalhes, Hero, ImportacaoDocumentos, Marketing, WallE } from './secoes';
 
 function Marca({ href }: { href: string }) {
@@ -31,16 +30,12 @@ export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: b
     const config = configuracaoSite();
     const aberto = situacaoCadastro().ativo;
     const prefixo = somentePlanos ? ROTA_SITE : '';
-    const telas = Object.fromEntries((Object.keys(abas) as AbaId[]).map(id => [id, <TelaIlustrativa key={id} aba={id} />])) as Record<AbaId, ReactNode>;
     return <div className={`${cx('site')} ${fonteTitulo.variable} ${fonteTexto.variable}`} data-site-venda>
         <a href="#topo" className={cx('btn', 'skip')}>Ir para o conteúdo</a>
         <div className={cx('founder-bar')}><div className={cx('wrap')}><span><strong>Plano Fundador:</strong> {comercial.fundador.descontoPercentual}% de desconto por {comercial.fundador.meses} meses para os {comercial.fundador.vagas} primeiros buffets.</span><a href="#fundador">Quero uma vaga →</a></div></div>
-        <header className={cx('header')}><div className={cx('wrap')}><Marca href={`${prefixo}#topo`} /><nav className={cx('nav')} aria-label="Principal">
-            <a href={`${prefixo}#diferenciais`}>Diferenciais</a><a href={`${prefixo}#recursos`}>Recursos</a><a href={`${prefixo}#saloes`}>Agenda</a><a href={`${prefixo}#financeiro`}>Financeiro</a><a href={`${prefixo}#importacao`}>Importação</a><a href={`${prefixo}#marketing`}>Marketing</a><a href={`${prefixo}#wall-e`}>Wall-e</a><a href={`${prefixo}#convite`}>Convite</a><a href="#planos">Planos</a><a href={`${prefixo}#duvidas`}>Dúvidas</a><a className={cx('login')} href="/admin/login">Entrar</a>
-            {aberto && <a className={cx('btn', 'btn-primary', 'btn-sm')} href="/cadastro">Testar grátis</a>}
-        </nav></div></header>
+        <NavegacaoSite prefixo={prefixo} aberto={aberto}><Marca href={`${prefixo}#topo`} /></NavegacaoSite>
         <main id="topo" data-planos={somentePlanos || undefined}>
-            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos iA.Fest</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Diferenciais /></SecaoAnimada><SecaoAnimada><Abas telas={telas} /></SecaoAnimada><SecaoAnimada><ImportacaoDocumentos /></SecaoAnimada><SecaoAnimada><FinanceiroDetalhes /></SecaoAnimada><SecaoAnimada><AgendaSaloes /></SecaoAnimada><SecaoAnimada><Marketing /></SecaoAnimada><SecaoAnimada><WallE /></SecaoAnimada><SecaoAnimada><Convite /></SecaoAnimada><SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
+            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos iA.Fest</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Diferenciais /></SecaoAnimada><SecaoAnimada><RecursosGaleria /></SecaoAnimada><SecaoAnimada><ImportacaoDocumentos /></SecaoAnimada><SecaoAnimada><FinanceiroDetalhes /></SecaoAnimada><SecaoAnimada><AgendaSaloes /></SecaoAnimada><SecaoAnimada><Marketing /></SecaoAnimada><SecaoAnimada><WallE /></SecaoAnimada><SecaoAnimada><Convite /></SecaoAnimada><SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
             {somentePlanos ? <Planos publicado={config.precosPublicados} aberto={aberto} contato={config} /> : <SecaoAnimada><Planos publicado={config.precosPublicados} aberto={aberto} contato={config} /></SecaoAnimada>}
             {!somentePlanos && <><SecaoAnimada><Duvidas config={config} /></SecaoAnimada><SecaoAnimada><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} /></div></div>
                 <div className={cx('panel', 'contactPanel')}><h3>Conheça o iA.Fest</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
