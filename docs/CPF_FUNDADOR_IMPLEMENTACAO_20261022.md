@@ -1388,3 +1388,42 @@ Astra. Local, sem push.
   - **logs:** `…-relatorios/integracao-p2i1-20261023/`; cluster removido.
 - **Escopo:** é código da frente de agenda/pacotes, corrigido aqui a pedido de Felipe. A branch dessa frente, se continuar
   ativa, precisa receber a mesma correção, ou será sobrescrita no merge.
+
+### Atualização da integração com o staging `c3e0a36` (23/10/2026, autorizada por Felipe; sem push, PR ou deploy)
+
+Revisão de `92885ac` (P2-I1): **APROVADO LOCAL** pelo Astra, sem novos achados. Felipe autorizou o passo seguinte: buscar
+o staging atual, refazer o merge e validar.
+
+- **`fetch`:** staging `ab0a3d6` → **`c3e0a36`**, 7 commits novos:
+  - #218, ajustes da agenda: IA, assistente, importar documentos e preços;
+  - #219, atalhos para importar contrato de festa;
+  - ampliação do cabeçalho do site.
+- **Migrations e dependências:** nenhuma migration nova; dependências iguais.
+- **Merge `b4f32c5`** (pais `92885ac` e `c3e0a36`): automático, **sem conflitos**. O `Site.tsx` mantém as propriedades
+  `fundador`/`cpf` desta frente.
+
+**Validação (`b4f32c5`):**
+- `check:v1:static`: **PASS** (3596 testes, lint, TypeScript e build).
+- **Bateria PG completa:** **134/134 arquivos**, 785 testes, 781 pass, 0 falhas, 4 pulados de propósito. Relatório
+  `…-relatorios/2026-10-23T12-30-24-326Z-check-v1-postgres.log`.
+- **E2E:** devolução 5 cenários, cadastro 8/8, CPF/Fundador 8/8. CPF/Fundador recusou a primeira execução com
+  `E2E_PORTA_WEB_OCUPADA` (servidor do E2E anterior ainda encerrando: ambiente) e passou na repetição.
+- **Testes de scripts por arquivo:** as mesmas falhas já classificadas.
+  - `email-producao-20261020` (8): causada por esta frente (hash de `erros.ts`), sem atualização mecânica;
+  - `concorrencia-vagas-isolado` e `navegador-local-seed`: preexistentes no staging;
+  - `festa-016-reparo-encoding`, `festa-navegacao-manual` e `ux-contratos-perfil`: roteiros com pré-requisitos próprios.
+
+  `bloco-shell-migracoes-producao-20261019` passou nesta rodada.
+- **Logs:** `…-relatorios/integracao-c3e0a36-20261023/`. Cluster removido.
+
+**Decisões de Felipe (23/10):**
+- ele atende os alarmes do arrependimento;
+- identidade: **iA.Fest**, desenvolvido pela **Demerzel Labs**, CNPJ previsto para algumas semanas.
+
+Os textos legais seguem "Kidmais Manager" com nota de transição até a versão com a identidade completa.
+
+**Próximo, com autorização:**
+1. Push da branch `codex/integracao-cpf-textos-arrependimento-20261023` e PR para `staging` (o remote `github` tem push
+   desativado; reativar só com o OK). Rodar antes os passos do CI.
+2. Depois do merge e do deploy em staging, aplicar 090 → 091 → 096 → 097 com os aplicadores e backup, flags desligadas.
+3. Criar o cron do vigia em `aguardando` e passá-lo a `conferir` depois da 097.
