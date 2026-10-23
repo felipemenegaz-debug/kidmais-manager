@@ -790,3 +790,34 @@ Branch nova `codex/textos-pf-comprovante-20261022`, criada a partir de `a984f5d`
 - rotinas de retenção;
 - envio do comprovante por e-mail em produção;
 - prazo de retorno do atendimento no pagamento tardio.
+
+### Décima terceira rodada: revisão de `a984f5d..00cecac` (grupo B)
+
+A revisão do Astra **REPROVOU** o grupo B, com três P2 e dois P3 (relatório em `revisao-textos-pf-comprovante-00cecac-20261023/RELATORIO.md`). O merge, os textos e a síntese foram considerados coerentes. Correções em `0c5c417`:
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-B1: o comprovante gravava as versões vigentes, não as mostradas na síntese | O pedido leva as versões e impressões digitais da síntese. Com a 096, se diferirem das vigentes (aba antiga, pedido sem documentos, hash adulterado), a resposta é `DOCUMENTOS_ATUALIZADOS`, sem oferta, e a tela recarrega. O comprovante grava as versões confirmadas e distingue **aceite** (Termos, e o Acordo, que os integra) de **ciência** (Aviso). A retomada da oferta já aceita não reconfirma nem cria comprovante. | 096 caso 7; Playwright confere `documentos` no pedido |
+| P2-B2: aceites antigos sem texto recuperável | Catálogo das versões **publicadas** (8, todas ancestrais da base `326895e`), reconstruído do Git com o módulo de cada commit (`scripts/gerar-documentos-legais-historico.mjs` → `lib/cadastro/documentos-legais-historico.ts`, reprodutível). Ele é importado no arquivo com o SHA-256 conferido pelo banco. As versões passam a ser arquivadas já na **apresentação** do pedido de cadastro. Sem banco, a página de versões usa o catálogo. Versão sem prova de texto continua 404, como lacuna explícita; o aceite antigo nunca é trocado. Versões locais da v2, nunca publicadas, ficam fora. | 096 caso 7 (cada versão do catálogo recuperada com o hash); unitários do catálogo (hashes de 20/10 conferidos) |
+| P2-B3: a prestadora era relida do código atual | Coluna `prestadora` na 096 (imutável pela guarda), gravada no registro e lida dele na tela, na impressão e no e-mail. | 096 caso 7: identidade antiga gravada, código com outra |
+| P3-B1: o postcheck aceitava `CHECK (true)` com o mesmo nome | Confere relação, tipo e definição do CHECK do hash, da FK e do CHECK do envio, além da coluna `prestadora`. | 096 caso 7 |
+| P3-B2: `constructor` e `__proto__` davam erro 500 | `Object.hasOwn`. | unitário da página (5 nomes → 404) |
+
+Mutações: sem a conferência dos documentos confirmados, o caso 7 falha; lendo a prestadora do código, o caso 7 falha.
+
+**Validação:**
+- Unitários 432/432, scripts 76/76, blocos 30/30.
+- PG descartável 55607, 220 execuções verdes:
+  - 096: 7/7;
+  - aplicadores reais 090, 091 e 096: 1/1;
+  - 091, 090, cobrança, gratuidade, painel comercial, exportação, painel 063, devolução 089, e8, cadastro 069.
+  - Cluster removido.
+- Playwright 8/8 e 8/8.
+- `check:v1:static`: PASS (3303 + 103).
+
+**Notas da revisão mantidas como pendência:**
+- antes de ligar a cópia por e-mail, os links precisam ser absolutos;
+- a síntese pode ficar mais autossuficiente (limites do plano, meios de pagamento);
+- o caminho legado de checkout segue sem síntese nem comprovante;
+- histórico de comprovantes e acesso após suspensão, no procedimento de direitos;
+- a preservação do aplicador compara um subconjunto de colunas, não uma fotografia integral.
