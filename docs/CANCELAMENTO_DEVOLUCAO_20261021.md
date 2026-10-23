@@ -232,7 +232,10 @@ legal)”, com senha recente, motivo e auditoria):
    - **Restituído** (exige a comunicação já registrada, o valor e a referência do estorno): encerra o período pago na hora
      (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60 dias, com exportação);
    - **Não se aplica** (exige justificativa, enviada ao cliente pelo atendimento): não muda o acesso.
-3. Responder ao cliente pelo canal oficial, citando o protocolo.
+3. Responder ao cliente pelo canal oficial, citando o protocolo (o sistema não avisa o contratante na conclusão).
+
+O sistema registra a comunicação e a conclusão, mas não as executa: remoção da renovação e estorno são feitos à mão no
+painel do Asaas, e o valor e a referência da restituição são **declarados** pelo atendimento (não conferidos no Asaas).
 
 Cada etapa é registrada uma vez só (guarda da 097). A conferência D-C4 alarma toda manifestação ainda **RECEBIDA** depois
 de 1 hora (`ARREPENDIMENTO_PENDENTE`, resultado `SEM_COMUNICACAO` ou `SEM_CONCLUSAO`), sem protocolo nem empresa no alarme.

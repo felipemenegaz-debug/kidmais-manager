@@ -844,3 +844,133 @@ A revisão do Astra aprovou localmente os três P2 e o P3-B2. O P3-B1 ficou **pa
 - PG descartável 55607: 096 7/7 e aplicadores reais 1/1. Cluster removido.
 - `check:v1:static`: PASS (3304 + 103).
 - Não repetidos nesta rodada (o delta não toca neles): Playwright e suítes PG vizinhas.
+
+### Décima quinta rodada: grupo C (arrependimento pela ferramenta, 097, e Termos conciliados)
+
+Branch nova `codex/arrependimento-l1-20261023`, criada a partir de `8f6edc4` (grupo B aprovado). Pedido de Felipe (23/10):
+arrependimento pela mesma ferramenta da devolução L1, com protocolo e restituição mesmo fora da regra comercial ou com o
+Asaas fora, e o texto da v2 conciliado. Local, sem publicar.
+
+**O que já existia (089) e o que faltava.** A L1 só oferece o arrependimento **elegível** (primeira ativação paga, 7 dias)
+e só com o provedor configurado. Fora disso, a tela não tinha caminho, e os Termos diziam “controle ainda não implementado”.
+
+**Migration 097 — `assinatura_arrependimentos`** (só cria uma tabela; nenhuma linha existente muda):
+- protocolo `KA-AAAAMMDD-XXXXXXXX` (formato próprio, distinto do `KM-` da 089), chave de idempotência por empresa;
+- canal `FERRAMENTA` (tela) ou `ATENDIMENTO` (pedido recebido pelo canal oficial);
+- situação da assinatura no registro e dois **informativos** que não decidem nada: dentro de 7 dias da última contratação
+  confirmada, provedor configurado;
+- acompanhamento: comunicação ao intermediador (data e referência), conclusão `RESTITUIDO` (valor e referência; exige a
+  comunicação) ou `NAO_APLICAVEL` (justificativa), situação do e-mail de confirmação e do aviso interno;
+- guarda: núcleo imutável, cada etapa registrada uma vez, nasce `RECEBIDO`, sem DELETE; o down recusa com dados;
+- postcheck por **igualdade exata** com a forma canônica do PG 18 de todas as 18 restrições (exceto NOT NULL), mais
+  índices e gatilho. Testes negativos: `OR true` na conclusão, restrição a mais e restrição a menos são recusados.
+
+**Serviço (`lib/assinatura/arrependimento.ts`) e rota (`/api/admin/assinatura/arrependimento`):**
+- só a Gestão, com senha confirmada há até 5 minutos e confirmação explícita; idempotente pela chave;
+- **nunca chama o provedor** e não depende de elegibilidade: qualquer assinatura existente aceita o registro;
+- devolve o protocolo na hora; e-mail de confirmação à Gestão e aviso interno `[AÇÃO HOJE]` (só protocolo, hora e
+  informativos) depois do COMMIT, por melhor esforço: falha fica registrada e não desfaz o pedido;
+- sem a 097 no ambiente: a tela mostra o canal oficial (o pedido vale a partir do envio) e o registro responde
+  `ARREPENDIMENTO_INDISPONIVEL` (503) com o mesmo canal.
+
+**Tela.** Seção “Desistir da contratação (direito de arrependimento)” na área Assinatura, depois do encerramento com
+devolução: formulário com motivo opcional, confirmação marcada e senha; protocolo e aviso do e-mail na hora; lista dos
+pedidos anteriores com a situação e o valor restituído.
+
+**Atendimento (painel do desenvolvedor).** Operações `arrependimento-comunicar` e `arrependimento-concluir` na situação
+comercial da empresa, com senha recente, motivo e auditoria (`COMERCIAL_ARREPENDIMENTO_COMUNICADO` /
+`COMERCIAL_ARREPENDIMENTO_CONCLUIDO`).
+
+**As quatro etapas, separadas (o que o sistema faz em cada uma):**
+
+| Etapa | Quem | O que o sistema faz | O que o sistema NÃO faz |
+|---|---|---|---|
+| 1. Registro da manifestação | Gestão, na tela (ou atendimento, por SQL autorizado, canal `ATENDIMENTO`) | Grava com protocolo `KA-` na hora, independentemente da garantia de 7 dias, da situação da assinatura e do provedor; e-mail de confirmação; aviso interno; auditoria `ARREPENDIMENTO_REGISTRADO` | Não chama o Asaas, não muda o acesso, não calcula valor |
+| 2. Comunicação ao intermediador | Atendimento, no painel do Asaas e depois no painel do desenvolvedor | Registra data e referência da comunicação (uma vez) | Não executa a comunicação: remoção da renovação e pedido de estorno são feitos à mão no painel do Asaas |
+| 3. Conclusão do atendimento | Atendimento, no painel do desenvolvedor | `RESTITUIDO` (exige a etapa 2, valor e referência): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; 60 dias de somente leitura). `NAO_APLICAVEL` (justificativa): não muda o acesso | Não envia e-mail ao contratante sobre a conclusão (a resposta é pelo canal oficial, à mão) |
+| 4. Reembolso efetivo | Asaas e meio de pagamento | Nada: o valor e a referência registrados na etapa 3 são **declarados** pelo atendimento | Não confere o estorno no Asaas nem acompanha o crédito na conta/fatura do contratante |
+
+A D-C4 alarma toda manifestação ainda `RECEBIDO` depois de 1 hora (`ARREPENDIMENTO_PENDENTE`, `SEM_COMUNICACAO` ou
+`SEM_CONCLUSAO`, motivo = canal; sem protocolo nem empresa no alarme).
+
+**Como o contratante acessa e conserva o próprio registro:**
+
+| Meio | Estado |
+|---|---|
+| Protocolo e hora na tela, logo após o registro | Implementado (E2E D) |
+| E-mail de confirmação com protocolo e hora (Brasília) | Implementado, por melhor esforço; a situação (`ENVIADO`/`FALHOU`/`SEM_DESTINATARIO`) fica registrada e a tela avisa quando não saiu |
+| Lista dos pedidos, com situação e valor restituído, na área Assinatura | Implementado, só para a Gestão; o componente aparece sempre que há assinatura. Com a assinatura ENCERRADA (somente leitura) a exibição **não foi verificada por E2E** |
+| Pacote de exportação da empresa (`empresa/assinatura_arrependimentos.csv`) | Implementado nesta rodada: entidade condicional à 097. Com a 097, entra no pacote (sem chave, aviso interno e quem do atendimento concluiu); sem ela, aparece em `entidadesAusentes` com o motivo. A exportação já é permitida à Gestão de empresa SUSPENSA (regra anterior) |
+| Aviso ao contratante quando o atendimento conclui | **Pendente** (hoje, resposta manual pelo canal oficial) |
+| Comprovante próprio da manifestação (página para salvar/imprimir) | **Pendente**; o e-mail e a lista fazem esse papel |
+| Acesso depois do fim do somente leitura (BLOQUEADO) ou com a empresa desativada | **Não verificado nesta rodada**; sem garantia de acesso pela tela. Caminho: pedido pelo canal oficial, citando o protocolo |
+| Pessoa da Equipe (não Gestão) | Não vê a seção (só a Gestão contrata e desiste) |
+
+**Exportação: decisão revista.** Na primeira tentativa a tabela entrou no inventário do pacote e a bateria PG recusou,
+porque o inventário é conferido no schema 089, em que a 097 não existe. Movê-la para `FORA_DO_ESCOPO` explicaria o teste
+mas tiraria do contratante a cópia do próprio pedido. Ficou assim: o tipo `Entidade` ganhou `migracao` (aqui `'097'`); o
+gerador já registrava tabela ausente em `entidadesAusentes` (“migration não aplicada”). As suítes do schema 089 aceitam a
+ausência **só** dessas entidades e exigem o motivo no manifesto. A suíte da 097 prova, com a tabela instalada, a FK
+`empresa_id → empresa_assinaturas`, as 18 colunas exportadas, as linhas da empresa e a ausência de dados de outra empresa
+e de quem do atendimento concluiu.
+
+**Textos (Termos `2026-10-23-minuta3`).** Os dois marcadores de controle da seção de cancelamento foram substituídos por
+texto real: cancelamento e devolução na área Assinatura com protocolo e confirmação imediatos; anual proporcional pedido na
+mesma área; arrependimento em “Desistir da contratação” mesmo sem a devolução automática (fora da garantia ou com o provedor
+indisponível), válido a partir do registro, com protocolo; canal oficial se não houver acesso; comunicação ao intermediador
+e restituição imediatas. Marcadores restantes: Termos 12, Aviso 17, Acordo 9. Diagnóstico de lacunas regenerado.
+Observação: o texto promete comunicação e restituição “de imediato”; o sistema garante o registro e o alarme de 1 hora, e a
+execução no Asaas é manual (etapas 2 e 4 da tabela).
+
+**Aplicadores 097** (comum, staging, produção), derivados dos da 096: REFERENCES em `empresa_assinaturas` e
+`usuarios_administrativos`, sem exigir dono de tabela existente; prova de preservação das assinaturas; blocos de Shell;
+097 no verificador de migrations, no teste de produção e na seleção PG. Ordem: código → conferir → autorização →
+aplicar → conferir (sem a 097, a tela indica o canal oficial).
+
+**Premissas assumidas (confirmar com Felipe):**
+- o acesso fecha na conclusão com restituição, não no registro (o registro vale como manifestação; a restituição é o
+  efeito econômico);
+- os informativos de prazo e provedor não bloqueiam;
+- o “imediato” operacional é o alarme de 1 hora da D-C4;
+- pedidos recebidos pelo canal oficial podem ser lançados como `ATENDIMENTO` por SQL autorizado (não há tela para isso).
+
+**Validação (23/10/2026, cluster descartável 127.0.0.1:55607, PG 18):**
+- **Bateria PG completa** (HEAD `e18f843`): 113 de 115 arquivos OK; 698 testes, 692 pass, **2 fail**, 4 skips.
+  - As 2 falhas: `exportacao-adversarial` e `exportacao` (inventário conferido no schema 089, em que a 097 não existe).
+    Classificação: **falha de produto/inventário**, não do ambiente.
+  - Os 4 skips são preexistentes e de propósito: `contratacao-e8` no modelo `atual` (estado sem 074a/075, em que a trava
+    comercial é no-op).
+  - Relatório: `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/2026-10-23T04-42-31-192Z-check-v1-postgres.log`.
+- **Depois da correção** (HEAD `122db5c`): `arrependimento-097` 9/9, `exportacao-adversarial` 6/6, `exportacao` 3/3; aplicadores
+  reais 090/091/096/097 1/1 (HEAD `a3a510a`, sem mudança depois).
+- **E2E `assinatura-devolucao-ui`** (5 cenários): A arrependimento em 7 dias (089); B anual proporcional; C mensal com
+  cancelamento ao fim do período; **D (097)**: sem a 097, a seção mostra o canal oficial com `mailto:`; com a 097, a empresa C
+  (mensal, fora da garantia, já cancelada) registra com senha, recebe `KA-…` na hora, sem chamada ao dublê do Asaas, com
+  e-mail à Gestão e aviso interno, e a lista mostra o protocolo depois de recarregar; **isolamento**: a mesma Gestão na
+  empresa B não vê o protocolo de C, nem na tela nem na API; celular 390 px sem rolagem horizontal.
+- E2E vizinhos (versão dos Termos mudou): `cpf-fundador-ui` 8/8, `cadastro-publico-ui` 8/8.
+- **Mutações** (cópia isolada por `git clone` local do HEAD `122db5c`, `node_modules` por junção; o checkout não foi
+  tocado; controle original PASS antes e depois):
+
+  | Mutação | Alteração | Detectada por |
+  |---|---|---|
+  | m1 | conclusão `RESTITUIDO` sem exigir a comunicação | caso 6 |
+  | m2 | `RESTITUIDO` não encerra o acesso | caso 6 |
+  | m3 | sem idempotência pela chave | caso 3 (e 5/6 em cascata) |
+  | m4 | guarda deixa o motivo mutável | caso 5 |
+  | m5 | postcheck sem a conferência das definições | caso 2 |
+  | m6 | alarme D-C4 com 100 h em vez de 1 h | caso 7 |
+  | m7 | exportação da 097 sem linhas (filtro `false`) | caso 8 |
+- Unitários do serviço 7/7; aplicadores 097 13/13; blocos de Shell 090/091/096/097 e aplicadores 096/097: 66/66;
+  `production.test` 37/37; textos 14/14.
+- `check:v1:static` sobre `122db5c`: PASS (3414 testes, lint, TypeScript e build).
+
+**Continua pendente:**
+- identidade da Kidmais (razão social, CNPJ, endereço), hoje marcador;
+- aplicação da 097 (staging/produção) e anúncio do registro pela tela: só com autorização, depois de conferir o aviso
+  interno (`SITE_ATENDIMENTO_EMAIL`) e a D-C4 no ambiente;
+- aviso ao contratante na conclusão e comprovante próprio da manifestação;
+- conferência do estorno no Asaas (hoje valor e referência são declarados pelo atendimento);
+- registro pelo atendimento de pedidos recebidos por e-mail (hoje só por SQL autorizado);
+- acesso do contratante ao registro depois do somente leitura (BLOQUEADO) ou com a empresa desativada: não verificado;
+- Perfil PF, promessas dos pilotos, retenção e e-mail do comprovante (grupos anteriores).
