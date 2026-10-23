@@ -223,6 +223,9 @@ CREATE TABLE ia_credito_cobrancas (
   atualizada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   -- R4-P2-1: última leitura do provedor pela reconciliação/webhook (cursor da varredura justa dos creditados).
   conferida_em timestamptz,
+  -- R6-P2-1: perda definitiva do remanescente (CANCELAR do operador, estorno total externo, disputa perdida). Estado
+  -- próprio, gravado uma vez e nunca apagado — independente do diagnóstico transitório em revisao_motivo.
+  perda_definitiva_em timestamptz,
   FOREIGN KEY (pedido_id, empresa_id) REFERENCES ia_credito_pedidos(id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_empresa_uk UNIQUE (id, empresa_id),
   CONSTRAINT ia_credito_cobrancas_pedido_cobranca_uk UNIQUE (id, empresa_id, pedido_id),
@@ -421,6 +424,9 @@ BEGIN
         RAISE EXCEPTION '095: vínculo e valor da cobrança são imutáveis.' USING ERRCODE = 'P0001';
       END IF;
       IF OLD.canonica AND NOT NEW.canonica THEN RAISE EXCEPTION '095: cobrança canônica não deixa de ser canônica.' USING ERRCODE = 'P0001'; END IF;
+      IF OLD.perda_definitiva_em IS NOT NULL AND NEW.perda_definitiva_em IS DISTINCT FROM OLD.perda_definitiva_em THEN
+        RAISE EXCEPTION '095: perda definitiva da cobrança é final.' USING ERRCODE = 'P0001';
+      END IF;
       IF OLD.confirmada_em IS NOT NULL AND NEW.confirmada_em IS DISTINCT FROM OLD.confirmada_em THEN
         RAISE EXCEPTION '095: confirmação da cobrança é final.' USING ERRCODE = 'P0001';
       END IF;

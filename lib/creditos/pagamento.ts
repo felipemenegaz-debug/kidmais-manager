@@ -110,7 +110,8 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
         }
         const exposicao = lote ? proporcionalCentavos(Number(p.preco_centavos), Number(lote.consumido), Number(lote.quantidade)) : 0;
         await tx.query(`UPDATE ia_credito_cobrancas SET disputa = CASE WHEN disputa = 'ABERTA' THEN 'PERDIDA' ELSE disputa END,
-            exposicao_centavos = GREATEST(exposicao_centavos, $2), revisao_motivo = CASE WHEN disputa = 'ABERTA' THEN revisao_motivo ELSE 'ESTORNO_SEM_PEDIDO' END
+            exposicao_centavos = GREATEST(exposicao_centavos, $2), revisao_motivo = CASE WHEN disputa = 'ABERTA' THEN revisao_motivo ELSE 'ESTORNO_SEM_PEDIDO' END,
+            perda_definitiva_em = coalesce(perda_definitiva_em, clock_timestamp())
             WHERE id = $1::uuid`, [c.id, exposicao]);
         return { resultado: 'ESTORNO' };
     }
@@ -148,11 +149,11 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
     const lote = await loteDoPedido(tx, p);
     await lerCarteira(tx, p.empresa_id, p.recurso, true);
     if (lote) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
-    // R5-P2-2: o operador já decidiu CANCELAR (perda definitiva): um estorno maior depois não reabre a decisão.
-    const motivo = (await tx.query<{ revisao_motivo: string | null }>('SELECT revisao_motivo FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0]?.revisao_motivo;
-    if (motivo === 'ESTORNO_PARCIAL_CANCELADO') {
+    // R5-P2-2/R6-P2-1: perda definitiva já decidida (coluna própria): um estorno maior depois não reabre a decisão.
+    const perda = (await tx.query<{ perda: boolean }>('SELECT perda_definitiva_em IS NOT NULL AS perda FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0]?.perda;
+    if (perda) {
         if (lote) await cancelarBloqueado(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_PARCIAL_CANCELADO:${c.id}:${tratado}`, 'SISTEMA', p.protocolo);
-        return { resultado: 'ESTORNO', motivo: 'ESTORNO_PARCIAL_CANCELADO' };
+        return { resultado: 'ESTORNO', motivo: 'PERDA_DEFINITIVA' };
     }
     await tx.query("UPDATE ia_credito_cobrancas SET revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
@@ -255,7 +256,10 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
         case 'REVISAO':
             // P2-N2 (revisão do delta 2): grava também o status lido desta cobrança — o CRÍTICO de cliente/referência
             // divergente (D4) depende de saber se o dinheiro já foi recebido. Leitura de outro pagamento (id divergente) não conta.
-            await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2, situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid',
+            // R6-P2-1: estorno externo parcial à espera da decisão do operador não é apagado por um diagnóstico novo (o alarme
+            // e a retenção dependem dele); a perda definitiva fica em coluna própria e nunca passa por aqui.
+            await tx.query(`UPDATE ia_credito_cobrancas SET revisao_motivo = CASE WHEN revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL' THEN revisao_motivo ELSE $2 END,
+                situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid`,
                 [c.id, decisao.motivo, lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null]);
             if (!p.creditado_em) await mudarEstado(tx, p, 'REVISAO', decisao.motivo);
             return { resultado: 'REVISAO', motivo: decisao.motivo };

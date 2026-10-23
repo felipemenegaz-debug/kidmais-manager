@@ -89,7 +89,7 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
         reconciliado_em: 'controle interno da reconciliação' },
     ia_credito_cobrancas: { conta: 'metadado técnico da conta do provedor', url_fatura: 'link de pagamento com token de acesso', referencia_externa: 'correlação técnica com o provedor',
         exposicao_centavos: 'controle interno de risco da plataforma', revisao_motivo: 'controle interno da plataforma',
-        conferida_em: 'controle interno da reconciliação' },
+        conferida_em: 'controle interno da reconciliação', perda_definitiva_em: 'controle interno da plataforma (o extrato mostra o cancelamento)' },
     ia_credito_devolucoes: { chave_idempotencia: 'identificador técnico de repetição da tela' },
     ia_credito_cortesias: { chave_idempotencia: 'identificador técnico de repetição', motivo: 'registro interno da plataforma', concedida_por: 'identidade do operador da plataforma' },
     ia_credito_cortes: { referencia_autorizacao: 'registro interno da autorização da plataforma' },

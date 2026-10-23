@@ -107,11 +107,12 @@ type LinhaLote = { id: string; origem: Origem; disponivel: string; reservado: st
 async function lotesTravados(tx: DbExecutor, empresaId: string, recurso: Recurso, ids?: readonly string[]) {
     return (await tx.query<LinhaLote>(`SELECT l.id, l.origem, l.disponivel, l.reservado, (extract(epoch FROM l.vence_em) * 1000)::bigint AS vence_ms,
             l.vence_em <= clock_timestamp() AS vencido,
-            -- R4-P2-3: perda confirmada pelo ESTADO (devolução registrada, disputa perdida, estorno total externo), não pela
-            -- quantidade já cancelada — com tudo reservado no momento da perda, nada foi cancelado e mesmo assim é perda.
+            -- R4-P2-3/R6-P2-1: perda confirmada pelo ESTADO (devolução registrada, disputa perdida, perda definitiva gravada:
+            -- CANCELAR do operador ou estorno total externo), não pela quantidade já cancelada nem pelo motivo de revisão
+            -- (transitório) — com tudo reservado no momento da perda, nada foi cancelado e mesmo assim é perda.
             (l.cancelado > 0 OR EXISTS (SELECT 1 FROM ia_credito_devolucoes d WHERE d.lote_id = l.id AND d.empresa_id = l.empresa_id)
               OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
-                AND (c.disputa = 'PERDIDA' OR c.revisao_motivo IN ('ESTORNO_SEM_PEDIDO', 'ESTORNO_PARCIAL_CANCELADO')))) AS cancelado_definitivo,
+                AND (c.disputa = 'PERDIDA' OR c.perda_definitiva_em IS NOT NULL))) AS cancelado_definitivo,
             -- R4-P2-3: retenção pelo ESTADO (disputa aberta, estorno externo parcial em análise), mesmo com bloqueio inicial zero.
             (l.bloqueado > 0 OR EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = l.pedido_id AND c.empresa_id = l.empresa_id AND c.canonica
                 AND (c.disputa = 'ABERTA' OR c.revisao_motivo = 'ESTORNO_EXTERNO_PARCIAL'))) AS em_bloqueio
