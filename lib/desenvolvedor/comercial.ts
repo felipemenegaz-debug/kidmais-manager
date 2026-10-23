@@ -86,7 +86,8 @@ const operacaoSchema = z.discriminatedUnion('operacao', [
         referencia: z.string().trim().min(3).max(300), motivo }).strict(),
     z.object({ operacao: z.literal('arrependimento-concluir'), protocolo: z.string().regex(/^KA-[0-9]{8}-[0-9A-HJKMNP-TV-Z]{8}$/),
         situacao: z.enum(['RESTITUIDO', 'NAO_APLICAVEL']), referencia: z.string().trim().min(5).max(500), valorCentavos: z.number().int().positive().nullish(),
-        cobrancaId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).nullish(), motivo }).strict(),
+        cobrancaIds: z.array(z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/)).max(50).nullish(),
+        assinaturaId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/).nullish(), motivo }).strict(),
     z.object({ operacao: z.literal('recuperar-vinculo'), assinaturaId: z.string().trim().min(3).max(100).regex(/^[A-Za-z0-9_-]+$/), motivo }).strict(),
 ]);
 
@@ -163,9 +164,9 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
         }
         else if (input.operacao === 'arrependimento-concluir') {
             const r = await concluirArrependimento(tx, { empresaId, protocolo: input.protocolo, usuarioId: sessao.usuario_id, situacao: input.situacao,
-                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null, cobrancaId: input.cobrancaId ?? null });
+                referencia: input.referencia, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null });
             await auditarPainel(deps.registrarAuditoria, tx, { ...base, acao: 'COMERCIAL_ARREPENDIMENTO_CONCLUIDO', antes: { situacao: 'RECEBIDO' },
-                depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, cobrancaId: input.cobrancaId ?? null,
+                depois: { protocolo: r.protocolo, situacao: r.situacao, valorCentavos: input.valorCentavos ?? null, cobrancaIds: input.cobrancaIds ?? null, assinaturaId: input.assinaturaId ?? null,
                     encerrouAcesso: r.encerrou, mesmaAssinatura: r.mesmaAssinatura } });
             resultado = { protocolo: r.protocolo, situacao: r.situacao, encerrou: r.encerrou, mesmaAssinatura: r.mesmaAssinatura };
         }

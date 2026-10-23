@@ -208,33 +208,56 @@ export async function registrarComunicacaoIntermediador(tx: DbExecutor, input: {
  * muda o acesso.
  */
 export async function concluirArrependimento(tx: DbExecutor, input: { empresaId: string; protocolo: string; usuarioId: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
-    referencia: string; valorCentavos?: number | null; cobrancaId?: string | null }) {
+    referencia: string; valorCentavos?: number | null; cobrancaIds?: readonly string[] | null; assinaturaId?: string | null }) {
     if (!await arrependimentosInstalados(tx)) throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', 'A 097 não está instalada neste ambiente.', 503);
     if (input.situacao === 'RESTITUIDO' && !(Number.isSafeInteger(input.valorCentavos) && (input.valorCentavos ?? 0) > 0))
         throw erroAcesso('DADOS_INVALIDOS', 'Informe o valor restituído.', 400, { campo: 'valorCentavos' });
     await travarEmpresaComercial(tx, input.empresaId);
-    if (input.cobrancaId != null && !/^[A-Za-z0-9_-]{1,100}$/.test(input.cobrancaId))
-        throw erroAcesso('DADOS_INVALIDOS', 'Identificador da cobrança inválido.', 400, { campo: 'cobrancaId' });
-    const m = (await tx.query<{ intermediador: boolean; assinatura: string | null; mesma: boolean }>(`SELECT r.intermediador_comunicado_em IS NOT NULL AS intermediador,
-            r.provedor_assinatura_id AS assinatura, (a.provedor_assinatura_id IS NOT DISTINCT FROM r.provedor_assinatura_id) AS mesma
+    const ID = /^[A-Za-z0-9_-]{1,100}$/;
+    const restituido = input.situacao === 'RESTITUIDO';
+    // Revisão d72d8b8 (P2-N2): a restituição identifica as cobranças restituídas (ao menos uma); nada é inferido só do
+    // vencimento.
+    const cobrancas = restituido ? [...new Set((input.cobrancaIds ?? []).map((c) => c.trim()).filter(Boolean))] : [];
+    if (restituido && (cobrancas.length === 0 || cobrancas.length > 50 || !cobrancas.every((c) => ID.test(c))))
+        throw erroAcesso('DADOS_INVALIDOS', 'Informe as cobranças restituídas no Asaas (pay_…), ao menos uma.', 400, { campo: 'cobrancaIds' });
+    if (input.assinaturaId != null && !ID.test(input.assinaturaId))
+        throw erroAcesso('DADOS_INVALIDOS', 'Identificador da assinatura inválido.', 400, { campo: 'assinaturaId' });
+    const m = (await tx.query<{ intermediador: boolean; assinatura: string | null; atual: string | null }>(`SELECT r.intermediador_comunicado_em IS NOT NULL AS intermediador,
+            r.provedor_assinatura_id AS assinatura, a.provedor_assinatura_id AS atual
           FROM assinatura_arrependimentos r JOIN empresa_assinaturas a ON a.empresa_id = r.empresa_id
          WHERE r.empresa_id = $1::uuid AND r.protocolo = $2 AND r.situacao = 'RECEBIDO' FOR UPDATE OF r`, [input.empresaId, input.protocolo])).rows[0];
     if (!m) throw erroAcesso('CONFLITO', 'Não há manifestação aberta com este protocolo nesta empresa.', 409);
     if (input.situacao === 'RESTITUIDO' && !m.intermediador)
         throw erroAcesso('CONFLITO', 'Registre antes a comunicação ao intermediador.', 409);
-    const restituido = input.situacao === 'RESTITUIDO';
+    // Assinatura restituída (P2-N1). Com vínculo no registro, é a dele (informada diferente: recusa). Sem vínculo no registro
+    // e com assinatura atual, ausência de vínculo NÃO prova recontratação: o atendimento confirma no Asaas e informa a
+    // assinatura, que tem de ser a atual desta empresa; sem isso, a conclusão é recusada (o registro já vale).
+    let assinatura: string | null = m.assinatura;
+    if (restituido) {
+        if (m.assinatura && input.assinaturaId && input.assinaturaId !== m.assinatura)
+            throw erroAcesso('CONFLITO', 'A assinatura informada não é a do registro deste pedido.', 409, { campo: 'assinaturaId' });
+        if (!m.assinatura && m.atual) {
+            if (!input.assinaturaId)
+                throw erroAcesso('CONFLITO', 'Pedido registrado sem vínculo com o provedor: confira no Asaas e informe a assinatura restituída (sub_…) para concluir.', 409, { campo: 'assinaturaId' });
+            if (input.assinaturaId !== m.atual)
+                throw erroAcesso('CONFLITO', 'A assinatura informada não é a atual desta empresa.', 409, { campo: 'assinaturaId' });
+            assinatura = input.assinaturaId;
+        }
+    }
+    const mesma = assinatura === m.atual;
     await tx.query(`UPDATE assinatura_arrependimentos SET situacao = $3, concluido_em = clock_timestamp(), concluido_por = $4::uuid, conclusao_referencia = $5,
         valor_restituido_centavos = $6,
-        restituicao_limite = CASE WHEN $3 = 'RESTITUIDO' THEN (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date END, restituicao_cobranca_id = $7
+        restituicao_limite = CASE WHEN $3 = 'RESTITUIDO' THEN (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date END,
+        restituicao_assinatura_id = $7, restituicao_cobranca_ids = $8::text[]
         WHERE empresa_id = $1::uuid AND protocolo = $2`,
         [input.empresaId, input.protocolo, input.situacao, input.usuarioId, input.referencia.trim(), restituido ? input.valorCentavos : null,
-            restituido ? input.cobrancaId ?? null : null]);
-    // Só encerra o acesso se a empresa ainda estiver na assinatura do provedor do registro: concluir um pedido antigo não
-    // encerra uma recontratação (outra assinatura). Nesse caso o registro fica RESTITUIDO e encerrou=false.
+            restituido && assinatura !== m.assinatura ? assinatura : null, restituido ? cobrancas : null]);
+    // Só encerra o acesso se a empresa ainda estiver na assinatura restituída: concluir um pedido antigo não encerra uma
+    // recontratação (outra assinatura). Nesse caso o registro fica RESTITUIDO e encerrou=false.
     let encerrou = false;
-    if (restituido && m.mesma)
+    if (restituido && mesma)
         encerrou = (await tx.query(`UPDATE empresa_assinaturas SET situacao = 'ENCERRADA', encerrada_em = clock_timestamp(), periodo_atual_fim = clock_timestamp(),
                 cancelada_em = COALESCE(cancelada_em, clock_timestamp()), em_atraso_desde = NULL
             WHERE empresa_id = $1::uuid AND situacao IN ('ATIVA', 'EM_ATRASO', 'CANCELADA_FIM_PERIODO')`, [input.empresaId])).rowCount === 1;
-    return { protocolo: input.protocolo, situacao: input.situacao, encerrou, mesmaAssinatura: m.mesma };
+    return { protocolo: input.protocolo, situacao: input.situacao, encerrou, mesmaAssinatura: mesma };
 }

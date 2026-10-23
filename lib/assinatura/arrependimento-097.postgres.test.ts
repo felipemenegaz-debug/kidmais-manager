@@ -31,6 +31,7 @@ import { concluirArrependimento, consultarArrependimento, manifestacoesDaEmpresa
  *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
  *   9. vigia (P2-C3): aviso interno não entregue alarma já; RECEBIDA há 1 h ou mais alarma; leitura READ ONLY;
  *  10. rollback recusado com manifestação registrada.
+ * Revisão d72d8b8: P2-N1 (pedido sem vínculo) no caso 6b; P2-N2 (cobrança antecipada) no caso 6.
  * Revisão 8da88ba: P2-C1 (sincronização não reabre a restituída; pagamento novo reativa; pedido antigo não encerra a
  * recontratação) no caso 6; P3-C1 (postcheck confere colunas, tipos e NOT NULL; guarda segura contra NULL) nos casos 2 e 5.
  */
@@ -248,7 +249,8 @@ test('5. guarda: núcleo imutável, acompanhamento uma vez só, nasce RECEBIDA, 
 test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso; NAO_APLICAVEL não muda o acesso', { skip: !opt() }, async () => {
     const empresaId = ids.atual, p = protocoloA;
     const concluir = (situacao: 'RESTITUIDO' | 'NAO_APLICAVEL', valorCentavos: number | null, protocolo = p) =>
-        emTx(() => concluirArrependimento(client as never, { empresaId, protocolo, usuarioId: ids.atendimento, situacao, referencia: 'estorno Asaas 23/10', valorCentavos }));
+        emTx(() => concluirArrependimento(client as never, { empresaId, protocolo, usuarioId: ids.atendimento, situacao, referencia: 'estorno Asaas 23/10', valorCentavos,
+            cobrancaIds: situacao === 'RESTITUIDO' ? ['pay_qualquer'] : null }));
     assert.equal(await erro(concluir('RESTITUIDO', 19_700)), 'CONFLITO', 'sem comunicação ao intermediador');
     assert.equal(await erro(concluir('RESTITUIDO', null)), 'DADOS_INVALIDOS');
     // Outra empresa não alcança o protocolo.
@@ -259,13 +261,20 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     const sub = (await q('SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE empresa_id = $1', [empresaId])).rows[0].s as string;
     assert.equal((await linha(p)).provedor_assinatura_id, sub, 'assinatura do provedor gravada no registro');
     assert.equal(await erro(emTx(() => concluirArrependimento(client as never, { empresaId, protocolo: p, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
-        referencia: 'estorno', valorCentavos: 1, cobrancaId: 'pay inválido' }))), 'DADOS_INVALIDOS');
+        referencia: 'estorno', valorCentavos: 1, cobrancaIds: ['pay inválido'] }))), 'DADOS_INVALIDOS');
+    // Revisão d72d8b8 (P2-N2): restituição sem cobrança identificada é recusada.
+    for (const cobrancaIds of [null, [], ['  ']])
+        assert.equal(await erro(emTx(() => concluirArrependimento(client as never, { empresaId, protocolo: p, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
+            referencia: 'estorno', valorCentavos: 1, cobrancaIds }))), 'DADOS_INVALIDOS', JSON.stringify(cobrancaIds));
+    assert.equal(await erro(emTx(() => concluirArrependimento(client as never, { empresaId, protocolo: p, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
+        referencia: 'estorno', valorCentavos: 1, cobrancaIds: ['pay_x'], assinaturaId: 'sub_outra' }))), 'CONFLITO', 'assinatura diferente da do registro');
     const r = await emTx(() => concluirArrependimento(client as never, { empresaId, protocolo: p, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
-        referencia: 'estorno Asaas 23/10', valorCentavos: 19_700, cobrancaId: `pay_${sub}_1` }));
+        referencia: 'estorno Asaas 23/10', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`] }));
     assert.deepEqual(r, { protocolo: p, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true });
     assert.equal(await situacaoAssinatura(empresaId), 'ENCERRADA');
     const l6 = await linha(p);
-    assert.equal(l6.restituicao_cobranca_id, `pay_${sub}_1`);
+    assert.deepEqual(l6.restituicao_cobranca_ids, [`pay_${sub}_1`]);
+    assert.equal(l6.restituicao_assinatura_id, null, 'com vínculo no registro, a assinatura restituída é a dele');
     assert.equal((await q("SELECT $1::date = (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date AS ok", [l6.restituicao_limite])).rows[0].ok, true, 'limite = data da conclusão (Brasília)');
     const e = await lerEstadoComercial(client as never, empresaId);
     assert.equal(e.acesso.nivel, 'SOMENTE_LEITURA');
@@ -275,14 +284,19 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     const s1 = await emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(s1.resultado === 'SINCRONIZADA' && s1.depois, 'ENCERRADA', JSON.stringify(s1));
     assert.equal(await situacaoAssinatura(empresaId), 'ENCERRADA');
-    // Mesmo sem a cobrança informada, o limite basta: outra cobrança antiga da mesma assinatura também não reabre.
+    // Outra cobrança da mesma assinatura com vencimento até o limite (não declarada) também não reabre.
     const hoje = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d")).rows[0].d as string;
     cobrancas.get(sub)!.push({ id: `pay_${sub}_hoje`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: sub });
     const s2 = await emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(s2.resultado === 'SINCRONIZADA' && s2.depois, 'ENCERRADA', 'cobrança com vencimento até o limite não sustenta período');
-    // Pagamento NOVO (vencimento posterior ao limite) reativa, como na 089.
+    // P2-N2 (REVIEW N2 do Astra): cobrança ANTECIPADA — vencimento futuro, paga até o limite, não declarada — não reabre.
     const amanha = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 1, 'YYYY-MM-DD') AS d")).rows[0].d as string;
-    cobrancas.get(sub)!.push({ id: `pay_${sub}_novo`, status: 'RECEIVED', dueDate: amanha, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: sub });
+    const depois = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 31, 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    cobrancas.get(sub)!.push({ id: `pay_${sub}_antecipada`, status: 'RECEIVED', dueDate: amanha, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: sub });
+    const sa = await emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(sa.resultado === 'SINCRONIZADA' && sa.depois, 'ENCERRADA', 'antecipada (paga até o limite) não é pagamento novo');
+    // Pagamento NOVO — feito depois da conclusão (data de pagamento posterior ao limite) — reativa, como na 089.
+    cobrancas.get(sub)!.push({ id: `pay_${sub}_novo`, status: 'RECEIVED', dueDate: depois, paymentDate: amanha, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: sub });
     const s3 = await emTx(() => sincronizarEmpresa(client as never, empresaId, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(s3.resultado === 'SINCRONIZADA' && s3.depois, 'ATIVA', JSON.stringify(s3));
     assert.equal(await erro(concluir('NAO_APLICAVEL', null)), 'CONFLITO', 'conclusão uma vez só');
@@ -294,7 +308,8 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
         referencia: 'Cliente retirou o pedido por e-mail' }));
     assert.deepEqual(rn, { protocolo: n.protocolo, situacao: 'NAO_APLICAVEL', encerrou: false, mesmaAssinatura: true });
     assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA');
-    assert.deepEqual([(await linha(n.protocolo)).restituicao_limite, (await linha(n.protocolo)).restituicao_cobranca_id], [null, null]);
+    const ln = await linha(n.protocolo);
+    assert.deepEqual([ln.restituicao_limite, ln.restituicao_assinatura_id, ln.restituicao_cobranca_ids], [null, null, null]);
     // P2-C1: pedido feito na assinatura antiga e concluído depois da recontratação (outra assinatura no provedor) fica
     // RESTITUIDO sem encerrar o período novo, e o limite vale só para a assinatura antiga.
     const antigo = await pedir('Pedido antes da recontratação');
@@ -312,7 +327,7 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     assert.equal(sr.resultado === 'SINCRONIZADA' && sr.depois, 'ATIVA', JSON.stringify(sr));
     await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: antigo.protocolo, referencia: 'estorno da assinatura antiga' }));
     const ra = await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: antigo.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
-        referencia: 'estorno da assinatura antiga', valorCentavos: 19_700 }));
+        referencia: 'estorno da assinatura antiga', valorCentavos: 19_700, cobrancaIds: [`pay_${subAntiga}_1`] }));
     assert.deepEqual(ra, { protocolo: antigo.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false });
     assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA', 'recontratação não é encerrada por pedido antigo');
     const sn = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
@@ -320,6 +335,59 @@ test('6. atendimento: RESTITUIDO exige comunicação e valor e encerra o acesso;
     const lista = await emTx(() => manifestacoesDaEmpresa(client as never, ids.atual));
     assert.equal(lista.find((x) => x.protocolo === n.protocolo)?.situacao, 'NAO_APLICAVEL');
     assert.equal(lista.find((x) => x.protocolo === antigo.protocolo)?.situacao, 'RESTITUIDO');
+});
+
+test('6b. pedido registrado sem vínculo com o provedor (P2-N1): conclusão exige a assinatura atual; cobrança declarada e limite valem', { skip: !opt() }, async () => {
+    // REVIEW N1 do Astra: registro em TESTE, sem provedor_assinatura_id.
+    ids.atual = await empresaEmTeste('77888999000181');
+    const r = await pedir('Pedido antes do vínculo');
+    assert.equal((await linha(r.protocolo)).provedor_assinatura_id, null);
+    // O vínculo da mesma contratação é recuperado e o pagamento leva a ATIVA (associação sintética, sem desligar gatilhos).
+    const n = ++seq, sub = `sub_ar_${n}`;
+    const hoje = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    assinaturas.set(sub, { id: sub, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_ar_${n}`, externalReference: ids.atual, valorCentavos: 19_700 });
+    cobrancas.set(sub, [{ id: `pay_${sub}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: sub }]);
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [ids.atual, `cus_ar_${n}`, sub]);
+    const s0 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s0.resultado === 'SINCRONIZADA' && s0.depois, 'ATIVA');
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: r.protocolo, referencia: 'estorno pedido no Asaas' }));
+    const concluir = (assinaturaId: string | null) => emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r.protocolo, usuarioId: ids.atendimento,
+        situacao: 'RESTITUIDO', referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`], assinaturaId }));
+    // Ausência de vínculo não é tratada como recontratação: sem a assinatura confirmada, a conclusão é recusada.
+    assert.equal(await erro(concluir(null)), 'CONFLITO');
+    assert.equal(await erro(concluir('sub_de_outra_empresa')), 'CONFLITO', 'só a assinatura atual desta empresa');
+    assert.equal((await linha(r.protocolo)).situacao, 'RECEBIDO', 'recusa não grava nada');
+    assert.deepEqual(await concluir(sub), { protocolo: r.protocolo, situacao: 'RESTITUIDO', encerrou: true, mesmaAssinatura: true });
+    const l = await linha(r.protocolo);
+    assert.deepEqual([l.provedor_assinatura_id, l.restituicao_assinatura_id, l.restituicao_cobranca_ids], [null, sub, [`pay_${sub}_1`]]);
+    // A reconsulta com a cobrança ainda RECEIVED não reabre (antes: ATIVA).
+    const s1 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s1.resultado === 'SINCRONIZADA' && s1.depois, 'ENCERRADA', JSON.stringify(s1));
+    // Cobrança declarada é excluída mesmo com vencimento e pagamento posteriores (declaração explícita prevalece).
+    const amanha = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date + 1, 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    cobrancas.get(sub)![0] = { ...cobrancas.get(sub)![0], dueDate: amanha, paymentDate: amanha };
+    const s2 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s2.resultado === 'SINCRONIZADA' && s2.depois, 'ENCERRADA');
+    // Controle de nova contratação: assinatura nova paga reativa (a restituída não a alcança).
+    const subNova = `${sub}_nova`;
+    assinaturas.set(subNova, { id: subNova, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_ar_${n}`, externalReference: ids.atual, valorCentavos: 19_700 });
+    cobrancas.set(subNova, [{ id: `pay_${subNova}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: subNova }]);
+    await q('UPDATE empresa_assinaturas SET provedor_assinatura_id = $2 WHERE empresa_id = $1', [ids.atual, subNova]);
+    const s3 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s3.resultado === 'SINCRONIZADA' && s3.depois, 'ATIVA', JSON.stringify(s3));
+    // Banco: com vínculo no registro, a assinatura restituída informada não pode divergir dele.
+    await q('BEGIN');
+    try {
+        const outro = (await q("SELECT protocolo FROM assinatura_arrependimentos WHERE provedor_assinatura_id IS NOT NULL AND situacao = 'RECEBIDO' LIMIT 1")).rows[0]?.protocolo;
+        if (outro) await assert.rejects(q(`UPDATE assinatura_arrependimentos SET intermediador_comunicado_em = coalesce(intermediador_comunicado_em, clock_timestamp()),
+            intermediador_referencia = coalesce(intermediador_referencia, 'ref'), situacao = 'RESTITUIDO', concluido_em = clock_timestamp(), concluido_por = $2,
+            conclusao_referencia = 'estorno', valor_restituido_centavos = 1, restituicao_limite = current_date, restituicao_cobranca_ids = ARRAY['pay_x'],
+            restituicao_assinatura_id = 'sub_divergente' WHERE protocolo = $1`, [outro, ids.atendimento]), /restituicao_assinatura_check/);
+    } finally { await q('ROLLBACK'); }
+    await q('BEGIN');
+    try {
+        await assert.rejects(q(`UPDATE assinatura_arrependimentos SET restituicao_cobranca_ids = ARRAY['pay x'] WHERE protocolo = $1`, [r.protocolo]), /cobranca_ids_check|imutável/);
+    } finally { await q('ROLLBACK'); }
 });
 
 test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO); concluídas não', { skip: !opt() }, async () => {
@@ -359,7 +427,7 @@ test('8. exportação da empresa: manifestações dela no pacote, colunas confer
     assert.ok(!pacote.manifesto.entidadesAusentes.some((x) => x.tabela === 'assinatura_arrependimentos'));
     assert.deepEqual(a!.colunas, ['id', 'protocolo', 'empresa_id', 'canal', 'solicitado_por', 'solicitado_em', 'motivo', 'situacao_assinatura', 'contratado_em',
         'dentro_de_7_dias', 'provedor_disponivel', 'provedor_assinatura_id', 'intermediador_comunicado_em', 'intermediador_referencia', 'situacao', 'concluido_em',
-        'conclusao_referencia', 'valor_restituido_centavos', 'restituicao_limite', 'restituicao_cobranca_id', 'email_confirmacao']);
+        'conclusao_referencia', 'valor_restituido_centavos', 'restituicao_limite', 'restituicao_assinatura_id', 'restituicao_cobranca_ids', 'email_confirmacao']);
     assert.equal(a!.linhas, protocolos.length);
     const csv = lerZip(zip).get(a!.caminho)!.toString('utf8');
     for (const p of protocolos) assert.ok(csv.includes(p), `protocolo ${p} no CSV`);

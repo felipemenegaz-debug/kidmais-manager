@@ -14,7 +14,7 @@ export async function encerramentosInstalados(tx: DbExecutor) {
 }
 
 /** Cobranças com pedido de devolução (089) ou arrependimento restituído (097): nunca sustentam período pago na sincronização. */
-export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string> };
+export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string>; pagosAte?: Map<string, string> };
 /**
  * Cobranças com pedido de devolução (089) e, por assinatura do provedor, o vencimento da cobrança devolvida mais recente
  * (`inicio_ciclo`). P2-1 da revisão de 21/10/2026: na assinatura que teve devolução, nenhuma cobrança com vencimento
@@ -27,22 +27,35 @@ export async function cobrancasDevolvidas(tx: DbExecutor, empresaId: string): Pr
         linhas.push(...(await tx.query<{ id: string; assinatura: string; inicio: string }>(
             `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
                FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows);
-    // 097 (revisão 8da88ba, P2-C1): arrependimento concluído com restituição. Na assinatura do provedor do registro, nenhuma
-    // cobrança com vencimento até a data da conclusão sustenta período (nem a restituída, se informada); só pagamento com
-    // vencimento posterior, ou de outra assinatura (recontratação), reativa.
-    if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
-        linhas.push(...(await tx.query<{ id: string | null; assinatura: string; inicio: string }>(
-            `SELECT restituicao_cobranca_id AS id, provedor_assinatura_id AS assinatura, to_char(restituicao_limite, 'YYYY-MM-DD') AS inicio
-               FROM assinatura_arrependimentos WHERE empresa_id = $1::uuid AND situacao = 'RESTITUIDO' AND provedor_assinatura_id IS NOT NULL`, [empresaId])).rows);
     const limites = new Map<string, string>();
-    for (const l of linhas)
-        if (!limites.has(l.assinatura) || limites.get(l.assinatura)! < l.inicio) limites.set(l.assinatura, l.inicio);
-    return { ids: new Set(linhas.flatMap((l) => (l.id ? [l.id] : []))), limites };
+    const maior = (mapa: Map<string, string>, chave: string, valor: string) => { if (!mapa.has(chave) || mapa.get(chave)! < valor) mapa.set(chave, valor); };
+    for (const l of linhas) maior(limites, l.assinatura, l.inicio);
+    const ids = new Set(linhas.flatMap((l) => (l.id ? [l.id] : [])));
+    // 097 (revisões 8da88ba P2-C1 e d72d8b8 P2-N1/P2-N2): arrependimento concluído com restituição.
+    //  - as cobranças declaradas restituídas nunca sustentam período, com ou sem assinatura no registro;
+    //  - na assinatura restituída (a do registro ou a informada pelo atendimento), nenhuma cobrança com vencimento OU
+    //    pagamento até a data da conclusão sustenta período: a cobrança antecipada (paga antes, vencimento futuro) não
+    //    reabre. Só pagamento feito depois da conclusão, ou de outra assinatura (recontratação), reativa.
+    const pagosAte = new Map<string, string>();
+    if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        for (const r of (await tx.query<{ ids: string[] | null; assinatura: string | null; limite: string }>(
+            `SELECT restituicao_cobranca_ids AS ids, coalesce(provedor_assinatura_id, restituicao_assinatura_id) AS assinatura, to_char(restituicao_limite, 'YYYY-MM-DD') AS limite
+               FROM assinatura_arrependimentos WHERE empresa_id = $1::uuid AND situacao = 'RESTITUIDO'`, [empresaId])).rows) {
+            for (const id of r.ids ?? []) ids.add(id);
+            if (r.assinatura) { maior(limites, r.assinatura, r.limite); maior(pagosAte, r.assinatura, r.limite); }
+        }
+    return { ids, limites, pagosAte };
 }
 /** Cobrança que não sustenta período na sincronização (ver cobrancasDevolvidas). */
-export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string, c: { id: string; dueDate: string }) => {
+export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string,
+    c: { id: string; dueDate: string; paymentDate?: string | null; confirmedDate?: string | null; clientPaymentDate?: string | null }) => {
     const limite = d.limites.get(assinaturaId);
-    return d.ids.has(c.id) || (limite !== undefined && c.dueDate <= limite);
+    if (d.ids.has(c.id) || (limite !== undefined && c.dueDate <= limite)) return true;
+    // 097: pago (em qualquer das datas que o provedor informa) até o limite = pagamento anterior à restituição.
+    const pagoAte = d.pagosAte?.get(assinaturaId);
+    if (pagoAte === undefined) return false;
+    const pagamento = [c.clientPaymentDate, c.confirmedDate, c.paymentDate].filter((x): x is string => typeof x === 'string' && x.length >= 10).map((x) => x.slice(0, 10)).sort()[0];
+    return pagamento !== undefined && pagamento <= pagoAte;
 };
 
 /**

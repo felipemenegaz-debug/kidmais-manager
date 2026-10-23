@@ -48,19 +48,28 @@ CREATE TABLE assinatura_arrependimentos (
   concluido_por uuid REFERENCES usuarios_administrativos(id),
   conclusao_referencia text CHECK (conclusao_referencia IS NULL OR char_length(btrim(conclusao_referencia)) BETWEEN 5 AND 500),
   valor_restituido_centavos integer CHECK (valor_restituido_centavos IS NULL OR valor_restituido_centavos > 0),
-  -- Restituição (P2-C1): data (Brasília) da conclusão; cobranças da assinatura acima com vencimento até ela não sustentam
-  -- período na sincronização. Cobrança restituída informada pelo atendimento (opcional) também não.
+  -- Restituição (P2-C1; revisão d72d8b8, P2-N1/P2-N2): data (Brasília) da conclusão; assinatura restituída (a do registro
+  -- ou, se o registro não tinha vínculo, a informada pelo atendimento e igual à atual); cobranças restituídas declaradas
+  -- (ao menos uma). Na sincronização: as cobranças declaradas nunca sustentam período; na assinatura restituída, nenhuma
+  -- cobrança com vencimento ou pagamento até o limite sustenta (antecipada não reabre).
   restituicao_limite date,
-  restituicao_cobranca_id text CHECK (restituicao_cobranca_id IS NULL OR restituicao_cobranca_id ~ '^[A-Za-z0-9_-]{1,100}$'),
+  restituicao_assinatura_id text CHECK (restituicao_assinatura_id IS NULL OR restituicao_assinatura_id ~ '^[A-Za-z0-9_-]{1,100}$'),
+  restituicao_cobranca_ids text[] CHECK (restituicao_cobranca_ids IS NULL OR (cardinality(restituicao_cobranca_ids) BETWEEN 1 AND 50
+    AND array_to_string(restituicao_cobranca_ids, ',') ~ '^[A-Za-z0-9_-]{1,100}(,[A-Za-z0-9_-]{1,100})*$')),
   email_confirmacao text NOT NULL DEFAULT 'PENDENTE' CHECK (email_confirmacao IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'SEM_DESTINATARIO')),
   aviso_interno text NOT NULL DEFAULT 'PENDENTE' CHECK (aviso_interno IN ('PENDENTE', 'ENVIADO', 'FALHOU', 'NAO_CONFIGURADO')),
   CONSTRAINT assinatura_arrependimentos_chave_uk UNIQUE (empresa_id, chave_idempotencia),
-  CONSTRAINT assinatura_arrependimentos_restituicao_check CHECK (situacao = 'RESTITUIDO' OR (restituicao_limite IS NULL AND restituicao_cobranca_id IS NULL)),
+  CONSTRAINT assinatura_arrependimentos_restituicao_check CHECK (situacao = 'RESTITUIDO'
+    OR (restituicao_limite IS NULL AND restituicao_assinatura_id IS NULL AND restituicao_cobranca_ids IS NULL)),
+  -- Assinatura restituída: a do registro, quando havia; só sem vínculo no registro o atendimento a informa.
+  CONSTRAINT assinatura_arrependimentos_restituicao_assinatura_check CHECK (provedor_assinatura_id IS NULL OR restituicao_assinatura_id IS NULL
+    OR restituicao_assinatura_id = provedor_assinatura_id),
   CONSTRAINT assinatura_arrependimentos_intermediador_check CHECK ((intermediador_comunicado_em IS NULL) = (intermediador_referencia IS NULL)),
   CONSTRAINT assinatura_arrependimentos_conclusao_check CHECK (
     (situacao = 'RECEBIDO' AND concluido_em IS NULL AND concluido_por IS NULL AND conclusao_referencia IS NULL AND valor_restituido_centavos IS NULL)
     OR (situacao = 'RESTITUIDO' AND concluido_em IS NOT NULL AND concluido_por IS NOT NULL AND conclusao_referencia IS NOT NULL
-        AND valor_restituido_centavos IS NOT NULL AND intermediador_comunicado_em IS NOT NULL AND restituicao_limite IS NOT NULL)
+        AND valor_restituido_centavos IS NOT NULL AND intermediador_comunicado_em IS NOT NULL AND restituicao_limite IS NOT NULL
+        AND restituicao_cobranca_ids IS NOT NULL)
     OR (situacao = 'NAO_APLICAVEL' AND concluido_em IS NOT NULL AND concluido_por IS NOT NULL AND conclusao_referencia IS NOT NULL AND valor_restituido_centavos IS NULL))
 );
 CREATE INDEX assinatura_arrependimentos_pendentes_idx ON assinatura_arrependimentos (solicitado_em) WHERE situacao = 'RECEBIDO';
@@ -87,9 +96,9 @@ BEGIN
      OR (OLD.intermediador_comunicado_em IS NOT NULL AND (NEW.intermediador_comunicado_em, NEW.intermediador_referencia)
          IS DISTINCT FROM (OLD.intermediador_comunicado_em, OLD.intermediador_referencia))
      OR (OLD.situacao IS DISTINCT FROM 'RECEBIDO' AND (NEW.situacao, NEW.concluido_em, NEW.concluido_por, NEW.conclusao_referencia, NEW.valor_restituido_centavos,
-         NEW.restituicao_limite, NEW.restituicao_cobranca_id)
+         NEW.restituicao_limite, NEW.restituicao_assinatura_id, NEW.restituicao_cobranca_ids)
          IS DISTINCT FROM (OLD.situacao, OLD.concluido_em, OLD.concluido_por, OLD.conclusao_referencia, OLD.valor_restituido_centavos,
-         OLD.restituicao_limite, OLD.restituicao_cobranca_id))
+         OLD.restituicao_limite, OLD.restituicao_assinatura_id, OLD.restituicao_cobranca_ids))
      OR (OLD.email_confirmacao IS DISTINCT FROM 'PENDENTE' AND NEW.email_confirmacao IS DISTINCT FROM OLD.email_confirmacao)
      OR (OLD.aviso_interno IS DISTINCT FROM 'PENDENTE' AND NEW.aviso_interno IS DISTINCT FROM OLD.aviso_interno) THEN
     RAISE EXCEPTION '097: manifestação imutável; acompanhamento registrado uma vez só.' USING ERRCODE = 'P0001';
