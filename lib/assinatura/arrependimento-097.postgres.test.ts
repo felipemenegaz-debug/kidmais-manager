@@ -10,9 +10,9 @@ import { lerZip } from '../exportacao/zip.ts';
 import type { MensagemEmail } from '../acessos/email.ts';
 import { iniciarTeste } from './servico.ts';
 import { lerEstadoComercial } from './estado.ts';
-import { sincronizarEmpresa } from './sincronizacao.ts';
+import { processarEvento, registrarEvento, sincronizarEmpresa } from './sincronizacao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
-import { concluirArrependimento, consultarArrependimento, manifestacoesDaEmpresa, PROTOCOLO_ARREPENDIMENTO, registrarArrependimento,
+import { concluirArrependimento, consultarArrependimento, evidenciaDaAssinatura, manifestacoesDaEmpresa, PROTOCOLO_ARREPENDIMENTO, registrarArrependimento,
     registrarComunicacaoIntermediador, type DepsArrependimento } from './arrependimento.ts';
 
 /**
@@ -31,6 +31,7 @@ import { concluirArrependimento, consultarArrependimento, manifestacoesDaEmpresa
  *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
  *   9. vigia (P2-C3): aviso interno não entregue alarma já; RECEBIDA há 1 h ou mais alarma; leitura READ ONLY;
  *  10. rollback recusado com manifestação registrada.
+ * Revisão f6b6fbb: P2-N4 (evento roteado não prova titularidade) no caso 6c; P2-N5 (tabelas opcionais ausentes) no caso 6d.
  * Revisão 5a129de: P2-N3 (assinatura restituída sem vínculo atual ou anterior à recontratação) no caso 6c.
  * Revisão d72d8b8: P2-N1 (pedido sem vínculo) no caso 6b; P2-N2 (cobrança antecipada) no caso 6.
  * Revisão 8da88ba: P2-C1 (sincronização não reabre a restituída; pagamento novo reativa; pedido antigo não encerra a
@@ -433,15 +434,55 @@ test('6c. pedido sem vínculo (P2-N3): assinatura restituída ≠ atual — sem 
     const s0 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(s0.resultado === 'SINCRONIZADA' && s0.depois, 'ATIVA');
     await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: b.protocolo, referencia: 'estorno da antiga' }));
-    // Evidência LOCAL (evento de cobrança desta empresa com a assinatura antiga), sem consultar o provedor.
-    await q(`INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, cobranca_provedor_id, referencia_externa, empresa_id)
-        VALUES ('ASAAS', $1, 'PAYMENT_RECEIVED', $2, $3, $4, $5::uuid)`, [`evt_${subAntiga}`, subAntiga, `pay_${subAntiga}_1`, ids.atual, ids.atual]);
-    const rb = await concluirCom(ids.atual, b.protocolo, subAntiga, `pay_${subAntiga}_1`, false);
-    assert.deepEqual(rb, { protocolo: b.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'EVENTO' });
+    // P2-N4 (REVIEW N4 do Astra), pela cadeia real registrar → processar → concluir: um evento autenticado traz uma
+    // assinatura ALHEIA (no provedor, de outra empresa) com a referência de roteamento desta empresa. O evento é gravado
+    // com empresa_id desta empresa, mas isso é roteamento, não titularidade: a conclusão com a assinatura do evento é
+    // recusada — sem provedor (nenhuma fonte local de titularidade) e com provedor (a referência remota é de outra empresa).
+    const subAlheia = `${subAntiga}_alheia`;
+    assinaturas.set(subAlheia, { id: subAlheia, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_alheio', externalReference: outraEmpresa, valorCentavos: 19_700 });
+    // Um evento é PROCESSADO; o outro FALHOU (leitura do provedor falha durante o processamento) — os dois ficam com o
+    // empresa_id desta empresa, gravado pelo próprio processarEvento.
+    const provedorFalho = { ...provedor, async obterAssinatura() { throw new Error('provedor fora'); } };
+    for (const [evento, prov] of [[`evt_${subAlheia}_ok`, provedor], [`evt_${subAlheia}_x`, provedorFalho]] as const) {
+        const reg = await emTx(() => registrarEvento(client as never, { eventoId: evento, tipo: 'PAYMENT_RECEIVED', criadoNoProvedor: null, assinaturaId: subAlheia,
+            cobrancaId: `pay_${subAlheia}_1`, checkoutId: null, referenciaExterna: ids.atual }));
+        await emTx(() => processarEvento(client as never, reg.id, { provedor: prov as never }));
+    }
+    const eventos = (await q('SELECT situacao, empresa_id FROM cobranca_eventos WHERE assinatura_provedor_id = $1 ORDER BY evento_id', [subAlheia])).rows;
+    assert.ok(eventos.length === 2 && eventos.every((e) => e.empresa_id === ids.atual), 'eventos roteados para esta empresa: ' + JSON.stringify(eventos));
+    assert.ok(eventos.some((e) => e.situacao === 'PROCESSADO') && eventos.some((e) => e.situacao === 'FALHOU'), JSON.stringify(eventos));
+    const chamadas = chamadasProvedor;
+    assert.equal(await erro(concluirCom(ids.atual, b.protocolo, subAlheia, `pay_${subAlheia}_1`, false)), 'CONFLITO', 'evento roteado não prova titularidade (sem provedor)');
+    assert.equal(await erro(concluirCom(ids.atual, b.protocolo, subAlheia, `pay_${subAlheia}_1`)), 'CONFLITO', 'provedor consultado: referência de outra empresa');
+    assert.ok(chamadasProvedor > chamadas, 'sem fonte local de titularidade, o provedor é consultado');
+    assert.equal((await linha(b.protocolo)).situacao, 'RECEBIDO', 'recusas não gravam');
+    // A assinatura antiga legítima (excluída no provedor, referência desta empresa) é aceita pelo provedor.
+    const rb = await concluirCom(ids.atual, b.protocolo, subAntiga, `pay_${subAntiga}_1`);
+    assert.deepEqual(rb, { protocolo: b.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'PROVEDOR' });
     assert.equal((await linha(b.protocolo)).restituicao_assinatura_id, subAntiga);
     assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA', 'a assinatura nova não é encerrada');
     const s1 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
     assert.equal(s1.resultado === 'SINCRONIZADA' && s1.depois, 'ATIVA', 'o corte da antiga não alcança a nova');
+});
+
+test('6d. evidências sem as tabelas opcionais da 074a e da 089 (P2-N5): consulta não quebra; ordem preservada', { skip: !opt() }, async () => {
+    // REVIEW N5 do Astra: sem assinatura_encerramentos (e sem assinatura_contratacoes), a consulta resolvia o nome antes do
+    // AND e falhava com 42P01. Tudo dentro de uma transação desfeita.
+    ids.atual = await empresaAtivaAntiga('22111333000120');
+    const atual = (await q('SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE empresa_id = $1', [ids.atual])).rows[0].s as string;
+    const remota = `${atual}_remota`;
+    assinaturas.set(remota, { id: remota, status: 'INACTIVE', deleted: true, cycle: 'MONTHLY', customer: 'cus_r', externalReference: ids.atual, valorCentavos: 1 });
+    await q('BEGIN');
+    try {
+        await q('ALTER TABLE assinatura_encerramentos RENAME TO assinatura_encerramentos_fora');
+        await q('ALTER TABLE assinatura_contratacoes RENAME TO assinatura_contratacoes_fora');
+        assert.equal(await evidenciaDaAssinatura(client as never, ids.atual, atual, null), 'ATUAL');
+        assert.equal(await evidenciaDaAssinatura(client as never, ids.atual, remota, null), null, 'sem fonte local e sem provedor');
+        assert.equal(await evidenciaDaAssinatura(client as never, ids.atual, remota, provedor as never), 'PROVEDOR');
+        assert.equal(await evidenciaDaAssinatura(client as never, ids.atual, 'sub_inexistente', provedor as never), null);
+    } finally { await q('ROLLBACK'); }
+    // Com as tabelas: a contratação CONFIRMADA da assinatura atual é fonte; a ordem devolve ATUAL primeiro.
+    assert.equal(await emTx(() => evidenciaDaAssinatura(client as never, ids.atual, atual, null)), 'ATUAL');
 });
 
 test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO); concluídas não', { skip: !opt() }, async () => {

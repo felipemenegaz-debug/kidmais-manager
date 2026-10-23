@@ -210,6 +210,8 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/comprovante-096.postgres.test.ts": { descartavel: "089" },
   // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
+  // Revisão f6b6fbb (P2-N5): controle físico da 097 SEM a 089 (modelo 086: 068 e 074a, sem assinatura_encerramentos).
+  "lib/assinatura/arrependimento-097-sem-089.postgres.test.ts": { descartavel: "086" },
   "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "089" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.

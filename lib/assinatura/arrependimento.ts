@@ -208,26 +208,35 @@ export async function registrarComunicacaoIntermediador(tx: DbExecutor, input: {
  * muda o acesso.
  */
 /** Evidência de que a assinatura restituída é desta empresa (revisão 5a129de, P2-N3). */
-export type EvidenciaAssinatura = 'REGISTRO' | 'ATUAL' | 'CONTRATACAO' | 'ENCERRAMENTO' | 'EVENTO' | 'PROVEDOR';
+export type EvidenciaAssinatura = 'REGISTRO' | 'ATUAL' | 'CONTRATACAO' | 'ENCERRAMENTO' | 'PROVEDOR';
 export type ProvedorConferencia = { obterAssinatura(id: string): Promise<AssinaturaProvedor | null> };
 
 /**
- * Prova de pertinência da assinatura informada pelo atendimento: primeiro os registros locais da empresa (assinatura
- * atual, contratações, pedidos da 089, eventos de cobrança); sem eles, a leitura da assinatura no provedor com a
- * referência externa desta empresa. Sem prova: null (a conclusão é recusada com instrução).
+ * Fontes locais de TITULARIDADE (revisão f6b6fbb, P2-N4): só vínculos gravados depois da conferência de isolamento —
+ * assinatura atual (vínculo da empresa), contratação CONFIRMADA (gravada pela sincronização da assinatura desta empresa,
+ * depois de conferir referência externa e cliente) e pedido da 089 (cópia do vínculo da empresa). O evento de cobrança
+ * NÃO entra: o empresa_id dele pode vir só da referência de roteamento, sem provar de quem é a assinatura do evento.
+ * Tabelas opcionais (074a, 089) só entram na consulta quando existem (P2-N5: o PostgreSQL resolve os nomes antes do AND).
+ */
+const FONTES_LOCAIS: readonly { evidencia: EvidenciaAssinatura; tabela: string | null; sql: string }[] = [
+    { evidencia: 'ATUAL', tabela: null, sql: 'SELECT 1 FROM empresa_assinaturas WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2' },
+    { evidencia: 'CONTRATACAO', tabela: 'assinatura_contratacoes',
+        sql: "SELECT 1 FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2 AND estado = 'CONFIRMADA'" },
+    { evidencia: 'ENCERRAMENTO', tabela: 'assinatura_encerramentos', sql: 'SELECT 1 FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2' },
+];
+
+/**
+ * Prova de pertinência da assinatura informada pelo atendimento: primeiro as fontes locais de titularidade, na ordem; sem
+ * elas, a leitura da assinatura no provedor com a referência externa desta empresa. Sem prova: null (conclusão recusada).
  */
 export async function evidenciaDaAssinatura(tx: DbExecutor, empresaId: string, assinaturaId: string, provedor?: ProvedorConferencia | null): Promise<EvidenciaAssinatura | null> {
-    const r = (await tx.query<{ atual: boolean; contratacao: boolean; encerramento: boolean; evento: boolean }>(`SELECT
-        EXISTS (SELECT 1 FROM empresa_assinaturas WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2) AS atual,
-        (to_regclass('public.assinatura_contratacoes') IS NOT NULL
-          AND EXISTS (SELECT 1 FROM assinatura_contratacoes WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2)) AS contratacao,
-        (to_regclass('public.assinatura_encerramentos') IS NOT NULL
-          AND EXISTS (SELECT 1 FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2)) AS encerramento,
-        EXISTS (SELECT 1 FROM cobranca_eventos WHERE empresa_id = $1::uuid AND assinatura_provedor_id = $2) AS evento`, [empresaId, assinaturaId])).rows[0];
-    if (r?.atual) return 'ATUAL';
-    if (r?.contratacao) return 'CONTRATACAO';
-    if (r?.encerramento) return 'ENCERRAMENTO';
-    if (r?.evento) return 'EVENTO';
+    const opcionais = FONTES_LOCAIS.flatMap((f) => (f.tabela ? [f.tabela] : []));
+    const existentes = new Set((await tx.query<{ t: string }>(
+        "SELECT t FROM unnest($1::text[]) AS t WHERE to_regclass('public.' || t) IS NOT NULL", [opcionais])).rows.map((l) => l.t));
+    for (const f of FONTES_LOCAIS) {
+        if (f.tabela && !existentes.has(f.tabela)) continue;
+        if ((await tx.query(f.sql, [empresaId, assinaturaId])).rows.length > 0) return f.evidencia;
+    }
     if (!provedor) return null;
     const remota = await provedor.obterAssinatura(assinaturaId);
     return remota && remota.id === assinaturaId && remota.externalReference === empresaId ? 'PROVEDOR' : null;
