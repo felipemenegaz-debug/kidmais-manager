@@ -49,11 +49,12 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
     assert.deepEqual([suspensa.empresaAtual, suspensa.selecaoNecessaria, suspensa.gestaoNaEmpresa], [null, true, false]);
 });
 
-test('menu: Configurações de empresa (inclusive o WhatsApp, 083) só com Gestão na empresa; PDF só com autoridade de plataforma', () => {
+test('menu: Configurações de empresa (inclusive o WhatsApp, 083, e Importar documentos) só com Gestão na empresa; o PDF de Pacotes saiu do menu', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
-    assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), ['/admin/configuracoes/tabela-pacotes']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
+    // 23/10/2026 (pedido de Felipe): o PDF de Pacotes saiu do menu e do hub; a tela e a API continuam (só plataforma).
+    assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), []);
 });
 
 test('cada item do menu tem a autorização correspondente na API do servidor; o shell não decide pelo papel global', () => {
@@ -71,10 +72,11 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
         const texto = arquivos.map((f) => readFileSync(f, 'utf8')).join('\n');
         assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|tenant\.papelAtual !== GESTAO|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/, `${href}: papel da membership no servidor`);
     }
-    for (const [href, arquivo] of [['/admin/configuracoes/tabela-pacotes', 'app/api/admin/configuracoes/tabela-pacotes/route.ts']]) {
-        assert.equal(autoridadeDaConfiguracao(href), 'plataforma', href);
-        assert.match(readFileSync(arquivo, 'utf8'), /temAutoridadeDePlataforma\(sessao\)/, href);
-    }
+    // PDF de Pacotes fora do menu: a API continua exigindo a autoridade de plataforma.
+    assert.equal(autoridadeDaConfiguracao('/admin/configuracoes/tabela-pacotes'), null);
+    assert.match(readFileSync('app/api/admin/configuracoes/tabela-pacotes/route.ts', 'utf8'), /temAutoridadeDePlataforma\(sessao\)/);
+    // Importar documentos: o item do menu é de Gestão — mais restrito que as APIs de importação, nunca mais aberto.
+    assert.equal(autoridadeDaConfiguracao('/admin/configuracoes/importar-documentos'), 'empresa');
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /gestaoEmpresa: Boolean\(c\?\.gestaoNaEmpresa\)/);
     assert.doesNotMatch(shell, /data\.papel === 'REPRESENTANTE_AUTORIZADO'/);

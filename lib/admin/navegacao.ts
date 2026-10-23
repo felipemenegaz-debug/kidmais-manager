@@ -48,12 +48,16 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações', autoridade: 'empresa' },
+    // Importar documentos (tabela de preços, modelo de contrato, contrato de festa; pedido de Felipe, 23/10/2026): no menu
+    // de Configurações, como os demais itens da empresa, só para Gestão. É só visibilidade do atalho: quem decide são as
+    // APIs de cada documento — enviar e ler o PDF pede sessão admin no Tenant Context; revisar e publicar a tabela ou
+    // aprovar o modelo de contrato já exige Gestão; o contrato de festa segue a regra da importação de contratos.
+    { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
     // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
     { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
     // 095: compra e devolução de créditos são da Gestão da empresa (lib/creditos/compra.ts exigirGestao).
     { href: '/admin/configuracoes/creditos', rotulo: 'Créditos de IA', grupo: 'Configurações', autoridade: 'empresa' },
-    { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
 /** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */

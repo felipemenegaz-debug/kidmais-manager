@@ -47,6 +47,8 @@ function leituraComEntidade(capacidade: string, entidade: Entidade, contexto: Co
 
 /** Tema de navegação do texto (mais específico primeiro). Só temas conhecidos; o resto é null. */
 const TEMAS: ReadonlyArray<[string, RegExp]> = [
+  // Importar documentos (tabela de preços, modelo de contrato) antes de "importar contrato" (contrato antigo de festa).
+  ["importar_documentos", /\bmodelo de contrato\b|\bimportar documentos?\b|\b(import\w*|envi\w*|sub\w*|carreg\w*|mand\w*)\b.*\b(tabela de precos|documentos?)\b/],
   ["importar_contrato", /\bimport\w*\b.*\bcontrato|\bcontrato (antigo|historico)\b/],
   ["pdf_pacotes", /\bpdf\b|\btabela de (pacotes|precos)\b/],
   ["contas_pagar", /\bcontas? a pagar\b|\bdespesa\w*\b|\bsaidas?\b/],
