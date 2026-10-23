@@ -44,15 +44,16 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
         rotas.add(d.rota);
     }
     assert.deepEqual([...rotas].sort(), ['/acordo-de-tratamento', '/privacidade', '/termos']);
-    assert.match(textoCanonico(DOCUMENTOS.TERMOS_USO), /não comprova a existência da empresa nem a autoridade/);
+    assert.match(textoCanonico(DOCUMENTOS.TERMOS_USO), /não comprova titularidade, existência da empresa ou poderes de representação/);
     // Sem tabela, o texto canônico é o mesmo formato de antes (título, versão, títulos e parágrafos).
     assert.equal(textoCanonico({ documento: 'TERMOS_USO', titulo: 'T', versao: '2026-01-01', minuta: true, rota: '/termos', secoes: [{ titulo: 'A', paragrafos: ['b', 'c'] }] }), 'T\nVersão 2026-01-01\nA\nb\nc');
 });
 
 test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões novas, responsável por marcador, DPA incorporado aos Termos e pendências listadas', () => {
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-22-minuta');
-    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-22-minuta6');
-    assert.equal(DOCUMENTOS.DPA.versao, '2026-10-22-minuta');
+    // Grupo B (22/10, contratante PF/PJ, síntese e comprovante, CPF): novas versões das três minutas.
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-10-22-minuta2');
+    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-10-22-minuta7');
+    assert.equal(DOCUMENTOS.DPA.versao, '2026-10-22-minuta2');
     for (const d of Object.values(DOCUMENTOS)) {
         const texto = textoCanonico(d);
         assert.match(texto, /contato@demerzellabs\.com\.br/, `${d.documento}: canal oficial`);
@@ -67,7 +68,7 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     const termos = textoCanonico(DOCUMENTOS.TERMOS_USO), privacidade = textoCanonico(DOCUMENTOS.PRIVACIDADE), dpa = textoCanonico(DOCUMENTOS.DPA);
     // DPA aceito por incorporação: os Termos citam versão e SHA-256 completo; mudar o DPA obriga nova versão dos Termos.
     assert.ok(termos.includes(`Acordo de Tratamento de Dados, versão ${versaoVigente('DPA').versao}, impressão digital ${versaoVigente('DPA').hash}`));
-    assert.match(termos, /integra estes Termos e é aceito junto com eles, em nome da empresa/);
+    assert.match(termos, /integra estes Termos e é aceito junto com eles, pelo contratante/);
     // 7/60 continuam consistentes.
     assert.doesNotMatch(termos, /por um período/, 'somente leitura sempre com o prazo aprovado');
     assert.equal(termos.match(/somente leitura por 60 dias/g)?.length, 2, 'as duas seções citam os mesmos 60 dias');
@@ -93,7 +94,7 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     for (const titulo of ['Instruções e duração', 'Titulares e dados tratados', 'Uso próprio e confidencialidade', 'Segurança e acesso de suporte', 'Suboperadores',
         'Transferências internacionais', 'Direitos dos titulares e assistência', 'Incidentes de segurança', 'Término: devolução, exclusão e cópias de segurança'])
         assert.ok(DOCUMENTOS.DPA.secoes.some((s) => s.titulo === titulo), `DPA: seção ${titulo}`);
-    assert.match(dpa, /pelo menos 30 dias de antecedência\. Nesse prazo, a Empresa pode apresentar objeção fundamentada/);
+    assert.match(dpa, /pelo menos 30 dias de antecedência\. Nesse prazo, o Contratante pode apresentar objeção fundamentada/);
     assert.match(dpa, /meta contratual de até 24 horas a partir da ciência/);
     assert.match(dpa, /não é o prazo legal de comunicação à ANPD/);
     // Pendências que Felipe precisa ver (não decididas) e controles que ainda não existem.
@@ -108,11 +109,37 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     assert.equal(decisoes.length, 1, 'só o ponto urgente 4 (IA no WhatsApp) continua sem decisão');
     assert.match(decisoes[0], /^\[DECISÃO PENDENTE: ponto urgente 4 /);
     assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261021.2) está publicado; o aviso descreve o que existe');
-    assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 8);
+    assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 9, 'mais o envio do comprovante por e-mail ligado em produção');
     assert.equal(privacidade.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 5);
     assert.equal(dpa.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 3);
     // Lista completa: qualquer marcador novo ou resolvido aparece na revisão do teste.
     assert.deepEqual(Object.fromEntries(Object.values(DOCUMENTOS).map((d) => [d.documento, marcadoresPendentes(d).length])), { TERMOS_USO: 14, PRIVACIDADE: 17, DPA: 9 });
+});
+
+test('grupo B (22/10): contratante PF/PJ, teste por documento, Fundador com reserva e prazo, continuidade, síntese, comprovante e CPF no aviso', () => {
+    const termos = textoCanonico(DOCUMENTOS.TERMOS_USO), privacidade = textoCanonico(DOCUMENTOS.PRIVACIDADE), dpa = textoCanonico(DOCUMENTOS.DPA);
+    assert.match(termos, /contratado por pessoa física \(CPF\) ou jurídica \(CNPJ\)/);
+    assert.match(termos, /A pessoa física contrata em nome próprio, com seu nome civil e CPF/);
+    assert.match(termos, /O nome comercial não substitui a identificação do contratante/);
+    assert.doesNotMatch(termos, /Cada CNPJ tem um único teste/);
+    assert.match(termos, /a formalização da mesma operação de CPF para CNPJ, feita pelo atendimento, não gera novo teste/);
+    assert.match(termos, /fim do 7º dia seguinte à confirmação, às 23h59 do horário de Brasília/);
+    assert.match(termos, /não em 168 horas, e não se confunde com o direito de arrependimento/);
+    assert.match(termos, /sem cobrança complementar automática/);
+    assert.match(termos, /preservados o preço contratado, o benefício e sua data original de término, sem concessão de novo período/);
+    assert.match(termos, /Antes de confirmar a contratação, a tela apresenta uma síntese/);
+    assert.doesNotMatch(termos, /conferir que a página de planos e a tela de contratação exibem todos esses itens/, 'síntese implementada');
+    assert.ok(DOCUMENTOS.TERMOS_USO.secoes.some((x) => x.id === 'comprovante'), '/termos#comprovante');
+    assert.match(termos, /as versões integrais dos documentos aceitos continuam disponíveis para consulta, inclusive depois de novas versões/);
+    assert.match(termos, /contratações por CPF ou CNPJ/);
+    assert.match(dpa, /\(“Contratante”\): a pessoa física que contrata em nome próprio, com seu nome civil e CPF, ou a pessoa jurídica/);
+    assert.match(dpa, /o titular atua como controlador dos dados de seus clientes/);
+    assert.doesNotMatch(dpa, /\bEmpresa\b/, 'termo definido único no Acordo');
+    assert.match(privacidade, /nome civil e CPF \(pessoa física, que contrata em nome próprio\)/);
+    assert.ok(DOCUMENTOS.PRIVACIDADE.secoes.some((x) => x.id === 'cpf'), '/privacidade#cpf');
+    assert.match(privacidade, /O mascaramento não é anonimização/);
+    assert.match(privacidade, /Asaas \| Cobrança da assinatura e pagamentos \| Nome civil e CPF \(pessoa física\) ou razão social e CNPJ/);
+    assert.match(privacidade, /registros de continuidade CPF → CNPJ \| Durante o contrato/);
 });
 
 test('privacidade v2 sobre a minuta5a (#199): a seção de IA mantém a âncora e os compromissos dos convites com IA publicados', () => {
