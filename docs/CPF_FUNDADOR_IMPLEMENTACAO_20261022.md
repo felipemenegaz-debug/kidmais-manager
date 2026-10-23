@@ -1213,3 +1213,45 @@ Cluster 127.0.0.1:55607, recriado pelo script da tarefa e depois removido.
 - O campo de data do painel assume o horário de Brasília (UTC−3).
 
 **Continua com Felipe:** responsável pelo atendimento; identidade da Kidmais.
+
+### Vigésima primeira rodada: revisão de `2765be2` — P2-N6, P3-N1, P3-N2
+
+A revisão do Astra (`revisao-arrependimento-l1-2765be2-20261023/RELATORIO.md`) reprovou por um P2 e dois P3. Correções no
+commit `108d549`, mais `359556d` (correção de teste, abaixo), sem reescrever commits.
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-N6: pedido lançado com data anterior copiava a assinatura **atual**. Se a empresa recontratou depois do e-mail, o pedido ficava com a nova: a conclusão com a antiga era recusada, e sem informar nada encerrava a nova. | O vínculo do pedido só é a assinatura atual se uma **contratação CONFIRMADA dessa assinatura existia até o recebimento**. Como ela continua atual, não foi trocada depois. Sem essa prova, o pedido fica **sem vínculo** e a conclusão usa a resolução assistida já aprovada (assinatura informada, prova de pertinência, encerra só se for a atual). A recusa de divergência do vínculo continua igual. | caso 6f: (a) e-mail recebido na assinatura A, recontratação B paga e ATIVA, lançamento com a data anterior → sem vínculo; sem informar a assinatura, CONFLITO (B continua ATIVA); com A, evidência PROVEDOR e `encerrou=false`, B ATIVA. (b) Recebimento depois da contratação confirmada (oferta real pela sincronização) → vínculo = atual. (c) Recebimento antes dessa confirmação → sem vínculo. |
+| P3-N1: o e-mail de restituição dizia sempre "somente leitura" | O efeito é lido do banco no envio: `ENCERRADO` (restituída = atual e ENCERRADA), `CONTRATACAO_ATUAL_MANTIDA` (restituída ≠ atual e esta ativa) ou `SEM_ALTERACAO`. O texto só fala do acesso no que for real. | caso 6f: recontratação mantida → "a contratação atual permanece ativa", sem "somente leitura"; restituição que encerra → "somente leitura". Unitário das três variantes. |
+| P3-N2: o painel dizia "confirmação enviada" mesmo com falha | `textoResultadoArrependimento` (`components/desenvolvedor/cliente.ts`) confirma sempre o registro ou a conclusão com o protocolo. Só diz "enviada" com ENVIADO; FALHOU, SEM_DESTINATARIO e não registrado viram alerta com orientação para o canal oficial. | unitário `components/desenvolvedor/arrependimento-resultado.test.ts`, carregado com dublês: registro e conclusão em todos os estados |
+
+**§5.1 com as ressalvas do Astra:**
+- a igualdade do e-mail não autentica o remetente; quando a Gestão escreve de outro endereço, a confirmação vem do
+  endereço cadastrado;
+- no pagamento no mesmo dia, inventariar as cobranças já emitidas ou em trânsito e confirmar a remoção antes de orientar
+  recontratação (o "o caso não acontece" saiu);
+- o estado "não registrado" do e-mail também pede resposta manual.
+
+**E2E de cadastro: falha do teste, corrigida.** Na primeira execução desta rodada, `cadastro-publico-ui` falhou com
+`SyntaxError: Unexpected end of JSON input`. Causa: o leitor da caixa de e-mail em arquivo, que consulta a cada 0,5 s,
+leu o JSON enquanto o transporte ainda escrevia o arquivo (que terminou completo, 1110 bytes). Era uma corrida do teste, não
+do produto. O leitor de `cadastro-publico-ui` e de `cpf-fundador-ui`, que tem o mesmo padrão, passou a ignorar arquivo
+incompleto e reler na volta seguinte (`359556d`). Repetidos: 8/8 e 8/8. A inconclusiva da rodada 18 (404) teve outra
+manifestação e não foi diagnosticada; não se afirma que seja a mesma causa.
+
+**Validação:**
+Cluster 127.0.0.1:55607, recriado pelo script da tarefa e depois removido.
+- **Bateria PG completa** sobre `108d549`: 116/116 arquivos, 706 testes, 702 pass, 0 fail, 4 pulados (os mesmos de
+  propósito). `arrependimento-097` 15/15 (caso 6f novo) e `sem-089` 1/1. Relatório:
+  `…-relatorios/2026-10-23T09-01-41-728Z-check-v1-postgres.log`.
+- **E2E:** `assinatura-devolucao-ui` (5 cenários) na primeira execução. `cpf-fundador-ui` 8/8 na primeira execução e de
+  novo depois da correção do leitor. `cadastro-publico-ui` 8/8 depois da correção (a primeira falhou pela corrida acima).
+- **Mutações:** 25/25 detectadas em cópia isolada de `108d549`, com controle PASS antes e depois. Novas: m24 (o vínculo
+  vira a assinatura atual mesmo sem a data da contratação) e m25 (o e-mail sempre diz "encerrado"), as duas detectadas
+  pelo caso 6f.
+- **Unitários e scripts:** unitários do arrependimento, do painel e do texto do resultado verdes; scripts 96/96.
+  `check:v1:static`: PASS (3423).
+- **Logs:** `…-relatorios/grupo-c-097-rodada7-20261023/`.
+
+**Limites:** formulário do painel sem E2E (fluxo HTTP); envio sem fila durável (queda depois do COMMIT pode deixar o
+e-mail não registrado: tratado no procedimento).

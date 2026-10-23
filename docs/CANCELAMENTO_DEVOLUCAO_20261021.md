@@ -229,12 +229,18 @@ legal)”, com senha recente, motivo e auditoria):
 0. **Pedido que chegou por e-mail** (canal oficial): “Registrar pedido recebido pelo canal oficial…”.
    - **Dados pedidos:**
      - e-mail de quem enviou: precisa ser de uma pessoa da **Gestão ativa** desta empresa; qualquer outro remetente é
-       recusado, e a identidade deve ser confirmada pelo canal oficial antes;
+       recusado. A igualdade do endereço **não autentica** o remetente: conferir a mensagem e, se a Gestão escreveu de
+       outro endereço, pedir a confirmação **a partir do e-mail cadastrado** e lançar com ele (nunca trocar o remetente
+       original sem essa confirmação). Casos fora da regra (Gestão inativa, mais de 90 dias) ficam com o atendimento,
+       sem adulterar data ou identidade;
      - data e hora **reais** do recebimento, no horário de Brasília: entre a criação da assinatura e agora, até 90 dias
        atrás;
      - resumo da mensagem.
    - **O que o sistema faz:**
      - gera o protocolo `KA-` no canal ATENDIMENTO, valendo da data do recebimento;
+     - **vínculo do pedido** (revisão 2765be2, P2-N6): só usa a assinatura atual se uma contratação confirmada dela
+       existia até o recebimento. Se a empresa recontratou depois do e-mail, o pedido fica sem vínculo e a conclusão pede
+       a assinatura restituída (a antiga), que nunca encerra a nova;
      - grava a auditoria e o solicitante;
      - depois do COMMIT, envia a confirmação ao solicitante e o aviso interno.
    - **Antes:** só por SQL.
@@ -255,8 +261,11 @@ legal)”, com senha recente, motivo e auditoria):
 3. **Resultado ao contratante:** depois do COMMIT da conclusão, o sistema envia ao solicitante o e-mail com o resultado.
    - Restituição: o valor e a informação de que o período foi encerrado (sem a referência interna).
    - Não se aplica: a justificativa.
-   - A situação fica gravada uma vez em `email_conclusao` (ENVIADO / FALHOU / SEM_DESTINATARIO) e aparece no painel. Com
-     FALHOU ou SEM_DESTINATARIO, responder pelo canal oficial, citando o protocolo.
+   - O e-mail diz o **efeito real** no acesso: período encerrado; ou "o pedido se refere à contratação anterior; a atual
+     permanece ativa"; ou nada sobre o acesso, quando não houve encerramento (revisão 2765be2, P3-N1).
+   - A situação fica gravada uma vez em `email_conclusao` (ENVIADO / FALHOU / SEM_DESTINATARIO) e aparece no painel. O
+     painel só diz "enviado" com ENVIADO. Com FALHOU, SEM_DESTINATARIO ou **não registrado** (envio interrompido antes de
+     gravar: não há fila durável), responder pelo canal oficial, citando o protocolo.
 
 O sistema registra a comunicação e a conclusão, mas não as executa: remoção da renovação e estorno são feitos à mão no
 painel do Asaas, e o valor e a referência da restituição são **declarados** pelo atendimento (não conferidos no Asaas).
@@ -264,12 +273,14 @@ painel do Asaas, e o valor e a referência da restituição são **declarados** 
 Cada etapa é registrada uma vez só (guarda da 097).
 
 **Pagamento novo no mesmo dia da conclusão, na mesma assinatura (procedimento):**
-1. **Prevenção:** na etapa 1, remover a renovação no Asaas antes de concluir. Sem assinatura ativa, o Asaas não gera
-   cobrança nova nela, e o caso não acontece.
+1. **Prevenção:** na etapa 1, remover a renovação no Asaas antes de concluir **e inventariar as cobranças já emitidas ou
+   pagas em trânsito** dessa assinatura (remover a renovação impede cobranças futuras, mas não as já geradas). Confirmar a
+   remoção no Asaas antes de orientar qualquer recontratação.
 2. **Se acontecer:** conferir no Asaas se a cobrança foi gerada e paga depois da conclusão.
    - Gerada pela renovação esquecida: estornar também essa cobrança e responder ao contratante pelo canal oficial.
-   - O contratante quer voltar: orientar a contratação pela tela. A contratação nova cria outra assinatura, que reativa
-     sozinha, sem mexer no registro da restituição.
+   - O contratante quer voltar: só depois de conferir que a assinatura antiga está removida no Asaas, orientar a
+     contratação pela tela. A contratação nova cria outra assinatura, que reativa sozinha, sem mexer no registro da
+     restituição. O checkout pode reaproveitar uma assinatura remota ainda ativa; por isso a conferência vem antes.
 3. **Nunca:** alterar o registro restituído nem reativar o acesso por SQL.
 
 **Alarmes:**
