@@ -6,7 +6,9 @@ services:
     region: virginia
     branch: staging
     autoDeployTrigger: off
-    buildCommand: npm ci --include=dev && npm run check:v1:static && npm run build
+    # check:v1:static já termina com `next build` (scripts/regressao-v1-estatica.cjs); um `npm run build` a mais só
+    # repetia o mesmo build (~30 s no deploy de 23/10). docs/DEPLOY_BUILD_20261023.md.
+    buildCommand: npm ci --include=dev && npm run check:v1:static
     startCommand: node scripts/init-staging-data.cjs && npm start
     healthCheckPath: /api/health
     numInstances: 1
