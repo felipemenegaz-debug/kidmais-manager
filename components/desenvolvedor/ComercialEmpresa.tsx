@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import workspace from '@/components/admin/workspace.module.css';
 import estilos from './desenvolvedor.module.css';
-import { chamar, formatarData, rotuloAcao, type Resposta } from './cliente';
+import { chamar, formatarData, rotuloAcao, textoResultadoArrependimento, type Resposta } from './cliente';
 
 /** Situação comercial na ficha da empresa (E5). Intervenções exigem motivo, prazo e senha (reautenticação no servidor). */
 export type Comercial = {
@@ -49,7 +49,8 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
     const [arrep, setArrep] = useState<{ protocolo: string; acao: 'comunicar' | 'RESTITUIDO' | 'NAO_APLICAVEL'; referencia: string; valor: string; cobranca: string; assinatura: string; motivo: string } | null>(null);
     const pendente = comercial.continuidades?.find((x) => x.situacao === 'PENDENTE_PROVEDOR');
     const base = `/api/desenvolvedor/empresas/${empresaId}`;
-    const enviar = (dados: Operacao, texto: string) => operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), () => ({ tipo: 'ok', texto }));
+    const enviar = (dados: Operacao, texto: string | ((d: { operacao: string }) => { tipo: 'ok' | 'alerta'; texto: string })) =>
+        operar(() => chamar<{ operacao: string }>(base, 'POST', { acao: 'comercial', dados }), (d) => (typeof texto === 'string' ? { tipo: 'ok', texto } : texto(d)));
     const c = comercial;
     return <section className={workspace.card} aria-labelledby="t-comercial">
         <h2 id="t-comercial">Situação comercial</h2>
@@ -167,7 +168,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                     e.preventDefault();
                     // O campo é a hora de Brasília (UTC−3, sem horário de verão desde 2019).
                     enviar({ operacao: 'arrependimento-registrar', chave: registro.chave, emailSolicitante: registro.emailSolicitante, recebidoEm: `${registro.recebidoEm}:00-03:00`,
-                        referencia: registro.referencia, motivo: registro.motivo }, 'Pedido registrado; confirmação enviada ao solicitante.');
+                        referencia: registro.referencia, motivo: registro.motivo }, textoResultadoArrependimento);
                     setRegistro(null);
                 }}>
                     <label>E-mail de quem enviou o pedido (Gestão ativa desta empresa)<input type="email" required maxLength={320} value={registro.emailSolicitante} onChange={(e) => setRegistro({ ...registro, emailSolicitante: e.target.value })} /></label>
@@ -194,7 +195,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                 else enviar({ operacao: 'arrependimento-concluir', protocolo: arrep.protocolo, situacao: arrep.acao, referencia: arrep.referencia,
                     valorCentavos: arrep.acao === 'RESTITUIDO' ? Math.round(Number(arrep.valor.replace(',', '.')) * 100) : null,
                     cobrancaIds: arrep.acao === 'RESTITUIDO' ? arrep.cobranca.split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean) : null,
-                    assinaturaId: arrep.acao === 'RESTITUIDO' && arrep.assinatura.trim() ? arrep.assinatura.trim() : null, motivo: arrep.motivo }, 'Arrependimento concluído.');
+                    assinaturaId: arrep.acao === 'RESTITUIDO' && arrep.assinatura.trim() ? arrep.assinatura.trim() : null, motivo: arrep.motivo }, textoResultadoArrependimento);
                 setArrep(null);
             }}>
                 <label>{arrep.acao === 'comunicar' ? 'Referência da comunicação ao intermediador (ex.: estorno solicitado no painel do Asaas, data)' : arrep.acao === 'RESTITUIDO' ? 'Referência da restituição (comprovante/estorno)' : 'Justificativa (enviada ao contratante por e-mail na conclusão)'}

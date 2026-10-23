@@ -221,8 +221,15 @@ export async function registrarArrependimentoAtendimento(tx: DbExecutor, input: 
         [input.empresaId, chave])).rows[0];
     if (anterior) return { m: anterior, repetido: true, para: null as string | null, nome: '' };
     await travarEmpresaComercial(tx, input.empresaId);
+    // Revisão 2765be2 (P2-N6): o pedido é do RECEBIMENTO, não do lançamento. A assinatura atual só vira o vínculo do pedido
+    // se já valia no recebimento — prova: contratação CONFIRMADA dessa assinatura com confirmação até o recebimento (como ela
+    // continua atual, não foi trocada depois). Sem essa prova (recontratação depois do recebimento, vínculo legado sem
+    // contratação), o pedido fica SEM vínculo e a conclusão usa a resolução assistida (assinatura informada + prova).
     const a = (await tx.query<{ situacao: string; contratado_em: string | null; dentro: boolean | null; nome: string; assinatura: string | null; valido: boolean }>(`SELECT a.situacao, e.nome,
-            a.provedor_assinatura_id AS assinatura, ${ISO('ref.contratado_em')} AS contratado_em, (ref.contratado_em >= $2::timestamptz - interval '7 days') AS dentro,
+            CASE WHEN a.provedor_assinatura_id IS NOT NULL AND EXISTS (SELECT 1 FROM assinatura_contratacoes v WHERE v.empresa_id = a.empresa_id
+                AND v.estado = 'CONFIRMADA' AND v.provedor_assinatura_id = a.provedor_assinatura_id AND v.confirmada_em <= $2::timestamptz)
+              THEN a.provedor_assinatura_id END AS assinatura,
+            ${ISO('ref.contratado_em')} AS contratado_em, (ref.contratado_em >= $2::timestamptz - interval '7 days') AS dentro,
             ($2::timestamptz <= clock_timestamp() AND $2::timestamptz >= a.criado_em AND $2::timestamptz >= clock_timestamp() - interval '90 days') AS valido
           FROM empresa_assinaturas a JOIN empresas e ON e.id = a.empresa_id
           LEFT JOIN LATERAL (SELECT max(confirmada_em) AS contratado_em FROM assinatura_contratacoes c WHERE c.empresa_id = a.empresa_id AND c.estado = 'CONFIRMADA'
@@ -246,12 +253,17 @@ export async function registrarArrependimentoAtendimento(tx: DbExecutor, input: 
 const reais = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /** Resultado da conclusão ao contratante. Restituição: valor (sem referência interna). Não se aplica: a justificativa. */
+/** Efeito da conclusão no acesso, lido do banco no envio (revisão 2765be2, P3-N1): o e-mail não promete estado que não houve. */
+export type EfeitoConclusao = 'ENCERRADO' | 'CONTRATACAO_ATUAL_MANTIDA' | 'SEM_ALTERACAO';
 export function mensagemConclusaoArrependimento(para: string, empresa: string, d: { protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
-    valorRestituidoCentavos: number | null; justificativa: string | null }): MensagemEmail {
+    valorRestituidoCentavos: number | null; justificativa: string | null; efeito?: EfeitoConclusao }): MensagemEmail {
+    const efeito = d.efeito === 'ENCERRADO'
+        ? ['O período contratado foi encerrado; a área do sistema fica disponível em somente leitura pelo prazo informado nos Termos, com exportação dos dados.']
+        : d.efeito === 'CONTRATACAO_ATUAL_MANTIDA' ? ['O pedido se refere à contratação anterior. A contratação atual permanece ativa.'] : [];
     const linhas = d.situacao === 'RESTITUIDO' ? [
         `Concluímos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
         `A restituição de ${reais(d.valorRestituidoCentavos ?? 0)} foi solicitada ao intermediador de pagamento. O prazo do crédito depende do meio de pagamento.`,
-        'O período contratado foi encerrado; a área do sistema fica disponível em somente leitura pelo prazo informado nos Termos, com exportação dos dados.',
+        ...efeito,
         `Dúvidas: ${CANAL_OFICIAL}, informando o protocolo.`,
     ] : [
         `Analisamos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
@@ -268,9 +280,15 @@ export function mensagemConclusaoArrependimento(para: string, empresa: string, d
 export async function enviarEmailConclusao(deps: DepsNotificacao, empresaId: string, protocolo: string): Promise<string | null> {
     try {
         const d = (await deps.withTransaction((tx) => tx.query<{ situacao: 'RECEBIDO' | 'RESTITUIDO' | 'NAO_APLICAVEL'; valor: number | null; justificativa: string | null;
-                email_conclusao: string | null; para: string | null; nome: string }>(`SELECT r.situacao, r.valor_restituido_centavos AS valor, r.conclusao_referencia AS justificativa,
-                r.email_conclusao, u.email AS para, e.nome
-              FROM assinatura_arrependimentos r JOIN empresas e ON e.id = r.empresa_id LEFT JOIN usuarios_administrativos u ON u.id = r.solicitado_por
+                email_conclusao: string | null; para: string | null; nome: string; efeito: EfeitoConclusao }>(`SELECT r.situacao, r.valor_restituido_centavos AS valor,
+                r.conclusao_referencia AS justificativa, r.email_conclusao, u.email AS para, e.nome,
+                CASE WHEN coalesce(r.provedor_assinatura_id, r.restituicao_assinatura_id) IS NOT NULL
+                       AND coalesce(r.provedor_assinatura_id, r.restituicao_assinatura_id) = a.provedor_assinatura_id AND a.situacao = 'ENCERRADA' THEN 'ENCERRADO'
+                     WHEN coalesce(r.provedor_assinatura_id, r.restituicao_assinatura_id) IS DISTINCT FROM a.provedor_assinatura_id
+                       AND a.situacao IN ('ATIVA', 'EM_ATRASO', 'CANCELADA_FIM_PERIODO') THEN 'CONTRATACAO_ATUAL_MANTIDA'
+                     ELSE 'SEM_ALTERACAO' END AS efeito
+              FROM assinatura_arrependimentos r JOIN empresas e ON e.id = r.empresa_id JOIN empresa_assinaturas a ON a.empresa_id = r.empresa_id
+              LEFT JOIN usuarios_administrativos u ON u.id = r.solicitado_por
              WHERE r.empresa_id = $1::uuid AND r.protocolo = $2`, [empresaId, protocolo]))).rows[0];
         if (!d || d.situacao === 'RECEBIDO' || d.email_conclusao !== null) return d?.email_conclusao ?? null;
         if (!deps.enviarEmail) return null;
@@ -278,7 +296,7 @@ export async function enviarEmailConclusao(deps: DepsNotificacao, empresaId: str
         if (d.para) {
             try {
                 await deps.enviarEmail(mensagemConclusaoArrependimento(d.para, d.nome, { protocolo, situacao: d.situacao, valorRestituidoCentavos: d.valor,
-                    justificativa: d.situacao === 'NAO_APLICAVEL' ? d.justificativa : null }));
+                    justificativa: d.situacao === 'NAO_APLICAVEL' ? d.justificativa : null, efeito: d.situacao === 'RESTITUIDO' ? d.efeito : undefined }));
                 situacao = 'ENVIADO';
             }
             catch { situacao = 'FALHOU'; }

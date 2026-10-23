@@ -149,3 +149,19 @@ const ACOES: Record<string, string> = {
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');
 }
+
+/**
+ * Texto do resultado das operações de arrependimento no painel (revisão 2765be2, P3-N2): o registro/conclusão sempre é
+ * confirmado; o e-mail só é dado como enviado quando a resposta diz ENVIADO. Nos demais estados, orienta a resposta pelo
+ * canal oficial, sem sugerir que a operação falhou.
+ */
+export function textoResultadoArrependimento(d: { operacao?: string; protocolo?: unknown; emailConfirmacao?: unknown; emailConclusao?: unknown }): { tipo: 'ok' | 'alerta'; texto: string } {
+    const protocolo = typeof d.protocolo === 'string' ? d.protocolo : '';
+    const registro = d.operacao === 'arrependimento-registrar';
+    const email = registro ? d.emailConfirmacao : d.emailConclusao;
+    const base = registro ? `Pedido registrado: protocolo ${protocolo}.` : `Arrependimento concluído: protocolo ${protocolo}.`;
+    const enviado = registro ? 'A confirmação foi enviada por e-mail ao solicitante.' : 'O resultado foi enviado por e-mail ao solicitante.';
+    if (email === 'ENVIADO') return { tipo: 'ok', texto: `${base} ${enviado}` };
+    const motivo = email === 'FALHOU' ? 'o envio do e-mail falhou' : email === 'SEM_DESTINATARIO' ? 'não há e-mail do solicitante' : 'o envio do e-mail não foi registrado';
+    return { tipo: 'alerta', texto: `${base} Atenção: ${motivo}; responda ao solicitante pelo canal oficial, citando o protocolo.` };
+}

@@ -9,6 +9,7 @@ import { gerarPacote } from '../exportacao/pacote.ts';
 import { lerZip } from '../exportacao/zip.ts';
 import type { MensagemEmail } from '../acessos/email.ts';
 import { iniciarTeste } from './servico.ts';
+import { prepararOferta } from './ofertas.ts';
 import { lerEstadoComercial } from './estado.ts';
 import { processarEvento, registrarEvento, sincronizarEmpresa } from './sincronizacao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
@@ -31,6 +32,7 @@ import { concluirArrependimento, consultarArrependimento, enviarEmailConclusao, 
  *      quem concluiu nem dados de outra empresa); FK empresa_id → empresa_assinaturas no catálogo;
  *   9. vigia (P2-C3): aviso interno não entregue alarma já; RECEBIDA há 1 h ou mais alarma; leitura READ ONLY;
  *  10. rollback recusado com manifestação registrada.
+ * Revisão 2765be2: P2-N6 (pedido anterior à recontratação não captura a assinatura nova) e P3-N1 (e-mail com o efeito real) no caso 6f.
  * 23/10/2026: registro pelo atendimento de pedido recebido pelo canal oficial e e-mail do resultado na conclusão (caso 6e).
  * Revisão f6b6fbb: P2-N4 (evento roteado não prova titularidade) no caso 6c; P2-N5 (tabelas opcionais ausentes) no caso 6d.
  * Revisão 5a129de: P2-N3 (assinatura restituída sem vínculo atual ou anterior à recontratação) no caso 6c.
@@ -543,14 +545,85 @@ test('6e. atendimento: pedido recebido pelo canal oficial registrado com a data 
     const r2 = await registrar({ recebidoEm: await instante('clock_timestamp()') });
     await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, referencia: 'estorno pedido' }));
     const sub = (await q('SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE empresa_id = $1', [ids.atual])).rows[0].s as string;
+    assert.equal((await linha(r2.m.protocolo)).provedor_assinatura_id, null, 'vínculo sem contratação confirmada até o recebimento: pedido sem vínculo (P2-N6)');
     await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
-        referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`] }));
+        referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${sub}_1`], assinaturaId: sub }));
+    assert.equal(await situacaoAssinatura(ids.atual), 'ENCERRADA');
     const falha = async () => { throw new Error('smtp'); };
     assert.equal(await enviarEmailConclusao({ ...deps, enviarEmail: falha }, ids.atual, r2.m.protocolo), 'FALHOU');
     assert.deepEqual([(await linha(r2.m.protocolo)).situacao, (await linha(r2.m.protocolo)).email_conclusao], ['RESTITUIDO', 'FALHOU']);
     // Banco: RECEBIDO não tem e-mail de conclusão; nasce sem ele.
     const r3 = await registrar({ recebidoEm: await instante('clock_timestamp()') });
     await assert.rejects(q("UPDATE assinatura_arrependimentos SET email_conclusao = 'ENVIADO' WHERE protocolo = $1", [r3.m.protocolo]), /conclusao_email_check/);
+});
+
+test('6f. pedido do canal oficial recebido ANTES da recontratação (P2-N6) e e-mail com o efeito real (P3-N1)', { skip: !opt() }, async () => {
+    const instante = async (expr: string) => (await q(`SELECT to_char((${expr}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS t`)).rows[0].t as string;
+    const gestao = async (empresaId: string) => {
+        const m = (await q("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), 'REPRESENTANTE_AUTORIZADO') RETURNING id",
+            [empresaId, ids.usuario])).rows[0].id;
+        await q("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+    };
+    const emailGestao = (await q('SELECT email FROM usuarios_administrativos WHERE id = $1', [ids.usuario])).rows[0].email as string;
+    const lancar = (empresaId: string, recebidoEm: string) => emTx(() => registrarArrependimentoAtendimento(client as never, { empresaId, atendenteId: ids.atendimento,
+        chave: randomUUID(), emailSolicitante: emailGestao, recebidoEm, referencia: 'E-mail de desistência recebido em contato@' }));
+    const deps = { withTransaction: <T,>(t: (tx: never) => Promise<T>) => emTx(() => t(client as never)), env: SEM_PROVEDOR, enviarEmail };
+    const hoje = (await q("SELECT to_char((clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d")).rows[0].d as string;
+
+    // (a) REVIEW N6: o e-mail chega na assinatura A; antes do lançamento a empresa recontrata (B, paga, ATIVA).
+    ids.atual = await empresaAtivaAntiga('44111222000157');
+    await gestao(ids.atual);
+    const subA = (await q('SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE empresa_id = $1', [ids.atual])).rows[0].s as string;
+    const recebidoEm = await instante('clock_timestamp()');
+    const subB = `${subA}_nova`, cliente = assinaturas.get(subA)!.customer;
+    assinaturas.set(subB, { id: subB, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: cliente, externalReference: ids.atual, valorCentavos: 19_700 });
+    cobrancas.set(subB, [{ id: `pay_${subB}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 19_700, billingType: 'PIX', assinaturaId: subB }]);
+    await q("UPDATE empresa_assinaturas SET situacao = 'CANCELADA_FIM_PERIODO', cancelada_em = clock_timestamp() WHERE empresa_id = $1", [ids.atual]);
+    await q('UPDATE empresa_assinaturas SET provedor_assinatura_id = $2 WHERE empresa_id = $1', [ids.atual, subB]);
+    const s0 = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(s0.resultado === 'SINCRONIZADA' && s0.depois, 'ATIVA');
+    const r = await lancar(ids.atual, recebidoEm);
+    assert.equal((await linha(r.m.protocolo)).provedor_assinatura_id, null, 'a assinatura NOVA não é capturada como a do pedido');
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: r.m.protocolo, referencia: 'estorno da antiga' }));
+    const concluir = (assinaturaId: string | null) => emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r.m.protocolo, usuarioId: ids.atendimento,
+        situacao: 'RESTITUIDO', referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${subA}_1`], assinaturaId }, provedor as never));
+    assert.equal(await erro(concluir(null)), 'CONFLITO', 'sem a assinatura informada não conclui (e não encerra B)');
+    assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA');
+    assert.deepEqual(await concluir(subA), { protocolo: r.m.protocolo, situacao: 'RESTITUIDO', encerrou: false, mesmaAssinatura: false, evidencia: 'PROVEDOR' });
+    assert.equal(await situacaoAssinatura(ids.atual), 'ATIVA', 'a recontratação continua ativa');
+    // P3-N1: o e-mail diz que a contratação atual permanece ativa — não promete somente leitura.
+    enviados.length = 0;
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, r.m.protocolo), 'ENVIADO');
+    assert.match(enviados[0].texto, /O pedido se refere à contratação anterior\. A contratação atual permanece ativa\./);
+    assert.doesNotMatch(enviados[0].texto, /somente leitura/);
+
+    // (b) Recebimento DEPOIS de uma contratação CONFIRMADA da assinatura atual: o vínculo do pedido é a atual.
+    //     (c) Recebimento ANTES dessa confirmação: sem vínculo (não se sabe qual assinatura valia).
+    ids.atual = await empresaEmTeste('55222333000157');
+    await gestao(ids.atual);
+    const antesDaConfirmacao = await instante('clock_timestamp()');
+    await emTx(() => prepararOferta(client as never, ids.atual, ids.usuario, { plano: 'essencial', ciclo: 'MENSAL', valorEsperadoCentavos: 11_820, versao: '2026-10-20' },
+        { ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox' }));
+    const subC = `sub_ar_c_${++seq}`;
+    assinaturas.set(subC, { id: subC, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: `cus_c_${seq}`, externalReference: ids.atual, valorCentavos: 11_820 });
+    cobrancas.set(subC, [{ id: `pay_${subC}_1`, status: 'RECEIVED', dueDate: hoje, paymentDate: hoje, invoiceUrl: null, deleted: false, valorCentavos: 11_820, billingType: 'PIX',
+        assinaturaId: subC, clienteId: `cus_c_${seq}` }]);
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [ids.atual, `cus_c_${seq}`, subC]);
+    const sc = await emTx(() => sincronizarEmpresa(client as never, ids.atual, { provedor: provedor as never }, { tipo: 'RECONCILIACAO' }));
+    assert.equal(sc.resultado === 'SINCRONIZADA' && sc.depois, 'ATIVA', JSON.stringify(sc));
+    assert.equal(Number((await q("SELECT count(*) AS n FROM assinatura_contratacoes WHERE empresa_id = $1 AND estado = 'CONFIRMADA' AND provedor_assinatura_id = $2", [ids.atual, subC])).rows[0].n), 1);
+    const depois = await lancar(ids.atual, await instante('clock_timestamp()'));
+    assert.equal((await linha(depois.m.protocolo)).provedor_assinatura_id, subC, 'contratação confirmada até o recebimento: vínculo provado');
+    const antes = await lancar(ids.atual, antesDaConfirmacao);
+    assert.equal((await linha(antes.m.protocolo)).provedor_assinatura_id, null, 'recebido antes da confirmação: sem vínculo');
+    // Com vínculo: a conclusão encerra e o e-mail diz somente leitura (efeito real).
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: depois.m.protocolo, referencia: 'estorno' }));
+    const rc = await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: depois.m.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
+        referencia: 'estorno Asaas', valorCentavos: 11_820, cobrancaIds: [`pay_${subC}_1`] }));
+    assert.equal(rc.encerrou, true);
+    enviados.length = 0;
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, depois.m.protocolo), 'ENVIADO');
+    assert.match(enviados[0].texto, /O período contratado foi encerrado; a área do sistema fica disponível em somente leitura/);
 });
 
 test('7. conferência D-C4: RECEBIDA há mais de 1 h vira pendência (SEM_COMUNICACAO / SEM_CONCLUSAO); concluídas não', { skip: !opt() }, async () => {
