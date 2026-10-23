@@ -60,3 +60,7 @@ Solicitados importação do modelo jurídico, festas fechadas e preços; finance
 Código c8529e3 integrado sem conflito com origin/staging 030e833 (PR216, documentos por empresa), preservando a atualização concorrente. Testes unitários pertinentes após merge: 25/25; lint, TypeScript e build de 78 páginas passaram. Revisão independente aprovada. Navegador local conferiu cartões, âncoras e ausência de overflow desktop. Deploy concorrente dep-dbdiedg473hc73ei2n50 concluído antes da publicação desta frente. Sem banco, variável, cron ou produção alterados.
 
 Ampliação publicada: SHA 2a9e2dbe336b44cc0002d024e362ab24efdc8b78, deploy dep-dbdikrd9fdbs73b90570 LIVE em 23/10/2026 09:45:51Z (06:45 Brasília). Render confirmou regressão estática completa; health e /conheca HTTP200. Navegador remoto: #importacao 3 cartões, #financeiro 4, #saloes 3, #marketing 5 incluindo site. Links conferidos, sem overflow observado. Evidências site-modulos-marketing-site-20261023.png e site-modulos-financeiro-20261023.png. Servidor/aba locais encerrados; staging mantido aberto.
+
+## Cabeçalho: Agenda, Financeiro e Importação
+Incluídos os três atalhos para seções existentes; navegação completa com rolagem horizontal em telas estreitas. Revisão independente aprovada. Testes do site/fundo 18/18, ESLint e build de produção aprovados. Navegador local confirmou as três âncoras, títulos abaixo do cabeçalho e ausência de links internos sem destino. Publicação em staging em andamento.
+

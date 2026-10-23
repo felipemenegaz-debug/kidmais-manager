@@ -36,7 +36,7 @@ export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: b
         <a href="#topo" className={cx('btn', 'skip')}>Ir para o conteúdo</a>
         <div className={cx('founder-bar')}><div className={cx('wrap')}><span><strong>Plano Fundador:</strong> {comercial.fundador.descontoPercentual}% de desconto por {comercial.fundador.meses} meses para os {comercial.fundador.vagas} primeiros buffets.</span><a href="#fundador">Quero uma vaga →</a></div></div>
         <header className={cx('header')}><div className={cx('wrap')}><Marca href={`${prefixo}#topo`} /><nav className={cx('nav')} aria-label="Principal">
-            <a href={`${prefixo}#diferenciais`}>Diferenciais</a><a href={`${prefixo}#recursos`}>Recursos</a><a href={`${prefixo}#marketing`}>Marketing</a><a href={`${prefixo}#wall-e`}>Wall-e</a><a href={`${prefixo}#convite`}>Convite</a><a href="#planos">Planos</a><a href={`${prefixo}#duvidas`}>Dúvidas</a><a className={cx('login')} href="/admin/login">Entrar</a>
+            <a href={`${prefixo}#diferenciais`}>Diferenciais</a><a href={`${prefixo}#recursos`}>Recursos</a><a href={`${prefixo}#saloes`}>Agenda</a><a href={`${prefixo}#financeiro`}>Financeiro</a><a href={`${prefixo}#importacao`}>Importação</a><a href={`${prefixo}#marketing`}>Marketing</a><a href={`${prefixo}#wall-e`}>Wall-e</a><a href={`${prefixo}#convite`}>Convite</a><a href="#planos">Planos</a><a href={`${prefixo}#duvidas`}>Dúvidas</a><a className={cx('login')} href="/admin/login">Entrar</a>
             {aberto && <a className={cx('btn', 'btn-primary', 'btn-sm')} href="/cadastro">Testar grátis</a>}
         </nav></div></header>
         <main id="topo" data-planos={somentePlanos || undefined}>
