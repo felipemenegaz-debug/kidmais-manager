@@ -340,3 +340,27 @@ Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r6
 - **Mutantes**: **29/29 mortos por asserção** (os 26 anteriores, com o M7 ajustado ao novo código, + contador por entrada sem agrupar, entradas sem folga sobre o registro, teto da carga não detectado); controles 78/78.
 - **`npm run check:v1:static`**: **PASS único**, saída 0 (3309/3309, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
 - Nada remoto; `.env.local` não lido.
+
+## Revisão da rodada 6 — APROVADO COM RESSALVAS (23/10/2026)
+
+Parecer: `../ambientes-locais/revisao-ip-r6-3085c22-local-b/PARECER.md`. Sem P1/P2.
+- **P2-R5-1:** FECHADO.
+- **P3-R5-2:** FECHADO pela detecção e documentação. Isso não resolve empresas fora do prefixo; o desenho precisa ser revisto antes de passar de 20.000 empresas ativas.
+
+### P3-R6-1 (ressalva de escala, registrada; sem mudança de código)
+
+- **Orçamento por janela:** cada limitador em memória aceita até `MAXIMO_ENTIDADES` (40.064) entidades canônicas **vigentes ao mesmo tempo** por processo. São empresas, endereço padrão e não confirmadas no limitador das APIs; sites, no limitador próprio do formulário. A janela é de 1 h para PEDIDO/IDENTIDADE e de 1 min para LEITURA.
+  - A fórmula cobre duas levas do registro, não uma rotatividade ilimitada.
+  - Acima disso, a entidade nova recebe 429 até as vencidas saírem, e as existentes mantêm as cotas.
+  - Com mais de uma instância, cada uma conta a sua parte, e as cargas se multiplicam pelo número de instâncias.
+- **Sites:** o formulário usa um mapa próprio por `site:<id>`. Se o número de sites (por exemplo, um por unidade) se aproximar desse teto, dimensionar esse limitador separadamente.
+- **Monitorar antes de crescer:** número de empresas ativas (contra 20.000), sites publicados (contra 40.064) e 429 do limite público. Hoje o código não expõe ocupação nem contagem de recusas por capacidade; se a escala chegar perto, acrescentar essa métrica.
+
+### Próximo passo
+
+O código local está aprovado. O que falta depende de autorização de Felipe, nesta ordem:
+1. PR para staging e deploy;
+2. inventário das entradas e verificação da premissa da rede privada;
+3. G1-A com `ORIGEM_CLIENTE_BORDA` desligada;
+4. só com o G1-A aprovado e autorização específica, a troca de env e o G1-B.
+Até a env ser ligada, o deploy deixa staging sem limite por IP; continuam os limites por conta e por fluxo.
