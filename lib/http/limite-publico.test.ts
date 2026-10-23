@@ -4,7 +4,7 @@ import test from 'node:test';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
 
 type Limitador = { verificar(origem: string, grupo: 'LEITURA' | 'PEDIDO', empresa?: string | null): number | null };
-const { criarLimitador } = carregarModulo('lib/http/limite-publico.ts', {}) as { criarLimitador(agora: () => number): Limitador };
+const { criarLimitador } = carregarModulo('lib/http/limite-publico.ts', {}) as { criarLimitador(agora: () => number, maximoEntidades?: number): Limitador };
 
 test('leitura: 120 por minuto por origem; outra origem não é afetada; libera na janela seguinte', () => {
     let agora = 0;
@@ -149,7 +149,7 @@ test('limitador: chaves só canônicas — pedidos não confirmados ocupam um ba
     for (let i = 0; i < 1000; i++) l.verificar(null, 'IDENTIDADE', 'empresa-nao-confirmada');
     assert.equal(l.tamanho(), 1, 'mil pedidos não confirmados: um balde');
     for (let i = 0; i < 5; i++) l.verificar(`8.8.8.${i}`, 'PEDIDO', 'empresa-nao-confirmada');
-    assert.equal(l.tamanho(), 1 + 5 + 1, 'cinco IPs + um teto comum de PEDIDO para não confirmadas');
+    assert.equal(l.tamanho(), 5 + 1, 'cinco IPs + a MESMA entrada das não confirmadas (contadores juntos)');
     const fonte = readFileSync('lib/http/limite-publico.ts', 'utf8');
     assert.match(fonte, /verificar\(origem, grupo, await chaveDaEmpresaPublica\(/, 'limitarPublico só passa a chave canônica');
 });
@@ -160,4 +160,60 @@ test('formulário do site: slug inventado não cria balde — o site é resolvid
     assert.ok(resolve > 0 && limita > resolve, 'resolve o site antes de limitar');
     assert.ok(fonte.includes('limitador.verificar(ipDaRequisicao(request), "PEDIDO", ' + String.fromCharCode(96) + 'site:' + '$' + '{site.siteId}' + String.fromCharCode(96) + ')'));
     assert.ok(!fonte.includes('site:' + '$' + '{slug'), 'nunca o slug bruto na chave');
+});
+
+test('P2-R5-1: com o registro cheio (20.000 empresas usando os três grupos e o teto de PEDIDO), a empresa seguinte segue em todos, inclusive PEDIDO com IP novo', () => {
+    const t = 0;
+    const l = criarLimitador(() => t) as unknown as { verificar(o: string | null, g: string, e?: string | null): number | null; tamanho(): number };
+    const { CAPACIDADE_EMPRESAS_CONFIRMADAS } = carregarModulo('lib/http/empresas-publicas.ts', {}) as { CAPACIDADE_EMPRESAS_CONFIRMADAS: number };
+    for (let i = 0; i < CAPACIDADE_EMPRESAS_CONFIRMADAS; i++) {
+        const empresa = `empresa:id-${i}`;
+        for (const grupo of ['IDENTIDADE', 'LEITURA', 'PEDIDO']) assert.equal(l.verificar(null, grupo, empresa), null);
+        const ip = Math.floor(i / 10); // 10 PEDIDO por IP: 2.000 IPs, longe do mapa de IPs
+        assert.equal(l.verificar(`8.0.${ip >> 8}.${ip & 255}`, 'PEDIDO', empresa), null);
+    }
+    l.verificar(null, 'IDENTIDADE', null);
+    l.verificar(null, 'IDENTIDADE', 'empresa-nao-confirmada');
+    const nova = 'empresa:id-nova';
+    for (const grupo of ['IDENTIDADE', 'LEITURA', 'PEDIDO']) assert.equal(l.verificar(null, grupo, nova), null, `empresa nova em ${grupo} sem origem`);
+    assert.equal(l.verificar('189.6.16.247', 'PEDIDO', nova), null, 'PEDIDO com IP confiável novo');
+    assert.equal(l.tamanho(), CAPACIDADE_EMPRESAS_CONFIRMADAS + 3 + CAPACIDADE_EMPRESAS_CONFIRMADAS / 10 + 1, 'uma entrada por empresa (não três) + endereço padrão, não confirmadas e a nova + os IPs');
+    // As cotas vigentes continuam: a empresa 0 já usou 2 de 60 no teto de PEDIDO (um sem origem, um com IP); 58 a mais
+    // passam e a seguinte não.
+    for (let i = 0; i < 58; i++) assert.equal(l.verificar(`9.0.0.${i}`, 'PEDIDO', 'empresa:id-0'), null);
+    assert.ok(l.verificar('9.0.1.1', 'PEDIDO', 'empresa:id-0')! > 0, 'teto de PEDIDO por empresa preservado');
+});
+
+test('P2-R5-1: o limite de entradas vem do registro (2× + folga) e, cheio de entradas vigentes, recusa a nova sem apagar cotas', () => {
+    const mod = carregarModulo('lib/http/limite-publico.ts', { 'next/server': { NextResponse: { json: () => null } } }) as { MAXIMO_ENTIDADES: number };
+    const { CAPACIDADE_EMPRESAS_CONFIRMADAS } = carregarModulo('lib/http/empresas-publicas.ts', {}) as { CAPACIDADE_EMPRESAS_CONFIRMADAS: number };
+    assert.equal(mod.MAXIMO_ENTIDADES, 2 * CAPACIDADE_EMPRESAS_CONFIRMADAS + 64);
+    let t = 0;
+    const l = criarLimitador(() => t, 3) as unknown as { verificar(o: string | null, g: string, e?: string | null): number | null };
+    for (const e of ['a', 'b', 'c']) assert.equal(l.verificar(null, 'LEITURA', e), null);
+    assert.ok(l.verificar(null, 'LEITURA', 'd')! > 0, 'cheio de entradas vigentes: fail-closed só para a nova');
+    assert.equal(l.verificar(null, 'LEITURA', 'a'), null, 'as existentes seguem com a cota delas');
+    t = 60_000;
+    assert.equal(l.verificar(null, 'LEITURA', 'd'), null, 'janela vencida: entradas vencidas saem e a nova entra');
+});
+
+test('P3-R5-2: carga no teto de 20.000 fica marcada e avisada uma vez, sem dado de empresa', async () => {
+    const reg = carregarModulo('lib/http/empresas-publicas.ts', {}) as {
+        idDaEmpresaPublica(c: string, carregar: (limite: number) => Promise<Array<{ codigo: string; id: string }>>, agora?: number): Promise<string | null>;
+        estadoDaCarga(): { noTeto: boolean; capacidade: number };
+        INTERVALO_CARGA_MS: number;
+    };
+    const avisos: string[] = [];
+    const original = console.warn;
+    console.warn = (m: string) => { avisos.push(m); };
+    try {
+        const cheia = async (limite: number) => Array.from({ length: limite }, (_, i) => ({ codigo: `empresa-${String(i).padStart(5, '0')}`, id: `id-${i}` }));
+        assert.equal(reg.estadoDaCarga().noTeto, false);
+        assert.equal(await reg.idDaEmpresaPublica('zz-fora-do-prefixo', cheia, 0), null, 'empresa além do teto: desconhecida');
+        assert.deepEqual(reg.estadoDaCarga(), { noTeto: true, capacidade: 20_000 });
+        await reg.idDaEmpresaPublica('zz-outra-fora', cheia, reg.INTERVALO_CARGA_MS);
+        assert.equal(avisos.length, 1, 'aviso uma vez por processo');
+        assert.match(avisos[0], /no teto \(20000\)/);
+        assert.doesNotMatch(avisos[0], /empresa-0|id-/);
+    } finally { console.warn = original; }
 });

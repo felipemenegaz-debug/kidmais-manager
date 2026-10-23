@@ -1,6 +1,6 @@
 # Login: limite por origem real e pool do PostgreSQL (22/10/2026)
 
-Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1), e a rodada 4 (`931f669`) também (2 P2, sem P1). As correções da rodada 5 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3", "Rodada 4" e "Rodada 5"). Nada de push, PR, deploy, env ou banco real nesta rodada.
+Estado: a primeira versão está **mergeada em staging** (PR #208, merge `9e096a7`). O **G1 em staging reprovou** a regra do último valor (22/10, 11:45 UTC). A correção da regra (penúltimo valor conferido com `CF-Connecting-IP`) foi **REPROVADA na revisão independente de 22/10** (2 P2 + 1 P3, sem P1). A rodada 3 (`dd697b2`) também foi **REPROVADA** (2 P2 novos + 1 P3, sem P1), a rodada 4 (`931f669`) também (2 P2, sem P1), e a rodada 5 (`2ddac7b`) também (1 P2 + 1 P3, sem P1). As correções da rodada 6 estão **LOCAIS, em commit** na branch `codex/login-origem-penultimo-20261022` sobre `origin/staging` `9e096a7`, e aguardam nova revisão e o novo G1 (seções "Rodada 3" a "Rodada 6"). Nada de push, PR, deploy, env ou banco real nesta rodada.
 
 Origem: achados X-1, X-2 e X-3 da revisão de 22/10/2026 (`ambientes-locais/revisao-exportacao-blocos-20261022/PARECER.md`).
 
@@ -307,4 +307,36 @@ Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r5
   - cluster encerrado (`pg_ctl status` 3) e removido.
 - **Mutantes**: **26/26 mortos por asserção** (os 21 anteriores + 5 novos: código desconhecido sem carga, carga sem intervalo, formato não conferido antes da consulta, formulário sem corte pelo tamanho declarado, corpo lido antes do limite); controles 75/75 antes e depois.
 - **`npm run check:v1:static`**: **PASS único**, saída 0 (3306/3306, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
+- Nada remoto; `.env.local` não lido.
+
+## Rodada 6 — correções da revisão da rodada 5 (REPROVADO, sem P1)
+
+Parecer: `../ambientes-locais/revisao-ip-r5-2ddac7b-local-b/PARECER.md`. Os dois P2 da rodada 4 foram **fechados** nos cenários originais.
+
+### P2-R5-1 — capacidades incompatíveis entre o registro e o limitador
+
+- Antes: o registro admitia 20.000 empresas, mas o limitador guardava cada contador (três grupos + teto de PEDIDO por empresa) como chave solta num mapa de 50.000. Cerca de 16.667 empresas ativas na mesma janela enchiam o mapa, e a seguinte recebia 429 em tudo.
+- Agora os contadores de cada **entidade canônica** (empresa, site, endereço padrão, não confirmadas) ficam **juntos numa entrada**.
+  - O número de entradas é derivado do registro: `MAXIMO_ENTIDADES = 2 × 20.000 + 64`. O dobro cobre a troca de empresas no registro durante uma janela, que só acontece acima do teto dele.
+  - Cheio de entradas vigentes, só a entrada **nova** é recusada; as existentes mantêm as cotas. Entradas vencidas saem antes.
+  - O mapa por IP continua separado e com o teto anterior (20.000).
+- Teste: 20.000 empresas usando IDENTIDADE, LEITURA, PEDIDO e o teto de PEDIDO. A seguinte passa nos três grupos e em PEDIDO com IP confiável novo; ocupam-se 20.003 entradas, e o teto de 60 PEDIDO por empresa continua valendo.
+
+### P3-R5-2 — teto da carga de empresas
+
+- A carga continua limitada a 20.000 códigos, sempre o mesmo prefixo por ordem de código.
+- Quando volta cheia, isso fica marcado (`estadoDaCarga().noTeto`) e é avisado **uma vez por processo** no log, sem dado de empresa.
+- As empresas além do teto só entram pelo resolvedor e, até lá, contam como desconhecidas. Rever o teto antes de passar de 20.000 empresas ativas.
+
+### Validação local (rodada 6, 23/10/2026)
+
+Evidências em `../ambientes-locais/revisao-ip-correcao-20261022/` (`execucao-r6-*.log`, `mutantes.*`, `check-v1-static-r6.log`).
+
+- **Unitários focados**: **252/252**. Inclui o registro cheio (20.000 empresas, a seguinte passa nos três grupos e em PEDIDO com IP novo), o limite de entradas derivado do registro (cheio de vigentes: só a nova é recusada; vencidas saem) e a carga no teto avisada uma vez sem dado de empresa.
+- **PostgreSQL descartável próprio** (127.0.0.1:55943, cluster novo):
+  - `r6-1`: login-origem 7/7 em `atual` e em `063`, mais marketing-a [086] e fixture-atualizacao-staging [078];
+  - `r6-2`: login-origem 7/7 em `atual` e em `063`;
+  - cluster encerrado (`pg_ctl status` 3) e removido.
+- **Mutantes**: **29/29 mortos por asserção** (os 26 anteriores, com o M7 ajustado ao novo código, + contador por entrada sem agrupar, entradas sem folga sobre o registro, teto da carga não detectado); controles 78/78.
+- **`npm run check:v1:static`**: **PASS único**, saída 0 (3309/3309, 103/103, lint sem erros com o aviso preexistente `FinalidadeSkill`, TypeScript, build e PDF).
 - Nada remoto; `.env.local` não lido.

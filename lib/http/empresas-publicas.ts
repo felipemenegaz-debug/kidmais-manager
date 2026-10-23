@@ -31,11 +31,27 @@ export function empresaPublicaConfirmada(codigo: string | null): string | null {
   return codigo ? confirmadas.get(codigo) ?? null : null;
 }
 
+/**
+ * Teto da carga (P3-R5-2): a consulta traz no máximo CAPACIDADE códigos, sempre o mesmo prefixo por ordem de código. Se
+ * vier cheia, as empresas além dele só entram pelo resolvedor e, até lá, contam como desconhecidas no limite público.
+ * Isso fica marcado e avisado uma vez por processo (sem dado de empresa) para o teto ser revisto antes de importar.
+ */
+let cargaNoTeto = false;
+export function estadoDaCarga() {
+  return { noTeto: cargaNoTeto, capacidade: CAPACIDADE };
+}
+
 function carregar(carregarAtivas: CarregarEmpresasAtivas, agora: number) {
   if (!cargaEmCurso && agora - ultimaCarga >= INTERVALO_CARGA_MS) {
     ultimaCarga = agora;
     cargaEmCurso = carregarAtivas(CAPACIDADE)
-      .then((linhas) => { for (const { codigo, id } of linhas) if (CODIGO_EMPRESA_PUBLICA.test(codigo)) confirmarEmpresaPublica(codigo, id); })
+      .then((linhas) => {
+        if (linhas.length >= CAPACIDADE && !cargaNoTeto) {
+          cargaNoTeto = true;
+          console.warn(`[limite-publico] carga de empresas ativas no teto (${CAPACIDADE}): empresas além dele contam como desconhecidas até o resolvedor confirmá-las`);
+        }
+        for (const { codigo, id } of linhas) if (CODIGO_EMPRESA_PUBLICA.test(codigo)) confirmarEmpresaPublica(codigo, id);
+      })
       .catch(() => undefined) // banco indisponível: o código segue desconhecido; a rota recusa do mesmo jeito
       .finally(() => { cargaEmCurso = null; });
   }
