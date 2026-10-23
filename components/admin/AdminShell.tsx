@@ -227,11 +227,10 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('/marketing/automacoes')) return 'automation';
     if (href.includes('perfil-empresa')) return 'profile';
     if (href.includes('tabelas-preco')) return 'prices';
-    if (href.includes('tabela-pacotes')) return 'pdf';
+    if (href.includes('importar-documentos')) return 'pdf';
     if (href.includes('pacotes')) return 'packages';
     if (href.includes('catalogo')) return 'buffet';
     if (href.includes('clientes') || href.includes('acessos')) return 'users';
-    if (href.endsWith('/contratos/importar')) return 'import';
     if (href.includes('contratos')) return 'contract';
     if (href.includes('festas')) return 'cake';
     if (href.includes('disponibilidade')) return 'calendar';

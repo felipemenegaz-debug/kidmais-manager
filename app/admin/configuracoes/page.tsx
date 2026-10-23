@@ -9,7 +9,6 @@ const cards: CartaoConfiguracao[] = [
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
   { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao Kidmais pelo fluxo oficial da Meta.', icon:'contact' },
-  { route:'tabela-pacotes', title:'PDF de Pacotes', text:'Revise e publique o documento consultado pelos clientes. Sua publicação é independente dos preços.', icon:'pdf' },
 ];
 
 export default function Page() {
