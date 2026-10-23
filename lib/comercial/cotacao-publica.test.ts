@@ -138,3 +138,22 @@ test('escopo de uma unidade: zero ou uma unidade atende; mais de uma é recusada
     const semUnidade = ambiente({ empresas: { 'buffet-z': 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } });
     assert.deepEqual(await semUnidade.resolver('buffet-z'), { empresaId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', estabelecimentoId: null, porCodigo: true });
 });
+test('limite público: só o código RESOLVIDO entra como empresa confirmada (pelo id); inexistente, plano ou situação recusados não entram', async () => {
+    const cache = new Map<string, Record<string, unknown>>();
+    const registro = carregarModulo('lib/http/empresas-publicas.ts', {}, cache) as { empresaPublicaConfirmada(c: string | null): string | null };
+    const cotacao = carregarModulo('lib/comercial/cotacao-publica.ts', {}, cache) as Mod;
+    const { tx } = ambiente({ planos: { [B]: false } });
+    const deps = {
+        recursoIncluido: async (_tx: DbExecutor, id: string) => id !== B,
+        lerEstadoComercial: async (_tx: DbExecutor, id: string) => ({ acesso: { nivel: id === C ? 'BLOQUEADO' : 'COMPLETO' } }),
+        escopoCatalogoPublico: async () => ({ empresaId: KIDMAIS, estabelecimentoId: null }),
+    };
+    const resolver = (codigo: string) => cotacao.escopoCotacaoPublica(() => tx as unknown as DbExecutor, codigo, {}, LIGADO, deps);
+    assert.equal(registro.empresaPublicaConfirmada('buffet-a'), null);
+    await resolver('buffet-a');
+    assert.equal(registro.empresaPublicaConfirmada('buffet-a'), A);
+    for (const codigo of ['buffet-b', 'buffet-c', 'buffet-inexistente']) {
+        await assert.rejects(resolver(codigo), recusa, codigo);
+        assert.equal(registro.empresaPublicaConfirmada(codigo), null, codigo);
+    }
+});

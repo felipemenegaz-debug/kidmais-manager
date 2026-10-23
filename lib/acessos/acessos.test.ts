@@ -104,14 +104,18 @@ test('link com token vai no fragmento (#), nunca na query; origem é a administr
     assert.doesNotMatch(link, /\?/);
 });
 
-test('IP confiável: só no Render e só o ÚLTIMO valor do X-Forwarded-For (o início pode vir do cliente)', () => {
-    const ip = http.ipDaRequisicao as (r: { headers: { get(n: string): string | null } }, env: { RENDER?: string }) => string | null;
-    const req = (xff: string | null) => ({ headers: { get: (n: string) => (n === 'x-forwarded-for' ? xff : null) } });
-    assert.equal(ip(req('1.2.3.4, 177.10.20.30'), { RENDER: 'true' }), '177.10.20.30');
-    assert.equal(ip(req('177.10.20.30, 10.0.0.9'), { RENDER: 'true' }), null, 'salto interno no fim juntaria todos numa chave só');
-    assert.equal(ip(req('1.2.3.4'), {}), null, 'fora do deploy não há proxy confiável');
-    assert.equal(ip(req('nao-e-ip'), { RENDER: 'true' }), null);
-    assert.equal(ip(req(null), { RENDER: 'true' }), null);
+test('IP confiável: só no Render com a borda confirmada, o PENÚLTIMO X-Forwarded-For conferido com CF-Connecting-IP (o último é salto da infraestrutura)', () => {
+    const ip = http.ipDaRequisicao as (r: { headers: { get(n: string): string | null } }, env: { RENDER?: string; ORIGEM_CLIENTE_BORDA?: string }) => string | null;
+    const BORDA = { RENDER: 'true', ORIGEM_CLIENTE_BORDA: 'render-cloudflare-sobrescreve' };
+    const req = (xff: string | null, cf: string | null = '177.10.20.30') => ({ headers: { get: (n: string) => (n === 'x-forwarded-for' ? xff : n === 'cf-connecting-ip' ? cf : null) } });
+    assert.equal(ip(req('203.0.113.9, 177.10.20.30, 104.23.190.11'), BORDA), '177.10.20.30');
+    assert.equal(ip(req('177.10.20.30, 104.23.190.11'), BORDA), '177.10.20.30');
+    assert.equal(ip(req('177.10.20.30, 104.23.190.11', null), BORDA), null, 'sem CF-Connecting-IP não há conferência');
+    assert.equal(ip(req('177.10.20.30, 104.23.190.11', '104.23.190.11'), BORDA), null, 'o salto nunca vira a chave');
+    assert.equal(ip(req('177.10.20.30, 104.23.190.11'), {}), null, 'fora do deploy não há proxy confiável');
+    assert.equal(ip(req('177.10.20.30'), BORDA), null);
+    assert.equal(ip(req(null), BORDA), null);
+    assert.equal(ip(req('203.0.113.9, 177.10.20.30, 104.23.190.11'), { RENDER: 'true' }), null, 'sem a confirmação da borda, nenhum cabeçalho vale');
 });
 
 test('respostas de erro: tabela ausente vira 503 explícito; erro desconhecido não vaza detalhe', async () => {

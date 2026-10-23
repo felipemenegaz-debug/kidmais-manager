@@ -65,7 +65,7 @@ async function lerComercialPublico() {
 }
 
 export async function GET(request: NextRequest) {
-  const limite = limitarPublico(request, "LEITURA");
+  const limite = await limitarPublico(request, "LEITURA");
   if (limite) return limite;
   try {
     const { searchParams } = new URL(request.url);

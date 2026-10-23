@@ -5,7 +5,7 @@ import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { conectarDescartavel, encerrarDescartavel, portaDescartavel, senhaRecusada } from '../comercial/postgres-descartavel.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
-import { chaveDaOrigem, origemConfiavel } from '../http/origem-cliente.ts';
+import { BORDA_CONFIRMADA, chaveDaOrigem, origemConfiavel } from '../http/origem-cliente.ts';
 
 /**
  * Login com limite por ORIGEM (IP confiável, só falhas) e por CONTA, no PostgreSQL DESCARTÁVEL (modelo "atual" da
@@ -136,8 +136,9 @@ test('IP abusivo: teto exato sob rajada, bloqueio só dele; a empresa (mesmas co
     // com o cabeçalho forjado para parecer a empresa: a origem confiável é o último valor, do proxy.
     await admin.query("UPDATE limites_autenticacao SET tentativas=0, bloqueado_ate=NULL, janela_iniciada_em=now() WHERE chave_hash=$1", [chaveOrigem(ABUSO_IP)]);
     await admin.query("INSERT INTO limites_autenticacao (chave_hash, tipo, tentativas, janela_iniciada_em) VALUES ($1, 'ORIGEM', $2, now()) ON CONFLICT (chave_hash) DO UPDATE SET tentativas=$2, janela_iniciada_em=now(), bloqueado_ate=NULL", [chaveOrigem(ABUSO_IP), limite - 5]);
-    const forjado = { headers: { get: (n: string) => (n === 'x-forwarded-for' ? `${EMPRESA_IP}, ${ABUSO_IP}` : n === 'true-client-ip' ? EMPRESA_IP : null) } };
-    const ipDoAbuso = origemConfiavel(forjado, { RENDER: 'true' });
+    // Formato do G1: [forjado (o IP da empresa), IP real de quem ataca, salto da infraestrutura]; a borda grava o real em CF-Connecting-IP.
+    const forjado = { headers: { get: (n: string) => (n === 'x-forwarded-for' ? `${EMPRESA_IP}, ${ABUSO_IP}, 104.23.190.11` : n === 'cf-connecting-ip' ? ABUSO_IP : null) } };
+    const ipDoAbuso = origemConfiavel(forjado, { RENDER: 'true', ORIGEM_CLIENTE_BORDA: BORDA_CONFIRMADA });
     assert.equal(ipDoAbuso, ABUSO_IP, 'o cabeçalho forjado não escolhe a chave');
     // Contas da própria empresa como alvo (uma tentativa por conta, abaixo do limite de 5 por conta).
     const r = await Promise.all(usuarios.slice(0, 20).map((u) => tentar(u, 'senha-errada', ipDoAbuso)));
