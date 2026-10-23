@@ -1038,3 +1038,41 @@ Cluster descartável 127.0.0.1:55607 (PG 18), recriado com o mesmo script, diret
 - os pedidos recebidos por e-mail precisam de um roteiro seguro: autoria, data real de recebimento, protocolo, confirmação e auditoria. Um INSERT isolado não executa os e-mails nem a auditoria do serviço;
 - a forma canônica das restrições só foi conferida no PG 18;
 - o acesso nos estados SOMENTE_LEITURA e BLOQUEADO não foi provado por E2E. A leitura do paywall pelo Astra indica que a área Assinatura continua acessível.
+
+### Décima sétima rodada: revisão de `d72d8b8` — P2-C1 residual (N1, N2)
+
+A revisão do Astra (`revisao-arrependimento-l1-d72d8b8-20261023/RELATORIO.md`) fechou P2-C2 e P3-C1 e aprovou o vigia como
+proposta local. O P2-C1 ficou **parcial**, com dois cenários reproduzidos. Correção no commit `c537356`, sem reescrever
+commits.
+
+| Achado | Correção | Prova |
+|---|---|---|
+| P2-N1: pedido registrado **sem vínculo** com o provedor (TESTE) era tratado como recontratação. A cobrança informada era descartada junto com a linha | A ausência de vínculo no registro deixa de valer como prova de outra contratação. Se a empresa agora tem assinatura, concluir com restituição **exige** a assinatura restituída (`sub_…`), que precisa ser a atual da empresa. Ela fica gravada em `restituicao_assinatura_id`. Sem ela, a conclusão é recusada (CONFLITO, com instrução) e o registro continua valendo. Com vínculo no registro, informar outra assinatura também é recusado, no serviço e no banco (`restituicao_assinatura_check`). As cobranças declaradas entram no filtro da sincronização com ou sem assinatura no registro. | caso 6b, que repete a REVIEW N1: recusa sem a assinatura e com a de outra empresa; com a atual, ENCERRADA e continua ENCERRADA na reconsulta; a cobrança declarada é excluída mesmo com datas posteriores; assinatura nova paga reativa |
+| P2-N2: cobrança **antecipada** (vencimento futuro, paga antes) reabria o acesso quando o id era omitido | (a) A restituição **exige** a lista das cobranças restituídas (`restituicao_cobranca_ids`, de 1 a 50 `pay_…`), que nunca mais sustentam período. (b) Na assinatura restituída, cobrança **paga** até a data da conclusão também não sustenta, qualquer que seja o vencimento: vale a data mais antiga entre `clientPaymentDate`, `confirmedDate` e `paymentDate`. Só reativa pagamento feito depois da conclusão ou de outra assinatura. O limite não foi esticado. | caso 6, que repete a REVIEW N2: antecipada não declarada continua ENCERRADA; pagamento com data posterior reativa; unitário com antecipada, boleto pago antes e compensado depois, cobrança em aberto, cobrança declarada em outra assinatura e recontratação |
+
+**Limitação assumida:** o provedor informa só a data do pagamento. Um pagamento novo **no mesmo dia** da conclusão, na
+**mesma** assinatura restituída, não reativa sozinho. A recontratação normal cria assinatura nova e reativa; o caso raro
+fica com o atendimento. O caminho de cada caso fica no painel: cobranças obrigatórias e assinatura quando não há vínculo.
+
+**Validação:**
+Cluster 127.0.0.1:55607 (PG 18), recriado pelo script da tarefa e depois removido.
+- **Bateria PG completa** sobre `c537356`: 115/115 arquivos, 701 testes, 697 pass, 0 fail, 4 pulados (os mesmos de
+  propósito da e8). Inclui `arrependimento-097` **11/11**, aplicadores reais, devolução 089, sincronização e exportação.
+  Relatório: `…-relatorios/2026-10-23T06-15-01-305Z-check-v1-postgres.log`.
+- **E2E:** `assinatura-devolucao-ui` (5 cenários), `cpf-fundador-ui` 8/8 e `cadastro-publico-ui` 8/8.
+- **Mutações:** 15/15 detectadas, em cópia isolada de `c537356`, com controle PASS antes e depois. Além das 12 anteriores
+  (m8 e m9 com o alvo atualizado):
+  - m13, a antecipada volta a sustentar: detectada pelo caso 6;
+  - m14, sem vínculo volta a ser tratado como recontratação: detectada pelo caso 6b;
+  - m15, cobranças declaradas ignoradas: detectada pelo caso 6b.
+- **Scripts:** 89/89. **Unitários** de devolução e arrependimento: 14/14. `check:v1:static`: PASS (3415).
+- **Logs:** `…-relatorios/grupo-c-097-rodada3-20261023/`. Cluster e cópia removidos; porta livre.
+
+**Ressalvas da revisão mantidas:**
+- **Vigia:**
+  - a latência é nominal (agendador pontual, execução bem-sucedida, banco acessível);
+  - o alarme não prova recebimento nem ação humana;
+  - a mensagem de erro não é sanitizada formalmente (`error.message`).
+- **Pendente de decisão:** o responsável pelo atendimento e a ativação do vigia.
+- **Não executado:** a prova física da 097 sem a 089 instalada, o webhook HTTP independente e a recuperação de vínculo
+  ponta a ponta pelo painel.

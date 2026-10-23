@@ -229,11 +229,14 @@ legal)”, com senha recente, motivo e auditoria):
 1. **Comunicar o intermediador** de imediato (no painel do Asaas: remover a renovação e pedir o estorno, se houver
    cobrança) e registrar a referência → “Registrar comunicação ao intermediador”.
 2. **Concluir:**
-   - **Restituído** (exige a comunicação já registrada, o valor e a referência do estorno; a cobrança restituída, `pay_…`,
-     é opcional): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
+   - **Restituído** (exige a comunicação já registrada, o valor, a referência do estorno e **as cobranças restituídas**
+     `pay_…`, inclusive antecipadas; se o pedido foi registrado sem vínculo com o provedor, também a **assinatura restituída**
+     `sub_…`, que tem de ser a atual): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
      dias, com exportação) **se a empresa ainda estiver na assinatura do provedor do registro**. Grava o limite (data da
      conclusão): a sincronização (webhook, reconciliação, tela) não deixa cobranças dessa assinatura com vencimento até o
-     limite reabrirem o período. Só pagamento com vencimento posterior, ou de outra assinatura (recontratação), reativa.
+     limite, nem pagas até ele (antecipadas), reabrirem o período, e as cobranças declaradas nunca mais sustentam período. Só
+     pagamento feito depois da conclusão, ou de outra assinatura (recontratação), reativa. Pagamento novo no mesmo dia, na
+     mesma assinatura, não reativa sozinho (o provedor só informa a data): tratar no atendimento.
      Pedido antigo concluído depois da recontratação não encerra a assinatura nova;
    - **Não se aplica** (exige justificativa, enviada ao cliente pelo atendimento): não muda o acesso.
 3. Responder ao cliente pelo canal oficial, citando o protocolo (o sistema não avisa o contratante na conclusão).
