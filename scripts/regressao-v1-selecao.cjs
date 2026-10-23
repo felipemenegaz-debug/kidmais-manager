@@ -219,10 +219,12 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/arrependimento-097-sem-089.postgres.test.ts": { descartavel: "086" },
   // 22/10/2026: o inventário passou a citar as tabelas da 093 (agenda por unidade): modelo 093 (inclui a 092).
   // 22/10/2026 (gate da agenda): modelo 094 — fechamentos.salao_id e fechamento_revisoes.salao_id no retrato.
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "094" },
+  // 23/10/2026: com os créditos de IA (095), o inventário inteiro vai até a 095 (inclui 092–094); a compatibilidade sem a
+  // 095 é provada em lib/creditos/creditos-095.postgres.test.ts sobre o modelo 094.
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "095" },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
-  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "094" },
+  "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "095" },
   // 22/10/2026: preço por quantidades cheias (092, PONTO), aplicada pela suíte sobre o modelo 089.
   "lib/comercial/precos-por-quantidade-092.postgres.test.ts": { descartavel: "089" },
   // 22/10/2026: agenda por unidade (093, etapa 2a), aplicada pela suíte sobre o modelo 092.
@@ -238,6 +240,12 @@ const ESTADO_POSTGRES = {
   // Correções do navegador (22–23/10): revisão de festa importada/nativa no horário fixo que o modo livre deixou de
   // oferecer, com a regra da 094 (salão com/sem vaga, limite do dia, bloqueio), COMMIT real e outra conexão.
   "lib/agenda/historico-livre-094.postgres.test.ts": { descartavel: "094" },
+  // 22/10/2026 (base 094 desde 23/10): créditos de IA (095) aplicados pela suíte sobre o modelo 094: pre/postcheck, rollback,
+  // ledger, concorrência real (duas conexões, travas observadas), compra/webhook/reconciliação com Asaas dublê, devolução,
+  // corte e exportação sem/com 095.
+  "lib/creditos/creditos-095.postgres.test.ts": { descartavel: "094" },
+  // Aplicadores reais da 095 (staging e produção) no modelo 094 (095 ausente): conferência, privilégios, parcial, falha e anti-repetição.
+  "lib/creditos/aplicador-095.postgres.test.ts": { descartavel: "094" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },

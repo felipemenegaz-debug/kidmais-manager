@@ -52,7 +52,7 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
 test('menu: Configurações de empresa (inclusive o WhatsApp, 083, e Importar documentos) só com Gestão na empresa; o PDF de Pacotes saiu do menu', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
     // 23/10/2026 (pedido de Felipe): o PDF de Pacotes saiu do menu e do hub; a tela e a API continuam (só plataforma).
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), []);
 });
@@ -65,11 +65,12 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
         '/admin/configuracoes/acessos': ['lib/autenticacao/usuarios.ts'],
         '/admin/configuracoes/perfil-empresa': ['lib/perfil/autorizacao.ts'],
         '/admin/configuracoes/whatsapp': ['lib/whatsapp/onboarding.service.ts', 'lib/whatsapp/onboarding-core.ts'],
+        '/admin/configuracoes/creditos': ['lib/creditos/compra.ts'],
     };
     for (const [href, arquivos] of Object.entries(empresa)) {
         assert.equal(autoridadeDaConfiguracao(href), 'empresa', href);
         const texto = arquivos.map((f) => readFileSync(f, 'utf8')).join('\n');
-        assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/, `${href}: papel da membership no servidor`);
+        assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|tenant\.papelAtual !== GESTAO|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/, `${href}: papel da membership no servidor`);
     }
     // PDF de Pacotes fora do menu: a API continua exigindo a autoridade de plataforma.
     assert.equal(autoridadeDaConfiguracao('/admin/configuracoes/tabela-pacotes'), null);

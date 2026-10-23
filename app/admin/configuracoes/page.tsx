@@ -8,6 +8,7 @@ const cards: CartaoConfiguracao[] = [
   { route:'importar-documentos', title:'Importar documentos', text:'Envie em PDF a tabela de preços, o contrato da loja ou o contrato antigo de uma festa: o Kidmais lê e você revisa.', icon:'pdf' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
+  { route:'creditos', title:'Créditos de IA', text:'Créditos de convite e do WhatsApp.AI: saldo, pacotes, pedidos, devoluções e extrato.', icon:'wallet' },
   { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao Kidmais pelo fluxo oficial da Meta.', icon:'contact' },
 ];
 

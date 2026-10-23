@@ -22,7 +22,8 @@ import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio', ROTA_AJUDA];
+// Créditos de IA: saldo e devolução de pacote pago continuam acessíveis com a empresa bloqueada (a compra recusa no servidor).
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/configuracoes/creditos', '/admin/inicio', ROTA_AJUDA];
 /** Telas abertas sem empresa ativa: conta e ajuda (nenhum dado de negócio). */
 const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/perfil', ROTA_AJUDA];
 

@@ -438,3 +438,32 @@ test('089 na conferência D-C4: pedido vencido vira item por idade (novo alarma;
     const fonte=require('node:fs').readFileSync(__dirname+'/assinatura-reconciliar.cjs','utf8');
     assert.match(fonte,/pendenciasEncerramento: lerPendenciasEncerramento/);
 });
+
+test('R4-P2-2: conta de créditos inválida não para o ciclo das assinaturas; créditos ficam de fora e viram item do relatório',async()=>{
+    const {executarCiclo,creditosDaExecucao}=require('./assinatura-reconciliar.cjs');
+    const creditos=await creditosDaExecucao({ambiente:'sandbox'},{CREDITOS_ASAAS_CONTA:'Conta Real!'});
+    assert.equal(creditos.contexto,null);
+    const recebidos=[];
+    const r=await executarCiclo({client:{query:async()=>({rows:[]})},provedor:{},aplicar:false,banco:'sintetico',
+        sinc:{eventosPendentes:async()=>['assinatura'],empresasComProvedor:async()=>[],processarEvento:async(_c,_id,deps)=>{recebidos.push(deps);return{situacao:'PROCESSADO'};}},
+        creditos:{...creditos,instalados:async()=>true,pendencias:async()=>[],divergencias:async()=>[],pedidos:async()=>{throw Error('não deveria selecionar');}}});
+    assert.deepEqual(r.eventos,{PROCESSADO:1},'evento de assinatura processado');
+    assert.equal('creditos' in recebidos[0],false,'sem contexto de créditos');
+    assert.equal(r.creditos.CONFIG_CONTA_INVALIDA,1);
+    const valida=await creditosDaExecucao({ambiente:'sandbox'},{CREDITOS_ASAAS_CONTA:'kidmais-sandbox'});
+    assert.deepEqual(valida.contexto,{ambiente:'sandbox',conta:'kidmais-sandbox'});
+});
+
+test('R5-P2-1: a tentativa do pedido é marcada e CONFIRMADA antes do processamento, mesmo quando ele falha',async()=>{
+    const {executarCiclo}=require('./assinatura-reconciliar.cjs');
+    const comandos=[];
+    const r=await executarCiclo({client:{query:async(s)=>{comandos.push(s);return{rows:[]};}},provedor:{},aplicar:true,banco:'sintetico',
+        sinc:{eventosPendentes:async()=>[],empresasComProvedor:async()=>[],processarEvento:async()=>({situacao:'PROCESSADO'})},
+        creditos:{contexto:{ambiente:'sandbox',conta:'padrao'},instalados:async()=>true,pendencias:async()=>[],divergencias:async()=>[],
+            pedidos:async()=>({ids:['p1'],truncado:false}),marcar:async()=>{comandos.push('MARCAR');},processar:async()=>{throw Error('provedor fora');}}});
+    const i=comandos.indexOf('MARCAR');
+    assert.ok(i>0,'marcou');
+    assert.equal(comandos[i+1],'COMMIT','a marca é confirmada antes de processar');
+    assert.equal(comandos.lastIndexOf('ROLLBACK')>i,true,'o processamento que falhou volta atrás sozinho');
+    assert.equal(r.creditosPedidos.ERRO_Error,1);
+});

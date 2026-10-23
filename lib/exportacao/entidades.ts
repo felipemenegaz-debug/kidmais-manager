@@ -84,6 +84,21 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
     assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
+    // 095 (créditos de IA): saem saldo, lotes (origem, quantidade, preço, vencimento), extrato, reservas, pedidos (oferta, valor,
+    // termos, protocolo), cobranças, devoluções, cortesias e o corte do legado. Ficam fora chaves técnicas de repetição e
+    // deduplicação, a URL da fatura (contém token de acesso), a conta do provedor, controles internos de risco e a
+    // identidade/motivo do operador da plataforma.
+    ia_credito_lotes: { chave_origem: 'identificador técnico de deduplicação da concessão' },
+    ia_credito_lancamentos: { operacao: 'identificador técnico de deduplicação do lançamento' },
+    ia_credito_reservas: { operacao_id: 'identificador técnico da operação (geração/chamada)' },
+    ia_credito_pedidos: { chave_idempotencia: 'identificador técnico de repetição da tela', payload_sha256: 'hash técnico de repetição da tela',
+        reconciliado_em: 'controle interno da reconciliação' },
+    ia_credito_cobrancas: { conta: 'metadado técnico da conta do provedor', url_fatura: 'link de pagamento com token de acesso', referencia_externa: 'correlação técnica com o provedor',
+        exposicao_centavos: 'controle interno de risco da plataforma', revisao_motivo: 'controle interno da plataforma',
+        conferida_em: 'controle interno da reconciliação', retencao_motivo: 'controle interno da plataforma (pendência do operador)' },
+    ia_credito_devolucoes: { chave_idempotencia: 'identificador técnico de repetição da tela' },
+    ia_credito_cortesias: { chave_idempotencia: 'identificador técnico de repetição', motivo: 'registro interno da plataforma', concedida_por: 'identidade do operador da plataforma' },
+    ia_credito_cortes: { referencia_autorizacao: 'registro interno da autorização da plataforma' },
     // 097 (arrependimento): protocolo, datas, situação da assinatura no registro, informativos, comunicação ao
     // intermediador, conclusão (referência ou justificativa) e valor restituído saem, com a situação do e-mail de
     // confirmação. Ficam fora a chave de repetição, o aviso interno e quem do atendimento da plataforma concluiu.
@@ -231,6 +246,18 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'convites/geracoes', tabela: 'convite_geracoes', grupo: 'Convites', descricao: 'Gerações com IA (resultado: tamanho e SHA-256).', onde: EMP },
     { arquivo: 'convites/autorizacoes_ia', tabela: 'convite_ia_autorizacoes', grupo: 'Convites', descricao: 'Autorizações do responsável para IA.', onde: EMP },
 
+    // Créditos de IA (095; ausentes enquanto a migration não for aplicada — o pacote registra a ausência)
+    { arquivo: 'creditos/carteiras', tabela: 'ia_credito_carteiras', grupo: 'Créditos de IA', descricao: 'Saldo de créditos por recurso (Convites, Wall-e).', onde: EMP },
+    { arquivo: 'creditos/lotes', tabela: 'ia_credito_lotes', grupo: 'Créditos de IA', descricao: 'Lotes de crédito: origem, quantidade, preço pago e vencimento.', onde: EMP },
+    { arquivo: 'creditos/extrato', tabela: 'ia_credito_lancamentos', grupo: 'Créditos de IA', descricao: 'Extrato de créditos (entradas, reservas, usos, vencimentos e cancelamentos).', onde: EMP },
+    { arquivo: 'creditos/reservas', tabela: 'ia_credito_reservas', grupo: 'Créditos de IA', descricao: 'Reservas de crédito por geração/chamada.', onde: EMP },
+    { arquivo: 'creditos/reserva_lotes', tabela: 'ia_credito_reserva_lotes', grupo: 'Créditos de IA', descricao: 'Lotes usados em cada reserva.', onde: EMP },
+    { arquivo: 'creditos/pedidos', tabela: 'ia_credito_pedidos', grupo: 'Créditos de IA', descricao: 'Pedidos de compra de pacotes (oferta, valor, termos e protocolo).', onde: EMP },
+    { arquivo: 'creditos/cobrancas', tabela: 'ia_credito_cobrancas', grupo: 'Créditos de IA', descricao: 'Cobranças dos pacotes no provedor (sem link de pagamento).', onde: EMP },
+    { arquivo: 'creditos/devolucoes', tabela: 'ia_credito_devolucoes', grupo: 'Créditos de IA', descricao: 'Devoluções de pacotes (cálculo, valor, prazo e resultado).', onde: EMP },
+    { arquivo: 'creditos/cortesias', tabela: 'ia_credito_cortesias', grupo: 'Créditos de IA', descricao: 'Cortesias recebidas (quantidade, campanha e protocolo).', onde: EMP },
+    { arquivo: 'creditos/corte_legado', tabela: 'ia_credito_cortes', grupo: 'Créditos de IA', descricao: 'Conversão do saldo do modelo anterior (mês, limite, usado e lote criado).', onde: EMP },
+
     // Marketing
     { arquivo: 'marketing/sites', tabela: 'marketing_sites', grupo: 'Marketing', descricao: 'Sites.', onde: EMP },
     { arquivo: 'marketing/site_versoes', tabela: 'marketing_site_versoes', grupo: 'Marketing', descricao: 'Versões publicadas dos sites.', onde: EMP },
@@ -300,6 +327,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     convite_consumos: 'Consumo de créditos de convites (controle da plataforma).',
     convite_limites_http: 'Limites de requisição dos links públicos: segurança.',
     convite_orcamento_global: 'Orçamento global de IA dos convites (todas as empresas).',
+    ia_credito_notificacoes: 'Fila técnica de e-mails dos créditos (controle de entrega; a situação útil está no pedido e na devolução).',
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
     marketing_dns_simulado: 'Simulação técnica local de DNS.',

@@ -22,6 +22,18 @@ import { lerEstadoComercial } from './estado.ts';
  */
 export const ROTAS_SEMPRE_PERMITIDAS = ['/api/admin/autenticacao', '/api/admin/perfil/senha', '/api/admin/assinatura', '/api/admin/exportacao', '/api/desenvolvedor', '/api/cadastro'] as const;
 const LEITURA = new Set(['GET', 'HEAD']);
+/**
+ * R4-P2-4 (revisão de 22/10): obrigações de pacote JÁ PAGO continuam acessíveis com a empresa bloqueada — consultar o
+ * saldo/pedidos e pedir a devolução. Compra (POST /api/admin/creditos) e consumo NÃO entram. Autenticação, tenant, Gestão
+ * e senha recente continuam exigidos pelas próprias rotas/serviços.
+ */
+const PERMITIDAS_POR_METODO: ReadonlyArray<readonly [string, string]> = [
+    ['GET', '/api/admin/creditos'], ['HEAD', '/api/admin/creditos'], ['GET', '/api/admin/creditos/pedido'], ['POST', '/api/admin/creditos/devolucao'],
+];
+export function rotaPermitidaPorMetodo(metodo: string, caminho: string) {
+    const limpo = caminho.replace(/\/+$/, ''), m = metodo.toUpperCase();
+    return PERMITIDAS_POR_METODO.some(([mm, r]) => mm === m && limpo === r);
+}
 
 export function rotaSemprePermitida(caminho: string) {
     const limpo = caminho.replace(/\/+$/, '');
@@ -40,7 +52,7 @@ export type DecisaoPaywall =
     | { permitido: false; status: 402; codigo: 'ASSINATURA_NECESSARIA'; mensagem: string; nivel: AcessoComercial['nivel']; motivo: MotivoAcesso };
 
 export function decidirPaywall(acesso: AcessoComercial, metodo: string, caminho: string): DecisaoPaywall {
-    if (acesso.nivel === 'COMPLETO' || rotaSemprePermitida(caminho))
+    if (acesso.nivel === 'COMPLETO' || rotaSemprePermitida(caminho) || rotaPermitidaPorMetodo(metodo, caminho))
         return { permitido: true };
     if (acesso.nivel === 'SOMENTE_LEITURA' && LEITURA.has(metodo.toUpperCase()))
         return { permitido: true };

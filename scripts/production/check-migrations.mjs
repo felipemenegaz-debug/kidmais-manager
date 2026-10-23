@@ -143,6 +143,11 @@ const approvedFiles = [
   // 094: capacidade, limite do dia e intervalo na regra de conflito (etapa 2b; decisões de Felipe de 22/10/2026). Troca o
   // corpo de três funções da 062 (manifesto da Festa com o conjunto 094). Validada só em PostgreSQL descartável local.
   '20261022_094_agenda_capacidade.sql',
+  // 095: créditos de IA (Convites e Wall-e: carteiras, lotes, extrato imutável, compra avulsa, devolução e corte do
+  // legado), implementação local de 22/10/2026. Aditiva; precheck e postcheck externos (padrão). Validada só em
+  // PostgreSQL descartável local; nunca aplicada fora dele. Número livre na leitura de 22/10 (087 continua reservada aos
+  // avisos de cobrança, fora deste repositório); livre numa leitura não é reserva.
+  '20261022_095_ia_creditos.sql',
   // 096: comprovante da contratação e arquivo das versões dos documentos legais (grupo B do parecer de apoio, 22/10/2026).
   // Só cria tabelas novas; não altera linhas. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
   // 092–095 estão tomadas por outras frentes locais (agenda/preços e créditos IA). Número livre numa leitura local não é reserva global.
@@ -178,7 +183,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '096', '097'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -226,7 +231,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '096', '097']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

@@ -92,3 +92,15 @@ test('toda rota /api/admin passa por exigirApiAdminCrmDisponivel (onde o paywall
     for (const c of ['documentos', 'importacoes', 'operacoes'])
         assert.match(readFileSync(`app/api/admin/inteligencia/${c}/composicao.ts`, 'utf8'), /import \{ dependenciasGateway[^}]*\} from "\.\.\/dependencias"/, c);
 });
+
+test('R4-P2-4: pacote já pago — saldo, pedido e devolução abertos com a empresa bloqueada ou em leitura; compra continua recusada', () => {
+    for (const nivel of [bloqueado, leitura]) {
+        assert.equal(decidirPaywall(nivel, 'GET', '/api/admin/creditos').permitido, true, `saldo ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'GET', '/api/admin/creditos/pedido').permitido, true, `pedido ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'POST', '/api/admin/creditos/devolucao').permitido, true, `devolução ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'POST', '/api/admin/creditos').permitido, false, `compra ${nivel.nivel}`);
+    }
+    assert.equal(decidirPaywall(bloqueado, 'DELETE', '/api/admin/creditos/devolucao').permitido, false, 'só o método previsto');
+    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/creditos/devolucao/outra').permitido, false, 'só o caminho exato');
+    assert.equal(rotaSemprePermitida('/api/admin/creditos'), false, 'não vira rota sempre permitida');
+});

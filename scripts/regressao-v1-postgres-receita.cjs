@@ -92,6 +92,8 @@ const MODELOS = {
   "093": { banco: "kidmais_v1_modelo_093", ate: "093", sem: [] },
   // Capacidade da agenda (etapa 2b, 22/10/2026): inventário inteiro até a 094.
   "094": { banco: "kidmais_v1_modelo_094", ate: "094", sem: [] },
+  // Créditos de IA (095, 22/10/2026): inventário inteiro até a 095 (inclui 092–094); exportação verificável no 095.
+  "095": { banco: "kidmais_v1_modelo_095", ate: "095", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {
