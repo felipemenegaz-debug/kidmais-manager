@@ -1438,3 +1438,27 @@ união de tipos `AcessoErroCodigo`.
 - Os testes do passo 5 dão **20/20**.
 - Justificativa, tabela antigo → novo e consequência operacional: `docs/EMAIL_PRODUCAO_20261020.md` §11.
 - Aguarda revisão do Astra antes do CI completo, do push e da PR.
+
+- **Revisão do Astra de `45cf385`:** APROVADO, sem achados.
+
+### Integração com o staging `a55ab53` (23/10/2026, autorizada por Felipe; sem push, PR ou deploy até a revisão)
+
+Ao preparar a PR, o staging remoto tinha andado de `c3e0a36` para **`a55ab53`** (#220): galeria de recursos do site,
+cabeçalho compacto e "Importar documentos" em Configurações. O #220 não traz migrations nem dependências novas. Felipe
+autorizou o fetch e o merge local resolvendo o conflito, mantendo as duas mudanças.
+
+- **Merge `12f6cff`** (pais `45cf385` e `a55ab53`). Único conflito em `components/site/Site.tsx`, resolvido assim:
+  - **do staging:** `NavegacaoSite` no lugar do cabeçalho antigo e `RecursosGaleria` no lugar das abas;
+  - **desta frente:** imports de Fundador/CPF no lugar de `comercial`, `SiteVenda` assíncrona, faixa do Fundador
+    dinâmica, `Planos` com `fundador`/`cpf` e `Duvidas` com `fundador`;
+  - o diff do `Site.tsx` contra `a55ab53` é exatamente o diff desta frente contra `c3e0a36`;
+  - nenhum outro arquivo desta frente usa o que o #220 removeu (`Abas`, `telas`, `comercial`).
+- **Validação:**
+  - **CI** (passos 1 a 20 do `ci.yml`): todos PASS;
+  - **PG completa:** 134/134 arquivos, 785 testes, 781 pass, 0 falhas, 4 pulados de propósito;
+  - **E2E:** devolução (5 cenários), cadastro 8/8 e CPF/Fundador 8/8 PASS;
+  - **smoke do site sem banco** (`next start` do build): `/conheca` em 1280 e 390 px e `/planos`, com `NavegacaoSite`, galeria,
+    faixa do Fundador, planos e dúvidas, sem erros de página.
+- **Roteiro `scripts/site-venda-ui.cjs`:** está desatualizado no próprio staging (espera o título "Kidmais Manager"),
+  não é passo do CI e não foi usado como prova.
+- **Logs e capturas:** `…-relatorios/integracao-a55ab53-20261023/`. Cluster encerrado e removido.
