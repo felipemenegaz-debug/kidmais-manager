@@ -716,3 +716,77 @@ Mutações (cada uma reverte uma conferência, e o caso 9 falha): documento, dup
   - Cluster removido.
 - Playwright 7/7 e 8/8.
 - `check:v1:static`: PASS (3298 + 103).
+
+### Décima segunda rodada: grupo B (textos PF/PJ, síntese, comprovante, CPF)
+
+Branch nova `codex/textos-pf-comprovante-20261022`, criada a partir de `a984f5d` (CPF/Fundador aprovado). A v2 dos textos legais (`155b652`) foi trazida do clone local, sem rede, e mesclada (`210a2e7`). As branches originais ficam intactas.
+
+**Decisões de Felipe (22/10):**
+- trabalhar em branch nova que junta CPF e v2;
+- manter a identidade da Kidmais por marcador até o novo CNPJ;
+- comprovante com migration nova (096);
+- cópia por e-mail com trava desligada.
+
+**Mesclagem (`210a2e7`), conflitos resolvidos:**
+- rota do cadastro com a versão do DPA e a chave do CPF;
+- aceite PF/PJ com o Acordo;
+- auditoria do cadastro com tipo de pessoa, qualificação calculada e referência do DPA.
+
+**Textos (`291d4c6`).** Sem jurídico próprio: redação por decisão de Felipe, com risco assumido, seguindo o parecer de apoio.
+- **Termos `2026-10-22-minuta2`:**
+  - contratante PF (nome civil e CPF, em nome próprio) ou PJ (representante);
+  - o nome comercial não substitui a identificação;
+  - teste único por CPF ou CNPJ, sem novo teste na formalização;
+  - condição Fundador com reserva, fim do 7º dia às 23h59 e pagamento tardio;
+  - continuidade pelo atendimento;
+  - síntese antes de confirmar;
+  - seção do comprovante.
+- **Acordo `2026-10-22-minuta2`:** termo definido “Contratante” (PF ou PJ); o titular PF é o controlador.
+- **Aviso `2026-10-22-minuta7`:** dados PF no cadastro, seção do CPF (finalidades, acesso restrito, auditoria mascarada, mascaramento ≠ anonimização), linha de finalidade, Asaas com nome civil e CPF, linha de retenção da identidade e da continuidade.
+
+**Síntese e comprovante (`b4b0254`, migration 096):**
+- **Síntese:** “Assinar” abre “Confira sua contratação”:
+  - prestadora (marcador), contratante com documento mascarado;
+  - plano, ciclo e total, Fundador com a regra de prazo;
+  - renovação, cancelamento e devolução, versões dos documentos.
+  - O pedido só sai em “Confirmar contratação”, e “Voltar” corrige a escolha. Só a Gestão vê a identificação.
+- **096:**
+  - `documentos_legais_versoes`: texto canônico integral, SHA-256 conferido pelo banco, imutável;
+  - `assinatura_comprovantes`: um por oferta, imutável; o envio ou a falha da cópia por e-mail é registrado uma vez.
+- **Quando é gravado:**
+  - o comprovante nasce na transação da oferta;
+  - os aceites do cadastro arquivam as versões vigentes;
+  - texto alterado sem nova versão é recusado (`já foi arquivada com outro texto`).
+- **Páginas:**
+  - `/admin/assinatura/comprovante`: para salvar ou imprimir;
+  - `/documentos/<documento>/<versão>`: texto integral arquivado; a versão vigente ainda não arquivada cai na página atual; inexistente dá 404.
+- **E-mail:** cópia do comprovante atrás de `ASSINATURA_COMPROVANTE_EMAIL`, desligada. É enviada depois do COMMIT da oferta e nunca bloqueia a contratação.
+- **Aplicadores e registros:**
+  - aplicadores 096 (comum, staging, produção), com REFERENCES em `assinatura_contratacoes` e `usuarios_administrativos`; não exigem ser dono de tabela existente;
+  - prova de preservação de ofertas e aceites;
+  - blocos de Shell;
+  - 096 registrada no verificador de migrations e na seleção PG;
+  - tabelas classificadas na exportação.
+- **Correção ligada à mesclagem:** `/termos` rolava na horizontal em 375 px por causa da impressão digital longa do DPA. Parágrafos e células agora quebram com `overflow-wrap: anywhere`.
+
+**Validação:**
+- Unitários 429/429; scripts 76/76; blocos de Shell 30/30 (090, 091, 096).
+- PG descartável 55607, 218 execuções verdes:
+  - 096: 6/6;
+  - 091: 10/10;
+  - 090: 10/10;
+  - aplicadores reais 090, 091 e 096: 1/1;
+  - cobrança, gratuidade, painel comercial, exportação, painel 063, devolução 089, e8, cadastro 069.
+  - Cluster removido.
+- Playwright: `cpf-fundador-ui` 8/8 (síntese, Voltar, Confirmar, comprovante, versões) e `cadastro-publico-ui` 8/8.
+- `check:v1:static`: PASS (3300 + 103).
+- Mutações: sem o comprovante na oferta, a 096 falha; sem a conferência do hash arquivado, a 096 falha.
+
+**Continua pendente (fora deste grupo ou de fora do código):**
+- identidade da Kidmais (razão social, CNPJ, endereço), hoje marcador;
+- grupo C: arrependimento pela L1. O texto da v2 ainda diz “pedido pela ferramenta não implementado”;
+- documentos PF do Perfil (contratos, recibos, Pix) com identificação correta (§10 do parecer);
+- promessas dos pilotos (bloqueante 7);
+- rotinas de retenção;
+- envio do comprovante por e-mail em produção;
+- prazo de retorno do atendimento no pagamento tardio.
