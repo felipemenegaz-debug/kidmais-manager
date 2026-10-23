@@ -569,7 +569,14 @@ export default function AdminDisponibilidade() {
           </p>
         )}
 
-        {telaDoCliente && <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>}
+        {telaDoCliente
+          ? <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>
+          : !carregando && (
+            <p className={styles.helpText}>
+              A tela do cliente desta empresa ainda não está disponível. Ela abre quando o orçamento online estiver ativo
+              para a empresa.
+            </p>
+          )}
 
         <section className={styles.layout}>
           <div className={styles.calendarPanel}>
