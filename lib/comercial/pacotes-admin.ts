@@ -4,6 +4,7 @@ import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
 import { catalogoBuffetPorEmpresa } from "./catalogo-buffet-estrutura.ts";
+import { duracaoAceita } from "../disponibilidade/services/horario.utils.ts";
 
 export class PacoteAdminError extends Error {
   readonly code: string;
@@ -71,6 +72,17 @@ function registrarMutacao(
 
 function recusar(code: string, message: string, status: number): never {
   throw new PacoteAdminError(code, message, status);
+}
+
+/**
+ * Parecer do Astra (P2): limite único de duração (5 min a 23h59) em toda gravação de pacote — criação, duplicação,
+ * edição, revisão e importação passam por aqui. Ausente continua permitido. Fotografias históricas não são tocadas.
+ */
+function exigirDuracaoValida(duracaoMinutos: number | null | undefined) {
+  if (duracaoMinutos == null) return;
+  if (duracaoAceita(duracaoMinutos) === null) {
+    recusar("DURACAO_INVALIDA", `A duração do pacote (${duracaoMinutos} min) está fora do limite aceito (5 min a 23h59). Corrija a duração antes de salvar.`, 409);
+  }
 }
 
 function map(row: Record<string, unknown>): PacoteAdmin {
@@ -165,6 +177,7 @@ export async function criarPacoteAdmin(
   ctx: Contexto,
 ) {
   if (input.empresaId !== ctx.empresaId) recusar("EMPRESA_DIVERGENTE", "O pacote não pode ser criado em outra empresa.", 403);
+  exigirDuracaoValida(input.duracaoMinutos);
   await empresaExiste(tx, ctx.empresaId);
   // Código técnico só nasce aqui. Revisões continuam usando o código original.
   // O índice (empresa_id, codigo) WHERE vigente garante a unicidade no banco.
@@ -223,6 +236,7 @@ export async function editarPacoteNaoUtilizado(
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (atual.utilizado) recusar("REVISAO_UTILIZADA", "Pacote utilizado. A mudança futura cria uma revisão.", 409);
+  exigirDuracaoValida(input.duracaoMinutos);
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não é editado por esta ação.", 409);
   const convidadosMinimos = input.convidadosMinimos === undefined ? atual.convidadosMinimos : input.convidadosMinimos;
   const convidadosMaximos = input.convidadosMaximos === undefined ? atual.convidadosMaximos : input.convidadosMaximos;
@@ -252,6 +266,7 @@ export async function inserirRevisaoPacoteAdmin(
   opcoes?: { preservarSituacao?: boolean },
 ) {
   if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A nova revisão exige um motivo.", 409);
+  exigirDuracaoValida(input.duracaoMinutos);
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (!atual.vigente) recusar("CONFLITO", "A revisão informada não é a vigente.", 409);
@@ -299,6 +314,7 @@ export async function promoverRevisaoPacoteAdmin(
   ctx: Contexto,
   opcoes?: { silenciarAuditoria?: boolean; origem?: PacoteAdmin },
 ) {
+  exigirDuracaoValida(input.duracaoMinutos);
   const atual = opcoes?.origem ?? await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   const retirada = await tx.query(

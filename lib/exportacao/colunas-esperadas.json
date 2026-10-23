@@ -482,7 +482,8 @@
     "buffet_bombom",
     "pacote_snapshot_vigente_id",
     "empresa_id",
-    "estabelecimento_id"
+    "estabelecimento_id",
+    "salao_id"
   ],
   "fechamento_adicionais": [
     "id",
@@ -569,7 +570,8 @@
     "buffet_outros",
     "buffet_lembrancinha",
     "buffet_empratado",
-    "buffet_bombom"
+    "buffet_bombom",
+    "salao_id"
   ],
   "fechamento_revisao_adicionais": [
     "id",
@@ -1275,7 +1277,42 @@
     "criado_em",
     "atualizado_em",
     "empresa_id",
-    "estabelecimento_id"
+    "estabelecimento_id",
+    "dias_semana",
+    "capacidade",
+    "desativado_a_partir_de",
+    "horario_livre"
+  ],
+  "agenda_escopo_config": [
+    "id",
+    "empresa_id",
+    "estabelecimento_id",
+    "modo",
+    "capacidade_tipo",
+    "limite_festas_dia",
+    "intervalo_minimo_minutos",
+    "configurado_por",
+    "configurado_em",
+    "atualizado_por",
+    "atualizado_em"
+  ],
+  "agenda_saloes": [
+    "id",
+    "empresa_id",
+    "estabelecimento_id",
+    "nome",
+    "capacidade_convidados",
+    "ordem",
+    "ativo",
+    "criado_em"
+  ],
+  "configuracao_agenda_saloes": [
+    "configuracao_agenda_id",
+    "salao_id"
+  ],
+  "pacote_saloes": [
+    "pacote_id",
+    "salao_id"
   ],
   "regras_categoria_horario": [
     "id",

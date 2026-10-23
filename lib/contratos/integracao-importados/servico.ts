@@ -1,4 +1,5 @@
 import { cadastroContratualSchema, formularioCadastro, type CadastroConferido } from '../../clientes/cadastro-contratual.ts';
+import { escolherSalaoDoContrato } from '../../agenda/salao-festa.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -463,6 +464,8 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
 
   // Festa nasce da conferência (autoria do operador). Evento futuro revalida o destino com o lock do contrato.
   await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contratoId]);
+  // Parecer do Astra (P1): contrato futuro importado também precisa de salão elegível livre (capacidade por salão).
+  if (ocupa) await escolherSalaoDoContrato(tx, contratoId);
   if (ocupa) await tx.query('SELECT public.kidmais019_validar_destino($1::uuid)', [contratoId]);
   const causa = { origem: ORIGEM_INTEGRACAO, ator: 'USUARIO', importacaoId, contratoId, versaoId, requestId: ctx.requestId };
   const festaId = await repo.inserirFesta(tx, {

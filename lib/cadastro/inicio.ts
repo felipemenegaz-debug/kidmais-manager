@@ -1,4 +1,5 @@
 import type { DbExecutor } from '../db/contracts';
+import { escoposDaEmpresa } from '../agenda/configuracao-unidade.ts';
 import type { TenantComprovado } from '../saas/provar-tenant.ts';
 import { lerDadosImplantacao } from '../desenvolvedor/implantacao.ts';
 
@@ -32,10 +33,19 @@ export async function primeirosPassos(tx: DbExecutor, tenant: TenantComprovado) 
     const pessoas = await contar(tx, "SELECT count(*)::int AS n FROM memberships WHERE empresa_id = $1::uuid AND status = 'ATIVA'", [empresa]);
     const convites = await contar(tx, "SELECT count(*)::int AS n FROM convites_acesso WHERE empresa_id = $1::uuid AND status = 'PENDENTE' AND expira_em > clock_timestamp()", [empresa]);
     const clientes = await contar(tx, 'SELECT count(*)::int AS n FROM clientes WHERE empresa_id = $1::uuid', [empresa]);
+    // 093: uma agenda por unidade (ou pela empresa, sem unidade agendável); sem a 093, nenhum passo de agenda.
+    const escopos = await escoposDaEmpresa(tx, empresa);
     const perfilAplicado = implantacao.perfil.existe && !implantacao.perfil.ambiguo && implantacao.perfil.versao >= 1;
     const passos: PassoInicio[] = [
         { codigo: 'PERFIL', titulo: 'Perfil da empresa', feito: implantacao.perfil.estruturaInstalada ? perfilAplicado : null, somenteGestao: true, href: '/admin/configuracoes/perfil-empresa',
             detalhe: perfilAplicado ? 'Nome, CNPJ, endereço e contato aplicados.' : implantacao.perfil.existe ? 'Perfil criado; falta aplicar o cadastro.' : 'Crie o perfil com nome, endereço e contato que aparecem nos contratos.' },
+        ...escopos.map((e): PassoInicio => ({
+            codigo: e.estabelecimentoId ? `AGENDA:${e.estabelecimentoId}` : 'AGENDA',
+            titulo: escopos.length > 1 ? `Agenda da unidade ${e.nome}` : 'Agenda',
+            feito: e.configurado, somenteGestao: false,
+            href: '/admin/configuracoes/agenda' + (e.estabelecimentoId ? `?unidadeId=${e.estabelecimentoId}` : ''),
+            detalhe: e.configurado ? 'Horários, salões e festas por dia configurados.' : 'Até configurar, a agenda usa os horários de hoje e uma festa por horário.',
+        })),
         { codigo: 'PACOTES', titulo: 'Pacotes', feito: pacotes === null ? null : pacotes > 0, somenteGestao: true, href: '/admin/configuracoes/pacotes',
             detalhe: pacotes ? `${pacotes} pacote(s) ativo(s).` : 'Cadastre os pacotes que você vende.' },
         { codigo: 'PIX', titulo: 'Chave Pix para receber', feito: pix === null ? null : pix > 0, somenteGestao: true, href: '/admin/configuracoes/pix',

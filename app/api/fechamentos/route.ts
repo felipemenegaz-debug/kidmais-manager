@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { camposComerciaisFechamento } from "@/lib/fechamentos/comercial-schema";
+import { camposComerciaisFechamento, mensagemPeriodoDoPedido, periodoDoPedido, temPeriodoDoPedido } from "@/lib/fechamentos/comercial-schema";
 import { PACOTE_CODIGO_BANCO, FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
 import { CondicaoPagamentoError } from "@/lib/comercial/condicao-pagamento";
 import {
@@ -56,7 +56,7 @@ const fechamentoSchema = z.object({
   temaFesta: z.string().trim().max(200).optional(),
 
 
-});
+}).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
 
 function requestMetadata(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -124,7 +124,8 @@ export async function POST(request: NextRequest) {
     escopo.estabelecimentoId = unidade.estabelecimentoId;
     horarioRevalidado = await revalidarHorarioSelecionado({
       data: dados.data.dataFesta,
-      codigoPeriodo: dados.data.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2",
+      ...periodoDoPedido(dados.data),
+      pacoteCodigo: PACOTE_CODIGO_BANCO[dados.data.pacote],
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),

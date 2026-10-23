@@ -8,8 +8,9 @@ import type { obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/se
 import type { FechamentoAdministrativoInput } from '@/lib/fechamentos/administrativo-schema';
 import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo-schema';
 import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
-import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
+import type { DisponibilidadeDataPublica, PeriodoDisponibilidadePublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade, { type ConsultaAgendaMes } from '@/components/fechamento/CalendarioDisponibilidade';
+import { candidatosDisponiveis, horarioLegadoDoCodigo, periodoDoTurno, rotuloPeriodo } from '@/components/fechamento/periodos';
 import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
 import { aceitaQuantidade, mensagemFalhaAdicionais, pendenciaEscolhas, rotuloUnidade, totalDoAdicional, type AdicionalDaEtapa } from '@/components/fechamento/adicionais-etapa';
 import { ENDPOINT_PREPARACOES, enviarPreparado, formularioPreparado, preparacaoValida, reconciliar, type Buscador, type DesfechoEnvio, type PreparacaoAplicada } from './fechamento-preparacao';
@@ -19,7 +20,7 @@ type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>
 type Horario = DisponibilidadeDataPublica['periodos'][number]['horarios'][number];
 type AdicionalDisponivel = AdicionalDaEtapa;
 const inicial: FechamentoAdministrativoInput = {
-    pacote: 'pocket', dataFesta: '', horarioBase: 'almoco', ajusteHorario: '0', horarioInicio: '', horarioFim: '',
+    pacote: 'pocket', dataFesta: '', ajusteHorario: '0', horarioInicio: '', horarioFim: '',
     statusDisponibilidade: 'disponivel', convidadosPagantes: 20, buffetDefinicao: 'depois',
     adicionaisSelecionados: [], valorCombinado: '', aniversarianteId: '', idadeAniversariante: '',
     formaPagamento: 'pix_avista',
@@ -36,6 +37,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
     const [falhaAdicionais,setFalhaAdicionais]=useState<string|undefined>(undefined);
     const [horarios, setHorarios] = useState<Horario[]>([]);
+    // Horários configurados da data escolhida (qualquer quantidade, por configuracaoId).
+    const [periodos, setPeriodos] = useState<PeriodoDisponibilidadePublica[]>([]);
     // Agenda da empresa comprovada pela sessão (062): unidades vêm do servidor; a escolhida é o recurso consultado.
     const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
     const unidadeId = form.estabelecimentoId ?? '';
@@ -82,7 +85,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 const aplicada = formularioPreparado(inicial, p);
                 setForm(aplicada.form);
                 setPreparacao(aplicada);
-                void selecionarData(aplicada.form.dataFesta, aplicada.form.horarioBase, aplicada.horarioDesejado);
+                void selecionarData(aplicada.form.dataFesta, { horarioBase: aplicada.form.horarioBase }, aplicada.horarioDesejado, aplicada.form.pacote);
             }).catch(() => { if (ativo) setAvisoPreparacao('A preparação do Kidmais não está disponível. Preencha o formulário normalmente.'); });
         return () => { ativo = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez por preparação; selecionarData usa só os argumentos
@@ -110,7 +113,12 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     function limparAgenda() {
         consultando.current++;
         setHorarios([]);
+        setPeriodos([]);
         setForm(atual => ({ ...atual, dataFesta: '', horarioInicio: '', horarioFim: '' }));
+    }
+    /** Horário configurado escolhido; horarioBase (legado almoco/noite) só acompanha TURNO_1/TURNO_2. */
+    function horarioDoPeriodo(periodo: Pick<PeriodoDisponibilidadePublica, 'configuracaoId' | 'codigo'> | undefined) {
+        return { configuracaoId: periodo?.configuracaoId, horarioBase: horarioLegadoDoCodigo(periodo?.codigo) || undefined };
     }
     const agendaAdmin = useCallback(async (parametros: Record<string, string>) => {
         const query = new URLSearchParams(unidadeId ? { ...parametros, unidadeId } : parametros);
@@ -120,24 +128,37 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         setUnidades(body.unidades ?? []);
         return body as { dias: DisponibilidadeDataPublica[] | null; pacoteOverrides?: []; descontos?: [] };
     }, [unidadeId]);
+    // Parecer do Astra (P2): horário livre com a duração do pacote (lida no servidor); trocar o pacote limpa a agenda.
     const consultarMes = useCallback<ConsultaAgendaMes>(async (inicio, fim) => {
-        const body = await agendaAdmin({ inicio, fim });
+        const body = await agendaAdmin({ inicio, fim, pacote: form.pacote });
         return { dias: body.dias ?? [], comercial: { pacoteOverrides: body.pacoteOverrides ?? [], descontos: body.descontos ?? [] } };
-    }, [agendaAdmin]);
-    async function selecionarData(data: string, base: FechamentoAdministrativoInput['horarioBase'] = form.horarioBase, preferido: string | null = null) {
+    }, [agendaAdmin, form.pacote]);
+    /**
+     * Consulta a data e escolhe o horário configurado: pelo configuracaoId; senão pelo legado almoco/noite (preparação
+     * do Kidmais); senão o primeiro com início livre. Os candidatos vêm da agenda (tolerância/passo de cada horário).
+     */
+    async function selecionarData(data: string, alvo: Pick<FechamentoAdministrativoInput, 'configuracaoId' | 'horarioBase'> = { configuracaoId: form.configuracaoId, horarioBase: form.horarioBase }, preferido: string | null = null, pacote: string = form.pacote) {
+        if (!data) return limparAgenda();
         const sequencia = ++consultando.current;
         setHorarios([]);
         setErro('');
         setForm(atual => ({ ...atual, dataFesta: data, horarioInicio: '', horarioFim: '' }));
         try {
-            const dia = (await agendaAdmin({ data })).dias?.[0];
+            const dia = (await agendaAdmin({ data, pacote })).dias?.[0];
             if (!dia) throw Error('Falha ao consultar disponibilidade.');
-            const opcoes = dia.periodos.find(p => p.codigo === (base === 'almoco' ? 'TURNO_1' : 'TURNO_2'))?.horarios.filter(h => h.status === 'DISPONIVEL') ?? [];
+            // 2c-2: almoço/noite (preparação da IA, links antigos) resolvidos nos horários da empresa.
+            const doTurno = alvo.horarioBase ? periodoDoTurno(dia.periodos, alvo.horarioBase) : undefined;
+            const periodo = alvo.configuracaoId ? dia.periodos.find(p => p.configuracaoId === alvo.configuracaoId)
+                : doTurno ? doTurno
+                : dia.periodos.find(p => candidatosDisponiveis(p).length > 0) ?? dia.periodos[0];
+            const opcoes = candidatosDisponiveis(periodo);
             if (sequencia !== consultando.current) return;
+            setPeriodos(dia.periodos);
             setHorarios(opcoes);
+            if (periodo) setForm(atual => ({ ...atual, ...horarioDoPeriodo(periodo) }));
             // Horário citado na conversa: só pré-seleciona se estiver entre os disponíveis agora (nunca força).
             const desejado = preferido ? opcoes.find(h => h.inicio === preferido) : undefined;
-            if (desejado) setForm(atual => ({ ...atual, horarioInicio: desejado.inicio, horarioFim: desejado.fim, ajusteHorario: String(desejado.ajusteMinutos) as typeof atual.ajusteHorario }));
+            if (desejado) setForm(atual => ({ ...atual, horarioInicio: desejado.inicio, horarioFim: desejado.fim, ajusteHorario: String(desejado.ajusteMinutos) }));
             if (!opcoes.length) throw Error('Horário não disponível. Escolha outra data.');
         } catch (error) { if (sequencia === consultando.current) setErro(error instanceof Error ? error.message : 'Falha de disponibilidade.'); }
     }
@@ -204,7 +225,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const errosCampos: Record<string, string> = {};
     if (!validacao.success) for (const falha of validacao.error.issues) {
         const nome = String(falha.path[0]);
-        errosCampos[nome] = nome === 'aniversarianteId' ? 'Selecione um aniversariante cadastrado.' : nome === 'horarioInicio' || nome === 'horarioFim' ? 'Selecione um horário disponível.' : nome === 'dataFesta' ? 'Selecione a data completa no calendário.' : nome === 'valorCombinado' ? 'Informe o valor comercial proposto.' : 'Confira este campo.';
+        errosCampos[nome] = nome === 'aniversarianteId' ? 'Selecione um aniversariante cadastrado.' : nome === 'horarioInicio' || nome === 'horarioFim' ? 'Selecione um horário disponível.' : nome === 'configuracaoId' ? 'Selecione o horário da festa.' : nome === 'dataFesta' ? 'Selecione a data completa no calendário.' : nome === 'valorCombinado' ? 'Informe o valor comercial proposto.' : 'Confira este campo.';
     }
     const pacoteAtual = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
     const convidadosErro = erroConvidadosFechamento(form.convidadosPagantes, pacoteAtual);
@@ -214,7 +235,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const pagamentoNome = form.formaPagamento === 'pix_avista' ? 'PIX à vista' : form.formaPagamento === 'pix_parcelado' ? 'PIX parcelado' : 'Cartão Cielo';
     function erroCampo(campo: string) { return tentouRevisar && errosCampos[campo] ? <small id={`pendencia-${campo}`} className={styles.error}>{errosCampos[campo]}</small> : null; }
     function acessibilidade(campo: string) {
-        const rotulos: Record<string, string> = { horarioInicio: 'Horário disponível', convidadosPagantes: 'Convidados pagantes', aniversarianteId: 'Aniversariante', responsavelAdicionalId: 'Responsável adicional (opcional)', idadeAniversariante: 'Idade no evento (opcional)', temaFesta: 'Tema', buffetDefinicao: 'Buffet', valorCombinado: 'Valor comercial proposto (R$)', formaPagamento: 'Forma de pagamento pretendida' };
+        const rotulos: Record<string, string> = { configuracaoId: 'Horário da festa', horarioInicio: 'Horário disponível', convidadosPagantes: 'Convidados pagantes', aniversarianteId: 'Aniversariante', responsavelAdicionalId: 'Responsável adicional (opcional)', idadeAniversariante: 'Idade no evento (opcional)', temaFesta: 'Tema', buffetDefinicao: 'Buffet', valorCombinado: 'Valor comercial proposto (R$)', formaPagamento: 'Forma de pagamento pretendida' };
         return { 'aria-label': rotulos[campo], 'aria-invalid': tentouRevisar && Boolean(errosCampos[campo]), 'aria-describedby': tentouRevisar && errosCampos[campo] ? `pendencia-${campo}` : undefined };
     }
     const resumo = <dl>
@@ -249,11 +270,14 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 </select></label>
                 {unidades.length > 1 && <label>Unidade<select required value={unidadeId} onChange={e => { limparAgenda(); campo('estabelecimentoId', e.target.value || null); }}>
                     <option value="">Selecione</option>{unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
-                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} horario={form.horarioBase} dataSelecionada={form.dataFesta} consultar={consultarMes}
-                    onSelecionar={data => void selecionarData(data)} onTrocarHorario={horario => { limparAgenda(); if (horario) campo('horarioBase', horario); }} />
+                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} configuracaoId={form.configuracaoId ?? ''} dataSelecionada={form.dataFesta} consultar={consultarMes}
+                    onSelecionar={(data, _status, _candidatos, periodo) => void selecionarData(data, periodo ? { configuracaoId: periodo.configuracaoId } : undefined)}
+                    onTrocarHorario={id => { const periodo = periodos.find(p => p.configuracaoId === id); limparAgenda(); setForm(atual => ({ ...atual, ...horarioDoPeriodo(periodo), configuracaoId: id })); }} />
+                {periodos.length > 0 && <label >Horário da festa<select {...acessibilidade('configuracaoId')} required value={form.configuracaoId ?? ''} onChange={e => void selecionarData(form.dataFesta, { configuracaoId: e.target.value })}>
+                    <option value="">Selecione</option>{periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId} disabled={!candidatosDisponiveis(p).length}>{rotuloPeriodo(p)}{candidatosDisponiveis(p).length ? '' : ' — indisponível'}</option>)}</select>{erroCampo('configuracaoId')}</label>}
                 <label >Horário disponível<select {...acessibilidade('horarioInicio')} required value={form.horarioInicio} onChange={e => {
                     const h = horarios.find(h => h.inicio === e.target.value);
-                    if (h) setForm(atual => ({ ...atual, horarioInicio: h.inicio, horarioFim: h.fim, ajusteHorario: String(h.ajusteMinutos) as typeof form.ajusteHorario }));
+                    if (h) setForm(atual => ({ ...atual, horarioInicio: h.inicio, horarioFim: h.fim, ajusteHorario: String(h.ajusteMinutos) }));
                 }}><option value="">Selecione</option>{horarios.map(h => <option key={h.inicio} value={h.inicio}>{h.inicio}–{h.fim}</option>)}</select>{erroCampo('horarioInicio')}</label>
                 <label >Convidados pagantes<input {...acessibilidade('convidadosPagantes')} required type="number" min={PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote)?.minPagantes ?? 1} max={PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote)?.maxPagantes ?? 150} value={form.convidadosPagantes} onChange={e => campo('convidadosPagantes', Number(e.target.value))} />{erroCampo('convidadosPagantes')}</label>
                 <label >Aniversariante<select {...acessibilidade('aniversarianteId')} required value={form.aniversarianteId} onChange={e => campo('aniversarianteId', e.target.value)}><option value="">Selecione o cadastro existente</option>{contexto.aniversariantes.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select>{erroCampo('aniversarianteId')}</label>

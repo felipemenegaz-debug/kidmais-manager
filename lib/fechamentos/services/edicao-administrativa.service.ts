@@ -4,7 +4,7 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { regraNaCondicao } from '../../comercial/regras-pagamento';
 
-import { consultarDisponibilidadeData } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
 import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
 import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
@@ -51,7 +51,9 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
     if (mudouAgenda) {
         for (const dia of [...new Set([f.dataEvento, input.dataEvento])].sort())
             await adquirirLockConfirmacaoAgenda(dia, tx);
-        const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx, undefined, { fechamentoId: f.id });
+        // Horário livre: duração do próprio intervalo pedido (parecer do Astra, P2).
+        const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx, undefined, { fechamentoId: f.id },
+            { duracaoMinutos: duracaoDoIntervalo(input.horarioInicio, input.horarioFim) });
         const periodo = disponivel.periodos.find(p => p.configuracaoId === input.configuracaoAgendaId);
         if (!periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === input.horarioInicio.slice(0, 5) && h.fim === input.horarioFim.slice(0, 5)))
             recusar('Data/horário indisponível ou fora das opções oficiais.');

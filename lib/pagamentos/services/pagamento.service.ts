@@ -1,4 +1,5 @@
 import { revisaoAbertaDoFechamento, bloquearDatasRevisao, revalidarAgendaRevisao } from '../../fechamentos/services/revisao-operacional.service';
+import { escolherSalao } from "../../agenda/salao-festa.ts";
 import type { DbExecutor } from "../../db/contracts";
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import { db, withTransaction } from "../../db/postgres";
@@ -531,6 +532,9 @@ async function tentarConfirmarReserva(
   const revisaoAberta=await revisaoAbertaDoFechamento(fechamento.id,tx);
   if(revisaoAberta)await bloquearDatasRevisao(tx,revisaoAberta);
   await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+  // 094: com capacidade por salão, o sistema escolhe o salão livre antes da conferência (decisão de Felipe).
+  const escolhaSalao = await escolherSalao(tx, fechamento.id);
+  const conflitoSalao = escolhaSalao.exigido && !escolhaSalao.salao;
   const conflito = await verificarConflitoAgendaParaConfirmacao(
     {
       fechamentoId: fechamento.id,
@@ -541,7 +545,7 @@ async function tentarConfirmarReserva(
     tx,
   );
 
-  if (conflito.bloqueioAgenda || conflito.fechamentoConfirmado) {
+  if (conflito.bloqueioAgenda || conflito.fechamentoConfirmado || conflitoSalao) {
     const conflitoPagamento = await marcarReservaPagamento(atual.id, "CONFLITO", tx);
     if (fechamento.clienteId) {
       await registrarEventoHistorico({

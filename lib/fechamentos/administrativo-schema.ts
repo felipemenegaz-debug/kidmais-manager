@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { camposComerciaisFechamento } from './comercial-schema';
+import { camposComerciaisFechamento, mensagemPeriodoDoPedido, temPeriodoDoPedido } from './comercial-schema';
 
 // Dados pessoais, origem e ator nunca são aceitos neste contrato de entrada.
 export const fechamentoAdministrativoSchema = z.object({
@@ -11,5 +11,5 @@ export const fechamentoAdministrativoSchema = z.object({
     observacoesEquipe: z.string().trim().max(2000).optional(),
     /** Unidade da festa (062). Conferida no servidor contra a empresa comprovada; obrigatória com mais de uma. */
     estabelecimentoId: z.string().uuid().nullable().optional(),
-}).strict();
+}).strict().refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
 export type FechamentoAdministrativoInput = z.infer<typeof fechamentoAdministrativoSchema>;

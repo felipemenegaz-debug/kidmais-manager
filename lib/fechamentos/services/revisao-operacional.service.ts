@@ -1,4 +1,5 @@
 import { preservarPrecoHistorico } from '../revisao-preco';
+import { escolherSalaoDestinoRevisao } from '../../agenda/salao-festa.ts';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
@@ -14,7 +15,7 @@ import { regraNaCondicao } from '../../comercial/regras-pagamento';
 
 import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
-import { consultarDisponibilidadeData, intervaloSemConflito } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
@@ -36,12 +37,16 @@ export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional
  * EXATAMENTE o destino da reserva vigente — mesma data, início, fim (logo, mesma duração) e turno. Empresa e unidade
  * não mudam na revisão. Nada é recalculado nem deslocado: só deixa de exigir que o horário esteja entre os candidatos
  * atuais do turno. Qualquer mudança de destino (data, início, fim ou turno) segue as validações oficiais.
+ * Parecer do Astra (23/10): também a reserva NATIVA mantida exatamente no horário configurado que a agenda deixou de
+ * oferecer (mudança para o modo livre, horário desativado) — `horarioOferecido` falso; com o horário ainda oferecido,
+ * a reserva nativa segue a regra nativa. A ocupação continua conferida (intervaloSemConflito, regra da 094).
  */
 export function horarioHistoricoPreservado(
     vigente: Pick<FechamentoRecord, 'origemFechamento' | 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
     destino: Pick<FechamentoRecord, 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
+    horarioOferecido = true,
 ) {
-    return vigente.origemFechamento === 'IMPORTACAO_HISTORICA'
+    return (vigente.origemFechamento === 'IMPORTACAO_HISTORICA' || !horarioOferecido)
         && vigente.dataEvento === destino.dataEvento
         && vigente.horarioInicio.slice(0, 5) === destino.horarioInicio.slice(0, 5)
         && vigente.horarioFim.slice(0, 5) === destino.horarioFim.slice(0, 5)
@@ -52,13 +57,19 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
     mudouDestino?: boolean;
 } = {}) {
     const f = await bloquearDatasRevisao(tx, r), op = r.operacao;
-    const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id);
+    // Horário livre: os candidatos dependem da duração; a do destino é a do próprio intervalo (parecer do Astra, P2).
+    const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id, undefined,
+        { duracaoMinutos: duracaoDoIntervalo(op.horarioInicio, op.horarioFim) });
     const candidatoOficial = disponibilidade.periodos.find(p => p.configuracaoId === op.configuracaoAgendaId)?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === op.horarioInicio.slice(0, 5) && h.fim === op.horarioFim.slice(0, 5)) === true;
     // Contrato histórico no próprio horário original (fora dos turnos atuais): o mesmo intervalo, sem conflito com outras
     // reservas e bloqueios do recurso. Não vale para destino novo.
-    const historicoPreservado = !candidatoOficial && horarioHistoricoPreservado(f, op)
-        && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id);
-    const livre = candidatoOficial || historicoPreservado;
+    const horarioOferecido = disponibilidade.periodos.some(p => p.configuracaoId === op.configuracaoAgendaId);
+    const historicoPreservado = !candidatoOficial && horarioHistoricoPreservado(f, op, horarioOferecido)
+        && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id, op.configuracaoAgendaId);
+    // Parecer do Astra (P1): com capacidade por salão, o destino precisa de salão elegível livre (horário × pacote ×
+    // salão ativo); o salão da festa só fica se servir no destino.
+    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id) : null;
+    const livre = (candidatoOficial || historicoPreservado) && !(salaoDestino?.exigido && !salaoDestino.salao);
     if (!livre) {
         if (options.naoFalharPorConflito) {
             await auditar(tx, r, c, 'REVISAO_DESTINO_EM_CONFLITO', null, { data: op.dataEvento, horarioInicio: op.horarioInicio, horarioFim: op.horarioFim, reservaVigente: f.status });

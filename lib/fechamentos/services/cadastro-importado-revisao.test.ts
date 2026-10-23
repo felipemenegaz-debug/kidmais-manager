@@ -18,10 +18,12 @@ test('corrigir cadastro de importado conserva preço e itens e cria aniversarian
     '../repositories/revisao.repository': { buscarRevisaoDaVersao: async () => r, listarItensRevisao: async () => itens,
       salvarOperacaoPreparada: async (_tx: unknown, _r: unknown, novo: typeof f, recebidos: unknown) => { salvo = novo; assert.deepEqual(recebidos, itens); return { ...r, operacao: novo }; } },
     '../../clientes/repositories': { buscarClientePorId: async () => cliente, registrarAuditoria: async () => {} },
+    // 094: sem capacidade por salão neste cenário, o destino não exige salão.
+    '../../agenda/salao-festa.ts': { escolherSalaoDestinoRevisao: async () => ({ exigido: false, salao: null }) },
     '../../clientes/services': { atualizarClienteInterno: async (_id: string, empresa: string) => { assert.equal(empresa, 'empresa'); cadastro = true; } },
     '../../clientes/services/aniversariante.service': { cadastrarAniversarianteInterno: async (id: string, empresa: string) => { assert.equal(id, 'cliente'); assert.equal(empresa, 'empresa'); aniversario = true; return { id: 'aniversariante' }; } },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },
-    '../../disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [] }), intervaloSemConflito: async () => true },
+    '../../disponibilidade/services': { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [] }), intervaloSemConflito: async () => true },
     '../../comercial/services': { calcularResumoComercial: async () => { throw Error('Correção cadastral não pode consultar preços atuais'); } },
   };
   const exports: Record<string, unknown> = {};

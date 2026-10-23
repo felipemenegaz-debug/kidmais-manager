@@ -2,18 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AjusteHorario,
-  HorarioBase,
   PacoteId,
   StatusDisponibilidade,
 } from "./types";
+import { candidatosDisponiveis, horarioLegadoDoCodigo, rotuloPeriodo } from "./periodos";
 import styles from "./FechamentoWizard.module.css";
 import { apiPublica } from "../../lib/fechamentos/rota-publica";
 import { useMarcaPublica } from "./MarcaPublica";
 import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
-  horarioAlternativo,
   type RegraPacoteEmpresa,
   statusDataPacote,
   statusLabel,
@@ -22,7 +20,11 @@ import {
   descontoEfetivo,
   pacoteTemDescontoDiaUtil,
 } from "@/lib/comercial/descontos";
-import type { DisponibilidadeDataPublica } from "@/lib/disponibilidade/services/models";
+import type {
+  DisponibilidadeDataPublica,
+  HorarioCandidatoPublico,
+  PeriodoDisponibilidadePublica,
+} from "@/lib/disponibilidade/services/models";
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -46,8 +48,10 @@ export type ConsultaAgendaMes = (inicio: string, fim: string) => Promise<{
   comercial?: Pick<DisponibilidadeConfig, "pacoteOverrides" | "descontos">;
 }>;
 
-async function consultaPublica(inicio: string, fim: string, empresa: string | null = null) {
-  const r = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, empresa), { cache: "no-store" });
+/** Parecer do Astra (P2-1): com pacote escolhido, o horário livre usa a duração dele (a mesma da revalidação). */
+export async function consultaPublica(inicio: string, fim: string, empresa: string | null = null, duracaoMinutos: number | null = null) {
+  const duracao = duracaoMinutos ? `&duracao=${duracaoMinutos}` : "";
+  const r = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}${duracao}`, empresa), { cache: "no-store" });
   const json = await r.json().catch(() => null);
   // Agenda pública sem contexto no servidor (062): mostra o motivo do servidor, nunca horários de outra empresa.
   if (!r.ok) throw new Error(String(json?.codigo ?? "").startsWith("AGENDA_PUBLICA_") ? String(json.erro) : "");
@@ -57,7 +61,7 @@ async function consultaPublica(inicio: string, fim: string, empresa: string | nu
 
 export default function CalendarioDisponibilidade({
   pacote,
-  horario,
+  configuracaoId,
   dataSelecionada,
   onSelecionar,
   onTrocarHorario,
@@ -66,16 +70,22 @@ export default function CalendarioDisponibilidade({
   empresa = null,
   descontoDiaUtil,
   regrasPacote = null,
+  duracaoMinutos = null,
 }: {
   pacote: PacoteId;
-  horario: HorarioBase;
+  /** Horário configurado escolhido (configuracao_agenda.id); "" = o primeiro horário livre de cada dia. */
+  configuracaoId: string;
   dataSelecionada: string;
+  /** Candidatos livres do horário na data, como a agenda devolveu (o deslocamento vem de cada horário). */
   onSelecionar: (
     data: string,
     status: StatusDisponibilidade,
-    ajustesDisponiveis: AjusteHorario[]
+    candidatos: HorarioCandidatoPublico[],
+    periodo: PeriodoDisponibilidadePublica | null,
+    /** Todos os horários configurados da data (para escolher outro no mesmo dia). */
+    periodosDoDia: PeriodoDisponibilidadePublica[]
   ) => void;
-  onTrocarHorario: (horario: HorarioBase) => void;
+  onTrocarHorario: (configuracaoId: string) => void;
   onConfigChange?: (config: DisponibilidadeConfig) => void;
   consultar?: ConsultaAgendaMes;
   /** Código público da empresa (/b/<código>); ausente = endereço atual. */
@@ -84,10 +94,12 @@ export default function CalendarioDisponibilidade({
   descontoDiaUtil?: boolean;
   /** Regras de disponibilidade da empresa para o pacote (/b/<código>); ausente = regra legada do endereço atual. */
   regrasPacote?: readonly RegraPacoteEmpresa[] | null;
+  /** Duração do pacote escolhido (consulta pública); ausente = o servidor usa a do pacote mais curto da empresa. */
+  duracaoMinutos?: number | null;
 }) {
   const marca = useMarcaPublica();
   const diaUtil = descontoDiaUtil ?? marca.pagamento.descontoDiaUtil;
-  const consultarAgenda = useMemo<ConsultaAgendaMes>(() => consultar ?? ((inicio, fim) => consultaPublica(inicio, fim, empresa)), [consultar, empresa]);
+  const consultarAgenda = useMemo<ConsultaAgendaMes>(() => consultar ?? ((inicio, fim) => consultaPublica(inicio, fim, empresa, duracaoMinutos)), [consultar, empresa, duracaoMinutos]);
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
   const [ano, setAno] = useState(agora.getFullYear());
@@ -101,7 +113,7 @@ export default function CalendarioDisponibilidade({
     tipo: "erro" | "consulta" | "excecao" | "ok";
     titulo: string;
     texto: string;
-    alternativa?: HorarioBase;
+    alternativa?: { configuracaoId: string; rotulo: string };
   } | null>(null);
 
   const carregar = useCallback(async () => {
@@ -142,7 +154,7 @@ export default function CalendarioDisponibilidade({
   useEffect(() => {
     const timer = window.setTimeout(() => void carregar(), 0);
     return () => window.clearTimeout(timer);
-  }, [carregar, pacote, horario]);
+  }, [carregar, pacote, configuracaoId]);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(
@@ -166,31 +178,33 @@ export default function CalendarioDisponibilidade({
     setAviso(null);
   }
 
-  function periodoOperacional(data: string, periodo: HorarioBase) {
-    const codigo = periodo === "almoco" ? "TURNO_1" : "TURNO_2";
-    return operacionalPorData[data]?.periodos.find(
-      (item) => item.codigo === codigo,
-    );
+  /**
+   * Horário da data: o escolhido (por configuracaoId) ou, sem escolha, o primeiro com candidato livre.
+   * `undefined` = dia ainda não carregado; `null` = o horário não acontece neste dia.
+   */
+  function periodoOperacional(data: string, id = configuracaoId) {
+    const periodos = operacionalPorData[data]?.periodos;
+    if (!periodos) return undefined;
+    if (id) return periodos.find((item) => item.configuracaoId === id) ?? null;
+    return periodos.find((item) => candidatosDisponiveis(item).length > 0) ?? periodos[0] ?? null;
   }
 
-  function ajustesOperacionaisDisponiveis(
-    data: string,
-    periodo: HorarioBase,
-  ): AjusteHorario[] {
-    const turno = periodoOperacional(data, periodo);
-    if (!turno) return [];
-
-    return turno.horarios
-      .filter((item) => item.status === "DISPONIVEL")
-      .map((item) => String(item.ajusteMinutos) as AjusteHorario)
-      .filter((item) => item === "-30" || item === "0" || item === "30");
+  /** Outro horário do mesmo dia com candidato livre e pacote não indisponível (sugestão do aviso). */
+  function horarioAlternativo(data: string, atualId: string | undefined) {
+    const alternativo = (operacionalPorData[data]?.periodos ?? []).find((item) => {
+      if (item.configuracaoId === atualId || candidatosDisponiveis(item).length === 0) return false;
+      const legadoAlt = horarioLegadoDoCodigo(item.codigo);
+      const statusAlt = statusDataPacote(config, pacote, data, legadoAlt, regrasPacote, item.configuracaoId);
+      return statusAlt.status !== "indisponivel";
+    });
+    return alternativo ? { configuracaoId: alternativo.configuracaoId, rotulo: rotuloPeriodo(alternativo) } : undefined;
   }
 
   function selecionarData(data: string) {
     if (data < hojeIso()) return;
 
-    const turno = periodoOperacional(data, horario);
-    if (!turno) {
+    const turno = periodoOperacional(data);
+    if (turno === undefined) {
       setAviso({
         tipo: "erro",
         titulo: "Disponibilidade não carregada.",
@@ -199,41 +213,27 @@ export default function CalendarioDisponibilidade({
       return;
     }
 
-    const ajustesDisponiveis = ajustesOperacionaisDisponiveis(data, horario);
-    if (turno.status === "INDISPONIVEL" || ajustesDisponiveis.length === 0) {
-      const alt = horarioAlternativo(horario);
-      const ajustesAlt = ajustesOperacionaisDisponiveis(data, alt);
-
+    const candidatos = candidatosDisponiveis(turno);
+    if (!turno || turno.status === "INDISPONIVEL" || candidatos.length === 0) {
       setAviso({
         tipo: "erro",
-        titulo: "Esse período está indisponível.",
-        texto: "Escolha outra data ou verifique o outro período deste mesmo dia.",
-        alternativa: ajustesAlt.length > 0 ? alt : undefined,
+        titulo: "Esse horário está indisponível.",
+        texto: "Escolha outra data ou verifique outro horário deste mesmo dia.",
+        alternativa: horarioAlternativo(data, turno?.configuracaoId),
       });
       return;
     }
 
-    const atual = statusDataPacote(
-      config,
-      pacote,
-      data,
-      horario,
-      regrasPacote
-    );
+    // Legado almoco/noite só para TURNO_1/TURNO_2 (regra fixa do endereço atual e ajustes manuais); "" nos demais.
+    const legado = horarioLegadoDoCodigo(turno.codigo);
+    const atual = statusDataPacote(config, pacote, data, legado, regrasPacote, turno.configuracaoId);
 
     if (atual.status === "indisponivel") {
-      const alt = horarioAlternativo(horario);
-      const statusAlt = statusDataPacote(config, pacote, data, alt, regrasPacote);
-      const ajustesAlt = ajustesOperacionaisDisponiveis(data, alt);
-
       setAviso({
         tipo: "erro",
-        titulo: "Este pacote não está disponível neste período.",
-        texto: atual.motivo || "Escolha outra data ou período para continuar.",
-        alternativa:
-          statusAlt.status !== "indisponivel" && ajustesAlt.length > 0
-            ? alt
-            : undefined,
+        titulo: "Este pacote não está disponível neste horário.",
+        texto: atual.motivo || "Escolha outra data ou horário para continuar.",
+        alternativa: horarioAlternativo(data, turno.configuracaoId),
       });
       return;
     }
@@ -242,14 +242,16 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario,
+      legado,
       diaUtil,
     );
 
     onSelecionar(
       data,
       atual.status === "excecao" ? "excecao" : atual.status,
-      ajustesDisponiveis,
+      candidatos,
+      turno,
+      operacionalPorData[data]?.periodos ?? [],
     );
 
     if (atual.status === "excecao") {
@@ -382,21 +384,28 @@ export default function CalendarioDisponibilidade({
           const data = iso(ano, mes, dia);
           const passado = data < hojeIso();
 
-          const turnoOperacional = periodoOperacional(data, horario);
-          const semDados = !passado && !turnoOperacional;
+          const turnoOperacional = passado ? undefined : periodoOperacional(data);
+          const semDados = !passado && turnoOperacional === undefined;
+          const legado = horarioLegadoDoCodigo(turnoOperacional?.codigo);
           const info = passado
             ? {
                 status: "indisponivel" as const,
                 origem: "regra" as const,
                 motivo: "Data passada.",
               }
-            : turnoOperacional?.status === "INDISPONIVEL"
+            : !turnoOperacional
               ? {
                   status: "indisponivel" as const,
                   origem: "agenda" as const,
-                  motivo: "Este período não está disponível.",
+                  motivo: "Este horário não acontece neste dia.",
                 }
-              : statusDataPacote(config, pacote, data, horario, regrasPacote);
+              : turnoOperacional.status === "INDISPONIVEL"
+                ? {
+                    status: "indisponivel" as const,
+                    origem: "agenda" as const,
+                    motivo: "Este horário não está disponível.",
+                  }
+                : statusDataPacote(config, pacote, data, legado, regrasPacote, turnoOperacional.configuracaoId);
 
           const selecionada =
             dataSelecionada === data;
@@ -408,7 +417,7 @@ export default function CalendarioDisponibilidade({
                   config,
                   pacote,
                   data,
-                  horario,
+                  legado,
                   diaUtil,
                 )
               : {
@@ -513,15 +522,12 @@ export default function CalendarioDisponibilidade({
             <button
               type="button"
               onClick={() => {
-                onSelecionar("", "", []);
-                onTrocarHorario(aviso.alternativa!);
+                onSelecionar("", "", [], null, []);
+                onTrocarHorario(aviso.alternativa!.configuracaoId);
                 setAviso(null);
               }}
             >
-              Ver{" "}
-              {aviso.alternativa === "almoco"
-                ? "11h às 15h"
-                : "17h às 21h"}
+              Ver {aviso.alternativa.rotulo}
             </button>
           )}
         </div>

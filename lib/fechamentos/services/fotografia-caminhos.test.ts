@@ -118,7 +118,7 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
     "lib/clientes/repositories/index.ts": { registrarAuditoria: async (evento: { dadosDepois: { pacoteSnapshotId: string; empresaId: string } }) => { fotos.push(evento.dadosDepois.pacoteSnapshotId + ":" + evento.dadosDepois.empresaId); }, buscarResponsavelPorId: async () => null },
     "lib/clientes/services/validators.ts": {},
     "lib/disponibilidade/repositories/index.ts": { adquirirLockConfirmacaoAgenda: async () => {} },
-    "lib/disponibilidade/services/index.ts": { consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: "agenda-1", horarios: [{ status: "DISPONIVEL", inicio: "14:00", fim: "18:00" }] }] }) },
+    "lib/disponibilidade/services/index.ts": { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: "agenda-1", horarios: [{ status: "DISPONIVEL", inicio: "14:00", fim: "18:00" }] }] }) },
     "lib/contratos/services/contrato.service.ts": {},
     "lib/contratos/services/snapshot-core.ts": { hashSnapshotContrato: () => "hash-base" },
   });

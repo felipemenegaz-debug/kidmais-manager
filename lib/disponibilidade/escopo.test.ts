@@ -87,6 +87,8 @@ function banco(parcial: Partial<Estado> = {}): Estado & { db: DbExecutor } {
       if (text.includes('SELECT EXISTS')) return linhas([{ existe: false }]);
       if (text.includes('pg_advisory_xact_lock') || text.includes('SELECT id FROM bloqueios_agenda')) return linhas([]);
       if (text.includes('bloqueio_agenda')) return linhas([{ bloqueio_agenda: false, fechamento_confirmado: false }]);
+      // 094 (capacidade) não instalada neste banco simulado: regra de antes.
+      if (text.includes('kidmais094_conflito_ocupacao') && text.includes('to_regprocedure')) return linhas([{ ok: false }]);
       throw new Error(`SQL inesperado: ${text.slice(0, 80)}`);
     },
   };

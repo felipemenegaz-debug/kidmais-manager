@@ -6,7 +6,7 @@ import { jsonNoStore, apiErrorResponse } from '@/lib/http/api-response';
 import { fontesEdicao, edicaoDaVersao, versaoDoTenant } from '@/lib/contratos/services/administrativo.service';
 import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial';
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
-import { consultarDisponibilidadeData } from '@/lib/disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoAceita, duracaoDoIntervalo } from '@/lib/disponibilidade/services';
 import { listarCodigosInclusos } from '@/lib/comercial/composicao';
 import { isPricingServiceError } from '@/lib/comercial/services/errors';
 import type { CatalogoAdicionais } from '@/lib/comercial/services/models';
@@ -33,7 +33,10 @@ export async function GET(request: NextRequest, context: {
             const configuracaoAgendaId = z.string().uuid().parse(q.get('periodo') || fonte.fechamento.configuracaoAgendaId);
             const pacoteId = z.string().uuid().parse(q.get('pacote') || fonte.fechamento.pacoteId);
             const adicionais = q.has('adicionais') ? z.array(z.object({ codigo: z.string().max(80), quantidade: z.number().positive() }).strict()).max(60).parse(JSON.parse(q.get('adicionais')!)) : fonte.adicionais;
-            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id });
+            // Horário livre (parecer do Astra, P2): os candidatos preservam a duração pretendida — a do formulário
+            // (`?duracao=` em minutos) ou, na carga inicial, a do intervalo atual da fonte. No modo fixo não muda nada.
+            const duracaoMinutos = q.get('duracao') ? z.number().int().parse(duracaoAceita(q.get('duracao'))) : duracaoDoIntervalo(fonte.fechamento.horarioInicio, fonte.fechamento.horarioFim);
+            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id }, { duracaoMinutos });
             // Opções de troca de vínculo: só da empresa já comprovada (= empresa do fechamento).
             const vinculos = preparada ? {
                 clientes: (await tx.query("SELECT id,nome_completo FROM clientes WHERE empresa_id=$1::uuid AND status<>'MESCLADO' ORDER BY nome_completo", [empresaId])).rows,

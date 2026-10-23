@@ -22,7 +22,10 @@ import {
   AvailabilityServiceError,
   consultarDisponibilidadeData,
   consultarDisponibilidadePeriodo,
+  duracaoAceita,
+  duracaoDoPacoteDaEmpresa,
 } from "@/lib/disponibilidade/services";
+import { PACOTE_CODIGO_BANCO } from "@/lib/fechamentos/comercial-input";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
@@ -64,14 +67,18 @@ const operacaoSchema = z.discriminatedUnion("tipo", [
   z.object({
     tipo: z.literal("agenda"),
     data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    horario: horarioSchema,
+    // Horário configurado (configuracao_agenda.id); `horario` é o legado almoco/noite (TURNO_1/TURNO_2).
+    configuracaoId: z.string().uuid().optional(),
+    horario: horarioSchema.optional(),
     status: z.enum(["bloqueado", "livre"]),
     motivo: z.string().trim().min(1).max(200).optional(),
   }),
   z.object({
     tipo: z.literal("criar_bloqueio"),
     data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    escopo: z.enum(["dia_inteiro", "turno_1", "turno_2", "personalizado"]),
+    // "horario": um horário configurado qualquer, pelo configuracaoId; turno_1/turno_2 seguem aceitos (legado).
+    escopo: z.enum(["dia_inteiro", "turno_1", "turno_2", "horario", "personalizado"]),
+    configuracaoId: z.string().uuid().optional(),
     horarioInicio: horaSchema.optional(),
     horarioFim: horaSchema.optional(),
     motivo: z.string().trim().min(1).max(200),
@@ -192,13 +199,17 @@ export async function GET(request: NextRequest) {
     const data = q.get("data");
     const inicio = q.get("inicio");
     const fim = q.get("fim");
+    // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas. Parecer do Astra (P2): com
+    // `?pacote=` (id da tela), a do pacote vigente da empresa comprovada, lida no servidor.
+    const pacoteCodigo = PACOTE_CODIGO_BANCO[(q.get("pacote") ?? "") as keyof typeof PACOTE_CODIGO_BANCO];
     const resposta = await withTenantTransaction(sessao, q.get("empresaId"), async (tx, tenant) => {
       const escopo = await escopoDoPedido(tx, tenant.empresaComprovada, q.get("unidadeId"));
+      const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo) };
       // Horários calculados do recurso (substitui, no painel, a API pública sem tenant).
       const dias = data
-        ? [await consultarDisponibilidadeData(dataSchema.parse(data), tx, undefined, escopo)]
+        ? [await consultarDisponibilidadeData(dataSchema.parse(data), tx, undefined, escopo, opcoes)]
         : inicio && fim
-          ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo)
+          ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo, opcoes)
           : null;
       return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
@@ -237,11 +248,15 @@ export async function POST(request: NextRequest) {
 
       if (op.tipo === "agenda") {
         const configs = await listarConfiguracoesAgendaAtivas(tx, escopo);
-        const config = configs.find((item) =>
-          op.horario === "almoco"
-            ? item.codigo === "TURNO_1" || item.ordemExibicao === 1
-            : item.codigo === "TURNO_2" || item.ordemExibicao === 2,
-        );
+        const config = op.configuracaoId
+          ? configs.find((item) => item.id === op.configuracaoId)
+          : op.horario
+            ? configs.find((item) =>
+                op.horario === "almoco"
+                  ? item.codigo === "TURNO_1" || item.ordemExibicao === 1
+                  : item.codigo === "TURNO_2" || item.ordemExibicao === 2,
+              )
+            : undefined;
 
         if (!config) {
           return NextResponse.json(
@@ -326,9 +341,11 @@ export async function POST(request: NextRequest) {
           const configs = await listarConfiguracoesAgendaAtivas(tx, escopo);
           const codigo = op.escopo === "turno_1" ? "TURNO_1" : "TURNO_2";
           const ordem = op.escopo === "turno_1" ? 1 : 2;
-          const config = configs.find(
-            (item) => item.codigo === codigo || item.ordemExibicao === ordem,
-          );
+          const config = op.escopo === "horario"
+            ? (op.configuracaoId ? configs.find((item) => item.id === op.configuracaoId) : undefined)
+            : configs.find(
+                (item) => item.codigo === codigo || item.ordemExibicao === ordem,
+              );
 
           if (!config) {
             return NextResponse.json(
