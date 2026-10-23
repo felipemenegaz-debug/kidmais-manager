@@ -44,16 +44,25 @@ async function principal() {
   fs.mkdirSync(caixa, { recursive: true });
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
-  const ultimoEmail = async (para) => {
+  const ultimoEmail = async (para, antes) => {
+    const validos = new Map();
+    const invalidos = new Map();
     for (let n = 0; n < 60; n++) {
-      // Arquivo ainda sendo escrito pelo transporte em arquivo: ignora nesta volta e relê na próxima (corrida do leitor).
-      const ler = (f) => { try { return JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8')); } catch { return null; } };
-      const msgs = fs.readdirSync(caixa).sort().map(ler).filter((m) => m && m.para === para);
-      if (msgs.length) return msgs.at(-1);
+      // Só arquivos criados depois da ação (antes = nomes já existentes); arquivo ainda sendo escrito pelo transporte em
+      // arquivo é relido na volta seguinte e, enquanto houver um inválido, nenhuma mensagem é devolvida (revisão 939c90f, P3-T1).
+      for (const f of fs.readdirSync(caixa).sort()) {
+        if (antes.has(f) || validos.has(f)) continue;
+        try { validos.set(f, JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8'))); invalidos.delete(f); }
+        catch (e) { invalidos.set(f, e && e.name ? e.name : 'Erro'); }
+      }
+      const msgs = [...validos.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, m]) => m).filter((m) => m.para === para);
+      if (msgs.length && invalidos.size === 0) return msgs.at(-1);
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw Error(`E2E_SEM_EMAIL ${para}`);
+    // Sem conteúdo nem tokens no diagnóstico: só o nome do arquivo e o tipo do erro.
+    throw Error(`E2E_SEM_EMAIL ${para}${invalidos.size ? ` (arquivos inválidos: ${[...invalidos].map(([f, e]) => `${f}=${e}`).join(', ')})` : ''}`);
   };
+  const caixaAntes = () => new Set(fs.readdirSync(caixa));
   try {
     await receita.construirModelo(admin, porta, '089');
     await receita.restaurar(admin, receita.TRABALHO[0], '089');
@@ -96,9 +105,10 @@ async function principal() {
       await page.getByLabel('Confirme a senha').fill(senha);
       await page.getByRole('checkbox').nth(0).check();
       await page.getByRole('checkbox').nth(1).check();
+      const antes = caixaAntes();
       await page.getByRole('button', { name: 'Continuar', exact: true }).click();
       await page.getByText('Se for possível criar a conta com este e-mail', { exact: false }).waitFor();
-      const link = (await ultimoEmail(email)).texto.match(/https?:\/\/\S+#t=[A-Za-z0-9_-]{43}/)[0];
+      const link = (await ultimoEmail(email, antes)).texto.match(/https?:\/\/\S+#t=[A-Za-z0-9_-]{43}/)[0];
       await page.goto(link);
       await page.waitForURL(`${base}/cadastro/empresa`);
     }

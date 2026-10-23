@@ -594,8 +594,18 @@ test('6f. pedido do canal oficial recebido ANTES da recontratação (P2-N6) e e-
     // P3-N1: o e-mail diz que a contratação atual permanece ativa — não promete somente leitura.
     enviados.length = 0;
     assert.equal(await enviarEmailConclusao(deps, ids.atual, r.m.protocolo), 'ENVIADO');
-    assert.match(enviados[0].texto, /O pedido se refere à contratação anterior\. A contratação atual permanece ativa\./);
-    assert.doesNotMatch(enviados[0].texto, /somente leitura/);
+    assert.match(enviados[0].texto, /Este pedido se refere à contratação anterior e não altera a sua contratação atual\./);
+    assert.doesNotMatch(enviados[0].texto, /somente leitura|permanece ativa/);
+    // P3-R1: com a contratação atual EM ATRASO, o texto continua sem afirmar que ela está ativa.
+    await q("UPDATE empresa_assinaturas SET situacao = 'EM_ATRASO', em_atraso_desde = clock_timestamp() - interval '30 days' WHERE empresa_id = $1", [ids.atual]);
+    const r2 = await lancar(ids.atual, await instante('clock_timestamp()'));
+    await emTx(() => registrarComunicacaoIntermediador(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, referencia: 'estorno' }));
+    await emTx(() => concluirArrependimento(client as never, { empresaId: ids.atual, protocolo: r2.m.protocolo, usuarioId: ids.atendimento, situacao: 'RESTITUIDO',
+        referencia: 'estorno Asaas', valorCentavos: 19_700, cobrancaIds: [`pay_${subA}_2`], assinaturaId: subA }, provedor as never));
+    enviados.length = 0;
+    assert.equal(await enviarEmailConclusao(deps, ids.atual, r2.m.protocolo), 'ENVIADO');
+    assert.match(enviados[0].texto, /não altera a sua contratação atual/);
+    assert.doesNotMatch(enviados[0].texto, /ativa|somente leitura/);
 
     // (b) Recebimento DEPOIS de uma contratação CONFIRMADA da assinatura atual: o vínculo do pedido é a atual.
     //     (c) Recebimento ANTES dessa confirmação: sem vínculo (não se sabe qual assinatura valia).

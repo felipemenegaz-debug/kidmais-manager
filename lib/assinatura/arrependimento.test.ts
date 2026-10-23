@@ -93,7 +93,8 @@ test('e-mail de conclusão: restituição com valor, sem referência interna; n�
     const enc = mensagemConclusaoArrependimento('g@exemplo.test', 'B', { protocolo: M.protocolo, situacao: 'RESTITUIDO', valorRestituidoCentavos: 1, justificativa: null, efeito: 'ENCERRADO' });
     assert.match(enc.texto, /período contratado foi encerrado; a área do sistema fica disponível em somente leitura/);
     const mantida = mensagemConclusaoArrependimento('g@exemplo.test', 'B', { protocolo: M.protocolo, situacao: 'RESTITUIDO', valorRestituidoCentavos: 1, justificativa: null, efeito: 'CONTRATACAO_ATUAL_MANTIDA' });
-    assert.match(mantida.texto, /A contratação atual permanece ativa\./); assert.doesNotMatch(mantida.texto, /somente leitura/);
+    assert.match(mantida.texto, /Este pedido se refere à contratação anterior e não altera a sua contratação atual\./);
+    assert.doesNotMatch(mantida.texto, /somente leitura|ativa/);
     const sem = mensagemConclusaoArrependimento('g@exemplo.test', 'B', { protocolo: M.protocolo, situacao: 'RESTITUIDO', valorRestituidoCentavos: 1, justificativa: null, efeito: 'SEM_ALTERACAO' });
     assert.doesNotMatch(sem.texto, /somente leitura|permanece ativa/);
     const n = mensagemConclusaoArrependimento('gestao@exemplo.test', 'Buffet', { protocolo: M.protocolo, situacao: 'NAO_APLICAVEL', valorRestituidoCentavos: null, justificativa: 'Pedido retirado pelo cliente <b>' });

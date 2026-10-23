@@ -253,13 +253,17 @@ export async function registrarArrependimentoAtendimento(tx: DbExecutor, input: 
 const reais = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /** Resultado da conclusão ao contratante. Restituição: valor (sem referência interna). Não se aplica: a justificativa. */
-/** Efeito da conclusão no acesso, lido do banco no envio (revisão 2765be2, P3-N1): o e-mail não promete estado que não houve. */
+/**
+ * Situação observada no envio (revisões 2765be2 P3-N1 e 939c90f P3-R1): o e-mail não promete estado que não houve. É a
+ * situação lida no momento do envio, não o efeito histórico da conclusão; por isso o texto fala do pedido e da contratação
+ * restituída, e na contratação atual diz só que este pedido não a altera (sem afirmar que está ativa ou com acesso completo).
+ */
 export type EfeitoConclusao = 'ENCERRADO' | 'CONTRATACAO_ATUAL_MANTIDA' | 'SEM_ALTERACAO';
 export function mensagemConclusaoArrependimento(para: string, empresa: string, d: { protocolo: string; situacao: 'RESTITUIDO' | 'NAO_APLICAVEL';
     valorRestituidoCentavos: number | null; justificativa: string | null; efeito?: EfeitoConclusao }): MensagemEmail {
     const efeito = d.efeito === 'ENCERRADO'
         ? ['O período contratado foi encerrado; a área do sistema fica disponível em somente leitura pelo prazo informado nos Termos, com exportação dos dados.']
-        : d.efeito === 'CONTRATACAO_ATUAL_MANTIDA' ? ['O pedido se refere à contratação anterior. A contratação atual permanece ativa.'] : [];
+        : d.efeito === 'CONTRATACAO_ATUAL_MANTIDA' ? ['Este pedido se refere à contratação anterior e não altera a sua contratação atual.'] : [];
     const linhas = d.situacao === 'RESTITUIDO' ? [
         `Concluímos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
         `A restituição de ${reais(d.valorRestituidoCentavos ?? 0)} foi solicitada ao intermediador de pagamento. O prazo do crédito depende do meio de pagamento.`,
