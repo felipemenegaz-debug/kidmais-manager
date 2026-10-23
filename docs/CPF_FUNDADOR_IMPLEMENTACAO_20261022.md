@@ -1076,3 +1076,53 @@ Cluster 127.0.0.1:55607 (PG 18), recriado pelo script da tarefa e depois removid
 - **Pendente de decisão:** o responsável pelo atendimento e a ativação do vigia.
 - **Não executado:** a prova física da 097 sem a 089 instalada, o webhook HTTP independente e a recuperação de vínculo
   ponta a ponta pelo painel.
+
+### Décima oitava rodada: revisão de `5a129de` — P2-N3 (assinatura restituída ≠ atual)
+
+A revisão do Astra (`revisao-arrependimento-l1-5a129de-20261023/RELATORIO.md`) confirmou o N1 original e o N2. O P2-C1
+ficou parcial pelo **P2-N3**: a resolução assistida só funcionava quando a assinatura restituída era a atual. Correção no
+commit `b4bfcda`, sem reescrever commits.
+
+| Ramo | Antes | Agora | Prova |
+|---|---|---|---|
+| A: sem vínculo no registro **nem** na conclusão | a assinatura informada era aceita e **descartada em silêncio** (`restituicao_assinatura_id` NULL) | a assinatura restituída é **sempre exigida** quando o registro não tem vínculo. É aceita só com **prova de pertinência** e fica **gravada**. Sem prova, a conclusão é recusada com instrução. | caso 6c: sem assinatura, CONFLITO. Desconhecida no provedor, CONFLITO. Sem provedor e sem registro local, CONFLITO. De outra empresa (referência externa alheia), CONFLITO. As recusas não gravam nada. Com a referência desta empresa no provedor, RESTITUIDO com evidência `PROVEDOR` e a assinatura gravada. Com o vínculo recuperado depois, as cobranças restituídas não levam a ATIVA. |
+| B: recontratação real **antes** da conclusão | a assinatura antiga correta era recusada (exigia a atual), e o pedido ficava travado | a assinatura restituída pode ser **anterior**. É aceita com prova, gravada e **não encerra** a nova (só encerra quando coincide com a atual). | caso 6c: recontratação (assinatura nova paga, ATIVA). A antiga, provada por um **evento de cobrança local** desta empresa e sem consultar o provedor, é concluída com evidência `EVENTO`, `encerrou=false` e a assinatura antiga gravada. A empresa continua ATIVA na reconsulta. |
+
+**Prova de pertinência** (`evidenciaDaAssinatura`), na ordem:
+1. assinatura atual da empresa (`ATUAL`);
+2. contratação da empresa (`CONTRATACAO`);
+3. pedido da 089 (`ENCERRAMENTO`);
+4. evento de cobrança da empresa (`EVENTO`);
+5. só se nada disso existir, leitura da assinatura no provedor com a **referência externa desta empresa** (`PROVEDOR`), pelo mesmo cliente usado na recuperação de vínculo.
+
+Assinatura de outra empresa ou sem prova: recusa. A evidência volta no resultado e entra na auditoria do painel
+(`evidenciaAssinatura`). Com vínculo no registro, a evidência é `REGISTRO` e informar outra assinatura continua recusado
+(serviço e `restituicao_assinatura_check`). A assinatura atual nunca substitui a restituída. Sem mudança de schema: a 097,
+o postcheck e os hashes são os da rodada 17.
+
+**Validação:**
+Cluster 127.0.0.1:55607 (PG 18), recriado pelo script da tarefa e depois removido.
+- **Bateria PG completa** sobre `b4bfcda`: 115/115 arquivos, 702 testes, 698 pass, 0 fail, 4 pulados (os mesmos de
+  propósito da e8). Inclui `arrependimento-097` **12/12**. Relatório:
+  `…-relatorios/2026-10-23T06-47-18-162Z-check-v1-postgres.log`.
+- **E2E:**
+  - `assinatura-devolucao-ui`: 5 cenários; `cpf-fundador-ui`: 8/8.
+  - `cadastro-publico-ui`: **8/8 na segunda execução**. Na primeira, o servidor de desenvolvimento respondeu 404 a todas as
+    119 sondas de prontidão de `/api/cadastro`, uma rota que existe e cujo handler não tem caminho que devolva 404. A causa
+    não foi determinada: classificada como limitação do ambiente (roteamento do `next dev`), não reproduzida. Log
+    preservado.
+- **Mutações:** 18/18 detectadas, em cópia isolada de `b4bfcda`, com controle PASS antes e depois.
+  - **Novas:**
+    - m16, provedor sem conferir a referência externa: detectada pelo caso 6c, que aceita assinatura de outra empresa;
+    - m17, aceita sem prova: detectada pelos casos 6b e 6c;
+    - m18, descarta a assinatura informada: detectada pelo caso 6c.
+  - **m14** (sem vínculo tratado como recontratação): o alvo mudou nesta rodada; rodada com o alvo atual, detectada pelos
+    casos 6b e 6c.
+- **Scripts:** 89/89. **Unitários** de devolução e arrependimento: 14/14. `check:v1:static`: PASS (3415).
+- **Logs:** `…-relatorios/grupo-c-097-rodada4-20261023/`.
+
+**Limites:**
+- A prova pelo provedor depende da referência externa que o Asaas devolve. Uma assinatura antiga sem referência e sem
+  registro local é recusada: o caminho é recuperar o vínculo ou registrar a evidência antes.
+- A conferência no provedor ocorre na transação do painel, como na recuperação de vínculo.
+- Não foi executado o fluxo ponta a ponta pelo painel (HTTP).

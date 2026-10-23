@@ -231,7 +231,8 @@ legal)”, com senha recente, motivo e auditoria):
 2. **Concluir:**
    - **Restituído** (exige a comunicação já registrada, o valor, a referência do estorno e **as cobranças restituídas**
      `pay_…`, inclusive antecipadas; se o pedido foi registrado sem vínculo com o provedor, também a **assinatura restituída**
-     `sub_…`, que tem de ser a atual): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
+     `sub_…` — a atual ou uma anterior —, aceita só com prova de que é da empresa: registro local (atual, contratação, pedido
+     da 089, evento de cobrança) ou referência da empresa no Asaas): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
      dias, com exportação) **se a empresa ainda estiver na assinatura do provedor do registro**. Grava o limite (data da
      conclusão): a sincronização (webhook, reconciliação, tela) não deixa cobranças dessa assinatura com vencimento até o
      limite, nem pagas até ele (antecipadas), reabrirem o período, e as cobranças declaradas nunca mais sustentam período. Só
