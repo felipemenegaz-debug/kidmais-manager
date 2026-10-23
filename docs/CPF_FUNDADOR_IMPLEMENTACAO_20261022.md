@@ -1336,8 +1336,10 @@ sequência das migrations num cluster sintético. Ficam três ressalvas:
 - **Causa:** o utilitário operacional do e-mail V6 (20/10) fixa o hash de `lib/acessos/erros.ts` (`883b…`). Esse hash
   bate com o staging puro, onde os testes **passam**. Esta frente acrescentou o código `ARREPENDIMENTO_INDISPONIVEL` a
   `erros.ts` (hash novo `77eb…`); daí a recusa `TRANSPORTE_DIVERGENTE ERROS`, de modo seguro e antes de qualquer envio.
-- **Origem da minha classificação errada:** a cópia de comparação estava numa pasta temporária, com `node_modules` por
-  junção, e o utilitário recusa disco e pasta fora do padrão.
+- **Origem da minha classificação errada:** as cópias de comparação foram clonadas com a conversão de fim de linha do
+  Git do sistema (`core.autocrlf=true` em `C:/Program Files/Git/etc/gitconfig`), então os arquivos ficaram em CRLF, e o
+  utilitário confere hashes de arquivos em LF. Confirmado depois, numa cópia de mutação, que um clone novo sai em CRLF.
+  Cópias isoladas daqui em diante usam `-c core.autocrlf=false`.
 - **Decisão registrada:** o hash não é atualizado mecanicamente. O utilitário é histórico (V6 executado em 20/10). Se
   precisar ser usado de novo, revalidar o pacote para a versão alvo, com autorização própria.
 - **Outros scripts:**
@@ -1353,3 +1355,36 @@ sequência das migrations num cluster sintético. Ficam três ressalvas:
 - **Logs:** `…-relatorios/integracao-20261023/blocos-shell-*.log`.
 - A hipótese "intermitente sob carga" para a falha única anterior continua **não comprovada**: só se registra que não se
   repetiu.
+
+### P2-I1 corrigido na integração: salões do pacote sem a 093 (`ec30a04`)
+
+Pedido de Felipe (23/10): corrigir o fallback sem a 093 nesta branch de integração, com prova sem a 093 e revisão do
+Astra. Local, sem push.
+
+- **Defeito:** `saloesDoPacoteDaEmpresa` (`lib/disponibilidade/services/availability.service.ts`) testava a existência de
+  `pacote_saloes` no WHERE da mesma consulta que a referencia. Sem a 093, o PostgreSQL falha com 42P01 ao resolver os
+  nomes, e o `.catch` devolvia "sem restrição de salão" com a transação já abortada; a consulta seguinte dava 25P02.
+- **Correção:**
+  - a existência é conferida numa **consulta separada** (`to_regclass`); sem a 093, devolve `null` sem citar a tabela;
+  - **sem `catch`:** um erro real do banco propaga, em vez de virar ausência de restrição.
+  - O padrão do restante do código já era esse (`configuracao-unidade.ts`). `salao-festa.ts` e `troca-salao.ts` só citam
+    `pacote_saloes` depois de conferir a função da 094 e estão protegidos.
+- **Prova:**
+  - **Unitário** `lib/disponibilidade/services/saloes-pacote-093.test.ts`, com um executor que imita o PostgreSQL (citar a
+    tabela ausente dá 42P01 e aborta a transação), 4 casos:
+    - sem a 093: `null`, a tabela não é citada e a transação continua utilizável;
+    - com a 093: lista de salões e consulta sem `to_regclass`;
+    - erro real: propaga;
+    - sem empresa ou sem pacote: `null`, sem consultar.
+  - **PG:** `pacotes-1c` declarada no modelo **089** (sem a 093) e **também no 094**. As duas passam; antes, o 089 falhava
+    com 25P02.
+- **Mutações** (cópia isolada em LF de `ec30a04`), controle PASS antes e depois:
+  - m1 volta ao SQL antigo com `catch`: unitário com 3 falhas e `pacotes-1c[089]` falhando;
+  - m2 tira a consulta de existência: unitário com 2 falhas e `pacotes-1c[089]` falhando.
+- **Validação:**
+  - **bateria PG completa** da integração: **134/134 arquivos**, 785 testes, 781 pass, 0 falhas, 4 pulados de propósito;
+  - `check:v1:static`: PASS (3586);
+  - **E2E:** devolução 5 cenários, CPF/Fundador 8/8, cadastro 8/8;
+  - **logs:** `…-relatorios/integracao-p2i1-20261023/`; cluster removido.
+- **Escopo:** é código da frente de agenda/pacotes, corrigido aqui a pedido de Felipe. A branch dessa frente, se continuar
+  ativa, precisa receber a mesma correção, ou será sobrescrita no merge.
