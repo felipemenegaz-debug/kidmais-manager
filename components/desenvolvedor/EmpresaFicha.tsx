@@ -108,7 +108,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 (d) => ({ tipo: 'ok', texto: d.alterados.length ? `Cadastro salvo (${d.alterados.length} campo(s) alterado(s)).` : 'Nada mudou.' }),
                 () => setEditando(false),
             )} /> : e.cadastro && <dl className={estilos.ficha}>
-                <div><dt>Nome empresarial</dt><dd>{e.cadastro.nomeEmpresarial ?? '—'}</dd></div>
+                <div><dt>Nome empresarial / nome civil</dt><dd>{e.cadastro.nomeEmpresarial ?? '—'}</dd></div>
                 <div><dt>CPF/CNPJ</dt><dd>{formatarDocumento(e.cadastro.documentoFiscal)}</dd></div>
                 <div><dt>Responsável</dt><dd>{e.cadastro.responsavelNome ?? '—'}</dd></div>
                 <div><dt>E-mail</dt><dd>{e.cadastro.email ?? '—'}</dd></div>
@@ -265,7 +265,7 @@ function CadastroForm({ empresa, ocupado, aoSalvar, aoCancelar }: { empresa: Emp
     return <form onSubmit={(ev) => { ev.preventDefault(); aoSalvar({ nome: v.nome, nomeEmpresarial: op(v.nomeEmpresarial), documentoFiscal: op(v.documentoFiscal), responsavelNome: v.responsavelNome, email: v.email, telefone: op(v.telefone), observacoes: op(v.observacoes), revisao: c?.revisao ?? null }); }}>
         <div className={estilos.formGrid}>
             <label>Nome da empresa *<input value={v.nome} onChange={set('nome')} required maxLength={160} /></label>
-            <label>Nome empresarial<input value={v.nomeEmpresarial} onChange={set('nomeEmpresarial')} maxLength={200} /></label>
+            <label>Nome empresarial / nome civil<input value={v.nomeEmpresarial} onChange={set('nomeEmpresarial')} maxLength={200} /></label>
             <label>CPF ou CNPJ<input value={v.documentoFiscal} onChange={set('documentoFiscal')} maxLength={40} /></label>
             <label>Responsável *<input value={v.responsavelNome} onChange={set('responsavelNome')} required maxLength={160} /></label>
             <label>E-mail *<input type="email" value={v.email} onChange={set('email')} required maxLength={254} /></label>

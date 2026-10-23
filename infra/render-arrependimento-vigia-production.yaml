@@ -1,0 +1,42 @@
+# Definição REVISÁVEL do vigia das manifestações de arrependimento (097) em PRODUÇÃO (23/10/2026; revisão 8da88ba, P2-C3).
+# NÃO é aplicada automaticamente. Não conectar como Blueprint nem criar o serviço sem autorização explícita de Felipe
+# (docs/OPERACAO_AGENTES.md). Só faz sentido depois da 097 aplicada em produção.
+# O vigia é SOMENTE LEITURA (sem Asaas, sem e-mail): sai 2 quando há manifestação com aviso interno não entregue ou
+# RECEBIDA há 1 h ou mais; o cron falha e o Render avisa (mesmo canal de alarme da conferência de pagamentos).
+# Latência máxima do alarme: 1 h + 15 min (vencida); 5 + 15 min (aviso interno não entregue).
+services:
+  - type: cron
+    name: kidmais-arrependimento-vigia-production
+    runtime: node
+    plan: 0.5c-512mb
+    region: virginia
+    repo: https://github.com/felipemenegaz-debug/kidmais-manager
+    branch: production
+    autoDeployTrigger: off
+    # A cada 15 minutos.
+    schedule: "*/15 * * * *"
+    buildCommand: npm ci --include=dev && node --test scripts/arrependimento-vigia.test.cjs
+    startCommand: node scripts/arrependimento-vigia.cjs
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: KIDMAIS_DEPLOY_ENV
+        value: production
+      # Começa em `aguardando` (sai 0 sem conectar). Passar para `conferir` só depois da 097 aplicada.
+      - key: KIDMAIS_VIGIA_MODO
+        value: aguardando
+      # Mesmas regras de alvo e TLS da conferência de pagamentos (validarAlvo/opcoesConexao): o alvo de produção exige
+      # ASAAS_AMBIENTE=producao (o vigia não chama o Asaas; a variável só confirma o ambiente).
+      - key: KIDMAIS_RECONCILIAR_ALVO
+        value: kidmais_production@dpg-dak750gae00c73fudmg0-a:5432
+      - key: ASAAS_AMBIENTE
+        value: producao
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      # URL INTERNA do banco kidmais_production (nunca DATABASE_URL). Entra no roteiro de rotação de credenciais.
+      - key: KIDMAIS_RECONCILIAR_DATABASE_URL
+        sync: false

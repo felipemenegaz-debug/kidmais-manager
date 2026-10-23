@@ -4,6 +4,7 @@ import { AsaasFalhou, ausenciaComprovada, cicloDoProvedor, type ClienteAsaas } f
 import { auditarCobranca, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type MotivoPreservacao } from './compensacao.ts';
 import { travarEmpresaParaReconciliacao, exigirEmpresaCobravel } from './ofertas.ts';
+import { continuidadeInstalada } from './documento-contratante.ts';
 
 /**
  * Pendências de reconciliação da CONTRATAÇÃO (E8), sem migration nova: uma linha em `cobranca_eventos` (068) com
@@ -110,7 +111,7 @@ export type ResultadoReconciliacao =
     | { resultado: 'AGUARDANDO'; motivo: 'CRIACAO_NAO_CONFIRMADA' }
     | { resultado: 'VINCULADA'; assinaturaId: string }
     | { resultado: 'ADIADA'; motivo: 'MARCADOR_NAO_GRAVADO'; ids: string[] }
-    | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO' | 'REMOCAO_SEM_CONFIRMACAO'; ids: string[] };
+    | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO' | 'REMOCAO_SEM_CONFIRMACAO' | 'CONTINUIDADE_DOCUMENTO'; ids: string[] };
 
 /**
  * Exclusões no provedor durante uma reconciliação. O marcador e o resultado de cada DELETE já são gravados (e
@@ -352,6 +353,12 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
         // Vínculo antigo não vigente: a troca só vale onde a 068 permite; com acesso pago em curso, pessoa decide.
         if (linha.provedor_assinatura_id && !TROCA_PERMITIDA.has(linha.situacao))
             return { resultado: 'REVISAO_HUMANA', motivo: 'VINCULO_INATIVO_COM_ACESSO', ids: [linha.provedor_assinatura_id, s.id] };
+        // D5 (revisão 7628d39, P2-N2): com continuidade de documento registrada (pendente ou concluída), a assinatura sem
+        // vínculo pode ser do documento anterior; a adoção exige a conferência humana da identidade remota. O marcador fica
+        // aberto (REVISAO_HUMANA); pagamentos não são recusados nem apagados por isso.
+        if (await continuidadeInstalada(tx)
+            && (await tx.query('SELECT 1 FROM empresa_documento_continuidades WHERE empresa_id = $1::uuid LIMIT 1', [empresaId])).rows.length)
+            return { resultado: 'REVISAO_HUMANA', motivo: 'CONTINUIDADE_DOCUMENTO', ids: [s.id] };
         await tx.query(
             `UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = COALESCE(provedor_cliente_id, $2), provedor_assinatura_id = $3,
                     ciclo = CASE WHEN situacao IN ('TESTE', 'ENCERRADA') THEN COALESCE($4, ciclo) ELSE ciclo END, provedor_situacao = $5

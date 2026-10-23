@@ -170,9 +170,11 @@ const MESMO_GERADOR = process.platform === 'win32' && process.versions.zlib === 
 test('blocos do pacote pacote-email-producao-20261020 (árvore 7494087) continuam byte a byte iguais',
   {skip: MESMO_GERADOR ? false : 'bytes do gzip dependem do SO/zlib; blocos do pacote gerados no Windows com zlib 1.3.2.1-motley'}, () => {
   // Mudar o executor ou o gerador muda estes sha: exige nova geração, nova revisão e novo pacote (docs/EMAIL_PRODUCAO_20261020.md §10).
-  const pacote = {CONFERIR: ['8f77a397d84d1b3a5463b50bebc5ee0e4ae352c9375d1c056a02d55bdb3ad10f', 9612],
-    ENVIAR: ['7cdbb59c0399d544f716c12cb1869dc00306af91a1310f6f9e7585f1bbdd47ed', 9743],
-    LIMPEZA: ['9e9967a088c166e14dd707355fbb58f2c67977f24b383ecacdaa5b419fbdf3b3', 2285]};
+  // Revalidação de 23/10/2026 (só o hash fixado de lib/acessos/erros.ts no executor; mudança só de tipo): pacote anterior
+  // CONFERIR 8f77a397… (9612), ENVIAR 7cdbb59c… (9743), LIMPEZA 9e9967a0… (2285). Ver docs/EMAIL_PRODUCAO_20261020.md.
+  const pacote = {CONFERIR: ['dd8ebb2fb2a75e3cf5f1a3f851088eb6fde274d81b38d34ab0bed61640e63c97', 9985],
+    ENVIAR: ['85218447e5fc14fb674896ac8de598faf44e67fcb265435c6a68ec4744503ecb', 10116],
+    LIMPEZA: ['03bcae5b5b9ba4553dc1f62afd639d413b2c9690d5de8836cb63fa654468af5c', 2285]};
   for (const [modo, [h, bytes]] of Object.entries(pacote)) {
     const x = b.gerar({modo, rotulo: '7494087'});
     assert.equal(sha(x), h, modo); assert.equal(Buffer.byteLength(x), bytes, modo);

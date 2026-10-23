@@ -106,7 +106,7 @@ test('teste grátis: nasce em TESTE com a duração configurada, pelo relógio d
         return iniciarTeste(client as never, { empresaId: ids.b, documento: '45723174000110', dias: 30 });
     });
     assert.equal(b.dias, 30);
-    assert.equal(await erroDe(() => iniciarTeste(client as never, { empresaId: ids.b, documento: '1122233300018' })), 'CNPJ inválido para o teste.');
+    assert.equal(await erroDe(() => iniciarTeste(client as never, { empresaId: ids.b, documento: '1122233300018' })), 'CPF ou CNPJ inválido.'); // 22/10/2026: o teste aceita CPF (decisão A); a recusa continua.
 });
 
 test('guarda: só nasce em TESTE; identidade imutável; teste só avança; transições explícitas; versão pelo banco; nunca apagada', async () => {

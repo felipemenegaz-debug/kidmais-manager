@@ -210,6 +210,104 @@ Para cada linha:
 Outros pedidos fora da tela (por e-mail) seguem o mesmo cálculo. Hoje eles não geram protocolo automático: usar a tela
 pela Gestão, ou registrar no atendimento.
 
+### 5.1 Arrependimento pela ferramenta (097, grupo C de 23/10/2026; LOCAL, não aplicada)
+
+O fluxo acima (089) só cobre o arrependimento **elegível** pela regra comercial (primeira ativação paga, 7 dias) e com o
+Asaas configurado. Para todos os outros casos, a área Assinatura tem a seção **“Desistir da contratação (direito de
+arrependimento)”** (`components/admin/ArrependimentoLegal.tsx`):
+
+- a Gestão marca a confirmação, digita a senha e recebe o protocolo **KA-…** na hora, com e-mail de confirmação;
+- vale **independentemente** da garantia comercial, da situação (TESTE, ATIVA, EM_ATRASO, CANCELADA_FIM_PERIODO, ENCERRADA)
+  e da disponibilidade do Asaas: o registro **não chama o provedor**;
+- a equipe recebe o aviso interno `[AÇÃO HOJE]` (só protocolo, hora e dois informativos: dentro de 7 dias da última
+  contratação confirmada e provedor configurado — nenhum dos dois decide);
+- sem a 097 no ambiente, a seção indica o canal oficial (`contato@demerzellabs.com.br`; o pedido vale a partir do envio).
+
+**Acompanhamento pelo atendimento** (painel do desenvolvedor → situação comercial da empresa → “Arrependimento (direito
+legal)”, com senha recente, motivo e auditoria):
+
+0. **Pedido que chegou por e-mail** (canal oficial): “Registrar pedido recebido pelo canal oficial…”.
+   - **Dados pedidos:**
+     - e-mail de quem enviou: precisa ser de uma pessoa da **Gestão ativa** desta empresa; qualquer outro remetente é
+       recusado. A igualdade do endereço **não autentica** o remetente: conferir a mensagem e, se a Gestão escreveu de
+       outro endereço, pedir a confirmação **a partir do e-mail cadastrado** e lançar com ele (nunca trocar o remetente
+       original sem essa confirmação). Casos fora da regra (Gestão inativa, mais de 90 dias) ficam com o atendimento,
+       sem adulterar data ou identidade;
+     - data e hora **reais** do recebimento, no horário de Brasília: entre a criação da assinatura e agora, até 90 dias
+       atrás;
+     - resumo da mensagem.
+   - **O que o sistema faz:**
+     - gera o protocolo `KA-` no canal ATENDIMENTO, valendo da data do recebimento;
+     - **vínculo do pedido** (revisão 2765be2, P2-N6): só usa a assinatura atual se uma contratação confirmada dela
+       existia até o recebimento. Se a empresa recontratou depois do e-mail, o pedido fica sem vínculo e a conclusão pede
+       a assinatura restituída (a antiga), que nunca encerra a nova;
+     - grava a auditoria e o solicitante;
+     - depois do COMMIT, envia a confirmação ao solicitante e o aviso interno.
+   - **Antes:** só por SQL.
+1. **Comunicar o intermediador** de imediato (no painel do Asaas: remover a renovação e pedir o estorno, se houver
+   cobrança) e registrar a referência → “Registrar comunicação ao intermediador”.
+2. **Concluir:**
+   - **Restituído** (exige a comunicação já registrada, o valor, a referência do estorno e **as cobranças restituídas**
+     `pay_…`, inclusive antecipadas; se o pedido foi registrado sem vínculo com o provedor, também a **assinatura restituída**
+     `sub_…` — a atual ou uma anterior —, aceita só com prova de que é da empresa: registro local de titularidade (assinatura
+     atual, contratação confirmada, pedido da 089) ou referência da empresa no Asaas; evento de cobrança não prova titularidade): encerra o período pago na hora (ATIVA/EM_ATRASO/CANCELADA_FIM_PERIODO → ENCERRADA; somente leitura por 60
+     dias, com exportação) **se a empresa ainda estiver na assinatura do provedor do registro**. Grava o limite (data da
+     conclusão): a sincronização (webhook, reconciliação, tela) não deixa cobranças dessa assinatura com vencimento até o
+     limite, nem pagas até ele (antecipadas), reabrirem o período, e as cobranças declaradas nunca mais sustentam período. Só
+     pagamento feito depois da conclusão, ou de outra assinatura (recontratação), reativa. Pagamento novo no mesmo dia, na
+     mesma assinatura, não reativa sozinho (o provedor só informa a data): ver o procedimento abaixo.
+     Pedido antigo concluído depois da recontratação não encerra a assinatura nova;
+   - **Não se aplica** (exige justificativa): não muda o acesso.
+3. **Resultado ao contratante:** depois do COMMIT da conclusão, o sistema envia ao solicitante o e-mail com o resultado.
+   - Restituição: o valor e a informação de que o período foi encerrado (sem a referência interna).
+   - Não se aplica: a justificativa.
+   - O e-mail diz o **efeito real** no acesso: período encerrado; ou "o pedido se refere à contratação anterior; a atual
+     permanece ativa"; ou nada sobre o acesso, quando não houve encerramento (revisão 2765be2, P3-N1).
+   - A situação fica gravada uma vez em `email_conclusao` (ENVIADO / FALHOU / SEM_DESTINATARIO) e aparece no painel. O
+     painel só diz "enviado" com ENVIADO. Com FALHOU, SEM_DESTINATARIO ou **não registrado** (envio interrompido antes de
+     gravar: não há fila durável), responder pelo canal oficial, citando o protocolo.
+
+O sistema registra a comunicação e a conclusão, mas não as executa: remoção da renovação e estorno são feitos à mão no
+painel do Asaas, e o valor e a referência da restituição são **declarados** pelo atendimento (não conferidos no Asaas).
+
+Cada etapa é registrada uma vez só (guarda da 097).
+
+**Pagamento novo no mesmo dia da conclusão, na mesma assinatura (procedimento):**
+1. **Prevenção:** na etapa 1, remover a renovação no Asaas antes de concluir **e inventariar as cobranças já emitidas ou
+   pagas em trânsito** dessa assinatura (remover a renovação impede cobranças futuras, mas não as já geradas). Confirmar a
+   remoção no Asaas antes de orientar qualquer recontratação.
+2. **Se acontecer:** conferir no Asaas se a cobrança foi gerada e paga depois da conclusão.
+   - Gerada pela renovação esquecida: estornar também essa cobrança e responder ao contratante pelo canal oficial.
+   - O contratante quer voltar: só depois de conferir que a assinatura antiga está removida no Asaas, orientar a
+     contratação pela tela. A contratação nova cria outra assinatura, que reativa sozinha, sem mexer no registro da
+     restituição. O checkout pode reaproveitar uma assinatura remota ainda ativa; por isso a conferência vem antes.
+3. **Nunca:** alterar o registro restituído nem reativar o acesso por SQL.
+
+**Alarmes:**
+- **Vigia** `scripts/arrependimento-vigia.cjs`, somente leitura, proposto a cada 15 min em
+  `infra/render-arrependimento-vigia-production.yaml` (não aplicado). **Quando ativar:** criar o cron junto com a
+  aplicação da 097 em produção. Ele fica em `aguardando` até a 097 existir e passa para `conferir` logo depois do
+  postcheck, antes de anunciar o registro pela tela. Alarma já quando o aviso interno não foi entregue e,
+  depois de 1 h, enquanto a manifestação estiver RECEBIDA. Latência máxima: 1 h + 15 min (vencida); 5 + 15 min (aviso não
+  entregue).
+- **D-C4 diária** (`ARREPENDIMENTO_PENDENTE`) continua como segunda camada.
+- **1 h é o limiar de alarme, não o prazo de atendimento.** O responsável pelo atendimento ainda precisa ser definido por
+  Felipe.
+
+**Premissas assumidas (decisão de Felipe pendente de confirmação):**
+- o acesso só fecha na conclusão com restituição, não no registro;
+- os informativos de prazo e provedor não bloqueiam nada.
+
+A equivalência "imediato = alarme de 1 h" foi retirada (revisão 8da88ba, P2-C3).
+
+Fila (somente leitura, com autorização de leitura no ambiente):
+
+```sql
+SELECT protocolo, canal, to_char(solicitado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS pedido,
+       situacao_assinatura, dentro_de_7_dias, provedor_disponivel, intermediador_comunicado_em IS NOT NULL AS comunicado
+  FROM assinatura_arrependimentos WHERE situacao = 'RECEBIDO' ORDER BY solicitado_em;
+```
+
 **Aviso interno (P2-3, rodada 2):** cada pedido (devolução ou cancelamento) envia na hora um e-mail ao canal da plataforma
 (`SITE_ATENDIMENTO_EMAIL`, o mesmo endereço validado da tela de suporte), pelo transporte do app, só com protocolo, tipo,
 valor, meio de pagamento, prazo e situação no provedor — sem nome da empresa, pessoa, e-mail, documento ou ids. Assunto

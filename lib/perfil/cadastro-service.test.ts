@@ -74,6 +74,11 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
             estado.sqls.push(sql);
             if (sql.includes('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
                 return { rows: [], rowCount: 0 };
+            // 091: contratante pessoa física (documento do teste/cadastro). Sem documento modelado, PJ.
+            if (sql.includes("to_regclass('public.empresa_assinaturas') IS NOT NULL AS assinaturas"))
+                return { rows: [{ assinaturas: true, cadastro: true }], rowCount: 1 };
+            if (sql.includes(') AS documento') && sql.includes('JOIN LATERAL'))
+                return { rows: [{ documento: (estado as { documentoContratante?: string }).documentoContratante ?? null }], rowCount: 1 };
             if (sql.includes('perfil_empresa_revisoes') && sql.includes('to_regclass')) {
                 return { rows: [{ empresas: estado.instalada ? 'perfil_empresas' : null, unidades: estado.instalada ? 'perfil_unidades' : null, revisoes: estado.instalada ? 'perfil_empresa_revisoes' : null, colunas_revisao: estado.colunas }], rowCount: 1 };
             }
@@ -129,7 +134,7 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
             }
             if (sql.includes('UPDATE public.perfil_empresas SET')) {
                 estado.versao += 1;
-                estado.cnpj = String(params[3]);
+                estado.cnpj = params[3] === null ? '<NULL>' : String(params[3]);
                 estado.nome = String(params[1]);
                 return { rows: [], rowCount: 1 };
             }
@@ -186,6 +191,25 @@ test('rascunho divergente não grava e a aplicação sensível exige reautentica
     }, async () => ({}));
     assert.equal(aplicado.versao, 1);
     assert.equal(sensivel.estado.cnpj, '11222333000181');
+});
+
+test('091: contratante PF aplica o Perfil pelo serviço sem CNPJ (gravado NULL, nunca CPF); PJ sem CNPJ é recusado', async () => {
+    const pf = banco({ edicao: 1, cnpj: '' });
+    pf.estado.conteudo = cadastro({ cnpj: '' });
+    (pf.estado as { documentoContratante?: string }).documentoContratante = '52998224725';
+    const aplicado = await aplicarCadastroPerfil(pf.tx, {
+        usuarioId, empresaIdCliente: null, numero: 1, edicao: 1, versaoBase: 0, confirmar: true,
+        motivo: 'Cadastro do titular', autenticadoEm: new Date().toISOString(), requestId: 'pf-1',
+    }, async () => ({}));
+    assert.equal(aplicado.versao, 1);
+    assert.equal(pf.estado.cnpj, '<NULL>', 'CNPJ vazio vai como NULL (CHECK 027), nunca vazio nem CPF');
+    const pj = banco({ edicao: 1, cnpj: '' });
+    pj.estado.conteudo = cadastro({ cnpj: '' });
+    await assert.rejects(() => aplicarCadastroPerfil(pj.tx, {
+        usuarioId, empresaIdCliente: null, numero: 1, edicao: 1, versaoBase: 0, confirmar: true,
+        motivo: 'Cadastro sem CNPJ', autenticadoEm: new Date().toISOString(), requestId: 'pj-1',
+    }, async () => ({})), (error: unknown) => error instanceof Error && 'code' in error && error.code === 'PERFIL_CADASTRO_INVALIDO');
+    assert.equal(pj.estado.versao, 0);
 });
 
 test('aba antiga com a mesma edição não grava por cima de outro rascunho', async () => {

@@ -5,7 +5,7 @@ import admin from '@/components/admin/admin.module.css';
 import { postarPublico } from '@/components/acesso/token';
 import { dias } from '@/lib/assinatura/texto';
 
-type Situacao = { ativo: boolean; testeDias: number | null; termos: string; privacidade: string };
+type Situacao = { ativo: boolean; testeDias: number | null; termos: string; privacidade: string; acordoTratamento?: string };
 
 /** Passo 1 do cadastro: a pessoa responsável. A conta só nasce quando o e-mail é confirmado. */
 export default function Cadastro() {
@@ -55,7 +55,7 @@ export default function Cadastro() {
             <small>Entre 8 e 128 caracteres.</small>
             <label>Confirme a senha<input type="password" autoComplete="new-password" value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} required maxLength={128} /></label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><input type="checkbox" checked={termos} onChange={(e) => setTermos(e.target.checked)} required style={{ width: 'auto' }} />
-                <span>Li e aceito os <Link href="/termos" target="_blank">termos de uso</Link> (versão {situacao.termos}).</span></label>
+                <span>Li e aceito os <Link href="/termos" target="_blank">termos de uso</Link> (versão {situacao.termos}), que incluem o <Link href="/acordo-de-tratamento" target="_blank">Acordo de Tratamento de Dados</Link>{situacao.acordoTratamento ? ` (versão ${situacao.acordoTratamento})` : ''}.</span></label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><input type="checkbox" checked={privacidade} onChange={(e) => setPrivacidade(e.target.checked)} required style={{ width: 'auto' }} />
                 <span>Li o <Link href="/privacidade" target="_blank">aviso de privacidade</Link> (versão {situacao.privacidade}).</span></label>
             <p role="alert">{erro}</p>

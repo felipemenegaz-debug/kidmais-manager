@@ -6,6 +6,7 @@ import { configuracaoAsaas } from './asaas.ts';
 import { consultarOfertas } from './ofertas.ts';
 import { consultarRenovacao } from './renovacao-repositorio.ts';
 import { consultarVagas } from './limites-usuarios.ts';
+import { sinteseContratacao } from './comprovante.ts';
 
 /**
  * Tela "Assinatura" da empresa comprovada (E4/E8): situação, datas e exceções vigentes. Qualquer vínculo ativo
@@ -38,6 +39,8 @@ export async function consultarAssinatura(tx: DbExecutor, tenant: TenantComprova
         vagas: await consultarVagas(tx, tenant.empresaComprovada),
         renovacao: await consultarRenovacao(tx, tenant.empresaComprovada),
         ofertas: await consultarOfertas(tx, tenant.empresaComprovada, env),
+        // Síntese e comprovante (grupo B): identificação do contratante só para a Gestão.
+        contratacao: tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO' && a ? await sinteseContratacao(tx, tenant.empresaComprovada) : null,
         cobranca,
         instalado: estado.instalado,
         cobrado: a !== null,
