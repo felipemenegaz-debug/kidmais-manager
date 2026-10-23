@@ -672,3 +672,47 @@ Mutações: com cada correção revertida, o caso 9 falha.
   - Cluster removido.
 - Playwright 7/7 e 8/8.
 - `check:v1:static`: PASS (3298 + 103).
+
+### Décima primeira rodada: recuperação assistida do vínculo (P2-N3)
+
+A revisão do Astra para `7628d39..6e9d09f` fechou N1 e N2, mas reprovou o fechamento integral de P2-1. O motivo é o achado P2-N3: com a continuidade concluída e a oferta vencida, a assinatura criada no provedor sem vínculo local não tinha saída (relatório em `revisao-cpf-fundador-6e9d09f-20261022/RELATORIO.md`). Correção em `56cad09`.
+
+**Operação "Recuperar vínculo da assinatura"** (painel comercial; concessão, senha recente, motivo e auditoria `COMERCIAL_VINCULO_RECUPERADO`):
+- Só serve para empresa **sem vínculo**, com a última continuidade **concluída** e a trava de contratação livre.
+- O atendimento informa o id da assinatura conferida. O sistema confere de novo no provedor:
+  - a assinatura está ativa, é da empresa, é a única ativa e não tem remoção incerta;
+  - o cliente dela, achado por referência, tem o CPF/CNPJ **vigente** (presente e igual);
+  - o cliente já vinculado, se houver, é o mesmo.
+- Grava o vínculo **sem POST nem DELETE**. **Não consulta a validade atual** da oferta.
+- O pagamento segue a sincronização normal (D1/D3):
+  - feito dentro da validade original, confirma a oferta e o Fundador, sem renovar a reserva;
+  - tardio ou sem data vai para reconciliação (`FUNDADOR_OFERTA_EXPIRADA`), sem cobrança complementar.
+- A reconciliação automática continua recusando (`CONTINUIDADE_DOCUMENTO`). Só a operação assistida adota.
+
+**Roteiro do atendimento, passo acrescentado:** depois de concluir a continuidade, se o inventário mostrar uma assinatura criada sem vínculo:
+1. Atualizar ou conferir o cliente no Asaas com o CPF/CNPJ vigente.
+2. Usar "Recuperar vínculo da assinatura" com o id conferido.
+3. A sincronização confirma o pagamento feito no prazo; um pagamento tardio aparece na reconciliação para decisão.
+
+Nada de SQL manual nem assinatura nova.
+
+**Prova:** 091 caso 9, dois cenários (oferta persistida, assinatura remota sem vínculo, continuidade registrada e concluída):
+- recusas: pendente, CPF antigo, documento nulo, duplicata ativa, id de outra empresa e já vinculada;
+- a reconciliação automática continua recusando;
+- recuperação sem criar nem excluir no provedor;
+- `sincronizarEmpresa`:
+  - pagamento no prazo → oferta e Fundador `CONFIRMADA`;
+  - pagamento tardio → `FUNDADOR_OFERTA_EXPIRADA`, oferta não confirmada.
+
+Mutações (cada uma reverte uma conferência, e o caso 9 falha): documento, duplicata e pendência.
+
+**Validação:**
+- Unitários 427/427, render do painel 1/1 e scripts 63/63.
+- PG descartável 55607:
+  - 091: 10/10;
+  - aplicadores: 1/1;
+  - e8: 9/9 ×2, 46/46 e 42/42 + 4 skips preexistentes;
+  - vizinhos: 82/82.
+  - Cluster removido.
+- Playwright 7/7 e 8/8.
+- `check:v1:static`: PASS (3298 + 103).
