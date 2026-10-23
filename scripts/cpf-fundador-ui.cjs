@@ -46,7 +46,9 @@ async function principal() {
   const resultados = [];
   const ultimoEmail = async (para) => {
     for (let n = 0; n < 60; n++) {
-      const msgs = fs.readdirSync(caixa).sort().map((f) => JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8'))).filter((m) => m.para === para);
+      // Arquivo ainda sendo escrito pelo transporte em arquivo: ignora nesta volta e relê na próxima (corrida do leitor).
+      const ler = (f) => { try { return JSON.parse(fs.readFileSync(path.join(caixa, f), 'utf8')); } catch { return null; } };
+      const msgs = fs.readdirSync(caixa).sort().map(ler).filter((m) => m && m.para === para);
       if (msgs.length) return msgs.at(-1);
       await new Promise((r) => setTimeout(r, 500));
     }
