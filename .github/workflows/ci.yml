@@ -119,3 +119,9 @@ jobs:
 
       - name: Blocos de Shell da 095 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-095.test.cjs
+
+      - name: Aplicador manual da 098 (salão combinado, staging) — trava de alvo, identidade, hashes, retrato somente leitura (094/098 e tipos divergentes), estado e privilégios CREATE/DONO, conferência só leitura, backup obrigatório, COMMIT confirmado/desfeito/indeterminado, prova de preservação e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-098.test.cjs
+
+      - name: Blocos de Shell da 098 (RETRATO, CONFERIR, APLICAR) — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-098.test.cjs
