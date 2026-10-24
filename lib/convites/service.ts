@@ -15,10 +15,10 @@ import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } fr
 import { disponivelConvites, encerrarGeracao, infoCreditosConvites, motorConvites, reservarGeracao } from '../creditos/convites.ts';
 import { flagsCreditos } from '../creditos/config.ts';
 
-export type Acesso = { tipo: 'admin'; sessao: SessaoAdmin; festaId: string } | { tipo: 'cliente'; token: string };
-type Convite = { id: string; empresa_id: string; festa_id: string; cliente_id: string; estabelecimento_id: string | null;
+export type Acesso = ({ tipo: 'admin'; sessao: SessaoAdmin } & ({ festaId: string; conviteId?: never } | { conviteId: string; festaId?: never })) | { tipo: 'cliente'; token: string };
+type Convite = { id: string; empresa_id: string; festa_id: string | null; cliente_id: string | null; estabelecimento_id: string | null;
   publico_token: string; editor_hash: string | null; editor_expira_em: Date | null; rascunho: Conteudo; publicado: Conteudo | null;
-  versao_contrato_id: string; limite_festa: number; limite_cliente: number; usado_festa: number; usado_cliente: number; revisao: number };
+  versao_contrato_id: string | null; limite_festa: number; limite_cliente: number; usado_festa: number; usado_cliente: number; revisao: number };
 type Ligacao = { empresa_id: string; cliente_id: string; estabelecimento_id: string | null; contrato_id: string; invalidada_em: Date | null };
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
@@ -33,15 +33,15 @@ export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', '
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
 
-async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string, convidados: number | null, podeAdministrar: boolean) => Promise<T>): Promise<T> {
+async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string | null, convidados: number | null, podeAdministrar: boolean) => Promise<T>): Promise<T> {
   habilitado();
   return withTransaction(async tx => {
-    let empresa: string, festa: string;
+    let empresa: string, festa: string | null, conviteId: string | undefined;
     let tenant: Awaited<ReturnType<typeof provarTenant>> | undefined;
     let podeAdministrar = false;
     if (a.tipo === 'admin') {
       tenant = await provarTenant(tx, a.sessao);
-      empresa = tenant.empresaComprovada; festa = a.festaId;
+      empresa = tenant.empresaComprovada; festa = a.festaId ?? null; conviteId = a.conviteId;
       const cap = escrever ? 'FESTA_OPERAR' : 'FESTA_CONSULTAR';
       const capacidade = await tx.query(`SELECT id FROM festa_membership_capacidades WHERE empresa_id=$1 AND membership_id=$2 AND capacidade=$3 AND revogado_em IS NULL`, [empresa, tenant.membershipId, cap]);
       exigir(capacidade.rows.length, 'Sem permissão para administrar o convite.', 403);
@@ -51,11 +51,25 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
       exigir(/^[\w-]{43}$/.test(a.token), 'Acesso ao convite indisponível.', 404);
       const pre = (await tx.query<Convite>('SELECT * FROM convites WHERE editor_hash=$1 AND editor_expira_em>now()', [hash(a.token)])).rows[0];
       exigir(pre, 'Acesso ao convite indisponível.', 404);
-      empresa = pre.empresa_id; festa = pre.festa_id;
+      empresa = pre.empresa_id; festa = pre.festa_id; conviteId = pre.id;
+      exigir(pre.festa_id && pre.cliente_id, 'Vincule uma festa antes de liberar o editor do cliente.', 409);
       exigir((await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR UPDATE", [empresa])).rows.length, 'Acesso ao convite indisponível.', 404);
     }
     const comercial = await lerEstadoComercial(tx, empresa);
     exigir(comercial.acesso.nivel === 'COMPLETO' || (!escrever && comercial.acesso.nivel === 'SOMENTE_LEITURA'), 'O buffet precisa regularizar o acesso ao sistema.', 402);
+    if (conviteId) {
+      const pre = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 AND empresa_id=$2', [conviteId, empresa])).rows[0];
+      exigir(pre, 'Convite não encontrado.', 404);
+      festa = pre.festa_id;
+      if (!festa) {
+        const c = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 AND empresa_id=$2 FOR UPDATE', [conviteId, empresa])).rows[0];
+        exigir(c && !c.festa_id && a.tipo === 'admin', 'O vínculo mudou. Recarregue o convite.', 409);
+        if (tenant && c.estabelecimento_id) await provarEstabelecimento(tx, tenant, c.estabelecimento_id);
+        const r = await fn(tx, c, null, null, podeAdministrar);
+        if (tenant) await revalidarTenant(tx, tenant);
+        return r;
+      }
+    }
     const l = (await tx.query<Ligacao>(`${ligacaoSql} WHERE f.id=$1 AND fe.empresa_id=$2`, [festa, empresa])).rows[0];
     exigir(l, 'Festa não encontrada.', 404);
     if (tenant && l.estabelecimento_id) await provarEstabelecimento(tx, tenant, l.estabelecimento_id);
@@ -72,6 +86,7 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
       await evento(tx, c, a, 'CONVITE_CRIADO');
     }
     exigir(c, 'Crie o convite para começar.', 404);
+    if (conviteId) exigir(c.id === conviteId, 'O vínculo mudou. Recarregue o convite.', 409);
     if (a.tipo === 'cliente') exigir(c.editor_hash === hash(a.token) && c.editor_expira_em && c.editor_expira_em > new Date(), 'Acesso ao convite indisponível.', 404);
     const quantidade = co.snapshot?.evento?.convidados;
     const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null, podeAdministrar);
@@ -155,7 +170,7 @@ export async function consultar(a: Acesso, criar = false) {
     // Aviso e autorização (088): textos com o provedor real, hashes do texto exibido e situação, sem o nome do responsável.
     const provedor = provedorAtual();
     const autorizacaoIA = provedor ? { ...textosParaTela(provedor, operadorIA(a)), ...await resumoTolerante(tx, c, provedor) } : null;
-    return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
+    return { id: c.id, festaId: c.festa_id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
@@ -190,7 +205,7 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   if (i.acao === 'autorizar_ia') return comConvite(a, true, async (tx, c) => {
     const provedor = provedorAtual();
     exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
-    const operador = a.tipo === 'admin' ? { tipo: 'BUFFET' as const, usuarioId: a.sessao.usuario_id } : { tipo: 'CLIENTE' as const, clienteId: c.cliente_id };
+    const operador = a.tipo === 'admin' ? { tipo: 'BUFFET' as const, usuarioId: a.sessao.usuario_id } : { tipo: 'CLIENTE' as const, clienteId: c.cliente_id! };
     const r = await registrarAutorizacao(tx, c, operador, ator(a, c), provedor, i);
     // Auditoria sem dados pessoais: identificador, provedor, versão e manifestação sobre a foto.
     await evento(tx, c, a, 'AUTORIZACAO_IA_REGISTRADA', { autorizacao: r.id, provedor, versao: VERSAO_TEXTOS_IA, ...(r.substituiu ? { substituiu: r.substituiu } : {}) });
@@ -213,6 +228,7 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
     }
     if (i.acao === 'acesso') {
       exigir(a.tipo === 'admin', 'Somente o buffet pode liberar acesso.', 403);
+      exigir(!i.habilitado || (c.festa_id && c.cliente_id), 'Vincule uma festa para liberar o editor à família. O convite avulso pode ser publicado e compartilhado com os convidados.', 409);
       const novo = i.habilitado ? token() : null;
       await tx.query("UPDATE convites SET editor_hash=$2,editor_expira_em=CASE WHEN $2::text IS NULL THEN NULL ELSE now()+interval '180 days' END WHERE id=$1", [c.id, novo ? hash(novo) : null]);
       await evento(tx, c, a, i.habilitado ? 'ACESSO_RENOVADO' : 'ACESSO_REVOGADO');
@@ -642,10 +658,11 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
 
 export async function publico(tokenPublico: string, executor: DbExecutor = db()) {
   habilitado(); exigir(/^[\w-]{43}$/.test(tokenPublico), 'Convite indisponível.', 404);
-  const c = (await executor.query<Convite>(`SELECT ci.* FROM convites ci JOIN festas f ON f.id=ci.festa_id
-    JOIN contratos co ON co.id=f.contrato_id JOIN contrato_fluxos cf ON cf.contrato_id=co.id
+  const c = (await executor.query<Convite>(`SELECT ci.* FROM convites ci LEFT JOIN festas f ON f.id=ci.festa_id
+    LEFT JOIN contratos co ON co.id=f.contrato_id LEFT JOIN contrato_fluxos cf ON cf.contrato_id=co.id
     JOIN empresas e ON e.id=ci.empresa_id WHERE ci.publico_token=$1 AND ci.publicado IS NOT NULL
-      AND f.invalidada_em IS NULL AND co.status<>'CANCELADO' AND e.status='ATIVA' AND cf.versao_vigente_id=ci.versao_contrato_id`, [tokenPublico])).rows[0];
+      AND e.status='ATIVA' AND (ci.festa_id IS NULL OR (f.invalidada_em IS NULL AND co.status<>'CANCELADO'
+      AND cf.versao_vigente_id=ci.versao_contrato_id))`, [tokenPublico])).rows[0];
   exigir(c, 'Convite indisponível. Solicite o link atualizado ao organizador.', 404);
   const conteudo = conteudoSchema.parse(c.publicado);
   return { c, conteudo };
@@ -669,15 +686,18 @@ export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia
   exigir(conteudo.data >= hoje, 'As confirmações desta festa estão encerradas.');
   return withTransaction(async tx => {
     // Mesma ordem das alterações contratuais; cancelamento/reagendamento não pode disputar a confirmação.
-    const l = (await tx.query<Ligacao>(`${ligacaoSql} WHERE f.id=$1 AND fe.empresa_id=$2`, [c.festa_id, c.empresa_id])).rows[0];
-    exigir(l, 'Convite indisponível.', 404);
-    await contrato(tx, l.contrato_id, true);
-    await tx.query('SELECT id FROM festas WHERE id=$1 FOR UPDATE', [c.festa_id]);
+    if (c.festa_id) {
+      const l = (await tx.query<Ligacao>(`${ligacaoSql} WHERE f.id=$1 AND fe.empresa_id=$2`, [c.festa_id, c.empresa_id])).rows[0];
+      exigir(l, 'Convite indisponível.', 404);
+      await contrato(tx, l.contrato_id, true);
+      await tx.query('SELECT id FROM festas WHERE id=$1 FOR UPDATE', [c.festa_id]);
+    }
+    const atual = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 FOR UPDATE', [c.id])).rows[0];
+    exigir(atual.festa_id === c.festa_id, 'O convite foi atualizado. Abra novamente o link.', 409);
     const vigente = await publico(tokenPublico, tx);
     // O organizador pode ter alterado a data enquanto esta resposta aguardava o lock.
     const hojeVigente = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     exigir(vigente.conteudo.data >= hojeVigente, 'As confirmações desta festa estão encerradas.');
-    const atual = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 FOR UPDATE', [c.id])).rows[0];
     exigir(atual.publicado?.confirmarPresenca, 'As confirmações estão encerradas.');
     // A chave de uma família vem do servidor; nunca confiamos no UUID enviado pelo visitante.
     const familia = tokenFamilia == null ? null : await validarFamilia(tx, atual, tokenFamilia);
