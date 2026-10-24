@@ -234,6 +234,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('clientes') || href.includes('acessos')) return 'users';
     if (href.includes('contratos')) return 'contract';
     if (href.includes('festas')) return 'cake';
+    if (href.includes('convites')) return 'palette';
     if (href.includes('disponibilidade')) return 'calendar';
     if (href.includes('whatsapp') || href.includes('atendimento')) return 'contact';
     if (href.includes('dashboard')) return 'dashboard';

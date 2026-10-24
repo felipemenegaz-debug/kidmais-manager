@@ -70,7 +70,7 @@ jobs:
           scripts/bloco-shell-email-producao-20261020.test.cjs
 
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
-        run: node --test lib/convites/service.test.cjs
+        run: node --test lib/convites/service.test.cjs lib/convites/biblioteca.test.cjs scripts/migration-099-staging.test.cjs
 
       - name: Convites — migration 084, decisão só do operador e fila do painel (dependências simuladas)
         run: node --test lib/convites/recuperacao.test.cjs lib/desenvolvedor/convites-geracoes.test.cjs
