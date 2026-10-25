@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { PAGAMENTO_TARDIO, REGRA_RESERVA, textoPagueAte, textoReservaVencida } from './textos-fundador.ts';
+import { PAGAMENTO_TARDIO, REGRA_RESERVA, REGRA_RESERVA_LEGADO, regraReservaDaFase, textoPagueAte, textoReservaVencida } from './textos-fundador.ts';
 import { textoFundador } from '../site/fundador.ts';
 import { janelaCalculada, prazoAnunciado } from './campanha.ts';
 
@@ -43,4 +43,25 @@ test('fontes: "dias corridos" e o texto antigo do prazo não voltam ao site nem 
         assert.doesNotMatch(s, /dias corridos/, f);
         assert.doesNotMatch(s, /Pagamento depois disso fica em análise/, f);
     }
+});
+
+/** O1 do diagnóstico pós-smoke 096 (24/10/2026): LEGADO não tem validade (CHECK 090), a síntese não promete prazo. */
+test('síntese: só a campanha (JANELA e lote posterior) cita a validade de 7 dias; LEGADO e fase ausente não citam prazo', () => {
+    assert.equal(regraReservaDaFase('JANELA'), REGRA_RESERVA);
+    assert.equal(regraReservaDaFase('POS_JANELA'), REGRA_RESERVA);
+    for (const fase of ['LEGADO', 'DESLIGADA', 'ANTES', 'ENCERRADA', null, undefined])
+        assert.equal(regraReservaDaFase(fase), REGRA_RESERVA_LEGADO, String(fase));
+    assert.match(REGRA_RESERVA_LEGADO, /fica reservada para você e é confirmada com o primeiro pagamento, quando começam os 12 meses/);
+    assert.match(REGRA_RESERVA_LEGADO, /não se confunde com o direito de arrependimento/);
+    for (const proibido of [/7º dia/, /23h59/, /prazo/i, /campanha/i, /data indicada/, /horas/])
+        assert.doesNotMatch(REGRA_RESERVA_LEGADO, proibido);
+});
+
+test('fonte: a síntese escolhe a regra pela fase; REGRA_RESERVA fixa só no aviso da JANELA', () => {
+    const s = readFileSync('components/admin/AssinaturaAcoes.tsx', 'utf8');
+    const sintese = s.slice(s.indexOf('Confira sua contratação'), s.indexOf('Confirmar contratação'));
+    assert.match(sintese, /\{regraReservaDaFase\(dados\.ofertas\.campanha\?\.fase\)\}/);
+    assert.doesNotMatch(sintese, /\{REGRA_RESERVA\}/);
+    assert.equal(s.split('{REGRA_RESERVA}').length - 1, 1, 'REGRA_RESERVA fixa aparece uma vez (aviso da JANELA)');
+    assert.match(s, /campanha\?\.fase === 'JANELA' && <p>Condição válida para quem assinar [^\n]*\{REGRA_RESERVA\}/);
 });

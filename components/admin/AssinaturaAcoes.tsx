@@ -9,7 +9,7 @@ import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
 import { ArrependimentoLegal } from './ArrependimentoLegal';
-import { REGRA_RESERVA, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
+import { REGRA_RESERVA, regraReservaDaFase, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
 import { linhaContratante } from '@/lib/assinatura/comprovante-texto';
 
 /**
@@ -147,7 +147,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                     <li>Prestadora: {dados.contratacao?.fornecedora ?? '—'}.</li>
                     <li>Contratante: {dados.contratacao ? linhaContratante(dados.contratacao.contratante) : '—'}.</li>
                     <li>Plano {sintese.nome}, {sintese.ciclo === 'ANUAL' ? 'anual (pagamento único, valor de 10 mensalidades)' : 'mensal'}: {reais(sintese.valor)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}{sintese.ciclo === 'ANUAL' ? `, total do ano ${reais(sintese.valor)}` : ''}.</li>
-                    {dados.ofertas.fundador && <li>Condição Fundador: 40% de desconto por 12 meses sobre {reais(sintese.regular)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}; depois, o preço vigente do plano, com aviso de pelo menos 30 dias. {REGRA_RESERVA}</li>}
+                    {dados.ofertas.fundador && <li>Condição Fundador: 40% de desconto por 12 meses sobre {reais(sintese.regular)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}; depois, o preço vigente do plano, com aviso de pelo menos 30 dias. {regraReservaDaFase(dados.ofertas.campanha?.fase)}</li>}
                     <li>Renovação: a assinatura renova ao fim de cada ciclo, no mesmo plano e ciclo, até você cancelar.</li>
                     <li>Cancelamento e devolução: <Link href="/termos#cancelamento" target="_blank">Termos de uso, seção “Cancelamento e devolução”</Link>. Seus direitos legais permanecem preservados.</li>
                     <li>Documentos: {(dados.contratacao?.documentos ?? []).map((d, i) => <span key={d.documento}>{i ? ' · ' : ''}<Link href={d.rota} target="_blank">{d.titulo} (versão {d.versao})</Link></span>)}.</li>
