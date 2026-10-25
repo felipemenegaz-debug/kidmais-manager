@@ -4,6 +4,7 @@ import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { detalheAdministrativo } from '@/lib/contratos/services/administrativo.service';
 import { contratoNoTenant, executarComPosseNoTenant, listarContratosDoTenant } from '@/lib/contratos/services/contrato-tenant';
 import { contratoIntegradoDaImportacao, detalheContratoImportado, listarContratosImportados, origemHistoricaDoContrato } from '@/lib/contratos/importados';
+import { leiturasDaTela } from '@/lib/contratos/services/leituras-tela';
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { apiErrorResponse } from '@/lib/http/api-response';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
                     'SELECT f.id FROM festas f JOIN contratos c ON c.id=f.contrato_id JOIN fechamentos fe ON fe.id=c.fechamento_id WHERE f.contrato_id=$1 AND fe.empresa_id=$2::uuid AND f.invalidada_em IS NULL LIMIT 1',
                     [id, tenant.empresaComprovada],
                 )).rows[0]?.id ?? null,
+                // Tela simplificada (fase 1): só leituras (salão e estado da festa), presas à empresa comprovada.
+                tela: await leiturasDaTela(tx, id, tenant.empresaComprovada),
             }));
         }
         else if (importacaoId) {

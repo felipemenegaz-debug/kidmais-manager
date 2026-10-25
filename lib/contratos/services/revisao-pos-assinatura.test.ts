@@ -136,10 +136,10 @@ test('constraints existentes garantem chave e preparação únicas; 019 conserva
 });
 test('UX expõe criação, motivo, comparação, acesso às assinaturas e chave estável', () => {
     const ui = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
-    for (const text of ['Criar revisão / retificação','Editar dados desta revisão','pedidoRevisao.current.chave','operacaoEmCurso.current=true','v.motivo_nova_versao','origem.numero_versao','analise.impactoFinanceiro','comprovante_documento_id','Histórico de versões']) assert(ui.includes(text), text);
+    for (const text of ['Criar revisão / retificação','Editar dados desta revisão','pedidoRevisao.current.chave','operacaoEmCurso.current=true','v.motivo_nova_versao','origem.numero_versao','analise.impactoFinanceiro','comprovante_documento_id','Ver esta versão']) assert(ui.includes(text), text);
     assert.match(ui, /documentos.filter\(d => d.contrato_versao_id === vid\)/);
     assert.match(ui, /assinaturas.filter\(s => s.contrato_versao_id === vid\)/);
-    assert.match(ui, /revisaoOperacional.ocupa_vigente/);
+    assert.match(readFileSync('components/admin/contrato-tela.ts', 'utf8'), /r\.ocupa_vigente/);
     assert.match(readFileSync('lib/contratos/services/administrativo.service.ts','utf8'), /kidmais019_ocupa\(f.id\) AS ocupa_vigente/);
 });
 
