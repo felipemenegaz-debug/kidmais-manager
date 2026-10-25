@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FILTROS, FINANCEIRO_SQL, LIMITE_PAGINA, codificarCursor, decodificarCursor, financeiroDaLinha, interpretarBusca, listarContratosPaginados } from './lista-contratos.ts';
+import { FILTROS, FINANCEIRO_SQL, LIMITE_PAGINA, codificarCursor, decodificarCursor, financeiroDaLinha, interpretarBusca, listarContratosPaginados, dataCalendarioSql } from './lista-contratos.ts';
 
 const UUID = '00000000-0000-4000-8000-000000000001', EMPRESA = '00000000-0000-4000-8000-0000000000e1';
 const linha = (x: Partial<Parameters<typeof financeiroDaLinha>[2][number]> = {}) => ({ contrato_id: 'c', n: 1, status: 'PARCIAL', valor_total_contratado: '6000.00', rec: '200000', est: null, dev: null, aj: null, res: null, invalido: false, ...x });
@@ -48,7 +48,7 @@ test('financeiro: mesmas recusas da leitura do contrato viram CONFERIR (inclusiv
 
 test('consulta: presa à empresa, contagens sem cursor, página de 50 + 1 e próximo cursor; financeiro só dos itens da página', async () => {
   const chamadas: Array<{ sql: string; params: unknown[] }> = [];
-  const linhas = Array.from({ length: LIMITE_PAGINA + 1 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, status: 'ASSINADO', versao_id: 'v', prioridade: 1, data_evento: i === LIMITE_PAGINA ? null : '2027-04-20', versao_vigente_id: 'v', estado_preparacao: null, estado_referencia: 'CONCLUIDA',
+  const linhas = Array.from({ length: LIMITE_PAGINA + 1 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, status: 'ASSINADO', versao_id: 'v', prioridade: 1, data_evento: i === LIMITE_PAGINA || i === 1 ? null : '2027-04-20', data_invalida: i === 1, versao_vigente_id: 'v', estado_preparacao: null, estado_referencia: 'CONCLUIDA',
     snapshot: { contratante: { nomeCompleto: 'Cliente' }, aniversariante: { nome: 'Helena', idadeNoEvento: 6 }, evento: { pacote: { nome: 'Standard' }, convidados: 50 }, comercial: { valorFinalContrato: 6000 } } }));
   const tx = { query: async (sql: string, params: unknown[]) => {
     assert.match(sql.trim(), /^WITH/); chamadas.push({ sql, params });
@@ -58,6 +58,7 @@ test('consulta: presa à empresa, contagens sem cursor, página de 50 + 1 e pró
   } };
   const r = await listarContratosPaginados(tx as never, EMPRESA, { filtro: 'todas', busca: { texto: 'helena', data: null }, cursor: { f: 'todas', n: 0, d: '2027-05-01', i: UUID }, hoje: '2026-10-25' });
   assert.equal(r.itens.length, LIMITE_PAGINA); assert.equal(r.itens[0].aniversariante, 'Helena'); assert.equal(r.itens[0].financeiro.tipo, 'CONFERIR', 'sem pagamento: conferência');
+  assert.equal(r.itens[0].dataInvalida, false); assert.equal(r.itens[1].dataInvalida, true); assert.equal(r.itens[1].dataEvento, null);
   assert.deepEqual(decodificarCursor(r.proximoCursor, 'todas'), { f: 'todas', n: 0, d: '2027-04-20', i: linhas[LIMITE_PAGINA - 1].id });
   const [contagens, pagina, fin] = chamadas;
   for (const c of [contagens, pagina]) { assert.match(c.sql, /fech\.empresa_id = \$1::uuid/); assert.match(c.sql, /pac\.empresa_id = \$1::uuid/); assert.equal(c.params[0], EMPRESA); }
@@ -71,6 +72,24 @@ test('consulta: presa à empresa, contagens sem cursor, página de 50 + 1 e pró
   assert.match(chamadas[1].sql, /b\.data_evento ASC, b\.id ASC/); assert.match(chamadas[1].sql, /b\.futura/);
   // L-1: referência sem edição (estado NULL) não vira NULL no filtro.
   assert.match(chamadas[1].sql, /b\.estado_referencia IS NOT DISTINCT FROM 'CANCELADA'/); assert.doesNotMatch(chamadas[1].sql, /b\.estado_referencia = 'CANCELADA'/);
+});
+
+test('data do evento (P3-R1): o snapshot só chega ao cast ::date pelo CASE seguro; "próximas" usa a data validada', async () => {
+  const sqls: string[] = [];
+  const tx = { query: async (sql: string) => { sqls.push(sql); return { rows: sql.includes('count(*) FILTER') ? [Object.fromEntries(FILTROS.map((f) => [f, 0]))] : [] }; } };
+  await listarContratosPaginados(tx as never, EMPRESA, { filtro: 'proximas', busca: { texto: null, data: null }, cursor: null, hoje: '2026-10-25' });
+  const seguro = dataCalendarioSql("(ref.snapshot->'evento'->>'data')");
+  for (const sql of sqls) {
+    assert.ok(sql.includes(seguro), 'data lida pelo CASE seguro');
+    assert.equal(sql.split("->>'data')::date").length - 1, 1, 'um único cast da data do snapshot, o do CASE seguro');
+    assert.match(sql, /COALESCE\(de\.data >= \$3::date, false\) AS futura/); assert.doesNotMatch(sql, />= \$3::text/);
+  }
+  // A ordem do CASE: nenhum cast numérico antes do formato, nem cast de data antes do mês e do dia conferidos.
+  const ramos = seguro.split(/\bWHEN\b/).slice(1);
+  assert.ok(ramos[0].includes("!~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'"), 'dígitos ASCII'); assert.doesNotMatch(seguro, /\\d/, 'nunca \\d (ICU aceita dígitos Unicode)');
+  assert.doesNotMatch(ramos[0], /::int|::date/);
+  assert.match(ramos[1], /< 1000 OR .* NOT BETWEEN 1 AND 12/); assert.doesNotMatch(ramos[1], /::date/);
+  assert.match(ramos[2], /make_date/); assert.match(ramos[2], /THEN \(ref\.snapshot->'evento'->>'data'\)::date END$/);
 });
 
 test('financeiro SQL: só movimento válido (não NaN, não negativo, 2 casas, até o limite) chega ao cast; o resto marca invalido', () => {
