@@ -153,6 +153,11 @@ async function principal() {
     await page.getByRole('button', { name: /Assinar Profissional/ }).click();
     await page.getByRole('region', { name: 'Confira sua contratação' }).getByText(/anual \(pagamento único, valor de 10 mensalidades\)/).waitFor();
     assert.equal(checkouts, 0, 'a síntese não envia o pedido');
+    // O1 do diagnóstico pós-smoke 096 (24/10/2026): sem campanha ativada (LEGADO) a síntese não promete o prazo de 7 dias.
+    const textoSintese = await page.getByRole('region', { name: 'Confira sua contratação' }).innerText();
+    assert.match(textoSintese, /Condição Fundador: 40% de desconto por 12 meses/);
+    assert.match(textoSintese, /fica reservada para você e é confirmada com o primeiro pagamento, quando começam os 12 meses/);
+    assert.doesNotMatch(textoSintese, /7º dia|23h59|data indicada na tela|fim da campanha/, 'LEGADO sem prazo de reserva');
     await page.getByRole('button', { name: 'Confirmar contratação' }).click();
     await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
     assert.equal(checkouts, 1);
@@ -162,7 +167,7 @@ async function principal() {
       await page.screenshot({ path: path.join(relatorios, `assinatura-${width}.png`), fullPage: true });
     }
     assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antesAssinatura, 'resposta de checkout não libera acesso');
-    resultados.push('Assinatura: três planos; Profissional anual Fundador R$ 2.382; checkout interceptado, confirmação pendente, 1280/375 px; nenhuma assinatura alterada');
+    resultados.push('Assinatura: três planos; Profissional anual Fundador R$ 2.382; síntese LEGADO sem prazo de 7 dias; checkout interceptado, confirmação pendente, 1280/375 px; nenhuma assinatura alterada');
     console.log('E2E_ASSINATURA_OK');
     await ctx1.close();
 

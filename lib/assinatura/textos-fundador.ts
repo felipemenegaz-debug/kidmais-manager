@@ -19,6 +19,17 @@ export const REGRA_RESERVA = `Assinar é confirmar, na sua conta, o plano e o va
     + `O prazo conta dias de calendário, não ${DIAS * 24} horas. O pagamento dentro desse prazo preserva a condição mesmo depois do fim da campanha, `
     + `e os ${meses} meses começam com a confirmação do primeiro pagamento. Esse prazo de pagamento não se confunde com o direito de arrependimento.`;
 
+/**
+ * Regra anterior à campanha (LEGADO, 20 primeiros): a concessão não tem validade (`oferta_valida_ate` nula por CHECK da
+ * 090; D4) e confirma pelo valor contratado. Sem prazo de pagamento nem campanha a citar (O1 do diagnóstico de 24/10/2026).
+ */
+export const REGRA_RESERVA_LEGADO = `Assinar é confirmar, na sua conta, o plano e o valor com a condição Fundador: a condição fica reservada para você `
+    + `e é confirmada com o primeiro pagamento, quando começam os ${meses} meses. Esse pagamento não se confunde com o direito de arrependimento.`;
+
+/** Só a campanha (JANELA e lote posterior) tem a validade de 7 dias; qualquer outra fase usa a regra sem prazo. */
+export const regraReservaDaFase = (fase: string | null | undefined) =>
+    fase === 'JANELA' || fase === 'POS_JANELA' ? REGRA_RESERVA : REGRA_RESERVA_LEGADO;
+
 export const POS_PAGAMENTO_TARDIO = 'Se pagar depois, o pagamento será analisado pelo atendimento, sem cobrança complementar automática. '
     + 'A confirmação do benefício depende dessa análise e, se a contratação não puder ser efetivada, oferecemos uma solução, inclusive a devolução quando cabível.';
 
