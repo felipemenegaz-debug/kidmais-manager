@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { Filtro, FinanceiroLista, ItemLista } from '@/lib/contratos/services/lista-contratos';
 import { dataPorExtenso, tituloFesta } from './contrato-tela';
-import { PREFIXO_IMPORTADO } from './contrato-url';
+import { PREFIXO_IMPORTADO, type AbaLista } from './contrato-url';
 import styles from './contratos-ux.module.css';
 
 /**
@@ -13,14 +13,15 @@ import styles from './contratos-ux.module.css';
  */
 type Importado = { id: string; nome: string | null; data_evento: string | null; pacote: string | null; convidados: number | null };
 type Pagina = { itens: ItemLista[]; proximoCursor: string | null; contagens: Record<Filtro, number>; importados: Importado[] };
-type Aba = Filtro | 'importados';
+type Aba = AbaLista;
 const ABAS: Array<[Aba, string]> = [['proximas', 'Próximas festas'], ['aguardando', 'Aguardando assinatura'], ['alteracao', 'Com alteração'], ['todas', 'Todas'], ['canceladas', 'Canceladas'], ['importados', 'Importados em conferência']];
 const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const centavos = (v: string) => reais(Number(BigInt(v)) / 100);
 
 function situacao(i: ItemLista) {
-  if (i.referencia.diagnostico) return { texto: 'Conferir', tom: 'alerta' };
+  // Cancelado é a situação principal, mesmo sem versão de referência válida (o valor continua oculto).
   if (i.cancelado) return { texto: 'Cancelado', tom: 'neutro' };
+  if (i.referencia.diagnostico) return { texto: 'Conferir', tom: 'alerta' };
   if (i.alteracao) return { texto: 'Alteração em andamento', tom: 'alerta' };
   if (i.aguardandoCliente) return { texto: 'Aguardando assinatura', tom: 'info' };
   if (i.status === 'ASSINADO') return { texto: 'Assinado', tom: 'ok' };
@@ -35,10 +36,19 @@ function Pagamento({ f }: { f: FinanceiroLista }) {
   return <span className={styles.pagamentoLinha}><span className={styles.barraPagamento} role="img" aria-label={`Recebido ${centavos(f.recebido)} de ${centavos(f.obrigacao)}`}><span style={{ width: `${largura}%` }} /></span><span className={styles.discreto}>{centavos(f.recebido)} de {centavos(f.obrigacao)} · a cobrar {centavos(f.aCobrar)}</span></span>;
 }
 
-export default function ListaContratos({ onAbrir }: { onAbrir(selecao: string): void }) {
-  const [aba, setAba] = useState<Aba>('proximas'), [texto, setTexto] = useState(''), [busca, setBusca] = useState('');
+/**
+ * `filtroInicial`/`buscaInicial` vêm da URL; `onFiltro` grava a troca na URL, para voltar à lista como estava. Se a URL
+ * mudar com a lista montada (ex.: item "Contratos" do menu), filtro e busca da URL são reaplicados durante o render.
+ */
+export default function ListaContratos({ onAbrir, filtroInicial = 'proximas', buscaInicial = '', onFiltro }: { onAbrir(selecao: string): void; filtroInicial?: Aba; buscaInicial?: string; onFiltro?(aba: Aba, busca: string): void }) {
+  const [aba, setAba] = useState<Aba>(filtroInicial), [texto, setTexto] = useState(buscaInicial), [busca, setBusca] = useState(buscaInicial);
   const [pagina, setPagina] = useState<Pagina | null>(null), [mais, setMais] = useState(false);
   const [estado, setEstado] = useState<'carregando' | 'ok' | 'erro'>('carregando'), [erro, setErro] = useState('');
+  const [daUrl, setDaUrl] = useState({ aba: filtroInicial, busca: buscaInicial });
+  if (daUrl.aba !== filtroInicial || daUrl.busca !== buscaInicial) {
+    setDaUrl({ aba: filtroInicial, busca: buscaInicial });
+    if (filtroInicial !== aba || buscaInicial !== busca) { setEstado('carregando'); setAba(filtroInicial); setBusca(buscaInicial); setTexto(buscaInicial); }
+  }
   // Só a resposta do último pedido é aplicada (troca rápida de filtro ou busca).
   const pedido = useRef(0);
   async function ler(filtro: Filtro, termo: string, cursor: string | null) {
@@ -53,8 +63,8 @@ export default function ListaContratos({ onAbrir }: { onAbrir(selecao: string): 
     ler(filtroDaAba(aba), busca, null).then((p) => { if (n === pedido.current) { setPagina(p); setEstado('ok'); } })
       .catch((e: Error) => { if (n === pedido.current) { setErro(e.message); setEstado('erro'); } });
   }, [aba, busca]);
-  function trocarAba(a: Aba) { if (a !== aba) { setEstado('carregando'); setAba(a); } }
-  function aplicarBusca(termo: string) { const t = termo.trim(); if (t !== busca) { setEstado('carregando'); setBusca(t); } }
+  function trocarAba(a: Aba) { if (a !== aba) { setEstado('carregando'); setAba(a); onFiltro?.(a, busca); } }
+  function aplicarBusca(termo: string) { const t = termo.trim(); if (t !== busca) { setEstado('carregando'); setBusca(t); onFiltro?.(aba, t); } }
   async function carregarMais() {
     if (!pagina?.proximoCursor) return;
     const n = ++pedido.current; setMais(true);
