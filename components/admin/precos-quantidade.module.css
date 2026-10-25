@@ -8,7 +8,9 @@
 .completar p { margin:0; color:var(--secondary-text); font-size:13px; line-height:2.4; }
 .completar p + p { line-height:1.5; margin:2px 0 10px; }
 .completar strong { color:var(--emerald-accent); font-size:12px; font-weight:800; }
-.lista { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); overflow:hidden; }
+/* A lista é um contêiner: a grade das linhas se ajusta à largura REAL do bloco (no formulário de pacote ela divide a
+   tela com a lista de pacotes), não à da janela — com a janela larga e a coluna estreita o preço ficava com 29 px. */
+.lista { border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); overflow:hidden; container:precos-lista / inline-size; }
 .linha { display:grid; grid-template-columns:96px minmax(0,1fr) minmax(0,1.3fr) 44px; gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); }
 .linha:first-child { border-top:0; }
 .linha label { margin:0 !important; }
@@ -35,9 +37,13 @@
 .comparacao { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr); gap:10px; align-items:center; padding:8px 12px; border-top:1px solid var(--border-navy); font-size:13px; }
 .comparacao:first-child { border-top:0; }
 .mais { color:#fdba74; font-weight:800; }
-@media(max-width:800px) {
+@container precos-lista (max-width: 520px) {
   .linha { grid-template-columns:72px minmax(0,1fr) 44px; }
-  .linha > :nth-child(3) { grid-column:1 / -1; }
+  .linha > :nth-child(3) { grid-column:1 / -1; grid-row:2; }
+  /* O × fica na primeira linha, ao lado do preço; "cada convidado a mais" desce para baixo deles. */
+  .linha > :nth-child(4) { grid-column:3; grid-row:1; }
+}
+@media(max-width:800px) {
   .lado { grid-template-columns:1fr; }
   .comparacao { grid-template-columns:1fr 1fr; }
 }
