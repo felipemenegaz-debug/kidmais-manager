@@ -102,12 +102,14 @@ test('reserva automática e retomada idempotente mantêm uma vaga e um snapshot'
     await assert.rejects(prepararOferta(db, E, U, { ...pedido, plano: 'premium' }), /em andamento/);
 });
 
-test('vigésima vaga disponível; 20 reservas aguardam, 20 confirmadas exigem confirmação do preço cheio', async () => {
+test('vigésima vaga disponível; 20 reservas em confirmação NÃO travam (O3, opção A): Fundador esperado reconfirma, preço cheio passa sem vaga; 20 confirmadas idem', async () => {
     const db = new Banco(); db.ocupadas = 19; db.confirmadas = 19;
     assert.equal((await prepararOferta(db, E, U, pedido)).fundador_id, 'vaga');
-    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 19;
-    await assert.rejects(prepararOferta(cheio, E, U, pedido), /em confirmação/);
-    cheio.confirmadas = 20;
+    const emConfirmacao = new Banco(); emConfirmacao.ocupadas = 20; emConfirmacao.confirmadas = 19;
+    await assert.rejects(prepararOferta(emConfirmacao, E, U, pedido), /condições disponíveis mudaram/);
+    const regular = await prepararOferta(emConfirmacao, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([regular.fundador_id, regular.valor_final_centavos], [null, 19700]);
+    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 20;
     await assert.rejects(prepararOferta(cheio, E, U, pedido), /condições disponíveis mudaram/);
     const normal = await prepararOferta(cheio, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
     assert.equal(normal.fundador_id, null);
@@ -294,4 +296,21 @@ test('D3: data do pagamento é a mais antiga informada pelo provedor (boleto: di
     assert.equal(dataDoPagamento({ paymentDate: '2026-11-09' }), '2026-11-09');
     assert.equal(dataDoPagamento({ paymentDate: null, confirmedDate: null, clientPaymentDate: null }), null);
     assert.equal(dataDoPagamento({ paymentDate: '11/09/2026', clientPaymentDate: 'x' }), null, 'formato inválido não conta');
+});
+
+/** P2-R1 (revisão de 31c5704d): com oferta pendente, a consulta devolve a condição PERSISTIDA dela, não a disponibilidade atual. */
+test('oferta pendente: regular continua regular quando uma vaga é liberada; Fundador aceito continua Fundador com as vagas em confirmação', async () => {
+    const regular = new Banco(); regular.ocupadas = 20; regular.confirmadas = 19;
+    const r = await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([r.fundador_id, r.valor_final_centavos], [null, 19700]);
+    regular.ocupadas = 19; // outra reserva liberada: uma oferta NOVA teria Fundador
+    const c = await consultarOfertas(regular, E, env);
+    assert.deepEqual([c?.fundador, c?.aguardandoVaga, c?.pendente?.valorCentavos], [false, false, 19700], 'tela não anuncia Fundador para oferta regular');
+    assert.deepEqual(await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 }), r, 'retomada mantém o preço regular, sem concessão');
+    const fundador = new Banco(); fundador.ocupadas = 19; fundador.confirmadas = 0;
+    const f = await prepararOferta(fundador, E, U, pedido);
+    assert.equal(f.fundador_id, 'vaga');
+    fundador.ocupadas = 20; fundador.confirmadas = 19; // lote cheio em confirmação: uma oferta NOVA seria regular
+    const cf = await consultarOfertas(fundador, E, env);
+    assert.deepEqual([cf?.fundador, cf?.aguardandoVaga, cf?.pendente?.valorCentavos], [true, false, 11820], 'Fundador aceito segue anunciado');
 });
