@@ -17,7 +17,7 @@ import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import PagamentosResumo from './PagamentosResumo';
 import { contextoCriacao } from './criacao-financeira';
 import ListaContratos from './ListaContratos';
-import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, mensagemFalhaContrato, pedidoDaUrl, urlDaSelecao } from './contrato-url';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, pedidoDaUrl, urlDaLista, urlDaSelecao } from './contrato-url';
 import { ETAPAS, chaveConferencia, dataPorExtenso, etapaAtual, faixaHorario, predicados, proximoPasso, referenciasDaTela, rotuloContrato, rotuloVersao, saidaPagamentos, situacaoReserva, tituloFesta } from './contrato-tela';
 import { referenciaVigente } from '@/lib/contratos/versao-referencia';
 import ContratoImportado from './ContratoImportado';
@@ -89,7 +89,8 @@ export default function ContratoAdmin() {
     const posicionado=useRef('');
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
-    useEffect(()=>{const atualizar=()=>{setDestino(window.location.hash);setRetorno(retornoFestaSeguro(new URLSearchParams(window.location.search).get('returnTo')));};atualizar();window.addEventListener('hashchange',atualizar);return()=>window.removeEventListener('hashchange',atualizar);},[]);
+    // Voltar/avançar do navegador (popstate) nem sempre dispara hashchange: a aba segue o hash da entrada restaurada (O-3).
+    useEffect(()=>{const atualizar=()=>{setDestino(window.location.hash);setRetorno(retornoFestaSeguro(new URLSearchParams(window.location.search).get('returnTo')));};atualizar();window.addEventListener('hashchange',atualizar);window.addEventListener('popstate',atualizar);return()=>{window.removeEventListener('hashchange',atualizar);window.removeEventListener('popstate',atualizar);};},[]);
     const [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null);
     const [note, setNote] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [senha, setSenha] = useState(''), [motivo, setMotivo] = useState(''), [tipo, setTipo] = useState('NOVA_VERSAO'), [key, setKey] = useState('');
     const [menuAberto, setMenuAberto] = useState(false), [alterarAberto, setAlterarAberto] = useState(false), [filtroHistorico, setFiltroHistorico] = useState<'TUDO'|'VERSOES'|'ASSINATURAS'>('TUDO');
@@ -100,7 +101,7 @@ export default function ContratoAdmin() {
     const invalidarConferencia = () => { geracaoAtual.current++; setConferido(null); };
     // A URL é a fonte da seleção (link do Dashboard/Financeiro/festa/assistente, seletor, voltar/avançar). Ver contrato-url.ts.
     const params = useSearchParams(), pathname = usePathname(), router = useRouter();
-    const pedidoUrl = pedidoDaUrl(params);
+    const pedidoUrl = pedidoDaUrl(params), lista = listaDaUrl(params);
     const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
     // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
     const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
@@ -258,6 +259,8 @@ export default function ContratoAdmin() {
         if (destino === '#cancelar-contrato') { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); setDestino(''); }
     }
     function abrirVersao(id: string) { const q = new URLSearchParams(params.toString()); q.set('versaoId', id); router.push(`${pathname}?${q.toString()}#historico`, { scroll: false }); }
+    // Abrir outro contrato ou voltar à lista começa no Resumo (a URL nova não tem hash; a aba anterior não passa adiante).
+    function trocarSelecao(selecao: string) { setDestino(''); router.push(urlDaSelecao(pathname, params, selecao), { scroll: false }); }
     function fecharConsulta() { const q = new URLSearchParams(params.toString()); q.delete('versaoId'); router.push(`${pathname}?${q.toString()}`, { scroll: false }); }
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
     // Faixa: preparação aberta sobre o alvo (alteração de contrato assinado ou contratação inicial).
@@ -277,7 +280,7 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- {!urlContrato && !urlImportacao ? <ListaContratos onAbrir={selecao => router.push(urlDaSelecao(pathname, params, selecao), { scroll: false })} /> : <button type="button" className={styles.voltarLista} onClick={() => router.push(urlDaSelecao(pathname, params, ''), { scroll: false })}>← Contratos</button>}
+ {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.busca} onFiltro={(aba, busca) => router.replace(urlDaLista(pathname, params, aba, busca), { scroll: false })} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
  <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>

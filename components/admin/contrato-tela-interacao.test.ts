@@ -22,9 +22,9 @@ const dados = () => ({
 function Filho() { return null; }
 function Lista() { return null; }
 
-function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>) {
+function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>, navegacoes: string[] = []) {
   const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
-    'next/navigation': { useSearchParams: () => new URLSearchParams(url.q), usePathname: () => '/admin/contratos', useRouter: () => ({ push() {}, replace() {} }) },
+    'next/navigation': { useSearchParams: () => new URLSearchParams(url.q), usePathname: () => '/admin/contratos', useRouter: () => ({ push(u: string) { navegacoes.push(`push ${u}`); }, replace(u: string) { navegacoes.push(`replace ${u}`); } }) },
     'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
     '@/lib/http/admin-fetch': { adminFetch: fetchFalso, reautenticarSessao: async () => ({ ok: true }) },
     '@/lib/contratos/services/alteracoes': { analisarRevisao: (a: { evento: { pacote: { nome: string } } }, b: { evento: { pacote: { nome: string } } }) => ({ natureza: 'MATERIAL', campos: [{ campo: 'evento.pacote.nome', antes: a.evento.pacote.nome, depois: b.evento.pacote.nome }] }) },
@@ -183,3 +183,35 @@ test('fase 2: sem contrato na URL a tela mostra a lista; com contrato, o caminho
   url.q = 'contratoId=nao-e-uuid'; r = await m.ciclo();
   assert.match(texto(r), /O link do contrato é inválido/); assert.ok(elementos(r).find(e => e.type === Lista));
 }));
+
+test('O-1 e O-3: filtro e busca da lista ficam na URL e voltam com "← Contratos"; outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
+  const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const ouvintes: Record<string, Array<() => void>> = {};
+  const janela = { location: { hash: '#historico', search: '', pathname: '/admin/contratos' }, history: { state: null, replaceState() {} },
+    addEventListener(t: string, f: () => void) { (ouvintes[t] ??= []).push(f); }, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: janela });
+  try {
+    const url = { q: 'filtro=todas&busca=lucas' }, navegacoes: string[] = [];
+    const m = montar(url, async () => Response.json({ ok: true, data: dados() }), navegacoes);
+    let r = await m.ciclo();
+    const lista = elementos(r).find(e => e.type === Lista)!;
+    assert.equal(lista.props.filtroInicial, 'todas'); assert.equal(lista.props.buscaInicial, 'lucas');
+    // Trocar o filtro grava na URL (replace, sem empilhar histórico); voltar ao padrão limpa o parâmetro.
+    (lista.props.onFiltro as (a: string, b: string) => void)('canceladas', 'lucas');
+    (lista.props.onFiltro as (a: string, b: string) => void)('proximas', '');
+    assert.deepEqual(navegacoes.splice(0), ['replace /admin/contratos?filtro=canceladas&busca=lucas', 'replace /admin/contratos']);
+    // Abrir um contrato preserva filtro e busca na URL e descarta a aba anterior (#historico ainda na janela).
+    (lista.props.onAbrir as (s: string) => void)(ID);
+    assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?filtro=todas&busca=lucas&contratoId=${ID}`]);
+    url.q = `filtro=todas&busca=lucas&contratoId=${ID}`; r = await m.ciclo();
+    const abaAtiva = () => elementos(m.render()).find(e => e.props?.role === 'tab' && e.props['aria-selected'] === true)?.props.id;
+    assert.equal(abaAtiva(), 'aba-geral', 'outro contrato abre no Resumo');
+    // Voltar/avançar do navegador: popstate com outro hash troca a aba visível.
+    janela.location.hash = '#financeiro'; for (const f of ouvintes.popstate ?? []) f();
+    assert.equal(abaAtiva(), 'aba-financeiro', 'popstate sincroniza a aba com o hash');
+    // "← Contratos" volta à lista com o mesmo filtro e a mesma busca.
+    clicar(m.render(), '← Contratos');
+    assert.deepEqual(navegacoes.splice(0), ['push /admin/contratos?filtro=todas&busca=lucas']);
+    assert.equal(abaAtiva(), 'aba-geral', 'a aba volta ao Resumo ao sair do contrato');
+  } finally { if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window'); }
+});
