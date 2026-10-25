@@ -43,6 +43,7 @@ test('lista: linhas legíveis, contagens nos filtros, abrir contrato e importado
   assert.match(t, /Aniversário de Helena · 6 anos/); assert.match(t, /Alteração em andamento/);
   assert.match(t, /Próximas festas · 2/); assert.match(t, /Importados em conferência · 1/);
   assert.doesNotMatch(t, /ref\.|EM_ELABORACAO|ASSINADO/);
+  assert.doesNotMatch(t, /Conferir data/, 'datas válidas não pedem conferência');
   (elementos(r).filter(e => e.type === 'button' && /Cliente 1/.test(texto(e)))[0].props.onClick as () => void)();
   assert.deepEqual(m.abertos, ['00000000-0000-4000-8000-000000000001']);
   (achar(r, 'button', 'Carregar mais').props.onClick as () => void)(); await m.ciclo();
@@ -51,6 +52,22 @@ test('lista: linhas legíveis, contagens nos filtros, abrir contrato e importado
   (achar(m.render(), 'button', /^Importados em conferência/).props.onClick as () => void)(); await m.ciclo();
   (elementos(m.render()).find(e => e.type === 'button' && /Importado — em conferência/.test(texto(e)))!.props.onClick as () => void)();
   assert.equal(m.abertos.at(-1), 'importacao:00000000-0000-4000-8000-0000000000aa');
+});
+
+test('lista: data anômala no snapshot (P3-R1) mostra "Conferir data" no lugar da data, sem esconder a situação', async () => {
+  const anomala = { dataEvento: null, dataInvalida: true };
+  const m = montar(async () => ok({ itens: [
+    item(1, { ...anomala, cancelado: true }), item(2, { ...anomala, alteracao: true }), item(3, { ...anomala, aguardandoCliente: true, status: 'AGUARDANDO_ASSINATURA' }),
+    item(4, anomala), item(5), item(6, { dataEvento: null }),
+  ], proximoCursor: null, contagens, importados: [] }));
+  const r = await m.ciclo();
+  const linhas = elementos(r).filter(e => e.type === 'button' && /Cliente \d/.test(texto(e))).map(texto);
+  assert.equal(linhas.length, 6);
+  for (const [i, situacao] of [[0, /Cancelado/], [1, /Alteração em andamento/], [2, /Aguardando assinatura/], [3, /Assinado/]] as const) {
+    assert.match(linhas[i], situacao, 'situação preservada'); assert.match(linhas[i], /Conferir data/); assert.doesNotMatch(linhas[i], /2027|abril|Data não informada/);
+  }
+  assert.doesNotMatch(linhas[4], /Conferir data/);
+  assert.match(linhas[5], /Data não informada/); assert.doesNotMatch(linhas[5], /Conferir data/, 'data ausente não é anômala');
 });
 
 test('lista: busca vai ao servidor, 400 vira orientação, filtro trocado descarta resposta atrasada', async () => {
