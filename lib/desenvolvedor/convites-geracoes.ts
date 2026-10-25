@@ -34,7 +34,7 @@ export const LIMITES_PROVEDOR = [
 type Pendente = {
     id: string; criado_em: string; enviado_em: string | null; recebido_em: string | null; falha_classe: string | null; falha_diagnostico: string | null;
     falha_detalhes: unknown; evento: unknown; modelo: string; reserva_microusd: string; origem: string; imagem_retida: boolean;
-    festa_id: string; empresa_id: string; empresa_nome: string;
+    festa_id: string | null; empresa_id: string; empresa_nome: string;
 };
 type Automatica = { id: string; estado: string; criado_em: string; falha_classe: string | null; falha_diagnostico: string | null; empresa_nome: string };
 type Decisao = { id: string; resolucao_resultado: string; resolucao_em: string; resolucao_evidencia: string; resolvedor: string | null; empresa_nome: string; criado_em: string; falha_classe: string | null };

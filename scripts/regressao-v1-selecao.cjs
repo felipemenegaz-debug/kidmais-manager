@@ -192,6 +192,7 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
+  "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
   "lib/convites/aplicador-088.postgres.test.ts": { descartavel: "086" },
@@ -237,6 +238,8 @@ const ESTADO_POSTGRES = {
   "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097" },
   // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
   "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "098" },
+  // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
+  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097" },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

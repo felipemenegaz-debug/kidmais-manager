@@ -12,6 +12,7 @@ const OPERACAO: ItemNavegacao[] = [
     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
+    { href: '/admin/convites', rotulo: 'Convites', grupo: 'Operação' },
     { href: '/admin/disponibilidade', rotulo: 'Agenda', grupo: 'Operação' },
     { href: '/admin/atendimento', rotulo: 'Atendimento WhatsApp', grupo: 'Operação' },
 ];

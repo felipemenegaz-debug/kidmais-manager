@@ -10,6 +10,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         '/clientes',
         '/admin/contratos',
         '/admin/festas',
+        '/admin/convites',
         '/admin/disponibilidade',
         '/admin/atendimento',
         '/admin/marketing',
