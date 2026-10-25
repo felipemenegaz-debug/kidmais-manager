@@ -5,7 +5,7 @@
 // operador precisa sobreviver e ler o código. Não toca banco nem /opt/render.
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {spawnSync} = require('node:child_process'), {createHash} = require('node:crypto');
-const b = require('./bloco-shell-092-094.cjs'), {ETAPAS} = require('./migration-092-094-comum.cjs');
+const b = require('./bloco-shell-092-094.cjs'), {ETAPAS, INTEGRIDADE_094_APOS_100} = require('./migration-092-094-comum.cjs');
 const root = path.resolve(__dirname, '..');
 const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n');
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -36,9 +36,10 @@ const gerar = (d, modo, comando) => b.gerar({ambiente: 'staging', modo, rotulo: 
 const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
-test('arquivos conferidos: aplicador de staging, núcleo, conexão de staging e os 12 SQL revisados (instalação e integridade); só staging', () => {
-  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-092-094-staging.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1])]);
-  for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
+test('arquivos conferidos: aplicador de staging, núcleo, conexão de staging, os 12 SQL revisados e a integridade da 094 após a 100; só staging', () => {
+  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-092-094-staging.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs',
+    ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_100[1]]);
+  for (const [, a, h] of [...ETAPAS, INTEGRIDADE_094_APOS_100]) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);
   assert.deepEqual(Object.keys(b.AMBIENTES), ['staging'], 'produção fica fora deste aplicador');
   assert.throws(() => b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);

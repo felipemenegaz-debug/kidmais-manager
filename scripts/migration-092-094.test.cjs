@@ -34,7 +34,7 @@ const erroPg = (code, msg = 'erro simulado') => Object.assign(new Error(msg), {c
  * `usadas` (ids com dados operacionais: o postcheck de instalação delas recusa, a integridade aceita);
  * `adulterada` (id: a integridade dela recusa — gatilho desligado, por exemplo).
  */
-function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, naoCompleta, estadoFalhaApos, usadas = [], adulterada} = {}) {
+function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, naoCompleta, estadoFalhaApos, usadas = [], adulterada, corpoConflito} = {}) {
   const log = []; let ro = false, falharEstado = false; const atual = {...inicial};
   const C = class {
     on() {} async connect() {} async end() {}
@@ -44,6 +44,7 @@ function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, 
       if (sql === 'ROLLBACK' || sql === 'COMMIT') ro = false;
       if (falharEm && sql.includes(falharEm)) throw erro ?? erroPg('55P03', 'falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
+      if (sql === comum.SQL_CORPO_CONFLITO) return {rows: corpoConflito ? [{h: corpoConflito}] : []};
       if (sql === comum.SQL_ESTADO) {
         if (falharEstado) { falharEstado = false; throw new Error('Connection terminated unexpectedly'); }
         return {rows: [{...atual}]};
@@ -330,14 +331,58 @@ test('já aplicada: só as três integridades, nenhuma escrita; recusa por estad
   assert.throws(() => stg.exigirDisco(path.join(os.tmpdir(), 'nao-existe-092-094')), /DISCO_PERSISTENTE_AUSENTE/);
 });
 
-test('plano sem conexão: 12 arquivos com sha, ordem com janela e CONFERIR imediato, regras de parada; nunca os down', async () => {
+test('plano sem conexão: 12 arquivos + a integridade da 094 após a 100, com sha; ordem com janela e CONFERIR imediato, regras de parada; nunca os down', async () => {
   const {codigo, saida} = await stg.principal([], {});
   assert.equal(codigo, 0); assert.equal(saida.conecta, false); assert.equal(saida.ambiente, 'staging');
-  assert.deepEqual(saida.arquivos.map(a => a.sha256), comum.ETAPAS.map(e => e[2]));
+  assert.deepEqual(saida.arquivos.map(a => a.sha256), [...comum.ETAPAS, comum.INTEGRIDADE_094_APOS_100].map(e => e[2]));
   assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-1), '--conferir-092-094');
   assert.ok(saida.ordem.some(o => /janela combinada/.test(o)) && saida.ordem.some(o => /imediatamente antes/.test(o)) && saida.ordem.some(o => /backup restaurável/.test(o)));
   assert.ok(saida.paradas.some(p => /nunca apagar/.test(p)) && saida.paradas.some(p => /migracaoIndeterminada/.test(p)));
   for (const id of comum.IDS) assert.ok(saida.nuncaExecuta.includes('down ' + id));
   assert.ok(!saida.arquivos.some(a => a.arquivo.includes('rollback')));
   assert.equal(stg.DIR, '/opt/render/project/src/data/agenda-precos-092-094-staging');
+});
+
+test('migration 100: a integridade da 094 troca SÓ a expectativa do corpo da regra de conflito (arquivo com uma linha diferente)', () => {
+  const [, a094, h094] = comum.ETAPAS.find(e => e[0] === 'integridade 094');
+  const [nome, a100, h100] = comum.INTEGRIDADE_094_APOS_100;
+  assert.equal(nome, 'integridade 094 apos 100');
+  const antes = comum.lerRevisado(raiz, a094, h094).split('\n'), depois = comum.lerRevisado(raiz, a100, h100).split('\n');
+  assert.equal(antes.length, depois.length);
+  const diferentes = antes.map((l, i) => [l, depois[i]]).filter(([x, y]) => x !== y);
+  assert.equal(diferentes.length, 1, 'uma linha só');
+  assert.equal(diferentes[0][1], diferentes[0][0].replace(comum.CORPO_CONFLITO_094, comum.CORPO_CONFLITO_100));
+  assert.match(diferentes[0][0], /kidmais094_conflito_ocupacao/);
+  // O hash da 100 é o mesmo que a migration 100 grava no postcheck dela.
+  assert.ok(fs.readFileSync(path.join(raiz, 'database/checks/20261025_100_postcheck.sql'), 'utf8').includes(comum.CORPO_CONFLITO_100));
+});
+
+test('migration 100: com o corpo da 100, conferência e aplicação passam pela integridade da 094 após a 100; corpo diferente cai na da 094', async () => {
+  const apos = comum.lerRevisado(raiz, comum.INTEGRIDADE_094_APOS_100[1], comum.INTEGRIDADE_094_APOS_100[2]);
+  const original = ler('integridade 094');
+  const Com100 = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_100, usadas: ['094']});
+  const r = await stg.conferir({env: ENV_STG, Client: Com100});
+  assert.equal(r.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', JSON.stringify(r));
+  assert.equal(r.checks['integridade 094'], 'PASS_CORPO_100');
+  assert.ok(Com100.log.some(x => x.ro && x.sql === apos), 'roda a variante em READ ONLY');
+  assert.ok(!Com100.log.some(x => x.sql === original), 'não roda a integridade da 094 original');
+  assert.ok(Com100.log.some(x => x.ro && x.sql === comum.SQL_CORPO_CONFLITO), 'lê o corpo em READ ONLY');
+  assert.deepEqual(escritas(Com100.log), []);
+  // Corpo da 094 (ou qualquer outro, como o da 098): integridade da 094 original — a divergência nunca é ignorada.
+  for (const corpo of [comum.CORPO_CONFLITO_094, 'f'.repeat(64), undefined]) {
+    const C = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: corpo});
+    const x = await stg.conferir({env: ENV_STG, Client: C});
+    assert.equal(x.checks['integridade 094'], 'PASS', String(corpo));
+    assert.ok(C.log.some(l => l.sql === original) && !C.log.some(l => l.sql === apos), String(corpo));
+  }
+  // Aplicação já completa com a 100: só integridades, a da 094 na variante, registrada na etapa.
+  const dir = tmp();
+  try {
+    const C = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_100});
+    const e = await stg.executar({env: ENV_STG, backup: BACKUP, dir, Client: C, disco: semDisco});
+    assert.equal(e.resultado, 'JA_APLICADA_INTEGRIDADE_PASS');
+    const marcador = JSON.parse(fs.readFileSync(e.marcador, 'utf8'));
+    assert.equal(marcador.etapas.find(x => x.nome === 'integridade 094').integridade, 'PASS_CORPO_100');
+    assert.deepEqual(escritas(C.log), []);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
