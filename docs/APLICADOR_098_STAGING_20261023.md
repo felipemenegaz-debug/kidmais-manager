@@ -141,3 +141,21 @@ O hash de cada bloco muda se mudar o aplicador, o núcleo ou o rótulo.
 - **P2-1 (código 1 depois do COMMIT):** a partir da criação do marcador nenhum erro escapa de `executar`. Uma falha de gravação do registro interrompe a execução e vira `FALHA` (código 2) com o último estado em memória (`commit`). Se a gravação da FALHA também falhar, a saída traz `registroGravado: false` e `estadoBanco: DESCONHECIDO_CONFERIR`. O código 1 fica só para recusas lançadas antes do marcador. Plano, blocos e esta doc dizem: com qualquer código ≠ 0, inclusive 1, ler o registro e rodar CONFERIR; nunca renomear o marcador só pelo código. Teste: disco falhando a partir da gravação do COMMIT CONFIRMADO, com e sem segunda falha.
 - **P2-2 (sessões invisíveis):** sessão não classificável impede a aplicação (antes de escrever) e faz a CONFERIR responder `RECUSARIA`. A leitura usa o papel do login (`SET LOCAL ROLE NONE` só na transação READ ONLY). A consulta conta as invisíveis por `backend_type IS NULL` e `<insufficient privilege>` no banco atual (ver o caso 3d). Nenhum privilégio é concedido.
 - **P3 (40003):** `statement_completion_unknown` é classificado como `INDETERMINADO`; há um teste.
+
+## Retrato estourou o tempo no staging (25/10/2026) → limite de 5 min nas leituras com retrato — LOCAL
+
+- **O que aconteceu:** o primeiro `--retrato-098` no staging (árvore `f78ddaa1`, deploy `dep-dbekcjrrjlhs73fvt4eg`) terminou com `FALHA`, código 2, `canceling statement due to statement timeout`. A leitura era só de leitura, foi desfeita, e não houve registro. Localmente o retrato leva ~1,2 s, mas no staging passou de 30 s, provavelmente porque o banco tem menos CPU (não foi medido).
+- **Consequência:** o precheck, o postcheck e a integridade embutem o mesmo retrato e rodavam com 30 s. CONFERIR e APLICAR falhariam igual, sempre antes de escrever.
+- **Correção:**
+  - `TEMPO_RETRATO = '300s'` só para as leituras que calculam o retrato: o próprio retrato e os checks precheck, postcheck e integridade;
+  - as demais leituras seguem com `statement_timeout` 30 s;
+  - toda leitura mantém `lock_timeout` 5 s;
+  - a saída informa a duração (`retrato.duracaoMs` e `duracoesMs` dos checks na conferência; `inicio`/`fim` por etapa na aplicação).
+- **O que não mudou:** a migration (que já tinha 60 s e não embute o retrato), os SQL, os retratos esperados e os blocos (só os hashes do núcleo mudam).
+- **Rollback da 098:** `database/rollback/20261023_098_saloes_combinados_down.sql` embute o retrato duas vezes e define seu próprio tempo; fica fora deste aplicador e deve ser revisto antes de qualquer uso.
+- **Validação:**
+  - teste novo: a leitura do retrato e os três checks usam 300 s, as demais 30 s, todas com lock de 5 s, e as durações são informadas;
+  - offline 18/18, blocos 10/10;
+  - PG com o aplicador real e as suítes da 098 OK;
+  - static 3533/3533;
+  - CI local 23/23, mais o passo de convites atualizado pela #225.
