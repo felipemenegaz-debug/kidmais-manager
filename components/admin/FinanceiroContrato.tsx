@@ -12,7 +12,7 @@ const moeda=(v:string|bigint)=>new Intl.NumberFormat('pt-BR',{style:'currency',c
 const reais=(v:string)=>`${BigInt(v)/100n},${(BigInt(v)%100n).toString().padStart(2,'0')}`;
 function centavos(v:string){const m=/^(\d+)(?:[,.](\d{1,2}))?$/.exec(v.trim());if(!m)throw Error('Informe reais com até duas casas decimais, sem separador de milhar.');return (BigInt(m[1])*100n+BigInt((m[2]??'').padEnd(2,'0'))).toString();}
 const label=(s:string)=>s.replaceAll('_',' ').toLowerCase();
-export default function FinanceiroContrato({contratoId,onReady}:{contratoId:string;onReady?:()=>void}){
+export default function FinanceiroContrato({contratoId,onReady,onPainel,onFalha}:{contratoId:string;onReady?:()=>void;onPainel?:(p:unknown)=>void;onFalha?:(status:number,codigo?:string)=>void}){
  const [p,setP]=useState<Painel|null>(null),[papel,setPapel]=useState(''),[erro,setErro]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
  const [tratamento,setTratamento]=useState(''),[etapa,setEtapa]=useState(0),[reprogramando,setReprogramando]=useState(false),[pedido,setPedido]=useState<PedidoResolucao|null>(null),[sim,setSim]=useState<{delta:string;depois:Painel['posicao']}|null>(null);
  const [escolhaCredito,setEscolhaCredito]=useState<EscolhaCredito|''>('');
@@ -22,8 +22,10 @@ export default function FinanceiroContrato({contratoId,onReady}:{contratoId:stri
  const [movimento,setMovimento]=useState<'receber'|'estornar'|''>(''),[parcelaMov,setParcelaMov]=useState(''),[valorMov,setValorMov]=useState(''),[motivoMov,setMotivoMov]=useState(''),[dataMov,setDataMov]=useState(''),[reprogramarEstorno,setReprogramarEstorno]=useState(false),[vencimentoEstorno,setVencimentoEstorno]=useState('');
  const base=`/api/admin/contratos/${contratoId}/financeiro`;
  const chaves=useRef(new Map<string,string>());
- const load=useCallback(async()=>{const r=await adminFetch(base),b=await r.json();if(!b.ok)throw Error(b.erro);setP(b.data.painel);setPapel(b.data.papel);return b.data.painel as Painel;},[base]);
- useEffect(()=>{let ativo=true;adminFetch(base).then(r=>r.json()).then(b=>{if(!ativo)return;if(!b.ok)throw Error(b.erro);setP(b.data.painel);setPapel(b.data.papel);}).catch(e=>{if(ativo)setErro(e.message);});return()=>{ativo=false;};},[base]);
+ // Toda leitura do painel (inicial e recargas) passa por aqui: rede, resposta não-JSON e recusa avisam onFalha uma vez.
+ const ler=useCallback(async()=>{let r:Response;try{r=await adminFetch(base);}catch(e){onFalha?.(0);throw e;}const b=await r.json().catch(()=>null);if(!b?.ok){onFalha?.(r.status,b?.codigo);throw Error(b?.erro??'Não foi possível carregar o financeiro. Tente novamente.');}return b.data as {painel:Painel;papel:string};},[base,onFalha]);
+ const load=useCallback(async()=>{const d=await ler();setP(d.painel);setPapel(d.papel);onPainel?.(d.painel);return d.painel;},[ler,onPainel]);
+ useEffect(()=>{let ativo=true;ler().then(d=>{if(!ativo)return;setP(d.painel);setPapel(d.papel);onPainel?.(d.painel);}).catch(e=>{if(ativo)setErro(e instanceof Error?e.message:'Não foi possível carregar o financeiro.');});return()=>{ativo=false;};},[ler,onPainel]);
  async function post(path:string,body:unknown){const json=JSON.stringify(body),identidade=path+json;let chave=chaves.current.get(identidade);if(!chave){chave=crypto.randomUUID();chaves.current.set(identidade,chave);}const r=await adminFetch(base+path,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':chave},body:json}),b=await r.json();if(!b.ok)throw Error(b.erro);return b.data;}
  async function run(work:()=>Promise<void>){setBusy(true);setErro('');setMsg('');try{await work();}catch(e){setErro(e instanceof Error?e.message:'Operação não concluída.');}finally{setBusy(false);}}
  async function registrarMovimento(body:Record<string,unknown>){if(!p)return;const tipo=movimento==='receber'?'recebimentos':'estornos',identidade=tipo+JSON.stringify(body);let chave=chaves.current.get(identidade);if(!chave){chave=crypto.randomUUID();chaves.current.set(identidade,chave);}const r=await adminFetch(`/api/admin/pagamentos/${p.pagamento.id}/${tipo}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,chaveIdempotencia:chave})}),b=await r.json();if(!b.ok)throw Error(b.erro);setMovimento('');await load();setMsg(movimento==='receber'?'Recebimento confirmado.':'Estorno confirmado.');}

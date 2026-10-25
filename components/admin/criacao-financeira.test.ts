@@ -142,9 +142,12 @@ test('HTTP retry reuses provided key, handles idempotent 200 and never posts rec
 });
 test('creation hands back to existing panel; receipt and revision mechanisms stay in that panel', () => {
   const source = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
-  assert.match(source, /data\.financeiro\.length\?<FinanceiroContrato/);
+  // Tela simplificada: 0 / 1 / 2+ pagamentos decididos pelo detalhe; com 1, o resumo monta o painel existente.
+  assert.match(source, /saidaPagamentos\(data\.financeiro\.length/);
+  assert.match(source, /saida==='CARREGAR'\?<PagamentosResumo/);
+  assert.match(readFileSync('components/admin/PagamentosResumo.tsx', 'utf8'), /<FinanceiroContrato key=\{contratoId\} contratoId=\{contratoId\}/);
   assert.match(source, /contexto=\{contextoCriacao\(data\)\}/);
-  assert.match(source, /onCreated=\{async\(\)=>\{await load\(cid,vid\)/);
+  assert.match(source, /onCreated=\{async\(\)=>\{await load\(cid\)/);
   const panel = readFileSync('components/admin/FinanceiroContrato.tsx', 'utf8');
   for (const text of ['Registrar recebimento', 'CARTAO', 'registrarMovimento', 'Reprogramar cronograma', 'pendencias']) assert(panel.includes(text));
 });
