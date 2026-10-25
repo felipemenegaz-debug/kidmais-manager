@@ -196,8 +196,11 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     return {
         // Oferta já aceita e persistida (D1) continua retomável mesmo com a campanha bloqueada, como em prepararOferta, que a
         // devolve antes de olhar a campanha (a vencida é recusada lá). Sem oferta pendente, o bloqueio fecha a venda.
-        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
-        fundador: campanha?.elegivel ?? false,
+        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa,
+        // P2-R1 (revisão de 31c5704d): com oferta pendente, a tela mostra a condição PERSISTIDA dela (fundador_id), nunca a
+        // disponibilidade atual para uma oferta nova — uma oferta regular não passa a anunciar Fundador se uma vaga for liberada.
+        aguardandoVaga: pendente ? false : campanha?.aguardando ?? false,
+        fundador: pendente ? pendente.fundador_id !== null : campanha?.elegivel ?? false,
         // Indicativo: o checkout recalcula sob trava e pede nova confirmação se a fase ou as vagas mudarem.
         campanha: campanha ? campanha.resumo : null,
         bloqueio: campanha?.bloqueio && !pendente ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,
@@ -254,7 +257,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
     // D3: concessão própria reservada com a validade vencida não gera oferta nova com desconto (atendimento).
     if (campanha.id && (await validadeDaConcessao(tx, campanha.id))?.vencida)
         throw erroAcesso('FUNDADOR_OFERTA_EXPIRADA', EXPIRADA, 409);
-    if (campanha.aguardando) throw erroAcesso('FUNDADOR_AGUARDANDO', 'As vagas Fundador estão em confirmação. Tente novamente mais tarde; nenhuma cobrança foi criada.', 409);
+    // O3 (decisão de Felipe, 24/10/2026, opção A): vagas em confirmação NÃO travam a venda. Sem vaga livre, `elegivel` é falso e
+    // a oferta sai pelo preço regular, sem concessão; quem esperava o Fundador recebe OFERTA_ALTERADA e confirma o novo valor.
     const ciclo = pedido.ciclo === 'ANUAL' ? 'anual' : 'mensal';
     const valor = valorComercial(pedido.plano, ciclo, campanha.elegivel);
     if (valor !== pedido.valorEsperadoCentavos)
@@ -264,7 +268,8 @@ export async function prepararOferta(tx: DbExecutor, empresaId: string, usuarioI
         // O beneficiário é o documento do TESTE (guarda 074a); a continuidade (D5) liga esse snapshot ao documento vigente.
         if (!linha.documento_teste) throw erroAcesso('DOCUMENTO_NAO_CONFIRMADO', 'A assinatura precisa do documento cadastrado para participar da campanha.', 409);
         fundadorId = await reservarConcessao(tx, empresaId, linha.documento_teste, campanha);
-        if (!fundadorId) throw erroAcesso('FUNDADOR_AGUARDANDO', 'Aguarde a confirmação das vagas disponíveis.', 409);
+        // Sem vaga na inserção (corrida que a trava não cobriu): nunca trava nem muda o preço em silêncio — o cliente reconfirma.
+        if (!fundadorId) throw erroAcesso('OFERTA_ALTERADA', 'As condições disponíveis mudaram. Atualize e confirme o novo valor antes de continuar.', 409);
     }
     const oferta = (await tx.query<Oferta>(`INSERT INTO assinatura_contratacoes
         (empresa_id,chave_idempotencia,plano,ciclo,catalogo_versao,valor_regular_centavos,desconto_percentual,valor_final_centavos,fundador_id,criada_por)

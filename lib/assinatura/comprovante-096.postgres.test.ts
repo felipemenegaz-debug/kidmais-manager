@@ -146,6 +146,32 @@ test('4. oferta nova grava o comprovante na mesma transação; retomada não dup
     empresaB = empresaId; ofertaB = o.id;
 });
 
+/** O3 (opção A, 24/10/2026): com as vagas em confirmação, a contratação pelo preço regular grava comprovante SEM condição Fundador. */
+test('4b. vagas Fundador em confirmação: oferta pelo preço regular grava comprovante sem Fundador (valor, desconto 0, texto); vagas de teste liberadas ao fim', { skip: !opt() }, async () => {
+    const ocupadas = async () => contar("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE estado <> 'LIBERADA'");
+    const cheias: string[] = [];
+    while (await ocupadas() < 20) { const { empresaId } = await empresaEmTeste(); await oferta(empresaId); cheias.push(empresaId); }
+    try {
+        const { empresaId } = await empresaEmTeste();
+        assert.equal(await erro(oferta(empresaId)), 'OFERTA_ALTERADA', 'Fundador esperado com as vagas em confirmação: reconfirmar');
+        assert.equal(await contar('SELECT count(*)::int AS n FROM assinatura_comprovantes WHERE empresa_id = $1', [empresaId]), 0, 'recusa não grava comprovante');
+        const o = await emTx(() => prepararOferta(client as never, empresaId, usuario, { ...PEDIDO, valorEsperadoCentavos: 19700, documentos: docsVigentes() }, ENV));
+        assert.deepEqual([o.valor_final_centavos, o.desconto_percentual, o.fundador_id], [19700, 0, null]);
+        const c = await emTx(() => lerComprovante(client as never, empresaId));
+        assert.ok(c);
+        assert.deepEqual([c.condicoes.valorFinalCentavos, c.condicoes.valorRegularCentavos, c.condicoes.descontoPercentual, c.condicoes.fundador], [19700, 19700, 0, null]);
+        const texto = linhasComprovante(c).join('\n');
+        assert.doesNotMatch(texto, /Fundador/, 'comprovante regular não cita a condição Fundador');
+        assert.equal(await ocupadas(), 20, 'nenhuma 21ª concessão');
+    } finally {
+        // Devolve as vagas para os testes seguintes (contratação cancelada antes, como exige a guarda 074a).
+        await emTx(async () => {
+            await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética O3' WHERE empresa_id = ANY($1::uuid[]) AND estado = 'EM_ABERTO'", [cheias]);
+            await q("UPDATE assinatura_fundadores SET estado = 'LIBERADA', liberada_em = clock_timestamp(), evidencia_liberacao = 'Fixture sintética O3: sem cobrança' WHERE empresa_id = ANY($1::uuid[]) AND estado = 'RESERVADA'", [cheias]);
+        });
+    }
+});
+
 test('5. cópia por e-mail: chave desligada não envia; enviada uma vez; falha registrada sem apagar; registro único', { skip: !opt() }, async () => {
     const enviados: { para: string; assunto: string; texto: string; idempotencia?: string }[] = [];
     const ok = { withTransaction, enviarEmail: async (m: { para: string; assunto: string; texto: string; idempotencia?: string }) => { enviados.push(m); return { provedor: 'arquivo' as const, idExterno: null }; } };

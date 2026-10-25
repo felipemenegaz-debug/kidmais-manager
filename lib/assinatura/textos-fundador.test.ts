@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { PAGAMENTO_TARDIO, REGRA_RESERVA, REGRA_RESERVA_LEGADO, regraReservaDaFase, textoPagueAte, textoReservaVencida } from './textos-fundador.ts';
+import { AVISO_VAGAS_EM_CONFIRMACAO, PAGAMENTO_TARDIO, REGRA_RESERVA, REGRA_RESERVA_LEGADO, regraReservaDaFase, SINTESE_SEM_FUNDADOR, textoPagueAte, textoReservaVencida } from './textos-fundador.ts';
 import { textoFundador } from '../site/fundador.ts';
 import { janelaCalculada, prazoAnunciado } from './campanha.ts';
 
@@ -64,4 +64,28 @@ test('fonte: a síntese escolhe a regra pela fase; REGRA_RESERVA fixa só no avi
     assert.doesNotMatch(sintese, /\{REGRA_RESERVA\}/);
     assert.equal(s.split('{REGRA_RESERVA}').length - 1, 1, 'REGRA_RESERVA fixa aparece uma vez (aviso da JANELA)');
     assert.match(s, /campanha\?\.fase === 'JANELA' && <p>Condição válida para quem assinar [^\n]*\{REGRA_RESERVA\}/);
+});
+
+/** O3, opção A (24/10/2026): vagas em confirmação não travam a venda; o preço regular é oferecido e confirmado explicitamente. */
+test('vagas em confirmação: aviso oferece o preço normal agora ou aguardar; síntese diz que não há Fundador e que o valor é o normal', () => {
+    assert.match(AVISO_VAGAS_EM_CONFIRMACAO, /em confirmação/);
+    assert.match(AVISO_VAGAS_EM_CONFIRMACAO, /assinar agora pelo preço normal ou aguardar/);
+    assert.match(AVISO_VAGAS_EM_CONFIRMACAO, /se uma vaga for liberada, a condição Fundador volta a aparecer aqui/);
+    assert.doesNotMatch(AVISO_VAGAS_EM_CONFIRMACAO, /Aguarde antes de contratar|Tente novamente mais tarde/);
+    assert.match(SINTESE_SEM_FUNDADOR, /Sem condição Fundador nesta contratação/);
+    assert.match(SINTESE_SEM_FUNDADOR, /preço normal do plano/);
+});
+
+test('fonte: com vagas em confirmação a tela mostra o aviso E os botões de plano; a síntese marca a contratação sem Fundador', () => {
+    const s = readFileSync('components/admin/AssinaturaAcoes.tsx', 'utf8');
+    assert.ok(!s.includes('Aguarde antes de contratar'));
+    // O aviso é um item a mais ANTES do ciclo e dos botões (não uma alternativa a eles).
+    const bloco = s.slice(s.indexOf('{sintese ? null : <>'));
+    assert.ok(bloco.startsWith('{sintese ? null : <>'), 'escolha de plano sem ramo de bloqueio');
+    const aviso = bloco.indexOf('{dados.ofertas.aguardandoVaga && <p role="status" data-vagas-em-confirmacao>{AVISO_VAGAS_EM_CONFIRMACAO}</p>}');
+    assert.ok(aviso > 0 && aviso < bloco.indexOf('<label>Ciclo') && bloco.indexOf('<label>Ciclo') < bloco.indexOf('dados.ofertas.planos.map('));
+    const sintese = s.slice(s.indexOf('Confira sua contratação'), s.indexOf('Confirmar contratação'));
+    assert.ok(sintese.includes('{!dados.ofertas.fundador && dados.ofertas.aguardandoVaga && <li data-sintese-sem-fundador>{SINTESE_SEM_FUNDADOR}</li>}'));
+    const o = readFileSync('lib/assinatura/ofertas.ts', 'utf8');
+    assert.ok(!o.includes("throw erroAcesso('FUNDADOR_AGUARDANDO'"), 'o servidor não trava a venda por vagas em confirmação');
 });

@@ -161,9 +161,10 @@ async function testar() {
         await c.query('COMMIT');
         resultados = await Promise.allSettled(disputantes.map(f => tx(p => prepararOferta(p,f.empresa,f.usuario,pedido))));
         assert.equal(resultados.filter(x=>x.status==='fulfilled').length,1);
-        assert.equal(resultados.filter(x=>x.status==='rejected' && x.reason.code==='FUNDADOR_AGUARDANDO').length,1);
+        // O3 (opção A, 24/10/2026): quem perde a última vaga não fica travado; recebe OFERTA_ALTERADA e reconfirma o preço.
+        assert.equal(resultados.filter(x=>x.status==='rejected' && x.reason.code==='OFERTA_ALTERADA').length,1);
         assert.equal((await c.query("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE estado<>'LIBERADA'")).rows[0].n,20);
-        reportar('concorrência real pela 20ª vaga: uma concessão, outra aguarda, teto preservado');
+        reportar('concorrência real pela 20ª vaga: uma concessão, outra reconfirma (OFERTA_ALTERADA), teto preservado');
         } else {
             assert.equal((await c.query("SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE estado='EM_ABERTO'")).rows[0].n,20);
             assert.equal((await c.query('SELECT count(*)::int AS n FROM assinatura_renovacoes')).rows[0].n,0);

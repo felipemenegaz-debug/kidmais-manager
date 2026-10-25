@@ -30,6 +30,14 @@ export const REGRA_RESERVA_LEGADO = `Assinar é confirmar, na sua conta, o plano
 export const regraReservaDaFase = (fase: string | null | undefined) =>
     fase === 'JANELA' || fase === 'POS_JANELA' ? REGRA_RESERVA : REGRA_RESERVA_LEGADO;
 
+/**
+ * O3 (opção A, 24/10/2026): com as vagas Fundador ocupadas e em confirmação a venda não trava. A tela avisa e oferece o preço
+ * regular; a síntese repete que esta contratação não tem a condição, para a confirmação do preço ser explícita.
+ */
+export const AVISO_VAGAS_EM_CONFIRMACAO = 'As vagas Fundador estão em confirmação. Você pode assinar agora pelo preço normal ou aguardar: '
+    + 'se uma vaga for liberada, a condição Fundador volta a aparecer aqui.';
+export const SINTESE_SEM_FUNDADOR = 'Sem condição Fundador nesta contratação: as vagas estão em confirmação. O valor acima é o preço normal do plano.';
+
 export const POS_PAGAMENTO_TARDIO = 'Se pagar depois, o pagamento será analisado pelo atendimento, sem cobrança complementar automática. '
     + 'A confirmação do benefício depende dessa análise e, se a contratação não puder ser efetivada, oferecemos uma solução, inclusive a devolução quando cabível.';
 

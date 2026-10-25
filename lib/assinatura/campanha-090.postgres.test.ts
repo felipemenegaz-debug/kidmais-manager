@@ -155,6 +155,52 @@ test('2. com a 090 e sem campanha ativada: regra anterior (LEGADO), retomada ide
     legado.push(e);
 });
 
+/** O3 (opção A, 24/10/2026): 20 vagas LEGADO ocupadas e não confirmadas não travam a venda; o preço muda só com nova confirmação. */
+test('2b. LEGADO com 20 ocupadas em confirmação: venda pelo preço regular sem concessão; Fundador esperado → OFERTA_ALTERADA; vaga liberada volta a exigir confirmação', { skip: !opt() }, async () => {
+    const ocupadasLegado = async () => (await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'LEGADO' AND estado <> 'LIBERADA'")).rows[0].n as number;
+    const cheias: string[] = [];
+    while (await ocupadasLegado() < 20) { const e = await empresaEmTeste(); await ofertaEm(client, e); cheias.push(e); }
+    assert.equal(await ocupadasLegado(), 20);
+    const novo = await empresaEmTeste();
+    const r = await emTx(() => consultarOfertas(client as never, novo, ENV));
+    assert.deepEqual([r?.habilitado, r?.fundador, r?.aguardandoVaga, r?.campanha, r?.bloqueio], [true, false, true, { fase: 'LEGADO' }, null]);
+    assert.equal(r?.planos.find(p => p.id === 'essencial')?.mensal, 19700, 'a tela oferece o preço regular');
+    // Síntese aberta antes de esgotar (esperava o Fundador): o servidor não cobra o regular sem nova confirmação.
+    await assert.rejects(ofertaEm(client, novo), (x) => codigo(x) === 'OFERTA_ALTERADA');
+    assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id = $1', [novo])).rows[0].n, 0);
+    // Preço regular confirmado explicitamente: oferta sem concessão, nenhuma 21ª vaga.
+    const regular = await ofertaEm(client, novo, CHEIO);
+    assert.deepEqual([regular.valor_final_centavos, regular.desconto_percentual, regular.fundador_id], [19700, 0, null]);
+    assert.equal(await concessao(novo), undefined);
+    assert.equal(await ocupadasLegado(), 20);
+    assert.deepEqual(await ofertaEm(client, novo, CHEIO), regular, 'retomada idempotente pelo preço regular');
+    // P2-R1, controle: oferta Fundador já aceita, com o lote cheio em confirmação, continua anunciada como Fundador.
+    const aceitaFundador = await emTx(() => consultarOfertas(client as never, cheias[1], ENV));
+    assert.deepEqual([aceitaFundador?.fundador, aceitaFundador?.aguardandoVaga, aceitaFundador?.pendente?.valorCentavos], [true, false, 11820]);
+    // Inverso: uma vaga é liberada (com a contratação cancelada antes, guarda 074a) e a tela volta a mostrar o Fundador.
+    const liberada = cheias[0];
+    const vagaLiberada = (await concessao(liberada)).vaga as number;
+    await emTx(async () => {
+        await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética O3' WHERE empresa_id = $1", [liberada]);
+        await q("UPDATE assinatura_fundadores SET estado = 'LIBERADA', liberada_em = clock_timestamp(), evidencia_liberacao = 'Fixture sintética O3: sem cobrança' WHERE empresa_id = $1 AND estado = 'RESERVADA'", [liberada]);
+    });
+    // P2-R1: a empresa que JÁ aceitou o regular não passa a ver Fundador; a retomada mantém R$ 197, sem concessão.
+    const aceitaRegular = await emTx(() => consultarOfertas(client as never, novo, ENV));
+    assert.deepEqual([aceitaRegular?.fundador, aceitaRegular?.aguardandoVaga, aceitaRegular?.pendente?.valorCentavos], [false, false, 19700]);
+    assert.deepEqual(await ofertaEm(client, novo, CHEIO), regular, 'retomada do regular depois da liberação');
+    assert.equal(await concessao(novo), undefined);
+    const outra = await empresaEmTeste();
+    const r2 = await emTx(() => consultarOfertas(client as never, outra, ENV));
+    assert.deepEqual([r2?.fundador, r2?.aguardandoVaga], [true, false]);
+    // Síntese aberta no regular: o servidor não aplica o desconto em silêncio; o cliente confirma o novo valor.
+    await assert.rejects(ofertaEm(client, outra, CHEIO), (x) => codigo(x) === 'OFERTA_ALTERADA');
+    const fundador = await ofertaEm(client, outra);
+    const f = await concessao(outra);
+    assert.deepEqual([fundador.valor_final_centavos, f.origem, f.vaga, fundador.fundador_id === f.id], [11820, 'LEGADO', vagaLiberada, true]);
+    assert.equal(await ocupadasLegado(), 20);
+    legado.push(novo, outra);
+});
+
 test('3. guardas da campanha: rascunho, decisões obrigatórias, datas do banco, imutável, ativação única', { skip: !opt() }, async () => {
     await assert.rejects(q("INSERT INTO assinatura_campanhas (codigo, versao_regra, estado) VALUES ('x-ativa', 'v1', 'ATIVA')"), /nasce em RASCUNHO/);
     campanhaId = (await q("INSERT INTO assinatura_campanhas (codigo, versao_regra) VALUES ('fundador-teste', 'fundador-2026-sintetica-v1') RETURNING id")).rows[0].id;
@@ -299,7 +345,7 @@ test('5. fronteira: pedido que espera a trava atravessa o corte e vira lote post
     pos.push(x);
 });
 
-test('6. lote posterior: 20 vagas, disputa real da última, em confirmação e depois preço cheio', { skip: !opt() }, async () => {
+test('6. lote posterior: 20 vagas, disputa real da última (perdedor reconfirma), em confirmação vende pelo preço regular, depois preço cheio', { skip: !opt() }, async () => {
     await ofertaEm(client, pos[1]);
     while (pos.length < 19) { const e = await empresaEmTeste(); await ofertaEm(client, e); pos.push(e); }
     assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA'")).rows[0].n, 19);
@@ -312,7 +358,8 @@ test('6. lote posterior: 20 vagas, disputa real da última, em confirmação e d
     try { await esperarNoServidor(pids, ['advisory']); } finally { await terceiro.query('COMMIT'); }
     const resultados = await disputa;
     const ok = resultados.filter(x => x.status === 'fulfilled'), falha = resultados.filter(x => x.status === 'rejected') as PromiseRejectedResult[];
-    assert.equal(ok.length, 1); assert.equal(codigo(falha[0].reason), 'FUNDADOR_AGUARDANDO');
+    // O3 (opção A): o perdedor da última vaga não fica travado; recebe OFERTA_ALTERADA e confirma o novo valor.
+    assert.equal(ok.length, 1); assert.equal(codigo(falha[0].reason), 'OFERTA_ALTERADA');
     const vagas = (await q("SELECT vaga FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND campanha_id = $1 ORDER BY vaga", [campanhaId])).rows.map(r => r.vaga);
     assert.deepEqual(vagas, Array.from({ length: 20 }, (_, i) => i + 1));
     const perdedor = resultados[0].status === 'rejected' ? a : b;
@@ -321,6 +368,30 @@ test('6. lote posterior: 20 vagas, disputa real da última, em confirmação e d
     // Inserção direta da 21ª: recusada pela guarda.
     await assert.rejects(q("INSERT INTO assinatura_fundadores (empresa_id, documento_beneficiario, vaga, origem, campanha_id) SELECT empresa_id, documento_teste, 20, 'POS_JANELA', $2 FROM empresa_assinaturas WHERE empresa_id = $1", [perdedor, campanhaId]),
         /esgotadas/);
+    // 20 ocupadas e não confirmadas: a venda continua pelo preço regular, sem concessão e sem 21ª vaga.
+    const emConfirmacao = await empresaEmTeste();
+    const rc = await emTx(() => consultarOfertas(client as never, emConfirmacao, ENV));
+    assert.deepEqual([rc?.fundador, rc?.aguardandoVaga, rc?.planos.find(p => p.id === 'essencial')?.mensal], [false, true, 19700]);
+    await assert.rejects(ofertaEm(client, emConfirmacao), (x) => codigo(x) === 'OFERTA_ALTERADA');
+    const regularLote = await ofertaEm(client, emConfirmacao, CHEIO);
+    assert.deepEqual([regularLote.valor_final_centavos, regularLote.fundador_id], [19700, null]);
+    assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND campanha_id = $1", [campanhaId])).rows[0].n, 20);
+    // P2-R1 no lote posterior: uma reserva é liberada (contratação cancelada antes); a oferta regular aceita continua regular.
+    const liberadaLote = pos.pop()!;
+    const vagaLote = (await concessao(liberadaLote)).vaga as number;
+    await emTx(async () => {
+        await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética P2-R1' WHERE empresa_id = $1", [liberadaLote]);
+        await q("UPDATE assinatura_fundadores SET estado = 'LIBERADA', liberada_em = clock_timestamp(), evidencia_liberacao = 'Fixture sintética P2-R1: sem cobrança' WHERE empresa_id = $1 AND estado = 'RESERVADA'", [liberadaLote]);
+    });
+    const aceitaLote = await emTx(() => consultarOfertas(client as never, emConfirmacao, ENV));
+    assert.deepEqual([aceitaLote?.fundador, aceitaLote?.aguardandoVaga, aceitaLote?.pendente?.valorCentavos], [false, false, 19700]);
+    assert.deepEqual(await ofertaEm(client, emConfirmacao, CHEIO), regularLote, 'retomada do regular no lote posterior');
+    // Reposição: uma empresa nova vê o Fundador e ocupa a vaga liberada; o lote volta a 20 ocupadas.
+    const reposicao = await empresaEmTeste();
+    assert.equal((await emTx(() => consultarOfertas(client as never, reposicao, ENV)))?.fundador, true);
+    const repostaOferta = await ofertaEm(client, reposicao);
+    assert.deepEqual([repostaOferta.valor_final_centavos, (await concessao(reposicao)).vaga], [11820, vagaLote]);
+    pos.push(reposicao);
     for (const e of pos) await confirmarDireto(e);
     assert.deepEqual(await emTx(() => resumoCampanha(client as never, ENV)), { fase: 'POS_JANELA', vagasRestantes: 0, emConfirmacao: 0, limite: 20 });
     await assert.rejects(ofertaEm(client, perdedor), (x) => codigo(x) === 'OFERTA_ALTERADA');
