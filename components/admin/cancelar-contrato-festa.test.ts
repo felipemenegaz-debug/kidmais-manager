@@ -43,6 +43,7 @@ test('contrato importado com V2 aberta: cancelamento fica só no menu "Mais", ab
   };
   function Cancelar() { return null; }
   function Filho() { return null; }
+  function Lista() { return null; }
   const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
   for (const hash of ['', '#cancelar-contrato']) {
     Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash, search: '?contratoId=' + id, pathname: '/admin/contratos' }, history: { state: null, replaceState() {} }, addEventListener() {}, removeEventListener() {} } });
@@ -59,7 +60,7 @@ test('contrato importado com V2 aberta: cancelamento fica só no menu "Mais", ab
         './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Cancelar },
         './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './PagamentosResumo': { default: Filho },
         './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },
-        './financeiro-apresentacao': { contratoApresentacao: () => 'Contrato' },
+        './ListaContratos': { default: Lista },
         './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
         './contrato-tela': contratoTela, '@/lib/contratos/versao-referencia': versaoReferencia,
         './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
