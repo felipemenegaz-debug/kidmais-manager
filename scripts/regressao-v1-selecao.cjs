@@ -207,6 +207,9 @@ const ESTADO_POSTGRES = {
   // 23/10/2026: aplicador real da 092 → 093 → 094 (staging) no modelo 089 (092–094 ausentes): conferência, privilégios,
   // parcial, falha real no meio (092 commitada), retomada pelo prefixo e anti-repetição.
   "lib/agenda/aplicador-092-094.postgres.test.ts": { descartavel: "089" },
+  // 25/10/2026: aplicador REAL da 100 (agenda com um salão) no estado do staging (097: 093–097, sem a 098) e a recusa no
+  // modelo 098 — privilégios, inventário (unidade nula, intervalos nas duas ordens), falhas reais e CONFERIR da 092–094.
+  "lib/agenda/aplicador-100.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
   // 22/10/2026: campanha Fundador em duas fases (090), aplicada pela suíte sobre o modelo 089.

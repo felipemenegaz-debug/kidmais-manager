@@ -50,6 +50,18 @@ const ETAPAS = Object.freeze([
   ['integridade 094', 'database/checks/20261022_094_integridade.sql', '43bd4cad374dfe00600c647d3d755c4b5907cccf0986fc6d457ca4717cfceb65'],
 ]);
 const etapa = nome => ETAPAS.find(e => e[0] === nome);
+/**
+ * Migration 100 (agenda com um salão, 25/10/2026): troca SÓ o corpo de kidmais094_conflito_ocupacao. Depois dela, a
+ * integridade da 094 confere esse corpo pelo hash da 100 — arquivo idêntico ao da 094 exceto por essa expectativa — e
+ * todo o resto (gatilhos, colunas, FKs, os demais corpos) segue igual. Qualquer outro corpo cai na integridade da 094 e
+ * recusa (nunca se ignora a divergência).
+ */
+const CORPO_CONFLITO_094 = 'b6aac1c0b99ed64f4dca94fe5d886e5d5892b82888325010e02adc850def8cf6';
+const CORPO_CONFLITO_100 = '805cd427a7cc7a725fb3bdfb4fd050f04e618131104fcfc0678a0ddadd5b4bdb';
+const INTEGRIDADE_094_APOS_100 = Object.freeze(['integridade 094 apos 100', 'database/checks/20261025_094_integridade_apos_100.sql',
+  '855ad392fce77972165739fe6949838436cb79c6c0b82517a70bf83b65b6b4c5']);
+const SQL_CORPO_CONFLITO = "SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') AS h FROM pg_proc"
+  + " WHERE oid = to_regprocedure('public.kidmais094_conflito_ocupacao(uuid,date,time without time zone,time without time zone,uuid,uuid,uuid,uuid)')";
 
 const reg = t => `to_regclass('public.${t}')`;
 const proc = f => `to_regprocedure('public.${f}')`;
@@ -179,6 +191,14 @@ async function somenteLeitura(db, sql) {
     return r;
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
+/** Integridade da 094 (READ ONLY): com o corpo da 100 na regra de conflito, a variante que só troca essa expectativa. */
+async function integridade094(db, raiz) {
+  const corpo = (await somenteLeitura(db, SQL_CORPO_CONFLITO)).rows[0]?.h ?? null;
+  const apos100 = corpo === CORPO_CONFLITO_100;
+  const [, arquivo, hash] = apos100 ? INTEGRIDADE_094_APOS_100 : etapa('integridade 094');
+  await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
+  return apos100 ? 'PASS_CORPO_100' : 'PASS';
+}
 /** Contagens informativas (sem ids): preços, horários e festas; com a 093, salões e escopos; com a 094, festas com salão. */
 async function contagens(db, estado) {
   const c = ['(SELECT count(*) FROM precos_pacote)::int AS precos', '(SELECT count(*) FROM configuracao_agenda)::int AS horarios', '(SELECT count(*) FROM fechamentos)::int AS festas'];
@@ -202,6 +222,7 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   for (const id of IDS) {
     const nome = (r.estado['m' + id] === 'completa' ? 'integridade ' : 'precheck ') + id;
     if (id === '094' && r.estado.m094 === 'ausente' && r.estado.m093 !== 'completa') { r.checks[nome] = 'APOS_093'; continue; }
+    if (nome === 'integridade 094') { r.checks[nome] = await integridade094(db, raiz); continue; }
     const [, arquivo, hash] = etapa(nome);
     await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
     r.checks[nome] = 'PASS';
@@ -231,7 +252,8 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
       r.etapas.at(-1).commit = 'CONFIRMADO'; registrar(r);
       const id = nome.slice(-3);
       assert.equal(lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0])['m' + id], 'completa', 'ESTADO_DEPOIS_' + id);
-    } else await somenteLeitura(db, sqls.get(nome));
+    } else if (nome === 'integridade 094') r.etapas.at(-1).integridade = await integridade094(db, raiz);
+    else await somenteLeitura(db, sqls.get(nome));
     Object.assign(r.etapas.at(-1), {ok: true, fim: new Date().toISOString()}); registrar(r);
   }
   r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
@@ -264,7 +286,7 @@ function criarAplicador(amb) {
   const raizPadrao = path.resolve(__dirname, '..');
   function plano({raiz = raizPadrao} = {}) {
     return {resultado: 'PLANO', conecta: false, ambiente: amb.nome, alvo: amb.ALVO,
-      arquivos: ETAPAS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
+      arquivos: [...ETAPAS, INTEGRIDADE_094_APOS_100].map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
       modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
       preRequisitos: ['092: 006/029/047 (precos_pacote, fechamento_pacote_snapshots, tabela_preco_escopos, kidmais_047_lacunas_escopo)',
         '093: 043/062 (configuracao_agenda, estabelecimentos, pacotes, usuarios_administrativos, empresas, kidmais062_unidade_agendavel)',
@@ -288,7 +310,7 @@ function criarAplicador(amb) {
   async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
     const opts = amb.alvo(env); disco();
     assert.match(String(backup ?? ''), /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_OBRIGATORIO');
-    for (const [, arquivo, hash] of ETAPAS) lerRevisado(raiz, arquivo, hash);
+    for (const [, arquivo, hash] of [...ETAPAS, INTEGRIDADE_094_APOS_100]) lerRevisado(raiz, arquivo, hash);
     fs.mkdirSync(dir, {recursive: true, mode: 0o700});
     const marcador = path.join(dir, MARCADOR);
     // Tentativas anteriores preservadas pelo operador (marcador renomeado, nunca apagado) entram no novo registro.
@@ -333,5 +355,5 @@ function criarAplicador(amb) {
   return {plano, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {IDS, ETAPAS, OBJETOS, BASE, CAMPOS, commitNaFalha, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, SQL_ESTADO, lerRevisado, lerEstado, planoEtapas,
+module.exports = {IDS, ETAPAS, INTEGRIDADE_094_APOS_100, CORPO_CONFLITO_094, CORPO_CONFLITO_100, SQL_CORPO_CONFLITO, OBJETOS, BASE, CAMPOS, commitNaFalha, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, SQL_ESTADO, lerRevisado, lerEstado, planoEtapas,
   conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

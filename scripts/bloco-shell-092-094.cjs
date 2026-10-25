@@ -16,7 +16,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {ETAPAS} = require('./migration-092-094-comum.cjs');
+const {ETAPAS, INTEGRIDADE_094_APOS_100} = require('./migration-092-094-comum.cjs');
+const REVISADOS = Object.freeze([...ETAPAS, INTEGRIDADE_094_APOS_100]);
 
 const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
@@ -26,7 +27,7 @@ const AMBIENTES = Object.freeze({
 });
 const COMANDOS = Object.freeze({CONFERIR: '--conferir-092-094', APLICAR: '--aplicar-092-094-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({
-  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 12 SQL da 092-094 IMPLANTADOS e roda --conferir-092-094',
+  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 13 SQL da 092-094 IMPLANTADOS (inclui a integridade da 094 com o corpo da 100) e roda --conferir-092-094',
     '(identidade, estado de cada migration, privilegios CREATE/DONO/REFERENCES, precheck das pendentes e integridade das aplicadas, READ ONLY). Nada e gravado.'],
   APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da 092-094 neste ambiente. Antes de colar, no mesmo',
     'shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>". Roda --aplicar-092-094-autorizado UMA vez',
@@ -37,12 +38,12 @@ const sha = b => createHash('sha256').update(b).digest('hex');
 /** Conteúdo LF da árvore; os SQL precisam ter exatamente o hash revisado do aplicador. */
 function ler(raiz, arquivo) {
   const b = Buffer.from(fs.readFileSync(path.join(raiz, arquivo), 'utf8').replace(/\r\n/g, '\n'), 'utf8');
-  const revisado = ETAPAS.find(([, a]) => a === arquivo)?.[2];
+  const revisado = REVISADOS.find(([, a]) => a === arquivo)?.[2];
   if (revisado) assert.equal(sha(b), revisado, 'ARQUIVO_DIVERGENTE_DO_REVISADO ' + arquivo);
   return b;
 }
 const seguro = s => { assert.match(s, /^[A-Za-z0-9_./-]+$/, 'CAMINHO_INSEGURO'); return s; };
-function arquivos(ambiente) { const a = AMBIENTES[ambiente]; return [a.aplicador, ...a.dependencias, ...ETAPAS.map(([, arquivo]) => arquivo)]; }
+function arquivos(ambiente) { const a = AMBIENTES[ambiente]; return [a.aplicador, ...a.dependencias, ...REVISADOS.map(([, arquivo]) => arquivo)]; }
 
 /**
  * `destino` e `comando` existem para os testes locais (destino temporário; comando substituto que só devolve um código).
