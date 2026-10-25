@@ -11,6 +11,7 @@ import { AjudaCampo } from './AjudaCampo';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import { ConfirmarPrecosPacote } from './ConfirmarPrecosPacote';
 import { AVISO_COMBINADO } from './SaloesCombinados';
+import { AVISO_SALAO_DO_PACOTE } from '@/lib/agenda/saloes-liberacao';
 import { erroDosPontos, PrecosPorQuantidade, pontosDaTela, valorDigitado, type PontoForm } from './PrecosPorQuantidade';
 import type { PontoPreco } from '@/lib/comercial/modelo-preco';
 
@@ -104,6 +105,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   const [horarios, setHorarios] = useState<Horario[]>(vitrine?.horarios ?? []);
   const [saloes, setSaloes] = useState<Salao[]>(vitrine?.saloes ?? []);
   const [saloesEscolhidos, setSaloesEscolhidos] = useState<string[]>(vitrine?.edicao?.saloes ?? []);
+  // Só a agenda por salão manda salões para cá (saloesDaEmpresa); nela, o pacote diz em qual salão acontece.
+  const salaoFaltando = saloes.length > 0 && saloesEscolhidos.length === 0;
   const [categorias, setCategorias] = useState<Categoria[]>(vitrine?.categorias ?? []);
   const [itensBuffet, setItensBuffet] = useState<ItemBuffet[]>(vitrine?.itens ?? []);
   const edicao = vitrine?.edicao;
@@ -269,6 +272,10 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     event?.preventDefault();
     if (pares.some((par) => !par.horarioId)) {
       setErro('Escolha o horário de cada dia marcado.');
+      return;
+    }
+    if (salaoFaltando) {
+      setErro(AVISO_SALAO_DO_PACOTE);
       return;
     }
     const erroPontos = !confirmados && faixasEditaveis && !conversao ? erroDosPontos(pontos, Number(form.minimo), Number(form.maximo)) : null;
@@ -451,8 +458,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
               </div>
             </div>)}
             {saloes.length > 0 && <>
-              <p className={styles.intro}>Salões permitidos <span className={styles.muted}>· nenhum marcado = todos</span></p>
-              <div className={styles.dias} role="group" aria-label="Salões permitidos">
+              <p className={styles.intro}>Salões do pacote * <span className={styles.muted}>· em qual salão (ou quais) esta festa acontece</span></p>
+              <div className={styles.dias} role="group" aria-label="Salões do pacote (obrigatório)">
                 {saloes.map((salao) => <button key={salao.id} type="button" aria-pressed={saloesEscolhidos.includes(salao.id)} onClick={() => setSaloesEscolhidos((atual) => atual.includes(salao.id) ? atual.filter((id) => id !== salao.id) : [...atual, salao.id])}>{salao.nome}{salao.combinado && salao.membros?.length ? ` = ${salao.membros.join(' + ')}` : ''}{salao.unidade ? ` (${salao.unidade})` : ''}</button>)}
               </div>
               {saloes.some((s) => s.combinado) && <p className={styles.muted} data-aviso-combinado>{AVISO_COMBINADO}</p>}
@@ -474,7 +481,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
                 <h2>Preços a confirmar</h2>
                 <p>Este pacote ainda cobra pelas faixas antigas ({faixas.map((f) => f.convidadosMax.trim() ? `${f.convidadosMin} a ${f.convidadosMax}` : `a partir de ${f.convidadosMin}`).join(', ')}). Agora o preço é informado só nas quantidades cheias. Revise a proposta e confirme; até lá nada muda.</p>
               </div>
-              <AdminPrimaryButton type="button" onClick={() => setConfirmando(true)}>Revisar e confirmar</AdminPrimaryButton>
+              {/* Parecer do Astra (25/10/2026, P3): o salão é escolhido aqui, antes da confirmação (que esconde o formulário). */}
+              <AdminPrimaryButton type="button" onClick={() => { if (salaoFaltando) { setErro(AVISO_SALAO_DO_PACOTE); return; } setErro(''); setConfirmando(true); }}>Revisar e confirmar</AdminPrimaryButton>
             </div>}
             {faixasEditaveis && !conversao && <PrecosPorQuantidade pontos={pontos} onChange={setPontos} minimo={Number(form.minimo)} maximo={Number(form.maximo)} />}
           </section>

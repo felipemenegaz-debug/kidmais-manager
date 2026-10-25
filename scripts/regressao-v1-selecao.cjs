@@ -236,6 +236,12 @@ const ESTADO_POSTGRES = {
   "lib/agenda/configuracao-unidade-093.postgres.test.ts": { descartavel: "092" },
   // 22/10/2026: capacidade, limite do dia e intervalo na regra de conflito (094, etapa 2b), aplicada pela suíte sobre o modelo 093.
   "lib/agenda/capacidade-094.postgres.test.ts": { descartavel: "093" },
+  // 25/10/2026: agenda com um salão (100) — uma festa por vez no horário POR_HORARIO, qualquer que seja a capacidade
+  // gravada; aplicada pela suíte sobre o modelo 097 (staging de hoje) e recusada no modelo 098 (corpo diferente do da 094).
+  "lib/agenda/agenda-um-salao-100.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // Parecer do Astra (25/10/2026) pelos serviços reais: trava da agenda por salão, volta para um salão com/sem festas
+  // sobrepostas, salão obrigatório no pacote só na agenda por salão e duplicação copiando os salões (modelo 097).
+  "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
   // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
   "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097" },

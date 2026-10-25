@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AgendaEscopo, CapacidadeTipo, EscopoConfiguravel, HorarioAgenda, Modo } from '@/lib/agenda/configuracao-unidade';
+import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE } from '@/lib/agenda/saloes-liberacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import css from './agenda-configuracao.module.css';
@@ -82,9 +83,6 @@ export function erroDosHorarios(form: AgendaForm): string | null {
     if (form.capacidadeTipo === 'POR_SALAO') {
       const existentes = new Set(nomesDosSaloes(form));
       if (!h.saloes.some((s) => existentes.has(s))) return `Escolha os salões do horário ${nome}.`;
-    } else {
-      const n = inteiro(h.capacidade);
-      if (!Number.isInteger(n) || n < 1 || n > 20) return `Informe de 1 a 20 festas ao mesmo tempo no horário ${nome}.`;
     }
   }
   return null;
@@ -118,7 +116,8 @@ export function corpoSalvar(form: AgendaForm, estabelecimentoId: string | null, 
         inicio: h.inicio,
         fim: h.fim,
         dias: [...h.dias].sort((a, b) => a - b),
-        capacidade: form.capacidadeTipo === 'POR_SALAO' ? Math.min(20, Math.max(1, doHorario.length)) : inteiro(h.capacidade),
+        // Decisão de Felipe (25/10/2026): com um salão, uma festa por horário — sempre.
+        capacidade: form.capacidadeTipo === 'POR_SALAO' ? Math.min(20, Math.max(1, doHorario.length)) : 1,
         saloes: doHorario,
       };
     }),
@@ -212,6 +211,7 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
   const [form, setForm] = useState<AgendaForm>(() => formDaAgenda(agenda));
   const [passo, setPasso] = useState(1);
   const [limiteTocado, setLimiteTocado] = useState(false);
+  const [maisDeUmEmBreve, setMaisDeUmEmBreve] = useState(false);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
   const titulo = useId();
@@ -228,6 +228,8 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
 
   function escolherSaloes(tipo: CapacidadeTipo) {
     setErro('');
+    setMaisDeUmEmBreve(tipo === 'POR_SALAO' && !AGENDA_MAIS_DE_UM_SALAO_LIBERADA);
+    if (tipo === 'POR_SALAO' && !AGENDA_MAIS_DE_UM_SALAO_LIBERADA) { setForm({ ...form, capacidadeTipo: 'POR_HORARIO' }); return; }
     if (tipo === 'POR_SALAO' && form.saloes.length === 0) {
       setForm({ ...form, capacidadeTipo: tipo, saloes: [{ chave: 'novo-1', nome: 'Salão 1', capacidade: '' }, { chave: 'novo-2', nome: 'Salão 2', capacidade: '' }] });
     } else setForm({ ...form, capacidadeTipo: tipo });
@@ -291,9 +293,10 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
     corpo = <>
       <h2 id={titulo} ref={tituloRef} tabIndex={-1}>A {nome} tem mais de um salão?</h2>
       <div className={css.opcoes}>
-        <button type="button" className={css.opcao} aria-pressed={form.capacidadeTipo === 'POR_HORARIO'} onClick={() => escolherSaloes('POR_HORARIO')}><strong>Não, um espaço só</strong></button>
-        <button type="button" className={css.opcao} aria-pressed={form.capacidadeTipo === 'POR_SALAO'} onClick={() => escolherSaloes('POR_SALAO')}><strong>Sim, mais de um salão</strong></button>
+        <button type="button" className={css.opcao} aria-pressed={form.capacidadeTipo === 'POR_HORARIO' && !maisDeUmEmBreve} onClick={() => escolherSaloes('POR_HORARIO')}><strong>Não, um espaço só</strong></button>
+        <button type="button" className={css.opcao} aria-pressed={form.capacidadeTipo === 'POR_SALAO' || maisDeUmEmBreve} onClick={() => escolherSaloes('POR_SALAO')}><strong>Sim, mais de um salão</strong></button>
       </div>
+      {maisDeUmEmBreve && <p className={css.fraco} role="status" data-mais-de-um-salao-em-breve>{AVISO_MAIS_DE_UM_SALAO_EM_BREVE}</p>}
       {form.capacidadeTipo === 'POR_SALAO' && <EditorSaloes form={form} onChange={setForm} />}
     </>;
   } else if (passo === 3) {
@@ -316,7 +319,7 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
           <div className={css.linhaRotulada}><span aria-hidden="true">Dias</span><DiasChips dias={h.dias} rotulo={h.nome} onChange={(dias) => alterarHorario(i, { dias })} /></div>
           {form.capacidadeTipo === 'POR_SALAO'
             ? <div className={css.linhaRotulada}><span aria-hidden="true">Salões</span><SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} /></div>
-            : <label className={css.linhaRotulada}><span>Festas ao mesmo tempo</span><input inputMode="numeric" aria-label={`Festas ao mesmo tempo em ${h.nome || 'este horário'}`} value={h.capacidade} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
+            : <p className={css.fraco} data-uma-festa-por-horario>Uma festa por vez neste horário.</p>}
           <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
         </div>)}
       </div>}

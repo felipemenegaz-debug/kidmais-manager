@@ -38,11 +38,20 @@ const herdada = {
   ],
 };
 
+// Agenda com um salão (decisão de Felipe, 25/10/2026): uma festa por horário, sem campo de capacidade.
+const umSalao: DadosAgenda = {
+  ...configurada,
+  agenda: {
+    ...configurada.agenda!, config: { ...configurada.agenda!.config!, capacidadeTipo: 'POR_HORARIO' }, saloes: [], combinados: [], combinadosDisponiveis: false,
+    horarios: configurada.agenda!.horarios.map((h) => ({ ...h, saloes: [] })),
+  },
+};
+
 export default function PreviewAgendaUx({ estado }: { estado?: string }) {
   const [assistente, setAssistente] = useState(estado === 'assistente');
   return <div className={fonteAdmin.variable}>
     <AdminShell vitrine={{ nome: 'Felipe', caminho: '/admin/configuracoes/agenda' }}>
-      <AgendaConfiguracao vitrine={{ dados: configurada }} />
+      <AgendaConfiguracao vitrine={{ dados: estado === 'um-salao' ? umSalao : configurada }} />
       {assistente && <AssistenteAgenda escopo={nova} agenda={herdada} onConcluido={() => setAssistente(false)} onDepois={() => setAssistente(false)} />}
     </AdminShell>
   </div>;

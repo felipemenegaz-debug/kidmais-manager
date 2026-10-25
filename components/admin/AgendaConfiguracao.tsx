@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { AgendaEscopo, EscopoConfiguravel } from '@/lib/agenda/configuracao-unidade';
+import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_VOLTA_UM_SALAO } from '@/lib/agenda/saloes-liberacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import {
@@ -276,15 +277,20 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
             <Opcao ativo={form.modo === 'FIXO'} titulo="Horários fixos" texto="O buffet cadastra os horários" disabled={bloqueado} onClick={() => setForm({ ...form, modo: 'FIXO' })} />
             <Opcao ativo={form.modo === 'LIVRE'} titulo="Horário livre" texto="O cliente escolhe a hora de início" disabled={bloqueado} onClick={() => setForm({ ...form, modo: 'LIVRE' })} />
           </div>
-          {form.modo === 'LIVRE' && <p className={css.fraco} data-aviso-modo-livre>Qualquer hora de início é aceita. O sistema confere o limite do dia, o intervalo entre festas e a capacidade.{form.capacidadeTipo === 'POR_HORARIO' ? ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda: um horário livre que se sobreponha a elas fica indisponível, mesmo com capacidade sobrando.' : ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda.'}</p>}
+          {form.modo === 'LIVRE' && <p className={css.fraco} data-aviso-modo-livre>Qualquer hora de início é aceita. O sistema confere o limite do dia, o intervalo entre festas e a capacidade.{form.capacidadeTipo === 'POR_HORARIO' ? ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda: um horário livre que se sobreponha a elas fica indisponível.' : ' Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda.'}</p>}
         </section>
 
         <section className={ws.card} aria-labelledby="agenda-capacidade">
-          <h2 id="agenda-capacidade">2. Capacidade</h2>
-          <div className={css.opcoes}>
-            <Opcao ativo={form.capacidadeTipo === 'POR_HORARIO'} titulo="Por horário" texto="Número de festas ao mesmo tempo" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_HORARIO' })} />
-            <Opcao ativo={form.capacidadeTipo === 'POR_SALAO'} titulo="Por salão" texto="Uma festa por salão por vez" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_SALAO' })} />
-          </div>
+          <h2 id="agenda-capacidade">2. Salões e limites</h2>
+          {/* Decisão de Felipe (25/10/2026): a escolha de "mais de um salão" só aparece para quem já está nela, até ser liberada. */}
+          {AGENDA_MAIS_DE_UM_SALAO_LIBERADA || config?.capacidadeTipo === 'POR_SALAO'
+            ? <div className={css.opcoes}>
+              {/* Parecer do Astra (25/10/2026, P2): voltar de por salão para um salão fica bloqueado por ora (servidor recusa). */}
+              <Opcao ativo={form.capacidadeTipo === 'POR_HORARIO'} titulo="Um salão" texto="Uma festa por horário" disabled={bloqueado || config?.capacidadeTipo === 'POR_SALAO'} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_HORARIO' })} />
+              <Opcao ativo={form.capacidadeTipo === 'POR_SALAO'} titulo="Mais de um salão" texto="Uma festa por salão por vez" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_SALAO' })} />
+              {config?.capacidadeTipo === 'POR_SALAO' && <p className={css.fraco} data-volta-um-salao-bloqueada>{AVISO_VOLTA_UM_SALAO}</p>}
+            </div>
+            : <p className={`${css.fraco} ${css.umSalao}`} data-agenda-um-salao>Agenda com um salão: cada horário recebe uma festa por vez.</p>}
           <div className={css.campos}>
             <label>Limite de festas por dia
               <input inputMode="numeric" placeholder="Sem limite" value={form.limite} disabled={bloqueado} onChange={(e) => setForm({ ...form, limite: e.target.value })} />
@@ -309,7 +315,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
           {form.horarios.length > 0 && <div className={css.lista} role="table" aria-label="Horários de festa">
             <div className={`${css.linhaHorario} ${css.cabecalho} ${css.cabecalhoHorario}`} role="row">
               <span role="columnheader">Nome</span><span role="columnheader">Início</span><span role="columnheader">Fim</span><span role="columnheader">Dias</span>
-              <span role="columnheader">{form.capacidadeTipo === 'POR_SALAO' ? 'Salões' : 'Festas ao mesmo tempo'}</span><span />
+              <span role="columnheader">{form.capacidadeTipo === 'POR_SALAO' ? 'Salões' : 'Festas'}</span><span />
             </div>
             {form.horarios.map((h, i) => {
               const trava = travado(h);
@@ -326,7 +332,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
                   <DiasChips dias={h.dias} rotulo={h.nome} disabled={bloqueado || trava} onChange={(dias) => alterarHorario(i, { dias })} />
                   {form.capacidadeTipo === 'POR_SALAO'
                     ? <SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} disabled={bloqueado} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} />
-                    : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><span className={css.rotuloEstreito} aria-hidden="true">Festas ao mesmo tempo</span><input inputMode="numeric" value={h.capacidade} disabled={bloqueado} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
+                    : <span className={css.fraco} data-uma-festa-por-horario>1 festa por vez</span>}
                   {!leitura && !(futuras && futuras.quantidade > 0)
                     ? <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} disabled={bloqueado} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
                     : <span />}

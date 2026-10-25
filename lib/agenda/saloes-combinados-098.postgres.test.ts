@@ -679,7 +679,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
       saloes: [nomeA, "Salão B", "Salão C", ...(existentes.length ? ["Salão inteiro"] : [])] }],
   });
   await a.query("BEGIN");
-  await salvarAgendaEscopo(executor(a), entrada("Salão A"), ctx, "CONFIGURACOES");
+  await salvarAgendaEscopo(executor(a), entrada("Salão A"), ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
   await a.query("COMMIT");
   const ids = (await a.query<{ id: string; nome: string }>(`SELECT id::text, nome FROM agenda_saloes WHERE empresa_id = $1::uuid ORDER BY nome`, [c.empresa])).rows;
   const [A, B] = [ids[0]!.id, ids[1]!.id];
@@ -702,7 +702,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
     const salvar = (async () => {
       await d.query("BEGIN");
       try {
-        await salvarAgendaEscopo(executor(d), entrada("Salão A renomeado"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES");
+        await salvarAgendaEscopo(executor(d), entrada("Salão A renomeado"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
         await d.query("COMMIT");
         return "ok";
       } catch (e) {
@@ -716,7 +716,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
     // 2) Cadastro primeiro (todos os salões do escopo FOR NO KEY UPDATE, por id): a reserva espera no COMMIT e passa
     //    depois, sem deadlock.
     await d.query("BEGIN");
-    await salvarAgendaEscopo(executor(d), entrada("Salão A"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES");
+    await salvarAgendaEscopo(executor(d), entrada("Salão A"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
     const reservar = (async () => {
       await b.query("BEGIN");
       try {
@@ -739,7 +739,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
   try {
     const semA: SalvarAgenda = { ...entrada("Salão A"), saloes: [{ id: existentes[1], nome: "Salão B", capacidadeConvidados: null }, { id: existentes[2], nome: "Salão C", capacidadeConvidados: null }],
       horarios: [{ id: horario.id, nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 2, saloes: ["Salão B", "Salão C"] }] };
-    await recusa(salvarAgendaEscopo(executor(a), semA, ctx, "CONFIGURACOES"), /Não dá para desativar Salão A: há 2 festa\(s\) de hoje em diante/);
+    await recusa(salvarAgendaEscopo(executor(a), semA, ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true }), /Não dá para desativar Salão A: há 2 festa\(s\) de hoje em diante/);
   } finally {
     await a.query("ROLLBACK");
   }

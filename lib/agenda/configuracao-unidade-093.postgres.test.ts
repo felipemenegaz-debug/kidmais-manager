@@ -26,6 +26,8 @@ import {
  */
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const arquivo = (p: string) => readFileSync(resolve(root, p), "utf8");
+// Decisão de 25/10/2026: a agenda por salão está escondida; esta prova a exercita liberando-a só aqui.
+const PROVA_POR_SALAO = { maisDeUmSalaoLiberada: true };
 
 let client: Client;
 let tx: DbExecutor;
@@ -127,7 +129,7 @@ test("assistente: cria horários próprios, copia as regras dos herdados, liga s
       { nome: "Manhã", inicio: "08:00", fim: "10:30", dias: [6, 7], capacidade: 1, saloes: ["Salão Kids"] },
     ],
   };
-  const agenda = await emTransacao(() => salvarAgendaEscopo(tx, entrada, ctx(), "ASSISTENTE"));
+  const agenda = await emTransacao(() => salvarAgendaEscopo(tx, entrada, ctx(), "ASSISTENTE", PROVA_POR_SALAO));
   assert.equal(agenda.config?.capacidadeTipo, "POR_SALAO");
   assert.equal(agenda.config?.configuradoPor, "Ana 093");
   assert.deepEqual(agenda.horarios.map((h) => [h.codigo, h.herdado, h.dias.join("")]), [["TURNO_1", false, "567"], ["TURNO_2", false, "123456"], ["HORARIO_3", false, "67"]]);
@@ -150,7 +152,7 @@ test("assistente: cria horários próprios, copia as regras dos herdados, liga s
   // A outra empresa continua com os turnos globais.
   assert.deepEqual((await listarConfiguracoesAgendaAtivas(tx, { empresaId: B, estabelecimentoId: null })).map((c) => c.codigo), ["TURNO_1", "TURNO_2"]);
   // O assistente não reconfigura uma unidade já configurada.
-  await recusa(emTransacao(() => salvarAgendaEscopo(tx, entrada, ctx(), "ASSISTENTE")), /já foi configurada/);
+  await recusa(emTransacao(() => salvarAgendaEscopo(tx, entrada, ctx(), "ASSISTENTE", PROVA_POR_SALAO)), /já foi configurada/);
 });
 
 test("desativar a partir de uma data: some do cálculo na data; cancelável antes; passado recusado", async () => {

@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as modeloPreco from '../../lib/comercial/modelo-preco.ts';
+import * as liberacao from '../../lib/agenda/saloes-liberacao.ts';
 import { achar, carregarComponente, cssFalso, texto } from './teste-componente.ts';
 
 /** Validação no navegador de 22/10/2026 (P3): numeração do assistente no horário livre e confirmação sem limites. */
 test('assistente: no horário livre são 5 passos, sem salto (3 → 4 → 5); horários fixos seguem 6', () => {
   const m = carregarComponente('components/admin/AssistenteAgenda.tsx', {
     '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({}) }, './AdminPrimaryButton': { AdminPrimaryButton: 'button' },
-    './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso,
+    '@/lib/agenda/saloes-liberacao': liberacao, './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso,
   }).modulo as { numeracaoAssistente: (p: number, m: string) => { passoVisivel: number; totalVisivel: number } };
   assert.deepEqual([3, 5, 6].map((p) => m.numeracaoAssistente(p, 'LIVRE')), [
     { passoVisivel: 3, totalVisivel: 5 }, { passoVisivel: 4, totalVisivel: 5 }, { passoVisivel: 5, totalVisivel: 5 }]);
@@ -46,7 +47,8 @@ test('configuração da agenda: o aviso do horário livre explica que festas nos
   const aviso = fonte.slice(fonte.indexOf('data-aviso-modo-livre'), fonte.indexOf('</p>', fonte.indexOf('data-aviso-modo-livre')));
   assert.doesNotMatch(aviso, /só confere/);
   assert.match(aviso, /form\.capacidadeTipo === 'POR_HORARIO'/);
-  assert.match(aviso, /Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda: um horário livre que se sobreponha a elas fica indisponível, mesmo com capacidade sobrando\./);
+  // Com um salão a capacidade é sempre 1 (decisão de Felipe, 25/10): "mesmo com capacidade sobrando" deixou de fazer sentido.
+  assert.match(aviso, /Festas já marcadas nos horários fixos anteriores continuam ocupando a agenda: um horário livre que se sobreponha a elas fica indisponível\.'/);
 });
 
 // Decisão de Felipe (23/10, P3 do Astra): o bloqueio de todos os salões pela festa sem salão continua e é explicado.

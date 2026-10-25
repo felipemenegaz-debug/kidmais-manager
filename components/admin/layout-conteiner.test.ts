@@ -38,10 +38,7 @@ test('Configurações › Agenda e assistente: a lista é contêiner; seis colun
   assert.match(linhas, /\.linhaHorario \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(linhas, /\.linhaHorario > :first-child \{ grid-column:1 \/ -1; \}/, 'o nome ocupa a linha toda');
   assert.match(linhas, /\.cabecalhoHorario \{ display:none !important; \}/);
-  // Sem cabeçalho, a capacidade ganha rótulo visível — em elemento aria-hidden, nunca por conteúdo gerado em CSS, para o
-  // nome acessível continuar sendo só o texto srOnly (parecer do Astra, 24/10).
-  assert.match(linhas, /\.rotuloEstreito \{ display:block;/);
-  assert.match(agenda, /^\.rotuloEstreito \{ display:none; \}$/m, 'fora do arranjo estreito o rótulo extra não aparece');
+  // Nada de conteúdo gerado em CSS: duplicava o nome acessível (parecer do Astra, 24/10).
   assert.doesNotMatch(agenda, /::before|[{;\s]content:\s*"/);
   const cartao = bloco(agenda, '@container agenda-lista (max-width: 480px) {');
   assert.match(cartao, /\.cartaoHorario \{ grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\) 44px;/);
@@ -52,5 +49,6 @@ test('Configurações › Agenda e assistente: a lista é contêiner; seis colun
   const tela = readFileSync('components/admin/AgendaConfiguracao.tsx', 'utf8');
   assert.match(tela, /<div className=\{css\.lista\} role="table" aria-label="Horários de festa">/);
   assert.match(tela, /<div className=\{`\$\{css\.linhaHorario\} \$\{css\.cabecalho\} \$\{css\.cabecalhoHorario\}`\} role="row">/);
-  assert.match(tela, /<span className=\{ws\.srOnly\}>Festas ao mesmo tempo em \{h\.nome \|\| 'este horário'\}<\/span><span className=\{css\.rotuloEstreito\} aria-hidden="true">Festas ao mesmo tempo<\/span><input inputMode="numeric"/);
+  // Com um salão a capacidade não é editável (decisão de Felipe, 25/10): o texto da célula se explica sem o cabeçalho.
+  assert.match(tela, /<span className=\{css\.fraco\} data-uma-festa-por-horario>1 festa por vez<\/span>/);
 });

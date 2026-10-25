@@ -162,6 +162,9 @@ const approvedFiles = [
   '20261023_098_saloes_combinados.sql',
   // 099: convites avulsos; schema deve preceder o código, sem backfill nem alteração de créditos.
   '20261024_099_convites_avulsos.sql',
+  // 100: agenda com um salão — uma festa por vez no horário POR_HORARIO, qualquer que seja a capacidade gravada (decisão
+  // de Felipe e parecer do Astra, 25/10/2026). Troca só o corpo de kidmais094_conflito_ocupacao; exige o corpo da 094.
+  '20261025_100_agenda_um_salao.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -190,7 +193,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -238,7 +241,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {
