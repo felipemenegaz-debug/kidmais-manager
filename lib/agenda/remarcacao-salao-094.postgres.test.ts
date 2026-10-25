@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
@@ -20,6 +23,12 @@ import {
  */
 let a: Client;
 type Operar = Parameters<typeof congelarEAssinarKidmais>[1];
+/**
+ * Ressalva do Astra (aplicador da 100, 25/10/2026, P3): o inventário de pares da 100 com uma remarcação REAL (origem +
+ * hold do destino pelos serviços). Só leitura; não depende da 100 aplicada. Medido por diferença (outras suítes/casos).
+ */
+const { SQL_INVENTARIO } = createRequire(import.meta.url)(join(resolve(dirname(fileURLToPath(import.meta.url)), "../.."), "scripts/migration-100-comum.cjs")) as { SQL_INVENTARIO: string };
+const paresDoInventario = async () => (await a.query<{ pares_mesmo_horario: number }>(SQL_INVENTARIO)).rows[0].pares_mesmo_horario;
 
 const ctxOp = () => ({ requestId: randomUUID(), ip: null, userAgent: "gate-094" });
 const HORA = { inicio: "10:00", fim: "22:00" };
@@ -207,11 +216,14 @@ test("P2-2 deduplicação origem × hold: A conta uma vez — capacidade 2 aceit
   try {
     // Capacidade 2 no horário.
     const D3 = dia(72);
+    const antesDeA = await paresDoInventario();
     const h = await cenarioComHold(D3, async (c, turno) => {
       await configurar(a, c, "POR_HORARIO");
       await a.query(`UPDATE configuracao_agenda SET capacidade = 2 WHERE id = $1::uuid`, [turno]);
     });
+    assert.equal(await paresDoInventario(), antesDeA, "inventário da 100: origem e hold da MESMA festa não formam par");
     await confirmadaComCommit(b, h.c, h.turno, D3);
+    assert.equal(await paresDoInventario(), antesDeA + 1, "inventário da 100: B contra A (origem + hold) é UM par, sem duplicar");
     await recusa(confirmadaComCommit(b, h.c, h.turno, D3), /Conflito/);
     // Limite diário 2 (capacidade folgada no horário).
     const D4 = dia(73);
@@ -221,6 +233,29 @@ test("P2-2 deduplicação origem × hold: A conta uma vez — capacidade 2 aceit
     });
     await confirmadaComCommit(b, l.c, l.turno, D4);
     await recusa(confirmadaComCommit(b, l.c, l.turno, D4), /Conflito/);
+    // Inventário da 100 com conflito SÓ com o destino: A remarcada de D6 para D7 (hold em D7), B confirmada em D7.
+    const D6 = dia(75), D7 = dia(76);
+    const antesDoDestino = await paresDoInventario();
+    const r = await comCommit(async () => {
+      const c = await cenario(a, 0);
+      const nativo = await catalogoNativo(a, c);
+      const A = await contratada(c, nativo, D6);
+      const cfgA = (await a.query<{ c: string }>(`SELECT configuracao_agenda_id::text c FROM fechamentos WHERE id = $1`, [A.festa])).rows[0].c;
+      // A remarcação para outra data vem ANTES da configuração por empresa (o horário do cenário é o global, que a agenda
+      // configurada deixaria de oferecer para um destino novo); depois, um salão com capacidade 2 no horário.
+      const ra = await A.abrir("Remarcação para outro dia");
+      await ra.editar(D7, "Fundo do mar", cfgA);
+      assert.ok((await ra.preparacao()).hold, "hold do destino adquirido em D7");
+      await configurar(a, c, "POR_HORARIO");
+      await a.query(`UPDATE configuracao_agenda SET capacidade = 2 WHERE id = $1::uuid`, [cfgA]);
+      await validarAgora(a);
+      const datas = (await a.query<{ d: string }>(`SELECT data::text d FROM kidmais094_ocupacoes($1::date, $2::date) WHERE fechamento_id = $3::uuid ORDER BY 1`, [D6, D7, A.festa])).rows;
+      assert.deepEqual(datas.map((x) => x.d), [D6, D7], "origem em D6 e destino em D7");
+      return { c, turno: cfgA };
+    });
+    assert.equal(await paresDoInventario(), antesDoDestino, "A sozinha (origem e destino em dias diferentes): nenhum par");
+    await confirmadaComCommit(b, r.c, r.turno, D7);
+    assert.equal(await paresDoInventario(), antesDoDestino + 1, "B em D7 conflita só com o DESTINO de A: um par");
     for (const [c, data] of [[h.c, D3], [l.c, D4]] as const) {
       assert.equal((await b.query(`SELECT count(*)::int n FROM fechamentos WHERE empresa_id = $1::uuid AND data_evento = $2::date AND status = 'CONFIRMADO'`, [c.empresa, data])).rows[0].n, 2, "A + B");
     }
