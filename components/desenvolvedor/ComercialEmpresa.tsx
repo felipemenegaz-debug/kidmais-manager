@@ -3,6 +3,8 @@ import { useState } from 'react';
 import workspace from '@/components/admin/workspace.module.css';
 import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData, rotuloAcao, textoResultadoArrependimento, type Resposta } from './cliente';
+import { dataHoraBrasilia } from '@/lib/assinatura/textos-fundador';
+import type { BeneficioFundadorDesenvolvedor } from '@/lib/assinatura/beneficio-fundador';
 
 /** Situação comercial na ficha da empresa (E5). Intervenções exigem motivo, prazo e senha (reautenticação no servidor). */
 export type Comercial = {
@@ -14,6 +16,8 @@ export type Comercial = {
     continuidades?: { id: string; tipo: TipoContinuidade; situacao: string; documentoAnterior: string | null; documentoNovo: string | null; nomeNovo: string; instrumento: string;
         dataEfetiva: string; registradaEm: string; registradaPor: string | null; provedorConferidoEm: string | null; provedorNota: string | null }[];
     arrependimentos?: Arrependimento[];
+    /** Situação atual da concessão Fundador (datas persistidas; sem documento nem id do provedor). */
+    fundador?: BeneficioFundadorDesenvolvedor | null;
 };
 type TipoContinuidade = 'RETIFICACAO' | 'MESMA_TITULARIDADE' | 'CESSAO';
 type Arrependimento = { protocolo: string; canal: string; solicitadoEm: string; situacao: 'RECEBIDO' | 'RESTITUIDO' | 'NAO_APLICAVEL'; dentroDe7Dias: boolean | null;
@@ -22,6 +26,7 @@ const CONTINUIDADE: Record<TipoContinuidade, string> = { RETIFICACAO: 'Retifica�
 type FormContinuidade = { tipo: TipoContinuidade; documentoNovo: string; nomeNovo: string; instrumento: string; evidencias: string; dataEfetiva: string; motivo: string };
 const SITUACAO: Record<string, string> = { TESTE: 'Teste grátis', ATIVA: 'Assinatura ativa', EM_ATRASO: 'Pagamento pendente', CANCELADA_FIM_PERIODO: 'Cancelada no fim do período', ENCERRADA: 'Encerrada' };
 const NIVEL: Record<string, string> = { COMPLETO: 'Completo', SOMENTE_LEITURA: 'Somente leitura', BLOQUEADO: 'Bloqueado' };
+const BENEFICIO: Record<BeneficioFundadorDesenvolvedor['situacao'], string> = { RESERVADA: 'Reservada (ainda não confirmada)', CONFIRMADA_VIGENTE: 'Confirmada · vigente', ENCERRADA: 'Encerrada por prazo' };
 const EXCECAO: Record<string, string> = { EXTENSAO_TESTE: 'Extensão de teste', CORTESIA: 'Cortesia', ACESSO_TEMPORARIO: 'Acesso temporário' };
 export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'situacao' | 'nivel'>) {
     if (!c.instalado || !c.cobrado) return 'Sem cobrança';
@@ -114,6 +119,15 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                         <div className={estilos.acoesLinha}><button type="submit" disabled={ocupado}>Confirmar</button><button type="button" onClick={() => setForm(null)}>Cancelar</button></div>
                     </form>}
                 </>}
+        {c.fundador && <>
+            <h3>Fundador</h3>
+            <p data-fundador-desenvolvedor={c.fundador.situacao}><strong>{BENEFICIO[c.fundador.situacao]}</strong>
+                {c.fundador.vaga !== null ? ` · vaga ${c.fundador.vaga}` : ''}{c.fundador.origem ? ` · ${c.fundador.origem}` : ''}
+                {' · reservada em '}{dataHoraBrasilia(c.fundador.reservadaEm) ?? '—'}
+                {c.fundador.confirmadaEm && ` · confirmada em ${dataHoraBrasilia(c.fundador.confirmadaEm) ?? '—'}`}
+                {c.fundador.beneficioFim && ` · benefício até ${dataHoraBrasilia(c.fundador.beneficioFim) ?? '—'}`}
+                {' (horário de Brasília)'}{c.fundador.contratacaoId ? ` · oferta ${c.fundador.contratacaoId}` : ' · sem oferta vinculada'}</p>
+        </>}
         {c.excecoes.length > 0 && <>
             <h3>Exceções</h3>
             <ul className={estilos.lista} aria-label="Exceções comerciais">

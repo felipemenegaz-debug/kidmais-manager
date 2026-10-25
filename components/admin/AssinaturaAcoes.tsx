@@ -9,7 +9,8 @@ import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
 import { ArrependimentoLegal } from './ArrependimentoLegal';
-import { AVISO_VAGAS_EM_CONFIRMACAO, REGRA_RESERVA, regraReservaDaFase, SINTESE_SEM_FUNDADOR, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
+import { AVISO_VAGAS_EM_CONFIRMACAO, REGRA_RESERVA, regraReservaDaFase, SINTESE_SEM_FUNDADOR, textoPagueAte, textoReservaVencida,
+    NOTA_COMPROVANTE_BENEFICIO, textoBeneficioFundador } from '@/lib/assinatura/textos-fundador';
 import { linhaContratante } from '@/lib/assinatura/comprovante-texto';
 
 /**
@@ -110,6 +111,10 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         {erro && <p role="alert">{erro}</p>}
         {aviso && <p role="status">{aviso}</p>}
         {dados.ofertas?.planoAtual && <p>Plano contratado: {dados.ofertas.planoAtual}.</p>}
+        {dados.gestao && dados.fundador && textoBeneficioFundador(dados.fundador) && <div role="status" data-beneficio-fundador={dados.fundador.situacao}>
+            <p>{textoBeneficioFundador(dados.fundador)}</p>
+            <p className={workspace.muted}>{NOTA_COMPROVANTE_BENEFICIO}</p>
+        </div>}
         {dados.gestao && dados.renovacao && dados.renovacao.estado !== 'CANCELADA' && <div role="status" data-aviso-renovacao>
             {dados.renovacao.estado === 'REVISAO'
                 ? <p>A renovação após o Fundador precisa de revisão pelo atendimento. Confira a situação antes de pagar uma nova cobrança.</p>

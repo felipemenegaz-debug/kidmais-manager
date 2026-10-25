@@ -48,3 +48,27 @@ export const textoReservaVencida = (dia: string) => `A condição Fundador reser
 
 export const PAGAMENTO_TARDIO = 'Pagamento recebido depois da validade da condição Fundador: a contratação fica em análise pelo atendimento, '
     + 'sem cobrança complementar automática. Se ela não puder ser efetivada, oferecemos uma solução, inclusive a devolução quando cabível.';
+
+/**
+ * Situação atual do benefício (diagnóstico de 25/10/2026), separada do comprovante do aceite. As datas são as persistidas
+ * (fim calculado em UTC pelo banco); aqui só se apresenta em horário de Brasília, sem recalcular. Reserva nunca é
+ * apresentada como benefício confirmado.
+ */
+export const NOTA_COMPROVANTE_BENEFICIO = 'O comprovante registra as condições aceitas na contratação; esta é a situação atual do benefício.';
+export function dataHoraBrasilia(iso: string) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const p = Object.fromEntries(new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        hourCycle: 'h23', timeZone: 'America/Sao_Paulo' }).formatToParts(d).map((x) => [x.type, x.value]));
+    return `${p.day}/${p.month}/${p.year} às ${p.hour}:${p.minute}`;
+}
+export type BeneficioTexto = { situacao: 'RESERVADA' | 'CONFIRMADA_VIGENTE' | 'ENCERRADA'; confirmadaEm: string | null; beneficioFim: string | null };
+export function textoBeneficioFundador(b: BeneficioTexto): string | null {
+    if (b.situacao === 'RESERVADA')
+        return 'Condição Fundador reservada, ainda não confirmada: o benefício de 12 meses começa com a confirmação do primeiro pagamento.';
+    const inicio = b.confirmadaEm ? dataHoraBrasilia(b.confirmadaEm) : null, fim = b.beneficioFim ? dataHoraBrasilia(b.beneficioFim) : null;
+    if (!inicio || !fim) return null;
+    return b.situacao === 'CONFIRMADA_VIGENTE'
+        ? `Condição Fundador confirmada em ${inicio}. Benefício de 12 meses vigente até ${fim} (horário de Brasília).`
+        : `Condição Fundador encerrada: o benefício de 12 meses, confirmado em ${inicio}, terminou em ${fim} (horário de Brasília).`;
+}

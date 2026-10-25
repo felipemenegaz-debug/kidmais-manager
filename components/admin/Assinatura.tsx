@@ -11,6 +11,7 @@ import type { consultarOfertas } from '@/lib/assinatura/ofertas';
 import type { consultarRenovacao } from '@/lib/assinatura/renovacao-repositorio';
 import type { consultarVagas } from '@/lib/assinatura/limites-usuarios';
 import type { sinteseContratacao } from '@/lib/assinatura/comprovante';
+import type { BeneficioFundador } from '@/lib/assinatura/beneficio-fundador';
 
 export type DadosAssinatura = {
     vagas?: Awaited<ReturnType<typeof consultarVagas>>;
@@ -18,6 +19,8 @@ export type DadosAssinatura = {
     ofertas?: Awaited<ReturnType<typeof consultarOfertas>>;
     /** Síntese e comprovante (grupo B, 096): só para a Gestão; null para a Equipe ou sem assinatura. */
     contratacao?: Awaited<ReturnType<typeof sinteseContratacao>> | null;
+    /** Situação atual do benefício Fundador (só Gestão), separada do comprovante; ausente sem a 074a. */
+    fundador?: BeneficioFundador | null;
     instalado: boolean; cobrado: boolean; gestao: boolean; agora: string;
     acesso: { nivel: 'COMPLETO' | 'SOMENTE_LEITURA' | 'BLOQUEADO'; motivo: string; ate: string | null };
     assinatura: { situacao: string; ciclo: 'MENSAL' | 'ANUAL' | null; testeInicio: string; testeFim: string; periodoAtualFim: string | null; emAtrasoDesde: string | null; encerradaEm: string | null } | null;
