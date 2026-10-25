@@ -213,3 +213,15 @@ A cópia terminou limpa e o cluster foi encerrado e removido.
 **Reprodução do Astra rodada de novo depois da correção:** saída com código 1, `AssertionError` em `pendente.fundador === true` (recebe `false`). Ela falha por exigir a presença do defeito.
 
 **Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/fundador-venda-sem-trava-20261024/`, nas pastas `rodada3`, `rodada3b`, `mutantes-r2-copia-isolada` e `reproducao-astra-pos-correcao`, junto com os roteiros.
+
+### Revisão do Astra do delta 31c5704d..331ae3c8: APROVADO COM RESSALVAS (25/10/2026)
+
+- **Achados:** P2-R1 e P3-T1 fechados; nenhum P1/P2/P3 novo.
+- **Verificação própria do Astra:**
+  - unitários e render: 33/33;
+  - reprodução anterior falhando em `pendente.fundador === true`;
+  - prova da consulta real até o render;
+  - PG descartável `campanha-090` 11/11 e `comprovante-096` 8/8, sem skips;
+  - ESLint, TypeScript, sintaxe dos roteiros e `diff --check`.
+- **Ressalva (preexistente):** o executor de `scripts/concorrencia-vagas-isolado.cjs` (linha 105) fixa o inventário na migration 079, e o inventário já avançou. O Astra reproduziu 10/11 com `INVENTARIO_MUDOU` no HEAD e numa cópia LF de `31c5704d`. Antes de reutilizar o roteiro, é preciso revisar o pacote, o inventário e o checksum e validar o roteiro; não basta ignorar a guarda.
+- **Escopo:** apto para composição e CI quando autorizado. Não é homologação de staging.
