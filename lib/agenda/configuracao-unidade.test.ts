@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DbExecutor } from "../db/contracts.ts";
 import { horarioValeNaData } from "../disponibilidade/services/availability.service.ts";
-import { salvarAgendaEscopo, type SalvarAgenda } from "./configuracao-unidade.ts";
+import { exigirTipoDeAgendaLiberado, salvarAgendaEscopo, type SalvarAgenda } from "./configuracao-unidade.ts";
+import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA } from "./saloes-liberacao.ts";
 
 // 093 (etapa 2a): dias da semana, desativação datada e validação antes de qualquer escrita.
 test("o horário vale só nos dias dele e até a véspera da desativação", () => {
@@ -28,6 +29,8 @@ test("entrada inválida é recusada antes de consultar o banco", async () => {
     [{ horarios: [{ ...base.horarios[0], inicio: "19:00", fim: "15:00" }] }, /depois do início/],
     [{ horarios: [{ ...base.horarios[0], dias: [] }] }, /dias do horário/],
     [{ horarios: [{ ...base.horarios[0], capacidade: 0 }] }, /1 a 20 festas/],
+    // Decisão de Felipe (25/10/2026): com um salão, nunca duas festas no mesmo horário.
+    [{ horarios: [{ ...base.horarios[0], capacidade: 2 }] }, /uma festa por vez/],
     [{ capacidadeTipo: "POR_SALAO" }, /pelo menos um salão/],
     [{ capacidadeTipo: "POR_SALAO", saloes: [{ nome: "Kids", capacidadeConvidados: null }] }, /salões do horário Tarde/],
     [{ saloes: [{ nome: "Kids", capacidadeConvidados: null }, { nome: "kids ", capacidadeConvidados: null }] }, /nome diferente/],
@@ -39,6 +42,15 @@ test("entrada inválida é recusada antes de consultar o banco", async () => {
   }
   // No modo livre não é preciso cadastrar horário fixo.
   await assert.rejects(salvarAgendaEscopo(semBanco, { ...base, modo: "LIVRE", horarios: [] }, ctx, "CONFIGURACOES"), /banco não deveria/);
+});
+
+test("agenda com mais de um salão: só quem já está nela continua, até ser liberada", () => {
+  assert.equal(AGENDA_MAIS_DE_UM_SALAO_LIBERADA, false);
+  assert.throws(() => exigirTipoDeAgendaLiberado("POR_SALAO", null), /ainda não está disponível/, "primeira configuração");
+  assert.throws(() => exigirTipoDeAgendaLiberado("POR_SALAO", "POR_HORARIO"), /ainda não está disponível/, "troca de um salão para vários");
+  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado("POR_SALAO", "POR_SALAO"), "quem já está por salão segue editando");
+  assert.throws(() => exigirTipoDeAgendaLiberado("POR_HORARIO", "POR_SALAO"), /ainda não está disponível pela tela/, "voltar a um salão fica bloqueado por ora");
+  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado("POR_SALAO", "POR_HORARIO", true), "quando liberada, qualquer um escolhe");
 });
 
 // 094 (etapa 2b): o cálculo dos candidatos espelha kidmais094_conflito_ocupacao.

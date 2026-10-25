@@ -6,6 +6,8 @@ import { listarConfiguracoesAgendaAtivas } from "../disponibilidade/repositories
 import { linhaDoTempo, type Trecho } from "./vigencias.ts";
 import { combinadosInstalados } from "./salao-festa.ts";
 import { membrosCanonicos } from "./saloes-conjuntos.ts";
+import { pacoteSemSalaoNaAgendaPorSalao, SALAO_DE_AGENDA_POR_SALAO } from "./salao-do-pacote.ts";
+import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE, AVISO_SALAO_DO_PACOTE, AVISO_SALAO_DO_PACOTE_ORIGEM, AVISO_UM_SALAO, AVISO_VOLTA_UM_SALAO } from "./saloes-liberacao.ts";
 
 /**
  * Configuração da agenda por unidade (093, etapa 2a das decisões de Felipe em 22/10/2026).
@@ -317,6 +319,17 @@ export async function escopoJaConfigurado(db: DbExecutor, empresaId: string, est
   return r.rows[0]?.ok === true;
 }
 
+/**
+ * Decisão de Felipe (25/10/2026): só quem já está por salão continua nele até a agenda com mais de um salão ser liberada.
+ * Parecer do Astra (25/10/2026, P2): voltar de "por salão" para "um salão" fica bloqueado por ora — as reservas não
+ * compartilham a trava da configuração, e duas festas em salões distintos num dia ainda vazio poderiam entrar entre a
+ * conferência e a troca. Volta só quando houver um protocolo comum entre a troca e as reservas.
+ */
+export function exigirTipoDeAgendaLiberado(pedido: CapacidadeTipo, atual: CapacidadeTipo | null, liberada = AGENDA_MAIS_DE_UM_SALAO_LIBERADA) {
+  if (pedido === "POR_SALAO" && !liberada && atual !== "POR_SALAO") recusar("DADOS_INVALIDOS", AVISO_MAIS_DE_UM_SALAO_EM_BREVE);
+  if (atual === "POR_SALAO" && pedido === "POR_HORARIO") recusar("DADOS_INVALIDOS", AVISO_VOLTA_UM_SALAO);
+}
+
 function validarEntrada(input: SalvarAgenda) {
   if (input.limiteFestasDia != null && (!Number.isInteger(input.limiteFestasDia) || input.limiteFestasDia < 1 || input.limiteFestasDia > 50)) {
     recusar("DADOS_INVALIDOS", "Informe um limite de festas por dia entre 1 e 50.");
@@ -339,6 +352,7 @@ function validarEntrada(input: SalvarAgenda) {
     }
     if (h.dias.length === 0 || h.dias.some((d) => !TODOS_OS_DIAS.includes(d))) recusar("DADOS_INVALIDOS", `Escolha os dias do horário ${h.nome}.`);
     if (!Number.isInteger(h.capacidade) || h.capacidade < 1 || h.capacidade > 20) recusar("DADOS_INVALIDOS", "Informe de 1 a 20 festas ao mesmo tempo.");
+    if (input.capacidadeTipo === "POR_HORARIO" && h.capacidade !== 1) recusar("DADOS_INVALIDOS", AVISO_UM_SALAO);
     if (input.capacidadeTipo === "POR_SALAO" && h.saloes.length === 0) recusar("DADOS_INVALIDOS", `Escolha os salões do horário ${h.nome}.`);
   }
 }
@@ -478,9 +492,11 @@ async function garantirHorarioLivre(tx: DbExecutor, empresaId: string, estabelec
 /**
  * Grava a configuração do escopo inteiro (assistente ou tela). Horários com festas futuras não mudam início, fim nem
  * dias (decisão de Felipe: bloquear, avisar e oferecer "desativar a partir de"). Troca de modo/capacidade é
- * permitida: as festas já marcadas ficam como estão.
+ * permitida: as festas já marcadas ficam como estão — exceto voltar de "por salão" para "um salão", bloqueada por ora.
+ * `maisDeUmSalaoLiberada` só existe para as provas da agenda por salão (093/098); a rota usa a constante.
  */
-export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ctx: Contexto, origem: "ASSISTENTE" | "CONFIGURACOES") {
+export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ctx: Contexto, origem: "ASSISTENTE" | "CONFIGURACOES",
+  opcoes: { maisDeUmSalaoLiberada?: boolean } = {}) {
   validarEntrada(input);
   await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
   await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
@@ -492,6 +508,7 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
   const repetido = input.saloes.find((s) => nomesCombinados.has(s.nome.trim().toLocaleLowerCase("pt-BR")));
   if (repetido) recusar("DADOS_INVALIDOS", `Já existe um salão combinado chamado ${repetido.nome.trim()}. Dê outro nome ao salão.`);
   if (origem === "ASSISTENTE" && antes.config) recusar("AGENDA_JA_CONFIGURADA", "A agenda desta unidade já foi configurada. Altere em Configurações › Agenda.");
+  exigirTipoDeAgendaLiberado(input.capacidadeTipo, antes.config?.capacidadeTipo ?? null, opcoes.maisDeUmSalaoLiberada ?? AGENDA_MAIS_DE_UM_SALAO_LIBERADA);
 
   // Configuração do escopo.
   if (antes.config) {
@@ -768,15 +785,25 @@ export async function desativarSalao(tx: DbExecutor, ctx: Contexto, salaoId: str
 
 /** Salões permitidos do pacote (vazio = todos). */
 export async function definirSaloesPacote(tx: DbExecutor, empresaId: string, pacoteId: string, saloes: string[] | undefined) {
-  if (saloes === undefined) return;
   const instalada = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.pacote_saloes') IS NOT NULL AS ok`);
   if (!instalada.rows[0]?.ok) return;
+  if (saloes === undefined) {
+    // Parecer do Astra (25/10/2026, P2): campo omitido preserva os salões, mas na agenda por salão o vínculo EFETIVO
+    // precisa existir — duplicar ou alterar um pacote antigo sem salão não pode gerar pacote "em todos os salões".
+    if (await pacoteSemSalaoNaAgendaPorSalao(tx, empresaId, pacoteId)) recusar("DADOS_INVALIDOS", AVISO_SALAO_DO_PACOTE_ORIGEM);
+    return;
+  }
   if (saloes.length > 0) {
     const validos = await tx.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM agenda_saloes WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND ativo`,
       [saloes, empresaId],
     );
     if (Number(validos.rows[0]?.n) !== new Set(saloes).size) recusar("DADOS_INVALIDOS", "Escolha salões desta empresa.");
+  } else {
+    // Pedido de Felipe (25/10/2026): na agenda por salão, o pacote diz em qual salão (ou quais) acontece — sem "todos".
+    // Parecer do Astra (P2): só conta salão de unidade configurada por salão; com um salão, salão cadastrado não obriga.
+    const ativos = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM agenda_saloes s WHERE s.empresa_id = $1::uuid AND s.ativo AND ${SALAO_DE_AGENDA_POR_SALAO}`, [empresaId]);
+    if (Number(ativos.rows[0]?.n) > 0) recusar("DADOS_INVALIDOS", AVISO_SALAO_DO_PACOTE);
   }
   await tx.query(`DELETE FROM pacote_saloes WHERE pacote_id = $1::uuid`, [pacoteId]);
   for (const salao of new Set(saloes)) {
@@ -793,7 +820,7 @@ export async function saloesDaEmpresa(db: DbExecutor, empresaId: string) {
     `SELECT s.id::text AS id, s.nome, e.nome AS unidade${v098 ? `, s.combinado,
             ARRAY(SELECT m.nome FROM agenda_saloes m WHERE m.id = ANY (s.membros) ORDER BY m.ordem, m.nome) AS membros` : ""}
        FROM agenda_saloes s LEFT JOIN estabelecimentos e ON e.id = s.estabelecimento_id
-      WHERE s.empresa_id = $1::uuid AND s.ativo ORDER BY e.nome NULLS FIRST, s.ordem, s.nome`,
+      WHERE s.empresa_id = $1::uuid AND s.ativo AND ${SALAO_DE_AGENDA_POR_SALAO} ORDER BY e.nome NULLS FIRST, s.ordem, s.nome`,
     [empresaId],
   );
   return r.rows.map(({ combinado, membros, ...s }) => (combinado ? { ...s, combinado: true, membros: membros ?? [] } : s));

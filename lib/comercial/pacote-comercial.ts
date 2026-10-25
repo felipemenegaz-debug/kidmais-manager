@@ -131,6 +131,8 @@ export async function salvarPacoteComercial(
         revisao = await inserirRevisaoPacoteAdmin(tx, input.id, dados, contexto);
         pacote = { ...revisao.origem, id: revisao.novaId, nome: input.nome, vigente: false, revisaoAnteriorId: input.id, utilizado: false };
       } else {
+        // Salões informados entram antes da edição: corrigir um pacote antigo sem salão funciona no mesmo salvar.
+        if (input.saloes !== undefined) await definirSaloesPacote(tx, ctx.empresaId, input.id, input.saloes);
         pacote = await editarPacoteNaoUtilizado(tx, input.id, dados, contexto);
       }
     }
@@ -176,7 +178,9 @@ export async function salvarPacoteComercial(
     if (error instanceof ModeloPrecoError) recusar("DADOS_INVALIDOS", error.message, 409);
     throw error;
   }
-  await definirSaloesPacote(tx, ctx.empresaId, pacote.id, input.saloes);
+  // Parecer do Astra (25/10/2026, P2): pacote NOVO sem salões informados (IA, API) conta como nenhum salão escolhido — na
+  // agenda por salão é recusado. Na edição, campo omitido preserva os salões (a revisão os copia em clonarAgregadoPacote).
+  await definirSaloesPacote(tx, ctx.empresaId, pacote.id, input.saloes ?? (input.id ? undefined : []));
   return { pacote, avisoPrecos };
 }
 

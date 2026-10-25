@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { pacotesComPrecoAConfirmar } from "@/lib/comercial/pacote-precos";
-import { escoposDaEmpresa, saloesDaEmpresa } from "@/lib/agenda/configuracao-unidade";
+import { definirSaloesPacote, escoposDaEmpresa, saloesDaEmpresa } from "@/lib/agenda/configuracao-unidade";
 import { listarConfiguracoesAgendaAtivas } from "@/lib/disponibilidade/repositories/disponibilidade.repository";
 import { z } from "zod";
 import { DURACAO_MAXIMA_MINUTOS, DURACAO_MINIMA_MINUTOS } from "@/lib/disponibilidade/services/horario.utils";
@@ -164,7 +164,10 @@ export async function POST(request: NextRequest) {
         motivo: input.motivo,
       };
       if (input.acao === "criar") {
-        return criarPacoteAdmin(tx, { ...input, empresaId: tenant.empresaComprovada }, ctx);
+        const criado = await criarPacoteAdmin(tx, { ...input, empresaId: tenant.empresaComprovada }, ctx);
+        // Mesma regra do salvar (parecer do Astra, 25/10/2026): na agenda por salão, pacote novo sem salão é recusado.
+        await definirSaloesPacote(tx, tenant.empresaComprovada, criado.id, []);
+        return criado;
       }
       if (input.acao === "duplicar") {
         return duplicarPacoteComercial(tx, input.origemId, {

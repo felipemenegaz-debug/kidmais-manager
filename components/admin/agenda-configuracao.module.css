@@ -3,7 +3,9 @@
 .subtitulo { margin:4px 0 0; color:var(--secondary-text); font-size:12px; }
 .unidade { min-width:220px; }
 .fraco { color:var(--secondary-text); font-size:12px; }
+.umSalao { margin:0 0 16px; }
 .opcoes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 16px; }
+.opcoes > p { grid-column:1 / -1; margin:0; }
 .opcoes .opcao { display:block !important; text-align:left; padding:16px 18px !important; border-radius:16px !important; min-height:0 !important; }
 .opcao strong { display:block; font-size:14px; font-weight:900; }
 .opcao span { display:block; margin-top:4px; color:var(--secondary-text); font-size:12px; font-weight:400; }
@@ -24,7 +26,6 @@
 .bloco > .linhaHorario { border-top:0; }
 .cabecalho { font-size:11px; font-weight:800; color:var(--secondary-text); }
 .lista label { margin:0 !important; }
-.rotuloEstreito { display:none; }
 .lista input, .lista select { margin:0 !important; padding:8px 12px !important; }
 .nomeTravado { display:flex !important; align-items:center; gap:8px; }
 .cadeado { flex:0 0 auto; color:#fdba74; }
@@ -93,9 +94,6 @@
   .linhaHorario > :first-child { grid-column:1 / -1; }
   .linhaHorario > :nth-child(4), .linhaHorario > :nth-child(5) { grid-column:1 / -1; }
   .cabecalhoHorario { display:none !important; }
-  /* Sem o cabeçalho, o número sozinho não diz o que é: rótulo visível só aqui. É aria-hidden — o nome acessível segue
-     sendo só o texto srOnly do label (parecer do Astra, 24/10: conteúdo gerado por CSS duplicava o nome). */
-  .rotuloEstreito { display:block; margin:0 0 4px; color:var(--secondary-text); font-size:11px; font-weight:800; }
   .linhaHorario > :nth-child(6) { grid-column:2; justify-self:end; }
 }
 

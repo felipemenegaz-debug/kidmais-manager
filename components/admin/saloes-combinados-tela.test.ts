@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as liberacao from '../../lib/agenda/saloes-liberacao.ts';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elemento } from './teste-componente.ts';
 
 /**
@@ -35,7 +36,7 @@ function telas(pedidos: Array<Record<string, unknown>>, gets: { n: number }, esp
     if (esperarPost) await esperarPost;
     return Response.json({ ok: true, data: { id: AB } });
   };
-  const base = { '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao },
+  const base = { '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, '@/lib/agenda/saloes-liberacao': liberacao,
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
