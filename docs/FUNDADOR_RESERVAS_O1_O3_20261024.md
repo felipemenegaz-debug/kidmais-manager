@@ -124,3 +124,29 @@
 **Fora dos testes automatizados (limitação):**
 - A tela com `aguardandoVaga` foi verificada pela fonte, não renderizada num navegador. Os E2E não montam o estado de 20 vagas ocupadas.
 - `scripts/concorrencia-vagas-isolado.cjs` e `scripts/assinatura-074-075-homologacao.cjs` ainda esperam `FUNDADOR_AGUARDANDO`. São roteiros fora do CI: o primeiro já falhava antes desta mudança, e o segundo é um roteiro de homologação de staging antigo. Precisam ser atualizados antes de reutilizados.
+
+### Validação da opção A (24–25/10/2026)
+
+**Rodada 2, no clone de trabalho, sem nenhuma mutação, sobre o código de `d78e3be7`:**
+- `node_modules` próprio (`npm ci`), sem junção.
+- Unitários (`textos-fundador`, `ofertas`): **27/27**.
+- `check:v1:static`: **PASS** (3537 + 103, lint, TypeScript, build).
+- Suítes alteradas: `campanha-090` OK (2b, 6 e os casos 7–10 preservados) e `comprovante-096` OK (4b).
+- Bateria PG completa: **140/140 arquivos**, 822 testes, 818 pass, 0 falhas, 4 pulados de propósito.
+- E2E `cadastro-publico-ui` e `cpf-fundador-ui`: **ok**.
+- Cluster descartável encerrado e removido.
+
+**Provas mutantes, em cópia isolada** (`D:/glass/KidMais Manager/mutacao-fundador-venda-sem-trava-20261024`: clone LF de `d78e3be7`, `npm ci` próprio; o clone de trabalho não foi tocado):
+- Controle: unitários e PG das suítes alteradas passam.
+- **M1**, servidor volta a lançar `FUNDADOR_AGUARDANDO`: unitários falham; PG 2b, 4b e 6 falham.
+- **M2**, servidor deixa de conferir o valor esperado (cobraria o regular em silêncio): unitários falham; PG 2b, 4b e 6 falham.
+- **M3**, a tela volta a esconder os botões com vagas em confirmação: unitários (fonte) falham.
+- **M4**, a síntese perde a linha "sem Fundador": unitários (fonte) falham.
+- Cada mutante foi revertido com `git checkout` na cópia; a cópia terminou limpa. Cluster encerrado e removido.
+
+**Registro de processo:**
+- A rodada 1, anterior a `d78e3be7`, aplicou dois mutantes **no clone de trabalho**, em sequência e com restauração: o de texto antes de tudo e o de `ofertas.ts` antes do static e da bateria completa. Isso não atende a regra de mutar só em cópia isolada.
+- Por isso as provas mutantes foram refeitas na cópia isolada acima, e a rodada 2 foi feita sem mutação.
+- Na rodada 1, a única falha (1 de 3537 no static) foi um **teste unitário desatualizado**, que esperava "em confirmação" (`lib/assinatura/ofertas.test.ts`). Ele foi atualizado para a regra aprovada. Não houve falha do produto.
+
+**Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/fundador-venda-sem-trava-20261024/` (rodada1-no-clone-de-trabalho, rodada2, mutantes-copia-isolada, roteiros).
