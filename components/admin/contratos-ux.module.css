@@ -87,3 +87,18 @@
 .cartao strong { color:var(--main-text); font-size:18px; }
 .barraPagamento { height:6px; margin:14px 0 6px; border-radius:3px; background:var(--input-border); overflow:hidden; }
 .barraPagamento span { display:block; height:100%; background:var(--emerald-accent); }
+.lista { display:flex; flex-direction:column; gap:14px; margin-top:8px; }
+.listaTopo { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+.busca { display:flex; flex-wrap:wrap; gap:8px; flex:1; min-width:240px; }
+.page.page .busca input { flex:1; min-width:180px; }
+.listaItens { list-style:none; margin:0; padding:0; border-radius:12px; background:rgba(255,255,255,.03); overflow:hidden; }
+.listaItens li + li { border-top:1px solid rgba(255,255,255,.05); }
+.page.page .linhaContrato { width:100%; display:grid; grid-template-columns:minmax(0,2fr) auto minmax(0,1.2fr) auto; gap:8px 16px; align-items:center; text-align:left; border:0; border-radius:0; background:transparent; padding:14px 16px; min-height:64px; }
+.page.page .linhaContrato:hover { background:rgba(124,58,237,.10); }
+.linhaContrato > span:first-child { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.pagamentoLinha { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.pagamentoLinha .barraPagamento { margin:0; }
+.valorLinha { white-space:nowrap; }
+.page.page .voltarLista { align-self:flex-start; border:0; background:none; padding:6px 0; min-height:36px; color:var(--secondary-text); }
+@media (max-width: 720px) { .page.page .linhaContrato { grid-template-columns:minmax(0,1fr) auto; } .pagamentoLinha { grid-column:1 / -1; } }
+.linhaContrato > .chip, .linhaContrato > .chipAlerta, .pagamentoLinha > .chipAlerta { justify-self:start; align-self:center; width:max-content; max-width:100%; }

@@ -16,8 +16,8 @@ import { ContextoKidmais } from './inteligencia/PerguntarKidmais';
 import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import PagamentosResumo from './PagamentosResumo';
 import { contextoCriacao } from './criacao-financeira';
-import { contratoApresentacao, type ContextoContrato } from './financeiro-apresentacao';
-import { FalhaContrato, MENSAGEM_LINK_INVALIDO, PREFIXO_IMPORTADO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao, valorDaSelecao } from './contrato-url';
+import ListaContratos from './ListaContratos';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, mensagemFalhaContrato, pedidoDaUrl, urlDaSelecao } from './contrato-url';
 import { ETAPAS, chaveConferencia, dataPorExtenso, etapaAtual, faixaHorario, predicados, proximoPasso, referenciasDaTela, rotuloContrato, rotuloVersao, saidaPagamentos, situacaoReserva, tituloFesta } from './contrato-tela';
 import { referenciaVigente } from '@/lib/contratos/versao-referencia';
 import ContratoImportado from './ContratoImportado';
@@ -90,7 +90,7 @@ export default function ContratoAdmin() {
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
     useEffect(()=>{const atualizar=()=>{setDestino(window.location.hash);setRetorno(retornoFestaSeguro(new URLSearchParams(window.location.search).get('returnTo')));};atualizar();window.addEventListener('hashchange',atualizar);return()=>window.removeEventListener('hashchange',atualizar);},[]);
-    const [lista, setLista] = useState<ContextoContrato[]>([]), [mostrarCancelados,setMostrarCancelados]=useState(false), [mostrarImportados,setMostrarImportados]=useState(true), [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null);
+    const [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null);
     const [note, setNote] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [senha, setSenha] = useState(''), [motivo, setMotivo] = useState(''), [tipo, setTipo] = useState('NOVA_VERSAO'), [key, setKey] = useState('');
     const [menuAberto, setMenuAberto] = useState(false), [alterarAberto, setAlterarAberto] = useState(false), [filtroHistorico, setFiltroHistorico] = useState<'TUDO'|'VERSOES'|'ASSINATURAS'>('TUDO');
     // Confirmação positiva da agenda (P3-2): presa a contrato + versão + revisão e a uma geração da interação. Qualquer
@@ -112,9 +112,6 @@ export default function ContratoAdmin() {
         if (!sequencia.current.vigente(pedido)) return false;
         if (!b.ok) throw new FalhaContrato(res.status, mensagemFalhaContrato(res.status, b.erro));
         const p = b.data as Painel; setData(p); const { alvo, referencia } = referenciasDaTela(p); setNote((alvo ?? referencia?.versao)?.dados_fonte?.observacoesDocumentais ?? ''); return true; }, []);
-    useEffect(() => { let ativo = true; const filtros = new URLSearchParams(); if (mostrarCancelados) filtros.set('incluirCancelados', '1'); if (!mostrarImportados) filtros.set('incluirImportados', '0'); const busca = filtros.toString();
-        adminFetch('/api/admin/contratos/painel'+(busca?`?${busca}`:'')).then(r => r.json()).then(b => { if (!b.ok)
-        throw Error(b.erro); if (ativo) setLista(b.data); }).catch(e => { if (ativo) setError(e.message); }); return () => { ativo = false; }; }, [mostrarCancelados, mostrarImportados, urlContrato, urlImportacao]);
     // Novo contrato na URL ⇒ a seleção anterior sai na hora (ajuste de estado no render, sem efeito em cascata).
     // Mudar só `versaoId` (consultar/fechar consulta, voltar/avançar) mantém o detalhe já carregado: não há nova leitura.
     const chaveUrl = urlInvalida ? 'invalida' : `${urlContrato}|${urlImportacao}`;
@@ -214,8 +211,6 @@ export default function ContratoAdmin() {
         if(!motivo||motivo.trim().length<3)return;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
         if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
-            const response=await adminFetch('/api/admin/contratos/painel');
-            const body=await response.json();if(body.ok)setLista(body.data);
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }
@@ -265,11 +260,6 @@ export default function ContratoAdmin() {
     function abrirVersao(id: string) { const q = new URLSearchParams(params.toString()); q.set('versaoId', id); router.push(`${pathname}?${q.toString()}#historico`, { scroll: false }); }
     function fecharConsulta() { const q = new URLSearchParams(params.toString()); q.delete('versaoId'); router.push(`${pathname}?${q.toString()}`, { scroll: false }); }
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
-    // Contrato aberto pelo link mas oculto pelos filtros da lista: aparece no seletor, identificado como tal.
-    const foraDaLista = opcaoForaDaLista(lista, cid, data);
-    const opcaoUrl = cid && !lista.some(c => c.id === cid) ? (foraDaLista ? `${contratoApresentacao(foraDaLista)} — fora dos filtros da lista` : 'Carregando contrato…') : null;
-    const selecaoImportada = urlImportacao ? `${PREFIXO_IMPORTADO}${urlImportacao}` : '';
-    const opcaoImportada = urlImportacao && !lista.some(c => c.origem === 'IMPORTACAO' && c.id === urlImportacao) ? 'Contrato importado — fora dos filtros da lista' : null;
     // Faixa: preparação aberta sobre o alvo (alteração de contrato assinado ou contratação inicial).
     const faixa = !!v && EDICAO_ABERTA.includes(v.estado_edicao ?? '') && data?.contrato.status !== 'CANCELADO';
     const alteracao = faixa && temVigente && ref?.id !== v?.id;
@@ -287,8 +277,7 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- <details><summary>Filtros da lista</summary><label><input type="checkbox" checked={mostrarCancelados} onChange={e=>setMostrarCancelados(e.target.checked)}/> Incluir contratos cancelados</label> <label><input type="checkbox" checked={mostrarImportados} onChange={e=>setMostrarImportados(e.target.checked)}/> Incluir contratos importados</label></details>
- <label>Contrato <select aria-label="Contrato" value={selecaoImportada || cid} onChange={(e) => { router.push(urlDaSelecao(pathname, params, e.target.value), { scroll: false }); }}><option value="">Selecione</option>{lista.map(c => <option key={valorDaSelecao(c)} value={valorDaSelecao(c)}>{contratoApresentacao(c)}</option>)}{opcaoUrl && <option value={cid}>{opcaoUrl}</option>}{opcaoImportada && <option value={selecaoImportada}>{opcaoImportada}</option>}</select></label>
+ {!urlContrato && !urlImportacao ? <ListaContratos onAbrir={selecao => router.push(urlDaSelecao(pathname, params, selecao), { scroll: false })} /> : <button type="button" className={styles.voltarLista} onClick={() => router.push(urlDaSelecao(pathname, params, ''), { scroll: false })}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
  <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>
@@ -301,7 +290,7 @@ export default function ContratoAdmin() {
  {data.origemHistorica?.documento && data.origemHistorica.podeVerOriginal && <><a href={`/api/admin/contratos/importados/${data.origemHistorica.importacaoId}/original`} target="_blank" rel="noreferrer">Ver documento original</a><a href={`/api/admin/contratos/importados/${data.origemHistorica.importacaoId}/original?baixar=1`}>Baixar original</a></>}
  {ref.documento_revisado_id && <a target="_blank" rel="noreferrer" href={`/admin/contratos/imprimir?contratoId=${cid}&versaoId=${ref.id}`}>Imprimir contrato completo — V{ref.numero_versao}</a>}
  <p className={styles.discreto}>Referência interna: {cid.slice(0, 8)}</p>
- <div id="cancelar-contrato" tabIndex={-1} className={`${styles.actions} ${styles.anchor}`}>{pred.cancelamento==='FESTA'&&data.festaId ? <CancelarContratoFesta key={data.festaId} festaId={data.festaId} nome={snap.contratante.nomeCompleto} onCancelado={async()=>{await load(cid);setMostrarCancelados(true);}}/> : pred.cancelamento==='CONTRATACAO_INICIAL' ? <button type="button" className={styles.perigo} disabled={busy} onClick={cancelarContratacao}>Cancelar contratação</button> : <p className={styles.discreto}>{data.contrato.status==='CANCELADO'?'Contratação cancelada.':'Cancelamento indisponível para este contrato.'}</p>}</div>
+ <div id="cancelar-contrato" tabIndex={-1} className={`${styles.actions} ${styles.anchor}`}>{pred.cancelamento==='FESTA'&&data.festaId ? <CancelarContratoFesta key={data.festaId} festaId={data.festaId} nome={snap.contratante.nomeCompleto} onCancelado={async()=>{await load(cid);}}/> : pred.cancelamento==='CONTRATACAO_INICIAL' ? <button type="button" className={styles.perigo} disabled={busy} onClick={cancelarContratacao}>Cancelar contratação</button> : <p className={styles.discreto}>{data.contrato.status==='CANCELADO'?'Contratação cancelada.':'Cancelamento indisponível para este contrato.'}</p>}</div>
  </div>}
  <ol className={styles.etapas} aria-label="Etapas do contrato">{ETAPAS.map((nome, i) => (i < 5 || etapa.mostrarFesta) && <li key={nome} data-situacao={i === etapa.atual ? 'atual' : i < etapa.concluidas ? 'feita' : 'pendente'} aria-current={i === etapa.atual ? 'step' : undefined}>{nome}</li>)}</ol>
  </header>

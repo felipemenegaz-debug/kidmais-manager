@@ -20,6 +20,7 @@ const dados = () => ({
   ],
 });
 function Filho() { return null; }
+function Lista() { return null; }
 
 function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>) {
   const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
@@ -34,7 +35,7 @@ function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) 
     './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Filho },
     './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './PagamentosResumo': { default: Filho },
     './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },
-    './financeiro-apresentacao': { contratoApresentacao: () => 'Contrato' },
+    './ListaContratos': { default: Lista },
     './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
     './contrato-tela': contratoTela, '@/lib/contratos/versao-referencia': versaoReferencia,
     './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
@@ -167,3 +168,18 @@ test('C-3: falha de rede, resposta não-JSON (502 HTML) e falha em "Atualizar po
   clicar(f.render(), 'Atualizar posição'); await esperar(); assert.deepEqual(f.falhas, [[0, undefined]]);
   clicar(f.render(), 'Atualizar posição'); await esperar(); assert.deepEqual(f.falhas, [[0, undefined], [502, undefined]]);
 });
+
+test('fase 2: sem contrato na URL a tela mostra a lista; com contrato, o caminho de volta; a lista antiga do seletor não é mais lida', () => comJanela(async () => {
+  const url = { q: '' }; const lidas: string[] = [];
+  const m = montar(url, async (u: string) => { lidas.push(u); return Response.json({ ok: true, data: u.includes('contratoId=') ? dados() : [] }); });
+  let r = await m.ciclo();
+  const lista = elementos(r).find(e => e.type === Lista);
+  assert.ok(lista, 'lista na tela inicial'); assert.equal(elementos(r).some(e => e.type === 'select'), false, 'sem seletor antigo');
+  assert.deepEqual(lidas, [], 'a tela não lê a lista antiga do painel');
+  url.q = `contratoId=${ID}`; r = await m.ciclo();
+  assert.equal(elementos(r).some(e => e.type === Lista), false);
+  assert.ok(achar(r, 'button', '← Contratos')); assert.match(texto(r), /Aniversário de Helena/);
+  // Link inválido: mensagem e a lista para escolher.
+  url.q = 'contratoId=nao-e-uuid'; r = await m.ciclo();
+  assert.match(texto(r), /O link do contrato é inválido/); assert.ok(elementos(r).find(e => e.type === Lista));
+}));
