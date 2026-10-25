@@ -174,6 +174,9 @@ test('2b. LEGADO com 20 ocupadas em confirmação: venda pelo preço regular sem
     assert.equal(await concessao(novo), undefined);
     assert.equal(await ocupadasLegado(), 20);
     assert.deepEqual(await ofertaEm(client, novo, CHEIO), regular, 'retomada idempotente pelo preço regular');
+    // P2-R1, controle: oferta Fundador já aceita, com o lote cheio em confirmação, continua anunciada como Fundador.
+    const aceitaFundador = await emTx(() => consultarOfertas(client as never, cheias[1], ENV));
+    assert.deepEqual([aceitaFundador?.fundador, aceitaFundador?.aguardandoVaga, aceitaFundador?.pendente?.valorCentavos], [true, false, 11820]);
     // Inverso: uma vaga é liberada (com a contratação cancelada antes, guarda 074a) e a tela volta a mostrar o Fundador.
     const liberada = cheias[0];
     const vagaLiberada = (await concessao(liberada)).vaga as number;
@@ -181,6 +184,11 @@ test('2b. LEGADO com 20 ocupadas em confirmação: venda pelo preço regular sem
         await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética O3' WHERE empresa_id = $1", [liberada]);
         await q("UPDATE assinatura_fundadores SET estado = 'LIBERADA', liberada_em = clock_timestamp(), evidencia_liberacao = 'Fixture sintética O3: sem cobrança' WHERE empresa_id = $1 AND estado = 'RESERVADA'", [liberada]);
     });
+    // P2-R1: a empresa que JÁ aceitou o regular não passa a ver Fundador; a retomada mantém R$ 197, sem concessão.
+    const aceitaRegular = await emTx(() => consultarOfertas(client as never, novo, ENV));
+    assert.deepEqual([aceitaRegular?.fundador, aceitaRegular?.aguardandoVaga, aceitaRegular?.pendente?.valorCentavos], [false, false, 19700]);
+    assert.deepEqual(await ofertaEm(client, novo, CHEIO), regular, 'retomada do regular depois da liberação');
+    assert.equal(await concessao(novo), undefined);
     const outra = await empresaEmTeste();
     const r2 = await emTx(() => consultarOfertas(client as never, outra, ENV));
     assert.deepEqual([r2?.fundador, r2?.aguardandoVaga], [true, false]);
@@ -368,6 +376,22 @@ test('6. lote posterior: 20 vagas, disputa real da última (perdedor reconfirma)
     const regularLote = await ofertaEm(client, emConfirmacao, CHEIO);
     assert.deepEqual([regularLote.valor_final_centavos, regularLote.fundador_id], [19700, null]);
     assert.equal((await q("SELECT count(*)::int AS n FROM assinatura_fundadores WHERE origem = 'POS_JANELA' AND campanha_id = $1", [campanhaId])).rows[0].n, 20);
+    // P2-R1 no lote posterior: uma reserva é liberada (contratação cancelada antes); a oferta regular aceita continua regular.
+    const liberadaLote = pos.pop()!;
+    const vagaLote = (await concessao(liberadaLote)).vaga as number;
+    await emTx(async () => {
+        await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética P2-R1' WHERE empresa_id = $1", [liberadaLote]);
+        await q("UPDATE assinatura_fundadores SET estado = 'LIBERADA', liberada_em = clock_timestamp(), evidencia_liberacao = 'Fixture sintética P2-R1: sem cobrança' WHERE empresa_id = $1 AND estado = 'RESERVADA'", [liberadaLote]);
+    });
+    const aceitaLote = await emTx(() => consultarOfertas(client as never, emConfirmacao, ENV));
+    assert.deepEqual([aceitaLote?.fundador, aceitaLote?.aguardandoVaga, aceitaLote?.pendente?.valorCentavos], [false, false, 19700]);
+    assert.deepEqual(await ofertaEm(client, emConfirmacao, CHEIO), regularLote, 'retomada do regular no lote posterior');
+    // Reposição: uma empresa nova vê o Fundador e ocupa a vaga liberada; o lote volta a 20 ocupadas.
+    const reposicao = await empresaEmTeste();
+    assert.equal((await emTx(() => consultarOfertas(client as never, reposicao, ENV)))?.fundador, true);
+    const repostaOferta = await ofertaEm(client, reposicao);
+    assert.deepEqual([repostaOferta.valor_final_centavos, (await concessao(reposicao)).vaga], [11820, vagaLote]);
+    pos.push(reposicao);
     for (const e of pos) await confirmarDireto(e);
     assert.deepEqual(await emTx(() => resumoCampanha(client as never, ENV)), { fase: 'POS_JANELA', vagasRestantes: 0, emConfirmacao: 0, limite: 20 });
     await assert.rejects(ofertaEm(client, perdedor), (x) => codigo(x) === 'OFERTA_ALTERADA');

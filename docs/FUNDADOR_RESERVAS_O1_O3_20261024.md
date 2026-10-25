@@ -150,3 +150,44 @@
 - Na rodada 1, a única falha (1 de 3537 no static) foi um **teste unitário desatualizado**, que esperava "em confirmação" (`lib/assinatura/ofertas.test.ts`). Ele foi atualizado para a regra aprovada. Não houve falha do produto.
 
 **Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/fundador-venda-sem-trava-20261024/` (rodada1-no-clone-de-trabalho, rodada2, mutantes-copia-isolada, roteiros).
+
+### Revisão do Astra de 31c5704d: REPROVADO (P2-R1, P3-T1) e correções (25/10/2026)
+
+**P2-R1:**
+- **Defeito:** uma oferta regular pendente, de R$ 197, passava a anunciar "Fundador: 40%" quando outra vaga era liberada. `consultarOfertas` derivava `fundador` da disponibilidade atual (`lib/assinatura/ofertas.ts:200`, antes), e a tela mostrava o aviso (`components/admin/AssinaturaAcoes.tsx:138`). A retomada já mantinha R$ 197.
+- **Correção:** em `consultarOfertas`, com oferta pendente, `fundador` é a condição **persistida** (`pendente.fundador_id !== null`) e `aguardandoVaga` é falso, porque nesse estado a tela só oferece "Retomar". Sem pendente, nada muda.
+  - Preço, prazo e benefício da oferta pendente continuam vindo da oferta gravada: `prepararOferta` a devolve antes de olhar vagas. O prazo `fundadorValidoAte` é calculado pela concessão, independente de `aguardandoVaga`.
+  - Com a campanha desligada, a oferta Fundador aceita continua anunciada como Fundador. Antes, a tela escondia o aviso porque `elegivel` era falso.
+- **Provas:**
+  - **unitário** (`lib/assinatura/ofertas.test.ts`): a oferta regular continua regular depois da liberação, e a retomada mantém 19700; controle com o Fundador aceito e o lote cheio, que continua Fundador;
+  - **render do componente real** (`components/admin/assinatura-fundador-vagas-ui.test.ts`, 5 casos):
+    - vagas em confirmação sem oferta: aviso e botões a R$ 197;
+    - regular pendente: sem "Fundador: 40%", retoma a R$ 197;
+    - Fundador pendente: retoma a R$ 118,20;
+    - Fundador pendente com reserva válida e com reserva vencida: avisos "pague até" e "venceu em", sem aviso de vagas;
+    - campanha desligada com Fundador pendente;
+  - **PG `campanha-090` 2b (LEGADO):** a empresa que **aceitou** o regular consulta depois da liberação e vê `fundador: false`, `aguardandoVaga: false`, pendente 19700; a retomada devolve a mesma oferta, sem concessão. Controle: a oferta Fundador aceita com o lote cheio continua `fundador: true`;
+  - **PG `campanha-090` 6 (POS_JANELA):** uma reserva do lote é liberada; a empresa da oferta regular continua regular e retoma igual; uma empresa nova vê o Fundador, ocupa a vaga liberada, e o caso segue com 20.
+  - **Reprodução do Astra** (`revisao-fundador-venda-sem-trava-31c5704d-20261025/provas-ui.cjs`), rodada a partir de uma cópia no scratchpad para não sobrescrever os artefatos dele: agora **falha por exigir a presença do defeito**. A primeira afirmação dela espera `pendente.fundador === true` e recebe `false`.
+
+**P3-T1:** os roteiros foram atualizados para a regra da opção A.
+- **`scripts/assinatura-074-075-homologacao.cjs`:** o perdedor da 20ª vaga recebe `OFERTA_ALTERADA`.
+- **`scripts/concorrencia-vagas-isolado.cjs`:**
+  - na disputa e na rajada, `OFERTA_ALTERADA`;
+  - o preço regular vende sem concessão para uma empresa à parte;
+  - depois da liberação, uma disputa sucede e a outra recebe `OFERTA_ALTERADA`.
+- **O que foi rodado:** só a conferência de sintaxe. **Nenhum dos dois roteiros completos foi executado.** O 074-075 é homologação de staging; o de concorrência exige um cluster dedicado com fluxo próprio.
+- **Teste offline** `scripts/concorrencia-vagas-isolado.test.cjs`: **10/11**, com a falha `plano offline: inventário e impressão do schema conferem com o pacote aprovado` → `INVENTARIO_MUDOU`.
+  - **Comparação:** a mesma falha, com o mesmo resultado 10/11, aparece **sem** as mudanças desta rodada (`git stash` momentâneo no clone de trabalho, restaurado em seguida; sem mutante).
+  - **Conclusão:** é preexistente (o inventário do schema mudou desde o pacote aprovado), sem relação com o O3.
+
+### Validação da rodada 3 (25/10/2026, clone de trabalho, sem mutação)
+
+- `node_modules` próprio.
+- Unitários e render: 31/31 na rodada; depois dos 2 casos de render acrescentados, ver a rodada 3b abaixo.
+- `check:v1:static`: PASS (3541 + 103).
+- Suítes alteradas: `campanha-090` (2b, 6, 7–10) e `comprovante-096` (4b) OK.
+- Bateria PG completa: 140/140 arquivos, 822 testes, 818 pass, 0 falhas, 4 pulados de propósito.
+- E2E de cadastro e de CPF/Fundador: ok.
+- Cluster encerrado e removido.
+- **Rodada 3b**, depois dos 2 casos de render (validade, vencida e campanha desligada): unitários e render **33/33**; `check:v1:static` **PASS** (3543 + 103). A PG e os E2E não mudam com testes de render, e a rodada 3 completa já cobre o código.

@@ -196,8 +196,11 @@ export async function consultarOfertas(tx: DbExecutor, empresaId: string, env: A
     return {
         // Oferta já aceita e persistida (D1) continua retomável mesmo com a campanha bloqueada, como em prepararOferta, que a
         // devolve antes de olhar a campanha (a vencida é recusada lá). Sem oferta pendente, o bloqueio fecha a venda.
-        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa, aguardandoVaga: campanha?.aguardando ?? false,
-        fundador: campanha?.elegivel ?? false,
+        isenta, habilitado: habilitado && (!campanha?.bloqueio || Boolean(pendente)), planoAtual: ativa,
+        // P2-R1 (revisão de 31c5704d): com oferta pendente, a tela mostra a condição PERSISTIDA dela (fundador_id), nunca a
+        // disponibilidade atual para uma oferta nova — uma oferta regular não passa a anunciar Fundador se uma vaga for liberada.
+        aguardandoVaga: pendente ? false : campanha?.aguardando ?? false,
+        fundador: pendente ? pendente.fundador_id !== null : campanha?.elegivel ?? false,
         // Indicativo: o checkout recalcula sob trava e pede nova confirmação se a fase ou as vagas mudarem.
         campanha: campanha ? campanha.resumo : null,
         bloqueio: campanha?.bloqueio && !pendente ? { codigo: campanha.bloqueio.codigo, mensagem: campanha.bloqueio.mensagem } : null,

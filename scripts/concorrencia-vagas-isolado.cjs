@@ -39,7 +39,7 @@ const GRUPOS = Object.freeze([
     ['d', 'Falha depois da reserva (criação e aceite) desfaz tudo por rollback, sem consumir vaga'],
     ['e', 'Empresa acima da cota mantém vínculos e sessões, mas não convida'],
     ['f', 'Profissional (10) com duas conexões na última vaga; Premium sem teto; isenta, teste e sem assinatura livres'],
-    ['g', 'Duas conexões disputam a 20ª vaga Fundador: uma reserva, a outra FUNDADOR_AGUARDANDO; teto 20 nunca excedido'],
+    ['g', 'Duas conexões disputam a 20ª vaga Fundador: uma reserva, a outra OFERTA_ALTERADA (reconfirma; O3 opção A); preço regular vende sem concessão; teto 20 nunca excedido'],
     ['h', 'Liberação RESERVADA → LIBERADA só com contratação CANCELADA e cobrança comprovadamente removida; CONFIRMADA nunca volta'],
     ['z', 'Consistência final: contagens, vínculos únicos, nenhum acesso perdido, teto Fundador e postchecks 074a/075'],
 ].map(([id, nome]) => Object.freeze({id, nome})));
@@ -459,20 +459,24 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
         assert.equal((await campanha()).ocupadas, VAGAS_FUNDADOR - 1);
         F1 = await novaEmpresa('f1'); const F2 = await novaEmpresa('f2');
         const d = await intercalar(c => reservar(F1, c), c => reservar(F2, c));
-        assert.equal(d.segundo, 'FUNDADOR_AGUARDANDO'); assert.ok(d.r1.fundador_id); assert.equal(d.r1.valor_final_centavos, pedido('essencial', true).valorEsperadoCentavos);
+        // O3 (opção A, 24/10/2026): o perdedor não fica travado; recebe OFERTA_ALTERADA e reconfirma o preço.
+        assert.equal(d.segundo, 'OFERTA_ALTERADA'); assert.ok(d.r1.fundador_id); assert.equal(d.r1.valor_final_centavos, pedido('essencial', true).valorEsperadoCentavos);
         F1reserva = (await q('SELECT id, vaga FROM assinatura_fundadores WHERE empresa_id=$1', [F1.empresa]))[0];
         let cp = await campanha(); assert.deepEqual([cp.ocupadas, cp.numeros, cp.maior], [20, 20, 20]);
         aguardando = [F2, ...await Promise.all([1, 2, 3, 4].map(i => novaEmpresa(`fa${i}`)))];
         const r = await rajada(aguardando.slice(1).map(f => c => reservar(f, c)));
-        assert.equal(r.sucesso, 0); somente(r.recusas, 'FUNDADOR_AGUARDANDO', 4);
-        assert.equal(await resultado(withTransaction(c => s.ofertas.prepararOferta(c, F2.empresa, F2.usuario, pedido('essencial', false)))), 'FUNDADOR_AGUARDANDO');
+        assert.equal(r.sucesso, 0); somente(r.recusas, 'OFERTA_ALTERADA', 4);
+        // Com as 20 em confirmação, o preço regular confirmado vende sem concessão (empresa à parte: quem aguarda segue sem contratação).
+        const regular = await novaEmpresa('fr');
+        const vendaRegular = await withTransaction(c => s.ofertas.prepararOferta(c, regular.empresa, regular.usuario, pedido('essencial', false)));
+        assert.deepEqual([vendaRegular.fundador_id, vendaRegular.desconto_percentual], [null, 0]);
         assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id=ANY($1::uuid[])', [aguardando.map(f => f.empresa)]))[0].n, 0, 'nenhuma contratação para quem aguarda');
         const teto = await resultado(withTransaction(c => c.query('INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga) VALUES($1,$2,21)', [F2.empresa, F2.documento])));
         const repetida = await resultado(withTransaction(c => c.query('INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga) VALUES($1,$2,$3)', [F2.empresa, F2.documento, F1reserva.vaga])));
         assert.equal(teto, '23514'); assert.equal(repetida, '23505');
         cp = await campanha(); assert.deepEqual([cp.ocupadas, cp.numeros, cp.maior], [20, 20, 20]);
         return {antes:{confirmadas:antes.confirmadas, ocupadas:antes.ocupadas}, disputa:{primeira:'OK', segunda:d.segundo, espera:d.espera, vaga:F1reserva.vaga, desconto:d.r1.desconto_percentual},
-            rajada:{conexoes:r.conexoes, sucesso:0, recusas:r.recusas}, valorRegularAguardando:'FUNDADOR_AGUARDANDO', contratacoesDeQuemAguarda:0,
+            rajada:{conexoes:r.conexoes, sucesso:0, recusas:r.recusas}, valorRegularAguardando:'VENDIDO_SEM_CONCESSAO', contratacoesDeQuemAguarda:0,
             vaga21:teto, vagaRepetida:repetida, campanha:{ocupadas:cp.ocupadas, numerosDistintos:cp.numeros, maior:cp.maior}};
     });
 
@@ -506,7 +510,7 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
         assert.deepEqual([relibera, reabre], ['P0001', 'P0001']);
         const [F2, F3] = aguardando;
         const r = await rajada([c => reservar(F2, c), c => reservar(F3, c)]);
-        assert.equal(r.sucesso, 1); somente(r.recusas, 'FUNDADOR_AGUARDANDO', 1);
+        assert.equal(r.sucesso, 1); somente(r.recusas, 'OFERTA_ALTERADA', 1);
         const nova = (await q("SELECT vaga FROM assinatura_fundadores WHERE empresa_id=ANY($1::uuid[]) AND estado='RESERVADA'", [[F2.empresa, F3.empresa]]));
         assert.equal(nova.length, 1); assert.equal(nova[0].vaga, F1reserva.vaga, 'reutiliza o número liberado');
         const confirmada = (await q("SELECT f.id AS vaga, c.id AS contratacao FROM assinatura_fundadores f JOIN assinatura_contratacoes c ON c.fundador_id=f.id AND c.estado='CONFIRMADA' WHERE f.estado='CONFIRMADA' LIMIT 1"))[0];

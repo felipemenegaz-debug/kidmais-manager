@@ -297,3 +297,20 @@ test('D3: data do pagamento é a mais antiga informada pelo provedor (boleto: di
     assert.equal(dataDoPagamento({ paymentDate: null, confirmedDate: null, clientPaymentDate: null }), null);
     assert.equal(dataDoPagamento({ paymentDate: '11/09/2026', clientPaymentDate: 'x' }), null, 'formato inválido não conta');
 });
+
+/** P2-R1 (revisão de 31c5704d): com oferta pendente, a consulta devolve a condição PERSISTIDA dela, não a disponibilidade atual. */
+test('oferta pendente: regular continua regular quando uma vaga é liberada; Fundador aceito continua Fundador com as vagas em confirmação', async () => {
+    const regular = new Banco(); regular.ocupadas = 20; regular.confirmadas = 19;
+    const r = await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([r.fundador_id, r.valor_final_centavos], [null, 19700]);
+    regular.ocupadas = 19; // outra reserva liberada: uma oferta NOVA teria Fundador
+    const c = await consultarOfertas(regular, E, env);
+    assert.deepEqual([c?.fundador, c?.aguardandoVaga, c?.pendente?.valorCentavos], [false, false, 19700], 'tela não anuncia Fundador para oferta regular');
+    assert.deepEqual(await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 }), r, 'retomada mantém o preço regular, sem concessão');
+    const fundador = new Banco(); fundador.ocupadas = 19; fundador.confirmadas = 0;
+    const f = await prepararOferta(fundador, E, U, pedido);
+    assert.equal(f.fundador_id, 'vaga');
+    fundador.ocupadas = 20; fundador.confirmadas = 19; // lote cheio em confirmação: uma oferta NOVA seria regular
+    const cf = await consultarOfertas(fundador, E, env);
+    assert.deepEqual([cf?.fundador, cf?.aguardandoVaga, cf?.pendente?.valorCentavos], [true, false, 11820], 'Fundador aceito segue anunciado');
+});
