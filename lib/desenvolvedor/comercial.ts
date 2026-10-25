@@ -6,6 +6,7 @@ import { comercialInstalado, lerEstadoComercial } from '../assinatura/estado.ts'
 import { concederExcecao, estenderTeste, iniciarTeste, revogarExcecao } from '../assinatura/servico.ts';
 import { EXTENSAO_TESTE_MAXIMA_DIAS, TESTE_DIAS_MAXIMO } from '../assinatura/configuracao.ts';
 import { empresaIsenta } from '../assinatura/ofertas.ts';
+import { consultarBeneficioFundadorDesenvolvedor } from '../assinatura/beneficio-fundador.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, sanitizarAuditoria, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
@@ -44,7 +45,7 @@ export async function comercialResumo(tx: DbExecutor, empresaId: string): Promis
 export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
     const resumo = await comercialResumo(tx, empresaId);
     if (!resumo.instalado)
-        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [], arrependimentos: [] };
+        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [], arrependimentos: [], fundador: null };
     const a = (await tx.query<{ ciclo: string | null; teste_inicio: string; em_atraso_desde: string | null; versao: number }>(
         `SELECT ciclo, ${ISO('teste_inicio')} AS teste_inicio, ${ISO('em_atraso_desde')} AS em_atraso_desde, versao FROM empresa_assinaturas WHERE empresa_id = $1::uuid`, [empresaId])).rows[0];
     const excecoes = (await tx.query<{ id: string; tipo: string; valida_ate: string; motivo: string; criado_em: string; criado_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; vigente: boolean }>(
@@ -69,6 +70,7 @@ export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
         historico,
         continuidades: await continuidadesDaEmpresa(tx, empresaId),
         arrependimentos: await manifestacoesDaEmpresa(tx, empresaId, 20),
+        fundador: await consultarBeneficioFundadorDesenvolvedor(tx, empresaId),
     };
 }
 

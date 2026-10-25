@@ -7,6 +7,7 @@ import { consultarOfertas } from './ofertas.ts';
 import { consultarRenovacao } from './renovacao-repositorio.ts';
 import { consultarVagas } from './limites-usuarios.ts';
 import { sinteseContratacao } from './comprovante.ts';
+import { consultarBeneficioFundador } from './beneficio-fundador.ts';
 
 /**
  * Tela "Assinatura" da empresa comprovada (E4/E8): situação, datas e exceções vigentes. Qualquer vínculo ativo
@@ -41,6 +42,8 @@ export async function consultarAssinatura(tx: DbExecutor, tenant: TenantComprova
         ofertas: await consultarOfertas(tx, tenant.empresaComprovada, env),
         // Síntese e comprovante (grupo B): identificação do contratante só para a Gestão.
         contratacao: tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO' && a ? await sinteseContratacao(tx, tenant.empresaComprovada) : null,
+        // Situação atual do benefício Fundador, separada do comprovante do aceite: também só para a Gestão.
+        fundador: tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO' && a ? await consultarBeneficioFundador(tx, tenant.empresaComprovada) : null,
         cobranca,
         instalado: estado.instalado,
         cobrado: a !== null,
