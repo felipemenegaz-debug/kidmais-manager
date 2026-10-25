@@ -30,8 +30,9 @@ test('serviço nativo usa a decisão: histórico revisado mantém o fechamento C
   assert.doesNotMatch(corpo, /fechamento\.status !== "CONTRATO_ASSINADO"/, 'a regra do status passou para a decisão única');
   // Tela: com revisão vigente o Financeiro mostra o plano nativo; com revisão aberta, aguarda; na v1, a conferência.
   const tela = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
-  assert.match(tela, /caminhoFinanceiro==='AGUARDAR_REVISAO'\?<p role="status">/);
-  assert.match(tela, /caminhoFinanceiro==='CONFERIR_HISTORICO'\?<IntegracaoContrato/);
+  assert.match(tela, /saida==='AGUARDAR_REVISAO'\?<p role="status">/);
+  assert.match(tela, /saida==='CONFERIR_HISTORICO'&&data\.origemHistorica\?<IntegracaoContrato/);
+  assert.match(readFileSync('components/admin/contrato-tela.ts', 'utf8'), /caminhoFinanceiro === 'AGUARDAR_REVISAO'\) return 'AGUARDAR_REVISAO'/);
   // Regra única do caminho, usada pela tela do contrato e pela tela da importação.
   assert.ok(readFileSync('lib/contratos/importados.ts', 'utf8').includes('caminhoFinanceiro({ conferido: l.fin_situacao !== null, comPagamento: l.com_pagamento, revisaoAberta: l.revisao_aberta, vigenteConferida: l.vigente_conferida })'));
   const regra = readFileSync('lib/contratos/integracao-importados/repositorio.ts', 'utf8');

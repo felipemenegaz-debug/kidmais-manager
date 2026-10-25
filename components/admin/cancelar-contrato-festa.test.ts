@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 import * as contratoUrl from './contrato-url.ts';
+import * as contratoTela from './contrato-tela.ts';
+import * as versaoReferencia from '../../lib/contratos/versao-referencia.ts';
 
 test('cancelamento na tela do contrato exige permissão, motivo e confirmação; retry usa mesma chave', async () => {
   for (const permitido of [false, true]) {
@@ -32,48 +34,53 @@ test('cancelamento na tela do contrato exige permissão, motivo e confirmação;
   }
 });
 
-test('contrato importado com V2 aberta mantém cancelamento junto às alterações e atalho no cabeçalho', async () => {
+test('contrato importado com V2 aberta: cancelamento fica só no menu "Mais", abre pelo #cancelar-contrato e sobrevive à edição', async () => {
   const id = '00000000-0000-4000-8000-000000000001';
-  const snapshot = { contratante: { nomeCompleto: 'Cliente de teste' }, evento: { data: '2026-10-18', pacote: { nome: 'Histórico' }, convidados: 50 }, comercial: { valorFinalContrato: 7811.5 } };
+  const snapshot = { contratante: { nomeCompleto: 'Cliente de teste' }, aniversariante: { nome: 'Helena', idadeNoEvento: 6, temaFesta: 'Frozen' }, evento: { data: '2026-10-18', horarioInicio: '10:00:00', horarioFim: '14:00:00', pacote: { nome: 'Histórico', codigo: 'X' }, convidados: 50 }, comercial: { valorFinalContrato: 7811.5 } };
   const dados = { festaId: 'festa', contrato: { id, status: 'ASSINADO' }, origemHistorica: { caminhoFinanceiro: 'AGUARDAR_REVISAO' },
     fluxo: { versao_vigente_id: 'v1', versao_em_preparacao_id: 'v2' }, documentos: [], assinaturas: [], financeiro: [], pendencias: [], revisoesOperacionais: [],
-    versoes: [{ id: 'v2', numero_versao: 2, estado_edicao: 'EM_ELABORACAO', status: 'ATIVA', snapshot }, { id: 'v1', numero_versao: 1, estado_edicao: 'CONCLUIDA', status: 'ASSINADA', snapshot }],
+    versoes: [{ id: 'v2', numero_versao: 2, estado_edicao: 'EM_ELABORACAO', status: 'ATIVA', snapshot, criado_em: '2026-10-20T10:00:00Z' }, { id: 'v1', numero_versao: 1, estado_edicao: 'CONCLUIDA', status: 'ASSINADA', snapshot, criado_em: '2026-10-04T10:00:00Z' }],
   };
   function Cancelar() { return null; }
   function Filho() { return null; }
   const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash: '', search: '?contratoId=' + id }, addEventListener() {}, removeEventListener() {} } });
-  try {
-    const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
-      'next/navigation': { useSearchParams: () => new URLSearchParams('contratoId=' + id), usePathname: () => '/admin/contratos', useRouter: () => ({}) },
-      'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
-      '@/lib/http/admin-fetch': { adminFetch: async (url: string) => Response.json({ ok: true, data: url.includes('contratoId=') ? dados : [] }) },
-      '@/lib/contratos/services/alteracoes': { analisarRevisao: () => null },
-      '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => true },
-      '../../lib/contratos/documento/oficial/configuracao': { configuracaoModeloOficial: () => true },
-      '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir' },
-      '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
-      './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Cancelar },
-      './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './FinanceiroContrato': { default: Filho },
-      './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },
-      './financeiro-apresentacao': { contratoApresentacao: () => 'Contrato' },
-      './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
-      './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
-    });
-    tela.render(); tela.efeitos(); await tique();
-    const render = () => tela.render();
-    const verificar = () => {
-      const secao = achar(render(), 'section', 'Alterações da contratação');
-      assert.equal(achar(secao, Cancelar).props.festaId, 'festa');
-      assert.equal(achar(render(), 'a', 'Cancelar contrato').props.href, '#cancelar-contrato');
-      assert.equal(elementos(render()).filter(e => e.type === Cancelar).length, 1);
-    };
-    verificar();
-    (achar(render(), 'button', 'Editar dados desta revisão').props.onClick as () => void)();
-    verificar(); // Continua visível mesmo com o editor aberto.
-    (achar(render(), 'select', 'Versão contratual').props.onChange as (e: unknown) => void)({ target: { value: 'v1' } });
-    verificar(); // E ao consultar a versão assinada em papel.
-  } finally {
-    if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window');
+  for (const hash of ['', '#cancelar-contrato']) {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash, search: '?contratoId=' + id, pathname: '/admin/contratos' }, history: { state: null, replaceState() {} }, addEventListener() {}, removeEventListener() {} } });
+    try {
+      const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
+        'next/navigation': { useSearchParams: () => new URLSearchParams('contratoId=' + id), usePathname: () => '/admin/contratos', useRouter: () => ({}) },
+        'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
+        '@/lib/http/admin-fetch': { adminFetch: async (url: string) => Response.json({ ok: true, data: url.includes('contratoId=') ? dados : [] }) },
+        '@/lib/contratos/services/alteracoes': { analisarRevisao: () => null },
+        '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => true },
+        '../../lib/contratos/documento/oficial/configuracao': { configuracaoModeloOficial: () => true },
+        '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
+        '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
+        './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Cancelar },
+        './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './PagamentosResumo': { default: Filho },
+        './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },
+        './financeiro-apresentacao': { contratoApresentacao: () => 'Contrato' },
+        './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
+        './contrato-tela': contratoTela, '@/lib/contratos/versao-referencia': versaoReferencia,
+        './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
+      });
+      tela.render(); tela.efeitos(); await tique();
+      const render = () => tela.render();
+      const quantos = () => elementos(render()).filter(e => e.type === Cancelar).length;
+      assert.match(texto(render()), /Aniversário de Helena · 6 anos/);
+      if (!hash) {
+        assert.equal(quantos(), 0, 'cancelamento escondido até abrir o menu');
+        (achar(render(), 'button', 'Mais').props.onClick as () => void)();
+      }
+      const menu = achar(render(), 'div', 'Mais ações');
+      assert.equal(achar(menu, Cancelar).props.festaId, 'festa');
+      assert.equal(quantos(), 1);
+      (achar(render(), 'button', 'Editar dados desta revisão').props.onClick as () => void)();
+      assert.equal(quantos(), 1, 'continua no menu com o editor aberto');
+      assert.match(texto(render()), /Alteração em andamento/);
+      assert.equal(elementos(render()).some(e => e.type === 'select' && e.props['aria-label'] === 'Versão contratual'), false, 'sem seletor de versão');
+    } finally {
+      if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window');
+    }
   }
 });
