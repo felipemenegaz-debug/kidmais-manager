@@ -45,6 +45,17 @@ test('Gestão: confirmada vigente com datas em Brasília, separada do link do co
     assert.match(html, /data-link-comprovante/);
 });
 
+// P3-T1 (revisão de 631a5674): concessão anterior à 096 ou contratação sem comprovante mostra o benefício do mesmo jeito.
+test('Gestão: benefício confirmado aparece sem comprovante (contratação nula ou sem comprovante registrado)', () => {
+    for (const contratacao of [null, { comprovante: null } as never]) {
+        const d = dados(CONFIRMADA); d.contratacao = contratacao;
+        const html = gestao(d);
+        assert.match(bloco(html), /data-beneficio-fundador="CONFIRMADA_VIGENTE"/);
+        assert.match(bloco(html), /vigente até 25\/10\/2027 às 07:22 \(horário de Brasília\)/);
+        assert.doesNotMatch(html, /data-link-comprovante/, 'sem comprovante, sem link');
+    }
+});
+
 test('Gestão: reservada não aparece como confirmada; encerrada por prazo não aparece como vigente', () => {
     const r = bloco(gestao(dados({ ...CONFIRMADA, situacao: 'RESERVADA', confirmadaEm: null, beneficioFim: null, contratacaoEstado: 'EM_ABERTO' })));
     assert.match(r, /data-beneficio-fundador="RESERVADA"/);
