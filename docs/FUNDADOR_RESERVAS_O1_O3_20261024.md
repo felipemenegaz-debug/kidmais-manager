@@ -28,7 +28,7 @@
 - **`scripts/cadastro-publico-ui.cjs`** (E2E sem campanha, logo LEGADO): a síntese mostra a regra sem prazo e não contém "7º dia", "23h59", "data indicada na tela" nem "fim da campanha".
 - **`scripts/cpf-fundador-ui.cjs`** (E2E em JANELA): continua exigindo "fim do 7º dia seguinte à confirmação, às 23h59", e não muda.
 
-## O3 — reservas não pagas podem travar toda a venda (proposta; decisão de Felipe)
+## O3 — reservas não pagas podem travar toda a venda (opção A aprovada por Felipe em 24/10/2026 e implementada; C e D não implementadas)
 
 **Fatos (código em `f78ddaa1`):**
 - **Uma reserva não paga ocupa a vaga sem limite de tempo.** A concessão nasce `RESERVADA` no "Confirmar contratação" (`lib/assinatura/ofertas.ts:266`) e só vira `CONFIRMADA` com o pagamento (`confirmarOfertaPaga`). Nenhum código do produto grava `LIBERADA`: a liberação "continua manual, com prova (sem ferramenta própria)".
@@ -83,3 +83,44 @@
   - a opção C precisa cancelar ou reconciliar a contratação local antes de liberar (guarda 074a).
 - **Testes de concorrência e de mudança de disponibilidade** acrescentados à lista.
 - **Relatório:** `D:/glass/KidMais Manager/revisao-fundador-sintese-legado-4689025a-20261024/RELATORIO.md`.
+
+## O3, opção A — implementação local (24/10/2026)
+
+**Decisão de Felipe:** "Aprovo a opção A do O3 (venda nunca trava: preço regular com aviso e confirmação explícita)". C e D ficam fora.
+
+**Base:** branch `codex/fundador-venda-sem-trava-20261024`, criada sobre `10d36b65` (a branch do O1, PR #228), que está sobre `staging` `f78ddaa1`.
+
+**Mudanças:**
+- **`lib/assinatura/ofertas.ts`:**
+  - `prepararOferta` não recusa mais com `FUNDADOR_AGUARDANDO` quando há 20 ocupadas e não confirmadas. Sem vaga livre, `elegivel` já é falso e o valor recalculado sob a trava é o regular.
+  - Quem enviou o valor Fundador recebe `OFERTA_ALTERADA` (conferência existente do valor esperado) e confirma o novo valor. Nada é gravado nem cobrado.
+  - Se a inserção da vaga falhar numa corrida que a trava não cobriu, a resposta também é `OFERTA_ALTERADA`, e não `FUNDADOR_AGUARDANDO`.
+- **`lib/assinatura/textos-fundador.ts`:**
+  - `AVISO_VAGAS_EM_CONFIRMACAO`: "assinar agora pelo preço normal ou aguardar; se uma vaga for liberada, a condição volta a aparecer";
+  - `SINTESE_SEM_FUNDADOR`: a síntese diz que não há Fundador e que o valor é o preço normal.
+- **`components/admin/AssinaturaAcoes.tsx`:** o aviso aparece **acima** do ciclo e dos botões de plano, que passam a mostrar o preço regular (`ofertas.fundador` falso). A síntese ganha a linha sem Fundador.
+
+**O que não muda:**
+- a oferta já aceita (`EM_ABERTO`) é devolvida antes de olhar vagas: mantém preço, prazo e benefício;
+- a reserva vencida continua recusada na retomada (D3);
+- o pagamento tardio vai para reconciliação;
+- a LEGADO pendente paga mantém a condição (D4);
+- o valor cobrado é sempre o da oferta gravada (`lib/assinatura/cobranca.ts:190`), que só existe se for igual ao valor confirmado.
+
+**Testes:**
+- **Unitário `lib/assinatura/ofertas.test.ts`:** o caso antigo, que esperava "em confirmação", foi atualizado para a regra nova: o Fundador esperado reconfirma e o regular passa sem vaga.
+- **Unitário `lib/assinatura/textos-fundador.test.ts`:** os textos novos e a fonte: aviso antes do ciclo e dos botões, linha da síntese, servidor sem `throw FUNDADOR_AGUARDANDO`.
+- **PG `campanha-090`, 2b (novo, LEGADO):**
+  - 20 ocupadas em confirmação: a tela mostra o regular (`fundador: false`, `aguardandoVaga: true`, 19700);
+  - o Fundador esperado dá `OFERTA_ALTERADA`, sem contratação gravada;
+  - o regular confirmado grava oferta sem concessão e sem 21ª vaga, com retomada idempotente;
+  - **inverso:** uma vaga liberada (contratação cancelada antes) faz a síntese aberta no regular receber `OFERTA_ALTERADA`, sem desconto silencioso; ao reconfirmar, o cliente recebe a vaga liberada.
+- **PG `campanha-090`, 6 (POS_JANELA):**
+  - disputa real pela última vaga: o perdedor recebe `OFERTA_ALTERADA`, antes `FUNDADOR_AGUARDANDO`;
+  - com 20 em confirmação, uma empresa nova contrata pelo regular, sem concessão, e o lote continua em 20.
+- **PG `comprovante-096`, 4b (novo):** com as vagas em confirmação, o Fundador esperado é recusado sem gravar comprovante. O regular grava comprovante com `fundador: null`, desconto 0 e 19700, e o texto não cita Fundador. As vagas de teste são liberadas ao fim.
+- **Casos anteriores que continuam passando:** 7, 8, 9 e 10 da `campanha-090` (pagamento tardio, D3, D4, concessão própria).
+
+**Fora dos testes automatizados (limitação):**
+- A tela com `aguardandoVaga` foi verificada pela fonte, não renderizada num navegador. Os E2E não montam o estado de 20 vagas ocupadas.
+- `scripts/concorrencia-vagas-isolado.cjs` e `scripts/assinatura-074-075-homologacao.cjs` ainda esperam `FUNDADOR_AGUARDANDO`. São roteiros fora do CI: o primeiro já falhava antes desta mudança, e o segundo é um roteiro de homologação de staging antigo. Precisam ser atualizados antes de reutilizados.

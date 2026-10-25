@@ -103,8 +103,9 @@ Arquivos: `database/migrations/20261022_090_campanha_fundador.sql`, os checks pr
   - Com campanha ativada e `ASSINATURA_CAMPANHA_FUNDADOR_ATIVA` diferente de `true`, a contratação fica indisponível
     (`CAMPANHA_DESLIGADA`, 503). Isso é intencional: não vende sem a condição prometida.
   - Antes do início: `CAMPANHA_ANTES_DA_ABERTURA`.
-  - Na janela: concessão `JANELA`. Depois: `POS_JANELA` com a primeira vaga livre. Com 20 ocupadas e não confirmadas:
-    `FUNDADOR_AGUARDANDO`. Com 20 confirmadas: preço regular.
+  - Na janela: concessão `JANELA`. Depois: `POS_JANELA` com a primeira vaga livre. Com 20 ocupadas (confirmadas ou não):
+    preço regular, sem concessão. **Revisto em 24/10/2026 (O3, opção A):** antes, 20 ocupadas e não confirmadas davam
+    `FUNDADOR_AGUARDANDO` e travavam toda a venda. Ver `docs/FUNDADOR_RESERVAS_O1_O3_20261024.md`.
   - A guarda que recusa na virada vira `OFERTA_ALTERADA` (409): o cliente confirma de novo.
   - A retomada de oferta e a concessão existente não reiniciam 12 meses nem ocupam vaga nova.
 - `lib/assinatura/cobranca.ts`: o checkout passa o `env` à oferta.

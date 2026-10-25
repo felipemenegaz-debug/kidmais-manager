@@ -9,7 +9,7 @@ import { dataCurta } from './AvisoComercial';
 import type { PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 import { EncerramentoComDevolucao } from './AssinaturaEncerramento';
 import { ArrependimentoLegal } from './ArrependimentoLegal';
-import { REGRA_RESERVA, regraReservaDaFase, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
+import { AVISO_VAGAS_EM_CONFIRMACAO, REGRA_RESERVA, regraReservaDaFase, SINTESE_SEM_FUNDADOR, textoPagueAte, textoReservaVencida } from '@/lib/assinatura/textos-fundador';
 import { linhaContratante } from '@/lib/assinatura/comprovante-texto';
 
 /**
@@ -147,6 +147,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                     <li>Prestadora: {dados.contratacao?.fornecedora ?? '—'}.</li>
                     <li>Contratante: {dados.contratacao ? linhaContratante(dados.contratacao.contratante) : '—'}.</li>
                     <li>Plano {sintese.nome}, {sintese.ciclo === 'ANUAL' ? 'anual (pagamento único, valor de 10 mensalidades)' : 'mensal'}: {reais(sintese.valor)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}{sintese.ciclo === 'ANUAL' ? `, total do ano ${reais(sintese.valor)}` : ''}.</li>
+                    {!dados.ofertas.fundador && dados.ofertas.aguardandoVaga && <li data-sintese-sem-fundador>{SINTESE_SEM_FUNDADOR}</li>}
                     {dados.ofertas.fundador && <li>Condição Fundador: 40% de desconto por 12 meses sobre {reais(sintese.regular)}/{sintese.ciclo === 'ANUAL' ? 'ano' : 'mês'}; depois, o preço vigente do plano, com aviso de pelo menos 30 dias. {regraReservaDaFase(dados.ofertas.campanha?.fase)}</li>}
                     <li>Renovação: a assinatura renova ao fim de cada ciclo, no mesmo plano e ciclo, até você cancelar.</li>
                     <li>Cancelamento e devolução: <Link href="/termos#cancelamento" target="_blank">Termos de uso, seção “Cancelamento e devolução”</Link>. Seus direitos legais permanecem preservados.</li>
@@ -158,7 +159,8 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
                     <button type="button" disabled={ocupado} onClick={() => setSintese(null)}>Voltar</button>
                 </p>
             </div>}
-            {sintese ? null : dados.ofertas.aguardandoVaga ? <p role="status">As vagas Fundador estão em confirmação. Aguarde antes de contratar.</p> : <>
+            {sintese ? null : <>
+                {dados.ofertas.aguardandoVaga && <p role="status" data-vagas-em-confirmacao>{AVISO_VAGAS_EM_CONFIRMACAO}</p>}
                 <label>Ciclo <select value={cicloPlano} onChange={e => setCicloPlano(e.target.value as 'MENSAL' | 'ANUAL')} disabled={ocupado || Boolean(dados.ofertas.pendente)}>
                     <option value="MENSAL">Mensal</option><option value="ANUAL">Anual — pagamento único, valor de 10 mensalidades</option>
                 </select></label>

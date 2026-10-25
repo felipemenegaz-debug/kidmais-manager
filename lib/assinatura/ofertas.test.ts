@@ -102,12 +102,14 @@ test('reserva automática e retomada idempotente mantêm uma vaga e um snapshot'
     await assert.rejects(prepararOferta(db, E, U, { ...pedido, plano: 'premium' }), /em andamento/);
 });
 
-test('vigésima vaga disponível; 20 reservas aguardam, 20 confirmadas exigem confirmação do preço cheio', async () => {
+test('vigésima vaga disponível; 20 reservas em confirmação NÃO travam (O3, opção A): Fundador esperado reconfirma, preço cheio passa sem vaga; 20 confirmadas idem', async () => {
     const db = new Banco(); db.ocupadas = 19; db.confirmadas = 19;
     assert.equal((await prepararOferta(db, E, U, pedido)).fundador_id, 'vaga');
-    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 19;
-    await assert.rejects(prepararOferta(cheio, E, U, pedido), /em confirmação/);
-    cheio.confirmadas = 20;
+    const emConfirmacao = new Banco(); emConfirmacao.ocupadas = 20; emConfirmacao.confirmadas = 19;
+    await assert.rejects(prepararOferta(emConfirmacao, E, U, pedido), /condições disponíveis mudaram/);
+    const regular = await prepararOferta(emConfirmacao, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([regular.fundador_id, regular.valor_final_centavos], [null, 19700]);
+    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 20;
     await assert.rejects(prepararOferta(cheio, E, U, pedido), /condições disponíveis mudaram/);
     const normal = await prepararOferta(cheio, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
     assert.equal(normal.fundador_id, null);
