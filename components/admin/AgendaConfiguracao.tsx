@@ -326,7 +326,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
                   <DiasChips dias={h.dias} rotulo={h.nome} disabled={bloqueado || trava} onChange={(dias) => alterarHorario(i, { dias })} />
                   {form.capacidadeTipo === 'POR_SALAO'
                     ? <SalaoChips saloes={saloes} escolhidos={h.saloes} rotulo={h.nome} disabled={bloqueado} onChange={(escolhidos) => alterarHorario(i, { saloes: escolhidos })} />
-                    : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><input inputMode="numeric" value={h.capacidade} disabled={bloqueado} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
+                    : <label><span className={ws.srOnly}>Festas ao mesmo tempo em {h.nome || 'este horário'}</span><span className={css.rotuloEstreito} aria-hidden="true">Festas ao mesmo tempo</span><input inputMode="numeric" value={h.capacidade} disabled={bloqueado} onChange={(e) => alterarHorario(i, { capacidade: e.target.value })} /></label>}
                   {!leitura && !(futuras && futuras.quantidade > 0)
                     ? <button type="button" className={css.remover} aria-label={`Remover o horário ${h.nome}`} disabled={bloqueado} onClick={() => setForm({ ...form, horarios: form.horarios.filter((_, j) => j !== i) })}>×</button>
                     : <span />}
