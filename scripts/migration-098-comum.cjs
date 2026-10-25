@@ -175,12 +175,19 @@ function commitNaFalha(e) {
   return sqlstate && !/^(08|57|58|XX)/.test(sqlstate) && sqlstate !== '40003' ? 'DESFEITA_PELO_SERVIDOR' : 'INDETERMINADO';
 }
 
-async function somenteLeitura(db, sql, {caminho, papelDaSessao = false} = {}) {
+/**
+ * Limite das leituras que calculam o retrato estrutural: o retrato e os checks que o embutem (precheck, postcheck e
+ * integridade). Em 25/10/2026 o --retrato-098 no staging terminou em statement timeout com 30 s (localmente leva ~1,2 s).
+ * A espera de lock continua em 5 s; as demais leituras seguem com 30 s.
+ */
+const TEMPO_RETRATO = '300s';
+async function somenteLeitura(db, sql, {caminho, papelDaSessao = false, tempo = '30s'} = {}) {
+  assert.match(tempo, /^\d{1,3}s$/, 'TEMPO_INVALIDO');
   await db.query('BEGIN TRANSACTION READ ONLY');
   try {
     // Leitura também espera lock (ACCESS SHARE contra DDL concorrente): espera curta, falha explícita.
     await db.query("SET LOCAL lock_timeout = '5s'");
-    await db.query("SET LOCAL statement_timeout = '30s'");
+    await db.query(`SET LOCAL statement_timeout = '${tempo}'`);
     if (caminho) await db.query(`SET LOCAL search_path = ${caminho}`);
     // Só nesta transação de leitura: volta ao papel do login (session_user), o mesmo das conexões da aplicação.
     if (papelDaSessao) await db.query('SET LOCAL ROLE NONE');
@@ -189,7 +196,11 @@ async function somenteLeitura(db, sql, {caminho, papelDaSessao = false} = {}) {
     return r;
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
-const retratoNoCliente = async (db, raiz) => lerRetrato((await somenteLeitura(db, sqlRetrato(raiz), {caminho: 'pg_catalog'})).rows[0]);
+async function retratoNoCliente(db, raiz) {
+  const inicio = Date.now();
+  const linha = (await somenteLeitura(db, sqlRetrato(raiz), {caminho: 'pg_catalog', tempo: TEMPO_RETRATO})).rows[0];
+  return {...lerRetrato(linha), duracaoMs: Date.now() - inicio};
+}
 
 /** Contagens e resumos agregados (sem ids): salões, combinados e festas de hoje em diante com salão. */
 async function contagens(db, estado, corte) {
@@ -231,7 +242,9 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   r.checks = {};
   for (const nome of r.estado.m098 === 'completa' ? ['integridade 098'] : ['precheck 098']) {
     const [, arquivo, hash] = etapa(nome);
-    await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
+    const inicio = Date.now();
+    await somenteLeitura(db, lerRevisado(raiz, arquivo, hash), {tempo: TEMPO_RETRATO});
+    (r.duracoesMs ??= {})[nome] = Date.now() - inicio;
     r.checks[nome] = 'PASS';
   }
   r.resultado = r.estado.m098 === 'completa' ? 'JA_APLICADA_INTEGRIDADE_PASS' : 'PRONTA_PARA_APLICAR';
@@ -296,7 +309,7 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
       // A consulta voltou sem erro: o COMMIT do arquivo valeu. Registrado ANTES de qualquer outra leitura.
       r.etapas.at(-1).commit = 'CONFIRMADO'; registrar(r);
       assert.equal(lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]).m098, 'completa', 'ESTADO_DEPOIS_098');
-    } else await somenteLeitura(db, sqls.get(nome));
+    } else await somenteLeitura(db, sqls.get(nome), {tempo: TEMPO_RETRATO});
     Object.assign(r.etapas.at(-1), {ok: true, fim: new Date().toISOString()}); registrar(r);
   }
   r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
@@ -428,6 +441,6 @@ function criarAplicador(amb) {
   return {plano, retratar, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {RETRATO, ETAPAS, RETRATOS, OBJETOS, BASE, CAMPOS, ALTERADAS, SUBSTITUIDAS, FLAG_RETRATO, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
+module.exports = {TEMPO_RETRATO, RETRATO, ETAPAS, RETRATOS, OBJETOS, BASE, CAMPOS, ALTERADAS, SUBSTITUIDAS, FLAG_RETRATO, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
   SQL_ESTADO, SQL_PRESERVACAO, SQL_CORTE, SQL_ANTERIORES, commitNaFalha, lerRevisado, sqlRetrato, lerRetrato, lerEstado, planoEtapas,
   retratarNoCliente, conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

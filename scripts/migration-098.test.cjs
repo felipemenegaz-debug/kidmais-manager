@@ -29,15 +29,16 @@ const CORTE = '2026-10-23T18:00:00.000000Z';
 
 /** Cliente simulado: sequências de estados e retratos; registra cada SQL, se rodou em READ ONLY e o search_path local. */
 function clienteFalso({estados = [AUSENTE, COMPLETA], retratos = [R094, R098], identidade = ID_STG, falharEm, erro, preservacao, anteriores = [0], invisiveis = [0]} = {}) {
-  const log = []; let i = 0, j = 0, k = 0, v = 0, ro = false, caminho = null, papel = null;
+  const log = []; let i = 0, j = 0, k = 0, v = 0, ro = false, caminho = null, papel = null, tempo = null;
   const C = class {
     on() {} async connect() {} async end() {}
     async query(sql) {
       if (sql === 'BEGIN TRANSACTION READ ONLY') ro = true;
       if (sql.startsWith('SET LOCAL search_path')) caminho = sql.slice('SET LOCAL search_path = '.length);
       if (sql === 'SET LOCAL ROLE NONE') papel = 'sessao';
-      log.push({sql, ro, caminho, papel});
-      if (sql === 'ROLLBACK' || sql === 'COMMIT') { ro = false; caminho = null; papel = null; }
+      const t = /^SET LOCAL statement_timeout = '(\d+s)'$/.exec(sql); if (t) tempo = t[1];
+      log.push({sql, ro, caminho, papel, tempo});
+      if (sql === 'ROLLBACK' || sql === 'COMMIT') { ro = false; caminho = null; papel = null; tempo = null; }
       if (falharEm && sql.includes(falharEm)) throw erro ?? new Error('falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_ESTADO) return {rows: [estados[Math.min(i++, estados.length - 1)]]};
@@ -393,4 +394,26 @@ test('P2-2: sessão não classificável impede a aplicação (antes de escrever)
   const q = comum.SQL_ANTERIORES(CORTE);
   assert.match(q, /backend_type IS NULL AND query = '<insufficient privilege>'/, 'invisível tem backend_type nulo');
   assert.doesNotMatch(q.slice(q.indexOf('FROM pg_stat_activity')), /backend_type/, 'o filtro geral não descarta invisíveis');
+});
+
+test('tempo das leituras: retrato, precheck, postcheck e integridade com TEMPO_RETRATO (300 s); demais com 30 s; lock 5 s; duração informada', async () => {
+  assert.equal(comum.TEMPO_RETRATO, '300s');
+  const comRetrato = x => x.sql.startsWith('/* retrato-098 */') || /098 (precheck|postcheck|integridade) OK/.test(x.sql);
+  const dir = tmp();
+  try {
+    const C = clienteFalso({estados: [AUSENTE, COMPLETA, COMPLETA]});
+    const r = await stg.executar({env: ENV_STG, backup: 'export 25/10', dir, Client: C, disco: semDisco});
+    assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS', JSON.stringify(r));
+    const leituras = C.log.filter(x => x.ro && !/^(BEGIN TRANSACTION READ ONLY|ROLLBACK|SET LOCAL)/.test(x.sql));
+    const pesadas = leituras.filter(comRetrato);
+    assert.equal(pesadas.length, 2 + 3, 'retrato antes/depois + precheck, postcheck e integridade');
+    assert.ok(pesadas.every(x => x.tempo === '300s'), 'leituras com retrato em 300 s: ' + JSON.stringify(pesadas.map(x => [x.sql.slice(0, 40), x.tempo])));
+    assert.ok(leituras.filter(x => !comRetrato(x)).every(x => x.tempo === '30s'), 'demais leituras em 30 s');
+    assert.ok(!C.log.some(x => x.sql === "SET LOCAL lock_timeout = '5s'" && !x.ro), 'lock_timeout só dentro das leituras');
+    assert.equal(C.log.filter(x => x.sql === "SET LOCAL lock_timeout = '5s'").length, leituras.length, 'toda leitura com lock 5 s');
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  const t = await stg.retratar({env: ENV_STG, Client: clienteFalso({retratos: [R094]})});
+  assert.ok(Number.isInteger(t.retrato.duracaoMs) && t.retrato.duracaoMs >= 0);
+  const c = await stg.conferir({env: ENV_STG, Client: clienteFalso({estados: [AUSENTE]})});
+  assert.ok(Number.isInteger(c.duracoesMs['precheck 098']) && Number.isInteger(c.retrato.duracaoMs));
 });
