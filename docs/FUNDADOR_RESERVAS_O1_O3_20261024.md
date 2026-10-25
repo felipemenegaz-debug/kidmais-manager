@@ -191,3 +191,25 @@
 - E2E de cadastro e de CPF/Fundador: ok.
 - Cluster encerrado e removido.
 - **Rodada 3b**, depois dos 2 casos de render (validade, vencida e campanha desligada): unitários e render **33/33**; `check:v1:static` **PASS** (3543 + 103). A PG e os E2E não mudam com testes de render, e a rodada 3 completa já cobre o código.
+
+### Provas mutantes da correção P2-R1, em cópia isolada (25/10/2026)
+
+**Cópia:** `D:/glass/KidMais Manager/mutacao-fundador-venda-sem-trava-r2-20261025`, clone LF de `5a3a31cc` com `npm ci` próprio. O clone de trabalho não foi tocado.
+
+**Controle positivo antes:** unitários e render passam; PG (`campanha-090` e `comprovante-096`) passa.
+
+| Mutante | Unitários e render | PG |
+|---|---|---|
+| **M1**, servidor volta a lançar `FUNDADOR_AGUARDANDO` | falham | falham 2b, 4b e 6 |
+| **M2**, servidor deixa de conferir o valor esperado | falham | falham 2b, 4b e 6 |
+| **M3**, tela esconde os botões com vagas em confirmação | falham | — |
+| **M4**, síntese perde a linha "sem Fundador" | falham | — |
+| **M5**, desfaz o P2-R1: `fundador` e `aguardandoVaga` voltam a vir da disponibilidade atual mesmo com oferta pendente | falham | falham 2b e 6 |
+
+**Controle positivo depois** (cópia revertida): unitários, render e PG passam.
+
+A cópia terminou limpa e o cluster foi encerrado e removido.
+
+**Reprodução do Astra rodada de novo depois da correção:** saída com código 1, `AssertionError` em `pendente.fundador === true` (recebe `false`). Ela falha por exigir a presença do defeito.
+
+**Logs:** `ambientes-locais/pg-descartavel-cpf-fundador-20261022-relatorios/fundador-venda-sem-trava-20261024/`, nas pastas `rodada3`, `rodada3b`, `mutantes-r2-copia-isolada` e `reproducao-astra-pos-correcao`, junto com os roteiros.
