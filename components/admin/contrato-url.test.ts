@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FalhaContrato, MENSAGEM_LINK_INVALIDO, MENSAGEM_SEM_ACESSO, PREFIXO_IMPORTADO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao, valorDaSelecao,
+  ABAS_LISTA, FalhaContrato, MENSAGEM_LINK_INVALIDO, MENSAGEM_SEM_ACESSO, PREFIXO_IMPORTADO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaLista, urlDaSelecao, valorDaSelecao,
 } from './contrato-url.ts';
 
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -65,4 +65,16 @@ test('opcaoForaDaLista: só para o contrato aberto que a lista não contém, com
   assert.equal(opcaoForaDaLista([{ id: B, nome: 'Cliente B' }], B, painel), null, 'já está na lista');
   assert.equal(opcaoForaDaLista([], A, painel), null, 'painel de outro contrato (resposta ainda não aplicada)');
   assert.equal(opcaoForaDaLista([], B, null), null, 'ainda carregando');
+});
+
+test('O-1: filtro e busca da lista na URL — leitura validada, gravação mínima e preservação ao abrir/fechar contrato', () => {
+  assert.deepEqual(listaDaUrl(new URLSearchParams('filtro=todas&busca=%20lucas%20')), { aba: 'todas', busca: 'lucas' });
+  assert.deepEqual(listaDaUrl(new URLSearchParams('filtro=qualquer')), { aba: 'proximas', busca: '' }, 'filtro desconhecido cai no padrão');
+  assert.deepEqual(listaDaUrl(new URLSearchParams('')), { aba: 'proximas', busca: '' });
+  assert.equal(listaDaUrl(new URLSearchParams(`busca=${'x'.repeat(120)}`)).busca.length, 80);
+  for (const aba of ABAS_LISTA) assert.equal(listaDaUrl(new URLSearchParams(`filtro=${aba}`)).aba, aba);
+  assert.equal(urlDaLista('/admin/contratos', new URLSearchParams('returnTo=%2Ffestas'), 'importados', 'ana'), '/admin/contratos?returnTo=%2Ffestas&filtro=importados&busca=ana');
+  assert.equal(urlDaLista('/admin/contratos', new URLSearchParams('filtro=todas&busca=ana'), 'proximas', ''), '/admin/contratos');
+  assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams('filtro=todas&busca=ana'), A), `/admin/contratos?filtro=todas&busca=ana&contratoId=${A}`);
+  assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams(`filtro=todas&busca=ana&contratoId=${A}&versaoId=${B}`), ''), '/admin/contratos?filtro=todas&busca=ana');
 });

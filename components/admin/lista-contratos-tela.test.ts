@@ -91,3 +91,59 @@ test('lista: busca vai ao servidor, 400 vira orientação, filtro trocado descar
   liberar!(); await m.ciclo(); await m.ciclo();
   assert.doesNotMatch(texto(m.render()), /Atrasado/); assert.match(texto(m.render()), /Cliente 1/);
 });
+
+test('O-1: a lista abre com o filtro e a busca vindos da URL e avisa cada troca para gravá-la', async () => {
+  const urls: string[] = [], trocas: Array<[string, string]> = [];
+  const tela = carregarComponente('components/admin/ListaContratos.tsx', {
+    'next/link': { default: Link }, './contratos-ux.module.css': cssFalso, './contrato-tela': contratoTela, './contrato-url': contratoUrl,
+    '@/lib/http/admin-fetch': { adminFetch: async (u: string) => { urls.push(u); return ok({ itens: [item(1)], proximoCursor: null, contagens, importados: [] }); } },
+  });
+  const render = () => tela.render('default', { onAbrir() {}, filtroInicial: 'todas', buscaInicial: 'lucas', onFiltro: (a: string, b: string) => trocas.push([a, b]) });
+  render(); tela.efeitos(); for (let i = 0; i < 4; i++) await tique();
+  let r = render();
+  assert.equal(urls[0], '/api/admin/contratos/lista?filtro=todas&busca=lucas');
+  assert.equal(achar(r, 'input', '').props.value, 'lucas', 'o campo mostra a busca restaurada');
+  assert.equal(elementos(r).find(e => e.type === 'button' && /^Todas/.test(texto(e)))!.props['aria-pressed'], true);
+  (elementos(r).find(e => e.type === 'button' && /^Canceladas/.test(texto(e)))!.props.onClick as () => void)();
+  r = render(); (achar(r, 'button', 'Limpar').props.onClick as () => void)();
+  assert.deepEqual(trocas, [['canceladas', 'lucas'], ['canceladas', '']]);
+});
+
+test('O-2: contrato cancelado aparece como "Cancelado", mesmo sem versão de referência válida; o valor continua oculto', async () => {
+  const sem = { referencia: { origem: 'SEM_VERSAO_VALIDA', diagnostico: true } };
+  const m = montar(async () => ok({ itens: [item(1, { ...sem, cancelado: true, status: 'CANCELADO' }), item(2, sem)], proximoCursor: null, contagens, importados: [] }));
+  const r = await m.ciclo();
+  const linhas = elementos(r).filter(e => e.type === 'button' && /Cliente \d/.test(texto(e))).map(texto);
+  assert.match(linhas[0], /Cancelado/); assert.doesNotMatch(linhas[0], /Conferir/);
+  assert.match(linhas[1], /Conferir/, 'sem versão válida e ativo continua "Conferir"');
+  const valores = elementos(r).filter(e => e.type === 'strong' && e.props.className === 'valorLinha').map(texto);
+  assert.deepEqual(valores, ['—', '—']);
+});
+
+test('O-1 (revisão): a URL que muda com a lista montada (ex.: menu "Contratos") reaplica filtro e busca, sem laço nem leitura dupla', async () => {
+  const urls: string[] = [], trocas: Array<[string, string]> = [];
+  const tela = carregarComponente('components/admin/ListaContratos.tsx', {
+    'next/link': { default: Link }, './contratos-ux.module.css': cssFalso, './contrato-tela': contratoTela, './contrato-url': contratoUrl,
+    '@/lib/http/admin-fetch': { adminFetch: async (u: string) => { urls.push(u); return ok({ itens: [item(1)], proximoCursor: null, contagens, importados: [] }); } },
+  });
+  let props = { filtroInicial: 'todas', buscaInicial: 'Helena' };
+  // Como o ContratoAdmin: cada onFiltro grava na URL e volta como props no render seguinte.
+  const onFiltro = (a: string, b: string) => { trocas.push([a, b]); props = { filtroInicial: a, buscaInicial: b }; };
+  const ciclo = async () => { tela.render('default', { onAbrir() {}, onFiltro, ...props }); tela.efeitos(); for (let i = 0; i < 4; i++) await tique(); tela.render('default', { onAbrir() {}, onFiltro, ...props }); tela.efeitos(); for (let i = 0; i < 4; i++) await tique(); return tela.render('default', { onAbrir() {}, onFiltro, ...props }); };
+  let r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=todas&busca=Helena']);
+  // Mudança externa da URL, sem desmontar: aplica, lê uma vez, não devolve onFiltro (sem laço com o router).
+  props = { filtroInicial: 'canceladas', buscaInicial: 'Theo' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=canceladas&busca=Theo']);
+  assert.equal(achar(r, 'input', '').props.value, 'Theo');
+  assert.equal(elementos(r).find(e => e.type === 'button' && /^Canceladas/.test(texto(e)))!.props['aria-pressed'], true);
+  // Menu "Contratos" (URL sem parâmetros): volta ao padrão.
+  props = { filtroInicial: 'proximas', buscaInicial: '' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=proximas']);
+  assert.equal(achar(r, 'input', '').props.value, '');
+  assert.deepEqual(trocas, [], 'mudança externa não regrava a URL');
+  // Troca feita pela própria lista: grava a URL e lê uma única vez (as props que voltam iguais não releem).
+  (elementos(r).find(e => e.type === 'button' && /^Todas/.test(texto(e)))!.props.onClick as () => void)();
+  r = await ciclo();
+  assert.deepEqual(trocas, [['todas', '']]); assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=todas']);
+});

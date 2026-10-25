@@ -51,7 +51,26 @@ export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toS
   return busca ? `${pathname}?${busca}` : pathname;
 }
 
-export const MENSAGEM_LINK_INVALIDO = 'O link do contrato é inválido. Escolha o contrato na lista.';
+/**
+ * Filtro e busca da lista também ficam na URL (`?filtro=todas&busca=lucas`): abrir um contrato preserva os dois (via
+ * `urlDaSelecao`), e "← Contratos" ou voltar do navegador reabrem a lista como estava. Valor desconhecido cai no padrão.
+ */
+export const ABAS_LISTA = ['proximas', 'aguardando', 'alteracao', 'todas', 'canceladas', 'importados'] as const;
+export type AbaLista = typeof ABAS_LISTA[number];
+export function listaDaUrl(params: Pick<URLSearchParams, 'get'>): { aba: AbaLista; busca: string } {
+  const filtro = params.get('filtro') ?? '';
+  const busca = (params.get('busca') ?? '').trim().slice(0, 80);
+  return { aba: (ABAS_LISTA as readonly string[]).includes(filtro) ? filtro as AbaLista : 'proximas', busca };
+}
+export function urlDaLista(pathname: string, atual: Pick<URLSearchParams, 'toString'>, aba: AbaLista, busca: string): string {
+  const params = new URLSearchParams(atual.toString());
+  if (aba === 'proximas') params.delete('filtro'); else params.set('filtro', aba);
+  if (busca) params.set('busca', busca); else params.delete('busca');
+  const q = params.toString();
+  return q ? `${pathname}?${q}` : pathname;
+}
+
+export const MENSAGEM_LINK_INVALIDO ='O link do contrato é inválido. Escolha o contrato na lista.';
 export const MENSAGEM_SEM_ACESSO = 'Contrato não encontrado nesta empresa ou sem permissão de acesso.';
 
 /** Falha ao abrir o contrato pedido: inexistente/de outra empresa (404) ou sem permissão (403) têm mensagem clara. */
