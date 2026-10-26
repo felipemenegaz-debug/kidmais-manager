@@ -43,7 +43,7 @@ function telas(opcoes: { gets: unknown[]; posts: Array<Resposta | (() => Promise
     const r = typeof proxima === 'function' ? await proxima() : proxima;
     return Response.json(r.corpo, { status: r.status });
   };
-  const base = { '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, '@/lib/agenda/saloes-liberacao': liberacao,
+  const base = { 'next/link': { default: (p: { children?: unknown }) => p.children }, '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, '@/lib/agenda/saloes-liberacao': liberacao,
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);

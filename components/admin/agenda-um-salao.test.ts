@@ -31,7 +31,7 @@ function carregar(agenda: ReturnType<typeof agendaDe>, pedidos: Array<Record<str
     pedidos.push(JSON.parse(String(init.body)));
     return Response.json({ ok: true, data: {} });
   };
-  const base = { '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, '@/lib/agenda/saloes-liberacao': liberacao,
+  const base = { 'next/link': { default: (p: { children?: unknown }) => p.children }, '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, '@/lib/agenda/saloes-liberacao': liberacao,
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
