@@ -34,7 +34,7 @@ test('Gestão vê data, valor mensal e antecedência; cancelamento preserva per�
     assert.match(html, /data-aviso-renovacao/);
     assert.match(html, /08\/11\/2026/);
     assert.match(html, /R\$ 197,00\/mês/);
-    assert.match(html, /30 dias antes/);
+    assert.match(html, /com pelo menos 30 dias de antecedência/);
     assert.match(html, /cancelar antes da renovação, preservando o período já pago/);
     assert.doesNotMatch(html, /foi enviado por e-mail/);
 });
@@ -56,7 +56,7 @@ test('renovação anual apresenta total anual, sem tratá-lo como mensalidade', 
 test('Equipe não recebe aviso ou ações de contratação da Gestão', () => {
     const d = dados(); d.gestao = false;
     const html = renderizar(d);
-    assert.doesNotMatch(html, /data-aviso-renovacao|08\/11\/2026|R\$ 197,00|30 dias antes/);
+    assert.doesNotMatch(html, /data-aviso-renovacao|08\/11\/2026|R\$ 197,00|30 dias de antecedência/);
     assert.match(html, /Somente a Gestão desta empresa contrata ou cancela/);
 });
 
@@ -64,7 +64,7 @@ test('renovação em revisão não promete aumento ou envio concluído', () => {
     const d = dados(); d.renovacao!.estado = 'REVISAO';
     const html = renderizar(d);
     assert.match(html, /precisa de revisão pelo atendimento/);
-    assert.doesNotMatch(html, /o valor será|foi enviado|30 dias antes/);
+    assert.doesNotMatch(html, /o valor será|foi enviado|30 dias de antecedência/);
 });
 
 test('cancelamento, ausência de registro ou assinatura não mostram renovação futura', () => {

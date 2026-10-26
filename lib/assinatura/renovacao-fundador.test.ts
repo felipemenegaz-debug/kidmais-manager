@@ -254,3 +254,133 @@ test('G1: relogioReal não decide datas de negócio', async () => {
     assert.equal(await processarRenovacao(E,f.deps),'AGUARDANDO_AVISO');
     assert.equal(f.chamadas.includes('enviar'),false);
 });
+
+// ---- B-9 (plano rev. 3.1): modo agendado nunca grava REVISAO nem suspende; janela de aviso de 33 a 30 dias (D-B9-5).
+const agendado = () => { const f = fixture(); f.deps.modoAgendado = true; return f; };
+const semRevisao = (chamadas: string[]) => {
+    assert.equal(chamadas.includes('estado:REVISAO'), false, 'nenhuma REVISAO gravada');
+    assert.equal(chamadas.includes('suspender'), false, 'nenhuma suspensão');
+};
+/** N-ésima chamada (1-based) de obterAssinatura devolve o que `trocar` produzir. */
+function assinaturaNaChamada(f: ReturnType<typeof fixture>, n: number, trocar: (s: AssinaturaProvedor) => AssinaturaProvedor) {
+    const original = f.deps.provedor.obterAssinatura; let k = 0;
+    f.deps.provedor.obterAssinatura = async (id) => { const s = await original(id); k++; return k === n ? trocar(s!) : s; };
+}
+
+test('B-9: REVISAO existente retorna antes de vigência, rede ou escrita', async () => {
+    const f = agendado();
+    f.c.registro = { id: 'r1', empresaId: E, contratacaoId: f.c.contratacaoId, destinatarioId: f.c.destinatarioId, primeiroVencimento: '2026-10-09',
+        primeiraDataRegular: '2027-10-09', mensagem: mensagemRenovacao(f.c, 'r1', '2027-10-09', 'https://kidmais.example'), estado: 'REVISAO',
+        avisoTentadoEm: null, avisoEnviadoEm: null, precoAplicadoEm: null, ultimoErro: 'JANELA_AVISO_PERDIDA' };
+    f.c.isenta = true; // nem a vigência é considerada antes
+    f.deps.provedor.obterAssinatura = async () => { throw new Error('Rede proibida.'); };
+    assert.equal(await processarRenovacao(E, f.deps), 'REVISAO_EXISTENTE');
+    assert.deepEqual(f.chamadas, []);
+});
+
+test('B-9: identidade divergente inicial (linha 97) vira alerta sem escrita', async () => {
+    const f = agendado(); assinaturaNaChamada(f, 1, (s) => ({ ...s, customer: 'cus_outro' }));
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_IDENTIDADE_DIVERGENTE');
+    assert.deepEqual(f.chamadas, []); assert.equal(f.c.registro, null);
+});
+
+test('B-9: identidade divergente na confirmação final (linha 178), depois dos PUTs, é alerta e preserva APLICANDO', async () => {
+    const f = agendado(); assinaturaNaChamada(f, 3, (s) => ({ ...s, customer: 'cus_outro' }));
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_IDENTIDADE_DIVERGENTE');
+    assert.ok(f.chamadas.includes('preco')); assert.equal(f.c.registro?.estado, 'APLICANDO');
+    assert.equal(f.chamadas.includes('estado:CANCELADA'), false); semRevisao(f.chamadas);
+});
+
+test('B-9: assinatura inativa com identidade conferida na confirmação final continua CANCELADA', async () => {
+    const f = agendado(); assinaturaNaChamada(f, 3, (s) => ({ ...s, status: 'INACTIVE' }));
+    assert.equal(await processarRenovacao(E, f.deps), 'CANCELADA');
+    assert.equal(f.c.registro?.estado, 'CANCELADA'); semRevisao(f.chamadas);
+});
+
+test('B-9: caso da revisão (próximo vencimento inválido depois do aviso, sem corrida) mantém AVISADA, sem revisão nem suspensão', async () => {
+    const f = agendado(); f.sub.nextDueDate = 'invalida';
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_PROXIMO_VENCIMENTO_INVALIDO');
+    assert.equal(f.c.registro?.estado, 'AVISADA'); assert.ok(f.chamadas.includes('enviar')); semRevisao(f.chamadas);
+    // Sem modo agendado (ferramenta restrita), o comportamento anterior continua: revisão e suspensão.
+    const g = fixture(); g.sub.nextDueDate = 'invalida';
+    assert.equal(await processarRenovacao(E, g.deps), 'PROXIMO_VENCIMENTO_INVALIDO');
+    assert.equal(g.c.registro?.estado, 'REVISAO'); assert.ok(g.chamadas.includes('suspender'));
+});
+
+test('B-9: parcela que vira RECEIVED entre a listagem e a releitura, depois do PUT da assinatura, é alerta sem outro PUT', async () => {
+    const f = agendado(); const ler = f.deps.provedor.obterCobranca;
+    f.deps.provedor.obterCobranca = async (id) => { const p = await ler(id); return id === 'new' ? { ...p!, status: 'RECEIVED' } : p; };
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_COBRANCA_JA_PROCESSADA');
+    assert.ok(f.chamadas.includes('preco')); assert.equal(f.chamadas.some((x) => x.startsWith('parcela:')), false);
+    assert.equal(f.c.registro?.estado, 'APLICANDO'); semRevisao(f.chamadas);
+});
+
+test('B-9: primeiro pagamento divergente não cria registro nem suspende', async () => {
+    const f = agendado(); f.parcelas[0].status = 'PENDING';
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_PRIMEIRO_PAGAMENTO_DIVERGENTE');
+    assert.deepEqual(f.chamadas, []);
+});
+
+test('D-B9-5: janela de 33 a 30 dias, com registro PENDENTE preexistente e sem registro', async () => {
+    // primeiraDataRegular 2027-10-09: −34 = 09-05, −33 = 09-06, −31 = 09-08, −30 = 09-09, −29 = 09-10 (meio-dia em Brasília).
+    for (const preexistente of [true, false]) {
+        const f = agendado();
+        if (preexistente) {
+            f.dia('2027-08-01T15:00:00Z');
+            assert.equal(await processarRenovacao(E, f.deps), 'AGUARDANDO_AVISO');
+            assert.equal(f.c.registro?.estado, 'PENDENTE');
+        }
+        f.dia('2027-09-05T15:00:00Z');
+        assert.equal(await processarRenovacao(E, f.deps), 'AGUARDANDO_AVISO', '−34 ' + preexistente);
+        assert.equal(f.chamadas.includes('enviar'), false);
+        f.dia('2027-09-06T15:00:00Z');
+        assert.notEqual(await processarRenovacao(E, f.deps), 'AGUARDANDO_AVISO', '−33 abre ' + preexistente);
+        assert.equal(f.chamadas.filter((x) => x === 'enviar').length, 1);
+    }
+    for (const dia of ['2027-09-08T15:00:00Z', '2027-09-09T15:00:00Z']) {
+        const f = agendado(); f.dia(dia); await processarRenovacao(E, f.deps);
+        assert.equal(f.chamadas.includes('enviar'), true, dia);
+    }
+    const tarde = agendado(); tarde.dia('2027-09-10T15:00:00Z');
+    assert.equal(await processarRenovacao(E, tarde.deps), 'ALERTA_JANELA_AVISO_PERDIDA', 'empresa alcançada só depois do −30');
+    assert.equal(tarde.chamadas.includes('enviar'), false); semRevisao(tarde.chamadas);
+});
+
+test('D-B9-5: falha às 23h50 do −33 e retentativa às 00h10 do −32 reenvia com a mesma chave', async () => {
+    const f = agendado(); f.falharEmail(true); f.dia('2027-09-07T02:50:00Z'); // 23h50 de 06/09 em Brasília
+    assert.equal(await processarRenovacao(E, f.deps), 'ENVIO_INCERTO');
+    f.falharEmail(false); f.dia('2027-09-07T03:10:00Z'); // 00h10 de 07/09
+    assert.notEqual(await processarRenovacao(E, f.deps), 'ENVIO_INCERTO');
+    assert.equal(new Set(f.chaves).size, 1); assert.equal(f.chamadas.filter((x) => x === 'enviar').length, 2);
+});
+
+test('retentativa estritamente abaixo de 23 h da primeira tentativa (o relógio não reinicia)', async () => {
+    const base = Date.parse('2027-09-06T13:00:00Z');
+    for (const [desvio, reenvia] of [[23 * 3600000 - 1, true], [23 * 3600000, false], [23 * 3600000 + 1, false]] as const) {
+        const f = agendado(); f.falharEmail(true); f.dia(new Date(base).toISOString());
+        await processarRenovacao(E, f.deps);
+        f.dia(new Date(base + 3600000).toISOString());
+        await processarRenovacao(E, f.deps); // segunda falha não reinicia o relógio
+        f.falharEmail(false); f.dia(new Date(base + desvio).toISOString());
+        const r = await processarRenovacao(E, f.deps);
+        if (reenvia) assert.equal(f.chamadas.filter((x) => x === 'enviar').length, 3, String(desvio));
+        else { assert.equal(r, 'ALERTA_ENVIO_INCERTO_FORA_JANELA', String(desvio)); semRevisao(f.chamadas); }
+    }
+});
+
+test('meia-noite do −30: envio aceito depois da virada é recusado pela guarda da 075 → ENVIO_INCERTO em AVISANDO; no −29, alerta', async () => {
+    const f = agendado(); f.dia('2027-09-10T02:59:59Z'); // 23h59m59s de 09/09 (−30) em Brasília
+    const marcar = f.deps.repositorio.marcar;
+    f.deps.repositorio.marcar = async (e, id, a) => {
+        // Reproduz o CHECK da 075: aviso_enviado_em (Brasília) <= primeira_data_regular − 30.
+        if (a.envioId && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(f.deps.agora()) > '2027-09-09') throw new Error('CHECK 075');
+        return marcar(e, id, a);
+    };
+    const enviar = f.deps.enviar;
+    f.deps.enviar = async (m) => { const r = await enviar(m); f.dia('2027-09-10T03:00:01Z'); return r; }; // aceito depois da virada
+    assert.equal(await processarRenovacao(E, f.deps), 'ENVIO_INCERTO');
+    assert.equal(f.c.registro?.estado, 'AVISANDO'); assert.equal(f.c.registro?.avisoEnviadoEm, null);
+    f.dia('2027-09-10T15:00:00Z');
+    assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_JANELA_AVISO_PERDIDA');
+    assert.equal(f.c.registro?.estado, 'AVISANDO'); semRevisao(f.chamadas);
+});

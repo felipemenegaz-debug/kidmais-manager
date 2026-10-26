@@ -222,6 +222,8 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/comprovante-096.postgres.test.ts": { descartavel: "089" },
   // 25/10/2026: situação atual do benefício Fundador (leitura para Gestão e desenvolvedor), 096 e 090 aplicadas pela suíte sobre o modelo 089.
   "lib/assinatura/beneficio-fundador.postgres.test.ts": { descartavel: "089" },
+  // 25/10/2026: B-9 — entrada agendada da renovação Fundador (processo filho, repositório real 074a/075, provedor e e-mail falsos), modelo 097.
+  "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
   // Revisão f6b6fbb (P2-N5): controle físico da 097 SEM a 089 (modelo 086: 068 e 074a, sem assinatura_encerramentos).

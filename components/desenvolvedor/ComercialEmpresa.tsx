@@ -5,10 +5,13 @@ import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData, rotuloAcao, textoResultadoArrependimento, type Resposta } from './cliente';
 import { dataHoraBrasilia } from '@/lib/assinatura/textos-fundador';
 import type { BeneficioFundadorDesenvolvedor } from '@/lib/assinatura/beneficio-fundador';
+import { planosComerciais, type PlanoComercialId } from '@/lib/assinatura/planos-comerciais';
 
 /** Situação comercial na ficha da empresa (E5). Intervenções exigem motivo, prazo e senha (reautenticação no servidor). */
 export type Comercial = {
     instalado: boolean; cobrado: boolean; situacao: string | null; nivel: string; motivo: string; ate: string | null; testeFim: string | null; periodoAtualFim: string | null;
+    /** Plano da assinatura (UNICO = legado; ESSENCIAL/PROFISSIONAL/PREMIUM = planos de 20/10). Ausente em fichas antigas. */
+    plano?: string | null;
     ciclo: string | null; testeInicio: string | null; emAtrasoDesde: string | null; versao: number | null;
     excecoes: { id: string; tipo: string; validaAte: string; motivo: string; criadoEm: string; criadoPor: string | null; revogadaEm: string | null; motivoRevogacao: string | null; vigente: boolean }[];
     eventos: { tipo: string; situacao: string; recebidoEm: string; processadoEm: string | null; tentativas: number }[];
@@ -26,6 +29,12 @@ const CONTINUIDADE: Record<TipoContinuidade, string> = { RETIFICACAO: 'Retifica�
 type FormContinuidade = { tipo: TipoContinuidade; documentoNovo: string; nomeNovo: string; instrumento: string; evidencias: string; dataEfetiva: string; motivo: string };
 const SITUACAO: Record<string, string> = { TESTE: 'Teste grátis', ATIVA: 'Assinatura ativa', EM_ATRASO: 'Pagamento pendente', CANCELADA_FIM_PERIODO: 'Cancelada no fim do período', ENCERRADA: 'Encerrada' };
 const NIVEL: Record<string, string> = { COMPLETO: 'Completo', SOMENTE_LEITURA: 'Somente leitura', BLOQUEADO: 'Bloqueado' };
+/** Nome do plano para o atendimento: o legado (UNICO ou sem a 074a) continua "Único". */
+export function nomePlano(plano: string | null | undefined) {
+    if (typeof plano !== 'string' || !plano || plano === 'UNICO') return 'Único';
+    const id = plano.toLowerCase();
+    return Object.hasOwn(planosComerciais, id) ? planosComerciais[id as PlanoComercialId].nome : plano;
+}
 const BENEFICIO: Record<BeneficioFundadorDesenvolvedor['situacao'], string> = { RESERVADA: 'Reservada (ainda não confirmada)', CONFIRMADA_VIGENTE: 'Confirmada · vigente', ENCERRADA: 'Encerrada por prazo' };
 const EXCECAO: Record<string, string> = { EXTENSAO_TESTE: 'Extensão de teste', CORTESIA: 'Cortesia', ACESSO_TEMPORARIO: 'Acesso temporário' };
 export function rotuloComercial(c: Pick<Comercial, 'instalado' | 'cobrado' | 'situacao' | 'nivel'>) {
@@ -78,7 +87,7 @@ export default function ComercialEmpresa({ empresaId, comercial, ocupado, operar
                 : <>
                     <dl className={estilos.ficha}>
                         <div><dt>Situação</dt><dd>{rotuloComercial(c)}{c.ate ? ` até ${formatarData(c.ate, false)}` : ''}</dd></div>
-                        <div><dt>Plano</dt><dd>Único{c.ciclo ? ` · ${c.ciclo === 'MENSAL' ? 'mensal' : 'anual'}` : ''}</dd></div>
+                        <div><dt>Plano</dt><dd>{nomePlano(c.plano)}{c.ciclo ? ` · ${c.ciclo === 'MENSAL' ? 'mensal' : 'anual'}` : ''}</dd></div>
                         <div><dt>Teste grátis</dt><dd>{formatarData(c.testeInicio, false)} a {formatarData(c.testeFim, false)}</dd></div>
                         {c.periodoAtualFim && <div><dt>Período pago até</dt><dd>{formatarData(c.periodoAtualFim, false)}</dd></div>}
                         {c.emAtrasoDesde && <div><dt>Pendente desde</dt><dd>{formatarData(c.emAtrasoDesde, false)}</dd></div>}

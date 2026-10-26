@@ -97,3 +97,18 @@ test('desenvolvedor: estado, vaga, fase, datas em Brasília e oferta; reservada 
     assert.match(ficha({ ...CONFIRMADA, situacao: 'ENCERRADA', vaga: 13, origem: 'LEGADO' }), /Encerrada por prazo/);
     for (const f of [null, undefined]) assert.doesNotMatch(ficha(f), /data-fundador-desenvolvedor|<h3>Fundador<\/h3>/);
 });
+
+// O-1 (conferência pós-#237): a ficha mostrava "Único" fixo para quem contratou um plano novo.
+test('desenvolvedor: plano contratado pelo nome; legado (UNICO ou sem a 074a) continua "Único"', () => {
+    const plano = (p: unknown, ciclo = 'MENSAL') => renderToStaticMarkup(createElement(ComercialEmpresa, { empresaId: 'e1',
+        comercial: { ...base, ciclo, plano: p }, ocupado: false, operar: () => undefined })).match(/<dt>Plano<\/dt><dd>([^<]*)<\/dd>/)?.[1];
+    assert.equal(plano('ESSENCIAL'), 'Essencial · mensal');
+    assert.equal(plano('PROFISSIONAL', 'ANUAL'), 'Profissional · anual');
+    assert.equal(plano('PREMIUM'), 'Premium · mensal');
+    assert.equal(plano('UNICO'), 'Único · mensal');
+    assert.equal(plano(null), 'Único · mensal');
+    assert.equal(plano(undefined), 'Único · mensal');
+    assert.equal(plano('OUTRO'), 'OUTRO · mensal', 'valor desconhecido aparece como veio, sem inventar nome');
+    // P3 da revisão: propriedades herdadas não são planos.
+    for (const herdada of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) assert.equal(plano(herdada), `${herdada} · mensal`);
+});

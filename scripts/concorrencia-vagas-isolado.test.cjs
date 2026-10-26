@@ -77,7 +77,9 @@ test('saída sanitizada: sem e-mail, UUID, token ou hash; tamanho limitado', () 
 
 test('plano offline: inventário e impressão do schema conferem com o pacote aprovado; nenhuma conexão', async () => {
     const p = await x.plano();
-    assert.equal(p.ultima, '20261011_079_convite_recuperacao_manual.sql');
+    assert.equal(p.ultima, '20261025_100_agenda_um_salao.sql');
+    assert.deepEqual(x.EXCLUIDAS, ['20261023_098_saloes_combinados.sql']);
+    assert.equal(p.etapas.some(e => e.migration.includes('_098_')), false, '098 fora do schema (a 100 recusa banco com ela)');
     assert.equal(p.impressao, x.IMPRESSAO_SCHEMA, 'migrations/checks mudaram: revisar o pacote e aprovar de novo');
     const r = rodar([]);
     assert.equal(r.status, 0, r.stderr);

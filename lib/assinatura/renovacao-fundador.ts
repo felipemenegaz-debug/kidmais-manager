@@ -4,6 +4,12 @@ import { cicloDoProvedor, type AssinaturaProvedor, type CobrancaProvedor, type P
 import type { Ciclo } from './configuracao.ts';
 
 export const AVISO_FUNDADOR_DIAS = 30;
+/**
+ * D-B9-5 (Felipe, 25/10/2026): o aviso pode sair de 33 a 30 dias antes da primeira data regular (antecedência mínima de 30
+ * dias mantida; o CHECK da 075 só limita por cima). Uma constante para os dois pontos: registro PENDENTE e caminho sem aviso.
+ */
+export const AVISO_ANTECIPADO_DIAS = 3;
+export const inicioJanelaAviso = (primeiraDataRegular: string) => diasAntes(primeiraDataRegular, AVISO_FUNDADOR_DIAS + AVISO_ANTECIPADO_DIAS);
 export type EstadoRenovacao = 'PENDENTE' | 'AVISANDO' | 'AVISADA' | 'APLICANDO' | 'REGULAR' | 'REVISAO' | 'CANCELADA';
 export type RegistroRenovacao = {
     id: string; empresaId: string; contratacaoId: string; destinatarioId: string; primeiroVencimento: string;
@@ -32,6 +38,12 @@ export type DepsRenovacao = {
      */
     relogioReal?: () => Date;
     travar: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
+    /**
+     * B-9 (cron): nunca grava REVISAO nem suspende a geração no provedor. Os caminhos de revisão devolvem `ALERTA_<motivo>` sem
+     * escrita adicional (o estado anterior fica); registro já em REVISAO é só relatado; identidade divergente nunca vira
+     * CANCELADA. A ferramenta restrita e o executável manual continuam sem esta opção (comportamento anterior).
+     */
+    modoAgendado?: boolean;
 };
 
 export function dataValida(data: string | null | undefined): data is string {
@@ -85,6 +97,8 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         let c = await repo.ler(empresaId);
         if (!c) return 'SEM_FUNDADOR';
         let r = c.registro;
+        // B-9: antes de vigência, rede ou escrita.
+        if (deps.modoAgendado && r?.estado === 'REVISAO') return 'REVISAO_EXISTENTE';
         const marcar = async (a: AlteracaoRenovacao) => { if (!deps.simular && r) await repo.marcar(empresaId, r.id, a); };
         if (!vigente(c)) {
             if (r?.estado === 'REVISAO') return 'REVISAO_NECESSARIA';
@@ -92,9 +106,12 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         }
         if (r?.estado === 'CANCELADA') return 'CANCELADA';
         const hoje = diaBrasil(deps.agora());
-        if (r?.estado === 'PENDENTE' && hoje < diasAntes(r.primeiraDataRegular)) return 'AGUARDANDO_AVISO';
+        if (r?.estado === 'PENDENTE' && hoje < inicioJanelaAviso(r.primeiraDataRegular)) return 'AGUARDANDO_AVISO';
         let s = await p.obterAssinatura(c.assinaturaId);
-        if (!identidade(c,s)) { await marcar({ estado: 'REVISAO', erro: 'IDENTIDADE_DIVERGENTE' }); return 'IDENTIDADE_DIVERGENTE'; }
+        if (!identidade(c,s)) {
+            if (deps.modoAgendado) return 'ALERTA_IDENTIDADE_DIVERGENTE';
+            await marcar({ estado: 'REVISAO', erro: 'IDENTIDADE_DIVERGENTE' }); return 'IDENTIDADE_DIVERGENTE';
+        }
         if (s!.deleted || s!.status !== 'ACTIVE') {
             if (!s!.deleted && r?.estado === 'REVISAO') return r.ultimoErro ?? 'REVISAO_NECESSARIA';
             await marcar({ estado: 'CANCELADA' }); return 'CANCELADA';
@@ -103,6 +120,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
             const primeiro = await p.obterCobranca(c.primeiroPagamentoId);
             if (!identidadePagamento(c,primeiro) || primeiro!.deleted || !['RECEIVED','CONFIRMED'].includes(primeiro!.status)
                 || primeiro!.valorCentavos !== c.valorFinal) {
+                if (deps.modoAgendado) return 'ALERTA_PRIMEIRO_PAGAMENTO_DIVERGENTE';
                 if (!deps.simular && dataValida(s!.nextDueDate) && s!.nextDueDate >= c.beneficioFim.slice(0,10)
                     && hoje >= diasAntes(c.beneficioFim.slice(0,10))) await p.suspenderGeracao(c.assinaturaId);
                 return 'PRIMEIRO_PAGAMENTO_DIVERGENTE';
@@ -114,6 +132,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
             if (!deps.simular) r = await repo.criar(r);
         }
         const revisao = async (erro: string) => {
+            if (deps.modoAgendado) return `ALERTA_${erro}`;
             await marcar({ estado: 'REVISAO', erro });
             // Evita gerar desconto indefinidamente quando a janela de aviso foi perdida.
             // Não reativa, não apaga cobrança existente, não encurta acesso já pago.
@@ -127,7 +146,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         if (r.estado === 'REVISAO') return revisao(r.ultimoErro ?? 'REVISAO_NECESSARIA');
         const limiteAviso = diasAntes(r.primeiraDataRegular);
         if (!r.avisoEnviadoEm) {
-            if (hoje < limiteAviso) return 'AGUARDANDO_AVISO';
+            if (hoje < inicioJanelaAviso(r.primeiraDataRegular)) return 'AGUARDANDO_AVISO';
             if (hoje > limiteAviso) return revisao('JANELA_AVISO_PERDIDA');
             if (!c.destinatarioValido || c.destinatarioId !== r.destinatarioId || c.email !== r.mensagem.para)
                 return revisao('DESTINATARIO_ALTERADO');
@@ -175,7 +194,12 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         }
         const confirmacao = await p.obterAssinatura(c.assinaturaId);
         const parcelas = await p.listarCobrancasDaAssinatura(c.assinaturaId);
-        if (!identidade(c,confirmacao) || confirmacao!.deleted || confirmacao!.status !== 'ACTIVE') { await marcar({ estado: 'CANCELADA' }); return 'CANCELADA'; }
+        // Identidade × situação: no modo agendado, identidade divergente é alerta (estado preservado), nunca CANCELADA.
+        if (!identidade(c,confirmacao)) {
+            if (deps.modoAgendado) return 'ALERTA_IDENTIDADE_DIVERGENTE';
+            await marcar({ estado: 'CANCELADA' }); return 'CANCELADA';
+        }
+        if (confirmacao!.deleted || confirmacao!.status !== 'ACTIVE') { await marcar({ estado: 'CANCELADA' }); return 'CANCELADA'; }
         if (confirmacao!.valorCentavos !== c.valorRegular || parcelas.some(x => !x.deleted && x.dueDate >= r!.primeiraDataRegular
             && (!identidadePagamento(c!,x) || x.valorCentavos !== c!.valorRegular))) return 'AGUARDANDO_CONFIRMACAO_PRECO';
         await marcar({ estado: 'REGULAR', regular: true, erro: null }); return 'REGULAR';

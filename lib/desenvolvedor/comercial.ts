@@ -45,9 +45,11 @@ export async function comercialResumo(tx: DbExecutor, empresaId: string): Promis
 export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
     const resumo = await comercialResumo(tx, empresaId);
     if (!resumo.instalado)
-        return { ...resumo, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [], arrependimentos: [], fundador: null };
-    const a = (await tx.query<{ ciclo: string | null; teste_inicio: string; em_atraso_desde: string | null; versao: number }>(
-        `SELECT ciclo, ${ISO('teste_inicio')} AS teste_inicio, ${ISO('em_atraso_desde')} AS em_atraso_desde, versao FROM empresa_assinaturas WHERE empresa_id = $1::uuid`, [empresaId])).rows[0];
+        return { ...resumo, plano: null, ciclo: null, testeInicio: null, emAtrasoDesde: null, versao: null, excecoes: [], eventos: [], historico: [], continuidades: [], arrependimentos: [], fundador: null };
+    // plano (074a) por to_jsonb: sem a coluna, vem null e a ficha mostra o legado Único.
+    const a = (await tx.query<{ ciclo: string | null; teste_inicio: string; em_atraso_desde: string | null; versao: number; plano: string | null }>(
+        `SELECT ciclo, ${ISO('teste_inicio')} AS teste_inicio, ${ISO('em_atraso_desde')} AS em_atraso_desde, versao, to_jsonb(a)->>'plano' AS plano
+           FROM empresa_assinaturas a WHERE empresa_id = $1::uuid`, [empresaId])).rows[0];
     const excecoes = (await tx.query<{ id: string; tipo: string; valida_ate: string; motivo: string; criado_em: string; criado_por: string | null; revogada_em: string | null; motivo_revogacao: string | null; vigente: boolean }>(
         `SELECT x.id, x.tipo, ${ISO('x.valida_ate')} AS valida_ate, x.motivo, ${ISO('x.criado_em')} AS criado_em, u.nome AS criado_por,
                 ${ISO('x.revogada_em')} AS revogada_em, x.motivo_revogacao, (x.revogada_em IS NULL AND x.valida_ate > clock_timestamp()) AS vigente
@@ -64,7 +66,7 @@ export async function comercialDaEmpresa(tx: DbExecutor, empresaId: string) {
           ORDER BY a.criado_em DESC LIMIT 30`, [empresaId, [...ACOES_COMERCIAIS]])).rows
         .map((h) => ({ ...h, dados_depois: sanitizarAuditoria(h.dados_depois) }));
     return {
-        ...resumo, ciclo: a?.ciclo ?? null, testeInicio: a?.teste_inicio ?? null, emAtrasoDesde: a?.em_atraso_desde ?? null, versao: a?.versao ?? null,
+        ...resumo, plano: a?.plano ?? null, ciclo: a?.ciclo ?? null, testeInicio: a?.teste_inicio ?? null, emAtrasoDesde: a?.em_atraso_desde ?? null, versao: a?.versao ?? null,
         excecoes: excecoes.map((x) => ({ id: x.id, tipo: x.tipo, validaAte: x.valida_ate, motivo: x.motivo, criadoEm: x.criado_em, criadoPor: x.criado_por, revogadaEm: x.revogada_em, motivoRevogacao: x.motivo_revogacao, vigente: x.vigente })),
         eventos: eventos.map((ev) => ({ tipo: ev.tipo, situacao: ev.situacao, recebidoEm: ev.recebido_em, processadoEm: ev.processado_em, tentativas: ev.tentativas })),
         historico,

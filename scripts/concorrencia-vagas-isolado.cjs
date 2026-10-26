@@ -24,9 +24,11 @@ const BANCO_SUGERIDO = 'kidmais_concorrencia_vagas_20261010';
 const PADRAO_BANCO = /^kidmais_concorrencia_[a-z0-9_]{1,40}$/;
 const BANCOS_PROIBIDOS = Object.freeze(['kidmais_manager', 'kidmais_staging_1z91', 'kidmais_production']);
 const HOSTS_ACEITOS = Object.freeze(['127.0.0.1', 'localhost']);
-const ULTIMA_MIGRATION = '20261011_079_convite_recuperacao_manual.sql';
+const ULTIMA_MIGRATION = '20261025_100_agenda_um_salao.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks aplicados. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = '5528ce9b70d9599e7bdcc7bfb4fe98dac95acdc2e81ba4e55a2cb520e1662ade';
+/** 098 (salões combinados) pausada e fora de staging/production; a 100 recusa banco com ela. Excluída nominalmente, como no plano de promoção. */
+const EXCLUIDAS = Object.freeze(['20261023_098_saloes_combinados.sql']);
+const IMPRESSAO_SCHEMA = '16f57be8f30bc26336e27bc3365f5516d837f58c0a9501b640ab8d64bb85eb22';
 const CODIGO_SOB_TESTE = Object.freeze(['lib/assinatura/limites-usuarios.ts', 'lib/acessos/convites.ts', 'lib/assinatura/ofertas.ts',
     'lib/assinatura/planos-comerciais.ts', 'database/migrations/20261009_074a_planos_comerciais.sql', 'scripts/homologacao-fundador-staging.cjs']);
 const VAGAS_FUNDADOR = 20;
@@ -41,7 +43,7 @@ const GRUPOS = Object.freeze([
     ['f', 'Profissional (10) com duas conexões na última vaga; Premium sem teto; isenta, teste e sem assinatura livres'],
     ['g', 'Duas conexões disputam a 20ª vaga Fundador: uma reserva, a outra OFERTA_ALTERADA (reconfirma; O3 opção A); preço regular vende sem concessão; teto 20 nunca excedido'],
     ['h', 'Liberação RESERVADA → LIBERADA só com contratação CANCELADA e cobrança comprovadamente removida; CONFIRMADA nunca volta'],
-    ['z', 'Consistência final: contagens, vínculos únicos, nenhum acesso perdido, teto Fundador e postchecks 074a/075'],
+    ['z', 'Consistência final: contagens, vínculos únicos, nenhum acesso perdido, teto Fundador e postchecks 090/075'],
 ].map(([id, nome]) => Object.freeze({id, nome})));
 
 const recusa = (codigo) => Object.assign(Error(codigo), {codigo});
@@ -103,7 +105,7 @@ const sha = texto => createHash('sha256').update(texto).digest('hex');
 async function plano() {
     const {approvedFiles, requiredChecks} = await import(pathToFileURL(path.join(raiz, 'scripts/production/check-migrations.mjs')).href);
     if (approvedFiles.at(-1) !== ULTIMA_MIGRATION) throw recusa('INVENTARIO_MUDOU');
-    const etapas = approvedFiles.map(arquivo => {
+    const etapas = approvedFiles.filter(arquivo => !EXCLUIDAS.includes(arquivo)).map(arquivo => {
         const checks = (arquivo === '20261009_074a_planos_comerciais.sql' ? ['20261009_074a_precheck.sql', '20261009_074a_postcheck.sql'] : requiredChecks(arquivo))
             .map(p => `database/checks/${p}`);
         if (arquivo.split('_')[1] === '011') checks.push('database/checks/20260908_011_pagamentos_postcheck.sql');
@@ -203,7 +205,10 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
     const carregar = f => carregarModulo(path.join(raiz, f), {'db/postgres':{db, withTransaction}}, cache);
     const s = {convites:carregar('lib/acessos/convites.ts'), limites:carregar('lib/assinatura/limites-usuarios.ts'), ofertas:carregar('lib/assinatura/ofertas.ts'),
         planos:carregar('lib/assinatura/planos-comerciais.ts'), auth:carregar('lib/autenticacao/service.ts'), tenant:carregar('lib/saas/provar-tenant.ts'),
-        auditoria:carregar('lib/clientes/repositories/auditoria.repository.ts'), senha:carregar('lib/autenticacao/senha.ts')};
+        auditoria:carregar('lib/clientes/repositories/auditoria.repository.ts'), senha:carregar('lib/autenticacao/senha.ts'),
+        legais:carregar('lib/cadastro/documentos-legais.ts')};
+    // 096: a oferta exige as versões e impressões digitais vigentes apresentadas na síntese.
+    const versoesLegais = Object.fromEntries(Object.values(s.legais.DOCUMENTOS).map(d => [d.documento, {versao:d.versao, hash:s.legais.hashDocumento(d)}]));
     const q = async (sql, params) => (await db().query(sql, params)).rows;
     const codigo = e => e?.code ?? e?.codigo ?? e?.name ?? 'ERRO';
     const resultado = async promessa => { try { await promessa; return 'OK'; } catch (e) { return codigo(e); } };
@@ -216,7 +221,10 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
     const depsConvite = {withTransaction, registrarAuditoria:s.auditoria.registrarAuditoria, criarHashSenha:s.senha.criarHashSenha,
         conferirSenha:s.senha.conferirSenha, enviarEmail:async () => { throw Error('ENVIO_PROIBIDO'); }, gerarToken};
     const documentos = new Set();
-    const documento = () => { let d; do d = '7' + String(randomBytes(6).readUIntBE(0, 6)).padStart(13, '0').slice(-13); while (documentos.has(d)); documentos.add(d); return d; };
+    // CNPJ sintético com DV oficial: a 091 recusa documento com dígito verificador inválido (inventário até a 100).
+    const dv = (b) => { let t = 0, p = 2; for (let i = b.length - 1; i >= 0; i--) { t += (b.charCodeAt(i) - 48) * p; p = p === 9 ? 2 : p + 1; } const r = t % 11; return r <= 1 ? 0 : 11 - r; };
+    const comDv = (base) => { const d1 = dv(base); return base + d1 + dv(base + d1); };
+    const documento = () => { let d; do d = comDv('7' + String(randomBytes(6).readUIntBE(0, 6)).padStart(11, '0').slice(-11)); while (documentos.has(d)); documentos.add(d); return d; };
 
     // ---- Fixtures sintéticas (as mesmas transições que o banco aceita para empresas novas).
     async function novaEmpresa(rotulo, {assinatura = true} = {}) {
@@ -234,7 +242,7 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
         return f;
     }
     const campanha = async () => (await q(SQL_CAMPANHA))[0];
-    const pedido = (plano, fundador) => ({plano, ciclo:'MENSAL', valorEsperadoCentavos:s.planos.valorComercial(plano, 'mensal', fundador), versao:s.planos.condicoesComerciais.versao});
+    const pedido = (plano, fundador) => ({plano, ciclo:'MENSAL', valorEsperadoCentavos:s.planos.valorComercial(plano, 'mensal', fundador), versao:s.planos.condicoesComerciais.versao, documentos:versoesLegais});
     const reservar = (f, c, plano = 'essencial') => s.ofertas.prepararOferta(c, f.empresa, f.usuario, pedido(plano, true));
     /** Contrato confirmado pelos serviços (oferta → pagamento conferido → ativação), com provedor falso e sem rede. */
     async function contratar(f, plano) {
@@ -471,8 +479,9 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
         const vendaRegular = await withTransaction(c => s.ofertas.prepararOferta(c, regular.empresa, regular.usuario, pedido('essencial', false)));
         assert.deepEqual([vendaRegular.fundador_id, vendaRegular.desconto_percentual], [null, 0]);
         assert.equal((await q('SELECT count(*)::int AS n FROM assinatura_contratacoes WHERE empresa_id=ANY($1::uuid[])', [aguardando.map(f => f.empresa)]))[0].n, 0, 'nenhuma contratação para quem aguarda');
-        const teto = await resultado(withTransaction(c => c.query('INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga) VALUES($1,$2,21)', [F2.empresa, F2.documento])));
-        const repetida = await resultado(withTransaction(c => c.query('INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga) VALUES($1,$2,$3)', [F2.empresa, F2.documento, F1reserva.vaga])));
+        // Com a 090 no inventário, a origem é obrigatória na inserção direta (sem ela o gatilho recusa antes do CHECK do teto).
+        const teto = await resultado(withTransaction(c => c.query("INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga,origem) VALUES($1,$2,21,'LEGADO')", [F2.empresa, F2.documento])));
+        const repetida = await resultado(withTransaction(c => c.query("INSERT INTO assinatura_fundadores(empresa_id,documento_beneficiario,vaga,origem) VALUES($1,$2,$3,'LEGADO')", [F2.empresa, F2.documento, F1reserva.vaga])));
         assert.equal(teto, '23514'); assert.equal(repetida, '23505');
         cp = await campanha(); assert.deepEqual([cp.ocupadas, cp.numeros, cp.maior], [20, 20, 20]);
         return {antes:{confirmadas:antes.confirmadas, ocupadas:antes.ocupadas}, disputa:{primeira:'OK', segunda:d.segundo, espera:d.espera, vaga:F1reserva.vaga, desconto:d.r1.desconto_percentual},
@@ -538,10 +547,12 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
         const cp = await campanha();
         assert.equal(incoerentes, 0); assert.ok(cp.ocupadas <= VAGAS_FUNDADOR && cp.maior <= VAGAS_FUNDADOR && cp.numeros === cp.ocupadas);
         // Os postchecks abrem a própria transação somente leitura; rodam na conexão de observação, ociosa aqui.
-        for (const check of ['database/checks/20261009_074a_postcheck.sql', 'database/checks/20261009_075_postcheck.sql'])
+        // Inventário até a 100: o postcheck da 074a recusa os índices de vaga que a 090 trocou; roda-se o da 090 (estrutura da 090,
+        // backfill LEGADO e campanhas). Não reproduz todas as conferências gerais da 074a: não é substituição integral. 075 segue igual.
+        for (const check of ['database/checks/20261022_090_postcheck.sql', 'database/checks/20261009_075_postcheck.sql'])
             await observador.query(lerNormalizado(check));
         return {ocupadas:contagens, vinculosDuplicados:duplicados, convitesPendentesDuplicados:pendentesDuplicados, vinculosAtivos:ativos,
-            fundador:{confirmadas:cp.confirmadas, ocupadas:cp.ocupadas, maior:cp.maior, incoerencias:incoerentes}, postchecks:['074a', '075']};
+            fundador:{confirmadas:cp.confirmadas, ocupadas:cp.ocupadas, maior:cp.maior, incoerencias:incoerentes}, postchecks:['090', '075']};
     });
 }
 
@@ -562,5 +573,5 @@ if (require.main === module)
     principal(process.argv.slice(2), process.env).catch(e => {
         console.error('CONCORRENCIA_RECUSADA ' + sanitizar(e?.codigo ?? e?.message)); process.exitCode = 1;
     });
-module.exports = {FLAG, FLAG_PLANO, VAR_AUTORIZACAO, PAPEL, PORTA_SUGERIDA, BANCO_SUGERIDO, BANCOS_PROIBIDOS, GRUPOS, IMPRESSAO_SCHEMA,
+module.exports = {EXCLUIDAS, FLAG, FLAG_PLANO, VAR_AUTORIZACAO, PAPEL, PORTA_SUGERIDA, BANCO_SUGERIDO, BANCOS_PROIBIDOS, GRUPOS, IMPRESSAO_SCHEMA,
     modo, alvo, semConexaoHerdada, conferirIdentidade, sanitizar, plano, SQL_IDENTIDADE};
