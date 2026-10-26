@@ -124,6 +124,22 @@ const semHorarioLivre = `coalesce((to_jsonb(configuracao_agenda) ->> 'horario_li
 const parametrosEscopo = (escopo?: EscopoAgenda) => [escopo?.empresaId ?? null, escopo?.estabelecimentoId ?? null];
 
 /**
+ * Candidatas da herança por nível (unidade 2, empresa 1, global 0), com a 062 instalada. Fonte única do critério (D5):
+ * usada aqui e na projeção da versão da agenda (lib/agenda/configuracao-unidade.ts), que precisa dela na MESMA instrução.
+ * `empresa` e `estabelecimento` são os marcadores dos parâmetros da consulta chamadora (ex.: "$1", "$2").
+ */
+export function candidatasAgendaPorNivel(empresa: string, estabelecimento: string) {
+  return `
+       SELECT ${configuracaoColumns},
+              CASE WHEN estabelecimento_id IS NOT NULL THEN 2 WHEN empresa_id IS NOT NULL THEN 1 ELSE 0 END AS nivel
+         FROM configuracao_agenda
+        WHERE ativo = true
+          AND ${semHorarioLivre}
+          AND (empresa_id IS NULL
+               OR (empresa_id = ${empresa}::uuid AND (estabelecimento_id IS NULL OR estabelecimento_id = ${estabelecimento}::uuid)))`;
+}
+
+/**
  * Turnos ativos do escopo (D5): os da unidade; se ela não tiver, os da empresa; se nem a empresa tiver, os modelos
  * globais (todas as linhas anteriores à 062, preservando os horários já contratados). Os níveis não se misturam.
  */
@@ -142,14 +158,7 @@ export async function listarConfiguracoesAgendaAtivas(
     return result.rows.map(mapConfiguracao);
   }
   const result = await ex.query<ConfiguracaoAgendaRow>(
-    `WITH candidatas AS (
-       SELECT ${configuracaoColumns},
-              CASE WHEN estabelecimento_id IS NOT NULL THEN 2 WHEN empresa_id IS NOT NULL THEN 1 ELSE 0 END AS nivel
-         FROM configuracao_agenda
-        WHERE ativo = true
-          AND ${semHorarioLivre}
-          AND (empresa_id IS NULL
-               OR (empresa_id = $1::uuid AND (estabelecimento_id IS NULL OR estabelecimento_id = $2::uuid)))
+    `WITH candidatas AS (${candidatasAgendaPorNivel("$1", "$2")}
      )
      SELECT id, codigo, nome, horario_inicio_padrao, horario_fim_padrao, tolerancia_inicio_minutos,
             passo_inicio_minutos, ordem_exibicao, ativo, dias_semana, desativado_a_partir_de

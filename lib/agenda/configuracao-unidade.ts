@@ -2,11 +2,12 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "../comercial/auditoria-comercial.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { agendaPorEscopoInstalada, unidadesDaEmpresa } from "../disponibilidade/escopo.ts";
-import { listarConfiguracoesAgendaAtivas } from "../disponibilidade/repositories/disponibilidade.repository.ts";
+import { candidatasAgendaPorNivel } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { linhaDoTempo, type Trecho } from "./vigencias.ts";
 import { combinadosInstalados } from "./salao-festa.ts";
 import { membrosCanonicos } from "./saloes-conjuntos.ts";
 import { pacoteSemSalaoNaAgendaPorSalao, SALAO_DE_AGENDA_POR_SALAO } from "./salao-do-pacote.ts";
+import { versaoAgenda, type LinhaConfigProjecao, type LinhaHorarioProjecao, type LinhaSalaoProjecao, type NivelHeranca, type ProjecaoVersao } from "./versao-agenda.ts";
 import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE, AVISO_SALAO_DO_PACOTE, AVISO_SALAO_DO_PACOTE_ORIGEM, AVISO_UM_SALAO, AVISO_VOLTA_UM_SALAO } from "./saloes-liberacao.ts";
 
 /**
@@ -50,6 +51,8 @@ export type AgendaEscopo = {
   /** 098 instalada: a tela oferece criar salões combinados. */
   combinadosDisponiveis?: boolean;
   horarios: HorarioAgenda[];
+  /** Versão do agregado do escopo (lib/agenda/versao-agenda.ts), da mesma leitura que gerou este objeto. */
+  versaoAgenda: string;
 };
 
 export type SalaoCombinado = {
@@ -83,6 +86,8 @@ export type SalvarAgenda = {
   intervaloMinimoMinutos: number;
   saloes: Array<{ id?: string; nome: string; capacidadeConvidados: number | null }>;
   horarios: HorarioInformado[];
+  /** Versão que o usuário viu (GET). Ausente ou malformada = null: o save recusa com AGENDA_MUDOU, nunca pula a conferência. */
+  versaoEsperada: string | null;
 };
 
 type Contexto = { empresaId: string; usuarioId: string; requestId: string };
@@ -149,74 +154,96 @@ async function festasFuturas(db: DbExecutor, ids: string[]) {
   return mapa;
 }
 
-type LinhaHorario = {
-  id: string;
-  codigo: string;
-  nome: string;
-  inicio: string;
-  fim: string;
-  dias_semana: number[] | null;
-  capacidade: number;
-  desativado_a_partir_de: string | null;
-  tolerancia_inicio_minutos: number;
-  passo_inicio_minutos: number;
-  ordem_exibicao: number;
-};
+/** Colunas de um horário na projeção: horas e datas por to_char (independem de DateStyle). */
+const colunasHorario = (h: string) => `${h}.id::text AS id, ${h}.codigo, ${h}.nome,
+            to_char(${h}.horario_inicio_padrao, 'HH24:MI:SS.US') AS inicio, to_char(${h}.horario_fim_padrao, 'HH24:MI:SS.US') AS fim,
+            ${h}.dias_semana, ${h}.capacidade, ${h}.ordem_exibicao, ${h}.ativo, ${h}.horario_livre,
+            to_char(${h}.desativado_a_partir_de, 'YYYY-MM-DD') AS desativado_a_partir_de,
+            ${h}.tolerancia_inicio_minutos, ${h}.passo_inicio_minutos`;
 
-async function horariosProprios(db: DbExecutor, empresaId: string, estabelecimentoId: string | null) {
-  const r = await db.query<LinhaHorario>(
-    `SELECT id::text AS id, codigo, nome, horario_inicio_padrao::text AS inicio, horario_fim_padrao::text AS fim,
-            dias_semana, capacidade, desativado_a_partir_de::text AS desativado_a_partir_de,
-            tolerancia_inicio_minutos, passo_inicio_minutos, ordem_exibicao
-       FROM configuracao_agenda
-      WHERE ativo AND NOT horario_livre
-        AND empresa_id = $1::uuid
-        AND coalesce(estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
-      ORDER BY ordem_exibicao, codigo`,
+type ConfigProjecao = LinhaConfigProjecao & { configurado_por: string | null; configurado_em: string };
+type SalaoProjecao = LinhaSalaoProjecao & { membros_info: SalaoCombinado["membros"] | null };
+type HorarioEfetivo = LinhaHorarioProjecao & { nivel: number };
+type Projecao = ProjecaoVersao & { configLida: ConfigProjecao | null; saloesLidos: SalaoProjecao[] };
+
+/**
+ * Plano "Agenda: concorrência otimista do agregado" (rev. 1.1): UMA instrução lê tudo o que o save sobrescreve ou decide
+ * (configuração, todos os salões, todas as linhas próprias, herdados efetivos com o nível, vínculos). Em READ COMMITTED
+ * uma instrução tem uma única fotografia: o DTO editável e a versão saem do mesmo resultado, no GET e no save.
+ * Listas agregadas na ordem de apresentação de hoje (salões por ordem/nome, horários por ordem/código).
+ */
+async function projecaoAgenda(db: DbExecutor, empresaId: string, estabelecimentoId: string | null, v098: boolean): Promise<Projecao> {
+  const r = await db.query<{ config: ConfigProjecao | null; saloes: SalaoProjecao[]; proprios: LinhaHorarioProjecao[]; efetivos: HorarioEfetivo[];
+    vinculos: ProjecaoVersao["vinculos"] }>(
+    `WITH cfg AS (
+       SELECT c.modo, c.capacidade_tipo, c.limite_festas_dia, c.intervalo_minimo_minutos,
+              u.nome AS configurado_por, c.configurado_em::text AS configurado_em
+         FROM agenda_escopo_config c
+         LEFT JOIN usuarios_administrativos u ON u.id = c.configurado_por
+        WHERE c.empresa_id = $1::uuid AND coalesce(c.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
+     ), saloes AS (
+       SELECT s.id::text AS id, s.nome, s.capacidade_convidados, s.ordem, s.ativo,
+              ${v098
+    ? `s.combinado, (SELECT array_agg(x::text) FROM unnest(s.membros) x) AS membros,
+              CASE WHEN s.combinado THEN coalesce((SELECT json_agg(json_build_object('id', m.id::text, 'nome', m.nome, 'ativo', m.ativo) ORDER BY m.ordem, m.nome)
+                                                     FROM agenda_saloes m WHERE m.id = ANY (s.membros)), '[]'::json) END AS membros_info`
+    : `NULL::boolean AS combinado, NULL::text[] AS membros, NULL::json AS membros_info`}
+         FROM agenda_saloes s
+        WHERE s.empresa_id = $1::uuid AND coalesce(s.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
+     ), proprios AS (
+       SELECT ${colunasHorario("h")}
+         FROM configuracao_agenda h
+        WHERE h.empresa_id = $1::uuid AND coalesce(h.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
+     ), candidatas AS (${candidatasAgendaPorNivel("$1", "$2")}
+     ), efetivos AS (
+       SELECT ${colunasHorario("h")}, k.nivel
+         FROM candidatas k JOIN configuracao_agenda h ON h.id = k.id
+        WHERE k.nivel = (SELECT max(nivel) FROM candidatas)
+     )
+     SELECT (SELECT row_to_json(cfg) FROM cfg) AS config,
+            coalesce((SELECT json_agg(s ORDER BY s.ordem, s.nome) FROM saloes s), '[]'::json) AS saloes,
+            coalesce((SELECT json_agg(p ORDER BY p.ordem_exibicao, p.codigo) FROM proprios p), '[]'::json) AS proprios,
+            coalesce((SELECT json_agg(e ORDER BY e.ordem_exibicao, e.codigo) FROM efetivos e), '[]'::json) AS efetivos,
+            coalesce((SELECT json_agg(json_build_object('configuracao_agenda_id', v.configuracao_agenda_id::text, 'salao_id', v.salao_id::text))
+                        FROM configuracao_agenda_saloes v WHERE v.configuracao_agenda_id::text IN (SELECT id FROM proprios)), '[]'::json) AS vinculos`,
     [empresaId, estabelecimentoId, SEM_UNIDADE],
   );
-  return r.rows;
+  const l = r.rows[0]!;
+  // Próprios ativos e não livres = PROPRIO (mesma regra de antes em lerAgendaEscopo); senão, o nível dos efetivos.
+  const temProprios = l.proprios.some((h) => h.ativo && !h.horario_livre);
+  const nivelEfetivo = l.efetivos[0]?.nivel;
+  const nivel: NivelHeranca = temProprios ? "PROPRIO" : nivelEfetivo == null ? "NENHUM" : Number(nivelEfetivo) === 1 ? "EMPRESA" : "GLOBAL";
+  return {
+    empresaId, estabelecimentoId, v098,
+    config: l.config, configLida: l.config,
+    saloes: l.saloes, saloesLidos: l.saloes,
+    proprios: l.proprios,
+    nivel,
+    herdados: temProprios ? [] : l.efetivos.map(({ nivel: _nivel, ...h }) => { void _nivel; return h; }),
+    vinculos: l.vinculos,
+  };
 }
 
-async function saloesDoHorario(db: DbExecutor, ids: string[]) {
-  const mapa = new Map<string, string[]>();
-  if (ids.length === 0) return mapa;
-  const r = await db.query<{ configuracao_agenda_id: string; salao_id: string }>(
-    `SELECT configuracao_agenda_id::text AS configuracao_agenda_id, salao_id::text AS salao_id
-       FROM configuracao_agenda_saloes WHERE configuracao_agenda_id = ANY($1::uuid[])`,
-    [ids],
-  );
-  for (const l of r.rows) mapa.set(l.configuracao_agenda_id, [...(mapa.get(l.configuracao_agenda_id) ?? []), l.salao_id]);
-  return mapa;
-}
+type Leitura = { agenda: AgendaEscopo; projecao: Projecao };
 
-export async function lerAgendaEscopo(db: DbExecutor, empresaId: string, estabelecimentoId: string | null): Promise<AgendaEscopo> {
+async function lerAgendaComProjecao(db: DbExecutor, empresaId: string, estabelecimentoId: string | null): Promise<Leitura> {
   const escopo = await escopoValido(db, empresaId, estabelecimentoId);
-  const config = await db.query<{
-    modo: Modo; capacidade_tipo: CapacidadeTipo; limite_festas_dia: number | null; intervalo_minimo_minutos: number;
-    configurado_por: string | null; configurado_em: string;
-  }>(
-    `SELECT c.modo, c.capacidade_tipo, c.limite_festas_dia, c.intervalo_minimo_minutos,
-            u.nome AS configurado_por, c.configurado_em::text AS configurado_em
-       FROM agenda_escopo_config c
-       LEFT JOIN usuarios_administrativos u ON u.id = c.configurado_por
-      WHERE c.empresa_id = $1::uuid AND coalesce(c.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)`,
-    [empresaId, estabelecimentoId, SEM_UNIDADE],
-  );
   const v098 = await combinadosInstalados(db);
-  const saloes = await db.query<{ id: string; nome: string; capacidade_convidados: number | null }>(
-    `SELECT id::text AS id, nome, capacidade_convidados
-       FROM agenda_saloes
-      WHERE ativo AND empresa_id = $1::uuid AND coalesce(estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)${v098 ? " AND NOT combinado" : ""}
-      ORDER BY ordem, nome`,
-    [empresaId, estabelecimentoId, SEM_UNIDADE],
-  );
-  const combinados = v098 ? await combinadosDoEscopo(db, empresaId, estabelecimentoId) : [];
-  const proprios = await horariosProprios(db, empresaId, estabelecimentoId);
+  const projecao = await projecaoAgenda(db, empresaId, estabelecimentoId, v098);
+  const numero = (v: number | null) => (v == null ? null : Number(v));
+  const saloes = projecao.saloesLidos.filter((s) => s.ativo && !(v098 && s.combinado));
+  const combinados: SalaoCombinado[] = v098
+    ? projecao.saloesLidos.filter((s) => s.ativo && s.combinado).map((c) => {
+      const membros = c.membros_info ?? [];
+      return { id: c.id, nome: c.nome, capacidadeConvidados: numero(c.capacidade_convidados), membros, elegivel: membros.length >= 2 && membros.every((m) => m.ativo) };
+    })
+    : [];
   let horarios: HorarioAgenda[];
-  if (proprios.length > 0) {
-    const ids = proprios.map((h) => h.id);
-    const [festas, ligacoes] = [await festasFuturas(db, ids), await saloesDoHorario(db, ids)];
+  if (projecao.nivel === "PROPRIO") {
+    const proprios = projecao.proprios.filter((h) => h.ativo && !h.horario_livre);
+    const festas = await festasFuturas(db, proprios.map((h) => h.id));
+    const ligacoes = new Map<string, string[]>();
+    for (const v of projecao.vinculos) ligacoes.set(v.configuracao_agenda_id, [...(ligacoes.get(v.configuracao_agenda_id) ?? []), v.salao_id]);
     horarios = proprios.map((h) => ({
       id: h.id, codigo: h.codigo, nome: h.nome, inicio: hora(h.inicio), fim: hora(h.fim),
       dias: h.dias_semana?.map(Number) ?? TODOS_OS_DIAS, capacidade: Number(h.capacidade),
@@ -225,43 +252,31 @@ export async function lerAgendaEscopo(db: DbExecutor, empresaId: string, estabel
     }));
   } else {
     // Ainda sem horários próprios: os que valem hoje (empresa ou modelos globais), para o assistente pré-preencher.
-    const herdados = await listarConfiguracoesAgendaAtivas(db, { empresaId, estabelecimentoId });
-    const festas = await festasFuturas(db, herdados.map((h) => h.id));
-    horarios = herdados.map((h) => ({
-      id: h.id, codigo: h.codigo, nome: h.nome, inicio: hora(h.horarioInicioPadrao), fim: hora(h.horarioFimPadrao),
-      dias: h.diasSemana ?? TODOS_OS_DIAS, capacidade: 1, desativadoAPartirDe: h.desativadoAPartirDe ?? null,
+    const festas = await festasFuturas(db, projecao.herdados.map((h) => h.id));
+    horarios = projecao.herdados.map((h) => ({
+      id: h.id, codigo: h.codigo, nome: h.nome, inicio: hora(h.inicio), fim: hora(h.fim),
+      dias: h.dias_semana?.map(Number) ?? TODOS_OS_DIAS, capacidade: 1, desativadoAPartirDe: h.desativado_a_partir_de ?? null,
       saloes: [], herdado: true, festasFuturas: festas.get(h.id) ?? { quantidade: 0, proxima: null, ultima: null },
     }));
   }
-  const c = config.rows[0];
-  return {
+  const c = projecao.configLida;
+  const agenda: AgendaEscopo = {
     escopo,
     config: c ? {
-      modo: c.modo, capacidadeTipo: c.capacidade_tipo, limiteFestasDia: c.limite_festas_dia == null ? null : Number(c.limite_festas_dia),
+      modo: c.modo as Modo, capacidadeTipo: c.capacidade_tipo as CapacidadeTipo, limiteFestasDia: numero(c.limite_festas_dia),
       intervaloMinimoMinutos: Number(c.intervalo_minimo_minutos), configuradoPor: c.configurado_por, configuradoEm: c.configurado_em,
     } : null,
-    saloes: saloes.rows.map((s) => ({ id: s.id, nome: s.nome, capacidadeConvidados: s.capacidade_convidados == null ? null : Number(s.capacidade_convidados) })),
+    saloes: saloes.map((s) => ({ id: s.id, nome: s.nome, capacidadeConvidados: numero(s.capacidade_convidados) })),
     combinados,
     combinadosDisponiveis: v098,
     horarios,
+    versaoAgenda: versaoAgenda(projecao),
   };
+  return { agenda, projecao };
 }
 
-/** 098: combinados ativos do escopo, com a composição (membros na ordem dos salões) e a elegibilidade. */
-async function combinadosDoEscopo(db: DbExecutor, empresaId: string, estabelecimentoId: string | null): Promise<SalaoCombinado[]> {
-  const r = await db.query<{ id: string; nome: string; capacidade_convidados: number | null; membros: Array<{ id: string; nome: string; ativo: boolean }> }>(
-    `SELECT c.id::text AS id, c.nome, c.capacidade_convidados,
-            coalesce((SELECT json_agg(json_build_object('id', m.id::text, 'nome', m.nome, 'ativo', m.ativo) ORDER BY m.ordem, m.nome)
-                        FROM agenda_saloes m WHERE m.id = ANY (c.membros)), '[]'::json) AS membros
-       FROM agenda_saloes c
-      WHERE c.combinado AND c.ativo AND c.empresa_id = $1::uuid AND coalesce(c.estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)
-      ORDER BY c.ordem, c.nome`,
-    [empresaId, estabelecimentoId, SEM_UNIDADE],
-  );
-  return r.rows.map((c) => ({
-    id: c.id, nome: c.nome, capacidadeConvidados: c.capacidade_convidados == null ? null : Number(c.capacidade_convidados),
-    membros: c.membros, elegivel: c.membros.length >= 2 && c.membros.every((m) => m.ativo),
-  }));
+export async function lerAgendaEscopo(db: DbExecutor, empresaId: string, estabelecimentoId: string | null): Promise<AgendaEscopo> {
+  return (await lerAgendaComProjecao(db, empresaId, estabelecimentoId)).agenda;
 }
 
 /** "Hoje" da agenda: data de São Paulo (kidmais098_hoje), o MESMO corte do gatilho do D5 e do invariante da 098. */
@@ -358,43 +373,43 @@ function validarEntrada(input: SalvarAgenda) {
 }
 
 /** Regras ligadas ao horário de origem (preço NOBRE/PADRÃO, disponibilidade e descontos dos pacotes da empresa). */
-async function copiarRegras(tx: DbExecutor, empresaId: string, origemId: string | null, destinoId: string, dias: number[]) {
+async function copiarRegras(tx: DbExecutor, empresaId: string, origemId: string | null, destinoId: string, dias: number[], corte: string) {
   if (origemId) {
     await tx.query(
       `INSERT INTO regras_categoria_horario (dia_semana, configuracao_agenda_id, categoria_horario, vigencia_inicio, vigencia_fim, ativo, observacoes)
-       SELECT dia_semana, $2::uuid, categoria_horario, GREATEST(vigencia_inicio, CURRENT_DATE), vigencia_fim, true, 'Copiada pela configuração da agenda (093)'
+       SELECT dia_semana, $2::uuid, categoria_horario, GREATEST(vigencia_inicio, $3::date), vigencia_fim, true, 'Copiada pela configuração da agenda (093)'
          FROM regras_categoria_horario
-        WHERE configuracao_agenda_id = $1::uuid AND ativo AND (vigencia_fim IS NULL OR vigencia_fim >= CURRENT_DATE)`,
-      [origemId, destinoId],
+        WHERE configuracao_agenda_id = $1::uuid AND ativo AND (vigencia_fim IS NULL OR vigencia_fim >= $3::date)`,
+      [origemId, destinoId, corte],
     );
     await tx.query(
       `INSERT INTO regras_disponibilidade_pacote (pacote_id, dia_semana, configuracao_agenda_id, estado, vigencia_inicio, vigencia_fim, ativo, observacoes)
-       SELECT r.pacote_id, r.dia_semana, $2::uuid, r.estado, GREATEST(r.vigencia_inicio, CURRENT_DATE), r.vigencia_fim, true, r.observacoes
+       SELECT r.pacote_id, r.dia_semana, $2::uuid, r.estado, GREATEST(r.vigencia_inicio, $4::date), r.vigencia_fim, true, r.observacoes
          FROM regras_disponibilidade_pacote r JOIN pacotes p ON p.id = r.pacote_id AND p.empresa_id = $3::uuid
-        WHERE r.configuracao_agenda_id = $1::uuid AND r.ativo AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= CURRENT_DATE)`,
-      [origemId, destinoId, empresaId],
+        WHERE r.configuracao_agenda_id = $1::uuid AND r.ativo AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= $4::date)`,
+      [origemId, destinoId, empresaId, corte],
     );
     await tx.query(
       `INSERT INTO regras_desconto_pacote (pacote_id, dia_semana, configuracao_agenda_id, percentual, base_calculo, codigo, titulo, prioridade, vigencia_inicio, vigencia_fim, ativo, observacoes)
        SELECT r.pacote_id, r.dia_semana, $2::uuid, r.percentual, r.base_calculo, r.codigo, r.titulo, r.prioridade,
-              GREATEST(r.vigencia_inicio, CURRENT_DATE), r.vigencia_fim, true, r.observacoes
+              GREATEST(r.vigencia_inicio, $4::date), r.vigencia_fim, true, r.observacoes
          FROM regras_desconto_pacote r JOIN pacotes p ON p.id = r.pacote_id AND p.empresa_id = $3::uuid
-        WHERE r.configuracao_agenda_id = $1::uuid AND r.ativo AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= CURRENT_DATE)`,
-      [origemId, destinoId, empresaId],
+        WHERE r.configuracao_agenda_id = $1::uuid AND r.ativo AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= $4::date)`,
+      [origemId, destinoId, empresaId, corte],
     );
   }
   // Todo horário precisa de categoria de preço em cada dia em que existe; sem origem, promocional (PADRAO).
   await tx.query(
     `INSERT INTO regras_categoria_horario (dia_semana, configuracao_agenda_id, categoria_horario, vigencia_inicio, ativo, observacoes)
-     SELECT d, $1::uuid, 'PADRAO', CURRENT_DATE, true, 'Padrão da configuração da agenda (093)'
+     SELECT d, $1::uuid, 'PADRAO', $3::date, true, 'Padrão da configuração da agenda (093)'
        FROM unnest($2::smallint[]) AS d
       WHERE NOT EXISTS (SELECT 1 FROM regras_categoria_horario r WHERE r.configuracao_agenda_id = $1::uuid AND r.dia_semana = d AND r.ativo)`,
-    [destinoId, dias],
+    [destinoId, dias, corte],
   );
 }
 
 /** Horário técnico do modo livre: preço, disponibilidade e descontos por dia da semana (decisão de Felipe). */
-async function garantirHorarioLivre(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null, fixosIds: string[]) {
+async function garantirHorarioLivre(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null, fixosIds: string[], corte: string) {
   const existente = await tx.query<{ id: string }>(
     `SELECT id::text AS id FROM configuracao_agenda
       WHERE horario_livre AND empresa_id = $1::uuid AND coalesce(estabelecimento_id, $3::uuid) = coalesce($2::uuid, $3::uuid)`,
@@ -416,7 +431,8 @@ async function garantirHorarioLivre(tx: DbExecutor, empresaId: string, estabelec
   // sobreposição e sem perder trechos — cortada em todos os limites, com a precedência resolvida em cada trecho:
   // NOBRE se algum horário era nobre (buracos = PADRAO); o pacote vale onde valia em algum horário; desconto do
   // horário de menor ordem. Início no passado vira hoje; término preservado.
-  const hoje = (await tx.query<{ d: string }>(`SELECT CURRENT_DATE::text AS d`)).rows[0]!.d;
+  // Corte único lido no save depois do advisory (plano rev. 1.1, seção 3), não a data do início da transação.
+  const hoje = corte;
   const categorias = await tx.query<{ dia: number; categoria: "PADRAO" | "NOBRE"; inicio: string; fim: string | null }>(
     `SELECT dia_semana AS dia, categoria_horario AS categoria, vigencia_inicio::text AS inicio, vigencia_fim::text AS fim
        FROM regras_categoria_horario WHERE configuracao_agenda_id = ANY($1::uuid[]) AND ativo`,
@@ -490,25 +506,44 @@ async function garantirHorarioLivre(tx: DbExecutor, empresaId: string, estabelec
 }
 
 /**
+ * Corte das regras copiadas: data no fuso da SESSÃO (o mesmo do CURRENT_DATE de antes; unificar com São Paulo é a O-1
+ * do plano), mas no instante da leitura (clock_timestamp), lida pelo save depois do advisory.
+ */
+export async function lerCorteDaAgenda(tx: DbExecutor) {
+  const r = await tx.query<{ d: string }>(`SELECT to_char((clock_timestamp() AT TIME ZONE current_setting('TimeZone'))::date, 'YYYY-MM-DD') AS d`);
+  return r.rows[0]!.d;
+}
+
+/**
  * Grava a configuração do escopo inteiro (assistente ou tela). Horários com festas futuras não mudam início, fim nem
  * dias (decisão de Felipe: bloquear, avisar e oferecer "desativar a partir de"). Troca de modo/capacidade é
  * permitida: as festas já marcadas ficam como estão — exceto voltar de "por salão" para "um salão", bloqueada por ora.
  * `maisDeUmSalaoLiberada` só existe para as provas da agenda por salão (093/098); a rota usa a constante.
+ *
+ * Concorrência otimista (plano "Agenda: concorrência otimista do agregado", rev. 1.1): advisory → escopo → salões (098)
+ * → leitura atual (projeção única) → AGENDA_JA_CONFIGURADA → versão esperada (409 AGENDA_MUDOU, sem nenhuma escrita)
+ * → validações que dependem do estado → corte das regras → DML. Uma aba desatualizada recebe sempre AGENDA_MUDOU.
+ * `lerCorte` só existe para as provas do corte (relógio injetado); a rota usa o padrão.
  */
 export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ctx: Contexto, origem: "ASSISTENTE" | "CONFIGURACOES",
-  opcoes: { maisDeUmSalaoLiberada?: boolean } = {}) {
+  opcoes: { maisDeUmSalaoLiberada?: boolean; lerCorte?: (tx: DbExecutor) => Promise<string> } = {}) {
   validarEntrada(input);
   await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
   await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
   // 098 (P2-3 da revisão 3): logo depois do lock da configuração e antes de qualquer DML, todos os salões do escopo
   // (mantidos, omitidos e membros) numa única consulta, em ordem de id — a mesma ordem da reserva.
   if (await combinadosInstalados(tx)) await travarSaloesDoEscopo(tx, ctx.empresaId, input.estabelecimentoId);
-  const antes = await lerAgendaEscopo(tx, ctx.empresaId, input.estabelecimentoId);
+  const { agenda: antes, projecao } = await lerAgendaComProjecao(tx, ctx.empresaId, input.estabelecimentoId);
+  if (origem === "ASSISTENTE" && antes.config) recusar("AGENDA_JA_CONFIGURADA", "A agenda desta unidade já foi configurada. Altere em Configurações › Agenda.");
+  if (input.versaoEsperada == null || input.versaoEsperada !== antes.versaoAgenda) {
+    recusar("AGENDA_MUDOU", "A agenda mudou depois que você abriu esta tela (outra aba ou outra pessoa salvou). Nada foi gravado. Recarregue para ver a versão atual.");
+  }
   const nomesCombinados = new Map(antes.combinados.map((c) => [c.nome.trim().toLocaleLowerCase("pt-BR"), c]));
   const repetido = input.saloes.find((s) => nomesCombinados.has(s.nome.trim().toLocaleLowerCase("pt-BR")));
   if (repetido) recusar("DADOS_INVALIDOS", `Já existe um salão combinado chamado ${repetido.nome.trim()}. Dê outro nome ao salão.`);
-  if (origem === "ASSISTENTE" && antes.config) recusar("AGENDA_JA_CONFIGURADA", "A agenda desta unidade já foi configurada. Altere em Configurações › Agenda.");
   exigirTipoDeAgendaLiberado(input.capacidadeTipo, antes.config?.capacidadeTipo ?? null, opcoes.maisDeUmSalaoLiberada ?? AGENDA_MAIS_DE_UM_SALAO_LIBERADA);
+  // Corte único das regras copiadas, depois da espera pelo advisory (não a data do início da transação).
+  const corte = await (opcoes.lerCorte ?? lerCorteDaAgenda)(tx);
 
   // Configuração do escopo.
   if (antes.config) {
@@ -582,9 +617,8 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
       const usados = new Set([...antes.horarios.filter((x) => !x.herdado).map((x) => x.codigo)]);
       let codigo = origem?.codigo ?? `HORARIO_${ordem + 1}`;
       for (let n = ordem + 2; usados.has(codigo) || (!origem && /^TURNO_/.test(codigo)); n += 1) codigo = `HORARIO_${n}`;
-      const tolerancia = origem ? await tx.query<{ t: number; p: number }>(
-        `SELECT tolerancia_inicio_minutos AS t, passo_inicio_minutos AS p FROM configuracao_agenda WHERE id = $1::uuid`, [origem.id],
-      ) : null;
+      // Tolerância e passo do herdado vêm da projeção (os mesmos valores da versão conferida), sem nova leitura.
+      const herdado = origem ? projecao.herdados.find((x) => x.id === origem.id) : undefined;
       const criado = await tx.query<{ id: string }>(
         `INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, tolerancia_inicio_minutos,
                                           passo_inicio_minutos, ordem_exibicao, ativo, empresa_id, estabelecimento_id,
@@ -592,12 +626,12 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
          VALUES ($1, $2, $3::time, $4::time, $5, $6, $7, true, $8::uuid, $9::uuid, $10::smallint[], $11)
          ON CONFLICT DO NOTHING
          RETURNING id::text AS id`,
-        [codigo, h.nome.trim(), h.inicio, h.fim, Number(tolerancia?.rows[0]?.t ?? 0), Number(tolerancia?.rows[0]?.p ?? 30), ordem + 1,
+        [codigo, h.nome.trim(), h.inicio, h.fim, Number(herdado?.tolerancia_inicio_minutos ?? 0), Number(herdado?.passo_inicio_minutos ?? 30), ordem + 1,
           ctx.empresaId, input.estabelecimentoId, h.dias, h.capacidade],
       );
       if (!criado.rows[0]) recusar("DADOS_INVALIDOS", `Já existe um horário com o código ${codigo} nesta unidade.`);
       id = criado.rows[0].id;
-      await copiarRegras(tx, ctx.empresaId, origem?.id ?? null, id, h.dias);
+      await copiarRegras(tx, ctx.empresaId, origem?.id ?? null, id, h.dias, corte);
     }
     await tx.query(`DELETE FROM configuracao_agenda_saloes WHERE configuracao_agenda_id = $1::uuid`, [id]);
     for (const nome of input.capacidadeTipo === "POR_SALAO" ? h.saloes : []) {
@@ -620,7 +654,7 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
   }
   // Modo livre: o horário técnico guarda preço, disponibilidade e descontos por dia; no fixo ele fica inativo.
   if (input.modo === "LIVRE") {
-    await garantirHorarioLivre(tx, ctx.empresaId, input.estabelecimentoId, gravados.length ? gravados : antes.horarios.map((h) => h.id));
+    await garantirHorarioLivre(tx, ctx.empresaId, input.estabelecimentoId, gravados.length ? gravados : antes.horarios.map((h) => h.id), corte);
   } else {
     await tx.query(
       `UPDATE configuracao_agenda SET ativo = false
@@ -638,8 +672,8 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
     entidadeTipo: "AGENDA_ESCOPO",
     entidadeId: depois.horarios[0]?.id ?? ctx.empresaId,
     empresaId: ctx.empresaId,
-    antes: { estabelecimentoId: input.estabelecimentoId, config: antes.config, horarios: antes.horarios.map(({ festasFuturas, ...h }) => ({ ...h, festas: festasFuturas.quantidade })) },
-    depois: { estabelecimentoId: input.estabelecimentoId, origem, config: depois.config, saloes: depois.saloes, horarios: depois.horarios.map((h) => ({ id: h.id, nome: h.nome, inicio: h.inicio, fim: h.fim, dias: h.dias, capacidade: h.capacidade, saloes: h.saloes })) },
+    antes: { estabelecimentoId: input.estabelecimentoId, versaoAgenda: antes.versaoAgenda, config: antes.config, horarios: antes.horarios.map(({ festasFuturas, ...h }) => ({ ...h, festas: festasFuturas.quantidade })) },
+    depois: { estabelecimentoId: input.estabelecimentoId, origem, versaoAgenda: depois.versaoAgenda, config: depois.config, saloes: depois.saloes, horarios: depois.horarios.map((h) => ({ id: h.id, nome: h.nome, inicio: h.inicio, fim: h.fim, dias: h.dias, capacidade: h.capacidade, saloes: h.saloes })) },
   });
   return depois;
 }
@@ -694,6 +728,8 @@ export async function desativarHorarioAPartirDe(tx: DbExecutor, ctx: Contexto, h
 
 /** Cancela a desativação enquanto a data não chegou. */
 export async function cancelarDesativacao(tx: DbExecutor, ctx: Contexto, horarioId: string) {
+  // Mesmo protocolo dos demais escritores da agenda: advisory antes da linha (plano rev. 1.1, seção 6).
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
   const h = await horarioProprio(tx, ctx.empresaId, horarioId);
   const hoje = (await tx.query<{ d: string }>(`SELECT CURRENT_DATE::text AS d`)).rows[0]!.d;
   if (!h.desativado_a_partir_de) recusar("SEM_DESATIVACAO", "Este horário não tem desativação marcada.");

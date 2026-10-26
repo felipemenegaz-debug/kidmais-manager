@@ -11,6 +11,7 @@ import {
   lerAgendaEscopo,
   salvarAgendaEscopo,
 } from "@/lib/agenda/configuracao-unidade";
+import { versaoInformada } from "@/lib/agenda/versao-agenda";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -85,8 +86,11 @@ export async function POST(request: NextRequest) {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
-    const { empresaId: _ignorado, ...resto } = bruto as Record<string, unknown>;
+    // Versão da agenda (parecer do Astra, P2-1): retirada ANTES do parse estrito, para toda ação; só uma string no formato
+    // exato é candidata e qualquer outro valor vira null, que o serviço recusa com 409 AGENDA_MUDOU (nunca 400 nem "pular").
+    const { empresaId: _ignorado, versaoAgenda: versaoBruta, ...resto } = bruto as Record<string, unknown>;
     void _ignorado;
+    const versaoEsperada = versaoInformada(versaoBruta);
     const input = corpo.parse(resto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
       const ctx = { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, requestId: crypto.randomUUID() };
@@ -97,7 +101,7 @@ export async function POST(request: NextRequest) {
         const { acao: _acao, origem: _origem, ...dados } = input;
         void _acao;
         void _origem;
-        return salvarAgendaEscopo(tx, dados, ctx, assistente ? "ASSISTENTE" : "CONFIGURACOES");
+        return salvarAgendaEscopo(tx, { ...dados, versaoEsperada }, ctx, assistente ? "ASSISTENTE" : "CONFIGURACOES");
       }
       exigirGestaoNoTenant(tenant, GESTAO);
       if (input.acao === "desativar") return desativarHorarioAPartirDe(tx, ctx, input.horarioId, input.aPartirDe);

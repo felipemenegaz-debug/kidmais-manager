@@ -20,7 +20,7 @@ const semBanco: DbExecutor = { async query() { throw new Error("o banco não dev
 const ctx = { empresaId: "11111111-1111-4111-8111-111111111111", usuarioId: "u", requestId: "r" };
 const base: SalvarAgenda = {
   estabelecimentoId: null, modo: "FIXO", capacidadeTipo: "POR_HORARIO", limiteFestasDia: 3, intervaloMinimoMinutos: 60,
-  saloes: [], horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [6], capacidade: 1, saloes: [] }],
+  saloes: [], horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [6], capacidade: 1, saloes: [] }], versaoEsperada: null,
 };
 
 test("entrada inválida é recusada antes de consultar o banco", async () => {

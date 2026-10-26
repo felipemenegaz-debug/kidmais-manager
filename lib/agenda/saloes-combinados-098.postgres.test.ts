@@ -672,14 +672,18 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
   const ctx = { empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() };
   let existentes: string[] = [];
   const horario: { id?: string } = {};
-  const entrada = (nomeA: string): SalvarAgenda => ({
+  // Plano rev. 1.1: a versão é lida na conexão `a` (só leitura, sem travas) antes de cada gravação.
+  const versao = async () => (await lerAgendaEscopo(executor(a), c.empresa, c.unidade)).versaoAgenda;
+  const entrada = (nomeA: string, versaoEsperada: string | null = null): SalvarAgenda => ({
+    versaoEsperada,
     estabelecimentoId: c.unidade, modo: "FIXO", capacidadeTipo: "POR_SALAO", limiteFestasDia: null, intervaloMinimoMinutos: 0,
     saloes: [nomeA, "Salão B", "Salão C"].map((nome, i) => ({ ...(existentes[i] ? { id: existentes[i] } : {}), nome, capacidadeConvidados: null })),
     horarios: [{ ...(horario.id ? { id: horario.id } : {}), nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 3,
       saloes: [nomeA, "Salão B", "Salão C", ...(existentes.length ? ["Salão inteiro"] : [])] }],
   });
+  const v0 = await versao();
   await a.query("BEGIN");
-  await salvarAgendaEscopo(executor(a), entrada("Salão A"), ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
+  await salvarAgendaEscopo(executor(a), entrada("Salão A", v0), ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
   await a.query("COMMIT");
   const ids = (await a.query<{ id: string; nome: string }>(`SELECT id::text, nome FROM agenda_saloes WHERE empresa_id = $1::uuid ORDER BY nome`, [c.empresa])).rows;
   const [A, B] = [ids[0]!.id, ids[1]!.id];
@@ -692,6 +696,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
   // O cadastro vê a composição e mantém o combinado ao salvar a lista de salões simples.
   const agenda = await lerAgendaEscopo(executor(a), c.empresa, c.unidade);
   assert.deepEqual(agenda.combinados.map((x) => [x.nome, x.membros.map((m) => m.nome), x.elegivel]), [["Salão inteiro", ["Salão A", "Salão B"], true]]);
+  const vRenomear = await versao();
   await duasConexoes(async (b, d) => {
     const [pb, pd] = [await pidDe(b), await pidDe(d)];
     // 1) Reserva do combinado primeiro (062: empresa → unidade → habilitação; salões FOR SHARE): o cadastro espera no
@@ -702,7 +707,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
     const salvar = (async () => {
       await d.query("BEGIN");
       try {
-        await salvarAgendaEscopo(executor(d), entrada("Salão A renomeado"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
+        await salvarAgendaEscopo(executor(d), entrada("Salão A renomeado", vRenomear), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
         await d.query("COMMIT");
         return "ok";
       } catch (e) {
@@ -715,8 +720,9 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
     assert.equal(await salvar, "ok");
     // 2) Cadastro primeiro (todos os salões do escopo FOR NO KEY UPDATE, por id): a reserva espera no COMMIT e passa
     //    depois, sem deadlock.
+    const vVoltar = await versao();
     await d.query("BEGIN");
-    await salvarAgendaEscopo(executor(d), entrada("Salão A"), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
+    await salvarAgendaEscopo(executor(d), entrada("Salão A", vVoltar), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
     const reservar = (async () => {
       await b.query("BEGIN");
       try {
@@ -737,7 +743,7 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
   // D5 pelo cadastro: omitir o Salão A (membro do combinado com festas) recusa o salvamento inteiro e lista as festas.
   await a.query("BEGIN");
   try {
-    const semA: SalvarAgenda = { ...entrada("Salão A"), saloes: [{ id: existentes[1], nome: "Salão B", capacidadeConvidados: null }, { id: existentes[2], nome: "Salão C", capacidadeConvidados: null }],
+    const semA: SalvarAgenda = { ...entrada("Salão A", await versao()), saloes: [{ id: existentes[1], nome: "Salão B", capacidadeConvidados: null }, { id: existentes[2], nome: "Salão C", capacidadeConvidados: null }],
       horarios: [{ id: horario.id, nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 2, saloes: ["Salão B", "Salão C"] }] };
     await recusa(salvarAgendaEscopo(executor(a), semA, ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true }), /Não dá para desativar Salão A: há 2 festa\(s\) de hoje em diante/);
   } finally {

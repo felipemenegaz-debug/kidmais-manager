@@ -119,8 +119,11 @@ test("sem configuração: um escopo (a empresa) e os horários herdados para o a
 });
 
 test("assistente: cria horários próprios, copia as regras dos herdados, liga salões e vale no cálculo", async () => {
-  const herdados = (await lerAgendaEscopo(tx, A, null)).horarios;
+  const lida = await lerAgendaEscopo(tx, A, null);
+  const herdados = lida.horarios;
   const entrada: SalvarAgenda = {
+    // Plano rev. 1.1: a versão da leitura que pré-preencheu o assistente; o segundo envio (abaixo) recebe AGENDA_JA_CONFIGURADA.
+    versaoEsperada: lida.versaoAgenda,
     estabelecimentoId: null, modo: "FIXO", capacidadeTipo: "POR_SALAO", limiteFestasDia: 4, intervaloMinimoMinutos: 60,
     saloes: [{ nome: "Salão Principal", capacidadeConvidados: 120 }, { nome: "Salão Kids", capacidadeConvidados: 60 }],
     horarios: [
@@ -171,6 +174,7 @@ test("desativar a partir de uma data: some do cálculo na data; cancelável ante
 test("troca para horário livre: horário técnico com regras por dia, fora da lista de horários fixos", async () => {
   const atual = await lerAgendaEscopo(tx, A, null);
   await emTransacao(() => salvarAgendaEscopo(tx, {
+    versaoEsperada: atual.versaoAgenda,
     estabelecimentoId: null, modo: "LIVRE", capacidadeTipo: "POR_SALAO", limiteFestasDia: 3, intervaloMinimoMinutos: 30,
     saloes: atual.saloes.map((s) => ({ id: s.id, nome: s.nome, capacidadeConvidados: s.capacidadeConvidados })),
     horarios: atual.horarios.map((h) => ({ id: h.id, nome: h.nome, inicio: h.inicio, fim: h.fim, dias: h.dias, capacidade: h.capacidade,
