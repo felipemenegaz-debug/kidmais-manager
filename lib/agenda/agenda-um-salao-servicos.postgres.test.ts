@@ -46,7 +46,13 @@ async function emTransacao<T>(fn: () => Promise<T>) {
 }
 
 const ctx = (c: Cenario) => ({ empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() });
+/** Plano rev. 1.1: o save exige a versão vista; sem concorrência nestes casos, a versão atual lida na mesma transação. */
+async function salvarVisto(entrada: SalvarAgenda, contexto: ReturnType<typeof ctx>, origem: "ASSISTENTE" | "CONFIGURACOES", opcoes?: Parameters<typeof salvarAgendaEscopo>[4]) {
+  const versaoEsperada = (await lerAgendaEscopo(tx, contexto.empresaId, entrada.estabelecimentoId)).versaoAgenda;
+  return salvarAgendaEscopo(tx, { ...entrada, versaoEsperada }, contexto, origem, opcoes);
+}
 const porSalao = (horarios: SalvarAgenda["horarios"]): SalvarAgenda => ({
+  versaoEsperada: null,
   estabelecimentoId: null, modo: "FIXO", capacidadeTipo: "POR_SALAO", limiteFestasDia: null, intervaloMinimoMinutos: 0,
   saloes: [{ nome: "S1", capacidadeConvidados: null }, { nome: "S2", capacidadeConvidados: null }], horarios,
 });
@@ -65,13 +71,14 @@ async function confirmada(c: Cenario, cfg: string, inicio: string, fim: string, 
 
 /** Agenda por salão (liberada só aqui) com os horários dados; devolve ids dos horários (pelo nome) e dos salões. */
 async function agendaPorSalao(c: Cenario, horarios: SalvarAgenda["horarios"]) {
-  const agenda = await emTransacao(() => salvarAgendaEscopo(tx, porSalao(horarios), ctx(c), "CONFIGURACOES", LIBERADA));
+  const agenda = await emTransacao(() => salvarVisto(porSalao(horarios), ctx(c), "CONFIGURACOES", LIBERADA));
   const salao = Object.fromEntries(agenda.saloes.map((s) => [s.nome, s.id!]));
   const horario = Object.fromEntries(agenda.horarios.filter((h) => !h.herdado).map((h) => [h.nome, h.id]));
   return { agenda, salao, horario };
 }
 
 const paraUmSalao = (agenda: Awaited<ReturnType<typeof lerAgendaEscopo>>): SalvarAgenda => ({
+  versaoEsperada: agenda.versaoAgenda,
   estabelecimentoId: null, modo: "FIXO", capacidadeTipo: "POR_HORARIO", limiteFestasDia: null, intervaloMinimoMinutos: 0, saloes: [],
   horarios: agenda.horarios.filter((h) => !h.herdado).map((h) => ({ id: h.id, nome: h.nome, inicio: h.inicio, fim: h.fim, dias: h.dias, capacidade: 1, saloes: [] })),
 });
@@ -87,12 +94,12 @@ const TODOS = [1, 2, 3, 4, 5, 6, 7];
 test("agenda por salão: recusada sem liberação (primeira configuração e troca); com a opção das provas, criada", async () => {
   const c = await cenario(a, 0);
   const horarios = [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: TODOS, capacidade: 2, saloes: ["S1", "S2"] }];
-  await recusa(emTransacao(() => salvarAgendaEscopo(tx, porSalao(horarios), ctx(c), "CONFIGURACOES")), /ainda não está disponível/);
+  await recusa(emTransacao(() => salvarVisto(porSalao(horarios), ctx(c), "CONFIGURACOES")), /ainda não está disponível/);
   assert.equal((await lerAgendaEscopo(tx, c.empresa, null)).config, null, "nada gravado");
-  const um = await emTransacao(() => salvarAgendaEscopo(tx, { ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
+  const um = await emTransacao(() => salvarVisto({ ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
     horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: TODOS, capacidade: 1, saloes: [] }] }, ctx(c), "CONFIGURACOES"));
   assert.equal(um.config?.capacidadeTipo, "POR_HORARIO");
-  await recusa(emTransacao(() => salvarAgendaEscopo(tx, porSalao(horarios), ctx(c), "CONFIGURACOES")), /ainda não está disponível/);
+  await recusa(emTransacao(() => salvarVisto(porSalao(horarios), ctx(c), "CONFIGURACOES")), /ainda não está disponível/);
   const d = await cenario(a, 0);
   const { agenda } = await agendaPorSalao(d, horarios);
   assert.equal(agenda.config?.capacidadeTipo, "POR_SALAO");
@@ -124,7 +131,7 @@ test("salão do pacote: por salão exige; com um salão (mesmo com salão cadast
   assert.deepEqual(salaoDaCopia.rows.map((r) => r.salao_id), [salao.S1]);
 
   const u = await cenario(a, 0);
-  await emTransacao(() => salvarAgendaEscopo(tx, { ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
+  await emTransacao(() => salvarVisto({ ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
     horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: TODOS, capacidade: 1, saloes: [] }] }, ctx(u), "CONFIGURACOES"));
   await a.query(`INSERT INTO agenda_saloes (empresa_id, nome, ordem) VALUES ($1::uuid, 'Salão antigo', 1)`, [u.empresa]);
   await emTransacao(() => definirSaloesPacote(tx, u.empresa, u.pacote, []));
@@ -153,7 +160,7 @@ test("pacote antigo sem salão na agenda por salão: duplicar e alterar sem info
 
   // Agenda com um salão: a IA cria sem salão normalmente.
   const u = await cenario(a, 0);
-  await emTransacao(() => salvarAgendaEscopo(tx, { ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
+  await emTransacao(() => salvarVisto({ ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
     horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: TODOS, capacidade: 1, saloes: [] }] }, ctx(u), "CONFIGURACOES"));
   const criado = await emTransacao(() => salvarPacoteComercial(tx, { ...base, nome: "Festa da IA" }, { ...ctx(u), motivo: "Criação administrativa" }));
   assert.equal(await vinculos(criado.pacote.id), 0);
@@ -213,7 +220,7 @@ test("IA: editar e revisar pacote antigo sem salão na agenda por salão são re
 
   // Controle: agenda com um salão — a IA edita pacote antigo sem salão normalmente.
   const u = await cenario(a, 0);
-  await emTransacao(() => salvarAgendaEscopo(tx, { ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
+  await emTransacao(() => salvarVisto({ ...porSalao([]), capacidadeTipo: "POR_HORARIO", saloes: [],
     horarios: [{ nome: "Tarde", inicio: "15:00", fim: "19:00", dias: TODOS, capacidade: 1, saloes: [] }] }, ctx(u), "CONFIGURACOES"));
   await emTransacao(() => porta.editarNaoUtilizado(tx, u.pacote, dadosIa, { ...ctx(u), motivo: "prova 100" }));
   assert.equal(await nome(u.pacote), dadosIa.nome);

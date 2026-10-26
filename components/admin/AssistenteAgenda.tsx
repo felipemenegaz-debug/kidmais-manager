@@ -12,7 +12,11 @@ import ws from './workspace.module.css';
 export type SalaoForm = { chave: string; id?: string; nome: string; capacidade: string };
 export type HorarioForm = { chave: string; id?: string; nome: string; inicio: string; fim: string; dias: number[]; capacidade: string; saloes: string[]; original?: HorarioAgenda };
 /** combinados: nomes dos salões combinados ativos (098), escolhíveis nos horários; não são editados neste formulário. */
-export type AgendaForm = { modo: Modo; capacidadeTipo: CapacidadeTipo; limite: string; intervalo: string; saloes: SalaoForm[]; horarios: HorarioForm[]; combinados?: string[] };
+/**
+ * versaoBase: versão da agenda (GET) em que o rascunho se baseia; vai no salvar. Nunca é lida de outro estado na hora de
+ * salvar: quem recarrega a agenda e mantém o rascunho mantém também a versão antiga (o servidor responde AGENDA_MUDOU).
+ */
+export type AgendaForm = { modo: Modo; capacidadeTipo: CapacidadeTipo; limite: string; intervalo: string; saloes: SalaoForm[]; horarios: HorarioForm[]; combinados?: string[]; versaoBase: string };
 
 export const DIAS = [
   { n: 1, letra: 'S', nome: 'Seg' }, { n: 2, letra: 'T', nome: 'Ter' }, { n: 3, letra: 'Q', nome: 'Qua' }, { n: 4, letra: 'Q', nome: 'Qui' },
@@ -25,9 +29,20 @@ const minutos = (hora: string) => Number(hora.slice(0, 2)) * 60 + Number(hora.sl
 const inteiro = (texto: string) => Number(texto.trim());
 export const novaChave = () => `novo-${crypto.randomUUID()}`;
 
+/** Erro de uma chamada da API com o código do servidor (ex.: AGENDA_MUDOU); a mensagem continua a do servidor. */
+export class ErroApi extends Error {
+  constructor(message: string, readonly codigo: string | null) {
+    super(message);
+    this.name = 'ErroApi';
+  }
+}
+
+export const AGENDA_MUDOU = 'AGENDA_MUDOU';
+export const codigoDoErro = (error: unknown) => (error instanceof ErroApi ? error.codigo : null);
+
 export async function ler(response: Response) {
   const body = await response.json();
-  if (!response.ok || body.ok === false) throw new Error(body.erro || 'Não foi possível concluir a operação.');
+  if (!response.ok || body.ok === false) throw new ErroApi(body.erro || 'Não foi possível concluir a operação.', typeof body.codigo === 'string' ? body.codigo : null);
   return body;
 }
 
@@ -45,6 +60,7 @@ export function formDaAgenda(agenda: AgendaEscopo): AgendaForm {
       capacidade: String(h.capacidade), saloes: h.saloes.map((id) => nomeDoSalao.get(id) ?? id), original: h,
     })),
     combinados: (agenda.combinados ?? []).map((c) => c.nome),
+    versaoBase: agenda.versaoAgenda,
   };
 }
 
@@ -102,6 +118,7 @@ export function corpoSalvar(form: AgendaForm, estabelecimentoId: string | null, 
   return {
     acao: 'salvar',
     origem,
+    versaoAgenda: form.versaoBase,
     estabelecimentoId,
     modo: form.modo,
     capacidadeTipo: form.capacidadeTipo,
@@ -202,11 +219,13 @@ export function numeracaoAssistente(passo: number, modo: string) {
  * Assistente da primeira entrada (decisão de Felipe em 22/10/2026): cinco perguntas por unidade. Os horários herdados
  * vão com o id para o servidor copiar as regras de preço; qualquer usuário da unidade pode concluir.
  */
-export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
+export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois, onRecomecar }: {
   escopo: EscopoConfiguravel;
   agenda: AgendaEscopo;
   onConcluido: () => void;
   onDepois: () => void;
+  /** AGENDA_MUDOU: refaz a leitura e reabre o assistente do passo 1 com os dados atuais (respostas descartadas). */
+  onRecomecar?: () => void;
 }) {
   const [form, setForm] = useState<AgendaForm>(() => formDaAgenda(agenda));
   const [passo, setPasso] = useState(1);
@@ -214,6 +233,8 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
   const [maisDeUmEmBreve, setMaisDeUmEmBreve] = useState(false);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
+  /** Gravação recusada sem volta: a agenda mudou (recomeçar) ou já foi configurada por outra pessoa (fechar). */
+  const [encerrado, setEncerrado] = useState<'mudou' | 'configurada' | null>(null);
   const titulo = useId();
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const nome = escopo.nome;
@@ -269,7 +290,14 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
       await ler(await adminFetch('/api/admin/configuracoes/agenda', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }));
       onConcluido();
     } catch (error) {
-      setErro(error instanceof Error ? error.message : 'Não foi possível salvar a agenda.');
+      const codigo = codigoDoErro(error);
+      if (codigo === AGENDA_MUDOU) {
+        setEncerrado('mudou');
+        setErro('A agenda desta unidade mudou enquanto você respondia (por exemplo, os horários da empresa). Nada foi gravado. Recomece com os dados atuais: as respostas serão descartadas.');
+      } else {
+        if (codigo === 'AGENDA_JA_CONFIGURADA') setEncerrado('configurada');
+        setErro(error instanceof Error ? error.message : 'Não foi possível salvar a agenda.');
+      }
     } finally {
       setSalvando(false);
     }
@@ -364,10 +392,14 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
       {erro && <p className={css.erroLinha} role="alert">{erro}</p>}
       <div className={css.painelRodape}>
         <button type="button" className={ws.textButton} onClick={onDepois} disabled={salvando}>Fazer depois</button>
-        {passo > 1 && <button type="button" onClick={voltar} disabled={salvando}>Voltar</button>}
-        {passo < TOTAL
-          ? <AdminPrimaryButton onClick={avancar}>{passo === 1 ? 'Começar' : 'Continuar'}</AdminPrimaryButton>
-          : <AdminPrimaryButton onClick={concluir} carregando={salvando}>Concluir</AdminPrimaryButton>}
+        {passo > 1 && !encerrado && <button type="button" onClick={voltar} disabled={salvando}>Voltar</button>}
+        {encerrado === 'mudou'
+          ? <AdminPrimaryButton onClick={() => onRecomecar?.()} data-recomecar-assistente>Recomeçar com os dados atuais</AdminPrimaryButton>
+          : encerrado === 'configurada'
+            ? <AdminPrimaryButton onClick={onConcluido}>Fechar</AdminPrimaryButton>
+            : passo < TOTAL
+              ? <AdminPrimaryButton onClick={avancar}>{passo === 1 ? 'Começar' : 'Continuar'}</AdminPrimaryButton>
+              : <AdminPrimaryButton onClick={concluir} carregando={salvando}>Concluir</AdminPrimaryButton>}
       </div>
     </div>
   </div>;
@@ -375,29 +407,35 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois }: {
 
 const CHAVE_DEPOIS = 'kidmais-agenda-assistente-depois';
 
+/** Primeira unidade sem agenda configurada e sua agenda (GET com a versão); null quando não há ou a leitura falha. */
+async function lerPendente(): Promise<{ escopo: EscopoConfiguravel; agenda: AgendaEscopo } | null> {
+  const json = await ler(await adminFetch('/api/admin/configuracoes/agenda?pendentes=1'));
+  const pendente = (json.data?.instalada ? json.data.pendentes?.[0] : null) as EscopoConfiguravel | null | undefined;
+  if (!pendente) return null;
+  const agenda = await ler(await adminFetch(`/api/admin/configuracoes/agenda?unidadeId=${encodeURIComponent(pendente.estabelecimentoId ?? '')}`));
+  return agenda.data?.agenda ? { escopo: pendente, agenda: agenda.data.agenda as AgendaEscopo } : null;
+}
+
 /** Abre o assistente na primeira entrada enquanto houver unidade sem agenda configurada. Falhas não mostram nada. */
 export function AssistenteAgendaPendente() {
   const [alvo, setAlvo] = useState<{ escopo: EscopoConfiguravel; agenda: AgendaEscopo } | null>(null);
+  // Cada leitura nova remonta o assistente (formulário, versão e passo 1 recriados, não só a prop agenda).
+  const [rodada, setRodada] = useState(0);
 
   useEffect(() => {
     let ativo = true;
     let adiado = false;
     try { adiado = Boolean(window.sessionStorage.getItem(CHAVE_DEPOIS)); } catch { adiado = false; }
     if (adiado) return;
-    adminFetch('/api/admin/configuracoes/agenda?pendentes=1')
-      .then(async (resposta) => {
-        const json = await ler(resposta);
-        const pendente = (json.data?.instalada ? json.data.pendentes?.[0] : null) as EscopoConfiguravel | null | undefined;
-        if (!pendente || !ativo) return;
-        const agenda = await ler(await adminFetch(`/api/admin/configuracoes/agenda?unidadeId=${encodeURIComponent(pendente.estabelecimentoId ?? '')}`));
-        if (ativo && agenda.data?.agenda) setAlvo({ escopo: pendente, agenda: agenda.data.agenda as AgendaEscopo });
-      })
+    lerPendente()
+      .then((novo) => { if (ativo && novo) setAlvo(novo); })
       .catch(() => { /* sem assistente quando a leitura falha */ });
     return () => { ativo = false; };
   }, []);
 
   if (!alvo) return null;
   return <AssistenteAgenda
+    key={rodada}
     escopo={alvo.escopo}
     agenda={alvo.agenda}
     onDepois={() => {
@@ -407,6 +445,16 @@ export function AssistenteAgendaPendente() {
     onConcluido={() => {
       setAlvo(null);
       window.dispatchEvent(new Event('kidmais:agenda-configurada'));
+    }}
+    onRecomecar={() => {
+      lerPendente()
+        .then((novo) => {
+          setRodada((n) => n + 1);
+          setAlvo(novo);
+          // Sem unidade pendente: outra pessoa concluiu a configuração; a tela da agenda recarrega.
+          if (!novo) window.dispatchEvent(new Event('kidmais:agenda-configurada'));
+        })
+        .catch(() => setAlvo(null));
     }}
   />;
 }

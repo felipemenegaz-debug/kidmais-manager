@@ -247,6 +247,10 @@ const ESTADO_POSTGRES = {
   // Parecer do Astra (25/10/2026) pelos serviços reais: trava da agenda por salão, volta para um salão com/sem festas
   // sobrepostas, salão obrigatório no pacote só na agenda por salão e duplicação copiando os salões (modelo 097).
   "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097" },
+  // 26/10/2026: concorrência otimista do agregado da agenda (versaoAgenda): projeção única, 409 AGENDA_MUDOU, advisory no
+  // cancelamento, regras (b) e corte, rota real e guarda de tenant. Modelos 097 (sem 100), 097 + 100 (variante) e 098.
+  "lib/agenda/agenda-versao.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  "lib/agenda/agenda-versao-100.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
   // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
   "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097" },

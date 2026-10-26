@@ -6,7 +6,7 @@ import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_VOLTA_UM_SALAO } from '@/lib/ag
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import {
-  corpoSalvar, DiasChips, EditorSaloes, erroDoForm, formAlterado, formDaAgenda, horarioNovo, INTERVALOS, ler, nomesDosSaloes, SalaoChips,
+  AGENDA_MUDOU, codigoDoErro, corpoSalvar, DiasChips, EditorSaloes, erroDoForm, formAlterado, formDaAgenda, horarioNovo, INTERVALOS, ler, nomesDosSaloes, SalaoChips,
   type AgendaForm, type HorarioForm,
 } from './AssistenteAgenda';
 import { AVISO_PENDENTE, SaloesCombinados } from './SaloesCombinados';
@@ -66,6 +66,8 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
   const [confirmarTroca, setConfirmarTroca] = useState(false);
   const [datas, setDatas] = useState<Record<string, string>>({});
   const [desativar, setDesativar] = useState<{ horario: HorarioForm; data: string } | null>(null);
+  // 409 AGENDA_MUDOU: o rascunho fica na tela; recarregar é uma escolha explícita (descarta), nunca automática.
+  const [mudou, setMudou] = useState(false);
 
   function aplicar(novos: DadosAgenda) {
     setDados(novos);
@@ -73,6 +75,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
     setUnidadeId(novos.agenda?.escopo.estabelecimentoId ?? '');
     setDatas({});
     setConfirmarTroca(false);
+    setMudou(false);
   }
 
   async function buscar(unidade: string) {
@@ -151,6 +154,7 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
       await recarregar();
       setAviso('Agenda salva.');
     } catch (error) {
+      setMudou(codigoDoErro(error) === AGENDA_MUDOU);
       setErro(error instanceof Error ? error.message : 'Não foi possível salvar a agenda.');
     } finally {
       setSalvando(false);
@@ -265,6 +269,10 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
       <a className={css.voltar} href="/admin/configuracoes">← Voltar às configurações</a>
       {config && <p className={ws.muted}>Configurado por {config.configuradoPor ?? 'alguém da equipe'} em {quando(config.configuradoEm)}</p>}
       {erro && <p role="alert" className={ws.error}>{erro}</p>}
+      {mudou && !vitrine && <p className={ws.notice} data-agenda-mudou>
+        <button type="button" className={ws.textButton} disabled={carregando} onClick={() => { setErro(''); void recarregar(); }}>Recarregar agenda</button>
+        {' '}(descarta as alterações não salvas)
+      </p>}
       {aviso && <p role="status" className={ws.notice}>{aviso}</p>}
       {dados && !dados.instalada && <p role="status" className={ws.notice}>A configuração da agenda ainda não está disponível neste ambiente.</p>}
       {dados?.instalada && leitura && <p role="status" className={ws.notice}>Só quem tem Gestão pode alterar a agenda.</p>}

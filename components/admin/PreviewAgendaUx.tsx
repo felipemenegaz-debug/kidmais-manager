@@ -27,6 +27,8 @@ const configurada: DadosAgenda = {
       { id: '77777777-7777-4777-8777-777777777772', codigo: 'TURNO_2', nome: 'Tarde', inicio: '15:00', fim: '19:00', dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 2, desativadoAPartirDe: null, saloes: [salaoPrincipal, salaoKids], herdado: false, festasFuturas: { quantidade: 0, proxima: null, ultima: null } },
       { id: '77777777-7777-4777-8777-777777777773', codigo: 'HORARIO_3', nome: 'Noite', inicio: '20:00', fim: '23:30', dias: [5, 6], capacidade: 1, desativadoAPartirDe: '2026-12-01', saloes: [salaoPrincipal], herdado: false, festasFuturas: { quantidade: 0, proxima: null, ultima: null } },
     ],
+    // Versão fictícia (a vitrine não grava).
+    versaoAgenda: 'va1:' + '0'.repeat(64),
   },
 };
 const nova = { estabelecimentoId: '55555555-5555-4555-8555-555555555556', nome: 'Pinheiros', configurado: false };
@@ -36,6 +38,7 @@ const herdada = {
     { id: '88888888-8888-4888-8888-888888888881', codigo: 'TURNO_1', nome: 'Primeiro horário', inicio: '11:00', fim: '15:00', dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 1, desativadoAPartirDe: null, saloes: [], herdado: true, festasFuturas: { quantidade: 0, proxima: null, ultima: null } },
     { id: '88888888-8888-4888-8888-888888888882', codigo: 'TURNO_2', nome: 'Segundo horário', inicio: '17:00', fim: '21:00', dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 1, desativadoAPartirDe: null, saloes: [], herdado: true, festasFuturas: { quantidade: 0, proxima: null, ultima: null } },
   ],
+  versaoAgenda: 'va1:' + '1'.repeat(64),
 };
 
 // Agenda com um salão (decisão de Felipe, 25/10/2026): uma festa por horário, sem campo de capacidade.
