@@ -211,6 +211,15 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'agenda/agenda_escopo_config', tabela: 'agenda_escopo_config', grupo: 'Agenda', descricao: 'Modo, capacidade, festas por dia e intervalo de cada unidade.', onde: EMP },
     { arquivo: 'agenda/agenda_saloes', tabela: 'agenda_saloes', grupo: 'Agenda', descricao: 'Salões de cada unidade; combinados (098) com os salões que os compõem (membros, lista de ids).', onde: EMP },
     { arquivo: 'agenda/configuracao_agenda_saloes', tabela: 'configuracao_agenda_saloes', grupo: 'Agenda', descricao: 'Salões de cada horário.', onde: em(AGENDAS, 'configuracao_agenda_id') },
+    // 102: apresentação do salão ao cliente. Fotos sem bytes (tamanho e SHA-256), itens e o dicionário do catálogo global
+    // SÓ com os códigos usados pela empresa (o item catalogado fica interpretável no próprio pacote).
+    { arquivo: 'agenda/agenda_salao_fotos', tabela: 'agenda_salao_fotos', grupo: 'Agenda', descricao: 'Fotos de cada salão (tamanho e SHA-256 da imagem WebP; legenda, ordem, origem e remoção).', onde: EMP, migracao: '102' },
+    { arquivo: 'agenda/agenda_salao_itens', tabela: 'agenda_salao_itens', grupo: 'Agenda', descricao: 'O que cada salão tem (item do catálogo ou próprio, grupo, detalhe e destaque).', onde: EMP, migracao: '102' },
+    {
+        arquivo: 'agenda/agenda_salao_itens_catalogo', tabela: 'agenda_salao_itens_catalogo', grupo: 'Agenda',
+        descricao: 'Dicionário dos itens de salão usados pela empresa (catálogo global: código, grupo e nome).',
+        onde: 't.codigo IN (SELECT i.item_codigo FROM agenda_salao_itens i WHERE i.empresa_id = $1::uuid)', somente: ['codigo', 'grupo', 'nome'], migracao: '102',
+    },
     { arquivo: 'catalogo/pacote_saloes', tabela: 'pacote_saloes', grupo: 'Catálogo', descricao: 'Salões permitidos de cada pacote.', onde: em(PACOTES, 'pacote_id') },
     { arquivo: 'agenda/regras_categoria_horario', tabela: 'regras_categoria_horario', grupo: 'Agenda', descricao: 'Regras de categoria por horário.', onde: em(AGENDAS, 'configuracao_agenda_id') },
     { arquivo: 'agenda/bloqueios', tabela: 'bloqueios_agenda', grupo: 'Agenda', descricao: 'Bloqueios da agenda.', onde: EMP },

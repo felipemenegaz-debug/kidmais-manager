@@ -11,6 +11,7 @@ import {
   lerAgendaEscopo,
   salvarAgendaEscopo,
 } from "@/lib/agenda/configuracao-unidade";
+import { traduzirErroSalao } from "@/lib/agenda/salao-apresentacao";
 import { versaoInformada } from "@/lib/agenda/versao-agenda";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
     });
     return jsonNoStore({ ok: true, data }, { status: 201 });
   } catch (error) {
-    return apiErrorResponse(error);
+    // 102: CHECK do salão (ex.: máximo abaixo de sentados/mínimo) vira mensagem amigável; outros erros seguem intactos.
+    return apiErrorResponse(traduzirErroSalao(error));
   }
 }
