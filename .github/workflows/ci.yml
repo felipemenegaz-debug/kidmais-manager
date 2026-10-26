@@ -57,6 +57,7 @@ jobs:
           scripts/bloco-shell-reparo-bloqueios-producao-20261020.test.cjs
           scripts/assinatura-cron-producao-20261020.test.cjs
           scripts/assinatura-cron.test.cjs
+          scripts/assinatura-renovacao-cron.test.cjs
           scripts/assinatura-reconciliar.test.cjs
           scripts/reparo-bloqueios-production.test.cjs
 

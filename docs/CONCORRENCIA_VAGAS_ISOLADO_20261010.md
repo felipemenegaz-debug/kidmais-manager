@@ -1,5 +1,15 @@
 # Etapa 4 — concorrência e reservas em PostgreSQL isolado (pacote de 10/10/2026)
 
+> **Reaprovação de 25/10/2026 (inventário até a 100):** o roteiro estava fixado na 079 (`INVENTARIO_MUDOU` no teste offline). Ajustes, todos no roteiro e sem mudar a aplicação:
+> - inventário até `20261025_100_agenda_um_salao.sql`, **sem a 098** (`EXCLUIDAS`): ela está pausada, fora de staging e production, e a 100 recusa banco com ela. Ficam 102 migrations e 265 arquivos, impressão `16f57be8…eb22`;
+> - documentos sintéticos com DV oficial, porque a 091 recusa DV inválido;
+> - ofertas com as versões vigentes dos documentos legais, exigidas pela 096;
+> - inserções diretas de prova no grupo g com `origem = 'LEGADO'`, obrigatória desde a 090;
+> - conferência final do grupo z com os postchecks da 090 e da 075 (evidência `postchecks: ['090', '075']`). O da 074a recusa os índices de vaga que a 090 trocou. O da 090 não reproduz todas as conferências gerais da 074a: não é substituição integral;
+> - o grupo g prova o teto e a disputa por vagas LEGADO com a 090 instalada, não a campanha 090 ativa.
+>
+> **Execução C1–C6 (opção B) em cluster novo `.local-concorrencia-pg-<guid>` (127.0.0.1:55480): grupos a–h e z PASS, saída 0; cluster parado e removido.** Evidência em `ambientes-locais/pg-descartavel-renovacao-agendada-20261025-relatorios/concorrencia-100/` (fora do repositório).
+
 > **Execução de 10/10/2026 (candidata `23a203a`):** C1–C3 ok; C4 exit 2 no grupo `a` antes de qualquer verificação (gerador de documento sintético, `readUIntBE` de 7 bytes); C4b/C5 ok; C6 não executado (pasta preservada). Ver [evidência](evidencias/pacotes-locais-concorrencia-navegador-20261010.md). Corrigido na nova candidata; a nova execução usa pasta nova.
 
 

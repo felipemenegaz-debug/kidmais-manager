@@ -159,6 +159,8 @@ test('2. com a 096: confirmada vigente com as datas persistidas, oferta vinculad
     const comercial = await somenteLeitura(() => comercialDaEmpresa(client as never, B.empresaId));
     assert.equal(comercial.fundador?.situacao, 'CONFIRMADA_VIGENTE');
     assert.equal(comercial.fundador?.contratacaoId, B.oferta);
+    assert.equal((comercial as { plano?: string | null }).plano, 'ESSENCIAL', 'O-1: ficha recebe o plano contratado');
+    assert.equal(((await somenteLeitura(() => comercialDaEmpresa(client as never, C))) as { plano?: string | null }).plano, 'UNICO', 'legado em teste');
     semVazamento(comercial.fundador, B.documento, B.pagamento);
     assert.equal((await somenteLeitura(() => comercialDaEmpresa(client as never, C))).fundador, null);
 });
@@ -173,6 +175,29 @@ test('3. concessão liberada não aparece (nem para a Gestão nem para o desenvo
     assert.equal(await somenteLeitura(() => consultarBeneficioFundador(client as never, d.empresaId)), null);
     assert.equal(await somenteLeitura(() => consultarBeneficioFundadorDesenvolvedor(client as never, d.empresaId)), null);
     assert.equal((await gestao(d.empresaId)).fundador, null);
+});
+
+// Oportunidades da revisão independente de 631a5674 (não bloqueantes): vínculo da oferta com contratações canceladas e várias.
+test('3b. reserva só com contratação cancelada fica sem oferta; nova oferta reaproveita a concessão; a atual vence uma aberta da mesma concessão', { skip: !opt() }, async () => {
+    const f = await empresaEmTeste();
+    const cancelada = (await oferta(f.empresaId)).id;
+    await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética cancelada' WHERE id = $1", [cancelada]);
+    let b = await somenteLeitura(() => consultarBeneficioFundador(client as never, f.empresaId));
+    assert.deepEqual([b?.situacao, b?.contratacaoId, b?.contratacaoEstado], ['RESERVADA', null, null], 'reserva continua; a cancelada não é a oferta');
+    assert.equal((await gestao(f.empresaId)).fundador?.situacao, 'RESERVADA');
+    const nova = (await oferta(f.empresaId)).id;
+    assert.notEqual(nova, cancelada);
+    b = await somenteLeitura(() => consultarBeneficioFundador(client as never, f.empresaId));
+    assert.deepEqual([b?.situacao, b?.contratacaoId, b?.contratacaoEstado], ['RESERVADA', nova, 'EM_ABERTO'], 'a oferta em aberto, nunca a cancelada');
+    // B: contratação atual CONFIRMADA e outra EM_ABERTO na mesma concessão (fixture direta; o gatilho aceita durante o benefício).
+    const extra = (await q(`INSERT INTO assinatura_contratacoes (empresa_id, chave_idempotencia, plano, ciclo, catalogo_versao, valor_regular_centavos,
+            desconto_percentual, valor_final_centavos, fundador_id, criada_por)
+        SELECT empresa_id, gen_random_uuid(), 'PROFISSIONAL', 'MENSAL', catalogo_versao, 39700, 40, 23820, fundador_id, criada_por
+          FROM assinatura_contratacoes WHERE id = $1 RETURNING id`, [B.oferta])).rows[0].id as string;
+    b = await somenteLeitura(() => consultarBeneficioFundador(client as never, B.empresaId));
+    assert.deepEqual([b?.situacao, b?.contratacaoId, b?.contratacaoEstado], ['CONFIRMADA_VIGENTE', B.oferta, 'CONFIRMADA'], 'a contratação atual da assinatura vence a aberta');
+    await q("UPDATE assinatura_contratacoes SET estado = 'CANCELADA', cancelada_em = clock_timestamp(), motivo_cancelamento = 'Fixture sintética encerrada' WHERE id = $1", [extra]);
+    assert.equal((await somenteLeitura(() => consultarBeneficioFundador(client as never, B.empresaId)))?.contratacaoId, B.oferta);
 });
 
 test('4. limites do prazo: fim no futuro → vigente; fim alcançado → encerrada; a leitura nunca grava', { skip: !opt() }, async () => {

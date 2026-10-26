@@ -119,7 +119,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             {dados.renovacao.estado === 'REVISAO'
                 ? <p>A renovação após o Fundador precisa de revisão pelo atendimento. Confira a situação antes de pagar uma nova cobrança.</p>
                 : <p>Após o Fundador, a partir de {dados.renovacao.dataRegular.split('-').reverse().join('/')}, o valor será {reais(dados.renovacao.valorRegular)}/{dados.renovacao.ciclo === 'ANUAL' ? 'ano' : 'mês'}.
-                    {dados.renovacao.avisoEnviado ? ' O aviso de renovação foi enviado por e-mail à Gestão que contratou.' : ' O aviso será enviado por e-mail 30 dias antes.'}
+                    {dados.renovacao.avisoEnviado ? ' O aviso de renovação foi enviado por e-mail à Gestão que contratou.' : ' O aviso será enviado por e-mail com pelo menos 30 dias de antecedência.'}
                     {' '}Você pode cancelar antes da renovação, preservando o período já pago.</p>}
         </div>}
         {!dados.gestao && <p className={workspace.muted}>Somente a Gestão desta empresa contrata ou cancela a assinatura.</p>}
