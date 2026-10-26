@@ -99,7 +99,13 @@ function validarAlvo(env) {
  * Na SIMULAÇÃO o banco volta atrás (ROLLBACK), mas uma chamada ao provedor não volta: a remoção de duplicatas (compensação
  * das pendências de contratação) é só contada, nunca executada. Leituras continuam reais para o relatório ser fiel.
  */
-function opcoesConexao(alvo, env = {}) {
+/**
+ * Serviços aceitos pela exceção TLS `render-interno-criptografado` na RECONCILIAÇÃO: só o cron dela. Outras entradas passam a
+ * própria lista fechada (T1 do B-9, 26/10/2026); o padrão não muda.
+ */
+const SERVICOS_TLS_RECONCILIACAO = Object.freeze(['crn-db493i142hec73ahmoe0']);
+
+function opcoesConexao(alvo, env = {}, servicosTlsInterno = SERVICOS_TLS_RECONCILIACAO) {
     const url = new URL(alvo.connectionString);
     const modo = url.searchParams.get('sslmode');
     if (!alvo.local && modo && !['require', 'verify-full', 'verify-ca'].includes(modo)) throw Error('TLS_MODO_RECUSADO');
@@ -113,9 +119,9 @@ function opcoesConexao(alvo, env = {}) {
     if (!['verificado', 'render-interno-criptografado'].includes(politica)) throw Error('TLS_POLITICA_RECUSADA');
     if (politica === 'render-interno-criptografado') {
         // Opt-in operacional: Render não fornece verify-full para seu Postgres interno.
-        // Limitado ao cron e banco exatos, dentro da rede privada. Nenhuma configuração global.
+        // Limitado aos serviços da lista fechada de quem chama e ao banco exato, dentro da rede privada. Nenhuma configuração global.
         const confirmado = validarAlvo(env);
-        if (env.RENDER !== 'true' || env.RENDER_SERVICE_ID !== 'crn-db493i142hec73ahmoe0'
+        if (env.RENDER !== 'true' || !servicosTlsInterno.includes(env.RENDER_SERVICE_ID)
             || env.KIDMAIS_DEPLOY_ENV !== 'staging' || env.ASAAS_AMBIENTE !== 'sandbox'
             || confirmado.host !== 'dpg-daidko3m8hqs73ce4jt0-a' || confirmado.port !== 5432
             || confirmado.database !== 'kidmais_staging_1z91' || alvo.connectionString !== confirmado.connectionString) {
@@ -577,6 +583,6 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
     lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, SQL_PENDENCIAS_ARREPENDIMENTO, motivoSeguro, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };
