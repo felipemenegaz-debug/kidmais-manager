@@ -19,6 +19,17 @@ const { listaDeEmpresas, conferirAgoraSomenteFixtures } = require('./assinatura-
 
 const STAGING = Object.freeze({ database: 'kidmais_staging_1z91', host: 'dpg-daidko3m8hqs73ce4jt0-a', port: 5432 });
 const TRAVA_GLOBAL = 'kidmais:renovacao-cron';
+/**
+ * T1 (26/10/2026, aprovada por Felipe): lista FECHADA da exceção TLS `render-interno-criptografado` para a renovação, nas
+ * mesmas condições da reconciliação (Render, staging, sandbox, alvo literal `kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432`).
+ *   - web de staging: só para o Shell da homologação (a aplicação web não chama esta entrada);
+ *   - cron da renovação de staging: o `crn-…` entra aqui DEPOIS que Felipe criar o cron em `aguardando` (sai sem conectar);
+ *     enquanto `null`, nenhum cron é aceito. O cron da reconciliação NÃO está nesta lista, e o web não está na dela.
+ */
+const CRON_RENOVACAO_STAGING = null;
+const SERVICOS_TLS_RENOVACAO = Object.freeze(['srv-daif418ae00c73e8k2gg', ...(CRON_RENOVACAO_STAGING ? [CRON_RENOVACAO_STAGING] : [])]);
+/** Opções de conexão da renovação: a política da reconciliação com a lista fechada acima. Calculada antes de conectar. */
+const conexaoDaRenovacao = (alvo, env) => opcoesConexao(alvo, env, SERVICOS_TLS_RENOVACAO);
 /** Trava global ainda desta sessão, pela chave exata: bigint = classid (32 bits altos) + objid (32 baixos), objsubid = 1. */
 const SQL_TRAVA_MINHA = `SELECT count(*)::int AS n FROM pg_locks
     WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted AND objsubid = 1
@@ -151,7 +162,7 @@ async function main() {
     let interrompido = false;
     process.once('SIGTERM', () => { interrompido = true; });
     const { Pool, Client } = require('pg');
-    const relatorio = await executarCron(cfg, { Pool, Client, conexao: opcoesConexao(cfg.alvo, process.env), provedor: criarClienteAsaas(asaas.config),
+    const relatorio = await executarCron(cfg, { Pool, Client, conexao: conexaoDaRenovacao(cfg.alvo, process.env), provedor: criarClienteAsaas(asaas.config),
         enviar: criarEnviarEmail(process.env), origem: origemPublica(), interrompido: () => interrompido });
     console.log(JSON.stringify({ ambiente: cfg.ambiente, modo: cfg.modo, rebaixadoParaSimular: cfg.rebaixado,
         agoraInjetado: cfg.agora ? cfg.agora.toISOString() : null, ...relatorio }, null, 2));
@@ -165,4 +176,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { planejar, executarCron, argumentos, STAGING, TRAVA_GLOBAL, SQL_TRAVA_MINHA };
+module.exports = { planejar, executarCron, argumentos, conexaoDaRenovacao, STAGING, TRAVA_GLOBAL, SQL_TRAVA_MINHA, SERVICOS_TLS_RENOVACAO };

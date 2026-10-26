@@ -87,3 +87,42 @@ test('homologação com alvo remoto: --agora com aplicar só para fixtures (guar
     // Simulação (READ ONLY) não precisa da guarda; só a empresa fixture com aplicar também passa a guarda (para antes na execução, aqui).
     await assert.rejects(executarCron({ ...cfg, empresas: [F] }, f), /não deveria chegar à execução/);
 });
+
+// ---- T1 (26/10/2026): lista fechada da exceção TLS render-interno-criptografado para a renovação.
+test('T1: TLS interno da renovação só para a lista fechada (web de staging); reconciliação inalterada', () => {
+    const { validarAlvo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO } = require('./assinatura-reconciliar.cjs');
+    const { conexaoDaRenovacao, SERVICOS_TLS_RENOVACAO } = require('./assinatura-renovacao-cron.cjs');
+    const WEB = 'srv-daif418ae00c73e8k2gg', CRON_RECONCILIACAO = 'crn-db493i142hec73ahmoe0';
+    const env = { RENDER: 'true', RENDER_SERVICE_ID: WEB, KIDMAIS_DEPLOY_ENV: 'staging', ASAAS_AMBIENTE: 'sandbox', KIDMAIS_RECONCILIAR_TLS: 'render-interno-criptografado',
+        KIDMAIS_RECONCILIAR_DATABASE_URL: 'postgresql://fixture@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91?sslmode=require',
+        KIDMAIS_RECONCILIAR_ALVO: 'kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432' };
+    const alvo = validarAlvo(env);
+    // Listas fechadas e disjuntas.
+    assert.deepEqual([...SERVICOS_TLS_RENOVACAO], [WEB], 'cron da renovação só entra depois de criado (CRON_RENOVACAO_STAGING = null)');
+    assert.deepEqual([...SERVICOS_TLS_RECONCILIACAO], [CRON_RECONCILIACAO]);
+    assert.ok(Object.isFrozen(SERVICOS_TLS_RENOVACAO) && Object.isFrozen(SERVICOS_TLS_RECONCILIACAO));
+    // Renovação: web aceito, com a mesma política (sem verificação de certificado, TLS 1.2+).
+    assert.deepEqual(conexaoDaRenovacao(alvo, env).ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
+    // Sem o opt-in, verificação de certificado ativa.
+    assert.equal(conexaoDaRenovacao(alvo, { ...env, KIDMAIS_RECONCILIAR_TLS: undefined }).ssl.rejectUnauthorized, true);
+    // Renovação recusa o cron da reconciliação e qualquer outro serviço; mesmas guardas de ambiente e alvo.
+    for (const mudanca of [{ RENDER_SERVICE_ID: CRON_RECONCILIACAO }, { RENDER_SERVICE_ID: 'crn-qualquer' }, { RENDER_SERVICE_ID: undefined }, { RENDER: undefined },
+        { KIDMAIS_DEPLOY_ENV: 'production' }, { ASAAS_AMBIENTE: 'producao' }])
+        assert.throws(() => conexaoDaRenovacao(alvo, { ...env, ...mudanca }), /TLS_REDE_PRIVADA_RECUSADA/, JSON.stringify(mudanca));
+    for (const [host, db, porta] of [['example.test', 'kidmais_staging_1z91', 5432], ['dpg-daidko3m8hqs73ce4jt0-a', 'outro', 5432], ['dpg-daidko3m8hqs73ce4jt0-a', 'kidmais_staging_1z91', 6432]]) {
+        const alterado = { ...env, KIDMAIS_RECONCILIAR_DATABASE_URL: `postgresql://fixture@${host}:${porta}/${db}`, KIDMAIS_RECONCILIAR_ALVO: `${db}@${host}:${porta}` };
+        assert.throws(() => conexaoDaRenovacao(validarAlvo(alterado), alterado), /TLS_REDE_PRIVADA_RECUSADA/);
+    }
+    assert.throws(() => conexaoDaRenovacao({ ...alvo, connectionString: 'postgresql://fixture@example.test/outro' }, env), /TLS_REDE_PRIVADA_RECUSADA/);
+    assert.throws(() => conexaoDaRenovacao(alvo, { ...env, KIDMAIS_RECONCILIAR_TLS: 'no-verify' }), /TLS_POLITICA_RECUSADA/);
+    // Reconciliação: inalterada — o web continua recusado; o cron dela continua aceito.
+    assert.throws(() => opcoesConexao(alvo, env), /TLS_REDE_PRIVADA_RECUSADA/);
+    assert.deepEqual(opcoesConexao(alvo, { ...env, RENDER_SERVICE_ID: CRON_RECONCILIACAO }).ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
+});
+
+test('T1: o main da renovação calcula a conexão pela lista da renovação, antes de conectar', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'assinatura-renovacao-cron.cjs'), 'utf8');
+    const main = fonte.slice(fonte.indexOf('async function main()'), fonte.indexOf('if (require.main === module)'));
+    assert.match(main, /conexao: conexaoDaRenovacao\(cfg\.alvo, process\.env\)/);
+    assert.doesNotMatch(main, /opcoesConexao\(/, 'o main não chama a política da reconciliação diretamente');
+});
