@@ -9,7 +9,7 @@ import { provarTenantParaExportacao, empresasSuspensasExportaveis } from "./guar
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO } from "./entidades.ts";
 import { lerZip } from "./zip.ts";
 import type { Client } from "pg";
-import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
+import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, RETRATO_102, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
 
 /** Identidade sintética da suíte (senha em formato válido que não autentica). */
 const criarIdentidade: CriarIdentidade = (db, email, nome) =>
@@ -138,8 +138,11 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     await c.query("COMMIT");
     const colunas = Object.fromEntries(p.manifesto.arquivos.filter((a) => a.tipo === "csv").map((a) => [a.tabela as string, a.colunas as string[]]));
     for (const lista of Object.values(colunas)) for (const col of lista) assert.doesNotMatch(col.replace(/__(bytes|sha256|arquivo)$/, ""), SEGREDO, `coluna de segredo exportada: ${col}`);
-    if (process.env.KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO === "1") writeFileSync(RETRATO, `${JSON.stringify(colunas, null, 2)}\n`);
-    assert.deepEqual(colunas, JSON.parse(readFileSync(RETRATO, "utf8")), "colunas exportadas mudaram: revise segredos e atualize o retrato");
+    // Um retrato por schema: o do inventário (modelo 098) e o com a 102/103 sem a 098 (modelo 103). Nenhuma diferença
+    // é apagada para o modelo antigo passar; cada estado é comparado inteiro.
+    const retrato = tabelas.includes("agenda_salao_fotos") ? RETRATO_102 : RETRATO;
+    if (process.env.KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO === "1") writeFileSync(retrato, `${JSON.stringify(colunas, null, 2)}\n`);
+    assert.deepEqual(colunas, JSON.parse(readFileSync(retrato, "utf8")), "colunas exportadas mudaram: revise segredos e atualize o retrato");
     // Só as entidades de migrations posteriores à 089 ficam ausentes, com o motivo no manifesto.
     assert.deepEqual(p.manifesto.entidadesAusentes.map((a) => a.tabela), posteriores.map((e) => e.tabela));
     assert.ok(p.manifesto.entidadesAusentes.every((a) => /migration não aplicada/.test(a.motivo)));

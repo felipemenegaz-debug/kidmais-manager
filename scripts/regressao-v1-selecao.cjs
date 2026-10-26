@@ -233,7 +233,7 @@ const ESTADO_POSTGRES = {
   // 23/10/2026: com os créditos de IA (095), o inventário inteiro vai até a 095 (inclui 092–094); a compatibilidade sem a
   // 095 é provada em lib/creditos/creditos-095.postgres.test.ts sobre o modelo 094. Com a 098 (salões, 23/10/2026),
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098" },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },
@@ -260,6 +260,19 @@ const ESTADO_POSTGRES = {
   "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "098" },
   // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
   "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097" },
+  // 25/10/2026: apresentação do salão (102). Comportamento no modelo 102 (sem a 098, com 099/100/102); aplicação, reaplicação
+  // e rollback neutro/com conteúdo no 097; recusa no 098.
+  "lib/agenda/saloes-apresentacao-102.postgres.test.ts": { descartavel: "102", tambem: ["097", "098"] },
+  // 25/10/2026: serviços da apresentação (102) e serviços comuns (103): agenda real, cópia do site, pacotes e corridas.
+  "lib/agenda/salao-apresentacao-servico.postgres.test.ts": { descartavel: "103" },
+  "lib/agenda/salao-apresentacao-rotas.postgres.test.ts": { descartavel: "103" },
+  // 25/10/2026: aplicador REAL da 098 sobre a 102 recusa nos três modos sem enviar DDL/DML (registro das instruções).
+  "lib/agenda/aplicador-098-com-102.postgres.test.ts": { descartavel: "102" },
+  // 25/10/2026: migration 103 (categoria Serviços): aplicação/reexecução/divergência/rollback no 102; estado final no 103.
+  "lib/comercial/servicos-103.postgres.test.ts": { descartavel: "103", tambem: ["102"] },
+  // 26/10/2026 (parecer do Astra, P3-1 da composição; R4-6): 102 antes da 100 (modelo 097) e 100 antes da 102 (modelo 102),
+  // com 100_postcheck/100_integridade/094_integridade_apos_100 e a integridade da 102.
+  "lib/agenda/saloes-102-ordem-100.postgres.test.ts": { descartavel: "097", tambem: ["102"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

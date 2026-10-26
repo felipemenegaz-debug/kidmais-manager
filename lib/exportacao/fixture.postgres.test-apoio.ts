@@ -20,6 +20,8 @@ export const id = async (db: Client, sql: string, v: unknown[]) => (await db.que
 export const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 export const SENHA_FALSA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 export const RETRATO = "lib/exportacao/colunas-esperadas.json";
+/** Retrato do schema com a 102/103 e sem a 098 (modelo 103): comparação completa também nesse estado (parecer do Astra, 25/10/2026). */
+export const RETRATO_102 = "lib/exportacao/colunas-esperadas-102.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {

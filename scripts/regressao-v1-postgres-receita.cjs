@@ -98,6 +98,11 @@ const MODELOS = {
   "097": { banco: "kidmais_v1_modelo_097", ate: "097", sem: [] },
   // Salão combinado (fase 1 dos salões, 23/10/2026): inventário inteiro até a 098.
   "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [] },
+  // Apresentação do salão (102, 25/10/2026): inventário SEM a 098 (incompatível com a 100 e recusada pela 102), com 099,
+  // 100 e 102 — o estado suportado pela 102 (staging de hoje + 100 + 102).
+  "102": { banco: "kidmais_v1_modelo_102", ate: "102", sem: ["098"] },
+  // Serviços nos adicionais (103, 25/10/2026): o mesmo estado com a 103.
+  "103": { banco: "kidmais_v1_modelo_103", ate: "103", sem: ["098"] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

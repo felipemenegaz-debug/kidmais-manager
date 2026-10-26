@@ -47,6 +47,8 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações', autoridade: 'empresa' },
     // 093: a agenda da unidade. O assistente da primeira entrada é de qualquer usuário; a tela, de Gestão.
     { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
+    // 102: apresentação dos salões ao cliente (fotos, itens, declaração). Ler: membership; gravar: Gestão (sem exceção).
+    { href: '/admin/configuracoes/saloes', rotulo: 'Salões', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações', autoridade: 'empresa' },
     // Importar documentos (tabela de preços, modelo de contrato, contrato de festa; pedido de Felipe, 23/10/2026): no menu
