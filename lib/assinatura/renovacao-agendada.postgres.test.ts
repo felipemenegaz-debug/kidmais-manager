@@ -382,3 +382,28 @@ test('10. P3-T1: a conferência da trava usa a chave exata — perder a trava gl
         await sessao.end();
     }
 });
+
+test('11. D-P5-3: aplicar agendado não regrava registro já CANCELADA nem já REGULAR (atualizado_em e evidências intactos)', { skip: !opt() }, async () => {
+    const linha = async (empresaId: string) => (await q(`SELECT estado, ultimo_erro, atualizado_em::text AS atualizado, aviso_tentado_em::text AS tentado,
+        aviso_enviado_em::text AS enviado, aviso_id_externo AS envio, preco_aplicado_em::text AS preco FROM assinatura_renovacoes WHERE empresa_id = $1`, [empresaId])).rows[0];
+    // Já REGULAR (A, do caso 2): nova execução aplicar não escreve, não envia e não faz PUT.
+    const pdrA = (await registro(A)).pdr as string;
+    const antesA = await linha(A); const { envios, puts } = lerEstado();
+    assert.equal(antesA.estado, 'REGULAR');
+    const rA = await relatorio(rodar('aplicar', { empresas: [A], agora: meioDia(pdrA, 1) }));
+    assert.deepEqual([rA.resultados.REGULAR, rA.codigo], [1, 0]);
+    assert.deepEqual(await linha(A), antesA, 'REGULAR intacto, inclusive atualizado_em');
+    assert.deepEqual([lerEstado().envios.length, lerEstado().puts], [envios.length, puts]);
+    // Empresa desativada: a primeira execução muda PENDENTE → CANCELADA (escrita real); a seguinte não regrava.
+    const Z = await empresa('CONFIRMADA');
+    await relatorio(rodar('aplicar', { empresas: [Z] }));
+    assert.equal((await registro(Z)).estado, 'PENDENTE');
+    await q("UPDATE empresas SET status = 'DESATIVADA' WHERE id = $1", [Z]);
+    const r1 = await relatorio(rodar('aplicar', { empresas: [Z] }));
+    assert.deepEqual([r1.resultados.CANCELADA, r1.codigo], [1, 0]);
+    const cancelada = await linha(Z);
+    assert.deepEqual([cancelada.estado, cancelada.ultimo_erro], ['CANCELADA', null]);
+    const r2 = await relatorio(rodar('aplicar', { empresas: [Z] }));
+    assert.deepEqual([r2.resultados.CANCELADA, r2.codigo], [1, 0]);
+    assert.deepEqual(await linha(Z), cancelada, 'CANCELADA intacto, inclusive atualizado_em');
+});

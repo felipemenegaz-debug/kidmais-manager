@@ -102,7 +102,10 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         const marcar = async (a: AlteracaoRenovacao) => { if (!deps.simular && r) await repo.marcar(empresaId, r.id, a); };
         if (!vigente(c)) {
             if (r?.estado === 'REVISAO') return 'REVISAO_NECESSARIA';
-            await marcar({ estado: 'CANCELADA' }); return 'CANCELADA';
+            // B-9: no modo agendado (de hora em hora), registro já CANCELADA não é regravado. Seria o mesmo estado,
+            // com ultimo_erro já nulo, e só mudaria atualizado_em.
+            if (!(deps.modoAgendado && r?.estado === 'CANCELADA')) await marcar({ estado: 'CANCELADA' });
+            return 'CANCELADA';
         }
         if (r?.estado === 'CANCELADA') return 'CANCELADA';
         const hoje = diaBrasil(deps.agora());
@@ -202,6 +205,8 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         if (confirmacao!.deleted || confirmacao!.status !== 'ACTIVE') { await marcar({ estado: 'CANCELADA' }); return 'CANCELADA'; }
         if (confirmacao!.valorCentavos !== c.valorRegular || parcelas.some(x => !x.deleted && x.dueDate >= r!.primeiraDataRegular
             && (!identidadePagamento(c!,x) || x.valorCentavos !== c!.valorRegular))) return 'AGUARDANDO_CONFIRMACAO_PRECO';
-        await marcar({ estado: 'REGULAR', regular: true, erro: null }); return 'REGULAR';
+        // B-9: idem para registro já REGULAR. As evidências são imutáveis (075) e ultimo_erro já é nulo.
+        if (!(deps.modoAgendado && r.estado === 'REGULAR')) await marcar({ estado: 'REGULAR', regular: true, erro: null });
+        return 'REGULAR';
     });
 }
