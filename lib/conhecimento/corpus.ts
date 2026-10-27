@@ -82,7 +82,7 @@ export function segmentar(markdown: string): SecaoDocumento[] {
 
 /**
  * Monta o corpus a partir do manifesto e de um leitor de arquivo restrito ao diretório do corpus (a rota injeta um que
- * só lê `data/conhecimento/<arquivo>`). Hash conferido arquivo a arquivo; qualquer divergência falha fechado.
+ * só lê `conhecimento/<arquivo>`). Hash conferido arquivo a arquivo; qualquer divergência falha fechado.
  */
 export function montarCorpus(manifestoBruto: unknown, lerArquivo: (arquivo: string) => string | null): Corpus {
   const parsed = manifestoSchema.safeParse(manifestoBruto);

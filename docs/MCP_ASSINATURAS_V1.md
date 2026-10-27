@@ -121,7 +121,7 @@ segue a regra de leitura (COMPLETO e SOMENTE_LEITURA leem; BLOQUEADO não).
 
 ## 8. RAG textual
 
-`data/conhecimento/manifesto.json` lista cada documento com id, versão, vigência, situação, ACL explícita
+`conhecimento/manifesto.json` (fora de `data/`, que no Render é um disco persistente montado por cima do repositório) lista cada documento com id, versão, vigência, situação, ACL explícita
 (PLATAFORMA/EMPRESA/UNIDADE) e SHA-256; arquivo divergente invalida o corpus inteiro (busca indisponível, nunca vazia
 silenciosa). Fragmentos por seção `##`; normalização de acentos, stopwords e radical simples; BM25 com cobertura mínima de
 termos. ACL + situação + vigência filtram **antes** do ranking; referência opaca HMAC com empresa e validade (24 h); fetch

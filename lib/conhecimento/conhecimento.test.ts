@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buscar, criarReferencia, resolverReferencia, termos } from "./busca.ts";
-import { carregarCorpusAprovado } from "./carregar.ts";
+import { PASTA_CORPUS, carregarCorpusAprovado } from "./carregar.ts";
 import { CorpusInvalido, montarCorpus, segmentar, type Corpus } from "./corpus.ts";
 
 /** A7 (RAG textual): fontes por pergunta em português, ausência, vigência, revogação, ACL e conteúdo malicioso. */
@@ -166,9 +166,28 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
 });
 
 test("corpus versionado do repositório: íntegro e, enquanto PENDENTE_APROVACAO, invisível", () => {
-  const real = carregarCorpusAprovado(join(import.meta.dirname, "..", "..", "data", "conhecimento"));
+  const real = carregarCorpusAprovado(join(import.meta.dirname, "..", "..", "conhecimento"));
   assert.ok(real, "manifesto e hashes do repositório conferem");
   assert.ok(real.documentos.length >= 3);
   assert.ok(real.documentos.every((d) => d.situacao === "PENDENTE_APROVACAO"), "nenhum documento aprovado por quem implementou");
   assert.deepEqual(buscar(real, leitorA, HOJE, "como desconectar o assistente", 5), []);
+});
+
+test("corpus fora de data/ e de qualquer disco do Render (staging e produção montam disco em src/data)", () => {
+  const raiz = join(import.meta.dirname, "..", "..");
+  // O Render monta o disco em /opt/render/project/src/<mountPath relativo>; tudo sob ele some no deploy.
+  const montagens = [...readFileSync(join(raiz, "render.yaml"), "utf8").matchAll(/mountPath:\s*\/opt\/render\/project\/src\/(\S+)/g)].map((m) => m[1].replace(/\/+$/, ""));
+  assert.ok(montagens.includes("data"), "controle positivo: o render.yaml declara o disco em src/data");
+  for (const m of [...montagens, "data"]) {
+    assert.ok(PASTA_CORPUS !== m && !PASTA_CORPUS.startsWith(m + "/"), `corpus (${PASTA_CORPUS}) não pode ficar sob ${m}/`);
+  }
+  assert.equal(existsSync(join(raiz, "data", "conhecimento")), false, "nenhuma cópia antiga em data/conhecimento");
+  // O caminho PADRÃO do carregador (cwd = raiz do projeto, como em npm start) encontra o corpus versionado.
+  const cwd = process.cwd();
+  try {
+    process.chdir(raiz);
+    assert.ok(carregarCorpusAprovado(), "carregador acha o corpus pelo caminho padrão");
+  } finally {
+    process.chdir(cwd);
+  }
 });
