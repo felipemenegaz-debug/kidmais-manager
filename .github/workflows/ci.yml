@@ -138,3 +138,11 @@ jobs:
 
       - name: Blocos de Shell da 102/103 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-102-103.test.cjs
+
+      # Aplicador da 105 (canal MCP, staging): cliente simulado, sem banco nem rede.
+      - name: Aplicador da 105 (staging) — cliente simulado
+        run: node --test scripts/migration-105.test.cjs
+
+      # Blocos de Shell da 105: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
+      - name: Blocos de Shell da 105 (staging)
+        run: node --test scripts/bloco-shell-105.test.cjs
