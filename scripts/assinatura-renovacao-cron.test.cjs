@@ -98,7 +98,7 @@ test('T1: TLS interno da renovação só para a lista fechada (web de staging); 
         KIDMAIS_RECONCILIAR_ALVO: 'kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432' };
     const alvo = validarAlvo(env);
     // Listas fechadas e disjuntas.
-    assert.deepEqual([...SERVICOS_TLS_RENOVACAO], [WEB], 'cron da renovação só entra depois de criado (CRON_RENOVACAO_STAGING = null)');
+    assert.deepEqual([...SERVICOS_TLS_RENOVACAO], [WEB, 'crn-dbg512hsrm7s73chk57g'], 'web de staging e o cron da renovação de staging, nada mais');
     assert.deepEqual([...SERVICOS_TLS_RECONCILIACAO], [CRON_RECONCILIACAO]);
     assert.ok(Object.isFrozen(SERVICOS_TLS_RENOVACAO) && Object.isFrozen(SERVICOS_TLS_RECONCILIACAO));
     // Renovação: web aceito, com a mesma política (sem verificação de certificado, TLS 1.2+).
@@ -115,6 +115,9 @@ test('T1: TLS interno da renovação só para a lista fechada (web de staging); 
     }
     assert.throws(() => conexaoDaRenovacao({ ...alvo, connectionString: 'postgresql://fixture@example.test/outro' }, env), /TLS_REDE_PRIVADA_RECUSADA/);
     assert.throws(() => conexaoDaRenovacao(alvo, { ...env, KIDMAIS_RECONCILIAR_TLS: 'no-verify' }), /TLS_POLITICA_RECUSADA/);
+    // O cron da renovação de staging é aceito pela renovação e recusado pela reconciliação.
+    assert.deepEqual(conexaoDaRenovacao(alvo, { ...env, RENDER_SERVICE_ID: 'crn-dbg512hsrm7s73chk57g' }).ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
+    assert.throws(() => opcoesConexao(alvo, { ...env, RENDER_SERVICE_ID: 'crn-dbg512hsrm7s73chk57g' }), /TLS_REDE_PRIVADA_RECUSADA/);
     // Reconciliação: inalterada — o web continua recusado; o cron dela continua aceito.
     assert.throws(() => opcoesConexao(alvo, env), /TLS_REDE_PRIVADA_RECUSADA/);
     assert.deepEqual(opcoesConexao(alvo, { ...env, RENDER_SERVICE_ID: CRON_RECONCILIACAO }).ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
@@ -152,6 +155,12 @@ test('T2: com o opt-in e todas as condições, aceita e DECLARA a credencial do 
     assert.equal(planejar(propria).alvo.credencialDoServico, false);
     assert.equal(planejar({ ...aplicar, DATABASE_URL: undefined }).alvo.credencialDoServico, false);
     assert.equal(planejar(stg).alvo.credencialDoServico, false);
+});
+
+test('T2: o cron da renovação não usa a credencial do serviço (lista da T2 só com o web)', () => {
+    const { CREDENCIAL_DO_SERVICO } = require('./assinatura-renovacao-cron.cjs');
+    assert.deepEqual([...CREDENCIAL_DO_SERVICO.servicos], [WEB_T2]);
+    assert.throws(() => planejar({ ...t2, RENDER_SERVICE_ID: 'crn-dbg512hsrm7s73chk57g' }), /CREDENCIAL_DO_SERVICO_RECUSADA/);
 });
 
 test('T2: opt-in fora das condições é recusado antes de qualquer outra validação do alvo', () => {
