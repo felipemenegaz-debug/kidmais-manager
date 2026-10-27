@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
-  ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id, importacao,
+  ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id, importacao,
   integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
 } from "../../scripts/integracao-importados-test-support.ts";
 
@@ -115,6 +115,19 @@ async function contratada(c: Cenario, nativo: Awaited<ReturnType<typeof catalogo
   return { festa, contrato: r.contratoId, abrir };
 }
 
+/**
+ * Turno em que a importação gravou a festa. Com a empresa sem turno próprio, a importação escolhe entre os modelos
+ * GLOBAIS que contêm 10:00 por ordem_exibicao e id (repositorio.configuracaoAgenda); todo `cenario` cria um global
+ * idêntico (ordem 99), então, com cenários de outras suítes/casos já comitados, o escolhido pode ser o de outro cenário,
+ * sem elegibilidade deste pacote (ELEGIBILIDADE_NAO_CONFIGURADA intermitente na remarcação). O produto está certo (os
+ * globais reais, TURNO_1/TURNO_2, não empatam); o teste grava no turno escolhido o mesmo catálogo do turno do cenário.
+ */
+async function turnoDaFesta(c: Cenario, nativo: Awaited<ReturnType<typeof catalogoNativo>>, festa: string) {
+  const turno = (await a.query<{ c: string }>(`SELECT configuracao_agenda_id::text c FROM fechamentos WHERE id = $1`, [festa])).rows[0].c;
+  if (turno !== nativo.turno) await catalogoNoTurno(a, c, turno);
+  return turno;
+}
+
 /** Executa o cenário numa transação com os serviços nativos apontados para ela e COMMIT real no fim. */
 async function comCommit<T>(corpo: () => Promise<T>) {
   await a.query("BEGIN");
@@ -199,7 +212,7 @@ test("P2-2 deduplicação origem × hold: A conta uma vez — capacidade 2 aceit
     const c = await cenario(a, 0);
     const nativo = await catalogoNativo(a, c);
     const A = await contratada(c, nativo, dataA);
-    const cfgA = (await a.query<{ c: string }>(`SELECT configuracao_agenda_id::text c FROM fechamentos WHERE id = $1`, [A.festa])).rows[0].c;
+    const cfgA = await turnoDaFesta(c, nativo, A.festa);
     await ajuste(c, cfgA);
     // Preparação aberta (o serviço adquire o hold no mesmo horário) e editada sem mudar o destino: origem e hold sobrepostos.
     const ra = await A.abrir("Correção de tema");
@@ -240,7 +253,7 @@ test("P2-2 deduplicação origem × hold: A conta uma vez — capacidade 2 aceit
       const c = await cenario(a, 0);
       const nativo = await catalogoNativo(a, c);
       const A = await contratada(c, nativo, D6);
-      const cfgA = (await a.query<{ c: string }>(`SELECT configuracao_agenda_id::text c FROM fechamentos WHERE id = $1`, [A.festa])).rows[0].c;
+      const cfgA = await turnoDaFesta(c, nativo, A.festa);
       // A remarcação para outra data vem ANTES da configuração por empresa (o horário do cenário é o global, que a agenda
       // configurada deixaria de oferecer para um destino novo); depois, um salão com capacidade 2 no horário.
       const ra = await A.abrir("Remarcação para outro dia");
