@@ -3,8 +3,8 @@ import type { DbExecutor } from "../db/contracts.ts";
 /**
  * O que os pacotes ligados a um salão oferecem (R2-8 do plano S-A/S-A2, 25/10/2026). Antes de o cliente escolher o
  * pacote, só o que está em TODOS os pacotes do salão pode ser dito como garantido; o resto "varia conforme o pacote".
- *   * pacotes elegíveis: da empresa, ativos, vigentes, não arquivados e ligados ao salão (pacote_saloes). Pacote sem
- *     vínculo não entra (a regra da agenda por salão está no serviço, não é garantia contra SQL direto);
+ *   * pacotes elegíveis (S-D, R-D2: o MESMO universo da contratação, `pacotesElegiveisDoSalao`): da empresa, ativos,
+ *     vigentes, não arquivados e ligados ao salão (pacote_saloes) OU sem nenhum vínculo (regra da 093: serve a todos);
  *   * GARANTIDOS: itens fixos do pacote (pacote_itens_especificos, item ativo) e adicionais INCLUSO ativos — inclusive
  *     os da categoria SERVICOS (103). Identidade tipada (tipo + id), nunca nome; contagem por pacote distinto;
  *   * OPÇÕES de cardápio: categorias ativas com o conjunto efetivo (TODOS_ATIVOS = itens ativos da categoria;
@@ -14,10 +14,23 @@ import type { DbExecutor } from "../db/contracts.ts";
 export type ItemGarantido = { chave: string; tipo: "BUFFET_ITEM" | "ADICIONAL"; nome: string; categoria: string | null; pacotes: number };
 export type OpcaoCardapio = { pacoteId: string; pacote: string; categoria: string; escolhasMin: number; escolhasMax: number; itens: string[] };
 
+/**
+ * S-D (R-D2): SQL dos pacotes elegíveis do salão ($1 empresa, $2 salão) — usado pelo texto público ("em todos os pacotes
+ * deste salão"), pelo filtro do assistente e pela conferência do envio. Salão de outra empresa: nenhum vínculo vale.
+ */
+export const SQL_PACOTES_ELEGIVEIS_DO_SALAO = `SELECT p.id FROM pacotes p
+                     WHERE p.empresa_id = $1::uuid AND p.ativo AND p.vigente AND p.arquivado_em IS NULL
+                       AND EXISTS (SELECT 1 FROM agenda_saloes s WHERE s.id = $2::uuid AND s.empresa_id = p.empresa_id)
+                       AND (EXISTS (SELECT 1 FROM pacote_saloes ps WHERE ps.pacote_id = p.id AND ps.salao_id = $2::uuid)
+                            OR NOT EXISTS (SELECT 1 FROM pacote_saloes ps WHERE ps.pacote_id = p.id))`;
+
+/** S-D (R-D2): ids dos pacotes elegíveis do salão. */
+export async function pacotesElegiveisDoSalao(db: DbExecutor, empresaId: string, salaoId: string): Promise<string[]> {
+  return (await db.query<{ id: string }>(`SELECT id::text AS id FROM (${SQL_PACOTES_ELEGIVEIS_DO_SALAO}) e ORDER BY id`, [empresaId, salaoId])).rows.map((r) => r.id);
+}
+
 export async function itensDosPacotesDoSalao(db: DbExecutor, empresaId: string, salaoId: string) {
-  const elegiveis = `SELECT p.id FROM pacotes p JOIN pacote_saloes ps ON ps.pacote_id = p.id
-                      JOIN agenda_saloes s ON s.id = ps.salao_id AND s.empresa_id = p.empresa_id
-                     WHERE p.empresa_id = $1::uuid AND ps.salao_id = $2::uuid AND p.ativo AND p.vigente AND p.arquivado_em IS NULL`;
+  const elegiveis = SQL_PACOTES_ELEGIVEIS_DO_SALAO;
   const total = Number((await db.query<{ n: number }>(`SELECT count(DISTINCT id)::int AS n FROM (${elegiveis}) e`, [empresaId, salaoId])).rows[0]?.n ?? 0);
   if (total === 0) return { pacotes: 0, garantidos: [] as ItemGarantido[], emTodos: [] as ItemGarantido[], opcoes: [] as OpcaoCardapio[] };
   const garantidos = (await db.query<{ chave: string; tipo: "BUFFET_ITEM" | "ADICIONAL"; nome: string; categoria: string | null; pacotes: number }>(

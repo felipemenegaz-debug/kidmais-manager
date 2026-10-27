@@ -21,7 +21,7 @@ export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): str
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
  * `disponibilidade`: só em /b/<código> — dias e períodos configurados pela empresa para o pacote.
  */
-export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean };
+export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
 export type FatosPacote = Record<string, FatoPacote>;
 
 /** Cartão da etapa “Escolha o pacote”. `disponibilidade`/`destaque` nulos = não exibidos. */

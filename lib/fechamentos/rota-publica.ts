@@ -8,6 +8,6 @@ export function apiPublica(caminho: string, empresa?: string | null) {
   return `${caminho}${caminho.includes("?") ? "&" : "?"}empresa=${encodeURIComponent(empresa)}`;
 }
 
-export function paginaPublica(caminho: "/fechamento" | "/disponibilidade", empresa?: string | null) {
+export function paginaPublica(caminho: "/fechamento" | "/disponibilidade" | "/saloes", empresa?: string | null) {
   return empresa ? `/b/${encodeURIComponent(empresa)}${caminho}` : caminho;
 }

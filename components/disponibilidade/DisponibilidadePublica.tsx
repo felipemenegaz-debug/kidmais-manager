@@ -191,7 +191,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
     setHorarioSelecionado(null);
   }
 
-  function continuar() {
+  async function continuar() {
     if (!dataSelecionada || !periodoSelecionado || !horarioSelecionado) return;
 
     const params = new URLSearchParams({
@@ -208,6 +208,18 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
     const legado = horarioLegadoDoCodigo(periodoSelecionado.codigo);
     if (legado) params.set("periodo", legado);
 
+    // S-D: com a etapa publicada (flag, agenda por salão, 2 ou mais salões prontos), o cliente conhece os salões antes
+    // do pacote; sem ela (404 igual) ou em falha, segue direto para o fechamento, como depois da S-C.
+    if (empresa && convidados) {
+      const consulta = new URLSearchParams({ data: dataSelecionada, configuracaoId: periodoSelecionado.configuracaoId,
+        inicio: horarioSelecionado.inicio, fim: horarioSelecionado.fim, convidados: String(convidados) });
+      const temSaloes = await fetch(apiPublica(`/api/publico/saloes?${consulta}`, empresa), { cache: "no-store" })
+        .then((r) => r.ok).catch(() => false);
+      if (temSaloes) {
+        router.push(`${paginaPublica("/saloes", empresa)}?${params.toString()}`);
+        return;
+      }
+    }
     router.push(`${paginaPublica("/fechamento", empresa)}?${params.toString()}`);
   }
 
@@ -458,7 +470,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                   type="button"
                   className={styles.continueButton}
                   disabled={!horarioSelecionado}
-                  onClick={continuar}
+                  onClick={() => { void continuar(); }}
                 >
                   Continuar para escolher o pacote →
                 </button>

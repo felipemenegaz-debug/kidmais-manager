@@ -382,6 +382,14 @@ export async function saloesCombinadosInstalados(customDb?: DbExecutor) {
   return r.rows[0]?.ok === true;
 }
 
+/** 102 instalada: agenda_saloes.convidados_minimo existe. */
+async function minimoDoSalaoInstalado(ex: DbExecutor) {
+  const r = await ex.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.agenda_saloes') AND attname = 'convidados_minimo' AND NOT attisdropped) AS ok`,
+  );
+  return r.rows[0]?.ok === true;
+}
+
 /** 094: regra do escopo configurado na 093; null quando o escopo não foi configurado (regra de antes). */
 export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda): Promise<RegraCapacidadeAgenda | null> {
   const ex = executor(customDb);
@@ -404,11 +412,13 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
   // 098: todos os salões do escopo (inclusive inativos, para o conjunto das ocupações) com tipo e membros; candidatos
   // só os elegíveis (mesma regra de kidmais098_salao_elegivel). Sem a 098, os salões ativos, cada um por ele mesmo.
   const v098 = await saloesCombinadosInstalados(ex);
-  const saloes = await ex.query<SalaoDoEscopo & { ordem: number; nome: string; capacidade_convidados: number | null }>(
+  // S-D (R3-E5): com a 102, o mínimo de convidados do salão entra em "comporta" (mínimo ≤ N ≤ capacidade).
+  const minimo = (await minimoDoSalaoInstalado(ex)) ? "convidados_minimo" : "NULL::smallint AS convidados_minimo";
+  const saloes = await ex.query<SalaoDoEscopo & { ordem: number; nome: string; capacidade_convidados: number | null; convidados_minimo: number | null }>(
     v098
-      ? `SELECT id::text AS id, ativo, combinado, membros::text[] AS membros, ordem, nome, capacidade_convidados FROM agenda_saloes
+      ? `SELECT id::text AS id, ativo, combinado, membros::text[] AS membros, ordem, nome, capacidade_convidados, ${minimo} FROM agenda_saloes
           WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`
-      : `SELECT id::text AS id, ativo, false AS combinado, NULL::text[] AS membros, ordem, nome, capacidade_convidados FROM agenda_saloes
+      : `SELECT id::text AS id, ativo, false AS combinado, NULL::text[] AS membros, ordem, nome, capacidade_convidados, ${minimo} FROM agenda_saloes
           WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`,
     [escopo.empresaId, escopo.estabelecimentoId ?? null],
   );
@@ -432,6 +442,7 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
     saloesDoEscopo: saloes.rows.filter((s) => salaoElegivel(s, saloes.rows)).map((s) => s.id),
     // S-C: quantos convidados cada salão comporta (093); null = sem limite informado (comporta qualquer número).
     capacidadePorSalao: Object.fromEntries(saloes.rows.map((s) => [s.id, s.capacidade_convidados == null ? null : Number(s.capacidade_convidados)])),
+    minimoPorSalao: Object.fromEntries(saloes.rows.map((s) => [s.id, s.convidados_minimo == null ? null : Number(s.convidados_minimo)])),
     ...(v098 ? { conjuntos: conjuntosDosSaloes(saloes.rows) } : {}),
   };
 }

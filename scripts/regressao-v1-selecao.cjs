@@ -284,6 +284,9 @@ const ESTADO_POSTGRES = {
   "lib/agenda/hash-revisao-104.postgres.test.ts": { descartavel: "103" },
   // 27/10/2026 (S-E parte 2): salão fixado na emissão e exigido na assinatura (contratos nativos); sem e com a 104.
   "lib/agenda/salao-contrato-se.postgres.test.ts": { descartavel: "103", tambem: ["104"] },
+  // 27/10/2026 (S-D, salão de preferência): 106 (aplicação, rollback condicionado, mutante STABLE), gatilhos e N2 nas duas
+  // ordens, leitura pública e fotos, POST real com 409 e concorrência na trava da data, emissão com a preferência.
+  "lib/agenda/saloes-publicos-sd.postgres.test.ts": { descartavel: "104" },
   "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.

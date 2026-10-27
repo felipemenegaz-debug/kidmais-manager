@@ -94,7 +94,40 @@ async function saloesQueServem(tx: DbExecutor, alvo: Omit<Alvo, 'preferido'>, so
 export type SalaoDaEmissao =
   | { porSalao: false }
   | { porSalao: true; salao: { id: string; nome: string } }
-  | { porSalao: true; salao: null; motivo: 'ESCOLHIDO_NAO_SERVE' | 'SEM_SALAO_QUE_SERVE' };
+  | { porSalao: true; salao: null; motivo: 'ESCOLHIDO_NAO_SERVE' | 'PREFERIDO_NAO_SERVE' | 'SEM_SALAO_QUE_SERVE' };
+
+/** 106 instalada: fechamentos.salao_preferido_id existe (preferência do cliente, fase S-D). */
+export async function preferidoInstalado(tx: DbExecutor) {
+  const r = await tx.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.fechamentos') AND attname = 'salao_preferido_id' AND NOT attisdropped) AS ok`,
+  );
+  return r.rows[0]?.ok === true;
+}
+
+/** Uuid nulo: destino de uma festa que ainda não existe (criação), para a função de conflito da 094. */
+const SEM_FESTA = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * S-D (R-D1/R3-D4): o salão `salaoId` SERVE ao destino — elegível no escopo, permitido pelo horário e pelo pacote,
+ * comporta (mínimo ≤ N ≤ capacidade) e está LIVRE no intervalo — pela MESMA regra estrita da emissão (saloesQueServem).
+ * Sem a 094 ou fora de POR_SALAO: false. Chamar com a trava da data adquirida. Nunca devolve outro salão.
+ */
+export async function salaoServeNoDestino(
+  tx: DbExecutor,
+  destino: { fechamentoId?: string | null; data: string; inicio: string; fim: string; configuracaoId: string; pacoteId: string;
+    empresaId: string; estabelecimentoId: string | null; convidados: number | null },
+  salaoId: string,
+) {
+  if (!(await instalada(tx))) return false;
+  const porSalao = (await tx.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = $1::uuid AND c.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+                       AND c.capacidade_tipo = 'POR_SALAO') AS ok`,
+    [destino.empresaId, destino.estabelecimentoId],
+  )).rows[0]?.ok === true;
+  if (!porSalao) return false;
+  const servem = await saloesQueServem(tx, { ...destino, fechamentoId: destino.fechamentoId ?? SEM_FESTA }, salaoId);
+  return servem.some((s) => s.id === salaoId);
+}
 
 /**
  * S-E (R-E1/R-E2/R3-E5): salão a fixar no documento na EMISSÃO de uma versão. SÓ LEITURA: não grava fechamentos.salao_id
@@ -104,7 +137,8 @@ export type SalaoDaEmissao =
  * documentoAtual: o salão do documento em elaboração; se ainda serve, fica (o documento não troca de salão sozinho).
  * proposta: destino da revisão inicial (antes da 1ª assinatura); o salão gravado da festa só conta como escolha da
  * equipe se a proposta mantém data, horário e configuração (a edição de qualquer um deles zera o salão, edicao.repository).
- * (A preferência do cliente entra pela S-D, entre a equipe e o automático.)
+ * S-D: a preferência do cliente (fechamentos.salao_preferido_id, 106) vem logo depois da equipe e antes do documento
+ * atual e do automático; se não serve, recusa com PREFERIDO_NAO_SERVE (nunca vira outro salão).
  */
 export type DestinoProposto = { data: string; inicio: string; fim: string; configuracaoId: string; pacoteId: string; convidados: number | null };
 
@@ -123,6 +157,10 @@ export async function escolherSalaoParaEmissao(
     [fechamentoId],
   )).rows[0];
   if (!f || !f.por_salao) return { porSalao: false };
+  // S-D (D5.6/R3-E5): a preferência do cliente (106) é uma escolha EXPLÍCITA, logo depois da equipe.
+  const preferido = (await preferidoInstalado(tx))
+    ? (await tx.query<{ p: string | null }>(`SELECT salao_preferido_id::text AS p FROM fechamentos WHERE id = $1::uuid`, [fechamentoId])).rows[0]?.p ?? null
+    : null;
   const mesmoDestino = !proposta || (proposta.data === f.data && proposta.inicio.slice(0, 5) === f.inicio.slice(0, 5)
     && proposta.fim.slice(0, 5) === f.fim.slice(0, 5) && proposta.configuracaoId === f.cfg);
   const equipe = mesmoDestino ? f.salao_id : null;
@@ -132,6 +170,12 @@ export async function escolherSalaoParaEmissao(
       empresaId: f.empresa, estabelecimentoId: f.unidade, convidados: f.convidados };
   const servem = await saloesQueServem(tx, alvo, equipe);
   if (equipe) return servem[0] ? { porSalao: true, salao: servem[0] } : { porSalao: true, salao: null, motivo: 'ESCOLHIDO_NAO_SERVE' };
+  // Preferência do cliente para o MESMO destino da criação: serve ou a emissão é recusada (nunca troca em silêncio; a
+  // equipe escolhe outro salão de forma explícita e o cliente vê esse salão no contrato antes de assinar).
+  if (preferido && mesmoDestino) {
+    const dele = (await saloesQueServem(tx, alvo, preferido))[0];
+    return dele ? { porSalao: true, salao: dele } : { porSalao: true, salao: null, motivo: 'PREFERIDO_NAO_SERVE' };
+  }
   const atual = documentoAtual ? (await saloesQueServem(tx, alvo, documentoAtual))[0] : undefined;
   if (atual) return { porSalao: true, salao: atual };
   return servem[0] ? { porSalao: true, salao: servem[0] } : { porSalao: true, salao: null, motivo: 'SEM_SALAO_QUE_SERVE' };

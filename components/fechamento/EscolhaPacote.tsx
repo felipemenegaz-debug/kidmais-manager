@@ -10,7 +10,7 @@ import styles from "./FechamentoWizard.module.css";
  * S-C: com `convidados`, os que comportam vêm primeiro; os demais ficam atrás de "ver mesmo assim", esmaecidos e com o
  * motivo (o servidor recusa acima do máximo, como antes).
  */
-export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente, convidados = null, naoComporta }: {
+export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente, convidados = null, naoComporta, salao = null }: {
   itens: PacoteExibido[] | null;
   falha: boolean;
   selecionado: string;
@@ -18,6 +18,8 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
   onTentarNovamente: () => void;
   convidados?: number | null;
   naoComporta?: (id: string) => string | null;
+  /** S-D: nome do salão de preferência — o contador passa a dizer "não servem no salão". */
+  salao?: string | null;
 }) {
   const [verTodos, setVerTodos] = useState(false);
   if (!itens) {
@@ -83,7 +85,9 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
       </div>
       {naoComportam.length > 0 ? (
         <div className={styles.packageOthers}>
-          <span>{naoComportam.length === 1 ? "1 pacote não comporta" : `${naoComportam.length} pacotes não comportam`} {convidados} convidados.</span>
+          <span>{salao
+            ? `${naoComportam.length === 1 ? "1 pacote não serve" : `${naoComportam.length} pacotes não servem`} no ${salao} para ${convidados} convidados.`
+            : <>{naoComportam.length === 1 ? "1 pacote não comporta" : `${naoComportam.length} pacotes não comportam`} {convidados} convidados.</>}</span>
           {!mostrarDemais ? (
             <button type="button" className={styles.secondaryButton} onClick={() => setVerTodos(true)}>Ver mesmo assim</button>
           ) : null}

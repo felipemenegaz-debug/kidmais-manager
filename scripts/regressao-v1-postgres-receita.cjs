@@ -107,6 +107,8 @@ const MODELOS = {
   "104": { banco: "kidmais_v1_modelo_104", ate: "104", sem: ["098"] },
   // Canal MCP por assinatura (105, 27/10/2026, LOCAL; era 104): o estado da 104 (staging) com a 105 (persistência OAuth).
   "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: ["098"] },
+  // Salão de preferência (106, fase S-D, 27/10/2026): o estado do staging (104 e 105, sem a 098) com a 106.
+  "106": { banco: "kidmais_v1_modelo_106", ate: "106", sem: ["098"] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

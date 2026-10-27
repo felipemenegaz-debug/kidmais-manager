@@ -12,7 +12,8 @@ export type FechamentoServiceErrorCode =
   | "CADASTRO_INCOMPLETO"
   | "FLUXO_INTERNO_NAO_AUTORIZADO"
   | "EMPRESA_INCOMPATIVEL"
-  | "PACOTE_FORA_ESCOPO_V1";
+  | "PACOTE_FORA_ESCOPO_V1"
+  | "SALAO_INDISPONIVEL";
 
 export class FechamentoServiceError extends Error {
   constructor(
