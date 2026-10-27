@@ -40,7 +40,7 @@ function carregar(f: Record<string, unknown>, candidatos: Array<{ inicio: string
 }
 type Modulo = {
   horarioHistoricoPreservado: (v: Record<string, unknown>, d: Record<string, unknown>, oferecido?: boolean) => boolean;
-  revalidarAgendaRevisao: (tx: unknown, r: unknown, c: unknown, o?: { naoFalharPorConflito?: boolean; mudouDestino?: boolean }) => Promise<boolean>;
+  revalidarAgendaRevisao: (tx: unknown, r: unknown, c: unknown, o?: { naoFalharPorConflito?: boolean; mudouDestino?: boolean }) => Promise<{ livre: boolean }>;
 };
 
 const HISTORICO = { id: 'f', origemFechamento: 'IMPORTACAO_HISTORICA', dataEvento: '2026-11-20', horarioInicio: '14:00:00', horarioFim: '18:00:00', configuracaoAgendaId: 'turno', status: 'CONFIRMADO' };
@@ -60,7 +60,7 @@ test('horário histórico preservado: só contrato histórico, mesmo destino exa
 
 test('revisão sem mudança de destino: horário fora dos candidatos aceito quando o intervalo exato está livre; hold auditado como histórico preservado', async () => {
   const { m, tx, chamadas } = carregar(HISTORICO, TURNO, true);
-  assert.equal(await m.revalidarAgendaRevisao(tx, revisao(destino()), ctx), true);
+  assert.equal((await m.revalidarAgendaRevisao(tx, revisao(destino()), ctx)).livre, true);
   // Navegador de 22/10 (P2-N1): também o horário configurado da festa, para a regra da 094 (salão/capacidade).
   assert.deepEqual(chamadas.intervalo, [['2026-11-20', '14:00', '18:00', tx, 'f', 'turno']], 'confere o intervalo exato, excluída a própria reserva');
   assert.equal(chamadas.holds, 1);
@@ -74,7 +74,7 @@ test('mesmo destino histórico com conflito (outra reserva ou bloqueio no interv
   assert.equal(chamadas.holds, 0);
   // Pagamento com revisão aberta (naoFalharPorConflito): registra o conflito e não falha.
   const outro = carregar(HISTORICO, TURNO, false);
-  assert.equal(await outro.m.revalidarAgendaRevisao(outro.tx, revisao(destino()), ctx, { naoFalharPorConflito: true }), false);
+  assert.equal((await outro.m.revalidarAgendaRevisao(outro.tx, revisao(destino()), ctx, { naoFalharPorConflito: true })).livre, false);
   assert.ok(outro.chamadas.auditorias.some((a) => a.acao === 'REVISAO_DESTINO_EM_CONFLITO'));
 });
 
@@ -86,7 +86,7 @@ test('mudança de destino a partir do horário histórico segue as validações 
   }
   // Remarcação para um candidato oficial disponível: aceita pela regra nativa (sem a exceção).
   const { m, tx, chamadas } = carregar(HISTORICO, TURNO, true);
-  assert.equal(await m.revalidarAgendaRevisao(tx, revisao(destino({ dataEvento: '2026-11-27', horarioInicio: '10:00', horarioFim: '22:00' })), ctx, { mudouDestino: true }), true);
+  assert.equal((await m.revalidarAgendaRevisao(tx, revisao(destino({ dataEvento: '2026-11-27', horarioInicio: '10:00', horarioFim: '22:00' })), ctx, { mudouDestino: true })).livre, true);
   assert.equal(chamadas.intervalo.length, 0);
   assert.equal(chamadas.auditorias.find((a) => a.acao === 'RESERVA_REVISAO_MOVIDA')!.dadosDepois.resultado.horarioHistoricoPreservado, false);
   // Candidato oficial ocupado: recusado.
@@ -113,7 +113,7 @@ test('alteração comercial continua validando preço, elegibilidade e convidado
   const fonte = readFileSync('lib/fechamentos/services/revisao-operacional.service.ts', 'utf8');
   const editar = fonte.slice(fonte.indexOf('export async function editarPreparacao('), fonte.indexOf('export async function congelarPreparacao('));
   const iPreco = editar.indexOf('await calcularResumoComercial(');
-  assert.ok(iPreco > 0 && iPreco < editar.indexOf('await revalidarAgendaRevisao(tx, novo, c, { mudouDestino })'), 'preço/elegibilidade/capacidade do pacote antes da agenda');
+  assert.ok(iPreco > 0 && iPreco < editar.indexOf('await revalidarAgendaRevisao(tx, salvo, c, { mudouDestino })'), 'preço/elegibilidade/capacidade do pacote antes da agenda');
   assert.ok(editar.includes("recusar('Quantidade abaixo do mínimo do pacote.')"));
   assert.equal(fonte.split('horarioHistoricoPreservado(f, op, horarioOferecido)').length, 2, 'um único ponto de uso, na revalidação da agenda');
   assert.ok(editar.includes('const resumo = preservarHistorico ? null : await calcularResumoComercial'));
@@ -129,7 +129,7 @@ test('reserva nativa no horário que deixou de ser oferecido: manutenção exata
   assert.equal(m.horarioHistoricoPreservado(NATIVA, destino({ horarioFim: '19:00' }), false), false, 'não exato');
   // 1. Manutenção exata (abrir a preparação depois da mudança para o modo livre): aceita e a ocupação é conferida.
   const exata = carregar(NATIVA, LIVRE, true, 'livre');
-  assert.equal(await exata.m.revalidarAgendaRevisao(exata.tx, revisao(destino()), ctx), true);
+  assert.equal((await exata.m.revalidarAgendaRevisao(exata.tx, revisao(destino()), ctx)).livre, true);
   assert.deepEqual(exata.chamadas.intervalo, [['2026-11-20', '14:00', '18:00', exata.tx, 'f', 'turno']]);
   assert.equal(exata.chamadas.auditorias.find((a) => a.acao === 'RESERVA_REVISAO_ADQUIRIDA')!.dadosDepois.resultado.horarioHistoricoPreservado, true);
   // Com conflito na ocupação: recusada.
@@ -143,6 +143,6 @@ test('reserva nativa no horário que deixou de ser oferecido: manutenção exata
   }
   // 3. Remarcação para um candidato livre do horário livre: aceita pela regra nativa.
   const remarcada = carregar(NATIVA, LIVRE, true, 'livre');
-  assert.equal(await remarcada.m.revalidarAgendaRevisao(remarcada.tx, revisao(destino({ configuracaoAgendaId: 'livre', horarioInicio: '15:00', horarioFim: '19:00' })), ctx, { mudouDestino: true }), true);
+  assert.equal((await remarcada.m.revalidarAgendaRevisao(remarcada.tx, revisao(destino({ configuracaoAgendaId: 'livre', horarioInicio: '15:00', horarioFim: '19:00' })), ctx, { mudouDestino: true })).livre, true);
   assert.equal(remarcada.chamadas.intervalo.length, 0);
 });

@@ -11,7 +11,7 @@ import type { TemaContrato } from './tipos.ts';
  * contratação (objeto, valor, pagamento) nunca são citadas: a resposta explica onde a condição fica.
  */
 export const CLAUSULAS_FIXAS = [3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] as const;
-/** Tema → cláusulas do modelo vigente (V4). Mapa revisado contra o texto (ver contrato-modelo.test.ts). */
+/** Tema → cláusulas do modelo vigente (V5; S-E só muda a Cláusula 1, nunca citada). Mapa revisado contra o texto (ver contrato-modelo.test.ts). */
 export const CLAUSULAS_POR_TEMA: Record<TemaContrato, number[]> = {
   CANCELAMENTO: [9], REMARCACAO: [9], INADIMPLENCIA: [7], CONVIDADOS: [3, 4], CORTESIA: [4], HORARIOS: [8], DANOS: [15],
   BEBIDAS: [11], LIMPEZA: [14], BALOES: [17], LEMBRANCINHAS: [5], GERAL: [], PAGAMENTO: [], SINAL: [],

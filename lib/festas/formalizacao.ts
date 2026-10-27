@@ -2,14 +2,23 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { FestaError } from './domain.ts';
 import { escolherSalaoDoContrato } from '../agenda/salao-festa.ts';
+import { salaoExigidoOuRecusa } from '../contratos/services/salao-contrato.ts';
 
 export type ContextoFormalizacao = { requestId?: string | null; userAgent?: string | null };
 
 /** Uses the caller's transaction exclusively; never authenticates an administrative session. */
-export async function bloquearAgendaFormalizacao(tx: DbExecutor, contratoId: string) {
+/**
+ * S-E: `versaoId` = versão sob a qual a festa é formalizada; se ela (ou a base, numa revisão) fixa um salão (V3), ele é
+ * EXIGIDO (sem substituto) e a versão precisa bater com a festa; sem salão fixado, a escolha automática da 094 continua.
+ */
+export async function bloquearAgendaFormalizacao(tx: DbExecutor, contratoId: string, versaoId?: string) {
     await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contratoId]);
     // 094: com capacidade por salão, o sistema escolhe o salão livre antes da conferência (decisão de Felipe).
-    await escolherSalaoDoContrato(tx, contratoId);
+    // Rodada 2 (PG de 27/10): ao assinar uma REVISÃO, o salão exigido é o da base e a festa continua nele só até a
+    // aplicação; a capacidade dele não é reavaliada (a revisão é justamente o que leva a festa ao destino que comporta,
+    // e o destino é conferido pela conclusão da revisão). Continua exigido: a festa no salão da base, elegível e livre.
+    const exigido = versaoId ? await salaoExigidoOuRecusa(tx, versaoId) : undefined;
+    await escolherSalaoDoContrato(tx, contratoId, exigido?.salaoId, { capacidade: !exigido?.daBase });
     // Separate statement after the advisory lock: READ COMMITTED sees the last winner.
     await tx.query('SELECT public.kidmais019_validar_destino($1::uuid)', [contratoId]);
 }
@@ -29,7 +38,7 @@ export async function garantirFestaFormalizada(
     if (ativa) return { festaId: ativa.id, reutilizado: true };
     if (existentes.length) throw new FestaError('Festa invalidada: reconciliação explícita necessária.');
     if (modo === 'RETRY') throw new FestaError('Contrato anterior sem Festa. Reconciliação explícita necessária.');
-    await bloquearAgendaFormalizacao(tx, contratoId);
+    await bloquearAgendaFormalizacao(tx, contratoId, versaoId);
     const assinaturas = (await tx.query<{ id: string; parte: string }>(
         'SELECT id,parte FROM public.contrato_assinaturas WHERE contrato_versao_id=$1 ORDER BY parte', [versaoId],
     )).rows;

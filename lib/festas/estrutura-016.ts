@@ -49,3 +49,11 @@ export const assinaturaEstruturaFesta016 = "d723f81def59be627132230aa6de2e00b0b5
 // obtida do banco montado pela receita canônica (scripts/regressao-v1-postgres-receita.cjs, estado "atual").
 // O código atual exige a 056: sem ela o módulo Festa responde indisponível (fail closed).
 export const assinaturaEstruturaFestaAtual = "2cf91b8100e2254f0e559afc3f51c764523cb86d4c9d468c4f3be18795b407ff";
+// 016 + 056 + 104 (S-E, 27/10/2026): só muda o corpo de kidmais_hash_revisao_operacional (hash_versao 2 inclui o salão
+// do destino). Obtida do modelo "104" da mesma receita canônica.
+export const assinaturaEstruturaFestaCom104 = "afe845292eba9f7cb5c82fcb344d74842c660ef97adb4bdf02babf2fa7ae02b8";
+/**
+ * Plano S-E rev. 4.1 (R41-5): o módulo Festa aceita EXATAMENTE os dois estados conhecidos, antes e depois da 104, para o
+ * código poder ir antes da migration; qualquer outra estrutura (inclusive um corpo de função mutado) continua recusada.
+ */
+export const assinaturasEstruturaFestaAceitas: readonly string[] = Object.freeze([assinaturaEstruturaFestaAtual, assinaturaEstruturaFestaCom104]);

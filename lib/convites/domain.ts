@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { comandosFamilia } from './familias-domain.ts';
+import { rotuloSalao, salaoDoSnapshot, type ContratoSnapshot } from '../contratos/repositories/models.ts';
 
 export const temas = {
   celebrar: { nome: 'Dia de celebrar', fundo: '#fff3df', tinta: '#703b29', destaque: '#d66045', simbolo: '✦' },
@@ -100,9 +101,16 @@ export function validarCredito(c: Cotas, cliente: boolean) {
 export function disponiveis(c: Cotas, cliente: boolean) {
   return Math.max(0, Math.min(c.empresa - c.empresaUsado, c.festa - c.festaUsado, cliente ? c.cliente - c.clienteUsado : Infinity));
 }
+/** S-E (plano S-E/S-D rev. 4.1): "Salão <nome>" do salão fixado no contrato (V3), no limite de 120 do `local`; senão vazio. */
+function localDoSalao(snapshot: unknown) {
+  const s = snapshot as { schemaVersao?: unknown; evento?: { salao?: unknown } } | null;
+  if (s?.schemaVersao !== 3 || !s.evento) return '';
+  const nome = salaoDoSnapshot(s as ContratoSnapshot)?.nome;
+  return typeof nome === 'string' && nome.trim() ? rotuloSalao(nome, true).slice(0, 120).trimEnd() : '';
+}
 export function inicioConteudo(snapshot: unknown): Conteudo {
   const s = snapshot as { aniversariante?: { nome?: string; idadeNoEvento?: number }; evento?: { data?: string; horarioInicio?: string } };
   return { tema: 'celebrar', nome: s?.aniversariante?.nome ?? '', idade: s?.aniversariante?.idadeNoEvento == null ? '' : `${s.aniversariante.idadeNoEvento} anos`,
     data: s?.evento?.data?.slice(0, 10) ?? '', horario: s?.evento?.horarioInicio?.slice(0, 5) ?? '',
-    local: '', endereco: '', mensagem: 'Um dia especial fica ainda melhor com você. Venha comemorar com a gente!', arteId: null, confirmarPresenca: true };
+    local: localDoSalao(snapshot), endereco: '', mensagem: 'Um dia especial fica ainda melhor com você. Venha comemorar com a gente!', arteId: null, confirmarPresenca: true };
 }

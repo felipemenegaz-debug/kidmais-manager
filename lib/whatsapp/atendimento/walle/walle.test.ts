@@ -173,7 +173,7 @@ test('decoração: frase aprovada, pergunta o tema, registra e diz o que é adic
 test('contrato: cita a cláusula do modelo vigente com versão e hash', async () => {
   const { ultima } = await conversa(['Qual a multa se eu cancelar a festa?']);
   const t = texto(ultima);
-  assert.match(t, /Pelo modelo de contrato vigente \(versão 4\):\nCláusula 9: “No caso de desistência/);
+  assert.match(t, /Pelo modelo de contrato vigente \(versão 5\):\nCláusula 9: “No caso de desistência/);
   assert.match(t, /um contrato já assinado pode ter outra versão/);
   const fonte = ultima.saidas[0].fontes.find((f) => f.tipo === 'CONTRATO_MODELO');
   assert.ok(fonte && fonte.tipo === 'CONTRATO_MODELO' && fonte.clausula === 9 && /^[0-9a-f]{64}$/.test(fonte.sha256));
@@ -257,7 +257,7 @@ test('memória: correção registrada e vários pacotes citados não trocam o es
 
 test('modelo de contrato: mapa de temas confere com o texto da versão vigente', () => {
   const m = modeloVigente(null)!;
-  assert.equal(m.templateVersao, 4);
+  assert.equal(m.templateVersao, 5); // S-E: V5 (cláusulas citadas iguais às da V4)
   assert.match(m.clausulas.find((c) => c.numero === 9)!.texto, /desistência/);
   assert.match(m.clausulas.find((c) => c.numero === 4)!.texto, /não contarão como convidados/);
   assert.deepEqual(CLAUSULAS_POR_TEMA.SINAL, []);

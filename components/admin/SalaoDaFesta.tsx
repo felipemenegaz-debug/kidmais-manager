@@ -6,7 +6,13 @@ import { AdminPrimaryButton } from "./AdminPrimaryButton";
 import styles from "./workspace.module.css";
 
 type Opcao = { id: string; nome: string; livre: boolean; permitido: boolean };
-type Dados = { salaoAtual: { id: string; nome: string } | null; opcoes: Opcao[]; confirmada?: boolean };
+type Salao = { id: string; nome: string };
+type Dados = {
+  salaoAtual: Salao | null; opcoes: Opcao[]; confirmada?: boolean;
+  /** S-E: salão fixado pelo contrato assinado e troca em andamento na revisão aberta. */
+  contratoFixa?: Salao | null;
+  trocaEmAndamento?: { revisaoId: string; estado: string; salao: Salao | null } | null;
+};
 
 const URL_SALAO = "/api/admin/agenda/salao";
 
@@ -29,7 +35,7 @@ export function SalaoDaFesta({ fechamentoId }: { fechamentoId: string }) {
         if (!ativo) return;
         if (j?.ok) {
           setDados(j.data ?? null);
-          setEscolha(j.data?.salaoAtual?.id ?? "");
+          setEscolha(j.data?.trocaEmAndamento?.salao?.id ?? j.data?.salaoAtual?.id ?? "");
         } else setErro(j?.erro || "Não foi possível carregar o salão da festa.");
       })
       .catch(() => { if (ativo) setErro("Não foi possível carregar o salão da festa."); });
@@ -37,7 +43,13 @@ export function SalaoDaFesta({ fechamentoId }: { fechamentoId: string }) {
   }, [fechamentoId]);
 
   if (!dados) return erro ? <p className={styles.error} role="alert">{erro}</p> : null;
-  const atualId = dados.salaoAtual?.id ?? "";
+  // S-E (R-E3/R3-E1): com contrato assinado que fixa o salão, a troca é o destino da revisão aberta; o atual vale até a
+  // nova versão ser assinada. Sem revisão em elaboração, não há troca nesta tela.
+  const fixa = dados.contratoFixa ?? null;
+  const troca = dados.trocaEmAndamento ?? null;
+  const pelaRevisao = !!fixa;
+  const podeTrocar = !pelaRevisao || troca?.estado === "EM_ELABORACAO";
+  const atualId = (pelaRevisao ? troca?.salao?.id : dados.salaoAtual?.id) ?? "";
 
   async function trocar() {
     setBusy(true);
@@ -50,8 +62,8 @@ export function SalaoDaFesta({ fechamentoId }: { fechamentoId: string }) {
         body: JSON.stringify({ fechamentoId, salaoId: escolha }),
       })).json();
       if (!j?.ok) { setErro(j?.erro || "Não foi possível trocar o salão."); return; }
-      if (j.data) { setDados(j.data); setEscolha(j.data.salaoAtual?.id ?? ""); }
-      setAviso("Salão trocado.");
+      if (j.data) { setDados(j.data); setEscolha(j.data.trocaEmAndamento?.salao?.id ?? j.data.salaoAtual?.id ?? ""); }
+      setAviso(pelaRevisao ? "Salão da nova versão definido. Salve a revisão do contrato para atualizar o documento." : "Salão trocado.");
     } catch {
       setErro("Não foi possível confirmar a troca. Atualize a página antes de tentar de novo.");
     } finally {
@@ -63,7 +75,11 @@ export function SalaoDaFesta({ fechamentoId }: { fechamentoId: string }) {
     <section className={styles.card} aria-labelledby="salao-da-festa-titulo">
       <h2 id="salao-da-festa-titulo">Salão da festa</h2>
       <p className={styles.intro}>{dados.salaoAtual ? `Salão atual: ${dados.salaoAtual.nome}` : dados.confirmada ? AVISO_FESTA_SEM_SALAO : "Ainda sem salão. O sistema escolhe na confirmação."}</p>
-      {dados.opcoes.length > 0 && (
+      {fixa && <p className={styles.intro} data-salao-contrato>{`O contrato assinado fixa o salão ${fixa.nome}.`}{" "}
+        {troca?.salao && troca.salao.id !== fixa.id
+          ? `Troca para ${troca.salao.nome} em andamento: vale quando o cliente assinar a nova versão. Para desistir, cancele a revisão no contrato.`
+          : troca?.estado === "EM_ELABORACAO" ? "Escolha abaixo o salão da nova versão." : troca ? "A nova versão já foi assinada pelo buffet; para mudar o salão, cancele-a e crie outra." : "Para trocar, abra uma nova versão do contrato."}</p>}
+      {podeTrocar && dados.opcoes.length > 0 && (
         <>
           <label>
             Trocar para
@@ -71,12 +87,13 @@ export function SalaoDaFesta({ fechamentoId }: { fechamentoId: string }) {
               {!atualId && <option value="">Escolha um salão</option>}
               {dados.opcoes.map((o) => {
                 const atual = o.id === atualId;
-                const sufixo = !o.permitido ? " (não permitido)" : !o.livre && !atual ? " (ocupado)" : atual ? " (atual)" : "";
+                // Pela revisão, as opções são as do destino e "permitido" inclui comportar os convidados.
+                const sufixo = !o.permitido ? (pelaRevisao ? " (não serve no destino)" : " (não permitido)") :!o.livre && !atual ? " (ocupado)" : atual ? " (atual)" : "";
                 return <option key={o.id} value={o.id} disabled={!o.permitido || (!o.livre && !atual)}>{o.nome}{sufixo}</option>;
               })}
             </select>
           </label>
-          <AdminPrimaryButton carregando={busy} disabled={!escolha || escolha === atualId} onClick={() => void trocar()}>Trocar salão</AdminPrimaryButton>
+          <AdminPrimaryButton carregando={busy} disabled={!escolha || escolha === atualId} onClick={() => void trocar()}>{pelaRevisao ? "Usar na nova versão" : "Trocar salão"}</AdminPrimaryButton>
         </>
       )}
       {aviso && <p className={styles.notice} role="status">{aviso}</p>}

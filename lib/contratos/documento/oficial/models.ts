@@ -1,8 +1,9 @@
 import type { ContratoSnapshot } from "../../repositories/index.ts";
 
-export const CONTRATO_OFICIAL_TEMPLATE_ATUAL = 4 as const;
+/** S-E (plano S-E/S-D rev. 4.1): V5 = V4 + salão fixado (snapshot V3); sem salão, texto igual ao da V4. */
+export const CONTRATO_OFICIAL_TEMPLATE_ATUAL = 5 as const;
 
-export type ContratoOficialTemplateVersao = 1 | 2 | 3 | 4;
+export type ContratoOficialTemplateVersao = 1 | 2 | 3 | 4 | 5;
 
 export type ContratoOficialClausula = {
   numero: number;
@@ -11,7 +12,7 @@ export type ContratoOficialClausula = {
 };
 
 export type ContratoOficialRenderizado = {
-  /** Modelos oficiais Kidmais: 1 a 4. Modelo da empresa (072): a versão do modelo publicado. */
+  /** Modelos oficiais Kidmais: 1 a 5. Modelo da empresa (072): a versão do modelo publicado. */
   templateVersao: number;
   modeloCodigo: string;
   pacoteCodigo: string;

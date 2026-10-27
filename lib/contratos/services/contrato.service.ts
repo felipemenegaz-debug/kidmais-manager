@@ -12,6 +12,8 @@ import {
 import { camposFaltantesParaContrato } from "../../clientes/services";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
+import { escolherSalaoParaEmissao } from "../../agenda/salao-festa.ts";
+import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
 import {
   buscarFechamentoPorIdParaAtualizacao,
   listarAdicionaisDoFechamento,
@@ -28,6 +30,8 @@ import {
   substituirVersaoAtiva,
   type ContratoSnapshot,
   type ContratoSnapshotV1,
+  type ContratoSnapshotV3,
+  salaoDoSnapshot,
   type PacoteAplicadoContrato,
   type ReferenciasComerciaisContrato,
 } from "../repositories";
@@ -194,7 +198,12 @@ export async function carregarSnapshot(
   fechamento: FechamentoRecord,
   tx: DbExecutor,
   preparacao?: { id: string; adicionais: FechamentoAdicionalRecord[] },
-  opcoes: { exigirCadastroCompleto?: boolean } = {},
+  /**
+   * salao (S-E, R-E4): quem chama decide. undefined = documento sem salão (V1/V2, como antes); definido (inclusive null)
+   * = V3 com o salão e a configuração congelados. A leitura NUNCA escolhe salão: a emissão escolhe antes
+   * (escolherSalaoParaEmissao), a preparação usa o destino da revisão e as conferências usam o do snapshot gravado.
+   */
+  opcoes: { exigirCadastroCompleto?: boolean; salao?: { id: string; nome: string } | null } = {},
 ): Promise<{
   snapshot: ContratoSnapshot;
   cliente: ClienteRecord;
@@ -282,10 +291,35 @@ export async function carregarSnapshot(
     referencias,
     exigirCadastroCompleto,
   });
+  const snapshot = aplicada ? comFotografia(base, aplicada) : base;
+  if (opcoes.salao === undefined) return { cliente, snapshot };
   return {
     cliente,
-    snapshot: aplicada ? comFotografia(base, aplicada) : base,
+    snapshot: {
+      ...snapshot,
+      schemaVersao: 3,
+      evento: { ...base.evento, configuracaoAgendaId: fechamento.configuracaoAgendaId, salao: opcoes.salao ? { id: opcoes.salao.id, nome: opcoes.salao.nome } : null },
+    } as ContratoSnapshotV3,
   };
+}
+
+/**
+ * S-E (R-E2, emissão inicial): sob a trava da data (leitura coerente; nada é ocupado), o salão a fixar no V3. Fora de
+ * POR_SALAO, undefined (documento como antes). Sem salão que sirva, a emissão é recusada sem gravar nada.
+ */
+export async function salaoDaEmissao(tx: DbExecutor, fechamento: FechamentoRecord, documentoAtual: ContratoSnapshot | null = null) {
+  await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+  const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, documentoAtual ? salaoDoSnapshot(documentoAtual)?.id ?? null : null);
+  if (!escolha.porSalao) return undefined;
+  if (escolha.salao) return escolha.salao;
+  throw new ContratoServiceError(
+    "SALAO_INDISPONIVEL",
+    escolha.motivo === "ESCOLHIDO_NAO_SERVE"
+      ? "O salão escolhido para a festa não está mais disponível para esta data, horário e número de convidados. Escolha outro salão antes de gerar o contrato."
+      : "Nenhum salão livre comporta esta festa nesta data e horário.",
+    409,
+    { motivo: escolha.motivo },
+  );
 }
 
 export async function gerarContrato(
@@ -316,7 +350,8 @@ export async function gerarContrato(
       );
     }
 
-    const { snapshot, cliente } = await carregarSnapshot(fechamento, tx);
+    const salao = await salaoDaEmissao(tx, fechamento);
+    const { snapshot, cliente } = await carregarSnapshot(fechamento, tx, undefined, { salao });
     const snapshotHash = hashSnapshotContrato(snapshot);
 
     let contrato = await buscarContratoPorFechamentoId(

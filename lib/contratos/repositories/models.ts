@@ -159,7 +159,37 @@ export type ContratoSnapshotV2 = Omit<ContratoSnapshotV1, "schemaVersao"> & {
   pacoteAplicado: PacoteAplicadoContrato;
 };
 
-export type ContratoSnapshot = ContratoSnapshotV1 | ContratoSnapshotV2;
+/**
+ * S-E (plano S-E/S-D rev. 4.1, R-E1/R-E4/R4-E2): emitido só em agenda POR_SALAO. É o V1 com a fotografia do pacote quando
+ * existir (como no V2) e, no evento, o salão e o horário configurado CONGELADOS na emissão (cópia; rename posterior não
+ * muda o documento). `salao` nulo = nenhum salão fixado. V1/V2 continuam como estão.
+ */
+export type ContratoSnapshotV3 = Omit<ContratoSnapshotV1, "schemaVersao" | "evento"> & {
+  schemaVersao: 3;
+  pacoteAplicado?: PacoteAplicadoContrato;
+  evento: ContratoSnapshotV1["evento"] & {
+    configuracaoAgendaId: string;
+    salao: { id: string; nome: string } | null;
+  };
+};
+
+export type ContratoSnapshot = ContratoSnapshotV1 | ContratoSnapshotV2 | ContratoSnapshotV3;
+
+/** Salão fixado no documento: só V3 com salão; V1/V2 (e V3 sem salão) não fixam salão. */
+export function salaoDoSnapshot(snapshot: ContratoSnapshot): { id: string; nome: string } | null {
+  return snapshot.schemaVersao === 3 ? snapshot.evento.salao : null;
+}
+
+/** "salão Jardim" / "Salão Jardim"; nome cadastrado que já começa com "Salão" fica como está (sem "salão Salão"). */
+export function rotuloSalao(nome: string, inicioDeFrase = false) {
+  const n = nome.trim();
+  return /^sal[aã]o(\s|$)/i.test(n) ? n : `${inicioDeFrase ? "Salão" : "salão"} ${n}`;
+}
+
+/** Fotografia comercial do pacote (V2 sempre; V3 quando a emissão tinha fotografia). */
+export function pacoteAplicadoDoSnapshot(snapshot: ContratoSnapshot): PacoteAplicadoContrato | null {
+  return snapshot.schemaVersao === 2 ? snapshot.pacoteAplicado : snapshot.schemaVersao === 3 ? snapshot.pacoteAplicado ?? null : null;
+}
 
 export type ContratoVersaoRecord = {
   id: string;

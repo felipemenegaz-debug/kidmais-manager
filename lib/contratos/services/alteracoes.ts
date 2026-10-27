@@ -22,6 +22,12 @@ export function diferencasContratuais(antesBruto: ContratoSnapshot, depois: Cont
     const percorrer = (a: unknown, b: unknown, campo: string) => {
         if (JSON.stringify(a) === JSON.stringify(b))
             return;
+        // S-E (R-E4): V1/V2 não têm salão nem horário configurado no evento. Salão ausente = nulo (sem diff artificial);
+        // configuração ausente de um dos lados não é comparada. Entre dois V3, ambos são comparados.
+        if (campo === 'evento.salao' && a == null && b == null)
+            return;
+        if (campo === 'evento.configuracaoAgendaId' && (a === undefined || b === undefined))
+            return;
         if (((a && typeof a === 'object') || (b && typeof b === 'object')) && !Array.isArray(a) && !Array.isArray(b)) {
             const aa = (a && typeof a === 'object' ? a : {}) as Record<string, unknown>, bb = (b && typeof b === 'object' ? b : {}) as Record<string, unknown>;
             for (const chave of new Set([...Object.keys(aa), ...Object.keys(bb)])) {
@@ -47,6 +53,7 @@ export function analisarRevisao(antes: ContratoSnapshot, depois: ContratoSnapsho
         natureza: campos.some(d => d.natureza === 'MATERIAL') ? 'MATERIAL' : campos.length ? 'DOCUMENTAL' : 'SEM_ALTERACOES',
         exigeNovaAssinatura: true,
         impactoFinanceiro: campos.some(d => d.campo.startsWith('comercial.')),
-        alteraAgenda: campos.some(d => ['evento.data', 'evento.horarioInicio', 'evento.horarioFim'].includes(d.campo)),
+        // S-E: trocar o salão (identidade) ou o horário configurado também altera a agenda.
+        alteraAgenda: campos.some(d => ['evento.data', 'evento.horarioInicio', 'evento.horarioFim', 'evento.salao.id', 'evento.configuracaoAgendaId'].includes(d.campo)),
     };
 }

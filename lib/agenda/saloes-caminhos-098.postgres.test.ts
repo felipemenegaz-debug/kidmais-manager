@@ -203,12 +203,16 @@ test("caminhos com combinado: importação/formalização, rascunho sem hold, ho
     const leitura = await lerSalaoDaFesta(tx, c.empresa, F.festa);
     const opcaoAB = leitura?.opcoes.find((o) => o.id === AB);
     assert.deepEqual([opcaoAB?.combinado, opcaoAB?.membros], [true, ["Salão A", "Salão B"]]);
+    // S-E (27/10/2026, R-E3): a versão aplicada é V3 e fixa o salão inteiro; a troca direta passa a ser recusada (a troca
+    // é o destino de uma nova revisão), qualquer que seja o salão pedido. Nada muda na festa.
     await a.query("SAVEPOINT troca");
-    await recusa(trocarSalaoDaFesta(tx, ctx, F.festa, C), /não é permitido/);
+    await recusa(trocarSalaoDaFesta(tx, ctx, F.festa, C), /O contrato assinado fixa o salão Salão inteiro/);
     await a.query("ROLLBACK TO SAVEPOINT troca");
     await pacoteSo(c, AB, C);
-    await trocarSalaoDaFesta(tx, ctx, F.festa, C);
-    await trocarSalaoDaFesta(tx, ctx, F.festa, AB);
+    await a.query("SAVEPOINT troca");
+    await recusa(trocarSalaoDaFesta(tx, ctx, F.festa, C), /O contrato assinado fixa o salão Salão inteiro/);
+    await a.query("ROLLBACK TO SAVEPOINT troca");
+    assert.equal((await a.query(`SELECT salao_id::text s FROM fechamentos WHERE id = $1`, [F.festa])).rows[0].s, AB);
     // Contratos: não se apagam e não mudam de festa (SQL direto).
     await recusaSql(`DELETE FROM contratos WHERE id = $1::uuid`, [F.contrato], /contrato não é apagado/);
     const outraFesta = (await a.query<{ id: string }>(`SELECT id::text FROM fechamentos WHERE empresa_id = $1::uuid AND id <> $2::uuid LIMIT 1`, [c.empresa, F.festa])).rows[0]?.id ?? F.festa;

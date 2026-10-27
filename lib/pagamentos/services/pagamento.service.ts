@@ -1,4 +1,5 @@
 import { revisaoAbertaDoFechamento, bloquearDatasRevisao, revalidarAgendaRevisao } from '../../fechamentos/services/revisao-operacional.service';
+import { salaoExigidoDaFesta } from '../../contratos/services/salao-contrato';
 import { escolherSalao } from "../../agenda/salao-festa.ts";
 import type { DbExecutor } from "../../db/contracts";
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
@@ -533,7 +534,13 @@ async function tentarConfirmarReserva(
   if(revisaoAberta)await bloquearDatasRevisao(tx,revisaoAberta);
   await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
   // 094: com capacidade por salão, o sistema escolhe o salão livre antes da conferência (decisão de Felipe).
-  const escolhaSalao = await escolherSalao(tx, fechamento.id);
+  // S-E: se a versão vigente fixa o salão (V3), ele é exigido, sem substituto; versão que não bate com a festa ou salão
+  // indisponível = CONFLITO com o recebimento preservado (como qualquer conflito de agenda).
+  const vigente = (await tx.query<{ v: string | null }>("SELECT cf.versao_vigente_id::text AS v FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id = c.id WHERE c.fechamento_id = $1::uuid", [fechamento.id])).rows[0]?.v ?? null;
+  const salaoDoContrato = vigente ? await salaoExigidoDaFesta(tx, vigente) : { situacao: "SEM_SALAO_FIXADO" as const };
+  const escolhaSalao = salaoDoContrato.situacao === "VERSAO_DESATUALIZADA"
+    ? { exigido: true, salao: null }
+    : await escolherSalao(tx, fechamento.id, salaoDoContrato.situacao === "EXIGIDO" ? salaoDoContrato.salaoId : undefined);
   const conflitoSalao = escolhaSalao.exigido && !escolhaSalao.salao;
   const conflito = await verificarConflitoAgendaParaConfirmacao(
     {

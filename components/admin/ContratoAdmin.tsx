@@ -52,7 +52,8 @@ type Painel = {
     /** Contrato integrado de importação histórica (061): conferência em papel, original e correções. */
     origemHistorica?: OrigemHistorica | null;
     /** Leituras da tela simplificada: salão (093/094) e estado derivado da festa. */
-    tela?: { salao: string | null; salaoAlteracao: string | null; estadoFesta: string | null };
+    tela?: { salao: string | null; salaoAlteracao: string | null; estadoFesta: string | null; salaoContrato?: string | null;
+      estadoVersao?: { estado: 'atual' | 'desatualizada' | 'troca_em_andamento'; motivo?: 'salao' | 'data' } | null };
     revisoesOperacionais:Array<{id:string;contrato_versao_id:string;estado:string;hold_destino_adquirido_em:string|null;status_fechamento:string;ocupa_vigente:boolean;data_evento:string;data_vigente:string;horario_inicio:string;horario_fim:string;slot_alterado:boolean}>;
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
@@ -338,6 +339,8 @@ export default function ContratoAdmin() {
  {titulo.tema && <div><dt>Tema</dt><dd>{titulo.tema}</dd></div>}
  <div><dt>Data e horário</dt><dd>{dataPorExtenso(snap.evento.data)} · {faixaHorario(snap.evento.horarioInicio, snap.evento.horarioFim)}</dd></div>
  {data.tela?.salao && <div><dt>Salão</dt><dd>{data.tela.salao}</dd></div>}
+ {data.tela?.salaoContrato && data.tela.salaoContrato !== data.tela.salao && <div><dt>Salão no contrato</dt><dd>{data.tela.salaoContrato}</dd></div>}
+ {data.tela?.estadoVersao?.estado === 'desatualizada' && <div><dt>Atenção</dt><dd className={styles.alertaAgenda} data-estado-versao="desatualizada">{data.tela.estadoVersao.motivo === 'salao' ? `O contrato enviado diz ${data.tela.salaoContrato}; a festa está em ${data.tela.salao ?? 'outro salão'}. Gere uma nova versão.` : 'A data ou o horário da festa mudaram depois deste contrato. Gere uma nova versão.'}</dd></div>}
  <div><dt>Pacote</dt><dd>{snap.evento.pacote.nome} · {snap.evento.convidados} convidados</dd></div></dl>
  <h2>Contratante e pagamento</h2><dl className={styles.dados}>
  <div><dt>Contratante</dt><dd>{snap.contratante.nomeCompleto}{snap.contratante.email ? ` · ${snap.contratante.email}` : ''}</dd></div>

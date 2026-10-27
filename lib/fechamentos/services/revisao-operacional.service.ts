@@ -1,5 +1,5 @@
 import { preservarPrecoHistorico } from '../revisao-preco';
-import { escolherSalaoDestinoRevisao } from '../../agenda/salao-festa.ts';
+import { escolherSalaoDestinoRevisao, salaoDoDestinoRevisao } from '../../agenda/salao-festa.ts';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
@@ -52,10 +52,15 @@ export function horarioHistoricoPreservado(
         && vigente.horarioFim.slice(0, 5) === destino.horarioFim.slice(0, 5)
         && vigente.configuracaoAgendaId === destino.configuracaoAgendaId;
 }
+/**
+ * S-E (plano rev. 4.1, R41-2): devolve também a revisão RELIDA quando a escolha do salão do destino a alterou (hash,
+ * número e aprovações podem ter mudado, R41-1); sem escrita, a mesma. Quem segue para aprovação, snapshot ou conferência
+ * usa a devolvida, inclusive no retorno tolerante a conflito.
+ */
 export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, options: {
     naoFalharPorConflito?: boolean;
     mudouDestino?: boolean;
-} = {}) {
+} = {}): Promise<{ livre: boolean; revisao: RevisaoOperacional }> {
     const f = await bloquearDatasRevisao(tx, r), op = r.operacao;
     // Horário livre: os candidatos dependem da duração; a do destino é a do próprio intervalo (parecer do Astra, P2).
     const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id, undefined,
@@ -70,10 +75,11 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
     // salão ativo); o salão da festa só fica se servir no destino.
     const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id) : null;
     const livre = (candidatoOficial || historicoPreservado) && !(salaoDestino?.exigido && !salaoDestino.salao);
+    const revisao = salaoDestino?.gravou ? (await buscarRevisaoDaVersao(r.contrato_versao_id, tx))! : r;
     if (!livre) {
         if (options.naoFalharPorConflito) {
             await auditar(tx, r, c, 'REVISAO_DESTINO_EM_CONFLITO', null, { data: op.dataEvento, horarioInicio: op.horarioInicio, horarioFim: op.horarioFim, reservaVigente: f.status });
-            return false;
+            return { livre: false, revisao };
         }
         recusar('Destino da revisão indisponível. A reserva vigente e os recebimentos permanecem preservados.');
     }
@@ -81,7 +87,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
         await tx.query('UPDATE fechamento_revisoes SET hold_destino_adquirido_em=clock_timestamp() WHERE id=$1', [r.id]);
         await auditar(tx, r, c, options.mudouDestino ? 'RESERVA_REVISAO_MOVIDA' : 'RESERVA_REVISAO_ADQUIRIDA', { hold: r.hold_destino_adquirido_em }, { data: op.dataEvento, inicio: op.horarioInicio, fim: op.horarioFim, horarioHistoricoPreservado: historicoPreservado });
     }
-    return true;
+    return { livre: true, revisao };
 }
 export async function revisaoAbertaDoFechamento(fid: string, tx: DbExecutor, lock = false) { const row = (await tx.query<{
     contrato_versao_id: string;
@@ -90,11 +96,11 @@ export async function iniciarPreparacao(tx: DbExecutor, base: ContratoVersaoReco
     if (!c.usuarioId)
         recusar('A preparação exige usuário administrativo real.');
     await criarRevisaoOperacionalRegistro(tx, { id: randomUUID(), fechamentoId: base.snapshot.fechamento.id, contratoId: v.contratoId, versaoId: v.id, baseId: base.id, baseHash: base.snapshotHash, motivo, chave, usuarioId: c.usuarioId });
-    const r = (await buscarRevisaoDaVersao(v.id, tx))!;
+    let r = (await buscarRevisaoDaVersao(v.id, tx))!;
     // A formalização contratual também protege base/destino antes do pagamento.
     const f = (await buscarFechamentoPorId(r.fechamento_id, tx))!;
     if ((await tx.query<{ ocupa: boolean }>('SELECT public.kidmais019_ocupa($1::uuid) AS ocupa', [f.id])).rows[0].ocupa)
-        await revalidarAgendaRevisao(tx, r, c);
+        r = (await revalidarAgendaRevisao(tx, r, c)).revisao;
     await auditar(tx, r, c, 'REVISAO_OPERACIONAL_CRIADA', null, { ...r, chaveCriacao: chave });
     return r;
 }
@@ -111,7 +117,8 @@ export async function fontesPreparacao(vid: string, tx: DbExecutor = db()) {
     return { fechamento: r.operacao, cliente, aniversariante, adicionais, fonteHash: hashSnapshotContrato({ revisao: r.revisao, conteudo: r.conteudo_hash, cliente, aniversariante }), revisaoOperacional: r };
 }
 export async function snapshotPreparacao(tx: DbExecutor, r: RevisaoOperacional, v: ContratoVersaoRecord) {
-    const { snapshot } = await carregarSnapshot(r.operacao, tx, { id: r.id, adicionais: await listarItensRevisao(r.id, tx) });
+    // S-E: em POR_SALAO o documento da revisão sai V3 com o salão do destino (o que a aplicação vai gravar na festa).
+    const { snapshot } = await carregarSnapshot(r.operacao, tx, { id: r.id, adicionais: await listarItensRevisao(r.id, tx) }, { salao: await salaoDoDestinoRevisao(tx, r.id) });
     // Mudança financeira legítima não altera o conteúdo do documento em elaboração.
     snapshot.fechamento.status = v.snapshot.fechamento.status;
     return { ...snapshot, revisaoOperacional: { id: r.id, revisao: r.revisao, conteudoHash: r.conteudo_hash, versaoBaseId: r.versao_base_id }, documental: (v.snapshot as typeof snapshot & {
@@ -227,8 +234,9 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     const itens = resumo ? resumo.adicionais.itens.map(a => ({ adicionalId: a.adicionalId, precoAdicionalId: a.precoRegraId, nomeAplicado: a.nome, unidadeCobrancaAplicada: a.unidadeCobranca, quantidade: a.quantidade, valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal, observacoes: previousItems.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord)) : previousItems;
     const mudouDestino = f.dataEvento !== r.operacao.dataEvento || f.horarioInicio.slice(0, 5) !== r.operacao.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== r.operacao.horarioFim.slice(0, 5);
     await bloquearDatasRevisao(tx, r, f.dataEvento);
-    const novo = (await salvarOperacaoPreparada(tx, r, f, itens, c.usuarioId, input.motivo))!;
-    await revalidarAgendaRevisao(tx, novo, c, { mudouDestino });
+    const salvo = (await salvarOperacaoPreparada(tx, r, f, itens, c.usuarioId, input.motivo))!;
+    // R41-2: aprovação e auditoria usam a revisão depois da escolha do salão do destino (hash final).
+    const novo = (await revalidarAgendaRevisao(tx, salvo, c, { mudouDestino })).revisao;
     if (input.comercial)
         await aprovarPreparacao(tx, novo, c, c.requestId ?? randomUUID());
     await auditar(tx, novo, c, 'REVISAO_OPERACIONAL_ALTERADA', { operacao: r.operacao, itens: previousItems, revisao: r.revisao }, { operacao: f, itens, revisao: novo.revisao, motivo: input.motivo });
