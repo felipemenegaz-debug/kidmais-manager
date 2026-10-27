@@ -199,9 +199,9 @@ test('pares surgidos entre a conferência e a aplicação: recusa antes da migra
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
-test('falha DENTRO da migration: erro do servidor = desfeita; sem resposta ou classe 57/08 = INDETERMINADO; nada depois', async () => {
+test('falha DENTRO da migration: erro do servidor = desfeita; sem resposta, classe 57/08 ou 40003 = INDETERMINADO; nada depois', async () => {
   for (const [erro, esperado] of [[erroPg('55P03'), 'DESFEITA_PELO_SERVIDOR'], [erroPg('40P01'), 'DESFEITA_PELO_SERVIDOR'], [erroPg('57014'), 'INDETERMINADO'],
-    [erroPg('08006'), 'INDETERMINADO'], [new Error('Connection terminated unexpectedly'), 'INDETERMINADO']]) {
+    [erroPg('08006'), 'INDETERMINADO'], [erroPg('40003'), 'INDETERMINADO'], [new Error('Connection terminated unexpectedly'), 'INDETERMINADO']]) {
     const dir = tmp();
     try {
       const C = clienteFalso({falharEm: 'CREATE OR REPLACE FUNCTION public.kidmais094_conflito_ocupacao', erro});
