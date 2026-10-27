@@ -1,2 +1,2 @@
-data/conhecimento/*.md text eol=lf
-data/conhecimento/manifesto.json text eol=lf
+conhecimento/*.md text eol=lf
+conhecimento/manifesto.json text eol=lf
