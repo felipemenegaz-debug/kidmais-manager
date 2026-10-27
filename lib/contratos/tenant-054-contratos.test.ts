@@ -97,7 +97,7 @@ function contratos(estado: Estado) {
         'lib/clientes/services/index.ts': { atualizarClienteInterno: reg('atualizarClienteInterno') },
         'lib/clientes/services/aniversariante.service.ts': { atualizarAniversarianteInterno: reg('atualizarAniversarianteInterno') },
         'lib/contratos/services/snapshot-core.ts': { hashSnapshotContrato: () => HASH },
-        'lib/contratos/services/contrato.service.ts': { carregarSnapshot: async () => ({ snapshot: {} }) },
+        'lib/contratos/services/contrato.service.ts': { carregarSnapshot: async () => ({ snapshot: {} }), salaoDaEmissao: async () => undefined },
         'lib/contratos/services/revisao-inicial.ts': { exigirVersaoEditavel: () => undefined, fonteDaRevisaoInicial: async (_v: unknown, f: unknown) => f, prepararEdicaoInicial: reg('prepararEdicaoInicial') },
         'lib/contratos/services/alteracoes.ts': { diferencasContratuais: () => [] },
         'lib/contratos/documento/index.ts': {}, 'lib/contratos/storage/postgres.ts': {},

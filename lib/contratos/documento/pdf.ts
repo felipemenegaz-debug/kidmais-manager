@@ -313,6 +313,10 @@ function renderizarSecao2(command: string, y: number, itens: ContratoDocumentoLi
     { label: "Data", value: campoPorLabel(itens, "Data") },
     { label: "Horário", value: campoPorLabel(itens, "Horário") },
   ], { labelWidth: 48 }));
+  // S-E (plano S-E/S-D rev. 4.1): só quando o resumo traz o salão fixado; sem ele, os bytes de antes.
+  if (itens.some((item) => item.texto.startsWith("Salão:"))) {
+    ({ command, y } = renderizarLinhaCampo(command, y, [{ label: "Salão", value: campoPorLabel(itens, "Salão") }], { labelWidth: 48 }));
+  }
 
   const convidadosRaw = campoPorLabel(itens, "Convidados informados");
   const match = convidadosRaw.match(/^(.*?)\s*\|\s*Convidados faturados:\s*(.*)$/i);
@@ -449,7 +453,7 @@ function renderizarSecao7(command: string, y: number, itens: ContratoDocumentoLi
 
 function estimativaSecao(titulo: string, itens: ContratoDocumentoLinha[]) {
   if (titulo.startsWith("1.")) return 112;
-  if (titulo.startsWith("2.")) return 86;
+  if (titulo.startsWith("2.")) return itens.some((item) => item.texto.startsWith("Salão:")) ? 106 : 86;
   if (titulo.startsWith("3.")) return Math.min(130, 58 + itens.length * 17);
   if (titulo.startsWith("4.")) return 82;
   if (titulo.startsWith("5.")) return 126;

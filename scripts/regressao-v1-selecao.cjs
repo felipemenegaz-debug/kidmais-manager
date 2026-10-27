@@ -278,6 +278,10 @@ const ESTADO_POSTGRES = {
   "lib/agenda/aplicador-102-103.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
   // 27/10/2026 (S-C, convidados primeiro): capacidade do salão na disponibilidade (OK/OCUPADO/CAPACIDADE), revalidação
   // com SEM_SALAO_PARA_CONVIDADOS sem gravar e escolha do salão que comporta; 097, como no staging (103) e com a 098.
+  // 27/10/2026 (S-E): migration 104 (hash da revisão com o salão), aplicada pela suíte sobre o modelo 103.
+  "lib/agenda/hash-revisao-104.postgres.test.ts": { descartavel: "103" },
+  // 27/10/2026 (S-E parte 2): salão fixado na emissão e exigido na assinatura (contratos nativos); sem e com a 104.
+  "lib/agenda/salao-contrato-se.postgres.test.ts": { descartavel: "103", tambem: ["104"] },
   "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.

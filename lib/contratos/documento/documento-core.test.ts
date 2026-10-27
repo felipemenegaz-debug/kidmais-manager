@@ -243,7 +243,7 @@ test("Contrato Oficial Festa Completa aplica regras revisadas e não expõe obse
     geradoEm: "2026-09-08T12:00:00.000Z",
   });
   assert.ok(documento);
-  assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V4");
+  assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V5");
   assert.equal(documento.homologadoParaProducao, true);
   assert.equal(documento.avisoHomologacao, null);
   assert.equal(documento.clausulas.length, 18);
@@ -299,13 +299,13 @@ test("PDF do Contrato Oficial é determinístico e possui logo", () => {
 });
 
 for (const [codigo, nome, modelo, excedente] of [
-  ["POCKET", "Kidmais Pocket", "KIDMAIS_POCKET_V4", "190,00"],
-  ["MINI_FESTA", "Mini Festa Kidmais", "MINI_FESTA_KIDMAIS_V4", "170,00"],
-  ["COMPACTA", "Festa Compacta", "FESTA_COMPACTA_V4", null],
-  ["ESSENCIAL", "Festa Essencial", "FESTA_ESSENCIAL_V4", "110,00"],
-  ["COMPLETA", "Festa Completa", "FESTA_COMPLETA_V4", "130,00"],
-  ["PREMIUM", "Festa Premium", "FESTA_PREMIUM_V4", "150,00"],
-  ["PIZZA_PARTY", "Pizza Party", "PIZZA_PARTY_V4", null],
+  ["POCKET", "Kidmais Pocket", "KIDMAIS_POCKET_V5", "190,00"],
+  ["MINI_FESTA", "Mini Festa Kidmais", "MINI_FESTA_KIDMAIS_V5", "170,00"],
+  ["COMPACTA", "Festa Compacta", "FESTA_COMPACTA_V5", null],
+  ["ESSENCIAL", "Festa Essencial", "FESTA_ESSENCIAL_V5", "110,00"],
+  ["COMPLETA", "Festa Completa", "FESTA_COMPLETA_V5", "130,00"],
+  ["PREMIUM", "Festa Premium", "FESTA_PREMIUM_V5", "150,00"],
+  ["PIZZA_PARTY", "Pizza Party", "PIZZA_PARTY_V5", null],
 ] as const) {
   test(`${codigo}: contrato usa a base jurídica existente e somente dados específicos conhecidos`, () => {
     const pacote = structuredClone(snapshot);
@@ -338,7 +338,7 @@ test("templates históricos mantêm a antiga Cláusula 4 e o template atual usa 
   }
   const atual = renderizarContratoOficial({ snapshot, numeroVersao: 1, snapshotHash });
   assert.ok(atual);
-  assert.equal(atual.templateVersao, 4);
+  assert.equal(atual.templateVersao, 5); // S-E: V5 (Cláusula 4 = V4)
   assert.match(atual.clausulas[3].texto, /0 a 5 anos e 11 meses/);
   assert.match(atual.clausulas[3].texto, /um terço do total de pagantes/);
   assert.match(atual.clausulas[3].texto, /menor de 16 anos, o pai, a mãe e os irmãos participarão como cortesia/);

@@ -32,6 +32,7 @@ import {
   buscarVersaoPorId,
   marcarContratoAssinado,
   marcarVersaoContratoAssinada,
+  salaoDoSnapshot,
   type ContratoRecord,
   type ContratoVersaoRecord,
 } from "../repositories";
@@ -334,6 +335,8 @@ export async function montarContextoContratoPublico(
       pacoteCodigo: versao.snapshot.evento.pacote.codigo,
       aniversariante: versao.snapshot.aniversariante.nome,
       valorFinalContrato: versao.snapshot.comercial.valorFinalContrato,
+      // S-E (plano S-E/S-D rev. 4.1): só o NOME do salão fixado (V3); id e configuração da agenda não vão à página.
+      salao: salaoDoSnapshot(versao.snapshot)?.nome ?? null,
     },
     assinatura: papel ? { tipo: 'PAPEL' as const, texto: TEXTO_ASSINADO_EM_PAPEL } : { tipo: 'ELETRONICA' as const, texto: null },
     aceitePermitido:
@@ -555,7 +558,7 @@ export async function assinarContratoPublico(
       // A proposta inicial ainda não ocupa o fechamento. Seu destino é revalidado
       // ao aplicar os dados assinados, sob o mesmo lock da formalização 019.
       await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contrato.id]);
-    } else await bloquearAgendaFormalizacao(tx, contrato.id);
+    } else await bloquearAgendaFormalizacao(tx, contrato.id, versao.id);
 
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,

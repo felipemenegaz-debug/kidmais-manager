@@ -45,6 +45,8 @@ type ContextoContrato = {
     pacoteCodigo: string;
     aniversariante: string;
     valorFinalContrato: number;
+    /** S-E: nome do salão fixado no contrato; nulo sem salão. */
+    salao?: string | null;
   };
   /** PAPEL: contrato histórico assinado em papel — sem aceite eletrônico, sem documento e sem comprovante. */
   assinatura?: { tipo: "PAPEL" | "ELETRONICA"; texto: string | null };
@@ -393,6 +395,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               <div><span>Festa</span><strong>{contexto.evento.aniversariante}</strong></div>
               <div><span>Data</span><strong>{dataBr(contexto.evento.data)} · {hora(contexto.evento.horarioInicio)}</strong></div>
               <div><span>Pacote</span><strong>{contexto.evento.pacote}</strong></div>
+              {contexto.evento.salao && <div><span>Salão</span><strong>{contexto.evento.salao}</strong></div>}
               <div><span>Valor</span><strong>{moeda(contexto.evento.valorFinalContrato)}</strong></div>
               <div><span>Versão</span><strong>V{contexto.versao.numero}</strong></div>
               <div><span>Status</span><strong>{contexto.assinatura?.tipo === "PAPEL" ? "Assinado em papel" : contexto.contrato.status === "ASSINADO" ? "Assinado" : "Aguardando assinatura"}</strong></div>

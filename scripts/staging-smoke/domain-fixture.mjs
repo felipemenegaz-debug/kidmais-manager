@@ -31,6 +31,8 @@ export function fixture(root, env, smokeId) {
     // 094 (salão da festa na formalização): a festa do contrato e a função da 094 ausente (schema do smoke = antes da 094).
     else if (q.startsWith('SELECT fechamento_id::text AS fechamento_id FROM contratos')) rows = [{ fechamento_id: 'fechamento' }];
     else if (q.startsWith("SELECT to_regprocedure('public.kidmais094_conflito_ocupacao")) rows = [{ ok: false }];
+    // S-E (salão exigido pela versão): o snapshot do smoke é V1, sem salão fixado; formalização como antes.
+    else if (q.startsWith('SELECT v.snapshot, b.snapshot AS base FROM contrato_versoes v')) rows = [{ snapshot: state.version.snapshot, base: null }];
     else if (q.startsWith('SELECT id,parte FROM public.contrato_assinaturas')) rows = state.signatures;
     else if (q.startsWith('INSERT INTO public.festas')) { state.calls.push('automatic-party'); state.parties.push({ id: 'party', invalidada_em: null, origem: 'AUTOMATICA_FORMALIZACAO' }); rows = [{ id: 'party' }]; }
     else if (q.startsWith('INSERT INTO public.festa_eventos')) state.events.push('FESTA_CRIADA');

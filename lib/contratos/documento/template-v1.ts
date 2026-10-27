@@ -1,5 +1,6 @@
 import type { ContratoDocumentoLinha, GerarDocumentoContratoInput } from "./models.ts";
 import type { ContratoSnapshot } from "../repositories";
+import { salaoDoSnapshot } from "../repositories/models.ts";
 import {
   formatarCep,
   formatarCpf,
@@ -92,6 +93,8 @@ export function renderizarContratoTemplateV1(
 ) {
   const s = input.snapshot;
   const historico = versaoHistorica(s);
+  // S-E (plano S-E/S-D rev. 4.1): linha do salão só com salão fixado (V3); sem ele, as linhas são as de antes.
+  const salao = salaoDoSnapshot(s);
   const linhas: ContratoDocumentoLinha[] = [
     linha("KIDMAIS FESTAS", "subtitulo", 3),
     linha("RESUMO DA CONTRATAÇÃO", "titulo", 8),
@@ -115,6 +118,7 @@ export function renderizarContratoTemplateV1(
     linha(
       `Horário: ${formatarHorarioContrato(s.evento.horarioInicio)} às ${formatarHorarioContrato(s.evento.horarioFim)}`,
     ),
+    ...(salao ? [linha(`Salão: ${salao.nome}`)] : []),
     linha(`Pacote: ${s.evento.pacote.nome}`),
     linha(
       `Convidados informados: ${s.evento.convidados} | Convidados faturados: ${s.evento.convidadosFaturados}`,

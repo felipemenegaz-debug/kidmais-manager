@@ -54,7 +54,7 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         './snapshot-core':{hashSnapshotContrato},'./errors':{ContratoServiceError:Falha},
         './alteracoes':{diferencasContratuais},
         './revisao-inicial':carregar('lib/contratos/services/revisao-inicial.ts',{'./errors':{ContratoServiceError:Falha}}),
-        './contrato.service':{carregarSnapshot:async()=>({snapshot})},
+        './contrato.service':{carregarSnapshot:async()=>({snapshot}),salaoDaEmissao:async()=>undefined},
         // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
         '../../saas/provar-tenant':{provarTenant:async()=>({empresaComprovada:'empresa-a',membershipId:'m',usuarioId:'u',papelAtual:'REPRESENTANTE_AUTORIZADO'})},
         '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'}),empresaDoFechamentoSemTrava:async()=>'empresa-a'},
@@ -67,8 +67,8 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         '../../fechamentos/services/revisao-operacional.service':{
             cancelarPreparacao:async()=>{edicoes.v1='CANCELADA';original.status='CANCELADA';fluxo.versao_em_preparacao_id=null;},
             iniciarPreparacao:async(_tx:unknown,b:typeof base)=>{assert.equal(b.id,'v0');return {id:'r2'};},
-            revalidarAgendaRevisao:async()=>{copias.push('revalidado');},
-            snapshotPreparacao:async(_tx:unknown,_r:unknown,v:typeof original)=>v.snapshot,
+            revalidarAgendaRevisao:async(_tx:unknown,r:unknown)=>{copias.push('revalidado');return {livre:true,revisao:{...(r as object),relida:true}};},
+            snapshotPreparacao:async(_tx:unknown,r:{relida?:boolean},v:typeof original)=>{copias.push(r.relida?'snapshot da relida':'snapshot da antiga');return v.snapshot;},
         },
         '../../clientes/repositories':{registrarAuditoria:async(a:Record<string,unknown>)=>{auditorias.push(a);},registrarEventoHistorico:async()=>{}},
     });
@@ -110,7 +110,7 @@ test('substituir revisão congelada de contrato com vigência conserva base/Fest
     await a.substituir();
     assert.deepEqual(a.versoes[0],base);assert.equal(a.fluxo.versao_vigente_id,'v0');
     assert.equal(a.edicoes.v1,'CANCELADA');assert.equal(a.edicoes.v3,'EM_ELABORACAO');
-    assert.deepEqual(a.copias,[{op:{dataEvento:'2026-10-20',convidados:90},itens:[{adicionalId:'extra',quantidade:2}]},'revalidado']);
+    assert.deepEqual(a.copias,[{op:{dataEvento:'2026-10-20',convidados:90},itens:[{adicionalId:'extra',quantidade:2}]},'revalidado','snapshot da relida']);
     assert(!a.sqls.some(s=>/(?:UPDATE|INSERT INTO|DELETE FROM) (?:festas|fechamentos|pagamentos)\b/.test(s)));
 });
 test('motivo inválido e assinatura cliente concorrente recusam substituição antes de escrever',async()=>{

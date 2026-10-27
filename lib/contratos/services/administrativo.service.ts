@@ -17,7 +17,8 @@ import { edicaoFestaSchema } from '../../fechamentos/services/edicao-administrat
 import { editarFechamentoAdministrativo } from '../../fechamentos/services/edicao-administrativa.service';
 import { buscarFechamentoPorIdParaAtualizacao, buscarFechamentoPorId, empresaDoFechamentoSemTrava } from '../../fechamentos/repositories';
 import { provarTenant } from '../../saas/provar-tenant';
-import { carregarSnapshot } from './contrato.service';
+import { carregarSnapshot, salaoDaEmissao } from './contrato.service';
+import { destinoDifereDoDocumento } from './salao-contrato';
 import { atualizarClienteInterno } from '../../clientes/services';
 import { buscarClientePorId, buscarAniversariantePorId } from '../../clientes/repositories';
 import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
@@ -197,8 +198,9 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if(antiga) {
                 const nova=await iniciarPreparacao(tx,base,next,input.motivo,input.chaveCriacao,rc);
                 const copiada=(await salvarOperacaoPreparada(tx,nova,antiga.operacao,itens,s.usuario_id,input.motivo))!;
-                await revalidarAgendaRevisao(tx,copiada,rc,{mudouDestino:true});
-                const preparado=await snapshotPreparacao(tx,copiada,next);
+                // R41-2: o snapshot documenta a revisão relida depois da escolha do salão do destino.
+                const revalidada=(await revalidarAgendaRevisao(tx,copiada,rc,{mudouDestino:true})).revisao;
+                const preparado=await snapshotPreparacao(tx,revalidada,next);
                 await tx.query('UPDATE contrato_versoes SET snapshot=$2,snapshot_hash=$3 WHERE id=$1',[next.id,preparado,hashSnapshotContrato(preparado)]);
             }
             await evento(tx,v,s,'CONTRATO_PREPARACAO_SUBSTITUIDA',{origem:v.id,versaoId:next.id,motivo:input.motivo,chaveCriacao:input.chaveCriacao});
@@ -253,7 +255,11 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             conflito('Revisão mudou ou versão legada sem edição. Atualize a tela.');
         if(input.acao==='cancelar_revisao'){if(!preparacao){if(!e.origem_versao_id||!['EM_ELABORACAO','ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'].includes(e.estado)||f?.versao_em_preparacao_id!==v.id)conflito('Sem proposta legada aberta para cancelar.');await tx.query("UPDATE contrato_edicoes SET estado='CANCELADA',atualizado_por_usuario_id=$2 WHERE contrato_versao_id=$1",[v.id,s.usuario_id]);await tx.query("UPDATE contrato_versoes SET status='CANCELADA' WHERE id=$1",[v.id]);await tx.query('UPDATE contrato_fluxos SET versao_em_preparacao_id=NULL WHERE contrato_id=$1',[c.id]);await evento(tx,v,s,'CONTRATO_PROPOSTA_LEGADA_CANCELADA',{motivo:input.motivo,...context});return {cancelada:true};}return cancelarPreparacao(tx,preparacao,rc,input.motivo);}
         if(input.acao==='recusar_comercial'){if(!preparacao)conflito('Sem preparação operacional.');return recusarComercialPreparacao(tx,preparacao,rc,input.chaveDecisao,input.motivo);}
-        if(input.acao==='revalidar_destino'){if(!preparacao||!['EM_ELABORACAO','CONGELADA'].includes(preparacao.estado))conflito('Sem preparação aberta.');await revalidarAgendaRevisao(tx,preparacao,rc);return {revalidado:true};}
+        if(input.acao==='revalidar_destino'){if(!preparacao||!['EM_ELABORACAO','CONGELADA'].includes(preparacao.estado))conflito('Sem preparação aberta.');const relida=(await revalidarAgendaRevisao(tx,preparacao,rc)).revisao;
+            // S-E (R3-E4/R41-2): trocar só o salão do destino muda o hash v2; o documento em elaboração é recomposto (nova conferência e assinatura).
+            // P1 do Astra (27/10): com hash v1 a troca não muda o hash; o salão do destino é comparado com o do documento.
+            if(relida.estado==='EM_ELABORACAO'&&(relida.conteudo_hash!==preparacao.conteudo_hash||await destinoDifereDoDocumento(tx,relida.id,v.snapshot))){const salvo=await salvarElaboracao(tx,v,e,s,await snapshotPreparacao(tx,relida,v));return {revalidado:true,revisao:relida.revisao,edicao:salvo.revisao};}
+            return {revalidado:true,revisao:relida.revisao};}
         if(preparacao && ['gerar_pdf','revisar','assinar','liberar'].includes(input.acao) && !(input.acao==='assinar'&&e.estado!=='EM_ELABORACAO')){
             if(preparacao.estado==='EM_ELABORACAO'){
                 await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE',[preparacao.operacao.clienteId]);
@@ -261,12 +267,18 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
                 if(preparacao.operacao.responsavelAdicionalId)await tx.query('SELECT id FROM responsaveis_adicionais WHERE id=$1 FOR UPDATE',[preparacao.operacao.responsavelAdicionalId]);
                 const atual=await snapshotPreparacao(tx,preparacao,v);if(hashSnapshotContrato(atual)!==v.snapshotHash)conflito('Cadastro mudou. Salve a revisão e revise o novo documento.');
             }
-            await revalidarAgendaRevisao(tx,preparacao,rc);
+            // R41-2: se a escolha do salão do destino mudou a revisão (hash v2), o documento conferido acima ficou velho.
+            // P1 do Astra (27/10): com hash v1 (antes da 104 ou revisão antiga) trocar B por C não muda o hash; por isso o
+            // salão do destino, DEPOIS da revalidação, é conferido contra o salão escrito no documento, em qualquer versão.
+            const revalidada=(await revalidarAgendaRevisao(tx,preparacao,rc)).revisao;
+            if(revalidada.conteudo_hash!==preparacao.conteudo_hash||await destinoDifereDoDocumento(tx,revalidada.id,v.snapshot))conflito('O salão do destino mudou. Salve a revisão e revise o novo documento.');
         }
         if(!f?.versao_vigente_id && !preparacao && !e.dados_fonte?.revisaoInicial && e.estado==='EM_ELABORACAO' && ['gerar_pdf','revisar','assinar'].includes(input.acao)) {
             await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE',[v.snapshot.contratante.clienteId]);
             await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE',[v.snapshot.aniversariante.id]);
-            const atual=(await carregarSnapshot((await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!,tx)).snapshot;
+            // S-E: a conferência refaz a emissão (o salão do documento fica se ainda serve; se não, o documento está velho).
+            const festaAtual=(await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!;
+            const atual=(await carregarSnapshot(festaAtual,tx,undefined,{salao:await salaoDaEmissao(tx,festaAtual,v.snapshot)})).snapshot;
             const gravado={...v.snapshot} as typeof v.snapshot & {documental?:unknown};
             delete gravado.documental;
             if(hashSnapshotContrato(atual)!==hashSnapshotContrato(gravado)) conflito('Dados de origem mudaram. Salve a revisão para atualizar o documento antes de gerar, revisar ou assinar.');
@@ -290,7 +302,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
                 await atualizarClienteInterno(v.snapshot.contratante.clienteId,empresaAutorizada,input.cliente,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
             if(input.aniversariante)
                 await atualizarAniversarianteInterno(v.snapshot.aniversariante.id,v.snapshot.contratante.clienteId,empresaAutorizada,input.aniversariante,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
-            const {snapshot}=await carregarSnapshot(fechamento,tx);
+            const {snapshot}=await carregarSnapshot(fechamento,tx,undefined,{salao:await salaoDaEmissao(tx,fechamento,v.snapshot)});
             return salvarElaboracao(tx,v,e,s,{...snapshot,documental:{observacoes:e.dados_fonte.observacoesDocumentais ?? ''}} as unknown as typeof snapshot);
         }
         if (input.acao === 'assinar') {
@@ -347,7 +359,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         if (e.estado !== 'EM_ELABORACAO' || f?.versao_em_preparacao_id !== v.id)
             conflito('Versão congelada. Crie outra versão para alterar conteúdo.');
         if (input.acao === 'salvar') {
-            const fonte=preparacao ? await snapshotPreparacao(tx,preparacao,v) : f?.versao_vigente_id || e.origem_versao_id ? v.snapshot : (await carregarSnapshot((await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!,tx)).snapshot;
+            const fonte=preparacao ? await snapshotPreparacao(tx,preparacao,v) : f?.versao_vigente_id || e.origem_versao_id ? v.snapshot : await (async()=>{const festa=(await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!;return (await carregarSnapshot(festa,tx,undefined,{salao:await salaoDaEmissao(tx,festa,v.snapshot)})).snapshot;})();
             const snapshot = { ...fonte, documental: { observacoes: input.observacoesDocumentais } };
             return salvarElaboracao(tx,v,e,s,snapshot);
         }

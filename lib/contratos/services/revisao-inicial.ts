@@ -12,6 +12,8 @@ import { validarCadastroBasicoCliente } from '../../clientes/services/validators
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
 import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
 import { montarSnapshotContratoV1 } from './contrato.service';
+import { escolherSalao, escolherSalaoParaEmissao } from '../../agenda/salao-festa.ts';
+import { salaoDoSnapshot, type ContratoSnapshot } from '../repositories/models';
 import { hashSnapshotContrato } from './snapshot-core';
 import { ContratoServiceError } from './errors';
 
@@ -59,10 +61,22 @@ export async function prepararEdicaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal,
         observacoes: v.snapshot.contratacao.adicionais.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord));
     const pacote = resumo.pacote.pacote, tabela = resumo.pacote.tabelaPreco;
-    const snapshot = montarSnapshotContratoV1({ fechamento, cliente, aniversariante, adicionais,
+    const base = montarSnapshotContratoV1({ fechamento, cliente, aniversariante, adicionais,
         responsavelAdicional: fechamento.responsavelAdicionalId ? await buscarResponsavelPorId(fechamento.responsavelAdicionalId, tx) : null,
         referencias: { pacoteId: pacote.id, pacoteCodigo: pacote.codigo, pacoteNome: pacote.nome, pacoteDuracaoMinutos: pacote.duracaoMinutos,
             tabelaPrecoId: tabela.id, tabelaPrecoCodigo: tabela.codigo, tabelaPrecoNome: tabela.nome } });
+    // S-E (R3-E2 a): em POR_SALAO a proposta fixa o salão do DESTINO proposto, pela mesma ordem da emissão, só leitura.
+    await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+    const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, salaoDoSnapshot(v.snapshot)?.id ?? null, {
+        data: fechamento.dataEvento, inicio: fechamento.horarioInicio, fim: fechamento.horarioFim, configuracaoId: fechamento.configuracaoAgendaId,
+        pacoteId: pacote.id, convidados: fechamento.convidados });
+    if (escolha.porSalao && !escolha.salao)
+        throw new ContratoServiceError('SALAO_INDISPONIVEL', escolha.motivo === 'ESCOLHIDO_NAO_SERVE'
+            ? 'O salão escolhido para a festa não serve no destino proposto. Escolha outro salão antes de salvar.'
+            : 'Nenhum salão livre comporta a festa no destino proposto.', 409, { motivo: escolha.motivo });
+    const snapshot: ContratoSnapshot = escolha.porSalao
+        ? { ...base, schemaVersao: 3, evento: { ...base.evento, configuracaoAgendaId: fechamento.configuracaoAgendaId, salao: escolha.salao } }
+        : base;
     const baseHash = e.dados_fonte.revisaoInicial?.baseHash ?? hashSnapshotContrato({
         fechamento: await buscarFechamentoPorId(fechamento.id, tx), adicionais: await listarAdicionaisDoFechamento(fechamento.id, tx) });
     const proposta: RevisaoInicial = { fechamento, cliente, aniversariante, resumo, baseHash, motivo: input.motivo };
@@ -91,6 +105,13 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');
     await persistirEdicaoFechamento(tx, f, proposta.resumo);
+    // S-E (R3-E2 a): o salão fixado na proposta assinada é EXIGIDO no destino, depois das travas das datas (em ordem, acima),
+    // e gravado na festa na mesma transação; indisponível = recusa e rollback da assinatura, da prova e da versão.
+    const salao = salaoDoSnapshot(v.snapshot);
+    if (v.snapshot.schemaVersao === 3) {
+        if (!salao || !(await escolherSalao(tx, f.id, salao.id)).salao)
+            recusar('O salão deste contrato não está mais disponível; o buffet vai enviar uma nova versão.');
+    }
     const fotografia = await fotografarEstadoFechamento(tx, f.id, { motivo: proposta.motivo, atorUsuarioId: null });
     await registrarAuditoria({ clienteId: f.clienteId, atorTipo: 'SISTEMA', acao: 'CONTRATO_REVISAO_INICIAL_APLICADA',
         entidadeTipo: 'CONTRATO_VERSAO', entidadeId: v.id, origem: 'CONTRATO_PUBLICO', dadosAntes: atual,
