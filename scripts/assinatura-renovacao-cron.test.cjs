@@ -253,3 +253,50 @@ test('T2: o relatório do main declara credencialDoServico', () => {
     const main = fonte.slice(fonte.indexOf('async function main()'), fonte.indexOf('if (require.main === module)'));
     assert.match(main, /credencialDoServico: cfg\.alvo\.credencialDoServico/);
 });
+
+// ---- Alertas de fixture de homologação desativada (27/10/2026): no relatório, fora do código 2.
+test('alertas de fixture desativada: informativos, fora do código 2; real, fixture ativa e sem cadastro continuam contando', () => {
+    const { separarAlertasInformativos } = require('./assinatura-renovacao-cron.cjs');
+    const ehFixture = ({ codigo, nome }) => typeof codigo === 'string' && typeof nome === 'string' && codigo.startsWith('hml-') && nome.startsWith('TESTE ');
+    const FX = 'aaaaaaaa-0000-4000-8000-000000000001', REAL = 'bbbbbbbb-0000-4000-8000-000000000002', FXA = 'cccccccc-0000-4000-8000-000000000003',
+        RD = 'dddddddd-0000-4000-8000-000000000004', SO_COD = 'eeeeeeee-0000-4000-8000-000000000005', SEM = 'ffffffff-0000-4000-8000-000000000006';
+    const linhas = [
+        { id: FX, codigo: 'hml-pr-essencial', nome: 'TESTE Kidmais — r3 F1', status: 'DESATIVADA' },
+        { id: REAL, codigo: 'buffet-real', nome: 'Buffet Real', status: 'ATIVA' },
+        { id: FXA, codigo: 'hml-ativa', nome: 'TESTE ativa', status: 'ATIVA' },
+        { id: RD, codigo: 'buffet-desativado', nome: 'Buffet Desativado', status: 'DESATIVADA' },
+        { id: SO_COD, codigo: 'hml-sem-nome', nome: 'Buffet sem prefixo', status: 'DESATIVADA' },
+    ];
+    const alerta = (empresaId) => ({ empresaId, resultado: 'REVISAO_EXISTENTE', motivo: 'REVISAO_EXISTENTE' });
+    const rel = (alertas, extra = {}) => ({ execucao: 'CONCLUIDA', codigo: alertas.length ? 2 : 0, alertas, processadas: alertas.length, ...extra });
+    // Só fixture desativada: 2 → 0, continua no relatório.
+    let r = separarAlertasInformativos(rel([alerta(FX)]), linhas, ehFixture);
+    assert.deepEqual([r.codigo, r.alertas.length, r.alertasInformativos.map((a) => a.empresaId)], [0, 0, [FX]]);
+    // Misturado com real: continua 2; a real fica em alertas, a fixture em informativos.
+    r = separarAlertasInformativos(rel([alerta(FX), alerta(REAL)]), linhas, ehFixture);
+    assert.deepEqual([r.codigo, r.alertas.map((a) => a.empresaId), r.alertasInformativos.map((a) => a.empresaId)], [2, [REAL], [FX]]);
+    // Contam: fixture ativa, real desativada, só o código de fixture, empresa sem cadastro lido.
+    for (const id of [FXA, RD, SO_COD, SEM]) {
+        r = separarAlertasInformativos(rel([alerta(id)]), linhas, ehFixture);
+        assert.deepEqual([r.codigo, r.alertas.length, r.alertasInformativos.length], [2, 1, 0], id);
+    }
+    // Interrupção (1) e execução não concluída (2) não mudam, mesmo só com fixture desativada.
+    r = separarAlertasInformativos(rel([alerta(FX)], { execucao: 'INTERROMPIDA', codigo: 1 }), linhas, ehFixture);
+    assert.equal(r.codigo, 1);
+    r = separarAlertasInformativos(rel([alerta(FX)], { execucao: 'TRAVA_PERDIDA', codigo: 2 }), linhas, ehFixture);
+    assert.deepEqual([r.codigo, r.alertasInformativos.length], [2, 1]);
+    // Defensivo: só o 2 é rebaixado (um 1 nunca vira 0, mesmo num relatório CONCLUIDA).
+    r = separarAlertasInformativos(rel([alerta(FX)], { codigo: 1 }), linhas, ehFixture);
+    assert.equal(r.codigo, 1);
+    // Nunca sobe o código.
+    r = separarAlertasInformativos(rel([alerta(REAL)], { codigo: 0 }), linhas, ehFixture);
+    assert.equal(r.codigo, 0);
+});
+
+test('alertas de fixture desativada: executarCron lê o cadastro e usa a regra única ehFixtureHomologacao', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'assinatura-renovacao-cron.cjs'), 'utf8');
+    const exec = fonte.slice(fonte.indexOf('async function executarCron('), fonte.indexOf('async function main()'));
+    assert.match(exec, /SELECT id::text AS id, codigo, nome, status::text AS status FROM empresas WHERE id = ANY\(\$1::uuid\[\]\)/);
+    assert.match(exec, /return separarAlertasInformativos\(relatorio, linhas, ehFixtureHomologacao\);/);
+    assert.match(exec, /alertasInformativos: \[\]/);
+});
