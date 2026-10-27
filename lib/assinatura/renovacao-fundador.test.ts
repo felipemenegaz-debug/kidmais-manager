@@ -315,6 +315,51 @@ test('B-9: parcela que vira RECEIVED entre a listagem e a releitura, depois do P
     assert.equal(f.c.registro?.estado, 'APLICANDO'); semRevisao(f.chamadas);
 });
 
+test('B-9 idempotente: no modo agendado, registro já CANCELADA de empresa não vigente não é regravado; fora dele, continua', async () => {
+    const cancelado = (f: ReturnType<typeof fixture>) => {
+        f.c.registro = { id: 'r1', empresaId: E, contratacaoId: f.c.contratacaoId, destinatarioId: f.c.destinatarioId, primeiroVencimento: '2026-10-09',
+            primeiraDataRegular: '2027-10-09', mensagem: mensagemRenovacao(f.c, 'r1', '2027-10-09', 'https://kidmais.example'), estado: 'CANCELADA',
+            avisoTentadoEm: null, avisoEnviadoEm: null, precoAplicadoEm: null, ultimoErro: null };
+        f.c.empresaAtiva = false;
+        f.deps.provedor.obterAssinatura = async () => { throw new Error('Rede proibida.'); };
+    };
+    const f = agendado(); cancelado(f);
+    assert.equal(await processarRenovacao(E, f.deps), 'CANCELADA');
+    assert.deepEqual(f.chamadas, [], 'nenhuma escrita');
+    // Ferramenta restrita (sem modo agendado): o comportamento anterior é mantido.
+    const g = fixture(); cancelado(g);
+    assert.equal(await processarRenovacao(E, g.deps), 'CANCELADA');
+    assert.deepEqual(g.chamadas, ['estado:CANCELADA']);
+    // Registro ainda não cancelado de empresa não vigente continua sendo marcado no modo agendado, em qualquer outro estado.
+    for (const estado of ['PENDENTE', 'AVISANDO', 'AVISADA', 'APLICANDO', 'REGULAR'] as const) {
+        const h = agendado(); cancelado(h); h.c.registro!.estado = estado;
+        assert.equal(await processarRenovacao(E, h.deps), 'CANCELADA', estado);
+        assert.deepEqual(h.chamadas, ['estado:CANCELADA'], estado);
+    }
+});
+
+test('B-9 idempotente: no modo agendado, registro já REGULAR não é regravado; mudança real continua escrita', async () => {
+    const f = agendado();
+    assert.equal(await processarRenovacao(E, f.deps), 'REGULAR');
+    assert.ok(f.chamadas.includes('estado:REGULAR'), 'a primeira chegada a REGULAR é gravada');
+    const regular = structuredClone(f.c.registro);
+    f.chamadas.length = 0;
+    assert.equal(await processarRenovacao(E, f.deps), 'REGULAR');
+    assert.deepEqual(f.chamadas, [], 'nenhuma escrita, envio ou PUT');
+    assert.deepEqual(f.c.registro, regular);
+    // Ferramenta restrita: regrava como antes.
+    const g = fixture();
+    assert.equal(await processarRenovacao(E, g.deps), 'REGULAR'); g.chamadas.length = 0;
+    assert.equal(await processarRenovacao(E, g.deps), 'REGULAR');
+    assert.deepEqual(g.chamadas, ['estado:REGULAR']);
+    // REGULAR → CANCELADA (assinatura inativa) continua sendo gravado no modo agendado.
+    const h = agendado();
+    assert.equal(await processarRenovacao(E, h.deps), 'REGULAR'); h.chamadas.length = 0;
+    assinaturaNaChamada(h, 1, (s) => ({ ...s, status: 'INACTIVE' }));
+    assert.equal(await processarRenovacao(E, h.deps), 'CANCELADA');
+    assert.deepEqual(h.chamadas, ['estado:CANCELADA']);
+});
+
 test('B-9: primeiro pagamento divergente não cria registro nem suspende', async () => {
     const f = agendado(); f.parcelas[0].status = 'PENDING';
     assert.equal(await processarRenovacao(E, f.deps), 'ALERTA_PRIMEIRO_PAGAMENTO_DIVERGENTE');
