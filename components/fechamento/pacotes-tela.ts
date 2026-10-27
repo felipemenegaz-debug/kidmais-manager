@@ -1,6 +1,6 @@
 import type { Pacote } from "./data.ts";
 import type { PacoteId } from "./types.ts";
-import { LIMITE_CONVIDADOS_PEDIDO_ONLINE } from "../../lib/fechamentos/convidados.ts";
+import { erroConvidadosEmpresa, erroConvidadosFechamento, LIMITE_CONVIDADOS_PEDIDO_ONLINE } from "../../lib/fechamentos/convidados.ts";
 import type { RegraPacoteEmpresa } from "../../lib/agenda/disponibilidade.ts";
 
 /** Código do pacote no servidor (pacotes/preços da empresa) para cada id V1 da tela (endereço atual da Kidmais). */
@@ -21,7 +21,7 @@ export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): str
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
  * `disponibilidade`: só em /b/<código> — dias e períodos configurados pela empresa para o pacote.
  */
-export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[] };
+export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean };
 export type FatosPacote = Record<string, FatoPacote>;
 
 /** Cartão da etapa “Escolha o pacote”. `disponibilidade`/`destaque` nulos = não exibidos. */
@@ -107,4 +107,26 @@ export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fato
 export function regrasDisponibilidadeDaTela(kidmais: boolean, fatos: FatosPacote | null, id: string): RegraPacoteEmpresa[] | null {
     if (kidmais) return null;
     return (id && fatos?.[id]?.disponibilidade) || [];
+}
+
+/**
+ * S-C: por que o pacote não comporta N convidados (a mesma regra da etapa Convidados e do servidor); null = comporta.
+ * Pacote desconhecido (lista ainda não chegou) = comporta: nada some por falta de dado.
+ */
+export function motivoNaoComporta(kidmais: boolean, catalogo: readonly Pacote[], fatos: FatosPacote | null, id: string, convidados: number): string | null {
+    const pacote = pacoteDaTela(kidmais, catalogo, fatos, id);
+    if (!pacote) return null;
+    return kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
+}
+
+/** S-C: os que comportam primeiro (na ordem de antes); os demais ficam para o "ver mesmo assim". */
+export function separarPorConvidados<T extends { id: string }>(itens: readonly T[], naoComporta: (id: string) => string | null) {
+    const comportam: T[] = [];
+    const naoComportam: Array<T & { motivo: string }> = [];
+    for (const item of itens) {
+        const motivo = naoComporta(item.id);
+        if (motivo) naoComportam.push({ ...item, motivo });
+        else comportam.push(item);
+    }
+    return { comportam, naoComportam };
 }

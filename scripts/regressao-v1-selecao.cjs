@@ -276,6 +276,9 @@ const ESTADO_POSTGRES = {
   // 27/10/2026: aplicador REAL da 102/103 para staging no modelo 097 + 100 (aplica, confere, privilégios, SERVICOS divergente,
   // marcador) e no 098 (recusa COM_098_102 sem escrever).
   "lib/agenda/aplicador-102-103.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // 27/10/2026 (S-C, convidados primeiro): capacidade do salão na disponibilidade (OK/OCUPADO/CAPACIDADE), revalidação
+  // com SEM_SALAO_PARA_CONVIDADOS sem gravar e escolha do salão que comporta; 097, como no staging (103) e com a 098.
+  "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

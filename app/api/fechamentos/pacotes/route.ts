@@ -8,6 +8,7 @@ import { limitarPublico } from "@/lib/http/limite-publico";
 import { lerPrecosCorrentes } from "@/lib/comercial/pacote-precos";
 import { lerRegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import { lerRegrasDisponibilidadePacote } from "@/lib/comercial/disponibilidade-pacote-publica";
+import { convidadosDaConsulta, pacoteComporta } from "@/lib/fechamentos/convidados-consulta";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,14 @@ function precoMinimo(linhas: Array<{ porConvidado: boolean; min: number; valor: 
 export async function GET(request: NextRequest) {
   const limite = await limitarPublico(request, "LEITURA");
   if (limite) return limite;
+  // S-C: com convidados, cada pacote diz se comporta; a lista não é filtrada (o cliente precisa do "ver mesmo assim").
+  const convidados = convidadosDaConsulta(request.nextUrl.searchParams.get("convidados"));
+  if (convidados === null) {
+    return NextResponse.json(
+      { ok: false, erro: "Informe a quantidade de convidados com um número inteiro de 1 a 1000.", codigo: "PARAMETROS_INVALIDOS" },
+      { status: 400 },
+    );
+  }
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const enderecoDaEmpresa = codigoEmpresaDoPedido(request.nextUrl) !== null;
@@ -38,6 +47,7 @@ export async function GET(request: NextRequest) {
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
         convidadosMaximos: pacote.convidadosMaximos,
         precoMinimo: precoMinimo(precos.pacotes.filter((p) => p.pacoteId === pacote.id)),
+        ...(convidados ? { comporta: pacoteComporta(pacote, convidados) } : {}),
         // Endereço da empresa (/b/<código>): dias e períodos configurados por ela para o pacote, para a tela não
         // aplicar regra fixa da Kidmais pelo código. Endereço atual da Kidmais: resposta inalterada (sem o campo).
         ...(enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),

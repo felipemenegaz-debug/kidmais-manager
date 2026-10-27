@@ -316,3 +316,69 @@
   .day { transition: none; }
   .day:not(:disabled):hover { transform: none; }
 }
+
+/* S-C: convidados primeiro (passo 1), dia "sem salão para N" e sugestões quando a data não tem encaixe. */
+.guestCard {
+  margin: 0 0 18px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, .95);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .84);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 42px rgba(49, 54, 108, .08), inset 0 1px 0 #fff;
+}
+.guestForm { display: grid; gap: 14px; }
+.guestShortcuts { display: flex; flex-wrap: wrap; gap: 8px; }
+.guestShortcuts button,
+.guestSummary button,
+.noFitDates button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid #dfe5f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #111a3a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.guestShortcuts button:hover, .noFitDates button:hover { border-color: #7449d8; color: #5a33b8; }
+.guestInputRow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.guestInputRow input {
+  flex: 1 1 200px;
+  min-height: 50px;
+  padding: 0 14px;
+  border: 1px solid #dfe5f0;
+  border-radius: 14px;
+  background: #fff;
+  color: #111a3a;
+  font: inherit;
+  font-size: 16px;
+}
+.guestInputRow .continueButton { flex: 0 1 220px; margin-top: 0; }
+.guestSummary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.guestSummary span { color: #657290; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+.guestSummary strong { color: #111a3a; font-size: 17px; }
+.guestSummary button { margin-left: auto; color: #5a33b8; }
+.dayNoRoom { background: #eef0ff; color: #4a3f8f; border-style: dashed !important; }
+.legendNoRoom { background: #dcdcff; }
+.noFit {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 15px;
+  border: 1px solid #dcdcff;
+  border-radius: 14px;
+  background: #f5f5ff;
+  color: #3d3a73;
+  font-size: 13px;
+}
+.noFit strong { color: #111a3a; font-size: 14px; }
+.noFitDates { display: flex; flex-wrap: wrap; gap: 8px; }
+.noFitDates button { text-transform: capitalize; }
+.noFit a, .errorBox a { color: #5a33b8; font-weight: 850; }
+@media (max-width: 620px) {
+  .guestCard { padding: 13px; border-radius: 18px; }
+  .guestInputRow .continueButton { flex: 1 1 100%; }
+}

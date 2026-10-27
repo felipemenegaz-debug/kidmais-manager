@@ -1232,3 +1232,15 @@
   .additionalItemAberto .additionalCard { max-width: none; }
   .additionalItemAberto .escolhasAdicional { grid-template-columns: 1fr; }
 }
+
+/* S-C: convidados primeiro — pacotes que não comportam (esmaecidos, atrás de "ver mesmo assim") e o chip de convidados. */
+.packageFaded { opacity: .62; }
+.packageFaded:hover, .packageFaded.packageSelected { opacity: 1; }
+.packageMotivo { margin-top: 8px; color: #9a4a00 !important; font-weight: 750; }
+.packageOthers { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 13px; }
+.guestChip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; padding: 10px 14px; border: 1px solid #dde6ff; border-radius: 999px; background: #f4f7ff; font-size: 13px; width: fit-content; max-width: 100%; }
+.guestChip strong { color: var(--ink); }
+.guestChip button { border: 0; background: none; color: var(--blue); font: inherit; font-weight: 850; cursor: pointer; padding: 4px 2px; }
+.guestEditor { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 16px; background: #f8f9fd; }
+.guestEditor .field { margin-bottom: 12px; }
+.guestEditorActions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }

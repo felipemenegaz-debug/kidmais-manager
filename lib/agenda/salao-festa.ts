@@ -22,6 +22,8 @@ type Alvo = {
   empresaId: string;
   estabelecimentoId: string | null;
   preferido: string | null;
+  /** S-C: convidados da festa; entre os livres, prefere salão que comporta (NULL comporta). Não é filtro. */
+  convidados: number | null;
 };
 
 async function instalada(tx: DbExecutor) {
@@ -31,7 +33,11 @@ async function instalada(tx: DbExecutor) {
   return r.rows[0]?.ok === true;
 }
 
-/** Primeiro salão elegível e livre para o alvo, preferindo o atual; null quando não há nenhum. */
+/**
+ * Primeiro salão elegível e livre para o alvo, preferindo o atual; null quando não há nenhum.
+ * S-C: depois do preferido, os que comportam os convidados vêm primeiro; sem nenhum que comporte, fica o primeiro livre
+ * (limite declarado no plano: a garantia do cliente público é a revalidação na cotação e na criação).
+ */
 async function salaoElegivelLivre(tx: DbExecutor, alvo: Alvo): Promise<string | null> {
   const elegivel = (await combinadosInstalados(tx)) ? "AND kidmais098_salao_elegivel(s.id)" : "";
   const r = await tx.query<{ id: string }>(
@@ -43,9 +49,9 @@ async function salaoElegivelLivre(tx: DbExecutor, alvo: Alvo): Promise<string | 
         AND (NOT EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = $8::uuid)
              OR EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = $8::uuid AND p.salao_id = s.id))
         AND NOT kidmais094_conflito_ocupacao($1::uuid, $2::date, $3::time, $4::time, $6::uuid, $7::uuid, $5::uuid, s.id)
-      ORDER BY (s.id = $9::uuid) DESC NULLS LAST, s.ordem, s.nome
+      ORDER BY (s.id = $9::uuid) DESC NULLS LAST, COALESCE(s.capacidade_convidados >= $10::int, true) DESC, s.ordem, s.nome
       LIMIT 1`,
-    [alvo.fechamentoId, alvo.data, alvo.inicio, alvo.fim, alvo.configuracaoId, alvo.empresaId, alvo.estabelecimentoId, alvo.pacoteId, alvo.preferido],
+    [alvo.fechamentoId, alvo.data, alvo.inicio, alvo.fim, alvo.configuracaoId, alvo.empresaId, alvo.estabelecimentoId, alvo.pacoteId, alvo.preferido, alvo.convidados],
   );
   return r.rows[0]?.id ?? null;
 }
@@ -68,9 +74,9 @@ export async function escolherSalao(tx: DbExecutor, fechamentoId: string): Promi
   if (!(await instalada(tx))) return { exigido: false, salao: null };
   const festa = await tx.query<{
     salao_id: string | null; por_salao: boolean; data: string; inicio: string; fim: string; cfg: string; pacote: string;
-    empresa: string; unidade: string | null;
+    empresa: string; unidade: string | null; convidados: number | null;
   }>(
-    `SELECT f.salao_id::text AS salao_id, ${POR_SALAO} AS por_salao, f.data_evento::text AS data,
+    `SELECT f.salao_id::text AS salao_id, ${POR_SALAO} AS por_salao, f.data_evento::text AS data, f.convidados,
             f.horario_inicio::text AS inicio, f.horario_fim::text AS fim, f.configuracao_agenda_id::text AS cfg,
             f.pacote_id::text AS pacote, f.empresa_id::text AS empresa, f.estabelecimento_id::text AS unidade
        FROM fechamentos f WHERE f.id = $1::uuid FOR UPDATE`,
@@ -80,7 +86,7 @@ export async function escolherSalao(tx: DbExecutor, fechamentoId: string): Promi
   if (!f || !f.por_salao) return { exigido: false, salao: f?.salao_id ?? null };
   const salao = await salaoElegivelLivre(tx, {
     fechamentoId, data: f.data, inicio: f.inicio, fim: f.fim, configuracaoId: f.cfg, pacoteId: f.pacote,
-    empresaId: f.empresa, estabelecimentoId: f.unidade, preferido: f.salao_id,
+    empresaId: f.empresa, estabelecimentoId: f.unidade, preferido: f.salao_id, convidados: f.convidados,
   });
   if (salao && salao !== f.salao_id) await tx.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamentoId, salao]);
   return { exigido: true, salao };
@@ -95,8 +101,9 @@ export async function escolherSalaoDestinoRevisao(tx: DbExecutor, revisaoId: str
   const destino = await tx.query<{
     fechamento_id: string; salao_atual: string | null; salao_destino: string | null; estado: string; por_salao: boolean;
     data: string; inicio: string; fim: string; cfg: string; pacote: string; empresa: string; unidade: string | null;
+    convidados: number | null;
   }>(
-    `SELECT r.fechamento_id::text AS fechamento_id, f.salao_id::text AS salao_atual, r.salao_id::text AS salao_destino,
+    `SELECT r.fechamento_id::text AS fechamento_id, r.convidados, f.salao_id::text AS salao_atual, r.salao_id::text AS salao_destino,
             r.estado, ${POR_SALAO} AS por_salao,
             r.data_evento::text AS data, r.horario_inicio::text AS inicio, r.horario_fim::text AS fim,
             r.configuracao_agenda_id::text AS cfg, r.pacote_id::text AS pacote, f.empresa_id::text AS empresa,
@@ -110,7 +117,7 @@ export async function escolherSalaoDestinoRevisao(tx: DbExecutor, revisaoId: str
   const definido = d.salao_destino ?? d.salao_atual;
   const salao = await salaoElegivelLivre(tx, {
     fechamentoId: d.fechamento_id, data: d.data, inicio: d.inicio, fim: d.fim, configuracaoId: d.cfg, pacoteId: d.pacote,
-    empresaId: d.empresa, estabelecimentoId: d.unidade, preferido: definido,
+    empresaId: d.empresa, estabelecimentoId: d.unidade, preferido: definido, convidados: d.convidados,
   });
   // Revisão congelada não muda (guarda da 014): só confere que o salão já definido continua elegível e livre.
   if (d.estado !== 'EM_ELABORACAO') return { exigido: true, salao: salao && salao === definido ? salao : null };
