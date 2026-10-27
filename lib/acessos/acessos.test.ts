@@ -240,11 +240,11 @@ test('custo do hash: troca de senha só calcula scrypt depois de sessão, limite
     assert.equal(hashes, 0);
 });
 
-function depsRedefinir(opcoes: { limiteOk: boolean; pedido: boolean }) {
+function depsRedefinir(opcoes: { limiteOk: boolean; pedido: boolean; origem?: string }) {
     let hashes = 0;
     const tx = executorFalso([
         [/SELECT tentativas/, () => [{ tentativas: opcoes.limiteOk ? 0 : 99, bloqueado: !opcoes.limiteOk, reiniciar: false }]],
-        [/FROM recuperacoes_senha r JOIN usuarios_administrativos/, () => (opcoes.pedido ? [{ id: 'p1', usuario_id: '00000000-0000-4000-8000-000000000001', origem: 'PUBLICA' }] : [])],
+        [/FROM recuperacoes_senha r JOIN usuarios_administrativos/, () => (opcoes.pedido ? [{ id: 'p1', usuario_id: '00000000-0000-4000-8000-000000000001', origem: opcoes.origem ?? 'PUBLICA' }] : [])],
         [/UPDATE sessoes_administrativas/, () => [{ id: 's' }]],
     ]);
     return {
@@ -255,20 +255,44 @@ function depsRedefinir(opcoes: { limiteOk: boolean; pedido: boolean }) {
 
 test('custo do hash: redefinição pública não calcula scrypt acima do limite nem para token inexistente; calcula uma vez para token válido', async () => {
     process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-de-teste-unitario-0123456789';
-    const redefinir = recuperacao.redefinirSenhaComToken as (raw: unknown, ctx: unknown, deps: unknown) => Promise<{ redefinida: boolean }>;
+    const redefinir = recuperacao.redefinirSenhaComToken as (raw: unknown, ctx: unknown, deps: unknown, opcoes?: unknown) => Promise<{ redefinida: boolean }>;
     const corpo = { token: 'A'.repeat(43), novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' };
+    const publica = { aceitarOrigemPublica: true };
     const limite = depsRedefinir({ limiteOk: false, pedido: true });
-    await assert.rejects(redefinir(corpo, ctx, limite.deps), (e: { httpStatus?: number }) => e.httpStatus === 429);
+    await assert.rejects(redefinir(corpo, ctx, limite.deps, publica), (e: { httpStatus?: number }) => e.httpStatus === 429);
     assert.equal(limite.contar(), 0);
     assert.ok(!limite.tx.executados.some((q) => /recuperacoes_senha/.test(q.sql)), 'acima do limite nem consulta o token');
     const falso = depsRedefinir({ limiteOk: true, pedido: false });
-    await assert.rejects(redefinir(corpo, ctx, falso.deps), (e: { code?: string }) => e.code === 'LINK_INVALIDO');
+    await assert.rejects(redefinir(corpo, ctx, falso.deps, publica), (e: { code?: string }) => e.code === 'LINK_INVALIDO');
     assert.equal(falso.contar(), 0);
     const valido = depsRedefinir({ limiteOk: true, pedido: true });
-    assert.equal((await redefinir(corpo, ctx, valido.deps)).redefinida, true);
+    assert.equal((await redefinir(corpo, ctx, valido.deps, publica)).redefinida, true);
     assert.equal(valido.contar(), 1);
     const ordem = valido.tx.executados.map((q) => q.sql);
     assert.ok(ordem.findIndex((s) => /SELECT tentativas/.test(s)) < ordem.findIndex((s) => /FROM recuperacoes_senha r/.test(s)), 'limite antes do token');
+});
+
+test('redefinição: link do painel vale com a recuperação pública desligada; link público não (503, sem scrypt nem troca)', async () => {
+    process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-de-teste-unitario-0123456789';
+    const redefinir = recuperacao.redefinirSenhaComToken as (raw: unknown, ctx: unknown, deps: unknown, opcoes?: unknown) => Promise<{ redefinida: boolean }>;
+    const corpo = { token: 'A'.repeat(43), novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' };
+    // Padrão fail-closed: sem opção, pedido público é recusado.
+    for (const opcoes of [undefined, {}, { aceitarOrigemPublica: false }]) {
+        const pub = depsRedefinir({ limiteOk: true, pedido: true, origem: 'PUBLICA' });
+        await assert.rejects(redefinir(corpo, ctx, pub.deps, opcoes), (e: { code?: string; httpStatus?: number }) => e.code === 'EMAIL_NAO_CONFIGURADO' && e.httpStatus === 503);
+        assert.equal(pub.contar(), 0, 'sem scrypt');
+        assert.ok(!pub.tx.executados.some((q) => /UPDATE usuarios_administrativos SET senha_hash/.test(q.sql)), 'senha não muda');
+        assert.ok(!pub.tx.executados.some((q) => /SET usado_em/.test(q.sql)), 'link não é consumido');
+    }
+    // Origem desconhecida também não passa sem a flag.
+    const outra = depsRedefinir({ limiteOk: true, pedido: true, origem: 'OUTRA' });
+    await assert.rejects(redefinir(corpo, ctx, outra.deps), (e: { httpStatus?: number }) => e.httpStatus === 503);
+    // Painel: vale com a flag desligada (e ligada).
+    for (const opcoes of [undefined, { aceitarOrigemPublica: false }, { aceitarOrigemPublica: true }]) {
+        const painel = depsRedefinir({ limiteOk: true, pedido: true, origem: 'PAINEL' });
+        assert.equal((await redefinir(corpo, ctx, painel.deps, opcoes)).redefinida, true);
+        assert.equal(painel.contar(), 1);
+    }
 });
 
 test('custo do hash: aceite de convite com token inexistente ou acima do limite não calcula scrypt', async () => {

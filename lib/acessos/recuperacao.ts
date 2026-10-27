@@ -9,6 +9,7 @@ import { consumirOrigem } from './limite-origem.ts';
 import { erroAcesso, isAcessoServiceError } from './erros.ts';
 import { criarEnviarEmail, linkComToken, mensagemRecuperacao, type EnviarEmail } from './email.ts';
 import { validarNovaSenha, type ContextoRequisicao } from './senha-propria.ts';
+import { MENSAGEM_RECUPERACAO_INDISPONIVEL } from './disponibilidade.ts';
 import { emailObrigatorio, mascararEmail } from './validacao.ts';
 
 /**
@@ -148,7 +149,13 @@ const redefinirSchema = z.object({
     confirmacao: z.string().max(512),
 }).strict();
 
-export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisicao, deps: RecuperacaoDeps = recuperacaoDepsPadrao()) {
+/**
+ * `aceitarOrigemPublica` (padrão false, fail-closed): link de pedido PÚBLICO só vale com a recuperação pública ligada
+ * (RECUPERACAO_SENHA_ATIVA + e-mail). Link pedido pelo PAINEL do desenvolvedor vale sempre: o envio pelo painel não depende
+ * da flag, e antes o link chegava mas a troca era recusada (defeito visto na homologação do B-9, 27/10/2026).
+ */
+export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisicao, deps: RecuperacaoDeps = recuperacaoDepsPadrao(),
+    { aceitarOrigemPublica = false }: { aceitarOrigemPublica?: boolean } = {}) {
     const parsed = redefinirSchema.safeParse(raw);
     if (!parsed.success)
         throw erroAcesso('LINK_INVALIDO', 'Este link é inválido ou expirou. Peça uma nova recuperação.', 410);
@@ -165,6 +172,8 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
               FOR UPDATE OF r, u`, [hashToken(parsed.data.token)])).rows[0];
         if (!pedido)
             return { tipo: 'link' as const };
+        if (pedido.origem !== 'PAINEL' && !aceitarOrigemPublica)
+            return { tipo: 'indisponivel' as const };
         const novoHash = await deps.criarHashSenha(parsed.data.novaSenha);
         await tx.query('UPDATE usuarios_administrativos SET senha_hash = $2, senha_alterada_em = clock_timestamp() WHERE id = $1', [pedido.usuario_id, novoHash]);
         await tx.query('UPDATE recuperacoes_senha SET usado_em = clock_timestamp() WHERE id = $1', [pedido.id]);
@@ -180,5 +189,7 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
         throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429, resultado.aguardar ? { retryAfterSegundos: resultado.aguardar } : undefined);
     if (resultado.tipo === 'link')
         throw erroAcesso('LINK_INVALIDO', 'Este link é inválido, já foi usado ou expirou. Peça uma nova recuperação.', 410);
+    if (resultado.tipo === 'indisponivel')
+        throw erroAcesso('EMAIL_NAO_CONFIGURADO', MENSAGEM_RECUPERACAO_INDISPONIVEL, 503);
     return { redefinida: true as const, sessoesEncerradas: resultado.encerradas };
 }
