@@ -4,6 +4,8 @@
 .unidade { min-width:220px; }
 .fraco { color:var(--secondary-text); font-size:12px; }
 .umSalao { margin:0 0 16px; }
+.linkApresentacao { color:var(--lilac-accent); font-weight:800; text-decoration:none; }
+.linkApresentacao:hover { text-decoration:underline; }
 .opcoes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 16px; }
 .opcoes > p { grid-column:1 / -1; margin:0; }
 .opcoes .opcao { display:block !important; text-align:left; padding:16px 18px !important; border-radius:16px !important; min-height:0 !important; }

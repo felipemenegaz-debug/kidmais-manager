@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { AgendaEscopo, EscopoConfiguravel } from '@/lib/agenda/configuracao-unidade';
 import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_VOLTA_UM_SALAO } from '@/lib/agenda/saloes-liberacao';
@@ -316,6 +317,12 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
             {agenda.combinadosDisponiveis && <SaloesCombinados agenda={agenda} leitura={leitura} ocupado={salvando || carregando}
               pendenteSalvar={pendente} onCriar={criarCombinado} onDesativar={desativarSalao} />}
           </>}
+          {/* S-A (102): fotos, itens e declaração ficam em Configurações › Salões; aqui só nome, capacidade e horários. */}
+          {!vitrine && <p className={css.fraco} data-link-apresentacao-saloes>
+            Fotos, o que cada salão tem e como ele vai aparecer para o cliente:{' '}
+            <Link className={css.linkApresentacao} href="/admin/configuracoes/saloes">Apresentação dos salões →</Link>
+            {pendente && ' Salve as alterações antes de sair desta tela.'}
+          </p>}
         </section>
 
         {form.modo === 'FIXO' && <section className={ws.card} aria-labelledby="agenda-horarios">

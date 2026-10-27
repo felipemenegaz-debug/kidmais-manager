@@ -5,7 +5,7 @@
 .lateral { flex:1 1 320px; min-width:0; position:sticky; top:96px; }
 .grade2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
 .grade4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0 16px; }
-.somenteLeitura { padding:12px 16px; margin-top:10px; border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); color:var(--main-text); font-size:14px; font-weight:400; display:flex; justify-content:space-between; gap:8px; }
+.somenteLeitura { padding:12px 16px; margin-top:10px; border:1px solid var(--input-border); border-radius:12px; background:var(--input-bg); color:var(--main-text); font-size:14px; font-weight:400; display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 8px; }
 .dica { color:var(--secondary-text); font-size:12px; margin:4px 0 0; }
 .sugerida { color:var(--emerald-accent); font-size:12px; font-weight:700; }
 .fotos { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin:8px 0 12px; }
@@ -53,4 +53,5 @@
 .seletorSite button { padding:0 !important; overflow:hidden; }
 .seletorSite img { display:block; width:100%; aspect-ratio:4/3; object-fit:cover; }
 .salaoLinha { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:12px; align-items:center; padding:12px 16px; border-top:1px solid var(--border-navy); }
-@media (max-width: 720px) { .grade4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .lateral { position:static; } .salaoLinha { grid-template-columns:1fr; } }
+/* Celular: o nome ocupa a linha inteira; as idades (de/até) seguem lado a lado logo abaixo. */
+@media (max-width: 720px) { .grade2 { grid-template-columns:1fr; } .grade2 > .grade2 { grid-template-columns:repeat(2,minmax(0,1fr)); } .grade4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .lateral { position:static; } .salaoLinha { grid-template-columns:1fr; } }
