@@ -65,9 +65,15 @@ function hostLocal(host) {
     return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
 }
 
-/** Valida o alvo sem conectar. Lança Error com mensagem sem a URL. */
-function validarAlvo(env) {
-    if (env.DATABASE_URL && env.KIDMAIS_RECONCILIAR_DATABASE_URL === env.DATABASE_URL)
+/**
+ * Valida o alvo sem conectar. Lança Error com mensagem sem a URL.
+ * `credencialDoServico`: 'recusar' (padrão de TODOS os chamadores) recusa a URL igual à DATABASE_URL do serviço; 'aceitar' só
+ * pode ser pedido por quem já decidiu uma exceção explícita (T2 da renovação B-9) e devolve `credencialDoServico: true` no alvo.
+ */
+function validarAlvo(env, { credencialDoServico = 'recusar' } = {}) {
+    if (credencialDoServico !== 'recusar' && credencialDoServico !== 'aceitar') throw new Error('CREDENCIAL_DO_SERVICO_POLITICA_INVALIDA');
+    const igualAoServico = !!env.DATABASE_URL && env.KIDMAIS_RECONCILIAR_DATABASE_URL === env.DATABASE_URL;
+    if (igualAoServico && credencialDoServico === 'recusar')
         throw new Error('Alvo recusado: use uma conexão própria em KIDMAIS_RECONCILIAR_DATABASE_URL, não a DATABASE_URL do serviço.');
     const bruto = env.KIDMAIS_RECONCILIAR_DATABASE_URL;
     if (!bruto)
@@ -92,7 +98,7 @@ function validarAlvo(env) {
     if (env.KIDMAIS_RECONCILIAR_ALVO !== esperado)
         throw new Error(`Confirme o alvo: defina KIDMAIS_RECONCILIAR_ALVO="${esperado}" (literal).`);
     const alvo = { connectionString: bruto, database, host, port, local: hostLocal(host) };
-    return { ...alvo, producao: alvoDeProducao(alvo, env) };
+    return { ...alvo, producao: alvoDeProducao(alvo, env), credencialDoServico: igualAoServico };
 }
 
 /**
@@ -105,7 +111,11 @@ function validarAlvo(env) {
  */
 const SERVICOS_TLS_RECONCILIACAO = Object.freeze(['crn-db493i142hec73ahmoe0']);
 
-function opcoesConexao(alvo, env = {}, servicosTlsInterno = SERVICOS_TLS_RECONCILIACAO) {
+/**
+ * `credencialDoServico`: a mesma política da validarAlvo, repassada à revalidação do alvo na exceção TLS. Padrão 'recusar'
+ * para todas as entradas; só a renovação (T2 do B-9) repassa a política que ela mesma decidiu.
+ */
+function opcoesConexao(alvo, env = {}, servicosTlsInterno = SERVICOS_TLS_RECONCILIACAO, { credencialDoServico = 'recusar' } = {}) {
     const url = new URL(alvo.connectionString);
     const modo = url.searchParams.get('sslmode');
     if (!alvo.local && modo && !['require', 'verify-full', 'verify-ca'].includes(modo)) throw Error('TLS_MODO_RECUSADO');
@@ -120,7 +130,7 @@ function opcoesConexao(alvo, env = {}, servicosTlsInterno = SERVICOS_TLS_RECONCI
     if (politica === 'render-interno-criptografado') {
         // Opt-in operacional: Render não fornece verify-full para seu Postgres interno.
         // Limitado aos serviços da lista fechada de quem chama e ao banco exato, dentro da rede privada. Nenhuma configuração global.
-        const confirmado = validarAlvo(env);
+        const confirmado = validarAlvo(env, { credencialDoServico });
         if (env.RENDER !== 'true' || !servicosTlsInterno.includes(env.RENDER_SERVICE_ID)
             || env.KIDMAIS_DEPLOY_ENV !== 'staging' || env.ASAAS_AMBIENTE !== 'sandbox'
             || confirmado.host !== 'dpg-daidko3m8hqs73ce4jt0-a' || confirmado.port !== 5432

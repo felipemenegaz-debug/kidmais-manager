@@ -126,3 +126,121 @@ test('T1: o main da renovação calcula a conexão pela lista da renovação, an
     assert.match(main, /conexao: conexaoDaRenovacao\(cfg\.alvo, process\.env\)/);
     assert.doesNotMatch(main, /opcoesConexao\(/, 'o main não chama a política da reconciliação diretamente');
 });
+
+// ---- T2 (27/10/2026): credencial igual à DATABASE_URL do web de staging, por exceção explícita, conferida e declarada.
+const WEB_T2 = 'srv-daif418ae00c73e8k2gg';
+const URL_T2 = 'postgresql://fixture@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91';
+const t2 = { ...stg, RENDER: 'true', RENDER_SERVICE_ID: WEB_T2, DATABASE_URL: URL_T2, KIDMAIS_RECONCILIAR_DATABASE_URL: URL_T2,
+    KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: 'web-staging-homologacao' };
+const semOptIn = { ...t2, KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: undefined };
+
+test('T2: sem o opt-in, a credencial igual à DATABASE_URL continua recusada (simular e aplicar)', () => {
+    assert.throws(() => planejar(semOptIn), /Alvo recusado: use uma conexão própria/);
+    assert.throws(() => planejar({ ...semOptIn, KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: '' }), /Alvo recusado: use uma conexão própria/);
+    assert.throws(() => planejar({ ...semOptIn, KIDMAIS_RENOVACAO_MODO: 'aplicar', EMAIL_PROVIDER: 'resend' }, [`--empresas=${E}`]), /Alvo recusado/);
+});
+
+test('T2: com o opt-in e todas as condições, aceita e DECLARA a credencial do serviço; aplicar exige --empresas', () => {
+    const c = planejar(t2);
+    assert.deepEqual([c.modo, c.alvo.credencialDoServico, c.alvo.database], ['simular', true, 'kidmais_staging_1z91']);
+    assert.equal(planejar(t2, [`--empresas=${E}`]).alvo.credencialDoServico, true);
+    const aplicar = { ...t2, KIDMAIS_RENOVACAO_MODO: 'aplicar', EMAIL_PROVIDER: 'resend' };
+    assert.throws(() => planejar(aplicar), /CREDENCIAL_DO_SERVICO_EXIGE_EMPRESAS/);
+    assert.equal(planejar(aplicar, [`--empresas=${E}`]).alvo.credencialDoServico, true);
+    // URL diferente da DATABASE_URL (ou sem DATABASE_URL): nada de exceção, credencialDoServico false, aplicar global permitido.
+    const propria = { ...aplicar, KIDMAIS_RECONCILIAR_DATABASE_URL: 'postgresql://outra@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91' };
+    assert.equal(planejar(propria).alvo.credencialDoServico, false);
+    assert.equal(planejar({ ...aplicar, DATABASE_URL: undefined }).alvo.credencialDoServico, false);
+    assert.equal(planejar(stg).alvo.credencialDoServico, false);
+});
+
+test('T2: opt-in fora das condições é recusado antes de qualquer outra validação do alvo', () => {
+    for (const mudanca of [{ KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: 'sim' }, { KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: 'WEB-STAGING-HOMOLOGACAO' },
+        { KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: ' web-staging-homologacao' }, { RENDER: undefined }, { RENDER: 'false' },
+        { RENDER_SERVICE_ID: 'crn-db493i142hec73ahmoe0' }, { RENDER_SERVICE_ID: 'crn-qualquer' }, { RENDER_SERVICE_ID: undefined },
+        { ASAAS_AMBIENTE: 'producao' }, { ASAAS_AMBIENTE: undefined }])
+        assert.throws(() => planejar({ ...t2, ...mudanca }), /CREDENCIAL_DO_SERVICO_RECUSADA/, JSON.stringify(mudanca));
+    // Production nunca: o opt-in recusa mesmo com o resto de produção correto.
+    assert.throws(() => planejar({ ...t2, KIDMAIS_DEPLOY_ENV: 'production' }), /CREDENCIAL_DO_SERVICO_RECUSADA/);
+    assert.throws(() => planejar({ ...prod, RENDER_SERVICE_ID: WEB_T2, KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: 'web-staging-homologacao' }), /CREDENCIAL_DO_SERVICO_RECUSADA/);
+    // Opt-in não relaxa nada além da igualdade: alvo errado continua recusado.
+    assert.throws(() => planejar({ ...t2, KIDMAIS_RECONCILIAR_ALVO: 'outro@dpg-daidko3m8hqs73ce4jt0-a:5432' }), /Confirme o alvo/);
+    const outroBanco = 'postgresql://fixture@localhost:5432/outro';
+    assert.throws(() => planejar({ ...t2, DATABASE_URL: outroBanco, KIDMAIS_RECONCILIAR_DATABASE_URL: outroBanco, KIDMAIS_RECONCILIAR_ALVO: 'outro@localhost:5432' }), /ALVO_STAGING_RECUSADO/);
+});
+
+test('T2: validarAlvo recusa por padrão para todos os chamadores; só a renovação pede aceitar', () => {
+    const { validarAlvo } = require('./assinatura-reconciliar.cjs');
+    assert.throws(() => validarAlvo(semOptIn), /Alvo recusado/);
+    assert.throws(() => validarAlvo(semOptIn, {}), /Alvo recusado/);
+    assert.throws(() => validarAlvo(semOptIn, { credencialDoServico: 'recusar' }), /Alvo recusado/);
+    for (const p of ['sim', true, null, 'ACEITAR']) assert.throws(() => validarAlvo(semOptIn, { credencialDoServico: p }), /CREDENCIAL_DO_SERVICO_POLITICA_INVALIDA/);
+    assert.equal(validarAlvo(semOptIn, { credencialDoServico: 'aceitar' }).credencialDoServico, true);
+    assert.equal(validarAlvo({ ...semOptIn, DATABASE_URL: undefined }).credencialDoServico, false);
+    const raiz = path.resolve(__dirname, '..');
+    const fontes = fs.readdirSync(path.join(raiz, 'scripts')).filter((a) => /\.cjs$/.test(a) && !/\.test\.cjs$/.test(a))
+        .map((a) => [a, fs.readFileSync(path.join(raiz, 'scripts', a), 'utf8')]);
+    // Fora da reconciliar (que só repassa a política recebida, com padrão 'recusar'), só a renovação passa política.
+    assert.deepEqual(fontes.filter(([a, s]) => a !== 'assinatura-reconciliar.cjs' && /(?<!function )validarAlvo\([^()]*,/.test(s)).map(([a]) => a),
+        ['assinatura-renovacao-cron.cjs'], 'só a renovação passa uma política à validarAlvo');
+    assert.deepEqual(fontes.filter(([, s]) => /(?<!function )opcoesConexao\([^()]*,[^()]*,[^()]*,/.test(s)).map(([a]) => a),
+        ['assinatura-renovacao-cron.cjs'], 'só a renovação passa política de credencial à opcoesConexao');
+    const rec = fontes.find(([a]) => a === 'assinatura-reconciliar.cjs')[1];
+    assert.deepEqual(rec.match(/(?<!function )validarAlvo\([^()]*,[^)]*\)/g), ['validarAlvo(env, { credencialDoServico })'], 'a reconciliar só repassa a política recebida');
+});
+
+test('T2: com a credencial do serviço, aplicar só em fixtures de homologação (com ou sem --agora), antes de qualquer processamento', async () => {
+    const { executarCron } = require('./assinatura-renovacao-cron.cjs');
+    const F = '22222222-2222-4222-8222-222222222222';
+    const consultas = [];
+    const responder = (sql) => {
+        consultas.push(sql);
+        if (/current_database/.test(sql)) return [{ db: 'kidmais_staging_1z91', tls: true }];
+        if (/instalada075/.test(sql)) return [{ instalada075: true }];
+        if (/FROM empresa_assinaturas a\s+JOIN assinatura_contratacoes/.test(sql)) return [{ empresa_id: E }, { empresa_id: F }];
+        if (/SELECT id::text AS id, codigo, nome FROM empresas/.test(sql))
+            return [{ id: E, codigo: 'cli-real', nome: 'Buffet Real' }, { id: F, codigo: 'hml-renovacao-1', nome: 'TESTE Kidmais — renovação' }];
+        if (/pg_try_advisory_lock|pg_locks|pg_advisory_unlock/.test(sql)) throw new Error('não deveria chegar à execução');
+        return [];
+    };
+    const conexao = () => ({ query: async (sql) => ({ rows: responder(sql) }), release() {}, on() {}, connect: async () => undefined, end: async () => undefined });
+    class Pool { constructor() { this.query = conexao().query; this.end = async () => undefined; } on() {} async connect() { return conexao(); } }
+    class Client { constructor() { Object.assign(this, conexao()); } }
+    const alvo = { database: 'kidmais_staging_1z91', local: false, credencialDoServico: true };
+    const cfg = { ambiente: 'staging', modo: 'aplicar', rebaixado: false, alvo, empresas: [E, F], agora: null };
+    const f = { Pool, Client, conexao: {}, provedor: {}, enviar: async () => { throw new Error('sem envio'); }, origem: 'https://kidmais.example' };
+    await assert.rejects(executarCron(cfg, f), /CREDENCIAL_DO_SERVICO_SO_FIXTURES \(1 empresa/);
+    await assert.rejects(executarCron({ ...cfg, empresas: [E] }, f), /CREDENCIAL_DO_SERVICO_SO_FIXTURES/);
+    await assert.rejects(executarCron({ ...cfg, empresas: null }, f), /CREDENCIAL_DO_SERVICO_EXIGE_EMPRESAS/);
+    assert.equal(consultas.some((s) => /pg_try_advisory_lock/.test(s)), false);
+    // Só a fixture passa a guarda (e para adiante, aqui); simular com a credencial do serviço não exige fixture.
+    await assert.rejects(executarCron({ ...cfg, empresas: [F] }, f), /não deveria chegar à execução/);
+    await assert.rejects(executarCron({ ...cfg, modo: 'simular', empresas: [E] }, f), /não deveria chegar à execução/);
+    // Sem a credencial do serviço, aplicar sem --agora em empresa real segue a regra anterior (sem a guarda T2).
+    await assert.rejects(executarCron({ ...cfg, alvo: { ...alvo, credencialDoServico: false }, empresas: [E] }, f), /não deveria chegar à execução/);
+});
+
+test('T2 integrado: planejar → conexaoDaRenovacao com a credencial do serviço E o TLS interno; outras entradas continuam recusando', () => {
+    const { opcoesConexao, validarAlvo } = require('./assinatura-reconciliar.cjs');
+    const { conexaoDaRenovacao } = require('./assinatura-renovacao-cron.cjs');
+    const env = { ...t2, KIDMAIS_RECONCILIAR_TLS: 'render-interno-criptografado' };
+    const cfg = planejar(env, ['--empresas=00000000-0000-4000-8000-000000000000']);
+    assert.equal(cfg.alvo.credencialDoServico, true);
+    assert.deepEqual(conexaoDaRenovacao(cfg.alvo, env).ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
+    // Sem o opt-in, a revalidação do alvo na exceção TLS recusa a igualdade (mesmo com o alvo vindo de um planejamento aceito).
+    assert.throws(() => conexaoDaRenovacao(cfg.alvo, { ...env, KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO: undefined }), /Alvo recusado: use uma conexão própria/);
+    // Opt-in fora das condições também recusa aqui.
+    assert.throws(() => conexaoDaRenovacao(cfg.alvo, { ...env, RENDER_SERVICE_ID: 'crn-qualquer' }), /CREDENCIAL_DO_SERVICO_RECUSADA/);
+    // A política padrão de opcoesConexao continua recusando a igualdade para as outras entradas.
+    assert.throws(() => opcoesConexao(cfg.alvo, env, ['srv-daif418ae00c73e8k2gg']), /Alvo recusado/);
+    assert.throws(() => opcoesConexao(cfg.alvo, { ...env, RENDER_SERVICE_ID: 'crn-db493i142hec73ahmoe0' }), /Alvo recusado/);
+    // Sem a igualdade, nada muda: a renovação usa o TLS interno normalmente.
+    const propria = { ...env, KIDMAIS_RECONCILIAR_DATABASE_URL: 'postgresql://outra@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91' };
+    assert.equal(conexaoDaRenovacao(validarAlvo(propria), propria).ssl.minVersion, 'TLSv1.2');
+});
+
+test('T2: o relatório do main declara credencialDoServico', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'assinatura-renovacao-cron.cjs'), 'utf8');
+    const main = fonte.slice(fonte.indexOf('async function main()'), fonte.indexOf('if (require.main === module)'));
+    assert.match(main, /credencialDoServico: cfg\.alvo\.credencialDoServico/);
+});
