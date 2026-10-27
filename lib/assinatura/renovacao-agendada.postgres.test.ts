@@ -54,9 +54,10 @@ const lerEstado = (): Estado => JSON.parse(readFileSync(arquivoEstado(), 'utf8')
 const gravarEstado = (s: Estado) => writeFileSync(arquivoEstado(), JSON.stringify(s));
 
 /** Empresa em teste com Gestão ativa; `fundador` confirma uma oferta Fundador pelo caminho do produto (sincronizarEmpresa). */
-async function empresa(tipo: 'CONFIRMADA' | 'RESERVADA' | 'SEM_FUNDADOR') {
+async function empresa(tipo: 'CONFIRMADA' | 'RESERVADA' | 'SEM_FUNDADOR', fixture = false) {
     const n = ++seq;
-    const id = (await q("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet Renovação', 'PROVISIONAMENTO') RETURNING id", [`rn${n}${randomBytes(3).toString('hex')}`])).rows[0].id as string;
+    const id = (await q("INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id",
+        [`${fixture ? 'hml-' : ''}rn${n}${randomBytes(3).toString('hex')}`, fixture ? 'TESTE renovação' : 'Buffet Renovação'])).rows[0].id as string;
     await q("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [id]);
     await q(`INSERT INTO plataforma_empresas_cadastro (empresa_id, nome_empresarial, documento_fiscal, responsavel_nome, email, criado_por, atualizado_por)
         VALUES ($1, 'Festas Renovação Ltda', $2, 'Responsável', $3, $4, $4)`, [id, cnpj(n), `rn${n}@example.test`, usuario]);
@@ -128,7 +129,7 @@ const { executarCron } = require(process.env.KM_CRON);
 
 type ItemRel = { empresaId: string; resultado: string; motivo: string | null; estadoEntrada: string; estadoSaida: string;
     precoRemoto: { assinatura: string; confirmado: boolean; estadoPersistido: string; parcelasDaRenovacao: { regulares: number; fundador: number } } | null };
-type Rel = { execucao: string; codigo: number; processadas: number; resultados: Record<string, number>; alertas: ItemRel[]; emAndamento: ItemRel[]; avisosNaJanela: number };
+type Rel = { execucao: string; codigo: number; processadas: number; resultados: Record<string, number>; alertas: ItemRel[]; emAndamento: ItemRel[]; avisosNaJanela: number; alertasInformativos?: ItemRel[] };
 function rodar(modo: 'simular' | 'aplicar', o: { empresas?: string[]; agora?: string; etapa?: string; matarEm?: string; aoVer?: [string, () => void] } = {}): Promise<Rel | 'MORTO'> {
     const cfg = { ambiente: 'staging', modo, rebaixado: false, alvo: { database: 'kidmais_pacotes_v1_descartavel', local: true }, empresas: o.empresas ?? null, agora: o.agora ?? null };
     const env: NodeJS.ProcessEnv = { NODE_ENV: 'test', PATH: process.env.PATH ?? '', SYSTEMROOT: process.env.SYSTEMROOT ?? '', KM_PG: exigir.resolve('pg'), KM_CRON: path.join(raiz, 'scripts/assinatura-renovacao-cron.cjs'),
@@ -321,6 +322,42 @@ test('9. P2-2: registro já em REVISAO (com aviso enviado) não gera nenhuma lei
     const a = r.alertas.find((i) => i.empresaId === H);
     assert.deepEqual([a?.resultado, a?.precoRemoto, r.codigo], ['REVISAO_EXISTENTE', null, 2]);
     assert.equal(lerEstado().leituras[sub] ?? 0, antes, 'nenhuma leitura do provedor para o registro em REVISAO');
+});
+
+/** Leva a empresa a REVISAO como no caso 9 (rotina sem modo agendado, próximo vencimento inválido) e devolve a PDR. */
+async function emRevisao(H: string) {
+    await relatorio(rodar('aplicar', { empresas: [H] }));
+    const pdr = (await registro(H)).pdr as string; const sub = await subDe(H);
+    let e = lerEstado(); e.subs[sub].nextDueDate = new Date(Date.parse(pdr) - 30 * DIA).toISOString().slice(0, 10); gravarEstado(e);
+    await relatorio(rodar('aplicar', { empresas: [H], agora: meioDia(pdr, 33) }));
+    const { processarRenovacao } = await import('./renovacao-fundador.ts');
+    const { repositorioRenovacao } = await import('./renovacao-repositorio.ts');
+    e = lerEstado(); e.subs[sub].nextDueDate = 'invalida'; gravarEstado(e);
+    const provedor = {
+        obterAssinatura: async (id: string) => ({ ...lerEstado().subs[id] }),
+        obterCobranca: async () => null, listarCobrancasDaAssinatura: async (id: string) => lerEstado().pagamentos[id] ?? [],
+        atualizarValorAssinatura: async () => { throw new Error('não'); }, atualizarValorCobranca: async () => { throw new Error('não'); },
+        suspenderGeracao: async (id: string) => ({ ...lerEstado().subs[id] }),
+    };
+    await processarRenovacao(H, { repositorio: repositorioRenovacao((t) => emTx(() => t(client as never))), provedor: provedor as never,
+        enviar: async () => { throw new Error('não'); }, origem: 'https://kidmais.example', agora: () => new Date(meioDia(pdr, 32)), simular: false, travar: async (_e, f) => f() });
+    assert.equal((await registro(H)).estado, 'REVISAO');
+    return pdr;
+}
+
+test('9b. fixture de homologação DESATIVADA em REVISAO: alerta informativo, fora do código 2; com uma real em REVISAO, o código continua 2', { skip: !opt() }, async () => {
+    const F = await empresa('CONFIRMADA', true); const pdr = await emRevisao(F);
+    const R = await empresa('CONFIRMADA'); await emRevisao(R);
+    const FA = await empresa('CONFIRMADA', true); await emRevisao(FA);
+    await q("UPDATE empresas SET status = 'DESATIVADA' WHERE id = $1", [F]);
+    const so = await relatorio(rodar('simular', { empresas: [F], agora: meioDia(pdr, 31) }));
+    assert.deepEqual([so.execucao, so.codigo, so.alertas.length, so.alertasInformativos?.map((a) => [a.empresaId, a.resultado])],
+        ['CONCLUIDA', 0, 0, [[F, 'REVISAO_EXISTENTE']]]);
+    const ambas = await relatorio(rodar('simular', { empresas: [F, R], agora: meioDia(pdr, 31) }));
+    assert.deepEqual([ambas.codigo, ambas.alertas.map((a) => a.empresaId), ambas.alertasInformativos?.map((a) => a.empresaId)], [2, [R], [F]]);
+    // Fixture ATIVA continua contando.
+    const ativa = await relatorio(rodar('simular', { empresas: [FA], agora: meioDia(pdr, 31) }));
+    assert.deepEqual([ativa.codigo, ativa.alertas.length, ativa.alertasInformativos?.length], [2, 1, 0]);
 });
 
 test('10. P3-T1: a conferência da trava usa a chave exata — perder a trava global com OUTRA trava de sessão ainda presa dá 0', { skip: !opt() }, async () => {
