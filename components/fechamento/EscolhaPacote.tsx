@@ -1,19 +1,25 @@
+import { useState } from "react";
 import { numeroParaMoeda } from "./calculos";
-import type { PacoteExibido } from "./pacotes-tela";
+import { separarPorConvidados, type PacoteExibido } from "./pacotes-tela";
 import styles from "./FechamentoWizard.module.css";
 
 /**
  * Cartões da etapa “Escolha o pacote”. `itens` nulo = ainda carregando os pacotes da empresa (ou falhou, com
  * `falha`); lista vazia = a empresa não tem pacote para orçamento online. Nenhum dos três estados mostra pacote
  * que não veio em `itens`.
+ * S-C: com `convidados`, os que comportam vêm primeiro; os demais ficam atrás de "ver mesmo assim", esmaecidos e com o
+ * motivo (o servidor recusa acima do máximo, como antes).
  */
-export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente }: {
+export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente, convidados = null, naoComporta }: {
   itens: PacoteExibido[] | null;
   falha: boolean;
   selecionado: string;
   onEscolher: (item: PacoteExibido) => void;
   onTentarNovamente: () => void;
+  convidados?: number | null;
+  naoComporta?: (id: string) => string | null;
 }) {
+  const [verTodos, setVerTodos] = useState(false);
   if (!itens) {
     if (falha)
       return (
@@ -36,13 +42,16 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
         <p>Entre em contato com o buffet para consultar as opções.</p>
       </div>
     );
-  return (
-    <div className={styles.packageGrid}>
-      {itens.map((item) => (
+  const { comportam, naoComportam } = convidados && naoComporta
+    ? separarPorConvidados(itens, naoComporta)
+    : { comportam: itens, naoComportam: [] as Array<PacoteExibido & { motivo: string }> };
+  // O pacote já escolhido nunca some da tela, mesmo que deixe de comportar.
+  const mostrarDemais = verTodos || naoComportam.some((item) => item.id === selecionado);
+  const cartao = (item: PacoteExibido, motivo?: string) => (
         <button
           key={item.id}
           type="button"
-          className={`${styles.packageCard} ${selecionado === item.id ? styles.packageSelected : ""}`}
+          className={`${styles.packageCard} ${selecionado === item.id ? styles.packageSelected : ""} ${motivo ? styles.packageFaded : ""}`}
           onClick={() => onEscolher(item)}
         >
           {item.destaque && (
@@ -55,11 +64,36 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
           <b>{item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>
           <p>{item.descricao}</p>
           {item.disponibilidade ? <small>{item.disponibilidade}</small> : null}
+          {motivo ? <small className={styles.packageMotivo}>{motivo}</small> : null}
           <span className={styles.selectText}>
             {selecionado === item.id ? "Selecionado" : "Selecionar"}
           </span>
         </button>
-      ))}
-    </div>
+  );
+  return (
+    <>
+      {convidados && comportam.length === 0 && naoComportam.length > 0 ? (
+        <div className={styles.warningBox} role="status">
+          <strong>Nenhum pacote comporta {convidados} convidados.</strong>
+          <p>Altere a quantidade ou veja os pacotes mesmo assim.</p>
+        </div>
+      ) : null}
+      <div className={styles.packageGrid}>
+        {comportam.map((item) => cartao(item))}
+      </div>
+      {naoComportam.length > 0 ? (
+        <div className={styles.packageOthers}>
+          <span>{naoComportam.length === 1 ? "1 pacote não comporta" : `${naoComportam.length} pacotes não comportam`} {convidados} convidados.</span>
+          {!mostrarDemais ? (
+            <button type="button" className={styles.secondaryButton} onClick={() => setVerTodos(true)}>Ver mesmo assim</button>
+          ) : null}
+        </div>
+      ) : null}
+      {mostrarDemais && naoComportam.length > 0 ? (
+        <div className={styles.packageGrid}>
+          {naoComportam.map((item) => cartao(item, item.motivo))}
+        </div>
+      ) : null}
+    </>
   );
 }

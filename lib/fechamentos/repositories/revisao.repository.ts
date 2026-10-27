@@ -2,7 +2,7 @@ import {escolhasDisponiveis,colunasEscolhas} from './escolhas-buffet';
 import { fotografarEstadoFechamento } from '../services/pacote-snapshot';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
-import { aplicarSalaoDaRevisao } from '../../agenda/salao-festa';
+import { aplicarSalaoDaRevisao, hashVersaoInstalada, recalcularHashRevisao } from '../../agenda/salao-festa';
 import type { FechamentoRecord, FechamentoAdicionalRecord } from './models';
 export const camposOperacao = ['cliente_id', 'responsavel_adicional_id', 'aniversariante_id', 'idade_aniversariante_evento', 'tema_festa', 'data_evento', 'horario_inicio', 'horario_fim', 'configuracao_agenda_id', 'pacote_id', 'tabela_preco_id', 'preco_pacote_id', 'regra_desconto_pacote_id', 'categoria_horario', 'categoria_preco_aplicada', 'convidados', 'convidados_faturados', 'valor_pacote_base', 'desconto_percentual', 'valor_desconto_pacote', 'valor_pacote_aplicado', 'valor_adicionais', 'valor_tabela', 'valor_negociado', 'valor_aprovado', 'motivo_negociacao', 'observacoes_negociacao', 'forma_pagamento_pretendida', 'condicao_pagamento', 'alteracoes_pacote', 'observacoes_cliente', 'observacoes_equipe', 'usuario_responsavel_id', 'buffet_status', 'buffet_salgados', 'buffet_bebidas', 'buffet_doces', 'buffet_bolo', 'buffet_outros', 'buffet_lembrancinha', 'buffet_empratado', 'buffet_bombom'] as const;
 const camposItens = ['adicional_id', 'preco_adicional_id', 'nome_aplicado', 'unidade_cobranca_aplicada', 'quantidade', 'valor_unitario_aplicado', 'valor_total', 'observacoes'] as const;
@@ -62,9 +62,16 @@ export async function criarRevisaoOperacionalRegistro(tx: DbExecutor, input: {
     usuarioId: string;
 }) {
     const camposOperacao=await camposDisponiveis(tx);
-    await tx.query(`INSERT INTO fechamento_revisoes(id,fechamento_id,contrato_id,contrato_versao_id,versao_base_id,motivo,chave_criacao,fonte_base_hash,conteudo_hash,criado_por_usuario_id,atualizado_por_usuario_id,${camposOperacao.join(',')})
- SELECT $1,f.id,$2,$3,$4,$5,$6,encode(sha256(convert_to(jsonb_build_object(${comumSql},'versaoBaseId',$4::uuid,'snapshotBaseHash',$7::text)::text,'UTF8')),'hex'),encode(sha256(convert_to(jsonb_build_object(${comumSql})::text,'UTF8')),'hex'),$8,$8,${camposOperacao.map(k => 'f.' + k).join(',')} FROM fechamentos f WHERE f.id=$9`, [input.id, input.contratoId, input.versaoId, input.baseId, input.motivo, input.chave, input.baseHash, input.usuarioId, input.fechamentoId]);
+    // S-E (104): revisão nova de festa em agenda POR_SALAO nasce com hash_versao 2 (o salão do destino entra no hash, ainda
+    // nulo na criação). O hash inicial espelha a função do banco (o validador diferido confere no COMMIT) e, depois dos
+    // adicionais, o recálculo pela própria função garante a fonte única (guarda da 014: só muda com revisão + 1).
+    const comVersao=await hashVersaoInstalada(tx);
+    const v2=`EXISTS(SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id=f.empresa_id AND c.estabelecimento_id IS NOT DISTINCT FROM f.estabelecimento_id AND c.capacidade_tipo='POR_SALAO')`;
+    const conteudoSql=comVersao?`'schemaVersao',1,'operacao',${projecaoOperacaoSql('f')}||CASE WHEN ${v2} THEN jsonb_build_object('salao_id',NULL::uuid) ELSE '{}'::jsonb END,'adicionais',${itensVigentesSql}`:comumSql;
+    await tx.query(`INSERT INTO fechamento_revisoes(id,fechamento_id,contrato_id,contrato_versao_id,versao_base_id,motivo,chave_criacao,fonte_base_hash,conteudo_hash,criado_por_usuario_id,atualizado_por_usuario_id,${camposOperacao.join(',')}${comVersao?',hash_versao':''})
+ SELECT $1,f.id,$2,$3,$4,$5,$6,encode(sha256(convert_to(jsonb_build_object(${comumSql},'versaoBaseId',$4::uuid,'snapshotBaseHash',$7::text)::text,'UTF8')),'hex'),encode(sha256(convert_to(jsonb_build_object(${conteudoSql})::text,'UTF8')),'hex'),$8,$8,${camposOperacao.map(k => 'f.' + k).join(',')}${comVersao?`,CASE WHEN ${v2} THEN 2 ELSE 1 END`:''} FROM fechamentos f WHERE f.id=$9`, [input.id, input.contratoId, input.versaoId, input.baseId, input.motivo, input.chave, input.baseHash, input.usuarioId, input.fechamentoId]);
     await tx.query(`INSERT INTO fechamento_revisao_adicionais(fechamento_revisao_id,${camposItens.join(',')}) SELECT $1,${camposItens.join(',')} FROM fechamento_adicionais WHERE fechamento_id=$2`, [input.id, input.fechamentoId]);
+    await recalcularHashRevisao(tx, input.id);
 }
 export async function salvarOperacaoPreparada(tx: DbExecutor, r: RevisaoOperacional, f: FechamentoRecord, itens: FechamentoAdicionalRecord[], usuarioId: string, motivo: string) {
     const camposOperacao=await camposDisponiveis(tx);

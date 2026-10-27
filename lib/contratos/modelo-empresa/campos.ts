@@ -1,4 +1,4 @@
-import type { ContratoSnapshot } from "../repositories/models.ts";
+import { salaoDoSnapshot, type ContratoSnapshot } from "../repositories/models.ts";
 import {
   formatarCep, formatarCondicaoPix, formatarCpf, formatarDataContrato, formatarFormaPagamento, formatarHorarioContrato,
   formatarMoeda, textoOuNaoInformado,
@@ -64,6 +64,8 @@ export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
   { chave: "festa.duracao", rotulo: "Duração do pacote", grupo: "Festa", exemplo: "4 horas", valor: duracao },
   { chave: "festa.convidados", rotulo: "Convidados contratados", grupo: "Festa", exemplo: "60", valor: (s) => String(s.evento.convidadosFaturados) },
   { chave: "festa.adicionais", rotulo: "Adicionais contratados", grupo: "Festa", exemplo: "Mesa de café (1); Bombom (20)", valor: (s) => s.contratacao.adicionais.length ? s.contratacao.adicionais.map((a) => `${a.nome} (${a.quantidade})`).join("; ") : "Nenhum" },
+  // S-E (plano S-E/S-D rev. 4.1, R-E5): opcional (fora dos obrigatórios); vazio sem salão fixado (V1/V2, V3 nulo).
+  { chave: "festa.salao", rotulo: "Salão da festa", grupo: "Festa", exemplo: "Jardim", valor: (s) => salaoDoSnapshot(s)?.nome ?? "" },
   { chave: "valor.total", rotulo: "Valor total do contrato", grupo: "Valores", exemplo: "R$ 9.990,00", valor: (s) => formatarMoeda(s.comercial.valorFinalContrato) },
   { chave: "valor.pacote", rotulo: "Valor do pacote", grupo: "Valores", exemplo: "R$ 9.190,00", valor: (s) => formatarMoeda(s.comercial.valorPacoteAplicado) },
   { chave: "valor.adicionais", rotulo: "Valor dos adicionais", grupo: "Valores", exemplo: "R$ 800,00", valor: (s) => formatarMoeda(s.comercial.valorAdicionais) },

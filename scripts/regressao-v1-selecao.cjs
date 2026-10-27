@@ -271,13 +271,20 @@ const ESTADO_POSTGRES = {
   // 25/10/2026: migration 103 (categoria Serviços): aplicação/reexecução/divergência/rollback no 102; estado final no 103.
   "lib/comercial/servicos-103.postgres.test.ts": { descartavel: "103", tambem: ["102"] },
   // Canal MCP (105): persistência OAuth, atomicidade (código, pedido, refresh), revogação entre conexões, trava FOR SHARE.
-  "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["103"] },
+  "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
   // 26/10/2026 (parecer do Astra, P3-1 da composição; R4-6): 102 antes da 100 (modelo 097) e 100 antes da 102 (modelo 102),
   // com 100_postcheck/100_integridade/094_integridade_apos_100 e a integridade da 102.
   "lib/agenda/saloes-102-ordem-100.postgres.test.ts": { descartavel: "097", tambem: ["102"] },
   // 27/10/2026: aplicador REAL da 102/103 para staging no modelo 097 + 100 (aplica, confere, privilégios, SERVICOS divergente,
   // marcador) e no 098 (recusa COM_098_102 sem escrever).
   "lib/agenda/aplicador-102-103.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // 27/10/2026 (S-C, convidados primeiro): capacidade do salão na disponibilidade (OK/OCUPADO/CAPACIDADE), revalidação
+  // com SEM_SALAO_PARA_CONVIDADOS sem gravar e escolha do salão que comporta; 097, como no staging (103) e com a 098.
+  // 27/10/2026 (S-E): migration 104 (hash da revisão com o salão), aplicada pela suíte sobre o modelo 103.
+  "lib/agenda/hash-revisao-104.postgres.test.ts": { descartavel: "103" },
+  // 27/10/2026 (S-E parte 2): salão fixado na emissão e exigido na assinatura (contratos nativos); sem e com a 104.
+  "lib/agenda/salao-contrato-se.postgres.test.ts": { descartavel: "103", tambem: ["104"] },
+  "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

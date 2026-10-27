@@ -24,16 +24,17 @@ export const conteudoModeloSchema = z.object({
 
 export type ConteudoModelo = z.infer<typeof conteudoModeloSchema>;
 
-function textos(c: ConteudoModelo) {
+/** Todos os textos do modelo que aceitam {{campos}}. */
+export function textosDoConteudo(c: ConteudoModelo) {
   return [c.titulo, ...c.preambulo, ...c.clausulas.flatMap((x) => [x.titulo ?? "", x.texto]), ...c.observacoes];
 }
 
 /** Problemas que impedem publicar: campo fora da lista e campos obrigatórios ausentes. */
 export function problemasDoConteudo(c: ConteudoModelo): string[] {
-  const usados = new Set(textos(c).flatMap(camposUsados));
+  const usados = new Set(textosDoConteudo(c).flatMap(camposUsados));
   const problemas: string[] = [];
   for (const campo of usados) if (!campoConhecido(campo)) problemas.push(`O campo {{${campo}}} não existe. Use um campo da lista.`);
   for (const campo of CAMPOS_OBRIGATORIOS) if (!usados.has(campo)) problemas.push(`O contrato precisa usar {{${campo}}}.`);
-  if (/\{\{(?![a-z_.\s]+\}\})/.test(textos(c).join("\n"))) problemas.push("Há um {{ sem fechamento ou com caracteres inválidos.");
+  if (/\{\{(?![a-z_.\s]+\}\})/.test(textosDoConteudo(c).join("\n"))) problemas.push("Há um {{ sem fechamento ou com caracteres inválidos.");
   return problemas;
 }

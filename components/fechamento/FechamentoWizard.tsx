@@ -5,7 +5,10 @@ import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
-import { codigoServidorDoPacoteDaMarca, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import ConvidadosChip from './ConvidadosChip';
+import { invalidarPendentes, mensagemHorarioRecusado, soAMaisRecente, travaAposConvidados } from './convidados-trava';
+import { codigoServidorDoPacoteDaMarca, motivoNaoComporta, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import { convidadosDaUrl } from '@/components/disponibilidade/convidados-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -269,6 +272,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     useState<PeriodoDisponibilidadePublica[]>([]);
   const [origemInterna, setOrigemInterna] = useState(false);
   const [preselecaoDisponibilidade, setPreselecaoDisponibilidade] = useState(false);
+  // S-C: convidados vieram da disponibilidade (convidados primeiro): a etapa Convidados não aparece; o número fica no chip.
+  const [convidadosDaEntrada, setConvidadosDaEntrada] = useState(false);
+  // P2-R1 (Astra): horário recusado para o número alterado no chip; trava as etapas seguintes até nova alteração válida.
+  const [horarioRecusado, setHorarioRecusado] = useState<string | null>(null);
   const [entradaResolvida, setEntradaResolvida] = useState(false);
   const [entradaPublicaInvalida, setEntradaPublicaInvalida] = useState(false);
   const [validandoDisponibilidade, setValidandoDisponibilidade] = useState(false);
@@ -293,6 +300,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [consultandoCep, setConsultandoCep] = useState(false);
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
+  // P2-R3 (Astra): só a revalidação de horário mais recente muda a tela (trocas rápidas no chip sobrepõem consultas).
+  const revalidacaoSeq = useRef(0);
 
   const [fatosPacote, setFatosPacote] = useState<FatosPacote | null>(null);
   // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
@@ -388,6 +397,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const codigoPeriodoParam =
         params.get("codigoPeriodo") || codigoDoHorarioLegado(params.get("periodo")) || "";
       const ajusteParam = params.get("ajuste");
+      const convidadosParam = convidadosDaUrl(params.get("convidados"));
       const inicioParam = params.get("inicio");
       const fimParam = params.get("fim");
       const ajustePreselecionado =
@@ -419,7 +429,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       ) {
         try {
           const resposta = await fetch(
-            apiPublica(`/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}`, empresa),
+            apiPublica(`/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}${convidadosParam ? `&convidados=${convidadosParam}` : ""}`, empresa),
             { cache: "no-store" },
           );
           if (!resposta.ok) throw new Error();
@@ -465,8 +475,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             horarioInicio: candidato.inicio,
             horarioFim: candidato.fim,
             statusDisponibilidade: "disponivel",
+            ...(convidadosParam ? { convidadosPagantes: convidadosParam } : {}),
           }));
           setPreselecaoDisponibilidade(true);
+          setConvidadosDaEntrada(Boolean(convidadosParam));
         } catch {
           if (!cancelado) {
             setErro(
@@ -505,8 +517,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const horario = intervaloSelecionado ? `${intervaloSelecionado.inicio} às ${intervaloSelecionado.fim}` : "";
 
   const indicesEtapasVisiveis = preselecaoDisponibilidade
-    ? [0, 2, 3, 4, 5, 6, 7, 8]
+    ? convidadosDaEntrada ? [0, 3, 4, 5, 6, 7, 8] : [0, 2, 3, 4, 5, 6, 7, 8]
     : [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  // Etapa que confere convidados e espera a cotação: a própria Convidados, ou o Pacote quando ela não aparece (S-C).
+  const etapaDosConvidados = preselecaoDisponibilidade && convidadosDaEntrada ? 0 : 2;
+  const etapaAposPacote = preselecaoDisponibilidade && convidadosDaEntrada ? 3 : 2;
   const etapasVisiveis = indicesEtapasVisiveis.map((indice) => ETAPAS[indice]);
   const etapaVisualAtual = Math.max(0, indicesEtapasVisiveis.indexOf(etapa));
   const numeroEtapaVisivel = (indiceReal: number) =>
@@ -932,22 +947,29 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     });
   }
 
-  async function revalidarHorarioAtual() {
+  /** true = horário vale; false = recusado (mensagem já mostrada); null = resposta antiga descartada (P2-R3). */
+  async function revalidarHorarioAtual(convidadosInformados: number = convidados): Promise<boolean | null> {
     if (!form.dataFesta || !form.configuracaoId || !intervaloSelecionado) {
       setErro("Escolha uma data e um horário válidos para continuar.");
       return false;
     }
 
     setValidandoDisponibilidade(true);
-    try {
+    const resultado = await soAMaisRecente(revalidacaoSeq, async () => {
       const resposta = await fetch(
         // 2c-2: no horário livre, o fim vem da duração do pacote escolhido.
-        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}${fato?.duracaoMinutos ? `&duracao=${fato.duracaoMinutos}` : ""}`, empresa),
+        // S-C: com os convidados, só conta salão livre que comporta (o mesmo que o servidor revalida na cotação).
+        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}${fato?.duracaoMinutos ? `&duracao=${fato.duracaoMinutos}` : ""}${convidadosInformados >= 1 ? `&convidados=${convidadosInformados}` : ""}`, empresa),
         { cache: "no-store" },
       );
       if (!resposta.ok) throw new Error();
-
-      const json = await resposta.json();
+      return resposta.json();
+    });
+    // Resposta de uma consulta mais antiga: descartada sem tocar em nada (a mais recente decide e encerra a espera).
+    if (!resultado.vigente) return null;
+    try {
+      if (!resultado.ok) throw new Error();
+      const json = resultado.valor;
       const periodos: PeriodoDisponibilidadePublica[] = json.data?.periodos ?? [];
       const periodo = periodos.find((item) => item.configuracaoId === form.configuracaoId);
       const livre = periodo?.codigo === "HORARIO_LIVRE";
@@ -959,6 +981,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       );
       if (livre && candidato && candidato.fim !== intervaloSelecionado.fim) {
         setForm((atual) => ({ ...atual, horarioFim: candidato.fim }));
+      }
+
+      if (candidato && candidato.status !== "DISPONIVEL" && candidato.capacidade?.motivo === "CAPACIDADE") {
+        setErro(`Nenhum salão livre neste horário comporta ${convidadosInformados} convidados. Altere a quantidade ou volte à disponibilidade.`);
+        return false;
       }
 
       if (!periodo || !candidato || candidato.status !== "DISPONIVEL") {
@@ -975,6 +1002,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
         descontos: json.comercial?.descontos ?? [],
       });
+      setHorarioRecusado(null);
       return true;
     } catch {
       setErro(
@@ -987,6 +1015,22 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   function validarEtapaAtual() {
+    // P2-R1 (Astra): depois do Pacote, com os convidados vindos da disponibilidade, a combinação alterada no chip precisa
+    // estar confirmada (horário revalidado e cotação pronta) antes de qualquer etapa seguinte avançar ou enviar.
+    const trava = travaAposConvidados({
+      convidadosDaEntrada: preselecaoDisponibilidade && convidadosDaEntrada, etapa, etapaDosConvidados,
+      cotacao: cotacaoEstado, erroCotacao: cotacaoAtual?.erro, revalidando: validandoDisponibilidade, horarioRecusado,
+    });
+    if (trava.tipo === "aguardar") {
+      setErro(etapa === ETAPAS.length - 1 ? "Aguarde a confirmação do horário e do preço para enviar." : "");
+      if (etapa < ETAPAS.length - 1) setAvancarAposCotacao(true);
+      return false;
+    }
+    if (trava.tipo === "erro") {
+      setErro(trava.mensagem);
+      return false;
+    }
+
     // Outra empresa: só vale pacote que ela oferece (lista do servidor já carregada).
     if (etapa === 0 && (!form.pacote || (!marca.kidmais && !pacote))) {
       setErro("Escolha um pacote para continuar.");
@@ -1030,7 +1074,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       return false;
     }
 
-    if (etapa === 2) {
+    if (etapa === etapaDosConvidados) {
       const mensagem = marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
@@ -1140,7 +1184,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     if (etapa === 0 && preselecaoDisponibilidade) {
       const aindaDisponivel = await revalidarHorarioAtual();
       if (!aindaDisponivel) return;
-      setEtapa(2);
+      setEtapa(etapaAposPacote);
     } else {
       setEtapa((atual) => Math.min(atual + 1, ETAPAS.length - 1));
     }
@@ -1150,16 +1194,45 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   const continuarAposCotacao = useEffectEvent(() => { void continuar(); });
   useEffect(() => {
-    if (!avancarAposCotacao || etapa !== 2 || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
+    // A espera vale na etapa que confere convidados e, no fluxo de convidados primeiro, nas seguintes (P2-R1).
+    const etapaQueEspera = etapa === etapaDosConvidados || (preselecaoDisponibilidade && convidadosDaEntrada && etapa > etapaDosConvidados);
+    if (!avancarAposCotacao || !etapaQueEspera || validandoDisponibilidade || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
     const t = setTimeout(continuarAposCotacao, 0);
     return () => clearTimeout(t);
-  }, [avancarAposCotacao, etapa, cotacaoEstado]);
+  }, [avancarAposCotacao, etapa, etapaDosConvidados, cotacaoEstado, validandoDisponibilidade, preselecaoDisponibilidade, convidadosDaEntrada]);
+
+  // S-C: validação do chip (sem pacote: o teto do pedido online e a forma do número).
+  const validarConvidadosDoChip = (quantidade: number) =>
+    marca.kidmais ? erroConvidadosFechamento(quantidade) : erroConvidadosEmpresa(quantidade);
+  const naoComportaNaTela = (id: string) => motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, id, convidados);
+
+  // S-C: novo número no chip: a cotação é refeita (a chave inclui os convidados) e o horário é revalidado; se o pacote
+  // escolhido deixa de comportar, avisa e volta ao Pacote.
+  async function alterarConvidados(quantidade: number) {
+    // P2-R3 (rodada 3): a troca invalida QUALQUER revalidação pendente (do chip ou do Continuar) antes de tudo, inclusive
+    // no retorno antecipado abaixo; sem consulta substituta, a espera termina aqui.
+    invalidarPendentes(revalidacaoSeq);
+    setValidandoDisponibilidade(false);
+    setAvancarAposCotacao(false);
+    atualizar("convidadosPagantes", quantidade);
+    const motivo = form.pacote ? motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote, quantidade) : null;
+    if (motivo) {
+      setEtapa(0);
+      setErro(`${motivo} Escolha outro pacote para ${quantidade} convidados.`);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setHorarioRecusado(null);
+    const valido = await revalidarHorarioAtual(quantidade);
+    // null = uma troca mais nova já está em andamento: esta resposta não vale mais (P2-R3).
+    if (valido === false) setHorarioRecusado(mensagemHorarioRecusado(quantidade));
+  }
 
   function voltar() {
     setAvancarAposCotacao(false);
     setErro("");
     setEtapa((atual) =>
-      preselecaoDisponibilidade && atual === 2 ? 0 : Math.max(atual - 1, 0),
+      preselecaoDisponibilidade && atual === etapaAposPacote ? 0 : Math.max(atual - 1, 0),
     );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1400,10 +1473,20 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 {!empresa && <PacotesPdf />}
               </div>
 
+              {convidadosDaEntrada && convidados >= 1 ? (
+                <ConvidadosChip convidados={convidados} validar={validarConvidadosDoChip} onAlterar={(n) => { void alterarConvidados(n); }} />
+              ) : null}
+
+              {convidadosDaEntrada && cotacaoEstado === 'erro' && form.pacote ? (
+                <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>
+              ) : null}
+
               <EscolhaPacote
                 itens={pacotesDaEtapa}
                 falha={falhaPacotes}
                 selecionado={form.pacote}
+                convidados={convidadosDaEntrada && convidados >= 1 ? convidados : null}
+                naoComporta={naoComportaNaTela}
                 onTentarNovamente={() => { setFalhaPacotes(false); setTentativaPacotes((n) => n + 1); }}
                 onEscolher={(item) => {
                       const novoPacote = item.id as PacoteId;
@@ -2097,6 +2180,16 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 O sistema mostra referências da tabela, mas {marca.a} continua
                 responsável pela aprovação do valor final.
               </StepTitle>
+
+              {convidadosDaEntrada && convidados >= 1 ? (
+                <ConvidadosChip convidados={convidados} validar={validarConvidadosDoChip} onAlterar={(n) => { void alterarConvidados(n); }} />
+              ) : null}
+              {convidadosDaEntrada && (horarioRecusado || cotacaoEstado === 'erro') ? (
+                <div className={styles.warningBox} role="alert"><strong>{horarioRecusado ?? cotacaoAtual?.erro}</strong></div>
+              ) : null}
+              {convidadosDaEntrada && !horarioRecusado && (validandoDisponibilidade || cotacaoEstado === 'carregando') ? (
+                <p role="status">Confirmando o horário e o preço para {convidados} convidados…</p>
+              ) : null}
 
               <div className={styles.valueCards}>
                 <div>

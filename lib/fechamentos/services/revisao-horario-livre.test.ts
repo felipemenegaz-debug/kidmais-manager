@@ -41,7 +41,7 @@ function carregar() {
       return { rows: [] };
     },
   };
-  return { m: exports as unknown as { revalidarAgendaRevisao: (tx: unknown, r: unknown, c: unknown) => Promise<boolean> }, tx, consultas, holds: () => holds };
+  return { m: exports as unknown as { revalidarAgendaRevisao: (tx: unknown, r: unknown, c: unknown) => Promise<{ livre: boolean }> }, tx, consultas, holds: () => holds };
 }
 
 const FESTA = { id: 'f', origemFechamento: 'ATENDIMENTO_KIDMAIS', dataEvento: '2026-11-20', horarioInicio: '10:00:00', horarioFim: '14:00:00', configuracaoAgendaId: 'livre', status: 'CONFIRMADO' };
@@ -57,7 +57,7 @@ test('duração do intervalo: minutos entre início e fim; inválido = null', ()
 for (const [rotulo, inicio, fim, duracao] of [['3 horas', '15:00', '18:00', 180], ['5 horas', '15:00', '20:00', 300]] as const) {
   test(`horário livre: remarcação para ${inicio}–${fim} (${rotulo}) consulta com a duração do destino e é aceita`, async () => {
     const { m, tx, consultas, holds } = carregar();
-    assert.equal(await m.revalidarAgendaRevisao(tx, revisao(inicio, fim), { usuarioId: 'u', requestId: 'req' }), true);
+    assert.equal((await m.revalidarAgendaRevisao(tx, revisao(inicio, fim), { usuarioId: 'u', requestId: 'req' })).livre, true);
     assert.deepEqual(consultas[0]?.[4], { duracaoMinutos: duracao });
     assert.equal(holds(), 1);
   });

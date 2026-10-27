@@ -11,7 +11,7 @@ import { concessaoVigentePostgres, criarRepositorioOAuthPostgres, SchemaMcpAusen
 import { hashSegredo, novoSegredo } from "./repositorio.ts";
 
 /**
- * A5 (persistência e concorrência REAIS) — cluster postgres-descartavel, estado "105" (e "103" para schema ausente).
+ * A5 (persistência e concorrência REAIS) — cluster postgres-descartavel, estado "105" (e "104", staging sem a 105, para schema ausente).
  * PREPARADA EM 27/10/2026 E NÃO EXECUTADA: exige autorização específica para o cluster descartável (docs/OPERACAO_AGENTES.md).
  * Roteiro: docs/MCP_ASSINATURAS_TESTES.md. O banco de trabalho é restaurado do modelo a cada suíte: aqui há COMMIT de verdade,
  * porque concorrência só se prova com duas conexões e espera observada no servidor (pg_blocking_pids), nunca com sleeps.
@@ -54,7 +54,7 @@ const CLIENTE = { clientId: "https://chatgpt.com/oauth/client.json", nome: "Chat
 const RECURSO = "https://manager.example.test/api/mcp";
 const CHALLENGE = "A".repeat(43);
 
-test("schema ausente (estado 103): toda operação vira SchemaMcpAusente, sem DDL", async () => {
+test("schema ausente (estado 104, sem a 105): toda operação vira SchemaMcpAusente, sem DDL", async () => {
   const db = await conectarDescartavel();
   try {
     if (await instalada(db)) return; // estado 105: coberto pelos demais testes
