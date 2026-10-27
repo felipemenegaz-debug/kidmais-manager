@@ -272,6 +272,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/servicos-103.postgres.test.ts": { descartavel: "103", tambem: ["102"] },
   // Canal MCP (105): persistência OAuth, atomicidade (código, pedido, refresh), revogação entre conexões, trava FOR SHARE.
   "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
+  // Aplicador da 105 em staging (27/10/2026): staging de hoje (103, sem 104/105/106) e com a 104 da S-E.
+  "lib/integracoes/oauth/aplicador-105.postgres.test.ts": { descartavel: "103", tambem: ["104"] },
   // 26/10/2026 (parecer do Astra, P3-1 da composição; R4-6): 102 antes da 100 (modelo 097) e 100 antes da 102 (modelo 102),
   // com 100_postcheck/100_integridade/094_integridade_apos_100 e a integridade da 102.
   "lib/agenda/saloes-102-ordem-100.postgres.test.ts": { descartavel: "097", tambem: ["102"] },

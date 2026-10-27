@@ -1,4 +1,4 @@
--- Rollback da 104. NÃO é o desligamento do canal: para interromper o canal use MCP_ENABLED=false (sem apagar nada).
+-- Rollback da 105. NÃO é o desligamento do canal: para interromper o canal use MCP_ENABLED=false (sem apagar nada).
 -- Só para desfazer a instalação ANTES de qualquer uso real: recusa se existir concessão (ativa ou não) ou auditoria,
 -- para não apagar trilha de segurança. Depois de uso real, manter as tabelas e desligar a flag.
 BEGIN;
