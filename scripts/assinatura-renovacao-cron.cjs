@@ -116,6 +116,22 @@ function planejar(env, argv = [], agora = new Date()) {
 }
 
 /**
+ * Alertas de FIXTURE DE HOMOLOGAÇÃO DESATIVADA (ehFixtureHomologacao + empresas.status = 'DESATIVADA') continuam no relatório,
+ * em `alertasInformativos`, mas não contam para o código 2 (decisão de Felipe, 27/10/2026: uma fixture antiga desativada em
+ * REVISAO fazia o cron sair 2 a cada hora). Só rebaixa 2 → 0 numa execução CONCLUIDA em que TODOS os alertas são desse tipo;
+ * 1 (interrupção) e execuções não concluídas não mudam. Empresa real, ou fixture ativa, continua contando.
+ * `linhas`: { id, codigo, nome, status } das empresas dos alertas (lidas do banco); empresa sem linha conta como real.
+ */
+function separarAlertasInformativos(relatorio, linhas, ehFixture) {
+    const porId = new Map(linhas.map((l) => [String(l.id), l]));
+    const informativo = (a) => { const l = porId.get(a.empresaId); return !!l && l.status === 'DESATIVADA' && ehFixture({ codigo: l.codigo, nome: l.nome }); };
+    const alertas = relatorio.alertas.filter((a) => !informativo(a));
+    const alertasInformativos = relatorio.alertas.filter(informativo);
+    const codigo = relatorio.codigo === 2 && relatorio.execucao === 'CONCLUIDA' && alertas.length === 0 && alertasInformativos.length > 0 ? 0 : relatorio.codigo;
+    return { ...relatorio, alertas, alertasInformativos, codigo };
+}
+
+/**
  * Execução com dependências injetáveis (testes PostgreSQL usam provedor e e-mail falsos). `f`:
  *   Pool, Client (pg), conexao (opções de conexão), provedor (cliente Asaas), enviar, origem, interrompido? () => boolean.
  */
@@ -174,9 +190,13 @@ async function executarCron(cfg, f) {
             aindaMinha: async () => !perdida && (await dedicada.query(SQL_TRAVA_MINHA, [TRAVA_GLOBAL])).rows[0].n === 1,
             liberar: async () => { if (!perdida) await dedicada.query('SELECT pg_advisory_unlock(hashtext($1))', [TRAVA_GLOBAL]); },
         };
-        return await executarAgendada({ modo: cfg.modo, empresas, naoElegiveis, travaGlobal, travarEmpresa: travaPorEmpresa(transacao),
+        const relatorio = await executarAgendada({ modo: cfg.modo, empresas, naoElegiveis, travaGlobal, travarEmpresa: travaPorEmpresa(transacao),
             ler: (e) => repositorio.ler(e), provedor, agora: deps.agora, interrompido: f.interrompido,
             processar: (e, travar) => processarRenovacao(e, { ...deps, travar }) });
+        if (!relatorio.alertas || relatorio.alertas.length === 0) return { ...relatorio, alertasInformativos: [] };
+        const linhas = (await pool.query("SELECT id::text AS id, codigo, nome, status::text AS status FROM empresas WHERE id = ANY($1::uuid[])",
+            [relatorio.alertas.map((a) => a.empresaId)])).rows;
+        return separarAlertasInformativos(relatorio, linhas, ehFixtureHomologacao);
     } finally {
         await dedicada.end().catch(() => undefined);
         await pool.end().catch(() => undefined);
@@ -209,5 +229,5 @@ if (require.main === module) {
     });
 }
 
-module.exports = { planejar, executarCron, argumentos, conexaoDaRenovacao, politicaCredencialDoServico, CREDENCIAL_DO_SERVICO, STAGING, TRAVA_GLOBAL,
+module.exports = { planejar, executarCron, separarAlertasInformativos, argumentos, conexaoDaRenovacao, politicaCredencialDoServico, CREDENCIAL_DO_SERVICO, STAGING, TRAVA_GLOBAL,
     SQL_TRAVA_MINHA, SERVICOS_TLS_RENOVACAO };
