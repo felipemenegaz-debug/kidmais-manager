@@ -63,6 +63,8 @@ export type RegraCapacidadeAgenda = {
   saloesDoEscopo: string[];
   /** 098: conjunto de salões simples de cada salão do escopo (combinado = membros). Ausente = cada salão é ele mesmo. */
   conjuntos?: Record<string, string[]>;
+  /** S-C: convidados que cada salão comporta (093); null = sem limite. Ausente = regra sem capacidade por salão. */
+  capacidadePorSalao?: Record<string, number | null>;
 };
 
 export type OcupacaoConfirmadaRecord = {

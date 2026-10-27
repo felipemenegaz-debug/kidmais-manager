@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
+      // S-C: com capacidade por salão, recusa (409 SEM_SALAO_PARA_CONVIDADOS) quando nenhum salão livre comporta.
+      convidados: dados.data.convidados,
     }, undefined, { ...escopo, estabelecimentoId: unidade.estabelecimentoId });
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
     if (!pacote) return NextResponse.json({ ok: false, erro: "Pacote indisponível.", codigo: "PACOTE_NAO_ENCONTRADO" }, { status: 404, headers: semCache });

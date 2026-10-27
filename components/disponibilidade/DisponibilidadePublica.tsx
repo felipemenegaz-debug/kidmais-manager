@@ -7,6 +7,8 @@ import PacotesPdf from "@/components/fechamento/PacotesPdf";
 import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
 import { horarioLegadoDoCodigo } from "@/components/fechamento/periodos";
+import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
+import { datasProximas, doMes, estadoDoDia, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, type EstadoDia } from "./convidados-tela";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -53,11 +55,14 @@ function formatarData(dataIso: string) {
 
 
 
-async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: string | null) {
+async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: string | null, convidados: number) {
   const inicio = iso(ano, mes, 1);
-  const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
-  const fim = iso(ano, mes, ultimo);
-  const resposta = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, empresa), {
+  // P3-R2 (Astra): até o fim do mês SEGUINTE (no máximo 62 dias, o limite da API), só para as datas próximas sugeridas
+  // quando o dia escolhido não tem encaixe; o calendário continua mostrando só o mês visível.
+  const { ano: anoFim, mes: mesFim, dia: diaFim } = fimDoMesSeguinte(ano, mes);
+  const fim = iso(anoFim, mesFim, diaFim);
+  // S-C: com os convidados, o servidor só conta salão que comporta e diz o motivo (só contagens, nunca salões).
+  const resposta = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}&convidados=${convidados}`, empresa), {
     cache: "no-store",
   });
 
@@ -87,6 +92,11 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const [dataSelecionada, setDataSelecionada] = useState("");
   const [periodoCodigo, setPeriodoCodigo] = useState("");
   const [horarioSelecionado, setHorarioSelecionado] = useState<HorarioCandidatoPublico | null>(null);
+  // S-C: convidados primeiro — o calendário só aparece depois do número (vale também para um salão: filtra os pacotes).
+  const [convidados, setConvidados] = useState<number | null>(null);
+  const [convidadosTexto, setConvidadosTexto] = useState("");
+  const [erroConvidados, setErroConvidados] = useState("");
+  const contatoBuffet = marca.kidmais ? null : linkContatoBuffet(marca.contato);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -95,11 +105,12 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   }, [ano, mes]);
 
   useEffect(() => {
+    if (!convidados) return;
     let cancelado = false;
 
     void (async () => {
       try {
-        const dias = await buscarDisponibilidadeMes(ano, mes, empresa);
+        const dias = await buscarDisponibilidadeMes(ano, mes, empresa, convidados);
         if (cancelado) return;
         setPorData(Object.fromEntries(dias.map((item) => [item.data, item])));
         setErro("");
@@ -115,7 +126,32 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
     return () => {
       cancelado = true;
     };
-  }, [ano, mes, empresa]);
+  }, [ano, mes, empresa, convidados]);
+
+  function confirmarConvidados(quantidade: number) {
+    const mensagem = marca.kidmais ? erroConvidadosFechamento(quantidade) : erroConvidadosEmpresa(quantidade);
+    if (mensagem) {
+      setErroConvidados(mensagem);
+      return;
+    }
+    setErroConvidados("");
+    setConvidadosTexto(String(quantidade));
+    if (quantidade === convidados) return;
+    setCarregando(true);
+    setErro("");
+    setPeriodoCodigo("");
+    setHorarioSelecionado(null);
+    setConvidados(quantidade);
+  }
+
+  function alterarConvidados() {
+    setConvidadosTexto(convidados ? String(convidados) : "");
+    setConvidados(null);
+    setPorData({});
+    setDataSelecionada("");
+    setPeriodoCodigo("");
+    setHorarioSelecionado(null);
+  }
 
   function mudarMes(delta: number) {
     setCarregando(true);
@@ -137,6 +173,17 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
   const dataInfo = dataSelecionada ? porData[dataSelecionada] : undefined;
   const periodoSelecionado = dataInfo?.periodos.find((item) => item.codigo === periodoCodigo);
+  // S-C: dia sem encaixe — datas próximas já carregadas e o contato do buffet.
+  const semEncaixe = Boolean(dataInfo && !dataInfo.periodos.some((p) => p.status === "DISPONIVEL"));
+  const proximas = semEncaixe && dataSelecionada ? datasProximas(porData, dataSelecionada, hojeIso()) : [];
+  const algumSemSalao = doMes(porData, ano, mes).some((d) => estadoDoDia(d) === "SEM_SALAO");
+  const classeDoDia: Record<EstadoDia, string> = {
+    NEUTRO: styles.dayNeutral,
+    DISPONIVEL: styles.dayAvailable,
+    PARCIAL: styles.dayPartial,
+    INDISPONIVEL: styles.dayUnavailable,
+    SEM_SALAO: styles.dayNoRoom,
+  };
 
   function selecionarPeriodo(periodo: PeriodoDisponibilidadePublica) {
     if (periodo.status !== "DISPONIVEL") return;
@@ -149,6 +196,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
     const params = new URLSearchParams({
       origem: "DISPONIBILIDADE",
+      ...(convidados ? { convidados: String(convidados) } : {}),
       data: dataSelecionada,
       codigoPeriodo: periodoSelecionado.codigo,
       configuracaoId: periodoSelecionado.configuracaoId,
@@ -177,11 +225,60 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
           <p className={styles.eyebrow}>Planeje sua comemoração</p>
           <h1>Escolha a melhor data e horário para sua festa.</h1>
           <p>
-            Consulte a agenda {marca.da} em tempo real. Primeiro escolha a data,
-            depois o período e o horário exato de início.
+            Consulte a agenda {marca.da} em tempo real. Primeiro diga quantos convidados,
+            depois escolha a data, o período e o horário exato de início.
           </p>
         </section>
 
+        <section className={styles.guestCard} aria-labelledby="convidados-titulo">
+          {convidados ? (
+            <div className={styles.guestSummary}>
+              <span>Convidados</span>
+              <strong>{convidados} convidados pagantes</strong>
+              <button type="button" onClick={alterarConvidados}>Alterar</button>
+            </div>
+          ) : (
+            <form
+              className={styles.guestForm}
+              onSubmit={(evento) => { evento.preventDefault(); confirmarConvidados(Number(convidadosTexto)); }}
+            >
+              <div className={styles.stepHeading}>
+                <span>1</span>
+                <div>
+                  <strong id="convidados-titulo">Quantos convidados pagantes?</strong>
+                  <small>Crianças e adultos. Mostramos só as datas e os pacotes que comportam a sua festa.</small>
+                </div>
+              </div>
+              <div className={styles.guestShortcuts}>
+                {ATALHOS_CONVIDADOS.map((qtd) => (
+                  <button type="button" key={qtd} onClick={() => confirmarConvidados(qtd)}>{qtd}</button>
+                ))}
+              </div>
+              <div className={styles.guestInputRow}>
+                <input
+                  type="number"
+                  min={1}
+                  max={150}
+                  inputMode="numeric"
+                  placeholder="Ou digite, ex.: 75"
+                  aria-label="Quantidade de convidados pagantes"
+                  value={convidadosTexto}
+                  onChange={(e) => { setConvidadosTexto(e.target.value); setErroConvidados(""); }}
+                  aria-invalid={Boolean(erroConvidados)}
+                />
+                <button type="submit" className={styles.continueButton}>Ver datas →</button>
+              </div>
+              {erroConvidados ? (
+                <div className={styles.errorBox} role="alert">
+                  {erroConvidados}
+                  {contatoBuffet ? <> <a href={contatoBuffet} target="_blank" rel="noreferrer">Falar com o buffet</a></> : null}
+                </div>
+              ) : null}
+            </form>
+          )}
+        </section>
+
+        {convidados ? (
         <section className={styles.card}>
           <div className={styles.calendarColumn}>
             <div className={styles.calendarToolbar}>
@@ -206,6 +303,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
               <span><i className={styles.legendAvailable} /> Disponível</span>
               <span><i className={styles.legendPartial} /> Parcial</span>
               <span><i className={styles.legendUnavailable} /> Sem horários</span>
+              {algumSemSalao ? <span><i className={styles.legendNoRoom} /> Sem salão para {convidados}</span> : null}
             </div>
 
             {erro ? <div className={styles.errorBox}>{erro}</div> : null}
@@ -223,15 +321,8 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                 const data = iso(ano, mes, dia);
                 const info = porData[data];
                 const passado = data < hojeIso();
-                const disponiveis = info?.periodos.filter((periodo) => periodo.status === "DISPONIVEL").length ?? 0;
-                const totalPeriodos = info?.periodos.length ?? 0;
-                const classeStatus = !info
-                  ? styles.dayNeutral
-                  : disponiveis === 0
-                    ? styles.dayUnavailable
-                    : disponiveis < totalPeriodos
-                      ? styles.dayPartial
-                      : styles.dayAvailable;
+                const estado = estadoDoDia(info);
+                const classeStatus = classeDoDia[estado];
 
                 return (
                   <button
@@ -243,8 +334,8 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                   >
                     <strong>{dia}</strong>
                     {!passado && info ? (
-                      <small>
-                        {disponiveis === 0 ? "×" : disponiveis < totalPeriodos ? "◐" : "✓"}
+                      <small aria-label={estado === "SEM_SALAO" ? `Sem salão para ${convidados}` : undefined}>
+                        {estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
                       </small>
                     ) : null}
                   </button>
@@ -257,7 +348,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
           <aside className={styles.selectionPanel}>
             {!dataSelecionada ? (
               <div className={styles.emptySelection}>
-                <span>1</span>
+                <span>2</span>
                 <h2>Escolha uma data</h2>
                 <p>Depois você verá os períodos disponíveis para esse dia.</p>
               </div>
@@ -270,7 +361,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
                 <section className={styles.selectionStep}>
                   <div className={styles.stepHeading}>
-                    <span>2</span>
+                    <span>3</span>
                     <div>
                       <strong>Escolha o período</strong>
                       <small>Os períodos indisponíveis ficam bloqueados.</small>
@@ -291,17 +382,38 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                           <strong>{periodo.nome}</strong>
                           {/* 2d: horário livre — o cliente escolhe a hora de início (sem faixa fixa). */}
                           <small>{periodo.codigo === "HORARIO_LIVRE" ? "Você escolhe a hora de início" : `${periodo.horarioInicioPadrao}–${periodo.horarioFimPadrao}`}</small>
-                          <b>{periodo.status === "DISPONIVEL" ? "Disponível" : "Indisponível"}</b>
+                          <b>{textoCapacidade(periodo.capacidade, convidados) ?? (periodo.status === "DISPONIVEL" ? "Disponível" : "Indisponível")}</b>
                         </div>
                       </button>
                     ))}
                   </div>
                 </section>
 
+                {semEncaixe ? (
+                  <div className={styles.noFit} role="status">
+                    <strong>
+                      {dataInfo?.motivoDia?.motivo === "CAPACIDADE"
+                        ? `Nenhum salão livre comporta ${convidados} convidados nesta data.`
+                        : "Esta data não tem horários livres."}
+                    </strong>
+                    {proximas.length ? (
+                      <>
+                        <span>Datas próximas com espaço para {convidados}:</span>
+                        <div className={styles.noFitDates}>
+                          {proximas.map((data) => (
+                            <button type="button" key={data} onClick={() => selecionarData(data)}>{formatarData(data)}</button>
+                          ))}
+                        </div>
+                      </>
+                    ) : <span>Não há datas livres até o fim do mês seguinte. Veja outros meses no calendário.</span>}
+                    {contatoBuffet ? <a href={contatoBuffet} target="_blank" rel="noreferrer">Falar com o buffet</a> : null}
+                  </div>
+                ) : null}
+
                 {periodoSelecionado ? (
                   <section className={styles.selectionStep}>
                     <div className={styles.stepHeading}>
-                      <span>3</span>
+                      <span>4</span>
                       <div>
                         <strong>{periodoSelecionado.codigo === "HORARIO_LIVRE" ? "Escolha a hora de início" : "Escolha o horário exato"}</strong>
                         <small>{periodoSelecionado.codigo === "HORARIO_LIVRE" ? "Aparecem só os inícios livres nesse dia." : "O horário padrão aparece no centro das opções."}</small>
@@ -326,7 +438,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                               <strong>{horario.inicio}–{horario.fim}</strong>
                               {horario.ajusteMinutos === 0 ? <small>Horário padrão</small> : null}
                             </span>
-                            <b>{indisponivel ? "Indisponível" : selecionado ? "Selecionado" : "Escolher"}</b>
+                            <b>{indisponivel ? (horario.capacidade?.motivo === "CAPACIDADE" ? `Sem salão para ${convidados}` : "Indisponível") : selecionado ? "Selecionado" : "Escolher"}</b>
                           </button>
                         );
                       })}
@@ -361,6 +473,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
           {!empresa && <PacotesPdf />}
           </div>
         </section>
+        ) : null}
       </div>
     </main>
   );

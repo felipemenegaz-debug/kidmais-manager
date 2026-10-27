@@ -145,6 +145,8 @@ export async function POST(request: NextRequest) {
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
+      // S-C: com capacidade por salão, recusa (409 SEM_SALAO_PARA_CONVIDADOS) antes de gravar qualquer coisa.
+      convidados: dados.data.convidadosPagantes,
     }, undefined, { empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId });
   } catch (error) {
     if (isAvailabilityServiceError(error)) {

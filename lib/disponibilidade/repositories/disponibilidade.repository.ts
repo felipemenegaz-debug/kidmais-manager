@@ -404,11 +404,11 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
   // 098: todos os salões do escopo (inclusive inativos, para o conjunto das ocupações) com tipo e membros; candidatos
   // só os elegíveis (mesma regra de kidmais098_salao_elegivel). Sem a 098, os salões ativos, cada um por ele mesmo.
   const v098 = await saloesCombinadosInstalados(ex);
-  const saloes = await ex.query<SalaoDoEscopo & { ordem: number; nome: string }>(
+  const saloes = await ex.query<SalaoDoEscopo & { ordem: number; nome: string; capacidade_convidados: number | null }>(
     v098
-      ? `SELECT id::text AS id, ativo, combinado, membros::text[] AS membros, ordem, nome FROM agenda_saloes
+      ? `SELECT id::text AS id, ativo, combinado, membros::text[] AS membros, ordem, nome, capacidade_convidados FROM agenda_saloes
           WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`
-      : `SELECT id::text AS id, ativo, false AS combinado, NULL::text[] AS membros, ordem, nome FROM agenda_saloes
+      : `SELECT id::text AS id, ativo, false AS combinado, NULL::text[] AS membros, ordem, nome, capacidade_convidados FROM agenda_saloes
           WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome`,
     [escopo.empresaId, escopo.estabelecimentoId ?? null],
   );
@@ -430,6 +430,8 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
     capacidadePorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, c.capacidade_tipo === "POR_SALAO" ? Number(h.capacidade) : 1])),
     saloesPorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, h.saloes ?? []])),
     saloesDoEscopo: saloes.rows.filter((s) => salaoElegivel(s, saloes.rows)).map((s) => s.id),
+    // S-C: quantos convidados cada salão comporta (093); null = sem limite informado (comporta qualquer número).
+    capacidadePorSalao: Object.fromEntries(saloes.rows.map((s) => [s.id, s.capacidade_convidados == null ? null : Number(s.capacidade_convidados)])),
     ...(v098 ? { conjuntos: conjuntosDosSaloes(saloes.rows) } : {}),
   };
 }

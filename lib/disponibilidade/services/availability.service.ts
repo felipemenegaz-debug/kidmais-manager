@@ -24,7 +24,9 @@ import {
   ocupacaoConflitaComCandidato,
 } from "./horario.utils.ts";
 import type {
+  CapacidadeConvidadosPublica,
   DisponibilidadeDataPublica,
+  MotivoCapacidade,
   PeriodoDisponibilidadePublica,
 } from "./models.ts";
 
@@ -59,6 +61,8 @@ export type OpcoesDisponibilidade = {
   duracaoMinutos?: number | null;
   /** Parecer do Astra (P1): salões permitidos pelo pacote; o candidato precisa de um salão livre na interseção. */
   saloesDoPacote?: string[] | null;
+  /** S-C: convidados pagantes informados pelo cliente; com capacidade por salão, só conta salão que comporta. */
+  convidados?: number | null;
 };
 export const DURACAO_PADRAO_MINUTOS = 240;
 
@@ -142,6 +146,8 @@ export type RevalidarHorarioSelecionadoInput = {
   ajusteMinutos: number;
   /** Parecer do Astra (P1): código do pacote no banco; com capacidade por salão, exige salão livre que ele permita. */
   pacoteCodigo?: string;
+  /** S-C: convidados da cotação/pedido; com capacidade por salão, exige salão livre que comporte. */
+  convidados?: number | null;
 };
 
 /**
@@ -219,6 +225,7 @@ export async function revalidarHorarioSelecionado(
   const disponibilidade = await consultarDisponibilidadeData(input.data, customDb, undefined, escopo, {
     duracaoMinutos,
     saloesDoPacote: await saloesDoPacoteDaEmpresa(customDb, empresaDoEscopo, input.pacoteCodigo),
+    convidados: input.convidados ?? null,
   });
   const periodo = disponibilidade.periodos.find(
     (item) =>
@@ -240,6 +247,15 @@ export async function revalidarHorarioSelecionado(
       item.fim === input.fim &&
       item.ajusteMinutos === input.ajusteMinutos,
   );
+
+  // S-C: o horário existe e só falta salão que comporte: mensagem própria (sem gravar nada; o chamador ainda não gravou).
+  if (candidato && candidato.status !== "DISPONIVEL" && candidato.capacidade?.motivo === "CAPACIDADE") {
+    throw new AvailabilityServiceError(
+      "SEM_SALAO_PARA_CONVIDADOS",
+      "Nenhum salão livre neste horário comporta " + input.convidados + " convidados. Escolha outra data ou fale com o buffet.",
+      409,
+    );
+  }
 
   if (!candidato || candidato.status !== "DISPONIVEL") {
     throw new AvailabilityServiceError(
@@ -279,26 +295,103 @@ export function ocupacaoImpedeCandidato(
   candidato: { inicioMinutos: number; fimMinutos: number },
   ocupacoes: OcupacaoConfirmadaRecord[],
   saloesDoPacote?: string[] | null,
+  convidados?: number | null,
 ) {
-  const sobrepoe = (o: OcupacaoConfirmadaRecord, folga: number) =>
-    minutosDe(o.horarioInicio) < candidato.fimMinutos + folga && minutosDe(o.horarioFim) > candidato.inicioMinutos - folga;
+  const sobrepoe = (o: OcupacaoConfirmadaRecord, folga: number) => ocupacaoSobrepoe(o, candidato, folga);
   if (!regra) return ocupacoes.some((o) => sobrepoe(o, 0));
-  if (regra.limiteFestasDia != null && new Set(ocupacoes.map((o) => o.fechamentoId)).size >= regra.limiteFestasDia) return true;
+  if (limiteDoDiaAtingido(regra, ocupacoes)) return true;
   const folga = regra.intervaloMinimoMinutos;
   if (regra.capacidadeTipo === "POR_SALAO") {
-    const listados = regra.saloesPorHorario[configId]?.length ? regra.saloesPorHorario[configId]! : regra.saloesDoEscopo;
-    // 098: como em salao-festa.ts, só salões elegíveis são candidatos (permissão por identidade: A e B não liberam AB).
-    const doHorario = regra.conjuntos ? listados.filter((s) => regra.saloesDoEscopo.includes(s)) : listados;
-    // Horário × pacote: sem salão em comum, a festa não tem onde acontecer (parecer do Astra, P1).
-    const saloes = saloesDoPacote?.length ? doHorario.filter((s) => saloesDoPacote.includes(s)) : doHorario;
+    const saloes = saloesCandidatos(regra, configId, saloesDoPacote);
     if (saloesDoPacote?.length && saloes.length === 0) return true;
     if (saloes.length === 0) return regra.conjuntos ? true : ocupacoes.some((o) => sobrepoe(o, folga));
-    return !saloes.some((salao) => !ocupacoes.some((o) => saloesCruzam(o.salaoId, salao, regra.conjuntos) && sobrepoe(o, folga)));
+    // S-C: com convidados, só salão que comporta é candidato; nenhum que comporte = impedido (motivo CAPACIDADE).
+    const comportam = convidados ? saloes.filter((salao) => salaoComporta(regra, salao, convidados)) : saloes;
+    return !comportam.some((salao) => salaoLivre(regra, salao, candidato, ocupacoes));
   }
   if (ocupacoes.some((o) => (o.configuracaoAgendaId ?? null) !== configId && sobrepoe(o, 0))) return true;
   const capacidade = regra.capacidadePorHorario[configId] ?? 1;
   // Fechamentos distintos: a remarcação em hold ocupa a origem e o destino, mas é UMA festa (parecer do Astra, P2).
   return new Set(ocupacoes.filter((o) => o.configuracaoAgendaId === configId && sobrepoe(o, folga)).map((o) => o.fechamentoId)).size >= capacidade;
+}
+
+const ocupacaoSobrepoe = (o: OcupacaoConfirmadaRecord, candidato: { inicioMinutos: number; fimMinutos: number }, folga: number) =>
+  minutosDe(o.horarioInicio) < candidato.fimMinutos + folga && minutosDe(o.horarioFim) > candidato.inicioMinutos - folga;
+
+const limiteDoDiaAtingido = (regra: RegraCapacidadeAgenda, ocupacoes: OcupacaoConfirmadaRecord[]) =>
+  regra.limiteFestasDia != null && new Set(ocupacoes.map((o) => o.fechamentoId)).size >= regra.limiteFestasDia;
+
+/** Salões candidatos do horário (098: só os elegíveis) na interseção com os do pacote. */
+function saloesCandidatos(regra: RegraCapacidadeAgenda, configId: string, saloesDoPacote?: string[] | null) {
+  const listados = regra.saloesPorHorario[configId]?.length ? regra.saloesPorHorario[configId]! : regra.saloesDoEscopo;
+  // 098: como em salao-festa.ts, só salões elegíveis são candidatos (permissão por identidade: A e B não liberam AB).
+  const doHorario = regra.conjuntos ? listados.filter((s) => regra.saloesDoEscopo.includes(s)) : listados;
+  // Horário × pacote: sem salão em comum, a festa não tem onde acontecer (parecer do Astra, P1).
+  return saloesDoPacote?.length ? doHorario.filter((s) => saloesDoPacote.includes(s)) : doHorario;
+}
+
+function salaoLivre(regra: RegraCapacidadeAgenda, salao: string, candidato: { inicioMinutos: number; fimMinutos: number }, ocupacoes: OcupacaoConfirmadaRecord[]) {
+  return !ocupacoes.some((o) => saloesCruzam(o.salaoId, salao, regra.conjuntos) && ocupacaoSobrepoe(o, candidato, regra.intervaloMinimoMinutos));
+}
+
+/** S-C: "salão comporta N" = capacidade não informada (NULL comporta) ou maior/igual a N. Combinado usa a própria. */
+export function salaoComporta(regra: Pick<RegraCapacidadeAgenda, "capacidadePorSalao">, salao: string, convidados: number) {
+  const capacidade = regra.capacidadePorSalao?.[salao];
+  return capacidade == null || capacidade >= convidados;
+}
+
+/**
+ * S-C: opções de salão de um candidato (só contagens, nunca ids): salões do horário × pacote que comportam N, os livres
+ * e os livres que comportam. null fora da capacidade por salão ou sem salão candidato (os convidados não mudam nada).
+ */
+export function opcoesDeSalao(
+  regra: RegraCapacidadeAgenda | null,
+  configId: string,
+  candidato: { inicioMinutos: number; fimMinutos: number },
+  ocupacoes: OcupacaoConfirmadaRecord[],
+  saloesDoPacote: string[] | null | undefined,
+  convidados: number,
+) {
+  if (!regra || regra.capacidadeTipo !== "POR_SALAO") return null;
+  const saloes = saloesCandidatos(regra, configId, saloesDoPacote);
+  if (saloes.length === 0) return null;
+  const livres = saloes.filter((salao) => salaoLivre(regra, salao, candidato, ocupacoes));
+  return {
+    comportam: saloes.filter((salao) => salaoComporta(regra, salao, convidados)).length,
+    livres: livres.length,
+    livresQueComportam: livres.filter((salao) => salaoComporta(regra, salao, convidados)).length,
+  };
+}
+
+/**
+ * S-C: motivo para a tela. CAPACIDADE quando nenhum salão do horário comporta N, ou quando há salão livre mas nenhum
+ * livre comporta; OCUPADO quando bloqueado, no limite do dia ou sem salão livre. null = sem capacidade por salão.
+ */
+export function capacidadeDoCandidato(
+  regra: RegraCapacidadeAgenda | null,
+  configId: string,
+  candidato: { inicioMinutos: number; fimMinutos: number },
+  ocupacoes: OcupacaoConfirmadaRecord[],
+  saloesDoPacote: string[] | null | undefined,
+  convidados: number,
+  bloqueado: boolean,
+): CapacidadeConvidadosPublica | null {
+  const opcoes = opcoesDeSalao(regra, configId, candidato, ocupacoes, saloesDoPacote, convidados);
+  if (!opcoes || !regra) return null;
+  if (opcoes.comportam === 0) return { opcoes: 0, motivo: "CAPACIDADE" };
+  if (bloqueado || limiteDoDiaAtingido(regra, ocupacoes) || opcoes.livres === 0) return { opcoes: 0, motivo: "OCUPADO" };
+  if (opcoes.livresQueComportam === 0) return { opcoes: 0, motivo: "CAPACIDADE" };
+  return { opcoes: opcoes.livresQueComportam, motivo: "OK" };
+}
+
+/** S-C: soma dos motivos (período ou dia): alguma opção = OK; senão algum por capacidade = CAPACIDADE; senão OCUPADO. */
+export function motivoAgregado(itens: Array<CapacidadeConvidadosPublica | null | undefined>): CapacidadeConvidadosPublica | null {
+  const presentes = itens.filter((i): i is CapacidadeConvidadosPublica => Boolean(i));
+  if (presentes.length === 0) return null;
+  const ok = presentes.filter((i) => i.motivo === "OK");
+  if (ok.length) return { opcoes: Math.max(...ok.map((i) => i.opcoes)), motivo: "OK" };
+  const motivo: MotivoCapacidade = presentes.some((i) => i.motivo === "CAPACIDADE") ? "CAPACIDADE" : "OCUPADO";
+  return { opcoes: 0, motivo };
 }
 
 export async function consultarDisponibilidadePeriodo(
@@ -361,14 +454,15 @@ export async function consultarDisponibilidadePeriodo(
     const bloqueiosDoDia = porData.get(data) ?? [];
     const ocupacoesDoDia = ocupacoesPorData.get(data) ?? [];
 
-    return {
-      data,
-      periodos: livre
-        ? [calcularPeriodoPublico(livre, bloqueiosDoDia, ocupacoesDoDia, regra, gerarCandidatosLivres(livre.passoInicioMinutos, duracao), opcoes?.saloesDoPacote ?? null)]
-        : configuracoes
-          .filter((config) => horarioValeNaData(config, data))
-          .map((config) => calcularPeriodoPublico(config, bloqueiosDoDia, ocupacoesDoDia, regra, undefined, opcoes?.saloesDoPacote ?? null)),
-    };
+    const convidados = opcoes?.convidados ?? null;
+    const periodos = livre
+      ? [calcularPeriodoPublico(livre, bloqueiosDoDia, ocupacoesDoDia, regra, gerarCandidatosLivres(livre.passoInicioMinutos, duracao), opcoes?.saloesDoPacote ?? null, convidados)]
+      : configuracoes
+        .filter((config) => horarioValeNaData(config, data))
+        .map((config) => calcularPeriodoPublico(config, bloqueiosDoDia, ocupacoesDoDia, regra, undefined, opcoes?.saloesDoPacote ?? null, convidados));
+    // S-C: o motivo do dia só existe com convidados e capacidade por salão; sem eles, a resposta é a de antes.
+    const motivoDia = convidados ? motivoAgregado(periodos.map((p) => p.capacidade)) : null;
+    return motivoDia ? { data, periodos, motivoDia } : { data, periodos };
   });
 }
 
@@ -379,23 +473,31 @@ function calcularPeriodoPublico(
   regra: RegraCapacidadeAgenda | null = null,
   candidatos: ReturnType<typeof gerarHorariosCandidatos> = gerarHorariosCandidatos(config),
   saloesDoPacote: string[] | null = null,
+  convidados: number | null = null,
 ): PeriodoDisponibilidadePublica {
   const horarios = candidatos.map((candidato) => {
+    const bloqueado = bloqueios.some((bloqueio) =>
+      bloqueioConflitaComCandidato(bloqueio, candidato),
+    );
     const indisponivel =
-      bloqueios.some((bloqueio) =>
-        bloqueioConflitaComCandidato(bloqueio, candidato),
-      ) ||
-      ocupacaoImpedeCandidato(regra, config.id, candidato, ocupacoesConfirmadas, saloesDoPacote);
+      bloqueado ||
+      ocupacaoImpedeCandidato(regra, config.id, candidato, ocupacoesConfirmadas, saloesDoPacote, convidados);
+    const capacidade = convidados
+      ? capacidadeDoCandidato(regra, config.id, candidato, ocupacoesConfirmadas, saloesDoPacote, convidados, bloqueado)
+      : null;
 
     return {
       inicio: candidato.inicio,
       fim: candidato.fim,
       ajusteMinutos: candidato.ajusteMinutos,
       status: indisponivel ? ("INDISPONIVEL" as const) : ("DISPONIVEL" as const),
+      ...(capacidade ? { capacidade } : {}),
     };
   });
+  const capacidade = convidados ? motivoAgregado(horarios.map((h) => h.capacidade)) : null;
 
   return {
+    ...(capacidade ? { capacidade } : {}),
     configuracaoId: config.id,
     codigo: config.codigo,
     nome: config.nome,
