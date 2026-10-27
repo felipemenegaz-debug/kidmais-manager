@@ -107,7 +107,7 @@ export const saidaAtencaoSchema = z.object({
 /** Chaves que nunca podem aparecer numa saída de ferramenta (minimização; defesa em profundidade). */
 const CHAVES_PROIBIDAS = /^(cpf|cnpj|rg|documento|senha|password|hash|senha_hash|password_hash|token|session|sessao|otp|api_?key|secret|segredo|database_url|connection_?string|telefone|email|endereco)$/i;
 
-function chaveProibida(valor: unknown, profundidade = 0): string | null {
+export function chaveProibida(valor: unknown, profundidade = 0): string | null {
   if (profundidade > 8 || valor === null || typeof valor !== "object") return null;
   if (Array.isArray(valor)) {
     for (const v of valor) {

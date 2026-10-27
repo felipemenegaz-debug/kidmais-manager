@@ -1,0 +1,44 @@
+{
+  "versao": 1,
+  "documentos": [
+    {
+      "arquivo": "assistentes-externos.md",
+      "id": "assistentes-externos",
+      "titulo": "Assistentes externos conectados ao KidMais",
+      "versao": 1,
+      "vigenteDesde": "2026-10-27",
+      "vigenteAte": null,
+      "situacao": "PENDENTE_APROVACAO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "769243d7962194932a717f9527a83b8e0c9ed347195ef4bba421d300738421fe"
+    },
+    {
+      "arquivo": "agenda-do-dia.md",
+      "id": "agenda-do-dia",
+      "titulo": "Agenda do dia",
+      "versao": 1,
+      "vigenteDesde": "2026-10-27",
+      "vigenteAte": null,
+      "situacao": "PENDENTE_APROVACAO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "8781baaf336afca70fb79d4c421707a1abfb9a5eb590020e329ad0406fd92c24"
+    },
+    {
+      "arquivo": "contas-a-receber.md",
+      "id": "contas-a-receber",
+      "titulo": "Contas a receber",
+      "versao": 1,
+      "vigenteDesde": "2026-10-27",
+      "vigenteAte": null,
+      "situacao": "PENDENTE_APROVACAO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0"
+    }
+  ]
+}

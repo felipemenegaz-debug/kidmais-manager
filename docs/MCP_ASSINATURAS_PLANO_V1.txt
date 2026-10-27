@@ -1,0 +1,230 @@
+CÓPIA DO PLANO — versão v1 (27/10/2026), copiada de D:/glass/KidMais Manager/planejamento-mcp-assinaturas-20261027/PLANO.txt
+STATUS NESTE CHECKOUT: P0–P3 IMPLEMENTADAS LOCALMENTE (sem commit), SEM revisão independente, persistência PostgreSQL NÃO executada,
+conexão real NÃO realizada, nada publicado. Delta e evidências: docs/MCP_ASSINATURAS_V1.md e docs/MCP_ASSINATURAS_TESTES.md.
+SHA-256 do original: ea1bb9c958fb0b9ccec780570da5293f8547c54bdc0a3ae331c3c386bcabb5f7
+
+KIDMAIS — CANAL EXTERNO MCP POR ASSINATURA
+Plano de implementação local v1 — 27/10/2026
+
+ESTADO E AUTORIZAÇÃO
+Plano preparado a pedido de Felipe, para implementação por Claude. Não implementado,
+não revisado independentemente e não homologado. Nenhuma publicação autorizada.
+Copiloto integrado permanece com API OpenAI, configuração e comportamento atuais.
+O relato de copiloto desligado não autoriza reativação nem depende desta entrega.
+
+OBJETIVO
+O cliente conversa no aplicativo ChatGPT, Claude ou Gemini e conecta sua conta KidMais.
+O assistente externo interpreta e redige; o KidMais fornece ferramentas determinísticas
+e trechos autorizados, sem chamar API de LLM, embeddings ou reranking nesse canal.
+Assinatura não é ilimitada e não paga infraestrutura do KidMais. Não coletar credenciais
+da assinatura, cookies do fabricante ou API key de modelo do usuário.
+
+BASE E ISOLAMENTO
+Referência examinada: eb1af4262b8c18261626354541107f112d5e5e73, de 27/10,
+no checkout kidmais-manager-recuperacao-pagamentos-b14-20261027. É referência de leitura,
+não diretório de implementação nem prova do estado de produção.
+Implementador deve conferir base local e criar checkout/worktree próprio, branch
+codex/mcp-assinaturas-v1 ou prefixo exigido no seu ambiente. Não editar checkout de
+outra tarefa, não resetar alterações alheias e não escolher produção como base.
+Registrar SHA efetivo e diferenças relevantes em relação à referência. Se houver
+base de integração mais recente inequivocamente identificada, usá-la e documentar.
+Se origem/base estiver ambígua, concluir inventário antes de pedir decisão específica.
+
+DECISÕES DE PRODUTO
+1. Um backend MCP compartilhado; adaptar conexão/distribuição a cada fabricante.
+2. Versão inicial somente leitura de negócio. Login, concessões, revogação e auditoria
+   necessariamente persistem metadados de segurança; não são escrita comercial.
+3. RAG inicial textual e determinístico, sem banco vetorial, sem inferência paga.
+4. Sem alterar preço/plano/créditos de IA; não debitar créditos de geração por consulta
+   determinística. Preservar bloqueios de assinatura e autorizações existentes.
+5. Não ampliar permissões, remover minimização ou desativar o Human Gate.
+6. Gemini incluído no contrato e roteiro; conexão no app brasileiro não prometida.
+7. Sem envio de mensagens, criação de contratos, reservas, baixa financeira, descontos,
+   uploads de clientes, consulta a crianças, execução SQL genérica ou shell por ferramenta.
+
+ESCOPO FECHADO DE FERRAMENTAS
+Nomes externos propostos, schemas versionados e validados; mapear às capacidades reais:
+
+kidmais_consultar_agenda
+- hoje ou amanhã no fuso America/Sao_Paulo, reutilizando agenda_do_dia.
+- saída externa por lista positiva: horários, contagem, situação operacional mínima,
+  referência opaca se indispensável; sem nomes, contatos, aniversariantes ou texto livre.
+- declarar limite/truncamento da fonte. Sem afirmar disponibilidade a partir da agenda.
+- não anunciar filtro por unidade se a fonte só suporta empresa. Se não for possível
+  provar o escopo autorizado, recusar; nunca rotular dados empresariais como da unidade.
+
+kidmais_consultar_recebiveis_resumo
+- reutilizar analisar_recebiveis; posição atual agregada, totais em centavos, moeda BRL,
+  faixas de atraso e data de referência. Não prometer histórico/comparações inexistentes.
+- permissão financeira explícita; sem nomes de clientes nem parcelas individualizadas.
+
+kidmais_buscar_conhecimento
+- consulta curta, máximo 500 caracteres; limite padrão 5, máximo 10 resultados.
+- busca textual normalizada em português, por título, seção e conteúdo aprovado.
+- resultado: referência opaca, título, seção, trecho, versão e data de vigência.
+- sem correspondência: retornar vazio/sem evidência; não produzir texto inventado.
+
+kidmais_obter_trecho
+- recebe referência retornada pela busca; resolve um trecho limitado, nunca o vault,
+  sistema de arquivos ou documento inteiro arbitrário. Revalidar ACL e vigência.
+- referências de outra empresa, adulteradas, expiradas ou revogadas não revelam conteúdo.
+
+Essas quatro ferramentas constituem o MVP. Metadados obrigatórios de perfil/identidade
+de um fabricante podem ser adicionados com saída mínima e autorização própria, sem
+se tornarem consulta livre de usuário. Disponibilidade por salão e comparações financeiras
+são backlog: não inventar substitutos simplificados nesta entrega.
+
+ARQUITETURA
+Cliente externo → /mcp (Streamable HTTP) → autenticação OAuth → identidade externa
+comprovada → política de canal/permissão/plano/tenant → serviços de negócio/recuperação
+→ DTO externo minimizado → cliente externo.
+
+Usar SDK MCP oficial compatível com o runtime real e fixar versão no lockfile. Ler a
+documentação local do Next exigida pelo AGENTS antes de modificar rotas. Preferir
+adaptador na aplicação atual, em runtime Node, se o transporte suportar a integração.
+Não introduzir novo microserviço/provedor de infraestrutura sem necessidade demonstrada.
+Se SDK exigir outro adaptador HTTP, documentar a decisão e manter limites de identidade.
+
+Pontos existentes para reaproveitar:
+- lib/inteligencia/registro-ferramentas.ts: capacidades, schemas e classificação.
+- lib/inteligencia/gateway.ts: executarLeitura, autorização, prazos e tenant.
+- lib/inteligencia/politica*.ts, flags.ts e recursos-plano-ia.test.ts: políticas.
+- lib/inteligencia/contexto/*: regras de minimização; não copiar saída interna bruta.
+- lib/inteligencia/leituras/agenda-do-dia.ts e analisar-recebiveis.ts: fontes de negócio.
+- lib/autenticacao/contexto.ts e módulos reais de tenant: identidade/membership.
+- lib/inteligencia/canais.ts: hoje ADMIN/WHATSAPP; revisar necessidade de canal MCP,
+  sem obrigar o canal externo a passar pela orquestração conversacional paga.
+
+Novos módulos sugeridos, adaptar ao padrão do repositório:
+- lib/integracoes/mcp: transporte, ferramentas, schemas, limites, DTOs e rastreio.
+- lib/integracoes/oauth: concessões, tokens, descoberta e adapter de autorização.
+- lib/conhecimento: corpus aprovado, segmentação, busca, ACL e referências.
+- rotas de MCP, descoberta OAuth e gestão de conexões autenticada no Admin.
+- docs/MCP_ASSINATURAS_V1.md, docs/MCP_ASSINATURAS_TESTES.md e SQL/checks, se necessário.
+Não criar importação cíclica nem fazer MCP chamar atenderConversa/Model Router/JEV/LLM.
+
+AUTENTICAÇÃO E PERSISTÊNCIA — NÃO SIMULAR COMO ENTREGA FINAL
+Login existente autentica a pessoa; OAuth permite delegar acesso ao cliente MCP.
+Usar biblioteca mantida/implementação de referência compatível, evitando escrever o
+protocolo do zero. Documentar descoberta, cliente, PKCE S256, audience/resource e scopes.
+Identificar suporte de cada host a cadastro estático, DCR e CIMD; implementar somente
+os caminhos verificados necessários ao piloto. Falta de suporte deve gerar erro claro,
+nunca fallback sem autenticação ou token de administrador.
+
+Scopes propostos: agenda:read, financeiro:read e conhecimento:read. Concessão vinculada
+a usuário e empresa, e unidade quando a fonte provar esse escopo. Não confiar em
+empresaId, usuarioId ou papel vindos de tool arguments. Revalidar membership, papel,
+assinatura, flags e revogação a cada execução. Não fabricar cookie/sessão UI para tokens.
+Manter uma fronteira explícita de principal autenticado, partilhando a política canônica.
+
+Consentimento na sessão autenticada do KidMais: cliente solicitante, empresa, permissões,
+dados que sairão, prazo e revogação. Seleção da empresa é humana e comprovada no servidor.
+Proteger contra CSRF e elevação de escopo. Redirecionamentos exatos; validar discovery
+contra SSRF, inclusive redes privadas/redirecionamentos. Não repassar tokens de terceiros.
+Tokens/códigos opacos de alta entropia e armazenamento de hash quando apropriado; código
+de uso único, expiração, refresh rotativo com detecção de reutilização e revogação.
+Sem secrets em logs. Tempos finitos e limites documentados/testados; não prometer valores
+universais aos clientes. Multi-instância e reinício não podem ressuscitar acesso revogado.
+
+Preparar esquema persistente de clientes/grants/tokens/auditoria com chaves, índices,
+isolamento e retenção mínima. Conferir numeração de migrations nas refs/clones locais
+antes de propor; número local não é reserva. Não executar migrations nesta tarefa sem
+autorização própria. Adaptador de memória é exclusivo de teste, nunca fallback operacional.
+Schema/credencial ausente: recurso permanece fechado, sem bootstrap de DDL em request.
+
+CONTROLES DE CANAL
+Flag nova MCP_ENABLED=false por padrão e allowlist explícita de tenants para piloto.
+O conector deve funcionar sem chave de LLM e sem AI_COPILOTO_MODEL_ENABLED, mas continuar
+respeitando INTELIGENCIA_ENABLED, flags READ, tenant e entitlement enquanto forem as
+guardas canônicas. Não contornar a chave-mestra existente para conseguir um teste verde.
+Conector desligado deve recusar execução antes de abrir sessão/banco desnecessariamente;
+documentar comportamento separado das rotas públicas de metadados exigidas por OAuth.
+GET/POST/DELETE do transporte não autorizam escrita de negócio. Sessão MCP não é identidade.
+Limites por cliente/usuário/empresa, payload, intervalo, tempo e concorrência; não depender
+de IP fornecido livremente. Proteger logs e filas contra crescimento ilimitado.
+
+RAG INICIAL
+Corpus mínimo de documentação funcional aprovada e sem dados de cliente. Não copiar
+automaticamente Obsidian, docs internos de operação, prompts de agentes, secrets ou contratos.
+Fonte aprovada → revisão/versionamento → fragmentos por seção → índice textual →
+recuperação → citação. Resultados sempre dados, não instruções que alteram permissões.
+Iniciar com corpus versionado em arquivos e carregamento estritamente controlado.
+Suportar ACL de plataforma/empresa/unidade no contrato e testes com duas empresas
+sintéticas; não inferir ACL de um nome de arquivo. Sem uploader/editor no MVP.
+Busca restrita ANTES do ranking e fetch revalidado. Documento removido/suspenso/vencido
+não aparece. Preferir ausência de cache no MVP; se houver, chave inclui tenant,
+permissões e versão e demonstra invalidação. Caminhos arbitrários/URLs são proibidos.
+RAG não gera resposta no servidor: entrega trechos para o assistente externo.
+
+EXPERIÊNCIA E DISTRIBUIÇÃO
+Admin: gestão simples das conexões por usuário, empresa, scopes, última utilização,
+revogação e instruções dos provedores. Não marcar conectado por clique: usar estado
+persistido da concessão, distinguindo autorização de uma chamada de ferramenta observada.
+URLs reais só quando conhecidas/configuradas. Não inventar botão que instala plugin sem
+suporte oficial. Gemini: mostrar disponibilidade dependente do fabricante, sem prometer
+Brasil; não orientar mudança falsa de país ou proxy de assinatura.
+Pacote/manifesto ChatGPT e instruções Claude/Gemini podem ser preparados localmente,
+mas não submetidos, publicados ou conectados a contas reais. UI customizada dentro dos
+chats é opcional futura; resultados estruturados/textuais bastam ao MVP.
+
+FASES E ENTREGÁVEIS
+P0: inventário/base, mapa de reuso, decisão de SDK/OAuth e contratos; reportar delta do plano.
+P1: núcleo de ferramentas/DTOs/política e RAG textual com fixtures e testes offline.
+P2: transporte MCP real e OAuth com persistência implementada, migrations preparadas,
+    consentimento/conexões locais; testes de protocolo com cliente/servidor loopback.
+P3: regressão, documentação de instalação/publicação futura, pacote local e matriz de
+    evidências. Preparar roteiros PostgreSQL isolado e clientes reais sem executá-los
+    se faltarem autorização/ambiente. Não reclassificar pendência como aprovação.
+P4 FUTURA: revisão independente, autorização de banco isolado e execução dos testes
+    de persistência/concorrência; depois homologação real por fabricante/plano/região.
+P5 FUTURA: publicação piloto autorizada e observação. Escritas de negócio ficam fora.
+
+CRITÉRIOS DE ACEITE
+A1. Quatro ferramentas descobertas e chamadas por cliente MCP real local, com JSON-RPC,
+    inicialização/versão/capabilities, schema, erros e tratamento de sessão corretos.
+A2. Sem chave de modelo: consultas e busca funcionam; espiões de provedores e interceptação
+    de rede provam zero chamadas de geração/embeddings/reranking, com controle positivo
+    de que o detector falha quando uma chamada proibida é injetada. Loopback permitido.
+A3. Usuários e duas empresas sintéticas: grant de A nunca lê B, nem por ID, cursor, fetch,
+    retorno de erro ou cache. Unidade testada conforme escopo real da fonte.
+A4. Token inválido/expirado/revogado, audience errada, scope insuficiente, papel removido,
+    empresa bloqueada e flags desligadas recusam sem retorno parcial de dados.
+A5. PKCE/code replay/redirect/CSRF/refresh reuse e consentimento de escopo testados.
+    Persistência e concorrência reais exigem prova PostgreSQL separada, não só mocks.
+A6. Agenda e financeiro não retornam PII nem dados de criança, mesmo com tais campos
+    presentes nas fixtures/fontes. Valores coincidem com serviços e regras canônicas.
+A7. RAG recupera fontes de perguntas em português, distingue ausência, versão vigente,
+    revogação e instruções maliciosas; teste sem correspondência não inventa resposta.
+A8. Ferramenta de escrita/SQL/shell não existe nem pode ser chamada por nome adivinhado.
+A9. Testes pertinentes, typecheck, lint e build locais, sem carregar .env real; baseline
+    e falhas preexistentes separados. UI nova validada desktop/mobile com dados sintéticos.
+A10. Auditoria sanitizada distingue canal/cliente/concessão/capacidade/resultado, sem
+     guardar prompt completo, documento completo, token ou dados pessoais desnecessários.
+A11. Matriz identifica: teste local aprovado, teste de persistência pendente/aprovado,
+     conexão real pendente/aprovada por fabricante/plano e publicação não realizada.
+
+AUTORIZAÇÕES OPERACIONAIS
+Preparar código, SQL e testes não autoriza banco, migration, túnel público, instalação
+em conta real, alteração de env remota, commit/push/PR/merge/deploy, cobrança ou mensagens.
+Respeitar política do checkout inclusive para banco isolado. Não ler .env.local real.
+Executar testes offline com configuração sintética e proteção contra serviços externos.
+Se um gate realmente exigir autorização, concluir trabalho independente e apresentar
+alvo/ação/efeitos/comando exatos; não pedir aprovação genérica para continuar.
+
+REVISÃO E ENTREGA
+Claude implementa; revisão independente permanece pendente para Codex/Astra/outro modelo.
+Relatório: base/branch, arquivos, arquitetura, migrations preparadas, testes e evidências,
+limites, decisões divergentes, pendências e rollback. Desligar flag interrompe o canal,
+mas não apaga histórico nos provedores; não propor rollback destrutivo automático de grants.
+Atualizar Obsidian e índices com estado exato. Não chamar “pronto para produção” sem
+persistência/concorrência, revisão e homologação reais.
+
+REFERÊNCIAS
+Pesquisa e fontes completas: Kidmais-Manager-Second-Brain/02 - Kidmais Manager SaaS/
+07 - Roadmap/SaaS - Roadmap.md, seção “Pesquisa aprofundada — plugins por assinatura
+e estado RAG MCP — 27/10/2026”. Revalidar documentação oficial de SDK/auth ao implementar.
+https://developers.openai.com/plugins/build/auth
+https://developers.openai.com/plugins/deploy/connect-chatgpt
+https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
+https://support.google.com/gemini/answer/17209137?hl=en-JS
+https://modelcontextprotocol.io/docs/2026-07-28/tutorials/security/security_best_practices
