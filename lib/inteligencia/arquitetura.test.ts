@@ -32,6 +32,17 @@ const naoTeste = (arquivo: string) => !arquivo.endsWith(".test.ts");
 const camadaIA = arquivos(join(raiz, "lib", "inteligencia")).filter(naoTeste);
 const persistenciaIA = arquivos(join(raiz, "lib", "ia-persistencia")).filter(naoTeste);
 const rotasIA = arquivos(PASTA_ROTAS).filter(naoTeste);
+/**
+ * Canal MCP externo (105): consome o CORE da IA (flags, Policy V1, manifestos e leituras determinísticas) sem passar pela
+ * conversa. É camada da IA para este teste; a restrição própria (nenhuma feature, modelo ou provedor) está em
+ * lib/integracoes/mcp/mcp-arquitetura.test.ts.
+ */
+const canalMcp = [
+  ...arquivos(join(raiz, "lib", "integracoes", "mcp")),
+  ...arquivos(join(raiz, "lib", "integracoes", "oauth")),
+  ...arquivos(join(raiz, "app", "api", "mcp")),
+  ...arquivos(join(raiz, "app", "api", "admin", "mcp")),
+].filter(naoTeste);
 
 /**
  * Lista fechada da camada de IA, por destino já resolvido: leituras de domínio, tenant, erros e utilitários.
@@ -357,9 +368,9 @@ test("LLM não recebe conexão: nenhum pedido de modelo carrega DbExecutor, tena
 });
 
 test("10. o Core não depende da IA: nenhum import fora das camadas de IA resolve para elas", () => {
-  const camadas = new Set([...camadaIA, ...persistenciaIA, ...rotasIA]);
+  const camadas = new Set([...camadaIA, ...persistenciaIA, ...rotasIA, ...canalMcp]);
   const foraDaIA = [...arquivos(join(raiz, "lib")), ...arquivos(join(raiz, "app")), ...arquivos(join(raiz, "components"))]
-    .filter((arquivo) => !camadas.has(arquivo) && !/^lib\/(inteligencia|ia-persistencia)\//.test(relative(raiz, arquivo).replaceAll("\\", "/")));
+    .filter((arquivo) => !camadas.has(arquivo) && !/^lib\/(inteligencia|ia-persistencia|integracoes\/(mcp|oauth))\//.test(relative(raiz, arquivo).replaceAll("\\", "/")));
   assert.ok(foraDaIA.length > 100);
   for (const arquivo of foraDaIA) {
     const fonte = ts.createSourceFile(arquivo, readFileSync(arquivo, "utf8"), ts.ScriptTarget.Latest, true);

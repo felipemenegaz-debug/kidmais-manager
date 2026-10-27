@@ -29,6 +29,8 @@ const LEITURA = new Set(['GET', 'HEAD']);
  */
 const PERMITIDAS_POR_METODO: ReadonlyArray<readonly [string, string]> = [
     ['GET', '/api/admin/creditos'], ['HEAD', '/api/admin/creditos'], ['GET', '/api/admin/creditos/pedido'], ['POST', '/api/admin/creditos/devolucao'],
+    // Canal MCP (105): ver e DESCONECTAR assistentes externos é segurança, nunca bloqueado pela assinatura. Criar conexão não entra.
+    ['GET', '/api/admin/mcp/conexoes'], ['POST', '/api/admin/mcp/conexoes'],
 ];
 export function rotaPermitidaPorMetodo(metodo: string, caminho: string) {
     const limpo = caminho.replace(/\/+$/, ''), m = metodo.toUpperCase();

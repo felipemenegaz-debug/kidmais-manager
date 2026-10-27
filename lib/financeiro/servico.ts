@@ -226,6 +226,29 @@ export async function listarRecebiveis(tx: DbExecutor, empresaId: string, hoje: 
     .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.cliente.localeCompare(b.cliente));
 }
 
+/**
+ * Quantas linhas `listarRecebiveis` devolveria, contando no banco e parando em `teto` + 1 (trabalho e memória limitados).
+ * Mesmos JOINs de RECEBER_SQL sem os de recebimento (o GROUP BY de RECEBER_SQL tem uma linha por parcela × festa) e uma
+ * linha por entrada manual. Usado por quem precisa recusar volumes grandes ANTES de materializar a lista.
+ */
+export async function contarRecebiveis(tx: DbExecutor, empresaId: string, teto: number) {
+  const r = await tx.query<{ n: number }>(`
+    SELECT (SELECT count(*) FROM (
+              SELECT 1
+                FROM pagamento_parcelas parcela
+                JOIN pagamento_planos plano ON plano.id = parcela.plano_id AND plano.status = 'ATIVO'
+                JOIN pagamentos pag ON pag.id = plano.pagamento_id
+                JOIN contrato_versoes ver ON ver.id = pag.contrato_versao_id
+                JOIN contratos contrato ON contrato.id = ver.contrato_id
+                JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+                JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
+                LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
+               LIMIT $2) parcelas)
+         + (SELECT count(*) FROM (SELECT 1 FROM financeiro_entradas_manuais entrada WHERE entrada.empresa_id = $1::uuid LIMIT $2) manuais)
+         AS n`, [empresaId, teto + 1]);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
 type LinhaPagar = {
   id: string;
   descricao: string;

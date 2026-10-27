@@ -314,6 +314,13 @@ export const ENTIDADES: readonly Entidade[] = BASE.map((e) => ({ ...e, excluir: 
 export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     auditoria: 'Auditoria geral da plataforma (segurança e prova de operações, com IP); atendida por pedido específico.',
     sessoes_administrativas: 'Sessões de login: credenciais (hashes de token) e dados de segurança.',
+    // Canal MCP (105): delegação OAuth a assistentes externos — mesmo critério das sessões (credenciais e segurança).
+    mcp_oauth_clientes: 'Canal MCP: cache global dos metadados públicos dos aplicativos (ChatGPT, Claude); não é dado da empresa.',
+    mcp_oauth_pedidos: 'Canal MCP: pedidos de autorização pendentes (hash de segredo, minutos de vida).',
+    mcp_oauth_concessoes: 'Canal MCP: autorizações de assistentes externos por pessoa; dado de segurança, visível e revogável em Assistentes conectados.',
+    mcp_oauth_codigos: 'Canal MCP: códigos de autorização de uso único (hashes).',
+    mcp_oauth_tokens: 'Canal MCP: tokens de acesso e de renovação (hashes).',
+    mcp_auditoria: 'Canal MCP: auditoria de segurança sanitizada (códigos e ids); atendida por pedido específico.',
     recuperacoes_senha: 'Recuperação de senha: credenciais.',
     limites_autenticacao: 'Limites de tentativa de login: segurança da plataforma.',
     cadastros_publicos: 'Cadastro público em andamento: contém hash de senha e de token.',
