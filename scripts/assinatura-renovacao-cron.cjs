@@ -11,6 +11,9 @@
  * Homologação, SÓ em staging e só pelo Shell (nunca no comando do cron): --empresas=<uuid,…> (interseção com a seleção global)
  * e --agora=<ISO> (exige --empresas; com `aplicar`, toda empresa precisa ser fixture `ehFixtureHomologacao`).
  *
+ * T2 (27/10/2026, aprovada por Felipe): credencial igual à DATABASE_URL do web de staging, só no Shell da homologação, por
+ * exceção EXPLÍCITA (ver CREDENCIAL_DO_SERVICO abaixo). A igualdade é conferida, nunca escondida, e sai no relatório.
+ *
  * Saída: JSON sanitizado (ids internos de empresa, códigos e contagens). Código 0 sem pendência; 2 alerta; 1 recusa ou
  * interrupção. Nenhum e-mail, destinatário, valor ou id do provedor.
  */
@@ -28,8 +31,31 @@ const TRAVA_GLOBAL = 'kidmais:renovacao-cron';
  */
 const CRON_RENOVACAO_STAGING = null;
 const SERVICOS_TLS_RENOVACAO = Object.freeze(['srv-daif418ae00c73e8k2gg', ...(CRON_RENOVACAO_STAGING ? [CRON_RENOVACAO_STAGING] : [])]);
-/** Opções de conexão da renovação: a política da reconciliação com a lista fechada acima. Calculada antes de conectar. */
-const conexaoDaRenovacao = (alvo, env) => opcoesConexao(alvo, env, SERVICOS_TLS_RENOVACAO);
+/**
+ * T2 (27/10/2026, aprovada por Felipe): no Shell do web de staging, a credencial do cron de reconciliação é a MESMA
+ * DATABASE_URL do web, que `validarAlvo` recusa por padrão. A renovação aceita essa igualdade só com TODAS as condições:
+ *   - opt-in literal KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO=web-staging-homologacao;
+ *   - staging, RENDER=true, RENDER_SERVICE_ID = web de staging (lista fechada, sem cron), Asaas sandbox;
+ *   - alvo literal de staging (conferido depois, como sempre);
+ *   - `simular` livre; `aplicar` só com --empresas e só para fixtures de homologação (conferido depois de conectar).
+ * Com o opt-in fora dessas condições: CREDENCIAL_DO_SERVICO_RECUSADA. O relatório declara `credencialDoServico`.
+ * A reconciliação e as demais entradas continuam recusando a igualdade. O cron da renovação (sem DATABASE_URL) não usa isto.
+ */
+const CREDENCIAL_DO_SERVICO = Object.freeze({ optIn: 'web-staging-homologacao', servicos: Object.freeze(['srv-daif418ae00c73e8k2gg']) });
+function politicaCredencialDoServico(env, ambiente) {
+    const pedido = env.KIDMAIS_RENOVACAO_CREDENCIAL_DO_SERVICO;
+    if (pedido === undefined || pedido === '') return 'recusar';
+    if (pedido !== CREDENCIAL_DO_SERVICO.optIn || ambiente !== 'staging' || env.RENDER !== 'true'
+        || !CREDENCIAL_DO_SERVICO.servicos.includes(env.RENDER_SERVICE_ID) || env.ASAAS_AMBIENTE?.trim() !== 'sandbox')
+        throw new Error('CREDENCIAL_DO_SERVICO_RECUSADA');
+    return 'aceitar';
+}
+/**
+ * Opções de conexão da renovação: a política da reconciliação com a lista fechada acima. Calculada antes de conectar.
+ * A revalidação do alvo na exceção TLS recebe a MESMA política de credencial do planejamento (T2), recalculada do ambiente.
+ */
+const conexaoDaRenovacao = (alvo, env) => opcoesConexao(alvo, env, SERVICOS_TLS_RENOVACAO,
+    { credencialDoServico: politicaCredencialDoServico(env, env.KIDMAIS_DEPLOY_ENV?.trim()) });
 /** Trava global ainda desta sessão, pela chave exata: bigint = classid (32 bits altos) + objid (32 baixos), objsubid = 1. */
 const SQL_TRAVA_MINHA = `SELECT count(*)::int AS n FROM pg_locks
     WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted AND objsubid = 1
@@ -73,7 +99,7 @@ function planejar(env, argv = [], agora = new Date()) {
             throw new Error('AGORA_INVALIDO');
         agoraInjetado = new Date(Date.parse(args.agora));
     }
-    const alvo = validarAlvo(env);
+    const alvo = validarAlvo(env, { credencialDoServico: politicaCredencialDoServico(env, ambiente) });
     if (ambiente === 'staging') {
         if (alvo.producao || alvo.database !== STAGING.database || alvo.host !== STAGING.host || alvo.port !== STAGING.port)
             throw new Error('ALVO_STAGING_RECUSADO');
@@ -85,6 +111,7 @@ function planejar(env, argv = [], agora = new Date()) {
         if (!dataValida(desde) || diaBrasil(agora) < desde) { modo = 'simular'; rebaixado = true; }
     }
     if (modo === 'aplicar' && env.EMAIL_PROVIDER?.trim().toLowerCase() !== 'resend') throw new Error('EMAIL_RECUSADO');
+    if (alvo.credencialDoServico && modo === 'aplicar' && empresas === null) throw new Error('CREDENCIAL_DO_SERVICO_EXIGE_EMPRESAS');
     return { ambiente, modo, rebaixado, alvo, empresas, agora: agoraInjetado };
 }
 
@@ -129,7 +156,13 @@ async function executarCron(cfg, f) {
             // Mesma guarda da ferramenta restrita: tempo injetado com aplicação fora de banco local só para fixtures.
             const linhas = (await pool.query('SELECT id::text AS id, codigo, nome FROM empresas WHERE id = ANY($1::uuid[])', [cfg.empresas])).rows;
             conferirAgoraSomenteFixtures({ agora: cfg.agora, aplicar, alvo: cfg.alvo, empresas: cfg.empresas }, linhas, ehFixtureHomologacao);
-        }
+            // T2: com a credencial do serviço, aplicar só em fixtures de homologação, com ou sem --agora.
+            if (aplicar && cfg.alvo.credencialDoServico) {
+                const porId = new Map(linhas.map((l) => [String(l.id), l]));
+                const recusadas = cfg.empresas.filter((id) => { const l = porId.get(id); return !l || !ehFixtureHomologacao({ codigo: l.codigo, nome: l.nome }); });
+                if (recusadas.length) throw new Error(`CREDENCIAL_DO_SERVICO_SO_FIXTURES (${recusadas.length} empresa(s) recusada(s))`);
+            }
+        } else if (aplicar && cfg.alvo.credencialDoServico) throw new Error('CREDENCIAL_DO_SERVICO_EXIGE_EMPRESAS');
         const repositorio = repositorioRenovacao(transacao);
         const provedor = provedorDaExecucao(f.provedor, aplicar, {});
         const deps = { repositorio, provedor, origem: f.origem, simular: !aplicar, modoAgendado: true,
@@ -164,7 +197,7 @@ async function main() {
     const { Pool, Client } = require('pg');
     const relatorio = await executarCron(cfg, { Pool, Client, conexao: conexaoDaRenovacao(cfg.alvo, process.env), provedor: criarClienteAsaas(asaas.config),
         enviar: criarEnviarEmail(process.env), origem: origemPublica(), interrompido: () => interrompido });
-    console.log(JSON.stringify({ ambiente: cfg.ambiente, modo: cfg.modo, rebaixadoParaSimular: cfg.rebaixado,
+    console.log(JSON.stringify({ ambiente: cfg.ambiente, modo: cfg.modo, rebaixadoParaSimular: cfg.rebaixado, credencialDoServico: cfg.alvo.credencialDoServico,
         agoraInjetado: cfg.agora ? cfg.agora.toISOString() : null, ...relatorio }, null, 2));
     process.exitCode = relatorio.codigo;
 }
@@ -176,4 +209,5 @@ if (require.main === module) {
     });
 }
 
-module.exports = { planejar, executarCron, argumentos, conexaoDaRenovacao, STAGING, TRAVA_GLOBAL, SQL_TRAVA_MINHA, SERVICOS_TLS_RENOVACAO };
+module.exports = { planejar, executarCron, argumentos, conexaoDaRenovacao, politicaCredencialDoServico, CREDENCIAL_DO_SERVICO, STAGING, TRAVA_GLOBAL,
+    SQL_TRAVA_MINHA, SERVICOS_TLS_RENOVACAO };
