@@ -35,6 +35,8 @@ const fechamentoSchema = z.object({
   ...camposComerciaisFechamento,
   pacote: pacoteDaTelaPublicaSchema,
   escolhasBuffet: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
+  // S-D: salão de preferência escolhido em "Conheça os salões" (o serviço confere de novo sob a trava da data).
+  salaoPreferido: z.string().uuid().nullable().optional(),
 
   nomeCliente: z.string().trim().min(3),
   cpf: z.string().min(11),
@@ -220,6 +222,7 @@ export async function POST(request: NextRequest) {
       valorProposto,
       buffetStatus: dados.data.buffetDefinicao === "agora" ? "DEFINIDO" : "PENDENTE",
       escolhasBuffet: dados.data.escolhasBuffet,
+      salaoPreferido: dados.data.salaoPreferido ?? null,
       buffetSalgados: dados.data.buffetSalgados,
       buffetBebidas: dados.data.buffetBebidas,
       buffetDoces: dados.data.buffetDoces,

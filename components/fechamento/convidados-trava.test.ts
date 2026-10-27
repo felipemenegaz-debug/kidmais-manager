@@ -52,7 +52,8 @@ test('P2-R1: o assistente usa a trava antes das outras regras e registra a recus
     assert.match(validar, /trava\.tipo === "aguardar"[\s\S]*setAvancarAposCotacao\(true\)/);
     assert.match(validar, /trava\.tipo === "erro"[\s\S]*return false/);
     const alterar = fonte.slice(fonte.indexOf('async function alterarConvidados'), fonte.indexOf('function voltar()'));
-    assert.match(alterar, /const valido = await revalidarHorarioAtual\(quantidade\);[\s\S]*?if \(valido === false\) setHorarioRecusado\(mensagemHorarioRecusado\(quantidade\)\);/);
+    assert.match(alterar, /const valido = await revalidarHorarioAtual\(quantidade\);[\s\S]*?if \(valido === false\) setHorarioRecusado\(ultimaRecusa\.current \?\? mensagemHorarioRecusado\(quantidade\)\);/,
+        'S-D: a recusa do salão de preferência traz a mensagem dela; sem ela, a do horário');
     const revalidar = fonte.slice(fonte.indexOf('async function revalidarHorarioAtual'), fonte.indexOf('function validarEtapaAtual()'));
     assert.match(revalidar, /setHorarioRecusado\(null\);\s*return true;/, 'só o sucesso limpa a recusa (recuperação)');
     assert.match(fonte, /etapaQueEspera = etapa === etapaDosConvidados \|\| \(preselecaoDisponibilidade && convidadosDaEntrada && etapa > etapaDosConvidados\)/,

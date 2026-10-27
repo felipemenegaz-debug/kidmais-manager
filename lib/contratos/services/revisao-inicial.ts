@@ -73,7 +73,9 @@ export async function prepararEdicaoInicial(tx: DbExecutor, v: ContratoVersaoRec
     if (escolha.porSalao && !escolha.salao)
         throw new ContratoServiceError('SALAO_INDISPONIVEL', escolha.motivo === 'ESCOLHIDO_NAO_SERVE'
             ? 'O salão escolhido para a festa não serve no destino proposto. Escolha outro salão antes de salvar.'
-            : 'Nenhum salão livre comporta a festa no destino proposto.', 409, { motivo: escolha.motivo });
+            : escolha.motivo === 'PREFERIDO_NAO_SERVE'
+                ? 'O salão escolhido pelo cliente não serve no destino proposto. Escolha outro salão antes de salvar.'
+                : 'Nenhum salão livre comporta a festa no destino proposto.', 409, { motivo: escolha.motivo });
     const snapshot: ContratoSnapshot = escolha.porSalao
         ? { ...base, schemaVersao: 3, evento: { ...base.evento, configuracaoAgendaId: fechamento.configuracaoAgendaId, salao: escolha.salao } }
         : base;

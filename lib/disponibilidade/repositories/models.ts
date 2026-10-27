@@ -65,6 +65,8 @@ export type RegraCapacidadeAgenda = {
   conjuntos?: Record<string, string[]>;
   /** S-C: convidados que cada salão comporta (093); null = sem limite. Ausente = regra sem capacidade por salão. */
   capacidadePorSalao?: Record<string, number | null>;
+  /** S-D (R3-E5): mínimo de convidados de cada salão (102); null = sem mínimo. Ausente = antes da 102. */
+  minimoPorSalao?: Record<string, number | null>;
 };
 
 export type OcupacaoConfirmadaRecord = {

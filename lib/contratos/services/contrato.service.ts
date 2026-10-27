@@ -316,7 +316,9 @@ export async function salaoDaEmissao(tx: DbExecutor, fechamento: FechamentoRecor
     "SALAO_INDISPONIVEL",
     escolha.motivo === "ESCOLHIDO_NAO_SERVE"
       ? "O salão escolhido para a festa não está mais disponível para esta data, horário e número de convidados. Escolha outro salão antes de gerar o contrato."
-      : "Nenhum salão livre comporta esta festa nesta data e horário.",
+      : escolha.motivo === "PREFERIDO_NAO_SERVE"
+        ? "O salão escolhido pelo cliente está ocupado ou não serve mais para esta festa. Escolha outro salão antes de gerar o contrato; o cliente verá o novo salão no contrato antes de assinar."
+        : "Nenhum salão livre comporta esta festa nesta data e horário.",
     409,
     { motivo: escolha.motivo },
   );

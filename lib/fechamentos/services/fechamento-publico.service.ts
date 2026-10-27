@@ -33,6 +33,9 @@ import { buscarPacoteAtivoPorId } from "../../comercial/repositories";
 import { criarFechamentoComercial } from "./fechamento.service";
 import { resolverEscolhasBuffet, gravarEscolhasBuffet } from "./escolhas-buffet.service";
 import { FechamentoServiceError } from "./errors";
+import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
+import { preferidoInstalado, salaoServeNoDestino } from "../../agenda/salao-festa";
+import { saloesProntosPublicos, SalaoPublicoIndisponivel } from "../../agenda/salao-publico";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -90,6 +93,12 @@ export type CriarFechamentoPublicoInput = Omit<
   userAgent?: string | null;
   /** Empresa do endereço público: o pacote precisa ser dela (segunda barreira; a rota já buscou o pacote nela). */
   empresaEsperada?: string;
+  /**
+   * S-D (D5/R-D1): salão de preferência escolhido na tela "Conheça os salões". Conferido de novo sob a trava da data,
+   * antes do INSERT: pronto e publicado, do escopo, do pacote, permitido no horário, comporta e LIVRE. Qualquer falha =
+   * 409 SALAO_INDISPONIVEL sem gravar nada e sem trocar por outro. Não ocupa a agenda.
+   */
+  salaoPreferido?: string | null;
   /**
    * Endereço público de uma empresa (/b/<código>): CPF usado em cadastro de OUTRA empresa não é revelado nem
    * bloqueia; enquanto o índice global existir (antes da 076), o cliente novo nasce sem CPF, com nota interna neutra.
@@ -546,6 +555,31 @@ async function resolverResponsavelAdicional(
   return criado;
 }
 
+const salaoIndisponivel = () => new FechamentoServiceError(
+  "SALAO_INDISPONIVEL",
+  "O salão escolhido não está mais disponível para esta data, horário e número de convidados. Volte e escolha outro salão.",
+  409,
+);
+
+/** S-D (R-D1): trava da data → mesma conferência da tela pública (portões) → salão serve ao destino (regra da emissão). */
+async function conferirSalaoPreferido(tx: DbExecutor, input: CriarFechamentoPublicoInput, empresaId: string) {
+  if (!(await preferidoInstalado(tx))) throw salaoIndisponivel();
+  await adquirirLockConfirmacaoAgenda(input.dataEvento, tx);
+  const escopo = { empresaId, estabelecimentoId: input.estabelecimentoId ?? null };
+  try {
+    const prontos = await saloesProntosPublicos(tx, escopo);
+    if (!prontos.some((s) => s.id === input.salaoPreferido)) throw salaoIndisponivel();
+  } catch (erro) {
+    if (erro instanceof SalaoPublicoIndisponivel) throw salaoIndisponivel();
+    throw erro;
+  }
+  const serve = await salaoServeNoDestino(tx, {
+    data: input.dataEvento, inicio: input.horarioInicio, fim: input.horarioFim, configuracaoId: input.configuracaoAgendaId,
+    pacoteId: input.pacoteId, empresaId, estabelecimentoId: input.estabelecimentoId ?? null, convidados: input.convidados,
+  }, input.salaoPreferido!);
+  if (!serve) throw salaoIndisponivel();
+}
+
 export async function criarFechamentoPublicoComIdentidade(
   input: CriarFechamentoPublicoInput,
   customDb?: DbExecutor,
@@ -639,6 +673,7 @@ export async function criarFechamentoPublicoComIdentidade(
     );
 
     const escolhasResolvidas = await resolverEscolhasBuffet(tx, input.pacoteId, input.escolhasBuffet, input.buffetStatus);
+    if (input.salaoPreferido) await conferirSalaoPreferido(tx, input, empresaDoPacote);
     const fechamento = await criarFechamentoComercial(
       {
         dataEvento: input.dataEvento,
@@ -681,6 +716,10 @@ export async function criarFechamentoPublicoComIdentidade(
     );
 
     if (escolhasResolvidas) await gravarEscolhasBuffet(tx, fechamento.fechamento.id, escolhasResolvidas);
+    if (input.salaoPreferido) {
+      // A trava da data segue com esta transação: nada ocupa o salão entre a conferência e o COMMIT pelo caminho do app.
+      await tx.query(`UPDATE fechamentos SET salao_preferido_id = $2::uuid WHERE id = $1::uuid`, [fechamento.fechamento.id, input.salaoPreferido]);
+    }
 
     if (provaToken && identityService) {
       await identityService.consumirProvaParaFechamento(

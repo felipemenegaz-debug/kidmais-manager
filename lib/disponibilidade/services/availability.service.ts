@@ -334,10 +334,67 @@ function salaoLivre(regra: RegraCapacidadeAgenda, salao: string, candidato: { in
   return !ocupacoes.some((o) => saloesCruzam(o.salaoId, salao, regra.conjuntos) && ocupacaoSobrepoe(o, candidato, regra.intervaloMinimoMinutos));
 }
 
-/** S-C: "salão comporta N" = capacidade não informada (NULL comporta) ou maior/igual a N. Combinado usa a própria. */
-export function salaoComporta(regra: Pick<RegraCapacidadeAgenda, "capacidadePorSalao">, salao: string, convidados: number) {
+/**
+ * S-C: "salão comporta N" = capacidade não informada (NULL comporta) ou maior/igual a N. Combinado usa a própria.
+ * S-D (R3-E5): nos dois sentidos — com a 102, também N ≥ mínimo do salão (mínimo NULL = aberto).
+ */
+export function salaoComporta(regra: Pick<RegraCapacidadeAgenda, "capacidadePorSalao" | "minimoPorSalao">, salao: string, convidados: number) {
+  return motivoEstrutural(regra, salao, convidados) === null;
+}
+
+/** S-D: o que impede o salão para N sem depender da data — abaixo do mínimo ou acima da capacidade; null = comporta. */
+export function motivoEstrutural(regra: Pick<RegraCapacidadeAgenda, "capacidadePorSalao" | "minimoPorSalao">, salao: string, convidados: number) {
   const capacidade = regra.capacidadePorSalao?.[salao];
-  return capacidade == null || capacidade >= convidados;
+  const minimo = regra.minimoPorSalao?.[salao];
+  if (minimo != null && convidados < minimo) return "abaixo_do_minimo" as const;
+  if (capacidade != null && convidados > capacidade) return "nao_comporta" as const;
+  return null;
+}
+
+/** S-D (R-D4/R3-D3): situação de um salão elegível no horário pedido. Inelegível nem aparece. */
+export type SituacaoSalao = "livre" | "ocupado" | "nao_comporta" | "abaixo_do_minimo";
+
+/**
+ * S-D (R3-D3): situação de cada salão ELEGÍVEL (horário × pacote; 098 só elegíveis), na ordem do escopo. Precedência:
+ * motivo estrutural (abaixo do mínimo, não comporta) vence ocupado; ocupado (bloqueio da data, limite do dia ou salão
+ * cruzado no intervalo) vence livre. Só no servidor; quem ocupa nunca sai. null fora da capacidade por salão.
+ */
+export function situacaoPorSalao(
+  regra: RegraCapacidadeAgenda | null,
+  configId: string,
+  candidato: { inicioMinutos: number; fimMinutos: number },
+  ocupacoes: OcupacaoConfirmadaRecord[],
+  saloesDoPacote: string[] | null | undefined,
+  convidados: number,
+  bloqueado: boolean,
+): Array<{ salaoId: string; situacao: SituacaoSalao }> | null {
+  if (!regra || regra.capacidadeTipo !== "POR_SALAO") return null;
+  const diaFechado = bloqueado || limiteDoDiaAtingido(regra, ocupacoes);
+  return saloesCandidatos(regra, configId, saloesDoPacote).map((salaoId) => {
+    const estrutural = motivoEstrutural(regra, salaoId, convidados);
+    if (estrutural) return { salaoId, situacao: estrutural };
+    if (diaFechado || !salaoLivre(regra, salaoId, candidato, ocupacoes)) return { salaoId, situacao: "ocupado" as const };
+    return { salaoId, situacao: "livre" as const };
+  });
+}
+
+/**
+ * S-D: situação dos salões para UM horário exato (data, configuração, início/fim) do escopo, pela mesma leitura da
+ * disponibilidade (bloqueios, ocupações confirmadas e regra da 093/094). null fora da capacidade por salão.
+ */
+export async function situacaoDosSaloesNoHorario(
+  entrada: { data: string; configuracaoId: string; inicio: string; fim: string; convidados: number; saloesDoPacote?: string[] | null },
+  customDb: DbExecutor | undefined,
+  escopo: EscopoAgenda,
+) {
+  validarPeriodo(entrada.data, entrada.data);
+  const regra = await lerRegraCapacidadeAgenda(customDb, escopo);
+  if (!regra || regra.capacidadeTipo !== "POR_SALAO") return null;
+  const bloqueios = await listarBloqueiosAtivosPorPeriodo(entrada.data, entrada.data, customDb, escopo);
+  const ocupacoes = (await listarFechamentosConfirmadosPorPeriodo(entrada.data, entrada.data, customDb, escopo)).filter((o) => o.data === entrada.data);
+  const candidato = { inicioMinutos: horaParaMinutos(entrada.inicio), fimMinutos: horaParaMinutos(entrada.fim) };
+  const bloqueado = bloqueios.some((b) => b.data === entrada.data && bloqueioConflitaComCandidato(b, candidato));
+  return situacaoPorSalao(regra, entrada.configuracaoId, candidato, ocupacoes, entrada.saloesDoPacote ?? null, entrada.convidados, bloqueado);
 }
 
 /**

@@ -399,7 +399,8 @@ async function pacote(c: Cenario, nome: string, extra: { ativo?: boolean; vigent
 test("itens dos pacotes do salão: 0/1/N, elegibilidade, INCLUSO x EXTRA e opções separadas", async () => {
   const c = await cenario(a, 0);
   const s = await salao(c);
-  assert.deepEqual((await itensDosPacotesDoSalao(tx, c.empresa, s)).pacotes, 0);
+  // S-D (R-D2): o pacote do cenário não tem vínculo com salão nenhum — serve a todos (093) e entra no universo.
+  assert.deepEqual((await itensDosPacotesDoSalao(tx, c.empresa, s)).pacotes, 1);
   const servicos = await emTransacao(() => criarServicosComuns(tx, ctx(c)));
   const monitores = servicos.find((x) => x.codigo === "SERVICO_MONITORES")!.adicionalId!;
   const animacao = servicos.find((x) => x.codigo === "SERVICO_ANIMACAO")!.adicionalId!;
@@ -418,10 +419,16 @@ test("itens dos pacotes do salão: 0/1/N, elegibilidade, INCLUSO x EXTRA e opç�
   await vincular(inativo, animacao, "INCLUSO");
   await vincular(semVinculo, animacao, "INCLUSO");
   const r = await itensDosPacotesDoSalao(tx, c.empresa, s);
-  assert.equal(r.pacotes, 2);
-  assert.deepEqual(r.emTodos.map((g) => g.nome), ["Monitores de recreação"]);
-  assert.deepEqual(r.garantidos.map((g) => [g.nome, g.pacotes]), [["Monitores de recreação", 2], ["Animação e personagem", 1]]);
+  // S-D (R-D2): ligados (p1, p2) + sem vínculo (semVinculo e o do cenário) = 4; inativo e não vigente fora.
+  assert.equal(r.pacotes, 4);
+  // Monitores está nos dois ligados mas não nos sem vínculo: NÃO é "em todos os pacotes deste salão".
+  assert.deepEqual(r.emTodos.map((g) => g.nome), []);
+  assert.deepEqual(r.garantidos.map((g) => [g.nome, g.pacotes]), [["Animação e personagem", 2], ["Monitores de recreação", 2]]);
   assert.ok(r.garantidos.every((g) => g.chave.startsWith("ADICIONAL:")));
+  // Com os quatro levando monitores, ele passa a ser "em todos".
+  await vincular(semVinculo, monitores, "INCLUSO");
+  await vincular(c.pacote, monitores, "INCLUSO");
+  assert.deepEqual((await itensDosPacotesDoSalao(tx, c.empresa, s)).emTodos.map((g) => g.nome), ["Monitores de recreação"]);
   // Outra empresa não enxerga nada deste salão.
   const outra = await cenario(a, 0);
   assert.equal((await itensDosPacotesDoSalao(tx, outra.empresa, s)).pacotes, 0);
