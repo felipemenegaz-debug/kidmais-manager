@@ -188,9 +188,9 @@ test('modo: plano, conferência e aplicação só com --backup e registro seguro
   assert.throws(() => comum.modo(['--conferir-089']), /ARGUMENTOS_RECUSADOS/);
 });
 
-test('situação do COMMIT na falha: erro do PostgreSQL desfaz; sem resposta, conexão, classe 57 (inclusive 57014), recurso ou erro interno = indeterminado', () => {
+test('situação do COMMIT na falha: erro do PostgreSQL desfaz; sem resposta, conexão, classe 57 (inclusive 57014), 40003, recurso ou erro interno = indeterminado', () => {
   for (const code of ['55P03', '40P01', '23514', 'P0001', '42501', '40001', '22012']) assert.equal(comum.commitNaFalha(erroPg(code)), 'DESFEITA_PELO_SERVIDOR', code);
-  for (const e of [new Error('Connection terminated unexpectedly'), erroPg('08006'), erroPg('08003'), erroPg('57P01'), erroPg('57P02'), erroPg('57014'), erroPg('57000'), erroPg('57P03'), erroPg('58030'), erroPg('XX000'),
+  for (const e of [new Error('Connection terminated unexpectedly'), erroPg('08006'), erroPg('08003'), erroPg('40003'), erroPg('57P01'), erroPg('57P02'), erroPg('57014'), erroPg('57000'), erroPg('57P03'), erroPg('58030'), erroPg('XX000'),
     erroPg('ECONNRESET'), erroPg(undefined), Object.assign(new Error('x'), {code: 55}), null])
     assert.equal(comum.commitNaFalha(e), 'INDETERMINADO', String(e?.code));
 });
@@ -280,7 +280,9 @@ test('falha DENTRO da migration: erro do servidor = desfeita; sem resposta = IND
     ['conexão perdida durante a 093', new Error('Connection terminated unexpectedly'), 'INDETERMINADO'],
     ['servidor desligado (57P01)', erroPg('57P01', 'terminating connection due to administrator command'), 'INDETERMINADO'],
     // Rodada 2 do Astra: cancelamento (57014) pode chegar durante o COMMIT — não prova rollback.
-    ['cancelamento/statement_timeout (57014)', erroPg('57014', 'canceling statement due to statement timeout'), 'INDETERMINADO']]) {
+    ['cancelamento/statement_timeout (57014)', erroPg('57014', 'canceling statement due to statement timeout'), 'INDETERMINADO'],
+    // F-1 do Astra (27/10/2026): o servidor não sabe se o comando terminou — não prova rollback.
+    ['statement_completion_unknown (40003)', erroPg('40003', 'statement completion unknown'), 'INDETERMINADO']]) {
     const dir = tmp();
     try {
       const C = clienteFalso({falharEm: 'CREATE TABLE agenda_escopo_config', erro});

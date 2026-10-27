@@ -14,7 +14,7 @@
 //   - cada migration commita sozinha: uma falha na 093 deixa a 092 aplicada (o código publicado funciona com qualquer
 //     prefixo; sem a 094 a agenda segue a regra exclusiva). O COMMIT é registrado assim que a consulta da migration
 //     volta sem erro, antes de qualquer outra leitura (P2-1); se ela falha, a etapa fica DESFEITA_PELO_SERVIDOR (erro do
-//     PostgreSQL antes do COMMIT, fora das classes 08/57/58/XX) ou INDETERMINADO (sem resposta do servidor: reconciliar pela conferência);
+//     PostgreSQL antes do COMMIT, fora das classes 08/57/58/XX e do 40003) ou INDETERMINADO (sem resposta do servidor: reconciliar pela conferência);
 //   - o estado (ausente/completa/parcial) usa marcadores de presença: detecta a versão/prefixo dos SQL fixados, não prova
 //     integridade (P3-1) — isso é papel do arquivo de integridade (gatilhos habilitados e ligados, FKs validadas, índices
 //     válidos, colunas, corpos de função por sha256).
@@ -173,11 +173,13 @@ function planoEtapas(s) {
  * resposta não recebida) ou com perda de conexão, intervenção do operador, recurso do sistema ou erro interno (08, 57,
  * 58, XX), não se sabe se o COMMIT valeu: INDETERMINADO, a reconciliar pela conferência — nunca tratado como desfeito.
  * A classe 57 inteira, inclusive 57014 (cancelamento/statement_timeout), fica indeterminada: um cancelamento que chega
- * durante o COMMIT não prova que o commit local deixou de ser gravado (parecer do Astra, rodada 2).
+ * durante o COMMIT não prova que o commit local deixou de ser gravado (parecer do Astra, rodada 2). 40003
+ * (statement_completion_unknown) também é INDETERMINADO: o próprio servidor diz que não sabe se o comando terminou (mesma
+ * regra da 098; F-1 do Astra na revisão do aplicador 102/103, 27/10/2026).
  */
 function commitNaFalha(e) {
   const sqlstate = typeof e?.code === 'string' && /^[0-9A-Z]{5}$/.test(e.code) ? e.code : null;
-  return sqlstate && !/^(08|57|58|XX)/.test(sqlstate) ? 'DESFEITA_PELO_SERVIDOR' : 'INDETERMINADO';
+  return sqlstate && !/^(08|57|58|XX)/.test(sqlstate) && sqlstate !== '40003' ? 'DESFEITA_PELO_SERVIDOR' : 'INDETERMINADO';
 }
 
 async function somenteLeitura(db, sql) {
