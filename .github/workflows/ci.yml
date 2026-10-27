@@ -132,3 +132,9 @@ jobs:
 
       - name: Blocos de Shell da 100 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-100.test.cjs
+
+      - name: Aplicador manual da 102/103 (apresentação do salão e categoria Serviços, staging) — trava de alvo, identidade, hashes, estado por migration (102 ausente/completa/parcial, 103 ausente/completa/divergente), 098, versão do PostgreSQL do retrato, privilégios, conferência só leitura, backup obrigatório, COMMIT confirmado/desfeito/indeterminado por migration e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-102-103.test.cjs
+
+      - name: Blocos de Shell da 102/103 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-102-103.test.cjs

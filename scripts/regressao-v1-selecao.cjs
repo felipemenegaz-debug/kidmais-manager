@@ -273,6 +273,9 @@ const ESTADO_POSTGRES = {
   // 26/10/2026 (parecer do Astra, P3-1 da composição; R4-6): 102 antes da 100 (modelo 097) e 100 antes da 102 (modelo 102),
   // com 100_postcheck/100_integridade/094_integridade_apos_100 e a integridade da 102.
   "lib/agenda/saloes-102-ordem-100.postgres.test.ts": { descartavel: "097", tambem: ["102"] },
+  // 27/10/2026: aplicador REAL da 102/103 para staging no modelo 097 + 100 (aplica, confere, privilégios, SERVICOS divergente,
+  // marcador) e no 098 (recusa COM_098_102 sem escrever).
+  "lib/agenda/aplicador-102-103.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },
