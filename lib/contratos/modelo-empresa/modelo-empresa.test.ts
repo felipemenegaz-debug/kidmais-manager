@@ -31,11 +31,14 @@ test("campos: lista fechada preenchida pelo snapshot; desconhecido lança", () =
 });
 
 test("validação: campo fora da lista, obrigatórios ausentes e chave mal fechada", () => {
-  assert.deepEqual(problemasDoConteudo(MODELO), []);
+  // Fixture de renderização (MODELO) intacta; a regra de publicação (D1, plano v3) pede também a condição de pagamento.
+  const publicavel = { ...MODELO, clausulas: [...MODELO.clausulas, { titulo: "Pagamento", texto: "{{pagamento.condicao}}" }] };
+  assert.deepEqual(problemasDoConteudo(publicavel), []);
+  assert.deepEqual(problemasDoConteudo(MODELO), ["Falta nas cláusulas: Condição de pagamento."]);
   const ruim = { ...MODELO, clausulas: [{ titulo: null, texto: "Valor {{valor.desconto_secreto}} e {{festa.data" }] };
   const p = problemasDoConteudo(ruim);
   assert.ok(p.some((x) => x.includes("{{valor.desconto_secreto}} não existe")));
-  assert.ok(p.some((x) => x.includes("{{contratante.nome}}")));
+  assert.ok(p.some((x) => x === "Falta nas cláusulas: Data da festa."));
   assert.ok(p.some((x) => x.includes("sem fechamento")));
   assert.throws(() => conteudoModeloSchema.parse({ ...MODELO, clausulas: [] }));
 });

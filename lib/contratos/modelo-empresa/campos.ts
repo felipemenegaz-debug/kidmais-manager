@@ -76,8 +76,22 @@ export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
 
 const PORCHAVE = new Map(CAMPOS_CONTRATO.map((c) => [c.chave, c]));
 
-/** Campos sem os quais o contrato não identifica partes, festa e valor: o modelo precisa usá-los. */
-export const CAMPOS_OBRIGATORIOS = ["contratante.nome", "contratante.cpf", "festa.data", "valor.total"] as const;
+/**
+ * Dados da festa e do valor que as CLÁUSULAS precisam usar (D1, plano modelo de contrato v3, 28/10/2026). Nome, CPF e
+ * os demais dados das partes saem do bloco fixo de identificação (renderizar.ts), por isso não entram aqui.
+ */
+export const CAMPOS_OBRIGATORIOS = ["festa.data", "festa.inicio", "festa.fim", "festa.pacote", "festa.convidados", "valor.total", "pagamento.condicao"] as const;
+export const REGRA_OBRIGATORIOS = "D1-20261028";
+
+/** O que o bloco fixo de identificação já imprime em todo contrato (só para exibir; idade, tema e RG são opcionais, D2/D3). */
+export const CAMPOS_IDENTIFICACAO = [
+  "contratante.nome", "contratante.cpf", "contratante.rg", "contratante.telefone", "contratante.email", "contratante.endereco",
+  "aniversariante.nome", "aniversariante.idade", "aniversariante.tema",
+] as const;
+
+export function rotuloDoCampo(chave: string) {
+  return PORCHAVE.get(chave)?.rotulo ?? chave;
+}
 
 const MARCA = /\{\{\s*([a-z_]+(?:\.[a-z_]+)*)\s*\}\}/g;
 

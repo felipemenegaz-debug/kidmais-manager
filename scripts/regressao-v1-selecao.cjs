@@ -122,6 +122,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
   // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
+  // Modelo de contrato v3 (contratada do perfil, envioId, CONTRATADA_MUDOU): mesmo modelo, 070–072 pela própria suíte.
+  "lib/contratos/modelo-empresa/modelo-v3.postgres.test.ts": { descartavel: "063" },
   // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/080 (modelo 063, com a 060).
   "lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts": { descartavel: "063" },
