@@ -168,3 +168,26 @@ test("rodada 4, achado 4: busca CIMD tem prazo ABSOLUTO (DNS e transferência), 
   await assert.rejects(gotas(url), (e: CimdRecusado) => e.motivo === "TEMPO");
   assert.equal(destruido, true, "soquete destruído no prazo absoluto");
 });
+
+test("CIMD-LOOKUP: o endereço fixado passa pelo net real com e sem autoSelectFamily (Node 20+ pede lista)", async () => {
+  const { createServer, request } = await import("node:http");
+  const corpo = JSON.stringify({ client_id: "https://chatgpt.com/oauth/client.json" });
+  const servidor = createServer((_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(corpo); });
+  await new Promise<void>((ok) => servidor.listen(0, "127.0.0.1", ok));
+  const porta = (servidor.address() as { port: number }).port;
+  try {
+    for (const autoSelectFamily of [true, false]) {
+      // Repassa o `lookup` do código ao net de verdade, trocando só o IP público fixado por loopback (mesma forma).
+      const abrir = ((url: URL, o: { lookup: (h: string, op: unknown, cb: (...a: unknown[]) => void) => void } & Record<string, unknown>, cb: never) =>
+        (request as (op: unknown, cb: never) => unknown)({ ...o, host: url.hostname, port: porta, path: url.pathname, autoSelectFamily,
+          lookup: (h: string, op: unknown, fim: (...a: unknown[]) => void) => o.lookup(h, op, (erro, end, fam) =>
+            fim(erro, Array.isArray(end) ? end.map((e: { family: number }) => ({ ...e, address: "127.0.0.1" })) : typeof end === "string" ? "127.0.0.1" : end, fam)) }, cb)) as never;
+      const busca = buscaHttpsFixada(async () => ["8.8.8.8"], { prazoMs: 2000, abrir });
+      const r = await busca(new URL("https://chatgpt.com/oauth/client.json"));
+      assert.equal(r.status, 200, `autoSelectFamily=${autoSelectFamily}`);
+      assert.equal(r.corpo, corpo);
+    }
+  } finally {
+    servidor.close();
+  }
+});

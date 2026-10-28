@@ -165,7 +165,9 @@ export function buscaHttpsFixada(resolver: Resolvedor = resolverPadrao, opcoes: 
           method: "GET",
           headers: { accept: "application/json" },
           timeout: prazoMs,
-          lookup: (_host, _opts, cb) => cb(null, fixo, isIP(fixo)),
+          // Node 20+ (autoSelectFamily) pede `{ all: true }` e espera lista; endereço solto quebra com ERR_INVALID_IP_ADDRESS.
+          lookup: ((_host: string, opts: { all?: boolean } | undefined, cb: (...a: unknown[]) => void) =>
+            opts?.all ? cb(null, [{ address: fixo, family: isIP(fixo) }]) : cb(null, fixo, isIP(fixo))) as never,
         }, (res) => {
           const partes: Buffer[] = [];
           let total = 0;
