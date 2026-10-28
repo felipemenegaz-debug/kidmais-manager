@@ -63,8 +63,11 @@ class BancoFalso {
         if (s.startsWith('SELECT to_char((clock_timestamp())')) return rows([{ agora: this.agora }]);
         if (s.startsWith('UPDATE empresa_assinaturas SET situacao = $2')) {
             const a = this.assinaturas.get(String(p[0]))!;
-            Object.assign(a, { situacao: p[1], ciclo: p[2], periodo_atual_fim: p[3], em_atraso_desde: p[4], cancelada_em: p[5], encerrada_em: p[6], provedor_situacao: p[7], sincronizado_em: this.agora, versao: a.versao + 1 });
-            return rows([]);
+            // Guarda IS DISTINCT FROM do B-14: sem diferença nos valores calculados, nada é gravado (rowCount 0).
+            const novos = { situacao: p[1], ciclo: p[2], periodo_atual_fim: p[3], em_atraso_desde: p[4], cancelada_em: p[5], encerrada_em: p[6], provedor_situacao: p[7] };
+            if (Object.entries(novos).every(([k, v]) => (a as Record<string, unknown>)[k] === v)) return rows([]);
+            Object.assign(a, { ...novos, sincronizado_em: this.agora, versao: a.versao + 1 });
+            return rows([{}]);
         }
         if (s.startsWith('UPDATE empresa_assinaturas SET provedor_situacao = $2')) {
             Object.assign(this.assinaturas.get(String(p[0]))!, { provedor_situacao: p[1], sincronizado_em: this.agora });

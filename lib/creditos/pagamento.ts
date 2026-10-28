@@ -15,17 +15,32 @@
  */
 import type { DbExecutor } from '../db/contracts';
 import { AsaasFalhou, type CobrancaProvedor, type ProvedorCreditos } from '../assinatura/asaas.ts';
+import { dataDoPagamento } from '../assinatura/ofertas.ts';
 import { decidirPagamento, lerReferenciaExterna, proporcionalCentavos, referenciaExterna, STATUS_LIBERA, vencimentoEmDias, type Forma } from './dominio.ts';
 import { abrirCarteira, bloquearDisponivel, cancelarBloqueado, creditarLote, desbloquear, lerCarteira } from './ledger.ts';
 import { enfileirarNotificacao } from './notificacoes.ts';
 import type { Recurso } from './catalogo.ts';
 
-export type ContextoProvedor = { provedor: Pick<ProvedorCreditos, 'obterCobranca' | 'listarCobrancasPorReferencia'>; ambiente: 'sandbox' | 'producao'; conta: string };
+/**
+ * `baseValidade: 'PAGAMENTO'` (B-14, D-B14-15): créditos recriados pela recuperação contam a validade da data do pagamento
+ * informada pelo Asaas (a mais antiga entre clientPaymentDate, confirmedDate e paymentDate), não do instante da gravação.
+ * Ausente (web, webhook, reconciliação): validade a partir de agora, como sempre.
+ */
+export type ContextoProvedor = { provedor: Pick<ProvedorCreditos, 'obterCobranca' | 'listarCobrancasPorReferencia'>; ambiente: 'sandbox' | 'producao'; conta: string;
+    baseValidade?: 'PAGAMENTO' };
 export type ResultadoPedido = { resultado: 'CREDITADO' | 'SEM_MUDANCA' | 'VINCULADO' | 'AGUARDANDO' | 'VENCIDO' | 'ENCERRADO' | 'REVISAO' | 'ESTORNO' | 'DISPUTA' | 'JA_CONCLUIDO';
     motivo?: string; valorLidoCentavos?: number | null };
 
 type Pedido = { id: string; empresa_id: string; protocolo: string; recurso: Recurso; estado: string; quantidade: string; preco_centavos: string; validade_dias: number;
-    forma: Forma; ambiente: 'sandbox' | 'producao'; idade_s: string; creditado_em: string | null };
+    forma: Forma; ambiente: 'sandbox' | 'producao'; idade_s: string; creditado_em: string | null; revisao_motivo: string | null };
+/**
+ * Revisões abertas pela recuperação de pagamentos (B-14, RESTORE): só a pessoa as encerra (`creditarAposRevisao` ou o
+ * encerramento do operador). O processamento normal (web, cron) nunca credita sozinho um pedido nelas — creditaria com a
+ * validade contada de agora. Revisão do Astra, rodada 2 (P1): a retenção também não pode ser APAGADA nem TROCADA por um
+ * diagnóstico transitório (AGUARDAR, REVISAO, CANCELADO, estorno/disputa sem crédito), senão uma leitura paga posterior
+ * creditaria sem a pessoa. Por isso o pedido retido fica congelado em `processarPedido`: só a situação lida é registrada.
+ */
+export const REVISOES_DA_PESSOA = new Set(['SEM_DATA_PAGAMENTO', 'CREDITO_VENCIDO_NA_RECUPERACAO']);
 type Cobranca = { id: string; pagamento_id: string; canonica: boolean; situacao_provedor: string; disputa: string; confirmada_em: string | null; estornado_centavos: string;
     valor_centavos: string; conta: string };
 
@@ -33,7 +48,7 @@ const MINUTOS_PARADO = 10;
 const HORAS_SEM_COBRANCA = 24;
 
 async function travarPedido(tx: DbExecutor, pedidoId: string) {
-    return (await tx.query<Pedido>(`SELECT id, empresa_id, protocolo, recurso, estado, quantidade, preco_centavos, validade_dias, forma, ambiente, creditado_em,
+    return (await tx.query<Pedido>(`SELECT id, empresa_id, protocolo, recurso, estado, quantidade, preco_centavos, validade_dias, forma, ambiente, creditado_em, revisao_motivo,
         extract(epoch FROM clock_timestamp() - criado_em)::bigint AS idade_s FROM ia_credito_pedidos WHERE id = $1::uuid FOR UPDATE`, [pedidoId])).rows[0] ?? null;
 }
 async function clienteDaEmpresa(tx: DbExecutor, empresaId: string) {
@@ -41,7 +56,8 @@ async function clienteDaEmpresa(tx: DbExecutor, empresaId: string) {
 }
 async function mudarEstado(tx: DbExecutor, p: Pedido, estado: string, motivo: string | null = null) {
     if (p.estado === estado && estado !== 'REVISAO') return;
-    await tx.query('UPDATE ia_credito_pedidos SET estado = $2, revisao_motivo = $3 WHERE id = $1::uuid', [p.id, estado, estado === 'REVISAO' ? motivo : null]);
+    await tx.query('UPDATE ia_credito_pedidos SET estado = $2, revisao_motivo = $3 WHERE id = $1::uuid AND (estado, revisao_motivo) IS DISTINCT FROM ($2, $3)',
+        [p.id, estado, estado === 'REVISAO' ? motivo : null]);
     p.estado = estado;
 }
 async function registrarCobranca(tx: DbExecutor, p: Pedido, ctx: ContextoProvedor, c: CobrancaProvedor, canonica: boolean) {
@@ -63,15 +79,62 @@ export async function vincularCobrancaCriada(tx: DbExecutor, pedidoId: string, c
     return p.estado;
 }
 
-async function creditar(tx: DbExecutor, p: Pedido, c: Cobranca, lido: CobrancaProvedor) {
+/** Base da validade em ms: agora, ou a data do pagamento ao meio-dia de Brasília (D-B14-15). null = sem data informada. */
+export function baseDaValidade(agora: number, lido: Pick<CobrancaProvedor, 'paymentDate' | 'confirmedDate' | 'clientPaymentDate'>, base: ContextoProvedor['baseValidade']) {
+    if (base !== 'PAGAMENTO') return agora;
+    const data = dataDoPagamento(lido);
+    return data ? Date.parse(`${data}T12:00:00-03:00`) : null;
+}
+
+/**
+ * B-14 (revisão do Astra, rodada 2, P2): o vencimento é comparado com o relógio do banco ANTES do INSERT, e o gatilho da 095
+ * grava `liberado_em` com outro clock_timestamp(). Se a meia-noite de Brasília passar entre os dois, o CHECK
+ * `ia_credito_lotes_vencimento_check` recusa o lote: a tentativa é desfeita (SAVEPOINT próprio) e o chamador abre a mesma
+ * revisão por vencimento. Qualquer outro erro sobe sem ser mascarado. Só no RESTORE (baseValidade PAGAMENTO): com a validade
+ * contada de agora o lote nunca nasce vencido.
+ */
+async function loteAntesDoVencimento(tx: DbExecutor, gravar: () => Promise<unknown>) {
+    await tx.query('SAVEPOINT b14_lote');
+    try {
+        await gravar();
+    }
+    catch (error) {
+        await tx.query('ROLLBACK TO SAVEPOINT b14_lote');
+        await tx.query('RELEASE SAVEPOINT b14_lote');
+        const e = error as { code?: string; constraint?: string };
+        if (e.code === '23514' && e.constraint === 'ia_credito_lotes_vencimento_check') return false;
+        throw error;
+    }
+    await tx.query('RELEASE SAVEPOINT b14_lote');
+    return true;
+}
+
+async function creditar(tx: DbExecutor, p: Pedido, c: Cobranca, lido: CobrancaProvedor, base: ContextoProvedor['baseValidade'] = undefined) {
     // Ordem de travas: pedido (já travado) → carteira → lote. CONVITES só existe com corte (compra exigiu o corte).
     const carteira = p.recurso === 'WALLE' ? await abrirCarteira(tx, p.empresa_id, 'WALLE') : await lerCarteira(tx, p.empresa_id, 'CONVITES', true);
     if (!carteira) { await mudarEstado(tx, p, 'REVISAO', 'CARTEIRA_SEM_CORTE'); return { resultado: 'REVISAO' as const, motivo: 'CARTEIRA_SEM_CORTE' }; }
     const agora = Number((await tx.query<{ t: string }>('SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint AS t')).rows[0].t);
-    await creditarLote(tx, { empresaId: p.empresa_id, recurso: p.recurso, origem: 'COMPRA', chaveOrigem: `COMPRA:${p.id}`, quantidade: Number(p.quantidade),
-        venceEm: vencimentoEmDias(agora, p.validade_dias), precoCentavos: Number(p.preco_centavos), pedidoId: p.id, protocolo: p.protocolo, ator: 'SISTEMA' });
-    await tx.query(`UPDATE ia_credito_pedidos SET estado = 'CREDITADO', creditado_em = clock_timestamp(), revisao_motivo = NULL WHERE id = $1::uuid`, [p.id]);
-    await tx.query(`UPDATE ia_credito_cobrancas SET confirmada_em = coalesce(confirmada_em, clock_timestamp()), situacao_provedor = $2 WHERE id = $1::uuid`, [c.id, lido.status]);
+    const inicio = baseDaValidade(agora, lido, base);
+    if (inicio === null) { await mudarEstado(tx, p, 'REVISAO', 'SEM_DATA_PAGAMENTO'); return { resultado: 'REVISAO' as const, motivo: 'SEM_DATA_PAGAMENTO' }; }
+    const venceEm = vencimentoEmDias(inicio, p.validade_dias);
+    // B-14 (decisão de Felipe, 27/10): a 095 não admite lote que nasce vencido (liberado_em = agora pelo gatilho, vence_em >
+    // liberado_em). Crédito recuperado cujo vencimento comercial já passou fica em REVISAO, sem lote nem notificação: a pessoa
+    // decide fora da ferramenta. Vencimento cruzado entre o inventário e a aplicação muda o efeito → DIVERGENTE.
+    if (base === 'PAGAMENTO' && venceEm <= agora) {
+        await mudarEstado(tx, p, 'REVISAO', 'CREDITO_VENCIDO_NA_RECUPERACAO');
+        return { resultado: 'REVISAO' as const, motivo: 'CREDITO_VENCIDO_NA_RECUPERACAO' };
+    }
+    const gravar = () => creditarLote(tx, { empresaId: p.empresa_id, recurso: p.recurso, origem: 'COMPRA', chaveOrigem: `COMPRA:${p.id}`,
+        quantidade: Number(p.quantidade), venceEm, precoCentavos: Number(p.preco_centavos), pedidoId: p.id, protocolo: p.protocolo, ator: 'SISTEMA' });
+    if (base !== 'PAGAMENTO') await gravar();
+    else if (!(await loteAntesDoVencimento(tx, gravar))) {
+        await mudarEstado(tx, p, 'REVISAO', 'CREDITO_VENCIDO_NA_RECUPERACAO');
+        return { resultado: 'REVISAO' as const, motivo: 'CREDITO_VENCIDO_NA_RECUPERACAO' };
+    }
+    // B14: transição — creditar só roda com creditado_em nulo (a 095 torna o crédito final).
+    await tx.query(`UPDATE ia_credito_pedidos SET estado = 'CREDITADO', creditado_em = clock_timestamp(), revisao_motivo = NULL WHERE id = $1::uuid AND creditado_em IS NULL`, [p.id]);
+    await tx.query(`UPDATE ia_credito_cobrancas SET confirmada_em = coalesce(confirmada_em, clock_timestamp()), situacao_provedor = $2 WHERE id = $1::uuid
+        AND (confirmada_em IS NULL OR situacao_provedor IS DISTINCT FROM $2)`, [c.id, lido.status]);
     await enfileirarNotificacao(tx, { empresaId: p.empresa_id, tipo: 'PAGAMENTO_CONFIRMADO', dedupe: `PAGAMENTO_CONFIRMADO:${p.id}`, protocolo: p.protocolo });
     return { resultado: 'CREDITADO' as const };
 }
@@ -83,7 +146,7 @@ async function loteDoPedido(tx: DbExecutor, p: Pedido) {
 
 /** Estorno/disputa lidos no provedor, com o pedido já creditado: só o remanescente do lote é afetado. */
 async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, lido: CobrancaProvedor, tipo: 'ESTORNO' | 'DISPUTA'): Promise<ResultadoPedido> {
-    await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid', [c.id, lido.status]);
+    await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
     if (!p.creditado_em) {
         if (tipo === 'ESTORNO') await mudarEstado(tx, p, 'ENCERRADO');
         else await mudarEstado(tx, p, 'REVISAO', 'DISPUTA_SEM_CREDITO');
@@ -96,10 +159,12 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
         if (devolucao) {
             // Estorno pedido por nós: conclusão confirmada pelo provedor (REFUNDED); em andamento só registra a situação.
             if (lido.status === 'REFUNDED' && devolucao.estado !== 'CONCLUIDO' && devolucao.estado !== 'AGUARDANDO_MANUAL')
-                await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', status_provedor = $2, referencia = $3 WHERE id = $1::uuid`,
+                await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', status_provedor = $2, referencia = $3 WHERE id = $1::uuid
+                    AND (estado, status_provedor, referencia) IS DISTINCT FROM ('CONCLUIDO', $2, $3)`,
                     [devolucao.id, lido.status, `asaas:${c.pagamento_id}:REFUNDED`]);
             else if (lido.status === 'REFUNDED' && devolucao.estado === 'AGUARDANDO_MANUAL')
-                await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', modo = 'MANUAL', status_provedor = $2, referencia = $3 WHERE id = $1::uuid`,
+                await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', modo = 'MANUAL', status_provedor = $2, referencia = $3 WHERE id = $1::uuid
+                    AND (estado, modo, status_provedor, referencia) IS DISTINCT FROM ('CONCLUIDO', 'MANUAL', $2, $3)`,
                     [devolucao.id, lido.status, `asaas:${c.pagamento_id}:REFUNDED`]);
             return { resultado: 'ESTORNO' };
         }
@@ -109,18 +174,26 @@ async function aplicarEstornoOuDisputa(tx: DbExecutor, p: Pedido, c: Cobranca, l
             await cancelarBloqueado(tx, p.empresa_id, p.recurso, lote.id, `ESTORNO_EXTERNO:${c.id}`, 'SISTEMA', p.protocolo);
         }
         const exposicao = lote ? proporcionalCentavos(Number(p.preco_centavos), Number(lote.consumido), Number(lote.quantidade)) : 0;
+        // B14 (§3.3.1, achado da matriz de 28/10): disputa perdida (ABERTA → PERDIDA) não é "estorno sem pedido": o motivo
+        // fica como estava também nas leituras seguintes (antes, a 2ª leitura via disputa = 'PERDIDA' caía no ELSE e gravava
+        // ESTORNO_SEM_PEDIDO — o estado só convergia na 2ª execução).
         await tx.query(`UPDATE ia_credito_cobrancas SET disputa = CASE WHEN disputa = 'ABERTA' THEN 'PERDIDA' ELSE disputa END,
-            exposicao_centavos = GREATEST(exposicao_centavos, $2), revisao_motivo = CASE WHEN disputa = 'ABERTA' THEN revisao_motivo ELSE 'ESTORNO_SEM_PEDIDO' END,
+            exposicao_centavos = GREATEST(exposicao_centavos, $2), revisao_motivo = CASE WHEN disputa IN ('ABERTA', 'PERDIDA') THEN revisao_motivo ELSE 'ESTORNO_SEM_PEDIDO' END,
             perda_definitiva_em = coalesce(perda_definitiva_em, clock_timestamp())
-            WHERE id = $1::uuid`, [c.id, exposicao]);
+            WHERE id = $1::uuid AND (perda_definitiva_em IS NULL
+                OR (disputa, exposicao_centavos, revisao_motivo) IS DISTINCT FROM (CASE WHEN disputa = 'ABERTA' THEN 'PERDIDA' ELSE disputa END,
+                    GREATEST(exposicao_centavos, $2), CASE WHEN disputa IN ('ABERTA', 'PERDIDA') THEN revisao_motivo ELSE 'ESTORNO_SEM_PEDIDO' END))`, [c.id, exposicao]);
         return { resultado: 'ESTORNO' };
     }
     // Disputa aberta: bloqueia o remanescente (sem cancelar) e registra a exposição do já usado.
-    if (c.disputa !== 'ABERTA') {
-        if (lote && !devolucao) await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA:${c.id}:`, 'BLOQUEIO')}`, 'SISTEMA', p.protocolo);
-        const exposicao = lote ? proporcionalCentavos(Number(p.preco_centavos), Number(lote.consumido), Number(lote.quantidade)) : 0;
-        await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'ABERTA', exposicao_centavos = GREATEST(exposicao_centavos, $2) WHERE id = $1::uuid`, [c.id, exposicao]);
-    }
+    // O bloqueio do remanescente é da ABERTURA (o que volta de reserva durante a disputa já cai em bloqueado: ledger.ts).
+    if (c.disputa !== 'ABERTA' && lote && !devolucao)
+        await bloquearDisponivel(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA:${c.id}:`, 'BLOQUEIO')}`, 'SISTEMA', p.protocolo);
+    // B14 (revisão do HB-3, P2): a exposição acompanha o consumo a cada leitura — uma reserva anterior consumida depois da
+    // abertura aumenta o já usado (antes ficava congelada no valor da abertura). Só sobe (GREATEST) e só grava com mudança.
+    const exposicao = lote ? proporcionalCentavos(Number(p.preco_centavos), Number(lote.consumido), Number(lote.quantidade)) : 0;
+    await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'ABERTA', exposicao_centavos = GREATEST(exposicao_centavos, $2) WHERE id = $1::uuid
+        AND (disputa, exposicao_centavos) IS DISTINCT FROM ('ABERTA', GREATEST(exposicao_centavos, $2))`, [c.id, exposicao]);
     return { resultado: 'DISPUTA' };
 }
 
@@ -137,12 +210,13 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
     const anterior = Number(c.estornado_centavos);
     const tratado = Math.min(Number(c.valor_centavos), feitos);
     if (tratado <= anterior) return null;
-    await tx.query('UPDATE ia_credito_cobrancas SET estornado_centavos = $2 WHERE id = $1::uuid AND estornado_centavos < $2', [c.id, tratado]);
+    await tx.query('UPDATE ia_credito_cobrancas SET estornado_centavos = $2 WHERE id = $1::uuid AND estornado_centavos < $2 AND estornado_centavos IS DISTINCT FROM $2', [c.id, tratado]);
     const devolucao = (await tx.query<{ id: string; estado: string; valor_centavos: string }>('SELECT id, estado, valor_centavos FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid FOR UPDATE',
         [p.id])).rows[0];
     if (devolucao) {
         if (devolucao.estado === 'CONCLUIDO' || feitos < Number(devolucao.valor_centavos)) return null;
-        await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', status_provedor = $2, referencia = $3 WHERE id = $1::uuid`,
+        await tx.query(`UPDATE ia_credito_devolucoes SET estado = 'CONCLUIDO', status_provedor = $2, referencia = $3 WHERE id = $1::uuid
+            AND (estado, status_provedor, referencia) IS DISTINCT FROM ('CONCLUIDO', $2, $3)`,
             [devolucao.id, /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null, `asaas:${c.pagamento_id}:REFUND_DONE`]);
         return { resultado: 'ESTORNO' };
     }
@@ -156,7 +230,7 @@ async function aplicarEstornosParciais(tx: DbExecutor, p: Pedido, c: Cobranca, l
         return { resultado: 'ESTORNO', motivo: 'PERDA_DEFINITIVA' };
     }
     // R7-P3-1: a retenção tem coluna própria; o diagnóstico (revisao_motivo) segue livre para o que a leitura encontrar.
-    await tx.query("UPDATE ia_credito_cobrancas SET retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid", [c.id]);
+    await tx.query("UPDATE ia_credito_cobrancas SET retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL' WHERE id = $1::uuid AND retencao_motivo IS DISTINCT FROM 'ESTORNO_EXTERNO_PARCIAL'", [c.id]);
     return { resultado: 'REVISAO', motivo: 'ESTORNO_EXTERNO_PARCIAL' };
 }
 
@@ -189,7 +263,8 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
         if (!c || p.creditado_em) return { resultado: 'JA_CONCLUIDO' };
         const lidoEncerrado = await ctx.provedor.obterCobranca(c.pagamento_id);
         if (!lidoEncerrado || !STATUS_LIBERA.has(lidoEncerrado.status)) return { resultado: 'JA_CONCLUIDO' };
-        await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = $3 WHERE id = $1::uuid', [c.id, lidoEncerrado.status, 'PAGO_APOS_CANCELAMENTO']);
+        await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = $3 WHERE id = $1::uuid AND (situacao_provedor, revisao_motivo) IS DISTINCT FROM ($2, $3)',
+            [c.id, lidoEncerrado.status, 'PAGO_APOS_CANCELAMENTO']);
         await mudarEstado(tx, p, 'REVISAO', 'PAGO_APOS_CANCELAMENTO');
         return { resultado: 'REVISAO', motivo: 'PAGO_APOS_CANCELAMENTO' };
     }
@@ -214,15 +289,30 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     }
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
     // R4-P2-1: marca a leitura (cursor da varredura dos creditados), mesmo quando nada muda.
+    // B14: observação — conferida_em (e atualizada_em pelo gatilho da 095) no domínio do SEM_EFEITO.
     await tx.query('UPDATE ia_credito_cobrancas SET conferida_em = clock_timestamp() WHERE id = $1::uuid', [c.id]);
+    if (p.estado === 'REVISAO' && !p.creditado_em && p.revisao_motivo && REVISOES_DA_PESSOA.has(p.revisao_motivo)) {
+        if (lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status))
+            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
+        return { resultado: 'REVISAO', motivo: p.revisao_motivo };
+    }
     const cliente = await clienteDaEmpresa(tx, p.empresa_id);
     const decisao = decidirPagamento(lido && { id: lido.id, status: lido.status, valorCentavos: lido.valorCentavos ?? null, clienteId: lido.clienteId ?? null,
         externalReference: lido.externalReference ?? null, billingType: lido.billingType ?? null, deleted: lido.deleted },
     { pagamentoId: c.pagamento_id, valorCentavos: Number(p.preco_centavos), clienteId: cliente ?? '', referencia, forma: p.forma });
     // P2-5: estornos parciais (refunds[] DONE) antes da decisão — o status do pagamento continua RECEIVED nesses casos.
+    let parcialDaLeitura: ResultadoPedido | null = null;
     if (lido && p.creditado_em && lido.status !== 'REFUNDED') {
+        // B14 (revisão do HB-3, P2): o estorno parcial retorna antes do switch; sem isto, creditado em CONFIRMED e relido
+        // RECEIVED com estorno novo só gravava o status na 2ª leitura (convergência em dois passos).
+        if (lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status))
+            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
         const parcial = await aplicarEstornosParciais(tx, p, c, lido);
-        if (parcial) return parcial;
+        // B14 (revisão do HB-3 r1, P2): parcial NOVO junto com a abertura da disputa ou com a resolução favorável — os dois
+        // efeitos na MESMA leitura (antes o parcial retornava aqui e a disputa só era tratada na leitura seguinte).
+        const comDisputa = decisao.acao === 'DISPUTA' || (decisao.acao === 'CREDITAR' && c.disputa === 'ABERTA');
+        if (parcial && !comDisputa) return parcial;
+        parcialDaLeitura = parcial;
     }
     switch (decisao.acao) {
         case 'CREDITAR':
@@ -232,34 +322,43 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
                     const lote = await loteDoPedido(tx, p);
                     const devolucao = (await tx.query('SELECT 1 FROM ia_credito_devolucoes WHERE pedido_id = $1::uuid', [p.id])).rows.length > 0;
                     await lerCarteira(tx, p.empresa_id, p.recurso, true);
-                    if (lote && !devolucao) await desbloquear(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA_FAVORAVEL:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA_FAVORAVEL:${c.id}:`, 'DESBLOQUEIO')}`, 'SISTEMA');
-                    await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'FAVORAVEL', situacao_provedor = $2 WHERE id = $1::uuid`, [c.id, lido!.status]);
-                    return { resultado: 'SEM_MUDANCA', motivo: 'DISPUTA_FAVORAVEL' };
+                    // B14 (revisão do HB-3 r1, P2): retenção de estorno parcial externo pendente (decisão do operador) não é
+                    // desfeita pela disputa favorável — o remanescente continua bloqueado até a decisão (antes, a favorável
+                    // desbloqueava tudo e a retenção ficava só no rótulo).
+                    const retido = (await tx.query<{ r: string | null }>('SELECT retencao_motivo AS r FROM ia_credito_cobrancas WHERE id = $1::uuid', [c.id])).rows[0]?.r === 'ESTORNO_EXTERNO_PARCIAL';
+                    if (lote && !devolucao && !retido) await desbloquear(tx, p.empresa_id, p.recurso, lote.id, `DISPUTA_FAVORAVEL:${c.id}:${await episodio(tx, p.empresa_id, lote.id, `DISPUTA_FAVORAVEL:${c.id}:`, 'DESBLOQUEIO')}`, 'SISTEMA');
+                    await tx.query(`UPDATE ia_credito_cobrancas SET disputa = 'FAVORAVEL', situacao_provedor = $2 WHERE id = $1::uuid
+                        AND (disputa, situacao_provedor) IS DISTINCT FROM ('FAVORAVEL', $2)`, [c.id, lido!.status]);
+                    return parcialDaLeitura ?? { resultado: 'SEM_MUDANCA', motivo: 'DISPUTA_FAVORAVEL' };
                 }
-                if (lido && lido.status !== c.situacao_provedor) await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid', [c.id, lido.status]);
+                if (lido && lido.status !== c.situacao_provedor)
+                    await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
                 return { resultado: 'JA_CONCLUIDO' };
             }
-            return creditar(tx, p, c, lido!);
+            return creditar(tx, p, c, lido!, ctx.baseValidade);
         case 'AGUARDAR':
-            if (lido) await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid', [c.id, lido.status]);
+            if (lido) await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
             if (p.estado === 'REVISAO' && p.creditado_em === null) await mudarEstado(tx, p, 'AGUARDANDO_PAGAMENTO');
             return { resultado: 'AGUARDANDO' };
         case 'VENCIDO':
-            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid', [c.id, lido!.status]);
+            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido!.status]);
             if (p.estado === 'AGUARDANDO_PAGAMENTO') await mudarEstado(tx, p, 'VENCIDO');
             return { resultado: 'VENCIDO' };
         case 'CANCELADO':
             if (!p.creditado_em) await mudarEstado(tx, p, 'ENCERRADO');
             return { resultado: 'ENCERRADO' };
         case 'ESTORNO':
-        case 'DISPUTA':
-            return aplicarEstornoOuDisputa(tx, p, c, lido!, decisao.acao);
+        case 'DISPUTA': {
+            const r = await aplicarEstornoOuDisputa(tx, p, c, lido!, decisao.acao);
+            return decisao.acao === 'DISPUTA' && parcialDaLeitura ? parcialDaLeitura : r;
+        }
         case 'REVISAO':
             // P2-N2 (revisão do delta 2): grava também o status lido desta cobrança — o CRÍTICO de cliente/referência
             // divergente (D4) depende de saber se o dinheiro já foi recebido. Leitura de outro pagamento (id divergente) não conta.
             // R6-P2-1/R7-P3-1: retenção (retencao_motivo) e perda definitiva (perda_definitiva_em) têm colunas próprias; o
             // diagnóstico novo vai para revisao_motivo e coexiste com elas.
-            await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = $2, situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid',
+            await tx.query(`UPDATE ia_credito_cobrancas SET revisao_motivo = $2, situacao_provedor = coalesce($3, situacao_provedor) WHERE id = $1::uuid
+                AND (revisao_motivo, situacao_provedor) IS DISTINCT FROM ($2, coalesce($3, situacao_provedor))`,
                 [c.id, decisao.motivo, lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : null]);
             if (!p.creditado_em) await mudarEstado(tx, p, 'REVISAO', decisao.motivo);
             return { resultado: 'REVISAO', motivo: decisao.motivo };
@@ -271,7 +370,8 @@ async function processarExtra(tx: DbExecutor, cobrancaId: string, ctx: ContextoP
     const c = (await tx.query<{ id: string; pagamento_id: string }>('SELECT id, pagamento_id FROM ia_credito_cobrancas WHERE id = $1::uuid FOR UPDATE', [cobrancaId])).rows[0];
     if (!c) return { resultado: 'JA_CONCLUIDO' as const };
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
-    if (lido) await tx.query(`UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = CASE WHEN $3 THEN 'PAGAMENTO_DUPLICADO' ELSE revisao_motivo END WHERE id = $1::uuid`,
+    if (lido) await tx.query(`UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = CASE WHEN $3 THEN 'PAGAMENTO_DUPLICADO' ELSE revisao_motivo END WHERE id = $1::uuid
+        AND (situacao_provedor, revisao_motivo) IS DISTINCT FROM ($2, CASE WHEN $3 THEN 'PAGAMENTO_DUPLICADO' ELSE revisao_motivo END)`,
         [c.id, /^[A-Z_]{1,40}$/.test(lido.status) ? lido.status : 'DESCONHECIDO', ['CONFIRMED', 'RECEIVED'].includes(lido.status)]);
     return { resultado: 'REVISAO' as const, motivo: 'PAGAMENTO_DUPLICADO' };
 }
@@ -328,6 +428,7 @@ export async function selecionarParaReconciliar(tx: DbExecutor, limite = 200, am
  * processamento falhar), para que pendências estáveis ou com erro não ocupem a frente da fila para sempre.
  */
 export async function marcarTentativa(tx: DbExecutor, pedidoId: string) {
+    // B14: observação — reconciliado_em no domínio do SEM_EFEITO (a 095 preserva atualizado_em do pedido).
     await tx.query('UPDATE ia_credito_pedidos SET reconciliado_em = clock_timestamp() WHERE id = $1::uuid', [pedidoId]);
 }
 export async function pedidosParaReconciliar(tx: DbExecutor, limite = 200, ambiente: 'sandbox' | 'producao' | null = null) {
@@ -347,9 +448,9 @@ export async function creditarAposRevisao(tx: DbExecutor, pedidoId: string, ctx:
     if (c.conta !== ctx.conta) return { resultado: 'SEM_MUDANCA', motivo: 'CONTA_DIVERGENTE' };
     const lido = await ctx.provedor.obterCobranca(c.pagamento_id);
     if (!lido || lido.id !== c.pagamento_id || !STATUS_LIBERA.has(lido.status)) return { resultado: 'SEM_MUDANCA', motivo: 'PAGAMENTO_NAO_CONFIRMADO_NO_PROVEDOR' };
-    await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid', [c.id]);
+    await tx.query('UPDATE ia_credito_cobrancas SET revisao_motivo = NULL WHERE id = $1::uuid AND revisao_motivo IS DISTINCT FROM NULL', [c.id]);
     // P3-5 (revisão do delta): o valor lido segue para a auditoria do operador ao lado do preço do pedido.
-    return { ...(await creditar(tx, p, c, lido)), valorLidoCentavos: lido.valorCentavos ?? null };
+    return { ...(await creditar(tx, p, c, lido, ctx.baseValidade)), valorLidoCentavos: lido.valorCentavos ?? null };
 }
 
 export const ehFalhaDoProvedor = (e: unknown) => e instanceof AsaasFalhou;

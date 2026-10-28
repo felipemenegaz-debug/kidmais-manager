@@ -43,7 +43,8 @@ import { pedidoDoEvento, processarEventoCreditos } from '../creditos/pagamento.t
  * O evento cujo pagamento está vinculado a um pedido de créditos, ou cuja referência é km:<amb>:creditos:<pedido>, vai
  * para lib/creditos/pagamento.ts (mesmo serviço idempotente da reconciliação), com a conta e o ambiente do serviço.
  */
-export type ContextoCreditos = { ambiente: 'sandbox' | 'producao'; conta: string };
+/** `baseValidade`: só a recuperação de pagamentos (B-14, RESTORE, D-B14-15) passa 'PAGAMENTO'; web e cron não mudam. */
+export type ContextoCreditos = { ambiente: 'sandbox' | 'producao'; conta: string; baseValidade?: 'PAGAMENTO' };
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -109,13 +110,17 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
     const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))
         ? await confirmarOfertaPaga(tx, empresaId, assinatura, pagamentos, linha.provedor_cliente_id, alvo.situacao === 'ATIVA') : null;
-    if (alvo.mudou || oferta) {
-        await tx.query(
-            `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
-                    cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
-                    ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
-              WHERE empresa_id = $1::uuid`,
-            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])]);
+    // B-14 (§3.3.1): gravação só com mudança — os valores calculados são comparados no próprio UPDATE; sem diferença real,
+    // cai no ramo de observação (sem auditoria de sincronização repetida).
+    const gravou = (alvo.mudou || oferta) && (await tx.query(
+        `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
+                cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
+                ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
+          WHERE empresa_id = $1::uuid
+            AND (situacao, ciclo, periodo_atual_fim, em_atraso_desde, cancelada_em, encerrada_em, provedor_situacao${oferta ? ', plano, contratacao_atual_id' : ''})
+                IS DISTINCT FROM ($2, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8${oferta ? ', $9, $10::uuid' : ''})`,
+        [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])])).rowCount === 1;
+    if (gravou) {
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_SINCRONIZADA', empresaId, origem,
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
@@ -123,6 +128,7 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
         });
     }
     else {
+        // B14: observação — sincronizado_em/provedor_situacao (e versao/atualizado_em pela 074a) no domínio do SEM_EFEITO.
         await tx.query('UPDATE empresa_assinaturas SET provedor_situacao = $2, sincronizado_em = clock_timestamp() WHERE empresa_id = $1::uuid', [empresaId, alvo.provedorSituacao]);
         if (alvo.recusa)
             await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_SEM_TRANSICAO', empresaId, origem, depois: { situacao: linha.situacao, motivo: alvo.recusa, provedorSituacao: alvo.provedorSituacao } });
@@ -230,12 +236,13 @@ export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' |
  */
 /** `transacaoIndependente`: outra conexão com COMMIT próprio, para o marcador de exclusão (sem ela, nada é excluído). */
 export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao> & Partial<ProvedorCreditos>; transacaoIndependente?: TransacaoIndependente;
-    creditos?: ContextoCreditos }): Promise<ResultadoEvento> {
+    creditos?: ContextoCreditos; origem?: OrigemSincronizacao }): Promise<ResultadoEvento> {
     const ev = (await tx.query<LinhaEvento>(
         `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, cobranca_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
     if (!ev || ev.situacao === 'PROCESSADO' || ev.situacao === 'IGNORADO')
         return { situacao: 'JA_CONCLUIDO', empresaId: ev?.empresa_id ?? null };
     const concluir = async (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(
             `UPDATE cobranca_eventos SET situacao = $2, empresa_id = COALESCE(empresa_id, $3::uuid), tentativas = tentativas + 1, ultimo_erro = $4, processado_em = clock_timestamp()
               WHERE id = $1::uuid`, [ev.id, situacao, empresaId, motivo]);
@@ -254,6 +261,7 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
     if (!empresaId)
         return concluir('IGNORADO', null, 'EMPRESA_NAO_ENCONTRADA');
     const falhar = async (motivo: string) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(
             `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
             [ev.id, empresaId, motivo]);
@@ -261,7 +269,8 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
     };
     await tx.query('SAVEPOINT kidmais_evento_cobranca');
     try {
-        const r = await sincronizarEmpresa(tx, empresaId, deps, { tipo: 'WEBHOOK', eventoId: ev.evento_id });
+        // B-14: a recuperação passa a própria origem (execução e caso); webhook e cron continuam 'WEBHOOK'.
+        const r = await sincronizarEmpresa(tx, empresaId, deps, { ...(deps.origem ?? { tipo: 'WEBHOOK' }), eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_evento_cobranca');
         if (r.resultado === 'RECUSADA')
             return concluir('IGNORADO', empresaId, r.motivo);
@@ -281,6 +290,7 @@ async function processarCreditos(tx: DbExecutor, ev: LinhaEvento, alvo: { pedido
     deps: { provedor: Partial<ProvedorCreditos>; creditos?: ContextoCreditos }): Promise<ResultadoEvento> {
     const empresaId = (await tx.query<{ empresa_id: string }>('SELECT empresa_id FROM ia_credito_pedidos WHERE id = $1::uuid', [alvo.pedidoId])).rows[0]?.empresa_id ?? null;
     const marcar = async (situacao: 'PROCESSADO' | 'FALHOU', motivo: string | null) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(situacao === 'PROCESSADO'
             ? `UPDATE cobranca_eventos SET situacao = 'PROCESSADO', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3, processado_em = clock_timestamp() WHERE id = $1::uuid`
             : `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
@@ -311,6 +321,7 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
     independente?: TransacaoIndependente): Promise<ResultadoEvento> {
     const empresaId = ev.empresa_id!;
     const falhar = async (motivo: string) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(`UPDATE cobranca_eventos SET situacao = 'FALHOU', tentativas = tentativas + 1, ultimo_erro = $2 WHERE id = $1::uuid`, [ev.id, motivo.slice(0, 500)]);
         return { situacao: 'FALHOU' as const, empresaId, motivo };
     };

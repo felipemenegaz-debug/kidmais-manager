@@ -226,6 +226,22 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/beneficio-fundador.postgres.test.ts": { descartavel: "089" },
   // 25/10/2026: B-9 — entrada agendada da renovação Fundador (processo filho, repositório real 074a/075, provedor e e-mail falsos), modelo 097.
   "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097" },
+  // B-14 (27/10/2026): fotografia, idempotência por fotografia nos estados estáveis, proposta/aplicação de caso e validade
+  // pela data do pagamento; modelo 097 (inclui os créditos 095).
+  // Revisão do HB-3 r4 (P2): estados estáveis da §3.3.1 também em cada prefixo e no PH do staging (combinações aplicáveis;
+  // cada teste pula com o motivo onde o prefixo não tem o que exercita).
+  "lib/assinatura/recuperacao-pagamentos.postgres.test.ts": { descartavel: "097",
+    tambem: ["b14-P0a", "b14-P1", "b14-P2", "b14-P3", "b14-P4", "b14-P5", "b14-P6", "b14-P7", "b14-P8", "b14-P9", "b14-P10", "b14-P11", "b14-PH-staging"] },
+  // B-14 incremento 4 (27/10/2026): modos JANELA/RESTORE (inventário, aplicar/conferir caso, liberação, drenagem) e a fila do
+  // painel com a situação da cobrança retida (P3-R2-1); modelo 097.
+  // 28/10/2026 (D-HML-1 = B): também nos modelos de PH (P11 + neutras, sem a 098), admitido só em sandbox: 103 (P11 +
+  // 102/103), 105 (P11 + 102–105: o mais próximo do staging, que tem 102, 103 e 105 aplicadas; a 104 lá ainda não foi
+  // confirmada) e 106 (todas as neutras). Revisão do PH (P3): o 103 NÃO é "o staging de hoje" (falta a 105).
+  "lib/assinatura/recuperacao-modos.postgres.test.ts": { descartavel: "097", tambem: ["103", "105", "106", "b14-PH-staging"] },
+  // B-14 HB-3 (28/10/2026, §3.8): matriz ramo × código × schema com o PACOTE ENTREGUE (árvore mínima fora do checkout), em
+  // cada prefixo P0a…P11 e no PH exato do staging.
+  "lib/assinatura/recuperacao-prefixos.postgres.test.ts": { descartavel: "b14-P11",
+    tambem: ["b14-P0a", "b14-P1", "b14-P2", "b14-P3", "b14-P4", "b14-P5", "b14-P6", "b14-P7", "b14-P8", "b14-P9", "b14-P10", "b14-PH-staging"] },
   // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
   // Revisão f6b6fbb (P2-N5): controle físico da 097 SEM a 089 (modelo 086: 068 e 074a, sem assinatura_encerramentos).
@@ -384,6 +400,8 @@ function ambienteDaSuite(base, estado, porta, banco) {
   env[OPT_IN] = BANCO;
   env.KIDMAIS_DESCARTAVEL_PORTA = String(porta);
   env.KIDMAIS_DESCARTAVEL_AUTORIZACAO = `127.0.0.1:${porta}/${BANCO}`;
+  // B-14 (28/10/2026): o nome do modelo restaurado (a mesma suíte em vários estados decide o esperado por ele).
+  if (typeof estado.descartavel === "string") env.KIDMAIS_POSTGRES_MODELO = estado.descartavel;
   if (estado.alvo054) {
     Object.assign(env, {
       KIDMAIS_054_PG_HOST: "127.0.0.1",

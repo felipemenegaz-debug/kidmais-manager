@@ -23,7 +23,16 @@ function criarPool() {
     );
   }
 
-  return new Pool({ connectionString, ssl: sslConfig(), ...opcoesDoPool(process.env) });
+  return new Pool({ connectionString, ssl: sslConfig(), ...opcoesDaConexaoWeb(process.env) });
+}
+
+/**
+ * B-14 (plano rev. 8.1, §5): o web se identifica em `pg_stat_activity`, para que a prova de drenagem distinga as sessões
+ * do web das ferramentas e crons (que já definem o próprio `application_name`).
+ */
+export const NOME_APLICACAO_WEB = "kidmais-web";
+export function opcoesDaConexaoWeb(env: Record<string, string | undefined>) {
+  return { application_name: NOME_APLICACAO_WEB, ...opcoesDoPool(env) };
 }
 
 /**

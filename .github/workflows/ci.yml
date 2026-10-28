@@ -59,6 +59,10 @@ jobs:
           scripts/assinatura-cron.test.cjs
           scripts/assinatura-renovacao-cron.test.cjs
           scripts/assinatura-reconciliar.test.cjs
+          scripts/assinatura-reconciliar-preservacao.test.cjs
+          scripts/recuperacao-pagamentos-producao.test.cjs
+          scripts/bloco-shell-recuperacao-b14.test.cjs
+          scripts/recuperacao-neutras-b14.test.cjs
           scripts/reparo-bloqueios-production.test.cjs
 
       # Sem rede (fetch global bloqueado; transporte real do produto com rede simulada) e sem /opt: guarda de serviço, env do
