@@ -1,5 +1,16 @@
 # Canal MCP por assinatura — testes, evidências e roteiros pendentes
 
+> **ESTADO ATUAL (28/10/2026, vale sobre os blocos datados abaixo, que são histórico):**
+> - **Staging:** código do canal LIVE (até a #261, `a18677cb`); migration **105 APLICADA** (integridade PASS); canal
+>   ligado só para a empresa de teste (`MCP_TENANT_ALLOWLIST`).
+> - **Conexão real:** ChatGPT e Claude conectados de verdade por CIMD; 4 perguntas-roteiro, Desconectar e renovação depois
+>   de 1 h aprovados (MCP_ASSINATURAS_V1.md §20). Ressalvas da revisão do Astra de 28/10: isolamento e "zero dados pessoais" só com a base vazia;
+>   a recusa da empresa fora do piloto foi vista na tela, mas o POST 403 real não foi feito.
+> - **Revisão do Astra de 28/10:** "resultado de staging aprovado; produção pode ser planejada". **Não é GO para
+>   produção.**
+> - **Produção:** nada aplicado nem ligado. Pede aplicador 105 próprio + PITR, candidata validada no Node 22.23.2, env
+>   própria, monitoramento/desligamento e as decisões D3/RET-1/D-EXP (lista em MCP_ASSINATURAS_V1.md §21).
+
 > **P4 EXECUTADA (27/10/2026):** suíte PostgreSQL em cluster descartável autorizado (porta 55691, removido): estado 105
 > **10/10**, estado 103 schema ausente aprovado (9 pulados por desenho), 3 execuções verdes. A 105 entrou no inventário de
 > migrations (production:test 37/37). CI local completo: **28/28 passos** verdes. Detalhes em `MCP_ASSINATURAS_V1.md` §19.
@@ -30,8 +41,8 @@
 | Offline (núcleo, mocks) | regras, DTO, política, recusas, RAG, CIMD/SSRF | **APROVADO** (local) |
 | Protocolo local (loopback) | SDK MCP oficial cliente↔servidor + OAuth completo + transporte, com persistência de MEMÓRIA (só teste) | **APROVADO** (local) |
 | Persistência PostgreSQL | atomicidade, multi-conexão, gatilho, FOR SHARE, schema ausente, travas, expurgo | **APROVADO** (cluster descartável local, 27/10; 3 execuções) |
-| Conexão real | ChatGPT/Claude reais, por plano/região | **PENDENTE** |
-| Publicação | — | **NÃO REALIZADA** |
+| Conexão real | ChatGPT/Claude reais, por plano/região | **APROVADO em staging** (28/10, TESTE S3, base vazia; POST 403 fora do piloto não exercitado) |
+| Publicação | — | **Staging: LIVE** (105 aplicada, canal ligado só na empresa de teste). **Produção: NÃO** |
 
 ## 2. Suítes e resultados
 

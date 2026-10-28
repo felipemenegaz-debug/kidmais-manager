@@ -20,6 +20,7 @@ import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
+import { CONSENTIMENTO_MCP, loginDestaPagina } from '@/lib/http/retorno-login';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
 // Créditos de IA: saldo e devolução de pacote pago continuam acessíveis com a empresa bloqueada (a compra recusa no servidor).
@@ -63,7 +64,7 @@ export default function AdminShell({ children, vitrine }: {
                 return;
             if (!b.ok || !b.data.usuarioId) {
                 setName(null);
-                window.location.replace('/admin/login');
+                window.location.replace(loginDestaPagina());
             }
             else if (alive) {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
@@ -76,7 +77,7 @@ export default function AdminShell({ children, vitrine }: {
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };
@@ -208,7 +209,7 @@ export default function AdminShell({ children, vitrine }: {
                 <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário). */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
+        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário). */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && path !== CONSENTIMENTO_MCP && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section><ExportacaoEmpresasSuspensas /></main>)
             : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>

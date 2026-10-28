@@ -5,11 +5,12 @@ import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { ler } from './AssistenteAgenda';
 import css from './salao-apresentacao.module.css';
+import { avisoPaginaPublica } from './saloes-pagina-publica';
 import ws from './workspace.module.css';
 
 /** Configurações › Salões (102): salões ativos da empresa e se cada um já está pronto para aparecer ao cliente. */
 type Salao = { id: string; nome: string; unidade: string | null; capacidadeConvidados: number | null; fotos: number; pronto: boolean; pendencias: number };
-type Dados = { instalacao: 'AUSENTE' | 'COMPLETA' | 'PARCIAL'; gestao: boolean; saloes: Salao[] };
+type Dados = { instalacao: 'AUSENTE' | 'COMPLETA' | 'PARCIAL'; gestao: boolean; paginaPublica?: boolean; saloes: Salao[] };
 
 export default function SaloesApresentacaoLista() {
   const [dados, setDados] = useState<Dados | null>(null);
@@ -28,7 +29,7 @@ export default function SaloesApresentacaoLista() {
   }, []);
 
   return <main className={ws.page} data-admin-workspace>
-    <header className={ws.header}><div><h1>Salões</h1><p className={ws.muted}>Como cada salão vai aparecer para o cliente: fotos, capacidade, o que tem e o que é só da festa. A página pública dos salões ainda não está ligada.</p></div></header>
+    <header className={ws.header}><div><h1>Salões</h1><p className={ws.muted}>Como cada salão vai aparecer para o cliente: fotos, capacidade, o que tem e o que é só da festa.{dados?.instalacao === 'COMPLETA' ? ` ${avisoPaginaPublica(dados.paginaPublica === true)}` : ''}</p></div></header>
     <div className={ws.content}>
       {erro && <p role="alert">{erro}</p>}
       {!dados && !erro && <p className={ws.muted}>Carregando…</p>}

@@ -132,7 +132,8 @@ export type Evento = { data: string; inicio: string; fim: string };
  * a conferência exige (cadastroContratualSchema): nome, CPF válido (sintético) e um contato — e-mail e endereço ficam
  * vazios, como num contrato em papel sem esses dados.
  */
-export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false) {
+export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false,
+  valores: { preco: number; adicionais: number | null; total: number } = { preco: 500000, adicionais: 0, total: 500000 }) {
   const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente 061', $1::uuid, '11999990000', '11999990000', $2) RETURNING id`, [c.empresa, cpfValido()]);
   const documento = await id(db, `INSERT INTO ia_documentos (empresa_id, tipo, status, enviado_por) VALUES ($1::uuid, 'CONTRATO_HISTORICO', 'RECEBIDO', $2::uuid) RETURNING id`, [c.empresa, c.usuario]);
   const pdf = Buffer.from(`%PDF-1.4\n% contrato em papel ${randomUUID()}\n%%EOF\n`);
@@ -147,7 +148,7 @@ export async function importacao(db: Client, c: Cenario, evento: Evento, apenasR
     evento: { data: evento.data, horario: { inicio: evento.inicio, fim: evento.fim }, duracaoMinutos: 240, aniversariante: "Lia", idade: 6, convidados: 50, tema: "Circo" },
     pacote: { nome: "Festa de 2019", duracaoMinutos: 240, quantidade: 50, itens: "Buffet completo" },
     buffet: { itens: null, observacoes: null, restricoes: null },
-    valores: { preco: 500000, adicionais: 0, total: 500000 },
+    valores,
     pagamentosPrevistos: { condicao: "30% de entrada", entrada: { valor: 150000, vencimento: dia(-60) }, parcelas: [{ numero: 1, valor: 350000, vencimento: dia(30) }], natureza: "PREVISTO" as const },
     observacoes: null,
   };
@@ -162,9 +163,9 @@ export async function importacao(db: Client, c: Cenario, evento: Evento, apenasR
  * tomada (com motivo); o caminho sem decisão é provado à parte, com `duplicidade: null`.
  */
 export function decisoes(c: Cenario, evento: Evento, financeiro: unknown, unidade: string | null = null,
-  duplicidade: { motivo: string } | null = { motivo: "Cenário sintético: contratos distintos" }) {
+  duplicidade: { motivo: string } | null = { motivo: "Cenário sintético: contratos distintos" }, salaoId?: string) {
   return {
-    situacaoContrato: "VIGENTE", estabelecimentoId: unidade, pacoteReferenciaId: c.pacote,
+    situacaoContrato: "VIGENTE", estabelecimentoId: unidade, ...(salaoId ? { salaoId } : {}), pacoteReferenciaId: c.pacote,
     evento: { data: evento.data, horarioInicio: evento.inicio, horarioFim: evento.fim, convidados: 50 },
     valorContratadoCentavos: 500000, motivos: {}, financeiro,
     outroContratoConfirmado: duplicidade !== null, motivoOutroContrato: duplicidade?.motivo ?? "", conferenciaDeclarada: true,
@@ -180,6 +181,45 @@ export const PARCIAL = () => ({ situacao: "PARCIALMENTE_PAGO", parcelas: [
 ] });
 
 export type Servico = typeof import("../lib/contratos/integracao-importados/servico.ts");
+
+/**
+ * S-E restante (importação V3, D1): em unidade POR_SALAO o operador escolhe o salão. Para as suítes que importam só para
+ * montar o cenário, simula essa escolha como a tela: o primeiro salão da lista de opções (ordem do cadastro) que a
+ * simulação aceita. Fora do caso V3, ou com salaoId já escolhido, devolve as decisões sem mudança.
+ */
+export async function comSalaoEscolhido(s: Servico, db: Client, c: Cenario, imp: string, d: ReturnType<typeof decisoes>) {
+  if ("salaoId" in d) return d;
+  const tx = executor(db);
+  const sim = await s.simularIntegracao(tx, c.tenant as never, imp, d, dia(0));
+  if (sim.integrada || sim.pronto || !sim.bloqueios.includes("Escolha o salão da festa.")) return d;
+  const opcoes = await s.opcoesIntegracao(tx, c.tenant as never, imp, dia(0));
+  for (const salao of opcoes.saloes.find((e) => e.estabelecimentoId === d.estabelecimentoId)?.saloes ?? []) {
+    const comSalao = { ...d, salaoId: salao.id };
+    const r = await s.simularIntegracao(tx, c.tenant as never, imp, comSalao, dia(0));
+    if (!r.integrada && r.pronto) return comSalao;
+  }
+  return d;
+}
+
+/**
+ * LEGADO V1 explícito (D2 da S-E restante): contrato importado como os que já existem em staging, antes da importação V3 —
+ * versão conferida V1 (sem salão fixado) e salão escolhido automaticamente pela 094 na integração. Para isso a unidade fica
+ * em POR_HORARIO só durante a integração (a importação de hoje exige o salão escolhido em POR_SALAO) e volta a POR_SALAO; a
+ * escolha automática de antes é refeita por escolherSalaoDoContrato sem salão exigido. Usado pelas suítes que provam
+ * revisões e salões combinados SOBRE contratos legados; a importação V3 tem a suíte própria.
+ */
+export async function integrarLegadoV1(s: Servico, core: unknown, db: Client, c: Cenario, imp: string, d: ReturnType<typeof decisoes>, chave = randomUUID()) {
+  const antes = (await db.query<{ tipo: string }>(`SELECT capacidade_tipo tipo FROM agenda_escopo_config WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`,
+    [c.empresa, d.estabelecimentoId])).rows[0]?.tipo;
+  if (antes !== "POR_SALAO") return integrar(s, core, db, c, imp, d, chave);
+  const escopo = [c.empresa, d.estabelecimentoId];
+  await db.query(`UPDATE agenda_escopo_config SET capacidade_tipo = 'POR_HORARIO' WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`, escopo);
+  const r = await integrar(s, core, db, c, imp, d, chave);
+  await db.query(`UPDATE agenda_escopo_config SET capacidade_tipo = 'POR_SALAO' WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`, escopo);
+  const { escolherSalaoDoContrato } = carregar<typeof import("../lib/agenda/salao-festa.ts")>("lib/agenda/salao-festa.ts");
+  await escolherSalaoDoContrato(executor(db), r.contratoId);
+  return r;
+}
 
 export async function integrar(s: Servico, core: unknown, db: Client, c: Cenario, imp: string, d: ReturnType<typeof decisoes>, chave = randomUUID()) {
   const tx = executor(db);

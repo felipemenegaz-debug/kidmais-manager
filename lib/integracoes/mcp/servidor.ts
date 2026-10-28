@@ -99,8 +99,29 @@ function json(status: number, corpo: unknown, headers: Record<string, string> = 
   return new Response(JSON.stringify(corpo), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
 }
 
+/**
+ * O SDK escreve este aviso a cada handler com `responseMode: "json"`, e o transporte é criado por requisição (lê o env
+ * a cada vez). O canal não emite notificações no meio da chamada, então o aviso não se aplica e só polui o log do
+ * staging (teste real de 28/10/2026). Só essa mensagem, EXATA e sozinha, é filtrada, e só durante a criação: outro aviso
+ * com o mesmo começo ou com mais argumentos passa (revisão do Astra de 28/10/2026, P3). Se o SDK mudar o texto, o aviso
+ * volta a aparecer, o que é visível, e não o contrário.
+ */
+export const AVISO_RESPOSTA_JSON = "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; other notifications emitted before a result are dropped.";
+export function semAvisoDeRespostaJson<T>(criar: () => T): T {
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (args.length === 1 && args[0] === AVISO_RESPOSTA_JSON) return;
+    original(...args);
+  };
+  try {
+    return criar();
+  } finally {
+    console.warn = original;
+  }
+}
+
 export function criarTransporteMcp(deps: DependenciasTransporte) {
-  const handler = createMcpHandler(fabricaServidor(deps) as never, { legacy: "stateless", responseMode: "json", maxRequestBodySize: LIMITES_MCP.corpoBytes });
+  const handler = semAvisoDeRespostaJson(() => createMcpHandler(fabricaServidor(deps) as never, { legacy: "stateless", responseMode: "json", maxRequestBodySize: LIMITES_MCP.corpoBytes }));
 
   return async function atender(request: Request): Promise<Response> {
     const env = deps.oauth.env;

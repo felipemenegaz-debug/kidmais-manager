@@ -8,7 +8,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia,
-  executor, id, importacao, integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
+  executor, id, importacao, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico, integrarLegadoV1,
 } from "../../scripts/integracao-importados-test-support.ts";
 import {
   assinaturaEstruturaFesta016, assinaturaEstruturaFestaAtual, assinaturaEstruturaFestaCom104, estruturaFesta016Sql, tabelasFesta016,
@@ -67,7 +67,8 @@ async function contratada(c: Cenario, data: string) {
   const ev = { data, ...HORA };
   const imp = await importacao(a, c, ev);
   const cpf = await completarCliente(a, imp.cliente);
-  const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
+  // Legado V1 (D2 da S-E restante): esta suíte prova revisões sobre contratos importados ANTES da importação V3.
+  const r = await integrarLegadoV1(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
   await validarAgora(a);
   const festa = (await a.query<{ id: string; cfg: string }>(
     `SELECT f.id::text, f.configuracao_agenda_id::text cfg FROM contratos k JOIN fechamentos f ON f.id = k.fechamento_id WHERE k.id = $1`, [r.contratoId])).rows[0];
@@ -154,6 +155,8 @@ test("104: revisões v1 reais com hash idêntico; assinatura da Festa; recusas; 
     const S1 = await salao(cs, "Salão 1", 1), S2 = await salao(cs, "Salão 2", 2);
     // P: revisão aberta POR_SALAO com o salão do destino gravado (S1 ocupado por X em D2 → S2).
     const P = await contratada(cs, D1);
+    // Legado V1: a escolha automática da 094 na integração ficou no Salão 1 (o primeiro livre).
+    assert.equal((await a.query(`SELECT salao_id::text s FROM fechamentos WHERE id = $1::uuid`, [P.festa])).rows[0].s, S1, "importação no Salão 1");
     const X = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, f.configuracao_agenda_id, f.empresa_id, f.pacote_id, f.tabela_preco_id, f.preco_pacote_id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,

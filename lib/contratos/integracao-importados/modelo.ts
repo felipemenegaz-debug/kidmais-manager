@@ -50,6 +50,11 @@ export const decisoesSchema = z.object({
   aniversariante: z.string().trim().min(2).max(200).optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
   estabelecimentoId: z.string().uuid().nullable(),
+  /**
+   * S-E restante (importação V3, D1): salão escolhido pelo operador quando a festa ocupa a agenda numa unidade POR_SALAO.
+   * Obrigatório nesse caso (nada automático); fora dele precisa vir ausente ou nulo. Ausente não muda o hash do V1.
+   */
+  salaoId: z.string().uuid().nullable().optional(),
   pacoteReferenciaId: z.string().uuid().nullable(),
   evento: z.object({
     data: DATA,
@@ -108,7 +113,8 @@ export type ResumoIntegracao = {
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   /** `aniversarianteCadastro`: o aniversariante do documento será vinculado ao cadastro existente do cliente ou criado nele. */
   festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
-  agenda: { ocupa: boolean; descricao: string };
+  /** salao: só no caso V3 (unidade POR_SALAO, festa futura); nome lido do banco e incluído no hash da revisão. */
+  agenda: { ocupa: boolean; descricao: string; salao?: { id: string; nome: string } };
   financeiro: ResumoFinanceiro;
   campos: CampoConferido[];
 };
@@ -285,7 +291,16 @@ export const hashCanonico = (v: unknown) => createHash('sha256').update(JSON.str
 /** O que o operador confirma: decisões + resumo calculado pelo servidor. Mudou qualquer um ⇒ outra confirmação. */
 export const hashResumo = (importacaoId: string, d: DecisoesIntegracao, resumo: ResumoIntegracao) => hashCanonico({ importacaoId, decisoes: d, resumo });
 
-/** Snapshot da versão 1 (conferência em papel): forma do snapshot nativo + o contrato histórico intacto ao lado. */
+/** Caso V3: o salão escolhido entra na agenda do resumo (e no texto que o operador confere). */
+export function agendaComSalao(agenda: ResumoIntegracao['agenda'], salao: { id: string; nome: string }): ResumoIntegracao['agenda'] {
+  return { ...agenda, salao: { id: salao.id, nome: salao.nome }, descricao: `${agenda.descricao.replace(/\.$/, '')}, no ${salao.nome}.` };
+}
+
+/**
+ * Snapshot da versão 1 (conferência em papel): forma do snapshot nativo + o contrato histórico intacto ao lado.
+ * S-E restante: com o snapshot nativo V3 (carregarSnapshot com `salao`), a versão é 3 e preserva
+ * evento.configuracaoAgendaId e evento.salao; sem ele (opção omitida), é a versão 1 de sempre, byte a byte.
+ */
 export function montarSnapshotVersao(e: {
   nativo?: Record<string, unknown>;
   importacaoId: string; documento: { id: string; sha256: string };
@@ -299,9 +314,11 @@ export function montarSnapshotVersao(e: {
   const { snapshot: s, decisoes: d } = e;
   const valor = centavosParaReais(d.valorContratadoCentavos);
   const adicionais = s.valores?.adicionais != null && s.valores.adicionais < d.valorContratadoCentavos ? s.valores.adicionais : 0;
+  const v3 = e.nativo?.schemaVersao === 3;
+  const eventoNativo = (e.nativo?.evento ?? {}) as { configuracaoAgendaId?: string | null; salao?: { id: string; nome: string } | null };
   return {
     ...e.nativo,
-    schemaVersao: 1,
+    schemaVersao: v3 ? 3 : 1,
     origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: e.importacaoId, documentoOriginalId: e.documento.id, documentoSha256: e.documento.sha256, aceite: 'CONTRATO_ASSINADO_EM_PAPEL' },
     fechamento: { id: e.fechamentoId, status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
     contratante: contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }),
@@ -312,6 +329,7 @@ export function montarSnapshotVersao(e: {
       pacote: { id: e.pacote.id, codigo: e.pacote.codigo, nome: s.pacote?.nome ?? e.pacote.nome, duracaoMinutos: s.pacote?.duracaoMinutos ?? e.pacote.duracaoMinutos, referenciaSistema: { id: e.pacote.id, codigo: e.pacote.codigo, nome: e.pacote.nome } },
       convidados: d.evento.convidados, convidadosFaturados: d.evento.convidados,
       unidade: e.unidade,
+      ...(v3 ? { configuracaoAgendaId: eventoNativo.configuracaoAgendaId ?? null, salao: eventoNativo.salao ?? null } : {}),
     },
     contratacao: {
       ...(e.nativo?.contratacao as object ?? {}),
@@ -324,6 +342,10 @@ export function montarSnapshotVersao(e: {
       ...(e.nativo?.comercial as object ?? {}),
       valorFinalContrato: valor,
       valorTabela: valor,
+      // Composição do DOCUMENTO em papel, coerente por si (P2-2 do plano dos adicionais): não herda do fechamento operacional,
+      // que leva o valor inteiro como pacote (D1). base = aplicado, sem desconto; aplicado + adicionais = total.
+      valorPacoteBase: centavosParaReais(d.valorContratadoCentavos - adicionais),
+      valorDescontoPacote: 0,
       valorPacoteAplicado: centavosParaReais(d.valorContratadoCentavos - adicionais),
       valorAdicionais: centavosParaReais(adicionais),
       formaPagamentoPretendida: d.formaPagamento ?? null,

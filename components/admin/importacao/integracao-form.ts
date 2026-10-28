@@ -35,6 +35,8 @@ export type FormIntegracao = {
   formaPagamento: "" | "PIX_AVISTA" | "PIX_PARCELADO" | "CARTAO_CIELO";
   situacaoContrato: keyof typeof SITUACAO_CONTRATO_ROTULO | '';
   estabelecimentoId: string;
+  /** S-E restante (importação V3): salão escolhido, só quando a unidade usa salão e a festa é futura. */
+  salaoId: string;
   pacoteReferenciaId: string;
   data: string; horarioInicio: string; horarioFim: string; convidados: string;
   valorContratado: string;
@@ -81,6 +83,7 @@ export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ i
     formaPagamento: '',
     situacaoContrato: '',
     estabelecimentoId: o.estabelecimentos.length === 1 ? o.estabelecimentos[0].id : '',
+    salaoId: '',
     pacoteReferenciaId: '',
     data: s.evento.data ?? '', horarioInicio: s.evento.horarioInicio ?? '', horarioFim: s.evento.horarioFim ?? '',
     convidados: s.evento.convidados != null ? String(s.evento.convidados) : '',
@@ -111,10 +114,33 @@ export function camposCorrigidos(f: FormIntegracao, s: Sugestao): CampoDoc[] {
   return (Object.keys(doc) as CampoDoc[]).filter((k) => doc[k] !== null && atual[k] !== null && doc[k] !== atual[k]);
 }
 
-export function errosFesta(f: FormIntegracao, s: Sugestao, unidades: number): string[] {
+export type EscopoSaloes = { estabelecimentoId: string | null; porSalao: boolean; saloes: Array<{ id: string; nome: string; ordem: number }> };
+
+/** Escopo (unidade ou "sem unidade") escolhido no formulário. */
+export function escopoDoForm(f: Pick<FormIntegracao, 'estabelecimentoId'>, saloes: EscopoSaloes[] | undefined) {
+  return (saloes ?? []).find((e) => e.estabelecimentoId === (f.estabelecimentoId || null)) ?? null;
+}
+
+/** Caso V3 na tela: a unidade usa salão e a festa ocupa a agenda (data de hoje em diante). O servidor decide de novo. */
+export function pedeSalao(f: Pick<FormIntegracao, 'estabelecimentoId' | 'data'>, saloes: EscopoSaloes[] | undefined, hoje: string) {
+  return !!escopoDoForm(f, saloes)?.porSalao && /^\d{4}-\d{2}-\d{2}$/.test(f.data) && f.data >= hoje;
+}
+
+/**
+ * Ao mudar o formulário: outra unidade zera o salão (ele pertence a uma unidade); fora do caso V3 o salão fica vazio
+ * (o servidor recusa salão onde a agenda não usa salão). Nada é escolhido automaticamente (D1).
+ */
+export function ajustarSalao(anterior: FormIntegracao, novo: FormIntegracao, saloes: EscopoSaloes[] | undefined, hoje: string): FormIntegracao {
+  if (!novo.salaoId) return novo;
+  if (novo.estabelecimentoId !== anterior.estabelecimentoId || !pedeSalao(novo, saloes, hoje)) return { ...novo, salaoId: '' };
+  return novo;
+}
+
+export function errosFesta(f: FormIntegracao, s: Sugestao, unidades: number, exigeSalao = false): string[] {
   const e: string[] = [];
   if (!f.situacaoContrato) e.push('Informe a situação do contrato.');
   if (unidades > 0 && !f.estabelecimentoId) e.push('Escolha a unidade.');
+  if (exigeSalao && !f.salaoId) e.push('Escolha o salão da festa.');
   if (!f.pacoteReferenciaId) e.push('Escolha o pacote do sistema usado como referência.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.data)) e.push('Informe a data da festa.');
   if (!/^\d{2}:\d{2}$/.test(f.horarioInicio) || !/^\d{2}:\d{2}$/.test(f.horarioFim)) e.push('Informe início e término.');
@@ -187,6 +213,8 @@ export function decisoesDoForm(f: FormIntegracao, s: Sugestao) {
     formaPagamento: f.formaPagamento || null,
     situacaoContrato: f.situacaoContrato,
     estabelecimentoId: f.estabelecimentoId || null,
+    // Ausente (e não nulo) sem salão: o payload e o hash do caso V1 continuam os de antes.
+    ...(f.salaoId ? { salaoId: f.salaoId } : {}),
     pacoteReferenciaId: f.pacoteReferenciaId || null,
     evento: { data: f.data, horarioInicio: f.horarioInicio, horarioFim: f.horarioFim, convidados: Number(f.convidados) },
     valorContratadoCentavos: centavosDeTexto(f.valorContratado) ?? 0,

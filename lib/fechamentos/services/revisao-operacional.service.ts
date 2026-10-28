@@ -5,7 +5,7 @@ import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava } from '../repositories';
 import type { FechamentoAdicionalRecord, FechamentoRecord } from '../repositories';
-import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
+import { adicionaisImportadoInconsistentes, buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
 import { atualizarClienteInterno } from '../../clientes/services';
 import { atualizarAniversarianteInterno, cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
@@ -95,6 +95,9 @@ export async function revisaoAbertaDoFechamento(fid: string, tx: DbExecutor, loc
 export async function iniciarPreparacao(tx: DbExecutor, base: ContratoVersaoRecord, v: ContratoVersaoRecord, motivo: string, chave: string, c: Contexto) {
     if (!c.usuarioId)
         recusar('A preparação exige usuário administrativo real.');
+    // Plano "importados com adicionais" (R2-1): caso misto ou diferença negativa num contrato histórico não é reclassificado.
+    if (await adicionaisImportadoInconsistentes(tx, base.snapshot.fechamento.id))
+        throw new FechamentoServiceError('REVISAO_IMPORTADO_INCONSISTENTE', 'Os adicionais deste contrato histórico não correspondem aos itens lançados. Corrija pelo suporte antes de abrir uma nova versão.', 409);
     await criarRevisaoOperacionalRegistro(tx, { id: randomUUID(), fechamentoId: base.snapshot.fechamento.id, contratoId: v.contratoId, versaoId: v.id, baseId: base.id, baseHash: base.snapshotHash, motivo, chave, usuarioId: c.usuarioId });
     let r = (await buscarRevisaoDaVersao(v.id, tx))!;
     // A formalização contratual também protege base/destino antes do pagamento.

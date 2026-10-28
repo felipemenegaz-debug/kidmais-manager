@@ -165,7 +165,9 @@ export function buscaHttpsFixada(resolver: Resolvedor = resolverPadrao, opcoes: 
           method: "GET",
           headers: { accept: "application/json" },
           timeout: prazoMs,
-          lookup: (_host, _opts, cb) => cb(null, fixo, isIP(fixo)),
+          // Node 20+ (autoSelectFamily) pede `{ all: true }` e espera lista; endereço solto quebra com ERR_INVALID_IP_ADDRESS.
+          lookup: ((_host: string, opts: { all?: boolean } | undefined, cb: (...a: unknown[]) => void) =>
+            opts?.all ? cb(null, [{ address: fixo, family: isIP(fixo) }]) : cb(null, fixo, isIP(fixo))) as never,
         }, (res) => {
           const partes: Buffer[] = [];
           let total = 0;
@@ -220,9 +222,12 @@ export async function carregarClienteCimd(clientId: string, hosts: readonly stri
   }
   const doc = documentoSchema.safeParse(bruto);
   if (!doc.success || doc.data.client_id !== clientId) throw new CimdRecusado("DOCUMENTO");
-  // `none` declarado (ou omitido, o padrão do RFC 7591) ou na lista de métodos suportados; sem `none`, recusa.
-  const declarado = doc.data.token_endpoint_auth_method ?? "none";
-  if (declarado !== "none" && !(doc.data.token_endpoint_auth_methods_supported ?? []).includes("none")) throw new CimdRecusado("AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
+  // Política local do CIMD (revisão do Astra de 28/10/2026, P3): o cliente é público e precisa aceitar `none`, declarado
+  // no método ou listado em `token_endpoint_auth_methods_supported`. Método omitido NÃO vale `none` (no RFC 7591 o omitido
+  // é `client_secret_basic`). Os documentos reais de 28/10 declaram: Claude `none`; ChatGPT `private_key_jwt` + `none` na
+  // lista. O servidor só anuncia `none`, sem prova de posse da chave do fabricante.
+  const aceitaNone = doc.data.token_endpoint_auth_method === "none" || (doc.data.token_endpoint_auth_methods_supported ?? []).includes("none");
+  if (!aceitaNone) throw new CimdRecusado("AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
   if (doc.data.grant_types && !doc.data.grant_types.includes("authorization_code")) throw new CimdRecusado("GRANT");
   if (doc.data.response_types && !doc.data.response_types.includes("code")) throw new CimdRecusado("RESPONSE_TYPE");
   const redirects = doc.data.redirect_uris.filter((r) => {

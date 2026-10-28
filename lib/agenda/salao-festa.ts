@@ -129,6 +129,96 @@ export async function salaoServeNoDestino(
   return servem.some((s) => s.id === salaoId);
 }
 
+/** Por que um salão não serve ao destino (primeiro motivo, na ordem da regra estrita da emissão). */
+export type MotivoSalaoNaoServe = 'SALAO_INATIVO_OU_OUTRO_ESCOPO' | 'INELEGIVEL' | 'HORARIO_NAO_PERMITE' | 'PACOTE_NAO_PERMITE'
+  | 'ABAIXO_DO_MINIMO' | 'ACIMA_DA_CAPACIDADE' | 'OCUPADO_OU_LIMITE';
+
+export const TEXTO_MOTIVO_SALAO: Record<MotivoSalaoNaoServe, string> = {
+  SALAO_INATIVO_OU_OUTRO_ESCOPO: 'o salão não está ativo nesta unidade',
+  INELEGIVEL: 'o salão não pode receber festas agora (salão combinado com membro inativo)',
+  HORARIO_NAO_PERMITE: 'o horário não permite este salão',
+  PACOTE_NAO_PERMITE: 'o pacote não permite este salão',
+  ABAIXO_DO_MINIMO: 'os convidados estão abaixo do mínimo do salão',
+  ACIMA_DA_CAPACIDADE: 'os convidados passam da capacidade do salão',
+  OCUPADO_OU_LIMITE: 'o salão está ocupado nesse horário, sem o intervalo mínimo, ou o limite de festas do dia foi atingido',
+};
+
+/**
+ * S-E restante (importação V3): SÓ EXPLICA a recusa de salaoServeNoDestino, com o mesmo destino. A decisão continua sendo
+ * o booleano estrito; null aqui com o booleano falso = motivo genérico (quem chama não expõe dados de terceiros).
+ */
+export async function diagnosticarSalaoNoDestino(
+  tx: DbExecutor,
+  destino: { fechamentoId?: string | null; data: string; inicio: string; fim: string; configuracaoId: string; pacoteId: string;
+    empresaId: string; estabelecimentoId: string | null; convidados: number | null },
+  salaoId: string,
+): Promise<MotivoSalaoNaoServe | null> {
+  if (!(await instalada(tx))) return null;
+  const elegivel = (await combinadosInstalados(tx)) ? 'kidmais098_salao_elegivel(s.id)' : 'true';
+  const minimo = (await minimoInstalado(tx)) ? '($9::int IS NULL OR s.convidados_minimo IS NULL OR $9::int >= s.convidados_minimo)' : 'true';
+  const r = (await tx.query<{ escopo: boolean; elegivel: boolean; horario: boolean; pacote: boolean; minimo: boolean; capacidade: boolean; livre: boolean }>(
+    `SELECT (s.ativo AND s.empresa_id = $6::uuid AND s.estabelecimento_id IS NOT DISTINCT FROM $7::uuid) AS escopo,
+            ${elegivel} AS elegivel,
+            (NOT EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = $5::uuid)
+             OR EXISTS (SELECT 1 FROM configuracao_agenda_saloes h WHERE h.configuracao_agenda_id = $5::uuid AND h.salao_id = s.id)) AS horario,
+            (NOT EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = $8::uuid)
+             OR EXISTS (SELECT 1 FROM pacote_saloes p WHERE p.pacote_id = $8::uuid AND p.salao_id = s.id)) AS pacote,
+            ${minimo} AS minimo,
+            ($9::int IS NULL OR s.capacidade_convidados IS NULL OR $9::int <= s.capacidade_convidados) AS capacidade,
+            NOT kidmais094_conflito_ocupacao($1::uuid, $2::date, $3::time, $4::time, $6::uuid, $7::uuid, $5::uuid, s.id) AS livre
+       FROM agenda_saloes s WHERE s.id = $10::uuid`,
+    [destino.fechamentoId ?? SEM_FESTA, destino.data, destino.inicio, destino.fim, destino.configuracaoId, destino.empresaId,
+      destino.estabelecimentoId, destino.pacoteId, destino.convidados, salaoId],
+  )).rows[0];
+  if (!r || !r.escopo) return 'SALAO_INATIVO_OU_OUTRO_ESCOPO';
+  if (!r.elegivel) return 'INELEGIVEL';
+  if (!r.horario) return 'HORARIO_NAO_PERMITE';
+  if (!r.pacote) return 'PACOTE_NAO_PERMITE';
+  if (!r.minimo) return 'ABAIXO_DO_MINIMO';
+  if (!r.capacidade) return 'ACIMA_DA_CAPACIDADE';
+  if (!r.livre) return 'OCUPADO_OU_LIMITE';
+  return null;
+}
+
+/** O escopo (empresa/unidade) usa capacidade POR_SALAO com a 094 instalada. */
+export async function escopoPorSalao(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null) {
+  if (!(await instalada(tx))) return false;
+  return (await tx.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = $1::uuid AND c.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+                       AND c.capacidade_tipo = 'POR_SALAO') AS ok`,
+    [empresaId, estabelecimentoId],
+  )).rows[0]?.ok === true;
+}
+
+/** Salão ativo do escopo (nome lido do banco), ou null. */
+export async function salaoAtivoDoEscopo(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null, salaoId: string) {
+  return (await tx.query<{ id: string; nome: string }>(
+    `SELECT id::text AS id, nome FROM agenda_saloes
+      WHERE id = $3::uuid AND ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`,
+    [empresaId, estabelecimentoId, salaoId],
+  )).rows[0] ?? null;
+}
+
+/**
+ * Importação (opções dos dois caminhos, P2-4): por escopo da empresa (unidade ou "sem unidade"), se usa salão e os salões
+ * ativos. A elegibilidade concreta é decidida na simulação (data, horário, pacote e convidados).
+ */
+export async function saloesDoEscopoImportacao(tx: DbExecutor, empresaId: string, estabelecimentos: Array<{ id: string }>) {
+  const escopos = [null, ...estabelecimentos.map((e) => e.id)];
+  if (!(await instalada(tx))) return escopos.map((estabelecimentoId) => ({ estabelecimentoId, porSalao: false, saloes: [] as Array<{ id: string; nome: string; ordem: number }> }));
+  const saida = [];
+  for (const estabelecimentoId of escopos) {
+    const porSalao = await escopoPorSalao(tx, empresaId, estabelecimentoId);
+    const saloes = porSalao ? (await tx.query<{ id: string; nome: string; ordem: number }>(
+      `SELECT id::text AS id, nome, ordem FROM agenda_saloes
+        WHERE ativo AND empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid ORDER BY ordem, nome, id`,
+      [empresaId, estabelecimentoId],
+    )).rows : [];
+    saida.push({ estabelecimentoId, porSalao, saloes });
+  }
+  return saida;
+}
+
 /**
  * S-E (R-E1/R-E2/R3-E5): salão a fixar no documento na EMISSÃO de uma versão. SÓ LEITURA: não grava fechamentos.salao_id
  * nem ocupa a agenda (a ocupação continua nascendo na assinatura). Chamar com a trava da data adquirida (leitura coerente).

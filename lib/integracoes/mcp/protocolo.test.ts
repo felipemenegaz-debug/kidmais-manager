@@ -8,11 +8,12 @@ import { RepositorioOAuthMemoria } from "../oauth/memoria-teste.ts";
 import type { BuscaDocumento } from "../oauth/cimd.ts";
 import { conexoesDaPessoa } from "../oauth/conexoes.ts";
 import { LimitadorPublicoOAuth, atenderAutorizacao, atenderToken } from "../oauth/rotas.ts";
-import { concluirConsentimento, metadadosRecurso, metadadosServidor, type DependenciasConsentimento } from "../oauth/servico.ts";
+import { concluirConsentimento, lerPedidoParaConsentimento, metadadosRecurso, metadadosServidor, type DependenciasConsentimento } from "../oauth/servico.ts";
 import { instalarDetector } from "./detector-rede-teste.ts";
 import { A, B, ENV_OK, UA, UB, deps as depsFerramentas, mundo, type Mundo } from "./apoio-mcp.test.ts";
 import { LimitadorMcp } from "./limites.ts";
-import { criarTransporteMcp } from "./servidor.ts";
+import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { AVISO_RESPOSTA_JSON, criarTransporteMcp, semAvisoDeRespostaJson } from "./servidor.ts";
 
 /**
  * Protocolo LOCAL em loopback (A1, A2, A3, A4, A5 sem PostgreSQL): servidor HTTP real com o transporte MCP do SDK oficial,
@@ -640,5 +641,51 @@ test("revisão P2-7/P3-10: canal desligado continua listando conexões (com a em
     assert.equal(await a.repo.revogarConcessao((await conexoesDaPessoa(a.env, a.repo, UB)).conexoes[0].id, "USUARIO", UA), false, "não revoga conexão de outra pessoa");
   } finally {
     await descer(a);
+  }
+});
+
+test("teste real (28/10): o pedido informa se a empresa ATIVA está no piloto; sem empresa ou fora da lista ⇒ false; a barreira segue no consentimento", async () => {
+  const a = await subir();
+  try {
+    const { location } = await autorizar(a);
+    const pedido = new URL(location!).searchParams.get("pedido")!;
+    const d = consentimentoDeps(a);
+    assert.equal((await lerPedidoParaConsentimento(pedido, d, A))?.empresaNoPiloto, true);
+    assert.equal((await lerPedidoParaConsentimento(pedido, d, null))?.empresaNoPiloto, false, "sem empresa ativa");
+    assert.equal((await lerPedidoParaConsentimento(pedido, d))?.empresaNoPiloto, false, "padrão sem empresa");
+    a.env.MCP_TENANT_ALLOWLIST = B;
+    assert.equal((await lerPedidoParaConsentimento(pedido, d, A))?.empresaNoPiloto, false, "fora da lista");
+    assert.equal((await lerPedidoParaConsentimento(pedido, d, B))?.empresaNoPiloto, true);
+    // Ler não consome o pedido nem substitui a barreira: fora do piloto, o consentimento continua recusado.
+    await assert.rejects(concluirConsentimento({ pedido, empresaId: A, escopos: ["agenda:read"], decisao: "PERMITIR" }, { usuario_id: UA, papel: "ADMINISTRATIVO" }, d), /piloto/);
+    assert.equal(a.repo.concessoes.size, 0);
+  } finally {
+    a.env.MCP_TENANT_ALLOWLIST = ENV_OK.MCP_TENANT_ALLOWLIST;
+    await descer(a);
+  }
+});
+
+test("log do teste real (28/10): o aviso de responseMode json do SDK não chega ao console; outros avisos passam e o console volta ao original", async () => {
+  const original = console.warn;
+  const vistos: string[] = [];
+  const espiao = (...args: unknown[]) => { vistos.push(String(args[0])); };
+  console.warn = espiao;
+  try {
+    const a = await subir(); // cria o transporte real (createMcpHandler com responseMode json)
+    await descer(a);
+    assert.equal(vistos.filter((v) => v.startsWith(AVISO_RESPOSTA_JSON)).length, 0);
+    semAvisoDeRespostaJson(() => console.warn("outro aviso"));
+    assert.ok(vistos.includes("outro aviso"), "só a mensagem do SDK é filtrada");
+    // Revisão do Astra (28/10, P3): mesmo começo ou argumentos extras não são engolidos.
+    semAvisoDeRespostaJson(() => console.warn("responseMode: 'json' drops mid-call notifications. outro detalhe"));
+    semAvisoDeRespostaJson(() => console.warn(AVISO_RESPOSTA_JSON, { extra: 1 }));
+    assert.equal(vistos.filter((v) => v.startsWith("responseMode: 'json'")).length, 2, "prefixo igual e argumentos extras passam");
+    vistos.length = 0;
+    assert.equal(console.warn, espiao, "console.warn restaurado");
+    // Controle: sem o filtro, o SDK escreve o aviso (o texto filtrado confere com o do SDK instalado).
+    createMcpHandler((() => new McpServer({ name: "controle", version: "0" })) as never, { legacy: "stateless", responseMode: "json" });
+    assert.ok(vistos.includes(AVISO_RESPOSTA_JSON), "controle: sem o filtro, o SDK avisa com o texto EXATO filtrado");
+  } finally {
+    console.warn = original;
   }
 });

@@ -5,7 +5,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, completarCliente, congelarEAssinarKidmais, cpfValido, decisoes, dia, executor, id,
-  importacao, integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
+  importacao, integrarLegadoV1, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
 } from "../../scripts/integracao-importados-test-support.ts";
 
 /**
@@ -71,7 +71,8 @@ async function importada(c: Cenario, data: string) {
   const ev = { data, inicio: "10:00", fim: "14:00" };
   const imp = await importacao(a, c, ev);
   await completarCliente(a, imp.cliente);
-  const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
+  // Legado V1 (D2 da S-E restante): revisões sobre contrato importado ANTES da importação V3 (salão automático da 094).
+  const r = await integrarLegadoV1(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
   await validarAgora(a);
   return r.contratoId as string;
 }

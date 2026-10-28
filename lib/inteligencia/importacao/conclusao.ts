@@ -9,6 +9,8 @@ export function linhasDaConclusao(r: ResumoIntegracao) {
     { id: 'referencia', rotulo: 'Referência operacional', valor: r.contrato.pacoteReferencia },
     { id: 'agenda', rotulo: 'Agenda', valor: r.agenda.descricao },
   ];
+  // S-E restante: registro do salão conferido (a exibição ao operador é a revisão da integração, antes do clique).
+  if (r.agenda.salao) linhas.push({ id: 'salao', rotulo: 'Salão', valor: r.agenda.salao.nome });
   const f = r.financeiro;
   if (f.situacao === 'NAO_CONFERIDO') linhas.push({ id: 'financeiro', rotulo: 'Pagamentos', valor: 'Ainda não conferidos. O contrato terá alerta; nenhum recebimento ou dívida será inventado.' });
   else {

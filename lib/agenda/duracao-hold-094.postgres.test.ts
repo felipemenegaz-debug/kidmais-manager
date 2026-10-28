@@ -8,7 +8,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
-import { carregar, cenario, decisoes, dia, id, importacao, integrar, type Cenario, type Evento, type Servico } from "../../scripts/integracao-importados-test-support.ts";
+import { carregar, cenario, decisoes, dia, id, importacao, integrar, type Cenario, type Evento, type Servico, comSalaoEscolhido } from "../../scripts/integracao-importados-test-support.ts";
 import { consultarDisponibilidadeData, duracaoDoPacoteDaEmpresa, revalidarHorarioSelecionado } from "../disponibilidade/services/availability.service.ts";
 
 /**
@@ -68,7 +68,8 @@ async function confirmada(db: Client, c: Cenario, cfg: string, inicio: string, f
 async function integradaComRevisao(c: Cenario, ev: Evento) {
   const s = carregar<Servico>("lib/contratos/integracao-importados/servico.ts");
   const { coreNativo } = carregar<typeof import("../contratos/integracao-importados/composicao.ts")>("lib/contratos/integracao-importados/composicao.ts");
-  const r = await integrar(s, coreNativo, a, c, (await importacao(a, c, ev)).id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }));
+  const impId = (await importacao(a, c, ev)).id;
+  const r = await integrar(s, coreNativo, a, c, impId, await comSalaoEscolhido(s, a, c, impId, decisoes(c, ev, { situacao: "NAO_CONFERIDO" })));
   const reserva = (await a.query(`SELECT f.id, f.configuracao_agenda_id cfg, v.id versao, v.snapshot, v.snapshot_hash FROM contratos k JOIN fechamentos f ON f.id = k.fechamento_id
       JOIN contrato_versoes v ON v.contrato_id = k.id WHERE k.id = $1`, [r.contratoId])).rows[0];
   const v2 = await id(a, `INSERT INTO contrato_versoes (contrato_id, numero_versao, status, snapshot, snapshot_hash, motivo_nova_versao)

@@ -56,7 +56,7 @@ test('festa confirmada sem salão: a tela explica que ela ocupa todos os salões
   const montar = async (dados: object) => {
     const tela = carregarComponente('components/admin/SalaoDaFesta.tsx', {
       '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({ ok: true, data: dados }) },
-      './AdminPrimaryButton': { AdminPrimaryButton: 'button' }, './workspace.module.css': cssFalso,
+      './AdminPrimaryButton': { AdminPrimaryButton: 'button' }, './workspace.module.css': cssFalso, 'next/link': { default: 'a' },
     });
     tela.render('SalaoDaFesta', { fechamentoId: 'f' }); tela.efeitos();
     await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r));

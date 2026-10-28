@@ -305,12 +305,19 @@ export async function iniciarAutorizacao(query: URLSearchParams, deps: Dependenc
   return { tipo: "CONSENTIMENTO", destino: `${urls.origem}/admin/conexoes-ia/autorizar?pedido=${encodeURIComponent(chave)}` };
 }
 
-/** Dados do pedido para a tela de consentimento (sem segredo). null ⇒ expirado, consumido ou inexistente. */
-export async function lerPedidoParaConsentimento(chave: string, deps: DependenciasOAuth) {
+/**
+ * Dados do pedido para a tela de consentimento (sem segredo). null ⇒ expirado, consumido ou inexistente.
+ * `empresaNoPiloto` só orienta a tela (teste real de 28/10/2026: a sessão estava noutra empresa e o Permitir aparecia
+ * para uma empresa fora do piloto). A barreira continua em `concluirConsentimento`, com a empresa comprovada.
+ */
+export async function lerPedidoParaConsentimento(chave: string, deps: DependenciasOAuth, empresaAtualId: string | null = null) {
   if (!/^kmp_[A-Za-z0-9_-]{43}$/.test(chave) || !mcpAtivo(deps.env)) return null;
   const p = await deps.repo.lerPedido(hashSegredo(chave));
   if (!p) return null;
-  return { clienteNome: p.clienteNome, clientHost: new URL(p.clientId).hostname, redirectHost: new URL(p.redirectUri).hostname, escopos: p.escopos, expiraEm: p.expiraEm.toISOString() };
+  return {
+    clienteNome: p.clienteNome, clientHost: new URL(p.clientId).hostname, redirectHost: new URL(p.redirectUri).hostname, escopos: p.escopos, expiraEm: p.expiraEm.toISOString(),
+    empresaNoPiloto: empresaAtualId !== null && empresaNoPilotoMcp(deps.env, empresaAtualId),
+  };
 }
 
 // ---------------------------------------------------------------- consentimento (sessão autenticada do KidMais)

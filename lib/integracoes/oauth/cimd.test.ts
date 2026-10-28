@@ -106,6 +106,19 @@ test("documento real do ChatGPT (private_key_jwt declarado, none suportado) é a
   await assert.rejects(carregarClienteCimd(ID, HOSTS, semNone, AGORA, 60), (e: unknown) => e instanceof CimdRecusado && e.motivo === "AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
 });
 
+test("revisão do Astra (28/10, P3): método omitido não vale none; só a lista com none aceita o documento sem método", async () => {
+  const semMetodo = (over: Record<string, unknown>): BuscaDocumento => async () => {
+    const d: Record<string, unknown> = { client_id: ID, client_name: "ChatGPT", redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"], ...over };
+    delete d.token_endpoint_auth_method;
+    return { status: 200, tipo: "application/json", corpo: JSON.stringify(d) };
+  };
+  const recusa = (e: unknown) => e instanceof CimdRecusado && e.motivo === "AUTENTICACAO_CLIENTE_NAO_SUPORTADA";
+  await assert.rejects(carregarClienteCimd(ID, HOSTS, semMetodo({}), AGORA, 60), recusa, "omitido e sem lista (RFC 7591: client_secret_basic)");
+  await assert.rejects(carregarClienteCimd(ID, HOSTS, semMetodo({ token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"] }), AGORA, 60), recusa, "omitido com lista só de métodos autenticados");
+  const c = await carregarClienteCimd(ID, HOSTS, semMetodo({ token_endpoint_auth_methods_supported: ["none"] }), AGORA, 60);
+  assert.equal(c.clientId, ID, "omitido com none na lista é aceito");
+});
+
 test("limitador: taxa por concessão e por empresa, concorrência e memória limitada", () => {
   let agora = 0;
   const lim = new LimitadorMcp(() => agora, { ...LIMITES_MCP, chamadasPorMinutoPorConcessao: 2, chamadasPorMinutoPorEmpresa: 3, concorrenciaPorConcessao: 1 }, 4);
@@ -167,4 +180,27 @@ test("rodada 4, achado 4: busca CIMD tem prazo ABSOLUTO (DNS e transferência), 
   const gotas = buscaHttpsFixada(async () => ["8.8.8.8"], { prazoMs: 100, vagas: new Vagas(2), abrir });
   await assert.rejects(gotas(url), (e: CimdRecusado) => e.motivo === "TEMPO");
   assert.equal(destruido, true, "soquete destruído no prazo absoluto");
+});
+
+test("CIMD-LOOKUP: o endereço fixado passa pelo net real com e sem autoSelectFamily (Node 20+ pede lista)", async () => {
+  const { createServer, request } = await import("node:http");
+  const corpo = JSON.stringify({ client_id: "https://chatgpt.com/oauth/client.json" });
+  const servidor = createServer((_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(corpo); });
+  await new Promise<void>((ok) => servidor.listen(0, "127.0.0.1", ok));
+  const porta = (servidor.address() as { port: number }).port;
+  try {
+    for (const autoSelectFamily of [true, false]) {
+      // Repassa o `lookup` do código ao net de verdade, trocando só o IP público fixado por loopback (mesma forma).
+      const abrir = ((url: URL, o: { lookup: (h: string, op: unknown, cb: (...a: unknown[]) => void) => void } & Record<string, unknown>, cb: never) =>
+        (request as (op: unknown, cb: never) => unknown)({ ...o, host: url.hostname, port: porta, path: url.pathname, autoSelectFamily,
+          lookup: (h: string, op: unknown, fim: (...a: unknown[]) => void) => o.lookup(h, op, (erro, end, fam) =>
+            fim(erro, Array.isArray(end) ? end.map((e: { family: number }) => ({ ...e, address: "127.0.0.1" })) : typeof end === "string" ? "127.0.0.1" : end, fam)) }, cb)) as never;
+      const busca = buscaHttpsFixada(async () => ["8.8.8.8"], { prazoMs: 2000, abrir });
+      const r = await busca(new URL("https://chatgpt.com/oauth/client.json"));
+      assert.equal(r.status, 200, `autoSelectFamily=${autoSelectFamily}`);
+      assert.equal(r.corpo, corpo);
+    }
+  } finally {
+    servidor.close();
+  }
 });

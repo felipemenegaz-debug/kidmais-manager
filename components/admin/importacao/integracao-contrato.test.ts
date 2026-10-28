@@ -24,7 +24,10 @@ const resumo = {
 };
 
 type Vinculo = { fechamentoId: string; contratoId: string | null; status: string; data?: string; alcance?: string; horario: string; comPagamento: boolean; importado: boolean; sinais: string[] };
-function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown; onIntegrado?(r: unknown): void; rascunho?: Record<string, unknown>; onOcupado?(v: boolean): void } = {}) {
+function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown; onIntegrado?(r: unknown): void; rascunho?: Record<string, unknown>; onOcupado?(v: boolean): void;
+  /** S-E restante: salões por unidade nas opções e o resumo devolvido pela simulação. */
+  saloes?: unknown; resumo?: unknown } = {}) {
+  const resumoSim = opcoesTeste.resumo ?? resumo;
   const chamadas: Array<{ fn: string; args: unknown[] }> = [];
   const Link = 'a';
   const tela = carregarComponente('components/admin/importacao/IntegracaoContrato.tsx', {
@@ -39,15 +42,15 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
     './integracao-form': form,
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
     './cliente-integracao': {
-      lerOpcoes: async () => ({ ok: true, dados: { ...structuredClone(opcoes), ...(opcoesTeste.integracao ? { integracao: opcoesTeste.integracao } : {}) } }),
+      lerOpcoes: async () => ({ ok: true, dados: { ...structuredClone(opcoes), ...(opcoesTeste.integracao ? { integracao: opcoesTeste.integracao } : {}), ...(opcoesTeste.saloes ? { saloes: opcoesTeste.saloes } : {}) } }),
       lerOpcoesRascunho: async () => { chamadas.push({ fn: 'lerOpcoesRascunho', args: [] }); return { ok: true, dados: opcoesTeste.rascunho }; },
-      simularRascunho: async (...args: unknown[]) => { chamadas.push({ fn: 'simularRascunho', args }); return { ok: true, dados: { integrada: false, pronto: true, bloqueios: [], avisos: [], resumo, resumoHash: 'b'.repeat(64), planoHash: 'd'.repeat(64), possiveisVinculos: [] } }; },
+      simularRascunho: async (...args: unknown[]) => { chamadas.push({ fn: 'simularRascunho', args }); return { ok: true, dados: { integrada: false, pronto: true, bloqueios: [], avisos: [], resumo: resumoSim, resumoHash: 'b'.repeat(64), planoHash: 'd'.repeat(64), possiveisVinculos: [] } }; },
       confirmarRascunho: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmarRascunho', args }); return confirmarResposta(); },
       novaChave: () => '88888888-8888-4888-8888-888888888888',
       simular: async (...args: unknown[]) => { chamadas.push({ fn: 'simular', args }); const d = args[2] as { conferenciaDeclarada: boolean; outroContratoConfirmado: boolean; motivoOutroContrato: string };
         const vinculos = opcoesTeste.vinculos ?? [];
         const decidido = !vinculos.length || (d.outroContratoConfirmado && d.motivoOutroContrato.length >= 5);
-        return { ok: true, dados: { integrada: false, pronto: decidido, bloqueios: decidido ? [] : ['Há uma contratação parecida nesta empresa neste dia.'], avisos: d.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo, resumoHash: d.conferenciaDeclarada ? 'b'.repeat(64) : 'a'.repeat(64), possiveisVinculos: vinculos } }; },
+        return { ok: true, dados: { integrada: false, pronto: decidido, bloqueios: decidido ? [] : ['Há uma contratação parecida nesta empresa neste dia.'], avisos: d.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo: resumoSim, resumoHash: d.conferenciaDeclarada ? 'b'.repeat(64) : 'a'.repeat(64), possiveisVinculos: vinculos } }; },
       confirmar: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmar', args }); return confirmarResposta(); },      simularFinanceiro: async () => { throw Error('não usado'); },
       conferirFinanceiro: async () => { throw Error('não usado'); },
     },
@@ -316,4 +319,108 @@ test('rascunho com dois PIX completos: vai à revisão sem cadastrar e confirma 
   assert.deepEqual(chamadas.filter(c => /reautenticar|confirmar/.test(c.fn)).map(c=>c.fn),['reautenticar','confirmarRascunho']);
   liberar({ok:true,dados:{contratoId:'k1',reutilizado:false}});
   await tique(); await tique(); assert.deepEqual(ocupada,[true,false]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// S-E restante: importação V3 (salão) e ponte da recusa do Human Gate (P2-5).
+// ---------------------------------------------------------------------------------------------------------------------
+const SALOES = [{ estabelecimentoId: 'u1', porSalao: true, saloes: [{ id: 's-a', nome: 'Salão A', ordem: 1 }, { id: 's-b', nome: 'Salão B', ordem: 2 }] }];
+const resumoComSalao = { ...resumo, agenda: { ocupa: true, descricao: 'Ocupa a agenda em 14/11/2026, das 14:00 às 18:00 (Unidade Centro), no Salão B.', salao: { id: 's-b', nome: 'Salão B' } } };
+
+/** Festa → (salão) → pagamentos não conferidos → revisão com a declaração marcada. */
+async function ateRevisaoComSalao(tela: ReturnType<typeof montar>['tela'], botaoFesta: string, salao: string | null) {
+  await carregar(tela);
+  const r = (rot: RegExp) => radio(tela.render('default', { importacaoId: IMP }), rot);
+  (r(/Vigente/).props.onChange as (e: unknown) => void)(evento('on'));
+  (elementos(ver(tela)).find((e) => e.type === 'select' && elementos(e.props.children).some((o) => o.props?.value === 'p1'))!.props.onChange as (e: unknown) => void)(evento('p1'));
+  if (salao) (achar(ver(tela), 'select', 'Salão da festa').props.onChange as (e: unknown) => void)(evento(salao));
+  (achar(ver(tela), 'button', botaoFesta).props.onClick as () => void)();
+  await tique();
+  if (/pagamentos/.test(botaoFesta)) {
+    (r(/Ainda não conferi/).props.onChange as (e: unknown) => void)(evento('on'));
+    (achar(ver(tela), 'button', 'Revisar e confirmar').props.onClick as () => void)();
+    await tique();
+  }
+  const declaracao = elementos(ver(tela)).find((e) => e.type === 'label' && /Conferi o documento original/.test(texto(e)))!;
+  (elementos(declaracao.props.children).find((e) => e.type === 'input')!.props.onChange as (e: unknown) => void)(evento('on', true));
+  await tique();
+  return ver(tela);
+}
+
+const linhaSalao = (a: unknown) => elementos(a).find((e) => e.type === 'div' && e.props?.['data-salao']);
+
+test('V3: unidade por salão pede o salão (sem escolha automática) e a revisão mostra "Salão" antes do clique, com o hash do resumo que tem o salão', async () => {
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: { reutilizado: false, contratoId: 'k1' } }), { saloes: SALOES, resumo: resumoComSalao });
+  await carregar(tela);
+  (radio(tela.render('default', { importacaoId: IMP }), /Vigente/).props.onChange as (e: unknown) => void)(evento('on'));
+  (elementos(ver(tela)).find((e) => e.type === 'select' && elementos(e.props.children).some((o) => o.props?.value === 'p1'))!.props.onChange as (e: unknown) => void)(evento('p1'));
+  const a = ver(tela);
+  assert.equal(achar(a, 'select', 'Salão da festa').props.value, '', 'nada escolhido automaticamente (D1)');
+  (achar(a, 'button', 'Continuar para pagamentos').props.onClick as () => void)();
+  assert.match(texto(ver(tela)), /Escolha o salão da festa\./);
+  const b = await ateRevisaoComSalao(tela, 'Continuar para pagamentos', 's-b');
+  const linha = linhaSalao(b)!;
+  assert.ok(linha, 'a revisão que o operador vê mostra o salão');
+  assert.equal(texto(linha), 'SalãoSalão B');
+  const enviada = chamadas.filter((c) => c.fn === 'simular').at(-1)!.args[2] as { salaoId?: string };
+  assert.equal(enviada.salaoId, 's-b');
+  (achar(b, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('senha'));
+  (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();
+  await tique(); await tique();
+  const conf = chamadas.find((c) => c.fn === 'confirmar')!;
+  assert.equal((conf.args[2] as { salaoId?: string }).salaoId, 's-b');
+  assert.equal(conf.args[3], 'b'.repeat(64), 'confirma o hash do resumo exibido (que contém o salão)');
+});
+
+test('V3 no Human Gate (rascunho): a mesma revisão mostra "Salão" antes de confirmar e o hash enviado é o do resumo com o salão', async () => {
+  const rascunho = { ...structuredClone(opcoes), saloes: SALOES } as Record<string, unknown>;
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: { reutilizado: false, contratoId: 'k1' } }), { rascunho, resumo: resumoComSalao });
+  const a = await ateRevisaoComSalao(tela, 'Continuar para pagamentos', 's-b');
+  assert.equal(texto(linhaSalao(a)!), 'SalãoSalão B');
+  assert.equal(chamadas.some((c) => c.fn === 'confirmarRascunho'), false, 'nada confirmado só por exibir');
+  (achar(a, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('senha'));
+  (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();
+  await tique(); await tique();
+  const conf = chamadas.find((c) => c.fn === 'confirmarRascunho')!;
+  assert.equal((conf.args[3] as { salaoId?: string }).salaoId, 's-b');
+  assert.equal(conf.args[4], 'b'.repeat(64));
+});
+
+test('V1: sem unidade por salão, nem seletor nem linha "Salão"', async () => {
+  const { tela } = montar(async () => ({ ok: true, dados: {} }));
+  const a = await ateRevisao(tela);
+  assert.equal(elementos(a).some((e) => e.type === 'select' && e.props?.['aria-label'] === 'Salão da festa'), false);
+  assert.equal(linhaSalao(a), undefined);
+});
+
+test('SALAO_INDISPONIVEL na confirmação: mostra o motivo e re-simula (como os demais 409 do domínio)', async () => {
+  const { tela, chamadas } = montar(async () => ({ ok: false, mensagem: 'O salão escolhido não está mais disponível para esta festa. Confira e escolha de novo. Nada foi gravado.', codigo: 'SALAO_INDISPONIVEL', detalhes: null }));
+  const a = await ateRevisao(tela);
+  const antes = chamadas.filter((c) => c.fn === 'simular').length;
+  (achar(a, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('senha'));
+  (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();
+  await tique(); await tique(); await tique();
+  assert.match(texto(ver(tela)), /O salão escolhido não está mais disponível/);
+  assert.ok(chamadas.filter((c) => c.fn === 'simular').length > antes, 're-simula');
+});
+
+test('RESULTADO_INCERTO: não re-simula nem repete; confirmar fica desabilitado e a lista de Contratos é oferecida', async () => {
+  let confirmacoes = 0;
+  const { tela, chamadas } = montar(async () => { confirmacoes++; return { ok: false, mensagem: 'Não foi possível saber se a confirmação terminou. Confira o contrato na lista de Contratos antes de tentar de novo.', codigo: 'RESULTADO_INCERTO', detalhes: null }; });
+  const a = await ateRevisao(tela);
+  const antes = chamadas.filter((c) => c.fn === 'simular').length;
+  (achar(a, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('senha'));
+  (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();
+  await tique(); await tique(); await tique();
+  let b = ver(tela);
+  assert.match(texto(b), /Não foi possível saber se a confirmação terminou/);
+  assert.equal(chamadas.filter((c) => c.fn === 'simular').length, antes, 'sem nova simulação automática');
+  assert.equal(confirmacoes, 1);
+  assert(elementos(b).some((e) => e.type === 'a' && e.props.href === '/admin/contratos'));
+  (achar(b, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('senha'));
+  b = ver(tela);
+  assert.equal(achar(b, 'button', 'Confirmar integração').props.disabled, true, 'não repete a operação possivelmente concluída');
+  (achar(b, 'button', 'Já conferi: revisar de novo').props.onClick as () => void)();
+  await tique();
+  assert.equal(chamadas.filter((c) => c.fn === 'simular').length, antes + 1, 'só o operador pede a nova revisão');
 });
