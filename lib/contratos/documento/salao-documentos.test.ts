@@ -140,7 +140,8 @@ test("modelo da empresa (072): {{festa.salao}} na lista fechada, opcional, preen
   assert.equal(preencher("Local: {{festa.salao}}.", SNAP_V3_COM_SALAO, extra), "Local: Jardim.");
   for (const s of [SNAP_V1, SNAP_V2, SNAP_V3_SEM_SALAO]) assert.equal(preencher("[{{festa.salao}}]", s, extra), "[]");
   assert.throws(() => preencher("{{festa.salao_id}}", SNAP_V3_COM_SALAO, extra), /desconhecido/);
-  assert.deepEqual(problemasDoConteudo({ ...MODELO, preambulo: ["No salão {{festa.salao}}."] }), []);
+  // Só o campo do salão importa aqui; a fixture de renderização segue intacta (a D1 pede ainda a condição de pagamento).
+  assert.deepEqual(problemasDoConteudo({ ...MODELO, preambulo: ["No salão {{festa.salao}}."] }), ["Falta nas cláusulas: Condição de pagamento."]);
   assert.ok(problemasDoConteudo({ ...MODELO, preambulo: ["{{festa.configuracao}}"] }).some((p) => p.includes("{{festa.configuracao}} não existe")));
 });
 
