@@ -11,7 +11,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
  * retorno), em qual empresa, quais dados sairão, o prazo e como desconectar. Permissões só entre as pedidas; a empresa
  * é a ativa da sessão, comprovada no servidor. O redirecionamento final vem do servidor (nunca montado aqui).
  */
-export type PedidoTela = { clienteNome: string; clientHost: string; redirectHost: string; escopos: readonly string[]; expiraEm: string };
+export type PedidoTela = { clienteNome: string; clientHost: string; redirectHost: string; escopos: readonly string[]; expiraEm: string; empresaNoPiloto: boolean };
 type Empresa = { id: string; nome: string };
 
 export const DADOS_QUE_SAEM: Readonly<Record<string, string>> = {
@@ -29,6 +29,9 @@ export function FormularioConsentimento({ pedido, empresa, enviar, ocupado }: {
         <h2 id="t-consentimento">{pedido.clienteNome} quer acessar o KidMais</h2>
         <p>Aplicativo: <strong data-client-host>{pedido.clientHost}</strong> · retorno para <strong data-redirect-host>{pedido.redirectHost}</strong></p>
         <p>Empresa: <strong data-empresa>{empresa.nome}</strong></p>
+        {/* Teste real de 28/10/2026: a sessão estava noutra empresa e a tela não deixava isso claro. */}
+        <p className={workspace.muted} data-aviso-empresa>A conexão vale só para esta empresa. Para conectar outra, troque a empresa ativa no menu do KidMais e recarregue esta página.</p>
+        {!pedido.empresaNoPiloto && <p role="alert" data-fora-do-piloto>Esta empresa ainda não participa do piloto de conexões com assistentes. Troque a empresa ativa no menu e recarregue esta página, ou recuse o pedido.</p>}
         <fieldset style={{ border: 0, padding: 0, margin: '16px 0' }}>
             <legend style={{ fontWeight: 800 }}>Permitir somente leitura de:</legend>
             {pedido.escopos.map((e) => <label key={e} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -44,7 +47,7 @@ export function FormularioConsentimento({ pedido, empresa, enviar, ocupado }: {
             <li>O que o assistente já recebeu fica no histórico dele, conforme as regras do fabricante.</li>
         </ul>
         <div className={workspace.actions}>
-            <AdminPrimaryButton carregando={ocupado} disabled={marcados.length === 0} onClick={() => enviar('PERMITIR', marcados)} data-permitir>Permitir</AdminPrimaryButton>
+            {pedido.empresaNoPiloto && <AdminPrimaryButton carregando={ocupado} disabled={marcados.length === 0} onClick={() => enviar('PERMITIR', marcados)} data-permitir>Permitir</AdminPrimaryButton>}
             <button type="button" disabled={ocupado} onClick={() => enviar('NEGAR', [])} data-negar>Não permitir</button>
         </div>
     </section>;
