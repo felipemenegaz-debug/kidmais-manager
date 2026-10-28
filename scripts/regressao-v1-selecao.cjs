@@ -278,6 +278,9 @@ const ESTADO_POSTGRES = {
   // 27/10/2026: aplicador REAL da 102/103 para staging no modelo 097 + 100 (aplica, confere, privilégios, SERVICOS divergente,
   // marcador) e no 098 (recusa COM_098_102 sem escrever).
   "lib/agenda/aplicador-102-103.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // 27/10/2026: aplicador REAL da 104/106 para staging no modelo 103 (as duas ausentes: recusas, papel mínimo, atividade,
+  // deriva, falha da 106 após a 104 e retomada) e no 105 (já com a 104: só a 106).
+  "lib/agenda/aplicador-104-106.postgres.test.ts": { descartavel: "103", tambem: ["105"] },
   // 27/10/2026 (S-C, convidados primeiro): capacidade do salão na disponibilidade (OK/OCUPADO/CAPACIDADE), revalidação
   // com SEM_SALAO_PARA_CONVIDADOS sem gravar e escolha do salão que comporta; 097, como no staging (103) e com a 098.
   // 27/10/2026 (S-E): migration 104 (hash da revisão com o salão), aplicada pela suíte sobre o modelo 103.
