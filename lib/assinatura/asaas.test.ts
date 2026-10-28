@@ -189,3 +189,51 @@ test('cobrança: confirmedDate lido só no formato de data', async () => {
     const ruim = await criarClienteAsaas(config, { fetch: fetchFalso([json({ ...base, confirmedDate: '11/11/2026' })]).f }).obterCobranca('pay_1');
     assert.equal(ruim?.confirmedDate, null);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// B-14 (§3.6 a, §3.7): listagens comprovadas do inventário e da fila — cardinalidade, total estável, ids únicos.
+
+const cob = (id: string) => ({ id, status: 'RECEIVED', dueDate: '2026-10-20', paymentDate: '2026-10-21', deleted: false, value: 197 });
+const pagina = (ids: string[], totalCount: number, hasMore: boolean) => json({ object: 'list', hasMore, totalCount, limit: 100, offset: 0, data: ids.map(cob) });
+
+test('listarCobrancas: filtro de data na URL e leitura completa de duas páginas', async () => {
+    const primeira = Array.from({ length: 100 }, (_, i) => `pay_${i}`);
+    const { f, chamadas } = fetchFalso([pagina(primeira, 101, true), pagina(['pay_100'], 101, false)]);
+    const r = await criarClienteAsaas(config, { fetch: f }).listarCobrancas({ campo: 'paymentDate', desde: '2026-10-20' });
+    assert.equal(r.totalCount, 101);
+    assert.equal(r.itens.length, 101);
+    assert.match(chamadas[0].url, /\/payments\?paymentDate%5Bge%5D=2026-10-20&offset=0&limit=100$/);
+    assert.match(chamadas[1].url, /offset=100&limit=100$/);
+    assert.equal(chamadas.every((c) => c.init.method === 'GET'), true);
+});
+
+test('listarCobrancas: total que muda entre páginas, id repetido ou hasMore antes do total → LISTA_INCOMPLETA', async () => {
+    const cem = Array.from({ length: 100 }, (_, i) => `pay_${i}`);
+    const casos: Array<Array<() => Response>> = [
+        [pagina(cem, 101, true), pagina(['pay_100'], 102, false)],
+        [pagina(cem, 101, true), pagina(['pay_5'], 101, false)],
+        [pagina(['pay_1'], 2, false)],
+    ];
+    for (const respostas of casos) {
+        const { f } = fetchFalso(respostas);
+        await assert.rejects(criarClienteAsaas(config, { fetch: f }).listarCobrancas({ campo: 'dateCreated', desde: '2026-10-20' }),
+            (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    }
+});
+
+test('listarCobrancas: totalCount ausente → RESPOSTA_INVALIDA; filtro inválido recusado antes da rede', async () => {
+    const { f, chamadas } = fetchFalso([json({ hasMore: false, data: [cob('pay_1')] })]);
+    const c = criarClienteAsaas(config, { fetch: f });
+    await assert.rejects(c.listarCobrancas({ campo: 'dateCreated', desde: '2026-10-20' }), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'RESPOSTA_INVALIDA');
+    await assert.rejects(c.listarCobrancas({ campo: 'updatedAt' as never, desde: '2026-10-20' }), /Filtro de cobranças inválido/);
+    await assert.rejects(c.listarCobrancas({ campo: 'dateCreated', desde: '20/10/2026' }), /Filtro de cobranças inválido/);
+    assert.equal(chamadas.length, 1);
+});
+
+test('listarWebhooks: só id, url, enabled, interrupted, sendType e eventos; token e e-mail nunca saem', async () => {
+    const { f } = fetchFalso([json({ hasMore: false, totalCount: 1, data: [{ id: 'wh_1', name: 'Kidmais', url: 'https://manager.kidmaisfestas.com/api/integracoes/asaas/webhook',
+        email: 'x@example.invalid', enabled: true, interrupted: false, sendType: 'SEQUENTIALLY', authToken: 'segredo', events: ['PAYMENT_RECEIVED', 'invalido', 7] }] })]);
+    const r = await criarClienteAsaas(config, { fetch: f }).listarWebhooks();
+    assert.deepEqual(r.itens, [{ id: 'wh_1', url: 'https://manager.kidmaisfestas.com/api/integracoes/asaas/webhook', enabled: true, interrupted: false, sendType: 'SEQUENTIALLY', events: ['PAYMENT_RECEIVED'] }]);
+    assert.doesNotMatch(JSON.stringify(r), /segredo|example\.invalid|Kidmais/);
+});

@@ -49,8 +49,13 @@ class Banco implements DbExecutor {
             for (const e of this.eventos) if (ids.includes(e.id)) e.concluido = true;
         } else if (sql.startsWith('INSERT INTO auditoria')) rows = [];
         else if (sql.startsWith('UPDATE empresa_assinaturas SET situacao')) {
-            this.linha.situacao = args[1] as string; this.linha.periodo_atual_fim = args[3] as string;
-            if (args[8]) this.linha.plano = args[8] as string;
+            // Guarda IS DISTINCT FROM do B-14: grava (rowCount 1) só quando algum valor calculado difere.
+            const difere = this.linha.situacao !== args[1] || this.linha.periodo_atual_fim !== args[3] || (args[8] !== undefined && this.linha.plano !== args[8]);
+            if (difere) {
+                this.linha.situacao = args[1] as string; this.linha.periodo_atual_fim = args[3] as string;
+                if (args[8]) this.linha.plano = args[8] as string;
+                rows = [{}];
+            }
         } else if (sql.startsWith('UPDATE empresa_assinaturas SET provedor_situacao')) rows = [];
         else if (sql.startsWith("UPDATE empresa_assinaturas SET provedor = 'ASAAS'")) {
             this.linha.provedor_cliente_id = args[1] as string;

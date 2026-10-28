@@ -1,4 +1,5 @@
 import pg from "pg";
+import { instrumentarTimeout, PRAZO_DIAGNOSTICO_MS } from "./diagnostico-timeout.ts";
 import { exigirAmbienteSemConexaoHerdada, exigirOptInDescartavel, PAPEL_DESCARTAVEL, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
@@ -38,6 +39,23 @@ export async function conectarDescartavel(opcoes?: { travar?: boolean; database?
   }
   if (opcoes?.travar !== false) await client.query("SELECT pg_advisory_lock($1)", [TRAVA_TESTE]);
   await client.query("SET statement_timeout = '30s'");
+  if (process.env.KIDMAIS_DIAGNOSTICO_PG === "1") {
+    // B-14: diagnóstico opcional do 57014, com prazo na coleta e no encerramento (lib/comercial/diagnostico-timeout.ts).
+    instrumentarTimeout(client, () => {
+      const outra = new pg.Client({
+        host: "127.0.0.1",
+        port: portaAutorizada,
+        user: "kidmais_descartavel",
+        database,
+        password: senhaRecusada,
+        application_name: "kidmais-diagnostico",
+        connectionTimeoutMillis: PRAZO_DIAGNOSTICO_MS,
+        query_timeout: PRAZO_DIAGNOSTICO_MS,
+      });
+      const destruir = () => (outra as unknown as { connection?: { stream?: { destroy?: () => void } } }).connection?.stream?.destroy?.();
+      return { cliente: outra, destruir };
+    });
+  }
   return client;
 }
 

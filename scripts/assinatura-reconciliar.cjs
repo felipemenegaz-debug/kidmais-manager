@@ -218,19 +218,50 @@ function argumentos(argv) {
 }
 
 /**
+ * Parada do ciclo pedida pela recuperação de pagamentos (B-14): trava perdida, SIGTERM, prazo estourado ou COMMIT sem
+ * resposta. O item corrente já fez ROLLBACK (ou ficou indeterminado); o ciclo não continua. O cron nunca a recebe.
+ */
+class ParadaCiclo extends Error {
+    constructor(motivo) {
+        super(`Ciclo interrompido: ${motivo}`);
+        this.name = 'ParadaCiclo';
+        this.motivo = motivo;
+    }
+}
+
+/**
  * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
  * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
+ * Opções da recuperação de pagamentos (B-14, plano rev. 8.1 §3.1), ausentes no cron (comportamento idêntico ao anterior):
+ *   provedorEfetivo  usado TAL COMO RECEBIDO nos dois modos (lista fechada somente leitura), sem `provedorDaExecucao`;
+ *   antesDoCommit    () => motivo | null, chamado ao fim de cada item, antes de COMMIT/ROLLBACK: com motivo, o item faz
+ *                    ROLLBACK e o ciclo para com ParadaCiclo; COMMIT sem resposta também para (COMMIT_INDETERMINADO).
  */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento, creditos }) {
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento, creditos, provedorEfetivo, antesDoCommit }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
         try {
             const r = await trabalho();
+            const parada = antesDoCommit ? await antesDoCommit() : null;
+            if (parada) {
+                await client.query('ROLLBACK');
+                throw new ParadaCiclo(parada);
+            }
+            if (antesDoCommit && aplicar) {
+                try {
+                    await client.query('COMMIT');
+                }
+                catch {
+                    throw new ParadaCiclo('COMMIT_INDETERMINADO');
+                }
+                return r;
+            }
             await client.query(aplicar ? 'COMMIT' : 'ROLLBACK');
             return r;
         }
         catch (error) {
+            if (error instanceof ParadaCiclo) throw error;
             await client.query('ROLLBACK');
             // Recusa de domínio vira ERRO_<código> (ex.: ERRO_FUNDADOR_OFERTA_EXPIRADA): continua alarmando e o atendimento vê a causa.
             const codigo = error instanceof Error && error.name === 'AcessoServiceError' && /^[A-Z0-9_]{1,80}$/.test(String(error.code)) ? String(error.code) : null;
@@ -238,7 +269,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         }
     };
     const relatorio = { modo, banco, eventos: {}, empresas: {} };
-    const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
+    const provedorUsado = provedorEfetivo ?? provedorDaExecucao(provedor, aplicar, relatorio);
     const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
     // D-C4 (só quando a conferência de produção passa `idadesDosEventos`): um item por evento e por empresa divergente.
     const itens = [];
@@ -593,6 +624,6 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
+module.exports = { ParadaCiclo, validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
     lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, SQL_PENDENCIAS_ARREPENDIMENTO, motivoSeguro, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };

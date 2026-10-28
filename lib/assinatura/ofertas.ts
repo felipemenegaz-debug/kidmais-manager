@@ -314,9 +314,11 @@ export async function confirmarOfertaPaga(tx: DbExecutor, empresaId: string, ass
     }
     if (!ativar) return null;
     if (oferta.estado === 'EM_ABERTO') {
+        // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
         if (beneficio?.estado === 'RESERVADA') await tx.query(`UPDATE assinatura_fundadores SET estado = 'CONFIRMADA',
             confirmada_em = clock_timestamp(), pagamento_confirmacao_id = $3
             WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado = 'RESERVADA'`, [oferta.fundador_id,empresaId,pagamento.id]);
+        // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
         await tx.query(`UPDATE assinatura_contratacoes SET estado = 'CONFIRMADA', confirmada_em = clock_timestamp(),
             pagamento_confirmacao_id = $3, provedor_assinatura_id = $4
             WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado = 'EM_ABERTO'`, [oferta.id,empresaId,pagamento.id,assinatura!.id]);
