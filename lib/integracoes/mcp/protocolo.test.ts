@@ -676,10 +676,15 @@ test("log do teste real (28/10): o aviso de responseMode json do SDK não chega 
     assert.equal(vistos.filter((v) => v.startsWith(AVISO_RESPOSTA_JSON)).length, 0);
     semAvisoDeRespostaJson(() => console.warn("outro aviso"));
     assert.ok(vistos.includes("outro aviso"), "só a mensagem do SDK é filtrada");
+    // Revisão do Astra (28/10, P3): mesmo começo ou argumentos extras não são engolidos.
+    semAvisoDeRespostaJson(() => console.warn("responseMode: 'json' drops mid-call notifications. outro detalhe"));
+    semAvisoDeRespostaJson(() => console.warn(AVISO_RESPOSTA_JSON, { extra: 1 }));
+    assert.equal(vistos.filter((v) => v.startsWith("responseMode: 'json'")).length, 2, "prefixo igual e argumentos extras passam");
+    vistos.length = 0;
     assert.equal(console.warn, espiao, "console.warn restaurado");
     // Controle: sem o filtro, o SDK escreve o aviso (o texto filtrado confere com o do SDK instalado).
     createMcpHandler((() => new McpServer({ name: "controle", version: "0" })) as never, { legacy: "stateless", responseMode: "json" });
-    assert.ok(vistos.some((v) => v.startsWith(AVISO_RESPOSTA_JSON)), "controle: o SDK avisa sem o filtro");
+    assert.ok(vistos.includes(AVISO_RESPOSTA_JSON), "controle: sem o filtro, o SDK avisa com o texto EXATO filtrado");
   } finally {
     console.warn = original;
   }

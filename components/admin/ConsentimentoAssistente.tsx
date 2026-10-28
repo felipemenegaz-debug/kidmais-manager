@@ -53,33 +53,71 @@ export function FormularioConsentimento({ pedido, empresa, enviar, ocupado }: {
     </section>;
 }
 
+export const PRAZO_CARREGAMENTO_MS = 15_000;
+export type CargaConsentimento = { ok: true; pedido: PedidoTela; empresa: Empresa } | { ok: false; erro: string; recuperavel: boolean };
+
+/**
+ * Carga do consentimento com prazo absoluto e cancelamento (revisão do Astra de 28/10/2026, P2-1: no teste real a tela
+ * ficou em "Carregando…" sem se recuperar). Pedido e sessão em paralelo; o prazo cobre também a leitura dos corpos.
+ * Ao vencer, as requisições são abortadas e o resultado é recuperável (a tela oferece tentar de novo). O pedido não é
+ * consumido por ler, então repetir é seguro.
+ */
+export async function carregarPedido(deps: {
+    lerPedido: (sinal: AbortSignal) => Promise<Response>; lerSessao: (sinal: AbortSignal) => Promise<Response>; prazoMs: number; cancelamento?: AbortSignal;
+}): Promise<CargaConsentimento> {
+    const controle = new AbortController();
+    deps.cancelamento?.addEventListener('abort', () => controle.abort());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const prazo = new Promise<CargaConsentimento>((ok) => {
+        timer = setTimeout(() => {
+            controle.abort();
+            ok({ ok: false, erro: 'O pedido demorou para carregar. Tente de novo; se continuar, volte ao assistente e conecte novamente.', recuperavel: true });
+        }, deps.prazoMs);
+    });
+    const trabalho = (async (): Promise<CargaConsentimento> => {
+        try {
+            const [rp, rs] = await Promise.all([deps.lerPedido(controle.signal), deps.lerSessao(controle.signal)]);
+            const cp = await rp.json().catch(() => null) as { ok?: boolean; erro?: string; data?: PedidoTela } | null;
+            const cs = await rs.json().catch(() => null) as { data?: { contexto?: { empresaAtual?: Empresa | null } } } | null;
+            if (!rp.ok || !cp?.ok || !cp.data) return { ok: false, erro: cp?.erro ?? 'Pedido de conexão inválido ou expirado.', recuperavel: rp.status >= 500 };
+            const atual = cs?.data?.contexto?.empresaAtual ?? null;
+            if (!atual) return { ok: false, erro: 'Escolha a empresa no menu do KidMais e abra o link de conexão novamente.', recuperavel: false };
+            return { ok: true, pedido: cp.data, empresa: atual };
+        } catch {
+            return { ok: false, erro: 'Falha de conexão ao abrir o pedido.', recuperavel: true };
+        }
+    })();
+    try {
+        return await Promise.race([trabalho, prazo]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 export default function ConsentimentoAssistente({ pedidoId }: { pedidoId: string }) {
     const [pedido, setPedido] = useState<PedidoTela | null>(null);
     const [empresa, setEmpresa] = useState<Empresa | null>(null);
     const [erro, setErro] = useState('');
+    const [recuperavel, setRecuperavel] = useState(false);
+    const [tentativa, setTentativa] = useState(0);
     const [ocupado, setOcupado] = useState(false);
     useEffect(() => {
         let vivo = true;
-        (async () => {
-            try {
-                const [rp, rs] = await Promise.all([
-                    adminFetch(`/api/admin/mcp/consentimento?pedido=${encodeURIComponent(pedidoId)}`, { cache: 'no-store' }),
-                    fetch('/api/admin/autenticacao', { cache: 'no-store' }),
-                ]);
-                const cp = await rp.json().catch(() => null) as { ok?: boolean; erro?: string; data?: PedidoTela } | null;
-                const cs = await rs.json().catch(() => null) as { data?: { contexto?: { empresaAtual?: Empresa | null } } } | null;
-                if (!vivo) return;
-                if (!rp.ok || !cp?.ok || !cp.data) { setErro(cp?.erro ?? 'Pedido de conexão inválido ou expirado.'); return; }
-                const atual = cs?.data?.contexto?.empresaAtual ?? null;
-                if (!atual) { setErro('Escolha a empresa no menu do KidMais e abra o link de conexão novamente.'); return; }
-                setPedido(cp.data);
-                setEmpresa(atual);
-            } catch {
-                if (vivo) setErro('Falha de conexão ao abrir o pedido.');
-            }
-        })();
-        return () => { vivo = false; };
-    }, [pedidoId]);
+        const saida = new AbortController();
+        void carregarPedido({
+            lerPedido: (sinal) => adminFetch(`/api/admin/mcp/consentimento?pedido=${encodeURIComponent(pedidoId)}`, { cache: 'no-store', signal: sinal }),
+            lerSessao: (sinal) => fetch('/api/admin/autenticacao', { cache: 'no-store', signal: sinal }),
+            prazoMs: PRAZO_CARREGAMENTO_MS,
+            cancelamento: saida.signal,
+        }).then((c) => {
+            if (!vivo) return;
+            if (c.ok) { setPedido(c.pedido); setEmpresa(c.empresa); return; }
+            setErro(c.erro);
+            setRecuperavel(c.recuperavel);
+        });
+        return () => { vivo = false; saida.abort(); };
+    }, [pedidoId, tentativa]);
+    const tentarDeNovo = () => { setErro(''); setRecuperavel(false); setTentativa((t) => t + 1); };
     const enviar = async (decisao: 'PERMITIR' | 'NEGAR', escopos: string[]) => {
         if (!empresa) return;
         setOcupado(true);
@@ -101,6 +139,7 @@ export default function ConsentimentoAssistente({ pedidoId }: { pedidoId: string
     return <main className={admin.page} data-consentimento-ia>
         <h1>Conectar assistente</h1>
         <p role="alert">{erro}</p>
+        {recuperavel && !pedido && <p><button type="button" onClick={tentarDeNovo} data-tentar-de-novo>Tentar de novo</button></p>}
         {pedido && empresa && <FormularioConsentimento pedido={pedido} empresa={empresa} enviar={enviar} ocupado={ocupado} />}
         {!pedido && !erro && <p className={workspace.muted}>Carregando…</p>}
     </main>;

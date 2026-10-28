@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
 import AvisoContexto from '@/components/admin/AvisoContexto';
-import { destinoAposLogin } from '@/components/admin/retorno-login';
+import { destinoAposLogin } from '@/lib/http/retorno-login';
 /** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor (e o consentimento MCP). */
 function destinoSeguro() {
     return destinoAposLogin(new URLSearchParams(window.location.search).get('voltar') ?? '');

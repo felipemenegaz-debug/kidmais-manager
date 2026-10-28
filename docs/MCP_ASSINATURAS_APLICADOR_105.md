@@ -1,6 +1,17 @@
 # Aplicador da migration 105 (canal MCP) em staging
 
-Preparado em 27/10/2026, **LOCAL e sem commit** (PostgreSQL descartável aprovado), na branch `codex/aplicador-105-staging-20261027` sobre o staging `dfb872a8`. Nada foi executado em staging. Mesmo desenho dos aplicadores da 092–094, 100 e 102/103.
+> **ESTADO ATUAL (28/10/2026, vale sobre os blocos datados abaixo, que são histórico):**
+> - **Staging:** código do canal LIVE (até a #261, `a18677cb`); migration **105 APLICADA** (integridade PASS); canal
+>   ligado só para a empresa de teste (`MCP_TENANT_ALLOWLIST`).
+> - **Conexão real:** ChatGPT e Claude conectados de verdade por CIMD; 4 perguntas-roteiro, Desconectar e renovação depois
+>   de 1 h aprovados (MCP_ASSINATURAS_V1.md §20). Ressalvas da revisão do Astra de 28/10: isolamento e "zero dados pessoais" só com a base vazia;
+>   a recusa da empresa fora do piloto foi vista na tela, mas o POST 403 real não foi feito.
+> - **Revisão do Astra de 28/10:** "resultado de staging aprovado; produção pode ser planejada". **Não é GO para
+>   produção.**
+> - **Produção:** nada aplicado nem ligado. Pede aplicador 105 próprio + PITR, candidata validada no Node 22.23.2, env
+>   própria, monitoramento/desligamento e as decisões D3/RET-1/D-EXP (lista em MCP_ASSINATURAS_V1.md §21).
+
+Histórico: preparado em 27/10/2026, **LOCAL e sem commit** (PostgreSQL descartável aprovado); depois mergeado (#256) e **executado em staging** (APLICADA_POSTCHECK_PASS, depois JA_APLICADA_INTEGRIDADE_PASS). **É de staging: não serve para produção**, na branch `codex/aplicador-105-staging-20261027` sobre o staging `dfb872a8`. Nada foi executado em staging. Mesmo desenho dos aplicadores da 092–094, 100 e 102/103.
 
 A 105 é aplicada **sozinha**. O aplicador conjunto da 104/106 (outra sessão, `Plano aplicador 104 106 staging 20261027`) deixa a 105 de fora de propósito (decisão D2 daquele plano). As três são independentes entre si.
 
