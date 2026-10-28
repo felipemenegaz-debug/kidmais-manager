@@ -5,8 +5,8 @@ import type { TenantComprovado } from '../../saas/provar-tenant.ts';
 import { decisoesBase, snapshotBase } from './fixtures.ts';
 import type { DecisoesIntegracao } from './modelo.ts';
 import {
-  conferirFinanceiro, confirmarIntegracao, instanteDoRecebimento, IntegracaoImportadoError, opcoesIntegracao, recusaDoPlanoNativo, simularFinanceiro, simularIntegracao,
-  type Core,
+  conferirFinanceiro, confirmarIntegracao, instanteDoRecebimento, IntegracaoImportadoError, opcoesIntegracao, opcoesIntegracaoRascunho, recusaDoPlanoNativo, simularFinanceiro, simularIntegracao,
+  type Core, type FonteIntegracaoRascunho,
 } from './servico.ts';
 
 /**
@@ -37,6 +37,20 @@ type Estado = {
   vinculosDepoisDoLock: Array<Record<string, unknown>> | null;
   locks: string[]; sql: string[];
   aniversarianteExistente: string | null;
+  /**
+   * S-E restante (importação V3): 094 instalada e unidade POR_SALAO. saloes = cadastro (ativo/nome); serve = a regra estrita
+   * (salaoServeNoDestino) por salão ANTES e DEPOIS da trava da data; diag = motivo; escolha = a escolha estrita pós-contrato.
+   */
+  v3?: {
+    porSalao: boolean;
+    saloes: Array<{ id: string; nome: string; ativo: boolean; ordem: number }>;
+    serve: Record<string, boolean>;
+    serveDepoisDaTrava?: Record<string, boolean>;
+    saloesDepoisDaTrava?: Array<{ id: string; nome: string; ativo: boolean; ordem: number }>;
+    diag?: Partial<Record<'escopo' | 'elegivel' | 'horario' | 'pacote' | 'minimo' | 'capacidade' | 'livre', boolean>> | null;
+    escolhaServe?: boolean;
+    salaoGravado?: string | null;
+  };
 };
 
 function estadoInicial(): Estado {
@@ -54,6 +68,44 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
   const query = async (sql: string, v: readonly unknown[] = []) => {
     estado.sql.push(sql);
     const linhas = (rows: unknown[]) => ({ rows: rows as never[], rowCount: rows.length });
+    // Antes dos demais: as consultas de salão também citam configuracao_agenda_saloes e pacote_saloes.
+    // S-E restante: sem estado.v3, a 094 não está instalada e nenhuma unidade é POR_SALAO (caso V1).
+    if (sql.includes("to_regprocedure('public.kidmais094_conflito_ocupacao")) return linhas([{ ok: !!estado.v3 }]);
+    if (estado.v3) {
+      const v3 = estado.v3;
+      const depois = estado.locks.some((l) => l.startsWith('data:'));
+      const saloes = depois && v3.saloesDepoisDaTrava ? v3.saloesDepoisDaTrava : v3.saloes;
+      if (sql.includes("to_regprocedure('public.kidmais098_salao_elegivel")) return linhas([{ ok: false }]);
+      if (sql.includes("attname = 'convidados_minimo'")) return linhas([{ ok: false }]);
+      if (sql.includes('FROM agenda_escopo_config c WHERE c.empresa_id = $1::uuid')) { assert.equal(v[0], EMPRESA); return linhas([{ ok: v3.porSalao }]); }
+      if (sql.includes('SELECT id::text AS id, nome FROM agenda_saloes')) {
+        assert.equal(v[0], EMPRESA);
+        return linhas(saloes.filter((s) => s.id === v[2] && s.ativo).map(({ id: sid, nome }) => ({ id: sid, nome })));
+      }
+      if (sql.includes('SELECT id::text AS id, nome, ordem FROM agenda_saloes')) {
+        assert.equal(v[0], EMPRESA);
+        return linhas(v[1] === '22222222-2222-4222-8222-222222222222' ? saloes.filter((s) => s.ativo).map(({ id: sid, nome, ordem }) => ({ id: sid, nome, ordem })) : []);
+      }
+      if (sql.includes('ORDER BY s.capacidade_convidados NULLS LAST')) {
+        // saloesQueServem: emissão estrita (antes do contrato: destino sem festa; depois: escolha pós-contrato).
+        const somente = v[9] as string;
+        const escolhaPosContrato = v[0] !== '00000000-0000-0000-0000-000000000000';
+        const mapa = depois && v3.serveDepoisDaTrava ? v3.serveDepoisDaTrava : v3.serve;
+        const ok = escolhaPosContrato ? (v3.escolhaServe ?? mapa[somente]) : mapa[somente];
+        const s = saloes.find((x) => x.id === somente);
+        return linhas(ok && s ? [{ id: s.id, nome: s.nome }] : []);
+      }
+      if (sql.includes('FROM agenda_saloes s WHERE s.id = $10::uuid')) {
+        const d = v3.diag;
+        return linhas(d === null ? [] : [{ escopo: true, elegivel: true, horario: true, pacote: true, minimo: true, capacidade: true, livre: true, ...d }]);
+      }
+      if (sql.includes('SELECT fechamento_id::text AS fechamento_id FROM contratos')) return linhas([{ fechamento_id: 'fechamento-v3' }]);
+      if (sql.includes('FROM fechamentos f WHERE f.id = $1::uuid FOR UPDATE')) {
+        return linhas([{ salao_id: v3.salaoGravado ?? null, por_salao: true, data: '2026-11-14', inicio: '14:00:00', fim: '18:00:00', cfg: '66666666-6666-4666-8666-666666666666',
+          pacote: '33333333-3333-4333-8333-333333333333', empresa: EMPRESA, unidade: '22222222-2222-4222-8222-222222222222', convidados: 80 }]);
+      }
+      if (sql.includes('UPDATE fechamentos SET salao_id')) { estado.inserts.push({ tabela: 'fechamentos.salao_id', valores: v }); v3.salaoGravado = String(v[1]); return linhas([]); }
+    }
     if (sql.includes("to_regclass('public.contrato_importacoes')")) return linhas([{ ok: estado.disponivel }]);
     if (sql.includes('FROM ia_importacoes WHERE id')) {
       if (sql.includes('FOR UPDATE')) estado.locks.push(`importacao:${v[0]}`);
@@ -749,4 +801,149 @@ test('edição concorrente no cadastro invalida a conferência antes de sobrescr
   const chamadas: Chamada[] = [];
   await assert.rejects(confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso(chamadas)), (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'RESUMO_DESATUALIZADO');
   assert.equal(chamadas.length, 0); assert.equal(estado.inserts.length, 0);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// S-E restante — importação V3 (salão escolhido e conferido pelo operador). Banco simulado; o PG fica na suíte descartável.
+// ---------------------------------------------------------------------------------------------------------------------
+const SALAO_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const SALAO_B = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2';
+const saloesBase = () => [{ id: SALAO_A, nome: 'Salão A', ativo: true, ordem: 1 }, { id: SALAO_B, nome: 'Salão B', ativo: true, ordem: 2 }];
+const estadoV3 = (mudar: Partial<NonNullable<Estado['v3']>> = {}) => ({ ...estadoInicial(), v3: { porSalao: true, saloes: saloesBase(), serve: { [SALAO_A]: true, [SALAO_B]: true }, ...mudar } });
+
+/** Core falso que registra a chamada de snapshotFechamento (V3 só com o salão; V1 sem a opção). */
+function coreV3(chamadas: Chamada[]): Core {
+  const base = coreFalso(chamadas);
+  return { ...base, snapshotFechamento: async (_tx, fechamentoId, opcoes) => {
+    chamadas.push({ metodo: 'snapshotFechamento', args: { fechamentoId, opcoes, aridade: opcoes === undefined ? 2 : 3 } });
+    return opcoes
+      ? { schemaVersao: 3, evento: { configuracaoAgendaId: '66666666-6666-4666-8666-666666666666', salao: { id: opcoes.salao.id, nome: opcoes.salao.nome } } }
+      : { schemaVersao: 2, comercial: { tabelaPreco: { id: 'tabela-nativa' } } };
+  } };
+}
+
+async function simularV3(estado: Estado, d: DecisoesIntegracao) {
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE));
+  if (sim.integrada) throw new Error('já integrada');
+  return sim;
+}
+const confirmarV3 = (estado: Estado, d: DecisoesIntegracao, hash: string, chamadas: Chamada[]) =>
+  emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: hash, chave: CHAVE }, HOJE, coreV3(chamadas)));
+
+test('V3: unidade POR_SALAO sem salão escolhido bloqueia (D1: nada automático); salão fora do V3 também bloqueia', async () => {
+  const semSalao = await simularV3(estadoV3(), decisoesBase());
+  assert.equal(semSalao.pronto, false);
+  assert.ok(semSalao.bloqueios.includes('Escolha o salão da festa.'));
+  const foraDoV3 = await simularV3(estadoV3({ porSalao: false }), decisoesBase({ salaoId: SALAO_A }));
+  assert.ok(foraDoV3.bloqueios.includes('Esta agenda não usa salão: deixe o salão em branco.'));
+  const passada = await simularV3(estadoV3(), decisoesBase({ salaoId: SALAO_A, evento: { data: '2026-09-01', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, motivos: { data: 'Data lida errada no documento' },
+    financeiro: { situacao: 'NAO_CONFERIDO' } }));
+  assert.ok(passada.bloqueios.includes('Festa passada não ocupa salão: deixe o salão em branco.'));
+  const inativo = await simularV3(estadoV3({ saloes: [{ id: SALAO_A, nome: 'Salão A', ativo: false, ordem: 1 }] }), decisoesBase({ salaoId: SALAO_A }));
+  assert.ok(inativo.bloqueios.includes('O salão escolhido não está ativo nesta unidade. Escolha outro salão.'));
+});
+
+test('V3: festa em OUTRO salão no mesmo horário não recusa (conflito por salão, não por recurso); versão V3 com salão e escolha estrita', async () => {
+  const estado = estadoV3();
+  estado.ocupado = true; // o recurso inteiro (062) tem outra festa no horário: no V3 isso não decide.
+  const d = decisoesBase({ salaoId: SALAO_B });
+  const sim = await simularV3(estado, d);
+  assert.equal(sim.pronto, true, sim.bloqueios.join(' | '));
+  assert.deepEqual(sim.resumo.agenda.salao, { id: SALAO_B, nome: 'Salão B' });
+  assert.match(sim.resumo.agenda.descricao, /, no Salão B\.$/);
+  const chamadas: Chamada[] = [];
+  const res = await confirmarV3(estado, d, sim.resumoHash, chamadas);
+  assert.equal(res.reutilizado, false);
+  const snapChamada = chamadas.find((c) => c.metodo === 'snapshotFechamento')!.args as { opcoes: unknown; aridade: number };
+  assert.deepEqual(snapChamada.opcoes, { salao: { id: SALAO_B, nome: 'Salão B' } });
+  const versao = estado.inserts.find((i) => i.tabela === 'contrato_versoes')!;
+  assert.equal(versao.valores[5], 3, 'snapshot_schema_versao = 3');
+  const snap = JSON.parse(String(versao.valores[1]));
+  assert.equal(snap.schemaVersao, 3);
+  assert.deepEqual([snap.evento.configuracaoAgendaId, snap.evento.salao], ['66666666-6666-4666-8666-666666666666', { id: SALAO_B, nome: 'Salão B' }]);
+  // Escolha estrita pós-contrato grava o salão escolhido (sem substituto).
+  assert.deepEqual(estado.inserts.find((i) => i.tabela === 'fechamentos.salao_id')!.valores, ['fechamento-v3', SALAO_B]);
+  // Revalidação depois da trava: a data foi travada antes de qualquer escrita.
+  const iData = estado.sql.findIndex((s) => s.includes('kidmais_lock_datas_revisao'));
+  const iEscrita = estado.sql.findIndex((s) => /INSERT INTO/.test(s));
+  const iServeDepois = estado.sql.findIndex((s, i) => i > iData && s.includes('ORDER BY s.capacidade_convidados NULLS LAST'));
+  assert.ok(iData >= 0 && iServeDepois > iData && iServeDepois < iEscrita, 'travarData → releitura/validação do salão → escritas');
+});
+
+test('V3: o mesmo salão que não serve recusa com o motivo; diagnóstico divergente usa mensagem genérica; bloqueio de agenda recusa', async () => {
+  const ocupado = await simularV3(estadoV3({ serve: { [SALAO_A]: false }, diag: { livre: false } }), decisoesBase({ salaoId: SALAO_A }));
+  assert.equal(ocupado.pronto, false);
+  assert.ok(ocupado.bloqueios.some((b) => b.startsWith('Salão A não serve para esta festa: o salão está ocupado nesse horário')), ocupado.bloqueios.join(' | '));
+  const generico = await simularV3(estadoV3({ serve: { [SALAO_A]: false }, diag: {} }), decisoesBase({ salaoId: SALAO_A }));
+  assert.ok(generico.bloqueios.some((b) => b.startsWith('Salão A não serve para esta festa: ele não está disponível')));
+  const estado = estadoV3();
+  estado.bloqueado = true;
+  const bloqueio = await simularV3(estado, decisoesBase({ salaoId: SALAO_A }));
+  assert.ok(bloqueio.bloqueios.includes('O horário está bloqueado na agenda. Escolha outro horário ou libere o bloqueio antes de integrar.'));
+});
+
+test('V3: o hash muda com o salão e com o nome do salão', async () => {
+  const a = await simularV3(estadoV3(), decisoesBase({ salaoId: SALAO_A }));
+  const b = await simularV3(estadoV3(), decisoesBase({ salaoId: SALAO_B }));
+  const renomeado = await simularV3(estadoV3({ saloes: [{ id: SALAO_A, nome: 'Salão Azul', ativo: true, ordem: 1 }] }), decisoesBase({ salaoId: SALAO_A }));
+  assert.notEqual(a.resumoHash, b.resumoHash);
+  assert.notEqual(a.resumoHash, renomeado.resumoHash);
+});
+
+test('V3 pós-trava (P1-2): salão que deixa de servir => SALAO_INDISPONIVEL; inativado => SALAO_INDISPONIVEL; renomeado => RESUMO_DESATUALIZADO; nada gravado', async () => {
+  for (const [nome, mudar, codigo] of [
+    ['ocupado depois', { serveDepoisDaTrava: { [SALAO_A]: false } }, 'SALAO_INDISPONIVEL'],
+    ['inativado depois', { saloesDepoisDaTrava: [{ id: SALAO_A, nome: 'Salão A', ativo: false, ordem: 1 }] }, 'SALAO_INDISPONIVEL'],
+    ['renomeado depois', { saloesDepoisDaTrava: [{ id: SALAO_A, nome: 'Salão Azul', ativo: true, ordem: 1 }] }, 'RESUMO_DESATUALIZADO'],
+  ] as Array<[string, Partial<NonNullable<Estado['v3']>>, string]>) {
+    const estado = estadoV3(mudar);
+    const d = decisoesBase({ salaoId: SALAO_A });
+    const sim = await simularV3(estado, d);
+    assert.equal(sim.pronto, true, nome);
+    const chamadas: Chamada[] = [];
+    await assert.rejects(confirmarV3(estado, d, sim.resumoHash, chamadas), (e: unknown) => e instanceof IntegracaoImportadoError && e.code === codigo && e.httpStatus === 409, nome);
+    assert.deepEqual(estado.inserts, [], nome + ': nenhuma escrita');
+    assert.equal(chamadas.length, 0, nome + ': nenhuma chamada ao Core');
+  }
+});
+
+test('V3: recusa da escolha estrita depois do contrato vira SALAO_INDISPONIVEL e desfaz tudo', async () => {
+  const estado = estadoV3({ escolhaServe: false });
+  const d = decisoesBase({ salaoId: SALAO_A });
+  const sim = await simularV3(estado, d);
+  await assert.rejects(confirmarV3(estado, d, sim.resumoHash, []), (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'SALAO_INDISPONIVEL'
+    && (e.details as { salaoId: string }).salaoId === SALAO_A);
+  assert.deepEqual(estado.inserts, [], 'rollback integral');
+});
+
+test('V1 continua byte a byte: snapshotFechamento sem a opção salao (nem null) e versão 1', async () => {
+  const estado = estadoV3({ porSalao: false });
+  const d = decisoesBase();
+  assert.equal('salaoId' in d, false, 'decisões sem salão não ganham a chave');
+  const sim = await simularV3(estado, d);
+  const chamadas: Chamada[] = [];
+  await confirmarV3(estado, d, sim.resumoHash, chamadas);
+  assert.equal((chamadas.find((c) => c.metodo === 'snapshotFechamento')!.args as { aridade: number }).aridade, 2);
+  const versao = estado.inserts.find((i) => i.tabela === 'contrato_versoes')!;
+  assert.equal(versao.valores[5], 1);
+  const snap = JSON.parse(String(versao.valores[1]));
+  assert.equal(snap.schemaVersao, 1);
+  assert.equal('salao' in snap.evento || 'configuracaoAgendaId' in snap.evento, false);
+  assert.equal(sim.resumo.agenda.salao, undefined);
+});
+
+test('V3 (P2-4): opções iguais nos dois caminhos (tela comum e Human Gate), com o mesmo hash para cliente virtual e real', async () => {
+  const estado = estadoV3();
+  const comum = await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE));
+  const fonte = { importacao: { ...estado.importacoes[0], clienteId: CLIENTE, documentoId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', recebimentosDocumento: null, versao: 1 },
+    cliente: { id: CLIENTE, nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.invalid', status: 'ATIVO' }, clienteNovo: false } as unknown as FonteIntegracaoRascunho;
+  const gate = await emTransacao(estado, (tx) => opcoesIntegracaoRascunho(tx, tenant(), fonte, HOJE));
+  assert.deepEqual(comum.saloes, gate.saloes);
+  assert.deepEqual(comum.saloes.find((e) => e.estabelecimentoId === '22222222-2222-4222-8222-222222222222'),
+    { estabelecimentoId: '22222222-2222-4222-8222-222222222222', porSalao: true, saloes: [{ id: SALAO_A, nome: 'Salão A', ordem: 1 }, { id: SALAO_B, nome: 'Salão B', ordem: 2 }] });
+  const d = decisoesBase({ salaoId: SALAO_A });
+  const real = await simularV3(estado, d);
+  const virtual = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE, { ...fonte, clienteNovo: true }));
+  if (virtual.integrada) throw new Error('já integrada');
+  assert.deepEqual(virtual.resumo.agenda, real.resumo.agenda, 'o salão não depende do cliente');
 });

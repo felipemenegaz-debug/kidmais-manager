@@ -9,7 +9,7 @@ import {
   type OpcoesIntegracao, type SinalDuplicidade, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
 } from './cliente-integracao';
 import {
-  camposCorrigidos, conferenciaParcelas, dataBr, decisoesDoForm, errosFesta, errosPagamentos, financeiroDoFormulario, formInicial,
+  ajustarSalao, camposCorrigidos, conferenciaParcelas, dataBr, decisoesDoForm, errosFesta, errosPagamentos, escopoDoForm, financeiroDoFormulario, formInicial, pedeSalao,
   FORMAS_ROTULO, novaParcela, reais, SITUACAO_CONTRATO_ROTULO, SITUACAO_FINANCEIRA_ROTULO, textoDeCentavos,
   type CampoDoc, type FormIntegracao, type ParcelaForm,
 } from './integracao-form';
@@ -53,6 +53,8 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   const [resultado, setResultado] = useState<ResultadoIntegracao | null>(null);
   const [financeiroConcluido, setFinanceiroConcluido] = useState<ResumoFinanceiro | null>(null);
   const [senha, setSenha] = useState('');
+  /** S-E restante (P2-5): confirmação sem resultado confiável. Nada é repetido nem re-simulado sozinho. */
+  const [incerto, setIncerto] = useState(false);
 
   const setPasso = useCallback((p: PassoIntegracao) => { setPassoInterno(p); onPasso?.(p); }, [onPasso]);
 
@@ -79,7 +81,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   if (carga.tipo === 'erro') return <section className={styles.painel} role="alert"><h2 className={styles.titulo}>Não foi possível abrir a integração</h2><p className={styles.texto}>{carga.mensagem}</p><button type="button" className={styles.primario} onClick={() => void carregar()}>Tentar novamente</button></section>;
   const o = carga.opcoes;
   const f = form!;
-  const atualizar = (mudar: Partial<FormIntegracao>) => { setForm({ ...f, ...mudar }); setErros([]); setCadastroInvalido({}); setErro(null); if (revisao.tipo !== 'nenhuma') setRevisao({ tipo: 'nenhuma' }); };
+  const atualizar = (mudar: Partial<FormIntegracao>) => { setForm(ajustarSalao(f, { ...f, ...mudar }, o.saloes, o.hoje)); setErros([]); setCadastroInvalido({}); setErro(null); if (revisao.tipo !== 'nenhuma') setRevisao({ tipo: 'nenhuma' }); };
   const atualizarParcela = (chave: string, mudar: Partial<ParcelaForm>) => atualizar({ parcelas: f.parcelas.map((p) => p.chave === chave ? { ...p, ...mudar } : p) });
 
   if (!o.disponivel) return <section className={styles.painel} role="status"><h2 className={styles.titulo}>Integração ainda indisponível neste ambiente</h2><p className={styles.texto}>O contrato continua registrado como importado, com o documento original. A integração com festa, agenda e financeiro será liberada quando a atualização do banco for aplicada.</p></section>;
@@ -108,7 +110,9 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     </div>
   </section>;
 
-  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length);
+  const salaoPedido = pedeSalao(f, o.saloes, o.hoje);
+  const escopoSaloes = escopoDoForm(f, o.saloes);
+  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length, salaoPedido);
     // Mensagens por campo do schema (a mesma regra do servidor): o operador vê qual campo e por quê, e o input é marcado.
     const cadastro = cadastroContratualSchema.safeParse(f.cadastro); const invalidos: Partial<Record<keyof CadastroContratual, string>> = {};
     if (!cadastro.success) for (const issue of cadastro.error.issues) { const k = issue.path[0] as keyof CadastroContratual; const rotulo = CAMPOS_CADASTRO[k]; if (rotulo && !invalidos[k]) invalidos[k] = issue.message; e.push(rotulo ? `${rotulo}: ${issue.message}` : `Dados do contratante: ${issue.message}`); }
@@ -120,7 +124,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
 
   /** `manterErro`: recálculo depois de uma recusa do servidor mantém o motivo visível. */
   async function revisar(formAtual: FormIntegracao = f, manterErro = false) {
-    const e = modo === 'financeiro' ? errosPagamentos(formAtual, o.sugestao, o.hoje).filter((x) => !/valor contratado/i.test(x)) : [...errosFesta(formAtual, o.sugestao, o.estabelecimentos.length), ...errosPagamentos(formAtual, o.sugestao, o.hoje)];
+    const e = modo === 'financeiro' ? errosPagamentos(formAtual, o.sugestao, o.hoje).filter((x) => !/valor contratado/i.test(x)) : [...errosFesta(formAtual, o.sugestao, o.estabelecimentos.length, pedeSalao(formAtual, o.saloes, o.hoje)), ...errosPagamentos(formAtual, o.sugestao, o.hoje)];
     setErros(e);
     if (e.length) return;
     setRevisao({ tipo: 'calculando' }); if (!manterErro) setErro(null); setPasso('revisao');
@@ -139,7 +143,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   }
 
   async function confirmarAgora() {
-    if (enviando || !senha || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
+    if (enviando || incerto || !senha || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
     setEnviando(true); onOcupado?.(true); setErro(null);
     try {
       // Autenticação recente primeiro, com a renovação de sessão anunciada pela página: a reautenticação troca a
@@ -163,7 +167,9 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
 
   function tratarFalha(codigo: string | null, mensagem: string, detalhes: Record<string, unknown> | null) {
     setErro(mensagem);
-    if (codigo === 'RESUMO_DESATUALIZADO' || codigo === 'CONFLITO_AGENDA' || codigo === 'INTEGRACAO_BLOQUEADA') void revisar(f, true);
+    // Resultado incerto: a confirmação pode ter terminado. Sem nova simulação nem repetição; o operador confere a lista.
+    if (codigo === 'RESULTADO_INCERTO') { setIncerto(true); return; }
+    if (codigo === 'RESUMO_DESATUALIZADO' || codigo === 'CONFLITO_AGENDA' || codigo === 'INTEGRACAO_BLOQUEADA' || codigo === 'SALAO_INDISPONIVEL') void revisar(f, true);
     if (codigo === 'IMPORTACAO_JA_INTEGRADA' || codigo === 'FINANCEIRO_JA_CONFERIDO') { void carregar(); setRevisao({ tipo: 'nenhuma' }); }
     if (codigo === 'IDEMPOTENCIA_CONFLITANTE') void revisar(f, true);
     if (Array.isArray(detalhes?.bloqueios)) setErros(detalhes.bloqueios.filter((b): b is string => typeof b === 'string'));
@@ -200,6 +206,13 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
               {o.estabelecimentos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
             </select> : <output>Unidade única desta empresa</output>}
           </label>
+          {salaoPedido && <label className={ui.campo}><span>Salão</span>
+            <select aria-label="Salão da festa" value={f.salaoId} onChange={(e) => atualizar({ salaoId: e.target.value })}>
+              <option value="">Escolha o salão</option>
+              {escopoSaloes!.saloes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+            <small>{escopoSaloes!.saloes.length ? 'A agenda desta unidade é por salão. A disponibilidade do salão é conferida na revisão.' : 'Nenhum salão ativo nesta unidade. Cadastre o salão em Configurações › Salões.'}</small>
+          </label>}
           <label className={ui.campo}><span>Pacote de referência no sistema</span>
             <select value={f.pacoteReferenciaId} onChange={(e) => atualizar({ pacoteReferenciaId: e.target.value })}>
               <option value="">Escolha o pacote</option>
@@ -278,6 +291,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
           <div><dt>Contrato</dt><dd>{revisao.sim.resumo.contrato.cliente} · {reais(revisao.sim.resumo.contrato.valorContratadoCentavos)}<small>{revisao.sim.resumo.contrato.pacoteDocumento ?? 'Pacote do documento não informado'}{revisao.sim.resumo.contrato.pacoteReferencia ? ` · referência: ${revisao.sim.resumo.contrato.pacoteReferencia}` : ''}</small><small>{revisao.sim.resumo.contrato.conferencia}</small></dd></div>
           <div><dt>Festa</dt><dd>{dataBr(revisao.sim.resumo.festa.data)}, {revisao.sim.resumo.festa.horarioInicio}–{revisao.sim.resumo.festa.horarioFim} · {revisao.sim.resumo.festa.convidados} convidados<small>{[revisao.sim.resumo.festa.aniversariante, revisao.sim.resumo.festa.tema].filter(Boolean).join(' · ')}</small>{revisao.sim.resumo.festa.aniversarianteCadastro && <small>{revisao.sim.resumo.festa.aniversarianteCadastro === 'NOVO' ? `Aniversariante será cadastrado no cliente ${revisao.sim.resumo.contrato.cliente}.` : 'Aniversariante vinculado ao cadastro existente do cliente.'}</small>}</dd></div>
           <div><dt>Agenda</dt><dd data-ocupa={revisao.sim.resumo.agenda.ocupa}>{revisao.sim.resumo.agenda.descricao}{revisao.sim.resumo.contrato.unidade && <small>Unidade: {revisao.sim.resumo.contrato.unidade}</small>}</dd></div>
+          {revisao.sim.resumo.agenda.salao && <div data-salao={revisao.sim.resumo.agenda.salao.id}><dt>Salão</dt><dd>{revisao.sim.resumo.agenda.salao.nome}</dd></div>}
         </dl>
         <details><summary>Cadastro que será salvo</summary><dl className={ui.resumo}>{Object.entries(revisao.sim.resumo.cadastro ?? f.cadastro).filter(([campo, valor]) => campo !== 'telefone' || valor).map(([campo, valor]) => <div key={campo}><dt>{CAMPOS_CADASTRO[campo as keyof CadastroContratual]}</dt><dd>{valor || "Não informado"}</dd></div>)}</dl></details>
         <ResumoPagamentos financeiro={revisao.sim.resumo.financeiro} />
@@ -305,11 +319,18 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         <Erros erros={revisao.sim.bloqueios} erro={erro} />
       </>}
       {revisao.tipo === 'nenhuma' && <Erros erros={erros} erro={erro} />}
+      {incerto && <div className={styles.aviso} role="status">
+        <p>A confirmação pode ter sido concluída. Abra a lista de Contratos e confira antes de tentar de novo.</p>
+        <div className={styles.acoesFinais}>
+          <Link className={styles.fantasma} href="/admin/contratos" target="_blank">Abrir a lista de Contratos</Link>
+          <button type="button" className={styles.fantasma} onClick={() => { setIncerto(false); void revisar(f, true); }}>Já conferi: revisar de novo</button>
+        </div>
+      </div>}
       {(revisao.tipo === 'integracao' || revisao.tipo === 'financeiro') && <label className={ui.campo}><span>Confirme sua senha para registrar</span>
         <input type="password" aria-label="Senha para confirmar" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label>}
       <div className={styles.acoesFinais}>
         <button type="button" className={styles.fantasma} disabled={enviando} onClick={() => setPasso('pagamentos')}>Voltar e corrigir</button>
-        <button type="button" className={styles.primario} disabled={enviando || !senha || !((revisao.tipo === 'integracao' && revisao.sim.pronto && f.conferenciaDeclarada) || (revisao.tipo === 'financeiro' && revisao.sim.pronto))} onClick={() => void confirmarAgora()}>
+        <button type="button" className={styles.primario} disabled={enviando || incerto || !senha || !((revisao.tipo === 'integracao' && revisao.sim.pronto && f.conferenciaDeclarada) || (revisao.tipo === 'financeiro' && revisao.sim.pronto))} onClick={() => void confirmarAgora()}>
           {enviando ? 'Integrando…' : modo === 'financeiro' ? 'Confirmar pagamentos' : 'Confirmar integração'}
         </button>
       </div>

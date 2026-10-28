@@ -10,7 +10,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
   ambienteAssinatura, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, decisoes, dia, executor, id, importacao, integrar, PARCIAL,
-  poolNaTransacao, validarAgora, type Cenario, type Servico,
+  poolNaTransacao, validarAgora, type Cenario, type Servico, comSalaoEscolhido,
 } from "../../scripts/integracao-importados-test-support.ts";
 
 /**
@@ -133,7 +133,7 @@ async function revisaoAberta(c: Cenario, data: string, destino: string, tema: st
   const ev = { data, ...HORA };
   const imp = await importacao(a, c, ev);
   await completarCliente(a, imp.cliente);
-  const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
+  const r = await integrar(s, coreNativo, a, c, imp.id, await comSalaoEscolhido(s, a, c, imp.id, decisoes(c, ev, PARCIAL())));
   await validarAgora(a);
   const festa = (await a.query<{ id: string; cfg: string }>(
     `SELECT f.id::text, f.configuracao_agenda_id::text cfg FROM contratos k JOIN fechamentos f ON f.id = k.fechamento_id WHERE k.id = $1`, [r.contratoId])).rows[0];
@@ -255,6 +255,8 @@ test("aplicador 104/106 real: recusas antes de dados, papel mínimo, atividade e
       const cs = await empresa("POR_SALAO");
       const S1 = await salao(cs, "Salão A", 1); await salao(cs, "Salão B", 2);
       const p = await revisaoAberta(cs, D1, D2, "Circo");
+      // S-E restante: a importação escolhe o salão de forma explícita (comSalaoEscolhido: o primeiro da lista que serve).
+      assert.equal((await a.query(`SELECT salao_id::text s FROM fechamentos WHERE id = $1::uuid`, [p.festa])).rows[0].s, S1, "importação no Salão A");
       const ch = await empresa("POR_HORARIO");
       await revisaoAberta(ch, D1, D1, "Dinossauros");
       await validarAgora(a);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decisoesSchema, financeiroSchema } from '../../../lib/contratos/integracao-importados/modelo.ts';
 import {
-  camposCorrigidos, centavosDeTexto, conferenciaParcelas, decisoesDoForm, errosFesta, errosPagamentos, financeiroDoFormulario, formInicial, novaParcela,
+  ajustarSalao, camposCorrigidos, centavosDeTexto, conferenciaParcelas, decisoesDoForm, errosFesta, errosPagamentos, financeiroDoFormulario, formInicial, novaParcela, pedeSalao,
   type FormIntegracao, type Sugestao,
 } from './integracao-form.ts';
 
@@ -78,4 +78,30 @@ test('payload da tela é aceito pelo esquema do servidor e não carrega empresa,
   ] });
   assert.ok(!/empresa|usuario|tenant|saldo|recebido/i.test(Object.keys(d).join(',')));
   assert.deepEqual(financeiroSchema.parse(financeiroDoFormulario(preenchido({ situacaoFinanceira: 'NAO_CONFERIDO' }))), { situacao: 'NAO_CONFERIDO' });
+});
+
+// S-E restante (importação V3): salão escolhido só quando a unidade usa salão e a festa é futura (D1: nada automático).
+const SALAO = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const escopos = [
+  { estabelecimentoId: null, porSalao: false, saloes: [] },
+  { estabelecimentoId: UNIDADE, porSalao: true, saloes: [{ id: SALAO, nome: 'Salão A', ordem: 1 }] },
+];
+
+test('V3 na tela: pede salão só em unidade por salão com festa futura; sem salão o envio é bloqueado', () => {
+  assert.equal(pedeSalao(preenchido(), escopos, HOJE), true);
+  assert.equal(pedeSalao(preenchido({ data: '2026-09-01' }), escopos, HOJE), false, 'festa passada não ocupa salão');
+  assert.equal(pedeSalao(preenchido({ estabelecimentoId: '' }), escopos, HOJE), false);
+  assert.equal(pedeSalao(preenchido(), undefined, HOJE), false, 'servidor antigo sem a lista de salões');
+  assert.ok(errosFesta(preenchido(), sugestao, 1, true).includes('Escolha o salão da festa.'));
+  assert.ok(!errosFesta(preenchido({ salaoId: SALAO }), sugestao, 1, true).includes('Escolha o salão da festa.'));
+});
+
+test('V3 na tela: trocar a unidade ou sair do caso V3 zera o salão; o payload só leva salaoId quando há salão', () => {
+  const comSalao = preenchido({ salaoId: SALAO });
+  assert.equal(ajustarSalao(comSalao, { ...comSalao, estabelecimentoId: 'outra' }, escopos, HOJE).salaoId, '');
+  assert.equal(ajustarSalao(comSalao, { ...comSalao, data: '2026-09-01' }, escopos, HOJE).salaoId, '');
+  assert.equal(ajustarSalao(comSalao, { ...comSalao, convidados: '90' }, escopos, HOJE).salaoId, SALAO);
+  assert.equal(decisoesDoForm(comSalao, sugestao).salaoId, SALAO);
+  assert.equal('salaoId' in decisoesDoForm(preenchido(), sugestao), false, 'V1: a chave nem vai (hash de antes)');
+  assert.equal(decisoesSchema.safeParse(decisoesDoForm(comSalao, sugestao)).success, true);
 });

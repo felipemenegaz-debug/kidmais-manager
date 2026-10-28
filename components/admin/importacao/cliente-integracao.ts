@@ -1,6 +1,6 @@
 import type { CadastroContratual } from '../../../lib/clientes/cadastro-contratual.ts';
 import { decidirOperacao, type RascunhoPublico } from '../inteligencia/cliente-inteligencia.ts';
-import type { Sugestao } from './integracao-form.ts';
+import type { EscopoSaloes, Sugestao } from './integracao-form.ts';
 
 /**
  * Cliente da integração do contrato importado. Nunca envia empresa, usuário ou valores calculados: só as decisões
@@ -17,7 +17,8 @@ export type ResumoIntegracao = {
   cadastro?: CadastroContratual;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
-  agenda: { ocupa: boolean; descricao: string };
+  /** salao: caso V3 (unidade POR_SALAO, festa futura), conferido pelo operador nesta revisão e incluído no hash. */
+  agenda: { ocupa: boolean; descricao: string; salao?: { id: string; nome: string } };
   financeiro: ResumoFinanceiro;
   campos: CampoConferido[];
 };
@@ -29,6 +30,8 @@ export type OpcoesIntegracao = {
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;
   estabelecimentos: Array<{ id: string; nome: string }>;
+  /** S-E restante: por unidade (e "sem unidade"), se usa salão e os salões ativos. Mesma origem nos dois caminhos. */
+  saloes?: EscopoSaloes[];
   pacotes: Array<{ id: string; codigo: string; nome: string; duracaoMinutos: number | null; ativo: boolean }>;
   formas: string[];
   declaracao: string;
@@ -53,6 +56,13 @@ export type Resposta<T> = { ok: true; dados: T } | Falha;
 type Buscador = (url: string, init: RequestInit) => Promise<Response>;
 
 export const MENSAGEM_ERRO_INTEGRACAO = 'Não foi possível concluir agora. Nada foi gravado; tente de novo.';
+
+/**
+ * S-E restante (P2-5): recusas de domínio que a tela sabe tratar (re-simula). Só valem como RECUSA COMPROVADA quando o
+ * servidor respondeu com status 4xx e um destes códigos; qualquer outra resposta 4xx é CONFIRMACAO_RECUSADA.
+ */
+export const RECUSAS_DE_DOMINIO = ['SALAO_INDISPONIVEL', 'RESUMO_DESATUALIZADO', 'CONFLITO_AGENDA', 'INTEGRACAO_BLOQUEADA'] as const;
+export const MENSAGEM_RESULTADO_INCERTO = 'Não foi possível saber se a confirmação terminou. Confira o contrato na lista de Contratos antes de tentar de novo.';
 
 async function ler<T>(resposta: Promise<Response>): Promise<Resposta<T>> {
   try {
@@ -84,13 +94,32 @@ export async function simularRascunho(buscar: Buscador, id: string, versao: numb
   const r = await ler<{ simulacao?: Simulacao }>(postarRascunho(buscar, id, versao, 'simular-completa', { integracao: decisoes }));
   return r.ok && r.dados.simulacao ? { ok: true, dados: r.dados.simulacao } : r.ok ? { ok: false, mensagem: 'Confira os dados do contrato antes de continuar.', codigo: 'IMPORTACAO_BLOQUEADA', detalhes: null } : r;
 }
-/** Um clique humano, preview já visto e hashes iguais: prepara o Gate e conclui pela rota nativa de confirmação. */
+/**
+ * Um clique humano, preview já visto e hashes iguais: prepara o Gate e conclui pela rota nativa de confirmação.
+ * Preparar não grava negócio; uma recusa ali volta com o código do servidor (ex.: INTEGRACAO_BLOQUEADA da verificação).
+ * Na confirmação final (S-E restante, P2-5) há três saídas de falha:
+ * - recusa comprovada do domínio (status 4xx + código de RECUSAS_DE_DOMINIO): o próprio código, e a tela re-simula;
+ * - outra recusa comprovada (status 4xx com outro código, ou a IA desativada): CONFIRMACAO_RECUSADA;
+ * - sem resultado confiável (rede, JSON inválido, sem código, 5xx): RESULTADO_INCERTO — a operação pode ter terminado,
+ *   então a tela não re-simula nem repete; o operador confere a lista de Contratos.
+ */
 export async function confirmarRascunho(buscar: Buscador, id: string, versao: number, decisoes: object, resumoHash: string, planoHash: string): Promise<Resposta<ResultadoIntegracao>> {
   const r = await ler<{ gate?: { tipo: string; rascunho?: RascunhoPublico } }>(postarRascunho(buscar, id, versao, 'preparar', { integracao: decisoes, integracaoHash: resumoHash, planoHash }));
   if (!r.ok) return r;
   if (r.dados.gate?.tipo !== 'preview' || !r.dados.gate.rascunho) return { ok: false, mensagem: 'A revisão mudou. Confira os dados novamente.', codigo: 'RESUMO_DESATUALIZADO', detalhes: null };
-  const resultado = await decidirOperacao(buscar, r.dados.gate.rascunho, 'confirmar');
-  if (resultado.tipo !== 'ok') return { ok: false, mensagem: resultado.mensagem + ' Confira o contrato na lista antes de repetir a confirmação.', codigo: 'CONFIRMACAO_RECUSADA', detalhes: null };
+  let status: number | null = null;
+  const buscarComStatus: Buscador = async (url, init) => { const resposta = await buscar(url, init); status = resposta.status; return resposta; };
+  const resultado = await decidirOperacao(buscarComStatus, r.dados.gate.rascunho, 'confirmar');
+  if (resultado.tipo !== 'ok') {
+    const recusada = status !== null && status >= 400 && status < 500;
+    if (resultado.tipo === 'erro' && recusada && typeof resultado.codigo === 'string' && (RECUSAS_DE_DOMINIO as readonly string[]).includes(resultado.codigo)) {
+      return { ok: false, mensagem: resultado.mensagem, codigo: resultado.codigo, detalhes: null };
+    }
+    if (resultado.tipo === 'desativada' || (recusada && typeof resultado.codigo === 'string')) {
+      return { ok: false, mensagem: resultado.mensagem + ' Confira o contrato na lista antes de repetir a confirmação.', codigo: 'CONFIRMACAO_RECUSADA', detalhes: null };
+    }
+    return { ok: false, mensagem: MENSAGEM_RESULTADO_INCERTO, codigo: 'RESULTADO_INCERTO', detalhes: null };
+  }
   const resposta = resultado.resposta;
   const contratoId = resposta.tipo === 'resultado_acao' && resposta.destino ? /^\/admin\/contratos\?contratoId=([0-9a-f-]{36})$/.exec(resposta.destino)?.[1] : null;
   if (!contratoId) return { ok: false, mensagem: 'Confira o contrato pela lista de Contratos antes de repetir.', codigo: 'RESULTADO_INESPERADO', detalhes: null };

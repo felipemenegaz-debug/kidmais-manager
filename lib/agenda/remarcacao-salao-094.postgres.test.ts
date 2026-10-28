@@ -8,7 +8,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id, importacao,
-  integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
+  integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico, comSalaoEscolhido,
 } from "../../scripts/integracao-importados-test-support.ts";
 
 /**
@@ -87,7 +87,7 @@ async function contratada(c: Cenario, nativo: Awaited<ReturnType<typeof catalogo
   const ev = { data, ...HORA };
   const imp = await importacao(a, c, ev);
   const cpf = await completarCliente(a, imp.cliente);
-  const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
+  const r = await integrar(s, coreNativo, a, c, imp.id, await comSalaoEscolhido(s, a, c, imp.id, decisoes(c, ev, PARCIAL())));
   await validarAgora(a);
   const festa = (await a.query<{ id: string }>(`SELECT fechamento_id::text id FROM contratos WHERE id = $1`, [r.contratoId])).rows[0].id;
   const tx = executor(a);

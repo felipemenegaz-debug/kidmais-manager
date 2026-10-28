@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decisoesBase, referenciasBase, snapshotBase } from './fixtures.ts';
-import { avaliarIntegracao, decisoesSchema, hashResumo, montarSnapshotVersao, reais, sugestaoInicial, type DecisoesIntegracao } from './modelo.ts';
+import { agendaComSalao, avaliarIntegracao, decisoesSchema, hashResumo, montarSnapshotVersao, reais, sugestaoInicial, type DecisoesIntegracao } from './modelo.ts';
 
 const HOJE = '2026-10-02';
 
@@ -139,4 +139,28 @@ test('esquema recusa campos extras, valores em reais e mais de 60 parcelas', () 
   assert.throws(() => decisoesSchema.parse({ ...decisoesBase(), valorContratadoCentavos: 8500.5 }));
   assert.throws(() => decisoesSchema.parse({ ...decisoesBase(), financeiro: { situacao: 'NAO_PAGO', parcelas: Array.from({ length: 61 }, () => ({ valorCentavos: 1, vencimento: '2026-11-14', recebimento: null })) } }));
   assert.throws(() => decisoesSchema.parse({ ...decisoesBase(), financeiro: { situacao: 'PAGO', parcelas: [{ valorCentavos: 850000, vencimento: '2026-11-14', recebimento: { data: '2026-08-01', forma: 'CHEQUE' } }] } }));
+});
+
+// S-E restante (importação V3).
+test('V3: salaoId é opcional e ausente não muda o hash; agendaComSalao põe o salão no resumo e no texto', () => {
+  const d = decisoesBase();
+  assert.equal('salaoId' in d, false);
+  const a = avaliar(d);
+  assert.equal(hashResumo('i', d, a.resumo), hashResumo('i', decisoesSchema.parse(JSON.parse(JSON.stringify(d))), a.resumo));
+  const agenda = agendaComSalao(a.resumo.agenda, { id: 's1', nome: 'Salão A' });
+  assert.deepEqual(agenda.salao, { id: 's1', nome: 'Salão A' });
+  assert.equal(agenda.descricao, 'Ocupa a agenda em 14/11/2026, das 14:00 às 18:00 (Unidade Centro), no Salão A.');
+  assert.equal(decisoesSchema.safeParse({ ...d, salaoId: 'não-uuid' }).success, false);
+});
+
+test('V3: montarSnapshotVersao preserva configuração e salão só com o nativo V3; V1 continua sem as chaves novas', () => {
+  const base = { importacaoId: 'i', documento: { id: 'doc', sha256: 'f'.repeat(64) }, fechamentoId: 'f', snapshot: snapshotBase(), decisoes: decisoesBase(), resumo: avaliar(decisoesBase()).resumo,
+    cliente: { id: 'c', nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: null }, aniversarianteId: 'a',
+    pacote: { id: 'p', codigo: 'C', nome: 'Completa', duracaoMinutos: 240 }, unidade: null, conferente: { usuarioId: 'u', papel: 'ADMINISTRATIVO' } };
+  const v1 = montarSnapshotVersao({ ...base, nativo: { schemaVersao: 2 } });
+  assert.equal(v1.schemaVersao, 1);
+  assert.equal('salao' in v1.evento || 'configuracaoAgendaId' in v1.evento, false);
+  const v3 = montarSnapshotVersao({ ...base, nativo: { schemaVersao: 3, evento: { configuracaoAgendaId: 'cfg', salao: { id: 's1', nome: 'Salão A' } } } });
+  assert.equal(v3.schemaVersao, 3);
+  assert.deepEqual([(v3.evento as { configuracaoAgendaId?: string }).configuracaoAgendaId, (v3.evento as { salao?: unknown }).salao], ['cfg', { id: 's1', nome: 'Salão A' }]);
 });
