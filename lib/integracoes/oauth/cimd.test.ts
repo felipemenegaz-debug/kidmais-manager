@@ -68,6 +68,8 @@ test("documento CIMD: válido gera cliente com cache; divergências recusam com 
     [doc({}, { corpo: "{" }), "JSON"],
     [doc({ client_id: "https://chatgpt.com/outro.json" }), "DOCUMENTO"],
     [doc({ token_endpoint_auth_method: "private_key_jwt" }), "AUTENTICACAO_CLIENTE_NAO_SUPORTADA"],
+    [doc({ token_endpoint_auth_method: "private_key_jwt", token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"] }), "AUTENTICACAO_CLIENTE_NAO_SUPORTADA"],
+    [doc({ token_endpoint_auth_method: "client_secret_basic", token_endpoint_auth_methods_supported: "none" }), "DOCUMENTO"],
     [doc({ grant_types: ["client_credentials"] }), "GRANT"],
     [doc({ redirect_uris: ["http://chatgpt.com/cb", "http://127.0.0.1/callback", "https://chatgpt.com/cb#x"] }), "REDIRECT"],
     [async () => { throw new Error("rede"); }, "FALHA_REDE"],
@@ -76,6 +78,32 @@ test("documento CIMD: válido gera cliente com cache; divergências recusam com 
     await assert.rejects(carregarClienteCimd(ID, HOSTS, busca, AGORA, 60), (e: unknown) => e instanceof CimdRecusado && e.motivo === motivo, motivo);
   }
   await assert.rejects(carregarClienteCimd("https://evil.example/c.json", HOSTS, doc(), AGORA, 60), (e: unknown) => e instanceof CimdRecusado && e.motivo === "CLIENT_ID_NAO_ACEITO");
+});
+
+/** Documento REAL publicado em https://chatgpt.com/oauth/client.json, copiado em 27/10/2026 (público, sem segredo). */
+const CHATGPT_REAL_20261027 = {
+  client_id: "https://chatgpt.com/oauth/client.json",
+  client_uri: "https://chatgpt.com/",
+  redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+  token_endpoint_auth_method: "private_key_jwt",
+  token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  client_name: "ChatGPT",
+  logo_uri: "https://persistent.oaistatic.com/sonic/misc/openai-logo.png",
+  token_endpoint_auth_signing_alg: "RS256",
+  jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+};
+
+test("documento real do ChatGPT (private_key_jwt declarado, none suportado) é aceito; o servidor só anuncia none", async () => {
+  const real: BuscaDocumento = async () => ({ status: 200, tipo: "application/json; charset=utf-8", corpo: JSON.stringify(CHATGPT_REAL_20261027) });
+  const c = await carregarClienteCimd(ID, HOSTS, real, AGORA, 3600);
+  assert.equal(c.clientId, "https://chatgpt.com/oauth/client.json");
+  assert.equal(c.nome, "ChatGPT");
+  assert.deepEqual(c.redirectUris, ["https://chatgpt.com/connector_platform_oauth_redirect"]);
+  // Controle: o mesmo documento sem `none` na lista volta a ser recusado.
+  const semNone: BuscaDocumento = async () => ({ status: 200, tipo: "application/json", corpo: JSON.stringify({ ...CHATGPT_REAL_20261027, token_endpoint_auth_methods_supported: ["private_key_jwt"] }) });
+  await assert.rejects(carregarClienteCimd(ID, HOSTS, semNone, AGORA, 60), (e: unknown) => e instanceof CimdRecusado && e.motivo === "AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
 });
 
 test("limitador: taxa por concessão e por empresa, concorrência e memória limitada", () => {
