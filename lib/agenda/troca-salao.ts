@@ -16,7 +16,16 @@ export type OpcaoSalao = { id: string; nome: string; livre: boolean; permitido: 
 export type SalaoDaFesta = {
   salaoAtual: { id: string; nome: string } | null; opcoes: OpcaoSalao[]; confirmada: boolean;
   contratoFixa?: { id: string; nome: string } | null;
-  trocaEmAndamento?: { revisaoId: string; estado: string; salao: { id: string; nome: string } | null } | null;
+  trocaEmAndamento?: TrocaEmAndamento | null;
+};
+
+/**
+ * Revisão aberta da festa. S-E restante ("Desistir da troca", P1-3): identidade e contadores LIDOS pelo card, devolvidos
+ * no cancelamento condicionado (esperado) para cancelar só a troca observada.
+ */
+export type TrocaEmAndamento = {
+  revisaoId: string; estado: string; salao: { id: string; nome: string } | null;
+  contratoId: string; versaoId: string; revisaoEdicao: number | null; revisaoOperacional: number;
 };
 
 const FUNCAO_094 =
@@ -104,25 +113,54 @@ function montar(festa: Festa, opcoes: OpcaoSalao[], contrato: ContratoDaFesta = 
 
 type ContratoDaFesta = {
   fixa: { id: string; nome: string } | null;
-  revisao: { revisaoId: string; estado: string; salao: { id: string; nome: string } | null } | null;
+  revisao: TrocaEmAndamento | null;
 };
 
 /** S-E: salão fixado pelo contrato assinado vigente (snapshot V3) e a revisão aberta, se houver. */
 async function contratoDaFesta(tx: DbExecutor, fechamentoId: string): Promise<ContratoDaFesta> {
-  const r = (await tx.query<{ fixa: { id: string; nome: string } | null; rid: string | null; estado: string | null; sid: string | null; snome: string | null }>(
+  const r = (await tx.query<{ fixa: { id: string; nome: string } | null; rid: string | null; estado: string | null; sid: string | null; snome: string | null;
+    cid: string; vid: string | null; redicao: number | null; roper: number | null }>(
     `SELECT CASE WHEN (v.snapshot->>'schemaVersao') = '3' THEN v.snapshot->'evento'->'salao' END AS fixa,
-            r.id::text AS rid, r.estado, r.salao_id::text AS sid, s.nome AS snome
+            r.id::text AS rid, r.estado, r.salao_id::text AS sid, s.nome AS snome,
+            c.id::text AS cid, r.contrato_versao_id::text AS vid, e.revisao AS redicao, r.revisao AS roper
        FROM contratos c
        LEFT JOIN contrato_fluxos cf ON cf.contrato_id = c.id
        LEFT JOIN contrato_versoes v ON v.id = cf.versao_vigente_id
        LEFT JOIN fechamento_revisoes r ON r.fechamento_id = c.fechamento_id AND r.estado IN ('EM_ELABORACAO', 'CONGELADA')
+       LEFT JOIN contrato_edicoes e ON e.contrato_versao_id = r.contrato_versao_id
        LEFT JOIN agenda_saloes s ON s.id = r.salao_id
       WHERE c.fechamento_id = $1::uuid`,
     [fechamentoId],
   )).rows[0];
   if (!r) return { fixa: null, revisao: null };
   const fixa = r.fixa && typeof r.fixa === "object" && r.fixa.id ? { id: String(r.fixa.id), nome: String(r.fixa.nome) } : null;
-  return { fixa, revisao: r.rid ? { revisaoId: r.rid, estado: r.estado!, salao: r.sid ? { id: r.sid, nome: r.snome ?? "Salão" } : null } : null };
+  return { fixa, revisao: r.rid ? {
+    revisaoId: r.rid, estado: r.estado!, salao: r.sid ? { id: r.sid, nome: r.snome ?? "Salão" } : null,
+    contratoId: r.cid, versaoId: r.vid!, revisaoEdicao: r.redicao == null ? null : Number(r.redicao), revisaoOperacional: Number(r.roper),
+  } : null };
+}
+
+/**
+ * S-E restante (P1-3): a revisão é uma TROCA de salão quando o contrato vigente fixa um salão (V3) e o destino da revisão
+ * é outro salão. Destino nulo ou igual ao fixado não é troca. Usado pelo card e conferido de novo no servidor.
+ */
+export function eTrocaDeSalao(fixa: { id: string } | null, destinoId: string | null) {
+  return !!fixa && !!destinoId && destinoId !== fixa.id;
+}
+
+/** O que o card leu da troca e devolve no cancelamento condicionado ("Desistir da troca"). */
+export type TrocaEsperada = { revisaoId: string; revisaoOperacional: number; estado: 'EM_ELABORACAO' | 'CONGELADA'; salaoDestinoId: string };
+
+/**
+ * S-E restante (P1-3): com a revisão JÁ TRAVADA por quem chama (FOR UPDATE), a troca ainda é a que o card leu — mesma
+ * revisão, mesmo contador operacional, mesmo estado e mesmo salão do destino — e continua sendo uma TROCA (o contrato
+ * vigente fixa outro salão; destino nulo não é troca). Detecta a troca com hash v1 (contador da edição sem mudança) e o
+ * congelamento.
+ */
+export async function trocaConfere(tx: DbExecutor, r: { id: string; estado: string; revisao: number; fechamento_id: string }, esperado: TrocaEsperada) {
+  const destino = (await tx.query<{ salao_id: string | null }>("SELECT salao_id::text AS salao_id FROM fechamento_revisoes WHERE id = $1::uuid", [r.id])).rows[0]?.salao_id ?? null;
+  if (r.id !== esperado.revisaoId || Number(r.revisao) !== esperado.revisaoOperacional || r.estado !== esperado.estado || destino !== esperado.salaoDestinoId) return false;
+  return eTrocaDeSalao((await contratoDaFesta(tx, r.fechamento_id)).fixa, destino);
 }
 
 async function minimoInstalado(tx: DbExecutor) {

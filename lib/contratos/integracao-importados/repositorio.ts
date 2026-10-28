@@ -393,13 +393,13 @@ export async function inserirContrato(tx: DbExecutor, e: { fechamentoId: string;
   return r.rows[0].id;
 }
 
-/** Versão 1 ASSINADA por conferência em papel: documento = sha256 do original importado; sem template, sem OTP. */
-export async function inserirVersaoConferida(tx: DbExecutor, e: { contratoId: string; snapshot: unknown; snapshotHash: string; documentoSha256: string; usuarioId: string }) {
+/** Versão 1 ASSINADA por conferência em papel (snapshot_schema_versao = o do snapshot: 1, ou 3 com salão): documento = sha256 do original importado; sem template, sem OTP. */
+export async function inserirVersaoConferida(tx: DbExecutor, e: { contratoId: string; snapshot: unknown; snapshotHash: string; schemaVersao: number; documentoSha256: string; usuarioId: string }) {
   const r = await tx.query<{ id: string }>(
     `INSERT INTO contrato_versoes (contrato_id, numero_versao, status, snapshot_schema_versao, snapshot, snapshot_hash,
                                    gerado_por_usuario_id, assinado_em, documento_template_versao, documento_pdf_hash, aceite_metodo)
-     VALUES ($1::uuid, 1, 'ASSINADA', 1, $2::jsonb, $3, $4::uuid, now(), NULL, $5, 'CONFERENCIA_PAPEL') RETURNING id::text`,
-    [e.contratoId, JSON.stringify(e.snapshot), e.snapshotHash, e.usuarioId, e.documentoSha256],
+     VALUES ($1::uuid, 1, 'ASSINADA', $6::int, $2::jsonb, $3, $4::uuid, now(), NULL, $5, 'CONFERENCIA_PAPEL') RETURNING id::text`,
+    [e.contratoId, JSON.stringify(e.snapshot), e.snapshotHash, e.usuarioId, e.documentoSha256, e.schemaVersao],
   );
   return r.rows[0].id;
 }

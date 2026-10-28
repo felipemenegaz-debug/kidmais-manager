@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
-import { lerSalaoDaFesta, trocarSalaoDaFesta } from "./troca-salao.ts";
+import { eTrocaDeSalao, lerSalaoDaFesta, trocaConfere, trocarSalaoDaFesta } from "./troca-salao.ts";
 
 // 094: a equipe troca o salão da festa por outro livre e permitido (decisão de Felipe em 22/10/2026).
 const EMPRESA = "11111111-1111-4111-8111-111111111111";
@@ -18,7 +18,8 @@ type Cenario = {
   status?: string;
   opcoes?: Array<{ id: string; nome: string; livre: boolean; permitido: boolean }>;
   /** S-E: contrato assinado vigente que fixa o salão e revisão aberta. */
-  contrato?: { fixa: { id: string; nome: string } | null; rid: string | null; estado: string | null; sid: string | null; snome: string | null };
+  contrato?: { fixa: { id: string; nome: string } | null; rid: string | null; estado: string | null; sid: string | null; snome: string | null;
+    cid?: string; vid?: string | null; redicao?: number | null; roper?: number | null };
   serveNoDestino?: boolean;
 };
 
@@ -171,4 +172,34 @@ test("S-E: revisão congelada recusa; revisão em elaboração grava o DESTINO (
   const naoServe = banco({ contrato: { ...FIXA, rid: "rev", estado: "EM_ELABORACAO", sid: S1, snome: "Kids" }, serveNoDestino: false });
   await assert.rejects(trocarSalaoDaFesta(naoServe.tx, ctx, FESTA, S2), (e: { code?: string }) => e.code === "SALAO_OCUPADO");
   assert.equal(naoServe.escritas().length, 0, "escolha explícita que não serve não vira outro salão");
+});
+
+// S-E restante ("Desistir da troca", P1-3): o card recebe identidade e contadores para o cancelamento condicionado.
+test("S-E restante: troca em andamento traz contrato, versão, revisão da edição e contador operacional; destino nulo ou igual não é troca", async () => {
+  const leitura = await lerSalaoDaFesta(banco({ contrato: { ...FIXA, rid: "rev", estado: "EM_ELABORACAO", sid: S2, snome: "Jardim", cid: "contrato-1", vid: "versao-2", redicao: 4, roper: 7 } }).tx, EMPRESA, FESTA);
+  assert.deepEqual(leitura?.trocaEmAndamento, { revisaoId: "rev", estado: "EM_ELABORACAO", salao: { id: S2, nome: "Jardim" }, contratoId: "contrato-1", versaoId: "versao-2", revisaoEdicao: 4, revisaoOperacional: 7 });
+  assert.equal(eTrocaDeSalao({ id: S1 }, S2), true);
+  assert.equal(eTrocaDeSalao({ id: S1 }, null), false, "destino nulo não é troca");
+  assert.equal(eTrocaDeSalao({ id: S1 }, S1), false, "destino igual ao fixado não é troca");
+  assert.equal(eTrocaDeSalao(null, S2), false, "sem salão fixado pelo contrato não há troca a desistir");
+});
+
+test("S-E restante: trocaConfere só aceita a mesma revisão, contador, estado e destino lidos, e só se ainda for troca", async () => {
+  const revisao = { id: "rev", estado: "EM_ELABORACAO", revisao: 7, fechamento_id: FESTA };
+  const esperado = { revisaoId: "rev", revisaoOperacional: 7, estado: "EM_ELABORACAO" as const, salaoDestinoId: S2 };
+  const comDestino = (destino: string | null, contrato: Cenario["contrato"] = { ...FIXA, rid: "rev", estado: "EM_ELABORACAO", sid: destino, snome: null }) => {
+    const b = banco({ contrato });
+    const query = b.tx.query.bind(b.tx);
+    b.tx.query = (async (sql: string, valores?: readonly unknown[]) => sql.includes("SELECT salao_id::text AS salao_id FROM fechamento_revisoes")
+      ? { rows: [{ salao_id: destino }], rowCount: 1 } : query(sql, valores)) as DbExecutor["query"];
+    return b.tx;
+  };
+  assert.equal(await trocaConfere(comDestino(S2), revisao, esperado), true);
+  assert.equal(await trocaConfere(comDestino(S2), { ...revisao, id: "outra" }, esperado), false, "revisão trocada");
+  assert.equal(await trocaConfere(comDestino(S2), { ...revisao, revisao: 8 }, esperado), false, "contador operacional mudou");
+  assert.equal(await trocaConfere(comDestino(S2), { ...revisao, estado: "CONGELADA" }, esperado), false, "congelada depois da leitura");
+  assert.equal(await trocaConfere(comDestino(S3), revisao, esperado), false, "outro salão de destino (hash v1 não muda o contador)");
+  assert.equal(await trocaConfere(comDestino(null), revisao, { ...esperado }), false, "destino nulo");
+  assert.equal(await trocaConfere(comDestino(S1), revisao, { ...esperado, salaoDestinoId: S1 }), false, "destino igual ao fixado não é troca");
+  assert.equal(await trocaConfere(comDestino(S2, { fixa: null, rid: "rev", estado: "EM_ELABORACAO", sid: S2, snome: null }), revisao, esperado), false, "contrato sem salão fixado");
 });

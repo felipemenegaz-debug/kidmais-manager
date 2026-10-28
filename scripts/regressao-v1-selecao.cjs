@@ -292,6 +292,8 @@ const ESTADO_POSTGRES = {
   // 27/10/2026 (S-D, salão de preferência): 106 (aplicação, rollback condicionado, mutante STABLE), gatilhos e N2 nas duas
   // ordens, leitura pública e fotos, POST real com 409 e concorrência na trava da data, emissão com a preferência.
   "lib/agenda/saloes-publicos-sd.postgres.test.ts": { descartavel: "104" },
+  // S-E restante: importação V3 (salão escolhido) e "Desistir da troca". Modelos SEPARADOS: 106 = 094+100 (staging) e 098 = 094+098.
+  "lib/contratos/integracao-importados/importacao-v3-desistir.postgres.test.ts": { descartavel: "106", tambem: ["098"] },
   "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.

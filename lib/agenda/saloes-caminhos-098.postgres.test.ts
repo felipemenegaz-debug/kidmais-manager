@@ -5,7 +5,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id, importacao,
-  integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
+  PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico, integrarLegadoV1,
 } from "../../scripts/integracao-importados-test-support.ts";
 import { lerRegraCapacidadeAgenda, listarFechamentosConfirmadosPorPeriodo } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { consultarDisponibilidadeData, ocupacaoImpedeCandidato } from "../disponibilidade/services/availability.service.ts";
@@ -72,7 +72,8 @@ async function contratada(c: Cenario, nativo: Awaited<ReturnType<typeof catalogo
   const ev = { data, ...HORA };
   const imp = await importacao(a, c, ev);
   const cpf = await completarCliente(a, imp.cliente);
-  const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
+  // Legado V1 (D2 da S-E restante): esta suíte prova revisões sobre contratos importados ANTES da importação V3.
+  const r = await integrarLegadoV1(s, coreNativo, a, c, imp.id, decisoes(c, ev, PARCIAL()));
   await validarAgora(a);
   const festa = (await a.query<{ id: string }>(`SELECT fechamento_id::text id FROM contratos WHERE id = $1`, [r.contratoId])).rows[0]!.id;
   const tx = executor(a);

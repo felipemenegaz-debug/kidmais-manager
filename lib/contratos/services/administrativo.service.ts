@@ -19,6 +19,7 @@ import { buscarFechamentoPorIdParaAtualizacao, buscarFechamentoPorId, empresaDoF
 import { provarTenant } from '../../saas/provar-tenant';
 import { carregarSnapshot, salaoDaEmissao } from './contrato.service';
 import { destinoDifereDoDocumento } from './salao-contrato';
+import { trocaConfere } from '../../agenda/troca-salao';
 import { atualizarClienteInterno } from '../../clientes/services';
 import { buscarClientePorId, buscarAniversariantePorId } from '../../clientes/repositories';
 import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
@@ -28,7 +29,9 @@ const uuid=z.string().uuid().transform(value=>value.toLowerCase());
 export const acaoContratoSchema = z.discriminatedUnion('acao', [
     edicaoFestaSchema,
     z.object({acao:z.literal('recusar_comercial'),revisao:z.number().int().positive(),motivo:z.string().trim().min(3).max(500),chaveDecisao:uuid}).strict(),
-    z.object({ acao: z.literal('cancelar_revisao'), revisao: z.number().int().positive(), motivo: z.string().trim().min(3).max(500) }).strict(),
+    // S-E restante ("Desistir da troca", P1-3): esperado = o que o card leu; cancela só a troca observada (comparação atômica).
+    z.object({ acao: z.literal('cancelar_revisao'), revisao: z.number().int().positive(), motivo: z.string().trim().min(3).max(500),
+        esperado: z.object({ revisaoId: uuid, revisaoOperacional: z.number().int().positive(), estado: z.enum(['EM_ELABORACAO', 'CONGELADA']), salaoDestinoId: uuid }).strict().optional() }).strict(),
     z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500) }).strict(),
     z.object({ acao: z.literal('revalidar_destino'), revisao: z.number().int().positive() }).strict(),
     z.object({ acao: z.literal('salvar'), revisao: z.number().int().positive(), observacoesDocumentais: z.string().trim().max(2000) }).strict(),
@@ -55,6 +58,14 @@ export type Edicao = {
     };
 };
 export function conflito(message: string): never { throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES', message, 409); }
+
+/**
+ * S-E restante ("Desistir da troca", P1-3): com esperado, a troca precisa ser a que o card leu (trocaConfere, com a revisão
+ * já travada); qualquer divergência é 409 sem cancelar. O contador da edição (input.revisao) sozinho não detecta a troca
+ * com hash v1 nem o congelamento.
+ */
+const MUDOU_DESDE_A_TELA = 'A revisão mudou desde que você abriu a tela. Confira o salão da festa de novo antes de desistir.';
+
 /**
  * Contrato da versão no tenant comprovado, antes de qualquer lock de domínio: prova o tenant da
  * sessão (provarTenant, na transação), localiza versão/contrato por leitura simples e compara com
@@ -250,9 +261,13 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const assinatura = (await tx.query('SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id=$1 LIMIT 1',[v.id])).rows.length>0;
             exigirVersaoEditavel(v,e,c.id,f?.versao_em_preparacao_id,assinatura);
         }
+        // S-E restante (P1-3): com esperado, a revisão travada precisa ser a mesma que o card leu (identidade revisão/versão),
+        // inclusive na repetição de uma desistência já feita (mesmo motivo e autor => reutilizado; outro => recusa).
+        if(input.acao==='cancelar_revisao' && input.esperado && (!preparacao || preparacao.id!==input.esperado.revisaoId)) conflito(MUDOU_DESDE_A_TELA);
         if(input.acao==='cancelar_revisao' && preparacao?.estado==='CANCELADA')return cancelarPreparacao(tx,preparacao,rc,input.motivo);
         if (!e || e.revisao !== input.revisao)
             conflito('Revisão mudou ou versão legada sem edição. Atualize a tela.');
+        if(input.acao==='cancelar_revisao' && input.esperado && !await trocaConfere(tx, preparacao!, input.esperado)) conflito(MUDOU_DESDE_A_TELA);
         if(input.acao==='cancelar_revisao'){if(!preparacao){if(!e.origem_versao_id||!['EM_ELABORACAO','ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'].includes(e.estado)||f?.versao_em_preparacao_id!==v.id)conflito('Sem proposta legada aberta para cancelar.');await tx.query("UPDATE contrato_edicoes SET estado='CANCELADA',atualizado_por_usuario_id=$2 WHERE contrato_versao_id=$1",[v.id,s.usuario_id]);await tx.query("UPDATE contrato_versoes SET status='CANCELADA' WHERE id=$1",[v.id]);await tx.query('UPDATE contrato_fluxos SET versao_em_preparacao_id=NULL WHERE contrato_id=$1',[c.id]);await evento(tx,v,s,'CONTRATO_PROPOSTA_LEGADA_CANCELADA',{motivo:input.motivo,...context});return {cancelada:true};}return cancelarPreparacao(tx,preparacao,rc,input.motivo);}
         if(input.acao==='recusar_comercial'){if(!preparacao)conflito('Sem preparação operacional.');return recusarComercialPreparacao(tx,preparacao,rc,input.chaveDecisao,input.motivo);}
         if(input.acao==='revalidar_destino'){if(!preparacao||!['EM_ELABORACAO','CONGELADA'].includes(preparacao.estado))conflito('Sem preparação aberta.');const relida=(await revalidarAgendaRevisao(tx,preparacao,rc)).revisao;
