@@ -262,7 +262,9 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   assert.ok(lockUnidade >= 0 && lockUnidade < lockDuplicidade && lockDuplicidade < estado.locks.indexOf('data:2026-11-14'), 'unidade → duplicidade → data');
   assert.ok(estado.locks.includes('bloquear_contrato') && estado.locks.includes('validar_destino'));
   const fech = chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>;
-  assert.deepEqual([fech.status, fech.origemFechamento, fech.valorTabela, fech.valorAdicionais, fech.dataEvento, fech.convidados], ['CONFIRMADO', 'IMPORTACAO_HISTORICA', 8500, 500, '2026-11-14', 80]);
+  assert.deepEqual([fech.status, fech.origemFechamento, fech.valorTabela, fech.valorAdicionais, fech.dataEvento, fech.convidados], ['CONFIRMADO', 'IMPORTACAO_HISTORICA', 8500, 0, '2026-11-14', 80]);
+  // D1 (plano dos adicionais): "Adicionais" do documento sem itens no sistema → o fechamento leva o valor inteiro como pacote.
+  assert.deepEqual([fech.valorPacoteBase, fech.valorPacoteAplicado, fech.valorDescontoPacote], [8500, 8500, 0]);
   // Linha de preço GERAL: o horário vem da regra do dia e do turno (NOBRE); GERAL fica só como categoria do preço.
   assert.deepEqual([fech.categoriaHorario, fech.categoriaPrecoAplicada, fech.configuracaoAgendaId], ['NOBRE', 'GERAL', '66666666-6666-4666-8666-666666666666']);
   // A contratação nasce na unidade conferida (recurso de agenda da 062), a mesma gravada no vínculo.
@@ -275,6 +277,9 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   const snap = JSON.parse(String(versao.valores[1]));
   assert.deepEqual(snap.historico.contratoHistorico, snapshotBase());
   assert.equal(snap.comercial.valorFinalContrato, 8500);
+  // A composição do DOCUMENTO fica no snapshot da versão conferida, coerente por si (P2-2): base = aplicado, sem desconto.
+  assert.deepEqual([snap.comercial.valorPacoteBase, snap.comercial.valorPacoteAplicado, snap.comercial.valorDescontoPacote, snap.comercial.valorAdicionais, snap.comercial.valorTabela],
+    [8000, 8000, 0, 500, 8500]);
   // Financeiro nativo: obrigação, reserva já confirmada, plano 2 parcelas, 1 recebimento na data efetiva.
   // Aniversariante do documento criado no CRM do cliente e vinculado ao fechamento e ao snapshot.
   const aniv = chamadas.find((c) => c.metodo === 'cadastrarAniversariante')!.args as Record<string, unknown>;

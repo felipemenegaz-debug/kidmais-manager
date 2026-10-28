@@ -164,3 +164,19 @@ test('V3: montarSnapshotVersao preserva configuração e salão só com o nativo
   assert.equal(v3.schemaVersao, 3);
   assert.deepEqual([(v3.evento as { configuracaoAgendaId?: string }).configuracaoAgendaId, (v3.evento as { salao?: unknown }).salao], ['cfg', { id: 's1', nome: 'Salão A' }]);
 });
+
+// Plano "importados com adicionais" (P2-2): o snapshot da versão conferida guarda a composição do documento, sem herdar do
+// fechamento operacional (que leva o valor inteiro como pacote).
+test('snapshot histórico: base = aplicado = total − adicionais do documento, sem desconto, mesmo com o nativo em pacote integral', () => {
+  const d = decisoesBase();
+  const base = { importacaoId: 'i', documento: { id: 'doc', sha256: 'f'.repeat(64) }, fechamentoId: 'f', snapshot: snapshotBase(), decisoes: d, resumo: avaliar(d).resumo,
+    cliente: { id: 'c', nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: null }, aniversarianteId: 'a',
+    pacote: { id: 'p', codigo: 'C', nome: 'Completa', duracaoMinutos: 240 }, unidade: null, conferente: { usuarioId: 'u', papel: 'ADMINISTRATIVO' } };
+  const s = montarSnapshotVersao({ ...base, nativo: { schemaVersao: 2, comercial: { valorPacoteBase: 8500, valorDescontoPacote: 0, valorPacoteAplicado: 8500, valorAdicionais: 0, descontoPercentual: 0 } } });
+  const c = s.comercial as unknown as Record<string, number>;
+  assert.deepEqual([c.valorPacoteBase, c.valorPacoteAplicado, c.valorDescontoPacote, c.valorAdicionais, c.valorTabela, c.valorFinalContrato], [8000, 8000, 0, 500, 8500, 8500]);
+  assert.equal(c.valorPacoteAplicado + c.valorAdicionais, c.valorTabela);
+  const semAdicionais = montarSnapshotVersao({ ...base, snapshot: { ...snapshotBase(), valores: { preco: 850000, adicionais: null, total: 850000 } }, nativo: { schemaVersao: 2 } });
+  const k = semAdicionais.comercial as unknown as Record<string, number>;
+  assert.deepEqual([k.valorPacoteBase, k.valorPacoteAplicado, k.valorAdicionais], [8500, 8500, 0]);
+});

@@ -43,16 +43,40 @@ export function diferencasContratuais(antesBruto: ContratoSnapshot, depois: Cont
     return resultado;
 }
 
+/** Campos comerciais da reclassificação do contrato histórico (adicionais sem itens passam a compor o pacote). */
+const CAMPOS_RECLASSIFICACAO = ['comercial.valorPacoteBase', 'comercial.valorPacoteAplicado', 'comercial.valorAdicionais'];
+
+/**
+ * Plano "importados com adicionais" (R2-4): contrato histórico cujos "Adicionais" do documento passam ao pacote na nova
+ * versão. Só quando base e aplicado sobem exatamente o que os adicionais descem, sem desconto, e o total não muda. É só
+ * explicação: as diferenças continuam listadas e a nova assinatura continua exigida.
+ */
+function reclassificacaoHistorica(antes: ContratoSnapshot, depois: ContratoSnapshot) {
+    const historico = (s: ContratoSnapshot) => (s as { fechamento?: { origem?: string } }).fechamento?.origem === 'IMPORTACAO_HISTORICA'
+        || (s as { origem?: { tipo?: string } }).origem?.tipo === 'IMPORTACAO_HISTORICA';
+    if (!historico(antes) && !historico(depois)) return null;
+    const a = antes.comercial as unknown as Record<string, number | null | undefined>, b = depois.comercial as unknown as Record<string, number | null | undefined>;
+    const n = (v: number | null | undefined) => Math.round(Number(v ?? 0) * 100);
+    const delta = n(a.valorAdicionais) - n(b.valorAdicionais);
+    if (delta <= 0) return null;
+    const ok = n(b.valorPacoteBase) - n(a.valorPacoteBase) === delta && n(b.valorPacoteAplicado) - n(a.valorPacoteAplicado) === delta
+        && n(a.valorTabela) === n(b.valorTabela) && n(a.valorFinalContrato) === n(b.valorFinalContrato);
+    return ok ? { valor: delta / 100 } : null;
+}
+
 /** Documental is descriptive, never permission to bypass the existing double signature. */
 export function analisarRevisao(antes: ContratoSnapshot, depois: ContratoSnapshot) {
     const campos = diferencasContratuais(antes, depois).map(d => ({
         ...d, natureza: d.campo === 'documental.observacoes' ? 'DOCUMENTAL' as const : 'MATERIAL' as const,
     }));
+    const reclassificacao = reclassificacaoHistorica(antes, depois);
     return {
         campos,
         natureza: campos.some(d => d.natureza === 'MATERIAL') ? 'MATERIAL' : campos.length ? 'DOCUMENTAL' : 'SEM_ALTERACOES',
         exigeNovaAssinatura: true,
-        impactoFinanceiro: campos.some(d => d.campo.startsWith('comercial.')),
+        reclassificacaoHistorica: reclassificacao,
+        // A reclassificação sozinha não muda a obrigação; qualquer OUTRA diferença comercial mantém o aviso de impacto.
+        impactoFinanceiro: campos.some(d => d.campo.startsWith('comercial.') && !(reclassificacao && CAMPOS_RECLASSIFICACAO.includes(d.campo))),
         // S-E: trocar o salão (identidade) ou o horário configurado também altera a agenda.
         alteraAgenda: campos.some(d => ['evento.data', 'evento.horarioInicio', 'evento.horarioFim', 'evento.salao.id', 'evento.configuracaoAgendaId'].includes(d.campo)),
     };
