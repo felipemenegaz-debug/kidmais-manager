@@ -3,10 +3,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
 import AvisoContexto from '@/components/admin/AvisoContexto';
-/** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor. */
+import { destinoAposLogin } from '@/components/admin/retorno-login';
+/** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor (e o consentimento MCP). */
 function destinoSeguro() {
-    const voltar = new URLSearchParams(window.location.search).get('voltar') ?? '';
-    return /^\/(admin|desenvolvedor)(\/[A-Za-z0-9_\-/]*)?$/.test(voltar) && !voltar.includes('//') && !voltar.startsWith('/admin/login') ? voltar : '/admin/dashboard';
+    return destinoAposLogin(new URLSearchParams(window.location.search).get('voltar') ?? '');
 }
 export default function LoginAdmin() {
     const router = useRouter();

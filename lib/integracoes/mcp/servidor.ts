@@ -99,8 +99,27 @@ function json(status: number, corpo: unknown, headers: Record<string, string> = 
   return new Response(JSON.stringify(corpo), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } });
 }
 
+/**
+ * O SDK escreve este aviso a cada handler com `responseMode: "json"`, e o transporte é criado por requisição (lê o env
+ * a cada vez). O canal não emite notificações no meio da chamada, então o aviso não se aplica e só polui o log do
+ * staging (teste real de 28/10/2026). Só essa mensagem é filtrada, e só durante a criação.
+ */
+export const AVISO_RESPOSTA_JSON = "responseMode: 'json' drops mid-call notifications";
+export function semAvisoDeRespostaJson<T>(criar: () => T): T {
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].startsWith(AVISO_RESPOSTA_JSON)) return;
+    original(...args);
+  };
+  try {
+    return criar();
+  } finally {
+    console.warn = original;
+  }
+}
+
 export function criarTransporteMcp(deps: DependenciasTransporte) {
-  const handler = createMcpHandler(fabricaServidor(deps) as never, { legacy: "stateless", responseMode: "json", maxRequestBodySize: LIMITES_MCP.corpoBytes });
+  const handler = semAvisoDeRespostaJson(() => createMcpHandler(fabricaServidor(deps) as never, { legacy: "stateless", responseMode: "json", maxRequestBodySize: LIMITES_MCP.corpoBytes }));
 
   return async function atender(request: Request): Promise<Response> {
     const env = deps.oauth.env;

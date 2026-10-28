@@ -137,15 +137,14 @@ aparecem.
   persistida ("Autorizada · nenhuma consulta recebida ainda" × "consulta recebida"), escopos, datas, Desconectar,
   instruções por fabricante. Nunca "conectado por clique".
 - `/admin/conexoes-ia/autorizar`: consentimento.
-- Limitação conhecida: o login do Admin não preserva a URL de retorno; quem não estiver logado precisa entrar e reiniciar a
-  conexão no aplicativo (pendência UX-1).
+- UX-1 resolvida em 28/10/2026 (§20): sem sessão, o login guarda o pedido e volta ao consentimento (formato exato).
 
 ## 10. Fabricantes (pacotes locais; nada submetido)
 
 | Fabricante | Como o piloto conecta | Verificado em 27/10/2026 | Não verificado / pendente |
 |---|---|---|---|
 | ChatGPT | Conector MCP personalizado com a URL `MCP_PUBLIC_URL`; OAuth com CIMD (`https://chatgpt.com/oauth/client.json`), redirect `https://chatgpt.com/connector_platform_oauth_redirect` (com `iss`) | Requisitos de descoberta, CIMD preferido, S256, `resource`, `securitySchemes`, `_meta["mcp/www_authenticate"]` (developers.openai.com/plugins/build/auth) | Plano exato do piloto (Pro leitura × Business); Plus; comportamento real de refresh; manifesto de plugin publicado (não preparado: formato não verificado) |
-| Claude | Configurações › Conectores › conector personalizado com a URL; Claude usa CIMD (anunciado) ou cai para DCR (não oferecido ⇒ falha clara) | Free/Pro/Max/Team/Enterprise com conectores remotos; 401 obrigatório; `authorization_servers[0]`; callback hospedado `https://claude.ai/api/mcp/auth_callback`; refresh rotativo; egress `160.79.104.0/21` (claude.com/docs/connectors/building/authentication) | URL do documento CIMD hospedado pela Anthropic para claude.ai (só o de Claude Code é público) — conferir no 1º teste real; Claude Code (loopback) fora do piloto |
+| Claude | Conector personalizado com a URL (menu em 28/10/2026: Personalização › Conectores); Claude usa CIMD (anunciado) ou cai para DCR (não oferecido ⇒ falha clara) | Free/Pro/Max/Team/Enterprise com conectores remotos; 401 obrigatório; `authorization_servers[0]`; callback hospedado `https://claude.ai/api/mcp/auth_callback`; refresh rotativo; egress `160.79.104.0/21` (claude.com/docs/connectors/building/authentication) | URL do documento CIMD hospedado pela Anthropic para claude.ai (só o de Claude Code é público) — conferir no 1º teste real; Claude Code (loopback) fora do piloto |
 | Gemini | Sem conexão no piloto | Custom apps exigem 18+, EUA, conta pessoal, inglês e Keep Activity (pesquisa do vault) | Nada a testar no Brasil; não orientar VPN/troca de país. CLI só como laboratório técnico futuro |
 
 ## 11. Roteiro de homologação (PENDENTE, nada executado)
@@ -178,7 +177,7 @@ aparecem.
 | P-REAL | Conexões reais por fabricante/plano | Autorização + contas |
 | P-CORPUS | Aprovar o corpus (hoje `PENDENTE_APROVACAO`) | Felipe |
 | D-EXP | 105 fora da exportação verificável (como sessões). Alternativa: exportar as concessões da empresa | Felipe/revisão |
-| UX-1 | Login não volta ao consentimento | Futuro |
+| UX-1 | Login não volta ao consentimento | Resolvida LOCAL em 28/10/2026 (§20) |
 | UX-2 | Atalho só em Meu perfil (menu não alterado) | Futuro |
 | LIM-1 | Limites em processo (N instâncias ⇒ N×) | Aceito no piloto |
 | LIM-3 | Sem IP confiável da borda, os limites anônimos são por cliente e globais; como o client_id do ChatGPT/Claude é compartilhado, um atacante pode esgotar a janela por minuto e atrasar conexões legítimas (DoS, não vazamento). Mitigação real: borda confirmada (ORIGEM_CLIENTE_BORDA) e/ou WAF | Aceito no piloto; reavaliar antes de público amplo |
@@ -309,3 +308,35 @@ Autorização de Felipe (27/10/2026): "criar um cluster PostgreSQL descartável 
 **Lacuna encontrada e corrigida na P4:** a 105 não estava no inventário aprovado de migrations (`scripts/production/check-migrations.mjs`). O runner PG recusou ("checkpoint 105 fora do inventário"), e `npm run production:test` falhava em 8 casos (`MIGRATION_BASELINE_REVIEW_REQUIRED`). As rodadas anteriores só rodaram `check:v1:static`, que não inclui esse teste. A 105 entrou em `approvedFiles`, em `requiresExplicitAuthorization` e na lista de pendências "NOT_APPLIED", e o inventário fixo de `scripts/production/production.test.mjs` foi atualizado: `production:test` passou a 37/37. Todos os passos do CI passaram a ser rodados localmente (ver §6 de `MCP_ASSINATURAS_TESTES.md`).
 
 **O que a P4 NÃO cobre:** aplicação da 105 em staging/produção, carga do pool (CAP-1), Node 22.23.2 fixado, conexão real com fabricantes, UI com sessão real. Próximo passo possível: aplicar a 105 em staging (autorização própria, aplicador/blocos ainda a preparar) e depois a conexão real (P-REAL).
+
+
+## 20. Teste real em staging e correções dos achados (28/10/2026)
+
+**Teste real (staging, TESTE S3):**
+- ChatGPT e Claude foram conectados de verdade, os dois por CIMD.
+- As 4 perguntas-roteiro passaram em cada um.
+- Também passaram a tela de conexões, Desconectar (ChatGPT) e a renovação depois de 1 h (Claude).
+- Evidência completa no vault: "Plano ligar canal MCP staging 20261027".
+
+Antes da conexão foram corrigidos dois bloqueios, os dois já LIVE em staging:
+- **CIMD-PKJWT (#257):** o documento real do ChatGPT declara `private_key_jwt` e lista `none` entre os métodos suportados.
+- **CIMD-LOOKUP (#259):** no Node 20+ o `lookup` é chamado com `all: true`.
+
+Achados do teste, corrigidos LOCAL nesta rodada:
+
+| Achado | Correção | Teste |
+|---|---|---|
+| Consentimento usa a **empresa ativa** sem deixar claro; a 1ª tentativa caiu numa empresa fora do piloto (conta de revisão da Meta) e o Permitir aparecia | `lerPedidoParaConsentimento` devolve `empresaNoPiloto` da empresa ativa (mesma regra do menu, `contextoDaSessao`). A tela diz que a conexão vale só para essa empresa e como trocá-la. Fora do piloto: aviso e **sem** Permitir (Não permitir continua). A barreira real continua em `concluirConsentimento` | `protocolo.test.ts` (sinal × lista e barreira intacta), `consentimento-mcp-ui.test.ts` (renderização real) |
+| **UX-1:** o login não voltava ao consentimento | `retorno-login.ts`: sem sessão no consentimento, o Admin vai a `/admin/login?voltar=…` com o pedido. O login volta só ao formato exato `…/autorizar?pedido=kmp_<43>`; o resto da regra antiga fica intacta (sem query livre nem URL externa) | `retorno-login.test.ts` (formato exato, cargas extras, externo, `//`, regra antiga) |
+| Assistente da agenda (093) abriu por cima e capturou cliques na tela de conexões; no consentimento cobriria o Permitir | O `AdminShell` não monta o assistente em `/admin/conexoes-ia/autorizar` | revisão de código (componente do shell sem teste de renderização) |
+| Texto "Como conectar" citava menus que os fabricantes já mudaram (ChatGPT: Plugins; Claude: Personalização) | Texto genérico ("nas configurações do assistente") e aviso de conferir a empresa ativa antes de conectar | — |
+| Log do SDK `responseMode: 'json' drops mid-call notifications…` a cada chamada (o transporte é criado por requisição) | `semAvisoDeRespostaJson` filtra só essa mensagem, só durante a criação; outros avisos passam | `protocolo.test.ts` (com controle: sem o filtro, o SDK avisa) |
+
+Controle negativo: com `servidor.ts`, `servico.ts` e `ConsentimentoAssistente.tsx` antigos, os 4 testes novos dependentes falham.
+
+**Continuam pendentes:**
+- (8) teste negativo real com empresa fora da allowlist (precisa de uma conta de teste adequada);
+- CAP-1, ADM-1, RET-2, LIM-1/LIM-3, D-EXP, RET-1;
+- aprovação do corpus (D3);
+- revisão independente do resultado de staging;
+- promoção para produção.
