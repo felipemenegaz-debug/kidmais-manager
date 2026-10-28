@@ -488,7 +488,6 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   if (decisoes.cadastro) await core.atualizarCliente(tx, p.cliente.id, empresaId, decisoes.cadastro, ctx);
   const { snapshot } = p.importacao;
   const totais = p.avaliacao.resumo.contrato.valorContratadoCentavos;
-  const adicionais = snapshot.valores?.adicionais != null && snapshot.valores.adicionais < totais ? snapshot.valores.adicionais : 0;
   const idade = snapshot.evento?.idade;
   const aniversarianteId = p.avaliacao.resumo.festa.aniversarianteCadastro === 'EXISTENTE' ? p.aniversarianteExistente
     : p.avaliacao.resumo.festa.aniversarianteCadastro === 'NOVO'
@@ -501,8 +500,11 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     regraDescontoPacoteId: null, categoriaHorario: p.referencias.categoriaHorario!, categoriaPrecoAplicada: p.precoReferencia!.categoria,
     convidados: decisoes.evento.convidados, convidadosFaturados: decisoes.evento.convidados,
     // Valores do documento (não do catálogo): a linha de preço é só âncora exigida pelo Core.
-    valorPacoteBase: centavosParaReais(totais - adicionais), descontoPercentual: 0, valorDescontoPacote: 0,
-    valorPacoteAplicado: centavosParaReais(totais - adicionais), valorAdicionais: centavosParaReais(adicionais), valorTabela: centavosParaReais(totais),
+    // D1 (28/10/2026): "Adicionais" do documento não têm itens no sistema; o fechamento operacional leva o valor inteiro como
+    // pacote (adicionais 0), senão a primeira revisão é recusada pela guarda da 014 (valor_adicionais = soma dos itens). A
+    // divisão pacote/adicionais do documento fica no snapshot da versão conferida (montarSnapshotVersao).
+    valorPacoteBase: centavosParaReais(totais), descontoPercentual: 0, valorDescontoPacote: 0,
+    valorPacoteAplicado: centavosParaReais(totais), valorAdicionais: 0, valorTabela: centavosParaReais(totais),
     valorNegociado: null, valorAprovado: null, motivoNegociacao: null, observacoesNegociacao: null,
     status: 'CONFIRMADO', origemFechamento: 'IMPORTACAO_HISTORICA', iniciadoPorUsuarioId: ctx.usuarioId, usuarioResponsavelId: ctx.usuarioId,
     responsavelAdicionalId: null, idadeAniversarianteEvento: typeof idade === 'number' && idade >= 0 && idade <= 120 ? idade : null,

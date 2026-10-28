@@ -132,7 +132,8 @@ export type Evento = { data: string; inicio: string; fim: string };
  * a conferência exige (cadastroContratualSchema): nome, CPF válido (sintético) e um contato — e-mail e endereço ficam
  * vazios, como num contrato em papel sem esses dados.
  */
-export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false) {
+export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false,
+  valores: { preco: number; adicionais: number | null; total: number } = { preco: 500000, adicionais: 0, total: 500000 }) {
   const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente 061', $1::uuid, '11999990000', '11999990000', $2) RETURNING id`, [c.empresa, cpfValido()]);
   const documento = await id(db, `INSERT INTO ia_documentos (empresa_id, tipo, status, enviado_por) VALUES ($1::uuid, 'CONTRATO_HISTORICO', 'RECEBIDO', $2::uuid) RETURNING id`, [c.empresa, c.usuario]);
   const pdf = Buffer.from(`%PDF-1.4\n% contrato em papel ${randomUUID()}\n%%EOF\n`);
@@ -147,7 +148,7 @@ export async function importacao(db: Client, c: Cenario, evento: Evento, apenasR
     evento: { data: evento.data, horario: { inicio: evento.inicio, fim: evento.fim }, duracaoMinutos: 240, aniversariante: "Lia", idade: 6, convidados: 50, tema: "Circo" },
     pacote: { nome: "Festa de 2019", duracaoMinutos: 240, quantidade: 50, itens: "Buffet completo" },
     buffet: { itens: null, observacoes: null, restricoes: null },
-    valores: { preco: 500000, adicionais: 0, total: 500000 },
+    valores,
     pagamentosPrevistos: { condicao: "30% de entrada", entrada: { valor: 150000, vencimento: dia(-60) }, parcelas: [{ numero: 1, valor: 350000, vencimento: dia(30) }], natureza: "PREVISTO" as const },
     observacoes: null,
   };

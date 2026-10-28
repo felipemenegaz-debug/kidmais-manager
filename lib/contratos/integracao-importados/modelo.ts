@@ -342,6 +342,10 @@ export function montarSnapshotVersao(e: {
       ...(e.nativo?.comercial as object ?? {}),
       valorFinalContrato: valor,
       valorTabela: valor,
+      // Composição do DOCUMENTO em papel, coerente por si (P2-2 do plano dos adicionais): não herda do fechamento operacional,
+      // que leva o valor inteiro como pacote (D1). base = aplicado, sem desconto; aplicado + adicionais = total.
+      valorPacoteBase: centavosParaReais(d.valorContratadoCentavos - adicionais),
+      valorDescontoPacote: 0,
       valorPacoteAplicado: centavosParaReais(d.valorContratadoCentavos - adicionais),
       valorAdicionais: centavosParaReais(adicionais),
       formaPagamentoPretendida: d.formaPagamento ?? null,
