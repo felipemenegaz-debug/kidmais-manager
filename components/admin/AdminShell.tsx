@@ -20,7 +20,7 @@ import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
-import { CONSENTIMENTO_MCP, loginComRetorno } from './retorno-login';
+import { CONSENTIMENTO_MCP, loginDestaPagina } from '@/lib/http/retorno-login';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
 // Créditos de IA: saldo e devolução de pacote pago continuam acessíveis com a empresa bloqueada (a compra recusa no servidor).
@@ -64,7 +64,7 @@ export default function AdminShell({ children, vitrine }: {
                 return;
             if (!b.ok || !b.data.usuarioId) {
                 setName(null);
-                window.location.replace(loginComRetorno(window.location.pathname, window.location.search));
+                window.location.replace(loginDestaPagina());
             }
             else if (alive) {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
@@ -77,7 +77,7 @@ export default function AdminShell({ children, vitrine }: {
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };

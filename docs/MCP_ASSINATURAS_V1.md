@@ -1,5 +1,16 @@
 # Canal MCP por assinatura — v1 (implementação LOCAL)
 
+> **ESTADO ATUAL (28/10/2026, vale sobre os blocos datados abaixo, que são histórico):**
+> - **Staging:** código do canal LIVE (até a #261, `a18677cb`); migration **105 APLICADA** (integridade PASS); canal
+>   ligado só para a empresa de teste (`MCP_TENANT_ALLOWLIST`).
+> - **Conexão real:** ChatGPT e Claude conectados de verdade por CIMD; 4 perguntas-roteiro, Desconectar e renovação depois
+>   de 1 h aprovados (§20). Ressalvas da revisão do Astra de 28/10: isolamento e "zero dados pessoais" só com a base vazia;
+>   a recusa da empresa fora do piloto foi vista na tela, mas o POST 403 real não foi feito.
+> - **Revisão do Astra de 28/10:** "resultado de staging aprovado; produção pode ser planejada". **Não é GO para
+>   produção.**
+> - **Produção:** nada aplicado nem ligado. Pede aplicador 105 próprio + PITR, candidata validada no Node 22.23.2, env
+>   própria, monitoramento/desligamento e as decisões D3/RET-1/D-EXP (lista em §21).
+
 > **Estado em 27/10/2026 (rodada 2):** P0–P3 implementadas **localmente**, sem commit nem push. 1ª revisão independente
 > (Astra) **REPROVOU** para exposição externa (2 P1, 6 P2, 2 P3); todos os 10 achados foram corrigidos localmente na rodada 2
 > (§14) e **aguardam nova revisão**.
@@ -340,3 +351,42 @@ Controle negativo: com `servidor.ts`, `servico.ts` e `ConsentimentoAssistente.ts
 - aprovação do corpus (D3);
 - revisão independente do resultado de staging;
 - promoção para produção.
+
+
+## 21. Revisão do Astra do resultado de staging e rodada de correções (28/10/2026)
+
+**Veredito:** "resultado de staging aprovado; produção pode ser planejada". Sem P1. Não é GO para ligar produção.
+
+**Correções LOCAIS desta rodada:**
+
+| Achado | Correção | Teste |
+|---|---|---|
+| **P2-1** "Carregando…" sem recuperação | `carregarPedido` (em `ConsentimentoAssistente.tsx`): prazo absoluto de 15 s, também para a leitura dos corpos; `AbortController` aborta as requisições no prazo e ao sair da tela; resultado `recuperavel` (5xx, rede, prazo) mostra **Tentar de novo**. Pedido inválido (404) não é recuperável. Ler o pedido não o consome | `consentimento-mcp-ui.test.ts` (pedido pendurado, corpo pendurado, 404 × 503 × rede, carga normal, saída aborta) |
+| **P2-2** UX-1 parcial | `lib/http/retorno-login.ts` (movido de `components/admin`) ganhou `loginDestaPagina()`. Todos os envios ao login por sessão encerrada passam por ele: shell (resposta e falha de rede/JSON), `adminFetch` (antes e depois da requisição) e `trocarEmpresaAtiva`. Sair por vontade própria continua indo ao login simples | `retorno-login-sessao.test.ts` (antes, depois e fora do consentimento) + `troca-sessao.test.ts` atualizado |
+| **P3** contrato do CIMD | Método omitido **não** vale `none` (no RFC 7591 o omitido é `client_secret_basic`). Aceita só `none` declarado ou listado em `token_endpoint_auth_methods_supported`. Os documentos reais de 28/10 declaram (Claude: `none`; ChatGPT: `private_key_jwt` + `none` na lista) | `cimd.test.ts` (omitido sem lista, omitido com lista autenticada, omitido com `none` na lista) |
+| **P3** filtro do log | Só a mensagem **exata** do SDK, com um único argumento; mesmo prefixo ou argumentos extras passam | `protocolo.test.ts` (com controle de que o SDK emite o texto exato) |
+| Risco declarado: pedido na URL | `no-referrer` no consentimento (`metadata`) e no login (novo `app/admin/login/layout.tsx`). Sanitização na borda e na observabilidade fica para o checklist de produção | revisão de código |
+| **P3** docs contraditórios | Bloco "ESTADO ATUAL" no topo deste documento, de `MCP_ASSINATURAS_TESTES.md` e de `MCP_ASSINATURAS_APLICADOR_105.md`; matriz de provas atualizada | — |
+
+Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `ConsentimentoAssistente.tsx` anteriores, 8 testes novos falham.
+
+**Mínimo para produção** (classificação do Astra):
+
+| Item | Classe |
+|---|---|
+| Aplicador 105 **de produção** (identidade fixa do alvo, precheck/postcheck/integridade, PITR comprovado, procedimento para resultado indeterminado) | bloqueante para aplicar |
+| Candidata exata validada no **Node 22.23.2** (ou mudança formal do runtime) | bloqueante para o GO técnico |
+| Env própria: `MCP_PUBLIC_URL` de produção, segredo novo, allowlist da empresa piloto real, `AI_TENANT_ALLOWLIST` deliberada, flags READ coerentes; não copiar de staging | bloqueante para ligar |
+| Monitoramento e desligamento: responsável, alertas 5xx/429, latência/pool, falhas OAuth/refresh, logs sanitizados (incluindo `pedido`/`voltar` na borda), `MCP_ENABLED=false` autorizado | bloqueante para ligar |
+| CAP-1 | bloqueante para abertura ampla; no piloto, aceite explícito com envelope de carga |
+| ADM-1, carregamento, UX-1 | aceitáveis no piloto acompanhado; validar antes o login real, a sessão expirada, a tela e o POST negativo |
+| D3 (corpus) | bloqueante para anunciar respostas documentadas; piloto sem corpus possível (`semEvidencia`) |
+| RET-1, D-EXP | decisões explícitas antes do piloto |
+| RET-2 | pode esperar se não houver promessa de prazo de exclusão |
+| LIM-1/LIM-3 | aceitáveis no piloto com risco declarado |
+| Teste real em produção (descoberta, consentimento/login, consultas, refresh, revogação nos dois fabricantes; sem usar a produção como massa) | gate de aceite |
+
+**Para fortalecer a evidência de staging** (Astra):
+- base sintética preenchida na TESTE S3, para provar a redução aos DTOs;
+- POST 403 real com uma conta só fora do piloto;
+- correlação do refresh com o evento `TOKEN_RENOVADO` e com a mesma concessão.

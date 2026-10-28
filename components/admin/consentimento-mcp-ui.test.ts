@@ -34,3 +34,49 @@ test('teste real (28/10): empresa ativa fora do piloto não mostra Permitir; avi
     assert.doesNotMatch(html, /data-permitir/);
     assert.match(html, /data-negar/);
 });
+
+// Revisão do Astra (28/10, P2-1): a carga tem prazo, cancela as requisições e diz se dá para tentar de novo.
+const { carregarPedido } = carregarModulo('components/admin/ConsentimentoAssistente.tsx', css, cache) as {
+    carregarPedido: (deps: { lerPedido: (s: AbortSignal) => Promise<Response>; lerSessao: (s: AbortSignal) => Promise<Response>; prazoMs: number; cancelamento?: AbortSignal }) =>
+        Promise<{ ok: true; pedido: PedidoTela; empresa: { id: string; nome: string } } | { ok: false; erro: string; recuperavel: boolean }>;
+};
+const PEDIDO_OK = { clienteNome: 'Claude', clientHost: 'claude.ai', redirectHost: 'claude.ai', escopos: ['agenda:read'], expiraEm: '2026-10-28T10:00:00Z', empresaNoPiloto: true };
+const sessaoOk = async () => Response.json({ ok: true, data: { contexto: { empresaAtual: { id: 'e1', nome: 'Buffet Sintético' } } } });
+const pendurado = (sinais: AbortSignal[]) => (s: AbortSignal) => { sinais.push(s); return new Promise<Response>(() => undefined); };
+
+test('P2-1: pedido pendurado vence no prazo, aborta as requisições e é recuperável', async () => {
+    const sinais: AbortSignal[] = [];
+    const inicio = Date.now();
+    const c = await carregarPedido({ lerPedido: pendurado(sinais), lerSessao: (s) => { sinais.push(s); return sessaoOk(); }, prazoMs: 60 });
+    assert.ok(Date.now() - inicio < 1000);
+    assert.equal(c.ok, false);
+    assert.equal(c.ok === false && c.recuperavel, true);
+    assert.match(c.ok === false ? c.erro : '', /demorou/);
+    assert.ok(sinais.length === 2 && sinais.every((s) => s.aborted), 'as duas requisições foram abortadas');
+});
+
+test('P2-1: corpo que nunca termina também vence no prazo', async () => {
+    const corpoPreso = { ok: true, status: 200, json: () => new Promise(() => undefined) } as unknown as Response;
+    const c = await carregarPedido({ lerPedido: async () => corpoPreso, lerSessao: sessaoOk, prazoMs: 60 });
+    assert.equal(c.ok === false && c.recuperavel, true);
+});
+
+test('P2-1: pedido inválido não é recuperável (mensagem do servidor); 5xx e falha de rede são', async () => {
+    const invalido = await carregarPedido({ lerPedido: async () => Response.json({ ok: false, erro: 'Pedido de conexão inválido ou expirado. Volte ao aplicativo e conecte novamente.' }, { status: 404 }), lerSessao: sessaoOk, prazoMs: 1000 });
+    assert.deepEqual(invalido, { ok: false, erro: 'Pedido de conexão inválido ou expirado. Volte ao aplicativo e conecte novamente.', recuperavel: false });
+    const indisponivel = await carregarPedido({ lerPedido: async () => Response.json({ ok: false, erro: 'Indisponível' }, { status: 503 }), lerSessao: sessaoOk, prazoMs: 1000 });
+    assert.equal(indisponivel.ok === false && indisponivel.recuperavel, true);
+    const rede = await carregarPedido({ lerPedido: async () => { throw new TypeError('fetch failed'); }, lerSessao: sessaoOk, prazoMs: 1000 });
+    assert.equal(rede.ok === false && rede.recuperavel, true);
+});
+
+test('P2-1: carga normal entrega pedido e empresa; sair da tela aborta', async () => {
+    const ok = await carregarPedido({ lerPedido: async () => Response.json({ ok: true, data: PEDIDO_OK }), lerSessao: sessaoOk, prazoMs: 1000 });
+    assert.deepEqual(ok, { ok: true, pedido: PEDIDO_OK, empresa: { id: 'e1', nome: 'Buffet Sintético' } });
+    const sinais: AbortSignal[] = [];
+    const saida = new AbortController();
+    const carga = carregarPedido({ lerPedido: pendurado(sinais), lerSessao: pendurado(sinais), prazoMs: 200, cancelamento: saida.signal });
+    saida.abort();
+    assert.ok(sinais.every((s) => s.aborted), 'desmontar a tela aborta as requisições');
+    await carga;
+});

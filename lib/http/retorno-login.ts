@@ -20,3 +20,11 @@ export function loginComRetorno(pathname: string, search: string): string {
     }
     return '/admin/login';
 }
+
+/**
+ * Login a partir da página atual. Todo caminho que manda ao login por sessão encerrada usa este (revisão do Astra de
+ * 28/10/2026, P2-2: a falha de leitura do shell e o adminFetch ainda perdiam o pedido). Sair por vontade própria não.
+ */
+export function loginDestaPagina(): string {
+    return loginComRetorno(window.location.pathname, window.location.search ?? '');
+}
