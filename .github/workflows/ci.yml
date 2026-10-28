@@ -146,3 +146,9 @@ jobs:
       # Blocos de Shell da 105: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
       - name: Blocos de Shell da 105 (staging)
         run: node --test scripts/bloco-shell-105.test.cjs
+
+      - name: Aplicador manual da 104/106 (hash da revisão com o salão e salão de preferência, staging) — trava de alvo, identidade, hashes, moldura de uma transação, estados com precedência (104 divergente/parcial, presença × integridade), privilégios por etapa de current_user, atividade pelas pg_locks com contexto, verificações DO e EXECUTE antes do COMMIT, COMMIT confirmado/desfeito/indeterminado por migration, auditoria de dados separada e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-104-106.test.cjs
+
+      - name: Blocos de Shell da 104/106 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-104-106.test.cjs
