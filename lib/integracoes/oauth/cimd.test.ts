@@ -106,6 +106,19 @@ test("documento real do ChatGPT (private_key_jwt declarado, none suportado) é a
   await assert.rejects(carregarClienteCimd(ID, HOSTS, semNone, AGORA, 60), (e: unknown) => e instanceof CimdRecusado && e.motivo === "AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
 });
 
+test("revisão do Astra (28/10, P3): método omitido não vale none; só a lista com none aceita o documento sem método", async () => {
+  const semMetodo = (over: Record<string, unknown>): BuscaDocumento => async () => {
+    const d: Record<string, unknown> = { client_id: ID, client_name: "ChatGPT", redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"], ...over };
+    delete d.token_endpoint_auth_method;
+    return { status: 200, tipo: "application/json", corpo: JSON.stringify(d) };
+  };
+  const recusa = (e: unknown) => e instanceof CimdRecusado && e.motivo === "AUTENTICACAO_CLIENTE_NAO_SUPORTADA";
+  await assert.rejects(carregarClienteCimd(ID, HOSTS, semMetodo({}), AGORA, 60), recusa, "omitido e sem lista (RFC 7591: client_secret_basic)");
+  await assert.rejects(carregarClienteCimd(ID, HOSTS, semMetodo({ token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"] }), AGORA, 60), recusa, "omitido com lista só de métodos autenticados");
+  const c = await carregarClienteCimd(ID, HOSTS, semMetodo({ token_endpoint_auth_methods_supported: ["none"] }), AGORA, 60);
+  assert.equal(c.clientId, ID, "omitido com none na lista é aceito");
+});
+
 test("limitador: taxa por concessão e por empresa, concorrência e memória limitada", () => {
   let agora = 0;
   const lim = new LimitadorMcp(() => agora, { ...LIMITES_MCP, chamadasPorMinutoPorConcessao: 2, chamadasPorMinutoPorEmpresa: 3, concorrenciaPorConcessao: 1 }, 4);

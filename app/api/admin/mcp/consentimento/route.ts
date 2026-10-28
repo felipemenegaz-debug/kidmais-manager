@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
+import { contextoDaSessao } from "@/lib/autenticacao/contexto";
+import { db } from "@/lib/db/postgres";
 import { lerJsonLimitado } from "@/lib/integracoes/mcp/corpo";
 import { CanalOcupado } from "@/lib/integracoes/mcp/admissao";
 import { PrazoDaTransacaoVencido } from "@/lib/db/transacao-com-prazo";
@@ -28,11 +30,15 @@ function falha(error: unknown) {
   return apiErrorResponse(error);
 }
 
-/** Dados do pedido pendente para a tela (aplicativo, endereço de retorno, permissões pedidas, prazo). Exige sessão. */
+/**
+ * Dados do pedido pendente para a tela (aplicativo, endereço de retorno, permissões pedidas, prazo) e se a empresa ativa
+ * da sessão (a mesma regra do menu) está no piloto. Exige sessão.
+ */
 export async function GET(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
-    const dados = await lerPedidoParaConsentimento(request.nextUrl.searchParams.get("pedido") ?? "", dependenciasConsentimento());
+    const sessao = await exigirApiAdminCrmDisponivel(request);
+    const contexto = await contextoDaSessao(db(), sessao);
+    const dados = await lerPedidoParaConsentimento(request.nextUrl.searchParams.get("pedido") ?? "", dependenciasConsentimento(), contexto.empresaAtual?.id ?? null);
     if (!dados) return jsonNoStore({ ok: false, erro: "Pedido de conexão inválido ou expirado. Volte ao aplicativo e conecte novamente.", codigo: "PEDIDO_INVALIDO" }, { status: 404 });
     return jsonNoStore({ ok: true, data: dados });
   } catch (error) {

@@ -1,5 +1,16 @@
 # Canal MCP por assinatura — v1 (implementação LOCAL)
 
+> **ESTADO ATUAL (28/10/2026, vale sobre os blocos datados abaixo, que são histórico):**
+> - **Staging:** código do canal LIVE (até a #261, `a18677cb`); migration **105 APLICADA** (integridade PASS); canal
+>   ligado só para a empresa de teste (`MCP_TENANT_ALLOWLIST`).
+> - **Conexão real:** ChatGPT e Claude conectados de verdade por CIMD; 4 perguntas-roteiro, Desconectar e renovação depois
+>   de 1 h aprovados (§20). Ressalvas da revisão do Astra de 28/10: isolamento e "zero dados pessoais" só com a base vazia;
+>   a recusa da empresa fora do piloto foi vista na tela, mas o POST 403 real não foi feito.
+> - **Revisão do Astra de 28/10:** "resultado de staging aprovado; produção pode ser planejada". **Não é GO para
+>   produção.**
+> - **Produção:** nada aplicado nem ligado. Pede aplicador 105 próprio + PITR, candidata validada no Node 22.23.2, env
+>   própria, monitoramento/desligamento e as decisões D3/RET-1/D-EXP (lista em §21).
+
 > **Estado em 27/10/2026 (rodada 2):** P0–P3 implementadas **localmente**, sem commit nem push. 1ª revisão independente
 > (Astra) **REPROVOU** para exposição externa (2 P1, 6 P2, 2 P3); todos os 10 achados foram corrigidos localmente na rodada 2
 > (§14) e **aguardam nova revisão**.
@@ -137,15 +148,14 @@ aparecem.
   persistida ("Autorizada · nenhuma consulta recebida ainda" × "consulta recebida"), escopos, datas, Desconectar,
   instruções por fabricante. Nunca "conectado por clique".
 - `/admin/conexoes-ia/autorizar`: consentimento.
-- Limitação conhecida: o login do Admin não preserva a URL de retorno; quem não estiver logado precisa entrar e reiniciar a
-  conexão no aplicativo (pendência UX-1).
+- UX-1 resolvida em 28/10/2026 (§20): sem sessão, o login guarda o pedido e volta ao consentimento (formato exato).
 
 ## 10. Fabricantes (pacotes locais; nada submetido)
 
 | Fabricante | Como o piloto conecta | Verificado em 27/10/2026 | Não verificado / pendente |
 |---|---|---|---|
 | ChatGPT | Conector MCP personalizado com a URL `MCP_PUBLIC_URL`; OAuth com CIMD (`https://chatgpt.com/oauth/client.json`), redirect `https://chatgpt.com/connector_platform_oauth_redirect` (com `iss`) | Requisitos de descoberta, CIMD preferido, S256, `resource`, `securitySchemes`, `_meta["mcp/www_authenticate"]` (developers.openai.com/plugins/build/auth) | Plano exato do piloto (Pro leitura × Business); Plus; comportamento real de refresh; manifesto de plugin publicado (não preparado: formato não verificado) |
-| Claude | Configurações › Conectores › conector personalizado com a URL; Claude usa CIMD (anunciado) ou cai para DCR (não oferecido ⇒ falha clara) | Free/Pro/Max/Team/Enterprise com conectores remotos; 401 obrigatório; `authorization_servers[0]`; callback hospedado `https://claude.ai/api/mcp/auth_callback`; refresh rotativo; egress `160.79.104.0/21` (claude.com/docs/connectors/building/authentication) | URL do documento CIMD hospedado pela Anthropic para claude.ai (só o de Claude Code é público) — conferir no 1º teste real; Claude Code (loopback) fora do piloto |
+| Claude | Conector personalizado com a URL (menu em 28/10/2026: Personalização › Conectores); Claude usa CIMD (anunciado) ou cai para DCR (não oferecido ⇒ falha clara) | Free/Pro/Max/Team/Enterprise com conectores remotos; 401 obrigatório; `authorization_servers[0]`; callback hospedado `https://claude.ai/api/mcp/auth_callback`; refresh rotativo; egress `160.79.104.0/21` (claude.com/docs/connectors/building/authentication) | URL do documento CIMD hospedado pela Anthropic para claude.ai (só o de Claude Code é público) — conferir no 1º teste real; Claude Code (loopback) fora do piloto |
 | Gemini | Sem conexão no piloto | Custom apps exigem 18+, EUA, conta pessoal, inglês e Keep Activity (pesquisa do vault) | Nada a testar no Brasil; não orientar VPN/troca de país. CLI só como laboratório técnico futuro |
 
 ## 11. Roteiro de homologação (PENDENTE, nada executado)
@@ -178,7 +188,7 @@ aparecem.
 | P-REAL | Conexões reais por fabricante/plano | Autorização + contas |
 | P-CORPUS | Aprovar o corpus (hoje `PENDENTE_APROVACAO`) | Felipe |
 | D-EXP | 105 fora da exportação verificável (como sessões). Alternativa: exportar as concessões da empresa | Felipe/revisão |
-| UX-1 | Login não volta ao consentimento | Futuro |
+| UX-1 | Login não volta ao consentimento | Resolvida LOCAL em 28/10/2026 (§20) |
 | UX-2 | Atalho só em Meu perfil (menu não alterado) | Futuro |
 | LIM-1 | Limites em processo (N instâncias ⇒ N×) | Aceito no piloto |
 | LIM-3 | Sem IP confiável da borda, os limites anônimos são por cliente e globais; como o client_id do ChatGPT/Claude é compartilhado, um atacante pode esgotar a janela por minuto e atrasar conexões legítimas (DoS, não vazamento). Mitigação real: borda confirmada (ORIGEM_CLIENTE_BORDA) e/ou WAF | Aceito no piloto; reavaliar antes de público amplo |
@@ -309,3 +319,74 @@ Autorização de Felipe (27/10/2026): "criar um cluster PostgreSQL descartável 
 **Lacuna encontrada e corrigida na P4:** a 105 não estava no inventário aprovado de migrations (`scripts/production/check-migrations.mjs`). O runner PG recusou ("checkpoint 105 fora do inventário"), e `npm run production:test` falhava em 8 casos (`MIGRATION_BASELINE_REVIEW_REQUIRED`). As rodadas anteriores só rodaram `check:v1:static`, que não inclui esse teste. A 105 entrou em `approvedFiles`, em `requiresExplicitAuthorization` e na lista de pendências "NOT_APPLIED", e o inventário fixo de `scripts/production/production.test.mjs` foi atualizado: `production:test` passou a 37/37. Todos os passos do CI passaram a ser rodados localmente (ver §6 de `MCP_ASSINATURAS_TESTES.md`).
 
 **O que a P4 NÃO cobre:** aplicação da 105 em staging/produção, carga do pool (CAP-1), Node 22.23.2 fixado, conexão real com fabricantes, UI com sessão real. Próximo passo possível: aplicar a 105 em staging (autorização própria, aplicador/blocos ainda a preparar) e depois a conexão real (P-REAL).
+
+
+## 20. Teste real em staging e correções dos achados (28/10/2026)
+
+**Teste real (staging, TESTE S3):**
+- ChatGPT e Claude foram conectados de verdade, os dois por CIMD.
+- As 4 perguntas-roteiro passaram em cada um.
+- Também passaram a tela de conexões, Desconectar (ChatGPT) e a renovação depois de 1 h (Claude).
+- Evidência completa no vault: "Plano ligar canal MCP staging 20261027".
+
+Antes da conexão foram corrigidos dois bloqueios, os dois já LIVE em staging:
+- **CIMD-PKJWT (#257):** o documento real do ChatGPT declara `private_key_jwt` e lista `none` entre os métodos suportados.
+- **CIMD-LOOKUP (#259):** no Node 20+ o `lookup` é chamado com `all: true`.
+
+Achados do teste, corrigidos LOCAL nesta rodada:
+
+| Achado | Correção | Teste |
+|---|---|---|
+| Consentimento usa a **empresa ativa** sem deixar claro; a 1ª tentativa caiu numa empresa fora do piloto (conta de revisão da Meta) e o Permitir aparecia | `lerPedidoParaConsentimento` devolve `empresaNoPiloto` da empresa ativa (mesma regra do menu, `contextoDaSessao`). A tela diz que a conexão vale só para essa empresa e como trocá-la. Fora do piloto: aviso e **sem** Permitir (Não permitir continua). A barreira real continua em `concluirConsentimento` | `protocolo.test.ts` (sinal × lista e barreira intacta), `consentimento-mcp-ui.test.ts` (renderização real) |
+| **UX-1:** o login não voltava ao consentimento | `retorno-login.ts`: sem sessão no consentimento, o Admin vai a `/admin/login?voltar=…` com o pedido. O login volta só ao formato exato `…/autorizar?pedido=kmp_<43>`; o resto da regra antiga fica intacta (sem query livre nem URL externa) | `retorno-login.test.ts` (formato exato, cargas extras, externo, `//`, regra antiga) |
+| Assistente da agenda (093) abriu por cima e capturou cliques na tela de conexões; no consentimento cobriria o Permitir | O `AdminShell` não monta o assistente em `/admin/conexoes-ia/autorizar` | revisão de código (componente do shell sem teste de renderização) |
+| Texto "Como conectar" citava menus que os fabricantes já mudaram (ChatGPT: Plugins; Claude: Personalização) | Texto genérico ("nas configurações do assistente") e aviso de conferir a empresa ativa antes de conectar | — |
+| Log do SDK `responseMode: 'json' drops mid-call notifications…` a cada chamada (o transporte é criado por requisição) | `semAvisoDeRespostaJson` filtra só essa mensagem, só durante a criação; outros avisos passam | `protocolo.test.ts` (com controle: sem o filtro, o SDK avisa) |
+
+Controle negativo: com `servidor.ts`, `servico.ts` e `ConsentimentoAssistente.tsx` antigos, os 4 testes novos dependentes falham.
+
+**Continuam pendentes:**
+- (8) teste negativo real com empresa fora da allowlist (precisa de uma conta de teste adequada);
+- CAP-1, ADM-1, RET-2, LIM-1/LIM-3, D-EXP, RET-1;
+- aprovação do corpus (D3);
+- revisão independente do resultado de staging;
+- promoção para produção.
+
+
+## 21. Revisão do Astra do resultado de staging e rodada de correções (28/10/2026)
+
+**Veredito:** "resultado de staging aprovado; produção pode ser planejada". Sem P1. Não é GO para ligar produção.
+
+**Correções LOCAIS desta rodada:**
+
+| Achado | Correção | Teste |
+|---|---|---|
+| **P2-1** "Carregando…" sem recuperação | `carregarPedido` (em `ConsentimentoAssistente.tsx`): prazo absoluto de 15 s, também para a leitura dos corpos; `AbortController` aborta as requisições no prazo e ao sair da tela; resultado `recuperavel` (5xx, rede, prazo) mostra **Tentar de novo**. Pedido inválido (404) não é recuperável. Ler o pedido não o consome | `consentimento-mcp-ui.test.ts` (pedido pendurado, corpo pendurado, 404 × 503 × rede, carga normal, saída aborta) |
+| **P2-2** UX-1 parcial | `lib/http/retorno-login.ts` (movido de `components/admin`) ganhou `loginDestaPagina()`. Todos os envios ao login por sessão encerrada passam por ele: shell (resposta e falha de rede/JSON), `adminFetch` (antes e depois da requisição) e `trocarEmpresaAtiva`. Sair por vontade própria continua indo ao login simples | `retorno-login-sessao.test.ts` (antes, depois e fora do consentimento) + `troca-sessao.test.ts` atualizado |
+| **P3** contrato do CIMD | Método omitido **não** vale `none` (no RFC 7591 o omitido é `client_secret_basic`). Aceita só `none` declarado ou listado em `token_endpoint_auth_methods_supported`. Os documentos reais de 28/10 declaram (Claude: `none`; ChatGPT: `private_key_jwt` + `none` na lista) | `cimd.test.ts` (omitido sem lista, omitido com lista autenticada, omitido com `none` na lista) |
+| **P3** filtro do log | Só a mensagem **exata** do SDK, com um único argumento; mesmo prefixo ou argumentos extras passam | `protocolo.test.ts` (com controle de que o SDK emite o texto exato) |
+| Risco declarado: pedido na URL | `no-referrer` no consentimento (`metadata`) e no login (novo `app/admin/login/layout.tsx`). Sanitização na borda e na observabilidade fica para o checklist de produção | revisão de código |
+| **P3** docs contraditórios | Bloco "ESTADO ATUAL" no topo deste documento, de `MCP_ASSINATURAS_TESTES.md` e de `MCP_ASSINATURAS_APLICADOR_105.md`; matriz de provas atualizada | — |
+
+Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `ConsentimentoAssistente.tsx` anteriores, 8 testes novos falham.
+
+**Mínimo para produção** (classificação do Astra):
+
+| Item | Classe |
+|---|---|
+| Aplicador 105 **de produção** (identidade fixa do alvo, precheck/postcheck/integridade, PITR comprovado, procedimento para resultado indeterminado) | bloqueante para aplicar |
+| Candidata exata validada no **Node 22.23.2** (ou mudança formal do runtime) | bloqueante para o GO técnico |
+| Env própria: `MCP_PUBLIC_URL` de produção, segredo novo, allowlist da empresa piloto real, `AI_TENANT_ALLOWLIST` deliberada, flags READ coerentes; não copiar de staging | bloqueante para ligar |
+| Monitoramento e desligamento: responsável, alertas 5xx/429, latência/pool, falhas OAuth/refresh, logs sanitizados (incluindo `pedido`/`voltar` na borda), `MCP_ENABLED=false` autorizado | bloqueante para ligar |
+| CAP-1 | bloqueante para abertura ampla; no piloto, aceite explícito com envelope de carga |
+| ADM-1, carregamento, UX-1 | aceitáveis no piloto acompanhado; validar antes o login real, a sessão expirada, a tela e o POST negativo |
+| D3 (corpus) | bloqueante para anunciar respostas documentadas; piloto sem corpus possível (`semEvidencia`) |
+| RET-1, D-EXP | decisões explícitas antes do piloto |
+| RET-2 | pode esperar se não houver promessa de prazo de exclusão |
+| LIM-1/LIM-3 | aceitáveis no piloto com risco declarado |
+| Teste real em produção (descoberta, consentimento/login, consultas, refresh, revogação nos dois fabricantes; sem usar a produção como massa) | gate de aceite |
+
+**Para fortalecer a evidência de staging** (Astra):
+- base sintética preenchida na TESTE S3, para provar a redução aos DTOs;
+- POST 403 real com uma conta só fora do piloto;
+- correlação do refresh com o evento `TOKEN_RENOVADO` e com a mesma concessão.
