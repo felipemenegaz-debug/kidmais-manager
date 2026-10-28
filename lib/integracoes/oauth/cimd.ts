@@ -14,7 +14,10 @@ import type { ClienteOAuth } from "./repositorio.ts";
  * - DNS resolvido aqui e TODOS os endereços conferidos (privado, loopback, link-local, CGNAT, multicast, reservado ⇒
  *   recusa); a conexão usa o endereço conferido (sem nova resolução entre conferir e conectar);
  * - sem seguir redirecionamento; 5 s; 32 KiB; JSON;
- * - documento precisa repetir o mesmo `client_id`, declarar `token_endpoint_auth_method: none` e só redirect HTTPS.
+ * - documento precisa repetir o mesmo `client_id`, aceitar autenticação `none` no token e só redirect HTTPS.
+ *   `none` vale se for o `token_endpoint_auth_method` declarado OU estiver em `token_endpoint_auth_methods_supported`:
+ *   o documento real do ChatGPT (27/10/2026) declara `private_key_jwt` e lista `["none", "private_key_jwt"]`. Como este
+ *   servidor só anuncia `none`, o cliente usa `none` (sem segredo de cliente); nunca aceitamos outro método.
  *   Redirecionamento loopback (Claude Code) não faz parte do piloto.
  */
 export class CimdRecusado extends Error {
@@ -36,6 +39,7 @@ const documentoSchema = z.object({
   client_name: z.string().min(1).max(120).optional(),
   redirect_uris: z.array(z.string().max(500)).min(1).max(20),
   token_endpoint_auth_method: z.string().optional(),
+  token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
 }).passthrough();
@@ -216,7 +220,9 @@ export async function carregarClienteCimd(clientId: string, hosts: readonly stri
   }
   const doc = documentoSchema.safeParse(bruto);
   if (!doc.success || doc.data.client_id !== clientId) throw new CimdRecusado("DOCUMENTO");
-  if ((doc.data.token_endpoint_auth_method ?? "none") !== "none") throw new CimdRecusado("AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
+  // `none` declarado (ou omitido, o padrão do RFC 7591) ou na lista de métodos suportados; sem `none`, recusa.
+  const declarado = doc.data.token_endpoint_auth_method ?? "none";
+  if (declarado !== "none" && !(doc.data.token_endpoint_auth_methods_supported ?? []).includes("none")) throw new CimdRecusado("AUTENTICACAO_CLIENTE_NAO_SUPORTADA");
   if (doc.data.grant_types && !doc.data.grant_types.includes("authorization_code")) throw new CimdRecusado("GRANT");
   if (doc.data.response_types && !doc.data.response_types.includes("code")) throw new CimdRecusado("RESPONSE_TYPE");
   const redirects = doc.data.redirect_uris.filter((r) => {

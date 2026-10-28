@@ -37,7 +37,9 @@ type Ambiente = {
 const cimdFalso = (buscas: string[]): BuscaDocumento => async (url) => {
   buscas.push(url.href);
   if (url.href !== CHATGPT) return { status: 404, tipo: "application/json", corpo: "{}" };
-  return { status: 200, tipo: "application/json", corpo: JSON.stringify({ client_id: CHATGPT, client_name: "ChatGPT", redirect_uris: [CALLBACK], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) };
+  // Mesmo formato do documento REAL do ChatGPT (27/10/2026): declara private_key_jwt e lista none entre os suportados.
+  return { status: 200, tipo: "application/json", corpo: JSON.stringify({ client_id: CHATGPT, client_name: "ChatGPT", redirect_uris: [CALLBACK],
+    token_endpoint_auth_method: "private_key_jwt", token_endpoint_auth_methods_supported: ["none", "private_key_jwt"], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) };
 };
 
 async function subir(ajuste: { agendaExtra?: Parameters<typeof depsFerramentas>[3] } = {}): Promise<Ambiente> {
