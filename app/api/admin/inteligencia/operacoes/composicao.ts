@@ -79,7 +79,7 @@ export const portaContratacao: PortaContratacao = {
       // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira. Horário livre:
       // duração do pacote vigente da empresa (parecer do Astra, P2).
       const dia = await consultarDisponibilidadeData(data, tx, undefined, await escopoDaEmpresa(tx, empresaId),
-        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(tx, empresaId, pacoteCodigo) });
+        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(tx, empresaId, pacoteCodigo), incluirCombinados: true });
       // 2c-2: TURNO_1/TURNO_2 quando existem; senão o horário mais cedo (almoço) ou mais tarde (noite) da empresa.
       const periodo = periodoDoTurno(dia.periodos, turno);
       return periodo ? { configuracaoId: periodo.configuracaoId, horarios: periodo.horarios.filter((h) => h.status === "DISPONIVEL").map((h) => ({ inicio: h.inicio, fim: h.fim })) } : null;

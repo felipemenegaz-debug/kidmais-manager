@@ -63,6 +63,8 @@ export type OpcoesDisponibilidade = {
   saloesDoPacote?: string[] | null;
   /** S-C: convidados pagantes informados pelo cliente; com capacidade por salão, só conta salão que comporta. */
   convidados?: number | null;
+  /** Retomada 098 (rev. 2.1): só o painel inclui salões combinados como candidatos; o cliente não, por padrão. */
+  incluirCombinados?: boolean;
 };
 export const DURACAO_PADRAO_MINUTOS = 240;
 
@@ -148,6 +150,8 @@ export type RevalidarHorarioSelecionadoInput = {
   pacoteCodigo?: string;
   /** S-C: convidados da cotação/pedido; com capacidade por salão, exige salão livre que comporte. */
   convidados?: number | null;
+  /** Retomada 098 (rev. 2.1): só o painel inclui salões combinados; a cotação e o pedido do cliente não. */
+  incluirCombinados?: boolean;
 };
 
 /**
@@ -226,6 +230,7 @@ export async function revalidarHorarioSelecionado(
     duracaoMinutos,
     saloesDoPacote: await saloesDoPacoteDaEmpresa(customDb, empresaDoEscopo, input.pacoteCodigo),
     convidados: input.convidados ?? null,
+    incluirCombinados: input.incluirCombinados === true,
   });
   const periodo = disponibilidade.periodos.find(
     (item) =>
@@ -474,7 +479,7 @@ export async function consultarDisponibilidadePeriodo(
         listarFechamentosConfirmadosPorPeriodo(inicio, fim, undefined, escopo),
       ]);
 
-  const regra = await lerRegraCapacidadeAgenda(customDb, escopo);
+  const regra = await lerRegraCapacidadeAgenda(customDb, escopo, { incluirCombinados: opcoes?.incluirCombinados === true });
 
   const livre = regra?.modo === "LIVRE" ? regra.horarioLivre ?? null : null;
   // Parecer do Astra (P3): a duração aceita é usada como veio, sem teto; a que não cabe no dia não gera candidatos.

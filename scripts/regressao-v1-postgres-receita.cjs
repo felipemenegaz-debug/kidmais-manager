@@ -109,6 +109,10 @@ const MODELOS = {
   "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: ["098"] },
   // Salão de preferência (106, fase S-D, 27/10/2026): o estado do staging (104 e 105, sem a 098) com a 106.
   "106": { banco: "kidmais_v1_modelo_106", ate: "106", sem: ["098"] },
+  // Retomada 098 (28/10/2026, plano rev. 2.1): 107 = reparo da deriva da agenda (no-op na cadeia recriada do zero);
+  // 108 = salões combinados rebaseados. A 098 histórica fica FORA da cadeia nova (nunca aplicada em staging/produção).
+  "107": { banco: "kidmais_v1_modelo_107", ate: "107", sem: ["098"] },
+  "108": { banco: "kidmais_v1_modelo_108", ate: "108", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a

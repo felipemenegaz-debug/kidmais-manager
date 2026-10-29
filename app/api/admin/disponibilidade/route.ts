@@ -230,7 +230,7 @@ export async function GET(request: NextRequest) {
       // Id da tela → código, como no fechamento administrativo: dona da agenda pública = ids V1; demais = código próprio.
       const pacoteDaTela = q.get("pacote");
       const pacoteCodigo = pacoteDaTela ? codigoDoPacoteDaTela(pacoteDaTela, !(await ehDonaDaConfigLegada(tx, tenant.empresaComprovada))) ?? undefined : undefined;
-      const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo) };
+      const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo), incluirCombinados: true };
       // Horários calculados do recurso (substitui, no painel, a API pública sem tenant).
       const dias = data
         ? [await consultarDisponibilidadeData(dataSchema.parse(data), tx, undefined, escopo, opcoes)]

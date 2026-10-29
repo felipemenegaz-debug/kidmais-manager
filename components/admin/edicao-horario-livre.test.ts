@@ -73,12 +73,12 @@ test('P3: duração do intervalo devolve null para horário inválido, sem lanç
 test('API da edição: carga inicial usa a duração da festa; ?duracao= do formulário prevalece; inválida é recusada', async () => {
   const { get, opcoes } = rota();
   const inicial = await (await get('/edicao')).json();
-  assert.deepEqual(opcoes[0], { duracaoMinutos: 180 });
+  assert.deepEqual(opcoes[0], { duracaoMinutos: 180, incluirCombinados: true });
   assert.deepEqual(horario(inicial.data.disponibilidade, '15:00'), { inicio: '15:00', fim: '18:00', status: 'DISPONIVEL' });
   // Controle: sem duração, o mesmo início vira 15h–19h e cruza o bloqueio.
   assert.deepEqual(horario(disponibilidade(), '15:00'), { inicio: '15:00', fim: '19:00', status: 'INDISPONIVEL' });
   await get('/edicao?duracao=300');
-  assert.deepEqual(opcoes[1], { duracaoMinutos: 300 });
+  assert.deepEqual(opcoes[1], { duracaoMinutos: 300, incluirCombinados: true });
   for (const ruim of ['abc', '0', '1440', '90.5']) assert.equal((await get(`/edicao?duracao=${ruim}`)).status, 400, ruim);
   assert.equal(opcoes.length, 2, 'duração inválida não chega à consulta');
 });
@@ -145,9 +145,9 @@ test('gravação: 15h–18h passa pela agenda com 180 min; 15h–19h (cruza o bl
   const { calcular, consultas } = servicoEdicao();
   // Depois da agenda o cálculo segue com dependências não simuladas; basta não ser a recusa de horário.
   await calcular('15:00', '18:00').catch((e: Error) => assert.doesNotMatch(e.message, /indisponível/));
-  assert.deepEqual(consultas[0], { duracaoMinutos: 180 });
+  assert.deepEqual(consultas[0], { duracaoMinutos: 180, incluirCombinados: true });
   await assert.rejects(calcular('15:00', '19:00'), /indisponível/);
-  assert.deepEqual(consultas[1], { duracaoMinutos: 240 });
+  assert.deepEqual(consultas[1], { duracaoMinutos: 240, incluirCombinados: true });
 });
 
 // Navegador de 22/10 (P2-N2): festa marcada num horário fixo que o modo livre não oferece mais — o horário atual aparece

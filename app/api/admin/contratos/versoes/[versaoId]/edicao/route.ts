@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, context: {
             // Horário livre (parecer do Astra, P2): os candidatos preservam a duração pretendida — a do formulário
             // (`?duracao=` em minutos) ou, na carga inicial, a do intervalo atual da fonte. No modo fixo não muda nada.
             const duracaoMinutos = q.get('duracao') ? z.number().int().parse(duracaoAceita(q.get('duracao'))) : duracaoDoIntervalo(fonte.fechamento.horarioInicio, fonte.fechamento.horarioFim);
-            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id }, { duracaoMinutos });
+            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id }, { duracaoMinutos, incluirCombinados: true });
             // Opções de troca de vínculo: só da empresa já comprovada (= empresa do fechamento).
             const vinculos = preparada ? {
                 clientes: (await tx.query("SELECT id,nome_completo FROM clientes WHERE empresa_id=$1::uuid AND status<>'MESCLADO' ORDER BY nome_completo", [empresaId])).rows,

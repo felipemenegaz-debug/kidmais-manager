@@ -251,7 +251,9 @@ const ESTADO_POSTGRES = {
   // 23/10/2026: com os créditos de IA (095), o inventário inteiro vai até a 095 (inclui 092–094); a compatibilidade sem a
   // 095 é provada em lib/creditos/creditos-095.postgres.test.ts sobre o modelo 094. Com a 098 (salões, 23/10/2026),
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103"] },
+  // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
+  // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },
@@ -269,13 +271,15 @@ const ESTADO_POSTGRES = {
   "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097" },
   // 26/10/2026: concorrência otimista do agregado da agenda (versaoAgenda): projeção única, 409 AGENDA_MUDOU, advisory no
   // cancelamento, regras (b) e corte, rota real e guarda de tenant. Modelos 097 (sem 100), 097 + 100 (variante) e 098.
-  "lib/agenda/agenda-versao.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  "lib/agenda/agenda-versao.postgres.test.ts": { descartavel: "097", tambem: ["108"] },
   "lib/agenda/agenda-versao-100.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
   // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
   "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097" },
+  // Decisão de Felipe (29/10/2026, P2-1b): o código só suporta a 108; a 098 histórica é recusada. As suítes de serviço
+  // com combinado saíram do modelo 098 para o 108.
   // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
-  "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "098" },
+  "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "108" },
   // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
   "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097" },
   // 25/10/2026: apresentação do salão (102). Comportamento no modelo 102 (sem a 098, com 099/100/102); aplicação, reaplicação
@@ -311,10 +315,19 @@ const ESTADO_POSTGRES = {
   // ordens, leitura pública e fotos, POST real com 409 e concorrência na trava da data, emissão com a preferência.
   "lib/agenda/saloes-publicos-sd.postgres.test.ts": { descartavel: "104" },
   // Plano importados com adicionais (rev. 2): A (pacote integral), B (revisão normalizada de legado) e misto; hash v1 e v2 no 106.
-  "lib/contratos/integracao-importados/importados-adicionais.postgres.test.ts": { descartavel: "106" },
+  "lib/contratos/integracao-importados/importados-adicionais.postgres.test.ts": { descartavel: "106", tambem: ["108"] },
+  // Retomada 098 (28/10/2026, rev. 2.1): 107 aplicada pela suíte sobre o 106 (base canônica e deriva do staging simulada)
+  // e 108 aplicada pela suíte sobre o 107 (instalação, down/up, guardas, interseção, D5, concorrência, filtro público).
+  "lib/agenda/reparo-agenda-107.postgres.test.ts": { descartavel: "106" },
+  "lib/agenda/saloes-combinados-108.postgres.test.ts": { descartavel: "107" },
+  "lib/agenda/saloes-108-publico.postgres.test.ts": { descartavel: "107" },
+  // 108 × S-E: revisão V3 trocando simples ↔ combinado (hash v2 com o salão) e a pendência V3 do salão da base.
+  "lib/agenda/salao-combinado-revisao-108.postgres.test.ts": { descartavel: "108" },
+  // 108 (D-R3): conteúdo próprio do combinado — corrida conteúdo × declaração nas duas ordens, membro × combinado e E2a fora da lista pública.
+  "lib/agenda/saloes-108-conteudo-corrida.postgres.test.ts": { descartavel: "108" },
   // S-E restante: importação V3 (salão escolhido) e "Desistir da troca". Modelos SEPARADOS: 106 = 094+100 (staging) e 098 = 094+098.
-  "lib/contratos/integracao-importados/importacao-v3-desistir.postgres.test.ts": { descartavel: "106", tambem: ["098"] },
-  "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "098"] },
+  "lib/contratos/integracao-importados/importacao-v3-desistir.postgres.test.ts": { descartavel: "106", tambem: ["108"] },
+  "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "108"] },
   // Gate antes de staging (conferência do delta 7): rollback real e adversarial da 094, durações com SQL real, hold da
   // remarcação sob a 094 e concorrência entre conexões, no inventário inteiro até a 094.
   "lib/agenda/duracao-hold-094.postgres.test.ts": { descartavel: "094" },

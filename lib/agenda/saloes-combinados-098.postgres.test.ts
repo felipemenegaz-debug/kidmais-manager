@@ -7,13 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
-import { cenario, dia, executor, id, representante, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
-import { ocupacaoImpedeCandidato } from "../disponibilidade/services/availability.service.ts";
-import { lerRegraCapacidadeAgenda, listarFechamentosConfirmadosPorPeriodo } from "../disponibilidade/repositories/disponibilidade.repository.ts";
-import { criarSalaoCombinado, desativarSalao, impedimentosDesativacao, lerAgendaEscopo, salvarAgendaEscopo, type SalvarAgenda } from "./configuracao-unidade.ts";
-import { escolherSalao } from "./salao-festa.ts";
-import { saloesDoDia } from "./saloes-do-dia.ts";
-import { saloesCruzam } from "./saloes-conjuntos.ts";
+import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
 
 /**
  * 098 (fase 1 dos salões: salão combinado) no PostgreSQL DESCARTÁVEL, modelo 094 com a 098 aplicada aqui:
@@ -37,7 +31,6 @@ const semTransacao = (sql: string) => sql.replace(/^BEGIN;$/m, "").replace(/^COM
 
 let a: Client;
 const D = dia(40);
-const TARDE = { inicioMinutos: 15 * 60, fimMinutos: 19 * 60 };
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 async function recusa(promessa: Promise<unknown>, trecho: RegExp) {
@@ -112,6 +105,11 @@ async function duasConexoes<T>(corpo: (b: Client, d: Client) => Promise<T>) {
 }
 const naoDeadlock = (e: unknown) => assert.doesNotMatch(msg(e), /deadlock/i);
 
+// Decisão de Felipe (29/10/2026, retomada da 098, P2-1b): o código só suporta a 108; a 098 histórica é RECUSADA pelos
+// serviços de salão. Os testes desta suíte que passavam pelos serviços (paridade SQL × Core, "hoje" de São Paulo pelo
+// Core, D5 com o cadastro e reserva × cadastro em lote) foram PORTADOS para saloes-combinados-108.postgres.test.ts
+// (modelo 107 + 108). Aqui ficam as provas da 098 em SQL direto (instalação, rollback, retrato, guardas, interseção e
+// concorrência por SQL).
 test.before(async () => {
   a = await conectarDescartavel();
 });
@@ -452,113 +450,6 @@ test("conflito por interseção nos gatilhos: A × B passam; A × AB e AB × BC 
   await recusa(confirmada(a, c, cfg, D4, C), /Conflito/);
 });
 
-test("paridade SQL × Core: matriz ocupado × candidato (A, B, C, AB, BC, sem salão) com intervalo e limite", async () => {
-  for (const intervalo of [0, 60]) {
-    await a.query("BEGIN");
-    try {
-      const c = await cenario(a, 0);
-      const cfg = await configurar(a, c, null, null, intervalo);
-      const [A, B, C] = [await simples(a, c, "A"), await simples(a, c, "B"), await simples(a, c, "C")];
-      const AB = await combinado(a, c, "AB", [A, B]);
-      const BC = await combinado(a, c, "BC", [B, C]);
-      const nomes: Record<string, string> = { [A]: "A", [B]: "B", [C]: "C", [AB]: "AB", [BC]: "BC" };
-      const tx = executor(a);
-      const regra = await lerRegraCapacidadeAgenda(tx, { empresaId: c.empresa, estabelecimentoId: null });
-      assert.ok(regra?.conjuntos, "Core lê os conjuntos com a 098");
-      for (const [ocupado, ini, fim] of [[A, "15:00", "19:00"], [AB, "15:00", "19:00"], [BC, "15:00", "19:00"], [null, "15:00", "19:00"], [A, "19:30", "21:00"]] as Array<[string | null, string, string]>) {
-        await a.query("SAVEPOINT p");
-        await festa(a, c, cfg, D, ocupado, ini, fim);
-        const ocupacoes = await listarFechamentosConfirmadosPorPeriodo(D, D, tx, { empresaId: c.empresa, estabelecimentoId: null });
-        for (const candidato of [A, B, C, AB, BC]) {
-          const sql = (await a.query<{ x: boolean }>(`SELECT kidmais094_conflito_ocupacao($1::uuid, $2::date, '15:00', '19:00', $3::uuid, NULL, $4::uuid, $5::uuid) AS x`,
-            [randomUUID(), D, c.empresa, cfg, candidato])).rows[0]!.x;
-          const core = ocupacaoImpedeCandidato(regra, cfg, TARDE, ocupacoes, [candidato]);
-          const sobrepoe = ini === "15:00" || intervalo >= 30;
-          const esperado: boolean = sobrepoe && saloesCruzam(ocupado, candidato, regra!.conjuntos);
-          const rotulo = `intervalo ${intervalo}: ${ocupado ? nomes[ocupado] : "sem salão"} ${ini} × ${nomes[candidato]}`;
-          assert.equal(sql, esperado, `SQL ${rotulo}`);
-          assert.equal(core, sql, `Core × SQL ${rotulo}`);
-        }
-        await a.query("ROLLBACK TO SAVEPOINT p");
-      }
-      // Elegibilidade: com B inativo, AB sai dos candidatos do Core e o SQL o declara inelegível; A segue elegível.
-      await a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [B]);
-      const depois = await lerRegraCapacidadeAgenda(tx, { empresaId: c.empresa, estabelecimentoId: null });
-      assert.equal(ocupacaoImpedeCandidato(depois, cfg, TARDE, [], [AB]), true, "sem candidato elegível = indisponível");
-      assert.equal(ocupacaoImpedeCandidato(depois, cfg, TARDE, [], [A]), false);
-      const eleg = (await a.query<{ ab: boolean; a: boolean; bc: boolean }>(`SELECT kidmais098_salao_elegivel($1::uuid) ab, kidmais098_salao_elegivel($2::uuid) a, kidmais098_salao_elegivel($3::uuid) bc`, [AB, A, BC])).rows[0]!;
-      assert.deepEqual(eleg, { ab: false, a: true, bc: false });
-    } finally {
-      await a.query("ROLLBACK");
-    }
-  }
-});
-
-test("invariante de elegibilidade e D5 por SQL direto: salão inativo, combinado com membro inativo, desativação com festa futura, cancelamento e volta", async () => {
-  const c = await cenario(a, 0);
-  const cfg = await configurar(a, c);
-  const [A, B, C] = [await simples(a, c, "A"), await simples(a, c, "B"), await simples(a, c, "C")];
-  const AB = await combinado(a, c, "AB", [A, B]);
-  // D5: festa futura no combinado impede desativar o combinado e cada membro.
-  const f = await confirmada(a, c, cfg, D, AB);
-  await recusa(a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [A]), /festa de hoje em diante/);
-  await recusa(a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [AB]), /festa de hoje em diante/);
-  assert.equal((await impedimentosDesativacao(executor(a), [B])).length, 1, "a listagem da tela mostra a festa");
-  // Cancelada, libera a desativação; voltar a ocupar exige salão elegível.
-  await a.query(`UPDATE fechamentos SET status = 'CANCELADO' WHERE id = $1::uuid`, [f]);
-  await a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [B]);
-  await recusa(a.query(`UPDATE fechamentos SET status = 'CONFIRMADO' WHERE id = $1::uuid`, [f]), /098: salão inativo ou combinado com membro inativo/);
-  // Agenda do dia (P3-3): AB ativo com B inativo aparece inelegível, com o membro desativado.
-  const noDia = await saloesDoDia(executor(a), c.empresa, null, dia(47));
-  assert.deepEqual(noDia.filter((s) => s.combinado).map((s) => [s.nome, s.elegivel, s.membrosInativos]), [["AB", false, ["B"]]]);
-  assert.equal(noDia.find((s) => s.nome === "A")?.elegivel, true);
-  // Ocupação nova: combinado com membro inativo e salão inativo recusados.
-  await recusa(confirmada(a, c, cfg, dia(45), AB), /098: salão inativo ou combinado com membro inativo/);
-  await a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [C]);
-  await recusa(confirmada(a, c, cfg, dia(45), C), /098: salão inativo/);
-  // Mudança física revalidada: festa em A movida para C (inativo) é recusada.
-  const emA = await confirmada(a, c, cfg, dia(46), A);
-  await recusa(a.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [emA, C]), /098: salão inativo/);
-  // Reativado, volta a valer.
-  await a.query(`UPDATE agenda_saloes SET ativo = true WHERE id = ANY ($1::uuid[])`, [[B, C]]);
-  await a.query(`UPDATE fechamentos SET status = 'CONFIRMADO' WHERE id = $1::uuid`, [f]);
-});
-
-test("\"hoje\" é São Paulo com a sessão em qualquer fuso (faixa 21h–24h de SP = outro dia em UTC)", async () => {
-  // Expressão da 098 em instantes fixos: às 21h, 23h59 e 0h de SP, a data de SP difere da de UTC nas duas primeiras.
-  const r = await a.query<{ sp21: string; utc21: string; sp2359: string; utc2359: string; sp0: string }>(`SET TIME ZONE 'UTC';
-    SELECT ('2026-10-23 21:00-03'::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date::text sp21, ('2026-10-23 21:00-03'::timestamptz)::date::text utc21,
-           ('2026-10-23 23:59-03'::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date::text sp2359, ('2026-10-23 23:59-03'::timestamptz)::date::text utc2359,
-           ('2026-10-24 00:00-03'::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date::text sp0`).then((x) => (Array.isArray(x) ? x[1]! : x));
-  assert.deepEqual(r.rows[0], { sp21: "2026-10-23", utc21: "2026-10-24", sp2359: "2026-10-23", utc2359: "2026-10-24", sp0: "2026-10-24" });
-  const hojeSp = (await a.query<{ d: string }>(`SELECT (clock_timestamp() AT TIME ZONE 'America/Sao_Paulo')::date::text d`)).rows[0]!.d;
-  const ontemSp = (await a.query<{ d: string }>(`SELECT ($1::date - 1)::text d`, [hojeSp])).rows[0]!.d;
-  // UTC−12 e UTC+14: a qualquer hora, um dos dois está num dia diferente de SP (incluindo a faixa das 21h às 24h, em que
-  // UTC e UTC+14 já estão no dia seguinte). O corte da 098 não muda com o fuso da sessão; CURRENT_DATE muda.
-  const c = await cenario(a, 0);
-  const cfg = await configurar(a, c);
-  const [hoje, ontem] = [await simples(a, c, "Hoje"), await simples(a, c, "Ontem")];
-  await confirmada(a, c, cfg, hojeSp, hoje);
-  // Festa de "ontem" (SP): passado não impede a desativação (ocupação passada fora do invariante).
-  await confirmada(a, c, cfg, ontemSp, ontem);
-  const diferentes = new Set<string>();
-  for (const fuso of ["Etc/GMT+12", "UTC", "Pacific/Kiritimati", "America/Sao_Paulo"]) {
-    await a.query(`SET TIME ZONE '${fuso}'`);
-    const x = (await a.query<{ hoje: string; corrente: string }>(`SELECT kidmais098_hoje()::text hoje, CURRENT_DATE::text corrente`)).rows[0]!;
-    assert.equal(x.hoje, hojeSp, `kidmais098_hoje com a sessão em ${fuso}`);
-    if (x.corrente !== hojeSp) diferentes.add(fuso);
-    assert.deepEqual((await impedimentosDesativacao(executor(a), [hoje])).map((i) => i.data), [hojeSp], `listagem do D5 em ${fuso}`);
-    await a.query("BEGIN");
-    await recusa(a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [hoje]), /festa de hoje em diante/);
-    await a.query("ROLLBACK");
-    assert.equal((await impedimentosDesativacao(executor(a), [ontem])).length, 0, `passado não impede (${fuso})`);
-  }
-  await a.query(`SET TIME ZONE 'America/Sao_Paulo'`);
-  assert.ok(diferentes.size >= 1, "pelo menos um fuso da sessão estava em outro dia (CURRENT_DATE ≠ hoje de SP)");
-  // Volátil (relógio a cada chamada, não o início da transação): a virada da meia-noite numa transação longa vale na hora.
-  assert.equal((await a.query<{ v: string; src: string }>(`SELECT provolatile v, prosrc src FROM pg_proc WHERE proname = 'kidmais098_hoje'`)).rows[0]!.v, "v");
-});
-
 test("concorrência: reserva × desativação de membro, nas duas ordens (espera observada, sem deadlock)", async () => {
   const c = await cenario(a, 0);
   const cfg = await configurar(a, c);
@@ -662,130 +553,6 @@ test("concorrência: duas reservas do mesmo combinado em datas diferentes (FOR S
     await d.query("COMMIT");
   });
   assert.equal((await a.query(`SELECT 1 FROM fechamentos WHERE salao_id = $1::uuid AND status = 'CONFIRMADO'`, [AB])).rowCount, 2);
-});
-
-test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo Core, nas duas ordens", async () => {
-  const c = await cenario(a, 1);
-  const rep = await representante(a, c);
-  await a.query(`INSERT INTO agenda_062_unidades_habilitacao (empresa_id, estabelecimento_id, habilitada_por, habilitada_papel, motivo_habilitacao)
-                 VALUES ($1::uuid, $2::uuid, $3::uuid, 'REPRESENTANTE_AUTORIZADO', 'Abertura da unidade 098')`, [c.empresa, c.unidade, rep.usuarioId]);
-  const ctx = { empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() };
-  let existentes: string[] = [];
-  const horario: { id?: string } = {};
-  // Plano rev. 1.1: a versão é lida na conexão `a` (só leitura, sem travas) antes de cada gravação.
-  const versao = async () => (await lerAgendaEscopo(executor(a), c.empresa, c.unidade)).versaoAgenda;
-  const entrada = (nomeA: string, versaoEsperada: string | null = null): SalvarAgenda => ({
-    versaoEsperada,
-    estabelecimentoId: c.unidade, modo: "FIXO", capacidadeTipo: "POR_SALAO", limiteFestasDia: null, intervaloMinimoMinutos: 0,
-    saloes: [nomeA, "Salão B", "Salão C"].map((nome, i) => ({ ...(existentes[i] ? { id: existentes[i] } : {}), nome, capacidadeConvidados: null })),
-    horarios: [{ ...(horario.id ? { id: horario.id } : {}), nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 3,
-      saloes: [nomeA, "Salão B", "Salão C", ...(existentes.length ? ["Salão inteiro"] : [])] }],
-  });
-  const v0 = await versao();
-  await a.query("BEGIN");
-  await salvarAgendaEscopo(executor(a), entrada("Salão A", v0), ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
-  await a.query("COMMIT");
-  const ids = (await a.query<{ id: string; nome: string }>(`SELECT id::text, nome FROM agenda_saloes WHERE empresa_id = $1::uuid ORDER BY nome`, [c.empresa])).rows;
-  const [A, B] = [ids[0]!.id, ids[1]!.id];
-  existentes = ids.map((s) => s.id);
-  await a.query("BEGIN");
-  const { id: AB } = await criarSalaoCombinado(executor(a), ctx, { estabelecimentoId: c.unidade, nome: "Salão inteiro", capacidadeConvidados: 150, membros: [B, A] });
-  await a.query("COMMIT");
-  const cfg = (await a.query<{ id: string }>(`SELECT id::text FROM configuracao_agenda WHERE estabelecimento_id = $1::uuid AND ativo AND NOT horario_livre`, [c.unidade])).rows[0]!.id;
-  horario.id = cfg;
-  // O cadastro vê a composição e mantém o combinado ao salvar a lista de salões simples.
-  const agenda = await lerAgendaEscopo(executor(a), c.empresa, c.unidade);
-  assert.deepEqual(agenda.combinados.map((x) => [x.nome, x.membros.map((m) => m.nome), x.elegivel]), [["Salão inteiro", ["Salão A", "Salão B"], true]]);
-  const vRenomear = await versao();
-  await duasConexoes(async (b, d) => {
-    const [pb, pd] = [await pidDe(b), await pidDe(d)];
-    // 1) Reserva do combinado primeiro (062: empresa → unidade → habilitação; salões FOR SHARE): o cadastro espera no
-    //    lock do escopo dos salões e termina depois.
-    await b.query("BEGIN");
-    await festa(b, c, cfg, D, AB, "15:00", "19:00", c.unidade);
-    await b.query("SET CONSTRAINTS ALL IMMEDIATE");
-    const salvar = (async () => {
-      await d.query("BEGIN");
-      try {
-        await salvarAgendaEscopo(executor(d), entrada("Salão A renomeado", vRenomear), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
-        await d.query("COMMIT");
-        return "ok";
-      } catch (e) {
-        await d.query("ROLLBACK");
-        return e;
-      }
-    })();
-    await esperaObservada(pd, pb);
-    await b.query("COMMIT");
-    assert.equal(await salvar, "ok");
-    // 2) Cadastro primeiro (todos os salões do escopo FOR NO KEY UPDATE, por id): a reserva espera no COMMIT e passa
-    //    depois, sem deadlock.
-    const vVoltar = await versao();
-    await d.query("BEGIN");
-    await salvarAgendaEscopo(executor(d), entrada("Salão A", vVoltar), { ...ctx, requestId: randomUUID() }, "CONFIGURACOES", { maisDeUmSalaoLiberada: true });
-    const reservar = (async () => {
-      await b.query("BEGIN");
-      try {
-        await festa(b, c, cfg, dia(41), AB, "15:00", "19:00", c.unidade);
-        await b.query("COMMIT");
-        return "ok";
-      } catch (e) {
-        await b.query("ROLLBACK");
-        return e;
-      }
-    })();
-    await esperaObservada(pb, pd);
-    await d.query("COMMIT");
-    const r = await reservar;
-    if (r !== "ok") naoDeadlock(r);
-    assert.equal(r, "ok");
-  });
-  // D5 pelo cadastro: omitir o Salão A (membro do combinado com festas) recusa o salvamento inteiro e lista as festas.
-  await a.query("BEGIN");
-  try {
-    const semA: SalvarAgenda = { ...entrada("Salão A", await versao()), saloes: [{ id: existentes[1], nome: "Salão B", capacidadeConvidados: null }, { id: existentes[2], nome: "Salão C", capacidadeConvidados: null }],
-      horarios: [{ id: horario.id, nome: "Tarde", inicio: "15:00", fim: "19:00", dias: [1, 2, 3, 4, 5, 6, 7], capacidade: 2, saloes: ["Salão B", "Salão C"] }] };
-    await recusa(salvarAgendaEscopo(executor(a), semA, ctx, "CONFIGURACOES", { maisDeUmSalaoLiberada: true }), /Não dá para desativar Salão A: há 2 festa\(s\) de hoje em diante/);
-  } finally {
-    await a.query("ROLLBACK");
-  }
-  await a.query("BEGIN");
-  try {
-    await recusa(desativarSalao(executor(a), ctx, AB), /Não dá para desativar Salão inteiro: há 2 festa/);
-  } finally {
-    await a.query("ROLLBACK");
-  }
-  // Agenda do dia: o combinado reservado marca A e B; C livre.
-  const dia1 = await saloesDoDia(executor(a), c.empresa, c.unidade, D);
-  assert.deepEqual(dia1.map((s) => [s.nome, s.ocupacoes.length > 0]), [["Salão A", true], ["Salão B", true], ["Salão C", false], ["Salão inteiro", true]]);
-  // Escolha automática (Core): pacote que libera A e B não libera AB; só AB listado leva a festa ao combinado.
-  const pacoteAB = await id(a, `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES ($1::uuid, $2, 'Festa grande', 2, true, true) RETURNING id`,
-    [c.empresa, `G${randomUUID().slice(0, 6).toUpperCase()}`]);
-  await a.query(`INSERT INTO precos_pacote (tabela_preco_id, pacote_id, convidados_min, tipo_calculo, valor, categoria_horario)
-                 SELECT tabela_preco_id, $1::uuid, 1, 'FIXO', 100, 'PADRAO' FROM precos_pacote WHERE pacote_id = $2::uuid LIMIT 1`, [pacoteAB, c.pacote]);
-  await a.query(`INSERT INTO pacote_saloes (pacote_id, salao_id) VALUES ($1::uuid, $2::uuid), ($3::uuid, $4::uuid), ($3::uuid, $5::uuid)`, [pacoteAB, AB, c.pacote, A, B]);
-  // O horário lista o combinado (o cadastro acima o incluiu pelo nome: permissão explícita também no horário).
-  assert.equal((await a.query(`SELECT 1 FROM configuracao_agenda_saloes WHERE configuracao_agenda_id = $1::uuid AND salao_id = $2::uuid`, [cfg, AB])).rowCount, 1);
-  await a.query("BEGIN");
-  try {
-    const grande = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
-        categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, status)
-      SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, $4::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', 'AGUARDANDO_CONTRATO'
-        FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $5::uuid LIMIT 1 RETURNING fechamentos.id`, [dia(60), cfg, c.empresa, c.unidade, pacoteAB]);
-    assert.deepEqual(await escolherSalao(executor(a), grande), { exigido: true, salao: AB });
-    const pequena = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
-        categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, status)
-      SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, $4::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', 'AGUARDANDO_CONTRATO'
-        FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $5::uuid LIMIT 1 RETURNING fechamentos.id`, [dia(61), cfg, c.empresa, c.unidade, c.pacote]);
-    const escolha = await escolherSalao(executor(a), pequena);
-    assert.ok(escolha.salao === A || escolha.salao === B, "A e B liberados: nunca AB");
-    // Com A ocupado no dia 60 pela grande, a pequena no mesmo dia escolheria C? Não: o pacote só permite A e B; B serve? Não (AB ocupa B).
-    await a.query(`UPDATE fechamentos SET data_evento = $2::date WHERE id = $1::uuid`, [pequena, dia(60)]);
-    await a.query(`UPDATE fechamentos SET status = 'CONFIRMADO' WHERE id = $1::uuid`, [grande]);
-    assert.deepEqual(await escolherSalao(executor(a), pequena), { exigido: true, salao: null }, "sem candidato elegível livre = indisponível");
-  } finally {
-    await a.query("ROLLBACK");
-  }
 });
 
 test("rollback adversarial: qualquer combinado (mesmo inativo e sem referência) recusa; nada muda", async () => {
