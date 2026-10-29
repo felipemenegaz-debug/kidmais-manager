@@ -151,6 +151,14 @@ jobs:
       - name: Blocos de Shell da 105 (staging)
         run: node --test scripts/bloco-shell-105.test.cjs
 
+      # Aplicador da 105 de PRODUÇÃO (plano MCP produção, P1): transação única, integridade por definições com mutantes,
+      # PITR como gate, marcador com o COMMIT em memória e ENOSPC; cliente simulado, sem banco nem rede.
+      - name: Aplicador da 105 (production) — cliente simulado
+        run: node --test scripts/migration-105-production.test.cjs
+
+      - name: Blocos de Shell da 105 (production)
+        run: node --test scripts/bloco-shell-105-production.test.cjs
+
       - name: Aplicador manual da 104/106 (hash da revisão com o salão e salão de preferência, staging) — trava de alvo, identidade, hashes, moldura de uma transação, estados com precedência (104 divergente/parcial, presença × integridade), privilégios por etapa de current_user, atividade pelas pg_locks com contexto, verificações DO e EXECUTE antes do COMMIT, COMMIT confirmado/desfeito/indeterminado por migration, auditoria de dados separada e anti-repetição (cliente simulado)
         run: node --test scripts/migration-104-106.test.cjs
 
