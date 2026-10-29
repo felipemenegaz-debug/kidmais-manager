@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { MENSAGEM_SEM_MODELO_EMPRESA } from "../contratos/documento/fonte.ts";
 import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, congelarEAssinarKidmais, cpfValido, dia, executor, id,
   poolNaTransacao, validarAgora, type Cenario,
@@ -471,4 +472,18 @@ test("revisão inicial (antes da 1ª assinatura do cliente) com salão diferente
     assert.equal(f.ocupa, true);
     assert.equal((await a.query<{ n: number }>(`SELECT convidados n FROM fechamentos WHERE id = $1`, [e.festa])).rows[0].n, 45);
   });
+});
+
+test("Frente C UX (fonte do PDF): empresa sem modelo próprio → gerar_pdf recusa com o texto da tela e não grava documento", { timeout: 300_000 }, async () => {
+  const D = dia(140);
+  await comCommit(async () => {
+    const c = await cenario(a, 0);
+    const nativo = await catalogoNativo(a, c);
+    await configurar(c, "POR_HORARIO"); // sem modeloContrato(c): a empresa não tem modelo próprio publicado
+    await assert.rejects(emitida(c, nativo, D, 30), (e: unknown) => (e instanceof Error ? e.message : String(e)) === MENSAGEM_SEM_MODELO_EMPRESA);
+    const docs = (await a.query<{ n: number }>(
+      `SELECT count(*)::int n FROM contrato_documentos d JOIN contrato_versoes v ON v.id = d.contrato_versao_id
+         JOIN contratos k ON k.id = v.contrato_id JOIN fechamentos f ON f.id = k.fechamento_id WHERE f.empresa_id = $1::uuid`, [c.empresa])).rows[0].n;
+    assert.equal(docs, 0, "recusa sem documento");
+  }, "ROLLBACK");
 });
