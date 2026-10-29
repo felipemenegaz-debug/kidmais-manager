@@ -12,6 +12,8 @@ const path = require('node:path');
 const {createHash} = require('node:crypto');
 const comum = require('./migration-092-094-comum.cjs');
 const stg = require('./migration-092-094-staging.cjs');
+const ev108 = require('./migration-108-evidencias.cjs');
+const retrato108 = require('./migration-108-retrato.cjs');
 
 const raiz = path.resolve(__dirname, '..');
 const URL_STG = 'postgresql://usuario:SENHA_FALSA@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91';
@@ -26,6 +28,29 @@ const estado = (completas = [], extra = {}) => ({...BASE_OK,
 const ler = nome => { const [, a, h] = comum.ETAPAS.find(e => e[0] === nome); return comum.lerRevisado(raiz, a, h); };
 const MIGRACAO = new Map(comum.IDS.map(id => [ler('migration ' + id), id]));
 const erroPg = (code, msg = 'erro simulado') => Object.assign(new Error(msg), {code});
+/** Nenhuma evidência da 108 (linha de SQL_EVIDENCIA_108). */
+const SEM_108 = Object.freeze({marcador_108: false, reparos_107: false, colunas_combinado: false, corpo_conflito_108: false, corpos_108: 0, funcoes_098_108: 0});
+/** A 108 completa como as evidências a veem (estado do modelo 108). */
+const COM_108 = Object.freeze({marcador_108: true, reparos_107: true, colunas_combinado: true, corpo_conflito_108: true, corpos_108: 3, funcoes_098_108: 10});
+/** Linha da prova "108 íntegra" na sessão do retrato (search_path pg_catalog, PostgreSQL 18). */
+const PROVA_INTEGRA = Object.freeze({integra: true, motivos: [], search_path: 'pg_catalog', versao_pg: 180001});
+const SQL_PROVA_FALSA = 'SELECT true AS integra, ARRAY[]::text[] AS motivos /* sqlProva108Integra falsa do teste */';
+/**
+ * O esperado de F2 ainda é A_MEDIR_NO_CLUSTER: o gerador real recusa. Nos testes que exercitam a prova, a função do
+ * módulo é trocada (o aplicador a chama pelo objeto do módulo) e a linha devolvida vem do cliente simulado.
+ */
+async function comProvaFalsa(corpo) {
+  const original = retrato108.sqlProva108Integra;
+  retrato108.sqlProva108Integra = () => SQL_PROVA_FALSA;
+  try { return await corpo(); } finally { retrato108.sqlProva108Integra = original; }
+}
+
+/** Esperado de F2 ainda não medido, SIMULADO: o arquivo versionado já traz os retratos medidos no cluster E4 (29/10/2026). */
+async function comF2Pendente(corpo) {
+  const original = retrato108.sqlProva108Integra;
+  retrato108.sqlProva108Integra = (o = {}) => original({...o, esperados: {...retrato108.carregarEsperados(), F2: {canonico: retrato108.PENDENTE}}});
+  try { return await corpo(); } finally { retrato108.sqlProva108Integra = original; }
+}
 
 /**
  * Cliente simulado com estado: a migration (texto real do arquivo) marca os objetos dela; o SQL_ESTADO devolve o estado
@@ -34,7 +59,8 @@ const erroPg = (code, msg = 'erro simulado') => Object.assign(new Error(msg), {c
  * `usadas` (ids com dados operacionais: o postcheck de instalação delas recusa, a integridade aceita);
  * `adulterada` (id: a integridade dela recusa — gatilho desligado, por exemplo).
  */
-function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, naoCompleta, estadoFalhaApos, usadas = [], adulterada, corpoConflito} = {}) {
+function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, naoCompleta, estadoFalhaApos, usadas = [], adulterada, corpoConflito = comum.CORPO_CONFLITO_094,
+  evidencias = SEM_108, prova = PROVA_INTEGRA, exigirFalsa = true} = {}) {
   const log = []; let ro = false, falharEstado = false; const atual = {...inicial};
   const C = class {
     on() {} async connect() {} async end() {}
@@ -45,6 +71,8 @@ function clienteFalso({inicial = estado(), identidade = ID_STG, falharEm, erro, 
       if (falharEm && sql.includes(falharEm)) throw erro ?? erroPg('55P03', 'falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_CORPO_CONFLITO) return {rows: corpoConflito ? [{h: corpoConflito}] : []};
+      if (sql === ev108.SQL_EVIDENCIA_108) return {rows: [{...evidencias}]};
+      if (sql.startsWith('/* prova-108 */')) { assert.ok(!exigirFalsa || sql.includes(SQL_PROVA_FALSA), 'a prova envolve o SQL do gerador'); return {rows: [{...prova}]}; }
       if (sql === comum.SQL_ESTADO) {
         if (falharEstado) { falharEstado = false; throw new Error('Connection terminated unexpectedly'); }
         return {rows: [{...atual}]};
@@ -336,7 +364,7 @@ test('já aplicada: só as três integridades, nenhuma escrita; recusa por estad
 test('plano sem conexão: 12 arquivos + a integridade da 094 após a 100, com sha; ordem com janela e CONFERIR imediato, regras de parada; nunca os down', async () => {
   const {codigo, saida} = await stg.principal([], {});
   assert.equal(codigo, 0); assert.equal(saida.conecta, false); assert.equal(saida.ambiente, 'staging');
-  assert.deepEqual(saida.arquivos.map(a => a.sha256), [...comum.ETAPAS, comum.INTEGRIDADE_094_APOS_100].map(e => e[2]));
+  assert.deepEqual(saida.arquivos.map(a => a.sha256), [...comum.ETAPAS, comum.INTEGRIDADE_094_APOS_100, comum.INTEGRIDADE_094_APOS_108].map(e => e[2]));
   assert.match(saida.ordem[0], /deploy do código/); assert.equal(saida.ordem.at(-1), '--conferir-092-094');
   assert.ok(saida.ordem.some(o => /janela combinada/.test(o)) && saida.ordem.some(o => /imediatamente antes/.test(o)) && saida.ordem.some(o => /backup restaurável/.test(o)));
   assert.ok(saida.paradas.some(p => /nunca apagar/.test(p)) && saida.paradas.some(p => /migracaoIndeterminada/.test(p)));
@@ -370,12 +398,17 @@ test('migration 100: com o corpo da 100, conferência e aplicação passam pela 
   assert.ok(!Com100.log.some(x => x.sql === original), 'não roda a integridade da 094 original');
   assert.ok(Com100.log.some(x => x.ro && x.sql === comum.SQL_CORPO_CONFLITO), 'lê o corpo em READ ONLY');
   assert.deepEqual(escritas(Com100.log), []);
-  // Corpo da 094 (ou qualquer outro, como o da 098): integridade da 094 original — a divergência nunca é ignorada.
-  for (const corpo of [comum.CORPO_CONFLITO_094, 'f'.repeat(64), undefined]) {
+  // Corpo da 094: integridade da 094 original. Qualquer outro (098 histórica, deriva, sem corpo legível): RECUSARIA com
+  // motivo, sem rodar integridade nenhuma — a divergência nunca é ignorada (E4-6).
+  const C094 = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_094});
+  assert.equal((await stg.conferir({env: ENV_STG, Client: C094})).checks['integridade 094'], 'PASS');
+  assert.ok(C094.log.some(l => l.sql === original) && !C094.log.some(l => l.sql === apos));
+  for (const corpo of ['f'.repeat(64), null]) {
     const C = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: corpo});
-    const x = await stg.conferir({env: ENV_STG, Client: C});
-    assert.equal(x.checks['integridade 094'], 'PASS', String(corpo));
-    assert.ok(C.log.some(l => l.sql === original) && !C.log.some(l => l.sql === apos), String(corpo));
+    const x = await stg.principal(['--conferir-092-094'], ENV_STG, {Client: C});
+    assert.equal(x.codigo, 3, String(corpo)); assert.equal(x.saida.resultado, 'RECUSARIA');
+    assert.match(x.saida.motivo, /^CORPO_CONFLITO_DESCONHECIDO_094$/); assert.equal(x.saida.checks['integridade 094'], 'RECUSADA');
+    assert.ok(!C.log.some(l => l.sql === original || l.sql === apos), String(corpo));
   }
   // Aplicação já completa com a 100: só integridades, a da 094 na variante, registrada na etapa.
   const dir = tmp();
@@ -387,4 +420,158 @@ test('migration 100: com o corpo da 100, conferência e aplicação passam pela 
     assert.equal(marcador.etapas.find(x => x.nome === 'integridade 094').integridade, 'PASS_CORPO_100');
     assert.deepEqual(escritas(C.log), []);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('migration 108: a integridade da 094 após a 108 é CÓPIA da após a 100 com só os 3 hashes da 108 trocados; hash fixado', () => {
+  const [nome, a108, h108] = comum.INTEGRIDADE_094_APOS_108;
+  assert.equal(nome, 'integridade 094 apos 108');
+  assert.equal(createHash('sha256').update(fs.readFileSync(path.join(raiz, a108), 'utf8').replace(/\r\n/g, '\n')).digest('hex'), h108);
+  assert.throws(() => comum.lerRevisado(raiz, a108, 'f'.repeat(64)), /ARQUIVO_DIVERGENTE/);
+  const antes = comum.lerRevisado(raiz, comum.INTEGRIDADE_094_APOS_100[1], comum.INTEGRIDADE_094_APOS_100[2]).split('\n');
+  const depois = comum.lerRevisado(raiz, a108, h108).split('\n');
+  assert.equal(antes.length, depois.length, 'mesmas linhas: todas as verificações preservadas');
+  const trocas = [[comum.CORPO_CONFLITO_100, retrato108.NOVA.hashes.conflito108, 'kidmais094_conflito_ocupacao'],
+    ['4d462947bc173967fe9ff059a4aa857bd068502c042ae81a97c918e3362bf43e', retrato108.NOVA.hashes.contrato, 'kidmais019_validar_contrato'],
+    ['951825ad597495b477963ebb74df0120c1e8f4c59d39f6b7b32f53e5baaea821', retrato108.NOVA.hashes.revisao, 'kidmais_validar_agenda_revisao']];
+  const diferentes = antes.map((l, i) => [l, depois[i]]).filter(([x, y]) => x !== y);
+  assert.equal(diferentes.length, 3, 'três linhas, uma por hash');
+  for (const [velho, novo, funcao] of trocas) {
+    const linha = diferentes.find(([x]) => x.includes(velho));
+    assert.ok(linha, funcao); assert.match(linha[0], new RegExp(funcao)); assert.equal(linha[1], linha[0].replace(velho, novo), funcao);
+  }
+  // Os hashes da 108 são os do detector NOVA (lib/agenda/estado-combinados.ts).
+  const detector = fs.readFileSync(path.join(raiz, 'lib/agenda/estado-combinados.ts'), 'utf8');
+  for (const [, novo] of trocas) assert.ok(detector.includes(novo), novo);
+  assert.equal(comum.CORPO_CONFLITO_108, retrato108.NOVA.hashes.conflito108);
+});
+
+test('evidências da 108: só catálogo (pg_catalog qualificado, sem dados nem escrita); leitura estrita; 107 só conta para a 098', () => {
+  const sql = ev108.SQL_EVIDENCIA_108;
+  assert.doesNotMatch(sql.replace(/'[^']*'/g, "''"), /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|GRANT|TRUNCATE|LOCK)\b/);
+  assert.doesNotMatch(sql, /\bFROM\s+(public\.)?(agenda_saloes|fechamentos|fechamento_revisoes|kidmais107_reparos|contratos)\b/i, 'nenhuma leitura de dados');
+  for (const h of [...Object.values(retrato108.NOVA.hashes), ...Object.values(retrato108.NOVA.funcoes)]) assert.ok(sql.includes(h), h);
+  assert.deepEqual(ev108.evidencias108(ev108.lerEvidencias108(SEM_108)), []);
+  assert.deepEqual(ev108.evidencias108(ev108.lerEvidencias108(COM_108)), ['marcador_108', 'corpos_108', 'funcoes_098_108', 'colunas_combinado_com_corpo_108']);
+  // 098 histórica: colunas sem o corpo da 108 não são evidência; a 107 só conta para a 098.
+  assert.deepEqual(ev108.evidencias108({...SEM_108, colunas_combinado: true}), []);
+  assert.deepEqual(ev108.evidencias108({...SEM_108, reparos_107: true}), []);
+  assert.deepEqual(ev108.evidenciasCom108({...SEM_108, reparos_107: true}), ['reparos_107']);
+  for (const [k, v] of [['marcador_108', null], ['corpos_108', 'x'], ['funcoes_098_108', -1], ['reparos_107', 1], ['corpos_108', true]]) {
+    assert.throws(() => ev108.lerEvidencias108({...SEM_108, [k]: v}), new RegExp('EVIDENCIA_108_ILEGIVEL ' + k));
+  }
+  assert.throws(() => ev108.lerEvidencias108(undefined), /EVIDENCIA_108_ILEGIVEL/);
+});
+
+test('prova "108 íntegra": a de scripts/migration-108-retrato.cjs; sessão pg_catalog e PG 18; motivos e ilegível nunca são íntegra', async () => {
+  // Esperado de F2 não medido (simulado): o gerador real recusa e a prova é "não íntegra" SEM consultar o banco.
+  const semConsulta = {query: async () => assert.fail('não deve consultar')};
+  const indisponivel = await comF2Pendente(() => ev108.provar108(semConsulta, {raiz}));
+  assert.equal(indisponivel.integra, false); assert.match(indisponivel.motivos[0], /^PROVA_108_INDISPONIVEL RETRATO_108_NAO_MEDIDO/);
+  await comProvaFalsa(async () => {
+    assert.ok(ev108.sqlProva108({raiz}).includes(SQL_PROVA_FALSA), 'envolve o SQL do gerador (fonte única)');
+    assert.match(ev108.sqlProva108({raiz}), /^\/\* prova-108 \*\/ SELECT p\.integra, p\.motivos/);
+  });
+  assert.deepEqual(ev108.lerProva108(PROVA_INTEGRA), {integra: true, motivos: []});
+  for (const [linha, motivo] of [[{...PROVA_INTEGRA, integra: false, motivos: ['MARCADOR_108', 'RETRATO_F2']}, /MARCADOR_108 RETRATO_F2/],
+    [{...PROVA_INTEGRA, integra: false, motivos: ['METADADOS kidmais098_hoje()']}, /METADADOS kidmais098_hoje\(\)/],
+    [{...PROVA_INTEGRA, search_path: 'public, pg_catalog'}, /SESSAO_PROVA_108 search_path/], [{...PROVA_INTEGRA, versao_pg: 170004}, /SESSAO_PROVA_108 versao_pg/],
+    [{...PROVA_INTEGRA, integra: true, motivos: ['GATILHOS_098']}, /GATILHOS_098/], [{integra: 'sim', motivos: []}, /PROVA_108_ILEGIVEL/], [undefined, /PROVA_108_ILEGIVEL/]]) {
+    const p = ev108.lerProva108(linha);
+    assert.equal(p.integra, false, JSON.stringify(linha)); assert.match(p.motivos.join(' '), motivo);
+  }
+});
+
+test('migration 108: PASS_CORPO_108 só com a prova íntegra E a integridade após a 108, ambas READ ONLY (prova com search_path pg_catalog)', async () => {
+  await comProvaFalsa(async () => {
+    const apos108 = comum.lerRevisado(raiz, comum.INTEGRIDADE_094_APOS_108[1], comum.INTEGRIDADE_094_APOS_108[2]);
+    const apos100 = comum.lerRevisado(raiz, comum.INTEGRIDADE_094_APOS_100[1], comum.INTEGRIDADE_094_APOS_100[2]);
+    const C = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_108, evidencias: COM_108, usadas: ['092', '093', '094']});
+    const x = await stg.principal(['--conferir-092-094'], ENV_STG, {Client: C});
+    assert.equal(x.codigo, 0); assert.equal(x.saida.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', JSON.stringify(x.saida));
+    assert.deepEqual(x.saida.checks, {'integridade 092': 'PASS', 'integridade 093': 'PASS', 'integridade 094': 'PASS_CORPO_108'});
+    const prova = C.log.find(l => l.sql.startsWith('/* prova-108 */'));
+    assert.ok(prova && prova.ro, 'prova em READ ONLY');
+    const i = C.log.indexOf(prova);
+    assert.ok(C.log.slice(0, i).reverse().find(l => l.sql === 'BEGIN TRANSACTION READ ONLY') && C.log.slice(i - 4, i).some(l => l.sql === 'SET LOCAL search_path = pg_catalog'),
+      'search_path = pg_catalog na transação da prova');
+    assert.ok(C.log.some(l => l.ro && l.sql === apos108) && !C.log.some(l => l.sql === apos100), 'variante após a 108');
+    assert.ok(C.log.findIndex(l => l.sql === apos108) > i, 'prova antes da integridade');
+    assert.deepEqual(escritas(C.log), []);
+    // Aplicação já completa com a 108: só integridades, nenhuma escrita, rótulo na etapa.
+    const dir = tmp();
+    try {
+      const A = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_108, evidencias: COM_108});
+      const e = await stg.executar({env: ENV_STG, backup: BACKUP, dir, Client: A, disco: semDisco});
+      assert.equal(e.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', JSON.stringify(e)); assert.deepEqual(escritas(A.log), []);
+      assert.equal(JSON.parse(fs.readFileSync(e.marcador, 'utf8')).etapas.find(y => y.nome === 'integridade 094').integridade, 'PASS_CORPO_108');
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  });
+});
+
+test('migration 108 adulterada ou parcial: RECUSARIA (código 3) com o motivo da prova; nunca PASS_CORPO_108 nem a integridade original', async () => {
+  const original = ler('integridade 094');
+  const apos108 = comum.lerRevisado(raiz, comum.INTEGRIDADE_094_APOS_108[1], comum.INTEGRIDADE_094_APOS_108[2]);
+  const base = {inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_108, evidencias: COM_108};
+  await comProvaFalsa(async () => {
+    for (const [prova, motivo] of [
+      [{...PROVA_INTEGRA, integra: false, motivos: ['MARCADOR_108', 'RETRATO_F2']}, /^PROVA_108_NAO_INTEGRA MARCADOR_108 RETRATO_F2$/],
+      [{...PROVA_INTEGRA, integra: false, motivos: ['METADADOS kidmais098_hoje()', 'RETRATO_F2']}, /^PROVA_108_NAO_INTEGRA METADADOS kidmais098_hoje\(\) RETRATO_F2$/],
+      [{...PROVA_INTEGRA, integra: false, motivos: ['GATILHOS_098']}, /GATILHOS_098/],
+      [{...PROVA_INTEGRA, versao_pg: 170004}, /SESSAO_PROVA_108 versao_pg/]]) {
+      const C = clienteFalso({...base, prova});
+      const x = await stg.principal(['--conferir-092-094'], ENV_STG, {Client: C});
+      assert.equal(x.codigo, 3, JSON.stringify(x.saida)); assert.equal(x.saida.resultado, 'RECUSARIA'); assert.match(x.saida.motivo, motivo);
+      assert.ok(!C.log.some(l => l.sql === apos108 || l.sql === original), 'nenhuma integridade depois da prova recusada');
+      assert.deepEqual(escritas(C.log), []);
+    }
+    // Evidência da 108 com o corpo da 100 ou da 094 (108 parcial): recusa sem rodar a prova nem a integridade.
+    for (const [corpo, evid, motivo] of [[comum.CORPO_CONFLITO_100, {...SEM_108, marcador_108: true}, /EVIDENCIA_108_PARCIAL marcador_108$/],
+      [comum.CORPO_CONFLITO_094, {...SEM_108, funcoes_098_108: 2}, /EVIDENCIA_108_PARCIAL funcoes_098_108$/],
+      [comum.CORPO_CONFLITO_100, {...SEM_108, corpos_108: 1}, /EVIDENCIA_108_PARCIAL corpos_108$/]]) {
+      const C = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: corpo, evidencias: evid});
+      const x = await stg.principal(['--conferir-092-094'], ENV_STG, {Client: C});
+      assert.equal(x.codigo, 3); assert.match(x.saida.motivo, motivo);
+      assert.ok(!C.log.some(l => l.sql.startsWith('/* prova-108 */')), 'sem prova');
+    }
+    // Só a 107 (kidmais107_reparos) e a 098 histórica sem o corpo da 108 não são evidência da 108 para a 094.
+    const C107 = clienteFalso({inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_100, evidencias: {...SEM_108, reparos_107: true}});
+    assert.equal((await stg.conferir({env: ENV_STG, Client: C107})).checks['integridade 094'], 'PASS_CORPO_100');
+    // Aplicação: a recusa vira FALHA (código 2) sem escrita.
+    const dir = tmp();
+    try {
+      const A = clienteFalso({...base, prova: {...PROVA_INTEGRA, integra: false, motivos: ['MARCADOR_108']}});
+      const e = await stg.principal(['--aplicar-092-094-autorizado', '--backup', BACKUP], ENV_STG, {dir, Client: A, disco: semDisco});
+      assert.equal(e.codigo, 2); assert.match(e.saida.falha.mensagem, /PROVA_108_NAO_INTEGRA MARCADOR_108/); assert.deepEqual(escritas(A.log), []);
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  });
+  // Sem o esperado de F2 medido (simulado): RECUSARIA PROVA_108_INDISPONIVEL, sem consultar a prova.
+  const C = clienteFalso(base);
+  const x = await comF2Pendente(() => stg.principal(['--conferir-092-094'], ENV_STG, {Client: C}));
+  assert.equal(x.codigo, 3); assert.match(x.saida.motivo, /^PROVA_108_NAO_INTEGRA PROVA_108_INDISPONIVEL RETRATO_108_NAO_MEDIDO/);
+  assert.ok(!C.log.some(l => l.sql.startsWith('/* prova-108 */')));
+});
+
+test('override de F2 (KIDMAIS_RETRATOS_108_TESTE): recusado no aplicador de staging; só o aplicador criado com aceitaRetratosTeste o usa', async () => {
+  const esperados = JSON.parse(fs.readFileSync(path.join(raiz, retrato108.ARQUIVO_ESPERADOS), 'utf8'));
+  const medido = 'ab'.repeat(32);
+  const env = {...ENV_STG, [ev108.ENV_RETRATOS_TESTE]: JSON.stringify({...esperados, F2: {canonico: medido}})};
+  const base = {inicial: estado(['092', '093', '094']), corpoConflito: comum.CORPO_CONFLITO_108, evidencias: COM_108, exigirFalsa: false};
+  // Staging: a variável presente é recusa nomeada, sem consultar a prova.
+  const S = clienteFalso(base);
+  const s = await stg.principal(['--conferir-092-094'], env, {Client: S});
+  assert.equal(s.codigo, 3); assert.match(s.saida.motivo, /^RETRATOS_DE_TESTE_RECUSADOS/);
+  assert.ok(!S.log.some(l => l.sql.startsWith('/* prova-108 */')));
+  // Aplicador de teste (como a suíte PostgreSQL): a prova REAL de scripts/migration-108-retrato.cjs com o F2 injetado.
+  const teste = comum.criarAplicador({nome: 'teste', ALVO: stg.ALVO, DIR: '/nao-usado', SQL_IDENTIDADE: stg.SQL_IDENTIDADE, alvo: stg.alvo,
+    identidade: (l, e) => stg.identidade(l, e), exigirDisco: () => undefined, aceitaRetratosTeste: true});
+  const T = clienteFalso(base);
+  const r = await teste.principal(['--conferir-092-094'], env, {Client: T});
+  assert.equal(r.codigo, 0, JSON.stringify(r.saida)); assert.equal(r.saida.checks['integridade 094'], 'PASS_CORPO_108');
+  const prova = T.log.find(l => l.sql.startsWith('/* prova-108 */')).sql;
+  assert.ok(prova.includes(`'${medido}'`), 'o hash de F2 injetado entra na prova');
+  for (const h of Object.values(retrato108.NOVA.funcoes)) assert.ok(prova.includes(h), 'prova completa do gerador: ' + h);
+  assert.ok(prova.includes(retrato108.HASH_MARCADOR_108) && prova.includes("'METADADOS '"), 'corpo do marcador e metadados das funções');
+  // Override ilegível também é recusa nomeada.
+  const I = await teste.principal(['--conferir-092-094'], {...ENV_STG, [ev108.ENV_RETRATOS_TESTE]: '{'}, {Client: clienteFalso(base)});
+  assert.equal(I.codigo, 3); assert.match(I.saida.motivo, /^RETRATOS_DE_TESTE_ILEGIVEIS/);
 });

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
+import { aplicadorDeTeste, AVARIAS_108, dadosLegitimos108, escritasEm, medirF2, modelo108 } from "../../scripts/aplicadores-108-test-support.ts";
 
 /**
  * 25/10/2026 — APLICADOR REAL da 100 (scripts/migration-100-staging.cjs) no PostgreSQL descartável, modelo 097 (o
@@ -26,6 +27,9 @@ import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importa
  *   7. conexão do aplicador DERRUBADA durante a migration → INDETERMINADO; a conferência mostra o estado real;
  *   8. aplicação → APLICADA_POSTCHECK_PASS; o CONFERIR da 092–094 passa com a integridade da 094 após a 100;
  *   9. nova aplicação só confere; corpo adulterado → 100 RECUSARIA (divergente) e a 092–094 recusa pela integridade original.
+ * Plano E4 (E4-6), modelo 108: com o corpo da 108 e a prova única "108 íntegra", CONFERIR e APLICAR =
+ * JA_APLICADA_SUBSTITUIDA_108 (sucesso) sem reaplicar a 100 (corpo da 108 intacto, nenhum DDL/DML enviado), também com
+ * dados legítimos; avarias da 108 → RECUSARIA/FALHA com o motivo da prova.
  * As ocupações de inventário entram com session_replication_role = replica (sem as validações da agenda: o que se prova
  * é a LEITURA do inventário sobre ocupações que a 094 aceitava) e saem do mesmo jeito ao fim de cada caso.
  */
@@ -81,6 +85,7 @@ test("aplicador 100 real: modelos 097 (aplica) e 098 (recusa); privilégios, inv
     FROM pg_proc WHERE oid = to_regprocedure('public.${FUNCAO}')`)).rows[0]?.h ?? null;
   const pares = async (sql = SQL_INVENTARIO) => (await c.query<{ pares_mesmo_horario?: number; n?: number }>(sql)).rows[0];
   try {
+    if (await modelo108(c)) { t.skip("modelo 108: coberto pelo teste da 100 × 108 abaixo"); return; }
     const com098 = (await c.query<{ ok: boolean }>(`SELECT to_regprocedure('public.kidmais098_hoje()') IS NOT NULL AS ok`)).rows[0].ok;
     if (com098) {
       // Modelo 098: corpo diferente do da 094 → RECUSARIA (divergente), sem escrever nada.
@@ -262,9 +267,75 @@ test("aplicador 100 real: modelos 097 (aplica) e 098 (recusa); privilégios, inv
       const div = await conferir();
       assert.equal(div.resultado, "RECUSARIA"); assert.match(div.motivo!, /CORPO_DIVERGENTE_100/);
       const div094 = await stg094.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel() });
-      assert.equal(div094.resultado, "FALHA"); assert.match(div094.mensagem!, /094 integridade: corpo de função/);
+      // Plano E4 (E4-6): corpo desconhecido na regra de conflito = recusa nomeada, sem rodar integridade nenhuma.
+      assert.equal(div094.resultado, "RECUSARIA"); assert.match(div094.motivo!, /^CORPO_CONFLITO_DESCONHECIDO_094$/);
     } finally { await c.query(criar); }
     assert.equal(await corpo(), CORPO_CONFLITO_100, "corpo da 100 restaurado");
+  } finally {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    await encerrarDescartavel(c);
+  }
+});
+
+function clienteRegistrado(registro: string[]) {
+  return class {
+    c: Client | null = null;
+    on() {}
+    async connect() { this.c = await conectarDescartavel({ travar: false }); this.c.on("error", () => undefined); }
+    async query(sql: string) { registro.push(sql); return sql === stg.SQL_IDENTIDADE ? { rows: [IDENTIDADE] } : this.c!.query(sql); }
+    async end() { if (this.c) await this.c.end(); }
+  };
+}
+
+test("aplicador 100 no modelo 108: JA_APLICADA_SUBSTITUIDA_108 sem reaplicar (com dados legítimos); avarias da 108 recusam", { timeout: 900_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  const dirs: string[] = [];
+  const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-100-108-")); dirs.push(d); return d; };
+  const corpo = async () => (await c.query<{ h: string | null }>(`SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') AS h
+    FROM pg_proc WHERE oid = to_regprocedure('public.${FUNCAO}')`)).rows[0]?.h ?? null;
+  const registro: string[] = [];
+  // Aplicador de teste (aceita o F2 medido); o de staging recusa o override (provado sem banco em scripts/migration-100.test.cjs).
+  const teste = aplicadorDeTeste<Aplicador>("scripts/migration-100-comum.cjs", "scripts/migration-100-staging.cjs");
+  let env: Record<string, string> = ENV_STG;
+  const conferir = () => teste.conferir({ env, raiz, Client: clienteRegistrado(registro) });
+  const executar = () => teste.executar({ env, backup: "PITR 2026-10-29T12:00Z teste", dir: novoDir(), raiz, disco: () => {}, Client: clienteRegistrado(registro) });
+  const CHECKS = { "prova 108": "INTEGRA", "integridade 094 apos 108": "PASS" };
+  try {
+    if (!(await modelo108(c))) { t.skip("só no modelo 108"); return; }
+    const { CORPO_CONFLITO_108 } = exigir(join(raiz, "scripts/migration-092-094-comum.cjs")) as { CORPO_CONFLITO_108: string };
+    assert.equal(await corpo(), CORPO_CONFLITO_108, "modelo 108: corpo da 108");
+    const f2 = await medirF2(c);
+    env = { ...ENV_STG, ...f2.env };
+    try {
+      for (const fase of ["limpo", "com dados legítimos"]) {
+        if (fase !== "limpo") await dadosLegitimos108(c);
+        registro.length = 0;
+        const conf = await conferir();
+        assert.equal(conf.resultado, "JA_APLICADA_SUBSTITUIDA_108", fase + ": " + JSON.stringify(conf)); assert.deepEqual(conf.checks, CHECKS);
+        assert.equal(conf.inventario, undefined, "sem inventário");
+        const e = await executar();
+        assert.equal(e.resultado, "JA_APLICADA_SUBSTITUIDA_108", fase + ": " + JSON.stringify(e)); assert.equal(e.commit, null);
+        assert.deepEqual(escritasEm(registro), [], fase + ": nenhum DDL/DML enviado (a 100 nunca é reaplicada sobre a 108)");
+        assert.equal(await corpo(), CORPO_CONFLITO_108, fase + ": corpo da 108 intacto");
+      }
+      for (const avaria of AVARIAS_108) {
+        await c.query(avaria.aplicar);
+        try {
+          const r = await conferir();
+          assert.equal(r.resultado, "RECUSARIA", avaria.nome + ": " + JSON.stringify(r));
+          assert.match(r.motivo!, /^SUBSTITUIDA_108_NAO_INTEGRA /); assert.match(r.motivo!, avaria.motivo, avaria.nome);
+          registro.length = 0;
+          const e = await executar();
+          assert.equal(e.resultado, "FALHA", avaria.nome); assert.match(e.falha!.mensagem, avaria.motivo, avaria.nome); assert.equal(e.commit, null);
+          assert.deepEqual(escritasEm(registro), [], avaria.nome);
+        } finally { await c.query(avaria.desfazer); }
+        assert.equal((await conferir()).resultado, "JA_APLICADA_SUBSTITUIDA_108", "restaurado: " + avaria.nome);
+      }
+    } finally { env = ENV_STG; }
+    const recusado = await stg.conferir({ env: { ...ENV_STG, ...f2.env }, raiz, Client: clienteRegistrado(registro) });
+    assert.equal(recusado.resultado, "RECUSARIA"); assert.match(recusado.motivo!, /^RETRATOS_DE_TESTE_RECUSADOS/);
+    assert.equal(await corpo(), CORPO_CONFLITO_108);
   } finally {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     await encerrarDescartavel(c);

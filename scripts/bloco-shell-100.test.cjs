@@ -38,7 +38,9 @@ const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('arquivos conferidos: aplicador de staging, os dois núcleos (100 e 092–094), conexão de staging e os 4 SQL revisados da 100; só staging', () => {
   assert.deepEqual(b.arquivos('staging'), ['scripts/migration-100-staging.cjs', 'scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs',
-    'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1])]);
+    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+    'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json',
+    'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1]), 'database/checks/20261029_094_integridade_apos_108.sql']);
   assert.deepEqual(ETAPAS.map(e => e[0]), ['precheck 100', 'migration 100', 'postcheck 100', 'integridade 094 apos 100']);
   for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);

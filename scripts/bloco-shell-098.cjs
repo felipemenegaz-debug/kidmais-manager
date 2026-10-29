@@ -28,7 +28,8 @@ const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
   staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-098-staging.cjs',
-    dependencias: Object.freeze(['scripts/migration-098-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/saloes-combinados-098-staging', rotulo: 'STAGING'}),
+    dependencias: Object.freeze(['scripts/migration-098-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs',
+      'scripts/migration-108-inventario.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/saloes-combinados-098-staging', rotulo: 'STAGING'}),
 });
 const COMANDOS = Object.freeze({RETRATO: '--retrato-098', CONFERIR: '--conferir-098', APLICAR: '--aplicar-098-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({

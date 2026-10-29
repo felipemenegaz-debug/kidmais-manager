@@ -16,18 +16,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {ETAPAS, INTEGRIDADE_094_APOS_100} = require('./migration-092-094-comum.cjs');
-const REVISADOS = Object.freeze([...ETAPAS, INTEGRIDADE_094_APOS_100]);
+const {ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108} = require('./migration-092-094-comum.cjs');
+const REVISADOS = Object.freeze([...ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108]);
 
 const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
   staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-092-094-staging.cjs',
-    dependencias: Object.freeze(['scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/agenda-precos-092-094-staging', rotulo: 'STAGING'}),
+    dependencias: Object.freeze(['scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs']), registro: 'data/agenda-precos-092-094-staging', rotulo: 'STAGING'}),
 });
 const COMANDOS = Object.freeze({CONFERIR: '--conferir-092-094', APLICAR: '--aplicar-092-094-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({
-  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 13 SQL da 092-094 IMPLANTADOS (inclui a integridade da 094 com o corpo da 100) e roda --conferir-092-094',
+  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, do nucleo e dos 14 SQL da 092-094 IMPLANTADOS (inclui a integridade da 094 com o corpo da 100 e da 108; prova da 108) e roda --conferir-092-094',
     '(identidade, estado de cada migration, privilegios CREATE/DONO/REFERENCES, precheck das pendentes e integridade das aplicadas, READ ONLY). Nada e gravado.'],
   APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da 092-094 neste ambiente. Antes de colar, no mesmo',
     'shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>". Roda --aplicar-092-094-autorizado UMA vez',
