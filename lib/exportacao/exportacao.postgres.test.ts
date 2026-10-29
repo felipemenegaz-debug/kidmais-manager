@@ -9,7 +9,7 @@ import { provarTenantParaExportacao, empresasSuspensasExportaveis } from "./guar
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO } from "./entidades.ts";
 import { lerZip } from "./zip.ts";
 import type { Client } from "pg";
-import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, RETRATO_102, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
+import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, RETRATO_102, RETRATO_108, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
 
 /** Identidade sintética da suíte (senha em formato válido que não autentica). */
 const criarIdentidade: CriarIdentidade = (db, email, nome) =>
@@ -138,9 +138,11 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     await c.query("COMMIT");
     const colunas = Object.fromEntries(p.manifesto.arquivos.filter((a) => a.tipo === "csv").map((a) => [a.tabela as string, a.colunas as string[]]));
     for (const lista of Object.values(colunas)) for (const col of lista) assert.doesNotMatch(col.replace(/__(bytes|sha256|arquivo)$/, ""), SEGREDO, `coluna de segredo exportada: ${col}`);
-    // Um retrato por schema: o do inventário (modelo 098) e o com a 102/103 sem a 098 (modelo 103). Nenhuma diferença
-    // é apagada para o modelo antigo passar; cada estado é comparado inteiro.
-    const retrato = tabelas.includes("agenda_salao_fotos") ? RETRATO_102 : RETRATO;
+    // Um retrato por schema: o do inventário (modelo 098), o com a 102/103 sem a 098 (modelo 103) e o da cadeia nova até
+    // a 108 (modelo 108: 104–108 sem a 098 histórica). Nenhuma diferença é apagada para o modelo antigo passar; cada
+    // estado é comparado inteiro. A escolha vem de tabelas do schema, nunca das colunas exportadas (a 107 é pré-requisito
+    // da 108; um banco com a 107 e sem a 108 não é modelo registrado e falha contra o retrato 108, como deve).
+    const retrato = tabelas.includes("kidmais107_reparos") ? RETRATO_108 : tabelas.includes("agenda_salao_fotos") ? RETRATO_102 : RETRATO;
     if (process.env.KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO === "1") writeFileSync(retrato, `${JSON.stringify(colunas, null, 2)}\n`);
     assert.deepEqual(colunas, JSON.parse(readFileSync(retrato, "utf8")), "colunas exportadas mudaram: revise segredos e atualize o retrato");
     // Só as entidades de migrations posteriores à 089 ficam ausentes, com o motivo no manifesto.
@@ -168,6 +170,72 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     await assert.rejects(c.query(`UPDATE empresas SET nome = nome WHERE id = $1::uuid`, [vazia]), /read-only/);
     await c.query("ROLLBACK");
   } finally {
+    await encerrarDescartavel(c);
+  }
+});
+
+/**
+ * Salões combinados no pacote (modelos 098 e 108; sem as colunas, a suíte pula): `combinado` sai como booleano do banco
+ * e `membros` (uuid[]) como array JSON (to_json), lido de volta sem perda; os membros apontam para linhas do próprio CSV
+ * (a composição se reconstrói só com o pacote); linhas = contagem independente; nada do combinado da outra empresa.
+ */
+test("exportação: salões combinados (combinado e membros uuid[]) verificáveis e isolados", { timeout: 300_000 }, async (t) => {
+  if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  try {
+    const colunasSalao = (await c.query<{ n: string }>(`SELECT column_name AS n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agenda_saloes'`)).rows.map((r) => r.n);
+    if (!colunasSalao.includes("membros")) { t.skip("schema sem salões combinados (098/108 ausentes)"); return; }
+    await c.query("BEGIN");
+    const A = await montarEmpresa(c, "CombA"), B = await montarEmpresa(c, "CombB");
+    const simples = (f: typeof A, nome: string, ativo = true) =>
+      id(c, `INSERT INTO agenda_saloes (empresa_id, nome, ativo) VALUES ($1::uuid, $2, $3) RETURNING id`, [f.empresa, `${nome} ${f.marca}`, ativo]);
+    const combinado = (f: typeof A, nome: string, membros: string[]) =>
+      id(c, `INSERT INTO agenda_saloes (empresa_id, nome, combinado, membros) VALUES ($1::uuid, $2, true, $3::uuid[]) RETURNING id`, [f.empresa, `${nome} ${f.marca}`, [...membros].sort()]);
+    const a1 = await simples(A, "Salão 1"), a2 = await simples(A, "Salão 2"), a3 = await simples(A, "Salão 3");
+    const aInativo = await simples(A, "Antigo", false);
+    const ab = await combinado(A, "Salões 1 e 2", [a2, a1]);
+    const abc = await combinado(A, "Os três", [a3, a1, a2]);
+    const b1 = await simples(B, "Salão 1"), b2 = await simples(B, "Salão 2");
+    const bb = await combinado(B, "Salões juntos", [b1, b2]);
+
+    const { gerarPacote } = await import("./pacote.ts");
+    const p = await gerarPacote(c as unknown as DbExecutor, A.empresa);
+    let zip: Map<string, Buffer>;
+    try { zip = lerZip(readFileSync(p.zipCaminho)); } finally { await p.limpar(); }
+    const caminho = "dados/agenda/agenda_saloes.csv";
+    const bruto = zip.get(caminho)!;
+    const entrada = p.manifesto.arquivos.find((a) => a.caminho === caminho)!;
+    assert.equal(sha(bruto), entrada.sha256, "SHA-256 do CSV = manifesto");
+    const csv = lerCsv(bruto.toString("utf8"));
+    const [cab, ...linhas] = csv;
+    assert.deepEqual(cab, entrada.colunas);
+    assert.ok(cab.includes("combinado") && cab.includes("membros"), "colunas do combinado exportadas");
+    const independente = Number((await c.query(`SELECT count(*) AS n FROM agenda_saloes WHERE empresa_id = $1`, [A.empresa])).rows[0].n);
+    assert.equal(linhas.length, independente, "linhas × contagem independente");
+    assert.equal(entrada.linhas, 6, "4 simples (1 inativo) e 2 combinados");
+    const porId = new Map(linhas.map((l) => [l[cab.indexOf("id")], l]));
+    const val = (sid: string, col: string) => porId.get(sid)![cab.indexOf(col)];
+    // Simples: combinado false e membros NULL (célula vazia), inclusive o inativo.
+    for (const s of [a1, a2, a3, aInativo]) { assert.equal(val(s, "combinado"), "false", s); assert.equal(val(s, "membros"), "", s); }
+    // Combinado: membros em array JSON, na forma canônica do banco (ordem crescente), idêntica à leitura direta.
+    for (const [s, esperados] of [[ab, [a1, a2]], [abc, [a1, a2, a3]]] as const) {
+      assert.equal(val(s, "combinado"), "true", s);
+      const lido = JSON.parse(val(s, "membros")) as string[];
+      assert.deepEqual(lido, [...esperados].sort(), "membros em ordem canônica");
+      const banco = (await c.query<{ m: string }>(`SELECT to_json(membros)::text AS m FROM agenda_saloes WHERE id = $1::uuid`, [s])).rows[0].m;
+      assert.equal(val(s, "membros"), banco, "texto do CSV = to_json do banco");
+      // A composição se reconstrói só com o pacote: cada membro é um salão simples exportado na mesma empresa.
+      for (const m of lido) { assert.ok(porId.has(m), `membro ${m} no CSV`); assert.equal(val(m, "combinado"), "false"); }
+      // Restauração do tipo: o texto exportado volta a uuid[] igual ao do banco (cast do array JSON).
+      const volta = (await c.query<{ igual: boolean }>(`SELECT ARRAY(SELECT json_array_elements_text($1::json)::uuid) = membros AS igual FROM agenda_saloes WHERE id = $2::uuid`,
+        [val(s, "membros"), s])).rows[0].igual;
+      assert.equal(volta, true, "uuid[] restaurado sem perda");
+    }
+    // Isolamento: nem o combinado da B nem os membros dele aparecem em arquivo algum do pacote da A.
+    const tudo = [...zip.values()].map((b) => b.toString("utf8")).join("\n");
+    for (const x of [bb, b1, b2, B.empresa, B.marca]) assert.ok(!tudo.includes(x), `vazou da outra empresa: ${x}`);
+  } finally {
+    await c.query("ROLLBACK").catch(() => undefined);
     await encerrarDescartavel(c);
   }
 });

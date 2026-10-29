@@ -6,6 +6,7 @@ import {
   type Exclusivo, type GrupoItem,
 } from "./salao-apresentacao-regras.ts";
 import { itensDosPacotesDoSalao } from "./salao-pacotes.ts";
+import { estadoCombinados } from "./estado-combinados.ts";
 
 /**
  * S-D — "Conheça os salões" (plano S-E/S-D rev. 4.1, aprovado). Leitura PÚBLICA dos salões prontos de um escopo:
@@ -45,13 +46,16 @@ async function apresentacao102(db: DbExecutor) {
 
 /** Salões ATIVOS da unidade do escopo, com o necessário para decidir se estão prontos (102). */
 async function saloesDoEscopo(db: DbExecutor, escopo: EscopoAgenda): Promise<LinhaPronta[]> {
+  // Retomada 098 (rev. 2.1, P2-R2-2): o combinado não aparece ao cliente até a S-F (E2b), em qualquer estado da
+  // instalação em que a coluna exista (antiga, nova ou parcial).
+  const semCombinado = (await estadoCombinados(db)).coluna ? " AND NOT s.combinado" : "";
   return (await db.query<LinhaPronta>(
     `SELECT s.id::text, s.nome, s.ordem, s.capacidade_convidados, s.convidados_minimo, s.convidados_sentados, s.area_m2,
             s.idade_min, s.idade_max, s.frase, s.outra_festa_simultanea, s.exclusivos, to_char(s.fotos_referencia, 'YYYY-MM-DD') AS fotos_referencia,
             (SELECT count(*)::int FROM agenda_salao_fotos f WHERE f.salao_id = s.id AND f.removida_em IS NULL) AS fotos,
             s.conteudo_versao, s.declaracao_versao, s.ativo
        FROM agenda_saloes s
-      WHERE s.ativo AND s.empresa_id = $1::uuid AND s.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
+      WHERE s.ativo AND s.empresa_id = $1::uuid AND s.estabelecimento_id IS NOT DISTINCT FROM $2::uuid${semCombinado}
       ORDER BY s.ordem, s.id`,
     [escopo.empresaId, escopo.estabelecimentoId ?? null],
   )).rows;

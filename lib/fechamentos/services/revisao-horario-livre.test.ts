@@ -58,14 +58,14 @@ for (const [rotulo, inicio, fim, duracao] of [['3 horas', '15:00', '18:00', 180]
   test(`horário livre: remarcação para ${inicio}–${fim} (${rotulo}) consulta com a duração do destino e é aceita`, async () => {
     const { m, tx, consultas, holds } = carregar();
     assert.equal((await m.revalidarAgendaRevisao(tx, revisao(inicio, fim), { usuarioId: 'u', requestId: 'req' })).livre, true);
-    assert.deepEqual(consultas[0]?.[4], { duracaoMinutos: duracao });
+    assert.deepEqual(consultas[0]?.[4], { duracaoMinutos: duracao, incluirCombinados: true });
     assert.equal(holds(), 1);
   });
 }
 
 test('edição administrativa e proposta inicial também informam a duração do intervalo', () => {
   const edicao = readFileSync('lib/fechamentos/services/edicao-administrativa.service.ts', 'utf8');
-  assert.match(edicao, /consultarDisponibilidadeData\(input\.dataEvento, tx, undefined, \{ fechamentoId: f\.id \},\s*\{ duracaoMinutos: duracaoDoIntervalo\(input\.horarioInicio, input\.horarioFim\) \}\)/);
+  assert.match(edicao, /consultarDisponibilidadeData\(input\.dataEvento, tx, undefined, \{ fechamentoId: f\.id \},\s*\{ duracaoMinutos: duracaoDoIntervalo\(input\.horarioInicio, input\.horarioFim\), incluirCombinados: true \}\)/);
   const inicial = readFileSync('lib/contratos/services/revisao-inicial.ts', 'utf8');
-  assert.match(inicial, /consultarDisponibilidadeData\(f\.dataEvento, tx, undefined, \{ fechamentoId: f\.id \},\s*\{ duracaoMinutos: duracaoDoIntervalo\(f\.horarioInicio, f\.horarioFim\) \}\)/);
+  assert.match(inicial, /consultarDisponibilidadeData\(f\.dataEvento, tx, undefined, \{ fechamentoId: f\.id \},\s*\{ duracaoMinutos: duracaoDoIntervalo\(f\.horarioInicio, f\.horarioFim\), incluirCombinados: true \}\)/);
 });

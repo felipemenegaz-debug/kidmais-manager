@@ -109,6 +109,10 @@ const MODELOS = {
   "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: ["098"] },
   // Salão de preferência (106, fase S-D, 27/10/2026): o estado do staging (104 e 105, sem a 098) com a 106.
   "106": { banco: "kidmais_v1_modelo_106", ate: "106", sem: ["098"] },
+  // Retomada 098 (28/10/2026, plano rev. 2.1): 107 = reparo da deriva da agenda (no-op na cadeia recriada do zero);
+  // 108 = salões combinados rebaseados. A 098 histórica fica FORA da cadeia nova (nunca aplicada em staging/produção).
+  "107": { banco: "kidmais_v1_modelo_107", ate: "107", sem: ["098"] },
+  "108": { banco: "kidmais_v1_modelo_108", ate: "108", sem: ["098"] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

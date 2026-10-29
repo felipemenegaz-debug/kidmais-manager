@@ -9,7 +9,7 @@ import {
 } from "../../scripts/integracao-importados-test-support.ts";
 import { lerRegraCapacidadeAgenda, listarFechamentosConfirmadosPorPeriodo } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { consultarDisponibilidadeData, ocupacaoImpedeCandidato } from "../disponibilidade/services/availability.service.ts";
-import { criarSalaoCombinado, impedimentosDesativacao } from "./configuracao-unidade.ts";
+import { criarSalaoCombinado, desativarSalao, impedimentosDesativacao } from "./configuracao-unidade.ts";
 import { lerSalaoDaFesta, trocarSalaoDaFesta } from "./troca-salao.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
 
@@ -177,7 +177,7 @@ test("caminhos com combinado: importação/formalização, rascunho sem hold, ho
     assert.deepEqual(ocup.map((o) => [o.origem, nomes[o.s]]), [["CONFIRMADA", "C"], ["REVISAO_DESTINO", "AB"]], "origem e destino ocupam juntos");
     // Paridade SQL × Core no hold: A, B, C e AB ocupados; D livre (origem e destino separados, nunca consolidados).
     const tx = executor(a);
-    const regra = await lerRegraCapacidadeAgenda(tx, { empresaId: c.empresa, estabelecimentoId: null });
+    const regra = await lerRegraCapacidadeAgenda(tx, { empresaId: c.empresa, estabelecimentoId: null }, { incluirCombinados: true });
     const ocupacoes = await listarFechamentosConfirmadosPorPeriodo(D1, D1, tx, { empresaId: c.empresa, estabelecimentoId: null });
     for (const candidato of [A, B, C, D, AB]) {
       const sql = (await a.query<{ x: boolean }>(`SELECT kidmais094_conflito_ocupacao($1::uuid, $2::date, $3::time, $4::time, $5::uuid, NULL, $6::uuid, $7::uuid) x`,
@@ -345,4 +345,116 @@ test("hold com origem e destino diferentes × cadastro (lock de todos os salões
   const preparacoes = (await a.query<{ s: string | null; hold: boolean }>(
     `SELECT r.salao_id::text s, r.hold_destino_adquirido_em IS NOT NULL hold FROM fechamento_revisoes r WHERE r.fechamento_id = $1::uuid AND r.estado IN ('EM_ELABORACAO','CONGELADA')`, [base.F.festa])).rows;
   assert.deepEqual(preparacoes, [{ s: base.s.AB, hold: true }], "o hold no salão inteiro ficou gravado");
+});
+
+test("hold no salão inteiro × desativação de membro, nas duas ordens (espera observada, sem deadlock)", { timeout: 300_000 }, async () => {
+  // Preparação: festas F (D1) e G (D2) no salão E (fora de A+B e de C+D), o combinado C+D e o pacote só com o salão
+  // inteiro, com COMMIT. Origem em E: desativar A só esbarra no destino do hold de F; desativar C não esbarra em nada.
+  const D1 = dia(86), D2 = dia(87);
+  const base = await comCommit(async () => {
+    const c = await cenario(a, 0);
+    const nativo = await catalogoNativo(a, c);
+    await modeloContrato(c);
+    await configurar(c);
+    const s = await saloes(c);
+    const E = await id(a, `INSERT INTO agenda_saloes (empresa_id, nome, ordem) VALUES ($1::uuid, 'Salão E', 5) RETURNING id`, [c.empresa]);
+    const { id: CD } = await criarSalaoCombinado(executor(a), { empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() },
+      { estabelecimentoId: null, nome: "Salão C+D", capacidadeConvidados: 200, membros: [s.D, s.C] });
+    await pacoteSo(c, E);
+    const F = await contratada(c, nativo, D1);
+    const G = await contratada(c, nativo, D2);
+    await pacoteSo(c, s.AB);
+    return { c, nativo, s: { ...s, E, CD }, F, G };
+  });
+  const pid = async (db: Client) => Number((await db.query<{ p: number }>("SELECT pg_backend_pid() p")).rows[0]!.p);
+  const esperando = async (quem: number, por: number) => {
+    for (let i = 0; i < 400; i++) {
+      if ((await d2.query<{ ok: boolean }>(`SELECT $2::int = ANY (pg_blocking_pids($1::int)) ok`, [quem, por])).rows[0]!.ok) return;
+      await new Promise((fim) => setTimeout(fim, 25));
+    }
+    assert.fail(`espera não observada: ${quem} por ${por}`);
+  };
+  const cad = await conectarDescartavel({ travar: false });
+  const d2 = await conectarDescartavel({ travar: false });
+  try {
+    const [pa, pc] = [await pid(a), await pid(cad)];
+    const ctx = { empresaId: base.c.empresa, usuarioId: base.c.usuario, requestId: randomUUID() };
+    // 1) Hold primeiro: a validação trava {A, B, AB, E} FOR SHARE (sem COMMIT); desativar A espera na trava dos salões do
+    //    escopo (FOR NO KEY UPDATE por id) e, depois do COMMIT do hold, é recusada pelo destino da remarcação no combinado.
+    await a.query("BEGIN");
+    const restaurarPool = poolNaTransacao(a);
+    const restaurarAmbiente = ambienteAssinatura();
+    try {
+      const rf = await base.F.abrir("Salão inteiro (hold × desativação)");
+      await rf.editar(D1, "Fundo do mar");
+      assert.equal((await rf.preparacao()).salao, base.s.AB);
+      await a.query("SET CONSTRAINTS ALL IMMEDIATE");
+      const desativacao = (async () => {
+        await cad.query("BEGIN");
+        try {
+          const r = await desativarSalao(executor(cad), { ...ctx, requestId: randomUUID() }, base.s.A);
+          await cad.query("COMMIT");
+          return r;
+        } catch (e) {
+          await cad.query("ROLLBACK");
+          return e;
+        }
+      })();
+      await esperando(pc, pa);
+      await a.query("COMMIT");
+      const r1 = await desativacao;
+      assert.doesNotMatch(msg(r1), /deadlock/i);
+      assert.match(msg(r1), /Não dá para desativar Salão A: há 1 festa\(s\) de hoje em diante usando este salão: .*\(Salão inteiro, remarcação\)/);
+      assert.deepEqual((r1 as { impedimentos?: { fechamentoId: string; remarcacao: boolean }[] }).impedimentos?.map((i) => [i.fechamentoId, i.remarcacao]),
+        [[base.F.festa, true]], "só o destino do hold de F impede");
+    } catch (e) {
+      await a.query("ROLLBACK").catch(() => undefined);
+      throw e;
+    } finally {
+      restaurarAmbiente();
+      restaurarPool();
+    }
+    assert.equal((await d2.query(`SELECT ativo FROM agenda_saloes WHERE id = $1::uuid`, [base.s.A])).rows[0].ativo, true, "A continua ativo");
+    // 2) Desativação primeiro: C (membro de C+D) é desativado sem COMMIT, com todos os salões do escopo travados; o hold de
+    //    G no combinado C+D espera e, depois do COMMIT, é recusado (combinado com membro inativo); nada do destino fica.
+    await comCommit(() => pacoteSo(base.c, base.s.CD));
+    await cad.query("BEGIN");
+    assert.deepEqual(await desativarSalao(executor(cad), { ...ctx, requestId: randomUUID() }, base.s.C), { desativado: true, id: base.s.C });
+    const segundo = (async () => {
+      await a.query("BEGIN");
+      const restaurarPool2 = poolNaTransacao(a);
+      const restaurarAmbiente2 = ambienteAssinatura();
+      try {
+        const rg = await base.G.abrir("Salão C+D (G)");
+        await rg.editar(D2, "Fundo do mar");
+        await a.query("COMMIT");
+        return (await rg.preparacao()).salao;
+      } catch (e) {
+        await a.query("ROLLBACK").catch(() => undefined);
+        return e;
+      } finally {
+        restaurarAmbiente2();
+        restaurarPool2();
+      }
+    })();
+    await esperando(pa, pc);
+    await cad.query("COMMIT");
+    const fim = await segundo;
+    assert.doesNotMatch(msg(fim), /deadlock/i);
+    assert.ok(fim instanceof Error, `hold de G recusado depois da desativação de C (veio ${msg(fim)})`);
+    assert.match(msg(fim), /salão inativo ou combinado com membro inativo|Horário indisponível|não está mais disponível|indisponível/i);
+  } finally {
+    await encerrarDescartavel(cad, false);
+    await encerrarDescartavel(d2, false);
+  }
+  assert.equal((await a.query(`SELECT ativo FROM agenda_saloes WHERE id = $1::uuid`, [base.s.C])).rows[0].ativo, false, "C desativado");
+  const preparacoesG = (await a.query<{ s: string | null; hold: boolean }>(
+    `SELECT r.salao_id::text s, r.hold_destino_adquirido_em IS NOT NULL hold FROM fechamento_revisoes r WHERE r.fechamento_id = $1::uuid AND r.estado IN ('EM_ELABORACAO','CONGELADA')`, [base.G.festa])).rows;
+  assert.deepEqual(preparacoesG, [], "nada do destino de G ficou gravado");
+  const ocupacoesG = (await a.query<{ s: string; origem: string }>(
+    `SELECT salao_id::text s, origem FROM kidmais094_ocupacoes($1::date, $1::date) WHERE fechamento_id = $2::uuid`, [D2, base.G.festa])).rows;
+  assert.deepEqual(ocupacoesG, [{ s: base.s.E, origem: "CONFIRMADA" }], "G só ocupa a origem E");
+  const preparacoesF = (await a.query<{ s: string | null; hold: boolean }>(
+    `SELECT r.salao_id::text s, r.hold_destino_adquirido_em IS NOT NULL hold FROM fechamento_revisoes r WHERE r.fechamento_id = $1::uuid AND r.estado IN ('EM_ELABORACAO','CONGELADA')`, [base.F.festa])).rows;
+  assert.deepEqual(preparacoesF, [{ s: base.s.AB, hold: true }], "o hold de F no salão inteiro continua");
 });

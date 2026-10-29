@@ -3,6 +3,7 @@ import { db, withTransaction } from "../../db/postgres.ts";
 import { agendaPorEscopoInstalada, type EscopoAgenda } from "../escopo.ts";
 import { AvailabilityServiceError } from "../services/errors.ts";
 import { conjuntosDosSaloes, salaoElegivel, type SalaoDoEscopo } from "../../agenda/saloes-conjuntos.ts";
+import { combinadosHabilitadosOuRecusa, estadoCombinados } from "../../agenda/estado-combinados.ts";
 import type {
   AlcanceBloqueio,
   BloqueioAgendaRecord,
@@ -374,12 +375,12 @@ export async function capacidadeAgendaInstalada(customDb?: DbExecutor) {
   return r.rows[0]?.ok === true;
 }
 
-/** 098 instalada: salão combinado (conjunto de salões simples) e elegibilidade. */
+/**
+ * Salões combinados habilitados: instalação completa da 098 histórica ou da 108. PARCIAL recusa (ErroCombinadosParcial):
+ * a disponibilidade nunca devolve o combinado como candidato nem tira os conjuntos das ocupações (parecer de 29/10, P1-1).
+ */
 export async function saloesCombinadosInstalados(customDb?: DbExecutor) {
-  const r = await executor(customDb).query<{ ok: boolean }>(
-    `SELECT to_regprocedure('public.kidmais098_saloes_cruzam(uuid,uuid)') IS NOT NULL AS ok`,
-  );
-  return r.rows[0]?.ok === true;
+  return combinadosHabilitadosOuRecusa((await estadoCombinados(executor(customDb))).estado);
 }
 
 /** 102 instalada: agenda_saloes.convidados_minimo existe. */
@@ -391,7 +392,12 @@ async function minimoDoSalaoInstalado(ex: DbExecutor) {
 }
 
 /** 094: regra do escopo configurado na 093; null quando o escopo não foi configurado (regra de antes). */
-export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda): Promise<RegraCapacidadeAgenda | null> {
+/**
+ * `incluirCombinados` (plano "Retomada 098", rev. 2.1, P2-R2-2): só os chamadores do painel pedem; a leitura do cliente
+ * (cotação, disponibilidade pública, Wall-e, marketing) fica SEM combinado como candidato, por padrão. As ocupações
+ * continuam usando os conjuntos (um combinado ocupado impede os membros também na leitura pública).
+ */
+export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda, opcoes?: { incluirCombinados?: boolean }): Promise<RegraCapacidadeAgenda | null> {
   const ex = executor(customDb);
   if (!escopo?.empresaId || !(await capacidadeAgendaInstalada(ex))) return null;
   const config = await ex.query<{ modo: "FIXO" | "LIVRE"; capacidade_tipo: "POR_HORARIO" | "POR_SALAO"; limite_festas_dia: number | null; intervalo_minimo_minutos: number }>(
@@ -439,7 +445,7 @@ export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined,
     // Decisão de Felipe (25/10/2026): com um salão, uma festa por horário — mesmo que uma linha antiga guarde mais.
     capacidadePorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, c.capacidade_tipo === "POR_SALAO" ? Number(h.capacidade) : 1])),
     saloesPorHorario: Object.fromEntries(horarios.rows.map((h) => [h.id, h.saloes ?? []])),
-    saloesDoEscopo: saloes.rows.filter((s) => salaoElegivel(s, saloes.rows)).map((s) => s.id),
+    saloesDoEscopo: saloes.rows.filter((s) => salaoElegivel(s, saloes.rows) && (opcoes?.incluirCombinados === true || !s.combinado)).map((s) => s.id),
     // S-C: quantos convidados cada salão comporta (093); null = sem limite informado (comporta qualquer número).
     capacidadePorSalao: Object.fromEntries(saloes.rows.map((s) => [s.id, s.capacidade_convidados == null ? null : Number(s.capacidade_convidados)])),
     minimoPorSalao: Object.fromEntries(saloes.rows.map((s) => [s.id, s.convidados_minimo == null ? null : Number(s.convidados_minimo)])),
