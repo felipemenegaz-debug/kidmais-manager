@@ -4,6 +4,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './
 import * as contratoUrl from './contrato-url.ts';
 import * as contratoTela from './contrato-tela.ts';
 import * as versaoReferencia from '../../lib/contratos/versao-referencia.ts';
+import * as fonteDocumento from '../../lib/contratos/documento/fonte.ts';
 
 /** Regressões da revisão do código da fase 1 (C-1 a C-4): navegação por versão, confirmação de agenda e recusa financeira. */
 const ID = '00000000-0000-4000-8000-000000000001', OUTRO = '00000000-0000-4000-8000-000000000002';
@@ -29,7 +30,8 @@ function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) 
     '@/lib/http/admin-fetch': { adminFetch: fetchFalso, reautenticarSessao: async () => ({ ok: true }) },
     '@/lib/contratos/services/alteracoes': { analisarRevisao: (a: { evento: { pacote: { nome: string } } }, b: { evento: { pacote: { nome: string } } }) => ({ natureza: 'MATERIAL', campos: [{ campo: 'evento.pacote.nome', antes: a.evento.pacote.nome, depois: b.evento.pacote.nome }] }) },
     '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => false, TEXTO_ASSINADO_EM_PAPEL: '' },
-    '../../lib/contratos/documento/oficial/configuracao': { configuracaoModeloOficial: () => true },
+    // Aviso da fonte do PDF (plano UX achados Frente C): função real; o botão principal recebe a classe visual.
+    '../../lib/contratos/documento/fonte': fonteDocumento, './AdminPrimaryButton': { classePrimaria: 'primario' },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
     '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
     './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Filho },
@@ -215,3 +217,61 @@ test('O-1 e O-3: filtro e busca da lista ficam na URL e voltam com "← Contrato
     assert.equal(abaAtiva(), 'aba-geral', 'a aba volta ao Resumo ao sair do contrato');
   } finally { if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window'); }
 });
+
+
+// ── Plano UX achados Frente C (rev. 3): aviso da fonte do PDF pelo ALVO de ação e botões principais ──────────────────
+const V3 = '00000000-0000-4000-8000-0000000000a3', V1 = '00000000-0000-4000-8000-0000000000a1';
+type Base = { migration072: boolean; modeloEmpresaAtivo: boolean; empresaKidmais: boolean };
+/** Painel com a preparação V3 (alvo) e a vigente V1 (referência), cada uma com o seu código de pacote. */
+function dadosFonte(codigoAlvo: string, codigoReferencia: string, base: Base | undefined, semAlvo = false) {
+  const d = dados() as ReturnType<typeof dados> & { tela: Record<string, unknown> };
+  for (const v of d.versoes as Array<{ id: string; status: string; estado_edicao: string; snapshot: { evento: { pacote: { codigo: string } } } }>) {
+    if (v.id === V3) v.snapshot.evento.pacote.codigo = codigoAlvo;
+    if (v.id === V1) v.snapshot.evento.pacote.codigo = codigoReferencia;
+    if (semAlvo) { v.status = 'CANCELADA'; v.estado_edicao = 'CANCELADA'; }
+  }
+  if (semAlvo) { d.fluxo = { versao_vigente_id: null, versao_em_preparacao_id: null } as unknown as typeof d.fluxo; d.contrato = { ...d.contrato, status: 'CANCELADO' }; }
+  if (base) d.tela = { ...d.tela, baseDocumento: base };
+  return d;
+}
+async function avisos(painel: unknown) {
+  const url = { q: `contratoId=${ID}` };
+  const m = montar(url, async (u: string) => Response.json({ ok: true, data: u.includes('contratoId=') ? painel : [] }));
+  const r = await m.ciclo();
+  return { r, avisos: elementos(r).filter(e => e.type === 'p' && e.props['data-fonte-documento'] !== undefined) };
+}
+const KIDMAIS_SEM_MODELO: Base = { migration072: true, modeloEmpresaAtivo: false, empresaKidmais: true };
+
+test('Frente C UX: o aviso usa o pacote do ALVO (preparação), não o da referência', () => comJanela(async () => {
+  // Kidmais sem modelo próprio: preparação com pacote P_ (sem template) e vigente com pacote fixo → avisa (o gerar_pdf recusaria).
+  const a = await avisos(dadosFonte('P_76722EEA1485416F8F96F57BBD4C707E', 'COMPLETA', KIDMAIS_SEM_MODELO));
+  assert.ok(a.avisos.length >= 1, 'mostra o aviso');
+  assert.ok(a.avisos.every(e => e.props['data-fonte-documento'] === 'SEM_TEMPLATE_OFICIAL'));
+  assert.match(texto(a.avisos[0]), /ainda não possui modelo oficial de contrato cadastrado/);
+  // O inverso: preparação com pacote fixo e vigente P_ → nada a avisar.
+  const b = await avisos(dadosFonte('COMPLETA', 'P_76722EEA1485416F8F96F57BBD4C707E', KIDMAIS_SEM_MODELO));
+  assert.equal(b.avisos.length, 0);
+}));
+
+test('Frente C UX: modelo da empresa sem aviso; empresa nova sem modelo com o texto e o link; sem base ou sem alvo, nada', () => comJanela(async () => {
+  const comModelo = await avisos(dadosFonte('P_76722EEA1485416F8F96F57BBD4C707E', 'P_76722EEA1485416F8F96F57BBD4C707E', { migration072: true, modeloEmpresaAtivo: true, empresaKidmais: false }));
+  assert.equal(comModelo.avisos.length, 0, 'aviso falso da TESTE S3 corrigido');
+  const nova = await avisos(dadosFonte('COMPLETA', 'COMPLETA', { migration072: true, modeloEmpresaAtivo: false, empresaKidmais: false }));
+  assert.ok(nova.avisos.length >= 1, 'empresa nova sem modelo e pacote fixo: avisa (antes não avisava)');
+  for (const e of nova.avisos) {
+    assert.equal(e.props['data-fonte-documento'], 'SEM_MODELO_EMPRESA');
+    assert.ok(texto(e).startsWith(fonteDocumento.MENSAGEM_SEM_MODELO_EMPRESA), 'mesmo texto da recusa do servidor');
+    assert.ok(elementos(e).some(x => x.type === Filho && x.props.href === '/admin/configuracoes/importar-documentos?documento=contrato'), 'link para o modelo');
+  }
+  assert.equal((await avisos(dadosFonte('P_X', 'P_X', undefined))).avisos.length, 0, 'resposta sem baseDocumento: não afirma nada');
+  const semTela = dadosFonte('P_X', 'P_X', undefined) as Record<string, unknown>; delete semTela.tela;
+  assert.equal((await avisos(semTela)).avisos.length, 0, 'resposta sem tela: não afirma nada');
+  assert.equal((await avisos(dadosFonte('P_X', 'P_X', KIDMAIS_SEM_MODELO, true))).avisos.length, 0, 'sem alvo: não afirma nada');
+}));
+
+test('Frente C UX: botões principais da tela de contratos com a classe visual de botão principal', () => comJanela(async () => {
+  const { r } = await avisos(dadosFonte('COMPLETA', 'COMPLETA', KIDMAIS_SEM_MODELO));
+  const principais = elementos(r).filter(e => e.type === 'button' && e.props['data-km-primario'] !== undefined);
+  assert.ok(principais.some(e => texto(e) === 'Preparar documento'), 'preparação mostra "Preparar documento"');
+  for (const b of principais) assert.equal(b.props.className, 'primario', texto(b));
+}));

@@ -64,7 +64,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
     const f = await bloquearDatasRevisao(tx, r), op = r.operacao;
     // Horário livre: os candidatos dependem da duração; a do destino é a do próprio intervalo (parecer do Astra, P2).
     const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id, undefined,
-        { duracaoMinutos: duracaoDoIntervalo(op.horarioInicio, op.horarioFim) });
+        { duracaoMinutos: duracaoDoIntervalo(op.horarioInicio, op.horarioFim), incluirCombinados: true });
     const candidatoOficial = disponibilidade.periodos.find(p => p.configuracaoId === op.configuracaoAgendaId)?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === op.horarioInicio.slice(0, 5) && h.fim === op.horarioFim.slice(0, 5)) === true;
     // Contrato histórico no próprio horário original (fora dos turnos atuais): o mesmo intervalo, sem conflito com outras
     // reservas e bloqueios do recurso. Não vale para destino novo.

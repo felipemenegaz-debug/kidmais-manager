@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { combinadosHabilitadosOuRecusa, estadoCombinados } from "./estado-combinados.ts";
 
 /**
  * 094 (decisão de Felipe em 22/10/2026): com capacidade por salão, o sistema escolhe o salão da festa — um salão
@@ -271,10 +272,12 @@ export async function escolherSalaoParaEmissao(
   return servem[0] ? { porSalao: true, salao: servem[0] } : { porSalao: true, salao: null, motivo: 'SEM_SALAO_QUE_SERVE' };
 }
 
-/** 098 instalada (salão combinado e elegibilidade). */
+/**
+ * Salões combinados habilitados: instalação completa da 098 histórica ou da 108. PARCIAL recusa (ErroCombinadosParcial):
+ * sem a instalação inteira, nenhum caminho trata o combinado como salão simples (parecer do Astra de 29/10, P1-1).
+ */
 export async function combinadosInstalados(tx: DbExecutor) {
-  const r = await tx.query<{ ok: boolean }>(`SELECT to_regprocedure('public.kidmais098_salao_elegivel(uuid)') IS NOT NULL AS ok`);
-  return r.rows[0]?.ok === true;
+  return combinadosHabilitadosOuRecusa((await estadoCombinados(tx)).estado);
 }
 
 const POR_SALAO =`EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = f.empresa_id

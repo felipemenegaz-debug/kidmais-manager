@@ -181,6 +181,13 @@ const approvedFiles = [
   // 106: salão de preferência do cliente (fase S-D, plano S-E/S-D rev. 4.1): fechamentos.salao_preferido_id com FK
   // composta, dois gatilhos VOLATILE (escopo da preferência × escopo do salão) e índice parcial. Aditiva.
   '20261027_106_salao_preferido.sql',
+  // 107: reparo da deriva conhecida da agenda (plano "Retomada 098" rev. 2.1, D-R2a): renomeia índices/CHECKs ix_/ck_ para
+  // os nomes da 005 e cria os gatilhos atualizado_em e CHECKs nao_vazio ausentes; no-op na base canônica; proveniência em
+  // kidmais107_reparos (o down desfaz só o registrado). 107 e 108 conferidas livres em 28/10 (clones, vault).
+  '20261028_107_reparo_deriva_agenda.sql',
+  // 108: salões combinados — a 098 rebaseada sobre 100/102/104/106/107 (regra da 100 + interseção; validações idênticas
+  // ao conjunto '098' do manifesto da Festa; marcador kidmais108_instalada()). A 098 histórica fica fora da cadeia nova.
+  '20261028_108_saloes_combinados.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -209,7 +216,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -257,7 +264,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

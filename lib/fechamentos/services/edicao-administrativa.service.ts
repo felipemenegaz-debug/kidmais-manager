@@ -53,7 +53,7 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
             await adquirirLockConfirmacaoAgenda(dia, tx);
         // Horário livre: duração do próprio intervalo pedido (parecer do Astra, P2).
         const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx, undefined, { fechamentoId: f.id },
-            { duracaoMinutos: duracaoDoIntervalo(input.horarioInicio, input.horarioFim) });
+            { duracaoMinutos: duracaoDoIntervalo(input.horarioInicio, input.horarioFim), incluirCombinados: true });
         const periodo = disponivel.periodos.find(p => p.configuracaoId === input.configuracaoAgendaId);
         if (!periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === input.horarioInicio.slice(0, 5) && h.fim === input.horarioFim.slice(0, 5)))
             recusar('Data/horário indisponível ou fora das opções oficiais.');

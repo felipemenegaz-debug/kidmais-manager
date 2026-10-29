@@ -102,7 +102,7 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
     const f = proposta.fechamento;
     // Horário livre: duração do próprio intervalo da proposta (parecer do Astra, P2).
     const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id },
-        { duracaoMinutos: duracaoDoIntervalo(f.horarioInicio, f.horarioFim) });
+        { duracaoMinutos: duracaoDoIntervalo(f.horarioInicio, f.horarioFim), incluirCombinados: true });
     if (!disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId)?.horarios.some(h =>
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');

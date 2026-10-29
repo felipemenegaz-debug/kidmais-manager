@@ -22,6 +22,12 @@ export const SENHA_FALSA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B
 export const RETRATO = "lib/exportacao/colunas-esperadas.json";
 /** Retrato do schema com a 102/103 e sem a 098 (modelo 103): comparação completa também nesse estado (parecer do Astra, 25/10/2026). */
 export const RETRATO_102 = "lib/exportacao/colunas-esperadas-102.json";
+/**
+ * Retrato do modelo 108 (cadeia inteira até a 106 + 107 + 108, sem a 098 histórica): o do 103 mais as colunas que a
+ * exportação inclui da 104 (fechamento_revisoes.hash_versao), da 106 (fechamentos.salao_preferido_id) e da 108
+ * (agenda_saloes.combinado e membros, no fim: ordinal depois das colunas da 102). 105 e 107 só criam tabelas fora do escopo.
+ */
+export const RETRATO_108 = "lib/exportacao/colunas-esperadas-108.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {

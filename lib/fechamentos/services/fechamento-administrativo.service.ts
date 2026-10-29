@@ -160,7 +160,7 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
         const escopo = await escopoDaEmpresa(tx, empresaId, input.estabelecimentoId, { exigirUnidade: true });
         const horario = await revalidarHorarioSelecionado({ data: input.dataFesta,
             ...periodoDoPedido(input), pacoteCodigo: codigoPacote,
-            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx, escopo);
+            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario), incluirCombinados: true }, tx, escopo);
         const valorProposto = moedaParaNumeroServidor(input.valorCombinado);
         if (valorProposto === null) throw new FechamentoServiceError('VALOR_PROPOSTO_INVALIDO', 'Informe um valor combinado válido.');
         const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades, input.adicionaisEscolhas);
