@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { cenario, dia, id } from "../../scripts/integracao-importados-test-support.ts";
+import { aplicadorDeTeste, AVARIAS_108, dadosLegitimos108, medirF2, modelo108 } from "../../scripts/aplicadores-108-test-support.ts";
 
 /**
  * 23/10/2026, derivado do teste do aplicador da 089 e ampliado pelo parecer do Astra (P2-1, P2-2, P3-1, b, f) — o
@@ -27,6 +28,10 @@ import { cenario, dia, id } from "../../scripts/integracao-importados-test-suppo
  *   8. uso legítimo da 094 (festa com salão) → conferência JA_APLICADA pela integridade;
  *   9. adulteração com marcadores presentes (gatilho desligado) → integridade recusa; religado → passa;
  *  10. nova aplicação (outro registro) só confere as três integridades; os down ficam fora do aplicador.
+ * Plano E4 (E4-6; P2-E4-R2-2), modelo 108 (cadeia até a 106 + 107 + 108): o CONFERIR reconhece o corpo da 108 só com a
+ * prova única "108 íntegra" (retrato de F2 medido no modelo limpo e injetado pelo override de teste) → PASS_CORPO_108,
+ * também com dados legítimos (combinado, ocupação, revisão com hold); avarias da 108 que mantêm os nomes (corpo do
+ * marcador, volatilidade, SECURITY DEFINER, gatilho desligado) → RECUSARIA com o motivo da prova, e FALHA no APLICAR.
  */
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const exigir = createRequire(import.meta.url);
@@ -71,6 +76,7 @@ test("aplicador 092–094 real no modelo 089: papéis, parcial, falhas reais (de
   const executar = (dir = novoDir(), papel?: string) => stg.executar({ env: ENV_STG, backup: BACKUP, dir, raiz, disco: () => {}, Client: clienteDescartavel({ papel }) });
   const conferir = (papel?: string) => stg.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel({ papel }) });
   try {
+    if (await modelo108(c)) { t.skip("modelo 108: coberto pelo teste da 092–094 × 108 abaixo"); return; }
     assert.deepEqual(await presentes(c), { m092: false, m093: false, m094: false }, "modelo 089: 092–094 ausentes");
     // 1. Conferência só leitura.
     const conf = await conferir();
@@ -232,6 +238,54 @@ test("aplicador 092–094 real no modelo 089: papéis, parcial, falhas reais (de
     //     (O caso 9 removeu uma constraint: a recusa da integridade é a resposta correta; nada aqui a recria.)
     const denovo = await executar();
     assert.equal(denovo.resultado, "FALHA"); assert.equal(denovo.falha!.etapa, "integridade 093"); assert.deepEqual(denovo.migracoesCommitadas, []);
+  } finally {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    await encerrarDescartavel(c);
+  }
+});
+
+test("conferência da 092–094 no modelo 108: PASS_CORPO_108 com a 108 íntegra e dados legítimos; avarias da 108 recusam com o motivo da prova", { timeout: 900_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  const dirs: string[] = [];
+  const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-092-094-108-")); dirs.push(d); return d; };
+  // Aplicador de teste (aceita o F2 medido); o de staging recusa o override (provado sem banco em scripts/migration-092-094.test.cjs).
+  const teste = aplicadorDeTeste<Aplicador>("scripts/migration-092-094-comum.cjs", "scripts/migration-092-094-staging.cjs");
+  let env: Record<string, string> = ENV_STG;
+  const executar = () => teste.executar({ env, backup: "PITR 2026-10-29T12:00Z teste", dir: novoDir(), raiz, disco: () => {}, Client: clienteDescartavel() });
+  const conferir = () => teste.conferir({ env, raiz, Client: clienteDescartavel() });
+  const PASSA = { "integridade 092": "PASS", "integridade 093": "PASS", "integridade 094": "PASS_CORPO_108" };
+  try {
+    if (!(await modelo108(c))) { t.skip("só no modelo 108"); return; }
+    const f2 = await medirF2(c);
+    env = { ...ENV_STG, ...f2.env };
+    try {
+      const limpo = await conferir();
+      assert.equal(limpo.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(limpo)); assert.deepEqual(limpo.checks, PASSA);
+      const dados = await dadosLegitimos108(c);
+      const usado = await conferir();
+      assert.equal(usado.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify({ usado, dados })); assert.deepEqual(usado.checks, PASSA);
+      const ja = await executar();
+      assert.equal(ja.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(ja)); assert.deepEqual(ja.migracoesCommitadas, []);
+      for (const avaria of AVARIAS_108) {
+        await c.query(avaria.aplicar);
+        try {
+          const r = await conferir();
+          assert.equal(r.resultado, "RECUSARIA", avaria.nome + ": " + JSON.stringify(r));
+          assert.match(r.motivo!, /^PROVA_108_NAO_INTEGRA /, avaria.nome); assert.match(r.motivo!, avaria.motivo, avaria.nome);
+          assert.equal(r.checks!["integridade 094"], "RECUSADA");
+          const e = await executar();
+          assert.equal(e.resultado, "FALHA", avaria.nome); assert.match(e.falha!.mensagem, avaria.motivo, avaria.nome); assert.deepEqual(e.migracoesCommitadas, []);
+        } finally { await c.query(avaria.desfazer); }
+        assert.deepEqual((await conferir()).checks, PASSA, "restaurado: " + avaria.nome);
+      }
+    } finally { env = ENV_STG; }
+    // O aplicador de staging recusa o override; sem override vale o F2 do arquivo versionado (medido no cluster E4,
+    // 29/10/2026): o mesmo PASS_CORPO_108 do override medido agora.
+    const recusado = await stg.conferir({ env: { ...ENV_STG, ...f2.env }, raiz, Client: clienteDescartavel() });
+    assert.equal(recusado.resultado, "RECUSARIA"); assert.match(recusado.motivo!, /^RETRATOS_DE_TESTE_RECUSADOS/);
+    const versionado = await stg.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel() });
+    assert.equal(versionado.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(versionado)); assert.deepEqual(versionado.checks, PASSA);
   } finally {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     await encerrarDescartavel(c);

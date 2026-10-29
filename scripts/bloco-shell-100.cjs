@@ -17,13 +17,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
 const {ETAPAS} = require('./migration-100-comum.cjs');
-const REVISADOS = ETAPAS;
+const {INTEGRIDADE_094_APOS_108} = require('./migration-092-094-comum.cjs');
+// A integridade da 094 após a 108 entra na conferência da 100 já substituída pela 108 (JA_APLICADA_SUBSTITUIDA_108).
+const REVISADOS = Object.freeze([...ETAPAS, INTEGRIDADE_094_APOS_108]);
 
 const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
   staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-100-staging.cjs',
-    dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/agenda-um-salao-100-staging', rotulo: 'STAGING'}),
+    dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs']), registro: 'data/agenda-um-salao-100-staging', rotulo: 'STAGING'}),
 });
 const COMANDOS = Object.freeze({CONFERIR: '--conferir-100', APLICAR: '--aplicar-100-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({

@@ -1,0 +1,15 @@
+{
+  "descricao": "Hashes esperados do retrato restrito da 107/108 (database/checks/20261029_108_retrato.sql), por fase. MEDIDOS no PostgreSQL 18 do cluster descartável E4 em 29/10/2026 (rodada 2: retrato sem normalização de \"public.\", P2-1 da revisão) pela suíte lib/agenda/aplicador-107-108.postgres.test.ts (modelos 106 canônica, 106 com a deriva conhecida do staging, 106+107, 106+107+108; search_path = pg_catalog), iguais nos modelos 106, 107 e 108. trecho_sha256 amarra estes valores ao SQL exato; HASH_ESPERADOS (scripts/migration-108-retrato.cjs) amarra este arquivo.",
+  "versao_pg_maior": 18,
+  "trecho_sha256": "7fffe7b24e27d92aecb4d23cc808275593076b990a9a4c87758fb8057ec0fecf",
+  "F0": {
+    "canonico": "6a83c0b977006e6bc8f487694ad70fd80b25f98ab302013ccdd510127be764a6",
+    "deriva_conhecida": "73d1d9ea749c2fc23250005cac5d1d55365754c0641d167c75f368a9cfc5d0d9"
+  },
+  "F1": {
+    "canonico": "061a632a0a82a0f691a180abcd96e0c4de7b58595a363e4d70cf615640758ed7"
+  },
+  "F2": {
+    "canonico": "d288ef0f283adcc063b52fbcb1a162502d8bec22ff142cb2d412ca2c4273b2c7"
+  }
+}

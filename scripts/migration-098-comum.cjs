@@ -16,10 +16,15 @@
 // ou URL do banco). Privilégios avaliados como current_user (no Render a credencial entra com `SET role` do dono; lição
 // de 14/10/2026): a 098 altera agenda_saloes (ALTER TABLE, gatilhos), cria gatilhos em contratos e substitui três
 // corpos da 094 (CREATE OR REPLACE FUNCTION), por isso exige ser DONO deles (pg_has_role USAGE), além de CREATE em public.
+// 108 (plano E4, E4-6; P3-E4-R2-1): a 098 é HISTÓRICA — com QUALQUER evidência da 108 (marcador kidmais108_instalada,
+// kidmais107_reparos, colunas combinado/membros junto com o corpo de conflito da 108, corpos substituídos ou funções
+// kidmais098_* com os corpos da 108), os TRÊS modos (RETRATO, CONFERIR e APLICAR) recusam COM_108 logo depois da
+// identidade: antes do estado, do retrato recursivo e de qualquer DDL/DML, com uma única leitura de catálogo (READ ONLY).
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
+const ev108 = require('./migration-108-evidencias.cjs');
 
 const FLAG_RETRATO = '--retrato-098';
 const FLAG_CONFERIR = '--conferir-098';
@@ -196,6 +201,14 @@ async function somenteLeitura(db, sql, {caminho, papelDaSessao = false, tempo = 
     return r;
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
+/**
+ * Recusa antecipada COM_108 (só catálogo, READ ONLY): devolve as evidências encontradas (lista vazia = segue). Evidência
+ * ilegível lança (FALHA), nunca vira "sem 108".
+ */
+async function evidenciasCom108(db) {
+  return ev108.evidenciasCom108(ev108.lerEvidencias108((await somenteLeitura(db, ev108.SQL_EVIDENCIA_108)).rows[0]));
+}
+const motivoCom108 = lista => 'COM_108 ' + lista.join(' ');
 async function retratoNoCliente(db, raiz) {
   const inicio = Date.now();
   const linha = (await somenteLeitura(db, sqlRetrato(raiz), {caminho: 'pg_catalog', tempo: TEMPO_RETRATO})).rows[0];
@@ -217,6 +230,8 @@ async function contagens(db, estado, corte) {
 async function retratarNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   const r = {modo: 'retrato'};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
+  r.evidencias108 = await evidenciasCom108(db);
+  if (r.evidencias108.length > 0) { r.resultado = 'RECUSARIA'; r.motivo = motivoCom108(r.evidencias108); return r; }
   r.retrato = await retratoNoCliente(db, raiz);
   r.resultado = r.retrato.estado === 'DIVERGENTE' ? 'RETRATO_DIVERGENTE' : 'RETRATO_' + r.retrato.estado;
   return r;
@@ -229,6 +244,8 @@ async function retratarNoCliente(db, {raiz, sqlIdentidade, identidade}) {
 async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   const r = {modo: 'conferencia'};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
+  r.evidencias108 = await evidenciasCom108(db);
+  if (r.evidencias108.length > 0) { r.resultado = 'RECUSARIA'; r.motivo = motivoCom108(r.evidencias108); return r; }
   r.estado = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   if (r.estado.d094 && r.estado.m098 !== 'parcial') r.retrato = await retratoNoCliente(db, raiz);
   try { r.plano = planoEtapas(r.estado, r.retrato); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
@@ -293,6 +310,8 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   const sqls = new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
+  r.evidencias108 = await evidenciasCom108(db); registrar(r);
+  if (r.evidencias108.length > 0) throw new Error(motivoCom108(r.evidencias108));
   r.estadoAntes = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
   r.retratoAntes = r.estadoAntes.d094 && r.estadoAntes.m098 !== 'parcial' ? await retratoNoCliente(db, raiz) : undefined;
   r.plano = planoEtapas(r.estadoAntes, r.retratoAntes); registrar(r);
@@ -354,7 +373,7 @@ function criarAplicador(amb) {
       arquivos: [RETRATO, ...ETAPAS].map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
       retratosEsperados: {antes: RETRATOS['094'].hash, depois: RETRATOS['098'].hash},
       modos: {retrato: FLAG_RETRATO, conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
-      preRequisitos: ['093/094 aplicadas (agenda_saloes, contratos, fechamentos, fechamento_revisoes, kidmais094_ocupacoes e os três corpos da 094)',
+      preRequisitos: ['nenhuma evidência da 107/108 (COM_108 recusa nos três modos, antes do retrato)', '093/094 aplicadas (agenda_saloes, contratos, fechamentos, fechamento_revisoes, kidmais094_ocupacoes e os três corpos da 094)',
         '098 ausente com retrato 094 exato, ou completa com retrato 098 (nunca parcial)', 'CREATE em public',
         'dono de ' + ALTERADAS.join('/') + ' e das três funções substituídas', 'nenhuma festa de hoje em diante em salão inativo (precheck da migration)'],
       ordem: ['deploy de uma árvore com o código da PR #223 (aceita 094 e 094 + 098) e este aplicador; conferir commit e hashes implantados',
@@ -422,7 +441,7 @@ function criarAplicador(amb) {
   /**
    * Códigos: 0 PLANO/RETRATO esperado/CONFERIDO/PASS; 1 recusa lançada ANTES de criar o marcador desta execução (trava,
    * argumentos, backup, arquivo, disco, tentativa anterior); 2 FALHA de execução iniciada (inclusive registro não gravado);
-   * 3 RECUSARIA ou retrato divergente.
+   * 3 RECUSARIA (inclusive COM_108 no RETRATO e no CONFERIR) ou retrato divergente. COM_108 no APLICAR = FALHA (2), sem escrita.
    */
   const CODIGO = Object.freeze({PLANO: 0, RETRATO_094: 0, RETRATO_098: 0, PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0,
     APLICADA_POSTCHECK_PASS: 0, FALHA: 2, RECUSARIA: 3, RETRATO_DIVERGENTE: 3});
