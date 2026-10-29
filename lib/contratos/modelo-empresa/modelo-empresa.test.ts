@@ -80,7 +80,10 @@ test("leitura: JSON Schema estrito e instrução lista todos os campos e trata o
 
 test("admin: modelo da empresa tem prioridade; sem modelo, texto oficial só para a Kidmais", () => {
   const fonte = readFileSync("lib/contratos/services/administrativo.service.ts", "utf8");
-  assert.match(fonte, /modeloContratoAtivo\(tx, empresaAutorizada\)/);
-  assert.match(fonte, /codigoEmpresa !== 'kidmais'/);
+  // A decisão saiu para a função compartilhada com a tela (plano UX achados Frente C): mesma regra, testada em
+  // lib/contratos/documento/fonte.test.ts; aqui, só a ligação do serviço a ela.
+  assert.match(fonte, /lerBaseDocumentoContrato\(tx, empresaAutorizada\)/);
+  assert.match(fonte, /fonteDoDocumentoContrato\(\{ \.\.\.base, pacoteCodigo: v\.snapshot\.evento\.pacote\.codigo \}\) === 'SEM_MODELO_EMPRESA'/);
+  assert.match(readFileSync("lib/contratos/documento/base-documento.ts", "utf8"), /empresaKidmais: codigo === 'kidmais'/);
   assert.match(fonte, /gerarPdfContratoOficial\(rendered, \{ logo: !modeloEmpresa \}\)/);
 });

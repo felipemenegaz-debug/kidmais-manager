@@ -11,7 +11,8 @@ import { hashSnapshotContrato } from './snapshot-core';
 import { ContratoServiceError } from './errors';
 import { renderizarContratoOficial, gerarPdfContratoOficial, gerarPdfDocumentoContrato } from '../documento';
 import { guardarDocumento, lerDocumento } from '../storage/postgres';
-import { migration072Aplicada, modeloContratoAtivo } from '../modelo-empresa/servico';
+import { lerBaseDocumentoContrato } from '../documento/base-documento';
+import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, MENSAGEM_SEM_TEMPLATE_OFICIAL } from '../documento/fonte';
 import { renderizarModeloEmpresa } from '../modelo-empresa/renderizar';
 import { edicaoFestaSchema } from '../../fechamentos/services/edicao-administrativa-schema';
 import { editarFechamentoAdministrativo } from '../../fechamentos/services/edicao-administrativa.service';
@@ -137,6 +138,30 @@ export function comprovantePdf(input: {
             { texto: `Versão documental: ${input.versao.numeroVersao}`, estilo: 'rodape' },
         ] });
 }
+/**
+ * Ação gerar_pdf: o PDF da revisão em preparação, no modelo da empresa ou no oficial da Kidmais. Exportada para o teste
+ * com executor falso (plano UX achados Frente C, revisão do código R1); operarContrato a chama depois do tenant, dos locks
+ * e das conferências de estado, como antes.
+ */
+export async function gerarDocumentoDaVersao(tx: DbExecutor, v: ContratoVersaoRecord, e: { revisao: number; dados_fonte: { observacoesDocumentais?: string | null } }, s: SessaoAdmin, empresaAutorizada: string) {
+    // 072: empresa com modelo próprio publicado gera no padrão dela (sem a logo da Kidmais). Sem modelo, o texto
+    // oficial (com CNPJ, endereço e regras da Kidmais) só vale para a própria Kidmais. Antes da 072, nada muda.
+    // A decisão é a mesma função que a tela usa para avisar antes (fonteDoDocumentoContrato).
+    const { modeloEmpresa, base } = await lerBaseDocumentoContrato(tx, empresaAutorizada);
+    if (fonteDoDocumentoContrato({ ...base, pacoteCodigo: v.snapshot.evento.pacote.codigo }) === 'SEM_MODELO_EMPRESA')
+        conflito(MENSAGEM_SEM_MODELO_EMPRESA);
+    const rendered = modeloEmpresa
+        ? renderizarModeloEmpresa(modeloEmpresa, { snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash })
+        : renderizarContratoOficial({ snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash });
+    if (!rendered)
+        conflito(MENSAGEM_SEM_TEMPLATE_OFICIAL);
+    rendered.observacoes.push(e.dados_fonte.observacoesDocumentais ?? '');
+    rendered.integridade.push('Assinaturas eletrônicas: consulte os comprovantes desta versão.');
+    const d = await guardarDocumento(tx, { versaoId: v.id, categoria: 'CONTRATO', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: rendered.modeloCodigo, templateVersao: rendered.templateVersao, usuarioId: s.usuario_id, pdf: gerarPdfContratoOficial(rendered, { logo: !modeloEmpresa }) });
+    await evento(tx, v, s, 'CONTRATO_DOCUMENTO_GERADO', { documentoId: d.id });
+    return { documentoId: d.id };
+}
+
 export async function operarContrato(versaoId: string, input: z.infer<typeof acaoContratoSchema>, token: string, context: {
     requestId: string;
     ip: string | null;
@@ -378,26 +403,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const snapshot = { ...fonte, documental: { observacoes: input.observacoesDocumentais } };
             return salvarElaboracao(tx,v,e,s,snapshot);
         }
-        if (input.acao === 'gerar_pdf') {
-            // 072: empresa com modelo próprio publicado gera no padrão dela (sem a logo da Kidmais). Sem modelo, o texto
-            // oficial (com CNPJ, endereço e regras da Kidmais) só vale para a própria Kidmais. Antes da 072, nada muda.
-            const modeloEmpresa = await modeloContratoAtivo(tx, empresaAutorizada);
-            if (!modeloEmpresa && await migration072Aplicada(tx)) {
-                const codigoEmpresa = (await tx.query<{ codigo: string }>('SELECT codigo FROM empresas WHERE id=$1::uuid', [empresaAutorizada])).rows[0]?.codigo;
-                if (codigoEmpresa !== 'kidmais')
-                    conflito('Esta empresa ainda não tem modelo de contrato. Cadastre em Configurações › Importar documentos › Modelo de contrato.');
-            }
-            const rendered = modeloEmpresa
-                ? renderizarModeloEmpresa(modeloEmpresa, { snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash })
-                : renderizarContratoOficial({ snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash });
-            if (!rendered)
-                conflito('Pacote sem template oficial disponível.');
-            rendered.observacoes.push(e.dados_fonte.observacoesDocumentais ?? '');
-            rendered.integridade.push('Assinaturas eletrônicas: consulte os comprovantes desta versão.');
-            const d = await guardarDocumento(tx, { versaoId: v.id, categoria: 'CONTRATO', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: rendered.modeloCodigo, templateVersao: rendered.templateVersao, usuarioId: s.usuario_id, pdf: gerarPdfContratoOficial(rendered, { logo: !modeloEmpresa }) });
-            await evento(tx, v, s, 'CONTRATO_DOCUMENTO_GERADO', { documentoId: d.id });
-            return { documentoId: d.id };
-        }
+        if (input.acao === 'gerar_pdf')
+            return gerarDocumentoDaVersao(tx, v, e, s, empresaAutorizada);
         const d = await lerDocumento(input.documentoId, tx);
         if (d.contrato_versao_id !== v.id || d.categoria !== 'CONTRATO' || d.revisao !== e.revisao || d.snapshot_hash !== v.snapshotHash)
             conflito('Documento não corresponde à revisão.');

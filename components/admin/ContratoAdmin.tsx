@@ -1,7 +1,8 @@
 'use client';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
-import { configuracaoModeloOficial } from '../../lib/contratos/documento/oficial/configuracao';
+import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
+import { classePrimaria } from './AdminPrimaryButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
@@ -53,7 +54,9 @@ type Painel = {
     origemHistorica?: OrigemHistorica | null;
     /** Leituras da tela simplificada: salão (093/094) e estado derivado da festa. */
     tela?: { salao: string | null; salaoAlteracao: string | null; estadoFesta: string | null; salaoContrato?: string | null;
-      estadoVersao?: { estado: 'atual' | 'desatualizada' | 'troca_em_andamento'; motivo?: 'salao' | 'data' } | null };
+      estadoVersao?: { estado: 'atual' | 'desatualizada' | 'troca_em_andamento'; motivo?: 'salao' | 'data' } | null;
+      /** O que decide a fonte do PDF (plano UX achados Frente C): aplicado ao pacote do ALVO de ação. Ausente = sem aviso. */
+      baseDocumento?: BaseDocumentoContrato };
     revisoesOperacionais:Array<{id:string;contrato_versao_id:string;estado:string;hold_destino_adquirido_em:string|null;status_fechamento:string;ocupa_vigente:boolean;data_evento:string;data_vigente:string;horario_inicio:string;horario_fim:string;slot_alterado:boolean}>;
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
@@ -84,6 +87,20 @@ type Painel = {
 const EDICAO_ABERTA = ['EM_ELABORACAO', 'ASSINADA_KIDMAIS', 'AGUARDANDO_CLIENTE'];
 const instante = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
 const tituloDocumento = (categoria: string) => categoria === 'CONTRATO' ? 'Contrato' : categoria === 'COMPROVANTE_ASSINATURA' ? 'Comprovante de assinatura' : categoria.replaceAll('_', ' ').toLowerCase();
+/**
+ * Aviso da fonte do PDF (plano UX achados Frente C, rev. 3): a MESMA função do gerar_pdf, aplicada ao pacote congelado do
+ * alvo de ação. Sem a base (servidor antigo) não afirma nada. Modelo da empresa e modelo oficial da Kidmais: sem aviso.
+ */
+function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodigo: string) {
+  if (!base) return null;
+  const fonte = fonteDoDocumentoContrato({ ...base, pacoteCodigo });
+  if (fonte === 'SEM_MODELO_EMPRESA')
+    return <p className={styles.notice} data-fonte-documento={fonte}>{MENSAGEM_SEM_MODELO_EMPRESA} <Link href="/admin/configuracoes/importar-documentos?documento=contrato">Abrir Modelo de contrato</Link></p>;
+  if (fonte === 'SEM_TEMPLATE_OFICIAL')
+    return <p className={styles.notice} data-fonte-documento={fonte}>Este pacote ainda não possui modelo oficial de contrato cadastrado. A preparação pode ser salva; geração do PDF e assinatura dependem da aprovação do modelo correspondente.</p>;
+  return null;
+}
+
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
     const [retorno,setRetorno]=useState<string|null>(null),[destino,setDestino]=useState(''),[financeiroPronto,setFinanceiroPronto]=useState('');
@@ -303,15 +320,15 @@ export default function ContratoAdmin() {
  <h2>{alteracao ? 'Alteração em andamento' : 'Contrato em preparação'} · {rotuloVersao(v)}</h2>
  {alteracao && <p>{(analise?.campos ?? v.alteracoes?.campos ?? []).filter(d => campoNoResumo(d.campo)).slice(0, 4).map(d => `${rotuloCampo(d.campo)}: ${valorDiferenca(d.antes, d.campo)} → ${valorDiferenca(d.depois, d.campo)}`).join(' · ') || 'Nenhuma diferença registrada ainda.'}{deltaValor !== 0 && <strong> · Novo valor {formatarMoeda(v.snapshot.comercial.valorFinalContrato)} ({deltaValor > 0 ? '+' : '−'}{formatarMoeda(Math.abs(deltaValor))})</strong>}</p>}
  <p className={styles.discreto} data-testid="aviso-preparacao">{alteracao ? `O contrato assinado (V${ref.numero_versao}) continua valendo. As mudanças só entram em vigor depois das assinaturas da nova versão.` : 'A contratação passa a valer depois das assinaturas.'}</p>
- {!configuracaoModeloOficial(v.snapshot.evento.pacote.codigo) && <p className={styles.notice}>Este pacote ainda não possui modelo oficial de contrato cadastrado. A preparação pode ser salva; geração do PDF e assinatura dependem da aprovação do modelo correspondente.</p>}
+ {avisoFonteDocumento(data.tela?.baseDocumento, v.snapshot.evento.pacote.codigo)}
  {reserva && pred.revisaoOperacional && <p className={reserva.alerta ? styles.alertaAgenda : styles.discreto} data-reserva={reserva.tipo}>{reserva.texto}{pred.revisaoOperacional.slot_alterado ? ` · nova data: ${dataPorExtenso(pred.revisaoOperacional.data_evento)}, ${faixaHorario(pred.revisaoOperacional.horario_inicio, pred.revisaoOperacional.horario_fim)}` : ''}{data.tela?.salaoAlteracao ? ` · salão na alteração: ${data.tela.salaoAlteracao}` : ''}</p>}
  {conferenciaValida && <p role="status" className={styles.discreto}>Destino conferido às {conferenciaValida.em.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.</p>}
  <p className={styles.discreto}>Próximo passo: {proximoPasso(v, docs)}</p>
  <div className={styles.actions}>
- {pred.podeGerarPdf && !pdfDaRevisao && <button type="button" data-km-primario disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Preparar documento</button>}
- {pred.podeRevisarPdf && !v.documento_revisado_id && pdfDaRevisao && <><a className={styles.documentButton} href={docUrl(pdfDaRevisao.id)} target="_blank" rel="noreferrer">Ver PDF</a><button type="button" data-km-primario disabled={busy} onClick={() => { if (window.confirm(`Confirmo que revisei o PDF ${pdfDaRevisao.id} da versão ${v.numero_versao}, revisão ${v.revisao}, e que seus dados refletem as condições oficiais aprovadas.`)) action({ acao: 'revisar', revisao: v.revisao, documentoId: pdfDaRevisao.id }); }}>Confirmar revisão do PDF</button></>}
- {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pela Kidmais</button></>}
- {pred.podeLiberar && <button type="button" data-km-primario disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
+ {pred.podeGerarPdf && !pdfDaRevisao && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Preparar documento</button>}
+ {pred.podeRevisarPdf && !v.documento_revisado_id && pdfDaRevisao && <><a className={styles.documentButton} href={docUrl(pdfDaRevisao.id)} target="_blank" rel="noreferrer">Ver PDF</a><button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => { if (window.confirm(`Confirmo que revisei o PDF ${pdfDaRevisao.id} da versão ${v.numero_versao}, revisão ${v.revisao}, e que seus dados refletem as condições oficiais aprovadas.`)) action({ acao: 'revisar', revisao: v.revisao, documentoId: pdfDaRevisao.id }); }}>Confirmar revisão do PDF</button></>}
+ {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario className={classePrimaria} disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pela Kidmais</button></>}
+ {pred.podeLiberar && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
  {pred.podeAbrirPublico && <a className={styles.documentButton} href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir página do cliente ↗</a>}
  {pred.podeEditar && <button type="button" disabled={busy} onClick={() => { invalidarConferencia(); setEditando(!editando); }}>{editando ? 'Fechar edição' : 'Editar dados desta revisão'}</button>}
  {pred.podeRevalidar && <button type="button" disabled={busy} onClick={() => void revalidar()}>Revalidar destino</button>}
@@ -351,7 +368,7 @@ export default function ContratoAdmin() {
  </section>
  <section id="painel-documentos" role="tabpanel" aria-labelledby="aba-documentos" className={styles.panel} hidden={aba !== 'documentos'}>
  <h2 id="documentacao">Documentos</h2>
- {v && !configuracaoModeloOficial(v.snapshot.evento.pacote.codigo) && <p className={styles.notice}>Este pacote ainda não possui modelo oficial de contrato cadastrado. A preparação pode ser salva; geração do PDF e assinatura dependem da aprovação do modelo correspondente.</p>}
+ {v && avisoFonteDocumento(data.tela?.baseDocumento, v.snapshot.evento.pacote.codigo)}
  {v?.estado_edicao === 'EM_ELABORACAO' && <details className={styles.documentDetails} open><summary>Observações do documento</summary><label>Observações exclusivamente documentais<textarea value={note} maxLength={2000} onChange={e => { setNote(e.target.value); invalidarConferencia(); }} style={{ width: '100%', minHeight: 90 }}/></label><p>Não use observações para mudar valores, datas, partes ou obrigações operacionais.</p><button type="button" disabled={busy} onClick={() => action({ acao: 'salvar', revisao: v.revisao, observacoesDocumentais: note })}>Salvar revisão</button> <button type="button" disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Gerar PDF da revisão</button></details>}
  {faixa && v && v.id !== ref.id && <><h3>Da alteração · {rotuloVersao(v)}</h3><ListaDocumentos docs={docs} vazio="Nenhum documento gerado nesta alteração." docUrl={docUrl} /><Comprovantes v={v} assinaturas={signatures} docUrl={docUrl} /></>}
  <h3>{temVigente ? `Contrato que vale hoje · V${ref.numero_versao}` : `Contrato em preparação · V${ref.numero_versao}`}</h3>
