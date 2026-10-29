@@ -208,10 +208,12 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/aplicador-089.postgres.test.ts": { descartavel: "086" },
   // 23/10/2026: aplicador real da 092 → 093 → 094 (staging) no modelo 089 (092–094 ausentes): conferência, privilégios,
   // parcial, falha real no meio (092 commitada), retomada pelo prefixo e anti-repetição.
-  "lib/agenda/aplicador-092-094.postgres.test.ts": { descartavel: "089" },
+  // Plano E4 (E4-6, 29/10/2026): também no modelo 108 — PASS_CORPO_108 com a 108 íntegra e avarias recusadas.
+  "lib/agenda/aplicador-092-094.postgres.test.ts": { descartavel: "089", tambem: ["108"] },
   // 25/10/2026: aplicador REAL da 100 (agenda com um salão) no estado do staging (097: 093–097, sem a 098) e a recusa no
   // modelo 098 — privilégios, inventário (unidade nula, intervalos nas duas ordens), falhas reais e CONFERIR da 092–094.
-  "lib/agenda/aplicador-100.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // Plano E4 (E4-6, 29/10/2026): no modelo 108, JA_APLICADA_SUBSTITUIDA_108 sem reaplicar; avarias da 108 recusadas.
+  "lib/agenda/aplicador-100.postgres.test.ts": { descartavel: "097", tambem: ["098", "108"] },
   // 21/10/2026: exportação verificável (lib/exportacao) no schema inteiro até a 089 (devolução): completude do inventário, retrato das
   // colunas, pacote (hashes, contagens independentes, PDFs), isolamento A×B, guarda da empresa suspensa e auditoria.
   // 22/10/2026: campanha Fundador em duas fases (090), aplicada pela suíte sobre o modelo 089.
@@ -287,7 +289,8 @@ const ESTADO_POSTGRES = {
   // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
   "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "108" },
   // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
-  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097" },
+  // Plano E4 (E4-6, 29/10/2026): no modelo 108, COM_108 nos três modos (completa e parcial), sem retrato nem escrita.
+  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097", tambem: ["108"] },
   // 25/10/2026: apresentação do salão (102). Comportamento no modelo 102 (sem a 098, com 099/100/102); aplicação, reaplicação
   // e rollback neutro/com conteúdo no 097; recusa no 098.
   "lib/agenda/saloes-apresentacao-102.postgres.test.ts": { descartavel: "102", tambem: ["097", "098"] },
@@ -302,6 +305,9 @@ const ESTADO_POSTGRES = {
   "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
   // Aplicador da 105 em staging (27/10/2026): staging de hoje (103, sem 104/105/106) e com a 104 da S-E.
   "lib/integracoes/oauth/aplicador-105.postgres.test.ts": { descartavel: "103", tambem: ["104"] },
+  // Aplicador da 105 de PRODUÇÃO (29/10/2026, plano MCP produção P1): produção depois da promoção geral (b14-P11: até a
+  // 100, sem 098 e sem 102–105) e o 103; papel real com SET ROLE, deparse das definições e mutantes reais.
+  "lib/integracoes/oauth/aplicador-105-production.postgres.test.ts": { descartavel: "b14-P11", tambem: ["103"] },
   // 26/10/2026 (parecer do Astra, P3-1 da composição; R4-6): 102 antes da 100 (modelo 097) e 100 antes da 102 (modelo 102),
   // com 100_postcheck/100_integridade/094_integridade_apos_100 e a integridade da 102.
   "lib/agenda/saloes-102-ordem-100.postgres.test.ts": { descartavel: "097", tambem: ["102"] },
@@ -311,6 +317,11 @@ const ESTADO_POSTGRES = {
   // 27/10/2026: aplicador REAL da 104/106 para staging no modelo 103 (as duas ausentes: recusas, papel mínimo, atividade,
   // deriva, falha da 106 após a 104 e retomada) e no 105 (já com a 104: só a 106).
   "lib/agenda/aplicador-104-106.postgres.test.ts": { descartavel: "103", tambem: ["105"] },
+  // 29/10/2026 (E4-C): aplicador REAL da 107/108 para staging no modelo 106 (as duas ausentes), 107 (só a 108) e 108 (já
+  // aplicadas). Os retratos esperados ainda não foram medidos: a suíte MEDE no cluster e injeta (KIDMAIS_RETRATOS_108_TESTE,
+  // recusado pelo aplicador de staging). Canônico, deriva exata do staging, falha real da 108 e retomada, parcial, 098
+  // histórica, retrato divergente com diff por seção e papel mínimo.
+  "lib/agenda/aplicador-107-108.postgres.test.ts": { descartavel: "106", tambem: ["107", "108"] },
   // 27/10/2026 (S-C, convidados primeiro): capacidade do salão na disponibilidade (OK/OCUPADO/CAPACIDADE), revalidação
   // com SEM_SALAO_PARA_CONVIDADOS sem gravar e escolha do salão que comporta; 097, como no staging (103) e com a 098.
   // 27/10/2026 (S-E): migration 104 (hash da revisão com o salão), aplicada pela suíte sobre o modelo 103.

@@ -11,6 +11,7 @@ const path = require('node:path');
 const {createHash} = require('node:crypto');
 const comum = require('./migration-098-comum.cjs');
 const stg = require('./migration-098-staging.cjs');
+const ev108 = require('./migration-108-evidencias.cjs');
 
 const URL_STG = 'postgresql://usuario:SENHA_FALSA@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91';
 const ENV_STG = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-daif418ae00c73e8k2gg', KIDMAIS_DEPLOY_ENV: 'staging', DATABASE_SSL: 'false', DATABASE_URL: URL_STG});
@@ -26,9 +27,12 @@ const RDIV = {hash: 'a'.repeat(64), linhas: 901, tipos: {...tiposDe('094'), F: [
 const PRESERVA = {saloes: 3, resumo_saloes: 's1'};
 const INFO = {saloes_ativos: 3, ocupacoes_futuras_com_salao: 2};
 const CORTE = '2026-10-23T18:00:00.000000Z';
+/** Nenhuma evidência da 107/108 (linha de SQL_EVIDENCIA_108); a 098 histórica completa também é "sem 108". */
+const SEM_108 = Object.freeze({marcador_108: false, reparos_107: false, colunas_combinado: false, corpo_conflito_108: false, corpos_108: 0, funcoes_098_108: 0});
 
 /** Cliente simulado: sequências de estados e retratos; registra cada SQL, se rodou em READ ONLY e o search_path local. */
-function clienteFalso({estados = [AUSENTE, COMPLETA], retratos = [R094, R098], identidade = ID_STG, falharEm, erro, preservacao, anteriores = [0], invisiveis = [0]} = {}) {
+function clienteFalso({estados = [AUSENTE, COMPLETA], retratos = [R094, R098], identidade = ID_STG, falharEm, erro, preservacao, anteriores = [0], invisiveis = [0],
+  evidencias = SEM_108} = {}) {
   const log = []; let i = 0, j = 0, k = 0, v = 0, ro = false, caminho = null, papel = null, tempo = null;
   const C = class {
     on() {} async connect() {} async end() {}
@@ -42,6 +46,7 @@ function clienteFalso({estados = [AUSENTE, COMPLETA], retratos = [R094, R098], i
       if (falharEm && sql.includes(falharEm)) throw erro ?? new Error('falha simulada em ' + falharEm);
       if (sql.startsWith('SELECT current_database()')) return {rows: [identidade]};
       if (sql === comum.SQL_ESTADO) return {rows: [estados[Math.min(i++, estados.length - 1)]]};
+      if (sql === ev108.SQL_EVIDENCIA_108) return {rows: [{...evidencias}]};
       if (sql.startsWith('/* retrato-098 */')) return {rows: [retratos[Math.min(j++, retratos.length - 1)]]};
       if (sql === comum.SQL_CORTE) return {rows: [{corte: CORTE}]};
       if (sql === comum.SQL_ANTERIORES(CORTE)) return {rows: [{n: anteriores[Math.min(k++, anteriores.length - 1)], invisiveis: invisiveis[Math.min(v++, invisiveis.length - 1)]}]};
@@ -416,4 +421,53 @@ test('tempo das leituras: retrato, precheck, postcheck e integridade com TEMPO_R
   assert.ok(Number.isInteger(t.retrato.duracaoMs) && t.retrato.duracaoMs >= 0);
   const c = await stg.conferir({env: ENV_STG, Client: clienteFalso({estados: [AUSENTE]})});
   assert.ok(Number.isInteger(c.duracoesMs['precheck 098']) && Number.isInteger(c.retrato.duracaoMs));
+});
+
+test('COM_108: evidência que a 098 nunca produz (marcador, regra de conflito da 108, registro da 107) recusa nos TRÊS modos logo após a identidade', async () => {
+  // Uma de cada vez e juntas. Funções kidmais098_* e corpos de contrato/revisão NÃO entram: são idênticos na 098 e na 108.
+  const casos = [
+    [{marcador_108: true}, 'marcador_108'],
+    [{reparos_107: true}, 'reparos_107'],
+    [{corpo_conflito_108: true}, 'corpo_conflito_108'],
+    [{colunas_combinado: true, corpo_conflito_108: true, corpos_108: 3, funcoes_098_108: 10}, 'corpo_conflito_108'],
+    [{marcador_108: true, reparos_107: true, colunas_combinado: true, corpo_conflito_108: true, corpos_108: 3, funcoes_098_108: 10},
+      'marcador_108 corpo_conflito_108 reparos_107']];
+  for (const [delta, lista] of casos) {
+    const evidencias = {...SEM_108, ...delta};
+    const leuSoCatalogo = (C, rotulo) => {
+      const consultas = C.log.filter(l => !/^(BEGIN TRANSACTION READ ONLY|ROLLBACK|COMMIT|SET LOCAL)/.test(l.sql));
+      assert.deepEqual(consultas.map(l => l.sql.startsWith('SELECT current_database()') ? 'identidade' : l.sql === ev108.SQL_EVIDENCIA_108 ? 'evidencia' : 'outra'),
+        ['identidade', 'evidencia'], rotulo + ': só identidade e evidências (nada de estado, retrato, corte, contagens ou migration)');
+      assert.ok(consultas.every(l => l.ro), rotulo + ': tudo em READ ONLY');
+      assert.deepEqual(escritas(C.log), [], rotulo);
+    };
+    const R = clienteFalso({evidencias});
+    const r = await stg.principal(['--retrato-098'], ENV_STG, {Client: R});
+    assert.equal(r.codigo, 3, lista); assert.equal(r.saida.resultado, 'RECUSARIA'); assert.equal(r.saida.motivo, 'COM_108 ' + lista);
+    assert.equal(r.saida.retrato, undefined); leuSoCatalogo(R, 'RETRATO ' + lista);
+    const K = clienteFalso({evidencias});
+    const k = await stg.principal(['--conferir-098'], ENV_STG, {Client: K});
+    assert.equal(k.codigo, 3); assert.equal(k.saida.resultado, 'RECUSARIA'); assert.equal(k.saida.motivo, 'COM_108 ' + lista);
+    assert.equal(k.saida.estado, undefined); leuSoCatalogo(K, 'CONFERIR ' + lista);
+    const dir = tmp();
+    try {
+      const A = clienteFalso({evidencias});
+      const a = await stg.principal(['--aplicar-098-autorizado', '--backup', 'export 23/10 18:00Z'], ENV_STG, {dir, Client: A, disco: semDisco});
+      assert.equal(a.codigo, 2); assert.equal(a.saida.resultado, 'FALHA'); assert.equal(a.saida.falha.mensagem, 'COM_108 ' + lista);
+      assert.equal(a.saida.commit, null); leuSoCatalogo(A, 'APLICAR ' + lista);
+      assert.ok(!A.log.some(l => l.sql.includes(MIGRATION)), 'migration nunca enviada');
+      const m = JSON.parse(fs.readFileSync(a.saida.marcador, 'utf8'));
+      assert.equal(m.situacao, 'FALHA'); assert.deepEqual(m.evidencias108, lista.split(' '));
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  }
+  // Controle: a 098 histórica completa COMO MEDIDA no cluster E4 (colunas, as 10 funções kidmais098_* e os corpos de
+  // contrato/revisão com os mesmos hashes da 108) não é evidência da 108.
+  const H = clienteFalso({estados: [COMPLETA], retratos: [R098], evidencias: {...SEM_108, colunas_combinado: true, corpos_108: 2, funcoes_098_108: 10}});
+  const h = await stg.conferir({env: ENV_STG, Client: H});
+  assert.equal(h.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', JSON.stringify(h)); assert.deepEqual(h.evidencias108, []);
+  // Evidência ilegível: FALHA, nunca "sem 108" (e nada além da identidade e da leitura de evidências).
+  const I = clienteFalso({evidencias: {...SEM_108, funcoes_098_108: null}});
+  const i = await stg.retratar({env: ENV_STG, Client: I});
+  assert.equal(i.resultado, 'FALHA'); assert.match(i.mensagem, /EVIDENCIA_108_ILEGIVEL funcoes_098_108/);
+  assert.ok(!I.log.some(l => l.sql.startsWith('/* retrato-098 */')));
 });

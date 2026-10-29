@@ -71,6 +71,8 @@ export default function ModeloContrato() {
   const [contratada, setContratada] = useState<ContratadaEfetiva | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // Só a leitura pela IA (ler/reler) mostra "Lendo o contrato com IA…"; as demais operações usam só `ocupado`.
+  const [lendo, setLendo] = useState(false);
   const [publicando, setPublicando] = useState(false);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
@@ -93,6 +95,7 @@ export default function ModeloContrato() {
   // (revisão Astra R3); abrir() também o avança, então abrir ou fechar outro rascunho cancela pedido pendente.
   const pedidoAberturaRef = useRef(0);
   const operacoesRef = useRef(0);
+  const leiturasRef = useRef(0);
   const controleAtualRef = useRef<ControleSalvamento | null>(null);
   useEffect(() => { conteudoRef.current = conteudo; rascunhoRef.current = rascunho; }, [conteudo, rascunho]);
 
@@ -156,20 +159,30 @@ export default function ModeloContrato() {
     return () => vigente() && pedido === pedidoAberturaRef.current;
   }
 
-  const ler = () => executar(async (vigente) => {
+  /** Marca a leitura pela IA em andamento; contador para leituras sobrepostas, sempre encerrado no finally. */
+  async function lendoDurante<T>(trabalho: () => Promise<T>) {
+    leiturasRef.current++;
+    setLendo(true);
+    try { return await trabalho(); } finally {
+      leiturasRef.current--;
+      if (leiturasRef.current === 0) setLendo(false);
+    }
+  }
+
+  const ler = () => executar((vigente) => lendoDurante(async () => {
     if (!arquivo) return;
     const vale = pedirAbertura(vigente);
     const form = new FormData();
     form.set('arquivo', arquivo);
     const lido: Rascunho = await lerJson(await adminFetch(API_LEITURA, { method: 'POST', body: form }));
     if (vale()) await abrirLido(lido, vale);
-  });
-  const reler = () => executar(async (vigente) => {
+  }));
+  const reler = () => executar((vigente) => lendoDurante(async () => {
     if (!rascunho) return;
     const vale = pedirAbertura(vigente);
     const lido: Rascunho = await lerJson(await adminFetch(`${API_LEITURA}?id=${rascunho.id}`, { method: 'POST' }));
     if (vale()) await abrirLido(lido, vale);
-  });
+  }));
   /** A leitura pela IA não traz a contratada efetiva: abre pelo GET do rascunho, que compõe (Gestão) (revisão Astra P2-2). */
   async function abrirLido(lido: Rascunho, vale: () => boolean) {
     const completo: Rascunho = lido.revisao ? await lerJson(await adminFetch(`${API}/${lido.id}`)) : lido;
@@ -402,7 +415,7 @@ export default function ModeloContrato() {
               <input type="file" accept="application/pdf" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
             </label>
             <AdminPrimaryButton disabled={!arquivo || ocupado} carregando={ocupado} onClick={() => void ler()}>Ler contrato</AdminPrimaryButton>
-            {ocupado && <p role="status">Lendo o contrato com IA. Pode levar até 2 minutos; não feche esta tela.</p>}
+            {lendo && <p role="status">Lendo o contrato com IA. Pode levar até 2 minutos; não feche esta tela.</p>}
           </section>
           <section className={imp.card}>
             <h2>Como funciona</h2>
@@ -431,6 +444,7 @@ export default function ModeloContrato() {
       <header className={styles.header}><h1>Leitura não concluída</h1></header>
       <div className={styles.content}>
         <p role="alert">{erro}</p>
+        {lendo && <p role="status">Lendo o contrato com IA. Pode levar até 2 minutos; não feche esta tela.</p>}
         <section className={imp.alerta}>{(rascunho.avisos.length ? rascunho.avisos : ['MODELO_INESPERADO']).map((a) => <p key={a}>{mensagemAviso(a)}</p>)}</section>
         <div className={styles.actions}>
           <AdminPrimaryButton carregando={ocupado} onClick={() => void reler()}>Ler de novo</AdminPrimaryButton>

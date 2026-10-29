@@ -21,10 +21,16 @@
 // corpo da 100 (scripts/migration-092-094-comum.cjs) — só essa expectativa muda.
 // Privilégio: CREATE OR REPLACE FUNCTION exige ser DONO da função (pg_has_role USAGE no papel dono), avaliado como
 // current_user (no Render a credencial entra com `SET role`; lição de 14/10/2026).
+// 108 (plano E4, E4-6; P2-E4-R2-2): a 108 substitui a regra de conflito da 100 por um corpo próprio. Com esse corpo E a
+// 108 íntegra pela prova única (sqlProva108Integra, a mesma da 094 e do aplicador 107/108), o estado é
+// JA_APLICADA_SUBSTITUIDA_108 — sucesso (código 0) SEM reaplicar a 100 (reaplicar desfaria a 108). Corpo da 108 sem a
+// prova, ou qualquer evidência da 108 com o corpo da 094/100 (108 parcial), recusa antes de qualquer escrita.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {commitNaFalha, lerRevisado, CORPO_CONFLITO_094, CORPO_CONFLITO_100, INTEGRIDADE_094_APOS_100} = require('./migration-092-094-comum.cjs');
+const {commitNaFalha, lerRevisado, CORPO_CONFLITO_094, CORPO_CONFLITO_100, CORPO_CONFLITO_108, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108} =
+  require('./migration-092-094-comum.cjs');
+const ev108 = require('./migration-108-evidencias.cjs');
 
 const FLAG_CONFERIR = '--conferir-100';
 const FLAG_APLICAR = '--aplicar-100-autorizado';
@@ -87,7 +93,8 @@ const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, 
 function lerEstado(e) {
   for (const k of ['d100', 'dono', 'pode_criar', 'linguagem', 'tipos', 'papel_trocado']) assert.equal(typeof e?.[k], 'boolean', 'ESTADO_ILEGIVEL ' + k);
   assert.ok(e.corpo === null || /^[0-9a-f]{64}$/.test(e.corpo), 'ESTADO_ILEGIVEL corpo');
-  const m100 = e.corpo === CORPO_CONFLITO_100 ? 'completa' : e.corpo === CORPO_CONFLITO_094 ? 'ausente' : e.corpo === null ? 'sem_094' : 'divergente';
+  const m100 = e.corpo === CORPO_CONFLITO_100 ? 'completa' : e.corpo === CORPO_CONFLITO_094 ? 'ausente' : e.corpo === CORPO_CONFLITO_108 ? 'substituida_108'
+    : e.corpo === null ? 'sem_094' : 'divergente';
   return {d100: e.d100, dono: e.dono, pode_criar: e.pode_criar, linguagem: e.linguagem, tipos: e.tipos, papel_trocado: e.papel_trocado, m100};
 }
 function lerInventario(i) {
@@ -98,17 +105,21 @@ function lerInventario(i) {
  * Estado aplicável (só catálogo): recusa sem 094, corpo divergente, dependência ausente e privilégio faltando ANTES de
  * ler qualquer dado — um papel sem privilégio recebe a recusa nomeada, não um erro de permissão do inventário.
  */
-function exigirAplicavel(s) {
+function exigirAplicavel(s, evidencias = []) {
   assert.ok(s.m100 !== 'sem_094', 'DEPENDENCIA_AUSENTE_100 094');
   assert.ok(s.m100 !== 'divergente', 'CORPO_DIVERGENTE_100 (098 presente ou deriva)');
+  // Corpo da 108: só segue com a prova íntegra (lida à parte, em conferirSubstituida108); aqui nunca há reaplicação.
+  if (s.m100 === 'substituida_108') return;
+  assert.ok(evidencias.length === 0, 'EVIDENCIA_108_PARCIAL ' + evidencias.join(' '));
   if (s.m100 === 'completa') return;
   assert.ok(s.d100, 'DEPENDENCIA_AUSENTE_100 093/094/062');
   const falta = [!s.dono && 'DONO', !s.pode_criar && 'CREATE', !s.linguagem && 'LINGUAGEM', !s.tipos && 'TIPOS'].filter(Boolean);
   assert.ok(falta.length === 0, 'SEM_PRIVILEGIO_100 ' + falta.join(' '));
 }
 /** Plano a partir do estado e do inventário; recusa ANTES de qualquer escrita o que não for seguro. */
-function planoEtapas(s, inv) {
-  exigirAplicavel(s);
+function planoEtapas(s, inv, evidencias = []) {
+  exigirAplicavel(s, evidencias);
+  if (s.m100 === 'substituida_108') return ['prova 108', 'integridade 094 apos 108'];
   if (s.m100 === 'completa') return ['postcheck 100', 'integridade 094 apos 100'];
   assert.equal(inv.pares_mesmo_horario, 0, 'CONFLITOS_PREEXISTENTES_100 ' + inv.pares_mesmo_horario);
   return ['precheck 100', 'migration 100', 'postcheck 100', 'integridade 094 apos 100'];
@@ -125,17 +136,40 @@ async function somenteLeitura(db, sql, tempo = '30s') {
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
 const estadoAtual = async db => lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
+// Evidências da 108 (só catálogo), lidas junto com o estado e antes do inventário.
+const evidencias = async db => ev108.evidencias108(ev108.lerEvidencias108((await somenteLeitura(db, ev108.SQL_EVIDENCIA_108)).rows[0]));
+/**
+ * Substituída pela 108: a prova única "108 íntegra" (READ ONLY, search_path = pg_catalog) e a integridade da 094 após a
+ * 108. Não íntegra = recusa nomeada com os motivos (nunca sucesso, nunca reaplicação).
+ */
+async function conferirSubstituida108(db, raiz, checks, prova108 = {}) {
+  const prova = await ev108.provar108(db, {raiz, ...prova108});
+  if (!prova.integra) throw ev108.recusa('SUBSTITUIDA_108_NAO_INTEGRA ' + prova.motivos.join(' '));
+  checks['prova 108'] = 'INTEGRA';
+  await somenteLeitura(db, lerRevisado(raiz, INTEGRIDADE_094_APOS_108[1], INTEGRIDADE_094_APOS_108[2]));
+  checks['integridade 094 apos 108'] = 'PASS';
+}
 // O inventário lê ocupações futuras (dados): tempo maior que o das leituras de catálogo.
 const inventario = async db => lerInventario((await somenteLeitura(db, SQL_INVENTARIO, '120s')).rows[0]);
 
 /** Conferência (nenhuma escrita): identidade, estado, inventário, plano e, em READ ONLY, precheck ou postcheck + integridade. */
-async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
+async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, prova108}) {
   const r = {modo: 'conferencia'};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = await estadoAtual(db);
-  try { exigirAplicavel(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  r.evidencias108 = await evidencias(db);
+  try { exigirAplicavel(r.estado, r.evidencias108); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  if (r.estado.m100 === 'substituida_108') {
+    r.plano = planoEtapas(r.estado, undefined, r.evidencias108); r.checks = {};
+    try { await conferirSubstituida108(db, raiz, r.checks, prova108); } catch (e) {
+      if (!e?.recusa) throw e;
+      r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r;
+    }
+    r.resultado = 'JA_APLICADA_SUBSTITUIDA_108';
+    return r;
+  }
   if (r.estado.m100 === 'ausente') r.inventario = await inventario(db);
-  try { r.plano = planoEtapas(r.estado, r.inventario); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  try { r.plano = planoEtapas(r.estado, r.inventario, r.evidencias108); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
   r.checks = {};
   for (const nome of r.plano.filter(n => !n.startsWith('migration '))) {
     if (r.estado.m100 === 'ausente' && nome !== 'precheck 100') { r.checks[nome] = 'APOS_100'; continue; }
@@ -148,14 +182,28 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
 }
 
 /** Aplicação na ordem do plano; o inventário é relido aqui, imediatamente antes (nunca o da conferência anterior). */
-async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}}) {
+async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}, prova108}) {
   const sqls = new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = await estadoAtual(db);
-  exigirAplicavel(r.estadoAntes);
+  r.evidencias108 = await evidencias(db);
+  exigirAplicavel(r.estadoAntes, r.evidencias108);
+  if (r.estadoAntes.m100 === 'substituida_108') {
+    // Nenhuma escrita: só a prova e a integridade da 094 após a 108 (a 100 nunca é reaplicada sobre a 108).
+    r.plano = planoEtapas(r.estadoAntes, undefined, r.evidencias108); registrar(r);
+    r.etapas.push({nome: 'prova 108 + integridade 094 apos 108', inicio: new Date().toISOString()}); registrar(r);
+    r.checks = {};
+    await conferirSubstituida108(db, raiz, r.checks, prova108);
+    Object.assign(r.etapas.at(-1), {ok: true, fim: new Date().toISOString()});
+    r.estadoDepois = await estadoAtual(db);
+    assert.equal(r.estadoDepois.m100, 'substituida_108', 'ESTADO_FINAL_100');
+    r.resultado = 'JA_APLICADA_SUBSTITUIDA_108';
+    registrar(r);
+    return r;
+  }
   if (r.estadoAntes.m100 === 'ausente') r.inventarioAntes = await inventario(db);
-  r.plano = planoEtapas(r.estadoAntes, r.inventarioAntes); registrar(r);
+  r.plano = planoEtapas(r.estadoAntes, r.inventarioAntes, r.evidencias108); registrar(r);
   for (const nome of r.plano) {
     r.etapas.push({nome, inicio: new Date().toISOString()}); registrar(r);
     if (nome === 'migration 100') {
@@ -190,13 +238,15 @@ function modo(argv) {
 /** Fábrica do aplicador de um ambiente (mesmo contrato da 092–094: nome, ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco). */
 function criarAplicador(amb) {
   const raizPadrao = path.resolve(__dirname, '..');
+  // Override de F2 (KIDMAIS_RETRATOS_108_TESTE) só com aceitaRetratosTeste: true (suíte PostgreSQL; staging nunca).
+  const prova = env => ({env, aceitaTeste: amb.aceitaRetratosTeste === true});
   function plano({raiz = raizPadrao} = {}) {
     return {resultado: 'PLANO', conecta: false, ambiente: amb.nome, alvo: amb.ALVO,
-      arquivos: ETAPAS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
-      corpos: {ausente: CORPO_CONFLITO_094, completa: CORPO_CONFLITO_100},
+      arquivos: [...ETAPAS, INTEGRIDADE_094_APOS_108].map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
+      corpos: {ausente: CORPO_CONFLITO_094, completa: CORPO_CONFLITO_100, substituida_108: CORPO_CONFLITO_108},
       modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
       preRequisitos: ['093/094 aplicadas (agenda_escopo_config, kidmais094_ocupacoes, kidmais062_mesmo_recurso) e a regra de conflito com o corpo EXATO da 094',
-        'sem a 098 (corpo diferente: recusa)', 'current_user dono da função kidmais094_conflito_ocupacao, com CREATE em public e USAGE em plpgsql e nos tipos da assinatura',
+        'sem a 098 (corpo diferente: recusa)', 'com a 108: só confere (prova "108 íntegra" + integridade da 094 após a 108; nunca reaplica); 108 parcial recusa', 'current_user dono da função kidmais094_conflito_ocupacao, com CREATE em public e USAGE em plpgsql e nos tipos da assinatura',
         'inventário: nenhum par de ocupações futuras no mesmo horário em que um lado é de agenda com um salão (contra todas as ocupações do mesmo recurso; pares > 0 = recusa; decidir com Felipe)'],
       ordem: ['deploy do código com este aplicador e os SQL; conferir commit e hashes implantados', FLAG_CONFERIR,
         'backup restaurável de staging registrado (id/horário; export funcional não substitui)', 'autorização de Felipe',
@@ -212,14 +262,14 @@ function criarAplicador(amb) {
   async function conferir({env, raiz = raizPadrao, Client = require('pg').Client}) {
     const opts = amb.alvo(env);
     const db = new Client(opts); db.on?.('error', () => undefined);
-    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env)}); }
+    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env)}); }
     catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', resultado: 'FALHA', mensagem: curta(e)}; }
     finally { await db.end().catch(() => {}); }
   }
   async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
     const opts = amb.alvo(env); disco();
     assert.match(String(backup ?? ''), /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_OBRIGATORIO');
-    for (const [, arquivo, hash] of ETAPAS) lerRevisado(raiz, arquivo, hash);
+    for (const [, arquivo, hash] of [...ETAPAS, INTEGRIDADE_094_APOS_108]) lerRevisado(raiz, arquivo, hash);
     fs.mkdirSync(dir, {recursive: true, mode: 0o700});
     const marcador = path.join(dir, MARCADOR);
     const anteriores = fs.readdirSync(dir).filter(n => /^migration-100\..+\.json$/.test(n)).sort();
@@ -231,11 +281,11 @@ function criarAplicador(amb) {
     const db = new Client(opts); db.on?.('error', () => undefined);
     try {
       await db.connect();
-      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env),
+      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env),
         registrar: x => { ultimo = JSON.parse(JSON.stringify(x)); salvar({...ultimo, situacao: 'EM_ANDAMENTO'}); }});
       salvar({...r, situacao: 'CONCLUIDA', commit: commitDe(r)});
       return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, inventarioAntes: r.inventarioAntes,
-        estadoDepois: r.estadoDepois, etapas: r.etapas.map(e => e.nome), commit: commitDe(r)};
+        estadoDepois: r.estadoDepois, etapas: r.etapas.map(e => e.nome), commit: commitDe(r), ...(r.checks ? {checks: r.checks} : {})};
     } catch (e) {
       const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: curta(e)};
       const situacao = {commit: commitDe(ultimo), reconciliar: `${FLAG_CONFERIR} antes de qualquer decisão; não repetir`};
@@ -243,8 +293,12 @@ function criarAplicador(amb) {
       return {resultado: 'FALHA', marcador, falha, ...situacao};
     } finally { await db.end().catch(() => {}); }
   }
-  /** Códigos: 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar (lançada); 2 FALHA registrada; 3 conferência RECUSARIA. */
-  const CODIGO = Object.freeze({PLANO: 0, PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0, APLICADA_POSTCHECK_PASS: 0, FALHA: 2, RECUSARIA: 3});
+  /**
+   * Códigos: 0 PLANO/CONFERIDO/PASS (inclusive JA_APLICADA_SUBSTITUIDA_108: 108 íntegra, nada reaplicado); 1 recusa antes
+   * de conectar (lançada); 2 FALHA registrada; 3 conferência RECUSARIA.
+   */
+  const CODIGO = Object.freeze({PLANO: 0, PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0, APLICADA_POSTCHECK_PASS: 0, JA_APLICADA_SUBSTITUIDA_108: 0,
+    FALHA: 2, RECUSARIA: 3});
   async function principal(argv, env, deps = {}) {
     const m = modo(argv);
     if (m.modo === 'plano') return {codigo: 0, saida: plano(deps)};

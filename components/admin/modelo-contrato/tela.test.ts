@@ -290,3 +290,82 @@ test('R3: ler C e, durante a leitura, abrir A → a leitura que termina depois n
 test('P3: a tela passa TODOS os valores fixos à lista (também os que têm sugestão)', () => {
   assert.match(readFileSync('components/admin/ModeloContrato.tsx', 'utf8'), /<ListaValoresFixos valoresFixos=\{fixos\} \/>/);
 });
+
+// ── Plano UX achados Frente C (rev. 3), A3: "Lendo o contrato com IA…" só durante a leitura pela IA ─────────────────
+const LENDO = /Lendo o contrato com IA/;
+const escolherArquivo = async (t: ReturnType<typeof montar>) => {
+  (achar(t.arvore, 'input').props.onChange as (e: unknown) => void)({ target: { files: [{ name: 'c.pdf' }] } });
+  await t.atualizar();
+};
+
+test('A3: abrir rascunho, prévia e descartar não mostram "Lendo"; ler mostra e o erro desliga', async () => {
+  const t = montar();
+  await t.atualizar();
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato').responder(PAINEL);
+  await t.atualizar();
+  clicar(elementos(t.arvore).filter((e) => e.type === 'button' && texto(e) === 'Continuar revisão')[0]);
+  await t.atualizar();
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'abrir rascunho pendente: sem "Lendo"');
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato/A').responder(rascunho('A', 'a.pdf', 4));
+  await t.atualizar();
+  clicar(t.botao('Prévia em PDF'));
+  await t.atualizar();
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'prévia pendente: sem "Lendo"');
+  t.ultimo('POST', '/api/admin/configuracoes/modelo-contrato/A').responder('falhou', 500);
+  await t.atualizar();
+  clicar(t.botao('Voltar à lista'));
+  await t.atualizar();
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato').responder?.(PAINEL);
+  await t.atualizar();
+  await escolherArquivo(t);
+  clicar(achar(t.arvore, Botao, 'Ler contrato'));
+  await t.atualizar();
+  assert.match(texto(t.arvore), LENDO, 'leitura pendente: mostra "Lendo"');
+  t.ultimo('POST', '/api/admin/inteligencia/modelo-contrato').responder('A leitura falhou.', 500);
+  await t.atualizar();
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'erro na leitura desliga');
+});
+
+test('A3: "Ler de novo" no ramo "Leitura não concluída" mostra "Lendo" até a resposta', async () => {
+  const t = montar();
+  await t.atualizar();
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato').responder(PAINEL);
+  await t.atualizar();
+  clicar(elementos(t.arvore).filter((e) => e.type === 'button' && texto(e) === 'Continuar revisão')[0]);
+  await t.atualizar();
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato/A').responder({ ...rascunho('A', 'a.pdf', 4), revisao: null, avisos: ['MODELO_INESPERADO'] });
+  await t.atualizar();
+  assert.match(texto(t.arvore), /Leitura não concluída/);
+  assert.doesNotMatch(texto(t.arvore), LENDO);
+  clicar(achar(t.arvore, Botao, 'Ler de novo'));
+  await t.atualizar();
+  assert.match(texto(t.arvore), /Leitura não concluída/);
+  assert.match(texto(t.arvore), LENDO, 'reler pendente no ramo "Leitura não concluída"');
+  t.ultimo('POST', '/api/admin/inteligencia/modelo-contrato?id=A').responder({ ...rascunho('A', 'a.pdf', 5), revisao: null, avisos: ['MODELO_INESPERADO'] });
+  await t.atualizar();
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'reler concluído desliga');
+});
+
+test('A3: leitura sobreposta a abrir rascunho — "Lendo" não fica preso nem some antes da leitura acabar', async () => {
+  const t = montar();
+  await t.atualizar();
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato').responder(PAINEL);
+  await t.atualizar();
+  await escolherArquivo(t);
+  clicar(achar(t.arvore, Botao, 'Ler contrato'));
+  await t.atualizar();
+  const leitura = t.ultimo('POST', '/api/admin/inteligencia/modelo-contrato');
+  clicar(elementos(t.arvore).filter((e) => e.type === 'button' && texto(e) === 'Continuar revisão')[0]);
+  await t.atualizar();
+  // As duas pendentes, no painel: a leitura está em andamento, então "Lendo" aparece.
+  assert.match(texto(t.arvore), LENDO);
+  // A LEITURA termina primeiro e a abertura do rascunho continua pendente (a tela segue no painel e ainda ocupada):
+  // "Lendo" some já aqui, porque só a leitura o liga. Na versão antiga ele ficava enquanto houvesse qualquer operação.
+  leitura.responder('falhou', 500);
+  await t.atualizar();
+  assert.match(texto(t.arvore), /Importar o contrato da loja/, 'ainda no painel, com a abertura pendente');
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'leitura encerrada: sem "Lendo", mesmo com a abertura pendente');
+  t.ultimo('GET', '/api/admin/configuracoes/modelo-contrato/A').responder(rascunho('A', 'a.pdf', 4));
+  await t.atualizar();
+  assert.doesNotMatch(texto(t.arvore), LENDO, 'nada preso depois das duas respostas');
+});

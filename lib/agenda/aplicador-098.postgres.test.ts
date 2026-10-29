@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import pg, { type Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel, portaDescartavel, senhaRecusada } from "../comercial/postgres-descartavel.ts";
 import { cenario, id } from "../../scripts/integracao-importados-test-support.ts";
+import { dadosLegitimos108, escritasEm, modelo108 } from "../../scripts/aplicadores-108-test-support.ts";
 
 /**
  * 23/10/2026, derivado do teste do aplicador da 092–094 — o APLICADOR REAL da 098 (scripts/migration-098-staging.cjs)
@@ -30,6 +31,8 @@ import { cenario, id } from "../../scripts/integracao-importados-test-support.ts
  *   7. retrato depois → RETRATO_098 com os tipos esperados; uso legítimo (combinado A+B) → conferência JA_APLICADA pela
  *      integridade (o postcheck de instalação recusaria); nova aplicação só confere, sem escrita;
  *   8. adulteração (gatilho da 098 desligado) → retrato DIVERGENTE (tipo G) e conferência RECUSARIA; religado → passa.
+ * Plano E4 (E4-6; P3-E4-R2-1), modelo 108: COM_108 nos TRÊS modos (RETRATO, CONFERIR, APLICAR) com a 108 completa (com
+ * dados legítimos) e com evidência PARCIAL (marcador removido), antes do retrato recursivo e sem nenhum DDL/DML enviado.
  */
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const exigir = createRequire(import.meta.url);
@@ -48,7 +51,7 @@ const PAPEL = "kidmais_teste_aplicador_098", DONO = "kidmais_teste_dono_098", HE
 const INSTALA = ["precheck 098", "migration 098", "postcheck 098", "integridade 098"];
 const PRECHECK = "-- Somente leitura. Confirma a 093/094 completas";
 
-function clienteDescartavel(cfg: { papel?: string } = {}) {
+function clienteDescartavel(cfg: { papel?: string; antesDe?: (sql: string, sessao: Client) => Promise<void> } = {}) {
   return class {
     c: Client | null = null;
     on() {}
@@ -58,7 +61,10 @@ function clienteDescartavel(cfg: { papel?: string } = {}) {
       this.c.on("error", () => undefined);
       if (cfg.papel) await this.c.query(`SET ROLE ${cfg.papel}`);
     }
-    async query(sql: string) { return sql === stg.SQL_IDENTIDADE ? { rows: [IDENTIDADE] } : this.c!.query(sql); }
+    async query(sql: string) {
+      if (cfg.antesDe) await cfg.antesDe(sql, this.c!);
+      return sql === stg.SQL_IDENTIDADE ? { rows: [IDENTIDADE] } : this.c!.query(sql);
+    }
     async end() { if (this.c) await this.c.end(); }
   };
 }
@@ -93,20 +99,25 @@ const tiposEsperados = (e: string) => Object.fromEntries(Object.entries(RETRATOS
  * espera de transações anteriores), outra sessão segura contratos em SHARE (não bloqueia leitura; bloqueia o CREATE
  * TRIGGER da 098). Devolve a execução, a sessão que segura e o pid do aplicador.
  */
-async function aplicarComContratosPresos(c: Client, executar: () => Promise<Resultado>) {
-  const execucao = executar();
+async function aplicarComContratosPresos(c: Client, executar: (Cliente: ReturnType<typeof clienteDescartavel>) => Promise<Resultado>) {
+  // Determinístico (cluster E4, 29/10/2026: a sondagem de pg_stat_activity perdia o precheck ou travava tarde demais em
+  // 3 de 9 rodadas): o cliente do aplicador avisa ANTES de enviar o precheck; a outra sessão trava contratos ali.
+  let segura: Client | null = null;
+  let aplicador: number | null = null;
+  const Cliente = clienteDescartavel({ antesDe: async (sql, sessao) => {
+    if (segura || !sql.startsWith(PRECHECK)) return;
+    aplicador = (await sessao.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+    const s = await conectarDescartavel({ travar: false });
+    await s.query("BEGIN"); await s.query("LOCK TABLE contratos IN SHARE MODE");
+    segura = s;
+  } });
+  const execucao = executar(Cliente);
   let terminou: Resultado | null = null;
   void execucao.then((r) => { terminou = r; });
-  let aplicador: number | null = null;
-  for (let i = 0; i < 400 && aplicador === null && terminou === null; i++) {
-    aplicador = (await c.query<{ pid: number }>(`SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND state = 'active'
-      AND left(query, ${PRECHECK.length}) = $1 LIMIT 1`, [PRECHECK])).rows[0]?.pid ?? null;
-    if (aplicador === null) await new Promise((r) => setTimeout(r, 10));
-  }
-  assert.ok(aplicador, "precheck do aplicador visto; terminou antes com: " + JSON.stringify(terminou));
-  const segura = await conectarDescartavel({ travar: false });
-  await segura.query("BEGIN"); await segura.query("LOCK TABLE contratos IN SHARE MODE");
-  return { execucao, segura, aplicador, terminou: () => terminou };
+  for (const limite = Date.now() + 60_000; Date.now() < limite && segura === null && terminou === null;) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(segura && aplicador, "precheck do aplicador alcançado; terminou antes com: " + JSON.stringify(terminou));
+  assert.ok(c, "sessão de observação");
+  return { execucao, segura: segura as Client, aplicador: aplicador as number, terminou: () => terminou };
 }
 
 test("aplicador 098 real no modelo 097: retrato, papéis, parcial, divergência, falhas reais (desfeita e indeterminada), retomada, uso legítimo, adulteração", { timeout: 300_000 }, async (t) => {
@@ -119,6 +130,7 @@ test("aplicador 098 real no modelo 097: retrato, papéis, parcial, divergência,
   const conferir = (papel?: string) => stg.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel({ papel }) });
   const retratar = () => stg.retratar({ env: ENV_STG, raiz, Client: clienteDescartavel() });
   try {
+    if (await modelo108(c)) { t.skip("modelo 108: coberto pelo teste COM_108 abaixo"); return; }
     assert.equal(await instalada(c), false, "modelo 097: 098 ausente");
     // 1. Retrato somente leitura e conferência.
     const r0 = await retratar();
@@ -243,7 +255,7 @@ test("aplicador 098 real no modelo 097: retrato, papéis, parcial, divergência,
     // 4. Erro REAL dentro da 098: contratos presos em SHARE depois do precheck; o CREATE TRIGGER espera o lock_timeout
     //    de 5 s e o servidor desfaz a transação inteira do arquivo (55P03 → DESFEITA_PELO_SERVIDOR).
     const dirFalha = novoDir();
-    const p4 = await aplicarComContratosPresos(c, () => executar(dirFalha));
+    const p4 = await aplicarComContratosPresos(c, (Cliente) => stg.executar({ env: ENV_STG, backup: BACKUP, dir: dirFalha, raiz, disco: () => {}, Client: Cliente }));
     let falha: Resultado;
     try { falha = await p4.execucao; } finally { await p4.segura.query("ROLLBACK").catch(() => {}); await p4.segura.end(); }
     assert.equal(falha.resultado, "FALHA", JSON.stringify(falha)); assert.equal(falha.falha!.etapa, "migration 098");
@@ -254,7 +266,7 @@ test("aplicador 098 real no modelo 097: retrato, papéis, parcial, divergência,
 
     // 5. Conexão do aplicador DERRUBADA enquanto a 098 espera o lock de contratos → sem resposta: INDETERMINADO.
     renameSync(join(dirFalha, "migration-098.json"), join(dirFalha, "migration-098.2026-10-23T18-00Z.json"));
-    const p5 = await aplicarComContratosPresos(c, () => executar(dirFalha));
+    const p5 = await aplicarComContratosPresos(c, (Cliente) => stg.executar({ env: ENV_STG, backup: BACKUP, dir: dirFalha, raiz, disco: () => {}, Client: Cliente }));
     let derrubada: Resultado;
     try {
       const pidSegura = (await p5.segura.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
@@ -316,6 +328,54 @@ test("aplicador 098 real no modelo 097: retrato, papéis, parcial, divergência,
       assert.equal(adc.resultado, "RECUSARIA"); assert.match(adc.motivo!, /RETRATO_DIVERGENTE esperado 098/);
     } finally { await c.query("ALTER TABLE agenda_saloes ENABLE TRIGGER agenda_saloes_098_guarda_trg"); }
     assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS");
+  } finally {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    await encerrarDescartavel(c);
+  }
+});
+
+function clienteRegistrado(registro: string[]) {
+  return class {
+    c: Client | null = null;
+    on() {}
+    async connect() { this.c = await conectarDescartavel({ travar: false }); this.c.on("error", () => undefined); }
+    async query(sql: string) { registro.push(sql); return sql === stg.SQL_IDENTIDADE ? { rows: [IDENTIDADE] } : this.c!.query(sql); }
+    async end() { if (this.c) await this.c.end(); }
+  };
+}
+
+test("aplicador 098 no modelo 108: COM_108 em RETRATO, CONFERIR e APLICAR (108 completa com dados legítimos e evidência parcial), sem retrato nem DDL/DML", { timeout: 900_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  const dirs: string[] = [];
+  const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-098-108-")); dirs.push(d); return d; };
+  const tresModos = async (motivo: string) => {
+    const registro: string[] = [];
+    const r = await stg.retratar({ env: ENV_STG, raiz, Client: clienteRegistrado(registro) });
+    assert.equal(r.resultado, "RECUSARIA", JSON.stringify(r)); assert.equal(r.motivo, motivo); assert.equal(r.retrato, undefined);
+    const k = await stg.conferir({ env: ENV_STG, raiz, Client: clienteRegistrado(registro) });
+    assert.equal(k.resultado, "RECUSARIA", JSON.stringify(k)); assert.equal(k.motivo, motivo); assert.equal(k.estado, undefined);
+    const a = await stg.executar({ env: ENV_STG, backup: "PITR 2026-10-29T12:00Z teste", dir: novoDir(), raiz, disco: () => {}, Client: clienteRegistrado(registro) });
+    assert.equal(a.resultado, "FALHA", JSON.stringify(a)); assert.equal(a.falha!.mensagem, motivo); assert.equal(a.commit, null);
+    assert.ok(registro.length > 0, "o aplicador consultou o banco");
+    assert.ok(!registro.some((q) => q.startsWith("/* retrato-098 */") || q.includes("098 precheck") || q.startsWith("/* preservacao-098 */")), "nem retrato, nem precheck, nem dados");
+    assert.deepEqual(escritasEm(registro), [], "nenhuma instrução de escrita enviada ao banco");
+  };
+  try {
+    if (!(await modelo108(c))) { t.skip("só no modelo 108"); return; }
+    await dadosLegitimos108(c);
+    // Só o que a 098 nunca produz conta (funções kidmais098_* e corpos de contrato/revisão são idênticos na 098 e na 108).
+    await tresModos("COM_108 marcador_108 corpo_conflito_108 reparos_107");
+    // Evidência parcial: sem o marcador, a regra de conflito da 108 e o registro da 107 continuam recusando.
+    const marcador = (await c.query<{ def: string; dono: string }>(`SELECT pg_get_functiondef(p.oid) AS def, pg_get_userbyid(p.proowner) AS dono
+      FROM pg_proc p WHERE p.oid = 'public.kidmais108_instalada()'::regprocedure`)).rows[0];
+    await c.query("DROP FUNCTION public.kidmais108_instalada()");
+    try { await tresModos("COM_108 corpo_conflito_108 reparos_107"); }
+    finally {
+      await c.query(marcador.def);
+      await c.query(`ALTER FUNCTION public.kidmais108_instalada() OWNER TO "${marcador.dono.replace(/"/g, '""')}"`);
+    }
+    assert.equal(await modelo108(c), true, "marcador restaurado");
   } finally {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     await encerrarDescartavel(c);

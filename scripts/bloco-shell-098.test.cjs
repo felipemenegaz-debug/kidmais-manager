@@ -39,7 +39,8 @@ const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('arquivos conferidos: aplicador de staging, núcleo, conexão de staging, o retrato e os 4 SQL revisados; só staging', () => {
-  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-098-staging.cjs', 'scripts/migration-098-comum.cjs', 'scripts/conexao-staging.cjs', ...REVISADOS.map(e => e[1])]);
+  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-098-staging.cjs', 'scripts/migration-098-comum.cjs', 'scripts/migration-108-evidencias.cjs',
+    'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/conexao-staging.cjs', ...REVISADOS.map(e => e[1])]);
   assert.deepEqual(Object.keys(b.AMBIENTES), ['staging']);
   for (const [, a, h] of REVISADOS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src');

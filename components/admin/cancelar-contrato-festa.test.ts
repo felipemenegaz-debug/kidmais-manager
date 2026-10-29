@@ -4,6 +4,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './
 import * as contratoUrl from './contrato-url.ts';
 import * as contratoTela from './contrato-tela.ts';
 import * as versaoReferencia from '../../lib/contratos/versao-referencia.ts';
+import * as fonteDocumento from '../../lib/contratos/documento/fonte.ts';
 
 test('cancelamento na tela do contrato exige permissão, motivo e confirmação; retry usa mesma chave', async () => {
   for (const permitido of [false, true]) {
@@ -54,7 +55,8 @@ test('contrato importado com V2 aberta: cancelamento fica só no menu "Mais", ab
         '@/lib/http/admin-fetch': { adminFetch: async (url: string) => Response.json({ ok: true, data: url.includes('contratoId=') ? dados : [] }) },
         '@/lib/contratos/services/alteracoes': { analisarRevisao: () => null },
         '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => true },
-        '../../lib/contratos/documento/oficial/configuracao': { configuracaoModeloOficial: () => true },
+        // Aviso da fonte do PDF (plano UX achados Frente C): função real; o botão principal recebe a classe visual.
+        '../../lib/contratos/documento/fonte': fonteDocumento, './AdminPrimaryButton': { classePrimaria: 'primario' },
         '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
         '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
         './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Cancelar },

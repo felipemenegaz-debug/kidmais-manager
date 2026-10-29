@@ -42,8 +42,8 @@ test('arquivos conferidos: aplicador de staging, os dois núcleos (105 e 092–0
   assert.deepEqual(ETAPAS.map(e => e[0]), ['precheck 105', 'migration 105', 'postcheck 105', 'integridade 105']);
   for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);
-  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging'], 'produção fica fora deste aplicador');
-  assert.throws(() => b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: '9ea280a'}), /AMBIENTE_DESCONHECIDO/);
+  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging', 'production'], 'produção tem a suíte própria (bloco-shell-105-production.test.cjs)');
+  assert.throws(() => b.gerar({ambiente: 'homologacao', modo: 'CONFERIR', rotulo: '9ea280a'}), /AMBIENTE_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'LIMPEZA', rotulo: '9ea280a'}), /MODO_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: 'abc; rm -rf /'}), /ROTULO_INVALIDO/);
 });

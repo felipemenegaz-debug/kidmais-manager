@@ -5,7 +5,7 @@
 // operador precisa sobreviver e ler o código. Não toca banco nem /opt/render.
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {spawnSync} = require('node:child_process'), {createHash} = require('node:crypto');
-const b = require('./bloco-shell-092-094.cjs'), {ETAPAS, INTEGRIDADE_094_APOS_100} = require('./migration-092-094-comum.cjs');
+const b = require('./bloco-shell-092-094.cjs'), {ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108} = require('./migration-092-094-comum.cjs');
 const root = path.resolve(__dirname, '..');
 const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n');
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -37,9 +37,11 @@ const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('arquivos conferidos: aplicador de staging, núcleo, conexão de staging, os 12 SQL revisados e a integridade da 094 após a 100; só staging', () => {
-  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-092-094-staging.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs',
-    ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_100[1]]);
-  for (const [, a, h] of [...ETAPAS, INTEGRIDADE_094_APOS_100]) assert.equal(sha(lf(a)), h, a);
+  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-092-094-staging.cjs', 'scripts/migration-092-094-comum.cjs',
+    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+    'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs',
+    ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_100[1], INTEGRIDADE_094_APOS_108[1]]);
+  for (const [, a, h] of [...ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108]) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);
   assert.deepEqual(Object.keys(b.AMBIENTES), ['staging'], 'produção fica fora deste aplicador');
   assert.throws(() => b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);
