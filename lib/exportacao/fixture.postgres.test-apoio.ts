@@ -28,6 +28,8 @@ export const RETRATO_102 = "lib/exportacao/colunas-esperadas-102.json";
  * (agenda_saloes.combinado e membros, no fim: ordinal depois das colunas da 102). 105 e 107 só criam tabelas fora do escopo.
  */
 export const RETRATO_108 = "lib/exportacao/colunas-esperadas-108.json";
+// B-9 production (29/10/2026): a 109 acrescenta assinatura_renovacoes.substitui_id (cadeia da renovação substituta).
+export const RETRATO_109 = "lib/exportacao/colunas-esperadas-109.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {

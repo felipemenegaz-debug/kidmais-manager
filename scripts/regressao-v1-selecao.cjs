@@ -225,7 +225,13 @@ const ESTADO_POSTGRES = {
   // 25/10/2026: situação atual do benefício Fundador (leitura para Gestão e desenvolvedor), 096 e 090 aplicadas pela suíte sobre o modelo 089.
   "lib/assinatura/beneficio-fundador.postgres.test.ts": { descartavel: "089" },
   // 25/10/2026: B-9 — entrada agendada da renovação Fundador (processo filho, repositório real 074a/075, provedor e e-mail falsos), modelo 097.
-  "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097" },
+  // B-9 production (29/10/2026, plano rev. 5): o cron também no modelo 109 (capacidade 109, janela perdida → sucessor → aviso → PUT).
+  "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097", tambem: ["109"] },
+  // 109 (renovação substituta): guarda, repositório e rollback; detector do retrato nas duas versões (108 = 075 íntegra, a suíte
+  // aplica a 109); concorrência com a trava real, a de linha e sem serialização.
+  "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
+  "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
+  "lib/assinatura/renovacao-109-concorrencia.postgres.test.ts": { descartavel: "109" },
   // B-14 (27/10/2026): fotografia, idempotência por fotografia nos estados estáveis, proposta/aplicação de caso e validade
   // pela data do pagamento; modelo 097 (inclui os créditos 095).
   // Revisão do HB-3 r4 (P2): estados estáveis da §3.3.1 também em cada prefixo e no PH do staging (combinações aplicáveis;
@@ -253,7 +259,7 @@ const ESTADO_POSTGRES = {
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
   // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
   // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108"] },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },

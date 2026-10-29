@@ -1,5 +1,5 @@
 import type { DbExecutor } from '../db/contracts';
-import type { ContextoRenovacao, RegistroRenovacao, RepositorioRenovacao } from './renovacao-fundador.ts';
+import type { CapacidadeRenovacao, ContextoRenovacao, RegistroRenovacao, RepositorioRenovacao } from './renovacao-fundador.ts';
 import { AVISO_FUNDADOR_DIAS } from './renovacao-fundador.ts';
 
 type Transacao = <T>(f: (tx: DbExecutor) => Promise<T>) => Promise<T>;
@@ -8,13 +8,19 @@ const CAMPOS = `id, empresa_id AS "empresaId", contratacao_id AS "contratacaoId"
     primeiro_vencimento::text AS "primeiroVencimento", primeira_data_regular::text AS "primeiraDataRegular", mensagem, estado,
     ${ISO('aviso_tentado_em')} AS "avisoTentadoEm", ${ISO('aviso_enviado_em')} AS "avisoEnviadoEm",
     ${ISO('preco_aplicado_em')} AS "precoAplicadoEm", ultimo_erro AS "ultimoErro"`;
+/** 109: a projeção do vínculo só depois da classificação do schema; com a 075 a coluna nunca é citada. */
+const camposDe = (capacidade: CapacidadeRenovacao) => capacidade === '109' ? `${CAMPOS}, (substitui_id IS NOT NULL) AS substituto` : CAMPOS;
+/** Registro vigente: comparação de texto válida nos dois schemas (075 nunca tem SUBSTITUIDA). */
+const VIGENTE = "estado <> 'SUBSTITUIDA'";
 
 export async function renovacaoInstalada(tx: DbExecutor) {
     return (await tx.query<{ instalada075: boolean }>("SELECT to_regclass('public.assinatura_renovacoes') IS NOT NULL AS instalada075")).rows[0]?.instalada075 === true;
 }
 
-export function repositorioRenovacao(withTransaction: Transacao): RepositorioRenovacao {
-    return {
+export function repositorioRenovacao(withTransaction: Transacao, opcoes: { capacidade?: CapacidadeRenovacao } = {}): RepositorioRenovacao {
+    const capacidade = opcoes.capacidade ?? '075';
+    const campos = camposDe(capacidade);
+    const repo: RepositorioRenovacao = {
         ler: empresaId => withTransaction(async tx => {
             if (!await renovacaoInstalada(tx)) return null;
             const c = (await tx.query<Omit<ContextoRenovacao,'registro'>>(`SELECT a.empresa_id AS "empresaId", c.id AS "contratacaoId",
@@ -31,15 +37,26 @@ export function repositorioRenovacao(withTransaction: Transacao): RepositorioRen
                 JOIN usuarios_administrativos u ON u.id = c.criada_por
                 WHERE a.empresa_id = $1::uuid AND c.estado = 'CONFIRMADA' AND f.estado = 'CONFIRMADA'`, [empresaId])).rows[0];
             if (!c) return null;
-            const registro = (await tx.query<RegistroRenovacao>(`SELECT ${CAMPOS} FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND contratacao_id = $2::uuid`, [empresaId,c.contratacaoId])).rows[0] ?? null;
+            const registro = (await tx.query<RegistroRenovacao>(`SELECT ${campos} FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND contratacao_id = $2::uuid AND ${VIGENTE}`, [empresaId,c.contratacaoId])).rows[0] ?? null;
             return { ...c, registro };
         }),
+        /**
+         * R2-F1 (plano rev. 5 §2.6): lê o vigente ANTES de inserir, sob a trava de linha da empresa (espera). Histórico sem
+         * vigente nunca ganha raiz nova. Só sem linha alguma: INSERT com ON CONFLICT sem alvo (UNIQUE da 075 ou índice parcial
+         * da 109). Sem nenhuma serialização, a 109 pode recusar a raiz paralela com exceção (interleaving b): segurança, não
+         * idempotência.
+         */
         criar: r => withTransaction(async tx => {
             await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE', [r.empresaId]);
+            const vigente = async () => (await tx.query<RegistroRenovacao>(`SELECT ${campos} FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND contratacao_id = $2::uuid AND ${VIGENTE}`, [r.empresaId,r.contratacaoId])).rows[0];
+            const existente = await vigente();
+            if (existente) return existente;
+            const historico = (await tx.query<{ n: number }>('SELECT count(*)::int AS n FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND contratacao_id = $2::uuid', [r.empresaId,r.contratacaoId])).rows[0]?.n ?? 0;
+            if (historico > 0) throw new Error('HISTORICO_SEM_VIGENTE');
             await tx.query(`INSERT INTO assinatura_renovacoes (id,empresa_id,contratacao_id,destinatario_id,primeiro_vencimento,primeira_data_regular,aviso_dias,mensagem)
-                VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,$6::date,$7,$8::jsonb) ON CONFLICT (contratacao_id) DO NOTHING`,
+                VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,$6::date,$7,$8::jsonb) ON CONFLICT DO NOTHING`,
                 [r.id,r.empresaId,r.contratacaoId,r.destinatarioId,r.primeiroVencimento,r.primeiraDataRegular,AVISO_FUNDADOR_DIAS,JSON.stringify(r.mensagem)]);
-            const row = (await tx.query<RegistroRenovacao>(`SELECT ${CAMPOS} FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND contratacao_id = $2::uuid`, [r.empresaId,r.contratacaoId])).rows[0];
+            const row = await vigente();
             if (!row) throw new Error('Registro de renovação não persistido.');
             return row;
         }),
@@ -54,6 +71,29 @@ export function repositorioRenovacao(withTransaction: Transacao): RepositorioRen
             if (r.rowCount !== 1) throw new Error('Registro de renovação não encontrado.');
         }),
     };
+    if (capacidade === '109') repo.substituir = (empresaId, anterior, sucessor) => withTransaction(tx => substituirRenovacao(tx, empresaId, anterior, sucessor));
+    return repo;
+}
+
+/**
+ * 109: predecessor PENDENTE sem tentativa → SUBSTITUIDA e INSERT do sucessor, na MESMA transação (o gatilho diferido exige o
+ * sucessor no COMMIT). UPDATE condicional com rowCount conferido; zero linhas lança SUBSTITUICAO_RECUSADA antes do INSERT.
+ * Exportada para a prova da fronteira (controle × mutante) sem a conversão do resultado.
+ */
+export async function substituirRenovacao(tx: DbExecutor, empresaId: string, anterior: RegistroRenovacao, sucessor: RegistroRenovacao) {
+    await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId]);
+    await tx.query('SELECT id FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE', [empresaId, anterior.id]);
+    const u = await tx.query(`UPDATE assinatura_renovacoes SET estado = 'SUBSTITUIDA'
+        WHERE empresa_id = $1::uuid AND id = $2::uuid AND contratacao_id = $3::uuid AND estado = 'PENDENTE' AND aviso_tentado_em IS NULL`,
+        [empresaId, anterior.id, anterior.contratacaoId]);
+    if (u.rowCount !== 1) throw new Error('SUBSTITUICAO_RECUSADA');
+    await tx.query(`INSERT INTO assinatura_renovacoes (id,empresa_id,contratacao_id,destinatario_id,primeiro_vencimento,primeira_data_regular,aviso_dias,mensagem,substitui_id)
+        VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,$6::date,$7,$8::jsonb,$9::uuid)`,
+        [sucessor.id, empresaId, anterior.contratacaoId, sucessor.destinatarioId, anterior.primeiroVencimento, sucessor.primeiraDataRegular,
+            AVISO_FUNDADOR_DIAS, JSON.stringify(sucessor.mensagem), anterior.id]);
+    const row = (await tx.query<RegistroRenovacao>(`SELECT ${camposDe('109')} FROM assinatura_renovacoes WHERE empresa_id = $1::uuid AND id = $2::uuid`, [empresaId, sucessor.id])).rows[0];
+    if (!row) throw new Error('Sucessor da renovação não persistido.');
+    return row;
 }
 
 /** DTO da tela: nunca expõe destinatário, mensagem completa ou erro interno. */
@@ -64,7 +104,7 @@ export async function consultarRenovacao(tx: DbExecutor, empresaId: string) {
         (r.aviso_enviado_em IS NOT NULL) AS "avisoEnviado" FROM assinatura_renovacoes r
         JOIN empresa_assinaturas a ON a.empresa_id = r.empresa_id AND a.contratacao_atual_id = r.contratacao_id
         JOIN assinatura_contratacoes c ON c.id = r.contratacao_id AND c.empresa_id = r.empresa_id
-        WHERE r.empresa_id = $1::uuid`, [empresaId])).rows[0] ?? null;
+        WHERE r.empresa_id = $1::uuid AND r.${VIGENTE}`, [empresaId])).rows[0] ?? null;
 }
 
 export async function empresasParaRenovacao(tx: DbExecutor) {

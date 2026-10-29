@@ -60,6 +60,12 @@ async function verificar(env, argv = [], criarCliente) {
             resultado.schemaEstrutural = !!schema && schema.renovacoes === true && schema.contratacoes === true
                 && schema.fundadores === true && schema.guardas === 2;
             if (!resultado.schemaEstrutural) resultado.bloqueios.push('SCHEMA_ESTRUTURAL_INCOMPLETO');
+            // B-9 production (plano rev. 5 §2.6): o MESMO contrato da capacidade do cron (retrato completo, 075 ou 109). Só o
+            // código da capacidade e os nomes divergentes saem; nenhuma definição.
+            const { capacidadeRenovacao } = await import('../lib/assinatura/renovacao-schema.ts');
+            const cap = await capacidadeRenovacao(client);
+            resultado.capacidadeRenovacao = cap.capacidade;
+            if (cap.capacidade === 'INCOMPATIVEL') { resultado.divergenciasRenovacao = cap.divergencias; resultado.bloqueios.push('SCHEMA_RENOVACAO_INCOMPATIVEL'); }
         } finally {
             await client.query('ROLLBACK').catch(() => {});
             await client.end();
@@ -69,11 +75,17 @@ async function verificar(env, argv = [], criarCliente) {
     return resultado;
 }
 
+/** Código de saída: schema da renovação INCOMPATIVEL é recusa estrutural (1, como cron, manual e restrita); outras pendências, 2. */
+function codigoDeSaida(r) {
+    if (r.capacidadeRenovacao === 'INCOMPATIVEL') return 1;
+    return r.bloqueios.length ? 2 : 0;
+}
+
 if (require.main === module) verificar(process.env, process.argv.slice(2)).then(r => {
     console.log(JSON.stringify(r));
-    if (r.bloqueios.length) process.exitCode = 2;
+    process.exitCode = codigoDeSaida(r);
 }).catch(() => {
     console.error(JSON.stringify({ resultado: 'DIAGNOSTICO_RECUSADO', detalhesSensíveisOmitidos: true }));
     process.exitCode = 1;
 });
-module.exports = { argumentos, configuracao, verificar, SCHEMA_SQL };
+module.exports = { argumentos, configuracao, verificar, codigoDeSaida, SCHEMA_SQL };

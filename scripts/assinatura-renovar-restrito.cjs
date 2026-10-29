@@ -174,7 +174,11 @@ async function main() {
         const { ehFixtureHomologacao } = await import('../lib/assinatura/renovacao-operacao.ts');
         const linhas = (await pool.query('SELECT id::text AS id, codigo, nome FROM empresas WHERE id = ANY($1::uuid[])', [cfg.empresas])).rows;
         conferirAgoraSomenteFixtures(cfg, linhas, ehFixtureHomologacao);
-        const repositorio = repositorioRenovacao(transacao);
+        // B-9 production (plano rev. 5 §2.6): mesma capacidade do cron; schema incompatível recusa antes de processar.
+        const { capacidadeRenovacao } = await import('../lib/assinatura/renovacao-schema.ts');
+        const cap = await transacao(capacidadeRenovacao);
+        if (cap.capacidade === 'INCOMPATIVEL') throw new Error('SCHEMA_RENOVACAO_INCOMPATIVEL');
+        const repositorio = repositorioRenovacao(transacao, { capacidade: cap.capacidade });
         const relatorio = {};
         const deps = { repositorio, provedor: provedorDaExecucao(criarClienteAsaas(config.config), cfg.aplicar, relatorio),
             enviar: cfg.aplicar ? criarEnviarEmail(process.env) : async () => { throw new Error('Envio proibido na simulação.'); },

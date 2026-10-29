@@ -113,6 +113,8 @@ const MODELOS = {
   // 108 = salões combinados rebaseados. A 098 histórica fica FORA da cadeia nova (nunca aplicada em staging/produção).
   "107": { banco: "kidmais_v1_modelo_107", ate: "107", sem: ["098"] },
   "108": { banco: "kidmais_v1_modelo_108", ate: "108", sem: ["098"] },
+  // B-9 production (29/10/2026, plano rev. 5): renovação substituta (109) sobre o estado da 108.
+  "109": { banco: "kidmais_v1_modelo_109", ate: "109", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a
