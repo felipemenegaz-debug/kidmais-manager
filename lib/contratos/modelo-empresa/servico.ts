@@ -3,7 +3,9 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import type { ArquivoValidado } from "../../importacao-contrato/arquivo.ts";
 import { PacoteAdminError } from "../../comercial/pacotes-admin.ts";
 import { gerarPdfContratoOficial } from "../documento/oficial/pdf.ts";
+import { CAMPOS_OBRIGATORIOS, REGRA_OBRIGATORIOS } from "./campos.ts";
 import { conteudoModeloSchema, problemasDoConteudo, type ConteudoModelo } from "./conteudo.ts";
+import { aplicarContratada, contratadaEfetiva, type ContratadaConferida } from "./contratada.ts";
 import { SNAPSHOT_EXEMPLO } from "./exemplo.ts";
 import type { LeituraContrato } from "./leitura.ts";
 import { renderizarModeloEmpresa } from "./renderizar.ts";
@@ -23,7 +25,8 @@ function recusar(codigo: string, mensagem: string, status: number): never {
 }
 
 export type ResultadoLeituraContrato = { ok: true; leitura: LeituraContrato; modelo: string; provedor: string } | { ok: false; aviso: string };
-export type RevisaoModelo = { conteudo: ConteudoModelo; avisos: string[] };
+/** envioId: UUID de cada clique em Salvar (opcional; clientes antigos não mandam), gravado com a versão para a tela conferir se o envio chegou. */
+export type RevisaoModelo = { conteudo: ConteudoModelo; avisos: string[]; envioId?: string };
 
 export async function migration072Aplicada(tx: DbExecutor) {
   const r = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.modelos_contrato_empresa') IS NOT NULL AS ok`);
@@ -126,7 +129,7 @@ export async function salvarRevisaoContrato(tx: DbExecutor, ctx: Contexto, id: s
     `UPDATE importacoes_comerciais SET revisao = $4::jsonb, versao = versao + 1
       WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = 'MODELO_CONTRATO' AND versao = $3 AND situacao = 'RASCUNHO'
       RETURNING ${COLUNAS}`,
-    [id, ctx.empresaId, versao, JSON.stringify({ conteudo, avisos: revisao.avisos })],
+    [id, ctx.empresaId, versao, JSON.stringify({ conteudo, avisos: revisao.avisos, ...(revisao.envioId ? { envioId: revisao.envioId } : {}) })],
   );
   if (!r.rows[0]) {
     await lerImportacaoContrato(tx, ctx.empresaId, id);
@@ -135,8 +138,11 @@ export async function salvarRevisaoContrato(tx: DbExecutor, ctx: Contexto, id: s
   return resumo(r.rows[0]);
 }
 
-/** PDF de prévia com dados fictícios, no mesmo gerador do contrato real. Não grava nada. */
-export function previaModeloContrato(conteudo: ConteudoModelo) {
+/**
+ * PDF de prévia com dados fictícios, no mesmo gerador do contrato real. Não grava nada. Quem chama já compôs a
+ * contratada (Gestão) ou usa o bloco do modelo (sem Gestão: aviso "sem os dados do perfil").
+ */
+export function previaModeloContrato(conteudo: ConteudoModelo, opcoes: { semPerfil?: boolean } = {}) {
   const valido = conteudoModeloSchema.parse(conteudo);
   const problemas = problemasDoConteudo(valido);
   if (problemas.some((p) => p.includes("não existe"))) recusar("CAMPO_DESCONHECIDO", problemas.join(" "), 409);
@@ -144,7 +150,9 @@ export function previaModeloContrato(conteudo: ConteudoModelo) {
     { id: "00000000-0000-4000-8000-000000000000", versao: 1, conteudo: valido },
     { snapshot: SNAPSHOT_EXEMPLO, numeroVersao: 1, snapshotHash: "0".repeat(64), geradoEm: new Date().toISOString() },
   );
-  documento.avisoHomologacao = "PRÉVIA COM DADOS FICTÍCIOS — sem valor contratual.";
+  documento.avisoHomologacao = opcoes.semPerfil
+    ? "PRÉVIA COM DADOS FICTÍCIOS E SEM OS DADOS DO PERFIL — sem valor contratual."
+    : "PRÉVIA COM DADOS FICTÍCIOS — sem valor contratual.";
   return gerarPdfContratoOficial(documento, { logo: false });
 }
 
@@ -159,10 +167,13 @@ export async function descartarImportacaoContrato(tx: DbExecutor, ctx: Contexto,
 }
 
 /**
- * Publica o rascunho como nova versão ATIVA. Exige: versão da revisão atual, nenhum problema no conteúdo e a
- * confirmação explícita de quem gere a empresa ("revisei o texto jurídico"). Tudo numa transação.
+ * Publica o rascunho como nova versão ATIVA. Exige: versão da revisão atual, nenhum problema no conteúdo, a
+ * confirmação explícita de quem gere a empresa ("revisei o texto jurídico") e a contratada que a pessoa conferiu
+ * (origem, versão do perfil e impressão): recomposta depois da trava; diferente → CONTRATADA_MUDOU. Tudo numa transação.
  */
-export async function publicarModeloContrato(tx: DbExecutor, ctx: Contexto, id: string, versao: number, aprovacao: { revisadoPorPessoa: true }) {
+export async function publicarModeloContrato(
+  tx: DbExecutor, ctx: Contexto, id: string, versao: number, aprovacao: { revisadoPorPessoa: true }, conferida: ContratadaConferida,
+) {
   await exigir072(tx);
   if (aprovacao.revisadoPorPessoa !== true) recusar("APROVACAO_OBRIGATORIA", "Confirme que revisou o texto do contrato antes de publicar.", 409);
   const imp = await tx.query<{ revisao: RevisaoModelo | null; versao: number; situacao: string }>(
@@ -176,18 +187,27 @@ export async function publicarModeloContrato(tx: DbExecutor, ctx: Contexto, id: 
   const conteudo = conteudoModeloSchema.parse(l.revisao.conteudo);
   const problemas = problemasDoConteudo(conteudo);
   if (problemas.length) recusar("MODELO_INCOMPLETO", problemas.slice(0, 4).join(" "), 409);
-  // Prova que o modelo renderiza com um snapshot completo antes de publicar.
-  previaModeloContrato(conteudo);
   await tx.query(`SELECT pg_advisory_xact_lock(hashtext('kidmais-072-modelo-contrato'), hashtext($1))`, [ctx.empresaId]);
+  // Contratada recomposta sob a trava, a partir do perfil aplicado agora; nunca se publica o que não foi visto.
+  const efetiva = await contratadaEfetiva(tx, ctx.empresaId, conteudo);
+  if (efetiva.estado === "ERRO") recusar("PERFIL_INDISPONIVEL", efetiva.erro, 409);
+  if (efetiva.origem !== conferida.origem || efetiva.perfilVersao !== conferida.perfilVersao || efetiva.sha256 !== conferida.sha256)
+    recusar("CONTRATADA_MUDOU", "Os dados da empresa mudaram desde a prévia. Confira e publique de novo.", 409);
+  // O conteúdo FINAL (com a contratada efetiva) passa de novo pelo schema e pela prova de renderização antes do hash.
+  const final = conteudoModeloSchema.parse(aplicarContratada(conteudo, efetiva));
+  const problemasFinal = problemasDoConteudo(final);
+  if (problemasFinal.length) recusar("MODELO_INCOMPLETO", problemasFinal.slice(0, 4).join(" "), 409);
+  previaModeloContrato(final);
   const anterior = await tx.query<{ id: string; versao: number }>(
     `SELECT id::text AS id, versao FROM modelos_contrato_empresa WHERE empresa_id = $1::uuid ORDER BY versao DESC LIMIT 1`, [ctx.empresaId]);
   const proxima = Number(anterior.rows[0]?.versao ?? 0) + 1;
   await tx.query(`UPDATE modelos_contrato_empresa SET situacao = 'SUBSTITUIDO', substituido_em = clock_timestamp() WHERE empresa_id = $1::uuid AND situacao = 'ATIVO'`, [ctx.empresaId]);
-  const json = JSON.stringify(conteudo);
+  const json = JSON.stringify(final);
+  const conteudoSha256 = createHash("sha256").update(json).digest("hex");
   const novo = await tx.query<{ id: string }>(
     `INSERT INTO modelos_contrato_empresa (empresa_id, versao, conteudo, conteudo_sha256, importacao_id, aprovado_por)
      VALUES ($1::uuid, $2, $3::jsonb, $4, $5::uuid, $6::uuid) RETURNING id::text AS id`,
-    [ctx.empresaId, proxima, json, createHash("sha256").update(json).digest("hex"), id, ctx.usuarioId],
+    [ctx.empresaId, proxima, json, conteudoSha256, id, ctx.usuarioId],
   );
   await tx.query(
     `UPDATE importacoes_comerciais SET situacao = 'PUBLICADA', publicado_em = clock_timestamp(), publicado_por = $3::uuid, resultado = $4::jsonb
@@ -198,7 +218,11 @@ export async function publicarModeloContrato(tx: DbExecutor, ctx: Contexto, id: 
     `INSERT INTO auditoria (ator_tipo, usuario_id, acao, entidade_tipo, entidade_id, dados_antes, dados_depois, justificativa, origem, request_id)
      VALUES ('USUARIO', $1::uuid, 'MODELO_CONTRATO_PUBLICADO', 'MODELO_CONTRATO', $2::uuid, $3::jsonb, $4::jsonb, 'Modelo de contrato da empresa revisado e aprovado', 'COMERCIAL', $5::uuid)`,
     [ctx.usuarioId, novo.rows[0].id, JSON.stringify({ empresaId: ctx.empresaId, versaoAnterior: anterior.rows[0]?.versao ?? null }),
-      JSON.stringify({ empresaId: ctx.empresaId, versao: proxima, importacaoId: id }), ctx.requestId],
+      JSON.stringify({
+        empresaId: ctx.empresaId, versao: proxima, importacaoId: id,
+        contratada: { origem: efetiva.origem, perfilVersao: efetiva.perfilVersao }, conteudoSha256,
+        obrigatorios: CAMPOS_OBRIGATORIOS.length, regraObrigatorios: REGRA_OBRIGATORIOS,
+      }), ctx.requestId],
   );
   return { modeloId: novo.rows[0].id, versao: proxima };
 }

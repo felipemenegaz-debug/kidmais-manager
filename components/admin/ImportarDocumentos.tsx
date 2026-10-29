@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import AbaDocumento from './modelo-contrato/AbaDocumento';
 import ImportacaoTabelaPrecos from './ImportacaoTabelaPrecos';
 import ModeloContrato from './ModeloContrato';
 import ImportacaoContrato from './importacao/ImportacaoContrato';
@@ -27,10 +27,10 @@ export default function ImportarDocumentos({ documento }: { documento: Documento
     <nav className={css.abas} aria-label="Importar documentos" data-importar-documentos>
       <span className={css.titulo}>Importar documentos</span>
       <div className={css.lista}>
-        {ABAS.map((aba) => <Link key={aba.documento} href={`/admin/configuracoes/importar-documentos?documento=${aba.documento}`}
+        {ABAS.map((aba) => <AbaDocumento key={aba.documento} href={`/admin/configuracoes/importar-documentos?documento=${aba.documento}`}
           className={css.aba} aria-current={aba.documento === documento ? 'page' : undefined}>
           <strong>{aba.rotulo}</strong><span>{aba.descricao}</span>
-        </Link>)}
+        </AbaDocumento>)}
       </div>
     </nav>
     {documento === 'contrato' ? <ModeloContrato /> : documento === 'festa' ? <ImportacaoContrato /> : <ImportacaoTabelaPrecos />}

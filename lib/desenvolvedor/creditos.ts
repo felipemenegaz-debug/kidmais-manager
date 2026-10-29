@@ -12,6 +12,7 @@ import { concluirCobrancaExtra, OperacaoRecusada, reprocessarPedido, resolverBlo
 import { clienteAsaasDoAmbiente } from '../assinatura/asaas.ts';
 import { contaProvedor, contaValida } from '../creditos/config.ts';
 import type { ContextoProvedor } from '../creditos/pagamento.ts';
+import { pedidosDaFila } from '../creditos/fila.ts';
 
 /**
  * Operação da plataforma sobre os créditos de IA (095), no painel do desenvolvedor: concessão de desenvolvedor travada na
@@ -50,8 +51,7 @@ export async function filaCreditos(sessao: SessaoAdmin, deps: PainelDeps = paine
     return deps.withTransaction(async (tx) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         if (!await creditosInstalados(tx)) return { instalado: false, campanhas: CAMPANHAS };
-        const pedidos = (await tx.query(`SELECT p.protocolo, p.estado, p.revisao_motivo, p.recurso, p.preco_centavos, p.forma, p.criado_em, e.nome AS empresa_nome, p.empresa_id
-            FROM ia_credito_pedidos p JOIN empresas e ON e.id = p.empresa_id WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO') ORDER BY p.criado_em LIMIT 100`)).rows;
+        const pedidos = await pedidosDaFila(tx);
         const devolucoes = (await tx.query(`SELECT d.protocolo, d.tipo, d.estado, d.valor_centavos, d.forma, d.prazo, d.solicitado_em, e.nome AS empresa_nome
             FROM ia_credito_devolucoes d JOIN empresas e ON e.id = d.empresa_id WHERE d.estado <> 'CONCLUIDO' ORDER BY d.prazo, d.solicitado_em LIMIT 100`)).rows;
         const cobrancas = (await tx.query(`SELECT c.pagamento_id, c.situacao_provedor, c.disputa, c.exposicao_centavos, c.revisao_motivo, c.retencao_motivo, p.protocolo, e.nome AS empresa_nome

@@ -8,8 +8,9 @@ const Link = function Link() {};
 const Tabela = function ImportacaoTabelaPrecos() {};
 const Contrato = function ModeloContrato() {};
 const Festa = function ImportacaoContrato() {};
+// As abas são AbaDocumento (Link com a pergunta de saída do modelo de contrato, plano v3).
 const tela = () => carregarComponente('components/admin/ImportarDocumentos.tsx', {
-  'next/link': { default: Link }, './ImportacaoTabelaPrecos': { default: Tabela }, './ModeloContrato': { default: Contrato },
+  './modelo-contrato/AbaDocumento': { default: Link }, './ImportacaoTabelaPrecos': { default: Tabela }, './ModeloContrato': { default: Contrato },
   './importacao/ImportacaoContrato': { default: Festa }, './importar-documentos.module.css': cssFalso,
 });
 const HREFS = ['tabela', 'contrato', 'festa'].map((d) => `/admin/configuracoes/importar-documentos?documento=${d}`);

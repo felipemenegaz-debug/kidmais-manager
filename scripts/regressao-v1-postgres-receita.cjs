@@ -113,6 +113,23 @@ const MODELOS = {
   // 108 = salões combinados rebaseados. A 098 histórica fica FORA da cadeia nova (nunca aplicada em staging/produção).
   "107": { banco: "kidmais_v1_modelo_107", ate: "107", sem: ["098"] },
   "108": { banco: "kidmais_v1_modelo_108", ate: "108", sem: ["098"] },
+  // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
+  // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
+  // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a
+  // 104/106), na ordem em que o staging as recebeu (numérica).
+  "b14-P0a": { banco: "kidmais_v1_modelo_b14_p0a", ate: "088", sem: [], runbook: true },
+  "b14-P1": { banco: "kidmais_v1_modelo_b14_p1", ate: "089", sem: [], runbook: true },
+  "b14-P2": { banco: "kidmais_v1_modelo_b14_p2", ate: "092", sem: ["090", "091"], runbook: true },
+  "b14-P3": { banco: "kidmais_v1_modelo_b14_p3", ate: "093", sem: ["090", "091"], runbook: true },
+  "b14-P4": { banco: "kidmais_v1_modelo_b14_p4", ate: "099", sem: ["090", "091", "094", "095", "096", "097", "098"], runbook: true },
+  "b14-P5": { banco: "kidmais_v1_modelo_b14_p5", ate: "099", sem: ["091", "094", "095", "096", "097", "098"], runbook: true },
+  "b14-P6": { banco: "kidmais_v1_modelo_b14_p6", ate: "099", sem: ["091", "095", "096", "097", "098"], runbook: true },
+  "b14-P7": { banco: "kidmais_v1_modelo_b14_p7", ate: "099", sem: ["091", "096", "097", "098"], runbook: true },
+  "b14-P8": { banco: "kidmais_v1_modelo_b14_p8", ate: "099", sem: ["091", "097", "098"], runbook: true },
+  "b14-P9": { banco: "kidmais_v1_modelo_b14_p9", ate: "099", sem: ["091", "098"], runbook: true },
+  "b14-P10": { banco: "kidmais_v1_modelo_b14_p10", ate: "100", sem: ["091", "098"], runbook: true },
+  "b14-P11": { banco: "kidmais_v1_modelo_b14_p11", ate: "100", sem: ["098"], runbook: true },
+  "b14-PH-staging": { banco: "kidmais_v1_modelo_b14_ph_staging", ate: "105", sem: ["098", "104"] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {
@@ -206,6 +223,9 @@ async function removerBanco(admin, banco) {
 }
 
 /** Recria o modelo do schema vazio: nada herdado de execução anterior. */
+/** Ordem de aplicação da promoção (runbook do plano de promoção, §5): usada pelos modelos com `runbook: true`. */
+const ORDEM_RUNBOOK = ["089", "092", "093", "099", "090", "094", "095", "096", "097", "100", "091"];
+
 async function construirModelo(admin, porta, nome, log = () => {}) {
   const modelo = MODELOS[nome];
   if (!modelo) throw new Error(`estado desconhecido: ${nome}`);
@@ -216,12 +236,31 @@ async function construirModelo(admin, porta, nome, log = () => {}) {
   await admin.query(`CREATE DATABASE ${exigirGerenciavel(modelo.banco)} TEMPLATE template0`);
   const client = await conectar(porta, modelo.banco);
   try {
-    for (const arquivo of arquivos.slice(0, fim + 1).filter((a) => !modelo.sem.includes(a.split("_")[1]))) {
+    let lista = arquivos.slice(0, fim + 1).filter((a) => !modelo.sem.includes(a.split("_")[1]));
+    if (modelo.runbook) {
+      // As da promoção vão por último, na ordem do runbook; as anteriores (até a 088) mantêm a ordem do inventário.
+      const pos = (a) => ORDEM_RUNBOOK.indexOf(a.split("_")[1]);
+      lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
+    }
+    for (const arquivo of lista) {
       await aplicarMigration(client, arquivo, checks);
       log(`  ${nome}: ${arquivo}`);
     }
   } finally {
     await client.end();
+  }
+}
+
+/**
+ * B-14 (revisão do HB-3 r2): aplica migrations do inventário aprovado, na ordem dada, num banco JÁ conectado (a suíte leva
+ * um banco de trabalho de um prefixo a outro, com dados: trajetória S0 → S2 na ordem do runbook). Só números do inventário.
+ */
+async function aplicarMigracoes(client, numeros) {
+  const { arquivos, checks } = await carregarInventario();
+  for (const n of numeros) {
+    const arquivo = arquivos.find((a) => a.split("_")[1] === n);
+    if (!arquivo) throw new Error(`migration ${n} fora do inventário`);
+    await aplicarMigration(client, arquivo, checks);
   }
 }
 
@@ -259,4 +298,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { modeloE2E, MODELOS, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco };
+module.exports = { modeloE2E, MODELOS, ORDEM_RUNBOOK, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco, aplicarMigracoes };

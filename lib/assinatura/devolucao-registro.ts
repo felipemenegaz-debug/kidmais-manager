@@ -65,6 +65,7 @@ export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId
  */
 export async function registrarAusenciaNoProvedor(tx: DbExecutor, empresaId: string, assinaturaId: string) {
     if (!await encerramentosInstalados(tx)) return 0;
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     return (await tx.query(`UPDATE assinatura_encerramentos SET cancelamento_provedor = 'AUSENTE'
         WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2 AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')`,
     [empresaId, assinaturaId])).rowCount ?? 0;
@@ -140,23 +141,27 @@ export async function registrarPedido(tx: DbExecutor, p: NovoPedido): Promise<Pe
 }
 
 export async function atualizarCancelamentoProvedor(tx: DbExecutor, empresaId: string, id: string, resultado: CancelamentoProvedor) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET cancelamento_provedor = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO') AND cancelamento_provedor <> $3`, [id, empresaId, resultado]);
 }
 
 /** Registro prévio da chamada automática: só a partir de AGUARDANDO_MANUAL; false = outro processo já tentou. */
 export async function marcarEstornoEmCurso(tx: DbExecutor, empresaId: string, id: string) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     return ((await tx.query(`UPDATE assinatura_encerramentos SET estorno_situacao = 'EM_CURSO', estorno_modo = 'AUTOMATICO'
         WHERE id = $1::uuid AND empresa_id = $2::uuid AND estorno_situacao = 'AGUARDANDO_MANUAL'`, [id, empresaId])).rowCount ?? 0) === 1;
 }
 
 export async function registrarResultadoEstorno(tx: DbExecutor, empresaId: string, id: string, situacao: 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO', statusProvedor: string | null) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET estorno_situacao = $3, estorno_status_provedor = $4
         WHERE id = $1::uuid AND empresa_id = $2::uuid AND estorno_situacao = 'EM_CURSO'`,
     [id, empresaId, situacao, statusProvedor && /^[A-Z_]{1,40}$/.test(statusProvedor) ? statusProvedor : null]);
 }
 
 export async function registrarEmail(tx: DbExecutor, empresaId: string, id: string, situacao: Exclude<SituacaoEmail, 'PENDENTE'>) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET email_situacao = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND email_situacao IN ('PENDENTE', 'FALHOU', 'NAO_CONFIGURADO') AND email_situacao <> $3`, [id, empresaId, situacao]);
 }
@@ -253,6 +258,7 @@ export function mensagemAvisoInterno(input: { para: string; pedido: PedidoResumo
 }
 
 export async function registrarAvisoInterno(tx: DbExecutor, empresaId: string, id: string, situacao: Exclude<SituacaoEmail, 'PENDENTE'>) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET aviso_interno_situacao = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND aviso_interno_situacao IN ('PENDENTE', 'FALHOU', 'NAO_CONFIGURADO') AND aviso_interno_situacao <> $3`, [id, empresaId, situacao]);
 }

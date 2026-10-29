@@ -73,11 +73,13 @@ async function lancar(tx: DbExecutor, l: Lancamento) {
     if (!novo) return false;
     const [a, b, c, d, e, f] = NO_LOTE[l.tipo].map((x) => x * l.quantidade);
     if (a || b || c || d || e || f) {
+        // B14: efeito — só roda depois de um lançamento novo (INSERT … ON CONFLICT DO NOTHING RETURNING).
         const lote = await tx.query(`UPDATE ia_credito_lotes SET disponivel = disponivel + $3, reservado = reservado + $4, bloqueado = bloqueado + $5,
             consumido = consumido + $6, expirado = expirado + $7, cancelado = cancelado + $8 WHERE id = $1::uuid AND empresa_id = $2::uuid RETURNING id`,
         [l.loteId, l.empresaId, a, b, c, d, e, f]);
         if (lote.rowCount !== 1) throw new Error('lote do lançamento não encontrado');
     }
+    // B14: efeito — só roda depois de um lançamento novo (INSERT … ON CONFLICT DO NOTHING RETURNING).
     const w = await tx.query(`UPDATE ia_credito_carteiras SET saldo = saldo + $3, reservado = reservado + $4, bloqueado = bloqueado + $5
         WHERE empresa_id = $1::uuid AND recurso = $2 RETURNING empresa_id`, [l.empresaId, l.recurso, ds, dr, db]);
     if (w.rowCount !== 1) throw new Error('carteira do lançamento não encontrada');
@@ -194,9 +196,11 @@ export async function encerrarReserva(tx: DbExecutor, e: { empresaId: string; re
             } else if (lote?.em_bloqueio) await lancar(tx, { ...base, tipo: 'BLOQUEIO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
             else if (lote?.vencido) await lancar(tx, { ...base, tipo: 'EXPIRACAO', quantidade: resto, operacao: `LIBERACAO:${r.id}` });
         }
+        // B14: fora — reserva/consumo de créditos, não é o processamento de cobrança.
         await tx.query('UPDATE ia_credito_reserva_lotes SET consumido = $3, liberado = $4 WHERE reserva_id = $1::uuid AND lote_id = $2::uuid', [r.id, a.lote_id, consumir, resto]);
     }
     const estado = final > 0 ? 'CONSUMIDA' : 'LIBERADA';
+    // B14: fora — reserva/consumo de créditos, não é o processamento de cobrança.
     await tx.query(`UPDATE ia_credito_reservas SET estado = $2, consumido = $3, custo_real_microusd = $4 WHERE id = $1::uuid AND estado = 'ABERTA'`,
         [r.id, estado, final > 0 ? final : null, e.custoRealMicrousd ?? null]);
     return { estado, consumido: final, liberado: total - final, repetido: false, excedente: Math.max(0, pedido - total) };

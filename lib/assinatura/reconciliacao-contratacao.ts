@@ -86,6 +86,7 @@ export function intencaoDoIdConfirmado(eventoId: string) {
 export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids: readonly string[], motivo: 'VINCULADA' | 'COMPENSADA' | 'DUPLICATA_AUSENTE_NO_PROVEDOR' | 'SUBSTITUIDA_POR_PENDENCIA') {
     if (!ids.length)
         return;
+    // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
                      WHERE id = ANY($2::uuid[]) AND empresa_id = $1::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')
                        AND evento_id NOT LIKE $5`, [empresaId, ids, motivo, TIPO_PENDENCIA, `${PREFIXO_REMOCAO_SEM_CONFIRMACAO}%`]);
@@ -93,12 +94,14 @@ export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids:
 
 /** Fecha a intenção de criação (resultado conhecido). A identidade do evento é imutável (068): só situação e motivo mudam. */
 export async function concluirIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_RECUSADA' | 'LIBERADA_MANUALMENTE: CRIACAO_NAO_EXECUTADA') {
+    // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2
                      WHERE id = $1::uuid AND situacao IN ('PENDENTE', 'FALHOU')`, [id, motivo]);
 }
 
 /** Mantém a intenção aberta e registra por quê (resposta da criação perdida e não confirmada). */
 export async function marcarIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_SEM_RESPOSTA') {
+    // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
     await tx.query(`UPDATE cobranca_eventos SET ultimo_erro = $2 WHERE id = $1::uuid AND situacao IN ('PENDENTE', 'FALHOU')`, [id, motivo]);
 }
 
@@ -171,12 +174,14 @@ export async function abrirMarcadorRemocao(tx: DbExecutor, empresaId: string, as
 
 /** Resultado conhecido: o marcador fecha (a identidade do evento é imutável na 068; só situação e motivo mudam). */
 export async function fecharMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string, motivo: 'REMOCAO_CONFIRMADA' | 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO' | 'REMOCAO_RECUSADA') {
+    // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
                      WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, motivo, TIPO_PENDENCIA]);
 }
 
 /** Resultado desconhecido: o marcador continua aberto e diz por quê. */
 export async function manterMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string) {
+    // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
     await tx.query(`UPDATE cobranca_eventos SET ultimo_erro = 'REMOCAO_SEM_CONFIRMACAO'
                      WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, TIPO_PENDENCIA]);
 }
@@ -288,6 +293,7 @@ export async function registrarRemocoes(tx: DbExecutor, empresaId: string, regis
         await auditarCobranca(tx, { acao: 'ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', empresaId, origem, ip: null, depois: { ausentes: releitura.length, confirmacao: 'AUSENCIA_NA_RELEITURA' } });
         const fechar = releitura.map((m) => m.marcadorId).filter((id) => id !== eventoAtual.id);
         if (fechar.length)
+            // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
             await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = 'AUSENCIA_CONFIRMADA_NA_RELEITURA'
                              WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [fechar, empresaId, TIPO_PENDENCIA]);
     }
@@ -359,6 +365,7 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
         if (await continuidadeInstalada(tx)
             && (await tx.query('SELECT 1 FROM empresa_documento_continuidades WHERE empresa_id = $1::uuid LIMIT 1', [empresaId])).rows.length)
             return { resultado: 'REVISAO_HUMANA', motivo: 'CONTINUIDADE_DOCUMENTO', ids: [s.id] };
+        // B14: pessoa — pendência de contratação, sempre encaminhada à pessoa (§3.1); nunca SEM_EFEITO.
         await tx.query(
             `UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = COALESCE(provedor_cliente_id, $2), provedor_assinatura_id = $3,
                     ciclo = CASE WHEN situacao IN ('TESTE', 'ENCERRADA') THEN COALESCE($4, ciclo) ELSE ciclo END, provedor_situacao = $5
