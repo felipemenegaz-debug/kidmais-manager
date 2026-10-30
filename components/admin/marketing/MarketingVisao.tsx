@@ -51,6 +51,7 @@ export default function MarketingVisao() {
         <Kpi rotulo="Conversão contato → contrato" valor={percentual(p.total.conversao)} detalhe={p.total.contatos ? `${p.total.contatosComContrato} de ${p.total.contatos}` : 'sem contatos no período'} />
       </div>
       {p.negociacoesSemOrigem > 0 && <p className={styles.aviso} role="status">{p.negociacoesSemOrigem} negociação(ões) do período sem origem registrada. <Link href="/admin/marketing/origens">Ver origens dos contatos</Link> — a origem pode ser informada na própria negociação.</p>}
+      {p.negociacoesHerdadas > 0 && <p className={styles.muted} role="status">{p.negociacoesHerdadas} negociação(ões) do período contada(s) pela origem do cliente: é a primeira negociação dele e ela não tem origem própria.</p>}
       <section className={styles.cartao} aria-labelledby="t-campanhas">
         <h2 id="t-campanhas">Por campanha e origem</h2>
         {p.linhas.length === 0 ? <p className={styles.vazio}>Nada registrado no período. Crie uma campanha ou informe a origem nas negociações.</p> : <>
@@ -74,7 +75,7 @@ export default function MarketingVisao() {
         <details className={styles.definicoes}>
           <summary>Como estes números são contados</summary>
           <dl>
-            <dt>Atribuição</dt><dd>Toque único: cada negociação (e o contrato dela) conta para uma só campanha ou origem — a vigente na negociação. Receita nunca é repetida entre campanhas. Atribuição registra de onde o contato veio; não prova que a campanha causou a venda.</dd>
+            <dt>Atribuição</dt><dd>Toque único: cada negociação (e o contrato dela) conta para uma só campanha ou origem — a vigente na negociação. Sem origem própria, a primeira negociação cadastrada do cliente (qualquer situação, inclusive cancelada) conta pela origem vigente do cliente — exceto “desconhecida”; as seguintes ficam em “Origem não registrada”. Essa herança é recalculada a cada consulta: corrigir a origem do cliente reclassifica também os números de períodos passados. Receita nunca é repetida entre campanhas. Atribuição registra de onde o contato veio; não prova que a campanha causou a venda.</dd>
             <dt>Cliques</dt><dd>Clique no link da campanha e no botão de WhatsApp são eventos separados. Clique não é contato nem conversa.</dd>
             <dt>Contatos</dt><dd>Pedidos recebidos pelo site e registros manuais com data de recebimento no período.</dd>
             <dt>Negociações</dt><dd>Negociações iniciadas no período, pela origem registrada nelas.</dd>
