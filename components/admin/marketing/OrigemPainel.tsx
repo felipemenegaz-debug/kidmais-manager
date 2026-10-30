@@ -6,7 +6,7 @@ import { dataHoraBr } from '@/lib/marketing/apresentacao';
 import { enviarMarketing, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
-type Dados = { vigente: Atribuicao | null; historico: Atribuicao[]; origens: OpcaoOrigem[]; campanhas: Array<{ id: string; nome: string }> };
+type Dados = { vigente: Atribuicao | null; herdadaDoCliente?: Atribuicao | null; historico: Atribuicao[]; origens: OpcaoOrigem[]; campanhas: Array<{ id: string; nome: string }> };
 
 const CANAIS: Array<[string, string]> = [['', 'Não informado'], ['WHATSAPP', 'WhatsApp'], ['TELEFONE', 'Telefone'], ['PRESENCIAL', 'Presencial'], ['EMAIL', 'E-mail'], ['FORMULARIO_SITE', 'Formulário do site'], ['OUTRO', 'Outro']];
 const METODO: Record<string, string> = { CAPTURADO: 'capturada pelo link', INFORMADO: 'informada pela equipe', HERDADO: 'herdada do contato', DESCONHECIDO: 'sem evidência' };
@@ -59,6 +59,8 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
     <h3 style={{ marginTop: 0 }}>{cabecalho}</h3>
     {v ? <p><strong>{rotulo(v.origemCodigo, dados.origens)}</strong>{v.campanhaNome ? ` · campanha ${v.campanhaNome}` : ''}{v.detalhe ? ` · ${v.detalhe}` : ''}
       <br /><span className={styles.muted}>{METODO[v.metodo] ?? v.metodo} · {dataHoraBr(v.registradoEm)}{v.registradoPorNome ? ` · ${v.registradoPorNome}` : ''}</span></p>
+      : dados.herdadaDoCliente ? <p><strong>{rotulo(dados.herdadaDoCliente.origemCodigo, dados.origens)}</strong>{dados.herdadaDoCliente.campanhaNome ? ` · campanha ${dados.herdadaDoCliente.campanhaNome}` : ''}
+        <br /><span className={styles.muted}>herdada do cliente: é a primeira negociação dele e não tem origem própria. Informe outra se esta negociação veio por outro caminho.</span></p>
       : <p className={styles.muted}>Não registrada. {alvoTipo === 'CLIENTE' ? 'Sem evidência, a origem fica desconhecida (nada é presumido).' : 'Informe como este contato chegou.'}</p>}
     {!editando && <button type="button" className={styles.secundario} onClick={abrir}>{v ? 'Corrigir origem' : 'Informar origem'}</button>}
     {editando && <form onSubmit={salvar} className={styles.editor} style={{ marginTop: 12 }}>
