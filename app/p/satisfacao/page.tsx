@@ -10,10 +10,12 @@ import s from "./satisfacao.module.css";
  */
 type Abertura =
   | { situacao: "ABERTA"; primeiroNome: string; buffet: string; unidade: string | null; dataFesta: string }
-  | { situacao: "RESPONDIDA"; buffet: string };
+  | { situacao: "RESPONDIDA"; buffet: string }
+  | { situacao: "ENCERRADA"; buffet: string };
 type Estado =
   | { fase: "carregando" }
-  | { fase: "indisponivel"; mensagem: string }
+  // podeSair: o servidor reconheceu o link (respondido, vencido ou revogado) e a saída das pesquisas continua valendo.
+  | { fase: "indisponivel"; mensagem: string; podeSair: boolean }
   | { fase: "aberta"; dados: Extract<Abertura, { situacao: "ABERTA" }> }
   | { fase: "respondida"; buffet: string; nome: string | null; notaBaixa: boolean }
   | { fase: "saiu" };
@@ -26,6 +28,7 @@ function lerUmaVez() {
   return lido;
 }
 const semInscricao = () => () => undefined;
+const INDISPONIVEL = "Este link de pesquisa não está mais disponível.";
 
 async function postar<T>(url: string, corpo: unknown): Promise<{ ok: true; data: T } | { ok: false; erro: string; status: number }> {
   try {
@@ -70,7 +73,7 @@ export default function PesquisaSatisfacao() {
   const [estadoAtual, setEstado] = useState<Estado>({ fase: "carregando" });
   const [notaEscolhida, setNota] = useState<number | null>(null);
   // Derivados na renderização (sem setState síncrono no efeito): link sem token e a nota pré-marcada do e-mail.
-  const estado: Estado = fragmento && !fragmento.token ? { fase: "indisponivel", mensagem: "Este link de pesquisa não está mais disponível." } : estadoAtual;
+  const estado: Estado = fragmento && !fragmento.token ? { fase: "indisponivel", mensagem: INDISPONIVEL, podeSair: false } : estadoAtual;
   const nota = notaEscolhida ?? fragmento?.preMarcada ?? null;
   const [aspectos, setAspectos] = useState<Record<Aspecto, number | null>>({ notaComida: null, notaEquipe: null, notaEspaco: null });
   const [comentario, setComentario] = useState("");
@@ -83,7 +86,8 @@ export default function PesquisaSatisfacao() {
     let vivo = true;
     postar<Abertura>("/api/satisfacao/abrir", { token: fragmento.token }).then((r) => {
       if (!vivo) return;
-      if (!r.ok) setEstado({ fase: "indisponivel", mensagem: r.erro });
+      if (!r.ok) setEstado({ fase: "indisponivel", mensagem: r.erro, podeSair: false });
+      else if (r.data.situacao === "ENCERRADA") setEstado({ fase: "indisponivel", mensagem: INDISPONIVEL, podeSair: true });
       else if (r.data.situacao === "RESPONDIDA") setEstado({ fase: "respondida", buffet: r.data.buffet, nome: null, notaBaixa: false });
       else setEstado({ fase: "aberta", dados: r.data });
     });
@@ -98,7 +102,8 @@ export default function PesquisaSatisfacao() {
     const r = await postar<{ gravada: true }>("/api/satisfacao/responder", { token: fragmento.token, notaIndicacao: nota, ...aspectos, comentario: comentario.trim() || null });
     setEnviando(false);
     if (r.ok || r.status === 409) setEstado({ fase: "respondida", buffet: estado.dados.buffet, nome: r.ok ? estado.dados.primeiroNome : null, notaBaixa: r.ok && nota <= 6 });
-    else if (r.status === 404) setEstado({ fase: "indisponivel", mensagem: r.erro });
+    // O link foi reconhecido na abertura: vencido ou revogado no meio do caminho, a saída das pesquisas continua valendo.
+    else if (r.status === 404) setEstado({ fase: "indisponivel", mensagem: r.erro, podeSair: true });
     else setErro(r.erro);
   }
 
@@ -114,12 +119,22 @@ export default function PesquisaSatisfacao() {
   if (estado.fase === "carregando") {
     return <main className={s.pagina}><div className={s.coluna}><p className={s.aviso} aria-live="polite">Carregando a pesquisa…</p></div></main>;
   }
+  // Saída das pesquisas (P2-1 do Astra): também depois de responder e com o link vencido ou revogado.
+  const saida = !confirmarSaida
+    ? <p className={s.aviso}><button type="button" className={s.link} onClick={() => setConfirmarSaida(true)}>Não quero receber pesquisas</button></p>
+    : <section className={s.cartao} aria-label="Sair das pesquisas">
+      <p className={s.textoCartao}>Você deixa de receber pesquisas de satisfação deste buffet, pelo WhatsApp e pelo e-mail.</p>
+      {erro && estado.fase !== "aberta" && <p className={s.erro} role="alert">{erro}</p>}
+      <button type="button" className={s.botaoSecundario} onClick={sair} disabled={enviando}>Confirmar: não quero receber pesquisas</button>
+    </section>;
+
   if (estado.fase === "indisponivel" || estado.fase === "saiu") {
     return <main className={s.pagina}><div className={`${s.coluna} ${s.centro}`}>
       <h1 className={s.titulo}>{estado.fase === "saiu" ? "Pronto" : "Pesquisa indisponível"}</h1>
       <p className={s.texto} role={estado.fase === "saiu" ? "status" : "alert"}>
         {estado.fase === "saiu" ? "Você não vai mais receber pesquisas de satisfação deste buffet." : estado.mensagem}
       </p>
+      {estado.fase === "indisponivel" && estado.podeSair && saida}
     </div></main>;
   }
   if (estado.fase === "respondida") {
@@ -134,6 +149,7 @@ export default function PesquisaSatisfacao() {
       {estado.notaBaixa && <div className={s.cartaoAlerta}>
         <p className={s.textoCartao}>Sentimos muito que algo não saiu como esperado. A gerência da unidade vai entrar em contato com você.</p>
       </div>}
+      {saida}
     </div></main>;
   }
 
@@ -175,11 +191,6 @@ export default function PesquisaSatisfacao() {
     {erro && <p className={s.erro} role="alert">{erro}</p>}
     <button type="button" className={s.botao} onClick={enviar} disabled={enviando}>{enviando ? "Enviando…" : "Enviar resposta"}</button>
     <p className={s.aviso}>Sua resposta fica ligada à sua festa para o buffet poder retornar, se precisar.</p>
-    {!confirmarSaida
-      ? <p className={s.aviso}><button type="button" className={s.link} onClick={() => setConfirmarSaida(true)}>Não quero receber pesquisas</button></p>
-      : <section className={s.cartao} aria-label="Sair das pesquisas">
-        <p className={s.textoCartao}>Você deixa de receber pesquisas de satisfação deste buffet, pelo WhatsApp e pelo e-mail.</p>
-        <button type="button" className={s.botaoSecundario} onClick={sair} disabled={enviando}>Confirmar: não quero receber pesquisas</button>
-      </section>}
+    {saida}
   </div></main>;
 }

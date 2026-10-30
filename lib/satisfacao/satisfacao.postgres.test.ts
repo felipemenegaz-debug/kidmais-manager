@@ -33,6 +33,7 @@ type Supressao = {
 type Pref = {
   alterarPreferencia(tx: unknown, e: string, u: string, i: unknown): Promise<unknown>;
   bloqueioWhatsappDoDestino(tx: unknown, e: string, destino: string): Promise<boolean>;
+  elegivelParaMensagem(tx: unknown, e: string, clienteId: string): Promise<{ ok: boolean; motivo?: string }>;
 };
 type Motor = { frequenciaExcedida(tx: unknown, e: string, c: string, dias: number, excetoId: string | null, excetoEnvioId?: string | null): Promise<boolean> };
 
@@ -42,10 +43,13 @@ const identidade = async (db: Client) => (await db.query<{ id: string }>(`INSERT
 
 const erroDe = (code: string, status?: number) => (e: unknown) => (e as { code?: string }).code === code && (status === undefined || (e as { httpStatus?: number }).httpStatus === status);
 
-async function recusa(c: Client, sql: string, v: unknown[], padrao: RegExp | string) {
+/** Recusa por SQLSTATE, por mensagem ou, quando a causa importa (UNIQUE), por SQLSTATE + nome da restrição. */
+async function recusa(c: Client, sql: string, v: unknown[], padrao: RegExp | string | { code: string; constraint: string }) {
   await assert.rejects(c.query(sql, v), (e: unknown) => {
-    const { code, message } = e as { code?: string; message: string };
-    return typeof padrao === "string" ? code === padrao : padrao.test(message);
+    const { code, message, constraint } = e as { code?: string; message: string; constraint?: string };
+    if (typeof padrao === "string") return code === padrao;
+    if (padrao instanceof RegExp) return padrao.test(message);
+    return code === padrao.code && constraint === padrao.constraint;
   }, sql.slice(0, 90));
 }
 
@@ -154,7 +158,8 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       const p = await envioPronto();
       const x2 = await execucao(A, p.cl, p.f);
       await recusa(c, `INSERT INTO satisfacao_envios (empresa_id, fechamento_id, cliente_id, execucao_id, chave_versao, token_hash, criado_em, expira_em)
-        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 1, $5, now(), now() + interval '30 days')`, [A, p.f, p.cl, x2, randomBytes(32)], "23505");
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 1, $5, now(), now() + interval '30 days')`, [A, p.f, p.cl, x2, randomBytes(32)],
+        { code: "23505", constraint: "satisfacao_envios_festa_uk" });
       const r = await emTransacao((t2) => envios.criarEnvio(t2, anel, { empresaId: A, execucaoId: x2, canais: ["EMAIL"], agendadaPara: new Date(), maxTentativas: 3 }));
       assert.deepEqual(r, { criado: false, motivo: "PESQUISA_JA_EXISTE" });
       const outra = await festa();
@@ -165,6 +170,22 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       await recusa(c, `INSERT INTO satisfacao_envios (empresa_id, fechamento_id, cliente_id, execucao_id, chave_versao, token_hash, criado_em, expira_em)
         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 1, $5, now(), now() + interval '30 days')`, [A, outra.f, outra.cl, p.x, randomBytes(32)], /execução de outra festa/);
       await recusa(c, `INSERT INTO satisfacao_entregas (empresa_id, envio_id, canal, etapa, agendada_para, max_tentativas) VALUES ($1::uuid, $2::uuid, 'EMAIL', 'INICIAL', now(), 3)`, [A, p.envio], "23505");
+    });
+
+    // P2-5 (M22): com o envio ATIVO, o gatilho da resposta e o FOR UPDATE do serviço não impedem a segunda linha na MESMA
+    // transação; só a UNIQUE impede, antes do COMMIT (a invariante adiada só veria no COMMIT).
+    await t.test("UNIQUE da resposta: segunda resposta na mesma transação, envio ATIVO → 23505 antes do COMMIT", async () => {
+      const p = await envioPronto();
+      const inserir = `INSERT INTO satisfacao_respostas (empresa_id, envio_id, versao_questionario, nota_indicacao) VALUES ($1::uuid, $2::uuid, 1, $3)`;
+      await c.query("BEGIN");
+      try {
+        await c.query(inserir, [A, p.envio, 9]);
+        assert.equal((await estado(p.envio)).estado, "ATIVO", "a segunda tentativa encontra o envio ainda ATIVO");
+        await recusa(c, inserir, [A, p.envio, 4], { code: "23505", constraint: "satisfacao_respostas_envio_uk" });
+      } finally {
+        await c.query("ROLLBACK");
+      }
+      assert.equal(Number((await um(`SELECT count(*) AS n FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio])).n), 0);
     });
 
     await t.test("criação pelo serviço: contrato não assinado, festa cancelada e execução de outra ação não criam envio", async () => {
@@ -270,7 +291,8 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
 
     await t.test("expiração (30 dias) e revogação (festa cancelada, contrato não assinado); RESPONDIDO se preserva", async () => {
       const v = await envioNoPassado(31);
-      await assert.rejects(publico.abrirPesquisa({ token: v.token }, { ip: ip() }, deps()), erroDe("LINK_INDISPONIVEL", 404));
+      assert.deepEqual(Object.keys(await publico.abrirPesquisa({ token: v.token }, { ip: ip() }, deps())).sort(), ["buffet", "situacao"]);
+      assert.equal((await publico.abrirPesquisa({ token: v.token }, { ip: ip() }, deps())).situacao, "ENCERRADA", "vencido: sem questionário, saída disponível");
       assert.equal((await estado(v.envio)).estado, "EXPIRADO");
       assert.deepEqual((await entregas(v.envio)).map((x) => [x.estado, x.motivo]), [["CANCELADA", "EXPIRADO"], ["CANCELADA", "EXPIRADO"]]);
       const p = await envioPronto();
@@ -280,8 +302,9 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       assert.equal(Number((await um(`SELECT count(*) AS n FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio])).n), 0);
       const q = await envioPronto();
       await c.query(`UPDATE contratos SET status = 'CANCELADO', cancelado_em = clock_timestamp() WHERE fechamento_id = $1::uuid`, [q.f]);
-      await assert.rejects(publico.abrirPesquisa({ token: q.token }, { ip: ip() }, deps()), erroDe("LINK_INDISPONIVEL", 404));
+      assert.equal((await publico.abrirPesquisa({ token: q.token }, { ip: ip() }, deps())).situacao, "ENCERRADA");
       assert.equal((await estado(q.envio)).motivo_revogacao, "CONTRATO_NAO_ASSINADO");
+      assert.equal((await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps())).situacao, "ENCERRADA", "revogado (festa cancelada)");
       const r = await envioPronto();
       await publico.responderPesquisa({ token: r.token, notaIndicacao: 10 }, { ip: ip() }, deps());
       await cancelarFesta(r.f);
@@ -358,6 +381,23 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       await assert.rejects(publico.sairDasPesquisas({ token: p.token, origem: "EQUIPE" }, { ip: ip() }, deps()), erroDe("LINK_INDISPONIVEL", 404));
     });
 
+    await t.test("saída pelo link respondido, vencido e revogado (P2-1): registro e alcance nos dois canais de outro envio pendente", async () => {
+      for (const caso of ["RESPONDIDO", "EXPIRADO", "REVOGADO"] as const) {
+        const p = caso === "EXPIRADO" ? await envioNoPassado(31) : await envioPronto();
+        if (caso === "RESPONDIDO") await publico.responderPesquisa({ token: p.token, notaIndicacao: 9 }, { ip: ip() }, deps());
+        if (caso === "REVOGADO") await cancelarFesta(p.f);
+        // Outro envio do MESMO cliente (outra festa), pendente nos dois canais: a saída o alcança.
+        const outro = await envioPronto({ clienteId: p.cl });
+        const aberta = await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps());
+        assert.equal(aberta.situacao, caso === "RESPONDIDO" ? "RESPONDIDA" : "ENCERRADA", caso);
+        assert.equal((await estado(p.envio)).estado, caso);
+        assert.deepEqual(await publico.sairDasPesquisas({ token: p.token }, { ip: ip() }, deps()), { saiu: true }, caso);
+        assert.equal((await um(`SELECT origem FROM satisfacao_saidas WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid`, [A, p.cl])).origem, "PAGINA", caso);
+        assert.deepEqual((await entregas(outro.envio)).map((x) => [x.canal, x.estado, x.motivo]).sort(),
+          [["EMAIL", "SUPRIMIDA", "SAIDA_PESQUISAS"], ["WHATSAPP", "SUPRIMIDA", "SAIDA_PESQUISAS"]], caso);
+      }
+    });
+
     await t.test("alcance: descadastro cancela tudo; revogar autorização e PARAR só o WhatsApp; e-mail continua", async () => {
       const autorizar = async (cl: string, telefone: string) => pref.alterarPreferencia(tx, A, usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", destino: telefone, confirmacao: "Autorizou (sintético)" });
       const d = await envioPronto();
@@ -380,7 +420,7 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       assert.deepEqual((await entregas(s.envio)).map((x) => [x.canal, x.estado]), [["EMAIL", "PENDENTE"], ["WHATSAPP", "SUPRIMIDA"]]);
     });
 
-    await t.test("bloqueio do WhatsApp: novo ⊇ antigo; conversa com PARAR passa a bloquear; qualquer ambiente; com/sem DDI; outra empresa não", async () => {
+    await t.test("bloqueio do WhatsApp: novo ⊇ antigo; conversa com PARAR passa a bloquear; qualquer ambiente; com/sem DDI; outra empresa não; pelo chamador real", async () => {
       // Predicado antigo (até a 110): só os controles, sem filtro de ambiente, destino com e sem DDI.
       const antigo = async (e: string, destino: string) => {
         const nacional = destino.startsWith("55") ? destino.slice(2) : destino;
@@ -397,14 +437,18 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
           await c.query(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'staging', $2, true)`, [B, n]);
         }, esperado: false },
       ];
-      let n = 0;
       for (const caso of casos) {
-        const numero = `55119777${String(10000 + ++n).padStart(5, "0")}`;
+        // Cliente com o número autorizado (CONFIRMADA): a elegibilidade pelo chamador real (elegivelParaMensagem) tem de
+        // concordar com o predicado, caso a caso.
+        const { cl, telefone: numero } = await festa();
+        await emTransacao((t2) => pref.alterarPreferencia(t2, A, usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", destino: numero, confirmacao: "Autorizou (sintético)" }));
         await caso.preparar(numero);
         const velho = await antigo(A, numero), novo = await pref.bloqueioWhatsappDoDestino(tx, A, numero);
         assert.equal(novo, caso.esperado, caso.nome);
         assert.equal(velho, caso.mudou ? false : caso.esperado, `${caso.nome} (antigo)`);
         assert.ok(novo || !velho, `${caso.nome}: o novo nunca libera o que o antigo bloqueava`);
+        const eleg = await emTransacao((t2) => pref.elegivelParaMensagem(t2, A, cl));
+        assert.deepEqual([eleg.ok, eleg.motivo ?? null], caso.esperado ? [false, "NAO_CONTATAR_ATENDIMENTO"] : [true, null], `${caso.nome} (elegivelParaMensagem)`);
       }
     });
 

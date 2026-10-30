@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import type { DbExecutor } from "../db/contracts.ts";
 import { carregarComBanco, cod, executor, porTransacao, SENHA_FALSA } from "../marketing/harness-postgres.ts";
 import { baseSintetica, type CriarEnvio } from "./harness-postgres.ts";
 import { lerAnel, type AnelChaves } from "./token.ts";
@@ -11,15 +12,17 @@ import { lerAnel, type AnelChaves } from "./token.ts";
  * Pesquisa de satisfação (110, PS-1): concorrência no PostgreSQL descartável, modelo 110, com três conexões e dados
  * COMMITADOS. Prova, observando pg_stat_activity/pg_blocking_pids (nada de sleep como prova):
  *   - duas respostas do mesmo link serializam no envio (marcador satisfacao:travar-envio): uma grava, a outra "já respondida";
- *   - resposta × cancelamento com os pais ocupados (ordem de operarContrato: fechamento → contrato FOR UPDATE): a pesquisa
+ *   - resposta × cancelamento SIMULADO em SQL com os pais ocupados (fechamento → contrato FOR UPDATE, a ordem das duas
+ *     entradas reais; elas mesmas são exercitadas em satisfacao-cancelamento.postgres.test.ts): a pesquisa
  *     NUNCA espera (NOWAIT), repete a transação inteira até 5 vezes e devolve "tente de novo" sem gravar; se o
  *     cancelamento confirma no meio, a próxima tentativa revoga;
  *   - resposta com os pais travados FOR SHARE: o cancelamento espera por ela (sem deadlock) e confirma depois;
  *   - criação do envio de duas execuções da mesma festa: a trava por cliente serializa, só um envio;
  *   - criação × troca do cliente da festa nas duas ordens: a troca espera a criação; a criação recebe 55P03 (NOWAIT);
  *   - regeneração do link em duas transações: uma regenera, a outra relê e devolve o MESMO link (geração 2);
- *   - bloqueio do WhatsApp transferido entre controles e conversa em transações concorrentes: a leitura numa instrução
- *     nunca vê "liberado".
+ *   - bloqueio do WhatsApp transferido entre controles e conversa (K1/K2), pelo chamador real elegivelParaMensagem: uma
+ *     BARREIRA confirma a transferência logo depois da primeira leitura das tabelas do atendimento, nas duas direções;
+ *     a leitura numa instrução continua bloqueando (dois SELECTs separados liberariam — mutantes M29a/M29b).
  */
 process.env.ADMIN_AUTH_SECRET = `segredo-sintetico-de-teste-${"x".repeat(24)}`;
 const anel = lerAnel({ SATISFACAO_LINK_CHAVES: `1:${randomBytes(32).toString("base64")},2:${randomBytes(32).toString("base64")}`, SATISFACAO_LINK_CHAVE_ATUAL: "1" }) as AnelChaves;
@@ -27,7 +30,10 @@ const soChave2 = lerAnel({ SATISFACAO_LINK_CHAVES: `2:${anel.chaves.get(2)!.toSt
 
 type Publico = Record<"abrirPesquisa" | "responderPesquisa", (corpo: unknown, ctx: { ip: string | null }, deps: unknown) => Promise<Record<string, unknown>>>;
 type Envios = { criarEnvio: CriarEnvio; linkDoEnvio(tx: unknown, anel: AnelChaves, envioId: string): Promise<{ token: string; geracao: number; regenerado: boolean } | null> };
-type Pref = { bloqueioWhatsappDoDestino(tx: unknown, e: string, destino: string): Promise<boolean> };
+type Pref = {
+  alterarPreferencia(tx: unknown, e: string, u: string, i: unknown): Promise<unknown>;
+  elegivelParaMensagem(tx: DbExecutor, e: string, clienteId: string): Promise<{ ok: boolean; motivo?: string }>;
+};
 
 /** Identidade sintética da suíte (senha em formato válido que não autentica). */
 const identidade = async (db: Client) => (await db.query<{ id: string }>(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo)
@@ -62,7 +68,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
     const pub1 = carregar<Publico>(c1, "lib/satisfacao/publico.ts"), pub2 = carregar<Publico>(c2, "lib/satisfacao/publico.ts");
     const env1 = carregar<Envios>(c1, "lib/satisfacao/envios.ts"), env2 = carregar<Envios>(c2, "lib/satisfacao/envios.ts");
     const pref1 = carregar<Pref>(c1, "lib/marketing/automacoes/preferencias.ts");
-    const { A, festa, execucao, envioPronto } = await baseSintetica(c3, anel, env1.criarEnvio, identidade);
+    const { A, usuario, festa, execucao, envioPronto } = await baseSintetica(c3, anel, env1.criarEnvio, identidade);
     const [p1, p2, p3] = [await pid(c1), await pid(c2), await pid(c3)];
     let ipN = 0;
     const ip = () => `203.0.113.${++ipN}`;
@@ -86,7 +92,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.equal(tarefas, nota <= 6 ? 1 : 0, "tarefa só da resposta gravada");
     });
 
-    /** Transação de cancelamento na ordem de operarContrato (lib/contratos/services/administrativo.service.ts): fechamento e contrato FOR UPDATE. */
+    /** Simulação em SQL da ordem das entradas reais de cancelamento (fechamento e contrato FOR UPDATE), para esgotar as 5 tentativas. */
     async function travarComoCancelamento(f: string) {
       await c3.query("BEGIN");
       await c3.query(`SELECT id FROM fechamentos WHERE id = $1::uuid FOR UPDATE`, [f]);
@@ -207,32 +213,70 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.equal((await um(`SELECT geracao FROM satisfacao_envios WHERE id = $1::uuid`, [p.envio])).geracao, 2);
     });
 
-    await t.test("bloqueio do WhatsApp transferido entre controles e conversa (outra conexão): a leitura nunca vê 'liberado'", async () => {
-      const numero = "5511977720001";
-      await c3.query(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'staging', $2, true)`, [A, numero]);
-      let parar = false, transferencias = 0;
-      const transferir = (async () => {
-        while (!parar) {
-          await c3.query("BEGIN");
-          await c3.query(`INSERT INTO whatsapp_atendimento_controles_contato (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'production', $2, true)`, [A, numero]);
-          await c3.query(`UPDATE whatsapp_atendimento_conversas SET nao_contatar = false WHERE empresa_id = $1::uuid AND contato = $2`, [A, numero]);
-          await c3.query("COMMIT");
-          await c3.query("BEGIN");
-          await c3.query(`UPDATE whatsapp_atendimento_conversas SET nao_contatar = true WHERE empresa_id = $1::uuid AND contato = $2`, [A, numero]);
-          await c3.query(`DELETE FROM whatsapp_atendimento_controles_contato WHERE empresa_id = $1::uuid AND contato = $2`, [A, numero]);
-          await c3.query("COMMIT");
-          transferencias += 2;
-        }
-      })();
-      const leituras: boolean[] = [];
-      try {
-        for (let i = 0; i < 400; i++) leituras.push(await pref1.bloqueioWhatsappDoDestino(executor(c1), A, numero));
-      } finally {
-        parar = true;
-        await transferir;
-      }
-      assert.ok(transferencias >= 10, `transferências concorrentes: ${transferencias}`);
-      assert.equal(leituras.filter((b) => !b).length, 0, "nenhuma leitura viu o destino liberado");
+    /**
+     * K1/K2 com barreira determinística: o executor da conexão 1 confirma, na conexão 3, a TRANSFERÊNCIA do bloqueio logo
+     * depois da PRIMEIRA leitura das tabelas do atendimento (`FROM whatsapp_atendimento_`). Numa instrução só, essa leitura
+     * já decidiu com um snapshot (antes da transferência: bloqueia). Com dois SELECTs, o segundo veria o estado novo e o
+     * destino sairia liberado. Pelo chamador real (elegivelParaMensagem), com autorização CONFIRMADA do número.
+     */
+    const comBarreira = (base: DbExecutor, depoisDaLeitura: () => Promise<void>) => {
+      const estado = { disparou: false };
+      const tx: DbExecutor = {
+        async query(sql, valores) {
+          const r = await base.query(sql, valores);
+          if (!estado.disparou && /FROM whatsapp_atendimento_/.test(sql)) { estado.disparou = true; await depoisDaLeitura(); }
+          return r;
+        },
+      } as DbExecutor;
+      return { tx, estado };
+    };
+    const autorizado = async () => {
+      const { cl, telefone } = await festa();
+      await porTransacao(c1)((tx) => pref1.alterarPreferencia(tx, A, usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", destino: telefone, confirmacao: "Autorizou (sintético)" }));
+      assert.equal((await porTransacao(c1)((tx) => pref1.elegivelParaMensagem(tx, A, cl))).ok, true, "antes do bloqueio: elegível");
+      return { cl, telefone };
+    };
+    const transferir = async (passos: Array<[string, unknown[]]>) => {
+      await c3.query("BEGIN");
+      for (const [sql, v] of passos) await c3.query(sql, v);
+      await c3.query("COMMIT");
+    };
+    const contagem = async (telefone: string) => (await c3.query(`SELECT (SELECT count(*) FROM whatsapp_atendimento_controles_contato WHERE contato = $1)::int AS controles,
+      (SELECT count(*) FROM whatsapp_atendimento_conversas WHERE contato = $1 AND nao_contatar)::int AS conversas`, [telefone])).rows[0];
+
+    await t.test("K1/K2 barreira: bloqueio transferido da conversa para os controles depois da primeira leitura → continua bloqueado", async () => {
+      const { cl, telefone } = await autorizado();
+      await c3.query(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'staging', $2, true)`, [A, telefone]);
+      const r = await porTransacao(c1)(async (base) => {
+        const b = comBarreira(base, () => transferir([
+          [`INSERT INTO whatsapp_atendimento_controles_contato (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'production', $2, true)`, [A, telefone]],
+          [`UPDATE whatsapp_atendimento_conversas SET nao_contatar = false WHERE empresa_id = $1::uuid AND contato = $2`, [A, telefone]],
+        ]));
+        const e = await pref1.elegivelParaMensagem(b.tx, A, cl);
+        assert.equal(b.estado.disparou, true, "a barreira disparou no meio da leitura");
+        return e;
+      });
+      assert.deepEqual(r, { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" });
+      assert.deepEqual(await contagem(telefone), { controles: 1, conversas: 0 }, "a transferência foi confirmada");
+      assert.deepEqual(await porTransacao(c1)((tx) => pref1.elegivelParaMensagem(tx, A, cl)), { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" }, "depois: bloqueado");
+    });
+
+    await t.test("K1/K2 barreira: bloqueio transferido dos controles para a conversa depois da primeira leitura → continua bloqueado", async () => {
+      const { cl, telefone } = await autorizado();
+      await c3.query(`INSERT INTO whatsapp_atendimento_controles_contato (empresa_id, ambiente, contato, nao_contatar) VALUES ($1::uuid, 'production', $2, true)`, [A, telefone]);
+      await c3.query(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato) VALUES ($1::uuid, 'staging', $2)`, [A, telefone]);
+      const r = await porTransacao(c1)(async (base) => {
+        const b = comBarreira(base, () => transferir([
+          [`UPDATE whatsapp_atendimento_conversas SET nao_contatar = true WHERE empresa_id = $1::uuid AND contato = $2`, [A, telefone]],
+          [`DELETE FROM whatsapp_atendimento_controles_contato WHERE empresa_id = $1::uuid AND contato = $2`, [A, telefone]],
+        ]));
+        const e = await pref1.elegivelParaMensagem(b.tx, A, cl);
+        assert.equal(b.estado.disparou, true, "a barreira disparou no meio da leitura");
+        return e;
+      });
+      assert.deepEqual(r, { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" });
+      assert.deepEqual(await contagem(telefone), { controles: 0, conversas: 1 }, "a transferência foi confirmada");
+      assert.deepEqual(await porTransacao(c1)((tx) => pref1.elegivelParaMensagem(tx, A, cl)), { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" }, "depois: bloqueado");
     });
   } finally {
     await encerrarDescartavel(c3, false);

@@ -16,7 +16,8 @@ export type CriarEnvio = (tx: DbExecutor, anel: AnelChaves, e: { empresaId: stri
  * sessão administrativa, OTP consumido, Festa) é validada no COMMIT pelos gatilhos de contratos e nenhuma suíte a
  * commita por fora do domínio; a pesquisa só LÊ contratos.status e fechamentos.status. Por isso só ESTE INSERT roda com
  * session_replication_role = replica (precedente: lib/agenda/aplicador-100.postgres.test.ts), numa transação própria;
- * nada da 110 é gravado assim. Cancelamentos depois seguem a ordem de operarContrato (contrato, fechamento).
+ * nada da 110 é gravado assim. As entradas reais de cancelamento (Festa e operarContrato) travam fechamento → contrato;
+ * a prova com elas está em satisfacao-cancelamento.postgres.test.ts.
  */
 export async function contratoAssinadoMinimo(db: Client, fechamentoId: string) {
   await db.query("SET LOCAL session_replication_role = replica");
@@ -51,11 +52,14 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
   // Cada festa num dia próprio (a agenda recusa ocupação sobreposta no mesmo recurso).
   const dataUnica = () => new Date(Date.UTC(2026, 0, 1) + ++dia * 86_400_000).toISOString().slice(0, 10);
 
-  async function festa(opcoes: { empresaId?: string; assinado?: boolean; nome?: string } = {}) {
+  /** Festa nova; com `clienteId`, do MESMO cliente (outra festa, outro envio); `telefone` fixa o número do cliente novo. */
+  async function festa(opcoes: { empresaId?: string; assinado?: boolean; nome?: string; clienteId?: string; telefone?: string } = {}) {
     const e = opcoes.empresaId ?? A;
     const r = await emTransacao(async () => {
-      const telefone = `55119888${String(70000 + ++tel).padStart(5, "0")}`;
-      const cl = await cliente(c, e, opcoes.nome ?? "Mariana Souza Sintética", telefone, `${cod("c")}@pesquisa.test`);
+      const telefone = opcoes.clienteId
+        ? (await um(`SELECT whatsapp FROM clientes WHERE id = $1::uuid`, [opcoes.clienteId])).whatsapp as string
+        : opcoes.telefone ?? `55119888${String(70000 + ++tel).padStart(5, "0")}`;
+      const cl = opcoes.clienteId ?? await cliente(c, e, opcoes.nome ?? "Mariana Souza Sintética", telefone, `${cod("c")}@pesquisa.test`);
       const f = await fechamento(c, e, e === A ? baseA : baseB, cl, { data: dataUnica(), status: "AGUARDANDO_PAGAMENTO" });
       return { cl, f, telefone };
     });
@@ -65,7 +69,8 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
   }
   /** Fechamento a mais do mesmo cliente (sem contrato). */
   const outraFestaDoCliente = (cl: string) => emTransacao(() => fechamento(c, A, baseA, cl, { data: dataUnica(), status: "AGUARDANDO_CONTRATO" }));
-  /** Cancelamento da festa na ordem de operarContrato: contrato e depois fechamento, na mesma transação. */
+  /** Atalho de FIXTURE (não é o protocolo de travas): contrato e fechamento cancelados na mesma transação. As entradas
+   *  reais (Festa e operarContrato) são exercitadas em satisfacao-cancelamento.postgres.test.ts. */
   const cancelarFesta = (f: string) => emTransacao(async () => {
     await c.query(`UPDATE contratos SET status = 'CANCELADO', cancelado_em = clock_timestamp() WHERE fechamento_id = $1::uuid`, [f]);
     await c.query(`UPDATE fechamentos SET status = 'CANCELADO' WHERE id = $1::uuid`, [f]);
@@ -75,7 +80,7 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
       VALUES ($1::uuid, $2::uuid, 1, $3, 'FECHAMENTO', $4::uuid, $5::uuid, $4::uuid, $6, clock_timestamp(), 3) RETURNING id::text AS id`, [e, regra, acao, f, cl, cod("chave-")])).id as string;
   }
   /** Festa assinada + execução + envio pelo serviço (dois canais). */
-  async function envioPronto(opcoes: { nome?: string } = {}) {
+  async function envioPronto(opcoes: { nome?: string; clienteId?: string; telefone?: string } = {}) {
     const { cl, f, telefone } = await festa(opcoes);
     const x = await execucao(A, cl, f);
     const r = await emTransacao((tx) => criarEnvio(tx, anel, { empresaId: A, execucaoId: x, canais: ["WHATSAPP", "EMAIL"], agendadaPara: new Date(), maxTentativas: 3 }));
@@ -83,8 +88,8 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
     return { cl, f, x, telefone, envio: r.envioId!, token: assinarToken(anel, r.envioId!, 1, anel.atual) };
   }
   /** Envio gravado direto com criação no passado, em dias (fração aceita: 29.5 = expira em 12 h). */
-  async function envioNoPassado(diasAtras: number) {
-    const { cl, f } = await festa();
+  async function envioNoPassado(diasAtras: number, opcoes: { clienteId?: string } = {}) {
+    const { cl, f } = await festa(opcoes);
     const x = await execucao(A, cl, f);
     const id = randomUUID();
     const token = assinarToken(anel, id, 1, anel.atual);

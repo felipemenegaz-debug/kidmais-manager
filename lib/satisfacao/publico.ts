@@ -111,7 +111,9 @@ const esquemaSaida = z.object({ token: z.string().max(200), origem: z.enum(["PAG
 
 export type Abertura =
   | { situacao: "ABERTA"; primeiroNome: string; buffet: string; unidade: string | null; dataFesta: string; versaoQuestionario: number }
-  | { situacao: "RESPONDIDA"; buffet: string };
+  | { situacao: "RESPONDIDA"; buffet: string }
+  /** Envio do link (identidade conferida) vencido ou revogado: sem questionário, mas a saída das pesquisas continua valendo. */
+  | { situacao: "ENCERRADA"; buffet: string };
 
 export async function abrirPesquisa(raw: unknown, ctx: ContextoPublico, deps: DepsPublico = depsPublicoPadrao()): Promise<Abertura> {
   const corpo = esquemaToken.safeParse(raw);
@@ -120,8 +122,8 @@ export async function abrirPesquisa(raw: unknown, ctx: ContextoPublico, deps: De
     const e = await travarEnvio(tx, v);
     if (!e) return null;
     const s = await situacao(tx, e);
-    if (s === "INDISPONIVEL") return null;
     const buffet = (await nomePublicoDaEmpresa(tx, e.empresa_id)) ?? "buffet";
+    if (s === "INDISPONIVEL") return { situacao: "ENCERRADA" as const, buffet };
     if (s === "RESPONDIDO") return { situacao: "RESPONDIDA" as const, buffet };
     const d = (await tx.query<{ nome: string | null; unidade: string | null; data: string }>(
       `SELECT c.nome_completo AS nome, u.nome AS unidade, to_char(f.data_evento, 'YYYY-MM-DD') AS data
@@ -129,7 +131,8 @@ export async function abrirPesquisa(raw: unknown, ctx: ContextoPublico, deps: De
         WHERE f.id = $1::uuid`, [e.fechamento_id, e.cliente_id, e.estabelecimento_id])).rows[0];
     return { situacao: "ABERTA" as const, primeiroNome: primeiroNome(d?.nome), buffet, unidade: d?.unidade ?? null, dataFesta: d?.data ?? "", versaoQuestionario: VERSAO_QUESTIONARIO };
   });
-  // Expiração/revogação gravadas acima já foram confirmadas; o cliente recebe a mesma resposta genérica.
+  // Identidade que não confere (link inventado, de outra geração ou chave): resposta genérica. Vencido/revogado com a
+  // identidade conferida vira ENCERRADA (já gravado e confirmado acima): sem questionário, só a saída das pesquisas.
   if (!r) linkIndisponivel();
   return r;
 }

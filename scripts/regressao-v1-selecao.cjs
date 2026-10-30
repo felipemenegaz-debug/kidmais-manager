@@ -199,6 +199,8 @@ const ESTADO_POSTGRES = {
   // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).
   "lib/satisfacao/satisfacao.postgres.test.ts": { descartavel: "110" },
   "lib/satisfacao/satisfacao-concorrencia.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-parar.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-cancelamento.postgres.test.ts": { descartavel: "110" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
