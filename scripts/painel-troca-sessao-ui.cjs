@@ -95,6 +95,13 @@ async function principal() {
     const contexto = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     contexto.setDefaultTimeout(60000);
     const page = await contexto.newPage();
+    // Conta compacta (30/10/2026): o seletor da empresa ativa fica no menu da conta; abre o menu se ele não estiver visível.
+    const seletorEmpresa = async () => {
+      const seletor = page.locator('select[aria-label="Empresa ativa"]').first();
+      if (!(await seletor.isVisible().catch(() => false))) await page.getByRole('button', { name: /^Conta de / }).first().click();
+      return seletor;
+    };
+    const botaoConta = () => page.getByRole('button', { name: /^Conta de / }).first();
     // Rastro de rede (G16): ordem de pedidos, respostas e falhas das rotas de sessão e do Perfil, só método e caminho
     // (sem consulta, corpo ou cabeçalho). Gravado em rastro-rede.json mesmo quando o roteiro falha.
     const t0 = Date.now();
@@ -136,7 +143,7 @@ async function principal() {
       if (!(await sessaoAtual()).data?.usuarioId) { await login(); await page.waitForLoadState('networkidle').catch(() => undefined); }
       if ((await sessaoAtual()).data?.contexto?.empresaAtual?.id !== empresa) await trocarPorFora(empresa);
       await page.goto(`${base}${destino}`).catch(async () => { await page.waitForTimeout(500); await page.goto(`${base}${destino}`); });
-      await page.getByLabel('Empresa ativa', { exact: true }).first().waitFor();
+      await botaoConta().waitFor();
       await page.waitForLoadState('networkidle').catch(() => undefined);
     };
     /**
@@ -172,7 +179,7 @@ async function principal() {
       });
       return { pedida, liberar: () => liberar() };
     };
-    const selecionar = (id) => page.getByLabel('Empresa ativa', { exact: true }).first().selectOption(id);
+    const selecionar = async (id) => (await seletorEmpresa()).selectOption(id);
     const disparaLeituraDoShell = () => page.evaluate(() => window.dispatchEvent(new Event('focus')));
     const destinoFinal = async () => { await page.waitForLoadState('load'); await page.waitForTimeout(1500); return new URL(page.url()).pathname; };
     const cenario = async (nome, fn) => {
@@ -245,7 +252,7 @@ async function principal() {
         nav.liberar();
         assert.equal(await destinoFinal(), '/admin/dashboard', `troca para ${alvo === empresas.beta.id ? 'Beta' : 'Alfa'}`);
         await page.unrouteAll({ behavior: 'ignoreErrors' });
-        await page.getByLabel('Empresa ativa', { exact: true }).first().waitFor();
+        await botaoConta().waitFor();
         await page.waitForLoadState('networkidle').catch(() => undefined);
       }
       assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.alfa.id);

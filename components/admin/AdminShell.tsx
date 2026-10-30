@@ -48,8 +48,11 @@ export default function AdminShell({ children, vitrine }: {
     const [demorou, setDemorou] = useState(false);
     const [erroEmpresa, setErroEmpresa] = useState('');
     const [aberto, setAberto] = useState(false);
+    const [contaAberta, setContaAberta] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
     const painelRef = useRef<HTMLElement>(null);
+    const contaRef = useRef<HTMLElement>(null);
+    const contaBotaoRef = useRef<HTMLButtonElement>(null);
     const router = useRouter();
     useEffect(() => {
         if (vitrine || path === '/admin/login')
@@ -110,7 +113,8 @@ export default function AdminShell({ children, vitrine }: {
                     primeiro?.focus();
                 }
             }
-            if (evento.key !== 'Escape')
+            // Esc já usado pelo menu da conta (defaultPrevented) não fecha a gaveta.
+            if (evento.key !== 'Escape' || evento.defaultPrevented)
                 return;
             setAberto(false);
             menuRef.current?.focus();
@@ -121,6 +125,17 @@ export default function AdminShell({ children, vitrine }: {
             document.body.style.overflow = overflowAnterior;
         };
     }, [aberto]);
+    useEffect(() => {
+        // Menu da conta: um clique fora dele o fecha.
+        if (!contaAberta)
+            return;
+        function cliqueFora(evento: MouseEvent) {
+            if (contaRef.current && !contaRef.current.contains(evento.target as Node))
+                setContaAberta(false);
+        }
+        document.addEventListener('mousedown', cliqueFora);
+        return () => document.removeEventListener('mousedown', cliqueFora);
+    }, [contaAberta]);
     function sair() {
         if (saindo) return;
         setSaindo(true);
@@ -193,17 +208,32 @@ export default function AdminShell({ children, vitrine }: {
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
             </nav>
             {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>}
-            <footer className={styles.conta}>
-                <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span><div><p>{name}</p><small>{semEmpresa ? 'Sem empresa ativa' : `${permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}${empresa?.nome ? ` · ${empresa.nome}` : ''}`}</small></div></div>
-                {seletor}
+            {/* Conta compacta: uma linha no rodapé; o clique abre, acima dela, a troca de empresa, os links da conta e o Sair. */}
+            <footer className={styles.contaCompacta} ref={contaRef} onKeyDown={(evento) => {
+                // Esc fecha só o menu da conta (a gaveta do celular continua aberta). O React escuta no próprio document,
+                // então stopPropagation não basta: a gaveta ignora o Esc com defaultPrevented.
+                if (evento.key !== 'Escape' || !contaAberta) return;
+                evento.preventDefault();
+                setContaAberta(false);
+                contaBotaoRef.current?.focus();
+            }}>
                 {empresa?.selecaoNecessaria && <p className={styles.avisoEmpresa} role="status">Selecione uma empresa para continuar.</p>}
-                {empresa?.desenvolvedor && <Link className={styles.perfilLink} href="/desenvolvedor" onClick={() => setAberto(false)}>Painel do desenvolvedor</Link>}
-                {comercial?.cobrado && permissoes.gestaoEmpresa && <Link className={styles.perfilLink} href="/admin/inicio" aria-current={path === '/admin/inicio' ? 'page' : undefined} onClick={() => setAberto(false)}>Primeiros passos</Link>}
-                {cadastroAberto && <Link className={styles.perfilLink} href="/cadastro/empresa">Cadastrar empresa</Link>}
-                {comercial?.cobrado && <Link className={styles.perfilLink} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => setAberto(false)}>Assinatura</Link>}
-                {!semEmpresa && <Link className={styles.perfilLink} href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => setAberto(false)}>Ajuda e suporte</Link>}
-                <Link className={styles.perfilLink} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}>Meu perfil e senha</Link>
-                <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
+                {contaAberta && <div id="menu-conta" className={styles.menuConta} role="group" aria-label="Conta">
+                    {/* Com uma empresa só (e já ativa), não há o que trocar. */}
+                    {contexto && (contexto.empresas.length > 1 || !contexto.empresaAtual) && seletor}
+                    {empresa?.desenvolvedor && <Link className={styles.menuContaItem} href="/desenvolvedor" onClick={() => { setAberto(false); setContaAberta(false); }}>Painel do desenvolvedor</Link>}
+                    {comercial?.cobrado && permissoes.gestaoEmpresa && <Link className={styles.menuContaItem} href="/admin/inicio" aria-current={path === '/admin/inicio' ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Primeiros passos</Link>}
+                    {cadastroAberto && <Link className={styles.menuContaItem} href="/cadastro/empresa">Cadastrar empresa</Link>}
+                    <Link className={styles.menuContaItem} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Meu perfil e senha</Link>
+                    {comercial?.cobrado && <Link className={styles.menuContaItem} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Assinatura</Link>}
+                    {!semEmpresa && <Link className={styles.menuContaItem} href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Ajuda e suporte</Link>}
+                    <button type="button" className={styles.menuContaSair} disabled={saindo} onClick={sair}><AdminIcon name="logout" size={14} /> {saindo ? 'Saindo…' : 'Sair'}</button>
+                </div>}
+                <button ref={contaBotaoRef} type="button" className={styles.contaBotao} aria-expanded={contaAberta} aria-controls="menu-conta" aria-label={`Conta de ${name}: ${contaAberta ? 'fechar' : 'abrir'} menu`} onClick={() => setContaAberta((valor) => !valor)}>
+                    <span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span>
+                    <span className={styles.contaTexto}><strong>{name}</strong><small>{semEmpresa ? 'Sem empresa ativa' : `${permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}${empresa?.nome ? ` · ${empresa.nome}` : ''}`}</small></span>
+                    <span className={styles.contaSeta} aria-hidden="true">{contaAberta ? '▾' : '▴'}</span>
+                </button>
             </footer>
         </aside>
         <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)

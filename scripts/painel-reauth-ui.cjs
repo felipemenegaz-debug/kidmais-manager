@@ -105,6 +105,13 @@ async function principal() {
     const contexto = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     contexto.setDefaultTimeout(60000);
     const page = await contexto.newPage();
+    // Conta compacta (30/10/2026): o seletor da empresa ativa fica no menu da conta; abre o menu se ele não estiver visível.
+    const seletorEmpresa = async () => {
+      const seletor = page.locator('select[aria-label="Empresa ativa"]').first();
+      if (!(await seletor.isVisible().catch(() => false))) await page.getByRole('button', { name: /^Conta de / }).first().click();
+      return seletor;
+    };
+    const botaoConta = () => page.getByRole('button', { name: /^Conta de / }).first();
     // Rastro de rede (G16): ordem de pedidos, respostas e falhas das rotas de sessão e do Perfil, só método e caminho
     // (sem consulta, corpo ou cabeçalho). Gravado em rastro-rede.json mesmo quando o roteiro falha.
     const t0 = Date.now();
@@ -128,7 +135,7 @@ async function principal() {
       await page.waitForURL(url => !url.pathname.includes('/login'));
     }
     async function trocar(id) {
-      await Promise.all([page.waitForEvent('load'), page.getByLabel('Empresa ativa', { exact: true }).first().selectOption(id)]);
+      await Promise.all([page.waitForEvent('load'), (await seletorEmpresa()).selectOption(id)]);
       await page.waitForURL(`${base}/admin/dashboard`);
     }
     async function trocarPorFora(id) {
@@ -364,7 +371,7 @@ async function principal() {
     });
     await page.evaluate(() => window.dispatchEvent(new Event('kidmais-logo-aplicada')));
     await logoPresoC;
-    await page.getByLabel('Empresa ativa', { exact: true }).first().selectOption(empresas.beta.id);
+    await (await seletorEmpresa()).selectOption(empresas.beta.id);
     await navPresaC;                        // a troca concluiu e pediu o painel (descarte sem aviso)
     abortarC = true; liberarLogoC();        // a leitura recebe a resposta; a confirmação dela falha agora
     await abortadaC;
@@ -376,7 +383,7 @@ async function principal() {
     assert.equal(await page.locator('[data-aviso-contexto]').count(), 0, 'nenhum aviso de leitura no painel depois da troca');
     // Tela seguinte (a empresa ativa agora é a Beta, sem Perfil na fixture): basta a tela carregar com o shell.
     await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
-    await page.getByLabel('Empresa ativa', { exact: true }).first().waitFor();
+    await botaoConta().waitFor();
     await page.waitForTimeout(500);
     assert.equal(await page.locator('[data-aviso-contexto]').count(), 0, 'nem nas telas seguintes');
     resultados.push('Troca de empresa pela página com leitura abortada depois: nenhum aviso de leitura sobra para as telas seguintes');
