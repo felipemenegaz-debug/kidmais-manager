@@ -183,6 +183,13 @@ Alterados:
 - **D-I4-7:** `conferir-caso` não usa `--execucao`. A localização é por chave natural e conteúdo (a auditoria da ferramenta traz o caso), e um DELETE aprovado não é localizável, então dá DIVERGENTE.
 - **D-I4-8:** `aplicar-caso` só localiza eventos ainda PENDENTE/FALHOU (os da janela já processados não geram proposta com efeito).
 - **D-I4-9:** um evento sem empresa resolvível vai para a pessoa e bloqueia a liberação até ser resolvido fora da ferramenta.
+  Achado do H7 (29/10) e revisão do Astra (P2-1, 30/10): a "resolução" é registrada nas decisões, em `eventosSemEmpresa`, por
+  evento: `SEM_EFEITO_COMPROVADO` (investigado no provedor, sem efeito KidMais) ou `TRATADO_FORA` (tratamento externo
+  concluído), com `evidencia` (10 a 500 caracteres, uma linha, sem dado pessoal). O inventário grava, por evento, o contexto
+  (tipo, situação, recebimento, motivo; referências do Asaas só no arquivo restrito); decidir exige esse contexto no mesmo
+  arquivo (digest). Evento do inventário sem decisão → recusa `EVENTO_SEM_EMPRESA_DO_INVENTARIO_SEM_DECISAO`; evento novo
+  depois do inventário → bloqueio `EVENTO_SEM_EMPRESA_SEM_DECISAO`. Risco assumido sem investigação não é disposição aceita.
+  A JANELA continua contando esses eventos como pendência.
 - **D-I4-10:** com o código antigo, o SEM_EFEITO sob as regras da candidata é evidência complementar e não bloqueia. A prova é o cron antigo.
 
 **Execução:** sem banco 84/84 nos arquivos do B-14 (13 novos das regras, 7 da entrada); PG descartável (mesma autorização; cluster criado e removido, porta 55498 livre): as duas suítes do B-14 23/23 em 5 rodadas seguidas (a nova 7/7; uma falha intermitente de TESTE — arquivo de drenagem escolhido pela ordem do nome — achada nas rodadas e corrigida); 13 mutantes mortos (RESTORE devolvendo 0, código 3 virando 2, aplicar sem conferir o hash, "nenhuma ação" com efeito aceita, liberação não invalidada, drenagem não exigida, conferir-caso sem pré-condição, efeitos sempre presentes, inventário com aplicação, lista instável aceita, fila sem SEQUENTIALLY, sem trava global, sem conferir marcadores); tsc e eslint limpos; CI local 28/28 (check:v1:static 3836).

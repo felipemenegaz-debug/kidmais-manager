@@ -556,3 +556,57 @@ test('entrada (CLI): alvo confirmado, trava ocupada → 1, marcadores divergente
     }
     finally { rmSync(pasta, { recursive: true, force: true }); }
 });
+
+/**
+ * Achado do H7 + revisão do Astra (P2-1, P3-1). Isolamento sem apagar (a 068 proíbe DELETE em cobranca_eventos): os eventos
+ * do teste são de 2020 e já concluídos (IGNORADO), então só entram numa janela que cubra 2020 — nunca nas janelas de "último
+ * dia" dos demais testes, nem pelo filtro PENDENTE/FALHOU. A prova do isolamento está no fim do próprio teste.
+ */
+test('achado do H7: evento sem empresa com contexto, disposição e evidência; evento novo depois do inventário bloqueia', { skip: !opt() }, async () => {
+    const { reinicio, drenagem } = await drenar();
+    const desde = '2020-01-01T00:00:00.000Z', ate2020 = '2020-01-02T00:00:00.000Z';
+    const evento = async (n: string, ref: { assinatura?: string; cobranca?: string }) => (await q(`INSERT INTO cobranca_eventos (provedor, evento_id, tipo,
+            assinatura_provedor_id, cobranca_provedor_id, situacao, recebido_em, processado_em)
+        VALUES ('ASAAS', $1, 'PAYMENT_CONFIRMED', $2, $3, 'IGNORADO', '2020-01-01T12:00:00Z', '2020-01-01T12:00:01Z') RETURNING id`,
+    [`evt_sem_empresa_${n}_${randomBytes(4).toString('hex')}`, ref.assinatura ?? null, ref.cobranca ?? null])).rows[0].id as string;
+    const id1 = await evento('1', { assinatura: `sub_inexistente_${randomBytes(3).toString('hex')}` });
+    const sem1 = identidadeDoCaso('EVENTO', id1);
+    let antes = await digest();
+    const inv = await modoInventario(execucao(), { desde, ate: ate2020, drenagem, reinicio });
+    assert.equal(await digest(), antes, 'inventário não grava');
+    // Contexto: público sem referências do provedor; o arquivo restrito traz as referências (caminho de correlação).
+    assert.deepEqual(inv.eventosSemEmpresa, [sem1]);
+    assert.deepEqual(inv.contextoSemEmpresa, [{ identidade: sem1, tipo: 'PAYMENT_CONFIRMED', situacao: 'IGNORADO', recebidoEm: '2020-01-01T12:00:00.000000Z',
+        motivo: 'ASSINATURA_SEM_EMPRESA_LOCAL' }]);
+    const arquivo = arquivos.ler(inv.arquivoDeCasos as string) as { casos: { identidade: string }[]; contextoSemEmpresa: { identidade: string; referencias: { evento: string; assinatura: string } }[] };
+    assert.ok(!arquivo.casos.some((c) => c.identidade === sem1), 'não é caso');
+    const linha = (await q('SELECT evento_id, assinatura_provedor_id FROM cobranca_eventos WHERE id = $1', [id1])).rows[0];
+    assert.deepEqual([arquivo.contextoSemEmpresa[0].referencias.evento, arquivo.contextoSemEmpresa[0].referencias.assinatura], [linha.evento_id, linha.assinatura_provedor_id]);
+    // Sem decisão sobre o evento do inventário: recusa no vínculo (antes da correção: BLOQUEADA para sempre).
+    const lib = (decisoes: string) => modoLiberacao(execucao(), { desde, ate: ate2020, drenagem, reinicio, decisoes, urlWebhook: URL_WEBHOOK });
+    await assert.rejects(lib(decidir(inv, () => 'NENHUMA')), /EVENTO_SEM_EMPRESA_DO_INVENTARIO_SEM_DECISAO/);
+    // Aceite nu (formato da rodada 1) é decisão inválida.
+    await assert.rejects(lib(decidir(inv, () => 'NENHUMA', { eventosSemEmpresa: { [sem1]: 'ACEITA' } })), /DECISOES_INVALIDAS/);
+    const decidido = decidir(inv, () => 'NENHUMA', { eventosSemEmpresa: { [sem1]: { disposicao: 'SEM_EFEITO_COMPROVADO', evidencia: 'assinatura inexistente no Asaas sandbox (teste)' } } });
+    antes = await digest();
+    const ok = await lib(decidido);
+    assert.equal(await digest(), antes, 'liberação não grava');
+    // A suíte compartilha o banco: outros casos podem ter bloqueios próprios. O que se exige é a ausência dos deste achado.
+    assert.deepEqual([ok.eventosSemEmpresa, ok.eventosSemEmpresaSemDecisao], [[sem1], []]);
+    assert.ok(!(ok.bloqueios as string[]).some((b) => b.startsWith('EVENTO_SEM_EMPRESA') || b === 'CASO_SEM_DECISAO'), String(ok.bloqueios));
+    assert.deepEqual((arquivos.ler(`liberacao-${ok.execucao}.json`) as { eventosSemEmpresa: unknown }).eventosSemEmpresa, { [sem1]: 'SEM_EFEITO_COMPROVADO' });
+    // Evento sem empresa chegado depois do inventário decidido: bloqueia só pelo motivo próprio e aparece com contexto.
+    const sem2 = identidadeDoCaso('EVENTO', await evento('2', { cobranca: `pay_inexistente_${randomBytes(3).toString('hex')}` }));
+    const novo = await lib(decidido);
+    assert.equal(novo.resultado, 'BLOQUEADA');
+    assert.deepEqual(new Set(novo.bloqueios as string[]), new Set([...(ok.bloqueios as string[]), 'EVENTO_SEM_EMPRESA_SEM_DECISAO']));
+    assert.deepEqual(novo.comEfeito, ok.comEfeito, 'o evento sem empresa não vira caso com efeito');
+    assert.deepEqual((novo.eventosSemEmpresaSemDecisao as { identidade: string; motivo: string }[]).map((c) => [c.identidade, c.motivo]), [[sem2, 'COBRANCA_SEM_VINCULO_LOCAL']]);
+    // JANELA não recebe decisões: os eventos continuam pendência (código 2), com contexto.
+    const jan = await modoJanela(execucao(), { desde, ate: ate2020, recuperar: false });
+    assert.notEqual(jan.codigo, 0);
+    assert.deepEqual(new Set(jan.eventosSemEmpresa as string[]), new Set([sem1, sem2]));
+    // Isolamento (P3-1): fora de uma janela de 2020 os eventos não existem para a ferramenta.
+    const atual = await modoJanela(execucao(), { ...(await janela()), recuperar: false });
+    assert.deepEqual(atual.eventosSemEmpresa, []);
+});

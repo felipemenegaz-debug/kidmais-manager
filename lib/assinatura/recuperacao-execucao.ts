@@ -167,9 +167,20 @@ export type Decisao = 'APLICAR' | 'OUTRA' | 'NENHUMA';
  * Arquivo de decisões de Felipe (A-B14-O). Revisão do Astra do incremento 4 (P2-4): preso a UM inventário — a execução
  * (`inventario`), o digest do arquivo de casos (`digestInventario`) e, por caso, o hash da proposta decidida (`proposta`,
  * null quando o inventário não trouxe proposta). Aceites explícitos: limitação de cobertura e retenção acima de 14 dias.
+ * Achado do H7 (29/10, EVENTO_SEM_EMPRESA): evento sem empresa resolvível não tem fotografia nem proposta, então não é caso;
+ * vai para a pessoa (D-I4-9) e só libera resolvido fora da ferramenta. `eventosSemEmpresa` (opcional; ausente = nenhuma
+ * decisão) registra, por evento, a disposição de Felipe depois de examinar o contexto do inventário (revisão do Astra, P2-1):
+ *   SEM_EFEITO_COMPROVADO  investigado no provedor: o evento não tem efeito KidMais a recuperar;
+ *   TRATADO_FORA           o efeito foi tratado fora da ferramenta e o tratamento está concluído;
+ * e a `evidencia` (referência ou justificativa, texto curto, sem dado pessoal). Risco assumido sem investigação não é
+ * disposição aceita: mudaria a D-I4-9.
  */
+export const DISPOSICOES_SEM_EMPRESA = Object.freeze(['SEM_EFEITO_COMPROVADO', 'TRATADO_FORA'] as const);
+export type DecisaoSemEmpresa = { disposicao: (typeof DISPOSICOES_SEM_EMPRESA)[number]; evidencia: string };
 export type Decisoes = { formato: 2; inventario: string; digestInventario: string; casos: Record<string, { decisao: Decisao; proposta: string | null }>;
-    orfas: Record<string, 'ACEITA'>; coberturaAceita: boolean; retencaoAceita: boolean };
+    orfas: Record<string, 'ACEITA'>; eventosSemEmpresa: Record<string, DecisaoSemEmpresa>; coberturaAceita: boolean; retencaoAceita: boolean };
+/** Evidência: 10 a 500 caracteres, uma linha, sem caracteres de controle nem separadores Unicode de linha/parágrafo (P3-R2-1). */
+const EVIDENCIA = /^[^\p{Cc}\p{Zl}\p{Zp}]{10,500}$/u;
 const ID = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function lerDecisoes(d: unknown): Decisoes {
@@ -177,21 +188,31 @@ export function lerDecisoes(d: unknown): Decisoes {
     if (!o || o.formato !== 2 || typeof o.inventario !== 'string' || !UUID.test(o.inventario) || typeof o.digestInventario !== 'string' || !ID.test(o.digestInventario)
         || typeof o.coberturaAceita !== 'boolean' || typeof o.retencaoAceita !== 'boolean') throw new Error('DECISOES_INVALIDAS');
     const casos = (o.casos ?? {}) as Record<string, { decisao?: unknown; proposta?: unknown }>, orfas = (o.orfas ?? {}) as Record<string, unknown>;
+    const semEmpresa = (o.eventosSemEmpresa ?? {}) as Record<string, unknown>;
+    if (typeof semEmpresa !== 'object' || semEmpresa === null || Array.isArray(semEmpresa)) throw new Error('DECISOES_INVALIDAS');
     for (const [k, v] of Object.entries(casos))
         if (!ID.test(k) || !v || !['APLICAR', 'OUTRA', 'NENHUMA'].includes(String(v.decisao)) || !(v.proposta === null || (typeof v.proposta === 'string' && ID.test(v.proposta))))
             throw new Error('DECISOES_INVALIDAS');
     for (const [k, v] of Object.entries(orfas)) if (!ID.test(k) || v !== 'ACEITA') throw new Error('DECISOES_INVALIDAS');
+    const eventosSemEmpresa: Record<string, DecisaoSemEmpresa> = {};
+    for (const [k, v] of Object.entries(semEmpresa)) {
+        const s = v as { disposicao?: unknown; evidencia?: unknown } | null;
+        if (!ID.test(k) || !s || typeof s !== 'object' || Object.keys(s).some((c) => c !== 'disposicao' && c !== 'evidencia')
+            || !(DISPOSICOES_SEM_EMPRESA as readonly unknown[]).includes(s.disposicao) || typeof s.evidencia !== 'string' || !EVIDENCIA.test(s.evidencia.trim()))
+            throw new Error('DECISOES_INVALIDAS');
+        eventosSemEmpresa[k] = { disposicao: s.disposicao as DecisaoSemEmpresa['disposicao'], evidencia: s.evidencia.trim() };
+    }
     return { formato: 2, inventario: o.inventario, digestInventario: o.digestInventario, casos: casos as Decisoes['casos'], orfas: orfas as Record<string, 'ACEITA'>,
-        coberturaAceita: o.coberturaAceita, retencaoAceita: o.retencaoAceita };
+        eventosSemEmpresa, coberturaAceita: o.coberturaAceita, retencaoAceita: o.retencaoAceita };
 }
 
 /** Arquivo de casos do inventário (o que `modoInventario` grava). */
 export type ArquivoDeCasos = { formato: 1; execucao: string; schema: string; codigoNoAr: CodigoNoAr; reinicio: string;
-    casos: { identidade: string; hash: string | null }[]; orfas: { identidade: string }[] };
+    casos: { identidade: string; hash: string | null }[]; orfas: { identidade: string }[]; eventosSemEmpresa?: string[]; contextoSemEmpresa?: { identidade: string }[] };
 /**
  * P2-4: as decisões valem só para o inventário que declaram — o arquivo existe, tem o formato, o digest declarado, o mesmo
- * schema, código no ar e reinício da liberação; cada caso e órfã do inventário tem decisão, cada decisão é de um caso dele
- * e com o hash da proposta apresentada. Devolve o primeiro motivo de recusa (código 1) ou null.
+ * schema, código no ar e reinício da liberação; cada caso, órfã e evento sem empresa do inventário tem decisão, cada decisão
+ * é de um item dele e, no caso, com o hash da proposta apresentada. Devolve o primeiro motivo de recusa (código 1) ou null.
  */
 export function conferirVinculoDasDecisoes(d: Decisoes, inv: unknown, ctx: { schema: string; codigoNoAr: CodigoNoAr; reinicio: string }): string | null {
     const i = inv as ArquivoDeCasos | null;
@@ -203,6 +224,13 @@ export function conferirVinculoDasDecisoes(d: Decisoes, inv: unknown, ctx: { sch
     if ([...doInventario.keys()].some((id) => !d.casos[id])) return 'CASO_DO_INVENTARIO_SEM_DECISAO';
     const orfas = new Set(i.orfas.map((o) => o.identidade));
     if (Object.keys(d.orfas).some((o) => !orfas.has(o)) || [...orfas].some((o) => !d.orfas[o])) return 'ORFAS_FORA_DO_INVENTARIO';
+    if (i.eventosSemEmpresa !== undefined && !Array.isArray(i.eventosSemEmpresa)) return 'INVENTARIO_DAS_DECISOES_INEXISTENTE';
+    const semEmpresa = new Set(i.eventosSemEmpresa ?? []);
+    if (Object.keys(d.eventosSemEmpresa).some((e) => !semEmpresa.has(e))) return 'EVENTOS_SEM_EMPRESA_FORA_DO_INVENTARIO';
+    if ([...semEmpresa].some((e) => !d.eventosSemEmpresa[e])) return 'EVENTO_SEM_EMPRESA_DO_INVENTARIO_SEM_DECISAO';
+    // P2-1: decidir exige o contexto apresentado no MESMO arquivo (preso pelo digest); inventário anterior à correção não serve.
+    const contexto = new Set(Array.isArray(i.contextoSemEmpresa) ? i.contextoSemEmpresa.map((c) => c?.identidade) : []);
+    if ([...semEmpresa].some((e) => !contexto.has(e))) return 'EVENTO_SEM_EMPRESA_SEM_CONTEXTO';
     return null;
 }
 
@@ -215,9 +243,10 @@ export type Liberacao = { liberada: boolean; bloqueios: string[]; exigenciasPosR
 /**
  * Libera só com: todo caso atual decidido (e nenhum caso novo); toda chave KidMais em SEM_EFEITO sob as regras da candidata
  * (com o código antigo, a prova é o cron antigo — exceção expressa — e o SEM_EFEITO vira evidência complementar); toda órfã
- * decidida; cobertura completa ou aceita; fila código 0 ou só `interrupted` (com as três exigências pós-reabertura).
+ * decidida; todo evento sem empresa com disposição (fora de `itens`: não é caso nem tem efeito calculável); cobertura completa ou
+ * aceita; fila código 0 ou só `interrupted` (com as três exigências pós-reabertura).
  */
-export function avaliarLiberacao(e: { itens: readonly ItemLiberacao[]; orfas: readonly string[]; coberturaIncompleta: boolean; decisoes: Decisoes;
+export function avaliarLiberacao(e: { itens: readonly ItemLiberacao[]; orfas: readonly string[]; semEmpresa: readonly string[]; coberturaIncompleta: boolean; decisoes: Decisoes;
     fila: ConferenciaFila; codigo: CodigoNoAr; provaCronAntigo: string | null | undefined; retencaoAcima14Dias: boolean }): Liberacao {
     const b: string[] = [];
     // Caso que não estava no inventário decidido (surgiu depois): sem decisão.
@@ -226,6 +255,7 @@ export function avaliarLiberacao(e: { itens: readonly ItemLiberacao[]; orfas: re
     if (e.codigo === 'CANDIDATA' && comEfeito) b.push('COM_EFEITO_NORMAL');
     if (e.codigo === 'ANTIGO' && e.provaCronAntigo !== null) b.push(`SEM_PROVA_DO_CRON_ANTIGO:${e.provaCronAntigo ?? 'AUSENTE'}`);
     if (e.orfas.some((o) => !e.decisoes.orfas[o])) b.push('ORFA_SEM_DECISAO');
+    if (e.semEmpresa.some((s) => !e.decisoes.eventosSemEmpresa[s])) b.push('EVENTO_SEM_EMPRESA_SEM_DECISAO');
     if (e.coberturaIncompleta && !e.decisoes.coberturaAceita) b.push('COBERTURA_NAO_ACEITA');
     if (e.retencaoAcima14Dias && !e.decisoes.retencaoAceita) b.push('RETENCAO_ACIMA_DE_14_DIAS_NAO_ACEITA');
     const filaOk = e.fila.codigo === 0 || e.fila.soInterrompida;

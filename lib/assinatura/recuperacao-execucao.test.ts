@@ -129,7 +129,12 @@ const INV = '11111111-1111-4111-8111-111111111111', H1 = 'a'.repeat(64);
 const inventario = { formato: 1 as const, execucao: INV, schema: 'P9', codigoNoAr: 'CANDIDATA' as const, reinicio: '2026-10-28T10:00:00.000Z',
     casos: [{ identidade: ID1, hash: H1 }, { identidade: ID2, hash: null }], orfas: [{ identidade: ORFA }] };
 const dec = (extra: Partial<Decisoes> = {}): Decisoes => ({ formato: 2, inventario: INV, digestInventario: hashCanonico(inventario),
-    casos: { [ID1]: { decisao: 'APLICAR', proposta: H1 }, [ID2]: { decisao: 'NENHUMA', proposta: null } }, orfas: { [ORFA]: 'ACEITA' }, coberturaAceita: false, retencaoAceita: false, ...extra });
+    casos: { [ID1]: { decisao: 'APLICAR', proposta: H1 }, [ID2]: { decisao: 'NENHUMA', proposta: null } }, orfas: { [ORFA]: 'ACEITA' }, eventosSemEmpresa: {}, coberturaAceita: false, retencaoAceita: false, ...extra });
+const SEM = '6'.repeat(64);
+const DISP = { disposicao: 'SEM_EFEITO_COMPROVADO' as const, evidencia: 'Asaas sandbox: assinatura de teste apagada, sem cobrança' };
+const invSem = { ...inventario, eventosSemEmpresa: [SEM], contextoSemEmpresa: [{ identidade: SEM, tipo: 'PAYMENT_CONFIRMED', situacao: 'PENDENTE',
+    recebidoEm: '2026-10-28T09:00:00.000000Z', motivo: 'ASSINATURA_SEM_EMPRESA_LOCAL', referencias: { evento: 'evt_1', assinatura: 'sub_1', cobranca: null, referenciaExterna: null } }] };
+const decSem = (extra: Partial<Decisoes> = {}) => dec({ digestInventario: hashCanonico(invSem), eventosSemEmpresa: { [SEM]: DISP }, ...extra });
 
 test('decisões: lista fechada de valores, ids opacos e o inventário (execução + digest)', () => {
     assert.deepEqual(lerDecisoes(dec()), dec());
@@ -138,6 +143,21 @@ test('decisões: lista fechada de valores, ids opacos e o inventário (execuçã
     assert.throws(() => lerDecisoes({ ...dec(), formato: 1 }), /DECISOES_INVALIDAS/);
     assert.throws(() => lerDecisoes({ ...dec(), inventario: 'NAO_EXISTE' }), /DECISOES_INVALIDAS/);
     assert.throws(() => lerDecisoes({ ...dec(), retencaoAceita: undefined }), /DECISOES_INVALIDAS/);
+    // Achado do H7 + P2-1 (Astra): eventos sem empresa (opcional; ausente = nenhuma decisão), id opaco, disposição da lista
+    // fechada e evidência curta. Aceite nu (ACEITA), risco assumido, evidência vazia/curta/multilinha ou campo a mais: recusa.
+    const semCampo: Partial<Decisoes> = dec();
+    delete semCampo.eventosSemEmpresa;
+    assert.deepEqual(lerDecisoes(semCampo).eventosSemEmpresa, {});
+    assert.deepEqual(lerDecisoes(decSem()).eventosSemEmpresa, { [SEM]: DISP });
+    assert.deepEqual(lerDecisoes(decSem({ eventosSemEmpresa: { [SEM]: { disposicao: 'TRATADO_FORA', evidencia: '  chamado 123 no Asaas, estornado  ' } } })).eventosSemEmpresa,
+        { [SEM]: { disposicao: 'TRATADO_FORA', evidencia: 'chamado 123 no Asaas, estornado' } });
+    const invalida = (v: unknown) => assert.throws(() => lerDecisoes({ ...dec(), eventosSemEmpresa: { [SEM]: v } }), /DECISOES_INVALIDAS/, JSON.stringify(v));
+    for (const v of ['ACEITA', null, { disposicao: 'RISCO_ASSUMIDO', evidencia: DISP.evidencia }, { disposicao: 'SEM_EFEITO_COMPROVADO' },
+        { ...DISP, evidencia: 'curta' }, { ...DISP, evidencia: '          ' }, { ...DISP, evidencia: 'linha um\nlinha dois' }, { ...DISP, evidencia: 'protocolo 42 estorno concluido' }, { ...DISP, evidencia: 'protocolo 42 estorno concluido' },
+        { ...DISP, evidencia: 'x'.repeat(501) },
+        { ...DISP, extra: 1 }]) invalida(v);
+    assert.throws(() => lerDecisoes({ ...dec(), eventosSemEmpresa: { 'evento-x': DISP } }), /DECISOES_INVALIDAS/);
+    assert.throws(() => lerDecisoes({ ...dec(), eventosSemEmpresa: [SEM] }), /DECISOES_INVALIDAS/);
 });
 
 test('P2-4 (incremento 4): decisões presas ao inventário que declaram', () => {
@@ -153,6 +173,17 @@ test('P2-4 (incremento 4): decisões presas ao inventário que declaram', () => 
     assert.equal(conferirVinculoDasDecisoes(dec({ casos: { ...dec().casos, ['8'.repeat(64)]: { decisao: 'OUTRA', proposta: null } } }), inventario, ctx), 'DECISAO_FORA_DO_INVENTARIO');
     assert.equal(conferirVinculoDasDecisoes(dec({ casos: { [ID1]: { decisao: 'APLICAR', proposta: H1 } } }), inventario, ctx), 'CASO_DO_INVENTARIO_SEM_DECISAO');
     assert.equal(conferirVinculoDasDecisoes(dec({ orfas: {} }), inventario, ctx), 'ORFAS_FORA_DO_INVENTARIO');
+    // Achado do H7: evento sem empresa do inventário exige decisão; decisão de evento fora do inventário é recusada; P2-1:
+    // o inventário tem de trazer o contexto apresentado (o de antes da correção, só com ids, não serve).
+    assert.equal(conferirVinculoDasDecisoes(decSem(), invSem, ctx), null);
+    assert.equal(conferirVinculoDasDecisoes(decSem({ eventosSemEmpresa: {} }), invSem, ctx), 'EVENTO_SEM_EMPRESA_DO_INVENTARIO_SEM_DECISAO');
+    assert.equal(conferirVinculoDasDecisoes(dec({ eventosSemEmpresa: { [SEM]: DISP } }), inventario, ctx), 'EVENTOS_SEM_EMPRESA_FORA_DO_INVENTARIO');
+    assert.equal(conferirVinculoDasDecisoes(decSem({ eventosSemEmpresa: { [SEM]: DISP, ['7'.repeat(64)]: DISP } }), invSem, ctx), 'EVENTOS_SEM_EMPRESA_FORA_DO_INVENTARIO');
+    const semContexto = { ...inventario, eventosSemEmpresa: [SEM] };
+    assert.equal(conferirVinculoDasDecisoes(decSem({ digestInventario: hashCanonico(semContexto) }), semContexto, ctx), 'EVENTO_SEM_EMPRESA_SEM_CONTEXTO');
+    // O contexto é parte do arquivo: alterá-lo depois da decisão muda o digest.
+    const outroContexto = { ...invSem, contextoSemEmpresa: [{ ...invSem.contextoSemEmpresa[0], tipo: 'PAYMENT_DELETED' }] };
+    assert.equal(conferirVinculoDasDecisoes(decSem(), outroContexto, ctx), 'INVENTARIO_DAS_DECISOES_ALTERADO');
 });
 
 test('P2-7: falha absorvida pelo serviço (evento FALHOU) conta como falha do caso', () => {
@@ -166,8 +197,13 @@ test('P2-7: falha absorvida pelo serviço (evento FALHOU) conta como falha do ca
 
 test('liberação (§5): tudo decidido, tudo SEM_EFEITO, órfãs decididas, cobertura aceita e fila 0', () => {
     const itens = [{ identidade: ID1, semEfeito: true, falha: null }, { identidade: ID2, semEfeito: true, falha: null }];
-    const base = { itens, orfas: [ORFA], coberturaIncompleta: false, decisoes: dec(), fila: filaOk, codigo: 'CANDIDATA' as const, provaCronAntigo: null, retencaoAcima14Dias: false };
+    const base = { itens, orfas: [ORFA], semEmpresa: [] as string[], coberturaIncompleta: false, decisoes: dec(), fila: filaOk, codigo: 'CANDIDATA' as const, provaCronAntigo: null, retencaoAcima14Dias: false };
     assert.deepEqual(avaliarLiberacao(base), { liberada: true, bloqueios: [], exigenciasPosReabertura: [], excecaoExpressa: false });
+    // Achado do H7 (EVENTO_SEM_EMPRESA): sem aceite bloqueia só pelo motivo próprio (não CASO_SEM_DECISAO/COM_EFEITO_NORMAL);
+    // aceito libera; evento novo (não aceito) depois do inventário bloqueia.
+    assert.deepEqual(avaliarLiberacao({ ...base, semEmpresa: [SEM] }).bloqueios, ['EVENTO_SEM_EMPRESA_SEM_DECISAO']);
+    assert.equal(avaliarLiberacao({ ...base, semEmpresa: [SEM], decisoes: decSem() }).liberada, true);
+    assert.deepEqual(avaliarLiberacao({ ...base, semEmpresa: [SEM, '7'.repeat(64)], decisoes: decSem() }).bloqueios, ['EVENTO_SEM_EMPRESA_SEM_DECISAO']);
     // "Nenhuma ação" com efeito normal bloqueia (D-B14-17).
     assert.deepEqual(avaliarLiberacao({ ...base, itens: [itens[0], { identidade: ID2, semEfeito: false, falha: null }] }).bloqueios, ['COM_EFEITO_NORMAL']);
     assert.deepEqual(avaliarLiberacao({ ...base, itens: [...itens, { identidade: '4'.repeat(64), semEfeito: true, falha: null }] }).bloqueios, ['CASO_SEM_DECISAO']);

@@ -75,15 +75,34 @@ export type Chaves = {
     relacionado: Map<string, string>;
     /** Eventos sem empresa resolvível: sem fotografia possível, vão para pessoa (identidade opaca). */
     semEmpresa: string[];
+    /** Contexto de cada evento sem empresa, na ordem de `semEmpresa`, para a decisão de Felipe (revisão do Astra, P2-1). */
+    contextoSemEmpresa: ContextoSemEmpresa[];
     limites: string[];
     locais: ChavesRemotas;
     cobrancasLocais: number;
 };
 
-type LinhaEvento = { id: string; empresa_id: string | null; cobranca_provedor_id: string | null; referencia_externa: string | null; empresa_da_assinatura: string | null };
+type LinhaEvento = { id: string; empresa_id: string | null; cobranca_provedor_id: string | null; referencia_externa: string | null; empresa_da_assinatura: string | null;
+    evento_id: string; tipo: string; situacao_evento: string; recebido: string; assinatura_provedor_id: string | null };
 const SQL_EVENTO = `SELECT e.id, e.empresa_id, e.cobranca_provedor_id, e.referencia_externa,
-    (SELECT a.empresa_id FROM empresa_assinaturas a WHERE a.provedor = 'ASAAS' AND a.provedor_assinatura_id = e.assinatura_provedor_id ORDER BY a.empresa_id LIMIT 1) AS empresa_da_assinatura
+    (SELECT a.empresa_id FROM empresa_assinaturas a WHERE a.provedor = 'ASAAS' AND a.provedor_assinatura_id = e.assinatura_provedor_id ORDER BY a.empresa_id LIMIT 1) AS empresa_da_assinatura,
+    e.evento_id, e.tipo, e.situacao AS situacao_evento, to_char(e.recebido_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recebido, e.assinatura_provedor_id
   FROM cobranca_eventos e WHERE e.provedor = 'ASAAS'`;
+
+/**
+ * Contexto do evento sem empresa (revisão do Astra, P2-1): o que a pessoa precisa para investigar antes de decidir. Na saída
+ * pública só tipo, situação, recebimento e motivo; as referências do provedor (ids do Asaas, nunca payload nem dado pessoal)
+ * ficam só no arquivo restrito de casos (600), que é o caminho de correlação com o painel do Asaas.
+ */
+export type ContextoSemEmpresa = { identidade: string; tipo: string; situacao: string; recebidoEm: string;
+    motivo: 'COBRANCA_SEM_VINCULO_LOCAL' | 'ASSINATURA_SEM_EMPRESA_LOCAL' | 'SEM_REFERENCIA_AO_PROVEDOR';
+    referencias: { evento: string; assinatura: string | null; cobranca: string | null; referenciaExterna: string | null } };
+function contextoSemEmpresa(e: LinhaEvento): ContextoSemEmpresa {
+    const motivo = e.cobranca_provedor_id || e.referencia_externa ? 'COBRANCA_SEM_VINCULO_LOCAL' : e.assinatura_provedor_id ? 'ASSINATURA_SEM_EMPRESA_LOCAL' : 'SEM_REFERENCIA_AO_PROVEDOR';
+    return { identidade: identidadeDoCaso('EVENTO', e.id), tipo: e.tipo, situacao: e.situacao_evento, recebidoEm: e.recebido, motivo,
+        referencias: { evento: e.evento_id, assinatura: e.assinatura_provedor_id, cobranca: e.cobranca_provedor_id, referenciaExterna: e.referencia_externa } };
+}
+const contextoPublico = (c: ContextoSemEmpresa) => ({ identidade: c.identidade, tipo: c.tipo, situacao: c.situacao, recebidoEm: c.recebidoEm, motivo: c.motivo });
 
 /** Empresa e objeto ligado de um evento: o pedido de créditos (quando é de créditos) ou a assinatura da empresa. */
 async function resolverEvento(tx: DbExecutor, e: LinhaEvento, creditos: boolean) {
@@ -113,16 +132,17 @@ export async function enumerarChaves(tx: DbExecutor, j: { desde: string; ate: st
          ORDER BY e.recebido_em, e.id LIMIT $3`, [j.desde, j.ate, LIMITE_EVENTOS_B14 + 1])).rows;
     const limites = eventos.length > LIMITE_EVENTOS_B14 ? [`EVENTOS_${LIMITE_EVENTOS_B14}`] : [];
     const relacionado = new Map<string, string>();
-    const semEmpresa: string[] = [];
+    const semEmpresa: ContextoSemEmpresa[] = [];
     for (const e of eventos.slice(0, LIMITE_EVENTOS_B14)) {
         const r = await resolverEvento(tx, e, creditos);
-        if (!r.empresa) { semEmpresa.push(identidadeDoCaso('EVENTO', e.id)); continue; }
+        if (!r.empresa) { semEmpresa.push(contextoSemEmpresa(e)); continue; }
         casos.push({ tipo: 'EVENTO', id: e.id, empresaId: r.empresa });
         relacionado.set(e.id, r.relacionado!);
     }
     const pagamentos = creditos ? (await tx.query<{ p: string }>('SELECT pagamento_id AS p FROM ia_credito_cobrancas')).rows.map((r) => r.p) : [];
     const assinaturas = (await tx.query<{ s: string }>("SELECT provedor_assinatura_id AS s FROM empresa_assinaturas WHERE provedor = 'ASAAS' AND provedor_assinatura_id IS NOT NULL")).rows.map((r) => r.s);
-    return { casos, relacionado, semEmpresa: semEmpresa.sort(), limites,
+    semEmpresa.sort((a, b) => (a.identidade < b.identidade ? -1 : a.identidade > b.identidade ? 1 : 0));
+    return { casos, relacionado, semEmpresa: semEmpresa.map((c) => c.identidade), contextoSemEmpresa: semEmpresa, limites,
         locais: { pagamentos: new Set(pagamentos), pedidos: new Set(pedidos.map((p) => p.id)), assinaturas: new Set(assinaturas) }, cobrancasLocais: pagamentos.length };
 }
 
@@ -279,7 +299,7 @@ export async function modoJanela(x: Execucao, j: { desde: string; ate: string; r
         modo, codigo, execucao: x.execucao, schema: schema.nome, parada,
         resultado: codigo === 0 ? 'CONCLUIDA' : codigo === 1 ? (divergentes.length ? 'HASH_DIVERGENTE' : 'INTERROMPIDA') : codigo === 3 ? 'COBERTURA_INCOMPLETA' : 'COM_PENDENCIAS',
         cobertura: { limites: chaves.limites, inconclusivos: itens.filter(incompleto).map((i) => i.p.identidade), casos: chaves.casos.length, cobrancasLocais: chaves.cobrancasLocais },
-        classes: contagem(itens.map((i) => i.c)), aplicados, divergentes, eventosSemEmpresa: chaves.semEmpresa,
+        classes: contagem(itens.map((i) => i.c)), aplicados, divergentes, eventosSemEmpresa: chaves.semEmpresa, contextoSemEmpresa: chaves.contextoSemEmpresa.map(contextoPublico),
         base: j.base ? (baseInvalida ? { valida: false, motivo: 'BASELINE_INVALIDA', detalhe: baseInvalida } : { valida: true, agravados: comparacao!.agravados, novos: comparacao!.novos,
             novosSemComparacao: comparacao!.novosSemComparacao, resolvidos: comparacao!.resolvidos.length }) : null,
         baseSelada: selada, baseRecusada: !j.base && baseInvalida ? baseInvalida : null,
@@ -387,12 +407,13 @@ export async function modoInventario(x: Execucao, j: { desde: string; ate: strin
     const arquivo = `casos-${x.execucao}.json`;
     x.arquivos.gravarNovo(arquivo, { formato: 1, execucao: x.execucao, instante: new Date().toISOString(), schema: schema.nome, codigoNoAr: x.codigoNoAr, reinicio: j.reinicio,
             casos: r.itens.map((i) => ({ ...i.evidencia, consistencia: i.consistencia })), orfas: r.orfas, eventosSemEmpresa: r.chaves.semEmpresa,
+            contextoSemEmpresa: r.chaves.contextoSemEmpresa,
             cobertura: { incompleta: coberturaIncompleta, limites: r.chaves.limites, remota: r.remota.motivos, inconclusivos: r.remota.inconclusivos } });
     const codigo = codigoFinal({ modo: 'RESTORE', recusaTecnica: false, coberturaIncompleta, pendencias: 0 });
     return { modo: 'RESTORE_INVENTARIO', codigo, execucao: x.execucao, schema: schema.nome, parada: null, resultado: 'ASSISTIDO',
         arquivoDeCasos: arquivo, digestDoArquivo: hashCanonico(x.arquivos.ler(arquivo)), classes: contagem([...r.itens.map((i) => i.c), ...r.orfas]),
         cobertura: { incompleta: coberturaIncompleta, limites: r.chaves.limites, remota: r.remota.motivos, inconclusivos: [...r.remota.inconclusivos, ...r.itens.filter(incompleto).map((i) => i.p.identidade)] },
-        casos: r.itens.map(publico), orfas: r.orfas, eventosSemEmpresa: r.chaves.semEmpresa };
+        casos: r.itens.map(publico), orfas: r.orfas, eventosSemEmpresa: r.chaves.semEmpresa, contextoSemEmpresa: r.chaves.contextoSemEmpresa.map(contextoPublico) };
 }
 
 type CasoAprovado = EvidenciaDoCaso & { proposta: Proposta; hash: string };
@@ -539,10 +560,11 @@ export async function modoLiberacao(x: Execucao, j: { desde: string; ate: string
     const tf = await instanteDoBanco(x.client);
     const retencaoAcima14Dias = Date.parse(tf) - Date.parse(drenagem.contencaoDesde!) > RETENCAO_MAXIMA_MS;
     const coberturaIncompleta = r.coberturaIncompleta || fila.codigo === 3;
+    // Achado do H7 (29/10): o evento sem empresa entrava como item com efeito, sem decisão possível (não está nos casos), e
+    // bloqueava a liberação para sempre. Agora é lista própria, com disposição e evidência de Felipe (`eventosSemEmpresa`).
     const lib: Liberacao = avaliarLiberacao({
-        itens: [...r.itens.map((i) => ({ identidade: i.p.identidade, semEfeito: i.p.semEfeito, falha: falhaDoCaso(i.p) })),
-            ...r.chaves.semEmpresa.map((identidade) => ({ identidade, semEfeito: false, falha: 'EVENTO_SEM_EMPRESA' }))],
-        orfas: r.orfas.map((o) => o.identidade), coberturaIncompleta, decisoes: { ...decisoes, casos: decisoes.casos }, fila, codigo: x.codigoNoAr, provaCronAntigo,
+        itens: r.itens.map((i) => ({ identidade: i.p.identidade, semEfeito: i.p.semEfeito, falha: falhaDoCaso(i.p) })),
+        orfas: r.orfas.map((o) => o.identidade), semEmpresa: r.chaves.semEmpresa, coberturaIncompleta, decisoes: { ...decisoes, casos: decisoes.casos }, fila, codigo: x.codigoNoAr, provaCronAntigo,
         retencaoAcima14Dias,
     });
     // Última conferência da parada, imediatamente antes de emitir a evidência válida.
@@ -550,12 +572,15 @@ export async function modoLiberacao(x: Execucao, j: { desde: string; ate: string
     if (parada) return interrompida(modo, x, parada);
     x.arquivos.gravarNovo(`liberacao-${x.execucao}.json`, { formato: 1, execucao: x.execucao, tf, inventario: decisoes.inventario, digestInventario: decisoes.digestInventario,
         schema: schema.nome, codigoNoAr: x.codigoNoAr, liberada: lib.liberada, bloqueios: lib.bloqueios, exigenciasPosReabertura: lib.exigenciasPosReabertura,
+        eventosSemEmpresa: Object.fromEntries(r.chaves.semEmpresa.map((s) => [s, decisoes.eventosSemEmpresa[s]?.disposicao ?? null])),
         excecaoExpressa: lib.excecaoExpressa, limitacoes: [...(coberturaIncompleta ? ['COBERTURA_INCOMPLETA'] : []), ...(retencaoAcima14Dias ? ['RETENCAO_ACIMA_DE_14_DIAS'] : [])] });
     const codigo = codigoFinal({ modo: 'RESTORE', recusaTecnica: false, coberturaIncompleta, pendencias: 0 });
     return { modo, codigo, execucao: x.execucao, tf, resultado: lib.liberada ? 'LIBERADA' : 'BLOQUEADA', bloqueios: lib.bloqueios,
         exigenciasPosReabertura: lib.exigenciasPosReabertura, excecaoExpressa: lib.excecaoExpressa, retencaoAcima14Dias,
         fila: { codigo: fila.codigo, motivos: fila.motivos, faltantes: fila.faltantes },
-        comEfeito: r.itens.filter((i) => falhaDoCaso(i.p) !== null || !i.p.semEfeito).map(publico), orfasSemDecisao: r.orfas.filter((o) => !decisoes.orfas[o.identidade]).map((o) => o.identidade) };
+        comEfeito: r.itens.filter((i) => falhaDoCaso(i.p) !== null || !i.p.semEfeito).map(publico), orfasSemDecisao: r.orfas.filter((o) => !decisoes.orfas[o.identidade]).map((o) => o.identidade),
+        eventosSemEmpresa: r.chaves.semEmpresa,
+        eventosSemEmpresaSemDecisao: r.chaves.contextoSemEmpresa.filter((c) => !decisoes.eventosSemEmpresa[c.identidade]).map(contextoPublico) };
 }
 
 /** `--fila` (§3.7): não conecta ao banco. */
