@@ -354,3 +354,21 @@
   }
 }
 .page{background:var(--main-bg)} .header h1{font-size:20px;font-weight:900}
+
+/* Agenda simplificada (30/10/2026): botão secundário no cabeçalho, status por ponto, dias passados apagados e bloqueio recolhido. */
+.header .contentActions { margin: 0; flex: none; }
+.header a.clientView { background: color-mix(in srgb, var(--km-violet) 8%, transparent); border: 1px solid color-mix(in srgb, var(--km-violet) 55%, transparent); color: #ddd6fe; box-shadow: none; white-space: nowrap; }
+.legend span:has(.ponto) { display: inline-flex; align-items: center; gap: 6px; padding: 4px 2px; color: var(--secondary-text); font-weight: 700; }
+.ponto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.pontoDisponivel { background: #34d399; }
+.pontoConsulta { background: #93c5fd; }
+.pontoExcecao { background: #fbbf24; }
+.pontoIndisponivel { background: #f87171; }
+.statusDia { display: inline-flex; }
+.leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pastDay { background: transparent; border-color: var(--border); color: color-mix(in srgb, var(--secondary-text) 45%, transparent); }
+.blockOpen { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; margin-bottom: 18px; border: 1px dashed var(--input-border); border-radius: 12px; background: none; color: var(--secondary-text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.blockOpen:hover { border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); color: var(--km-text); }
+@media (max-width: 820px) {
+  .header .contentActions { justify-content: flex-start; }
+}
