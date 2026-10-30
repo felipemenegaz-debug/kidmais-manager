@@ -234,6 +234,10 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
   "lib/assinatura/renovacao-109-concorrencia.postgres.test.ts": { descartavel: "109" },
+  // 30/10/2026 (B-9, aplicador da 109 em staging): modelo 106 (075 íntegra, sem a 109, como o staging de hoje), com uma
+  // renovação real; sessão do cron, retrato divergente, papel dono não superusuário, capacidade no catálogo real, deriva,
+  // down, falha real de lock e retomada.
+  "lib/assinatura/aplicador-109.postgres.test.ts": { descartavel: "106" },
   // B-14 (27/10/2026): fotografia, idempotência por fotografia nos estados estáveis, proposta/aplicação de caso e validade
   // pela data do pagamento; modelo 097 (inclui os créditos 095).
   // Revisão do HB-3 r4 (P2): estados estáveis da §3.3.1 também em cada prefixo e no PH do staging (combinações aplicáveis;
