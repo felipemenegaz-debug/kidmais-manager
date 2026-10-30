@@ -252,3 +252,47 @@ test('P2-R1-1: PG* no process.env (o que o pg de fato lê) recusa antes de criar
         fs.rmSync(pasta, { recursive: true, force: true });
     }
 });
+
+test('B-23 (B23-F1): o CLI reconhece cada base antiga pelo SHA completo e recusa o desconhecido antes de criar o Client', async () => {
+    // Literais, não a lista importada: tirar uma base da lista não pode tirá-la também do teste.
+    const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61'];
+    // Barreira explícita: o `pg` do processo é trocado por um dublê cujo Client só registra e lança; nada conecta.
+    const resolvido = require.resolve('pg');
+    const original = require.cache[resolvido];
+    const criados = [];
+    class BARREIRA extends Error {}
+    require.cache[resolvido] = { id: resolvido, filename: resolvido, loaded: true, exports: { Client: class { constructor(c) { criados.push(c.database); throw new BARREIRA(); } } } };
+    const saidas = [];
+    const log = console.log;
+    console.log = (x) => saidas.push(x);
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'b14-'));
+    const rodar = async (commit) => {
+        const antes = criados.length;
+        let codigo = null, barreira = false;
+        try {
+            // Schema P0a (nenhuma migration além de production): ANTIGO admite JANELA-conferir; CANDIDATA não.
+            await main(['--janela', '--conferir', `--desde=${ISO}`, `--ate=${ISO}`, '--migracoes=nenhuma', `--candidata=${CAND}`, `--saida=${pasta}`],
+                { ASAAS_AMBIENTE: 'sandbox', DATABASE_URL: 'postgresql://u@127.0.0.1:55498/kidmais_desc', KIDMAIS_B14_ALVO: 'kidmais_desc@127.0.0.1:55498',
+                    KIDMAIS_B14_DESCARTAVEL: 'kidmais_desc', RENDER_GIT_COMMIT: commit },
+                (c) => { codigo = c; }, { cliente: {} });
+        }
+        catch (e) { if (!(e instanceof BARREIRA)) throw e; barreira = true; }
+        return barreira ? { barreira: criados.length - antes } : { codigo, motivo: JSON.parse(saidas.at(-1)).motivo, criados: criados.length - antes };
+    };
+    try {
+        for (const base of BASES) {
+            assert.deepEqual(await rodar(base), { barreira: 1 }, `base exata ${base.slice(0, 8)} chega ao Client`);
+            assert.deepEqual(await rodar(` ${base.toUpperCase()} `), { barreira: 1 }, 'normalizada como no unitário');
+            assert.deepEqual(await rodar(base.slice(0, 8) + '0'.repeat(32)), { codigo: 1, motivo: 'CODIGO_NO_AR_DESCONHECIDO', criados: 0 }, 'mesmo prefixo, sufixo falso');
+        }
+        assert.deepEqual(await rodar('c'.repeat(40)), { codigo: 1, motivo: 'CODIGO_NO_AR_DESCONHECIDO', criados: 0 }, 'SHA completo desconhecido');
+        assert.deepEqual(await rodar(undefined), { codigo: 1, motivo: 'CODIGO_NO_AR_DESCONHECIDO', criados: 0 }, 'sem RENDER_GIT_COMMIT');
+        // A candidata exata passa da classificação e cai na matriz (P0a não admite CANDIDATA), também sem Client.
+        assert.deepEqual(await rodar(CAND), { codigo: 1, motivo: 'MODO_NAO_ADMITIDO', criados: 0 });
+    }
+    finally {
+        console.log = log;
+        if (original) require.cache[resolvido] = original; else delete require.cache[resolvido];
+        fs.rmSync(pasta, { recursive: true, force: true });
+    }
+});

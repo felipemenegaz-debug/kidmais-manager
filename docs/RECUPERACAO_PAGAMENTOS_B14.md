@@ -18,11 +18,11 @@ Rev. 2, 28/10/2026, LOCAL. A rev. 1 foi REPROVADA pelo Astra: ordem do RESTORE, 
 
 | Schema | Código no ar | Modos admitidos |
 | --- | --- | --- |
-| P0a; P0b = P1 (089 aplicada) | `00d3019a` (antigo) | fila, JANELA `--conferir`, RESTORE |
-| P2, P3, P4 | `00d3019a` (antigo) | fila, RESTORE |
+| P0a; P0b = P1 (089 aplicada) | antigo (`00d3019a` ou `4ef9adb6`, B-23) | fila, JANELA `--conferir`, RESTORE |
+| P2, P3, P4 | antigo (`00d3019a` ou `4ef9adb6`, B-23) | fila, RESTORE |
 | P0a–P3 | candidata | só fila |
 | P4–P11 | candidata | JANELA completa, RESTORE |
-| P5–P11 | `00d3019a` (antigo) | só fila |
+| P5–P11 | antigo (`00d3019a` ou `4ef9adb6`, B-23) | só fila |
 | PH (só sandbox: P11 + 102–106) | candidata | como P11 |
 | fora da lista | qualquer | só fila |
 

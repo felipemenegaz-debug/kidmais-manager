@@ -195,6 +195,8 @@ const ESTADO_POSTGRES = {
   "lib/marketing/aplicador-085-086.postgres.test.ts": { descartavel: "084" },
   // OBS-2: Convites (084) e WhatsApp (083) com o Marketing presente; downs 086 → 085 → 084 e recusas com dados.
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
+  // 30/10/2026: primeira negociação sem origem própria conta pela origem do cliente (painel e API), sem gravar nada.
+  "lib/marketing/origem-negociacao.postgres.test.ts": { descartavel: "086" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
@@ -234,6 +236,10 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
   "lib/assinatura/renovacao-109-concorrencia.postgres.test.ts": { descartavel: "109" },
+  // 30/10/2026 (B-9, aplicador da 109 em staging): modelo 106 (075 íntegra, sem a 109, como o staging de hoje), com uma
+  // renovação real; sessão do cron, retrato divergente, papel dono não superusuário, capacidade no catálogo real, deriva,
+  // down, falha real de lock e retomada.
+  "lib/assinatura/aplicador-109.postgres.test.ts": { descartavel: "106" },
   // B-14 (27/10/2026): fotografia, idempotência por fotografia nos estados estáveis, proposta/aplicação de caso e validade
   // pela data do pagamento; modelo 097 (inclui os créditos 095).
   // Revisão do HB-3 r4 (P2): estados estáveis da §3.3.1 também em cada prefixo e no PH do staging (combinações aplicáveis;

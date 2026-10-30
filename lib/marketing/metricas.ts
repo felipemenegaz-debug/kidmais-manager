@@ -1,11 +1,14 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { ORIGEM_DESCONHECIDA } from "./origens.ts";
+import { SQL_ORIGEM_NEGOCIACAO } from "./atribuicao.ts";
 
 /**
  * Painel de Marketing — definições (também mostradas na tela; docs/MARKETING_LOCAL_20261014.md):
  *
  * Modelo de atribuição: TOQUE ÚNICO pela origem VIGENTE da negociação (fechamento). Cada contrato conta para no máximo
- * uma campanha/origem; receita nunca é somada a várias campanhas. Contrato sem origem de negociação vai para
+ * uma campanha/origem; receita nunca é somada a várias campanhas. Negociação sem origem própria que é a PRIMEIRA do
+ * cliente conta pela primeira origem do cliente (herdada na leitura, nada é gravado; SQL_ORIGEM_NEGOCIACAO em
+ * atribuicao.ts; decisão de 30/10/2026). Contrato sem origem de negociação (nem herdada) vai para
  * "Origem não registrada"; origem DESCONHECIDA fica em linha própria. Atribuição é associação registrada, não prova de
  * causa: o painel não mostra retorno sobre investimento.
  *
@@ -62,6 +65,8 @@ export type PainelMarketing = {
   linhas: LinhaPainel[];
   total: LinhaPainel;
   negociacoesSemOrigem: number;
+  /** Negociações do período sem origem própria contadas pela origem do cliente (primeira negociação dele). */
+  negociacoesHerdadas: number;
 };
 
 const SEM_REGISTRO = "SEM_REGISTRO";
@@ -85,7 +90,7 @@ type Agregado = { campanha_id: string | null; origem_codigo: string | null; n: s
 
 export async function painelMarketing(tx: DbExecutor, empresaId: string, filtro: FiltroPeriodo): Promise<PainelMarketing> {
   const p = [empresaId, filtro.de, filtro.ate, filtro.unidadeId];
-  const atribFechamento = `LEFT JOIN marketing_atribuicoes a ON a.empresa_id = f.empresa_id AND a.alvo_tipo = 'FECHAMENTO' AND a.alvo_id = f.id AND a.vigente`;
+  const atribFechamento = `LEFT JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a ON true`;
 
   const cliques = await tx.query<{ campanha_id: string | null; tipo: string; n: string }>(
     `SELECT e.campanha_id::text, e.tipo, count(*)::text AS n
@@ -150,12 +155,18 @@ export async function painelMarketing(tx: DbExecutor, empresaId: string, filtro:
       WHERE f.empresa_id = $1::uuid AND a.id IS NULL AND ${periodo("f.iniciado_em", "$2", "$3")}
         AND ($4::uuid IS NULL OR f.estabelecimento_id = $4::uuid)`, p);
 
+  const herdadas = await tx.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM fechamentos f ${atribFechamento}
+      WHERE f.empresa_id = $1::uuid AND a.herdada AND ${periodo("f.iniciado_em", "$2", "$3")}
+        AND ($4::uuid IS NULL OR f.estabelecimento_id = $4::uuid)`, p);
+
   const campanhas = await tx.query<{ id: string; nome: string; origem_codigo: string; orcamento_centavos: string | null }>(
     `SELECT id::text, nome, origem_codigo, orcamento_centavos::text FROM marketing_campanhas WHERE empresa_id = $1::uuid`, [empresaId]);
 
   return montarPainel(filtro, {
     cliques: cliques.rows, contatos: contatos.rows, negociacoes: negociacoes.rows, contratos: contratos.rows, cancelados: cancelados.rows,
     recebido: recebido.rows, campanhas: campanhas.rows, negociacoesSemOrigem: Number(semOrigem.rows[0]?.n ?? 0),
+    negociacoesHerdadas: Number(herdadas.rows[0]?.n ?? 0),
   });
 }
 
@@ -180,6 +191,7 @@ export function montarPainel(
     contatos: Agregado[]; negociacoes: Agregado[]; contratos: Agregado[]; cancelados: Agregado[]; recebido: Agregado[];
     campanhas: Array<{ id: string; nome: string; origem_codigo: string; orcamento_centavos: string | null }>;
     negociacoesSemOrigem: number;
+    negociacoesHerdadas?: number;
   },
 ): PainelMarketing {
   const linhas = new Map<string, LinhaPainel>();
@@ -231,6 +243,7 @@ export function montarPainel(
     linhas: [...linhas.values()].sort((a, b) => ordem(a) - ordem(b) || b.contratos - a.contratos || b.contatos - a.contatos || a.chave.localeCompare(b.chave)),
     total,
     negociacoesSemOrigem: dados.negociacoesSemOrigem,
+    negociacoesHerdadas: dados.negociacoesHerdadas ?? 0,
   };
 }
 

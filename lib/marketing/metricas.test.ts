@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { montarPainel, periodoPadrao, validarPeriodo } from './metricas.ts';
 import { percentual, reais, rotuloDominio, centavosDeTexto } from './apresentacao.ts';
 
@@ -38,6 +39,23 @@ test('painel: clique, contato, negociação e contrato são contagens separadas;
   assert.equal(semRegistro.conversao, null, 'sem contato na linha: indisponível, não zero');
   assert.equal(p.linhas[0].campanhaId, camp, 'campanhas primeiro');
   assert.equal(p.negociacoesSemOrigem, 5);
+});
+
+test('painel: negociações herdadas do cliente são informadas à parte (padrão 0 quando a consulta não informa)', () => {
+  const vazio = { cliques: [], contatos: [], negociacoes: [], contratos: [], cancelados: [], recebido: [], campanhas: [], negociacoesSemOrigem: 0 };
+  assert.equal(montarPainel(periodo, { ...vazio, negociacoesHerdadas: 2 }).negociacoesHerdadas, 2);
+  assert.equal(montarPainel(periodo, vazio).negociacoesHerdadas, 0);
+});
+
+test('origem da negociação: uma só regra de herança (primeira negociação, sem desconhecida) no painel; festa mostra o painel', () => {
+  const atrib = readFileSync('lib/marketing/atribuicao.ts', 'utf8');
+  assert.ok(atrib.includes("AND a1.origem_codigo <> '${ORIGEM_DESCONHECIDA}'"), 'desconhecida não é herdada');
+  assert.ok(atrib.includes('AND (f0.iniciado_em, f0.id) < (f.iniciado_em, f.id))'), 'só a primeira negociação do cliente');
+  const metricas = readFileSync('lib/marketing/metricas.ts', 'utf8');
+  assert.ok(metricas.includes('LEFT JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a ON true'));
+  assert.doesNotMatch(metricas, /alvo_tipo = 'FECHAMENTO'/, 'nenhuma junção paralela que ignore a herança');
+  assert.ok(readFileSync('components/festas/FestaConsole.tsx', 'utf8')
+    .includes('<OrigemPainel key={data.contrato.fechamento_id} alvoTipo="FECHAMENTO" alvoId={data.contrato.fechamento_id}/>'), 'festa mostra a origem da negociação');
 });
 
 test('painel vazio: totais zerados e conversão indisponível (nunca número ilustrativo)', () => {

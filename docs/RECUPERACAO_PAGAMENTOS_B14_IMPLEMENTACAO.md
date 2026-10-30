@@ -138,7 +138,7 @@ Alterados:
 - **Sessão:** `application_name = kidmais-recuperacao-b14`, `statement_timeout` de 60 s e `lock_timeout` de 5 s.
 - **Trava global de sessão** (`pg_try_advisory_lock(1414, 1027)`), só do B-14: ocupada → 1. A posse é reconferida antes de cada caso e de cada COMMIT (TRAVA_PERDIDA → 1).
 - **Paradas:** SIGTERM → 1; prazo total de 15 min → LIMITE_EXECUCAO → 3.
-- **Matriz ramo × código × schema** (§3.8): o código no ar vem de `RENDER_GIT_COMMIT`, que tem de ser a `--candidata` exata ou o antigo `00d3019a`. O prefixo vem de `--migracoes` (o CONFERIR do B-5), cruzado com os marcadores no banco; divergência → 1.
+- **Matriz ramo × código × schema** (§3.8): o código no ar vem de `RENDER_GIT_COMMIT`, que tem de ser a `--candidata` exata ou uma base antiga da lista fechada `CODIGOS_ANTIGOS` (SHA completo; B-23: `00d3019a…` e `4ef9adb6…`). O prefixo vem de `--migracoes` (o CONFERIR do B-5), cruzado com os marcadores no banco; divergência → 1.
 - **Backup** obrigatório nos modos que gravam (§3.9; D-B14-2/12).
 - **Arquivos** em `/opt/render/project/src/data/b14/`: pasta 700, arquivos 600 criados com `wx` (nunca sobrescritos), só nomes simples.
 - **Stdout** sanitizado (D-B14-3): só números, booleanos, ids opacos, datas e códigos. Cada execução deixa `execucao-<id>.json`.
@@ -1110,3 +1110,36 @@ Próximos: fechar o residual da matriz, ajustar os dois pontos documentais de pr
 CI completo e PG não reexecutados: logs conferidos registram CI 32/32 nos dois runtimes e PG 32 arquivos no Node 22. Saída específica DIAGNOSTICO_PG_TIMEOUT + 57014 da sonda provocada não está nos logs r7 apresentados; permanece relato do autor (o timeout aparece no servidor). Os sete mutantes anteriores, tsc e eslint não reexecutados. Não há fotografia autenticada da rodada 6 para certificar exclusividade histórica do delta; arquivos atuais e mudança descrita revisados. Primeiro ensaio de Shell bloqueado por EPERM de junction no sandbox, repetição autorizada passou.
 
 Windows local não certifica Linux/Render: HB-6 e ENTREGA-CONFERIR no staging pendentes, H1–H9 não autorizado. Sem banco, secrets, commit ou operação externa. Parecer e provas: [revisao-b14-hb5-20261028/PARECER.md](<D:/glass/KidMais Manager/revisao-b14-hb5-20261028/PARECER.md>). Registro documental altera o acumulado, não a árvore executável. Próximo: HB-6 mediante escopo/autorização próprios e gate de homologação.
+
+## B-23 — bases antigas em lista fechada (LOCAL, 30/10/2026)
+
+Origem: revisão da rodada 17 do plano de promoção (R17-F2, P2). Production passou de `00d3019a` (#232) para `4ef9adb6` (#274, painel) em 30/10. Com o antigo fixo em `00d3019a`, `codigoNoAr(4ef9adb6…, C)` dava `null`, e a entrada recusava todos os modos, menos a fila, com `CODIGO_NO_AR_DESCONHECIDO` (`scripts/recuperacao-pagamentos-producao.cjs:263-266`). Ou seja, o B-14 não servia para a production que existe hoje.
+
+**Mudança:**
+- **Lista fechada:** `CODIGO_ANTIGO = '00d3019a'` (prefixo) passa a ser `CODIGOS_ANTIGOS` (lista congelada, **SHA completo**) em `lib/assinatura/recuperacao-execucao.ts`: `00d3019ade199ce609eab296050e07f4b379e87b` (#232) e `4ef9adb6830f0816f8a2f2ae0c98e16b8357db61` (#274). `codigoNoAr` aceita a candidata exata ou um item da lista. O prefixo sozinho deixou de bastar: outro SHA com o mesmo prefixo é recusado, e por isso o critério ficou mais estrito.
+- **O que não muda:** a matriz de modos (`modoAdmitido`), a semântica de ANTIGO (exceção expressa, prova do cron antigo `7ce0916f`, D-B14-18), os blocos de Shell e a árvore entregue (só `recuperacao-execucao.ts` muda dentro dela).
+
+**Prova de cada base** (regra para entradas futuras):
+- **Diff:** o diff desde `00d3019a` não toca `lib/`, `app/api/`, `database/`, `scripts/assinatura-*` nem a entrada do cron.
+- **`4ef9adb6`:** `git diff --name-only 00d3019ade199ce609eab296050e07f4b379e87b 4ef9adb6830f0816f8a2f2ae0c98e16b8357db61` = `components/admin/AdminShell.tsx`, `components/admin/LogoEmpresa.tsx`, `components/admin/shell.module.css`, `public/assets/iafest/logotipo-painel.png`, `public/assets/iafest/simbolo-painel.png`, `scripts/painel-multi-ui.cjs`, `scripts/painel-reauth-ui.cjs` e `scripts/painel-troca-sessao-ui.cjs`. Nenhum caminho de cobrança, webhook, migration ou cron.
+- **Cron de production:** continua em `7ce0916f`, e a #274 não o publicou.
+
+**Regra de processo:** depois de congelar a candidata, uma promoção seletiva para production muda a base antiga. Ela exige uma entrada nova nesta lista, com a prova, PR e revisão, antes de qualquer janela. Sem isso, o B-14 recusa com `CODIGO_NO_AR_DESCONHECIDO` (fail-closed).
+
+**Recongelamento (revisão B23-F2):** a lista está em `recuperacao-execucao.ts`, dentro da árvore entregue. Uma entrada nova muda a candidata `C`, o hash da árvore e os hashes dos arquivos que os blocos fixam (`--candidata`, `ARVORE_OK`, `SHA256SUMS`). Não é possível manter o SHA de `C`, a árvore anterior e a lista nova ao mesmo tempo. Sequência obrigatória:
+1. interromper a preparação ou a janela em curso;
+2. refazer a prova da base nova (B-23) e a composição candidata × production (§2.7 do plano);
+3. integrar a entrada por PR revisada;
+4. recongelar `C` no novo SHA;
+5. regenerar blocos e manifestos e atualizar as evidências e autorizações vinculadas ao SHA novo;
+6. repetir os gates afetados antes do E0.
+
+Nunca reutilizar blocos da `C` anterior nem trocar a `--candidata` de um bloco para a guarda passar. Uma ferramenta entregue separada de `C` exigiria contrato próprio, definido e revisado.
+
+**Limite:** a lista recusa código desconhecido nos modos que dependem da matriz, antes de conectar ao PG. Ela não impede uma promoção seletiva, não confere PR nem revisão, e não vincula a prova a cada entrada (lista e teste podem mudar juntos). A prevenção operacional é do processo de promoção e da trava de deploy (B-22, D-OP-5). O B-23 não é trava de deploy.
+
+**Testes:**
+- `recuperacao-execucao.test.ts`: as duas bases aceitas, com maiúsculas e espaços; a lista congelada; o prefixo sozinho recusado para as duas; a candidata vence quando coincide.
+- `recuperacao-prefixos.postgres.test.ts`: o ramo ANTIGO usa a base vigente `4ef9adb6`.
+- `bloco-shell-recuperacao-b14.test.cjs`: o CONFERIR-E0 roda com `4ef9adb6` (antes, um SHA com prefixo `00d3019a` e zeros). Esse teste encerra em `ASAAS_DESLIGADO`, antes da classificação: prova a árvore e a guarda do Shell, não o aceite da base.
+- `recuperacao-pagamentos-producao.test.cjs` (revisão B23-F1): o CLI, sem banco, com o `pg` trocado por um dublê que lança ao criar o Client. Cada base exata (também em maiúsculas e com espaços) chega ao Client. Um SHA desconhecido, o mesmo prefixo com sufixo falso ou a falta de `RENDER_GIT_COMMIT` recusam com `CODIGO_NO_AR_DESCONHECIDO`, sem Client. A candidata exata em P0a cai em `MODO_NAO_ADMITIDO`.

@@ -306,6 +306,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
             <div className={styles.integrationNotice}>
               <strong>Festas vinculadas</strong>
               <Link href={`/admin/festas?clienteId=${encodeURIComponent(cliente.id)}`}>Ver festas reais deste cliente</Link>
+              <p>A origem de uma negociação que já virou festa fica na Visão geral da própria festa.</p>
             </div>
           </section>
         )}
