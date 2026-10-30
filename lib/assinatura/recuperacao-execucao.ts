@@ -105,14 +105,26 @@ export function divergenciasDeMarcadores(declaradas: readonly string[], presente
     return Object.keys(marcadores).filter((m) => declaradas.includes(m) !== presentes.has(m)).sort();
 }
 
-export const CODIGO_ANTIGO = '00d3019a';
+/**
+ * B-23 (plano de promoção, rodada 18): bases ANTIGAS aceitas = commits de production anteriores à candidata, em lista
+ * fechada e por SHA completo (antes: prefixo `00d3019a`). Cada entrada nova exige a prova de que o diff desde `00d3019a`
+ * não toca `lib/`, `app/api/`, migrations, `scripts/assinatura-*` nem a entrada do cron — o comportamento de cobrança
+ * do código antigo continua o homologado (a prova do cron antigo, artefato `7ce0916f`, não muda). Promoção seletiva
+ * para production depois de congelar a candidata = entrada nova revisada. Esta lista faz parte da árvore entregue: a
+ * entrada nova muda a candidata, que é recongelada, e os blocos e manifestos da candidata anterior deixam de valer
+ * (sequência em docs/RECUPERACAO_PAGAMENTOS_B14_IMPLEMENTACAO.md, seção B-23). A lista não é trava de deploy.
+ */
+export const CODIGOS_ANTIGOS = Object.freeze([
+    '00d3019ade199ce609eab296050e07f4b379e87b', // #232 (25/10/2026): a base da homologação do B-14
+    '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', // #274 (30/10/2026): só o painel (8 arquivos de UI e roteiros de teste de UI)
+] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
-/** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só um dos dois é aceito; outro commit recusa. */
+/** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */
 export function codigoNoAr(commitDoWeb: string | undefined, candidata: string | undefined): CodigoNoAr | null {
     const c = (commitDoWeb ?? '').trim().toLowerCase();
     if (!/^[0-9a-f]{40}$/.test(c)) return null;
     if (candidata && /^[0-9a-f]{40}$/.test(candidata) && c === candidata) return 'CANDIDATA';
-    if (c.startsWith(CODIGO_ANTIGO)) return 'ANTIGO';
+    if ((CODIGOS_ANTIGOS as readonly string[]).includes(c)) return 'ANTIGO';
     return null;
 }
 
