@@ -164,3 +164,11 @@ jobs:
 
       - name: Blocos de Shell da 104/106 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-104-106.test.cjs
+
+      # Aplicador da 109 (renovação substituta, B-9, staging): cliente simulado, sem banco nem rede; estado pelo contrato do cron.
+      - name: Aplicador da 109 (staging) — cliente simulado
+        run: node --test scripts/migration-109.test.cjs
+
+      # Blocos de Shell da 109: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
+      - name: Blocos de Shell da 109 (staging)
+        run: node --test scripts/bloco-shell-109.test.cjs
