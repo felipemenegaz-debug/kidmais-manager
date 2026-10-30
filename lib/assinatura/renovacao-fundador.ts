@@ -9,13 +9,24 @@ export const AVISO_FUNDADOR_DIAS = 30;
  * dias mantida; o CHECK da 075 só limita por cima). Uma constante para os dois pontos: registro PENDENTE e caminho sem aviso.
  */
 export const AVISO_ANTECIPADO_DIAS = 3;
-export const inicioJanelaAviso = (primeiraDataRegular: string) => diasAntes(primeiraDataRegular, AVISO_FUNDADOR_DIAS + AVISO_ANTECIPADO_DIAS);
-export type EstadoRenovacao = 'PENDENTE' | 'AVISANDO' | 'AVISADA' | 'APLICANDO' | 'REGULAR' | 'REVISAO' | 'CANCELADA';
+/**
+ * Janela perdida (Felipe, 29/10/2026; plano docs/PLANO_B9_PRODUCAO_PUTS_JANELA_20261029.md rev. 5): o sucessor (109) avisa de
+ * 63 a 30 dias antes da data nova. Com a data nova = primeira da série ≥ hoje + 33 e vencimentos mensais a no máximo 31 dias,
+ * a janela do sucessor mensal está aberta no dia da substituição; o anual pode aguardar.
+ */
+export const AVISO_SUBSTITUTO_DIAS = 63;
+export const inicioJanelaAviso = (primeiraDataRegular: string, substituto = false) =>
+    diasAntes(primeiraDataRegular, substituto ? AVISO_SUBSTITUTO_DIAS : AVISO_FUNDADOR_DIAS + AVISO_ANTECIPADO_DIAS);
+export type EstadoRenovacao = 'PENDENTE' | 'AVISANDO' | 'AVISADA' | 'APLICANDO' | 'REGULAR' | 'REVISAO' | 'CANCELADA' | 'SUBSTITUIDA';
 export type RegistroRenovacao = {
     id: string; empresaId: string; contratacaoId: string; destinatarioId: string; primeiroVencimento: string;
     primeiraDataRegular: string; mensagem: MensagemEmail; estado: EstadoRenovacao;
     avisoTentadoEm: string | null; avisoEnviadoEm: string | null; precoAplicadoEm: string | null; ultimoErro: string | null;
+    /** Sucessor de um registro SUBSTITUIDA (109). Só é lido com a capacidade 109; com a 075 é sempre falso. */
+    substituto?: boolean;
 };
+/** Capacidade do schema lida uma vez por execução (renovacao-schema.ts). INCOMPATIVEL nunca chega à rotina: a execução para antes. */
+export type CapacidadeRenovacao = '075' | '109';
 export type ContextoRenovacao = {
     empresaId: string; contratacaoId: string; situacao: string; empresaAtiva: boolean; isenta: boolean;
     assinaturaId: string; clienteId: string; ciclo: Ciclo; plano: string; valorFinal: number; valorRegular: number;
@@ -27,6 +38,11 @@ export type RepositorioRenovacao = {
     ler(empresaId: string): Promise<ContextoRenovacao | null>;
     criar(registro: RegistroRenovacao): Promise<RegistroRenovacao>;
     marcar(empresaId: string, id: string, alteracao: AlteracaoRenovacao): Promise<void>;
+    /**
+     * 109: numa transação, `anterior` (PENDENTE sem tentativa) → SUBSTITUIDA e INSERT de `sucessor`. COMMIT antes de qualquer
+     * envio. Ausente (repositório da 075): a janela perdida só alerta.
+     */
+    substituir?(empresaId: string, anterior: RegistroRenovacao, sucessor: RegistroRenovacao): Promise<RegistroRenovacao>;
 };
 export type DepsRenovacao = {
     repositorio: RepositorioRenovacao; provedor: ProvedorRenovacao; enviar: EnviarEmail; origem: string;
@@ -44,6 +60,8 @@ export type DepsRenovacao = {
      * CANCELADA. A ferramenta restrita e o executável manual continuam sem esta opção (comportamento anterior).
      */
     modoAgendado?: boolean;
+    /** Ausente = '075' (comportamento anterior: janela perdida só alerta). */
+    capacidade?: CapacidadeRenovacao;
 };
 
 export function dataValida(data: string | null | undefined): data is string {
@@ -62,6 +80,20 @@ function mesesDepois(data: string, meses: number) {
     const ultimo = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate();
     alvo.setUTCDate(Math.min(dia, ultimo)); return alvo.toISOString().slice(0,10);
 }
+/** Primeira data da série de vencimentos (âncora, ciclo) com data ≥ `minimo`. Anual em múltiplos de 12 meses da âncora. */
+export function proximaDataDaSerie(ancora: string, ciclo: Ciclo, minimo: string) {
+    if (!dataValida(ancora) || !dataValida(minimo)) throw new Error('Série de vencimentos inválida.');
+    const passo = ciclo === 'ANUAL' ? 12 : 1;
+    for (let k = 1; k <= 600; k++) {
+        const candidata = mesesDepois(ancora, k * passo);
+        if (candidata >= minimo) return candidata;
+    }
+    throw new Error('Série de vencimentos fora da faixa suportada.');
+}
+export function diasDepois(data: string, dias: number) {
+    if (!dataValida(data)) throw new Error('Data inválida.');
+    return new Date(Date.parse(data) + dias * 86400000).toISOString().slice(0,10);
+}
 export function primeiraRenovacaoRegular(primeiroVencimento: string, beneficioFim: string, ciclo: Ciclo) {
     const fim = beneficioFim.slice(0,10);
     if (!dataValida(primeiroVencimento) || !dataValida(fim)) throw new Error('Vigência inválida.');
@@ -74,11 +106,11 @@ export function primeiraRenovacaoRegular(primeiroVencimento: string, beneficioFi
 }
 const reais = (n: number) => (n / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const escapar = (s: string) => s.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
-export function mensagemRenovacao(c: ContextoRenovacao, id: string, data: string, origem: string): MensagemEmail {
+export function mensagemRenovacao(c: ContextoRenovacao, id: string, data: string, origem: string, substituta = false): MensagemEmail {
     const u = new URL(origem);
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost','127.0.0.1'].includes(u.hostname))) throw new Error('Origem de aviso inválida.');
     const link = `${u.origin}/admin/assinatura`;
-    const texto = `Seu benefício Fundador do Kidmais Manager está terminando. A partir do vencimento ${data.split('-').reverse().join('/')}, o plano ${c.plano} renova por ${reais(c.valorRegular)} por ${c.ciclo === 'ANUAL' ? 'ano' : 'mês'}, em lugar de ${reais(c.valorFinal)}.\n\nVocê pode acompanhar a assinatura ou cancelar a renovação antes desse vencimento em ${link}. O cancelamento preserva o acesso até o fim do período pago.`;
+    const texto = `Seu benefício Fundador do Kidmais Manager está terminando. A partir do vencimento ${data.split('-').reverse().join('/')}, o plano ${c.plano} renova por ${reais(c.valorRegular)} por ${c.ciclo === 'ANUAL' ? 'ano' : 'mês'}, em lugar de ${reais(c.valorFinal)}.\n\nVocê pode acompanhar a assinatura ou cancelar a renovação antes desse vencimento em ${link}. O cancelamento preserva o acesso até o fim do período pago.${substituta ? '\n\nEste aviso substitui qualquer data de renovação informada antes.' : ''}`;
     return { para: c.email, assunto: 'Kidmais Manager: renovação após o benefício Fundador', texto,
         html: `<p>${escapar(texto).replace(/\n\n/g,'</p><p>')}</p>`, idempotencia: `kidmais-renovacao/${id}` };
 }
@@ -91,8 +123,21 @@ function identidadePagamento(c: ContextoRenovacao, p: CobrancaProvedor | null) {
 const vigente = (c: ContextoRenovacao) => !c.isenta && c.empresaAtiva && ['ATIVA','EM_ATRASO'].includes(c.situacao);
 
 /** Chamador serializa pela mesma trava da contratação. Intenções são commitadas antes da rede. */
+/**
+ * Resultado composto da janela perdida trocada pelo sucessor (plano rev. 5 §2.6): a substituição nunca some do resultado.
+ * Aviso enviado sem erro posterior → AVISO_REAGENDADO; janela do sucessor ainda fechada (anual) → _AGUARDANDO; qualquer outro
+ * desfecho vai no sufixo.
+ */
+function resultadoReagendado(x: string) {
+    if (x === 'AGUARDANDO_AVISO') return 'AVISO_REAGENDADO_AGUARDANDO';
+    if (x === 'AGUARDANDO_ULTIMA_PARCELA') return 'AVISO_REAGENDADO';
+    return `AVISO_REAGENDADO_${x}`;
+}
+
 export async function processarRenovacao(empresaId: string, deps: DepsRenovacao) {
     return deps.travar(empresaId, async () => {
+        let reagendado = false;
+        const x = await (async () => {
         const repo = deps.repositorio, p = deps.provedor;
         let c = await repo.ler(empresaId);
         if (!c) return 'SEM_FUNDADOR';
@@ -109,7 +154,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         }
         if (r?.estado === 'CANCELADA') return 'CANCELADA';
         const hoje = diaBrasil(deps.agora());
-        if (r?.estado === 'PENDENTE' && hoje < inicioJanelaAviso(r.primeiraDataRegular)) return 'AGUARDANDO_AVISO';
+        if (r?.estado === 'PENDENTE' && hoje < inicioJanelaAviso(r.primeiraDataRegular, r.substituto)) return 'AGUARDANDO_AVISO';
         let s = await p.obterAssinatura(c.assinaturaId);
         if (!identidade(c,s)) {
             if (deps.modoAgendado) return 'ALERTA_IDENTIDADE_DIVERGENTE';
@@ -132,7 +177,12 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
             r = { id, empresaId, contratacaoId: c.contratacaoId, destinatarioId: c.destinatarioId, primeiroVencimento: primeiro!.dueDate,
                 primeiraDataRegular: data, mensagem: mensagemRenovacao(c,id,data,deps.origem), estado: 'PENDENTE',
                 avisoTentadoEm: null, avisoEnviadoEm: null, precoAplicadoEm: null, ultimoErro: null };
-            if (!deps.simular) r = await repo.criar(r);
+            // Histórico sem vigente (estado anômalo que a 109 íntegra impede): diagnóstico próprio, nunca raiz nova. Qualquer
+            // outra exceção continua subindo (ERRO_REPROCESSAVEL no executor).
+            if (!deps.simular) {
+                try { r = await repo.criar(r); }
+                catch (e) { if (e instanceof Error && e.message === 'HISTORICO_SEM_VIGENTE') return 'ALERTA_HISTORICO_SEM_VIGENTE'; throw e; }
+            }
         }
         const revisao = async (erro: string) => {
             if (deps.modoAgendado) return `ALERTA_${erro}`;
@@ -147,9 +197,24 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
             return erro;
         };
         if (r.estado === 'REVISAO') return revisao(r.ultimoErro ?? 'REVISAO_NECESSARIA');
-        const limiteAviso = diasAntes(r.primeiraDataRegular);
+        let limiteAviso = diasAntes(r.primeiraDataRegular);
+        // Janela perdida sem nenhuma tentativa de envio (D-JP-1, automática no cron): o registro vira SUBSTITUIDA e nasce o
+        // sucessor com data nova (primeira da série ≥ hoje + 33) e mensagem nova. AVISANDO, REVISAO e aviso enviado ficam fora.
+        if (!r.avisoEnviadoEm && hoje > limiteAviso && deps.modoAgendado && r.estado === 'PENDENTE' && !r.avisoTentadoEm) {
+            if (deps.capacidade !== '109' || !repo.substituir) return 'ALERTA_JANELA_AVISO_PERDIDA';
+            if (deps.simular) return 'REAGENDARIA_AVISO';
+            if (!c.destinatarioValido || c.destinatarioId !== r.destinatarioId || c.email !== r.mensagem.para) return 'ALERTA_REAGENDAMENTO_SEM_DESTINATARIO';
+            const data = proximaDataDaSerie(r.primeiroVencimento, c.ciclo, diasDepois(hoje, AVISO_FUNDADOR_DIAS + AVISO_ANTECIPADO_DIAS)), id = randomUUID();
+            const sucessor: RegistroRenovacao = { id, empresaId, contratacaoId: c.contratacaoId, destinatarioId: c.destinatarioId,
+                primeiroVencimento: r.primeiroVencimento, primeiraDataRegular: data, mensagem: mensagemRenovacao(c, id, data, deps.origem, true),
+                estado: 'PENDENTE', avisoTentadoEm: null, avisoEnviadoEm: null, precoAplicadoEm: null, ultimoErro: null, substituto: true };
+            try { r = await repo.substituir(empresaId, r, sucessor); }
+            catch { return 'ALERTA_SUBSTITUICAO_RECUSADA'; }
+            reagendado = true;
+            limiteAviso = diasAntes(r.primeiraDataRegular);
+        }
         if (!r.avisoEnviadoEm) {
-            if (hoje < inicioJanelaAviso(r.primeiraDataRegular)) return 'AGUARDANDO_AVISO';
+            if (hoje < inicioJanelaAviso(r.primeiraDataRegular, r.substituto)) return 'AGUARDANDO_AVISO';
             if (hoje > limiteAviso) return revisao('JANELA_AVISO_PERDIDA');
             if (!c.destinatarioValido || c.destinatarioId !== r.destinatarioId || c.email !== r.mensagem.para)
                 return revisao('DESTINATARIO_ALTERADO');
@@ -208,5 +273,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
         // B-9: idem para registro já REGULAR. As evidências são imutáveis (075) e ultimo_erro já é nulo.
         if (!(deps.modoAgendado && r.estado === 'REGULAR')) await marcar({ estado: 'REGULAR', regular: true, erro: null });
         return 'REGULAR';
+        })();
+        return reagendado ? resultadoReagendado(x) : x;
     });
 }

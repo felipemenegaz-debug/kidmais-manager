@@ -407,3 +407,49 @@ test('11. D-P5-3: aplicar agendado não regrava registro já CANCELADA nem já R
     assert.deepEqual([r2.resultados.CANCELADA, r2.codigo], [1, 0]);
     assert.deepEqual(await linha(Z), cancelada, 'CANCELADA intacto, inclusive atualizado_em');
 });
+
+test('12. B-9 production: janela perdida — 075 só alerta; 109 substitui, avisa pelo sucessor e, no vencimento novo, PUT em APLICANDO com contagem', { skip: !opt() }, async () => {
+    const { capacidadeRenovacao } = await import('./renovacao-schema.ts');
+    const { proximaDataDaSerie } = await import('./renovacao-fundador.ts');
+    const cap = (await capacidadeRenovacao(client as never)).capacidade;
+    const J = await empresa('CONFIRMADA', true);
+    const contratacao = (await q('SELECT contratacao_atual_id AS c FROM empresa_assinaturas WHERE empresa_id = $1', [J])).rows[0].c as string;
+    const email = (await q('SELECT email FROM usuarios_administrativos WHERE id = $1', [usuario])).rows[0].email as string;
+    const hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d as string;
+    const dia = (n: number) => new Date(Date.parse(hoje) + n * DIA).toISOString().slice(0, 10);
+    // Registro com a janela normal vencida (limite = hoje − 20), nunca tentado; âncora 355 dias atrás; chave amarrada ao id (075).
+    const novoId = (await q('SELECT gen_random_uuid() AS id')).rows[0].id as string;
+    await q(`INSERT INTO assinatura_renovacoes (id,empresa_id,contratacao_id,destinatario_id,primeiro_vencimento,primeira_data_regular,aviso_dias,mensagem)
+        VALUES ($1::uuid,$2,$3,$4,$5,$6,30,jsonb_build_object('para',$7::text,'assunto','a','texto','t','html','<p>t</p>','idempotencia','kidmais-renovacao/' || $8::text))`,
+        [novoId, J, contratacao, usuario, dia(-355), dia(10), email, novoId]);
+    const enviosAntes = lerEstado().envios.length, putsAntes = lerEstado().puts;
+    const r1 = await relatorio(rodar('aplicar', { empresas: [J] }));
+    const item = r1.alertas.find((a) => a.empresaId === J)!;
+    const linhas = async () => (await q(`SELECT id, estado, substitui_id IS NOT NULL AS sucessor, primeira_data_regular::text AS pdr, aviso_enviado_em IS NOT NULL AS avisado
+        FROM assinatura_renovacoes WHERE empresa_id = $1 ORDER BY criado_em`, [J])).rows;
+    if (cap === '075') {
+        assert.deepEqual([item.resultado, r1.codigo], ['ALERTA_JANELA_AVISO_PERDIDA', 2]);
+        assert.deepEqual((await q('SELECT estado FROM assinatura_renovacoes WHERE empresa_id = $1', [J])).rows.map((l) => l.estado), ['PENDENTE'], '075: nada escrito');
+        assert.equal(lerEstado().envios.length, enviosAntes);
+        return;
+    }
+    assert.equal(cap, '109');
+    const pdrNova = proximaDataDaSerie(dia(-355), 'MENSAL', dia(33));
+    assert.deepEqual([item.resultado, item.motivo, r1.codigo], ['AVISO_REAGENDADO', 'JANELA_PERDIDA_REAGENDADA', 2]);
+    const l1 = await linhas();
+    assert.deepEqual(l1.map((l) => [l.estado, l.sucessor, l.pdr, l.avisado]), [['SUBSTITUIDA', false, dia(10), false], ['AVISADA', true, pdrNova, true]]);
+    assert.deepEqual(lerEstado().envios.slice(enviosAntes), [`kidmais-renovacao/${l1[1].id}`], 'um aviso, pela chave do sucessor');
+    assert.equal(lerEstado().puts, putsAntes, 'nenhum PUT antes do vencimento novo');
+    // No vencimento novo (provedor alinhado à data nova): PUT da assinatura e da parcela, em APLICANDO, contados.
+    const sub = await subDe(J);
+    const e = lerEstado();
+    e.subs[sub].nextDueDate = pdrNova;
+    e.pagamentos[sub].push({ ...e.pagamentos[sub][0], id: `pay_nova_${sub}`, status: 'PENDING', dueDate: pdrNova, paymentDate: null, valorCentavos: 11820 });
+    gravarEstado(e);
+    const r2 = await relatorio(rodar('aplicar', { empresas: [J], agora: meioDia(pdrNova, 1) })) as Rel & { putsTotais: Record<string, number> };
+    const em = [...r2.alertas, ...r2.emAndamento].find((x) => x.empresaId === J) as ItemRel & { puts: Record<string, number> };
+    assert.deepEqual([em.resultado, r2.codigo], ['REGULAR', 0]);
+    assert.deepEqual(em.puts, { assinatura: 1, parcelas: 1, suspensao: 0, falhas: 0, foraDeAplicando: 0 });
+    assert.deepEqual(r2.putsTotais, { assinatura: 1, parcelas: 1, suspensao: 0, falhas: 0, foraDeAplicando: 0, empresasComTentativa: 1 });
+    assert.deepEqual((await linhas()).map((l) => l.estado), ['SUBSTITUIDA', 'REGULAR']);
+});

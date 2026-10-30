@@ -139,7 +139,8 @@ async function executarCron(cfg, f) {
     const { processarRenovacao } = await import('../lib/assinatura/renovacao-fundador.ts');
     const { repositorioRenovacao, empresasParaRenovacao } = await import('../lib/assinatura/renovacao-repositorio.ts');
     const { travaPorEmpresa } = await import('../lib/assinatura/cobranca.ts');
-    const { executarAgendada } = await import('../lib/assinatura/renovacao-agendada.ts');
+    const { executarAgendada, instrumentarProvedor, observarRepositorio, contagemVazia } = await import('../lib/assinatura/renovacao-agendada.ts');
+    const { capacidadeRenovacao } = await import('../lib/assinatura/renovacao-schema.ts');
     const { ehFixtureHomologacao } = await import('../lib/assinatura/renovacao-operacao.ts');
     const aplicar = cfg.modo === 'aplicar';
     const pool = new f.Pool({ ...f.conexao, max: 4, connectionTimeoutMillis: 10_000, application_name: 'kidmais-renovacao-cron' });
@@ -179,9 +180,16 @@ async function executarCron(cfg, f) {
                 if (recusadas.length) throw new Error(`CREDENCIAL_DO_SERVICO_SO_FIXTURES (${recusadas.length} empresa(s) recusada(s))`);
             }
         } else if (aplicar && cfg.alvo.credencialDoServico) throw new Error('CREDENCIAL_DO_SERVICO_EXIGE_EMPRESAS');
-        const repositorio = repositorioRenovacao(transacao);
+        // Plano rev. 5 §2.6: capacidade lida UMA vez, depois das guardas de seleção e antes da primeira empresa. INCOMPATIVEL (retrato diferente da 075 e da
+        // 109) = sem garantia do prazo do aviso, da imutabilidade e das transições: nada é processado, código 1.
+        const cap = await transacao(capacidadeRenovacao);
+        if (cap.capacidade === 'INCOMPATIVEL')
+            return { modo: cfg.modo, execucao: 'SCHEMA_RENOVACAO_INCOMPATIVEL', divergencias: cap.divergencias, empresas: 0, processadas: 0,
+                resultados: { SCHEMA_RENOVACAO_INCOMPATIVEL: 1 }, alertas: [], emAndamento: [], avisosNaJanela: 0,
+                putsTotais: { ...contagemVazia(), empresasComTentativa: 0 }, alertasInformativos: [], codigo: 1 };
+        const repositorio = repositorioRenovacao(transacao, { capacidade: cap.capacidade });
         const provedor = provedorDaExecucao(f.provedor, aplicar, {});
-        const deps = { repositorio, provedor, origem: f.origem, simular: !aplicar, modoAgendado: true,
+        const deps = { repositorio, provedor, origem: f.origem, simular: !aplicar, modoAgendado: true, capacidade: cap.capacidade,
             enviar: aplicar ? f.enviar : async () => { throw new Error('Envio proibido na simulação.'); },
             agora: cfg.agora ? () => new Date(cfg.agora.getTime()) : () => new Date(),
             ...(cfg.agora ? { relogioReal: () => new Date() } : {}) };
@@ -192,10 +200,18 @@ async function executarCron(cfg, f) {
         };
         const relatorio = await executarAgendada({ modo: cfg.modo, empresas, naoElegiveis, travaGlobal, travarEmpresa: travaPorEmpresa(transacao),
             ler: (e) => repositorio.ler(e), provedor, agora: deps.agora, interrompido: f.interrompido,
-            processar: (e, travar) => processarRenovacao(e, { ...deps, travar }) });
+            // D-P5-5 = B: por empresa, contagem POR FORA do bloqueio da simulação (provedorDaExecucao) e estado vigente observado.
+            processar: (e, travar, i) => processarRenovacao(e, { ...deps, travar, provedor: instrumentarProvedor(provedor, i),
+                repositorio: observarRepositorio(repositorio, i) }) });
         if (!relatorio.alertas || relatorio.alertas.length === 0) return { ...relatorio, alertasInformativos: [] };
-        const linhas = (await pool.query("SELECT id::text AS id, codigo, nome, status::text AS status FROM empresas WHERE id = ANY($1::uuid[])",
-            [relatorio.alertas.map((a) => a.empresaId)])).rows;
+        let linhas;
+        try {
+            linhas = (await pool.query("SELECT id::text AS id, codigo, nome, status::text AS status FROM empresas WHERE id = ANY($1::uuid[])",
+                [relatorio.alertas.map((a) => a.empresaId)])).rows;
+        } catch {
+            // A finalização nunca descarta o relatório nem as contagens: sem a leitura, todos os alertas contam como reais.
+            return { ...relatorio, alertasInformativos: [] };
+        }
         return separarAlertasInformativos(relatorio, linhas, ehFixtureHomologacao);
     } finally {
         await dedicada.end().catch(() => undefined);

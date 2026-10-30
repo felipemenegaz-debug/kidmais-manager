@@ -64,6 +64,7 @@ test('entrada nova não é chamada pelo cron da reconciliação nem por scripts 
 });
 
 test('homologação com alvo remoto: --agora com aplicar só para fixtures (guarda da ferramenta restrita reutilizada), antes de qualquer processamento', async () => {
+    const { RETRATO_075 } = await import('../lib/assinatura/renovacao-schema-retratos.ts');
     const { executarCron } = require('./assinatura-renovacao-cron.cjs');
     const F = '22222222-2222-4222-8222-222222222222';
     const consultas = [];
@@ -71,6 +72,8 @@ test('homologação com alvo remoto: --agora com aplicar só para fixtures (guar
         consultas.push(sql);
         if (/current_database/.test(sql)) return [{ db: 'kidmais_staging_1z91', tls: true }];
         if (/instalada075/.test(sql)) return [{ instalada075: true }];
+        // B-9 production: capacidade lida antes da primeira empresa (retrato íntegro da 075).
+        if (/'colunas'/.test(sql)) return [{ retrato: RETRATO_075 }];
         if (/FROM empresa_assinaturas a\s+JOIN assinatura_contratacoes/.test(sql)) return [{ empresa_id: E }, { empresa_id: F }];
         if (/SELECT id::text AS id, codigo, nome FROM empresas/.test(sql))
             return [{ id: E, codigo: 'cli-real', nome: 'Buffet Real' }, { id: F, codigo: 'hml-renovacao-1', nome: 'TESTE Kidmais — renovação' }];
@@ -199,6 +202,7 @@ test('T2: validarAlvo recusa por padrão para todos os chamadores; só a renova�
 });
 
 test('T2: com a credencial do serviço, aplicar só em fixtures de homologação (com ou sem --agora), antes de qualquer processamento', async () => {
+    const { RETRATO_075 } = await import('../lib/assinatura/renovacao-schema-retratos.ts');
     const { executarCron } = require('./assinatura-renovacao-cron.cjs');
     const F = '22222222-2222-4222-8222-222222222222';
     const consultas = [];
@@ -206,6 +210,8 @@ test('T2: com a credencial do serviço, aplicar só em fixtures de homologação
         consultas.push(sql);
         if (/current_database/.test(sql)) return [{ db: 'kidmais_staging_1z91', tls: true }];
         if (/instalada075/.test(sql)) return [{ instalada075: true }];
+        // B-9 production: capacidade lida antes da primeira empresa (retrato íntegro da 075).
+        if (/'colunas'/.test(sql)) return [{ retrato: RETRATO_075 }];
         if (/FROM empresa_assinaturas a\s+JOIN assinatura_contratacoes/.test(sql)) return [{ empresa_id: E }, { empresa_id: F }];
         if (/SELECT id::text AS id, codigo, nome FROM empresas/.test(sql))
             return [{ id: E, codigo: 'cli-real', nome: 'Buffet Real' }, { id: F, codigo: 'hml-renovacao-1', nome: 'TESTE Kidmais — renovação' }];
@@ -299,4 +305,10 @@ test('alertas de fixture desativada: executarCron lê o cadastro e usa a regra �
     assert.match(exec, /SELECT id::text AS id, codigo, nome, status::text AS status FROM empresas WHERE id = ANY\(\$1::uuid\[\]\)/);
     assert.match(exec, /return separarAlertasInformativos\(relatorio, linhas, ehFixtureHomologacao\);/);
     assert.match(exec, /alertasInformativos: \[\]/);
+});
+
+test('D-P5-5 = B: a contagem envolve o provedor JÁ bloqueado pela simulação (por fora) e os instrumentos são por empresa', () => {
+    const fonte = require('node:fs').readFileSync(require('node:path').join(__dirname, 'assinatura-renovacao-cron.cjs'), 'utf8');
+    assert.match(fonte, /const provedor = provedorDaExecucao\(f\.provedor, aplicar, \{\}\);/);
+    assert.match(fonte, /processar: \(e, travar, i\) => processarRenovacao\(e, \{ \.\.\.deps, travar, provedor: instrumentarProvedor\(provedor, i\),\s*repositorio: observarRepositorio\(repositorio, i\) \}\)/);
 });
