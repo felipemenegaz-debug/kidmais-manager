@@ -207,7 +207,7 @@ test('dependências e privilégios só das pendentes: CREATE, DONO e REFERENCES 
 test('modo: plano, conferência e aplicação só com --backup e registro seguro; o resto é recusado', () => {
   assert.deepEqual(comum.modo([]), {modo: 'plano'});
   assert.deepEqual(comum.modo(['--conferir-092-094']), {modo: 'conferir'});
-  assert.deepEqual(comum.modo(['--aplicar-092-094-autorizado', '--backup', 'export 2026-10-23T03:00Z id-123']), {modo: 'aplicar', backup: 'export 2026-10-23T03:00Z id-123'});
+  assert.deepEqual(comum.modo(['--aplicar-092-094-autorizado', '--backup', 'export 2026-10-23T03:00Z id-123']), {modo: 'aplicar', escopo: 'todas', backup: 'export 2026-10-23T03:00Z id-123'});
   assert.throws(() => comum.modo(['--aplicar-092-094-autorizado']), /BACKUP_OBRIGATORIO/);
   assert.throws(() => comum.modo(['--aplicar-092-094-autorizado', '--backup', 'x;rm -rf /']), /BACKUP_INVALIDO/);
   assert.throws(() => comum.modo(['--aplicar-092-094-autorizado', '--backup', 'a$(id)bcdef']), /BACKUP_INVALIDO/);
