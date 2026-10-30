@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Núcleo do aplicador manual da 092 → 093 → 094 (preço por quantidade cheia, agenda por unidade/salões, capacidade e
-// salão da festa) — staging (scripts/migration-092-094-staging.cjs, que fixa o alvo, a identidade da conexão e o disco).
+// salão da festa) — staging (scripts/migration-092-094-staging.cjs) e produção (scripts/migration-092-094-production.cjs);
+// cada adaptador fixa o alvo, a identidade da conexão, o disco e os escopos permitidos.
 // Derivado do aplicador da 089 (alvo travado, TLS, hash fixado de cada SQL com CRLF normalizado, estado ausente/completa/
 // parcial, marcador exclusivo no disco persistente, códigos 0/1/2/3), com três migrations em sequência:
 //   - cada uma tem estado próprio; só valem os prefixos da ordem (nenhuma, 092, 092+093, todas) — fora disso recusa;
@@ -22,6 +23,10 @@
 // --conferir-092-094 → autorização → --aplicar-092-094-autorizado --backup <registro> → --conferir-092-094.
 // Conferência: somente leitura (BEGIN TRANSACTION READ ONLY em toda consulta), não grava nada no banco nem no disco.
 // Nunca executa os down. A saída tem só nomes de etapas, booleanos e contagens (sem ids, nomes ou URL do banco).
+// Escopos de execução (plano de promoção de 25/10/2026, B-1): `todas` (092 → 093 → 094 numa execução; staging) ou, em
+// produção, `092-093` e `094` separados — o código antigo de produção quebra com a 094 (manifesto Festa), então a 094 só
+// roda depois do deploy do código novo, em outra execução, com flag, autorização e marcador próprios. O escopo 092-093
+// recusa com a 094 presente e nunca põe etapa da 094 no plano; o 094 exige 092 e 093 completas.
 // Privilégios: avaliados como current_user, que é quem executa o DDL (no Render a credencial entra com `SET role` do
 // dono; lição de 14/10/2026). As três alteram objetos existentes (ALTER TABLE, CREATE TRIGGER, CREATE OR REPLACE
 // FUNCTION), por isso exigem ser DONO deles (pg_has_role USAGE no papel dono), além de CREATE em public e REFERENCES.
@@ -37,6 +42,16 @@ const FLAG_APLICAR = '--aplicar-092-094-autorizado';
 const FLAG_BACKUP = '--backup';
 const MARCADOR = 'migration-092-094.json';
 const IDS = Object.freeze(['092', '093', '094']);
+const FLAG_APLICAR_092_093 = '--aplicar-092-093-autorizado';
+const FLAG_APLICAR_094 = '--aplicar-094-autorizado';
+const FLAG_CONFERIR_092_093 = '--conferir-092-093';
+const FLAG_CONFERIR_094 = '--conferir-094';
+/** Escopo → migrations que ele pode aplicar, flags de conferência e de aplicação e marcador exclusivo no disco. */
+const ESCOPOS = Object.freeze({
+  todas: Object.freeze({ids: IDS, conferir: FLAG_CONFERIR, flag: FLAG_APLICAR, marcador: MARCADOR}),
+  '092-093': Object.freeze({ids: Object.freeze(['092', '093']), conferir: FLAG_CONFERIR_092_093, flag: FLAG_APLICAR_092_093, marcador: 'migration-092-093.json'}),
+  '094': Object.freeze({ids: Object.freeze(['094']), conferir: FLAG_CONFERIR_094, flag: FLAG_APLICAR_094, marcador: 'migration-094.json'}),
+});
 const ETAPAS = Object.freeze([
   ['precheck 092', 'database/checks/20261022_092_precheck.sql', '9aae9e948df43719d6eb243c6d18497cb14091bca85efe95d25d92ef3a3b0da1'],
   ['migration 092', 'database/migrations/20261022_092_precos_por_quantidade.sql', '9fab4b45111d59af352851656f875600336584e7372ba6f65512643266600071'],
@@ -165,18 +180,25 @@ function lerEstado(e) {
   return s;
 }
 const DEPENDENCIAS = Object.freeze({'092': 'DEPENDENCIA_AUSENTE_092 006/029/047', '093': 'DEPENDENCIA_AUSENTE_093 043/062', '094': 'DEPENDENCIA_AUSENTE_094 019/062'});
-/** Plano a partir do estado; recusa ANTES de qualquer escrita o que não for seguro. */
-function planoEtapas(s) {
+/**
+ * Plano a partir do estado; recusa ANTES de qualquer escrita o que não for seguro. Escopo 092-093: só 092/093 no plano e
+ * a 094 tem de estar ausente; escopo 094: integridade da 092 e da 093 (já completas) e a instalação da 094.
+ */
+function planoEtapas(s, escopo = 'todas') {
+  assert.ok(Object.hasOwn(ESCOPOS, escopo), 'ESCOPO_DESCONHECIDO');
   for (const id of IDS) assert.notEqual(s['m' + id], 'parcial', 'APLICACAO_PARCIAL_' + id);
   // Só prefixos da ordem: 093 completa exige 092 completa; 094 completa exige 093 completa.
   assert.ok((s.m093 !== 'completa' || s.m092 === 'completa') && (s.m094 !== 'completa' || s.m093 === 'completa'), 'ORDEM_INESPERADA_092_094');
-  const pendentes = IDS.filter(id => s['m' + id] === 'ausente');
+  if (escopo === '092-093') assert.equal(s.m094, 'ausente', 'ESCOPO_092_093_EXIGE_094_AUSENTE');
+  if (escopo === '094') assert.ok(s.m092 === 'completa' && s.m093 === 'completa', 'ESCOPO_094_EXIGE_092_093_COMPLETAS');
+  const consideradas = escopo === '092-093' ? ESCOPOS[escopo].ids : IDS;
+  const pendentes = consideradas.filter(id => s['m' + id] === 'ausente');
   for (const id of pendentes) {
     assert.ok(s['d' + id], DEPENDENCIAS[id]);
     const falta = [!s.pode_criar && 'CREATE', !s['dono_' + id] && 'DONO', s['referencias_' + id] === false && 'REFERENCES'].filter(Boolean);
     assert.ok(falta.length === 0, `SEM_PRIVILEGIO_${id} ${falta.join(' ')}`);
   }
-  return IDS.flatMap(id => (s['m' + id] === 'completa' ? ['integridade'] : ['precheck', 'migration', 'postcheck', 'integridade']).map(t => `${t} ${id}`));
+  return consideradas.flatMap(id => (s['m' + id] === 'completa' ? ['integridade'] : ['precheck', 'migration', 'postcheck', 'integridade']).map(t => `${t} ${id}`));
 }
 
 /**
@@ -242,15 +264,24 @@ async function contagens(db, estado) {
  * Conferência (nenhuma escrita no banco nem no disco): identidade, estado, plano e, em READ ONLY, a integridade
  * (repetível, aceita dados operacionais) de cada migration completa e o precheck de cada ausente — exceto o da 094 sem a
  * 093, que exige as tabelas da 093 (APOS_093).
+ * Com `escopo` (produção: 092-093 no E3, 094 no E6), o plano, os checks e o resultado/código são SÓ daquele escopo: o E3
+ * não depende de privilégio, dependência ou REFERENCES exclusivos da 094 (revisão do B-1, P2). Sem `escopo`, é o
+ * diagnóstico global; num ambiente com escopos separados ele calcula o plano de cada escopo ANTES de qualquer retorno.
  */
-async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, prova108}) {
+async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, prova108, escopos = ['todas'], escopo}) {
   const r = {modo: 'conferencia'};
+  if (escopo) r.escopo = escopo;
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  try { r.plano = planoEtapas(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  // Ambiente com execuções separadas: o que cada escopo faria agora (plano ou motivo da recusa), sem escrever nada.
+  if (escopos.some(x => x !== 'todas')) r.planos = Object.fromEntries(escopos.map(x => {
+    try { return [x, planoEtapas(r.estado, x)]; } catch (e) { return [x, {recusaria: curta(e)}]; }
+  }));
+  try { r.plano = planoEtapas(r.estado, escopo ?? 'todas'); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  const ids = escopo === '092-093' ? ESCOPOS[escopo].ids : IDS;
   r.contagens = await contagens(db, r.estado);
   r.checks = {};
-  for (const id of IDS) {
+  for (const id of ids) {
     const nome = (r.estado['m' + id] === 'completa' ? 'integridade ' : 'precheck ') + id;
     if (id === '094' && r.estado.m094 === 'ausente' && r.estado.m093 !== 'completa') { r.checks[nome] = 'APOS_093'; continue; }
     if (nome === 'integridade 094') {
@@ -264,7 +295,7 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, prova108}
     await somenteLeitura(db, lerRevisado(raiz, arquivo, hash));
     r.checks[nome] = 'PASS';
   }
-  r.resultado = IDS.every(id => r.estado['m' + id] === 'completa') ? 'JA_APLICADA_INTEGRIDADE_PASS' : 'PRONTA_PARA_APLICAR';
+  r.resultado = ids.every(id => r.estado['m' + id] === 'completa') ? 'JA_APLICADA_INTEGRIDADE_PASS' : 'PRONTA_PARA_APLICAR';
   return r;
 }
 
@@ -272,12 +303,14 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, prova108}
  * Aplicação, na ordem do plano: precheck (READ ONLY) → migration (transação do arquivo) → COMMIT registrado → estado
  * completo → postcheck de instalação → integridade. Completas: só integridade.
  */
-async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}, prova108}) {
+async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}, prova108, escopo = 'todas'}) {
   const sqls = new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
-  const r = {etapas: []};
+  const r = {escopo, etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  r.plano = planoEtapas(r.estadoAntes); r.contagensAntes = await contagens(db, r.estadoAntes); registrar(r);
+  r.plano = planoEtapas(r.estadoAntes, escopo); r.contagensAntes = await contagens(db, r.estadoAntes); registrar(r);
+  // Defesa em profundidade: o plano do escopo 092-093 nunca pode conter etapa da 094.
+  if (escopo === '092-093') assert.ok(!r.plano.some(n => n.endsWith(' 094')), 'ESCOPO_092_093_COM_ETAPA_094');
   for (const nome of r.plano) {
     r.etapas.push({nome, inicio: new Date().toISOString()}); registrar(r);
     if (nome.startsWith('migration ')) {
@@ -294,7 +327,9 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
     Object.assign(r.etapas.at(-1), {ok: true, fim: new Date().toISOString()}); registrar(r);
   }
   r.estadoDepois = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  for (const id of IDS) assert.equal(r.estadoDepois['m' + id], 'completa', 'ESTADO_FINAL_' + id);
+  const esperadas = escopo === '092-093' ? ESCOPOS[escopo].ids : IDS;
+  for (const id of esperadas) assert.equal(r.estadoDepois['m' + id], 'completa', 'ESTADO_FINAL_' + id);
+  if (escopo === '092-093') assert.equal(r.estadoDepois.m094, 'ausente', 'ESTADO_FINAL_094_PRESENTE');
   r.contagensDepois = await contagens(db, r.estadoDepois);
   r.resultado = r.plano.some(n => n.startsWith('migration ')) ? 'APLICADA_POSTCHECK_PASS' : 'JA_APLICADA_INTEGRIDADE_PASS';
   registrar(r);
@@ -303,58 +338,78 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
 const commitadas = r => (r.etapas ?? []).filter(x => x.commit === 'CONFIRMADO').map(x => x.nome.slice(-3));
 const indeterminada = r => (r.etapas ?? []).find(x => x.commit === 'INDETERMINADO')?.nome.slice(-3) ?? null;
 
-/** Modo pelos argumentos: nenhum (plano), --conferir-092-094, ou --aplicar-092-094-autorizado --backup <registro>. */
-function modo(argv) {
+/**
+ * Modo pelos argumentos: nenhum (plano), --conferir-092-094 (diagnóstico global), a conferência de um escopo PERMITIDO
+ * no ambiente (--conferir-092-093, --conferir-094) ou a flag de aplicação de um escopo permitido seguida de
+ * --backup <registro>. Flag de escopo não permitido (ex.: --aplicar-092-094-autorizado em produção) é recusada.
+ */
+function modo(argv, escopos = ['todas']) {
   if (argv.length === 0) return {modo: 'plano'};
   if (argv.length === 1 && argv[0] === FLAG_CONFERIR) return {modo: 'conferir'};
-  if (argv.length === 3 && argv[0] === FLAG_APLICAR && argv[1] === FLAG_BACKUP) {
+  const conferencia = escopos.find(x => x !== 'todas' && ESCOPOS[x].conferir === argv[0]);
+  if (conferencia && argv.length === 1) return {modo: 'conferir', escopo: conferencia};
+  const escopo = escopos.find(x => ESCOPOS[x].flag === argv[0]);
+  if (escopo && argv.length === 3 && argv[1] === FLAG_BACKUP) {
     // Referência do backup/export feito antes (ex.: horário e id do export, PITR anotado); só texto curto e seguro.
     assert.match(argv[2], /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_INVALIDO');
-    return {modo: 'aplicar', backup: argv[2]};
+    return {modo: 'aplicar', escopo, backup: argv[2]};
   }
-  assert.fail(argv.includes(FLAG_APLICAR) ? 'BACKUP_OBRIGATORIO' : 'ARGUMENTOS_RECUSADOS');
+  assert.fail(escopos.some(x => argv.includes(ESCOPOS[x].flag)) ? 'BACKUP_OBRIGATORIO' : 'ARGUMENTOS_RECUSADOS');
 }
 
 /**
  * Fábrica do aplicador de um ambiente. `amb` fixa: nome, alvo(env) → opções do pg, SQL de identidade, identidade(linha),
- * diretório do registro e verificação do disco persistente.
+ * diretório do registro, verificação do disco persistente e, opcionalmente, os escopos permitidos (padrão: `todas`) e a
+ * ordem operacional mostrada no plano.
  */
 function criarAplicador(amb) {
   const raizPadrao = path.resolve(__dirname, '..');
   // Override de F2 (KIDMAIS_RETRATOS_108_TESTE) só com aceitaRetratosTeste: true (suíte PostgreSQL; staging nunca).
   const prova = env => ({env, aceitaTeste: amb.aceitaRetratosTeste === true});
+  const escopos = Object.freeze([...(amb.escopos ?? ['todas'])]);
+  for (const x of escopos) assert.ok(Object.hasOwn(ESCOPOS, x), 'ESCOPO_DESCONHECIDO');
+  const ordemPadrao = ['deploy do código com este aplicador (sem a 092–094 a agenda segue a regra exclusiva e o preço por faixas); conferir commit e hashes implantados',
+    FLAG_CONFERIR, `backup restaurável de ${amb.nome} registrado (id/horário; export funcional não substitui)`, 'autorização de Felipe',
+    'janela combinada: sem escritas de agenda/preços nem DDL concorrente', `${FLAG_CONFERIR} de novo, imediatamente antes`, FLAG_APLICAR, FLAG_CONFERIR];
   function plano({raiz = raizPadrao} = {}) {
     return {resultado: 'PLANO', conecta: false, ambiente: amb.nome, alvo: amb.ALVO,
       arquivos: [...ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108].map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
-      modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
+      modos: {conferir: FLAG_CONFERIR, ...Object.fromEntries(escopos.filter(x => x !== 'todas').map(x => ['conferir ' + x, ESCOPOS[x].conferir])),
+        ...Object.fromEntries(escopos.map(x => [x === 'todas' ? 'aplicar' : 'aplicar ' + x,
+        `${ESCOPOS[x].flag} ${FLAG_BACKUP} <registro-do-backup>`]))}, registro: amb.DIR,
+      marcadores: Object.fromEntries(escopos.map(x => [x, ESCOPOS[x].marcador])),
       preRequisitos: ['092: 006/029/047 (precos_pacote, fechamento_pacote_snapshots, tabela_preco_escopos, kidmais_047_lacunas_escopo)',
         '093: 043/062 (configuracao_agenda, estabelecimentos, pacotes, usuarios_administrativos, empresas, kidmais062_unidade_agendavel)',
         '094: 019/062 (fechamentos, fechamento_revisoes, kidmais062_ocupacoes_escopo, funções 019 da agenda)',
-        'estado em prefixo da ordem (nenhuma, 092, 092+093, todas), nunca parcial', 'CREATE em public, dono dos objetos alterados, REFERENCES nas tabelas citadas'],
-      ordem: ['deploy do código com este aplicador (sem a 092–094 a agenda segue a regra exclusiva e o preço por faixas); conferir commit e hashes implantados',
-        FLAG_CONFERIR, 'backup restaurável de staging registrado (id/horário; export funcional não substitui)', 'autorização de Felipe',
-        'janela combinada: sem escritas de agenda/preços nem DDL concorrente', `${FLAG_CONFERIR} de novo, imediatamente antes`, FLAG_APLICAR, FLAG_CONFERIR],
+        'estado em prefixo da ordem (nenhuma, 092, 092+093, todas), nunca parcial', 'CREATE em public, dono dos objetos alterados, REFERENCES nas tabelas citadas',
+        ...(escopos.includes('092-093') ? ['escopo 092-093: 094 ausente (nunca aplica a 094)'] : []),
+        ...(escopos.includes('094') ? ['escopo 094: 092 e 093 completas'] : [])],
+      ordem: amb.ordem ?? ordemPadrao,
       paradas: ['qualquer código ≠ 0: parar, copiar a saída e o marcador; não repetir',
         'FALHA: migracoesCommitadas = commits confirmados; migracaoIndeterminada ≠ null = reconciliar com a conferência antes de decidir',
-        'retomada só com decisão de Felipe: renomear o marcador anterior (nunca apagar) para migration-092-094.<horario>.json; o novo registro lista as tentativas anteriores'],
-      nuncaExecuta: ['down 092', 'down 093', 'down 094', 'alteração de env', 'deploy', 'restart']};
+        ...escopos.map(x => `retomada só com decisão de Felipe: renomear o marcador anterior (nunca apagar) para ${ESCOPOS[x].marcador.replace(/\.json$/, '')}.<horario>.json; o novo registro lista as tentativas anteriores`)],
+      nuncaExecuta: ['down 092', 'down 093', 'down 094', 'alteração de env', 'deploy', 'restart',
+        ...(escopos.includes('092-093') ? ['migration 094 na execução do escopo 092-093'] : [])]};
   }
-  async function conferir({env, raiz = raizPadrao, Client = require('pg').Client}) {
+  async function conferir({env, escopo, raiz = raizPadrao, Client = require('pg').Client}) {
+    if (escopo !== undefined) assert.ok(escopo !== 'todas' && escopos.includes(escopo), 'ESCOPO_RECUSADO');
     const opts = amb.alvo(env);
     const db = new Client(opts); db.on?.('error', () => undefined);
-    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env)}); }
+    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env), escopos, escopo}); }
     catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', resultado: 'FALHA', mensagem: curta(e)}; }
     finally { await db.end().catch(() => {}); }
   }
-  async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
+  async function executar({env, backup, escopo = escopos[0], dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
+    assert.ok(escopos.includes(escopo), 'ESCOPO_RECUSADO');
     const opts = amb.alvo(env); disco();
     assert.match(String(backup ?? ''), /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_OBRIGATORIO');
     for (const [, arquivo, hash] of [...ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108]) lerRevisado(raiz, arquivo, hash);
     fs.mkdirSync(dir, {recursive: true, mode: 0o700});
-    const marcador = path.join(dir, MARCADOR);
+    const nomeMarcador = ESCOPOS[escopo].marcador, base = nomeMarcador.replace(/\.json$/, '');
+    const marcador = path.join(dir, nomeMarcador);
     // Tentativas anteriores preservadas pelo operador (marcador renomeado, nunca apagado) entram no novo registro.
-    const anteriores = fs.readdirSync(dir).filter(n => /^migration-092-094\..+\.json$/.test(n)).sort();
-    const registro = {inicio: new Date().toISOString(), ambiente: amb.nome, backup, situacao: 'INICIADA', tentativasAnteriores: anteriores};
+    const anteriores = fs.readdirSync(dir).filter(n => n.startsWith(base + '.') && n.endsWith('.json') && n !== nomeMarcador).sort();
+    const registro = {inicio: new Date().toISOString(), ambiente: amb.nome, escopo, backup, situacao: 'INICIADA', tentativasAnteriores: anteriores};
     // Exclusivo: qualquer tentativa anterior (concluída, falha ou perdida) impede repetição automática.
     try { fs.writeFileSync(marcador, JSON.stringify(registro, null, 2), {flag: 'wx', mode: 0o600}); }
     catch (e) { if (e?.code === 'EEXIST') assert.fail('TENTATIVA_ANTERIOR_REVISAR ' + marcador); throw e; }
@@ -363,10 +418,10 @@ function criarAplicador(amb) {
     const db = new Client(opts); db.on?.('error', () => undefined);
     try {
       await db.connect();
-      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env),
+      const r = await aplicarNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), prova108: prova(env), escopo,
         registrar: x => { ultimo = JSON.parse(JSON.stringify(x)); salvar({...ultimo, situacao: 'EM_ANDAMENTO'}); }});
       salvar({...r, situacao: 'CONCLUIDA', migracoesCommitadas: commitadas(r)});
-      return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, estadoDepois: r.estadoDepois,
+      return {resultado: r.resultado, escopo, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, estadoDepois: r.estadoDepois,
         contagensAntes: r.contagensAntes, contagensDepois: r.contagensDepois, etapas: r.etapas.map(e => e.nome), migracoesCommitadas: commitadas(r)};
     } catch (e) {
       const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: curta(e)};
@@ -375,15 +430,15 @@ function criarAplicador(amb) {
       const situacao = {migracoesCommitadas: commitadas(ultimo), migracaoIndeterminada: indeterminada(ultimo),
         reconciliar: `${FLAG_CONFERIR} antes de qualquer decisão; não repetir`};
       salvar({...ultimo, situacao: 'FALHA', falha, ...situacao});
-      return {resultado: 'FALHA', marcador, falha, ...situacao};
+      return {resultado: 'FALHA', escopo, marcador, falha, ...situacao};
     } finally { await db.end().catch(() => {}); }
   }
   /** Códigos: 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar (lançada); 2 FALHA registrada; 3 conferência RECUSARIA. */
   const CODIGO = Object.freeze({PLANO: 0, PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0, APLICADA_POSTCHECK_PASS: 0, FALHA: 2, RECUSARIA: 3});
   async function principal(argv, env, deps = {}) {
-    const m = modo(argv);
+    const m = modo(argv, escopos);
     if (m.modo === 'plano') return {codigo: 0, saida: plano(deps)};
-    const s = m.modo === 'conferir' ? await conferir({env, ...deps}) : await executar({env, backup: m.backup, ...deps});
+    const s = m.modo === 'conferir' ? await conferir({env, ...deps, escopo: m.escopo}) : await executar({env, ...deps, backup: m.backup, escopo: m.escopo});
     return {codigo: CODIGO[s.resultado] ?? 2, saida: s};
   }
   function cli() {
@@ -391,9 +446,10 @@ function criarAplicador(amb) {
       (codigo === 0 ? console.log : console.error)(JSON.stringify(saida)); process.exitCode = codigo;
     }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
   }
-  return {plano, conferir, executar, principal, cli, CODIGO};
+  return {plano, conferir, executar, principal, cli, CODIGO, escopos};
 }
 
-module.exports = {IDS, ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108, CORPO_CONFLITO_094, CORPO_CONFLITO_100, CORPO_CONFLITO_108, SQL_CORPO_CONFLITO,
-  integridade094, OBJETOS, BASE, CAMPOS, commitNaFalha, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, SQL_ESTADO, lerRevisado, lerEstado, planoEtapas,
+module.exports = {IDS, ETAPAS, ESCOPOS, FLAG_APLICAR_092_093, FLAG_APLICAR_094, FLAG_CONFERIR_092_093, FLAG_CONFERIR_094, INTEGRIDADE_094_APOS_100,
+  INTEGRIDADE_094_APOS_108, CORPO_CONFLITO_094, CORPO_CONFLITO_100, CORPO_CONFLITO_108, SQL_CORPO_CONFLITO, integridade094, OBJETOS, BASE, CAMPOS,
+  commitNaFalha, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, SQL_ESTADO, lerRevisado, lerEstado, planoEtapas,
   conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

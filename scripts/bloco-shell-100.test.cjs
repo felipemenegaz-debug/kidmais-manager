@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 100 (agenda com um salão, staging) executados DE VERDADE com bash num destino temporário (só o destino difere do
+// Blocos de Shell da 100 (agenda com um salão, staging e produção) executados DE VERDADE com bash num destino temporário (só o destino difere do
 // Render; o comando do aplicador é o real — recusando antes de conectar, sem RENDER/DATABASE_URL — ou um substituto que só
 // devolve um código). Inclui COLAGEM INTERATIVA (bash -i, bloco + linhas do operador), como no Web Shell: o shell do
 // operador precisa sobreviver e ler o código. Não toca banco nem /opt/render.
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {spawnSync} = require('node:child_process'), {createHash} = require('node:crypto');
 const b = require('./bloco-shell-100.cjs'), {ETAPAS} = require('./migration-100-comum.cjs');
+const {INTEGRIDADE_094_APOS_108} = require('./migration-092-094-comum.cjs');
 const root = path.resolve(__dirname, '..');
 const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n');
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -13,9 +14,9 @@ const posix = p => p.replace(/\\/g, '/');
 const SERVICO = 'srv-daif418ae00c73e8k2gg';
 
 /** Destino com os arquivos implantados (LF) e, opcionalmente, node_modules do repositório (junção) para o aplicador real. */
-function destino({modulos = false} = {}) {
+function destino({modulos = false, ambiente = 'staging'} = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bloco-100-'));
-  for (const a of b.arquivos('staging')) { fs.mkdirSync(path.dirname(path.join(d, a)), {recursive: true}); fs.writeFileSync(path.join(d, a), lf(a)); }
+  for (const a of b.arquivos(ambiente)) { fs.mkdirSync(path.dirname(path.join(d, a)), {recursive: true}); fs.writeFileSync(path.join(d, a), lf(a)); }
   if (modulos) fs.symlinkSync(path.join(root, 'node_modules'), path.join(d, 'node_modules'), 'junction');
   return d;
 }
@@ -36,7 +37,7 @@ const gerar = (d, modo, comando) => b.gerar({ambiente: 'staging', modo, rotulo: 
 const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
-test('arquivos conferidos: aplicador de staging, os dois núcleos (100 e 092–094), conexão de staging e os 4 SQL revisados da 100; só staging', () => {
+test('arquivos conferidos: aplicador de staging, os dois núcleos (100 e 092–094), conexão de staging e os 4 SQL revisados da 100; ambientes staging e produção', () => {
   assert.deepEqual(b.arquivos('staging'), ['scripts/migration-100-staging.cjs', 'scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs',
     'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
     'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json',
@@ -44,8 +45,9 @@ test('arquivos conferidos: aplicador de staging, os dois núcleos (100 e 092–0
   assert.deepEqual(ETAPAS.map(e => e[0]), ['precheck 100', 'migration 100', 'postcheck 100', 'integridade 094 apos 100']);
   for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);
-  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging'], 'produção fica fora deste aplicador');
-  assert.throws(() => b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);
+  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging', 'production']);
+  assert.throws(() => b.gerar({ambiente: 'outro', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);
+  assert.throws(() => b.gerar({ambiente: 'production', modo: 'LIMPEZA', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'LIMPEZA', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: 'abc; rm -rf /'}), /ROTULO_INVALIDO/);
 });
@@ -161,4 +163,76 @@ test('colagem interativa: CONFERIR e depois APLICAR na mesma sessão — dois c�
       + gerar(d, 'APLICAR', 'node -e "process.exitCode=0"') + 'echo DUAS_COLAGENS_OK\n', {interativo: true});
     assert.equal(linhas(r.saida, /^CODIGO_SAIDA_BLOCO=0$/), 2, r.saida.slice(-400)); assert.match(r.saida, /^DUAS_COLAGENS_OK$/m);
   } finally { limpar(d); }
+});
+
+const PROD = 'srv-dak77m2d0e5s73b8rkkg';
+const gerarProd = (d, modo, comando) => b.gerar({ambiente: 'production', modo, rotulo: 'a590d24', destino: posix(d), comando});
+
+test('produção: arquivos conferidos (aplicador de produção, dois núcleos, dependências da 107/108, 5 SQL; sem conexão de staging), comando por modo, guarda e aviso do E6', () => {
+  assert.deepEqual(b.arquivos('production'), ['scripts/migration-100-production.cjs', 'scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs',
+    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+    'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json',
+    ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_108[1]]);
+  assert.ok(!b.arquivos('production').includes('scripts/conexao-staging.cjs'));
+  for (const [modo, flag] of [['CONFERIR', '--conferir-100'], ['APLICAR', '--aplicar-100-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"']]) {
+    const x = b.gerar({ambiente: 'production', modo, rotulo: 'a590d24'}), L = x.split('\n');
+    assert.match(x, /^[\x09\x0a\x20-\x7e]*$/); assert.ok(Buffer.byteLength(x, 'utf8') <= 32 * 1024);
+    const iGuarda = L.findIndex(l => l.startsWith(`if [ "$RENDER_SERVICE_ID" != "${PROD}" ]; then echo "SHELL_ERRADO_NAO_E_PRODUCTION`));
+    assert.ok(iGuarda > 0 && L.slice(0, iGuarda).every(l => l.startsWith('#') || l.startsWith('bind ')), modo + ': nada antes da guarda');
+    assert.equal(L[iGuarda - 1], "bind 'set enable-bracketed-paste off' 2>/dev/null");
+    assert.ok(L.includes(`NODE_PATH="$PWD/node_modules" node scripts/migration-100-production.cjs ${flag} || codigo=$?`), modo);
+    assert.match(x, new RegExp('^# BLOCO-SHELL-100-PRODUCTION-' + modo + ' ', 'm'));
+    assert.match(x, /^# PRODUCAO: somente depois do E6 /m);
+    assert.ok(L.includes("ls -1 data/agenda-um-salao-100-producao 2>/dev/null || echo SEM_REGISTRO"), modo);
+    assert.doesNotMatch(x, /DATABASE_URL|PGPASSWORD|postgres(ql)?:\/\/|rollback|_down\.sql|migration-100-staging|--aplicar-092-094|--aplicar-094/);
+    for (const a of b.arquivos('production')) assert.ok(L.includes(`arq ${a} ${sha(lf(a))}`), a);
+  }
+  assert.doesNotMatch(b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'a590d24'}), /KIDMAIS_REGISTRO_BACKUP/);
+  assert.doesNotMatch(b.gerar({ambiente: 'staging', modo: 'APLICAR', rotulo: '455117e'}), /PRODUCAO|srv-dak77m2d0e5s73b8rkkg/);
+  // P3 da revisão: a instrução de backup é a de produção (dump conferido + PITR), sem "export/PITR".
+  const ap = b.gerar({ambiente: 'production', modo: 'APLICAR', rotulo: 'a590d24'});
+  assert.ok(ap.includes('# shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do dump conferido e do PITR; export funcional NAO substitui>".'));
+  assert.ok(ap.includes('echo "BACKUP_NAO_INFORMADO defina KIDMAIS_REGISTRO_BACKUP (dump conferido + PITR) antes de colar"'));
+  assert.doesNotMatch(ap, /export\/PITR|<BACKUP>/);
+  const as = b.gerar({ambiente: 'staging', modo: 'APLICAR', rotulo: '455117e'});
+  assert.ok(as.includes('# shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>".')); assert.doesNotMatch(as, /dump conferido|<BACKUP>/);
+});
+
+test('produção: shell de staging não executa o corpo; aplicador REAL recusa fora do Render (código 1); APLICAR exige o backup', () => {
+  const d = destino({ambiente: 'production', modulos: true});
+  try {
+    for (const servico of [SERVICO, undefined]) {
+      const errado = sessao(d, gerarProd(d, 'APLICAR', 'echo APLICADOR_RODOU'), {servico});
+      assert.match(errado.saida, /^SHELL_ERRADO_NAO_E_PRODUCTION/m); assert.doesNotMatch(errado.saida, /CODIGO_SAIDA_BLOCO|APLICADOR_RODOU|ARQUIVOS_CONFERIDOS/);
+    }
+    const r = sessao(d, gerarProd(d, 'CONFERIR'), {servico: PROD});
+    assert.equal(codigo(r.saida), 1, r.saida.slice(-400)); assert.match(r.saida, /RECUSADO FORA_DO_RENDER/);
+    const sem = sessao(d, gerarProd(d, 'APLICAR', 'echo APLICADOR_RODOU'), {servico: PROD});
+    assert.equal(codigo(sem.saida), 4); assert.match(sem.saida, /^BACKUP_NAO_INFORMADO /m); assert.doesNotMatch(sem.saida, /APLICADOR_RODOU/);
+    const real = sessao(d, gerarProd(d, 'APLICAR'), {servico: PROD, env: {KIDMAIS_REGISTRO_BACKUP: 'dump 2026-11-01T03:00Z PITR'}});
+    assert.equal(codigo(real.saida), 1, real.saida.slice(-300)); assert.match(real.saida, /RECUSADO FORA_DO_RENDER/);
+    assert.equal(fs.existsSync(path.join(d, 'data')), false, 'nada gravado');
+  } finally { limpar(d); }
+});
+
+test('produção: arquivo implantado divergente ou ausente (aplicador de produção, núcleos, migration, integridade) recusa com código 4 antes do aplicador', () => {
+  for (const alterar of ['scripts/migration-100-production.cjs', 'scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', ETAPAS[1][1], ETAPAS[3][1]]) {
+    for (const modo of ['remover', 'alterar']) {
+      const d = destino({ambiente: 'production'});
+      try { if (modo === 'remover') fs.rmSync(path.join(d, alterar)); else fs.appendFileSync(path.join(d, alterar), '\n-- alterado');
+        const r = sessao(d, gerarProd(d, 'CONFERIR', 'echo APLICADOR_RODOU'), {servico: PROD});
+        assert.equal(codigo(r.saida), 4, r.saida.slice(-300)); assert.match(r.saida, new RegExp('^ARQUIVO_DIVERGENTE_OU_AUSENTE ' + alterar.replace(/\./g, '\\.') + '$', 'm'));
+        assert.doesNotMatch(r.saida, /APLICADOR_RODOU|=== REGISTRO/);
+      } finally { limpar(d); }
+    }
+  }
+});
+
+test('produção: colagem interativa (bash -i) com código 0/2/3 do aplicador e o shell do operador vivo', () => {
+  for (const [modo, esperado, env] of [['CONFERIR', 0, {}], ['APLICAR', 2, {KIDMAIS_REGISTRO_BACKUP: 'dump 2026-11-01T03:00Z PITR'}], ['CONFERIR', 3, {}]]) {
+    const d = destino({ambiente: 'production'});
+    try { const r = sessao(d, gerarProd(d, modo, `node -e "process.exitCode=${esperado}"`) + 'echo SHELL_DO_OPERADOR_VIVO\n', {interativo: true, servico: PROD, env});
+      assert.equal(codigo(r.saida), esperado, r.saida.slice(-300)); assert.match(r.saida, /^SHELL_DO_OPERADOR_VIVO$/m);
+    } finally { limpar(d); }
+  }
 });

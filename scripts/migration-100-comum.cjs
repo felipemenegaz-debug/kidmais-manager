@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Núcleo do aplicador manual da 100 (agenda com um salão: uma festa por vez no horário POR_HORARIO, qualquer que seja a
-// capacidade gravada) — staging (scripts/migration-100-staging.cjs fixa o alvo, a identidade da conexão e o disco).
+// capacidade gravada) — staging e produção (scripts/migration-100-staging.cjs e scripts/migration-100-production.cjs fixam o
+// alvo, a identidade da conexão e o disco; produção também a ordem do runbook de promoção).
 // Mesmo desenho do aplicador da 092–094 (alvo travado, TLS, hash fixado de cada SQL com CRLF normalizado, marcador
 // exclusivo no disco persistente, COMMIT confirmado/desfeito/indeterminado, códigos 0/1/2/3), para UMA migration que só
 // troca o corpo de kidmais094_conflito_ocupacao:
@@ -235,7 +236,10 @@ function modo(argv) {
   assert.fail(argv.includes(FLAG_APLICAR) ? 'BACKUP_OBRIGATORIO' : 'ARGUMENTOS_RECUSADOS');
 }
 
-/** Fábrica do aplicador de um ambiente (mesmo contrato da 092–094: nome, ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco). */
+/**
+ * Fábrica do aplicador de um ambiente (mesmo contrato da 092–094: nome, ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco;
+ * `ordem` opcional substitui a ordem operacional de staging — produção segue o runbook do plano de promoção).
+ */
 function criarAplicador(amb) {
   const raizPadrao = path.resolve(__dirname, '..');
   // Override de F2 (KIDMAIS_RETRATOS_108_TESTE) só com aceitaRetratosTeste: true (suíte PostgreSQL; staging nunca).
@@ -248,7 +252,7 @@ function criarAplicador(amb) {
       preRequisitos: ['093/094 aplicadas (agenda_escopo_config, kidmais094_ocupacoes, kidmais062_mesmo_recurso) e a regra de conflito com o corpo EXATO da 094',
         'sem a 098 (corpo diferente: recusa)', 'com a 108: só confere (prova "108 íntegra" + integridade da 094 após a 108; nunca reaplica); 108 parcial recusa', 'current_user dono da função kidmais094_conflito_ocupacao, com CREATE em public e USAGE em plpgsql e nos tipos da assinatura',
         'inventário: nenhum par de ocupações futuras no mesmo horário em que um lado é de agenda com um salão (contra todas as ocupações do mesmo recurso; pares > 0 = recusa; decidir com Felipe)'],
-      ordem: ['deploy do código com este aplicador e os SQL; conferir commit e hashes implantados', FLAG_CONFERIR,
+      ordem: amb.ordem ?? ['deploy do código com este aplicador e os SQL; conferir commit e hashes implantados', FLAG_CONFERIR,
         'backup restaurável de staging registrado (id/horário; export funcional não substitui)', 'autorização de Felipe',
         'janela combinada: sem escritas de agenda/festas nem DDL concorrente', `${FLAG_CONFERIR} de novo, imediatamente antes`, FLAG_APLICAR, FLAG_CONFERIR,
         'CONFERIR da 092–094 (integridade da 094 com o corpo da 100)'],
@@ -287,10 +291,16 @@ function criarAplicador(amb) {
       return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, inventarioAntes: r.inventarioAntes,
         estadoDepois: r.estadoDepois, etapas: r.etapas.map(e => e.nome), commit: commitDe(r), ...(r.checks ? {checks: r.checks} : {})};
     } catch (e) {
+      // Já conectou: sempre FALHA (código 2) com o estado do COMMIT guardado em memória (`ultimo`), mesmo que o marcador
+      // não possa mais ser gravado (disco cheio, por exemplo). Parecer do Astra (B-3, P2): a falha de gravação nunca pode
+      // escapar como recusa antes de conectar (código 1) nem esconder um COMMIT confirmado. O marcador anterior continua
+      // no disco e impede a repetição.
       const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: curta(e)};
       const situacao = {commit: commitDe(ultimo), reconciliar: `${FLAG_CONFERIR} antes de qualquer decisão; não repetir`};
-      salvar({...ultimo, situacao: 'FALHA', falha, ...situacao});
-      return {resultado: 'FALHA', marcador, falha, ...situacao};
+      let marcadorAtualizado = true, erroMarcador;
+      try { salvar({...ultimo, situacao: 'FALHA', falha, ...situacao}); } catch (e2) { marcadorAtualizado = false; erroMarcador = curta(e2); }
+      return {resultado: 'FALHA', marcador, falha, ...situacao, marcadorAtualizado,
+        ...(marcadorAtualizado ? {} : {erroMarcador, aviso: 'MARCADOR_DESATUALIZADO: copiar esta saída (é o único registro do COMMIT); não repetir'})};
     } finally { await db.end().catch(() => {}); }
   }
   /**

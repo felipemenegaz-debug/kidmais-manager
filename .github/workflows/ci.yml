@@ -77,6 +77,9 @@ jobs:
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs lib/convites/biblioteca.test.cjs scripts/migration-099-staging.test.cjs
 
+      - name: Aplicador manual da 099 (produção) e blocos de Shell — trava de alvo/identidade, dono das tabelas e funções, vínculo/versão antes do DDL, transação única sob trava exclusiva, preservação, COMMIT confirmado/desfeito/indeterminado e anti-repetição (cliente simulado; bash e bash -i em diretório temporário)
+        run: node --test scripts/migration-099.test.cjs scripts/bloco-shell-099.test.cjs
+
       - name: Convites — migration 084, decisão só do operador e fila do painel (dependências simuladas)
         run: node --test lib/convites/recuperacao.test.cjs lib/desenvolvedor/convites-geracoes.test.cjs
 
@@ -113,8 +116,23 @@ jobs:
       - name: Blocos de Shell da 089 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-089.test.cjs
 
+      - name: Aplicadores manuais da 090 (campanha Fundador, staging e produção) — trava de alvo, identidade, hashes, plano por estado, privilégios, conferência só leitura, backup obrigatório, marcador anti-repetição, falha registrada e códigos de saída (cliente simulado)
+        run: node --test scripts/migration-090.test.cjs
+
+      - name: Blocos de Shell da 090 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-090.test.cjs
+
+      - name: Aplicadores manuais da 091 (documento fiscal CPF/CNPJ, staging e produção) — trava de alvo, identidade, hashes, plano por estado, privilégios, conferência só leitura, backup obrigatório, marcador anti-repetição, falha registrada e códigos de saída (cliente simulado)
+        run: node --test scripts/migration-091.test.cjs
+
+      - name: Blocos de Shell da 091 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-091.test.cjs
+
       - name: Aplicador manual da 092–094 (agenda e preços, staging) — trava de alvo, identidade, hashes, estado por migration, ordem, dependências e privilégios CREATE/DONO/REFERENCES, conferência só leitura, backup obrigatório, falha no meio e anti-repetição (cliente simulado)
         run: node --test scripts/migration-092-094.test.cjs
+
+      - name: Aplicador manual da 092–094 (produção) — trava de alvo/identidade/TLS de produção, escopos separados 092-093 (E3) e 094 (E6), o 092-093 nunca alcança a 094, marcadores por escopo e conferência com o plano de cada escopo (cliente simulado)
+        run: node --test scripts/migration-092-094-production.test.cjs
 
       - name: Blocos de Shell da 092–094 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-092-094.test.cjs
@@ -124,6 +142,18 @@ jobs:
 
       - name: Blocos de Shell da 095 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-095.test.cjs
+
+      - name: Aplicadores manuais da 096 (comprovante da contratação e arquivo das versões, staging e produção) — trava de alvo, identidade, hashes, plano por estado, privilégios, conferência só leitura, backup obrigatório, marcador anti-repetição, falha registrada e códigos de saída (cliente simulado)
+        run: node --test scripts/migration-096.test.cjs
+
+      - name: Blocos de Shell da 096 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-096.test.cjs
+
+      - name: Aplicadores manuais da 097 (manifestações do direito de arrependimento, staging e produção) — trava de alvo, identidade, hashes, plano por estado, privilégios, conferência só leitura, backup obrigatório, marcador anti-repetição, falha registrada e códigos de saída (cliente simulado)
+        run: node --test scripts/migration-097.test.cjs
+
+      - name: Blocos de Shell da 097 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
+        run: node --test scripts/bloco-shell-097.test.cjs
 
       - name: Aplicador manual da 098 (salão combinado, staging) — trava de alvo, identidade, hashes, retrato somente leitura (094/098 e tipos divergentes), estado e privilégios CREATE/DONO, conferência só leitura, backup obrigatório, COMMIT confirmado/desfeito/indeterminado, prova de preservação e anti-repetição (cliente simulado)
         run: node --test scripts/migration-098.test.cjs
@@ -136,6 +166,15 @@ jobs:
 
       - name: Blocos de Shell da 100 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-100.test.cjs
+
+      - name: Aplicador manual da 100 de produção (B-3) — trava de alvo e TLS de produção, identidade provada no servidor, disco persistente, ordem depois do E6, recusas sem 094/com 098/pares, marcador próprio e COMMIT indeterminado (cliente simulado)
+        run: node --test scripts/migration-100-production.test.cjs
+
+      - name: Conferência somente leitura de produção (B-5) — estados pelos núcleos dos aplicadores (098 nunca), DV da 091 igual ao do código, datas do Fundador pela regra do código, Asaas só por GET (cliente e Asaas simulados) e blocos de entrega (bash em diretório temporário)
+        run: node --test scripts/conferencia-b5-producao.test.cjs scripts/bloco-shell-conferencia-b5-producao.test.cjs
+
+      - name: Entrega dos aplicadores do grupo A em produção (B-4) — partes ≤ 40 KB conferidas por sha, lista igual à dos blocos do B-1/B-2, montagem só com todas as partes, aplicador rodando da pasta própria, backup antes de gravar, colagem truncada/interativa e LIMPEZA só do que confere (bash em diretório temporário)
+        run: node --test scripts/bloco-shell-entrega-grupo-a-producao.test.cjs
 
       - name: Aplicador manual da 102/103 (apresentação do salão e categoria Serviços, staging) — trava de alvo, identidade, hashes, estado por migration (102 ausente/completa/parcial, 103 ausente/completa/divergente), 098, versão do PostgreSQL do retrato, privilégios, conferência só leitura, backup obrigatório, COMMIT confirmado/desfeito/indeterminado por migration e anti-repetição (cliente simulado)
         run: node --test scripts/migration-102-103.test.cjs
