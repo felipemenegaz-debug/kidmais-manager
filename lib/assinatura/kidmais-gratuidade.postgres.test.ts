@@ -83,9 +83,13 @@ test("o produto só cria assinatura no cadastro público e na operação explíc
   const arquivos: string[] = [];
   const varrer = (dir: string) => { for (const e of readdirSync(join(raiz, dir), { withFileTypes: true })) {
     const p = `${dir}/${e.name}`;
-    if (e.isDirectory()) varrer(p); else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) arquivos.push(p);
+    if (e.isDirectory()) varrer(p); else if (/\.(ts|tsx)$/.test(e.name) && !/\.test(-apoio)?\.tsx?$/.test(e.name)) arquivos.push(p);
   } };
   for (const dir of ["lib", "app"]) varrer(dir);
+  // Apoios de teste (`.test-apoio.ts`, ex.: renovacao-109-apoio da #271) ficam fora da varredura como os `.test.ts`; em troca,
+  // nenhum arquivo de produto pode citá-los, senão uma chamada a iniciarTeste escaparia por ali. Guarda TEXTUAL (como a de
+  // iniciarTeste abaixo): pega import, reexport e import dinâmico literais; caminho calculado ou alias que esconda o nome, não.
+  assert.deepEqual(arquivos.filter((f) => /test-apoio/.test(readFileSync(join(raiz, f), "utf8"))), [], "produto não importa apoio de teste");
   const insercoes = arquivos.filter((f) => /INSERT INTO empresa_assinaturas/.test(readFileSync(join(raiz, f), "utf8")));
   assert.deepEqual(insercoes, ["lib/assinatura/servico.ts"]);
   const chamadas = arquivos.filter((f) => /\biniciarTeste\(/.test(readFileSync(join(raiz, f), "utf8")) && f !== "lib/assinatura/servico.ts");
