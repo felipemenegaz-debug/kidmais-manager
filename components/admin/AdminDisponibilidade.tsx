@@ -76,6 +76,7 @@ type AdminPayload = DisponibilidadeConfig & {
 
 export default function AdminDisponibilidade() {
   const hoje = new Date();
+  const hojeIso = iso(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   const [pacote, setPacote] = useState<PacoteId>("pocket");
   // Horário configurado em foco (configuracao_agenda.id); "" = o primeiro horário da agenda carregada.
   const [configuracaoId, setConfiguracaoId] = useState("");
@@ -99,6 +100,8 @@ export default function AdminDisponibilidade() {
   const [fimBloqueio, setFimBloqueio] = useState("16:00");
   const [motivoBloqueio, setMotivoBloqueio] = useState("");
   const [observacoesBloqueio, setObservacoesBloqueio] = useState("");
+  // O formulário de bloqueio físico fica recolhido até a pessoa pedir ("Bloquear esta data").
+  const [bloqueioAberto, setBloqueioAberto] = useState(false);
   // Agenda por empresa/unidade (062): a unidade escolhida é o recurso consultado; "" = a única ou a empresa inteira.
   const [unidadeId, setUnidadeId] = useState("");
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
@@ -414,6 +417,7 @@ export default function AdminDisponibilidade() {
     if (salvo) {
       setMotivoBloqueio("");
       setObservacoesBloqueio("");
+      setBloqueioAberto(false);
     }
   }
 
@@ -469,16 +473,8 @@ export default function AdminDisponibilidade() {
               as regras comerciais de cada pacote.
             </span>
           </div>
+          {telaDoCliente ? <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div> : null}
         </header>
-
-        <div className={styles.securityNotice}>
-          <strong>Configuração da agenda</strong>
-          <span>
-            O acesso administrativo é protegido. Bloqueios físicos usam PostgreSQL;
-            regras e descontos desta tela usam o arquivo data/disponibilidade.json,
-            que precisa de volume persistente e backup na implantação.
-          </span>
-        </div>
 
         <section className={styles.filters}>
           <label>
@@ -570,9 +566,7 @@ export default function AdminDisponibilidade() {
           </p>
         )}
 
-        {telaDoCliente
-          ? <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>
-          : !carregando && (
+        {!telaDoCliente && !carregando && (
             <p className={styles.helpText}>
               A tela do cliente desta empresa ainda não está disponível. Ela abre quando o orçamento online estiver ativo
               para a empresa.
@@ -593,10 +587,10 @@ export default function AdminDisponibilidade() {
             </div>
 
             <div className={styles.legend}>
-              <span className={styles.green}>✓ Disponível</span>
-              <span className={styles.blue}>? Consulta</span>
-              <span className={styles.purple}>! Exceção</span>
-              <span className={styles.red}>× Indisponível</span>
+              <span><i className={`${styles.ponto} ${styles.pontoDisponivel}`} />Disponível</span>
+              <span><i className={`${styles.ponto} ${styles.pontoConsulta}`} />Consulta</span>
+              <span><i className={`${styles.ponto} ${styles.pontoExcecao}`} />Exceção</span>
+              <span><i className={`${styles.ponto} ${styles.pontoIndisponivel}`} />Indisponível</span>
               {!semPacotes && pacoteTemDescontoDiaUtil(pacote) && (
                 <span className={styles.orange}>-15% Dia útil</span>
               )}
@@ -612,6 +606,7 @@ export default function AdminDisponibilidade() {
               ))}
               {Array.from({ length: diasMes.total }).map((_, i) => {
                 const data = iso(ano, mes, i + 1);
+                const passado = data < hojeIso;
                 const padrao = horarioPadraoOperacional(data);
                 // Sem dados = dia não carregado; horário que não acontece neste dia aparece como indisponível.
                 const semDados = !operacionalPorData[data] || !idHorario;
@@ -644,6 +639,8 @@ export default function AdminDisponibilidade() {
 
                 const cls = semDados
                   ? styles.loadingDay
+                  : passado
+                  ? styles.pastDay
                   : info.status === "disponivel"
                     ? styles.available
                     : info.status === "consulta"
@@ -663,6 +660,7 @@ export default function AdminDisponibilidade() {
                       setSelecionada(data);
                       sincronizarDescontoFormulario(config, pacote, data, horario);
                       setMensagem("");
+                      setBloqueioAberto(false);
                     }}
                     disabled={semDados}
                   >
@@ -672,17 +670,21 @@ export default function AdminDisponibilidade() {
                         <em>-{Math.round(desconto.percentual * 100)}%</em>
                       )}
                     </div>
-                    <small>
-                      {semDados
-                        ? "…"
-                        : info.status === "disponivel"
-                          ? "✓"
-                          : info.status === "consulta"
-                            ? "?"
-                            : info.status === "excecao"
-                              ? "!"
-                              : "×"}
-                    </small>
+                    {semDados
+                      ? <small>…</small>
+                      : !passado && (
+                        <small className={styles.statusDia}>
+                          <i className={`${styles.ponto} ${
+                            info.status === "disponivel"
+                              ? styles.pontoDisponivel
+                              : info.status === "consulta"
+                                ? styles.pontoConsulta
+                                : info.status === "excecao"
+                                  ? styles.pontoExcecao
+                                  : styles.pontoIndisponivel}`} aria-hidden="true" />
+                          <span className={styles.leitor}>{statusLabel(info.status, regrasDoPacote === null)}</span>
+                        </small>
+                      )}
                   </button>
                 );
               })}
@@ -723,7 +725,7 @@ export default function AdminDisponibilidade() {
                     </small>
                   </div>
 
-                  {turnoSelecionado && (
+                  {turnoSelecionado && turnoSelecionado.horarios.length > 1 && (
                     <div className={styles.candidatePanel}>
                       <h3>Alternativas deste período</h3>
                       <div className={styles.candidateList}>
@@ -805,6 +807,11 @@ export default function AdminDisponibilidade() {
                   )}
                 </section>
 
+                {!bloqueioAberto ? (
+                  <button type="button" className={styles.blockOpen} onClick={() => setBloqueioAberto(true)}>
+                    ⊘ Bloquear esta data
+                  </button>
+                ) : (
                 <div className={`${styles.actionGroup} ${styles.physicalBlockForm}`}>
                   <h3>Criar bloqueio físico</h3>
                   <p className={styles.helpText}>
@@ -879,7 +886,11 @@ export default function AdminDisponibilidade() {
                   >
                     Criar bloqueio físico
                   </button>
+                  <button type="button" className={styles.ghost} disabled={salvando} onClick={() => setBloqueioAberto(false)}>
+                    Cancelar
+                  </button>
                 </div>
+                )}
 
                 {descontoSelecionado?.ativo && (
                   <div className={styles.discountAdminNotice}>

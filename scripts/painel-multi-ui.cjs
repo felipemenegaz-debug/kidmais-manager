@@ -76,6 +76,13 @@ async function principal() {
     const contexto = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     contexto.setDefaultTimeout(60000);
     const page = await contexto.newPage();
+    // Conta compacta (30/10/2026): o seletor da empresa ativa fica no menu da conta; abre o menu se ele não estiver visível.
+    const seletorEmpresa = async () => {
+      const seletor = page.locator('select[aria-label="Empresa ativa"]').first();
+      if (!(await seletor.isVisible().catch(() => false))) await page.getByRole('button', { name: /^Conta de / }).first().click();
+      return seletor;
+    };
+    const botaoConta = () => page.getByRole('button', { name: /^Conta de / }).first();
     async function login() {
       await page.goto(`${base}/admin/login`);
       await page.getByLabel('Email', { exact: true }).fill(email);
@@ -89,7 +96,7 @@ async function principal() {
       assert.equal(await page.getByText(`Cliente exclusivo ${ausente}`, { exact: true }).count(), 0);
     }
     async function trocar(id) {
-      await Promise.all([page.waitForEvent('load'), page.getByLabel('Empresa ativa', { exact: true }).first().selectOption(id)]);
+      await Promise.all([page.waitForEvent('load'), (await seletorEmpresa()).selectOption(id)]);
       await page.waitForURL(`${base}/admin/dashboard`);
     }
     await login();
