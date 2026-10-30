@@ -195,6 +195,10 @@ const ESTADO_POSTGRES = {
   "lib/marketing/aplicador-085-086.postgres.test.ts": { descartavel: "084" },
   // OBS-2: Convites (084) e WhatsApp (083) com o Marketing presente; downs 086 → 085 → 084 e recusas com dados.
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
+  // Pesquisa de satisfação (110, PS-1, 30/10/2026): esquema, serviço público, supressões, frequência e bloqueio do
+  // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).
+  "lib/satisfacao/satisfacao.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-concorrencia.postgres.test.ts": { descartavel: "110" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
@@ -261,7 +265,7 @@ const ESTADO_POSTGRES = {
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
   // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
   // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109"] },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "110"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },

@@ -285,6 +285,19 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'marketing/automacao_eventos', tabela: 'marketing_automacao_eventos', grupo: 'Marketing', descricao: 'Eventos das execuções.', onde: EMP },
     { arquivo: 'marketing/tarefas', tabela: 'marketing_tarefas', grupo: 'Marketing', descricao: 'Tarefas de Marketing.', onde: EMP },
 
+    // Pesquisa de satisfação (110, PS-1). O hash do link (token_hash) e a posse do envio (posse_token) caem no SEGREDO.
+    { arquivo: 'satisfacao/envios', tabela: 'satisfacao_envios', grupo: 'Pesquisa de satisfação', descricao: 'Pesquisas enviadas após a festa (estado, prazos; sem o link).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/respostas', tabela: 'satisfacao_respostas', grupo: 'Pesquisa de satisfação', descricao: 'Respostas (nota de indicação, notas dos aspectos e comentário).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/tarefas', tabela: 'satisfacao_tarefas', grupo: 'Pesquisa de satisfação', descricao: 'Tarefas de retorno abertas pelas notas baixas.', onde: EMP, migracao: '110' },
+    {
+        arquivo: 'satisfacao/entregas', tabela: 'satisfacao_entregas', grupo: 'Pesquisa de satisfação', descricao: 'Entregas por canal (WhatsApp, e-mail), tentativas e motivos.', onde: EMP, migracao: '110',
+        excluir: { conteudo: 'Texto enviado ao cliente: contém o link da pesquisa (credencial de resposta).' },
+    },
+    { arquivo: 'satisfacao/saidas', tabela: 'satisfacao_saidas', grupo: 'Pesquisa de satisfação', descricao: 'Clientes que pediram para não receber pesquisas.', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/capacidades', tabela: 'satisfacao_capacidades', grupo: 'Pesquisa de satisfação', descricao: 'Quem pode ver as respostas por unidade (concessão e revogação).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/agregados_mensais', tabela: 'satisfacao_agregados_mensais', grupo: 'Pesquisa de satisfação', descricao: 'Totais mensais das respostas.', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/expurgos', tabela: 'satisfacao_expurgos', grupo: 'Pesquisa de satisfação', descricao: 'Expurgos mensais das respostas antigas (contagens).', onde: EMP, migracao: '110' },
+
     // Atendimento WhatsApp
     { arquivo: 'whatsapp/conexoes', tabela: 'whatsapp_conexoes', grupo: 'WhatsApp', descricao: 'Conexões do número (sem credenciais).', onde: EMP },
     { arquivo: 'whatsapp/configuracao', tabela: 'whatsapp_atendimento_config', grupo: 'WhatsApp', descricao: 'Configuração do atendimento.', onde: EMP },
@@ -315,6 +328,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     auditoria: 'Auditoria geral da plataforma (segurança e prova de operações, com IP); atendida por pedido específico.',
     sessoes_administrativas: 'Sessões de login: credenciais (hashes de token) e dados de segurança.',
     // 107 (reparo da deriva da agenda): registro técnico global da migration, sem dado de empresa.
+    // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
+    satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
     kidmais107_reparos: 'Registro técnico da migration 107 (nomes de índices, CHECKs e gatilhos reparados); não é dado da empresa.',
     // Canal MCP (105): delegação OAuth a assistentes externos — mesmo critério das sessões (credenciais e segurança).
     mcp_oauth_clientes: 'Canal MCP: cache global dos metadados públicos dos aplicativos (ChatGPT, Claude); não é dado da empresa.',

@@ -11,6 +11,9 @@ import * as core from "./core.ts";
 import { entendimentoSoRegras as modoRegrasReal } from "./configuracao.ts";
 import * as arquivos from "./arquivos.ts";
 import * as entendimento from "./walle/entendimento.ts";
+// Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
+import * as supressao from "../../satisfacao/supressao.ts";
+import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
 // B5 (revisão de 69dc301): o harness segue a regra de modo da produção. Esta suíte exercita a fase B com o modelo
@@ -79,6 +82,8 @@ function carregar(empresaPiloto: string) {
     "./core.ts": core,
     "./arquivos.ts": arquivos,
     "./walle/entendimento.ts": entendimento,
+    "../../satisfacao/supressao.ts": supressao,
+    "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,

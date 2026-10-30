@@ -30,6 +30,8 @@ export const RETRATO_102 = "lib/exportacao/colunas-esperadas-102.json";
 export const RETRATO_108 = "lib/exportacao/colunas-esperadas-108.json";
 // B-9 production (29/10/2026): a 109 acrescenta assinatura_renovacoes.substitui_id (cadeia da renovação substituta).
 export const RETRATO_109 = "lib/exportacao/colunas-esperadas-109.json";
+// Pesquisa de satisfação (30/10/2026): a 110 cria as tabelas satisfacao_* (modelo 110 = cadeia da 109 + 110).
+export const RETRATO_110 = "lib/exportacao/colunas-esperadas-110.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {

@@ -6,6 +6,7 @@ import { empresaApta } from "./aptidao.ts";
 import { dataLocal, dentroDaJanela, proximoHorarioPermitido } from "./janela.ts";
 import { mascararTelefone, renderizarModelo } from "./modelo.ts";
 import { elegivelParaMensagem, lerPreferencia } from "./preferencias.ts";
+import { pesquisaInstalada } from "../../satisfacao/supressao.ts";
 import { mapearRegra, type Regra } from "./regras.ts";
 import { FalhaTransporte, type TransporteMarketing } from "./transporte.ts";
 
@@ -21,7 +22,7 @@ import { FalhaTransporte, type TransporteMarketing } from "./transporte.ts";
 export type Banco = { transacao<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> };
 
 type LinhaExecucao = {
-  id: string; empresa_id: string; regra_id: string; acao: "TAREFA_INTERNA" | "MENSAGEM_WHATSAPP"; alvo_tipo: string; alvo_id: string; cliente_id: string;
+  id: string; empresa_id: string; regra_id: string; acao: "TAREFA_INTERNA" | "MENSAGEM_WHATSAPP" | "PESQUISA_SATISFACAO"; alvo_tipo: string; alvo_id: string; cliente_id: string;
   fechamento_id: string | null; chave_idempotencia: string; estado: string; tentativas: number; max_tentativas: number; posse_token: string | null;
 };
 
@@ -43,7 +44,7 @@ export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: 
   const aptidao = await empresaApta(tx, empresaId);
   if (!aptidao.apta) return { regras: 0, criadas: 0, existentes: 0, bloqueio: aptidao.motivo };
   const regras = (await tx.query<Parameters<typeof mapearRegra>[0]>(
-    `SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE empresa_id = $1::uuid AND status = 'ATIVA' AND acao <> 'SUGESTAO'`, [empresaId])).rows.map(mapearRegra);
+    `SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE empresa_id = $1::uuid AND status = 'ATIVA' AND acao IN ('TAREFA_INTERNA', 'MENSAGEM_WHATSAPP')`, [empresaId])).rows.map(mapearRegra);
   let criadas = 0, existentes = 0;
   for (const regra of regras) {
     const quando = proximoHorarioPermitido(agora, janelaDe(regra));
@@ -82,13 +83,27 @@ export async function simularEmpresa(tx: DbExecutor, empresaId: string, regra: R
   return { alvos: linhas, total: await totalDeAlvos(tx, empresaId, regra, agora) };
 }
 
-async function frequenciaExcedida(tx: DbExecutor, empresaId: string, clienteId: string, dias: number, excetoId: string | null) {
+/**
+ * Contato recente do cliente: Mensagem simples em ENVIANDO/ACEITA/ENTREGUE/INCERTA no limite e, com a 110, pesquisa de
+ * satisfação com a reserva viva (plano da pesquisa M2/L2): sem marco e com entrega INICIAL ainda PENDENTE ou ENVIANDO
+ * (conta como contato AGORA), ou com o marco contato_em dentro do limite. `excetoEnvioId`: o despacho da própria
+ * pesquisa (segundo canal, nova tentativa) não se bloqueia; o lembrete nem passa por aqui.
+ */
+export async function frequenciaExcedida(tx: DbExecutor, empresaId: string, clienteId: string, dias: number, excetoId: string | null, excetoEnvioId: string | null = null) {
   const r = await tx.query<{ ok: boolean }>(
     `SELECT true AS ok FROM marketing_automacao_execucoes
       WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid AND acao = 'MENSAGEM_WHATSAPP' AND estado IN ('ENVIANDO', 'ACEITA', 'ENTREGUE', 'INCERTA')
         AND atualizado_em > clock_timestamp() - make_interval(days => $3::int) AND ($4::uuid IS NULL OR id <> $4::uuid) LIMIT 1`,
     [empresaId, clienteId, dias, excetoId]);
-  return r.rows.length > 0;
+  if (r.rows.length > 0) return true;
+  if (!(await pesquisaInstalada(tx))) return false;
+  const p = await tx.query<{ ok: boolean }>(
+    `SELECT true AS ok FROM satisfacao_envios s
+      WHERE s.empresa_id = $1::uuid AND s.cliente_id = $2::uuid AND ($4::uuid IS NULL OR s.id <> $4::uuid)
+        AND ((s.contato_em IS NULL AND EXISTS (SELECT 1 FROM satisfacao_entregas d WHERE d.envio_id = s.id AND d.etapa = 'INICIAL' AND d.estado IN ('PENDENTE', 'ENVIANDO')))
+          OR s.contato_em > clock_timestamp() - make_interval(days => $3::int)) LIMIT 1`,
+    [empresaId, clienteId, dias, excetoEnvioId]);
+  return p.rows.length > 0;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -159,6 +174,8 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
     [e.regra_id, e.empresa_id])).rows[0];
   const regra = regraLinha ? mapearRegra(regraLinha) : null;
   if (!regra || regra.status !== "ATIVA") return concluir(tx, e, "CANCELADA", "REGRA_INATIVA");
+  // Pesquisa de satisfação: a criação do envio pelo motor é da PS-2. Até lá, nunca cai no caminho da mensagem.
+  if (e.acao === "PESQUISA_SATISFACAO") return concluir(tx, e, "CANCELADA", "PESQUISA_NAO_DISPONIVEL");
   if (regra.acao !== e.acao) return concluir(tx, e, "CANCELADA", "ACAO_ALTERADA");
   const alvo: Alvo | null = await alvoContinuaElegivel(tx, e.empresa_id, regra, e.alvo_id, cicloDaChave(e.chave_idempotencia), agora);
   if (!alvo) return concluir(tx, e, "SUPRIMIDA", "ALVO_NAO_ELEGIVEL");

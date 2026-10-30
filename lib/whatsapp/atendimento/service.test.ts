@@ -40,6 +40,9 @@ function carregar(op: Opcoes = {}) {
     './core.ts': core,
     './arquivos.ts': arquivos,
     './walle/entendimento.ts': entendimento,
+    // Pesquisa de satisfação (110): sem a tabela, PARAR não suprime nada (os casos de PARAR com a 110 estão na suíte PG).
+    '../../satisfacao/supressao.ts': { pesquisaInstalada: async () => false, suprimirPesquisas: async () => ({ execucoes: 0, entregas: 0 }), clientesDoNumero: async () => [] },
+    '../../marketing/automacoes/preferencias.ts': { elegivelParaMensagem: async () => ({ ok: true }) },
   }).modulo as typeof import('./service.ts');
   const sqls = (trecho: string) => comandos.filter(c => c.sql.includes(trecho));
   return { modulo, comandos, sqls, tenants };

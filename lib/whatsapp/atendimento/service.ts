@@ -5,6 +5,8 @@ import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto,
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
+import { clientesDoNumero, pesquisaInstalada, suprimirPesquisas } from '../../satisfacao/supressao.ts';
+import { elegivelParaMensagem } from '../../marketing/automacoes/preferencias.ts';
 // O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
 export { registroDaPausa };
 
@@ -165,6 +167,13 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       // cancelada por ele mesmo ao revalidar sob a trava da conversa (nao_contatar).
       await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
         WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado='PENDENTE' FOR UPDATE SKIP LOCKED)`, [conversa.id, empresa, ambiente]);
+      // Pesquisa de satisfação (110, plano M3): PARAR suprime só o WhatsApp das pesquisas pendentes dos clientes com este
+      // número (o e-mail continua). Otimização: o despacho revalida o bloqueio da conversa de qualquer forma.
+      if (await pesquisaInstalada(tx)) {
+        for (const clienteId of await clientesDoNumero(tx, empresa, conversa.contato)) {
+          await suprimirPesquisas(tx, empresa, clienteId, { canal: 'WHATSAPP', motivo: 'PARAR', aindaElegivel: async () => (await elegivelParaMensagem(tx, empresa, clienteId)).ok });
+        }
+      }
     }
     // Rodada 47 (IA × h45 aa73, h46 aa61): pedido de PAUSA (ou de parar junto de outro pedido) numa mensagem que o Wall-e
     // não processa — a conversa já está com a equipe, assumida, sem automação: grava a MESMA marca persistente que o worker
