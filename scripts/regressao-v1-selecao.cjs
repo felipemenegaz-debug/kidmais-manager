@@ -285,6 +285,9 @@ const ESTADO_POSTGRES = {
   // 25/10/2026: agenda com um salão (100) — uma festa por vez no horário POR_HORARIO, qualquer que seja a capacidade
   // gravada; aplicada pela suíte sobre o modelo 097 (staging de hoje) e recusada no modelo 098 (corpo diferente do da 094).
   "lib/agenda/agenda-um-salao-100.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
+  // B-13 (revisão do Astra, 31/10/2026, P3-2): remarcação pelos serviços sob a regra da 100 — origem + hold contam uma festa no
+  // limite diário; hold adquirido e liberado pelos serviços, com COMMIT e outra conexão. Modelos com o corpo da 100: b14-P11 e b14-P10 (a 108 dos modelos 108/109 troca a regra).
+  "lib/agenda/remarcacao-100.postgres.test.ts": { descartavel: "b14-P11", tambem: ["b14-P10"] },
   // Parecer do Astra (25/10/2026) pelos serviços reais: trava da agenda por salão, volta para um salão com/sem festas
   // sobrepostas, salão obrigatório no pacote só na agenda por salão e duplicação copiando os salões (modelo 097).
   "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097", tambem: ["b14-P10", "b14-P11"] },
