@@ -7,6 +7,7 @@ import { aplicarConsultaCep, cepCompleto, type PedidoCep } from '@/lib/perfil/co
 import { agruparComparacao, aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import { AdminIcon } from './AdminIcon';
 import { PerfilRecebimentoPix } from './PerfilRecebimentoPix';
+import { iniciaisEmpresa } from './LogoEmpresa';
 import styles from './perfil-empresa.module.css';
 import { erroArquivoLogo, LOGO_MAX_UPLOAD_MB } from '@/lib/perfil/logo-limites';
 
@@ -598,7 +599,11 @@ export default function PerfilEmpresa() {
                         {logoPreparada && <p role="status">{logoPreparada}</p>}
                         <p className={styles.marcaNota}>PNG, JPEG ou WebP · até {LOGO_MAX_UPLOAD_MB} MB. A imagem é reduzida automaticamente, mantendo a transparência.</p>
                     </div>
-                    <div className={styles.previa}><h3>Prévia no menu</h3><div className={styles.marcaMenu}>{form.logoDataUrl ? <img src={form.logoDataUrl} alt="Prévia da logo no menu" /> : <span>Logo da empresa</span>}<span>Admin</span></div><p>A logo do menu muda após aplicar o rascunho.</p></div>
+                    {/* A logo aparece no cartão da conta (rodapé do menu) e no topo do Dashboard; o topo do menu é sempre o iA.Fest. */}
+                    <div className={styles.previa}><h3>Prévia no menu</h3><div className={styles.marcaMenu}>
+                        {form.logoDataUrl ? <span className={styles.marcaMenuLogo}><img src={form.logoDataUrl} alt="Prévia da logo no menu" /></span> : <span className={`${styles.marcaMenuLogo} ${styles.marcaMenuIniciais}`} aria-hidden="true">{iniciaisEmpresa(form.nomeComercial || 'Empresa')}</span>}
+                        <span className={styles.marcaMenuTexto}><strong>{form.nomeComercial || 'Nome comercial'}</strong><small>Cartão da conta</small></span>
+                    </div><p>A logo aparece num quadrado pequeno no rodapé do menu e no Dashboard. Prefira o símbolo da marca, quadrado; logos deitadas ficam pequenas. Muda após aplicar o rascunho.</p></div>
                 </details>
             <section className={`${styles.card} ${styles.historico}`}>
                 <h2 className={styles.titulo}><AdminIcon name="history" size={12} />Histórico</h2>
