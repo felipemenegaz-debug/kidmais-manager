@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // B-5: conferência somente leitura agregada de produção com cliente simulado e Asaas simulado. Prova: alvo/identidade de
-// produção, toda consulta em READ ONLY, estados pelos núcleos dos aplicadores (098 nunca consultada), paradas nomeadas,
+// produção, toda consulta em READ ONLY, estados pelos núcleos dos aplicadores (a 098 não tem núcleo), combinados (B-21) pelo
+// mesmo SQL e regra de lib/agenda/estado-combinados.ts (só AUSENTE passa), paradas nomeadas,
 // DV igual ao do código (cpfValido/cnpjFormatoDvOficial) e à regra da 091, datas do Fundador pela regra do código
 // (primeiraRenovacaoRegular/diasAntes de renovacao-fundador.ts), leitura do Asaas só GET, sem chave nem ids na saída.
 // Sem rede nem banco.
@@ -10,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const b5 = require('./conferencia-b5-producao.cjs');
 const prod = require('./migration-092-094-production.cjs');
+const ret108 = require('./migration-108-retrato.cjs');
 const {cpfValido} = require('../lib/acessos/validacao.ts');
 const {cnpjFormatoDvOficial} = require('../lib/cadastro/cnpj.ts');
 const renovacao = require('../lib/assinatura/renovacao-fundador.ts');
@@ -34,12 +36,20 @@ function nucleos(estados = {}) {
   };
   return {carregar, carregados};
 }
+/** Linha do catálogo dos combinados por estado (formato de lerCatalogoCombinados). */
+const NF = Object.keys(ret108.NOVA.funcoes).length, NG = ret108.NOVA.gatilhos.length;
+const LINHA_AUSENTE = Object.freeze({funcoes: 0, funcoes_qualquer: 0, combinado: false, membros: false, check_ok: false, gatilhos_ok: 0, gatilhos_qualquer: 0,
+  conflito: null, contrato: null, revisao: null, marcador: false});
+const NUCLEO = {funcoes: NF, funcoes_qualquer: NF, combinado: true, membros: true, check_ok: true, gatilhos_ok: NG, gatilhos_qualquer: NG,
+  contrato: ret108.NOVA.hashes.contrato, revisao: ret108.NOVA.hashes.revisao};
+const LINHAS = Object.freeze({AUSENTE: LINHA_AUSENTE, ANTIGA: {...LINHA_AUSENTE, ...NUCLEO, conflito: b5.CONFLITO_098},
+  NOVA: {...LINHA_AUSENTE, ...NUCLEO, conflito: ret108.NOVA.hashes.conflito108, marcador: true}, PARCIAL: {...LINHA_AUSENTE, combinado: true}});
 /** Concessão Fundador simulada (linha da consulta) e cobrança correspondente no Asaas. */
 const concessao = (extra = {}) => ({pagamento: 'pay_1', fim: '2027-03-15', ciclo: 'MENSAL', tem_contratacao: true, atual: true, assinatura: 'sub_1',
   cliente: 'cus_1', valor: 11820, registrada: null, linhas_da_concessao: '1', ...extra});
 const cobranca = (extra = {}) => ({id: 'pay_1', dueDate: '2026-03-20', subscription: 'sub_1', customer: 'cus_1', status: 'CONFIRMED', deleted: false, ...extra});
 
-function clienteFalso({identidade = ID, docs = [], concessoes = [concessao()], total, instalada = true, falharEm} = {}) {
+function clienteFalso({identidade = ID, docs = [], concessoes = [concessao()], total, instalada = true, falharEm, combinados = [LINHA_AUSENTE]} = {}) {
   const log = []; let ro = false;
   const C = class {
     on() {} async connect() {} async end() {}
@@ -51,6 +61,7 @@ function clienteFalso({identidade = ID, docs = [], concessoes = [concessao()], t
       if (falharEm && sql.includes(falharEm)) throw Object.assign(new Error('falha simulada ' + URL_PROD), {code: '57014'});
       if (sql === prod.SQL_IDENTIDADE) return {rows: [identidade]};
       if (sql.startsWith('ESTADO ')) return {rows: [{rotulo: sql.slice(7)}]};
+      if (sql === b5.SQL_COMBINADOS) return {rows: combinados};
       if (sql === b5.SQL_DOCUMENTOS) return {rows: docs};
       if (sql === b5.SQL_TOTAL_CONFIRMADAS) return {rows: [{n: total ?? concessoes.length}]};
       if (sql === b5.SQL_RENOVACAO_INSTALADA) return {rows: [{instalada}]};
@@ -124,7 +135,8 @@ test('E1 completo: todas as consultas em READ ONLY; estados dos 9 núcleos na or
   assert.ok(r.log.filter(x => x.sql.startsWith("SET LOCAL lock_timeout")).length >= 10);
   assert.deepEqual(r.carregados, b5.MIGRACOES.map(m => m[1])); assert.ok(!r.carregados.some(m => m.includes('098')));
   assert.deepEqual(Object.keys(r.saida.estados).sort(), ['089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100']);
-  assert.equal(r.saida.estados['098'], 'NAO_CONSULTADA_PAUSADA'); assert.deepEqual(r.saida.presentes, []);
+  assert.equal(r.saida.estados['098'], 'SEM_NUCLEO_VER_COMBINADOS'); assert.deepEqual(r.saida.presentes, []);
+  assert.equal(r.saida.combinados.estado, 'AUSENTE'); assert.equal(r.log.filter(x => x.sql === b5.SQL_COMBINADOS && x.ro).length, 1);
   assert.equal(r.saida.fundador.menorPrimeiraDataRegular, '2027-03-20'); assert.equal(r.saida.fundador.calculadas, 1);
   assert.equal(r.saida.b15.dvInvalidoTotal, 0); assert.equal(r.saida.decisao, undefined);
   const texto = JSON.stringify(r.saida);
@@ -242,8 +254,9 @@ test('falha de consulta no meio: FALHA (código 2), ROLLBACK, mensagem sem URL; 
   assert.equal(r.codigo, 2, JSON.stringify(r.saida)); assert.equal(r.saida.resultado, 'FALHA'); assert.ok(!r.saida.mensagem.includes('SENHA_FALSA'));
   assert.ok(r.log.at(-1).sql === 'ROLLBACK');
   const p = (await b5.principal([], {})).saida;
-  assert.equal(p.resultado, 'PLANO'); assert.equal(p.conecta, false); assert.deepEqual(p.excluidas, {'098': 'NAO_CONSULTADA_PAUSADA'});
-  assert.ok(p.nuncaExecuta.includes('escrita no Asaas') && p.nuncaExecuta.includes('consulta à 098'));
+  assert.equal(p.resultado, 'PLANO'); assert.equal(p.conecta, false); assert.deepEqual(p.excluidas, {'098': 'SEM_NUCLEO_VER_COMBINADOS'});
+  assert.ok(p.nuncaExecuta.includes('escrita no Asaas') && p.nuncaExecuta.includes('leitura de dados da agenda (combinados: só catálogo)'));
+  assert.ok(p.leituras.some(l => /combinados \(B-21\)/.test(l)) && p.paradas.some(l => /combinados \(B-21, E1 e E2c\)/.test(l)));
   assert.deepEqual(p.migracoes.map(m => m.migration), ['089', '090', '091', '092-094', '095', '096', '097', '099', '100']);
 });
 
@@ -365,4 +378,84 @@ test('D-COM-5: prazo do B-9 em −47 (margem de 14 dias antes da abertura da jan
   // Data regular 2026-12-27: −47 = hoje (2026-11-10) → ainda não vencido.
   const noDia = await rodar(['--conferir-b5'], {cliente: clienteFalso({concessoes: [concessao({registrada: '2026-12-27'})]})});
   assert.equal(noDia.saida.fundador.prazoB9, '2026-11-10'); assert.equal(noDia.codigo, 0, JSON.stringify(noDia.saida.motivos));
+});
+
+// ---------- B-21: salões combinados (098 histórica / 108) ----------
+const detector = () => import('../lib/agenda/estado-combinados.ts');
+
+test('B-21: SQL dos combinados é o TEXTO de lerCatalogoCombinados (lib/agenda/estado-combinados.ts) e só lê o catálogo', async () => {
+  const det = await detector();
+  let sqlTs, params;
+  await det.lerCatalogoCombinados({query: async (sql, p) => { sqlTs = sql; params = p; return {rows: []}; }});
+  assert.equal(b5.SQL_COMBINADOS, sqlTs); assert.equal(params, undefined);
+  assert.equal(b5.CONFLITO_098, det.HASHES_COMBINADOS.conflito098);
+  const tabelas = [...b5.SQL_COMBINADOS.matchAll(/\b(?:FROM|JOIN)\s+([a-z_.]+)/gi)].map(m => m[1]);
+  assert.ok(tabelas.length >= 8);
+  for (const t of tabelas) assert.match(t, /^pg_(proc|attribute|constraint|trigger)$/, 'só catálogo: ' + t);
+  assert.doesNotMatch(b5.SQL_COMBINADOS, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|GRANT|TRUNCATE|COPY|LOCK|SET)\b/);
+});
+
+test('B-21: lerCombinados mapeia a linha como o detector; classificarCombinados = regra do .ts em matriz completa (4 estados alcançados)', async () => {
+  const det = await detector();
+  // Sonda de mapeamento: cada campo com valor distinto dos vizinhos (contagens diferentes entre si, booleanos alternados).
+  const sonda = {funcoes: NF - 1, funcoes_qualquer: NF + 2, combinado: true, membros: false, check_ok: true, gatilhos_ok: NG - 1, gatilhos_qualquer: NG + 3,
+    conflito: b5.CONFLITO_098, contrato: ret108.NOVA.hashes.contrato, revisao: null, marcador: false};
+  for (const linha of [...Object.values(LINHAS), sonda]) {
+    assert.deepEqual(b5.lerCombinados(linha), await det.lerCatalogoCombinados({query: async () => ({rows: [linha]})}));
+  }
+  const vistos = new Set(); let n = 0;
+  const H = ret108.NOVA.hashes;
+  for (const funcoes of [0, NF - 1, NF]) for (const funcoesQualquer of [0, NF, NF + 1]) for (const colunaCombinado of [false, true])
+  for (const colunaMembros of [false, true]) for (const checkValidado of [false, true]) for (const gatilhosOk of [0, NG - 1, NG])
+  for (const gatilhosQualquer of [0, NG, NG + 1]) for (const conflito of [null, b5.CONFLITO_098, H.conflito108, 'f'.repeat(64)])
+  for (const contrato of [null, H.contrato]) for (const revisao of [null, H.revisao]) for (const marcador108 of [false, true]) {
+    const c = {funcoes, funcoesQualquer, colunaCombinado, colunaMembros, checkValidado, gatilhosOk, gatilhosQualquer, conflito, contrato, revisao, marcador108};
+    const e = b5.classificarCombinados(c);
+    assert.equal(e, det.classificarCombinados(c), JSON.stringify(c)); vistos.add(e); n++;
+  }
+  assert.equal(n, 20736); assert.deepEqual([...vistos].sort(), ['ANTIGA', 'AUSENTE', 'NOVA', 'PARCIAL']);
+  for (const [k, linha] of Object.entries(LINHAS)) assert.equal((await det.estadoCombinados({query: async () => ({rows: [linha]})})).estado, k);
+});
+
+test('B-21: E1 e E2c — AUSENTE confere; ANTIGA, PARCIAL e NOVA = PARAR (código 3) com motivo nomeado; consulta sempre em READ ONLY', async () => {
+  for (const argv of [['--conferir-b5'], ['--conferir-b5-estado']]) {
+    const ok = await rodar(argv);
+    assert.equal(ok.codigo, 0, JSON.stringify(ok.saida)); assert.equal(ok.saida.combinados.estado, 'AUSENTE');
+    assert.deepEqual(foraDeLeitura(ok.log), []);
+    for (const [estado, motivo] of [['ANTIGA', /COMBINADOS_ANTIGA \(098 historica presente\)/], ['PARCIAL', /COMBINADOS_PARCIAL/],
+      ['NOVA', /COMBINADOS_NOVA \(108 presente: reconciliar o escopo, D-ESC-6\)/]]) {
+      const r = await rodar(argv, {cliente: clienteFalso({combinados: [LINHAS[estado]]})});
+      assert.equal(r.codigo, 3, argv + estado); assert.equal(r.saida.resultado, 'PARAR'); assert.equal(r.saida.combinados.estado, estado);
+      assert.match(r.saida.motivos.join(' '), motivo); assert.deepEqual(foraDeLeitura(r.log), []);
+      assert.ok(r.log.some(x => x.sql === b5.SQL_COMBINADOS && x.ro));
+    }
+  }
+  // O motivo dos combinados soma-se aos dos núcleos (não os substitui).
+  const ambos = await rodar(['--conferir-b5-estado'], {cliente: clienteFalso({combinados: [LINHAS.ANTIGA]}), estados: {m093: 'parcial'}});
+  assert.equal(ambos.codigo, 3); assert.match(ambos.saida.motivos.join(' '), /APLICACAO_PARCIAL 093.*COMBINADOS_ANTIGA/);
+});
+
+test('B-21: sem linha, várias linhas ou linha ilegível = PARAR (COMBINADOS_ILEGIVEIS) — ao contrário do detector, nunca AUSENTE por omissão', async () => {
+  const ruins = [[], [LINHA_AUSENTE, LINHA_AUSENTE], [{...LINHA_AUSENTE, funcoes: '0'}], [{...LINHA_AUSENTE, gatilhos_qualquer: -1}],
+    [{...LINHA_AUSENTE, funcoes_qualquer: 1.5}], [{...LINHA_AUSENTE, combinado: 'f'}], [{...LINHA_AUSENTE, marcador: null}],
+    [{...LINHA_AUSENTE, conflito: 'A'.repeat(64)}], [{...LINHA_AUSENTE, revisao: 'abc'}], [{...LINHA_AUSENTE, contrato: undefined}], [null],
+    // P2 da revisão: hash válido embrulhado em tipo que não é string primitiva (RegExp.test converteria para texto).
+    ...['conflito', 'contrato', 'revisao'].flatMap(k => [[LINHAS.ANTIGA.contrato], Buffer.from(LINHAS.ANTIGA.contrato), new String(LINHAS.ANTIGA.contrato),
+      {toString: () => LINHAS.ANTIGA.contrato}].map(v => [{...LINHA_AUSENTE, [k]: v}]))];
+  for (const combinados of ruins) for (const argv of [['--conferir-b5'], ['--conferir-b5-estado']]) {
+    const r = await rodar(argv, {cliente: clienteFalso({combinados})});
+    assert.equal(r.codigo, 3, JSON.stringify(combinados)); assert.deepEqual(r.saida.combinados, {estado: 'ILEGIVEL'});
+    assert.ok(r.saida.motivos.includes('COMBINADOS_ILEGIVEIS'));
+  }
+  const det = await detector();
+  assert.equal((await det.estadoCombinados({query: async () => ({rows: []})})).estado, 'AUSENTE', 'divergência deliberada documentada');
+});
+
+test('B-21: falha na consulta dos combinados = FALHA (código 2) com ROLLBACK; saída dos combinados sem SQL nem dados de negócio', async () => {
+  const r = await rodar(['--conferir-b5-estado'], {cliente: clienteFalso({falharEm: 'kidmais108_instalada'})});
+  assert.equal(r.codigo, 2, JSON.stringify(r.saida)); assert.equal(r.log.at(-1).sql, 'ROLLBACK'); assert.ok(!r.saida.mensagem.includes('SENHA_FALSA'));
+  const ok = await rodar(['--conferir-b5-estado']);
+  assert.deepEqual(Object.keys(ok.saida.combinados.catalogo).sort(), ['colunaCombinado', 'colunaMembros', 'checkValidado', 'conflito', 'contrato', 'funcoes',
+    'funcoesQualquer', 'gatilhosOk', 'gatilhosQualquer', 'marcador108', 'revisao'].sort());
+  assert.ok(!JSON.stringify(ok.saida).includes('pg_proc'));
 });

@@ -33,7 +33,8 @@ Os três se aplicaram sem conflito sobre `58c54518`. Staging avançou desde a ba
 ### O agregador
 
 - **Alvo e identidade:** os do B-1 (`migration-092-094-production.cjs`: serviço, TLS, banco, servidor privado), com nome de aplicação próprio. Toda consulta corre em `BEGIN TRANSACTION READ ONLY`, com `lock_timeout 5s` e `statement_timeout 30s` (60 s para os documentos). Nada é gravado no banco, no disco ou no Asaas.
-- **Estados:** para 089, 090, 091, 092–094, 095, 096, 097, 099 e 100, roda o `SQL_ESTADO` e o `lerEstado` do **próprio núcleo do aplicador**: a mesma régua que o CONFERIR de cada um. A 098 aparece só como `NAO_CONSULTADA_PAUSADA`; o núcleo dela nunca é carregado. Estado `parcial`, ilegível ou 100 `divergente` levam a **PARAR**. A saída lista os `presentes` (tudo o que não está no estado de partida).
+- **Estados:** para 089, 090, 091, 092–094, 095, 096, 097, 099 e 100, roda o `SQL_ESTADO` e o `lerEstado` do **próprio núcleo do aplicador**: a mesma régua que o CONFERIR de cada um. A 098 não tem núcleo (aparece como `SEM_NUCLEO_VER_COMBINADOS`); o estado dela sai dos **combinados** (B-21, abaixo). Estado `parcial`, ilegível ou 100 `divergente` levam a **PARAR**. A saída lista os `presentes` (tudo o que não está no estado de partida).
+- **Combinados (B-21, E1 e E2c):** prova somente leitura de que a 098 histórica não está em production. Roda o **mesmo SQL de catálogo** de `lerCatalogoCombinados` (`lib/agenda/estado-combinados.ts`; só `pg_proc`, `pg_attribute`, `pg_constraint` e `pg_trigger`, nenhuma linha de agenda) e classifica com a **mesma regra** de `classificarCombinados`. Só `AUSENTE` passa. `ANTIGA` (098 histórica), `PARCIAL` ou `NOVA` (108, fora desta promoção: reconciliar o escopo, D-ESC-6) levam a **PARAR**. Diferença deliberada em relação ao detector: sem linha, várias linhas ou tipos fora do esperado = `COMBINADOS_ILEGIVEIS` (PARAR), nunca `AUSENTE` por omissão. A saída traz `combinados.estado` e o catálogo (contagens, booleanos e hashes de corpo), a guardar na evidência ligada ao `C` e à janela.
 - **B-15:** confere `empresa_assinaturas.documento_teste` e `assinatura_fundadores.documento_beneficiario`, as duas tabelas do gatilho de INSERT da 091, com a **mesma regra de DV da função da 091**. A saída traz só contagens: total, nulos, CPF de 11 dígitos, CNPJ de 14, outro formato, DV inválido, e empresas com DV inválido ainda sem concessão. Os documentos ficam apenas na memória do processo. DV inválido não para a conferência; marca `DECISAO_D_OP_4_NECESSARIA` (adiar a 091 é tratamento válido).
 - **Fundador:** para **todas** as concessões confirmadas:
   - pega no banco a contratação confirmada, `beneficio_fim` (UTC, como o código), ciclo e identificadores do provedor;
@@ -84,7 +85,7 @@ Tamanhos (rótulo `58c5451`, 11 arquivos): partes de 22,0 a 28,4 KB; curtos de 4
   - DV igual ao do código (`cpfValido`, `cnpjFormatoDvOficial`) em 4 mil documentos sorteados, mais casos fixos (inclusive CNPJ alfanumérico) e trechos da função da 091;
   - datas iguais às de `renovacao-fundador.ts` (`primeiraRenovacaoRegular`, `diasAntes`, `dataValida`, `diaBrasil`, `AVISO_*`);
   - alvo e identidade de production, recusas antes de conectar e nenhum estado lido com identidade errada;
-  - toda consulta em READ ONLY; os 9 núcleos carregados na ordem; a 098 nunca carregada; a saída sem ids, documentos, chave ou URL;
+  - toda consulta em READ ONLY; os 9 núcleos carregados na ordem; a 098 sem núcleo; a saída sem ids, documentos, chave ou URL;
   - paradas por estado e regras da E2c;
   - contagens do B-15;
   - cobertura, registro existente, ANUAL/MENSAL e prazos do Fundador;
@@ -105,9 +106,29 @@ Tamanhos (rótulo `58c5451`, 11 arquivos): partes de 22,0 a 28,4 KB; curtos de 4
 - 32 mutantes em cópia isolada (controles 11/11 e 13/13), todos derrubados. Dois sobreviveram à primeira bateria e levaram a testes novos: o registro existente ignorado (caso em que a data registrada é a menor) e o `T=` do corpo (o corpo rodado sem o carregador). Os mutantes cobrem regra de DV, ciclo ANUAL, margem do B-9, janela perdida, 091 na E2c, 098 consultada, consulta fora do READ ONLY, identidade, identidade da cobrança, cobertura, Asaas por POST ou seguindo redirecionamento, nulo contado como inválido, parcial sem parada, id na saída, datas ausentes sem parada, carregador sem sha, corpo sem guarda, `pwd -P`, `find` de links, `unset`, montagem sem todas as partes, LIMPEZA sem sha, núcleo da 099 fora da lista, modos trocados, `inst` sem reconferir e `BASH_ENV`.
 - ESLint dos 4 arquivos sem erro; `git diff --check` limpo; `npm run check:v1:static` código 0 (3654 + 103 testes; 2 avisos de ESLint preexistentes; build compilado; `next-env.d.ts` restaurado).
 
+## B-21: combinados no B-5 (31/10/2026)
+
+Amplia o agregador sem bloco novo: os mesmos `CONFERIR-B5` (E1) e `CONFERIR-B5-ESTADO` (E2c) passam a classificar os salões combinados. O pacote de entrega já levava `migration-108-retrato.cjs` e as dependências dele, de onde vêm as constantes da 108. A lista de arquivos dos blocos não muda.
+
+- **Paridade com a candidata:** um teste captura o SQL de `lerCatalogoCombinados` e exige o mesmo texto, byte a byte. O mesmo teste confere que o SQL só lê `pg_proc`, `pg_attribute`, `pg_constraint` e `pg_trigger`, sem verbo de escrita. A classificação é comparada com `classificarCombinados` numa matriz de 20.736 combinações, em que os 4 estados aparecem. O mapeamento da linha é comparado com o do detector, inclusive numa sonda com todos os campos distintos.
+- **Paradas:** ANTIGA, PARCIAL e NOVA dão código 3, com motivo nomeado, nos dois modos. Os motivos dos combinados somam-se aos dos núcleos. Sem linha, mais de uma linha, contagem não inteira ou negativa, booleano de outro tipo ou hash que não seja string primitiva em `^[0-9a-f]{64}$` (array, Buffer ou objeto `String` também recusados) dão `COMBINADOS_ILEGIVEIS` (PARAR). Uma falha na consulta dá FALHA (código 2) com ROLLBACK.
+- **Validação local:**
+  - `conferencia-b5-producao.test.cjs`: 23/23.
+  - `bloco-shell-conferencia-b5-producao.test.cjs`: 13/13.
+  - 25 mutantes em cópia isolada, todos derrubados. Dois sobreviveram à primeira bateria e levaram a reforços do teste: `gatilhosOk` intermediário na matriz e a sonda de mapeamento.
+  - Sonda em PostgreSQL 18.6 descartável local (nunca staging ou production), com os modelos da receita. Em cada um, o `combinados()` real do B-5, com o driver `pg` e a sequência exata `BEGIN TRANSACTION READ ONLY` → `SET LOCAL` ×2 → SQL → `ROLLBACK`, e o detector no mesmo banco dão o mesmo estado:
+
+    | Modelo | Estado |
+    | --- | --- |
+    | 107 (sem a 098) | AUSENTE |
+    | 098 (cadeia com a 098 histórica) | ANTIGA |
+    | 108 | NOVA |
+    | 107 com a coluna `combinado` solta | PARCIAL |
+- **Não feito:** nenhuma execução em production. O E1 e a E2c com o B-21 dependem das autorizações A1/A2c, e os blocos de production só se geram depois de congelar `C`.
+
 ## Limites e pendências
 
-- **Nenhuma execução real:** nenhum PostgreSQL, nenhuma chamada ao Asaas, nenhuma colagem.
+- **Nenhuma execução real em production nem em staging:** nenhum banco real, nenhuma chamada ao Asaas, nenhuma colagem. Na validação original do B-5 (26/10) também não houve PostgreSQL algum; a única execução em PostgreSQL é a sonda do B-21, em cluster descartável local (seção acima).
   - O formato da resposta do Asaas (`id`, `dueDate`, `subscription`, `customer`, `status`, `deleted`) segue o mapeamento de `lib/assinatura/asaas.ts`, mas não foi exercitado contra a API.
   - O `lerEstado` real de cada núcleo contra o schema de production só se prova num ensaio isolado autorizado ou no próprio E1.
 - **Rodada documental do plano necessária:**
