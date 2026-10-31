@@ -36,6 +36,9 @@ import { FechamentoServiceError } from "./errors";
 import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
 import { preferidoInstalado, salaoServeNoDestino } from "../../agenda/salao-festa";
 import { saloesProntosPublicos, SalaoPublicoIndisponivel } from "../../agenda/salao-publico";
+import { combinadosPublicos } from "../../agenda/combinados-publicos";
+import { decidirPreferencia } from "../../agenda/preferencia-salao";
+import { TEXTO_MOTIVO_PREFERENCIA, type MotivoPreferencia } from "../../agenda/preferencia-salao-textos";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -561,9 +564,34 @@ const salaoIndisponivel = () => new FechamentoServiceError(
   409,
 );
 
-/** S-D (R-D1): trava da data → mesma conferência da tela pública (portões) → salão serve ao destino (regra da emissão). */
+/**
+ * E2b (R2-P2-2): recusa da preferência com combinadosPublicos — o mesmo código SALAO_INDISPONIVEL; `detalhes.motivo` só
+ * na recusa com motivo (com a frase dele) e `detalhes.voltarParaSaloes`, que só a E2b manda: o assistente volta à escolha
+ * de salões sem pré-selecionar nada. Na E2a (desligado), a resposta continua a de antes, sem detalhes.
+ */
+export const salaoIndisponivelE2b = (motivo?: MotivoPreferencia) => new FechamentoServiceError(
+  "SALAO_INDISPONIVEL",
+  motivo ? `${TEXTO_MOTIVO_PREFERENCIA[motivo]} Volte e escolha outro salão.` : salaoIndisponivel().message,
+  409,
+  motivo ? { motivo, voltarParaSaloes: true } : { voltarParaSaloes: true },
+);
+
+/**
+ * S-D (R-D1): trava da data → mesma conferência da tela pública (portões) → salão serve ao destino (regra da emissão).
+ * E2b: com combinadosPublicos, a decisão é decidirPreferencia (trava compartilhada da configuração → data; recusa
+ * genérica ou com motivo; nunca troca de salão). Desligado, o ramo da E2a abaixo, sem a trava compartilhada.
+ */
 async function conferirSalaoPreferido(tx: DbExecutor, input: CriarFechamentoPublicoInput, empresaId: string) {
   if (!(await preferidoInstalado(tx))) throw salaoIndisponivel();
+  if (await combinadosPublicos(tx)) {
+    const decisao = await decidirPreferencia(tx, {
+      data: input.dataEvento, inicio: input.horarioInicio, fim: input.horarioFim, configuracaoId: input.configuracaoAgendaId,
+      pacoteId: input.pacoteId, empresaId, estabelecimentoId: input.estabelecimentoId ?? null, convidados: input.convidados,
+    }, input.salaoPreferido!);
+    if (decisao.resultado === "RECUSA_COM_MOTIVO") throw salaoIndisponivelE2b(decisao.motivo);
+    if (decisao.resultado !== "ACEITA") throw salaoIndisponivelE2b();
+    return;
+  }
   await adquirirLockConfirmacaoAgenda(input.dataEvento, tx);
   const escopo = { empresaId, estabelecimentoId: input.estabelecimentoId ?? null };
   try {

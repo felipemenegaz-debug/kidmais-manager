@@ -1,6 +1,7 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { escopoDaEmpresa } from "../disponibilidade/escopo.ts";
 import { consultarDisponibilidadePeriodo } from "../disponibilidade/services/availability.service.ts";
+import { combinadosPublicos } from "../agenda/combinados-publicos.ts";
 
 /**
  * Sugestão de datas vagas para divulgação. SOMENTE LEITURA da agenda existente (mesmo serviço da agenda pública):
@@ -17,7 +18,8 @@ export function somarDias(iso: string, dias: number) {
 
 export async function sugerirDatasVagas(
   tx: DbExecutor, empresaId: string, unidadeId: string | null, hojeIso: string, dias = 60,
-  deps = { escopoDaEmpresa, consultarDisponibilidadePeriodo },
+  deps: { escopoDaEmpresa: typeof escopoDaEmpresa; consultarDisponibilidadePeriodo: typeof consultarDisponibilidadePeriodo;
+    combinadosPublicos?: (db: DbExecutor) => Promise<boolean> } = { escopoDaEmpresa, consultarDisponibilidadePeriodo, combinadosPublicos },
 ): Promise<SugestaoDatas> {
   let escopo: { empresaId: string | null; estabelecimentoId: string | null };
   let nivel: SugestaoDatas["escopo"] = unidadeId ? "UNIDADE" : "EMPRESA";
@@ -31,7 +33,11 @@ export async function sugerirDatasVagas(
   const inicio = somarDias(hojeIso, 1);
   const fim = somarDias(hojeIso, Math.min(Math.max(dias, 7), 61));
   try {
-    const agenda = await deps.consultarDisponibilidadePeriodo(inicio, fim, tx, undefined, escopo as never);
+    // E2b (D-E2b-5): acompanha a disponibilidade pública — com combinadosPublicos, um horário só do combinado é vaga.
+    const combinados = await (deps.combinadosPublicos ?? combinadosPublicos)(tx);
+    const agenda = combinados
+      ? await deps.consultarDisponibilidadePeriodo(inicio, fim, tx, undefined, escopo as never, { incluirCombinados: true })
+      : await deps.consultarDisponibilidadePeriodo(inicio, fim, tx, undefined, escopo as never);
     const datas = agenda.map((d) => {
       const livres = d.periodos.reduce((soma, p) => soma + p.horarios.filter((h) => h.status === "DISPONIVEL").length, 0);
       const diaSemana = new Date(`${d.data}T12:00:00Z`).getUTCDay();

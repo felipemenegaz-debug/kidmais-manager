@@ -7,7 +7,10 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/
 import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import type { SalaoPublico } from "@/lib/agenda/salao-publico";
 import { linkContatoBuffet } from "@/components/disponibilidade/convidados-tela";
-import { diferencas, linhaNumeros, mesPorExtenso, organizar, selecaoInicial, seguirSemEtapa, textoSituacao, type ListaPublica } from "./saloes-tela";
+import {
+  diferencas, faixaCombinado, linhaNumeros, mesPorExtenso, organizar, selecaoInicial, seguirSemEtapa, seloAlternativa, textoAvisoSalao, motivoDaRecusa,
+  textoSituacao, type ListaPublica,
+} from "./saloes-tela";
 import styles from "./ConhecaSaloes.module.css";
 
 /** Parâmetros que a disponibilidade passa adiante (o mesmo horário segue para o /fechamento). */
@@ -42,13 +45,18 @@ function Cartao({ salao, empresa, recomendado, motivo, selecionado, onEscolher, 
   salao: SalaoPublico; empresa: string; recomendado: boolean; motivo: string | null; selecionado: boolean;
   onEscolher: () => void; visita: string | null;
 }) {
+  // E2b: só existem com combinadosPublicos (campos do servidor); desligado, o cartão é o de antes.
+  const alternativa = seloAlternativa(salao);
+  const faixa = faixaCombinado(salao);
   return (
     <article className={`${styles.cartao} ${selecionado ? styles.cartaoSelecionado : ""}`} aria-label={salao.nome}>
       {recomendado ? <span className={styles.selo}>Recomendado{motivo ? ` · ${motivo}` : ""}</span> : null}
+      {alternativa ? <span className={`${styles.selo} ${styles.seloAlternativa}`}>{alternativa}</span> : null}
       <Galeria salao={salao} empresa={empresa} />
       <div className={styles.corpo}>
         <h2>{salao.nome}</h2>
         <p className={styles.numeros}>{linhaNumeros(salao)}</p>
+        {faixa ? <p className={styles.faixa}>{faixa}</p> : null}
         {salao.frase ? <p className={styles.frase}>{salao.frase}</p> : null}
         {salao.destaques.length ? (
           <ul className={styles.destaques}>{salao.destaques.map((d) => <li key={d}>{d}</li>)}</ul>
@@ -87,6 +95,8 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
   const [semEtapa, setSemEtapa] = useState<(() => void) | null>(null);
   const contato = marca.kidmais ? null : linkContatoBuffet(marca.contato);
   const convidados = Number(params?.get("convidados") ?? 0);
+  // P3-R2-2 (Astra): com a etapa fora do ar, a explicação da recusa continua visível (sem mandar escolher salão).
+  const motivoSemEtapa = semEtapa && params ? motivoDaRecusa(params) : null;
 
   useEffect(() => {
     let cancelado = false;
@@ -113,8 +123,12 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
         setParams(atuais);
         setLista(corpo.data);
         const preferido = atuais.get("salao");
-        setSelecionado(corpo.data.saloes.some((s) => s.id === preferido && s.situacao === "livre") ? preferido : selecaoInicial(corpo.data));
-        if (atuais.get("aviso") === "salao") setErro("O salão escolhido não está mais disponível para a sua festa. Escolha outro salão.");
+        // E2b (R2-P2-2): na volta por recusa do envio, nada é restaurado nem pré-selecionado — o cliente escolhe.
+        const recusado = atuais.get("aviso") === "salao-recusado";
+        setSelecionado(recusado ? null
+          : corpo.data.saloes.some((s) => s.id === preferido && s.situacao === "livre") ? preferido : selecaoInicial(corpo.data));
+        const aviso = textoAvisoSalao(atuais);
+        if (aviso) setErro(aviso);
       } catch {
         if (!cancelado) setErro("Não foi possível carregar os salões agora. Tente novamente.");
       }
@@ -154,6 +168,7 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
         {erro ? <div className={styles.aviso} role="alert">{erro}</div> : null}
         {semEtapa ? (
           <div className={styles.semOpcao} role="alert">
+            {motivoSemEtapa ? <p>{motivoSemEtapa}</p> : null}
             <strong>A escolha de salão não está mais disponível para esta data. O salão que você escolheu não será enviado.</strong>
             <a href={voltar}>Voltar e escolher outra data</a>
             <button type="button" className={styles.semPreferencia} onClick={semEtapa}>Continuar sem salão de preferência</button>

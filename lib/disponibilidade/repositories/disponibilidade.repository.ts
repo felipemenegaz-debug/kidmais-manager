@@ -393,9 +393,10 @@ async function minimoDoSalaoInstalado(ex: DbExecutor) {
 
 /** 094: regra do escopo configurado na 093; null quando o escopo não foi configurado (regra de antes). */
 /**
- * `incluirCombinados` (plano "Retomada 098", rev. 2.1, P2-R2-2): só os chamadores do painel pedem; a leitura do cliente
- * (cotação, disponibilidade pública, Wall-e, marketing) fica SEM combinado como candidato, por padrão. As ocupações
- * continuam usando os conjuntos (um combinado ocupado impede os membros também na leitura pública).
+ * `incluirCombinados` (plano "Retomada 098", rev. 2.1, P2-R2-2): os chamadores do painel pedem sempre; a leitura do
+ * cliente (cotação, disponibilidade pública, Wall-e, marketing) pede só com combinadosPublicos (E2b, D-E2b-1/D-E2b-5) e,
+ * por padrão, fica SEM combinado como candidato. As ocupações continuam usando os conjuntos (um combinado ocupado impede
+ * os membros também na leitura pública).
  */
 export async function lerRegraCapacidadeAgenda(customDb: DbExecutor | undefined, escopo?: EscopoAgenda, opcoes?: { incluirCombinados?: boolean }): Promise<RegraCapacidadeAgenda | null> {
   const ex = executor(customDb);

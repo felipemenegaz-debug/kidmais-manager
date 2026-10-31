@@ -12,6 +12,7 @@ import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cot
 import { db } from "@/lib/db/postgres";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
+import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +83,11 @@ export async function GET(request: NextRequest) {
       );
     }
     // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas.
-    const opcoes = { duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados } : {}) };
+    // E2b: o combinado conta como opção só com combinadosPublicos; desligado, as opções de antes (sem o campo).
+    const opcoes = {
+      duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados } : {}),
+      ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
+    };
     // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
     const codigo = codigoEmpresaDoPedido(request.nextUrl);
     const escopo = codigo === null

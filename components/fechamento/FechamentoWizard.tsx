@@ -7,7 +7,7 @@ import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
 import ConvidadosChip from './ConvidadosChip';
 import { invalidarPendentes, mensagemHorarioRecusado, soAMaisRecente, travaAposConvidados } from './convidados-trava';
-import { motivoForaDoSalao, situacaoDoPreferido, type SalaoPreferido } from './salao-preferido';
+import { candidatoDaEntrada, destinoDaRecusaDoSalao, motivoForaDoSalao, situacaoDoPreferido, type DestinoEnviado, type SalaoPreferido } from './salao-preferido';
 import { codigoServidorDoPacoteDaMarca, motivoNaoComporta, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
 import { convidadosDaUrl } from '@/components/disponibilidade/convidados-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -446,12 +446,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               ? item.configuracaoId === configuracaoIdParam
               : item.codigo === codigoPeriodoParam,
           );
-          const candidato = periodo?.horarios?.find(
-            (item) =>
-              item.ajusteMinutos === Number(ajustePreselecionado) &&
-              item.inicio === inicioParam &&
-              item.fim === fimParam,
-          );
+          const candidato = candidatoDaEntrada(periodo, { ajuste: Number(ajustePreselecionado), inicio: inicioParam, fim: fimParam });
 
           if (cancelado) return;
 
@@ -1302,6 +1297,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
     setEnviando(true);
     setErro("");
+    // E2b (P2-C1): o destino que vai ao POST — a volta de uma recusa usa exatamente este, nunca a URL de entrada.
+    const enviado: DestinoEnviado = {
+      data: form.dataFesta, configuracaoId: form.configuracaoId, ajuste: form.ajusteHorario,
+      inicio: intervaloSelecionado.inicio, fim: intervaloSelecionado.fim, convidados,
+    };
 
     try {
       const resposta = await fetch(apiPublica("/api/fechamentos", empresa), {
@@ -1333,10 +1333,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             quantidadeParcelas: form.pixQuantidade ? Number(form.pixQuantidade) : null,
           } : null,
           // Horário configurado; horarioBase (legado) só para TURNO_1/TURNO_2.
-          configuracaoId: form.configuracaoId,
+          configuracaoId: enviado.configuracaoId,
           horarioBase: form.horarioBase || undefined,
-          horarioInicio: intervaloSelecionado.inicio,
-          horarioFim: intervaloSelecionado.fim,
+          horarioInicio: enviado.inicio,
+          horarioFim: enviado.fim,
           horarioExibicao: horario,
           referenciaTabela,
           descontoDiaUtilAtivo:
@@ -1359,6 +1359,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       if (!resposta.ok) {
         const falha = await resposta.json().catch(() => null);
+        // E2b: salão recusado no envio (genérico ou com motivo) → volta à escolha de salões, sem pré-selecionar nada.
+        const volta = destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha);
+        if (volta) {
+          router.replace(volta);
+          return;
+        }
         throw new Error(
           falha?.erro || "Não foi possível enviar o fechamento para conferência.",
         );

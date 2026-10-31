@@ -3,6 +3,7 @@
  * manda só os salões prontos e elegíveis no horário, com a situação e o recomendado; aqui viram ordem, seleção e textos.
  */
 import type { SalaoPublico } from "../../lib/agenda/salao-publico.ts";
+import { ehMotivoPreferencia, TEXTO_MOTIVO_PREFERENCIA } from "../../lib/agenda/preferencia-salao-textos.ts";
 
 export type ListaPublica = { saloes: SalaoPublico[]; recomendado: { id: string; motivo: string } | null };
 
@@ -27,10 +28,68 @@ export function organizar(lista: ListaPublica) {
   };
 }
 
-/** D3 (padrão): com uma única opção que serve, ela já vem selecionada; com mais de uma, o cliente escolhe. */
+/**
+ * D3 (padrão): com uma única opção que serve, ela já vem selecionada; com mais de uma, o cliente escolhe.
+ * E2b (sem troca silenciosa): a ALTERNATIVA nunca vem selecionada, nem quando é a única livre.
+ */
 export function selecaoInicial(lista: ListaPublica) {
   const livres = lista.saloes.filter(escolhivel);
-  return livres.length === 1 ? livres[0]!.id : null;
+  return livres.length === 1 && livres[0]!.papel !== "alternativa" ? livres[0]!.id : null;
+}
+
+/** "R$ 4.990,00" a partir do texto com 2 casas do servidor; null se não for um número positivo legível. */
+export function precoLegivel(valor: string | null | undefined) {
+  if (valor == null || !/^\d+(\.\d{1,2})?$/.test(valor)) return null;
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+}
+
+/** Membros por extenso: "Salão 1 + Salão 2". */
+const membrosPorExtenso = (membros: readonly string[]) => membros.join(" + ");
+
+/**
+ * E2b (D-R5/D-E2b-3): faixa do combinado — "Os dois salões juntos · até N pessoas · a partir de R$ X". Com mais de dois
+ * membros, "Os salões X + Y + Z juntos". Preço do pacote (nunca A+B); sem preço legível, "valores na escolha do pacote"
+ * (nunca R$ 0). Sem "+R$" em nenhum caso. null no salão simples.
+ */
+export function faixaCombinado(s: Pick<SalaoPublico, "combinado" | "numeros" | "precoAPartirDe">) {
+  if (!s.combinado) return null;
+  const membros = s.combinado.membros;
+  const partes = [membros.length === 2 ? "Os dois salões juntos" : `Os salões ${membrosPorExtenso(membros)} juntos`];
+  if (s.numeros.capacidade != null) partes.push(`até ${s.numeros.capacidade} pessoas`);
+  const preco = precoLegivel(s.precoAPartirDe);
+  partes.push(preco ? `a partir de ${preco}` : "valores na escolha do pacote");
+  return partes.join(" · ");
+}
+
+/** E2b: selo da alternativa ("os salões 1 + 2 juntos, livres neste horário"); null fora do papel. */
+export function seloAlternativa(s: Pick<SalaoPublico, "papel" | "combinado" | "nome">) {
+  if (s.papel !== "alternativa") return null;
+  const quem = s.combinado?.membros.length ? `os salões ${membrosPorExtenso(s.combinado.membros)} juntos` : s.nome;
+  return `Alternativa: ${quem}, livres neste horário`;
+}
+
+/**
+ * E2b (R2-P2-2): aviso da volta por recusa do envio (`aviso=salao-recusado`), com a frase do motivo quando houver.
+ * O aviso da E2a (`aviso=salao`) continua com a frase de antes.
+ */
+export function textoAvisoSalao(params: URLSearchParams) {
+  if (params.get("aviso") === "salao") return "O salão escolhido não está mais disponível para a sua festa. Escolha outro salão.";
+  const motivo = motivoDaRecusa(params);
+  return motivo ? `${motivo} Escolha outro salão.` : null;
+}
+
+/**
+ * Só a explicação da recusa do envio (E2b), sem orientar a escolha: também aparece quando a etapa de salões sai do
+ * ar (lista 404), onde não há salão para escolher. Fora de "salao-recusado", null.
+ */
+export function motivoDaRecusa(params: URLSearchParams) {
+  if (params.get("aviso") !== "salao-recusado") return null;
+  const motivo = params.get("motivo");
+  return ehMotivoPreferencia(motivo)
+    ? TEXTO_MOTIVO_PREFERENCIA[motivo]
+    : "O salão escolhido não está mais disponível para esta data, horário e número de convidados.";
 }
 
 /** Motivo de um salão que não pode ser escolhido (nunca diz quem ocupa). */
