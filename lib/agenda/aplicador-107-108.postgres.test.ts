@@ -79,6 +79,45 @@ DROP TRIGGER bloqueios_agenda_atualizado_em_trg ON public.bloqueios_agenda;
 DROP TRIGGER configuracao_agenda_atualizado_em_trg ON public.configuracao_agenda;
 COMMIT;`;
 
+/** O staging real (CONFERIR de 30/10/2026, dep-dbi4geajnfac73cq1c90): a deriva conhecida MAIS uma variante de representação,
+ *  com a mesma semântica: ACL de EXECUTE explícita (DONO + PUBLIC, efeito igual ao padrão) em 16 funções do escopo e 11 CHECKs
+ *  e 2 índices parciais com o deparse antigo de `IN (...)` sobre varchar (`ARRAY[('X'::varchar)::text, ...]`). Gerado dos
+ *  itens SO_STAGING do diagnóstico somente leitura; o F0 resultante tem de ser exatamente o hash lido em staging. */
+const VARIANTE_STAGING = `BEGIN;
+ALTER TABLE public."contratos" DROP CONSTRAINT "contratos_status_check", ADD CONSTRAINT "contratos_status_check" CHECK (((status)::text = ANY (ARRAY[('AGUARDANDO_ASSINATURA'::character varying)::text, ('ASSINADO'::character varying)::text, ('CANCELADO'::character varying)::text])));
+ALTER TABLE public."fechamento_revisoes" DROP CONSTRAINT "fr_buffet_ck", ADD CONSTRAINT "fr_buffet_ck" CHECK (((buffet_status)::text = ANY (ARRAY[('PENDENTE'::character varying)::text, ('DEFINIDO'::character varying)::text])));
+ALTER TABLE public."fechamento_revisoes" DROP CONSTRAINT "fr_categorias_ck", ADD CONSTRAINT "fr_categorias_ck" CHECK ((((categoria_horario)::text = ANY (ARRAY[('PADRAO'::character varying)::text, ('NOBRE'::character varying)::text])) AND ((categoria_preco_aplicada)::text = ANY (ARRAY[('GERAL'::character varying)::text, ('PADRAO'::character varying)::text, ('NOBRE'::character varying)::text]))));
+ALTER TABLE public."fechamento_revisoes" DROP CONSTRAINT "fr_congelamento_ck", ADD CONSTRAINT "fr_congelamento_ck" CHECK ((((num_nonnulls(congelado_snapshot_hash, congelado_documento_id, congelado_em, congelado_por_usuario_id) = 0) AND ((estado)::text = ANY (ARRAY[('EM_ELABORACAO'::character varying)::text, ('CANCELADA'::character varying)::text]))) OR ((num_nonnulls(congelado_snapshot_hash, congelado_documento_id, congelado_em, congelado_por_usuario_id) = 4) AND ((estado)::text = ANY (ARRAY[('CONGELADA'::character varying)::text, ('APLICADA'::character varying)::text, ('CANCELADA'::character varying)::text])))));
+ALTER TABLE public."fechamento_revisoes" DROP CONSTRAINT "fr_estado_ck", ADD CONSTRAINT "fr_estado_ck" CHECK (((estado)::text = ANY (ARRAY[('EM_ELABORACAO'::character varying)::text, ('CONGELADA'::character varying)::text, ('APLICADA'::character varying)::text, ('CANCELADA'::character varying)::text])));
+ALTER TABLE public."fechamento_revisoes" DROP CONSTRAINT "fr_forma_ck", ADD CONSTRAINT "fr_forma_ck" CHECK (((forma_pagamento_pretendida IS NULL) OR ((forma_pagamento_pretendida)::text = ANY (ARRAY[('PIX_AVISTA'::character varying)::text, ('PIX_PARCELADO'::character varying)::text, ('CARTAO_CIELO'::character varying)::text]))));
+ALTER TABLE public."fechamentos" DROP CONSTRAINT "fechamentos_buffet_status_check", ADD CONSTRAINT "fechamentos_buffet_status_check" CHECK (((buffet_status)::text = ANY (ARRAY[('PENDENTE'::character varying)::text, ('DEFINIDO'::character varying)::text])));
+ALTER TABLE public."fechamentos" DROP CONSTRAINT "fechamentos_categoria_horario_check", ADD CONSTRAINT "fechamentos_categoria_horario_check" CHECK (((categoria_horario)::text = ANY (ARRAY[('PADRAO'::character varying)::text, ('NOBRE'::character varying)::text])));
+ALTER TABLE public."fechamentos" DROP CONSTRAINT "fechamentos_categoria_preco_check", ADD CONSTRAINT "fechamentos_categoria_preco_check" CHECK (((categoria_preco_aplicada)::text = ANY (ARRAY[('GERAL'::character varying)::text, ('PADRAO'::character varying)::text, ('NOBRE'::character varying)::text])));
+ALTER TABLE public."fechamentos" DROP CONSTRAINT "fechamentos_forma_pagamento_pretendida_check", ADD CONSTRAINT "fechamentos_forma_pagamento_pretendida_check" CHECK (((forma_pagamento_pretendida IS NULL) OR ((forma_pagamento_pretendida)::text = ANY (ARRAY[('PIX_AVISTA'::character varying)::text, ('PIX_PARCELADO'::character varying)::text, ('CARTAO_CIELO'::character varying)::text]))));
+ALTER TABLE public."fechamentos" DROP CONSTRAINT "fechamentos_status_check", ADD CONSTRAINT "fechamentos_status_check" CHECK (((status)::text = ANY (ARRAY[('RASCUNHO'::character varying)::text, ('AGUARDANDO_APROVACAO'::character varying)::text, ('APROVADO'::character varying)::text, ('AGUARDANDO_CONTRATO'::character varying)::text, ('CONTRATO_ASSINADO'::character varying)::text, ('AGUARDANDO_PAGAMENTO'::character varying)::text, ('CONFIRMADO'::character varying)::text, ('CANCELADO'::character varying)::text, ('RECUSADO'::character varying)::text, ('EXPIRADO'::character varying)::text])));
+DROP INDEX public."fechamento_revisoes_aberta_uk";
+CREATE UNIQUE INDEX fechamento_revisoes_aberta_uk ON public.fechamento_revisoes USING btree (fechamento_id) WHERE ((estado)::text = ANY (ARRAY[('EM_ELABORACAO'::character varying)::text, ('CONGELADA'::character varying)::text]));
+DROP INDEX public."fr_agenda_aberta_idx";
+CREATE INDEX fr_agenda_aberta_idx ON public.fechamento_revisoes USING btree (data_evento, horario_inicio, horario_fim) WHERE (((estado)::text = ANY (ARRAY[('EM_ELABORACAO'::character varying)::text, ('CONGELADA'::character varying)::text])) AND (hold_destino_adquirido_em IS NOT NULL));
+GRANT EXECUTE ON FUNCTION public.festa016_invalidacao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_bloquear_contrato(uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_formalizacao(uuid,uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_lock_ocupacao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_ocupa(uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_proteger_invalidacao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais019_validar_contrato() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_hash_revisao_operacional(uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_lock_datas_revisao(date[]) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_preservar_revisao_operacional() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_proteger_bloqueio_revisao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_proteger_fechamento_em_revisao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_set_atualizado_em() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_validar_agenda_revisao() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_validar_fluxo_contrato() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.kidmais_validar_revisao_operacional() TO PUBLIC;
+COMMIT;`;
+const F0_STAGING = "2d72cf9fd82082c79d41cd04094ecde1d090d42f44e423fbe86e3635dcd39923";
+
 /** Consultas e erros de cada cliente do aplicador. */
 const registro: { consultas: string[]; erros: { consulta: string; code?: string }[] } = { consultas: [], erros: [] };
 type Ganchos = { papel?: string; antesDe?: (q: string, c: Client) => Promise<void> };
@@ -399,6 +438,59 @@ test("aplicador 107/108 real: canônico, deriva do staging, falha da 108 e retom
     await a.query("ROLLBACK").catch(() => undefined);
     const agora = await estado().catch(() => null);
     if (agora && (agora.m107 !== inicial.m107 || agora.m108 !== inicial.m108)) { await normalizar(); await restaurar(inicial); }
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+
+test("variante do staging: F0 igual ao CONFERIR real, F1/F2 medidos e APLICAR com os esperados versionados", { timeout: 900_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const dirs: string[] = [];
+  const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-107-108-var-")); dirs.push(d); return d; };
+  const estado = async () => (await a.query<{ m107: boolean; m108: boolean }>(`SELECT to_regclass('public.kidmais107_reparos') IS NOT NULL AS m107,
+    to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS m108`)).rows[0];
+  const normalizar = async () => { const e = await estado(); if (e.m108) await a.query(sql(DOWN108)); if (e.m107) await a.query(sql(DOWN107)); };
+  const medir = async () => {
+    await a.query("BEGIN TRANSACTION READ ONLY");
+    try { await a.query("SET LOCAL search_path = pg_catalog"); return (await a.query<{ hash_108: string }>(ret.sqlRetrato108({ raiz }))).rows[0].hash_108; }
+    finally { await a.query("ROLLBACK"); }
+  };
+  const inicial = await estado();
+  try {
+    await normalizar();
+    await a.query(DERIVA);
+    await a.query(VARIANTE_STAGING);
+    const F0 = await medir();
+    assert.equal(F0, F0_STAGING, "o modelo reproduz exatamente o retrato F0 lido no staging");
+    await a.query(sql(M107)); const F1 = await medir();
+    await a.query(sql(M108)); const F2 = await medir();
+    await a.query(sql(DOWN108)); await a.query(sql(DOWN107));
+    assert.equal(await medir(), F0_STAGING, "os downs voltam ao F0 do staging");
+    const medidos = { F0, F1, F2 };
+    t.diagnostic("variante do staging medida: " + JSON.stringify(medidos));
+    if (process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS, { recursive: true });
+      writeFileSync(join(process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS, "retratos-variante-staging.json"), JSON.stringify(medidos, null, 2) + "\n");
+    }
+    // Os esperados VERSIONADOS (sem override de teste) aceitam a variante em cada fase.
+    const versionados = JSON.parse(readFileSync(join(raiz, "database/checks/20261029_108_retratos_esperados.json"), "utf8")) as Record<string, Record<string, string>>;
+    assert.deepEqual([versionados.F0?.staging_20261030, versionados.F1?.staging_20261030, versionados.F2?.staging_20261030], [F0, F1, F2],
+      "esperados versionados = variante do staging medida");
+    const conferir = () => aplicador.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel() });
+    const c0 = await conferir();
+    assert.equal(c0.resultado, "PRONTA_PARA_APLICAR", JSON.stringify(c0)); assert.equal(c0.fase, "F0");
+    assert.equal(c0.retrato!.variante, "staging_20261030", JSON.stringify(c0));
+    const r = await aplicador.executar({ env: ENV_STG, backup: BACKUP, drenagem: DRENAGEM, dir: novoDir(), raiz, disco: () => undefined, Client: clienteDescartavel() });
+    assert.equal(r.resultado, "APLICADA_POSTCHECK_PASS", JSON.stringify(r)); assert.deepEqual(r.commits, { 107: "CONFIRMADO", 108: "CONFIRMADO" });
+    const c2 = await conferir();
+    assert.equal(c2.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(c2)); assert.equal(c2.fase, "F2");
+    assert.equal(await medir(), F2, "o APLICAR real chega ao F2 medido da variante");
+  } finally {
+    await a.query("ROLLBACK").catch(() => undefined);
+    await normalizar().catch(() => undefined);
+    if (inicial.m107) await a.query(sql(M107));
+    if (inicial.m108) await a.query(sql(M108));
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   }
 });

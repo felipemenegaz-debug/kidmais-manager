@@ -112,48 +112,52 @@ const approvedFiles = [
   '20261018_084_convite_geracao_pendencias.sql',
   // A 084 é de Convites (PR #176, mergeada em staging em 18/10/2026 segundo o fetch local de 05:50); por isso o
   // Marketing passou de 084/085 para 085/086 (18/10/2026).
-  // 085: Marketing (goal local de 14/10/2026). Escolha local provisória, não reserva coordenada; nunca aplicada fora de
-  // banco descartável local. Precheck e postcheck externos (forma padrão).
+  // 085: Marketing (goal local de 14/10/2026). Precheck e postcheck externos (forma padrão). 085/086: aplicação
+  // registrada fora deste inventário, não confirmada aqui (staging em 19/10/2026, H1 PASS; produção na promoção de
+  // 20/10/2026).
   '20261018_085_marketing_base.sql',
   // 086: automações de Marketing (mesmo goal local; exige a 085).
   '20261018_086_marketing_automacoes.sql',
   // 088: autorização do responsável legal para Convites com IA (parecer da Astra de 21/10/2026). Aditiva; precheck e
   // postcheck externos (padrão). A 087 é de outro trabalho local (avisos de assinatura por e-mail), ainda não integrado:
-  // número livre numa leitura não é reserva. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  // número livre numa leitura não é reserva. Validada primeiro em PostgreSQL descartável local. Aplicação em staging
+  // registrada pela #200, não confirmada aqui; em produção os registros divergem (só leitura própria e datada decide).
   '20261021_088_convite_ia_autorizacoes.sql',
+  // 089–097. Este inventário só reconhece arquivos e nunca lê o banco (appliedState = unknown). Aplicação em staging
+  // registrada fora deste inventário, não confirmada aqui: 089 (CONFERIR de 23/10/2026, JA_APLICADA_POSTCHECK_PASS);
+  // 090, 091, 096 e 097 em 23/10/2026; 092–094 pela #215; 095 em 23/10/2026 (CONFERIR final PASS em 24/10/2026).
+  // Produção: nenhuma tem aplicação registrada (a #209, de 22/10/2026, saiu sem a 089). O estado atual de um banco só se
+  // afirma por leitura própria e datada (conferência B-5 do plano de promoção). Produção exige autorização explícita
+  // própria para cada uma.
   // 089: pedidos de cancelamento e devolução da assinatura, com protocolo (L1 do parecer da Astra, decisão de Felipe de
-  // 21/10/2026). Aditiva; precheck e postcheck externos (padrão). Validada só em PostgreSQL descartável local; nunca
-  // aplicada fora dele. Número livre numa leitura não é reserva (outro trabalho local pode disputar a 089).
+  // 21/10/2026). Aditiva; precheck e postcheck externos (padrão). Validada primeiro em PostgreSQL descartável local.
   '20261021_089_assinatura_encerramentos.sql',
   // 090: campanha Fundador em duas fases (janela de 30 dias + lote de 20; plano CPF/Fundador de 22/10/2026).
-  // Precheck e postcheck externos (padrão). Não cria nem ativa campanha. Validada só em PostgreSQL descartável local;
-  // nunca aplicada fora dele. Número livre numa leitura local não é reserva global.
+  // Precheck e postcheck externos (padrão). Não cria nem ativa campanha. Validada primeiro em PostgreSQL descartável local.
   '20261022_090_campanha_fundador.sql',
-  // 091: documento fiscal CPF/CNPJ do contratante (plano CPF/Fundador de 22/10/2026). Só alarga CHECKs e acrescenta DV
-  // para linhas novas (NOT VALID); não atualiza linhas. Independente da 090. Validada só em PostgreSQL descartável local;
-  // nunca aplicada fora dele. Número livre numa leitura local não é reserva global.
+  // 091: documento fiscal CPF/CNPJ do contratante (plano CPF/Fundador de 22/10/2026). Troca os CHECKs de formato por
+  // CHECKs validados que aceitam também 11 dígitos (sem NOT VALID) e exige o DV só no INSERT, por gatilho, em
+  // empresa_assinaturas e assinatura_fundadores; cria empresa_documento_continuidades; não atualiza linhas. Independente
+  // da 090. Validada primeiro em PostgreSQL descartável local.
   '20261022_091_documento_fiscal_contratante.sql',
   // 092: preço do pacote por quantidades cheias (tipo_calculo PONTO; decisão de Felipe de 22/10/2026). Aditiva; precheck
-  // e postcheck externos (padrão). 090/091 citadas por outro plano local e a 087 por outro trabalho: número livre numa
-  // leitura não é reserva. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  // e postcheck externos (padrão). Validada primeiro em PostgreSQL descartável local.
   '20261022_092_precos_por_quantidade.sql',
   // 093: configuração da agenda por unidade (etapa 2a; decisões de Felipe de 22/10/2026). Aditiva; precheck e postcheck
-  // externos (padrão). Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  // externos (padrão). Validada primeiro em PostgreSQL descartável local.
   '20261022_093_agenda_configuracao_unidade.sql',
   // 094: capacidade, limite do dia e intervalo na regra de conflito (etapa 2b; decisões de Felipe de 22/10/2026). Troca o
-  // corpo de três funções da 062 (manifesto da Festa com o conjunto 094). Validada só em PostgreSQL descartável local.
+  // corpo de três funções da 062 (manifesto da Festa com o conjunto 094). Validada primeiro em PostgreSQL descartável local.
   '20261022_094_agenda_capacidade.sql',
   // 095: créditos de IA (Convites e Wall-e: carteiras, lotes, extrato imutável, compra avulsa, devolução e corte do
-  // legado), implementação local de 22/10/2026. Aditiva; precheck e postcheck externos (padrão). Validada só em
-  // PostgreSQL descartável local; nunca aplicada fora dele. Número livre na leitura de 22/10 (087 continua reservada aos
-  // avisos de cobrança, fora deste repositório); livre numa leitura não é reserva.
+  // legado), implementação local de 22/10/2026. Aditiva; precheck e postcheck externos (padrão). Validada primeiro em
+  // PostgreSQL descartável local (a 087 continua reservada aos avisos de cobrança, fora deste repositório).
   '20261022_095_ia_creditos.sql',
   // 096: comprovante da contratação e arquivo das versões dos documentos legais (grupo B do parecer de apoio, 22/10/2026).
-  // Só cria tabelas novas; não altera linhas. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
-  // 092–095 estão tomadas por outras frentes locais (agenda/preços e créditos IA). Número livre numa leitura local não é reserva global.
+  // Só cria tabelas novas; não altera linhas. Validada primeiro em PostgreSQL descartável local.
   '20261022_096_comprovante_contratacao.sql',
   // 097: manifestações do direito de arrependimento pela ferramenta (grupo C do parecer de apoio, 23/10/2026). Só cria
-  // uma tabela nova; não altera linhas. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  // uma tabela nova; não altera linhas. Validada primeiro em PostgreSQL descartável local.
   '20261023_097_assinatura_arrependimentos.sql',
   // 098: salão combinado ("salão inteiro"), fase 1 dos salões (proposta rev. 3 aprovada com ressalvas pelo Astra em
   // 23/10/2026). Troca o corpo de três funções da 094 (manifesto da Festa com o conjunto 098) e protege contratos contra

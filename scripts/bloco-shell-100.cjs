@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 100 (agenda com um salão, staging), no mesmo desenho dos blocos da 092–094 e 088/089 (P2-A colagem interativa, P3-1
+// Blocos de Shell da 100 (agenda com um salão, staging e produção), no mesmo desenho dos blocos da 092–094 e 088/089 (P2-A colagem interativa, P3-1
 // trap/código, P3-2 bind antes da guarda). O CÓDIGO é publicado antes, já com o aplicador e os SQL na árvore implantada —
 // por isso o bloco NÃO transporta nem grava arquivos: confere o sha256 de cada arquivo implantado e roda o aplicador.
 // O operador cola no Web Shell do serviço (bash INTERATIVO):
@@ -9,9 +9,11 @@
 //   - no fim, CODIGO_SAIDA_BLOCO=<n>: 0/1/2/3 do aplicador (CONFERIDO-PASS / recusa antes de conectar / FALHA /
 //     RECUSARIA); 4 = recusa do PRÓPRIO bloco, com mensagem nomeada (destino, ferramenta, arquivo, backup). Qualquer
 //     outro código (127 linha perdida, 143 sinal) ou ausência da linha (Ctrl-C pode não imprimir a linha) = parar e ler;
-//   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar (referência do export/PITR anotado).
+//   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar: em staging, a referência do export/PITR
+//     anotado; em produção, a do dump conferido + PITR (export funcional não substitui — parecer do Astra, B-3, P3).
 // O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
-//   node scripts/bloco-shell-100.cjs staging <CONFERIR|APLICAR> <rotulo-da-arvore>
+//   node scripts/bloco-shell-100.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>
+// Produção (B-3 do plano de promoção): só depois do E6 (código novo publicado e 094 aplicada); APLICAR com autorização própria.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,14 +28,24 @@ const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
   staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-100-staging.cjs',
     dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
-      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs']), registro: 'data/agenda-um-salao-100-staging', rotulo: 'STAGING'}),
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs']),
+    registro: 'data/agenda-um-salao-100-staging', rotulo: 'STAGING', aviso: null,
+    backup: 'id e horario do export/PITR', faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP antes de colar'}),
+  production: Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', nome: 'kidmais-manager-production', aplicador: 'scripts/migration-100-production.cjs',
+    // Mesmas dependências da 107/108 que staging: o núcleo da 092–094 confere a integridade da 094 com a prova da 108.
+    dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json']),
+    registro: 'data/agenda-um-salao-100-producao', rotulo: 'PRODUCTION',
+    aviso: 'PRODUCAO: somente depois do E6 (codigo novo publicado e 094 aplicada, --conferir-094 PASS).',
+    backup: 'id e horario do dump conferido e do PITR; export funcional NAO substitui',
+    faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP (dump conferido + PITR) antes de colar'}),
 });
 const COMANDOS = Object.freeze({CONFERIR: '--conferir-100', APLICAR: '--aplicar-100-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
 const TITULOS = Object.freeze({
   CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, dos nucleos e dos 4 SQL da 100 IMPLANTADOS e roda --conferir-100',
     '(identidade, corpo da regra de conflito, dono, inventario de pares no mesmo horario, precheck ou postcheck e integridade da 094 com o corpo da 100, READ ONLY). Nada e gravado.'],
   APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da 100 neste ambiente. Antes de colar, no mesmo',
-    'shell: export KIDMAIS_REGISTRO_BACKUP="<id e horario do export/PITR>". Roda --aplicar-100-autorizado UMA vez',
+    'shell: export KIDMAIS_REGISTRO_BACKUP="<<BACKUP>>". Roda --aplicar-100-autorizado UMA vez',
     '(uma transacao: troca o corpo de kidmais094_conflito_ocupacao). Se algo parar, NAO repetir: copiar a saida e revisar',
     '(o marcador impede a repeticao e diz se o COMMIT foi confirmado, desfeito ou ficou indeterminado; rodar o CONFERIR).'],
 });
@@ -66,11 +78,11 @@ function gerar({ambiente, modo, rotulo, raiz = path.resolve(__dirname, '..'), de
   for (const arquivo of arquivos(ambiente)) c.push(`arq ${seguro(arquivo)} ${sha(ler(raiz, arquivo))}`);
   c.push('echo ARQUIVOS_CONFERIDOS');
   if (modo === 'APLICAR') c.push('B="${KIDMAIS_REGISTRO_BACKUP:-}"',
-    'printf "%s" "$B" | grep -Eq "^[A-Za-z0-9:._/ -]{6,120}$" || { echo "BACKUP_NAO_INFORMADO defina KIDMAIS_REGISTRO_BACKUP antes de colar"; exit 4; }');
+    'printf "%s" "$B" | grep -Eq "^[A-Za-z0-9:._/ -]{6,120}$" || { echo "BACKUP_NAO_INFORMADO ' + a.faltaBackup + '"; exit 4; }');
   c.push('codigo=0', `${cmd} || codigo=$?`, `echo '=== REGISTRO (${a.registro}) ==='`, `ls -1 ${a.registro} 2>/dev/null || echo SEM_REGISTRO`, 'exit "$codigo"');
   const linhas = ['#!/usr/bin/env bash',
     `# BLOCO-SHELL-100-${a.rotulo}-${modo} - Web Shell do ${a.servico} (${a.nome}). Colar inteiro, uma vez, e Enter.`,
-    ...TITULOS[modo].map(t => '# ' + t),
+    ...TITULOS[modo].map(t => '# ' + t.replace('<BACKUP>', a.backup)), ...(a.aviso ? ['# ' + a.aviso] : []),
     `# Gerado da arvore ${rotulo} por scripts/bloco-shell-100.cjs. Conferir sha256 e bytes antes de colar.`,
     '# O bind abaixo roda ANTES da guarda e FORA do subshell, mesmo em outro servico: desliga o bracketed paste do readline',
     '# pelo resto desta sessao. A guarda de RENDER_SERVICE_ID vem antes de qualquer leitura de arquivo. Corpo em subshell:',

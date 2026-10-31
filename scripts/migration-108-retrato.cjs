@@ -32,7 +32,7 @@ const ARQUIVO_RETRATO = 'database/checks/20261029_108_retrato.sql';
 const ARQUIVO_ESPERADOS = 'database/checks/20261029_108_retratos_esperados.json';
 /** sha256 revisado de ARQUIVO_ESPERADOS (bytes sem CR). Fonte única: o carregador comum (094, 100, 107/108) recusa
  *  outro conteúdo, e o aplicador 107/108 fixa este mesmo valor em ARQUIVOS (P2-3 da revisão da E4). */
-const HASH_ESPERADOS = '5b9acd3894d8259f72655a97cb940ae6ce43368a3a5742edbc58cc7996019446';
+const HASH_ESPERADOS = '79b13a7e61bb4a02f256053462600e00ab150e6ebb583f31801431f05bc248ea';
 const INICIO = '-- RETRATO_108_INICIO';
 const FIM = '-- RETRATO_108_FIM';
 const PENDENTE = 'A_MEDIR_NO_CLUSTER';

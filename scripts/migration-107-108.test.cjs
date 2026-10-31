@@ -619,7 +619,7 @@ test('PLANO sem conexão (conector que falha): arquivos e downs com sha, retrato
   assert.equal(codigo, 0); assert.equal(construido, false); assert.equal(saida.conecta, false); assert.equal(saida.ambiente, 'staging');
   assert.deepEqual(saida.arquivos.map(a => a.sha256), comum.ARQUIVOS.map(e => e[2]));
   assert.deepEqual(saida.recuperacaoArquivos.map(a => a.nome), ['down 108', 'down 107']);
-  assert.deepEqual(saida.retratos, {F0: ['canonico', 'deriva_conhecida'], F1: ['canonico'], F2: ['canonico']}, 'arquivo versionado medido');
+  assert.deepEqual(saida.retratos, {F0: ['canonico', 'deriva_conhecida', 'staging_20261030'], F1: ['canonico', 'staging_20261030'], F2: ['canonico', 'staging_20261030']}, 'arquivo versionado medido');
   const pendente = (await comEsperadosPendentes(() => stg.principal([], {}, {Client: Falha}))).saida;
   for (const f of ['F0', 'F1', 'F2']) assert.match(pendente.retratos[f], /^RETRATO_NAO_MEDIDO /);
   assert.deepEqual((await teste.principal([], ENV_TESTE, {Client: Falha})).saida.retratos, {F0: ['canonico', 'deriva_conhecida'], F1: ['canonico'], F2: ['canonico']});

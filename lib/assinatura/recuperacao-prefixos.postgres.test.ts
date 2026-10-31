@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 import type { Client } from 'pg';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
 import { prefixoDoSchema } from './recuperacao-baseline.ts';
-import { CODIGO_ANTIGO, EVENTOS_OBRIGATORIOS, marcadoresDoAmbiente, MODOS, modoAdmitido, type CodigoNoAr, type Modo } from './recuperacao-execucao.ts';
+import { CODIGOS_ANTIGOS, EVENTOS_OBRIGATORIOS, marcadoresDoAmbiente, MODOS, modoAdmitido, type CodigoNoAr, type Modo } from './recuperacao-execucao.ts';
 import { modoDrenagem, modoInventario, type Arquivos, type Execucao, type Resultado } from './recuperacao-modos.ts';
 import { diferenca, TABELAS } from './recuperacao-efeitos.ts';
 import { fotografar } from './recuperacao-fotografia.ts';
@@ -48,7 +48,7 @@ const ESPERADO: Record<string, string> = {
 const ativo = () => opt() && Object.hasOwn(ESPERADO, MODELO);
 const BANCO = 'kidmais_pacotes_v1_descartavel';
 const CAND = 'c'.repeat(40);
-const COMMIT: Record<CodigoNoAr, string> = { CANDIDATA: CAND, ANTIGO: CODIGO_ANTIGO + '0'.repeat(40 - CODIGO_ANTIGO.length) };
+const COMMIT: Record<CodigoNoAr, string> = { CANDIDATA: CAND, ANTIGO: CODIGOS_ANTIGOS[1] }; // B-23: a base de production vigente (#274)
 const URL_WEBHOOK = 'https://kidmais.example/api/integracoes/asaas/webhook';
 const raiz = path.resolve(import.meta.dirname, '../..');
 const requireCjs = createRequire(import.meta.url);

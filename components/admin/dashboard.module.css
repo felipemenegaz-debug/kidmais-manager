@@ -8,7 +8,8 @@
 .topo { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; margin-bottom: 32px; }
 .topo h1 { margin: 0; font-size: 30px; letter-spacing: -0.03em; }
 .topo p, .empresa small { margin: 4px 0 0; color: var(--secondary-text); font-size: 14px; }
-.empresa { text-align: right; }
+.empresa { display: flex; align-items: center; gap: 14px; text-align: right; }
+.empresa .empresaMarca { width: 52px; height: 52px; border-radius: 13px; padding: 5px; font-size: 17px; }
 .empresa strong { display: block; color: var(--primary-violet); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
 .grade { display: grid; grid-template-columns: repeat(12, 1fr); gap: 24px; }
 .cartao { composes: glass secao from "./visual.module.css"; padding: 28px; min-width: 0; }

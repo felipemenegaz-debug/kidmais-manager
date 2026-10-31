@@ -5,6 +5,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { reaisDe } from '@/lib/financeiro/calculos';
 import styles from './dashboard.module.css';
 import InteligenciaCard from './InteligenciaCard';
+import { MarcaEmpresa, useLogoEmpresaAtiva } from './LogoEmpresa';
 
 type Festa = { id: string; contratoId?: string; versaoId?: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string };
 function destinoFesta(festa: Festa) {
@@ -66,6 +67,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
   const [painel, setPainel] = useState<PainelDashboard | null>(inicial ?? null);
   const [erro, setErro] = useState('');
   const [tentativa, setTentativa] = useState(0);
+  const logo = useLogoEmpresaAtiva();
 
   useEffect(() => {
     if (inicial) return;
@@ -88,8 +90,11 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <p>Visão geral da operação</p>
       </div>
       <div className={styles.empresa}>
-        <strong>{painel.empresa}</strong>
-        <small>{dataLonga(painel.hoje)}</small>
+        <MarcaEmpresa logo={logo} nome={painel.empresa} className={styles.empresaMarca} decorativa />
+        <div>
+          <strong>{painel.empresa}</strong>
+          <small>{dataLonga(painel.hoje)}</small>
+        </div>
       </div>
     </header>
     <div className={styles.grade}>

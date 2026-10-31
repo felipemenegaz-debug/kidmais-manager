@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    avaliarLiberacao, CODIGO_ANTIGO, codigoFinal, codigoNoAr, codigoSeguro, conferirFila, conferirVinculoDasDecisoes, divergenciasDeMarcadores, EVENTOS_OBRIGATORIOS,
+    avaliarLiberacao, CODIGOS_ANTIGOS, codigoFinal, codigoNoAr, codigoSeguro, conferirFila, conferirVinculoDasDecisoes, divergenciasDeMarcadores, EVENTOS_OBRIGATORIOS,
     falhaDeCobertura, falhaDoCaso,
     lerCobrancasRemotas, lerDecisoes, MARCADORES, MARCADORES_NEUTROS, marcadoresDoAmbiente, MODOS, modoAdmitido, orfasRemotas, proporDuasVezes, validarBackup, validarProvaCronAntigo,
     type ConferenciaFila, type Decisoes,
@@ -71,10 +71,21 @@ test('matriz ramo × código × schema (§3.8)', () => {
     assert.equal(modoAdmitido(3, 'CANDIDATA', 'janela-conferir'), false);
 });
 
-test('código no ar: candidata exata ou o antigo 00d3019a; outro commit recusa', () => {
+test('código no ar: candidata exata ou uma base antiga da lista fechada (B-23); outro commit recusa', () => {
     const cand = 'a'.repeat(40);
     assert.equal(codigoNoAr(cand, cand), 'CANDIDATA');
-    assert.equal(codigoNoAr(`${CODIGO_ANTIGO}${'0'.repeat(32)}`, cand), 'ANTIGO');
+    // B-23: as duas bases de production (#232 e #274), por SHA completo; maiúsculas e espaços como o Render pode entregar.
+    assert.deepEqual([...CODIGOS_ANTIGOS], ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61']);
+    for (const antigo of CODIGOS_ANTIGOS) {
+        assert.equal(codigoNoAr(antigo, cand), 'ANTIGO', antigo);
+        assert.equal(codigoNoAr(` ${antigo.toUpperCase()} `, cand), 'ANTIGO', antigo);
+    }
+    assert.ok(Object.isFrozen(CODIGOS_ANTIGOS));
+    // Antes do B-23 bastava o prefixo `00d3019a`; agora qualquer outro SHA com o mesmo prefixo recusa.
+    assert.equal(codigoNoAr(`00d3019a${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`4ef9adb6${'0'.repeat(32)}`, cand), null);
+    // A candidata vence quando coincide com uma base antiga (nunca deveria; a entrada declara a candidata).
+    assert.equal(codigoNoAr(CODIGOS_ANTIGOS[1], CODIGOS_ANTIGOS[1]), 'CANDIDATA');
     assert.equal(codigoNoAr('b'.repeat(40), cand), null);
     assert.equal(codigoNoAr(undefined, cand), null);
     assert.equal(codigoNoAr('abc', 'abc'), null);

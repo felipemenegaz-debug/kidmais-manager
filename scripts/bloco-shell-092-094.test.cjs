@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell da 092-094 (staging) executados DE VERDADE com bash num destino temporário (só o destino difere do
+// Blocos de Shell da 092-094 (staging e produção) executados DE VERDADE com bash num destino temporário (só o destino difere do
 // Render; o comando do aplicador é o real — recusando antes de conectar, sem RENDER/DATABASE_URL — ou um substituto que só
 // devolve um código). Inclui COLAGEM INTERATIVA (bash -i, bloco + linhas do operador), como no Web Shell: o shell do
 // operador precisa sobreviver e ler o código. Não toca banco nem /opt/render.
@@ -13,9 +13,9 @@ const posix = p => p.replace(/\\/g, '/');
 const SERVICO = 'srv-daif418ae00c73e8k2gg';
 
 /** Destino com os arquivos implantados (LF) e, opcionalmente, node_modules do repositório (junção) para o aplicador real. */
-function destino({modulos = false} = {}) {
+function destino({modulos = false, ambiente = 'staging'} = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bloco-092-094-'));
-  for (const a of b.arquivos('staging')) { fs.mkdirSync(path.dirname(path.join(d, a)), {recursive: true}); fs.writeFileSync(path.join(d, a), lf(a)); }
+  for (const a of b.arquivos(ambiente)) { fs.mkdirSync(path.dirname(path.join(d, a)), {recursive: true}); fs.writeFileSync(path.join(d, a), lf(a)); }
   if (modulos) fs.symlinkSync(path.join(root, 'node_modules'), path.join(d, 'node_modules'), 'junction');
   return d;
 }
@@ -43,8 +43,11 @@ test('arquivos conferidos: aplicador de staging, núcleo, conexão de staging, o
     ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_100[1], INTEGRIDADE_094_APOS_108[1]]);
   for (const [, a, h] of [...ETAPAS, INTEGRIDADE_094_APOS_100, INTEGRIDADE_094_APOS_108]) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);
-  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging'], 'produção fica fora deste aplicador');
-  assert.throws(() => b.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);
+  assert.deepEqual(Object.keys(b.AMBIENTES), ['staging', 'production']);
+  assert.throws(() => b.gerar({ambiente: 'outro', modo: 'CONFERIR', rotulo: '455117e'}), /AMBIENTE_DESCONHECIDO/);
+  // Produção não tem o modo conjunto; staging não tem os modos por escopo.
+  assert.throws(() => b.gerar({ambiente: 'production', modo: 'APLICAR', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
+  assert.throws(() => b.gerar({ambiente: 'staging', modo: 'APLICAR-094', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'LIMPEZA', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
   assert.throws(() => b.gerar({ambiente: 'staging', modo: 'CONFERIR', rotulo: 'abc; rm -rf /'}), /ROTULO_INVALIDO/);
 });
@@ -155,5 +158,71 @@ test('colagem interativa: CONFERIR e depois APLICAR na mesma sessão — dois c�
   try { const r = sessao(d, gerar(d, 'CONFERIR', 'node -e "process.exitCode=0"') + 'export KIDMAIS_REGISTRO_BACKUP="export 23/10 03:00Z"\n'
       + gerar(d, 'APLICAR', 'node -e "process.exitCode=0"') + 'echo DUAS_COLAGENS_OK\n', {interativo: true});
     assert.equal(linhas(r.saida, /^CODIGO_SAIDA_BLOCO=0$/), 2, r.saida.slice(-400)); assert.match(r.saida, /^DUAS_COLAGENS_OK$/m);
+  } finally { limpar(d); }
+});
+
+const PROD = 'srv-dak77m2d0e5s73b8rkkg';
+const gerarProd = (d, modo, comando) => b.gerar({ambiente: 'production', modo, rotulo: '54598a9', destino: posix(d), comando});
+
+test('produção: arquivos conferidos (aplicador de produção, núcleo, dependências da 107/108, 14 SQL), comando por escopo, guarda do serviço de produção', () => {
+  assert.deepEqual(b.arquivos('production'), ['scripts/migration-092-094-production.cjs', 'scripts/migration-092-094-comum.cjs',
+    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+    'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json',
+    ...ETAPAS.map(e => e[1]), INTEGRIDADE_094_APOS_100[1], INTEGRIDADE_094_APOS_108[1]]);
+  assert.ok(!b.arquivos('production').includes('scripts/conexao-staging.cjs'));
+  for (const [modo, flag] of [['CONFERIR', '--conferir-092-094'], ['APLICAR-092-093', '--aplicar-092-093-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'],
+    ['APLICAR-094', '--aplicar-094-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"']]) {
+    const x = b.gerar({ambiente: 'production', modo, rotulo: '54598a9'}), L = x.split('\n');
+    assert.match(x, /^[\x09\x0a\x20-\x7e]*$/); assert.ok(Buffer.byteLength(x, 'utf8') <= 32 * 1024);
+    assert.ok(L.includes(`NODE_PATH="$PWD/node_modules" node scripts/migration-092-094-production.cjs ${flag} || codigo=$?`), modo);
+    assert.ok(L.some(l => l.startsWith(`if [ "$RENDER_SERVICE_ID" != "${PROD}" ]; then echo "SHELL_ERRADO_NAO_E_PRODUCTION`)), modo);
+    for (const proibido of ['DATABASE_URL', 'postgres://', 'postgresql://', '_down.sql', '--aplicar-092-094-autorizado']) assert.ok(!x.includes(proibido), modo + ' ' + proibido);
+    for (const a of b.arquivos('production')) assert.ok(L.includes(`arq ${a} ${sha(lf(a))}`), a);
+  }
+  assert.ok(b.gerar({ambiente: 'production', modo: 'APLICAR-092-093', rotulo: '54598a9'}).includes('NUNCA aplica a 094'));
+});
+
+test('produção: shell de staging não executa o corpo; aplicador REAL recusa fora do Render (código 1); APLICAR-* exige o backup', () => {
+  const d = destino({ambiente: 'production', modulos: true});
+  try {
+    const errado = sessao(d, gerarProd(d, 'APLICAR-094', 'echo APLICADOR_RODOU'), {servico: SERVICO});
+    assert.match(errado.saida, /^SHELL_ERRADO_NAO_E_PRODUCTION/m); assert.doesNotMatch(errado.saida, /CODIGO_SAIDA_BLOCO|APLICADOR_RODOU/);
+    const r = sessao(d, gerarProd(d, 'CONFERIR'), {servico: PROD});
+    assert.equal(codigo(r.saida), 1, r.saida.slice(-400)); assert.match(r.saida, /RECUSADO FORA_DO_RENDER/);
+    for (const modo of ['APLICAR-092-093', 'APLICAR-094']) {
+      const sem = sessao(d, gerarProd(d, modo, 'echo APLICADOR_RODOU'), {servico: PROD});
+      assert.equal(codigo(sem.saida), 4, modo); assert.match(sem.saida, /^BACKUP_NAO_INFORMADO /m); assert.doesNotMatch(sem.saida, /APLICADOR_RODOU/);
+      const real = sessao(d, gerarProd(d, modo), {servico: PROD, env: {KIDMAIS_REGISTRO_BACKUP: 'dump 2026-11-01T03:00Z'}});
+      assert.equal(codigo(real.saida), 1, modo + real.saida.slice(-300)); assert.match(real.saida, /RECUSADO FORA_DO_RENDER/);
+    }
+    assert.equal(fs.existsSync(path.join(d, 'data')), false, 'nada gravado');
+  } finally { limpar(d); }
+});
+
+test('produção: arquivo divergente (aplicador, migration 094, integridade após a 100) recusa com código 4 antes do aplicador', () => {
+  for (const alterar of ['scripts/migration-092-094-production.cjs', ETAPAS[7][1], INTEGRIDADE_094_APOS_100[1]]) {
+    const d = destino({ambiente: 'production'});
+    try { fs.appendFileSync(path.join(d, alterar), '\n// alterado');
+      const r = sessao(d, gerarProd(d, 'APLICAR-092-093', 'echo APLICADOR_RODOU'), {servico: PROD, env: {KIDMAIS_REGISTRO_BACKUP: 'dump 2026-11-01T03:00Z'}});
+      assert.equal(codigo(r.saida), 4, r.saida.slice(-300)); assert.ok(r.saida.includes('ARQUIVO_DIVERGENTE_OU_AUSENTE ' + alterar), alterar);
+      assert.doesNotMatch(r.saida, /APLICADOR_RODOU/);
+    } finally { limpar(d); }
+  }
+});
+
+test('produção: conferências por escopo (CONFERIR-092-093 no E3, CONFERIR-094 no E6) sem exigir backup; aplicador real recusa fora do Render', () => {
+  for (const [modo, flag] of [['CONFERIR-092-093', '--conferir-092-093'], ['CONFERIR-094', '--conferir-094']]) {
+    const x = b.gerar({ambiente: 'production', modo, rotulo: '54598a9'});
+    assert.ok(x.split('\n').includes(`NODE_PATH="$PWD/node_modules" node scripts/migration-092-094-production.cjs ${flag} || codigo=$?`), modo);
+    assert.ok(!x.includes('KIDMAIS_REGISTRO_BACKUP'), modo + ': sem backup');
+    assert.match(x, /^[\x09\x0a\x20-\x7e]*$/);
+  }
+  assert.throws(() => b.gerar({ambiente: 'staging', modo: 'CONFERIR-092-093', rotulo: '455117e'}), /MODO_DESCONHECIDO/);
+  const d = destino({ambiente: 'production', modulos: true});
+  try {
+    for (const modo of ['CONFERIR-092-093', 'CONFERIR-094']) {
+      const r = sessao(d, gerarProd(d, modo), {servico: PROD});
+      assert.equal(codigo(r.saida), 1, modo + r.saida.slice(-300)); assert.match(r.saida, /RECUSADO FORA_DO_RENDER/);
+    }
   } finally { limpar(d); }
 });

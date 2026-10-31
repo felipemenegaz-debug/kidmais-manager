@@ -1,15 +1,18 @@
 {
-  "descricao": "Hashes esperados do retrato restrito da 107/108 (database/checks/20261029_108_retrato.sql), por fase. MEDIDOS no PostgreSQL 18 do cluster descartável E4 em 29/10/2026 (rodada 2: retrato sem normalização de \"public.\", P2-1 da revisão) pela suíte lib/agenda/aplicador-107-108.postgres.test.ts (modelos 106 canônica, 106 com a deriva conhecida do staging, 106+107, 106+107+108; search_path = pg_catalog), iguais nos modelos 106, 107 e 108. trecho_sha256 amarra estes valores ao SQL exato; HASH_ESPERADOS (scripts/migration-108-retrato.cjs) amarra este arquivo.",
+  "descricao": "Hashes esperados do retrato restrito da 107/108 (database/checks/20261029_108_retrato.sql), por fase. MEDIDOS no PostgreSQL 18 do cluster descartável E4 em 29/10/2026 (rodada 2: retrato sem normalização de \"public.\", P2-1 da revisão) pela suíte lib/agenda/aplicador-107-108.postgres.test.ts (modelos 106 canônica, 106 com a deriva conhecida do staging, 106+107, 106+107+108; search_path = pg_catalog), iguais nos modelos 106, 107 e 108. trecho_sha256 amarra estes valores ao SQL exato; HASH_ESPERADOS (scripts/migration-108-retrato.cjs) amarra este arquivo. Variante staging_20261030: o staging real (CONFERIR de 30/10/2026, F0 2d72cf9f…) = deriva conhecida + ACL de EXECUTE explícita (DONO + PUBLIC) em 16 funções + 11 CHECKs e 2 índices com o deparse antigo de IN (...) sobre varchar; mesma semântica. Reproduzida e medida pela mesma suíte (VARIANTE_STAGING) nos modelos 106, 107 e 108.",
   "versao_pg_maior": 18,
   "trecho_sha256": "7fffe7b24e27d92aecb4d23cc808275593076b990a9a4c87758fb8057ec0fecf",
   "F0": {
     "canonico": "6a83c0b977006e6bc8f487694ad70fd80b25f98ab302013ccdd510127be764a6",
-    "deriva_conhecida": "73d1d9ea749c2fc23250005cac5d1d55365754c0641d167c75f368a9cfc5d0d9"
+    "deriva_conhecida": "73d1d9ea749c2fc23250005cac5d1d55365754c0641d167c75f368a9cfc5d0d9",
+    "staging_20261030": "2d72cf9fd82082c79d41cd04094ecde1d090d42f44e423fbe86e3635dcd39923"
   },
   "F1": {
-    "canonico": "061a632a0a82a0f691a180abcd96e0c4de7b58595a363e4d70cf615640758ed7"
+    "canonico": "061a632a0a82a0f691a180abcd96e0c4de7b58595a363e4d70cf615640758ed7",
+    "staging_20261030": "a928a15882fc2c1a248841dedfb33fbddb9450c99388157958320d92a5316d4d"
   },
   "F2": {
-    "canonico": "d288ef0f283adcc063b52fbcb1a162502d8bec22ff142cb2d412ca2c4273b2c7"
+    "canonico": "d288ef0f283adcc063b52fbcb1a162502d8bec22ff142cb2d412ca2c4273b2c7",
+    "staging_20261030": "a8b8cace60aafa9b419829d6742b0b4635015eb6731196a26b944cf893acb270"
   }
 }
