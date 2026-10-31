@@ -72,6 +72,9 @@ jobs:
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs
 
+      - name: Aplicador manual da 099 (produção) e blocos de Shell — trava de alvo/identidade, dono das tabelas e funções, vínculo/versão antes do DDL, transação única sob trava exclusiva, preservação, COMMIT confirmado/desfeito/indeterminado e anti-repetição (cliente simulado; bash e bash -i em diretório temporário)
+        run: node --test scripts/migration-099.test.cjs scripts/bloco-shell-099.test.cjs scripts/migration-099-staging.test.cjs
+
       - name: Convites — migration 084, decisão só do operador e fila do painel (dependências simuladas)
         run: node --test lib/convites/recuperacao.test.cjs lib/desenvolvedor/convites-geracoes.test.cjs
 
