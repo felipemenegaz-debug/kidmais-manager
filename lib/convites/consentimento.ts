@@ -9,7 +9,7 @@ import { conteudoCanonicoIA, conteudoCanonicoImagensIA, ehProvedorIA, textosAuto
 // a confirmação da geração (uso único), conferida em conferirImagens e registrada no evento IA_RESERVADA.
 // Nenhuma função aqui registra em log o nome do responsável, o prompt ou imagens.
 
-export type ConviteRef = { id: string; empresa_id: string; festa_id: string; cliente_id: string };
+export type ConviteRef = { id: string; empresa_id: string; festa_id: string | null; cliente_id: string | null };
 export type OperadorRef = { tipo: 'BUFFET'; usuarioId: string } | { tipo: 'CLIENTE'; clienteId: string };
 export type AutorizacaoLinha = { id: string; provedor: string; texto_versao: string; texto_hash: string; operador_tipo: OperadorIA;
   responsavel_vinculo: VinculoResponsavel; meio: MeioAutorizacao; criado_em: Date | string };

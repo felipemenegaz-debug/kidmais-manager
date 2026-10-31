@@ -10,8 +10,11 @@ export const maxDuration = 150;
 function processar(r: NextRequest, escrever: boolean) { return responder(async () => {
   habilitado(); await ambienteFesta();
   const sessao = await exigirApiAdminCrmDisponivel(r);
-  const festaId = z.uuid().parse(r.nextUrl.searchParams.get('festaId'));
-  const a = { tipo: 'admin' as const, sessao, festaId };
+  const alvo = z.union([
+    z.object({ festaId: z.uuid(), conviteId: z.null() }).transform(x => ({ festaId: x.festaId })),
+    z.object({ festaId: z.null(), conviteId: z.uuid() }).transform(x => ({ conviteId: x.conviteId })),
+  ]).parse({ festaId: r.nextUrl.searchParams.get('festaId'), conviteId: r.nextUrl.searchParams.get('conviteId') });
+  const a = { tipo: 'admin' as const, sessao, ...alvo };
   // Acompanhamento leve de um pedido (recarga, outra aba, conexão perdida): só a situação, sem imagens.
   const geracao = r.nextUrl.searchParams.get('geracao');
   if (!escrever) return geracao === null ? consultar(a) : situacaoGeracao(a, z.uuid().parse(geracao));
