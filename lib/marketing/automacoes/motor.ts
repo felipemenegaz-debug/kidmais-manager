@@ -7,8 +7,14 @@ import { dataLocal, dentroDaJanela, proximoHorarioPermitido } from "./janela.ts"
 import { mascararTelefone, renderizarModelo } from "./modelo.ts";
 import { elegivelParaMensagem, lerPreferencia } from "./preferencias.ts";
 import { pesquisaInstalada } from "../../satisfacao/supressao.ts";
-import { mapearRegra, type Regra } from "./regras.ts";
+import { criarEnvio } from "../../satisfacao/envios.ts";
+import { aplicarRetornoEntrega, executarEntregas, type ContextoPesquisa } from "../../satisfacao/despacho.ts";
+import { comRepeticao, TravaOcupada } from "../../satisfacao/travas.ts";
+import { frequenciaExcedida } from "./frequencia.ts";
+import { COLUNAS as COLUNAS_REGRA, mapearRegra, type Regra } from "./regras.ts";
 import { FalhaTransporte, type TransporteMarketing } from "./transporte.ts";
+
+export { frequenciaExcedida };
 
 /**
  * Motor das automações (planejar → reservar → processar). Garantias:
@@ -31,20 +37,19 @@ async function evento(tx: DbExecutor, empresaId: string, execucaoId: string, ant
     [empresaId, execucaoId, anterior, novo, JSON.stringify(detalhe)]);
 }
 
-const COLUNAS_REGRA = `id::text, tipo, estabelecimento_id::text, status, acao, espera_dias, to_char(janela_inicio, 'HH24:MI') AS janela_inicio, to_char(janela_fim, 'HH24:MI') AS janela_fim,
-  fuso, fim_de_semana, limite_frequencia_dias, max_tentativas, template_texto, template_provedor, template_revisado_em::text, versao, ativada_em::text, pausada_em::text`;
-
 function janelaDe(r: Regra) { return { inicio: r.janelaInicio, fim: r.janelaFim, fuso: r.fuso, fimDeSemana: r.fimDeSemana }; }
 
 // ------------------------------------------------------------------------------------------------------------------
 // Planejar
 // ------------------------------------------------------------------------------------------------------------------
-export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: Date, opcoes: { lote?: number } = {}) {
+export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: Date, opcoes: { lote?: number; pesquisa?: boolean } = {}) {
   // R2: empresa sem aptidão (status, recurso MARKETING, situação comercial) não planeja nada; o motivo volta para o ciclo.
   const aptidao = await empresaApta(tx, empresaId);
   if (!aptidao.apta) return { regras: 0, criadas: 0, existentes: 0, bloqueio: aptidao.motivo };
+  // Pesquisa de satisfação só é planejada com a 110 instalada e a pesquisa ligada neste servidor (contexto do ciclo).
+  const acoes = opcoes.pesquisa && (await pesquisaInstalada(tx)) ? ["TAREFA_INTERNA", "MENSAGEM_WHATSAPP", "PESQUISA_SATISFACAO"] : ["TAREFA_INTERNA", "MENSAGEM_WHATSAPP"];
   const regras = (await tx.query<Parameters<typeof mapearRegra>[0]>(
-    `SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE empresa_id = $1::uuid AND status = 'ATIVA' AND acao IN ('TAREFA_INTERNA', 'MENSAGEM_WHATSAPP')`, [empresaId])).rows.map(mapearRegra);
+    `SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE empresa_id = $1::uuid AND status = 'ATIVA' AND acao = ANY($2::text[])`, [empresaId, acoes])).rows.map(mapearRegra);
   let criadas = 0, existentes = 0;
   for (const regra of regras) {
     const quando = proximoHorarioPermitido(agora, janelaDe(regra));
@@ -77,6 +82,9 @@ export async function simularEmpresa(tx: DbExecutor, empresaId: string, regra: R
       const e = await elegivelParaMensagem(tx, empresaId, alvo.clienteId);
       if (!e.ok) impedimento = e.motivo;
       else if (await frequenciaExcedida(tx, empresaId, alvo.clienteId, regra.limiteFrequenciaDias, null)) impedimento = "LIMITE_FREQUENCIA";
+    } else if (regra.acao === "PESQUISA_SATISFACAO" && alvo.fechamentoId) {
+      // Prévia: o consentimento de cada canal é conferido no despacho; aqui só o que impede criar a pesquisa.
+      impedimento = await impedimentoDaPesquisa(tx, empresaId, alvo.clienteId, alvo.fechamentoId, regra.limiteFrequenciaDias, null);
     }
     linhas.push({ ...alvo, jaPlanejada, impedimento, agendadaPara: proximoHorarioPermitido(agora, janelaDe(regra)).toISOString() });
   }
@@ -84,26 +92,24 @@ export async function simularEmpresa(tx: DbExecutor, empresaId: string, regra: R
 }
 
 /**
- * Contato recente do cliente: Mensagem simples em ENVIANDO/ACEITA/ENTREGUE/INCERTA no limite e, com a 110, pesquisa de
- * satisfação com a reserva viva (plano da pesquisa M2/L2): sem marco e com entrega INICIAL ainda PENDENTE ou ENVIANDO
- * (conta como contato AGORA), ou com o marco contato_em dentro do limite. `excetoEnvioId`: o despacho da própria
- * pesquisa (segundo canal, nova tentativa) não se bloqueia; o lembrete nem passa por aqui.
+ * Plano da pesquisa R5/R6: o que impede CRIAR a pesquisa de um fechamento — já existe uma (uma por festa), a festa já
+ * teve uma Mensagem simples pós-festa que saiu ou pode ter saído (tarefa interna não conta), ou o limite de frequência.
  */
-export async function frequenciaExcedida(tx: DbExecutor, empresaId: string, clienteId: string, dias: number, excetoId: string | null, excetoEnvioId: string | null = null) {
-  const r = await tx.query<{ ok: boolean }>(
-    `SELECT true AS ok FROM marketing_automacao_execucoes
-      WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid AND acao = 'MENSAGEM_WHATSAPP' AND estado IN ('ENVIANDO', 'ACEITA', 'ENTREGUE', 'INCERTA')
-        AND atualizado_em > clock_timestamp() - make_interval(days => $3::int) AND ($4::uuid IS NULL OR id <> $4::uuid) LIMIT 1`,
-    [empresaId, clienteId, dias, excetoId]);
-  if (r.rows.length > 0) return true;
+async function impedimentoDaPesquisa(tx: DbExecutor, empresaId: string, clienteId: string, fechamentoId: string, dias: number, excetoId: string | null) {
+  if (await pesquisaDoFechamento(tx, empresaId, fechamentoId)) return "PESQUISA_JA_EXISTE";
+  const contato = await tx.query(
+    `SELECT 1 FROM marketing_automacao_execucoes x JOIN marketing_automacao_regras r ON r.id = x.regra_id AND r.empresa_id = x.empresa_id AND r.tipo = 'POS_FESTA'
+      WHERE x.empresa_id = $1::uuid AND x.fechamento_id = $2::uuid AND x.acao = 'MENSAGEM_WHATSAPP' AND x.estado IN ('ENVIANDO', 'ACEITA', 'ENTREGUE', 'INCERTA') LIMIT 1`,
+    [empresaId, fechamentoId]);
+  if (contato.rows.length > 0) return "CONTATO_POS_FESTA_JA_FEITO";
+  if (await frequenciaExcedida(tx, empresaId, clienteId, dias, excetoId)) return "LIMITE_FREQUENCIA";
+  return null;
+}
+
+async function pesquisaDoFechamento(tx: DbExecutor, empresaId: string, fechamentoId: string) {
   if (!(await pesquisaInstalada(tx))) return false;
-  const p = await tx.query<{ ok: boolean }>(
-    `SELECT true AS ok FROM satisfacao_envios s
-      WHERE s.empresa_id = $1::uuid AND s.cliente_id = $2::uuid AND ($4::uuid IS NULL OR s.id <> $4::uuid)
-        AND ((s.contato_em IS NULL AND EXISTS (SELECT 1 FROM satisfacao_entregas d WHERE d.envio_id = s.id AND d.etapa = 'INICIAL' AND d.estado IN ('PENDENTE', 'ENVIANDO')))
-          OR s.contato_em > clock_timestamp() - make_interval(days => $3::int)) LIMIT 1`,
-    [empresaId, clienteId, dias, excetoEnvioId]);
-  return p.rows.length > 0;
+  const r = await tx.query(`SELECT 1 FROM satisfacao_envios WHERE empresa_id = $1::uuid AND fechamento_id = $2::uuid`, [empresaId, fechamentoId]);
+  return r.rows.length > 0;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -145,14 +151,38 @@ type Decisao =
   | { tipo: "PRONTA"; estado: string }
   | { tipo: "ENVIAR"; exec: LinhaExecucao; regra: Regra; telefone: string; texto: string; idempotencia: string };
 
-async function concluir(tx: DbExecutor, e: LinhaExecucao, estado: "TAREFA_CRIADA" | "SUPRIMIDA" | "CANCELADA", motivo: string | null, detalhe: Record<string, unknown> = {}) {
+async function concluir(tx: DbExecutor, e: LinhaExecucao, estado: "TAREFA_CRIADA" | "PESQUISA_CRIADA" | "SUPRIMIDA" | "CANCELADA", motivo: string | null, detalhe: Record<string, unknown> = {}) {
   await tx.query(`UPDATE marketing_automacao_execucoes SET estado = $2, motivo = $3, posse_token = NULL, posse_ate = NULL, concluida_em = clock_timestamp(),
     atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, estado, motivo]);
   await evento(tx, e.empresa_id, e.id, e.estado, estado, { motivo, ...detalhe });
   return { tipo: "PRONTA" as const, estado };
 }
 
-async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): Promise<Decisao> {
+/** Volta a execução para a fila sem consumir tentativa (direito ilegível, pesquisa sem configuração, pais ocupados). */
+async function devolverParaFila(tx: DbExecutor, e: LinhaExecucao, motivo: string) {
+  await tx.query(`UPDATE marketing_automacao_execucoes SET estado = 'AGENDADA', proxima_tentativa_em = clock_timestamp() + interval '15 minutes',
+    posse_token = NULL, posse_ate = NULL, motivo = $2, atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, motivo]);
+  await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "AGENDADA", { motivo });
+}
+
+/**
+ * Pesquisa de satisfação (plano R4/R5): a execução CRIA o envio e as entregas INICIAL (na janela, então elas já estão
+ * devidas) e termina em PESQUISA_CRIADA; quem envia é o despacho das entregas. Sem a pesquisa ligada ou sem o segredo
+ * do link/origem pública, a execução espera na fila (nada é criado sem link possível).
+ */
+async function decidirPesquisa(tx: DbExecutor, e: LinhaExecucao, regra: Regra, agora: Date, pesquisa: ContextoPesquisa | null): Promise<Decisao> {
+  if (!(await pesquisaInstalada(tx))) return concluir(tx, e, "CANCELADA", "PESQUISA_NAO_DISPONIVEL");
+  if (!pesquisa?.habilitada) { await devolverParaFila(tx, e, "PESQUISA_DESLIGADA"); return { tipo: "PRONTA", estado: "AGUARDANDO_PESQUISA" }; }
+  if (!pesquisa.anel || !pesquisa.origem) { await devolverParaFila(tx, e, "LINK_NAO_CONFIGURADO"); return { tipo: "PRONTA", estado: "AGUARDANDO_PESQUISA" }; }
+  if (!e.fechamento_id) return concluir(tx, e, "CANCELADA", "EXECUCAO_INVALIDA");
+  const impedimento = await impedimentoDaPesquisa(tx, e.empresa_id, e.cliente_id, e.fechamento_id, regra.limiteFrequenciaDias, e.id);
+  if (impedimento) return concluir(tx, e, "SUPRIMIDA", impedimento);
+  const r = await criarEnvio(tx, pesquisa.anel, { empresaId: e.empresa_id, execucaoId: e.id, canais: regra.canais, agendadaPara: agora, maxTentativas: regra.maxTentativas });
+  if (r.criado) return concluir(tx, e, "PESQUISA_CRIADA", null, { envioId: r.envioId, canais: regra.canais });
+  return concluir(tx, e, r.motivo === "EXECUCAO_INVALIDA" ? "CANCELADA" : "SUPRIMIDA", r.motivo);
+}
+
+async function decidir(tx: DbExecutor, id: string, token: string, agora: Date, pesquisa: ContextoPesquisa | null): Promise<Decisao> {
   const r = await tx.query<LinhaExecucao>(
     `SELECT id::text, empresa_id::text, regra_id::text, acao, alvo_tipo, alvo_id::text, cliente_id::text, fechamento_id::text, chave_idempotencia, estado, tentativas,
             max_tentativas, posse_token::text FROM marketing_automacao_execucoes WHERE id = $1::uuid FOR UPDATE`, [id]);
@@ -165,17 +195,13 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
   if (!aptidao.apta && aptidao.definitivo) return concluir(tx, e, "CANCELADA", `EMPRESA_INAPTA: ${aptidao.motivo}`);
   if (!aptidao.apta) {
     // Leitura do direito falhou: não age e não libera; volta para a fila com espera (tentativas não mudam).
-    await tx.query(`UPDATE marketing_automacao_execucoes SET estado = 'AGENDADA', proxima_tentativa_em = clock_timestamp() + interval '15 minutes',
-      posse_token = NULL, posse_ate = NULL, motivo = $2, atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, aptidao.motivo]);
-    await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "AGENDADA", { motivo: aptidao.motivo });
+    await devolverParaFila(tx, e, aptidao.motivo);
     return { tipo: "PRONTA", estado: "AGUARDANDO_DIREITO" };
   }
   const regraLinha = (await tx.query<Parameters<typeof mapearRegra>[0]>(`SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE id = $1::uuid AND empresa_id = $2::uuid`,
     [e.regra_id, e.empresa_id])).rows[0];
   const regra = regraLinha ? mapearRegra(regraLinha) : null;
   if (!regra || regra.status !== "ATIVA") return concluir(tx, e, "CANCELADA", "REGRA_INATIVA");
-  // Pesquisa de satisfação: a criação do envio pelo motor é da PS-2. Até lá, nunca cai no caminho da mensagem.
-  if (e.acao === "PESQUISA_SATISFACAO") return concluir(tx, e, "CANCELADA", "PESQUISA_NAO_DISPONIVEL");
   if (regra.acao !== e.acao) return concluir(tx, e, "CANCELADA", "ACAO_ALTERADA");
   const alvo: Alvo | null = await alvoContinuaElegivel(tx, e.empresa_id, regra, e.alvo_id, cicloDaChave(e.chave_idempotencia), agora);
   if (!alvo) return concluir(tx, e, "SUPRIMIDA", "ALVO_NAO_ELEGIVEL");
@@ -186,6 +212,7 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
     await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "AGENDADA", { motivo: "FORA_DA_JANELA", agendadaPara: proxima.toISOString() });
     return { tipo: "PRONTA", estado: "AGENDADA" };
   }
+  if (e.acao === "PESQUISA_SATISFACAO") return decidirPesquisa(tx, e, regra, agora, pesquisa);
   if (e.acao === "TAREFA_INTERNA") {
     const titulos: Record<string, string> = { PROPOSTA_PARADA: "Retomar proposta parada", POS_FESTA: "Pós-festa: agradecer e pedir avaliação", RECOMPRA: "Oferecer a próxima festa (recompra)" };
     await tx.query(
@@ -194,6 +221,10 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
       [e.empresa_id, e.id, e.cliente_id, e.fechamento_id, `${titulos[regra.tipo] ?? "Tarefa"} — ${alvo.clienteNome}`.slice(0, 160),
         alvo.dataFesta ? `Festa: ${alvo.dataFesta.split("-").reverse().join("/")}` : null, dataLocal(agora, regra.fuso)]);
     return concluir(tx, e, "TAREFA_CRIADA", null);
+  }
+  // R5: a festa que já tem pesquisa não recebe também a Mensagem simples pós-festa (mesma trava por cliente da criação).
+  if (regra.tipo === "POS_FESTA" && e.fechamento_id && (await pesquisaDoFechamento(tx, e.empresa_id, e.fechamento_id))) {
+    return concluir(tx, e, "SUPRIMIDA", "PESQUISA_JA_EXISTE");
   }
   const elegivel = await elegivelParaMensagem(tx, e.empresa_id, e.cliente_id);
   if (!elegivel.ok) return concluir(tx, e, "SUPRIMIDA", elegivel.motivo);
@@ -209,8 +240,23 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
   return { tipo: "ENVIAR", exec: { ...e, estado: "ENVIANDO" }, regra, telefone: elegivel.telefone, texto, idempotencia: `${e.id}:${tentativa}` };
 }
 
-export async function processarReservada(banco: Banco, transporte: TransporteMarketing, id: string, token: string, agora: Date) {
-  const decisao = await banco.transacao((tx) => decidir(tx, id, token, agora));
+export async function processarReservada(banco: Banco, transporte: TransporteMarketing, id: string, token: string, agora: Date, pesquisa: ContextoPesquisa | null = null) {
+  let decisao: Decisao;
+  try {
+    // A criação da pesquisa trava os pais NOWAIT: 55P03 desfaz a transação inteira e ela é repetida do começo (travas.ts).
+    decisao = await comRepeticao(() => banco.transacao((tx) => decidir(tx, id, token, agora, pesquisa)), pesquisa?.repeticao);
+  } catch (error) {
+    if (!(error instanceof TravaOcupada)) throw error;
+    // Pais ocupados em todas as tentativas: a execução volta para a fila sem consumir tentativa.
+    return banco.transacao(async (tx) => {
+      const r = await tx.query<LinhaExecucao>(
+        `SELECT id::text, empresa_id::text, estado, posse_token::text FROM marketing_automacao_execucoes WHERE id = $1::uuid FOR UPDATE`, [id]);
+      const e = r.rows[0];
+      if (!e || e.estado !== "PROCESSANDO" || e.posse_token !== token) return "POSSE_PERDIDA";
+      await devolverParaFila(tx, e, "PAIS_OCUPADOS");
+      return "AGUARDANDO_TRAVA";
+    });
+  }
   if (decisao.tipo === "PRONTA") return decisao.estado;
   const { exec, regra, telefone, texto, idempotencia } = decisao;
   let resultado: { ok: true; provedorMensagemId: string } | { ok: false; tipo: "RECUSADO" | "TEMPORARIO" | "DESCONHECIDO"; mensagem: string };
@@ -247,16 +293,21 @@ export async function processarReservada(banco: Banco, transporte: TransporteMar
   });
 }
 
-/** Ciclo completo (planejar todas as empresas ou uma; recuperar posses; reservar e processar). */
-export async function executarCiclo(banco: Banco, transporte: TransporteMarketing, agora: Date, opcoes: { empresaId?: string | null; limite?: number; lote?: number } = {}) {
+/**
+ * Ciclo completo (planejar todas as empresas ou uma; recuperar posses; reservar e processar) e, com o contexto da
+ * pesquisa, o despacho das entregas da pesquisa de satisfação (iniciais e lembretes) no mesmo ciclo.
+ */
+export async function executarCiclo(banco: Banco, transporte: TransporteMarketing, agora: Date,
+  opcoes: { empresaId?: string | null; limite?: number; lote?: number; pesquisa?: ContextoPesquisa | null } = {}) {
   const empresaId = opcoes.empresaId ?? null;
+  const pesquisa = opcoes.pesquisa ?? null;
   const planejamento = await banco.transacao(async (tx) => {
     const empresas = empresaId ? [empresaId] : (await tx.query<{ empresa_id: string }>(
       `SELECT DISTINCT r.empresa_id::text FROM marketing_automacao_regras r JOIN empresas e ON e.id = r.empresa_id AND e.status = 'ATIVA' WHERE r.status = 'ATIVA'`)).rows.map((x) => x.empresa_id);
     let criadas = 0;
     const bloqueadas: Array<{ empresaId: string; motivo: string }> = [];
     for (const id of empresas) {
-      const r = await planejarEmpresa(tx, id, agora, { lote: opcoes.lote });
+      const r = await planejarEmpresa(tx, id, agora, { lote: opcoes.lote, pesquisa: pesquisa?.habilitada === true });
       criadas += r.criadas;
       if (r.bloqueio) bloqueadas.push({ empresaId: id, motivo: r.bloqueio });
     }
@@ -266,10 +317,11 @@ export async function executarCiclo(banco: Banco, transporte: TransporteMarketin
   const { token, ids } = await banco.transacao((tx) => reservar(tx, agora, opcoes.limite ?? 50, empresaId));
   const resultados: Record<string, number> = {};
   for (const id of ids) {
-    const estado = await processarReservada(banco, transporte, id, token, agora);
+    const estado = await processarReservada(banco, transporte, id, token, agora, pesquisa);
     resultados[estado] = (resultados[estado] ?? 0) + 1;
   }
-  return { planejamento, posses, processadas: ids.length, resultados };
+  const entregas = pesquisa?.habilitada ? await executarEntregas(banco, pesquisa, agora, { empresaId, limite: opcoes.limite ?? 50 }) : null;
+  return { planejamento, posses, processadas: ids.length, resultados, entregas };
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -280,7 +332,8 @@ export async function aplicarRetorno(tx: DbExecutor, provedorMensagemId: string,
   const r = await tx.query<{ id: string; empresa_id: string; estado: string }>(
     `SELECT id::text, empresa_id::text, estado FROM marketing_automacao_execucoes WHERE provedor_mensagem_id = $1 FOR UPDATE`, [provedorMensagemId]);
   const e = r.rows[0];
-  if (!e) return "DESCONHECIDA";
+  // Sem execução com esse id: pode ser uma entrega de WhatsApp da pesquisa (mesma caixa de saída simulada).
+  if (!e) return aplicarRetornoEntrega(tx, provedorMensagemId, status, detalhe);
   if (e.estado !== "ACEITA") return "IGNORADO";
   await tx.query(`UPDATE marketing_automacao_execucoes SET estado = $2, motivo = $3, concluida_em = CASE WHEN $2 = 'ENTREGUE' THEN clock_timestamp() ELSE NULL END,
     atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, status, status === "FALHOU" ? `RETORNO: ${detalhe ?? "falha informada pelo provedor"}`.slice(0, 300) : null]);

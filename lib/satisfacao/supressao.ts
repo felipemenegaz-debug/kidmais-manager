@@ -44,6 +44,21 @@ export async function suprimirPesquisas(tx: DbExecutor, empresaId: string, clien
   return { execucoes, entregas: entregas.rowCount ?? 0 };
 }
 
+/**
+ * Regra pausada, interrompida ou com o texto do WhatsApp sem revisão (plano R6): as entregas da pesquisa dessa regra que
+ * ainda não saíram (inicial e lembrete) ficam SUPRIMIDA com o motivo. O link continua respondível até expirar. O despacho
+ * também confere a regra ATIVA a cada tentativa (esta chamada é a supressão adiantada).
+ */
+export async function suprimirEntregasDaRegra(tx: DbExecutor, empresaId: string, regraId: string, motivo: string) {
+  if (!(await pesquisaInstalada(tx))) return 0;
+  const r = await tx.query(
+    `UPDATE satisfacao_entregas d SET estado = 'SUPRIMIDA', motivo = $3, concluida_em = clock_timestamp()
+       FROM satisfacao_envios e JOIN marketing_automacao_execucoes x ON x.id = e.execucao_id AND x.empresa_id = e.empresa_id
+      WHERE d.envio_id = e.id AND e.empresa_id = $1::uuid AND x.regra_id = $2::uuid AND d.estado = 'PENDENTE'`,
+    [empresaId, regraId, motivo.slice(0, 300)]);
+  return r.rowCount ?? 0;
+}
+
 /** PARAR numa conversa: os clientes da empresa com esse número no cadastro (com ou sem DDI). Só WhatsApp. */
 export async function clientesDoNumero(tx: DbExecutor, empresaId: string, contato: string) {
   const digitos = contato.replace(/\D/g, "");

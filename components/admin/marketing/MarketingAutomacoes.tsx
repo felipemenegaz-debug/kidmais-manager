@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import type { Regra, TipoRegra } from '@/lib/marketing/automacoes/regras';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
 import { LIMITE_SIMULACAO } from '@/lib/marketing/automacoes/alvos';
-import { renderizarModelo, validarModelo } from '@/lib/marketing/automacoes/modelo';
+import { renderizarModelo, validarModelo, validarModeloPesquisa } from '@/lib/marketing/automacoes/modelo';
 import { EXEMPLO_FICTICIO, QUEM_RECEBE, ROTULO_ESTADO, ROTULO_PRAZO, horarioPermitido, motivoLegivel, oQueFaz, quandoAcontece, resumoRegra, retornoAoSalvarRegra } from '@/lib/marketing/automacoes/explicacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
@@ -19,15 +19,23 @@ type Execucao = { id: string; regra_tipo: TipoRegra; acao: string; estado: strin
 type Dados = {
   regras: Regra[]; catalogo: Catalogo; execucoes: Execucao[]; tarefas: Array<{ id: string; titulo: string; descricao: string | null; vencimento: string; cliente_id: string }>;
   caixaSimulada: Array<{ id: string; destinatario_mascarado: string; template_provedor: string; texto: string; status: string; aceito_em: string }>;
-  datasVagas: SugestaoDatas; ambiente: { processamentoLigado: boolean; transporte: string }; unidades: Array<{ id: string; nome: string }>; capacidades: string[];
+  caixaEmail?: Array<{ id: string; para_mascarado: string; assunto: string; texto: string; aceito_em: string }>;
+  datasVagas: SugestaoDatas; ambiente: { processamentoLigado: boolean; transporte: string; pesquisa?: AmbientePesquisa }; unidades: Array<{ id: string; nome: string }>; capacidades: string[];
 };
+type AmbientePesquisa = { disponivel: boolean; ligada: boolean; textoPadrao: string; lembretePadrao: string };
+type Canal = Regra['canais'][number];
 type Retorno = { tipo: 'ok' | 'alerta'; texto: string };
 type Simulacao = { total: number; alvos: Array<{ clienteNome: string; dataFesta: string | null; jaPlanejada: string | null; impedimento: string | null; agendadaPara: string }> };
 
-const ACAO: Record<string, string> = { TAREFA_INTERNA: 'Tarefa para a equipe', MENSAGEM_WHATSAPP: 'Mensagem WhatsApp (simulada)', SUGESTAO: 'Sugestão' };
+const ACAO: Record<string, string> = { TAREFA_INTERNA: 'Tarefa para a equipe', MENSAGEM_WHATSAPP: 'Mensagem WhatsApp (simulada)', PESQUISA_SATISFACAO: 'Pesquisa de satisfação', SUGESTAO: 'Sugestão' };
+const OPCAO_ACAO: Record<string, { titulo: string; texto: string }> = {
+  TAREFA_INTERNA: { titulo: 'Criar tarefa para a equipe', texto: 'Aparece em “Tarefas abertas”. Funciona sem provedor e sem autorização de mensagens.' },
+  MENSAGEM_WHATSAPP: { titulo: 'Enviar mensagem de WhatsApp', texto: 'Só para quem autorizou um número do cadastro. Neste ambiente a mensagem é simulada.' },
+  PESQUISA_SATISFACAO: { titulo: 'Enviar pesquisa de satisfação', texto: 'Nota de 0 a 10, três aspectos e um comentário. Por WhatsApp autorizado e/ou e-mail do cadastro, com um lembrete. Neste ambiente o envio é simulado.' },
+};
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const STATUS: Record<Regra['status'], string> = { NAO_CONFIGURADA: 'Não configurada', RASCUNHO: 'Rascunho', ATIVA: 'Ativa', PAUSADA: 'Pausada' };
-const seloEstado = (e: string) => (['FALHOU', 'INCERTA'].includes(e) ? styles.seloAlerta : ['ENTREGUE', 'TAREFA_CRIADA', 'ACEITA'].includes(e) ? styles.seloAtivo : styles.selo);
+const seloEstado = (e: string) => (['FALHOU', 'INCERTA'].includes(e) ? styles.seloAlerta : ['ENTREGUE', 'TAREFA_CRIADA', 'PESQUISA_CRIADA', 'ACEITA'].includes(e) ? styles.seloAtivo : styles.selo);
 
 export default function MarketingAutomacoes() {
   const [unidadeId, setUnidadeId] = useState('');
@@ -63,6 +71,7 @@ export default function MarketingAutomacoes() {
     {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
     {dados && <>
       {dados.regras.map((r) => <CartaoRegra key={`${unidadeId}:${r.tipo}:${r.versao}`} regra={r} catalogo={dados.catalogo[r.tipo]} pode={pode} unidadeId={unidadeId || null}
+        pesquisa={dados.ambiente.pesquisa ?? null}
         datasVagas={r.tipo === 'DATAS_VAGAS' ? dados.datasVagas : null} retorno={retorno?.chave === `${unidadeId}:${r.tipo}` ? retorno : null}
         aoMudar={(ret, salva) => {
           setAviso({ tipo: ret.tipo === 'alerta' ? 'erro' : 'ok', texto: ret.texto }); setRetorno({ ...ret, chave: `${unidadeId}:${r.tipo}` });
@@ -86,6 +95,12 @@ export default function MarketingAutomacoes() {
         {dados.caixaSimulada.length === 0 ? <p className={styles.vazio}>Vazia.</p> : <ul className={styles.historico}>{dados.caixaSimulada.map((m) => <li key={m.id}>
           {dataHoraBr(m.aceito_em)} · {m.destinatario_mascarado} · modelo {m.template_provedor} · <strong>{m.status}</strong><br />{m.texto}</li>)}</ul>}
       </section>
+      {dados.ambiente.pesquisa?.disponivel && <section className={styles.cartao} aria-labelledby="t-saida-email">
+        <h2 id="t-saida-email">E-mails da pesquisa (simulados) <span className={styles.seloSimulado}>nada foi enviado</span></h2>
+        <p className={styles.muted}>E-mails da pesquisa de satisfação aceitos pelo transporte simulado. Endereço mascarado; o link aparece como “[link da pesquisa]” (o link real não é guardado).</p>
+        {(dados.caixaEmail ?? []).length === 0 ? <p className={styles.vazio}>Vazia.</p> : <ul className={styles.historico}>{dados.caixaEmail!.map((m) => <li key={m.id}>
+          {dataHoraBr(m.aceito_em)} · {m.para_mascarado} · <strong>{m.assunto}</strong><br /><span style={{ whiteSpace: 'pre-line' }}>{m.texto}</span></li>)}</ul>}
+      </section>}
       <Preferencias pode={pode} />
     </>}
   </main>;
@@ -121,8 +136,8 @@ function Passo({ n, titulo, children }: { n: number; titulo: string; children: R
   return <li className={au.passo}><span className={au.numero} aria-hidden="true">{n}</span><div><h3>{titulo}</h3>{children}</div></li>;
 }
 
-function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, aoMudar, aoErro }: {
-  regra: Regra; catalogo: Catalogo[TipoRegra]; pode: boolean; unidadeId: string | null; datasVagas: SugestaoDatas | null; retorno: Retorno | null;
+function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, retorno, aoMudar, aoErro }: {
+  regra: Regra; catalogo: Catalogo[TipoRegra]; pode: boolean; unidadeId: string | null; pesquisa: AmbientePesquisa | null; datasVagas: SugestaoDatas | null; retorno: Retorno | null;
   aoMudar: (r: Retorno, salva?: Regra) => void; aoErro: (t: string) => void;
 }) {
   const [f, setF] = useState(regra);
@@ -141,7 +156,9 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, ao
   }
   const salvar = () => enviar({ acao: 'salvar-regra', tipo: regra.tipo, unidadeId, versao: regra.versao, acaoRegra: f.acao, esperaDias: f.esperaDias, janelaInicio: f.janelaInicio,
     janelaFim: f.janelaFim, fuso: f.fuso, fimDeSemana: f.fimDeSemana, limiteFrequenciaDias: f.limiteFrequenciaDias, maxTentativas: f.maxTentativas,
-    templateTexto: f.acao === 'MENSAGEM_WHATSAPP' ? f.templateTexto : regra.templateTexto, templateProvedor: f.acao === 'MENSAGEM_WHATSAPP' ? f.templateProvedor : regra.templateProvedor },
+    templateTexto: f.acao === 'TAREFA_INTERNA' ? regra.templateTexto : f.templateTexto, templateProvedor: f.acao === 'TAREFA_INTERNA' ? regra.templateProvedor : f.templateProvedor,
+    // Canais e lembrete só existem na pesquisa (o servidor recusa esses campos nas outras ações).
+    ...(f.acao === 'PESQUISA_SATISFACAO' ? { canais: f.canais, templateLembreteTexto: f.templateLembreteTexto, templateLembreteProvedor: f.templateLembreteProvedor } : {}) },
     // Retorno pelo que o servidor DEVOLVEU: salvar texto/modelo de mensagem ativa a pausa (ver salvarRegra).
     (salva) => (salva ? retornoAoSalvarRegra(regra, salva) : { tipo: 'ok', texto: 'Regra salva.' }));
   const statusClasse = regra.status === 'ATIVA' ? styles.seloAtivo : regra.status === 'PAUSADA' ? styles.seloAlerta : styles.selo;
@@ -154,9 +171,31 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, ao
     <p className={styles.muted}>Para divulgar, <Link href="/admin/marketing/campanhas">crie uma campanha</Link> e revise o texto.</p>
   </section>;
 
-  const mensagem = f.acao === 'MENSAGEM_WHATSAPP';
-  const problemasTexto = mensagem && f.templateTexto ? validarModelo(f.templateTexto) : [];
-  const textoMudou = (f.templateTexto ?? null) !== (regra.templateTexto ?? null) || (f.templateProvedor ?? null) !== (regra.templateProvedor ?? null);
+  const ehPesquisa = f.acao === 'PESQUISA_SATISFACAO';
+  const comWhatsapp = f.acao === 'MENSAGEM_WHATSAPP' || (ehPesquisa && f.canais.includes('WHATSAPP'));
+  // "mensagem": a regra fala com o cliente (texto, frequência e tentativas); a revisão humana só é exigida com WhatsApp.
+  const mensagem = f.acao === 'MENSAGEM_WHATSAPP' || ehPesquisa;
+  const validar = (t: string) => (ehPesquisa ? validarModeloPesquisa(t, { whatsapp: comWhatsapp }) : validarModelo(t));
+  const problemasTexto = mensagem && f.templateTexto ? validar(f.templateTexto) : [];
+  const problemasLembrete = ehPesquisa && f.templateLembreteTexto ? validar(f.templateLembreteTexto) : [];
+  const textoMudou = (f.templateTexto ?? null) !== (regra.templateTexto ?? null) || (f.templateProvedor ?? null) !== (regra.templateProvedor ?? null)
+    || (f.templateLembreteTexto ?? null) !== (regra.templateLembreteTexto ?? null) || (f.templateLembreteProvedor ?? null) !== (regra.templateLembreteProvedor ?? null);
+  const regraComWhatsapp = regra.acao === 'MENSAGEM_WHATSAPP' || (regra.acao === 'PESQUISA_SATISFACAO' && regra.canais.includes('WHATSAPP'));
+  const passoAjustes = mensagem ? (ehPesquisa ? 6 : 5) : 4;
+  const previa = (t: string) => renderizarModelo(t, { ...EXEMPLO_FICTICIO, linkPesquisa: '[link da pesquisa]' });
+  function escolherAcao(a: string) {
+    if (a !== 'PESQUISA_SATISFACAO') { setF({ ...f, acao: a as Regra['acao'] }); return; }
+    // Primeira escolha da pesquisa: e-mail marcado e os textos padrão (o da mensagem simples não tem o link).
+    const temLink = (t: string | null) => !!t && /\{\{\s*link_pesquisa\s*\}\}/.test(t);
+    setF({ ...f, acao: 'PESQUISA_SATISFACAO', canais: f.canais.length > 0 ? f.canais : ['EMAIL'],
+      templateTexto: temLink(f.templateTexto) ? f.templateTexto : pesquisa?.textoPadrao ?? f.templateTexto,
+      templateLembreteTexto: temLink(f.templateLembreteTexto) ? f.templateLembreteTexto : pesquisa?.lembretePadrao ?? f.templateLembreteTexto });
+  }
+  function alternarCanal(c: Canal, marcado: boolean) {
+    const canais = marcado ? [...f.canais.filter((x) => x !== c), c] : f.canais.filter((x) => x !== c);
+    setF({ ...f, canais: (['WHATSAPP', 'EMAIL'] as const).filter((x) => canais.includes(x)) });
+  }
+  const acoesVisiveis = catalogo.acoes.filter((a) => a !== 'PESQUISA_SATISFACAO' || pesquisa?.disponivel || regra.acao === a);
   return <section className={styles.cartao} aria-label={catalogo.nome}>
     <h2>{catalogo.nome} <span className={statusClasse}>{STATUS[regra.status]}</span>{sujo && <> <span className={styles.seloAlerta}>alterações não salvas</span></>}</h2>
     <p className={au.resumo}><strong>Resumo:</strong> {resumoRegra(f)}</p>
@@ -170,27 +209,49 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, ao
       </Passo>
       <Passo n={3} titulo="O que fazer">
         <div className={au.opcoes} role="radiogroup" aria-label="Ação">
-          {catalogo.acoes.map((a) => <label key={a} className={au.opcao}>
-            <input type="radio" name={`acao-${regra.tipo}`} disabled={!pode} checked={f.acao === a} onChange={() => setF({ ...f, acao: a as Regra['acao'] })} />
-            <strong>{a === 'TAREFA_INTERNA' ? 'Criar tarefa para a equipe' : 'Enviar mensagem de WhatsApp'}</strong>
-            <span>{a === 'TAREFA_INTERNA' ? 'Aparece em “Tarefas abertas”. Funciona sem provedor e sem autorização de mensagens.' : 'Só para quem autorizou um número do cadastro. Neste ambiente a mensagem é simulada.'}</span>
+          {acoesVisiveis.map((a) => <label key={a} className={au.opcao}>
+            <input type="radio" name={`acao-${regra.tipo}`} disabled={!pode || (a === 'PESQUISA_SATISFACAO' && !pesquisa?.disponivel)} checked={f.acao === a} onChange={() => escolherAcao(a)} />
+            <strong>{OPCAO_ACAO[a]?.titulo ?? a}</strong>
+            <span>{OPCAO_ACAO[a]?.texto}</span>
           </label>)}
         </div>
-        {mensagem && <details className={au.legenda}><summary>Quem recebe e quem não recebe</summary><ul>{QUEM_RECEBE.map((q) => <li key={q}>{q}</li>)}</ul></details>}
+        {ehPesquisa && pesquisa && !pesquisa.ligada && <p className={styles.muted}>A pesquisa está desligada neste servidor (SATISFACAO_PESQUISA_ENABLED): a regra pode ser configurada e simulada, mas nenhuma pesquisa é criada.</p>}
+        {comWhatsapp && <details className={au.legenda}><summary>Quem recebe e quem não recebe</summary><ul>{QUEM_RECEBE.map((q) => <li key={q}>{q}</li>)}</ul></details>}
       </Passo>
-      {mensagem && <Passo n={4} titulo="Mensagem">
-        <label className={styles.campo}>Texto (marcadores: {'{{nome}}'}, {'{{buffet}}'}, {'{{data_festa}}'}; precisa dizer como parar com “PARAR”)
+      {ehPesquisa && <Passo n={4} titulo="Canais">
+        <div className={au.opcoes} role="group" aria-label="Canais da pesquisa">
+          <label className={au.opcao}><input type="checkbox" disabled={!pode} checked={f.canais.includes('EMAIL')} onChange={(e) => alternarCanal('EMAIL', e.target.checked)} />
+            <strong>E-mail</strong><span>Para o e-mail do cadastro. O texto do e-mail é do sistema, com as notas de 0 a 10 para clicar.</span></label>
+          <label className={au.opcao}><input type="checkbox" disabled={!pode} checked={f.canais.includes('WHATSAPP')} onChange={(e) => alternarCanal('WHATSAPP', e.target.checked)} />
+            <strong>WhatsApp</strong><span>Só para quem autorizou um número do cadastro. Usa o texto abaixo, revisado por uma pessoa.</span></label>
+        </div>
+        {f.canais.length === 0 && <p className={styles.aviso} role="status">Escolha pelo menos um canal.</p>}
+        <p className={styles.muted}>Uma pesquisa por festa. Com os dois canais, o segundo só sai até 48 horas depois do primeiro contato. Saída das pesquisas, descadastro e “PARAR” são conferidos de novo antes de cada envio.</p>
+      </Passo>}
+      {mensagem && <Passo n={ehPesquisa ? 5 : 4} titulo={ehPesquisa ? 'Textos do WhatsApp' : 'Mensagem'}>
+        <label className={styles.campo}>{ehPesquisa ? 'Texto da pesquisa' : 'Texto'} (marcadores: {'{{nome}}'}, {'{{buffet}}'}, {'{{data_festa}}'}{ehPesquisa ? <>, {'{{link_pesquisa}}'} obrigatório</> : null}{comWhatsapp ? '; precisa dizer como parar com “PARAR”' : ''})
           <textarea disabled={!pode} maxLength={1000} rows={4} value={f.templateTexto ?? ''} onChange={(e) => setF({ ...f, templateTexto: e.target.value })} /></label>
         {problemasTexto.length > 0 && <div className={styles.aviso} role="status"><ul>{problemasTexto.map((p) => <li key={p}>{p}</li>)}</ul></div>}
-        <label className={styles.campo}>Nome do modelo no provedor (ex.: retomar_proposta_v1)<input disabled={!pode} value={f.templateProvedor ?? ''} onChange={(e) => setF({ ...f, templateProvedor: e.target.value })} /></label>
+        {comWhatsapp && <label className={styles.campo}>Nome do modelo no provedor (ex.: {ehPesquisa ? 'pesquisa_festa_v1' : 'retomar_proposta_v1'})<input disabled={!pode} value={f.templateProvedor ?? ''} onChange={(e) => setF({ ...f, templateProvedor: e.target.value })} /></label>}
         {f.templateTexto && <div className={au.previaMensagem} aria-label="Prévia da mensagem">
           <span className={au.rotuloFicticio}>Prévia com dados fictícios: {EXEMPLO_FICTICIO.nome}, festa em {dataBr(EXEMPLO_FICTICIO.dataFesta)}</span>
-          <p>{renderizarModelo(f.templateTexto, EXEMPLO_FICTICIO)}</p>
+          <p>{previa(f.templateTexto)}</p>
         </div>}
-        <p className={styles.muted}>{regra.templateRevisadoEm && !textoMudou ? `Texto revisado por uma pessoa em ${dataHoraBr(regra.templateRevisadoEm)}.` : 'Texto ainda não revisado: a regra de mensagem só pode ser ativada depois da revisão.'}
-          {' '}A revisão aqui é interna; a aprovação do modelo pelo provedor de WhatsApp é outra etapa e não acontece neste ambiente.</p>
+        {ehPesquisa && <>
+          <label className={styles.campo}>Texto do lembrete (único, 3 dias depois do primeiro envio aceito, se não houver resposta)
+            <textarea disabled={!pode} maxLength={1000} rows={3} value={f.templateLembreteTexto ?? ''} onChange={(e) => setF({ ...f, templateLembreteTexto: e.target.value })} /></label>
+          {problemasLembrete.length > 0 && <div className={styles.aviso} role="status"><ul>{problemasLembrete.map((p) => <li key={p}>{p}</li>)}</ul></div>}
+          {comWhatsapp && <label className={styles.campo}>Nome do modelo do lembrete no provedor (ex.: pesquisa_lembrete_v1)<input disabled={!pode} value={f.templateLembreteProvedor ?? ''} onChange={(e) => setF({ ...f, templateLembreteProvedor: e.target.value })} /></label>}
+          {f.templateLembreteTexto && <div className={au.previaMensagem} aria-label="Prévia do lembrete">
+            <span className={au.rotuloFicticio}>Prévia do lembrete com dados fictícios</span>
+            <p>{previa(f.templateLembreteTexto)}</p>
+          </div>}
+          <p className={styles.muted}>O link aparece como “[link da pesquisa]” na prévia e no histórico: o link real é montado só na hora do envio e não é guardado.</p>
+        </>}
+        {comWhatsapp && <p className={styles.muted}>{regra.templateRevisadoEm && !textoMudou ? `Texto revisado por uma pessoa em ${dataHoraBr(regra.templateRevisadoEm)}.` : `Texto ainda não revisado: ${ehPesquisa ? 'com WhatsApp, a pesquisa' : 'a regra de mensagem'} só pode ser ativada depois da revisão.`}
+          {' '}A revisão aqui é interna; a aprovação do modelo pelo provedor de WhatsApp é outra etapa e não acontece neste ambiente.</p>}
       </Passo>}
-      <Passo n={mensagem ? 5 : 4} titulo="Horários e frequência">
+      <Passo n={passoAjustes} titulo="Horários e frequência">
         <p>{horarioPermitido(f)}.{mensagem ? ` No máximo uma mensagem automática por cliente a cada ${f.limiteFrequenciaDias} dia(s).` : ''}</p>
         <details className={au.avancado}><summary>Ajustar horários{mensagem ? ', frequência e tentativas' : ''}</summary>
           <div className={styles.grade3}>
@@ -204,15 +265,15 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, ao
           <p className={styles.muted}>O que vencer fora do horário fica agendado para o próximo horário permitido.</p>
         </details>
       </Passo>
-      <Passo n={mensagem ? 6 : 5} titulo="Revisar, simular e ativar">
-        {regra.status === 'ATIVA' && sujo && mensagem && (textoMudou || !regra.templateRevisadoEm) && <p className={styles.aviso} role="status">Ao salvar, esta regra será PAUSADA: o texto da mensagem precisa de uma nova revisão e o que estava agendado é cancelado.</p>}
-        {regra.status === 'ATIVA' && <p className={styles.muted}>Esta regra está ativa. Salvar prazo, horários ou ação mantém a regra ativa, e o que já está agendado é conferido de novo com a regra atual antes de agir.{mensagem ? ' Mudar o texto ou o modelo pausa a regra e cancela as mensagens agendadas até uma nova revisão.' : ''}</p>}
+      <Passo n={passoAjustes + 1} titulo="Revisar, simular e ativar">
+        {regra.status === 'ATIVA' && sujo && comWhatsapp && (textoMudou || !regra.templateRevisadoEm || (ehPesquisa && !regra.canais.includes('WHATSAPP'))) && <p className={styles.aviso} role="status">Ao salvar, esta regra será PAUSADA: o texto da mensagem precisa de uma nova revisão e o que estava agendado é cancelado.</p>}
+        {regra.status === 'ATIVA' && <p className={styles.muted}>Esta regra está ativa. Salvar prazo, horários ou ação mantém a regra ativa, e o que já está agendado é conferido de novo com a regra atual antes de agir.{comWhatsapp ? ' Mudar o texto ou o modelo pausa a regra e cancela as mensagens agendadas até uma nova revisão.' : ''}</p>}
         {pode ? <div className={styles.acoes}>
           <button type="button" className={styles.secundario} disabled={ocupado || !sujo} onClick={() => void salvar()}>{regra.status === 'ATIVA' ? 'Salvar alterações' : 'Salvar rascunho'}</button>
           <button type="button" className={styles.fantasma} disabled={ocupado || !regra.id || sujo} title={!regra.id ? 'Salve a regra primeiro' : sujo ? 'A simulação usa a versão salva: salve antes' : undefined}
             onClick={() => void enviar({ acao: 'simular', regraId: regra.id }, '')}>Simular agora</button>
-          {regra.id && regra.acao === 'MENSAGEM_WHATSAPP' && !regra.templateRevisadoEm && !sujo && <button type="button" className={styles.secundario} disabled={ocupado}
-            onClick={() => { if (window.confirm(`Aprovar este texto para mensagens automáticas?\n\n${regra.templateTexto ?? ''}`)) void enviar({ acao: 'revisar', regraId: regra.id, versao: regra.versao }, 'Texto revisado e aprovado.'); }}>Revisar e aprovar texto</button>}
+          {regra.id && regraComWhatsapp && !regra.templateRevisadoEm && !sujo && <button type="button" className={styles.secundario} disabled={ocupado}
+            onClick={() => { if (window.confirm(`Aprovar ${regra.acao === 'PESQUISA_SATISFACAO' ? 'estes textos' : 'este texto'} para mensagens automáticas?\n\n${regra.templateTexto ?? ''}${regra.acao === 'PESQUISA_SATISFACAO' ? `\n\nLembrete:\n${regra.templateLembreteTexto ?? ''}` : ''}`)) void enviar({ acao: 'revisar', regraId: regra.id, versao: regra.versao }, 'Texto revisado e aprovado.'); }}>Revisar e aprovar texto</button>}
           {regra.id && regra.status !== 'ATIVA' && <AdminPrimaryButton type="button" carregando={ocupado} disabled={sujo} title={sujo ? 'Salve antes de ativar' : undefined}
             onClick={() => void enviar({ acao: 'ativar', regraId: regra.id, versao: regra.versao }, 'Regra ativada. Ela age nos próximos ciclos de processamento.')}>Ativar</AdminPrimaryButton>}
           {regra.id && regra.status === 'ATIVA' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => { if (window.confirm('Pausar a regra? O que estava agendado é cancelado.')) void enviar({ acao: 'pausar', regraId: regra.id }, 'Regra pausada; agendadas canceladas.'); }}>Pausar</button>}

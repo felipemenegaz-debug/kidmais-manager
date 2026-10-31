@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
-import { carregarComBanco, cod, SENHA_FALSA } from "../marketing/harness-postgres.ts";
+import { carregarComBanco, cod, executor, porTransacao, SENHA_FALSA } from "../marketing/harness-postgres.ts";
 import { carregarAtendimento } from "../whatsapp/atendimento/harness-postgres.ts";
 import { comandoDireto, pausaPedidaNaRecepcao } from "../whatsapp/atendimento/core.ts";
 import type { PortaWallE } from "../whatsapp/atendimento/worker.ts";
 import type { ConteudoSaida } from "../whatsapp/atendimento/transporte.ts";
-import { baseSintetica, type CriarEnvio } from "./harness-postgres.ts";
+import { ativarRegraPesquisa, baseSintetica, type CriarEnvio } from "./harness-postgres.ts";
 import { lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -23,6 +23,8 @@ import { lerAnel, type AnelChaves } from "./token.ts";
  *  P3 recepção, cliente identificado SEM pesquisa: a pesquisa criada depois do PARAR — WhatsApp inelegível, e-mail PENDENTE;
  *  P4 worker, PARAR entendido pelo Wall-e (paráfrase que a recepção não bloqueia): mesmo alcance da recepção;
  *  P5 worker, PARAR entendido pelo modelo (fase B): mesmo alcance da recepção.
+ *  P6 (PS-2) o despacho REAL das entregas de P1–P5 revalida cada tentativa: nenhum WhatsApp sai depois do PARAR
+ *     (inclusive pesquisa/cliente criados depois dele); todo e-mail sai.
  * A entrega de WhatsApp criada depois do PARAR nasce PENDENTE (a criação não decide canal): quem barra é a revalidação do
  * despacho (elegivelParaMensagem), conferida aqui pelo chamador real; o despacho em si é da PS-2.
  */
@@ -32,6 +34,8 @@ const PARAR = "não quero receber mais nada de vocês";
 const PARAFRASE = "podem me esquecer, não tenho mais interesse em nada";
 
 type Envios = { criarEnvio: CriarEnvio };
+type Despacho = { executarEntregas(b: unknown, ctx: unknown, agora: Date, o: unknown): Promise<{ resultados: Record<string, number> }> };
+type TranspPesquisa = { transportesSimulados(c: () => unknown): unknown };
 type Pref = {
   alterarPreferencia(tx: unknown, e: string, u: string, i: unknown): Promise<unknown>;
   elegivelParaMensagem(tx: unknown, e: string, clienteId: string): Promise<{ ok: boolean; motivo?: string }>;
@@ -52,7 +56,7 @@ test("110: PARAR pela recepção e pelo worker reais do WhatsApp", { timeout: 30
     const carregar = <T>(f: string) => carregarComBanco(f, c, () => null, {}, cache) as unknown as T;
     const envios = carregar<Envios>("lib/satisfacao/envios.ts");
     const pref = carregar<Pref>("lib/marketing/automacoes/preferencias.ts");
-    const { A, usuario, festa, emTransacao, envioPronto } = await baseSintetica(c, anel, envios.criarEnvio, identidade);
+    const { A, usuario, regraA, festa, emTransacao, envioPronto } = await baseSintetica(c, anel, envios.criarEnvio, identidade);
     const { servico, worker } = carregarAtendimento(A);
     await servico.salvarConfiguracao({ usuario_id: usuario, papel: "REPRESENTANTE_AUTORIZADO" } as never,
       { ativo: true, nome: "Buffet sintético", perguntas: [], limites: { respostasPor24h: 5 }, wallE: { ativo: true } });
@@ -154,6 +158,25 @@ test("110: PARAR pela recepção e pelo worker reais do WhatsApp", { timeout: 30
       await bloqueadoNoWhatsapp(p.cl, "P5");
       await semSaidaDasPesquisas(p.cl, "P5");
       assert.equal(envios_.filter((x) => x.contato === p.tel).length, 0, "P5: nada enviado ao cliente");
+    });
+
+    await t.test("P6 (PS-2) despacho REAL das entregas de P1–P5: nenhum WhatsApp sai depois do PARAR; todo e-mail sai", async () => {
+      // A herança do Astra: as entregas de WhatsApp criadas depois do PARAR (P2, P3) nasceram PENDENTE; o despacho
+      // revalida e as suprime. As já suprimidas (P1, P4, P5) continuam como estão. O e-mail não é afetado pelo PARAR.
+      await ativarRegraPesquisa(c, regraA);
+      const despacho = carregar<Despacho>("lib/satisfacao/despacho.ts");
+      const transp = carregar<TranspPesquisa>("lib/satisfacao/transporte.ts");
+      const ctx = { habilitada: true, anel, origem: "http://127.0.0.1:3000", transportes: transp.transportesSimulados(() => executor(c)), repeticao: { esperar: async () => {} } };
+      const r = await despacho.executarEntregas({ transacao: porTransacao(c) }, ctx, new Date(), { empresaId: A, limite: 100 });
+      const linhas = (await c.query(`SELECT d.canal, d.estado, d.motivo FROM satisfacao_entregas d WHERE d.empresa_id = $1::uuid AND d.etapa = 'INICIAL'`, [A])).rows;
+      const whatsapp = linhas.filter((x) => x.canal === "WHATSAPP"), email = linhas.filter((x) => x.canal === "EMAIL");
+      assert.equal(whatsapp.length, 5);
+      assert.ok(whatsapp.every((x) => x.estado === "SUPRIMIDA" && ["PARAR", "NAO_CONTATAR_ATENDIMENTO"].includes(x.motivo)), JSON.stringify(whatsapp));
+      assert.equal(whatsapp.filter((x) => x.motivo === "NAO_CONTATAR_ATENDIMENTO").length, 2, "P2 e P3: suprimidas pelo despacho");
+      assert.ok(email.length === 5 && email.every((x) => x.estado === "ACEITA"), JSON.stringify(email));
+      assert.equal(Number((await um(`SELECT count(*) AS n FROM marketing_transporte_simulado WHERE empresa_id = $1::uuid`, [A])).n), 0, "nenhum WhatsApp na caixa de saída");
+      assert.equal(Number((await um(`SELECT count(*) AS n FROM satisfacao_email_simulado WHERE empresa_id = $1::uuid`, [A])).n), 5);
+      assert.equal(r.resultados.ACEITA, 5);
     });
   } finally {
     await encerrarDescartavel(c);

@@ -129,3 +129,39 @@ test("token inventado, adulterado ou sem anel: nenhuma transação aberta (nem l
   await assert.rejects(abrirPesquisa({ token: valido }, { ip: null }, deps(null)), erroDe("PESQUISA_INDISPONIVEL", 503));
   assert.equal(transacoes, 0);
 });
+
+test("PS-2 e-mail: 11 notas pré-marcadas + link simples só na versão enviada; a gravável leva o marcador; HTML escapado", async () => {
+  const { montarEmail } = await import("./despacho.ts");
+  const link = (nota?: number) => `https://exemplo.test/p#tok${nota === undefined ? "" : `.n${nota}`}`;
+  for (const etapa of ["INICIAL", "LEMBRETE"] as const) {
+    const m = montarEmail({ nome: "Ana <b>Souza</b>", buffet: "Buffet & Cia", dataFesta: "2026-10-20", etapa, link });
+    assert.equal(m.assunto, "Como foi a festa no Buffet & Cia?");
+    for (let n = 0; n <= 10; n++) assert.ok(m.html.includes(`#tok.n${n}"`), `nota ${n}`);
+    assert.ok(m.html.includes("Buffet &amp; Cia") && !m.html.includes("<b>"));
+    assert.ok(m.texto.includes("https://exemplo.test/p#tok") && m.texto.includes("20/10/2026"));
+    assert.ok(!m.textoGravavel.includes("exemplo.test") && m.textoGravavel.includes("[link da pesquisa]"));
+  }
+});
+
+test("PS-2 transporte: só 'simulado' nos dois canais (sem adaptador real nem fallback); e-mail simples validado", async () => {
+  const { emailValido, transportesDoAmbiente } = await import("./transporte.ts");
+  const sem = () => { throw new Error("banco não deveria ser tocado"); };
+  assert.ok(transportesDoAmbiente(sem, {}));
+  assert.ok(transportesDoAmbiente(sem, { MARKETING_TRANSPORTE: " Simulado ", SATISFACAO_EMAIL_TRANSPORTE: "simulado" }));
+  for (const env of [{ MARKETING_TRANSPORTE: "gupshup" }, { SATISFACAO_EMAIL_TRANSPORTE: "resend" }, { SATISFACAO_EMAIL_TRANSPORTE: "" }]) {
+    assert.throws(() => transportesDoAmbiente(sem, env), (e: { code?: string; httpStatus?: number }) => e.code === "TRANSPORTE_NAO_CONFIGURADO" && e.httpStatus === 503);
+  }
+  assert.ok(emailValido("ana.souza@pesquisa.test"));
+  for (const ruim of [null, "", "ana souza@x.test", "ana@x", "a@b.test\nBcc: c@d.test", "<a@b.test>"]) assert.equal(emailValido(ruim), false);
+});
+
+test("PS-2 modelo da pesquisa: {{link_pesquisa}} exatamente uma vez; PARAR exigido só com WhatsApp", async () => {
+  const { validarModeloPesquisa } = await import("../marketing/automacoes/modelo.ts");
+  const ok = "Olá, {{nome}}! Como foi no {{buffet}}? {{link_pesquisa}} Responda PARAR para não receber mais mensagens.";
+  assert.deepEqual(validarModeloPesquisa(ok, { whatsapp: true }), []);
+  assert.ok(validarModeloPesquisa("Olá {{nome}}", { whatsapp: false }).some((p) => p.includes("{{link_pesquisa}}")));
+  assert.ok(validarModeloPesquisa(ok + " {{link_pesquisa}}", { whatsapp: true }).some((p) => p.includes("uma vez")));
+  const semParar = "Olá, {{nome}}! Como foi no {{buffet}}? {{link_pesquisa}}";
+  assert.ok(validarModeloPesquisa(semParar, { whatsapp: true }).length > 0);
+  assert.deepEqual(validarModeloPesquisa(semParar, { whatsapp: false }), []);
+});

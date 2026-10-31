@@ -201,6 +201,8 @@ const ESTADO_POSTGRES = {
   "lib/satisfacao/satisfacao-concorrencia.postgres.test.ts": { descartavel: "110" },
   "lib/satisfacao/satisfacao-parar.postgres.test.ts": { descartavel: "110" },
   "lib/satisfacao/satisfacao-cancelamento.postgres.test.ts": { descartavel: "110" },
+  // PS-2 (30/10/2026): criação pelo motor e despacho por entrega (dois workers, posse vencida, prazos, consentimento).
+  "lib/satisfacao/satisfacao-despacho.postgres.test.ts": { descartavel: "110" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },

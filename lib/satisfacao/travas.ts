@@ -6,8 +6,12 @@ import type { DbExecutor } from "../db/contracts.ts";
  *
  * Ordem no código novo:
  *   criação (motor) : linha da execução → trava por cliente → pais NOWAIT → INSERT do envio (o gatilho relê o fechamento NOWAIT)
- *   despacho (PS-2) : trava por cliente → envio FOR UPDATE → pais NOWAIT
- *   resposta/saída  : envio FOR UPDATE → pais NOWAIT (sem a trava por cliente)
+ *   despacho (PS-2) : trava por cliente → cliente FOR SHARE → envio FOR UPDATE → entrega FOR UPDATE → pais NOWAIT
+ *                     (a conclusão e a recuperação de posse seguem a mesma ordem, sem os pais)
+ *   cadastro        : cliente FOR UPDATE / UPDATE → entregas (revogação, descadastro, edição): espera o despacho ou é esperado
+ *   resposta        : envio FOR UPDATE → pais NOWAIT → resposta e entregas (sem a trava por cliente)
+ *   saída           : envio FOR UPDATE → INSERT da saída (a FK pede KEY SHARE no cliente, compatível com o FOR SHARE do
+ *                     despacho) → supressões; sem os pais e sem a trava por cliente
  * As duas entradas de cancelamento (operarContrato e o fluxo da Festa) travam fechamento → contrato com espera; como a
  * pesquisa não espera nos pais, não há ciclo.
  */

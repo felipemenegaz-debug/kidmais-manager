@@ -105,3 +105,21 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
   }
   return { A, B, usuario, regraA, emTransacao, festa, outraFestaDoCliente, cancelarFesta, execucao, envioPronto, envioNoPassado };
 }
+
+/**
+ * PS-2: regra de pesquisa ATIVA, revisada, com os dois modelos e janela o dia todo (ou a informada). Atalho de FIXTURE
+ * (UPDATE direto, commitado); o caminho pelo serviço (salvar, revisar, ativar) é provado nas suítes de regras.
+ */
+export async function ativarRegraPesquisa(c: Client, regraId: string, extra: { canais?: string[]; janelaInicio?: string; janelaFim?: string; fimDeSemana?: boolean; limiteFrequenciaDias?: number } = {}) {
+  await porTransacao(c)(async () => {
+    await c.query(
+      `UPDATE marketing_automacao_regras SET status = 'ATIVA', ativada_em = now(), pausada_em = NULL, canais = $2::text[], janela_inicio = $3::time, janela_fim = $4::time,
+              fim_de_semana = $5, limite_frequencia_dias = $6, max_tentativas = 3,
+              template_texto = 'Olá, {{nome}}! Como foi a festa no {{buffet}}? {{link_pesquisa}} Responda PARAR para não receber mais mensagens.',
+              template_provedor = 'pesquisa_festa_v1', template_revisado_em = now(),
+              template_lembrete_texto = 'Olá, {{nome}}! A pesquisa da festa no {{buffet}} fecha logo: {{link_pesquisa}} Responda PARAR para não receber mais mensagens.',
+              template_lembrete_provedor = 'pesquisa_lembrete_v1'
+        WHERE id = $1::uuid`,
+      [regraId, extra.canais ?? ["WHATSAPP", "EMAIL"], extra.janelaInicio ?? "00:00", extra.janelaFim ?? "23:59", extra.fimDeSemana ?? true, extra.limiteFrequenciaDias ?? 30]);
+  });
+}
