@@ -148,12 +148,12 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       const cancelamento = (async () => { await travarComoCancelamento(p.f); await concluirCancelamento(p.f); })();
       await esperarBloqueio(c2, p3, p1, "FOR UPDATE");
       liberar();
-      assert.deepEqual(await resposta, { gravada: true });
+      assert.deepEqual(await resposta, { gravada: true, linkAvaliacao: null });
       await cancelamento;
       assert.equal((await um(`SELECT estado FROM satisfacao_envios WHERE id = $1::uuid`, [p.envio])).estado, "RESPONDIDO", "resposta confirmada antes do cancelamento");
       assert.equal((await um(`SELECT status FROM fechamentos WHERE id = $1::uuid`, [p.f])).status, "CANCELADO");
       assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_tarefas WHERE envio_id = $1::uuid`, [p.envio]), 1);
-      assert.equal((await pub1.abrirPesquisa({ token: p.token }, { ip: ip() }, deps(c1))).situacao, "RESPONDIDA", "RESPONDIDO é preservado depois do cancelamento");
+      assert.equal((await pub1.abrirPesquisa({ token: p.token }, { ip: ip() }, deps(c1))).situacao, "ENCERRADA", "PS-3 (G'): abre como ENCERRADA depois do cancelamento; o estado RESPONDIDO segue no banco");
     });
 
     await t.test("criação: duas execuções da mesma festa em transações concorrentes → um envio (a trava por cliente serializa)", async () => {

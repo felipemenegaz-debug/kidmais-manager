@@ -10,6 +10,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
+import { LinksAvaliacao, RetornosNotasBaixas } from './SatisfacaoRetornos';
 import styles from './marketing.module.css';
 import au from './automacoes.module.css';
 
@@ -79,6 +80,7 @@ export default function MarketingAutomacoes() {
           if (salva) setDados((d) => ({ ...d, regras: d.regras.map((x) => (x.tipo === salva.tipo && x.unidadeId === salva.unidadeId ? salva : x)) }));
           recarregar();
         }} aoErro={(texto) => { setRetorno(null); setAviso({ tipo: 'erro', texto }); }} />)}
+      {dados.ambiente.pesquisa?.disponivel && <RetornosNotasBaixas />}
       <section className={styles.cartao} aria-labelledby="t-tarefas">
         <h2 id="t-tarefas">Tarefas abertas ({dados.tarefas.length})</h2>
         <p className={styles.muted}>Criadas pelas regras com a ação “tarefa”. Não dependem de autorização de mensagens.</p>
@@ -247,6 +249,7 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
             <p>{previa(f.templateLembreteTexto)}</p>
           </div>}
           <p className={styles.muted}>O link aparece como “[link da pesquisa]” na prévia e no histórico: o link real é montado só na hora do envio e não é guardado.</p>
+          <LinksAvaliacao />
         </>}
         {comWhatsapp && <p className={styles.muted}>{regra.templateRevisadoEm && !textoMudou ? `Texto revisado por uma pessoa em ${dataHoraBr(regra.templateRevisadoEm)}.` : `Texto ainda não revisado: ${ehPesquisa ? 'com WhatsApp, a pesquisa' : 'a regra de mensagem'} só pode ser ativada depois da revisão.`}
           {' '}A revisão aqui é interna; a aprovação do modelo pelo provedor de WhatsApp é outra etapa e não acontece neste ambiente.</p>}

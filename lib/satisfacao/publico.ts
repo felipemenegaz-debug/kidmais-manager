@@ -4,6 +4,7 @@ import { withTransaction as withTransactionPadrao } from "../db/postgres.ts";
 import { consumirOrigem, type RegraOrigem } from "../acessos/limite-origem.ts";
 import { nomePublicoDaEmpresa } from "../perfil/nome-publico.ts";
 import { configuracaoIndisponivel, linkIndisponivel, SatisfacaoError } from "./erros.ts";
+import { linkDoEnvio } from "./links.ts";
 import { esquemaResposta, precisaDeTarefa, primeiroNome, VERSAO_QUESTIONARIO, type RespostaQuestionario } from "./questionario.ts";
 import { suprimirPesquisas } from "./supressao.ts";
 import { lerAnel, mesmoHash, verificarToken, type AnelChaves, type TokenVerificado } from "./token.ts";
@@ -111,7 +112,8 @@ const esquemaSaida = z.object({ token: z.string().max(200), origem: z.enum(["PAG
 
 export type Abertura =
   | { situacao: "ABERTA"; primeiroNome: string; buffet: string; unidade: string | null; dataFesta: string; versaoQuestionario: number }
-  | { situacao: "RESPONDIDA"; buffet: string }
+  /** PS-3: link de avaliação do Google (configuração atual do par empresa/unidade do envio), igual para toda nota 0–10. */
+  | { situacao: "RESPONDIDA"; buffet: string; linkAvaliacao: string | null }
   /** Envio do link (identidade conferida) vencido ou revogado: sem questionário, mas a saída das pesquisas continua valendo. */
   | { situacao: "ENCERRADA"; buffet: string };
 
@@ -124,7 +126,10 @@ export async function abrirPesquisa(raw: unknown, ctx: ContextoPublico, deps: De
     const s = await situacao(tx, e);
     const buffet = (await nomePublicoDaEmpresa(tx, e.empresa_id)) ?? "buffet";
     if (s === "INDISPONIVEL") return { situacao: "ENCERRADA" as const, buffet };
-    if (s === "RESPONDIDO") return { situacao: "RESPONDIDA" as const, buffet };
+    if (s === "RESPONDIDO") {
+      if (!(await respondidoValendo(tx, e))) return { situacao: "ENCERRADA" as const, buffet };
+      return { situacao: "RESPONDIDA" as const, buffet, linkAvaliacao: await linkDoEnvio(tx, e.empresa_id, e.estabelecimento_id) };
+    }
     const d = (await tx.query<{ nome: string | null; unidade: string | null; data: string }>(
       `SELECT c.nome_completo AS nome, u.nome AS unidade, to_char(f.data_evento, 'YYYY-MM-DD') AS data
          FROM fechamentos f JOIN clientes c ON c.id = $2::uuid LEFT JOIN estabelecimentos u ON u.empresa_id = f.empresa_id AND u.id = $3::uuid
@@ -135,6 +140,19 @@ export async function abrirPesquisa(raw: unknown, ctx: ContextoPublico, deps: De
   // identidade conferida vira ENCERRADA (já gravado e confirmado acima): sem questionário, só a saída das pesquisas.
   if (!r) linkIndisponivel();
   return r;
+}
+
+/**
+ * PS-3 (C + G'): a validade prevalece sobre RESPONDIDA. O envio respondido continua RESPONDIDO no banco (terminal, PS-1),
+ * mas só abre como RESPONDIDA (com o convite) enquanto não venceu e a festa vale; senão abre como ENCERRADA, sem link
+ * (leitura sem trava: só decide a apresentação, nada é gravado).
+ */
+async function respondidoValendo(tx: DbExecutor, e: EnvioTravado): Promise<boolean> {
+  if (e.vencido) return false;
+  const festa = (await tx.query<{ valida: boolean }>(
+    `SELECT f.status <> 'CANCELADO' AND EXISTS (SELECT 1 FROM contratos c WHERE c.fechamento_id = f.id AND c.status = 'ASSINADO') AS valida
+       FROM fechamentos f WHERE f.id = $1::uuid`, [e.fechamento_id])).rows[0];
+  return festa?.valida === true;
 }
 
 async function criarTarefaPadrao(tx: DbExecutor, e: EnvioTravado, respostaId: string) {
@@ -164,11 +182,12 @@ export async function responderPesquisa(raw: unknown, ctx: ContextoPublico, deps
     await tx.query(`UPDATE satisfacao_envios SET estado = 'RESPONDIDO', respondido_em = clock_timestamp() WHERE id = $1::uuid`, [e.id]);
     await cancelarPendentes(tx, e.id, "RESPONDIDA");
     if (precisaDeTarefa(resposta.notaIndicacao)) await criarTarefa(tx, e, id);
-    return "GRAVADA" as const;
+    // PS-3: mesmo link para todas as notas 0–10 (nada condicionado à nota, ao comentário ou à tarefa).
+    return { linkAvaliacao: await linkDoEnvio(tx, e.empresa_id, e.estabelecimento_id) };
   });
   if (r === "INDISPONIVEL") linkIndisponivel();
   if (r === "RESPONDIDO") throw new SatisfacaoError("JA_RESPONDIDA", "Esta pesquisa já foi respondida. Obrigado!", 409);
-  return { gravada: true as const };
+  return { gravada: true as const, linkAvaliacao: r.linkAvaliacao };
 }
 
 /**

@@ -32,6 +32,7 @@ export const RETRATO_108 = "lib/exportacao/colunas-esperadas-108.json";
 export const RETRATO_109 = "lib/exportacao/colunas-esperadas-109.json";
 // Pesquisa de satisfação (30/10/2026): a 110 cria as tabelas satisfacao_* (modelo 110 = cadeia da 109 + 110).
 export const RETRATO_110 = "lib/exportacao/colunas-esperadas-110.json";
+export const RETRATO_111 = "lib/exportacao/colunas-esperadas-111.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {

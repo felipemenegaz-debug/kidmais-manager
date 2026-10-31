@@ -204,7 +204,7 @@ test("110: resposta × cancelamento pelas entradas reais (Festa e operarContrato
       const cancelamento = entrada().then((r) => ({ ok: true as const, r }), (e: unknown) => ({ ok: false as const, e }));
       const esperando = await esperarBloqueio(c3, p2, p1, trechoDaEspera);
       seguir.liberar();
-      assert.deepEqual(await resposta, { gravada: true });
+      assert.deepEqual(await resposta, { gravada: true, linkAvaliacao: null });
       return { esperando, cancelamento: await cancelamento };
     }
 
@@ -235,7 +235,7 @@ test("110: resposta × cancelamento pelas entradas reais (Festa e operarContrato
       assert.equal(r.cancelamento.ok, false);
       assert.match(String((r.cancelamento as { e: Error }).e.message), /Use o fluxo de cancelamento da Festa/);
       assert.deepEqual(r.codigos, ["55P03"]);
-      assert.deepEqual(r.resultado, { ok: true, r: { gravada: true } });
+      assert.deepEqual(r.resultado, { ok: true, r: { gravada: true, linkAvaliacao: null } });
       assert.equal((await um(`SELECT status FROM contratos WHERE id = $1::uuid`, [p.contrato])).status, "ASSINADO");
       assert.equal((await estado(p.envio)).estado, "RESPONDIDO");
     });

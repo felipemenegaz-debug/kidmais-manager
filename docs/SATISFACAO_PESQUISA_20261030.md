@@ -384,3 +384,248 @@ o cabeçalho de `travas.ts`: o comportamento do despacho não mudou.
 | Não reexecutado | regressão PG completa e E2E: nada fora de `lib/satisfacao` mudou desde a rodada 2 além de testes/ferramenta (o despacho só ganhou um comentário SQL); o controle dos mutantes cobre as cinco suítes da 110 |
 
 **Cluster:** encerrado pelo driver. Nenhum commit; nada publicado.
+
+## PS-3 — links de avaliação, retornos das notas baixas e auditoria (111) — LOCAL, sem commit (31/10/2026)
+
+**Estado: LOCAL, sem commit, sobre o merge local `5dfdff55`; nada publicado.** Implementa o plano PS-3 rev. 2 + rev. 2.1 +
+precisões PS3-R21-P3-1/P3-2. A 111 só foi aplicada no cluster descartável (127.0.0.1:55551, já encerrado). Número 111 proposto.
+
+### O que entrega
+
+| Peça | Arquivos |
+|---|---|
+| Migration 111 (links por empresa/unidade com `UNIQUE NULLS NOT DISTINCT`, CHECK de URL, guarda de identidade; auditoria só de acréscimo com UPDATE/DELETE/TRUNCATE recusados e coerência da conclusão), pré/pós-check e volta com captura confirmada | `database/migrations/20261031_111_satisfacao_links_auditoria.sql`, `database/checks/20261031_111_{precheck,postcheck}.sql`, `database/rollback/20261031_111_satisfacao_links_auditoria_down.sql` |
+| Detector da instalação pelo catálogo (gatilho por relação, função, habilitação O/A e tgtype; restrições por tipo e validação; NULLS NOT DISTINCT) — AUSENTE/PARCIAL → 503 antes de qualquer linha | `lib/satisfacao/instalacao.ts` |
+| Gramática positiva do link do Google (B') e serviço de links (só Gestão; trava FOR UPDATE; corrida → 409; auditoria) | `lib/satisfacao/links.ts`, `app/api/admin/satisfacao/links/route.ts` |
+| Retornos: leitura num snapshot (Gestão × Equipe TRATAR vigente com foto) e conclusão A' (travas concessão → vínculo → tarefa, decisão com UM `clock_timestamp()` materializado, estado e auditoria no mesmo instante) | `lib/satisfacao/tarefas.ts`, `lib/satisfacao/admin-http.ts`, `app/api/admin/satisfacao/tarefas/**` |
+| Página pública: o mesmo convite “Avaliar no Google” para as notas 0–10; RESPONDIDA mostra o link só se o envio não venceu e a festa vale | `lib/satisfacao/publico.ts`, `app/p/satisfacao/page.tsx` + CSS |
+| Tela da Gestão: cartão “Retornos de notas baixas” e passo do link dentro da regra Pesquisa (Equipe sem tela na PS-3, D-PS3-3) | `components/admin/marketing/SatisfacaoRetornos.tsx`, `MarketingAutomacoes.tsx` |
+| Exportação: `satisfacao/links_avaliacao` e `satisfacao/auditoria`, retrato `colunas-esperadas-111.json` | `lib/exportacao/*` |
+| Inventário (check-migrations, production.test, receita do modelo 111, seleção das suítes) | `scripts/**` |
+
+### Resultados (todos locais)
+
+| Prova | Resultado |
+|---|---|
+| Unitários PS-3 (gramática, manifesto = postcheck, contrato temporal estático) | **5/5** |
+| Suíte PG PS-3 (modelo 111, três conexões) | **13/13** subtestes — pós-check; links; banco; notas 0–10; RESPONDIDA × validade; leitura; conclusão; bordas exatas de vigência e foto; revogação (a) antes → 404 e (b) depois do FOR SHARE → a revogação espera (bloqueio observado em `pg_blocking_pids`); dupla conclusão → 409 e corrida de link → 409; auditoria; PARCIAL em 6 variantes; ciclo down/111 com captura e restauração idênticas |
+| Mutantes M53–M80 (clone LF isolado) | **28/28 MORTOS**, cada um pelo subteste da sua causa; controle PASS (`ambientes-locais/satisfacao-ps3-mutantes.cjs`, `mutantes-ps3-20261031.log`) |
+| Exportação | 6/6 estados (098, 103, 108, 109, 110, 111) |
+| Regressão PG completa | **254/255** arquivos; a única falha foi a asserção da PS-1 que fixava as chaves de RESPONDIDA (agora com `linkAvaliacao`); corrigida e reexecutada: 23/23 → **255/255 por arquivo** |
+| CI local | **49/49** (`next-env.d.ts` restaurado) |
+| E2E | PS-3 **15/15** (link pela tela, inválido recusado, notas 7 e 3 com o mesmo convite, conclusão pela tela com auditoria no mesmo instante, 1366/390 px, zero requisições a terceiros); PS-1 36/36 e PS-2 14/14 repetidos depois do ajuste visual |
+
+A primeira E2E PS-3 achou rolagem horizontal a 390 px (493 px) causada pelos exemplos de URL longos e pelo campo do link;
+corrigido no componente (`overflow-wrap: anywhere`, campo encolhível) e reexecutado.
+
+### Desvios e limites declarados
+
+- **Restrição da decisão aos ids travados (`c.id = ANY(...)`) sem mutante próprio:** só se distingue com uma concessão
+  criada entre o passo 3 e o passo 5, o que exige barreira dentro da conclusão; a revogação (a)/(b) e a foto estão provadas.
+- **Rotas HTTP** provadas pela E2E (caminho da Gestão) e pelos serviços nas suítes; não há suíte HTTP própria das três rotas.
+- **Exportação A/B com eventos da PS-3** não ganhou cenário novo: o retrato 111 e as seis versões passam; o isolamento A/B
+  dos serviços está na suíte PS-3.
+- Asserções da PS-1 ajustadas ao novo campo (`linkAvaliacao: null` sem a 111): `satisfacao.postgres.test.ts`,
+  `satisfacao-concorrencia.postgres.test.ts`, `satisfacao-cancelamento.postgres.test.ts`.
+
+### Rollback
+
+Código: reverter os arquivos acima (sem commit). Banco: a 111 não foi aplicada fora do cluster descartável; a volta exige
+quiescência, captura e `SET kidmais111.captura_confirmada = 'sim'`, e recusa 111 ausente ou parcial.
+
+## Revisão independente Astra — PS-3 código — 31/10/2026
+
+**REPROVADO — 0 P1, 4 P2, 2 P3** (parecer `parecer-ps3-20261031.txt`): exportação sem recusa de PARCIAL (P2-1); down que
+só conferia a presença das tabelas (P2-2); provas temporais com instante injetado e mutantes classificados só pelo nome
+do subteste, com controle único (P2-3); sem matriz HTTP, atomicidade e estados PARCIAL em todas as superfícies (P2-4);
+`trim()` antes da validação bruta (P3-1); RESPONDIDA onde G' pede ENCERRADA (P3-2).
+
+## PS-3 — rodada 2 (correção do parecer) — LOCAL, sem commit (31/10/2026)
+
+**Estado: LOCAL, sem commit, sobre o merge local `5dfdff55`; nada publicado.** Pacote `ambientes-locais/revisao-ps3-r2-20261031.patch`
+(32 arquivos, SHA-256 `276dd9c94405a99a333552bafc4c3399b523f6f27cc13c47c7e8788ece655c7f`).
+
+### Correções
+
+| Achado | Correção |
+|---|---|
+| P2-1 exportação | `lerDados` consulta `estadoInstalacao111` no MESMO snapshot REPEATABLE READ: PARCIAL recusa o pacote inteiro (503 `EXPORTACAO_INSTALACAO_INCOMPLETA`); AUSENTE segue como pacote do schema 110 (tabelas da 111 em `entidadesAusentes`). O SQL do detector passou a começar por `SELECT` (marcador depois) para atender a guarda "só leitura" da exportação. |
+| P2-2 down | Função temporária `pg_temp.kidmais111_integridade()` com o MESMO manifesto do detector e do pós-check (tabelas, funções, gatilhos por relação/função/habilitação/tgtype, restrições validadas, NULLS NOT DISTINCT). AUSENTE e PARCIAL (só uma tabela, funções sem tabelas, gatilho ausente/desligado/de outro evento) recusam ANTES de qualquer DROP; conferência repetida depois do LOCK. Teste estático: postcheck = down = `OBJETOS_111`, conferência antes do LOCK e do DROP, sem CASCADE e sem tocar na 110. |
+| P2-3 temporal e mutantes | Provas com relógio REAL pelas rotas (abaixo) e campanha de mutantes refeita: linha de base por mutante, morte só com subteste esperado + MENSAGEM causal na seção de falhas, infraestrutura = inconclusivo, categorias declaradas. |
+| P2-4 rotas | Nova suíte `lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts` (rotas reais, guarda real, pool de conexões próprias com BEGIN/COMMIT reais). |
+| P3-1 | `salvarLink` valida `entrada.url` bruta; a tela apara o rascunho antes de enviar. |
+| P3-2 | Envio RESPONDIDO vencido ou com a festa sem validade abre como **ENCERRADA, sem link**; o estado persistido segue RESPONDIDO. Asserções da PS-1 que fixavam RESPONDIDA depois do cancelamento atualizadas (`satisfacao.postgres`, `satisfacao-concorrencia.postgres`). |
+
+### Suíte de rotas (8 subtestes)
+
+- **Matriz:** Gestão e Equipe TRATAR; só VER lista vazia e 404; Equipe sem links (403); empresa na query ignorada; empresa/ator no corpo → 400; outra unidade/outra empresa/inexistente/malformado → 404; segunda conclusão → 409; link bruto com espaço, newline ou 501 espaços → 400; unidade de outra empresa → 404 — corpo `{ ok:false, erro, codigo }` e **zero efeitos** (retrato de tarefas, links e auditoria) em cada recusa.
+- **Sessão e guarda:** sem cookie, token desconhecido/malformado, inativa há 31 min (controle 29 min passa), revogada, senha trocada → 401; sem CSRF, CSRF errado, origem alheia ou ausente → 403; `x-kidmais-sessao` trocado → 409; flag desligada → 503 nas três rotas.
+- **Atomicidade:** falha injetada DEPOIS do UPDATE da conclusão, DEPOIS do INSERT da auditoria e DEPOIS do INSERT do link → 500, nenhum campo/evento persiste; a nova tentativa grava uma vez.
+- **Relógio real:** vencimento atravessado enquanto a rota espera a empresa (guarda de tenant) e enquanto espera a tarefa → 404 sem efeito; início atravessado na espera da tarefa → autoriza, `concluida_em` ≥ início, retornado = persistido = auditoria. A suíte confere que a rota ficou presa ANTES da borda.
+- **Revogação (b) composta:** a conclusão espera a tarefa com o FOR SHARE da concessão já tomado; o revogador fica bloqueado pela conexão da rota e só confirma depois.
+- **Revogação (c):** a rota presa no INSERT da auditoria (FK da unidade travada), já depois da decisão; o revogador espera o COMMIT da conclusão (oráculo de anomalia: revogação confirmada antes + conclusão autorizada).
+- **Exportação A/B:** links e auditoria reais (inclusão de link nas duas empresas, conclusão em A): CSV só da empresa, contagens = banco, sha256 = manifesto, linhas = manifesto, nenhum arquivo cita a outra empresa, instante exportado = `concluida_em`.
+- **Instalação:** AUSENTE e PARCIAL em cinco formas (coerência desligada, sem o gatilho TRUNCATE, só links, só auditoria, funções sem tabelas) em TODAS as superfícies — GET de tarefas normal; conclusão e links 503 com o código certo e nenhuma tarefa alterada; página pública sem link; exportação AUSENTE = pacote 110 e PARCIAL = recusa; down AUSENTE recusa e PARCIAL recusa sem mudar o catálogo; linhas da 110 idênticas no ciclo inteiro; restauração com falha injetada depois do INSERT (nada fica) e repetição idêntica por hash.
+
+**Observação para o revisor:** `revogada_em` é o `clock_timestamp()` do UPDATE, avaliado antes de o revogador esperar;
+por isso a linearização provada é a ordem de COMMIT, não a comparação de carimbos.
+
+### Resultados (todos locais, cluster descartável 127.0.0.1:55551, encerrado no fim)
+
+| Prova | Resultado |
+|---|---|
+| Unitários PS-3 + exportação | **21/21 no total** (5 PS-3 + 16 `exportacao.test.ts`) — *texto corrigido na rodada 3; antes dizia "5/5 e 21/21"* |
+| Suíte PG PS-3 | **13/13** subtestes |
+| Suíte PG de rotas | **8/8** subtestes |
+| Mutantes (clone LF isolado, `ambientes-locais/satisfacao-ps3-mutantes.cjs`) | **45/45 MORTOS** — 40 funcionais, 5 estruturais (M53s, M78, M79, M91, M95), 0 equivalentes, 0 inconclusivos; linha de base verde antes de cada um; consolidado de duas passadas: `mutantes-ps3-r2-20261031.log` (44 mortos, M95 classificado VIVO por não ter subteste) + `mutantes-ps3-r2-M95-20261031.log` (M95 morto no portão) — *texto corrigido na rodada 3; antes dizia "41 funcionais, 4 estruturais"* |
+| Regressão PG completa | **256/256** arquivos |
+| CI local | **49/49** (`next-env.d.ts` restaurado) |
+| E2E | PS-3 **15/15**, PS-1 **36/36**, PS-2 **14/14** |
+
+Mutantes novos ou refeitos: M53 (now(), funcional pelo relógio real) e M53s (estático), M81 instante antes da espera,
+M82 decisão antes da trava da tarefa, M56 sem FOR SHARE (revogação c), M57 sem FOR UPDATE (agora funcional: a espera
+passa ao UPDATE, depois da decisão), M83 conclusão sem auditoria, M54 conclusão sem conferir a 111 (morre por "nenhuma
+tarefa mudou", não por 42P01), M84 PARCIAL como COMPLETA, M85 exportação aceita PARCIAL, M86 down sem integridade,
+M87 trim antes de validar, M88 sem igualdade do pathname, M89 placeid repetido aceito, M90 chave desconhecida aceita,
+M91 down diverge do manifesto, M92 coerência de unidade removida, M93 nulidade enfraquecida (conclusão coerente com URL),
+M94 função aceita TRUNCATE, M95 gatilho TRUNCATE removido (morre no PORTÃO: o pós-check da receita do modelo 111 recusa
+antes de a suíte começar — registrado como estrutural) e M96 auditoria fora do pacote 111.
+
+### Limites declarados
+
+- A restrição da decisão aos ids travados (`c.id = ANY(...)`) continua sem mutante próprio (exigiria uma concessão nova
+  entre a trava e a decisão).
+- Depois da campanha, a única mudança de código foi a posição do marcador no SQL do detector (`SELECT /* … */`); a suíte
+  focal (PS-3, rotas, exportação 6 estados, PS-1) e o CI foram repetidos depois dela, os mutantes não.
+- Equipe continua sem tela na PS-3 (D-PS3-3): o contrato dela é a API, agora provado pelas rotas.
+
+### Rollback
+
+Inalterado: reverter os arquivos (sem commit). A 111 só existiu no cluster descartável. O down agora recusa AUSENTE e
+qualquer PARCIAL antes de remover objetos; com a 111 completa exige quiescência, captura e `SET kidmais111.captura_confirmada = 'sim'`.
+
+## Revisão independente — PS-3 rodada 2 — 31/10/2026
+
+**VEREDITO: REPROVADO no aceite completo da rodada 2 — 0 P1, 1 P2 residual e 2 P3.** P2-1, P2-2, P2-3, P3-1 e P3-2 do parecer anterior fechados no alcance descrito abaixo. P2-4 parcialmente fechado: falta a prova do POST público nos estados PARCIAL exigida por F'. Não foi demonstrado novo defeito funcional no código de produto; a reprovação remanescente é de cobertura de um critério explícito de aceite. Somente local, sem commit/publicação.
+
+### Identidade e alcance
+
+Checkout: D:/glass/KidMais Manager/kidmais-manager-satisfacao-ps1-20261030; branch codex/satisfacao-ps1-20261030; HEAD 5dfdff55da7bfcd4835282bc09e92a3852d047f6; alterações preexistentes não commitadas. Nenhum código/teste da candidata foi alterado pelo reviewer.
+
+SHA-256 do pacote revisao-ps3-r2-20261031.patch confirmado: 276dd9c94405a99a333552bafc4c3399b523f6f27cc13c47c7e8788ece655c7f. A verificação usou índice temporário próprio, carregado de HEAD, com arquivos novos em intent-to-add; o índice original foi preservado. git diff --check passou. O reverse-check integral FALHOU exclusivamente em docs/SATISFACAO_PESQUISA_20261030.md. Excluindo esse documento, os outros 31 arquivos passaram. O documento atual contém exatamente o documento do pacote como prefixo, seguido de 71 linhas adicionais (parecer anterior e registro da rodada 2), antes deste registro. Logo, o código corresponde ao pacote, mas não a árvore documental inteira.
+
+### Fechamento dos seis achados anteriores
+
+| Achado | Parecer |
+|---|---|
+| P2-1 | FECHADO. lib/exportacao/pacote.ts:313 consulta estadoInstalacao111 dentro de lerDados; lib/exportacao/servico.ts abre REPEATABLE READ READ ONLY para essa chamada. PARCIAL lança 503 EXPORTACAO_INSTALACAO_INCOMPLETA antes de exportar as entidades; AUSENTE mantém as duas tabelas como ausentes. A suíte de rotas confere AUSENTE e cinco PARCIAL, e exportação A/B com eventos, CSVs, contagens, hashes e instante de conclusão. |
+| P2-2 | FECHADO. O down usa pg_temp.kidmais111_integridade com tabelas, funções, gatilhos associados/habilitados/tipados, constraints validadas e NULLS NOT DISTINCT; recusa antes do LOCK e reconfere antes dos DROP. Mantém captura, ausência de CASCADE e proteção da 110. Manifesto estático passou; os cenários com catálogo preservado e restauração estão implementados e seus logs aprovados foram auditados. |
+| P2-3 | FECHADO quanto às exigências anteriores: relógio real atravessa vencimento na empresa/tarefa e início na tarefa, com bloqueio observado antes da borda; caso (b) composto observa o revogador bloqueado pela rota; instante retornado/persistido/auditoria coincide. O script executa baseline por mutante e separa categorias/infraestrutura. Os 45 logs finais têm a causa no bloco de falha correspondente (M95 no portão). Ressalva P3 abaixo para tornar (c) determinístico. |
+| P2-4 | PARCIALMENTE FECHADO. Rotas e guarda reais, transações próprias, matriz HTTP, falhas depois do UPDATE/INSERT, retry, exportação A/B, cinco PARCIAL, catálogo e preservação/restauração foram acrescentados. Falta o POST público nos PARCIAL; ver P2 residual. |
+| P3-1 | FECHADO. salvarLink valida entrada.url bruta, e o componente apara o rascunho no cliente. A rota testa espaço inicial, newline e 501 espaços, com 400 e retrato sem efeitos. |
+| P3-2 | FECHADO. respondidoValendo condiciona a apresentação: vencido/festa inválida retorna ENCERRADA sem link e preserva RESPONDIDO no banco. Asserções da PS-1 e os casos/M66a/M66b acompanham o contrato. |
+
+### PS3-R2-P2-1 — Falta o POST público na matriz PARCIAL (resíduo de P2-4)
+
+Referências: lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts:539–568 e 576–588; lib/satisfacao/satisfacao-ps3.postgres.test.ts:389–442; plano, F', tabela “página pública (POST e RESPONDIDA)” e ensaio 110 → 111 → down → 111 restaurado.
+
+superficies() chama abrirPesquisa sobre um envio já RESPONDIDO em cada PARCIAL; não chama responderPesquisa. A suíte de serviços testa linkDoEnvio nos PARCIAL e testa uma resposta nova depois do down (AUSENTE), mas não uma nova resposta nos cinco PARCIAL. Isso não prova que a transação de resposta inteira continua normal quando a instalação está incompleta. Um desvio que exigisse a 111 íntegra somente em responderPesquisa quando o detector retorna PARCIAL escaparia desses cenários, mesmo com reabertura e linkDoEnvio verdes.
+
+Completar a prova com envios ATIVOS preparados antes da alteração do schema, responderPesquisa real em cada PARCIAL, gravada:true/linkAvaliacao:null, resposta persistida, envio RESPONDIDO, entregas encerradas e tarefa de nota baixa criada uma única vez. Reabrir depois deve manter a resposta sem link. Separar essas alterações legítimas da 110 do retrato “nenhum efeito nas recusas”. Não é necessário repetir toda a regressão para fechar esse ponto; executar a matriz focal e um controle negativo dirigido ao POST é suficiente. Não se afirma que o produto atualmente falhe: por inspeção usa o mesmo linkDoEnvio, mas F' exige a prova da entrada transacional.
+
+### PS3-R2-P3-1 — Caso (c) ainda depende de uma janela de 300 ms
+
+Referência: lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts:451–463.
+
+A rota é observada bloqueada no INSERT da auditoria depois da decisão. Em seguida, o teste dispara a revogação e apenas espera até 30 intervalos de 10 ms; revogouAntes=false pode significar tanto bloqueio correto quanto revogador ainda não executado. Não há observação do PID/SQL do revogador nesse caso, e a mensagem “esperou o COMMIT” é mais forte que essa asserção isolada.
+
+O log final de M56 efetivamente mostra a anomalia funcional “revogação confirmada antes e conclusão autorizada” em (c), além da falha da barreira de (b). A morte funcional é válida para a execução auditada. O caso (b), a inspeção do FOR SHARE até o fim da transação e esse log sustentam o fechamento de P2-3; o problema remanescente é de repetibilidade do teste (c), não defeito demonstrado da autorização.
+
+Trocar a espera fixa por uma barreira com prazo que observe um dos resultados: revogação confirmada enquanto a rota continua presa (anomalia) OU revogador efetivamente bloqueado pela conexão da rota, conferido por pg_blocking_pids e SQL. Só então liberar a auditoria. Não usar apenas o timeout como prova de bloqueio.
+
+### PS3-R2-P3-2 — Precisão do pacote e das contagens
+
+Os 45 mutantes finais são **40 funcionais e 5 estruturais**, não 41/4. Estruturais: M53s, M78, M79, M91 e M95. O log principal registra 44 mortos e M95 classificado VIVO; a execução suplementar reclassifica corretamente M95 como morte no portão do pós-check. O conjunto consolidado sustenta 45/45, não uma única passada originalmente verde.
+
+A reexecução independente de satisfacao-ps3.test.ts + exportacao.test.ts passou **21/21 no total: 5 PS-3 + 16 exportação**, não 5 mais 21. A expressão “5/5 (+exportação 21/21)” precisa esclarecer que 21 é o total combinado.
+
+O pacote não inclui as 71 linhas documentais acrescentadas posteriormente. Publicar um pacote documental complementar ou regenerar o pacote final e informar o novo hash; não declarar reverse-check integral aprovado para o hash atual. Este parecer registra os números corretos e preserva os relatos anteriores como histórico.
+
+### Julgamento dos três pontos pedidos
+
+1. **revogada_em anterior à espera: aceitável para o contrato atual**, desde que esse carimbo não seja apresentado como instante de eficácia/COMMIT. As operações concorrentes se ordenam pelas travas e confirmações; a conclusão decide vigência em clock_timestamp() depois das travas e não promete vigência até COMMIT. A revogação concorrente que espera pode confirmar depois com carimbo anterior à conclusão. Consultas históricas não devem inferir a ordem de eficácia apenas comparando revogada_em e concluida_em. Nenhuma mudança de semântica de produto foi introduzida nesta revisão.
+2. **c.id = ANY(ids travados): limite de cobertura aceito, sem novo P2.** O predicado permanece no passo decisório, com os ids obtidos sob SHARE. Não há mutante próprio nem prova de concessão nova entre trava e decisão. Preservar essa limitação; não contar os 45 mutantes como cobertura desse invariante.
+3. **Posição do marcador SQL após a campanha: não exige repetir toda a campanha.** SELECT /* ... */ preserva o SQL do PostgreSQL, mas é relevante à guarda textual de consultas só de leitura do exportador. O focal posterior inclui exportação nos seis modelos, rotas, PS-3 e PS-1, e o CI foi repetido. Isso cobre o efeito da alteração. Os mutantes continuam sendo evidência da campanha anterior, sem alegar reexecução pós-alteração. Na comparação atual, os 31 arquivos não documentais do pacote coincidem com o clone de mutantes normalizando CRLF; essa comparação não é um snapshot histórico da campanha.
+
+### Evidência independente e limites
+
+Executados pelo reviewer: identidade Git, hash, reverse-check com índice temporário (31 arquivos aprovados; documento divergente), diff-check, comparação normalizada com clone dos mutantes, unitários combinados 21/21 em Node 24.20.0. Auditoria automática dos 45 logs finais confirmou subteste e mensagem causal no mesmo bloco de falha; M95 confirmado separadamente no portão. O script mostra baseline antes de cada mutação; baselines verdes são registrados no resumo, e não foram reexecutados pelo reviewer.
+
+Lidos os resumos e código das provas declaradas: regressão PG 256/256; focal posterior 9 execuções (exportação 6 estados + rotas + PS-3 + PS-1); CI 49/49; E2E PS-3/PS-1/PS-2 aprovadas. São evidências do implementador auditadas, não novas execuções independentes.
+
+Tentativa de cluster próprio em work/pg-review, porta planejada 55563: initdb falhou ao criar o diretório (“No such file or directory”), antes de iniciar qualquer servidor. Nenhuma migration foi executada por esta revisão, nenhum cluster anterior foi reutilizado. PG, mutantes, CI e E2E não foram reexecutados. Não houve acesso a staging/produção/Render, envio externo, commit ou push.
+
+Próximo: completar o POST público em PARCIAL, reforçar a barreira de (c), corrigir a apresentação dos números/pacote e entregar evidência focal. A reprovação anterior permanece como histórico; este é o parecer vigente da rodada 2.
+
+## PS-3 — rodada 3 (resíduos do parecer da rodada 2) — LOCAL, sem commit (31/10/2026)
+
+**Estado: LOCAL, sem commit, sobre o merge local `5dfdff55`; nada publicado.** Nenhum código de produto mudou nesta
+rodada: só a suíte de rotas, o script de mutantes (fora do repositório) e este documento. Pacote final regenerado DEPOIS
+desta seção: `ambientes-locais/revisao-ps3-r3-20261031.patch` (hash informado na entrega; o pacote da rodada 2 não
+cobre as linhas documentais posteriores a ele).
+
+| Achado | Correção |
+|---|---|
+| PS3-R2-P2-1 POST público em PARCIAL | Seis envios ATIVOS preparados com a 111 completa, um por estado (AUSENTE + os 5 PARCIAL). Em cada estado, `responderPesquisa` real: `{ gravada: true, linkAvaliacao: null }`; resposta persistida, envio RESPONDIDO, entrega pendente encerrada (CANCELADA/RESPONDIDA), tarefa de nota baixa criada; segundo POST → `JA_RESPONDIDA` e a tarefa continua única; reabertura RESPONDIDA sem link; nenhuma linha da 111 escrita (tabelas presentes comparadas por conteúdo). O retrato "nenhum efeito" da 110 passou a excluir só as linhas desses seis envios, e confere que o POST não mudou mais nada. Controle negativo dirigido: **M97** (só a resposta passa a exigir a 111 íntegra) morre por "POST público recusado (INSTALACAO_INCOMPLETA)". |
+| PS3-R2-P3-1 caso (c) por janela fixa | A espera de 300 ms virou a barreira `revogadorPresoOuConfirmado`: com prazo, devolve o primeiro resultado OBSERVADO — revogador bloqueado por uma conexão da rota no UPDATE da concessão (`pg_blocking_pids` + SQL) ou revogação confirmada com a rota ainda presa. O prazo sozinho é erro, nunca prova. A suíte exige PRESO (e, nele, revogação ainda não confirmada); o oráculo de anomalia continua antes. M56 morre agora pelo caminho CONFIRMADO. |
+| PS3-R2-P3-2 números e pacote | Mutantes: **40 funcionais + 5 estruturais** (M53s, M78, M79, M91, M95), consolidado de duas passadas. Unitários: **21/21 no total** (5 PS-3 + 16 exportação). Linhas da rodada 2 corrigidas no lugar, com a nota do texto antigo. Pacote regenerado depois de toda a documentação. |
+
+### Resultados da rodada 3 (cluster descartável 127.0.0.1:55551, encerrado no fim)
+
+| Prova | Resultado |
+|---|---|
+| Suíte PG de rotas | **8/8** subtestes; repetida **5×** sem falha (`rotas-ps3-r3-repeticao-20261031.log`) |
+| Focal PG | **10/10** arquivos: exportação nos 6 modelos (098/103/108/109/110/111), rotas, PS-3, PS-1 e concorrência da PS-1 (`regressao-pg-satisfacao-ps3-r3-focal-20261031.log`) |
+| Mutantes dirigidos (linha de base por mutante) | **7/7 MORTOS**: M56, M97 (novo) e os da matriz de instalação M54, M84, M85, M86, M76 (`mutantes-ps3-r3-20261031.log`). Campanha total: **46** (41 funcionais + 5 estruturais), sendo 39 da rodada 2 não repetidos nesta |
+| Unitários PS-3 + exportação | **21/21 no total** (5 + 16) |
+| CI local | **49/49** (`ci-local-satisfacao-ps3-r3-20261031.log`; `next-env.d.ts` restaurado) |
+
+### Limites declarados
+
+- A regressão PG completa e os E2E não foram repetidos: nenhum código de produto mudou desde a rodada 2 (256/256 e 65/65).
+- `c.id = ANY(ids travados)` segue sem mutante próprio (limite aceito no parecer).
+- `revogada_em` é carimbado antes da espera; a ordem provada é a de COMMIT (aceito no parecer).
+
+
+## Revisão independente — PS-3 rodada 3 — 31/10/2026
+
+**VEREDITO: APROVADO — 0 P1, 0 P2, 0 P3 no escopo dos resíduos da rodada 2.** PS3-R2-P2-1, PS3-R2-P3-1 e PS3-R2-P3-2 fechados. Este parecer sucede a reprovação da rodada 2; os pareceres anteriores permanecem como histórico. Aprovação local, sem autorização de commit ou publicação.
+
+Checkout: D:/glass/KidMais Manager/kidmais-manager-satisfacao-ps1-20261030; HEAD 5dfdff55da7bfcd4835282bc09e92a3852d047f6. Alterações sem commit. Comparação dos pacotes r2/r3: somente docs/SATISFACAO_PESQUISA_20261030.md e lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts diferem; código de produto inalterado.
+
+### Integridade do pacote
+
+SHA-256 confirmado: 6bb21d16cd7907a1acbe6cda4bda521a93c2283664f076260630fb5d7cbbc5ab. Reverse-check integral aprovado para os 32 arquivos, inclusive documentação, com índice temporário carregado de HEAD e arquivos novos em intent-to-add. O diff binário regenerado independentemente tem exatamente esse mesmo hash. git diff --check aprovado; next-env.d.ts fora do delta. Índice real preservado.
+
+O pacote foi conferido ANTES de acrescentar este parecer. O registro posterior desta revisão é um adendo documental, não conteúdo do pacote identificado pelo hash acima. O pacote original foi preservado.
+
+### Fechamento dos resíduos
+
+| Achado anterior | Julgamento e referências |
+|---|---|
+| PS3-R2-P2-1 | FECHADO. lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts:542 prepara seis envios com ativo(); :563 confere ATIVO/uma entrega pendente; :594 chama responderPesquisa real em AUSENTE e nos cinco PARCIAL; :596–603 confere retorno, resposta, envio, cancelamento da entrega, tarefa ABERTA, duplicação recusada, reabertura e ausência de escrita na 111. :623–637 percorre os seis estados. |
+| Separação da 110 | :548–552 exclui somente os seis IDs nas quatro tabelas ligadas ao envio; as outras quatro tabelas permanecem integralmente no retrato. :590 verifica recusas; :603 o restante depois do POST; :652 o ciclo completo. Os efeitos esperados dos envios excluídos são conferidos individualmente em :597 e :599. A comparação global não deve ser descrita como igualdade de toda a 110, nem como isolamento de cada um dos seis envios entre si: seu alcance é o restante da 110 mais as asserções específicas de cada resposta. Isso atende ao resíduo solicitado. |
+| Controle M97 | satisfacao-ps3-mutantes.cjs:174–178 injeta exigirInstalacao111 somente em responderPesquisa, condicionado a PARCIAL, depois da criação da tarefa e antes do fim da transação. Não altera abrirPesquisa/linkDoEnvio. O log bruto ultimo-M97-post-publico-exige-111-integra.log contém a falha causal no subteste da instalação, em :595: “coerência desligada: POST público recusado (INSTALACAO_INCOMPLETA)”. É controle dirigido válido da lacuna anterior. A execução interrompe na primeira variante PARCIAL; a cobertura das cinco variantes decorre da matriz positiva, não de cinco mortes independentes de M97. |
+| PS3-R2-P3-1 | FECHADO. :223–232 retorna somente por confirmação observada ou bloqueio observado por PID de rota e SQL; esgotar tentativas lança erro. :459 lê o PID antes de enfileirar UPDATE; :468 prende a rota no INSERT da auditoria; :470–475 observa o revogador antes de liberar c3. :479 verifica a anomalia antes de exigir PRESO em :480. Eliminada a inferência de bloqueio por uma janela silenciosa de 300 ms. O teste ainda usa polling/prazo para disponibilidade, nunca como prova de sucesso. |
+| Controle M56 | satisfacao-ps3-mutantes.cjs:56–59 remove FOR SHARE da concessão. O log bruto ultimo-M56-concessao-sem-for-share.log:108 registra “anomalia: revogação confirmada antes e conclusão autorizada”, lançada em :479 do teste. Portanto morreu pelo caminho CONFIRMADO + 200 em (c), além da falha de barreira em (b); não apenas por timeout. |
+| PS3-R2-P3-2 | FECHADO. docs/SATISFACAO_PESQUISA_20261030.md:477 e :480 corrigem 21/21 combinado e 40 funcionais + 5 estruturais, com texto antigo identificado e duas passadas explicitadas. :589 informa 46 acumulados = 41 funcionais + 5 estruturais, 7 repetidos/novos nesta rodada e 39 herdados. O pacote agora cobre toda a documentação entregue. |
+
+### Evidências e limites
+
+Executado independentemente nesta revisão: identidade Git, hash, reverse-check integral, regeneração do diff com hash idêntico, comparação r2/r3, diff-check e unitários PS-3 + exportação **21/21** (5 + 16), zero falhas/skips.
+
+Auditado por leitura, sem reexecutar PostgreSQL ou mutantes: rotas **8/8 subtestes** (o node:test conta 9 incluindo o teste pai); cinco execuções aprovadas no log de repetição; focal **10/10 execuções arquivo/modelo** (seis exportações e quatro suítes); resumo dos sete mutantes com baseline verde por mutante e logs brutos causais M56/M97; CI **49/49 passos com código 0**. O script executa baseline antes de cada mutação, mas não salva os baselines verdes em arquivos próprios: sua aprovação consta do resumo. Não converter essa auditoria em alegação de reexecução independente.
+
+Regressão PG completa **256/256** e E2E **65/65** continuam evidências herdadas da rodada 2, não repetidas nesta rodada. Permanecem os limites aceitos: c.id = ANY(ids travados) sem mutante específico; revogada_em não representa o instante de COMMIT. Nenhum novo defeito de produto demonstrado no escopo desta revisão.
+
+Somente local. Nenhum cluster iniciado/reutilizado, nenhum banco real consultado, nenhuma migration executada pelo reviewer. Sem commit, push, staging, produção, Render ou envio real. Código e testes da candidata preservados; apenas este parecer e os registros documentais solicitados foram acrescentados.

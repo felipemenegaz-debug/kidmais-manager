@@ -61,3 +61,6 @@ legend.pergunta { float: left; width: 100%; }
 .textoCartao { margin: 0; font-size: 15px; line-height: 1.5; color: #e8ecf5; text-align: left; }
 .rotulo { font-size: 12px; color: #9aa3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; text-align: left; }
 .oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* PS-3: convite para avaliar no Google (mesmo texto e destaque para qualquer nota). */
+.avaliar { display: grid; gap: 10px; justify-items: center; margin-top: 8px; }
+.avaliar .botaoSecundario { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }

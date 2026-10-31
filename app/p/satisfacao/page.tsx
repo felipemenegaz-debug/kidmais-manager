@@ -10,14 +10,15 @@ import s from "./satisfacao.module.css";
  */
 type Abertura =
   | { situacao: "ABERTA"; primeiroNome: string; buffet: string; unidade: string | null; dataFesta: string }
-  | { situacao: "RESPONDIDA"; buffet: string }
+  | { situacao: "RESPONDIDA"; buffet: string; linkAvaliacao: string | null }
   | { situacao: "ENCERRADA"; buffet: string };
 type Estado =
   | { fase: "carregando" }
   // podeSair: o servidor reconheceu o link (respondido, vencido ou revogado) e a saída das pesquisas continua valendo.
   | { fase: "indisponivel"; mensagem: string; podeSair: boolean }
   | { fase: "aberta"; dados: Extract<Abertura, { situacao: "ABERTA" }> }
-  | { fase: "respondida"; buffet: string; nome: string | null; notaBaixa: boolean }
+  // linkAvaliacao (PS-3): o mesmo convite para avaliar no Google em qualquer nota, sem destaque condicionado.
+  | { fase: "respondida"; buffet: string; nome: string | null; notaBaixa: boolean; linkAvaliacao: string | null }
   | { fase: "saiu" };
 
 let lido: { token: string | null; preMarcada: number | null } | undefined;
@@ -88,7 +89,7 @@ export default function PesquisaSatisfacao() {
       if (!vivo) return;
       if (!r.ok) setEstado({ fase: "indisponivel", mensagem: r.erro, podeSair: false });
       else if (r.data.situacao === "ENCERRADA") setEstado({ fase: "indisponivel", mensagem: INDISPONIVEL, podeSair: true });
-      else if (r.data.situacao === "RESPONDIDA") setEstado({ fase: "respondida", buffet: r.data.buffet, nome: null, notaBaixa: false });
+      else if (r.data.situacao === "RESPONDIDA") setEstado({ fase: "respondida", buffet: r.data.buffet, nome: null, notaBaixa: false, linkAvaliacao: r.data.linkAvaliacao ?? null });
       else setEstado({ fase: "aberta", dados: r.data });
     });
     return () => { vivo = false; };
@@ -99,9 +100,9 @@ export default function PesquisaSatisfacao() {
     if (nota === null) { setErro("Escolha uma nota de 0 a 10."); return; }
     setEnviando(true);
     setErro(null);
-    const r = await postar<{ gravada: true }>("/api/satisfacao/responder", { token: fragmento.token, notaIndicacao: nota, ...aspectos, comentario: comentario.trim() || null });
+    const r = await postar<{ gravada: true; linkAvaliacao: string | null }>("/api/satisfacao/responder", { token: fragmento.token, notaIndicacao: nota, ...aspectos, comentario: comentario.trim() || null });
     setEnviando(false);
-    if (r.ok || r.status === 409) setEstado({ fase: "respondida", buffet: estado.dados.buffet, nome: r.ok ? estado.dados.primeiroNome : null, notaBaixa: r.ok && nota <= 6 });
+    if (r.ok || r.status === 409) setEstado({ fase: "respondida", buffet: estado.dados.buffet, nome: r.ok ? estado.dados.primeiroNome : null, notaBaixa: r.ok && nota <= 6, linkAvaliacao: r.ok ? r.data.linkAvaliacao ?? null : null });
     // O link foi reconhecido na abertura: vencido ou revogado no meio do caminho, a saída das pesquisas continua valendo.
     else if (r.status === 404) setEstado({ fase: "indisponivel", mensagem: r.erro, podeSair: true });
     else setErro(r.erro);
@@ -146,6 +147,10 @@ export default function PesquisaSatisfacao() {
       <p className={s.texto} role="status">
         {estado.nome ? `Sua opinião chegou para a equipe do ${estado.buffet} e ajuda a melhorar as próximas festas.` : "Esta pesquisa já foi respondida."}
       </p>
+      {estado.linkAvaliacao && <div className={s.avaliar}>
+        <p className={s.texto}>Se quiser, você também pode contar como foi no Google.</p>
+        <a className={s.botaoSecundario} href={estado.linkAvaliacao} target="_blank" rel="noopener noreferrer" data-avaliar-google>Avaliar no Google</a>
+      </div>}
       {estado.notaBaixa && <div className={s.cartaoAlerta}>
         <p className={s.textoCartao}>Sentimos muito que algo não saiu como esperado. A gerência da unidade vai entrar em contato com você.</p>
       </div>}

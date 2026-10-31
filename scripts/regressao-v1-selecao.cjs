@@ -205,6 +205,9 @@ const ESTADO_POSTGRES = {
   "lib/satisfacao/satisfacao-cancelamento.postgres.test.ts": { descartavel: "110" },
   // PS-2 (30/10/2026): criação pelo motor e despacho por entrega (dois workers, posse vencida, prazos, consentimento).
   "lib/satisfacao/satisfacao-despacho.postgres.test.ts": { descartavel: "110" },
+  // PS-3 (31/10/2026): links de avaliação, retornos das notas baixas, auditoria e instalação da 111 (inclui o ciclo down/111).
+  "lib/satisfacao/satisfacao-ps3.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts": { descartavel: "111" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
@@ -280,7 +283,7 @@ const ESTADO_POSTGRES = {
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
   // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
   // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "110"] },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "110", "111"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },

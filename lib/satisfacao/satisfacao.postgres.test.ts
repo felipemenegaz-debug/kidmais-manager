@@ -242,7 +242,7 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       const aberta = await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps());
       assert.deepEqual({ ...aberta, buffet: typeof aberta.buffet, dataFesta: /^2026-\d\d-\d\d$/.test(String(aberta.dataFesta)) }, { situacao: "ABERTA", primeiroNome: "Mariana", buffet: "string", unidade: null, dataFesta: true, versaoQuestionario: 1 });
       await assert.rejects(publico.responderPesquisa({ token: p.token, notaIndicacao: 4, empresaId: B }, { ip: ip() }, deps()), /Unrecognized key|unrecognized/i);
-      assert.deepEqual(await publico.responderPesquisa({ token: p.token, notaIndicacao: 4, notaComida: 2, comentario: "  Atrasou o bolo  " }, { ip: ip() }, deps()), { gravada: true });
+      assert.deepEqual(await publico.responderPesquisa({ token: p.token, notaIndicacao: 4, notaComida: 2, comentario: "  Atrasou o bolo  " }, { ip: ip() }, deps()), { gravada: true, linkAvaliacao: null });
       const resp = await um(`SELECT nota_indicacao, nota_comida, nota_equipe, comentario, empresa_id::text FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio]);
       assert.deepEqual(resp, { nota_indicacao: 4, nota_comida: 2, nota_equipe: null, comentario: "Atrasou o bolo", empresa_id: A });
       assert.equal((await estado(p.envio)).estado, "RESPONDIDO");
@@ -251,7 +251,9 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       await assert.rejects(publico.responderPesquisa({ token: p.token, notaIndicacao: 10 }, { ip: ip() }, deps()), erroDe("JA_RESPONDIDA", 409));
       assert.equal((await um(`SELECT nota_indicacao FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio])).nota_indicacao, 4, "não sobrescreve");
       assert.equal(Number((await um(`SELECT count(*) AS n FROM satisfacao_tarefas WHERE envio_id = $1::uuid`, [p.envio])).n), 1);
-      assert.deepEqual(Object.keys(await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps())).sort(), ["buffet", "situacao"]);
+      // RESPONDIDA: sem dados do questionário; o convite do Google (PS-3) é null sem a 111.
+      const reaberta = await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps());
+      assert.deepEqual([Object.keys(reaberta).sort(), reaberta.linkAvaliacao], [["buffet", "linkAvaliacao", "situacao"], null]);
       // Nota 7+: sem tarefa.
       const q = await envioPronto();
       await publico.responderPesquisa({ token: q.token, notaIndicacao: 9 }, { ip: ip() }, deps());
@@ -308,7 +310,8 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       const r = await envioPronto();
       await publico.responderPesquisa({ token: r.token, notaIndicacao: 10 }, { ip: ip() }, deps());
       await cancelarFesta(r.f);
-      assert.equal((await publico.abrirPesquisa({ token: r.token }, { ip: ip() }, deps())).situacao, "RESPONDIDA");
+      // PS-3 (G'): respondido com a festa cancelada abre como ENCERRADA (sem link); o estado persistido segue RESPONDIDO.
+      assert.equal((await publico.abrirPesquisa({ token: r.token }, { ip: ip() }, deps())).situacao, "ENCERRADA");
       assert.equal((await estado(r.envio)).estado, "RESPONDIDO");
     });
 

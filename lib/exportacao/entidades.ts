@@ -297,6 +297,9 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'satisfacao/capacidades', tabela: 'satisfacao_capacidades', grupo: 'Pesquisa de satisfação', descricao: 'Quem pode ver as respostas por unidade (concessão e revogação).', onde: EMP, migracao: '110' },
     { arquivo: 'satisfacao/agregados_mensais', tabela: 'satisfacao_agregados_mensais', grupo: 'Pesquisa de satisfação', descricao: 'Totais mensais das respostas.', onde: EMP, migracao: '110' },
     { arquivo: 'satisfacao/expurgos', tabela: 'satisfacao_expurgos', grupo: 'Pesquisa de satisfação', descricao: 'Expurgos mensais das respostas antigas (contagens).', onde: EMP, migracao: '110' },
+    // Pesquisa de satisfação PS-3 (111): link de avaliação do Google por empresa/unidade e auditoria só de acréscimo.
+    { arquivo: 'satisfacao/links_avaliacao', tabela: 'satisfacao_links_avaliacao', grupo: 'Pesquisa de satisfação', descricao: 'Link de avaliação do Google da empresa e de cada unidade.', onde: EMP, migracao: '111' },
+    { arquivo: 'satisfacao/auditoria', tabela: 'satisfacao_auditoria', grupo: 'Pesquisa de satisfação', descricao: 'Histórico de inclusão, troca e remoção dos links e de conclusão dos retornos.', onde: EMP, migracao: '111' },
 
     // Atendimento WhatsApp
     { arquivo: 'whatsapp/conexoes', tabela: 'whatsapp_conexoes', grupo: 'WhatsApp', descricao: 'Conexões do número (sem credenciais).', onde: EMP },
