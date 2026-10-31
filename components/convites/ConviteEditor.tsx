@@ -19,6 +19,7 @@ import adminStyles from './editor-admin.module.css';
 import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
 import { aplicarModoArteLocal, selecionarArte } from './arte-local';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
+import VincularFesta from './VincularFesta';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
 type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | 'VERIFICANDO' | 'NAO_INICIADA' | 'ENCERRADA' | 'DEVOLVIDA'; arteId?: string | null; completo?: boolean; acompanhando?: boolean };
@@ -30,7 +31,7 @@ const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CL
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
 function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }
-type Dados = { laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
+type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
   disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; autorizacaoIA?: AutorizacaoIATela | null; geracaoIncerta?: boolean; geracaoEmAndamento?: string | null; id?: string; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
   trabalhosLocais?: { id: string; estado: string; tipo: string; criadoEm: string; erro?: string }[];
@@ -38,8 +39,8 @@ type Dados = { laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; 
 // Biblioteca de molduras temporariamente desativada no editor; modelos e convites existentes continuam renderizando.
 const MOLDURAS_NO_EDITOR = false;
 const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebração'], ['data', 'Data'], ['horario', 'Horário'], ['local', 'Local da festa'], ['endereco', 'Endereço']] as const;
-export default function ConviteEditor({ festaId }: { festaId?: string }) {
-  const admin = !!festaId;
+export default function ConviteEditor({ festaId, conviteId }: { festaId?: string; conviteId?: string }) {
+  const admin = !!(festaId || conviteId);
   const ui = admin ? { ...styles, ...adminStyles } : styles;
   const [dados, setDados] = useState<Dados | null>(null), [conteudoBase, setConteudo] = useState<Conteudo | null>(null);
   // Convites completos (textos na imagem) abrem em modo "completa"; modos já salvos nunca são rebaixados ao carregar.
@@ -96,7 +97,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   }
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
   const token = useRef(''), pedido = useRef<{ assinatura: string; chave: string; seed?: number } | null>(null);
-  const endpoint = admin ? `/api/admin/convites?festaId=${festaId}` : '/api/convites/cliente';
+  const endpoint = admin ? `/api/admin/convites?${conviteId ? `conviteId=${conviteId}` : `festaId=${festaId}`}` : '/api/convites/cliente';
   const api = useCallback(async (body?: object, consulta?: string) => {
     const init: RequestInit = { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
     const url = consulta ? `${endpoint}${admin ? '&' : '?'}${consulta}` : endpoint;
@@ -370,7 +371,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
         </>) : null;
   const painelGeracao = <section ref={painelIA} className={ui.painel} aria-labelledby="titulo-criar-arte"><h2 id="titulo-criar-arte">Crie uma arte com IA</h2>{conteudoGeracao}</section>;
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
-    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'KIDMAIS · CONVITES'}</p><h1>{admin ? 'Convite da festa' : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={`/admin/festas/${festaId}`}>← Voltar à festa</Link></div>}</header>
+    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'KIDMAIS · CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
+    {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
     {erro && <p className={ui.erro} role="alert">{erro}</p>}{aviso && <p className={ui.aviso} role="status">{aviso}</p>}
     {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : <><strong>{dados.disponiveis}</strong> créditos de imagem disponíveis</>}</span></div>
@@ -421,10 +423,10 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       </aside></div>
       {(dados.artes.length > 0 || !dados.laboratorioLocal) && <details ref={galeriaRef} className={`${ui.painel} ${ui.galeriaLocal}`}><summary>Imagens anteriores</summary><fieldset disabled={busy} className={ui.formulario}>{galeriaArtes}{!dados.laboratorioLocal && <label className={ui.upload}>{modeloComFoto(conteudo.tema) ? 'Adicionar sua foto' : 'Usar uma arte própria'}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void upload(e.target.files?.[0]); e.target.value = ''; }} /><small>PNG, JPEG ou WebP · até 5 MB · sem créditos de IA</small></label>}</fieldset></details>}
       {!dados.laboratorioLocal && <div className={ui.colunaInferior}>
-        {admin && <details className={ui.painel}><summary>Acesso do cliente e limites</summary><p>{dados.clienteHabilitado ? 'O cliente já pode criar o convite.' : 'Libere um link exclusivo para o cliente criar o convite.'}</p><button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: true }, 'Novo acesso criado. O link anterior foi revogado.', true); if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href); }}>Gerar novo link do cliente</button>{dados.clienteHabilitado && <button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true); if (r) setLinkCliente(''); }}>Revogar acesso</button>}
+        {admin && <details className={ui.painel}><summary>Acesso do cliente e limites</summary><p>{dados.festaId === null ? 'Vincule uma festa para liberar o editor à família. O link público para os convidados continua disponível ao publicar.' : dados.clienteHabilitado ? 'O cliente já pode criar o convite.' : 'Libere um link exclusivo para o cliente criar o convite.'}</p><button disabled={busy || dados.festaId === null} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: true }, 'Novo acesso criado. O link anterior foi revogado.', true); if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href); }}>Gerar novo link do cliente</button>{dados.clienteHabilitado && <button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true); if (r) setLinkCliente(''); }}>Revogar acesso</button>}
           {linkCliente && <label>Link exclusivo de edição<input readOnly value={linkCliente} onFocus={e => e.target.select()} /><button onClick={() => void copiar(linkCliente)}>Copiar link do cliente</button></label>}
           <p>Franquia mensal: {dados.cotas.empresaUsado ?? 0} de {dados.cotas.empresa ?? 0} usados. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>
-          <div className={ui.campos}><label>Limite total da festa<input type="number" min={dados.cotas.festaUsado} max={100} value={cotaFesta} onChange={e => setCotaFesta(Number(e.target.value))} /></label><label>Limite do cliente<input type="number" min={dados.cotas.clienteUsado} max={cotaFesta} value={cotaCliente} onChange={e => setCotaCliente(Number(e.target.value))} /></label></div><button disabled={busy} onClick={() => void executar({ acao: 'cotas', festa: cotaFesta, cliente: cotaCliente }, 'Limites atualizados.', true)}>Aplicar limites</button><small>Os limites da festa são compartilhados. Somente a gestão pode aumentá-los. O saldo mensal da empresa continua sendo o teto.</small>
+          <div className={ui.campos}><label>{dados.festaId === null ? "Limite deste convite" : "Limite total da festa"}<input type="number" min={dados.cotas.festaUsado} max={100} value={cotaFesta} onChange={e => setCotaFesta(Number(e.target.value))} /></label><label>Limite do cliente<input type="number" min={dados.cotas.clienteUsado} max={cotaFesta} value={cotaCliente} onChange={e => setCotaCliente(Number(e.target.value))} /></label></div><button disabled={busy} onClick={() => void executar({ acao: 'cotas', festa: cotaFesta, cliente: cotaCliente }, 'Limites atualizados.', true)}>Aplicar limites</button><small>Os limites da festa são compartilhados. Somente a gestão pode aumentá-los. O saldo mensal da empresa continua sendo o teto.</small>
         </details>}
         <ConviteFamilias familias={dados.familias ?? []} publicado={dados.publicado && !dados.desatualizado} busy={busy} erro={erro} ui={ui} executar={executarFamilia} />
         <ConvitePresencas respostas={dados.respostas} contratados={dados.convidadosContratados ?? null} ui={ui} busy={busy} atualizar={() => void atualizarPresencas()} />

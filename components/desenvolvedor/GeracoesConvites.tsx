@@ -9,7 +9,7 @@ import { useReautenticacao } from './Reautenticacao';
 type Pendente = {
     id: string; criadoEm: string; enviadoEm: string | null; recebidoEm: string | null; origem: 'CLIENTE' | 'BUFFET'; classe: string; diagnostico: string | null;
     evidencia: { diagnostico?: string; requestId?: string; etapa?: string; categorias?: string[] }; modelo: string; reservaMicrousd: string; imagemRetida: boolean;
-    festaId: string; empresaId: string; empresaNome: string;
+    festaId: string | null; empresaId: string; empresaNome: string;
 };
 type Automatica = { id: string; estado: string; criadoEm: string; classe: string | null; diagnostico: string | null; empresaNome: string };
 type Decisao = { id: string; resultado: string; em: string; evidencia: string; resolvedor: string | null; empresaNome: string; criadoEm: string; classe: string | null };
@@ -60,7 +60,7 @@ export default function GeracoesConvites() {
                 <h2 id="t-geracoes-pendentes">Em verificação ({fila.pendentes.length})</h2>
                 {fila.pendentes.length === 0 && <p className={workspace.muted}>Nenhuma geração aguardando decisão.</p>}
                 {fila.pendentes.map((g) => <article key={g.id} className={workspace.card} aria-label={`Geração ${g.id}`}>
-                    <p><strong>{g.empresaNome}</strong> · festa <code>{g.festaId}</code></p>
+                    <p><strong>{g.empresaNome}</strong> · {g.festaId ? <>festa <code>{g.festaId}</code></> : 'convite avulso'}</p>
                     <p>Geração <code>{g.id}</code> · iniciada pelo {g.origem === 'CLIENTE' ? 'cliente' : 'buffet'} · {g.modelo}</p>
                     <ul>
                         <li>Classe: {CLASSE_FALHA[g.classe] ?? g.classe}</li>
