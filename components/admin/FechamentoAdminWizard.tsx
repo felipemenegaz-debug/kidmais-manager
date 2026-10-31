@@ -8,6 +8,12 @@ import type { obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/se
 import type { FechamentoAdministrativoInput } from '@/lib/fechamentos/administrativo-schema';
 import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo-schema';
 import { erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import { AvisoGlobal, ResumoErros } from '@/components/ui/ErrosFormulario';
+import { focarPrimeiroErro, type ErroCampo } from '@/lib/ui/erros-formulario';
+
+/** ID estável de cada controle (N1/N2) e ordem visual do formulário, para o resumo e o foco no primeiro erro. */
+const idFechamento = (campo: string) => `fechamento-${campo}`;
+const ORDEM_CAMPOS = ['dataFesta', 'configuracaoId', 'horarioInicio', 'horarioFim', 'convidadosPagantes', 'aniversarianteId', 'responsavelAdicionalId', 'idadeAniversariante', 'temaFesta', 'buffetDefinicao', 'valorCombinado', 'formaPagamento', 'condicaoPixPretendida'];
 import type { RegraPacoteEmpresa } from '@/lib/agenda/disponibilidade';
 import { PACOTES_CONTRATAVEIS_V1 } from '@/lib/comercial/pacotes-v1';
 import type { DisponibilidadeDataPublica, PeriodoDisponibilidadePublica } from '@/lib/disponibilidade/services/models';
@@ -218,9 +224,11 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         if (envioEmCurso.current || resultado || incerto) return;
         setTentouRevisar(true);
         if (pendencias.length) {
-            setErro('Confira os campos pendentes antes de continuar.');
+            // N1/N2: sem mensagem no topo; o resumo fica junto do botão e o primeiro campo pendente recebe rolagem e foco
+            // (a edição é reaberta antes, se o operador estava na revisão).
+            setErro('');
             if (revisando) setRevisando(false);
-            requestAnimationFrame(() => edicaoRef.current?.closest('form')?.querySelector<HTMLElement>('[aria-invalid=true]')?.focus());
+            focarPrimeiroErro(errosLista, { resumoId: 'fechamento-erros' });
             return;
         }
         if (!revisando) {
@@ -281,13 +289,18 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const pacoteAtual = pacoteEscolhido(form.pacote);
     const convidadosErro = pacoteAtual ? pacoteAtual.erro(form.convidadosPagantes) : 'Escolha um pacote desta empresa.';
     if (convidadosErro) errosCampos.convidadosPagantes = convidadosErro;
-    const pendencias = [...new Set(Object.values(errosCampos)), ...(adicionaisDisponiveis === null ? [falhaAdicionais ?? 'Aguardando consulta dos adicionais.'] : form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis.find(x => x.id === id); return a ? pendenciaEscolhas(a, form.adicionaisEscolhas?.[id] ?? []) : null; }).filter((p): p is string => Boolean(p)))];
+    const pendenciasAdicionais = adicionaisDisponiveis === null ? [falhaAdicionais ?? 'Aguardando consulta dos adicionais.'] : form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis.find(x => x.id === id); return a ? pendenciaEscolhas(a, form.adicionaisEscolhas?.[id] ?? []) : null; }).filter((p): p is string => Boolean(p));
+    const pendencias = [...new Set(Object.values(errosCampos)), ...pendenciasAdicionais];
+    const errosLista: ErroCampo[] = [
+        ...Object.entries(errosCampos).sort(([a], [b]) => (ORDEM_CAMPOS.indexOf(a) + 1 || 99) - (ORDEM_CAMPOS.indexOf(b) + 1 || 99)).map(([campo, mensagem]) => ({ campo: idFechamento(campo), mensagem })),
+        ...pendenciasAdicionais.map(mensagem => ({ campo: '', mensagem })),
+    ];
     const nomeAniversariante = contexto?.aniversariantes.find(a => a.id === form.aniversarianteId)?.nome;
     const pagamentoNome = form.formaPagamento === 'pix_avista' ? 'PIX à vista' : form.formaPagamento === 'pix_parcelado' ? 'PIX parcelado' : 'Cartão Cielo';
     function erroCampo(campo: string) { return tentouRevisar && errosCampos[campo] ? <small id={`pendencia-${campo}`} className={styles.error}>{errosCampos[campo]}</small> : null; }
     function acessibilidade(campo: string) {
         const rotulos: Record<string, string> = { configuracaoId: 'Horário da festa', horarioInicio: 'Horário disponível', convidadosPagantes: 'Convidados pagantes', aniversarianteId: 'Aniversariante', responsavelAdicionalId: 'Responsável adicional (opcional)', idadeAniversariante: 'Idade no evento (opcional)', temaFesta: 'Tema', buffetDefinicao: 'Buffet', valorCombinado: 'Valor comercial proposto (R$)', formaPagamento: 'Forma de pagamento pretendida' };
-        return { 'aria-label': rotulos[campo], 'aria-invalid': tentouRevisar && Boolean(errosCampos[campo]), 'aria-describedby': tentouRevisar && errosCampos[campo] ? `pendencia-${campo}` : undefined };
+        return { id: idFechamento(campo), 'aria-label': rotulos[campo], 'aria-invalid': tentouRevisar && Boolean(errosCampos[campo]), 'aria-describedby': tentouRevisar && errosCampos[campo] ? `pendencia-${campo}` : undefined };
     }
     const resumo = <dl>
         <div><dt>Cliente</dt><dd>{contexto?.cliente.nomeCompleto}</dd></div>
@@ -305,7 +318,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         <section className={styles.card}><h2>Cliente</h2><p>Cliente: <strong>{contexto.cliente.nomeCompleto}</strong> — cadastro completo.</p>
         <p>CPF: {contexto.cliente.cpf?.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '***.$2.$3-**')}</p>
         <Link href={`/clientes/${clienteId}`}>Conferir cadastro no CRM</Link></section>
-        {erro && <p role="alert">{erro}</p>}
+        {/* Erro que não é de campo (servidor, agenda): aviso fixo, visível de qualquer ponto do formulário. */}
+        <AvisoGlobal mensagem={erro} onFechar={() => setErro('')} />
         {avisoPreparacao && <p role="status">{avisoPreparacao}</p>}
         {preparacao && !semPreparacao && <section className={styles.card} aria-label="Preparado pelo Kidmais">
             <p>Preparado pelo Kidmais. Confira, complete e conclua: nada foi gravado até você concluir.</p>
@@ -328,9 +342,12 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 {pacotesEmpresa && !pacotesEmpresa.length && <p>Nenhum pacote criado ainda. Cadastre em <a href="/admin/configuracoes/pacotes">Configurações → Pacotes</a>.</p>}
                 {unidades.length > 1 && <label>Unidade<select required value={unidadeId} onChange={e => { limparAgenda(); campo('estabelecimentoId', e.target.value || null); }}>
                     <option value="">Selecione</option>{unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
+                {/* A data vem do calendário (sem input próprio): o bloco é o alvo do foco e descreve a pendência. */}
+                <div id={idFechamento('dataFesta')} tabIndex={-1} aria-describedby={tentouRevisar && errosCampos.dataFesta ? 'pendencia-dataFesta' : undefined} data-invalido={tentouRevisar && errosCampos.dataFesta ? true : undefined}>
                 {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} regrasPacote={pacotesEmpresa ? (regrasEmpresa?.[form.pacote] ?? []) : null} configuracaoId={form.configuracaoId ?? ''} dataSelecionada={form.dataFesta} consultar={consultarMes}
                     onSelecionar={(data, _status, _candidatos, periodo) => void selecionarData(data, periodo ? { configuracaoId: periodo.configuracaoId } : undefined)}
                     onTrocarHorario={id => { const periodo = periodos.find(p => p.configuracaoId === id); limparAgenda(); setForm(atual => ({ ...atual, ...horarioDoPeriodo(periodo), configuracaoId: id })); }} />
+                </div>
                 {periodos.length > 0 && <label >Horário da festa<select {...acessibilidade('configuracaoId')} required value={form.configuracaoId ?? ''} onChange={e => void selecionarData(form.dataFesta, { configuracaoId: e.target.value })}>
                     <option value="">Selecione</option>{periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId} disabled={!candidatosDisponiveis(p).length}>{rotuloPeriodo(p)}{candidatosDisponiveis(p).length ? '' : ' — indisponível'}</option>)}</select>{erroCampo('configuracaoId')}</label>}
                 <label >Horário disponível<select {...acessibilidade('horarioInicio')} required value={form.horarioInicio} onChange={e => {
@@ -352,7 +369,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 </fieldset><fieldset hidden={revisando} disabled={enviando} className={styles.card}><legend>Condições comerciais e pagamento</legend>
                 <label >Valor comercial proposto (R$)<input {...acessibilidade('valorCombinado')} required inputMode="decimal" value={form.valorCombinado} onChange={e => campo('valorCombinado', e.target.value)} />{erroCampo('valorCombinado')}</label>
                 <label >Forma de pagamento pretendida<select {...acessibilidade('formaPagamento')} value={form.formaPagamento} onChange={e => setForm(atual => ({ ...atual, formaPagamento: e.target.value as typeof form.formaPagamento, condicaoPixPretendida: null }))}><option value="pix_avista">PIX à vista</option><option value="pix_parcelado">PIX parcelado</option><option value="cartao_cielo">Cartão Cielo</option></select>{erroCampo('formaPagamento')}</label>
-                {form.formaPagamento === 'pix_parcelado' && (['entrada', 'valorParcela', 'quantidadeParcelas'] as const).map((key, i) => <label key={key}>{['Entrada pretendida (R$)', 'Parcela pretendida (R$)', 'Quantidade pretendida'][i]}<input {...acessibilidade('condicaoPixPretendida')} inputMode={key === 'quantidadeParcelas' ? 'numeric' : 'decimal'} value={form.condicaoPixPretendida?.[key] ?? ''} onChange={e => campo('condicaoPixPretendida', { ...form.condicaoPixPretendida, [key]: e.target.value === '' ? null : key === 'quantidadeParcelas' ? Number(e.target.value) : e.target.value.replace(',', '.') })} /></label>)}{erroCampo('condicaoPixPretendida')}
+                {form.formaPagamento === 'pix_parcelado' && (['entrada', 'valorParcela', 'quantidadeParcelas'] as const).map((key, i) => <label key={key}>{['Entrada pretendida (R$)', 'Parcela pretendida (R$)', 'Quantidade pretendida'][i]}<input {...acessibilidade('condicaoPixPretendida')} id={i === 0 ? idFechamento('condicaoPixPretendida') : undefined} inputMode={key === 'quantidadeParcelas' ? 'numeric' : 'decimal'} value={form.condicaoPixPretendida?.[key] ?? ''} onChange={e => campo('condicaoPixPretendida', { ...form.condicaoPixPretendida, [key]: e.target.value === '' ? null : key === 'quantidadeParcelas' ? Number(e.target.value) : e.target.value.replace(',', '.') })} /></label>)}{erroCampo('condicaoPixPretendida')}
                 <p>Confira os dados antes de concluir. Os preços serão calculados pelo servidor; negociação e PIX parcelado seguem para revisão comercial quando exigido.</p>
             </fieldset>
             <div ref={revisaoRef} tabIndex={-1} hidden={!revisando} className={styles.review}>
@@ -360,6 +377,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 <section className={styles.card}><h2>Condições comerciais e pagamento</h2><p>Valor comercial proposto: <strong>R$ {form.valorCombinado}</strong></p><p>{pagamentoNome}</p>{form.formaPagamento === 'pix_parcelado' && <p>Entrada pretendida: {form.condicaoPixPretendida?.entrada ?? 'Não informada'} · Parcela pretendida: {form.condicaoPixPretendida?.valorParcela ?? 'Não informada'} · Quantidade: {form.condicaoPixPretendida?.quantidadeParcelas ?? 'Não informada'}</p>}<p>Preço oficial e disponibilidade são validados pelo servidor ao criar o fechamento.</p></section>
                 <section className={styles.card}><h2>Detalhes da contratação</h2><p>Buffet: {form.buffetDefinicao === 'agora' ? 'Definido nesta proposta' : 'Definir depois'}</p>{form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => form[key] ? <p key={key}>{label}: {form[key]}</p> : null)}<p>Adicionais: {form.adicionaisSelecionados.length ? form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis?.find(a => a.id === id); const ops = (form.adicionaisEscolhas?.[id] ?? []).map(op => a?.escolhas?.itens.find(i => i.id === op)?.nome).filter(Boolean); return `${a?.nome ?? id}${a && aceitaQuantidade(a.unidadeCobranca) ? ` × ${form.adicionaisQuantidades?.[id] ?? 1}` : ''}${ops.length ? ` (${ops.join(', ')})` : ''}`; }).join(', ') : 'Nenhum'}</p><p>Responsável adicional: {contexto.responsaveis.find(r => r.id === form.responsavelAdicionalId)?.nome ?? 'Nenhum'}</p>{form.alteracoesPacote && <p>Alterações do pacote: {form.alteracoesPacote}</p>}{form.observacoesCliente && <p>Observações do cliente: {form.observacoesCliente}</p>}{form.observacoesEquipe && <p>Observações da equipe: {form.observacoesEquipe}</p>}</section>
             </div>
+            {tentouRevisar && !revisando && <ResumoErros id="fechamento-erros" erros={errosLista} titulo="Antes de continuar, corrija:" />}
             <div className={styles.actions}>{revisando && <button type="button" disabled={enviando} onClick={() => { setRevisando(false); requestAnimationFrame(() => edicaoRef.current?.querySelector<HTMLElement>('select, input')?.focus()); }}>Voltar e corrigir</button>}<button type="submit" disabled={enviando || incerto}>{enviando ? 'Criando fechamento…' : revisando ? 'Confirmar e criar fechamento' : 'Revisar contratação'}</button></div>
         </form><aside className={styles.summary} aria-label="Resumo atualizado"><h2>Resumo da contratação</h2>{resumo}<hr/><p>Valor comercial proposto</p><strong>{form.valorCombinado ? `R$ ${form.valorCombinado}` : 'Valor pendente'}</strong><p>Preço oficial calculado pelo servidor ao concluir.</p>{pendencias.length > 0 && <div className={styles.pending}><strong>Antes de continuar</strong><ul>{pendencias.map(item => <li key={item}>{item}</li>)}</ul></div>}<p>Criar o fechamento inicia a contratação. Revisão comercial, geração do contrato e assinaturas seguem nas etapas próprias.</p></aside></div>
     </main>;

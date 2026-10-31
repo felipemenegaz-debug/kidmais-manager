@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { CampoExtraido, ExtracaoContrato } from "../../importacao-contrato/modelo.ts";
 import { classificarMatch, montarPlano, type DecisaoCliente, type PlanoImportacao } from "../../importacao-contrato/plano.ts";
-import { dadosNormalizados } from "../../importacao-contrato/rascunho.ts";
+import { completarRevisao, dadosNormalizados } from "../../importacao-contrato/rascunho.ts";
 import type { AnaliseDuplicidade } from "../../importacao-contrato/plano.ts";
 import type { ExtracaoRegistrada } from "../../importacao-contrato/repositorio-documentos.ts";
 import type { ImportacaoLida } from "../../importacao-contrato/repositorio-importacao.ts";
@@ -89,7 +89,8 @@ export type PortaImportacao = {
 export function dadosDaImportacao(i: ImportacaoLida): DadosImportacao {
   const dados = i.dados as Partial<DadosImportacao>;
   if (!dados.extracao || !Array.isArray(dados.revisados)) throw new InteligenciaError("IMPORTACAO_INVALIDA", "Rascunho de importação inválido.", 409);
-  return { extracao: dados.extracao, revisados: dados.revisados, decisaoCliente: dados.decisaoCliente ?? null };
+  // v1 (gravada antes da leitura de endereço/CNPJ): ganha os campos novos vazios, sem reler o documento.
+  return { extracao: completarRevisao(dados.extracao), revisados: dados.revisados, decisaoCliente: dados.decisaoCliente ?? null };
 }
 
 /** Busca de cliente no tenant + plano. Usada no preview da tela, no preview do gate e de novo no clique. */
@@ -138,6 +139,8 @@ async function planoAtual(tx: DbExecutor, empresaId: string, porta: PortaImporta
   if (importacao.status !== "EM_REVISAO" || importacao.versao !== payload.versaoImportacao) throw new ErroCampo([], "A revisão mudou depois do preview.");
   const dados = dadosDaImportacao(importacao);
   const plano = await planejar(tx, empresaId, porta, { ...dados, decisaoCliente: payload.decisaoCliente });
+  // R21-2: cliente pessoa jurídica recusado antes de qualquer cadastro ou vínculo, nas duas confirmações.
+  if (plano.recusa) throw new InteligenciaError(plano.recusa.codigo, plano.recusa.mensagem, 409, plano.recusa.motivo);
   if (!plano.pronto) throw new InteligenciaError("IMPORTACAO_BLOQUEADA", plano.bloqueios[0] ?? "A importação ainda tem pendências.", 409);
   return { importacao, dados, plano };
 }

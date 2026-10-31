@@ -27,6 +27,14 @@ export type CampoExtraido = {
   /** Conflito com outro campo (soma, parcelas, horário × duração, convidados × pacote). */
   conflito?: string;
   confirmacao?: ConfirmacaoCampo;
+  /** Leitura independente pelo modelo ATIVO da empresa. Divergente do valor atual ⇒ conflito "Precisa revisão". */
+  alternativa?: { valor: string; pagina: number | null; trecho: string };
+  /** Valor sugerido a partir de outro campo (ex.: WhatsApp = celular único): sempre pede confirmação humana. */
+  inferido?: string;
+  /** Valor lido que não pode ser usado neste papel (ex.: CNPJ da contratada no lugar do cliente): corrigir ou remover. */
+  bloqueio?: string;
+  /** Bloqueio por ambiguidade (ex.: mais de um CPF na qualificação): validação AMBIGUO, o operador digita o certo. */
+  ambiguo?: true;
 };
 
 /**
@@ -45,7 +53,7 @@ export type EstadoValidacao = "VALIDO" | "INVALIDO" | "AMBIGUO" | "NAO_REPRESENT
  */
 export type ConfirmacaoCampo = { tipo: "LEITURA" | "DIVERGENCIA"; assinatura: string };
 
-export type IdSecao = "contratante" | "evento" | "pacote" | "buffet" | "valores" | "pagamentos" | "observacoes";
+export type IdSecao = "contratante" | "endereco" | "evento" | "pacote" | "buffet" | "valores" | "pagamentos" | "observacoes";
 
 export type SecaoRevisao = {
   id: IdSecao;
@@ -68,6 +76,13 @@ export type ExtracaoContrato = {
   fonte: FonteExtracao;
   arquivo: ArquivoSelecionado;
   secoes: SecaoRevisao[];
+  /**
+   * Versão da leitura que montou esta revisão. Ausente = v1 (gravada antes de 31/10/2026): nunca leu CNPJ, então o
+   * contratante é pessoa física como sempre foi. A partir da v2 o tipo de pessoa precisa estar resolvido (R21-1).
+   */
+  versaoLeitura?: number;
+  /** Modelo ATIVO da empresa usado como referência (id e versão lidos na transação da empresa). */
+  modeloReferencia?: { id: string; versao: number } | null;
 };
 
 export type Extrator = (arquivo: ArquivoSelecionado) => ExtracaoContrato;

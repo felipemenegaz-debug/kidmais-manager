@@ -9,10 +9,12 @@ import {
   type OpcoesIntegracao, type SinalDuplicidade, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
 } from './cliente-integracao';
 import {
-  ajustarSalao, camposCorrigidos, conferenciaParcelas, dataBr, decisoesDoForm, errosFesta, errosPagamentos, escopoDoForm, financeiroDoFormulario, formInicial, pedeSalao,
-  FORMAS_ROTULO, novaParcela, reais, SITUACAO_CONTRATO_ROTULO, SITUACAO_FINANCEIRA_ROTULO, textoDeCentavos,
+  ajustarSalao, camposCorrigidos, conferenciaParcelas, dataBr, decisoesDoForm, errosFestaPorCampo, errosPagamentos, errosPagamentosPorCampo, escopoDoForm, etapaDoCampo, financeiroDoFormulario, formInicial, pedeSalao,
+  FORMAS_ROTULO, ID_INTEGRACAO, idCadastro, idMotivo, idParcela, novaParcela, reais, SITUACAO_CONTRATO_ROTULO, SITUACAO_FINANCEIRA_ROTULO, textoDeCentavos,
   type CampoDoc, type FormIntegracao, type ParcelaForm,
 } from './integracao-form';
+import { AvisoGlobal, MensagemCampo, ResumoErros } from '@/components/ui/ErrosFormulario';
+import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from '@/lib/ui/erros-formulario';
 import styles from './importacao.module.css';
 import ui from './integracao.module.css';
 
@@ -46,7 +48,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   const [form, setForm] = useState<FormIntegracao | null>(null);
   const [passo, setPassoInterno] = useState<PassoIntegracao>(modoInicial === 'financeiro' ? 'pagamentos' : 'festa');
   const [revisao, setRevisao] = useState<Revisao>({ tipo: 'nenhuma' });
-  const [erros, setErros] = useState<string[]>([]);
+  const [erros, setErros] = useState<ErroCampo[]>([]);
   const [cadastroInvalido, setCadastroInvalido] = useState<Partial<Record<keyof CadastroContratual, string>>>({});
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -112,21 +114,25 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
 
   const salaoPedido = pedeSalao(f, o.saloes, o.hoje);
   const escopoSaloes = escopoDoForm(f, o.saloes);
-  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length, salaoPedido);
+  const avancarFesta = () => { const festa = errosFestaPorCampo(f, o.sugestao, o.estabelecimentos.length, salaoPedido);
     // Mensagens por campo do schema (a mesma regra do servidor): o operador vê qual campo e por quê, e o input é marcado.
-    const cadastro = cadastroContratualSchema.safeParse(f.cadastro); const invalidos: Partial<Record<keyof CadastroContratual, string>> = {};
-    if (!cadastro.success) for (const issue of cadastro.error.issues) { const k = issue.path[0] as keyof CadastroContratual; const rotulo = CAMPOS_CADASTRO[k]; if (rotulo && !invalidos[k]) invalidos[k] = issue.message; e.push(rotulo ? `${rotulo}: ${issue.message}` : `Dados do contratante: ${issue.message}`); }
+    const cadastro = cadastroContratualSchema.safeParse(f.cadastro); const invalidos: Partial<Record<keyof CadastroContratual, string>> = {}; const doCadastro: ErroCampo[] = [];
+    if (!cadastro.success) for (const issue of cadastro.error.issues) { const k = issue.path[0] as keyof CadastroContratual; const rotulo = CAMPOS_CADASTRO[k]; if (rotulo && !invalidos[k]) invalidos[k] = issue.message; doCadastro.push({ campo: rotulo ? idCadastro(k) : '', mensagem: rotulo ? `${rotulo}: ${issue.message}` : `Dados do contratante: ${issue.message}` }); }
     setCadastroInvalido(invalidos);
-    if (f.aniversariante.trim().length < 2) e.push("Informe o aniversariante."); setErros(e); if (!e.length) {
+    // Ordem visual da etapa: situação, contratante, aniversariante e então unidade, pacote, data, horário e convidados.
+    const situacao = festa.filter((x) => x.campo === ID_INTEGRACAO.situacaoContrato);
+    const e = [...situacao, ...doCadastro, ...(f.aniversariante.trim().length < 2 ? [{ campo: ID_INTEGRACAO.aniversariante, mensagem: 'Informe o aniversariante.' }] : []), ...festa.filter((x) => x.campo !== ID_INTEGRACAO.situacaoContrato)];
+    setErros(e); if (e.length) focarPrimeiroErro(e, { resumoId: 'int-erros-festa' }); if (!e.length) {
     if (versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') && !errosPagamentos(f, o.sugestao, o.hoje).length) void revisar(f);
     else setPasso('pagamentos');
   } };
 
   /** `manterErro`: recálculo depois de uma recusa do servidor mantém o motivo visível. */
   async function revisar(formAtual: FormIntegracao = f, manterErro = false) {
-    const e = modo === 'financeiro' ? errosPagamentos(formAtual, o.sugestao, o.hoje).filter((x) => !/valor contratado/i.test(x)) : [...errosFesta(formAtual, o.sugestao, o.estabelecimentos.length, pedeSalao(formAtual, o.saloes, o.hoje)), ...errosPagamentos(formAtual, o.sugestao, o.hoje)];
+    const e = modo === 'financeiro' ? errosPagamentosPorCampo(formAtual, o.sugestao, o.hoje).filter((x) => !/valor contratado/i.test(x.mensagem)) : [...errosFestaPorCampo(formAtual, o.sugestao, o.estabelecimentos.length, pedeSalao(formAtual, o.saloes, o.hoje)), ...errosPagamentosPorCampo(formAtual, o.sugestao, o.hoje)];
     setErros(e);
-    if (e.length) return;
+    // A etapa que contém o primeiro erro é aberta antes do foco (a festa pode estar escondida atrás de Pagamentos).
+    if (e.length) { focarPrimeiroErro(e, { abrir: (c) => setPasso(etapaDoCampo(c)), resumoId: `int-erros-${etapaDoCampo(e[0].campo)}` }); return; }
     setRevisao({ tipo: 'calculando' }); if (!manterErro) setErro(null); setPasso('revisao');
     if (modo === 'financeiro') {
       const r = await simularFinanceiro(adminFetch, importacaoId, financeiroDoFormulario(formAtual));
@@ -172,13 +178,19 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     if (codigo === 'RESUMO_DESATUALIZADO' || codigo === 'CONFLITO_AGENDA' || codigo === 'INTEGRACAO_BLOQUEADA' || codigo === 'SALAO_INDISPONIVEL') void revisar(f, true);
     if (codigo === 'IMPORTACAO_JA_INTEGRADA' || codigo === 'FINANCEIRO_JA_CONFERIDO') { void carregar(); setRevisao({ tipo: 'nenhuma' }); }
     if (codigo === 'IDEMPOTENCIA_CONFLITANTE') void revisar(f, true);
-    if (Array.isArray(detalhes?.bloqueios)) setErros(detalhes.bloqueios.filter((b): b is string => typeof b === 'string'));
+    if (Array.isArray(detalhes?.bloqueios)) setErros(detalhes.bloqueios.filter((b): b is string => typeof b === 'string').map((mensagem) => ({ campo: '', mensagem })));
   }
 
   const corrigidos = camposCorrigidos(f, o.sugestao);
+  const errosPorCampo = mapaErros(erros);
+  /** Atributos (ID estável, aria-invalid, aria-describedby) e mensagem logo abaixo de cada controle (N1/N2). */
+  const campo = (id: string) => propsCampo(id, errosPorCampo[id]);
+  const mensagem = (id: string) => <MensagemCampo id={id} mensagem={errosPorCampo[id]} />;
+  const abrirEtapa = (c: string) => setPasso(etapaDoCampo(c));
   const motivo = (c: CampoDoc) => corrigidos.includes(c) && <label className={ui.motivo}>
     <span>O documento diz {c === 'valorContratado' ? reais(o.sugestao.valorContratadoCentavos ?? 0) : c === 'data' ? dataBr(o.sugestao.evento.data ?? '') : String(o.sugestao.evento[c] ?? '')}. Por que o {ROTULO_CAMPO[c]} é outro? (correção de leitura)</span>
-    <input value={f.motivos[c] ?? ''} maxLength={500} onChange={(e) => atualizar({ motivos: { ...f.motivos, [c]: e.target.value } })} />
+    <input {...campo(idMotivo(c))} value={f.motivos[c] ?? ''} maxLength={500} onChange={(e) => atualizar({ motivos: { ...f.motivos, [c]: e.target.value } })} />
+    {mensagem(idMotivo(c))}
   </label>;
   const conf = conferenciaParcelas(f);
   const bloqueadoPelaSituacao = f.situacaoContrato === 'CANCELADO' || f.situacaoContrato === 'NAO_COMPROVADA';
@@ -189,47 +201,51 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
       <p className={styles.texto}>Confirme os dados operacionais. Valores diferentes do documento ficam registrados como correção de leitura; o documento original não muda.</p>
       <fieldset className={ui.grupo}>
         <legend>Situação do contrato</legend>
-        <div className={ui.opcoes} role="radiogroup" aria-label="Situação do contrato">
+        <div {...campo(ID_INTEGRACAO.situacaoContrato)} tabIndex={-1} className={ui.opcoes} role="radiogroup" aria-label="Situação do contrato" aria-required="true">
           {(Object.keys(SITUACAO_CONTRATO_ROTULO) as Array<keyof typeof SITUACAO_CONTRATO_ROTULO>).map((s) => <label key={s} className={ui.opcao} data-marcado={f.situacaoContrato === s}>
             <input type="radio" name="situacaoContrato" checked={f.situacaoContrato === s} onChange={() => atualizar({ situacaoContrato: s })} />{SITUACAO_CONTRATO_ROTULO[s]}</label>)}
         </div>
+        {mensagem(ID_INTEGRACAO.situacaoContrato)}
         {bloqueadoPelaSituacao && <p className={styles.aviso}>Contrato cancelado ou não confirmado não vira festa e não ocupa agenda. Ele continua consultável como contrato importado, com o documento original.</p>}
       </fieldset>
       {!bloqueadoPelaSituacao && <>
         <CamposCadastroContratual value={f.cadastro} cpfProtegido={!!o.cliente?.cadastro?.cpf} invalidos={cadastroInvalido} onChange={cadastro => atualizar({ cadastro })} />
-        <label className={ui.campo}><span>Aniversariante</span><input value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} /></label>
+        <label className={ui.campo}><span>Aniversariante</span><input {...campo(ID_INTEGRACAO.aniversariante)} required value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} />{mensagem(ID_INTEGRACAO.aniversariante)}</label>
         <label className={ui.campo}><span>Forma contratada</span><select value={f.formaPagamento} onChange={e => atualizar({ formaPagamento: e.target.value as FormIntegracao["formaPagamento"] })}><option value="">Outra / conforme documento original</option><option value="PIX_AVISTA">Pix à vista</option><option value="PIX_PARCELADO">Pix parcelado</option><option value="CARTAO_CIELO">Cartão / Cielo</option></select><small>O valor contratado é mantido. Nenhum desconto atual será aplicado à importação.</small></label>
         <div className={ui.grade}>
           <label className={ui.campo}><span>Unidade</span>
-            {o.estabelecimentos.length ? <select value={f.estabelecimentoId} onChange={(e) => atualizar({ estabelecimentoId: e.target.value })}>
+            {o.estabelecimentos.length ? <select {...campo(ID_INTEGRACAO.estabelecimentoId)} required value={f.estabelecimentoId} onChange={(e) => atualizar({ estabelecimentoId: e.target.value })}>
               <option value="">Escolha a unidade</option>
               {o.estabelecimentos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
             </select> : <output>Unidade única desta empresa</output>}
+            {mensagem(ID_INTEGRACAO.estabelecimentoId)}
           </label>
           {salaoPedido && <label className={ui.campo}><span>Salão</span>
-            <select aria-label="Salão da festa" value={f.salaoId} onChange={(e) => atualizar({ salaoId: e.target.value })}>
+            <select {...campo(ID_INTEGRACAO.salaoId)} required aria-label="Salão da festa" value={f.salaoId} onChange={(e) => atualizar({ salaoId: e.target.value })}>
               <option value="">Escolha o salão</option>
               {escopoSaloes!.saloes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
+            {mensagem(ID_INTEGRACAO.salaoId)}
             <small>{escopoSaloes!.saloes.length ? 'A agenda desta unidade é por salão. A disponibilidade do salão é conferida na revisão.' : 'Nenhum salão ativo nesta unidade. Cadastre o salão em Configurações › Salões.'}</small>
           </label>}
           <label className={ui.campo}><span>Pacote de referência no sistema</span>
-            <select value={f.pacoteReferenciaId} onChange={(e) => atualizar({ pacoteReferenciaId: e.target.value })}>
+            <select {...campo(ID_INTEGRACAO.pacoteReferenciaId)} required value={f.pacoteReferenciaId} onChange={(e) => atualizar({ pacoteReferenciaId: e.target.value })}>
               <option value="">Escolha o pacote</option>
               {o.pacotes.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.ativo ? '' : ' (inativo)'}</option>)}
             </select>
+            {mensagem(ID_INTEGRACAO.pacoteReferenciaId)}
             <small>Só referência operacional. Itens e valores continuam os do contrato{o.documento.pacote ? ` (“${o.documento.pacote}”)` : ''}.</small>
           </label>
-          <label className={ui.campo}><span>Data da festa</span><input type="date" value={f.data} onChange={(e) => atualizar({ data: e.target.value })} /></label>
-          <label className={ui.campo}><span>Início</span><input type="time" value={f.horarioInicio} onChange={(e) => atualizar({ horarioInicio: e.target.value })} /></label>
-          <label className={ui.campo}><span>Término</span><input type="time" value={f.horarioFim} onChange={(e) => atualizar({ horarioFim: e.target.value })} />{!o.sugestao.evento.horarioFim && f.horarioFim && <small>Calculado pela duração do pacote no documento. Confira.</small>}</label>
-          <label className={ui.campo}><span>Convidados</span><input inputMode="numeric" value={f.convidados} onChange={(e) => atualizar({ convidados: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></label>
+          <label className={ui.campo}><span>Data da festa</span><input {...campo(ID_INTEGRACAO.data)} required type="date" value={f.data} onChange={(e) => atualizar({ data: e.target.value })} />{mensagem(ID_INTEGRACAO.data)}</label>
+          <label className={ui.campo}><span>Início</span><input {...campo(ID_INTEGRACAO.horarioInicio)} required type="time" value={f.horarioInicio} onChange={(e) => atualizar({ horarioInicio: e.target.value })} />{mensagem(ID_INTEGRACAO.horarioInicio)}</label>
+          <label className={ui.campo}><span>Término</span><input {...campo(ID_INTEGRACAO.horarioFim)} required type="time" value={f.horarioFim} onChange={(e) => atualizar({ horarioFim: e.target.value })} />{mensagem(ID_INTEGRACAO.horarioFim)}{!o.sugestao.evento.horarioFim && f.horarioFim && <small>Calculado pela duração do pacote no documento. Confira.</small>}</label>
+          <label className={ui.campo}><span>Convidados</span><input {...campo(ID_INTEGRACAO.convidados)} required inputMode="numeric" value={f.convidados} onChange={(e) => atualizar({ convidados: e.target.value.replace(/\D/g, '').slice(0, 4) })} />{mensagem(ID_INTEGRACAO.convidados)}</label>
         </div>
         {motivo('data')}{motivo('horarioInicio')}{motivo('horarioFim')}{motivo('convidados')}
         {(o.documento.aniversariante || o.documento.tema) && <p className={styles.discreto}>Do documento: {[o.documento.aniversariante && `aniversariante ${o.documento.aniversariante}`, o.documento.tema && `tema “${o.documento.tema}”`].filter(Boolean).join(' · ')}.</p>}
       </>}
-      <Erros erros={erros} erro={erro} />
-      <div className={styles.acoesFinais}><button type="button" className={styles.primario} disabled={bloqueadoPelaSituacao || !f.situacaoContrato} onClick={avancarFesta}>{versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') ? 'Revisar e concluir' : 'Continuar para pagamentos'}</button></div>
+      <ResumoErros id="int-erros-festa" erros={erros} abrir={abrirEtapa} />
+      <div className={styles.acoesFinais}><button type="button" className={styles.primario} disabled={bloqueadoPelaSituacao} onClick={avancarFesta}>{versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') ? 'Revisar e concluir' : 'Continuar para pagamentos'}</button></div>
     </section>}
 
     {passo === 'pagamentos' && <section className={styles.painel} aria-labelledby="int-pag">
@@ -239,17 +255,19 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
       <p className={styles.texto}>Registre só o que foi efetivamente recebido, com a data real e a forma. O restante entra em Contas a receber.</p>
       <div className={ui.grade}>
         <label className={ui.campo}><span>Valor contratado</span>
-          {modo === 'financeiro' ? <output>R$ {f.valorContratado}</output> : <input inputMode="decimal" placeholder="0,00" value={f.valorContratado} onChange={(e) => atualizar({ valorContratado: e.target.value })} />}
+          {modo === 'financeiro' ? <output>R$ {f.valorContratado}</output> : <input {...campo(ID_INTEGRACAO.valorContratado)} required inputMode="decimal" placeholder="0,00" value={f.valorContratado} onChange={(e) => atualizar({ valorContratado: e.target.value })} />}
+          {mensagem(ID_INTEGRACAO.valorContratado)}
         </label>
       </div>
       {modo !== 'financeiro' && motivo('valorContratado')}
       {o.sugestao.condicaoDocumento && <p className={styles.aviso}>Condição no documento: “{o.sugestao.condicaoDocumento}”. Isso descreve o que foi combinado; não comprova que algo foi pago.</p>}
       <fieldset className={ui.grupo}>
         <legend>Situação dos pagamentos</legend>
-        <div className={ui.opcoes} role="radiogroup" aria-label="Situação dos pagamentos">
+        <div {...campo(ID_INTEGRACAO.situacaoFinanceira)} tabIndex={-1} className={ui.opcoes} role="radiogroup" aria-label="Situação dos pagamentos" aria-required="true">
           {(Object.keys(SITUACAO_FINANCEIRA_ROTULO) as Array<keyof typeof SITUACAO_FINANCEIRA_ROTULO>).filter((s) => modo !== 'financeiro' || s !== 'NAO_CONFERIDO').map((s) => <label key={s} className={ui.opcao} data-marcado={f.situacaoFinanceira === s}>
             <input type="radio" name="situacaoFinanceira" checked={f.situacaoFinanceira === s} onChange={() => atualizar({ situacaoFinanceira: s })} />{SITUACAO_FINANCEIRA_ROTULO[s]}</label>)}
         </div>
+        {mensagem(ID_INTEGRACAO.situacaoFinanceira)}
       </fieldset>
       {f.situacaoFinanceira === 'NAO_CONFERIDO' && <p className={styles.aviso}>Nada entra em Contas a receber nem no Fluxo de caixa agora. O contrato fica com a pendência “Conferir pagamentos”, visível no contrato, para concluir depois.</p>}
       {f.situacaoFinanceira && f.situacaoFinanceira !== 'NAO_CONFERIDO' && <div className={ui.parcelas}>
@@ -258,24 +276,25 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
           <thead><tr><th scope="col">#</th><th scope="col">Valor</th><th scope="col">Vencimento</th><th scope="col">Recebida?</th><th scope="col">Recebida em</th><th scope="col">Forma</th><th scope="col">Exceção</th><th scope="col"><span className={styles.oculto}>Remover</span></th></tr></thead>
           <tbody>{f.parcelas.map((p, i) => <tr key={p.chave} data-recebida={p.recebida}>
             <td>{i + 1}</td>
-            <td><input aria-label={`Valor da parcela ${i + 1}`} inputMode="decimal" placeholder="0,00" value={p.valor} onChange={(e) => atualizarParcela(p.chave, { valor: e.target.value })} /></td>
-            <td><input aria-label={`Vencimento da parcela ${i + 1}`} type="date" value={p.vencimento} onChange={(e) => atualizarParcela(p.chave, { vencimento: e.target.value })} /></td>
+            <td><input {...campo(idParcela(p.chave, 'valor'))} aria-label={`Valor da parcela ${i + 1}`} inputMode="decimal" placeholder="0,00" value={p.valor} onChange={(e) => atualizarParcela(p.chave, { valor: e.target.value })} />{mensagem(idParcela(p.chave, 'valor'))}</td>
+            <td><input {...campo(idParcela(p.chave, 'vencimento'))} aria-label={`Vencimento da parcela ${i + 1}`} type="date" value={p.vencimento} onChange={(e) => atualizarParcela(p.chave, { vencimento: e.target.value })} />{mensagem(idParcela(p.chave, 'vencimento'))}</td>
             <td><input aria-label={`Parcela ${i + 1} foi recebida`} type="checkbox" checked={p.recebida} onChange={(e) => atualizarParcela(p.chave, { recebida: e.target.checked, ...(e.target.checked ? {} : { recebidaEm: '', forma: '' }) })} /></td>
-            <td>{p.recebida && <input aria-label={`Data em que a parcela ${i + 1} foi recebida`} type="date" max={o.hoje} value={p.recebidaEm} onChange={(e) => atualizarParcela(p.chave, { recebidaEm: e.target.value })} />}</td>
-            <td>{p.recebida && <select aria-label={`Forma da parcela ${i + 1}`} value={p.forma} onChange={(e) => atualizarParcela(p.chave, { forma: e.target.value as ParcelaForm['forma'] })}>
+            <td>{p.recebida && <><input {...campo(idParcela(p.chave, 'recebidaEm'))} aria-label={`Data em que a parcela ${i + 1} foi recebida`} type="date" max={o.hoje} value={p.recebidaEm} onChange={(e) => atualizarParcela(p.chave, { recebidaEm: e.target.value })} />{mensagem(idParcela(p.chave, 'recebidaEm'))}</>}</td>
+            <td>{p.recebida && <><select {...campo(idParcela(p.chave, 'forma'))} aria-label={`Forma da parcela ${i + 1}`} value={p.forma} onChange={(e) => atualizarParcela(p.chave, { forma: e.target.value as ParcelaForm['forma'] })}>
               <option value="">Forma</option>{(Object.keys(FORMAS_ROTULO) as Array<keyof typeof FORMAS_ROTULO>).map((k) => <option key={k} value={k}>{FORMAS_ROTULO[k]}</option>)}
-            </select>}</td>
+            </select>{mensagem(idParcela(p.chave, 'forma'))}</>}</td>
             <td>{f.data && p.vencimento > f.data && <label className={ui.excecao}><input type="checkbox" aria-label={`Parcela ${i + 1} vence depois da festa conforme o contrato original`} checked={p.aposFestaConfirmada} onChange={(e) => atualizarParcela(p.chave, { aposFestaConfirmada: e.target.checked })} />Vence depois da festa: consta do contrato original</label>}</td>
             <td><button type="button" className={styles.linkBotao} aria-label={`Remover parcela ${i + 1}`} onClick={() => atualizar({ parcelas: f.parcelas.filter((x) => x.chave !== p.chave) })}>Remover</button></td>
           </tr>)}</tbody>
         </table>
-        <button type="button" className={styles.fantasma} disabled={f.parcelas.length >= 60} onClick={() => atualizar({ parcelas: [...f.parcelas, novaParcela()] })}>Adicionar parcela</button>
+        <button {...campo(ID_INTEGRACAO.parcelas)} type="button" className={styles.fantasma} disabled={f.parcelas.length >= 60} onClick={() => atualizar({ parcelas: [...f.parcelas, novaParcela()] })}>Adicionar parcela</button>
+        {mensagem(ID_INTEGRACAO.parcelas)}
         <p className={ui.conferencia} data-confere={conf.soma === conf.total}>
           Parcelas {reais(conf.soma)} · Contratado {reais(conf.total)} · Recebido {reais(conf.recebido)} · Saldo a receber {reais(conf.saldo)}
           {conf.soma !== conf.total && <strong> — a soma precisa ser igual ao contratado</strong>}
         </p>
       </div>}
-      <Erros erros={erros} erro={erro} />
+      <ResumoErros id="int-erros-pagamentos" erros={erros} abrir={abrirEtapa} />
       <div className={styles.acoesFinais}>
         {modo !== 'financeiro' && <button type="button" className={styles.fantasma} onClick={() => setPasso('festa')}>Voltar</button>}
         <button type="button" className={styles.primario} onClick={() => void revisar()}>Revisar e confirmar</button>
@@ -309,16 +328,16 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
             <input aria-label="Motivo: é outro contrato" value={f.motivoOutroContrato} maxLength={500} onChange={(e) => setForm({ ...f, motivoOutroContrato: e.target.value })} /></label>}
           <button type="button" className={styles.fantasma} disabled={f.outroContratoConfirmado && f.motivoOutroContrato.trim().length < 5} onClick={() => void revisar(f)}>Registrar decisão</button>
         </div>}
-        <Erros erros={revisao.sim.bloqueios} erro={erro} />
+        <Erros erros={revisao.sim.bloqueios} />
         {revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).length > 0 && <ul className={styles.discreto}>{revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).map((a) => <li key={a}>{a}</li>)}</ul>}
         <label className={ui.declaracao}><input type="checkbox" checked={f.conferenciaDeclarada} onChange={(e) => { const novo = { ...f, conferenciaDeclarada: e.target.checked }; setForm(novo); void revisar(novo); }} />{o.declaracao}</label>
       </>}
       {revisao.tipo === 'financeiro' && <>
         <p className={styles.texto}>Isto é o que entra no financeiro do contrato. Nada foi gravado ainda.</p>
         <ResumoPagamentos financeiro={revisao.sim.resumo} />
-        <Erros erros={revisao.sim.bloqueios} erro={erro} />
+        <Erros erros={revisao.sim.bloqueios} />
       </>}
-      {revisao.tipo === 'nenhuma' && <Erros erros={erros} erro={erro} />}
+      {revisao.tipo === 'nenhuma' && <ResumoErros id="int-erros-revisao" erros={erros} abrir={abrirEtapa} />}
       {incerto && <div className={styles.aviso} role="status">
         <p>A confirmação pode ter sido concluída. Abra a lista de Contratos e confira antes de tentar de novo.</p>
         <div className={styles.acoesFinais}>
@@ -335,15 +354,14 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         </button>
       </div>
     </section>}
+    {/* Erro que não é de campo (recusa do servidor, senha): aviso fixo, visível de qualquer ponto da etapa. */}
+    <AvisoGlobal mensagem={erro} onFechar={() => setErro(null)} />
   </div>;
 }
 
-function Erros({ erros, erro }: { erros: string[]; erro: string | null }) {
-  if (!erros.length && !erro) return null;
-  return <div className={ui.erros} role="alert">
-    {erro && <p>{erro}</p>}
-    {erros.length > 0 && <ul>{erros.map((e) => <li key={e}>{e}</li>)}</ul>}
-  </div>;
+/** Bloqueios devolvidos pelo servidor na revisão final: não apontam para um controle desta etapa. */
+function Erros({ erros }: { erros: string[] }) {
+  return <ResumoErros id="int-erros-bloqueios" erros={erros.map((mensagem) => ({ campo: '', mensagem }))} titulo="Antes de confirmar:" />;
 }
 
 const FORMA = (f: string | null) => (f && f in FORMAS_ROTULO ? FORMAS_ROTULO[f as keyof typeof FORMAS_ROTULO] : f ?? '');

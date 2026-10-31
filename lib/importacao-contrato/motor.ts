@@ -1,5 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
-import type { PlanoImportacao } from "./plano.ts";
+import type { DadosClienteNovo, PlanoImportacao } from "./plano.ts";
 import type { ImportacaoLida } from "./repositorio-importacao.ts";
 
 /**
@@ -14,7 +14,7 @@ import type { ImportacaoLida } from "./repositorio-importacao.ts";
  * - PAGAMENTOS: só previstos, dentro do snapshot. Nenhum pagamento é criado nem marcado como pago.
  */
 export type ServicosImportacao = {
-  cadastrarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null }, contexto: { usuarioId: string; requestId: string }): Promise<{ clienteId: string }>;
+  cadastrarCliente(tx: DbExecutor, empresaId: string, dados: DadosClienteNovo, contexto: { usuarioId: string; requestId: string }): Promise<{ clienteId: string }>;
   conferirCliente(tx: DbExecutor, empresaId: string, clienteId: string): Promise<void>;
   atualizarImportacao(tx: DbExecutor, empresaId: string, importacao: ImportacaoLida, versaoEsperada: number): Promise<boolean>;
 };
@@ -37,6 +37,8 @@ export async function executarImportacao(
 ) {
   const { importacao, plano } = entrada;
   if (importacao.status !== "EM_REVISAO") throw new ImportacaoError("IMPORTACAO_ENCERRADA", "Esta importação já foi encerrada.");
+  // R21-2 (defesa em profundidade): só cliente pessoa física é cadastrado ou vinculado nesta entrega.
+  if (plano.recusa || plano.tipoPessoa !== "PF") throw new ImportacaoError("PJ_INDISPONIVEL", plano.recusa?.mensagem ?? "Confirme se o contratante é pessoa física ou jurídica.");
   if (!plano.pronto) throw new ImportacaoError("IMPORTACAO_BLOQUEADA", plano.bloqueios[0] ?? "A importação ainda tem pendências.");
   const passoCliente = plano.passos.find((p) => p.tipo === "CLIENTE");
   if (!passoCliente || passoCliente.tipo !== "CLIENTE") throw new ImportacaoError("IMPORTACAO_BLOQUEADA", "Defina o cliente antes de importar.");

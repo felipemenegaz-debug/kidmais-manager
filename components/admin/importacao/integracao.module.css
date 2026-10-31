@@ -18,8 +18,8 @@
 }
 .campo input:focus, .campo select:focus, .motivo input:focus, .parcelas input:focus, .parcelas select:focus { background: var(--input-focus-bg); border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); outline: none; }
 .campo input:disabled { opacity: .55; cursor: not-allowed; }
-.campo input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--km-orange) 70%, transparent); }
-.campo .campoErro { color: #f6c9a1; }
+.campo input[aria-invalid="true"], .campo select[aria-invalid="true"] { border-color: #f87171; }
+.campo .campoErro { color: #fca5a5; font-weight: 600; }
 .ajuda { margin: 0 0 12px; color: var(--km-text-2); font-size: 13px; line-height: 1.5; }
 .subtitulo { margin: 4px 0 10px; color: var(--km-lilac); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .subtitulo span { margin-left: 6px; color: var(--km-text-2); font-weight: 600; letter-spacing: 0; text-transform: none; }
@@ -63,3 +63,4 @@
   .opcoes { display: grid; }
 }
 .excecao { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--km-text-2); }
+.alerta { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); color: #fde68a; font-size: 13px; line-height: 1.5; }
