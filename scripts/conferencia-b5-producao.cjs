@@ -2,8 +2,11 @@
 // B-5 do plano de promoção (25/10/2026): conferência SOMENTE LEITURA agregada do banco de PRODUÇÃO, entregue ao Web Shell do
 // srv-dak77m2d0e5s73b8rkkg por bloco autossuficiente (o artefato publicado no E1/E2c ainda é o antigo, sem estes arquivos).
 //   - estado de 089–097, 099 e 100 pelas MESMAS funções de estado dos aplicadores (SQL_ESTADO + lerEstado de cada núcleo;
-//     a 092–094 pelo núcleo do B-1, a 099 pelo do B-2, a 100 pelo do B-3). A 098 é excluída nominalmente (PAUSADA): nunca
-//     consultada;
+//     a 092–094 pelo núcleo do B-1, a 099 pelo do B-2, a 100 pelo do B-3). A 098 não tem núcleo (PAUSADA): o estado dela
+//     sai da classificação dos combinados abaixo;
+//   - B-21 (rodada 19 do plano): estado dos salões combinados pelo MESMO critério da candidata (lib/agenda/estado-combinados.ts:
+//     mesmo SQL de catálogo, mesma classificação). Esperado AUSENTE; ANTIGA (098 histórica), PARCIAL, NOVA (108, fora desta
+//     promoção — reconciliar o escopo) ou linha ilegível = PARAR, nos dois modos;
 //   - B-15: documentos com DV inválido pela regra da função `kidmais_091_documento_valido` (CPF módulo 11; CNPJ
 //     numérico/alfanumérico, ASCII − 48), em `empresa_assinaturas.documento_teste` e `assinatura_fundadores.documento_beneficiario`
 //     (as duas tabelas do gatilho de INSERT da 091). Os documentos ficam só na memória do processo: a saída tem contagens;
@@ -16,11 +19,12 @@
 // Banco: cada consulta em BEGIN TRANSACTION READ ONLY com lock_timeout/statement_timeout; trava de alvo, TLS e identidade de
 // produção do B-1 (scripts/migration-092-094-production.cjs). Nunca grava no banco, no disco ou no Asaas.
 //   node scripts/conferencia-b5-producao.cjs                       → plano, sem conexão
-//   node scripts/conferencia-b5-producao.cjs --conferir-b5         → E1: estados + B-15 + Fundador (lê o Asaas)
-//   node scripts/conferencia-b5-producao.cjs --conferir-b5-estado  → E2c: só identidade e estados (091/094 têm de estar ausentes)
+//   node scripts/conferencia-b5-producao.cjs --conferir-b5         → E1: estados + combinados + B-15 + Fundador (lê o Asaas)
+//   node scripts/conferencia-b5-producao.cjs --conferir-b5-estado  → E2c: identidade, estados e combinados (091/094 têm de estar ausentes)
 // Códigos: 0 CONFERIDO; 1 recusa antes de conectar; 2 FALHA (conexão, identidade, consulta); 3 PARAR (motivos nomeados).
 const assert = require('node:assert/strict');
 const prod = require('./migration-092-094-production.cjs');
+const ret108 = require('./migration-108-retrato.cjs');
 
 const FLAG_COMPLETO = '--conferir-b5';
 const FLAG_ESTADO = '--conferir-b5-estado';
@@ -30,7 +34,7 @@ const MIGRACOES = Object.freeze([
   ['092-094', './migration-092-094-comum.cjs', ['m092', 'm093', 'm094']], ['095', './migration-095-comum.cjs', ['m095']],
   ['096', './migration-096-comum.cjs', ['m096']], ['097', './migration-097-comum.cjs', ['m097']], ['099', './migration-099-comum.cjs', ['m099']],
   ['100', './migration-100-comum.cjs', ['m100']]]);
-const EXCLUIDAS = Object.freeze({'098': 'NAO_CONSULTADA_PAUSADA'});
+const EXCLUIDAS = Object.freeze({'098': 'SEM_NUCLEO_VER_COMBINADOS'});
 const ASAAS = Object.freeze({url: 'https://api.asaas.com/v3', prefixo: '$aact_prod_', ambiente: 'producao', tempoMs: 10000});
 const ID_PROVEDOR = /^[A-Za-z0-9_-]{1,100}$/;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -152,6 +156,76 @@ async function estados(db, carregar = m => require(m), env = {}) {
 /** Presentes = qualquer migration fora do estado de partida (ausente; para a 100, "sem_094" ou "ausente"). */
 const presentes = s => Object.entries(s).filter(([k, v]) => !(k in EXCLUIDAS) && v !== 'ausente' && !(k === '100' && v === 'sem_094')).map(([k, v]) => `${k}:${v}`);
 
+// ---------- B-21: salões combinados (098 histórica / 108) ----------
+/**
+ * A candidata RECUSA a agenda com os combinados em ANTIGA (098 histórica) ou PARCIAL e só habilita em NOVA (108), que está
+ * fora desta promoção (D-ESC-6). Constantes do detector: as de scripts/migration-108-retrato.cjs (NOVA, conferidas contra o
+ * .ts) e o corpo da regra de conflito da 098. SQL_COMBINADOS é o TEXTO de lerCatalogoCombinados e classificarCombinados é a
+ * mesma regra (o teste compara os dois com o .ts). Diferença deliberada: sem linha ou linha ilegível = PARAR (o detector
+ * trata "sem linha" como AUSENTE; aqui a ausência só vale lida do catálogo).
+ */
+const CONFLITO_098 = 'a3b9bcb198adbe4cd0595c56a5def99aff8463f96f0c192554f42099029ca05a';
+const TOTAL_FUNCOES_COMBINADOS = Object.keys(ret108.NOVA.funcoes).length;
+const corpoCombinados = assinatura =>
+  `(SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = to_regprocedure('public.${assinatura}'))`;
+const SQL_COMBINADOS = (() => {
+  const funcoes = Object.entries(ret108.NOVA.funcoes).map(([n, h]) => `('${n}', '${h}')`).join(", ");
+  const gatilhos = ret108.NOVA.gatilhos.map(([n, t, f, tipo, dif, col]) => `('${n}', '${t}', '${f}', ${tipo}, ${dif}, ${col ? `'${col}'` : "NULL::text"})`).join(", ");
+  return `SELECT (SELECT count(*)::int FROM (VALUES ${funcoes}) AS e(nome, h) JOIN pg_proc p ON p.proname = e.nome AND p.pronamespace = 'public'::regnamespace
+              WHERE encode(sha256(convert_to(replace(p.prosrc, E'\\r', ''), 'UTF8')), 'hex') = e.h) AS funcoes,
+            (SELECT count(DISTINCT p.proname)::int FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'kidmais098\\_%') AS funcoes_qualquer,
+            EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.agenda_saloes') AND attname = 'combinado' AND NOT attisdropped) AS combinado,
+            EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.agenda_saloes') AND attname = 'membros' AND NOT attisdropped) AS membros,
+            EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.agenda_saloes') AND conname = 'agenda_saloes_098_membros_check'
+                     AND contype = 'c' AND convalidated AND NOT connoinherit
+                     AND regexp_replace(replace(pg_get_constraintdef(oid), 'public.', ''), '[\\s()]', '', 'g') = '${ret108.NOVA.checkMembros}') AS check_ok,
+            (SELECT count(*)::int FROM (VALUES ${gatilhos}) AS g(nome, tabela, funcao, tipo, diferido, coluna)
+              WHERE EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+                             WHERE t.tgname = g.nome AND t.tgrelid = to_regclass('public.' || g.tabela) AND NOT t.tgisinternal
+                               AND t.tgenabled = 'O' AND p.proname = g.funcao AND p.pronamespace = 'public'::regnamespace
+                               AND t.tgtype = g.tipo AND t.tgdeferrable = g.diferido AND t.tginitdeferred = g.diferido
+                               AND t.tgnargs = 0 AND t.tgqual IS NULL
+                               -- tgattr é int2vector (base 0): compara pelo texto dos números de coluna, não por igualdade de arrays.
+                               AND array_to_string(t.tgattr::int2[], ',') = coalesce((SELECT a.attnum::text FROM pg_attribute a
+                                     WHERE a.attrelid = t.tgrelid AND a.attname = g.coluna AND NOT a.attisdropped), ''))) AS gatilhos_ok,
+            (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE '%\\_098\\_%') AS gatilhos_qualquer,
+            ${corpoCombinados("kidmais094_conflito_ocupacao(uuid,date,time without time zone,time without time zone,uuid,uuid,uuid,uuid)")} AS conflito,
+            ${corpoCombinados("kidmais019_validar_contrato()")} AS contrato,
+            ${corpoCombinados("kidmais_validar_agenda_revisao()")} AS revisao,
+            to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS marcador`;
+})();
+/** Linha do catálogo → objeto do detector (CatalogoCombinados). Tipos conferidos: qualquer desvio = ilegível (PARAR). */
+function lerCombinados(l) {
+  for (const k of ['funcoes', 'funcoes_qualquer', 'gatilhos_ok', 'gatilhos_qualquer']) assert.ok(Number.isInteger(l?.[k]) && l[k] >= 0, 'COMBINADOS_ILEGIVEIS');
+  for (const k of ['combinado', 'membros', 'check_ok', 'marcador']) assert.equal(typeof l[k], 'boolean', 'COMBINADOS_ILEGIVEIS');
+  // typeof antes da regex: RegExp.test converte para texto, e array, Buffer ou String objeto passariam (P2 da revisão do B-21).
+  for (const k of ['conflito', 'contrato', 'revisao']) assert.ok(l[k] === null || (typeof l[k] === 'string' && /^[0-9a-f]{64}$/.test(l[k])), 'COMBINADOS_ILEGIVEIS');
+  return {funcoes: l.funcoes, funcoesQualquer: l.funcoes_qualquer, colunaCombinado: l.combinado, colunaMembros: l.membros, checkValidado: l.check_ok,
+    gatilhosOk: l.gatilhos_ok, gatilhosQualquer: l.gatilhos_qualquer, conflito: l.conflito, contrato: l.contrato, revisao: l.revisao, marcador108: l.marcador};
+}
+/** Mesma regra de classificarCombinados (lib/agenda/estado-combinados.ts). */
+function classificarCombinados(c) {
+  const algum = c.funcoesQualquer > 0 || c.colunaCombinado || c.colunaMembros || c.gatilhosQualquer > 0 || c.marcador108;
+  if (!algum) return 'AUSENTE';
+  const nucleo = c.funcoes === TOTAL_FUNCOES_COMBINADOS && c.funcoesQualquer === TOTAL_FUNCOES_COMBINADOS && c.colunaCombinado && c.colunaMembros
+    && c.checkValidado && c.gatilhosOk === ret108.NOVA.gatilhos.length && c.gatilhosQualquer === ret108.NOVA.gatilhos.length
+    && c.contrato === ret108.NOVA.hashes.contrato && c.revisao === ret108.NOVA.hashes.revisao;
+  if (nucleo && c.marcador108 && c.conflito === ret108.NOVA.hashes.conflito108) return 'NOVA';
+  if (nucleo && !c.marcador108 && c.conflito === CONFLITO_098) return 'ANTIGA';
+  return 'PARCIAL';
+}
+const MOTIVO_COMBINADOS = Object.freeze({ANTIGA: 'COMBINADOS_ANTIGA (098 historica presente)', PARCIAL: 'COMBINADOS_PARCIAL',
+  NOVA: 'COMBINADOS_NOVA (108 presente: reconciliar o escopo, D-ESC-6)'});
+/** Estado e catálogo (só contagens, booleanos e corpos de função; nenhum dado de negócio). */
+async function combinados(db) {
+  const linhas = (await somenteLeitura(db, SQL_COMBINADOS)).rows;
+  let c;
+  try { assert.equal(linhas?.length, 1, 'COMBINADOS_ILEGIVEIS'); c = lerCombinados(linhas[0]); }
+  catch { return {combinados: {estado: 'ILEGIVEL'}, motivos: ['COMBINADOS_ILEGIVEIS']}; }
+  const estado = classificarCombinados(c);
+  return {combinados: {estado, catalogo: c}, motivos: estado === 'AUSENTE' ? [] : [MOTIVO_COMBINADOS[estado]]};
+}
+
 const SQL_DOCUMENTOS = `SELECT 'empresa_assinaturas' AS origem, a.documento_teste AS doc,
     EXISTS (SELECT 1 FROM assinatura_fundadores f WHERE f.empresa_id = a.empresa_id) AS tem_concessao
   FROM empresa_assinaturas a
@@ -270,11 +344,11 @@ function modo(argv) {
 function plano() {
   return {resultado: 'PLANO', conecta: false, alvo: prod.ALVO, modos: {E1: FLAG_COMPLETO, E2c: FLAG_ESTADO},
     migracoes: MIGRACOES.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), excluidas: EXCLUIDAS,
-    leituras: ['banco: só BEGIN TRANSACTION READ ONLY (lock_timeout 5s, statement_timeout 30s)', 'Asaas (só --conferir-b5): GET /v3/payments/{id} da cobrança de confirmação de cada concessão Fundador confirmada'],
+    leituras: ['banco: só BEGIN TRANSACTION READ ONLY (lock_timeout 5s, statement_timeout 30s)', 'combinados (B-21): só catálogo, o mesmo SQL de lib/agenda/estado-combinados.ts', 'Asaas (só --conferir-b5): GET /v3/payments/{id} da cobrança de confirmação de cada concessão Fundador confirmada'],
     saida: 'estados, contagens e datas agregadas; nenhum id, documento, e-mail ou valor',
-    paradas: ['estado parcial ou ilegível; 100 divergente', 'E2c: 091 ou 094 fora de "ausente"', 'Fundador: cobertura incompleta, datas ausentes, prazo do B-9 vencido ou janela de aviso perdida',
+    paradas: ['estado parcial ou ilegível; 100 divergente', 'combinados (B-21, E1 e E2c): qualquer estado diferente de AUSENTE (ANTIGA, PARCIAL, NOVA) ou ilegível', 'E2c: 091 ou 094 fora de "ausente"', 'Fundador: cobertura incompleta, datas ausentes, prazo do B-9 vencido ou janela de aviso perdida',
       'B-15 com DV inválido: informa DECISAO_D_OP_4_NECESSARIA (não para sozinho; adiar a 091 é tratamento válido)'],
-    nuncaExecuta: ['escrita no banco', 'escrita no disco', 'escrita no Asaas', 'migration', 'down', 'consulta à 098']};
+    nuncaExecuta: ['escrita no banco', 'escrita no disco', 'escrita no Asaas', 'migration', 'down', 'leitura de dados da agenda (combinados: só catálogo)']};
 }
 async function conferir({modo: m, env, Client = require('pg').Client, lerCobranca, agora = new Date(), carregar}) {
   const opts = {...prod.alvo(env), application_name: 'kidmais-conferencia-b5-production'};
@@ -286,7 +360,9 @@ async function conferir({modo: m, env, Client = require('pg').Client, lerCobranc
     r.conexao = prod.identidade((await somenteLeitura(db, prod.SQL_IDENTIDADE)).rows[0]);
     const e = await estados(db, carregar, env);
     r.estados = e.estados; r.papelTrocado = e.papelTrocado; r.presentes = presentes(e.estados);
-    const motivos = [...e.motivos];
+    const comb = await combinados(db);
+    r.combinados = comb.combinados;
+    const motivos = [...e.motivos, ...comb.motivos];
     if (m === 'estado') {
       for (const k of ['091', '094']) if (r.estados[k] !== 'ausente') motivos.push(`E2C_${k}_PRESENTE ${r.estados[k]}`);
     } else {
@@ -317,4 +393,5 @@ if (require.main === module) {
 }
 module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, ASAAS, AVISO_DIAS, ANTECIPADO_DIAS, MARGEM_B9_DIAS, SQL_DOCUMENTOS, SQL_TOTAL_CONFIRMADAS,
   SQL_RENOVACAO_INSTALADA, sqlConcessoes, documentoValido091, dataValida, diasAntes, primeiraRenovacaoRegular, diaBrasil, somenteLeitura, estados, presentes,
-  inventarioDocumentos, criarLeitorAsaas, fundador, modo, plano, conferir, principal, CODIGO};
+  inventarioDocumentos, criarLeitorAsaas, fundador, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
+  MOTIVO_COMBINADOS, combinados};

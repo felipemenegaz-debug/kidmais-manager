@@ -170,7 +170,7 @@ jobs:
       - name: Aplicador manual da 100 de produção (B-3) — trava de alvo e TLS de produção, identidade provada no servidor, disco persistente, ordem depois do E6, recusas sem 094/com 098/pares, marcador próprio e COMMIT indeterminado (cliente simulado)
         run: node --test scripts/migration-100-production.test.cjs
 
-      - name: Conferência somente leitura de produção (B-5) — estados pelos núcleos dos aplicadores (098 nunca), DV da 091 igual ao do código, datas do Fundador pela regra do código, Asaas só por GET (cliente e Asaas simulados) e blocos de entrega (bash em diretório temporário)
+      - name: Conferência somente leitura de produção (B-5) — estados pelos núcleos dos aplicadores, combinados 098/108 pelo SQL e regra da candidata (B-21; só AUSENTE passa), DV da 091 igual ao do código, datas do Fundador pela regra do código, Asaas só por GET (cliente e Asaas simulados) e blocos de entrega (bash em diretório temporário)
         run: node --test scripts/conferencia-b5-producao.test.cjs scripts/bloco-shell-conferencia-b5-producao.test.cjs
 
       - name: Entrega dos aplicadores do grupo A em produção (B-4) — partes ≤ 40 KB conferidas por sha, lista igual à dos blocos do B-1/B-2, montagem só com todas as partes, aplicador rodando da pasta própria, backup antes de gravar, colagem truncada/interativa e LIMPEZA só do que confere (bash em diretório temporário)

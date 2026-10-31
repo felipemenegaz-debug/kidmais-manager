@@ -37,9 +37,10 @@ const EXECUCOES = Object.freeze({
 const FIXOS = Object.freeze([...Object.keys(EXECUCOES), 'LIMPEZA']);
 
 /**
- * Agregador, trava de produção do B-1, os núcleos de estado na ordem do B-5 (a 098 nunca entra) e os módulos da 107/108
- * que os núcleos da 092–094 e da 100 carregam (o da 100 no require; ad7fbee9). O B-5 só usa SQL_ESTADO/lerEstado, que não
- * leem os arquivos de dados da 108 (retrato e retratos esperados ficam de fora).
+ * Agregador, trava de produção do B-1, os núcleos de estado na ordem do B-5 (a 098 não tem núcleo) e os módulos da 107/108
+ * que os núcleos da 092–094 e da 100 carregam (o da 100 no require; ad7fbee9) e que o próprio agregador usa nos combinados
+ * (B-21: constantes NOVA de migration-108-retrato.cjs). O B-5 só usa SQL_ESTADO/lerEstado e essas constantes, que não leem
+ * os arquivos de dados da 108 (retrato e retratos esperados ficam de fora).
  */
 const MODULOS_108 = Object.freeze(['scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs',
   'scripts/migration-107-definicoes.cjs']);
@@ -86,10 +87,12 @@ function cabecalho(modo, n, rotulo) {
   const exige = 'Exige as PARTES 1..' + n + ' coladas antes (nesta mesma instancia). Monta a pasta propria (efemera) e roda a conferencia DELA.';
   const titulo = {
     'CONFERIR-B5': ['SOMENTE LEITURA - E1 (autorizacao A1). ' + exige,
-      'Roda --conferir-b5: estados de 089-097, 099 e 100 (098 nunca consultada), DV legado (B-15) e Fundador (le o Asaas so por GET).',
+      'Roda --conferir-b5: estados de 089-097, 099 e 100, combinados 098/108 (B-21: so catalogo; so AUSENTE passa), DV legado (B-15)',
+      'e Fundador (le o Asaas so por GET).',
       'Saida sem ids, documentos, e-mails ou valores. Codigo 3 = PARAR com motivos nomeados.'],
     'CONFERIR-B5-ESTADO': ['SOMENTE LEITURA - E2c (autorizacao A2c). ' + exige,
-      'Roda --conferir-b5-estado: identidade e estados; 091 e 094 tem de estar ausentes. Nao le documentos nem o Asaas.'],
+      'Roda --conferir-b5-estado: identidade, estados e combinados 098/108 (B-21: so AUSENTE passa); 091 e 094 tem de estar ausentes.',
+      'Nao le documentos nem o Asaas.'],
     LIMPEZA: ['Remove da pasta propria so arquivos e partes cujo sha256 confere, e as pastas vazias; nunca arquivos do deploy nem',
       'o disco persistente. Nao conecta ao banco. Opcional: a pasta propria some no proximo deploy.'],
   }[modo] ?? [`TRANSPORTE ${modo}-DE-${n}: grava parte da conferencia B-5 em .partes/ (sha256 conferido). Nao conecta ao banco.`,
