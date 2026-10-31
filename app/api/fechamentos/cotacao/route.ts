@@ -10,6 +10,7 @@ import { mensagemPeriodoDoPedido, periodoDoPedido, temPeriodoDoPedido } from "@/
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
+import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
       ajusteMinutos: Number(dados.data.ajusteHorario),
       // S-C: com capacidade por salão, recusa (409 SEM_SALAO_PARA_CONVIDADOS) quando nenhum salão livre comporta.
       convidados: dados.data.convidados,
+      // E2b: o combinado conta só com combinadosPublicos (desligado = E2a).
+      ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
     }, undefined, { ...escopo, estabelecimentoId: unidade.estabelecimentoId });
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
     if (!pacote) return NextResponse.json({ ok: false, erro: "Pacote indisponível.", codigo: "PACOTE_NAO_ENCONTRADO" }, { status: 404, headers: semCache });

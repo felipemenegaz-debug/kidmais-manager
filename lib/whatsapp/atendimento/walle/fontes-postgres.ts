@@ -6,6 +6,7 @@ import { lerPrecosCorrentes } from '../../../comercial/pacote-precos.ts';
 import { agendaPorEscopoInstalada, unidadesDaEmpresa, type EscopoAgenda } from '../../../disponibilidade/escopo.ts';
 import { lerRegraCapacidadeAgenda, listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
 import { consultarDisponibilidadePeriodo, duracaoDoPacoteDaEmpresa } from '../../../disponibilidade/services/availability.service.ts';
+import { combinadosPublicos } from '../../../agenda/combinados-publicos.ts';
 import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import type { FontesWallE, PeriodoAgenda, PrecoAdicional, PrecoCalculado, ProntaAutorizada } from './resolver.ts';
@@ -183,13 +184,15 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
     },
     async disponibilidade(data, unidade, pacote) {
       const { escopo: e, consultado } = await escopoDaConsulta(ex, empresaId, unidade);
-      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e, { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
+      // E2b (D-E2b-5): acompanha a disponibilidade pública — com combinadosPublicos, um horário só do combinado é vaga.
+      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e, { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined),
+        ...((await combinadosPublicos(ex)) ? { incluirCombinados: true } : {}) });
       return { periodos: periodos(dia), escopo: consultado };
     },
     async alternativas(data, unidade, turno, quantas, pacote) {
       const inicio = data > alvo.hoje ? (somarDias(data, -7) > alvo.hoje ? somarDias(data, -7) : alvo.hoje) : alvo.hoje;
       const dias = await consultarDisponibilidadePeriodo(inicio, somarDias(data, 28), ex, undefined, await escopo(ex, empresaId, unidade),
-        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
+        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined), ...((await combinadosPublicos(ex)) ? { incluirCombinados: true } : {}) });
       const distancia = (d: string) => Math.abs(Date.parse(d) - Date.parse(data));
       return dias.filter((d) => d.data !== data).map((d) => ({ data: d.data, periodos: periodos(d).filter((p) => p.disponivel && (!turno || p.codigo === turno)) }))
         .filter((d) => d.periodos.length).sort((a, b) => distancia(a.data) - distancia(b.data) || a.data.localeCompare(b.data)).slice(0, quantas)

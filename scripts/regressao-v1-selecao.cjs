@@ -356,6 +356,8 @@ const ESTADO_POSTGRES = {
   "lib/agenda/salao-combinado-revisao-108.postgres.test.ts": { descartavel: "108" },
   // 108 (D-R3): conteúdo próprio do combinado — corrida conteúdo × declaração nas duas ordens, membro × combinado e E2a fora da lista pública.
   "lib/agenda/saloes-108-conteudo-corrida.postgres.test.ts": { descartavel: "108" },
+  // E2b (31/10/2026, rev. 2.1): 108 aplicada pela suíte sobre o 107 (helper AUSENTE → NOVA), papéis, universo, preferência e corrida.
+  "lib/agenda/saloes-combinados-publicos-e2b.postgres.test.ts": { descartavel: "107" },
   // S-E restante: importação V3 (salão escolhido) e "Desistir da troca". Modelos SEPARADOS: 106 = 094+100 (staging) e 098 = 094+098.
   "lib/contratos/integracao-importados/importacao-v3-desistir.postgres.test.ts": { descartavel: "106", tambem: ["108"] },
   "lib/agenda/convidados-primeiro-sc.postgres.test.ts": { descartavel: "097", tambem: ["103", "108"] },
