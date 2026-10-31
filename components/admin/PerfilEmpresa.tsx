@@ -603,7 +603,7 @@ export default function PerfilEmpresa() {
                     <div className={styles.previa}><h3>Prévia no menu</h3><div className={styles.marcaMenu}>
                         {form.logoDataUrl ? <span className={styles.marcaMenuLogo}><img src={form.logoDataUrl} alt="Prévia da logo no menu" /></span> : <span className={`${styles.marcaMenuLogo} ${styles.marcaMenuIniciais}`} aria-hidden="true">{iniciaisEmpresa(form.nomeComercial || 'Empresa')}</span>}
                         <span className={styles.marcaMenuTexto}><strong>{form.nomeComercial || 'Nome comercial'}</strong><small>Cartão da conta</small></span>
-                    </div><p>A logo aparece num quadrado pequeno no rodapé do menu e no Dashboard. Prefira o símbolo da marca, quadrado; logos deitadas ficam pequenas. Muda após aplicar o rascunho.</p></div>
+                    </div><p className={styles.previaNota}>A logo aparece num quadrado pequeno no rodapé do menu e no Dashboard. Prefira o símbolo da marca, quadrado; logos deitadas ficam pequenas. Muda após aplicar o rascunho.</p></div>
                 </details>
             <section className={`${styles.card} ${styles.historico}`}>
                 <h2 className={styles.titulo}><AdminIcon name="history" size={12} />Histórico</h2>
