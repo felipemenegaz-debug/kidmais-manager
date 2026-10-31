@@ -95,14 +95,26 @@ export default function PesquisaSatisfacao() {
     return () => { vivo = false; };
   }, [fragmento]);
 
+  /**
+   * PS-G: resposta repetida (409) reabre pelo mesmo POST da abertura e mostra o estado devolvido — RESPONDIDA com o
+   * convite atual (ou sem link), ENCERRADA. Falha ou limite na reabertura: "já respondida", sem convite.
+   */
+  async function reabrirDepoisDoConflito(token: string, buffet: string) {
+    const r = await postar<Abertura>("/api/satisfacao/abrir", { token });
+    if (r.ok && r.data.situacao === "ENCERRADA") setEstado({ fase: "indisponivel", mensagem: INDISPONIVEL, podeSair: true });
+    else if (r.ok && r.data.situacao === "RESPONDIDA") setEstado({ fase: "respondida", buffet: r.data.buffet, nome: null, notaBaixa: false, linkAvaliacao: r.data.linkAvaliacao ?? null });
+    else setEstado({ fase: "respondida", buffet, nome: null, notaBaixa: false, linkAvaliacao: null });
+  }
+
   async function enviar() {
     if (estado.fase !== "aberta" || !fragmento?.token) return;
     if (nota === null) { setErro("Escolha uma nota de 0 a 10."); return; }
     setEnviando(true);
     setErro(null);
     const r = await postar<{ gravada: true; linkAvaliacao: string | null }>("/api/satisfacao/responder", { token: fragmento.token, notaIndicacao: nota, ...aspectos, comentario: comentario.trim() || null });
+    if (!r.ok && r.status === 409) { await reabrirDepoisDoConflito(fragmento.token, estado.dados.buffet); setEnviando(false); return; }
     setEnviando(false);
-    if (r.ok || r.status === 409) setEstado({ fase: "respondida", buffet: estado.dados.buffet, nome: r.ok ? estado.dados.primeiroNome : null, notaBaixa: r.ok && nota <= 6, linkAvaliacao: r.ok ? r.data.linkAvaliacao ?? null : null });
+    if (r.ok) setEstado({ fase: "respondida", buffet: estado.dados.buffet, nome: estado.dados.primeiroNome, notaBaixa: nota <= 6, linkAvaliacao: r.data.linkAvaliacao ?? null });
     // O link foi reconhecido na abertura: vencido ou revogado no meio do caminho, a saída das pesquisas continua valendo.
     else if (r.status === 404) setEstado({ fase: "indisponivel", mensagem: r.erro, podeSair: true });
     else setErro(r.erro);
@@ -147,10 +159,11 @@ export default function PesquisaSatisfacao() {
       <p className={s.texto} role="status">
         {estado.nome ? `Sua opinião chegou para a equipe do ${estado.buffet} e ajuda a melhorar as próximas festas.` : "Esta pesquisa já foi respondida."}
       </p>
-      {estado.linkAvaliacao && <div className={s.avaliar}>
-        <p className={s.texto}>Se quiser, você também pode contar como foi no Google.</p>
-        <a className={s.botaoSecundario} href={estado.linkAvaliacao} target="_blank" rel="noopener noreferrer" data-avaliar-google>Avaliar no Google</a>
-      </div>}
+      {/* PS-G: o convite do Google é a ação principal, idêntico para qualquer nota e sempre antes do aviso de nota baixa. */}
+      {estado.linkAvaliacao && <section className={s.avaliar} aria-label="Avaliar no Google">
+        <p className={s.texto}>Se quiser, conte como foi sua experiência no Google e ajude outras famílias a escolher.</p>
+        <a className={s.botaoGoogle} href={estado.linkAvaliacao} target="_blank" rel="noopener noreferrer" data-avaliar-google>Avaliar no Google</a>
+      </section>}
       {estado.notaBaixa && <div className={s.cartaoAlerta}>
         <p className={s.textoCartao}>Sentimos muito que algo não saiu como esperado. A gerência da unidade vai entrar em contato com você.</p>
       </div>}

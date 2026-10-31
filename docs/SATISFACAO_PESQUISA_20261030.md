@@ -629,3 +629,37 @@ Auditado por leitura, sem reexecutar PostgreSQL ou mutantes: rotas **8/8 subtest
 Regressão PG completa **256/256** e E2E **65/65** continuam evidências herdadas da rodada 2, não repetidas nesta rodada. Permanecem os limites aceitos: c.id = ANY(ids travados) sem mutante específico; revogada_em não representa o instante de COMMIT. Nenhum novo defeito de produto demonstrado no escopo desta revisão.
 
 Somente local. Nenhum cluster iniciado/reutilizado, nenhum banco real consultado, nenhuma migration executada pelo reviewer. Sem commit, push, staging, produção, Render ou envio real. Código e testes da candidata preservados; apenas este parecer e os registros documentais solicitados foram acrescentados.
+
+## PS-G — convite do Google em destaque (só G1) — LOCAL, sem commit (31/10/2026)
+
+**Decisão de Felipe (31/10):** depois de três rodadas do plano reprovadas só na CONTAGEM de cliques (rev. 0–2), fazer
+agora apenas o convite (G1, aceito pelo Astra desde a rev. 0). A contagem fica adiada para uma fase própria; nenhuma
+migration, tabela, rota ou dado novo nesta entrega. Sobre o commit local `f3e82fb2`.
+
+| Mudança | Onde |
+|---|---|
+| O convite vira a ação principal da página de obrigado: botão principal (`botaoGoogle`, o mesmo gradiente do "Enviar resposta") e texto neutro "Se quiser, conte como foi sua experiência no Google e ajude outras famílias a escolher." Sem promessa de tempo, sem pedir estrelas/elogio, sem incentivo. | `app/p/satisfacao/page.tsx`, `satisfacao.module.css` |
+| Idêntico para qualquer nota (mesmo HTML) e sempre ANTES do aviso de nota baixa. | `page.tsx` |
+| Resposta repetida (409): a página reabre pelo `POST /api/satisfacao/abrir` (token no corpo) e mostra o estado devolvido — RESPONDIDA com o convite atual ou sem link, ENCERRADA ("Pesquisa indisponível", com a saída das pesquisas). Falha ou limite na reabertura: "já respondida", sem convite. Antes, o 409 sempre zerava o convite. | `page.tsx` (`reabrirDepoisDoConflito`) |
+
+### Provas (cluster descartável 127.0.0.1:55551, encerrado no fim)
+
+| Prova | Resultado |
+|---|---|
+| E2E PS-G (`ambientes-locais/satisfacao-psg-e2e.cjs`, 1366 e 390 px) | **34/34 PASS**: notas 0, 6, 7 e 10 com o mesmo bloco (HTML idêntico), botão principal, antes do aviso; tarefa só nas notas ≤ 6; Enter no convite abre o link salvo em nova aba (pedido ao Google interceptado e abortado) e a página continua; reabertura pelo link com o mesmo convite; 409 em outra aba → "já respondida" com o convite, vale só a 1ª resposta; 409 depois do cancelamento → "Pesquisa indisponível" sem convite e com a saída; nenhuma requisição a terceiros; nenhum link da pesquisa no log |
+| Controle negativo (o mesmo E2E contra o clone LF com a página da PS-3) | **7 falhas, todas causais**: botão principal nas 4 notas, 409 sem convite, 409 após cancelamento (2) — `satisfacao-e2e-psg-controle-20261031.log` |
+| E2E das fases anteriores | PS-1 **36/36**, PS-2 **14/14**, PS-3 **15/15** |
+| CI local | **49/49** (a 1ª passada pegou um erro de TypeScript no 409, corrigido; E2E PS-G repetido depois: 34/34) (`ci-local-satisfacao-psg-20261031.log`; `next-env.d.ts` restaurado) |
+
+Sem PG/mutantes novos: nenhum SQL, serviço ou rota mudou (só a página). Política de avaliações do Google: convite igual
+para todas as notas, sem incentivo e sem seleção por satisfação (parecer da rev. 0 do plano PS-G).
+
+### Contagem de cliques (adiada)
+
+Fica fora. Os contratos discutidos nas rev. 0–2 do plano (registro do convite em SAVEPOINT, publicação mensal com
+barreira, travas por cliente, LGPD) e o último parecer (rev. 2: 4 P2 + 2 P3) ficam no plano do vault como ponto de
+partida. Alternativa sem dado nosso: acompanhar as avaliações recebidas pelo próprio Perfil da Empresa no Google.
+
+### Rollback
+
+Reverter `page.tsx` e `satisfacao.module.css` (sem commit). Nada no banco.
