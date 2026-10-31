@@ -20,6 +20,11 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
 import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
 import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
+import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
+import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
+
+/** ID estável de cada controle da identificação (N1/N2): o erro aponta para ele. */
+const idPublico = (campo: string) => `fechamento-publico-${campo}`;
 import {
   CONTATO_KIDMAIS,
   PACOTES_FECHAMENTO_V1,
@@ -255,6 +260,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
   const [erro, setErro] = useState("");
+  /** N1/N2: pendências da identificação ligadas ao campo exato (borda vermelha, mensagem abaixo, resumo com links). */
+  const [errosCampo, setErrosCampo] = useState<ErroCampo[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
@@ -621,6 +628,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       : null;
 
   const valorInformado = moedaParaNumero(form.valorCombinado);
+  const errosPorCampo = mapaErros(errosCampo);
+  const marcar = (nome: string) => propsCampo(idPublico(nome), errosPorCampo[idPublico(nome)]);
+  const mensagemDe = (nome: string) => <MensagemCampo id={idPublico(nome)} mensagem={errosPorCampo[idPublico(nome)]} />;
 
   function atualizar<K extends keyof FechamentoForm>(
     campo: K,
@@ -628,6 +638,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   ) {
     setForm((anterior) => ({ ...anterior, [campo]: valor }));
     setErro("");
+    const resolvidos = campo === "whatsapp" || campo === "telefone" ? [idPublico("whatsapp"), idPublico("telefone")] : [idPublico(String(campo))];
+    setErrosCampo((atual) => atual.filter((e) => !resolvidos.includes(e.campo)));
   }
 
   /** Troca (ou limpa) o horário configurado: data e início precisam ser escolhidos de novo. */
@@ -702,6 +714,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
     setForm((anterior) => ({ ...anterior, cep: cepFormatado }));
     setErro("");
+    setErrosCampo((atual) => atual.filter((e) => e.campo !== idPublico("cep")));
     setErroCep("");
     setConsultandoCep(false);
 
@@ -1172,21 +1185,24 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         somenteDigitos(form.whatsapp).length >= 10 ||
         somenteDigitos(form.telefone).length >= 10;
 
-      if (
-        !form.nomeCliente ||
-        somenteDigitos(form.cpf).length !== 11 ||
-        !cpfValido(form.cpf) ||
-        !form.email ||
-        !temContato ||
-        somenteDigitos(form.cep).length !== 8 ||
-        !form.logradouro ||
-        !form.numero ||
-        !form.bairro ||
-        !form.cidade ||
-        form.uf.length !== 2 ||
-        !form.nomeAniversariante
-      ) {
-        setErro("Preencha os dados obrigatórios para o fechamento.");
+      // Cada obrigatório que falta fica marcado no próprio campo, na ordem da tela; o primeiro recebe rolagem e foco.
+      const pendentes: ErroCampo[] = [];
+      const exigir = (falta: boolean, nome: string, mensagem: string) => { if (falta) pendentes.push({ campo: idPublico(nome), mensagem }); };
+      exigir(!form.nomeCliente, "nomeCliente", "Informe o nome completo.");
+      exigir(somenteDigitos(form.cpf).length !== 11 || !cpfValido(form.cpf), "cpf", "Informe um CPF válido.");
+      exigir(!temContato, "whatsapp", "Informe WhatsApp ou telefone com DDD.");
+      exigir(!form.email, "email", "Informe o e-mail.");
+      exigir(somenteDigitos(form.cep).length !== 8, "cep", "Informe o CEP com 8 dígitos.");
+      exigir(!form.logradouro, "logradouro", "Informe o endereço.");
+      exigir(!form.numero, "numero", "Informe o número.");
+      exigir(!form.bairro, "bairro", "Informe o bairro.");
+      exigir(!form.cidade, "cidade", "Informe a cidade.");
+      exigir(form.uf.length !== 2, "uf", "Informe a UF com 2 letras.");
+      exigir(!form.nomeAniversariante, "nomeAniversariante", "Informe o nome do aniversariante.");
+      setErrosCampo(pendentes);
+      if (pendentes.length) {
+        setErro("");
+        focarPrimeiroErro(pendentes, { resumoId: "fechamento-publico-erros" });
         return false;
       }
 
@@ -1518,7 +1534,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           </div>
         </nav>
 
-        <form className={styles.card} onSubmit={finalizar}>
+        <form className={styles.card} onSubmit={finalizar} noValidate>
           {etapa === 0 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(0)} titulo="Escolha o pacote">
@@ -2570,9 +2586,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <input
                         type="text"
                         autoComplete="name"
+                        {...marcar("nomeCliente")}
                         value={form.nomeCliente}
                         onChange={(e) => atualizar("nomeCliente", e.target.value)}
                       />
+                      {mensagemDe("nomeCliente")}
                     </Field>
 
                     <Field label="CPF *">
@@ -2580,10 +2598,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         type="text"
                         inputMode="numeric"
                         placeholder="000.000.000-00"
+                        {...marcar("cpf")}
                         value={form.cpf}
                         readOnly={identificacaoStatus === "VERIFICADO"}
                         onChange={(e) => atualizar("cpf", formatarCPF(e.target.value))}
                       />
+                      {mensagemDe("cpf")}
                     </Field>
 
                     <Field label="RG">
@@ -2599,17 +2619,20 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         type="tel"
                         autoComplete="tel"
                         placeholder="(61) 99999-9999"
+                        {...marcar("whatsapp")}
                         value={form.whatsapp}
                         onChange={(e) =>
                           atualizar("whatsapp", formatarTelefone(e.target.value))
                         }
                       />
+                      {mensagemDe("whatsapp")}
                     </Field>
 
                     <Field label="Telefone">
                       <input
                         type="tel"
                         placeholder="(61) 3333-3333"
+                        {...marcar("telefone")}
                         value={form.telefone}
                         onChange={(e) =>
                           atualizar("telefone", formatarTelefone(e.target.value))
@@ -2622,9 +2645,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <input
                         type="email"
                         autoComplete="email"
+                        {...marcar("email")}
                         value={form.email}
                         onChange={(e) => atualizar("email", e.target.value)}
                       />
+                      {mensagemDe("email")}
                     </Field>
 
                     <Field label="CEP *">
@@ -2633,9 +2658,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         inputMode="numeric"
                         autoComplete="postal-code"
                         placeholder="00000-000"
+                        {...marcar("cep")}
                         value={form.cep}
                         onChange={(e) => atualizarCep(e.target.value)}
                       />
+                      {mensagemDe("cep")}
                       {consultandoCep && <small>Buscando endereço...</small>}
                       {!consultandoCep && erroCep && (
                         <small role="alert">{erroCep}</small>
@@ -2648,17 +2675,21 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <Field label="Endereço *" wide>
                       <input
                         type="text"
+                        {...marcar("logradouro")}
                         value={form.logradouro}
                         onChange={(e) => atualizar("logradouro", e.target.value)}
                       />
+                      {mensagemDe("logradouro")}
                     </Field>
 
                     <Field label="Número *">
                       <input
                         type="text"
+                        {...marcar("numero")}
                         value={form.numero}
                         onChange={(e) => atualizar("numero", e.target.value)}
                       />
+                      {mensagemDe("numero")}
                     </Field>
 
                     <Field label="Complemento">
@@ -2672,26 +2703,32 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <Field label="Bairro *">
                       <input
                         type="text"
+                        {...marcar("bairro")}
                         value={form.bairro}
                         onChange={(e) => atualizar("bairro", e.target.value)}
                       />
+                      {mensagemDe("bairro")}
                     </Field>
 
                     <Field label="Cidade *">
                       <input
                         type="text"
+                        {...marcar("cidade")}
                         value={form.cidade}
                         onChange={(e) => atualizar("cidade", e.target.value)}
                       />
+                      {mensagemDe("cidade")}
                     </Field>
 
                     <Field label="UF *">
                       <input
                         type="text"
                         maxLength={2}
+                        {...marcar("uf")}
                         value={form.uf}
                         onChange={(e) => atualizar("uf", e.target.value.toUpperCase())}
                       />
+                      {mensagemDe("uf")}
                     </Field>
 
                     <Field label="Outro responsável" wide>
@@ -2787,6 +2824,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <Field label="Nome do aniversariante *" wide>
                         <input
                           type="text"
+                          {...marcar("nomeAniversariante")}
                           value={form.nomeAniversariante}
                           readOnly={Boolean(
                             clienteEncontrado &&
@@ -2798,6 +2836,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                             atualizar("nomeAniversariante", e.target.value)
                           }
                         />
+                        {mensagemDe("nomeAniversariante")}
                       </Field>
 
                       <Field label="Idade que vai fazer">
@@ -3086,11 +3125,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             </section>
           )}
 
-          {erro && (
-            <div className={styles.errorBox} role="alert">
-              {erro}
-            </div>
-          )}
+          <ResumoErros id="fechamento-publico-erros" erros={errosCampo} titulo="Confira os campos marcados:" />
+          {/* Erro que não é de campo: aviso fixo, visível de qualquer ponto da etapa (antes ficava só no fim da página). */}
+          <AvisoGlobal mensagem={erro} onFechar={() => setErro("")} />
 
           <footer className={styles.actions}>
             {etapa > 0 ? (

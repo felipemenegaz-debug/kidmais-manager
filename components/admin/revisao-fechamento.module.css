@@ -26,8 +26,10 @@ fieldset.card::before { content:none; }
 .summary p { font-size:13px; color:var(--secondary-text); }
 .summary hr { margin:18px 0; border:0; border-top:1px solid var(--input-border); }
 .pending { padding:12px; border-left:3px solid var(--km-orange); font-size:13px; }
-.error { color:var(--km-orange); font-size:13px; }
-.page.page [aria-invalid=true] { border-color:var(--km-orange); }
+/* N1/N2: erro de campo em vermelho (laranja fica para alerta). */
+.error { display:block; margin-top:4px; color:#fca5a5; font-size:13px; font-weight:600; }
+.page.page [aria-invalid=true] { border-color:#f87171; }
+.page [data-invalido=true] { outline:1px solid #f87171; outline-offset:4px; border-radius:10px; }
 .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:20px; }
 .review { display:grid; gap:18px; scroll-margin-top:80px; }
 .review dl { display:grid; grid-template-columns:1fr 1fr; gap:16px; }

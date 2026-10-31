@@ -7,7 +7,9 @@ import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/model
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
-import { agirNaImportacao, enviarContrato, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { agirNaImportacao, enviarContrato, errosDaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { AvisoGlobal, MensagemCampo, ResumoErros } from '@/components/ui/ErrosFormulario';
+import { focarPrimeiroErro, idMensagemErro, mapaErros, propsCampo } from '@/lib/ui/erros-formulario';
 import IntegracaoContrato, { type PassoIntegracao } from './IntegracaoContrato';
 import styles from './importacao.module.css';
 import real from './importacao-real.module.css';
@@ -64,6 +66,8 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   const [cancelando, setCancelando] = useState(false);
   const [integracaoOcupada, setIntegracaoOcupada] = useState(false);
   const [passoIntegracao, setPassoIntegracao] = useState<PassoIntegracao>('festa');
+  /** N1/N2: depois de uma tentativa de continuar com pendências, cada campo pendente fica marcado até ser resolvido. */
+  const [marcarPendencias, setMarcarPendencias] = useState(false);
   const dialogo = useRef<HTMLDialogElement>(null);
   const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
   useEffect(() => { if (cancelando) dialogo.current?.showModal(); else dialogo.current?.close(); }, [cancelando]);
@@ -87,6 +91,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   async function enviar(arquivo: File | undefined) {
     if (!arquivo) return;
     setEstado({ etapa: 'lendo', nome: arquivo.name });
+    setMarcarPendencias(false);
     const enviado = await enviarContrato(adminFetch, arquivo);
     if (!enviado.ok) { setEstado({ etapa: 'upload', erro: enviado.mensagem }); return; }
     setEditando(null);
@@ -165,6 +170,21 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       const contagem = { ENCONTRADO: 0, PRECISA_REVISAO: 0, NAO_ENCONTRADO: 0 };
       for (const c of lista) contagem[c.estado] += 1;
       const match = estado.plano?.match;
+      const erros = marcarPendencias ? errosDaRevisao(estado.importacao, estado.plano) : [];
+      const porCampo = mapaErros(erros);
+      // Pendência num campo editável: a edição abre antes do foco, que vai para o próprio controle (revisão do Astra, P2-6).
+      const abrirCampo = (alvo: string) => {
+        const campo = lista.find((c) => idCampoRevisao(c.id) === alvo);
+        if (campo && campo.id !== 'contratante.tipoPessoa' && campo.id !== 'pagamentos.realizados') setEditando({ id: campo.id, valor: campo.valor ?? '' });
+      };
+      const continuar = () => {
+        if (!estado.plano?.pronto) {
+          setMarcarPendencias(true);
+          focarPrimeiroErro(errosDaRevisao(estado.importacao, estado.plano), { abrir: abrirCampo, resumoId: 'revisao-erros' });
+          return;
+        }
+        setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano });
+      };
       return <div className={`${styles.revisao} ${real.revisao}`}>
         <div className={styles.principal}>
           <div className={styles.cabecalhoRevisao}>
@@ -180,11 +200,15 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
             <span data-estado="NAO_ENCONTRADO">{contagem.NAO_ENCONTRADO} não encontrados</span>
           </p>
           <div className={styles.secoes}>
-            {estado.importacao.extracao.secoes.map((secao) => <section key={secao.id} className={styles.secao} aria-labelledby={`real-${secao.id}`}>
+            {estado.importacao.extracao.secoes.map((secao) => <section key={secao.id} className={styles.secao} aria-labelledby={`real-${secao.id}`}
+              {...(secao.id === 'endereco' ? { id: ID_SECAO_ENDERECO, tabIndex: -1, 'data-invalido': porCampo[ID_SECAO_ENDERECO] ? true : undefined, 'aria-describedby': porCampo[ID_SECAO_ENDERECO] ? idMensagemErro(ID_SECAO_ENDERECO) : undefined } : {})}>
               <h3 id={`real-${secao.id}`}>{secao.titulo}</h3>
               {secao.nota && <p className={styles.nota}>{secao.nota}</p>}
+              {secao.id === 'endereco' && <MensagemCampo id={ID_SECAO_ENDERECO} mensagem={porCampo[ID_SECAO_ENDERECO]} />}
+              {secao.id === 'endereco' && secao.campos.some((c) => c.valor) && <button type="button" className={styles.linkBotao} disabled={estado.ocupado}
+                onClick={() => void agir({ acao: 'revisar', campoId: 'contratante.endereco', limparEndereco: true })}>Deixar sem endereço</button>}
               <dl className={styles.campos}>
-                {secao.campos.map((campo) => <Campo key={campo.id} campo={campo} revisado={revisados.includes(campo.id)} ocupado={estado.ocupado}
+                {secao.campos.map((campo) => <Campo key={campo.id} campo={campo} revisado={revisados.includes(campo.id)} ocupado={estado.ocupado} erro={porCampo[idCampoRevisao(campo.id)]}
                   editando={editando?.id === campo.id ? editando.valor : null}
                   onEditar={(valor) => setEditando(valor === null ? null : { id: campo.id, valor })}
                   onAgir={(acao) => void agir(acao)} />)}
@@ -195,7 +219,8 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
 
         <aside className={styles.gate} aria-labelledby="gate-real">
           <h2 id="gate-real">Confirmação humana</h2>
-          {match && <div className={real.cliente}>
+          {match && <div className={real.cliente} id={ID_CLIENTE_REVISAO} tabIndex={-1} data-invalido={porCampo[ID_CLIENTE_REVISAO] ? true : undefined}
+            aria-describedby={porCampo[ID_CLIENTE_REVISAO] ? idMensagemErro(ID_CLIENTE_REVISAO) : undefined}>
             <h3>Cliente</h3>
             <p>{match.motivo}</p>
             {match.estado === 'POSSIVEL_MATCH' && <div className={real.opcoes} role="radiogroup" aria-label="Escolha do cliente">
@@ -205,17 +230,23 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
               <button type="button" role="radio" disabled={estado.ocupado} aria-checked={estado.importacao.decisaoCliente?.tipo === 'CRIAR'}
                 onClick={() => void agir({ acao: 'cliente', decisao: { tipo: 'CRIAR' } })}>Criar novo cliente</button>
             </div>}
+            <MensagemCampo id={ID_CLIENTE_REVISAO} mensagem={porCampo[ID_CLIENTE_REVISAO]} />
           </div>}
+          {estado.plano?.recusa && <p className={real.recusa} role="alert">{estado.plano.recusa.mensagem}</p>}
           {estado.plano && <div className={styles.pendencias}>
             <h3>Pendências</h3>
-            {estado.plano.bloqueios.length ? <ul>{estado.plano.bloqueios.map((b) => <li key={b}>{b}</li>)}</ul> : <p className={styles.ok}>Pronto para preparar a importação.</p>}
-            {estado.plano.avisos.length > 0 && <ul className={styles.discreto}>{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
+            {estado.plano.bloqueios.filter((b) => b !== estado.plano?.recusa?.mensagem).length
+              ? <ul className={real.bloqueios}>{estado.plano.bloqueios.filter((b) => b !== estado.plano?.recusa?.mensagem).map((b) => <li key={b}>{b}</li>)}</ul>
+              : !estado.plano.recusa && <p className={styles.ok}>Pronto para preparar a importação.</p>}
+            {estado.plano.avisos.length > 0 && <ul className={real.alertas} aria-label="Alertas">{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
           </div>}
-          {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
-          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano }); }}>{estado.ocupado ? 'Aguarde…' : 'Continuar para festa e pagamentos'}</button>
+          <ResumoErros id="revisao-erros" erros={erros} titulo="Resolva para continuar:" abrir={abrirCampo} />
+          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano} onClick={continuar}>{estado.ocupado ? 'Aguarde…' : 'Continuar para festa e pagamentos'}</button>
           <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Recebimentos só entram quando você informar data e forma de cada um.</p>
           <button type="button" className={styles.fantasma} disabled={estado.ocupado} onClick={() => setCancelando(true)}>Cancelar importação</button>
         </aside>
+        {/* Recusa do servidor: aviso fixo, visível de qualquer ponto da revisão. */}
+        <AvisoGlobal mensagem={estado.erro} onFechar={() => setEstado({ ...estado, erro: null })} />
       </div>;
     })()}
 
@@ -252,10 +283,12 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   </main>;
 }
 
-function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
+function Campo({ campo, revisado, ocupado, erro, editando, onEditar, onAgir }: {
   campo: CampoExtraido;
   revisado: boolean;
   ocupado: boolean;
+  /** Pendência deste campo depois de tentar continuar (N1/N2): borda vermelha e mensagem logo abaixo. */
+  erro?: string;
   editando: string | null;
   onEditar(valor: string | null): void;
   onAgir(acao: AcaoImportacao): void;
@@ -265,16 +298,22 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
   // Valor recusado pelo validador (inválido, ambíguo, não representável) só sai corrigido ou removido.
   const recusado = campo.validacao === 'INVALIDO' || campo.validacao === 'AMBIGUO' || campo.validacao === 'NAO_REPRESENTAVEL';
   const confirmavel = campo.estado === 'PRECISA_REVISAO' && !recusado;
-  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual}>
+  const id = idCampoRevisao(campo.id);
+  if (campo.id === 'contratante.tipoPessoa') return <TipoPessoa campo={campo} revisado={revisado} ocupado={ocupado} onAgir={onAgir} id={id} erro={erro} />;
+  const confirmar = (): AcaoImportacao => (campo.conflito ? { acao: 'revisar', campoId: campo.id, confirmarDivergencia: true } : { acao: 'revisar', campoId: campo.id });
+  // O ID do erro é o do controle (o campo de edição, aberto antes do foco), não o do bloco (revisão do Astra, P2-6).
+  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual} data-invalido={erro ? true : undefined}>
     <dt>{campo.rotulo}</dt>
     <dd className={styles.valorCampo}>
       {editando !== null
         ? <form className={real.edicao} onSubmit={(e) => { e.preventDefault(); onAgir({ acao: 'revisar', campoId: campo.id, valor: editando }); }}>
-          <label className={styles.oculto} htmlFor={`editar-${campo.id}`}>{campo.rotulo}</label>
-          <input id={`editar-${campo.id}`} value={editando} maxLength={500} autoFocus disabled={ocupado} onChange={(e) => onEditar(e.target.value)} />
+          <label className={styles.oculto} htmlFor={id}>{campo.rotulo}</label>
+          <input {...propsCampo(id, erro)} value={editando} maxLength={500} autoFocus disabled={ocupado} onChange={(e) => onEditar(e.target.value)} />
           <div className={real.acoesEdicao}>
             <button type="submit" className={styles.confirmarCampo} disabled={ocupado}>Salvar</button>
             <button type="button" className={styles.linkBotao} disabled={ocupado} onClick={() => onEditar(null)}>Cancelar</button>
+            {confirmavel && !revisado && <button type="button" className={styles.linkBotao} disabled={ocupado} onClick={() => onAgir(confirmar())}>
+              {campo.conflito ? 'O contrato diz isso' : 'Manter como lido'}</button>}
           </div>
           {campo.valor && <button type="button" className={real.removerValor} disabled={ocupado} onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
         </form>
@@ -288,16 +327,43 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
       </details>}
       {campo.origem && !campo.evidencia && <small>{campo.origem}</small>}
       {!campo.evidencia && campo.bruto && campo.normalizado && campo.bruto !== campo.normalizado && <small>Lido como “{campo.bruto}”</small>}
-      {campo.motivo && !revisado && <small className={styles.motivo}>{campo.motivo}</small>}
+      {campo.motivo && !revisado && !erro && <small className={styles.motivo}>{campo.motivo}</small>}
+      <MensagemCampo id={id} mensagem={erro} />
     </dd>
     <dd className={styles.estadoCampo}>
       <span className={styles.selo} data-estado={visual}>{ROTULO[visual]}</span>
       {confirmavel && !revisado && editando === null && <button type="button" className={styles.confirmarCampo} disabled={ocupado}
         aria-label={campo.conflito ? `Confirmar que o contrato traz ${campo.rotulo} assim` : `Confirmar leitura de ${campo.rotulo}`}
-        onClick={() => onAgir(campo.conflito ? { acao: 'revisar', campoId: campo.id, confirmarDivergencia: true } : { acao: 'revisar', campoId: campo.id })}>
+        onClick={() => onAgir(confirmar())}>
         {campo.conflito ? 'O contrato diz isso' : 'Confirmar leitura'}</button>}
       {editavel && editando === null && <button type="button" className={styles.linkBotao} disabled={ocupado}
         aria-label={`Corrigir ${campo.rotulo}`} onClick={() => onEditar(campo.valor ?? '')}>Corrigir</button>}
     </dd>
+  </div>;
+}
+
+/**
+ * D-IMP-2: o operador escolhe pessoa física ou jurídica. O documento lido só sugere; escolher grava a revisão do campo
+ * (a escolha vale como confirmação humana). Pessoa jurídica fica recusada na confirmação até a Entrega B.
+ */
+function TipoPessoa({ campo, revisado, ocupado, onAgir, id, erro }: { campo: CampoExtraido; revisado: boolean; ocupado: boolean; onAgir(acao: AcaoImportacao): void; id: string; erro?: string }) {
+  const visual = revisado ? 'REVISADO' : campo.estado;
+  const atual = campo.normalizado ?? campo.valor;
+  // Marcado pelo valor gravado da escolha humana; a sugestão do documento fica só no texto (revisão do Astra, P3-7).
+  const marcado = tipoPessoaMarcado(campo, revisado);
+  const opcoes = [{ valor: 'PF', rotulo: 'Pessoa física' }, { valor: 'PJ', rotulo: 'Pessoa jurídica' }] as const;
+  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual} data-invalido={erro ? true : undefined}>
+    <dt id={`rotulo-${campo.id}`}>{campo.rotulo}</dt>
+    <dd className={styles.valorCampo}>
+      <div className={real.tipoPessoa} role="radiogroup" aria-labelledby={`rotulo-${campo.id}`} aria-required tabIndex={-1} {...propsCampo(id, erro)}>
+        {opcoes.map((o) => <button key={o.valor} type="button" role="radio" disabled={ocupado}
+          aria-checked={marcado === o.valor}
+          onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: o.valor })}>{o.rotulo}</button>)}
+      </div>
+      {!marcado && atual && <small>Sugerido pelo documento: {atual}. Escolha para confirmar.</small>}
+      {campo.motivo && !revisado && !erro && <small className={styles.motivo}>{campo.motivo}</small>}
+      <MensagemCampo id={id} mensagem={erro} />
+    </dd>
+    <dd className={styles.estadoCampo}><span className={styles.selo} data-estado={visual}>{ROTULO[visual]}</span></dd>
   </div>;
 }

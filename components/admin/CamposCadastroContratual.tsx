@@ -3,6 +3,7 @@ import {
   CAMPOS_CADASTRO, CAMPOS_ENDERECO, CAMPOS_ENDERECO_EXIGIDOS, CAMPOS_IDENTIFICACAO, CAMPOS_OBRIGATORIOS, enderecoInformado, type CadastroContratual,
 } from '@/lib/clientes/cadastro-contratual';
 import ui from './importacao/integracao.module.css';
+import { propsCampo } from '@/lib/ui/erros-formulario';
 
 type Campo = keyof CadastroContratual;
 const TIPO: Partial<Record<Campo, string>> = { email: 'email', whatsapp: 'tel' };
@@ -32,14 +33,16 @@ export default function CamposCadastroContratual({ value, onChange, cpfProtegido
   const campo = (k: Campo) => {
     const erro = invalidos[k];
     const dica = k === 'cpf' && cpfProtegido ? 'CPF já cadastrado no cliente; não pode ser substituído aqui.' : DICA[k];
-    const descricaoId = erro || dica ? `cadastro-${k}-descricao` : undefined;
+    // ID estável (N1/N2): `cadastro-<campo>`; a mensagem de erro fica logo abaixo e a dica continua descrita.
+    const id = `cadastro-${k}`;
+    const dicaId = dica ? `${id}-dica` : undefined;
     return <label key={k} className={ui.campo}>
       <span>{CAMPOS_CADASTRO[k]}{opcional(k) ? ' (opcional)' : ''}</span>
-      <input type={TIPO[k] ?? 'text'} inputMode={inclui(NUMERICO, k) ? 'numeric' : undefined} autoComplete={AUTOCOMPLETE[k]}
-        maxLength={k === 'uf' ? 2 : 200} value={value[k]} disabled={k === 'cpf' && cpfProtegido}
-        aria-invalid={erro ? true : undefined} aria-describedby={descricaoId}
+      <input {...propsCampo(id, erro, dicaId)} type={TIPO[k] ?? 'text'} inputMode={inclui(NUMERICO, k) ? 'numeric' : undefined} autoComplete={AUTOCOMPLETE[k]}
+        maxLength={k === 'uf' ? 2 : 200} value={value[k]} disabled={k === 'cpf' && cpfProtegido} required={!opcional(k)}
         onChange={e => onChange({ ...value, [k]: e.target.value })} />
-      {(erro || dica) && <small id={descricaoId} className={erro ? ui.campoErro : undefined}>{erro ?? dica}</small>}
+      {erro && <small id={`${id}-erro`} className={ui.campoErro}>{erro}</small>}
+      {dica && <small id={dicaId}>{dica}</small>}
     </label>;
   };
   return <fieldset className={ui.grupo}>
@@ -48,6 +51,8 @@ export default function CamposCadastroContratual({ value, onChange, cpfProtegido
     <p className={ui.subtitulo}>Identificação e contato</p>
     <div className={ui.grade}>{CAMPOS_IDENTIFICACAO.map(campo)}</div>
     <p className={ui.subtitulo}>Endereço <span>{comEndereco ? 'complete os campos marcados' : 'opcional'}</span></p>
+    {/* D-IMP-3: na importação o endereço não bloqueia, mas a falta dele é sempre avisada. */}
+    {!comEndereco && <p className={ui.alerta} role="status">Contrato sem endereço do contratante. Você pode concluir assim, mas o cadastro do cliente ficará incompleto até o endereço ser informado.</p>}
     <div className={ui.grade}>{CAMPOS_ENDERECO.map(campo)}</div>
   </fieldset>;
 }

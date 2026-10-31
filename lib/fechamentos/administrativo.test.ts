@@ -354,7 +354,9 @@ async function formulario() {
     const Component = a.load('components/admin/FechamentoAdminWizard.tsx').default;
     function render() { si = ri = ei = 0; const tree = Component({ clienteId }); while (effects.length) effects.shift()(); return tree; }
     function nodes(root: any): any[] { return !root || typeof root !== 'object' ? [] : Array.isArray(root) ? root.flatMap(nodes) : [root, ...nodes(root.props?.children)]; }
-    function text(root: any): string { return root === null || root === undefined ? '' : Array.isArray(root) ? root.map(text).join(' ') : typeof root === 'object' ? text(root.props?.children) : String(root); }
+    // Os componentes do mecanismo de erros de formulário (N1/N2) são puros: expandidos para o texto chegar ao teste.
+    const PUROS = new Set(['AvisoGlobal', 'ResumoErros', 'MensagemCampo']);
+    function text(root: any): string { return root === null || root === undefined ? '' : Array.isArray(root) ? root.map(text).join(' ') : typeof root === 'object' ? (typeof root.type === 'function' && PUROS.has(root.type.name) ? text(root.type(root.props)) : text(root.props?.children)) : String(root); }
     function field(label: string, value: string) {
         const l = nodes(render()).find(n => n.type === 'label' && text(n).startsWith(label)); assert(l, label);
         const input = nodes(l).find(n => ['select', 'input', 'textarea'].includes(n.type));

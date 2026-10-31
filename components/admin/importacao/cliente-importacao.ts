@@ -25,6 +25,10 @@ export type PlanoPublico = {
   bloqueios: string[];
   avisos: string[];
   match: { estado: EstadoMatch; clienteId: string | null; candidatos: Array<{ clienteId: string; nome: string; motivos: string[] }>; motivo: string };
+  /** Tipo do contratante resolvido na revisão; null = o operador ainda precisa escolher. */
+  tipoPessoa?: 'PF' | 'PJ' | null;
+  /** Recusa de cliente pessoa jurídica (PJ_INDISPONIVEL): nada é gravado; leitura e correções seguem salvas. */
+  recusa?: { codigo: 'PJ_INDISPONIVEL'; motivo: 'ENTREGA_A' | 'MIGRACAO_PENDENTE'; mensagem: string } | null;
 };
 export type RespostaImportacao = { importacao: ImportacaoPublica; plano?: PlanoPublico | null; gate?: { tipo: string; rascunho?: RascunhoPublico } | null; metodo?: string | null; avisos?: string[] };
 
@@ -85,7 +89,7 @@ export async function enviarContrato(buscar: Buscador, arquivo: File): Promise<R
 
 export type AcaoImportacao =
   | { acao: 'ler' }
-  | { acao: 'revisar'; campoId: string; valor?: string; confirmarDivergencia?: true }
+  | { acao: 'revisar'; campoId: string; valor?: string; confirmarDivergencia?: true; limparEndereco?: true }
   | { acao: 'cliente'; decisao: DecisaoCliente }
   | { acao: 'preparar' }
   | { acao: 'descartar' };
@@ -93,4 +97,53 @@ export type AcaoImportacao =
 export function agirNaImportacao(buscar: Buscador, importacao: Pick<ImportacaoPublica, 'id' | 'versao'>, acao: AcaoImportacao) {
   const corpo = acao.acao === 'ler' ? { acao: 'ler', importacaoId: importacao.id } : { ...acao, importacaoId: importacao.id, versao: importacao.versao };
   return ler(postarJson(buscar, corpo), pareceImportacao);
+}
+
+/** ID estável do campo na tela de revisão (N1/N2): o erro aponta para ele. */
+export const idCampoRevisao = (campoId: string) => `revisao-${campoId.replace(/\./g, '-')}`;
+export const ID_CLIENTE_REVISAO = 'revisao-cliente';
+export const ID_SECAO_ENDERECO = 'revisao-secao-endereco';
+
+const RECUSADO = new Set(['INVALIDO', 'AMBIGUO', 'NAO_REPRESENTAVEL']);
+
+type CampoRevisao = ExtracaoContrato['secoes'][number]['campos'][number];
+
+/**
+ * Tipo de pessoa marcado na tela (revisão do Astra, P3-7): o valor gravado quando a escolha é humana (informada pelo
+ * operador ou confirmada), nunca a lista de revisados sozinha. Sugestão do documento não aparece marcada.
+ */
+export function tipoPessoaMarcado(c: CampoRevisao, revisado: boolean): 'PF' | 'PJ' | null {
+  if (!revisado && c.origem !== 'Informado pelo operador') return null;
+  const v = (c.valor ?? c.bruto ?? '').trim().toLowerCase();
+  return /jur[ií]dica|^pj$/.test(v) ? 'PJ' : /f[ií]sica|^pf$/.test(v) ? 'PF' : null;
+}
+
+/**
+ * Pendências da revisão ligadas ao campo exato, na ordem da tela (mesmas regras de `montarPlano`, que segue sendo a
+ * autoridade). O que não é de um campo (decisão do cliente) aponta para o bloco "Cliente"; endereço incompleto, para a
+ * seção de endereço.
+ */
+export function errosDaRevisao(i: Pick<ImportacaoPublica, 'extracao' | 'revisados'>, plano: PlanoPublico | null): Array<{ campo: string; mensagem: string }> {
+  if (!plano || plano.pronto) return [];
+  const erros: Array<{ campo: string; mensagem: string }> = [];
+  for (const c of i.extracao.secoes.flatMap((s) => s.campos)) {
+    const campo = idCampoRevisao(c.id);
+    if (c.id === 'contratante.tipoPessoa') {
+      if (plano.recusa) erros.push({ campo, mensagem: plano.recusa.mensagem });
+      else if (c.validacao && RECUSADO.has(c.validacao)) erros.push({ campo, mensagem: `${c.rotulo}: ${c.motivo ?? 'escolha o tipo certo.'}` });
+      else if (!plano.tipoPessoa) erros.push({ campo, mensagem: 'Escolha se o contratante é pessoa física ou jurídica.' });
+      else if (c.estado === 'PRECISA_REVISAO' && !i.revisados.includes(c.id)) erros.push({ campo, mensagem: `${c.rotulo}: escolha para confirmar.` });
+    } else if (c.validacao && RECUSADO.has(c.validacao)) erros.push({ campo, mensagem: `${c.rotulo}: ${c.motivo ?? 'o valor lido não pode ser usado como está. Corrija ou remova.'}` });
+    else if (c.estado === 'PRECISA_REVISAO' && !i.revisados.includes(c.id)) erros.push({ campo, mensagem: `${c.rotulo}: confirme a leitura ou corrija.` });
+    else if (c.id === 'evento.data' && !c.valor) erros.push({ campo, mensagem: 'Informe a data da festa.' });
+  }
+  const cobertos = /^(Revise \d+ campos?|Informe a data da festa\.|Confirme se o contratante|.+: o valor lido não pode ser usado)/;
+  // Conflito de identidade já mostrado no próprio campo não se repete; o que sobrar aponta para o tipo de pessoa.
+  const motivosNosCampos = new Set(i.extracao.secoes.flatMap((s) => s.campos).filter((c) => c.validacao && RECUSADO.has(c.validacao)).map((c) => `Identidade do contratante: ${c.motivo}`));
+  for (const b of plano.bloqueios) {
+    if (b === plano.recusa?.mensagem || cobertos.test(b) || motivosNosCampos.has(b)) continue;
+    const alvo = /^Endereço incompleto/.test(b) ? ID_SECAO_ENDERECO : /^Identidade do contratante/.test(b) ? idCampoRevisao('contratante.tipoPessoa') : ID_CLIENTE_REVISAO;
+    erros.push({ campo: alvo, mensagem: b });
+  }
+  return erros;
 }

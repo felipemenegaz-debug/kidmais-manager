@@ -1,3 +1,5 @@
+import { cnpjFormatoDvOficial, cnpjRaizPlaceholder, normalizarCnpj } from "../cadastro/cnpj.ts";
+
 /**
  * Validadores determinísticos da importação histórica. O modelo (ou o extrator por regras) só lê;
  * quem decide se um valor é representável é o código daqui.
@@ -11,7 +13,7 @@
  * - NAO_REPRESENTAVEL: o texto não cabe no tipo (30,5 convidados, "quatro horas", data sem ano).
  */
 export type EstadoFalha = "INVALIDO" | "AMBIGUO" | "NAO_REPRESENTAVEL";
-export type TipoCampo = "texto" | "cpf" | "telefone" | "email" | "data" | "horario" | "duracao" | "idade" | "convidados" | "quantidade" | "valor" | "parcela";
+export type TipoCampo = "texto" | "textoCurto" | "cpf" | "cnpj" | "cep" | "uf" | "tipoPessoa" | "telefone" | "email" | "data" | "horario" | "duracao" | "idade" | "convidados" | "quantidade" | "valor" | "parcela";
 export type Validacao<T> = { ok: true; valor: T } | { ok: false; motivo: string; estado: EstadoFalha };
 
 const ok = <T>(valor: T): Validacao<T> => ({ ok: true, valor });
@@ -37,6 +39,49 @@ export function validarCpf(texto: string): Validacao<string> {
   };
   if (dv(d.slice(0, 9), 10) !== Number(d[9]) || dv(d.slice(0, 10), 11) !== Number(d[10])) return falha("CPF com dígito verificador inválido. Confira a leitura.");
   return ok(`${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`);
+}
+
+// ---------------------------------------------------------------- CNPJ, tipo de pessoa e endereço
+
+/** CNPJ numérico ou alfanumérico (DV oficial, `lib/cadastro/cnpj.ts`). Letras são mantidas; só a pontuação sai. */
+export function validarCnpj(texto: string): Validacao<string> {
+  const t = texto.trim().toUpperCase();
+  if (!/^[0-9A-Z]{2}\.?[0-9A-Z]{3}\.?[0-9A-Z]{3}\/?[0-9A-Z]{4}-?\d{2}$/.test(t)) return falha("CNPJ com formato inválido.", /[0-9A-Z]/.test(t) ? "INVALIDO" : "NAO_REPRESENTAVEL");
+  const c = normalizarCnpj(t);
+  if (cnpjRaizPlaceholder(c) || !cnpjFormatoDvOficial(c)) return falha("CNPJ com dígito verificador inválido. Confira a leitura.");
+  return ok(`${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`);
+}
+
+export type TipoPessoa = "PF" | "PJ";
+export const ROTULO_TIPO_PESSOA: Readonly<Record<TipoPessoa, string>> = { PF: "Pessoa física", PJ: "Pessoa jurídica" };
+
+/** Só "PF"/"PJ" ou o rótulo por extenso: nada é inferido de texto livre. */
+export function validarTipoPessoa(texto: string): Validacao<string> {
+  const t = semAcento(texto.trim().toLowerCase());
+  if (t === "pf" || t === "pessoa fisica") return ok(ROTULO_TIPO_PESSOA.PF);
+  if (t === "pj" || t === "pessoa juridica") return ok(ROTULO_TIPO_PESSOA.PJ);
+  return falha("Escolha pessoa física ou pessoa jurídica.", "NAO_REPRESENTAVEL");
+}
+
+export function tipoPessoaDe(rotulo: string | null): TipoPessoa | null {
+  if (!rotulo) return null;
+  const v = validarTipoPessoa(rotulo);
+  if (!v.ok) return null;
+  return v.valor === ROTULO_TIPO_PESSOA.PJ ? "PJ" : "PF";
+}
+
+export function validarCep(texto: string): Validacao<string> {
+  const t = texto.trim();
+  if (!/^\d{2}\.?\d{3}-?\d{3}$/.test(t)) return falha("CEP deve ter 8 dígitos.", /\d/.test(t) ? "INVALIDO" : "NAO_REPRESENTAVEL");
+  const d = soDigitos(t);
+  return ok(`${d.slice(0, 5)}-${d.slice(5)}`);
+}
+
+const UFS = new Set(["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]);
+
+export function validarUf(texto: string): Validacao<string> {
+  const t = texto.trim().toUpperCase();
+  return UFS.has(t) ? ok(t) : falha("UF deve ser a sigla do estado, com 2 letras.", /^[A-Z]{2}$/.test(t) ? "INVALIDO" : "NAO_REPRESENTAVEL");
 }
 
 // ---------------------------------------------------------------- telefone / e-mail

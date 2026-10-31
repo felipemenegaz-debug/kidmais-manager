@@ -1029,7 +1029,7 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       const fonte = carregar<typeof import('./rascunho.ts')>('lib/contratos/integracao-importados/rascunho.ts');
       const tx = executor(a);
       const i = (await ri.lerImportacao(tx, c.empresa, imp.id, false))!;
-      const plano: import('../../importacao-contrato/plano.ts').PlanoImportacao = { pronto: true, bloqueios: [], avisos: [],
+      const plano: import('../../importacao-contrato/plano.ts').PlanoImportacao = { pronto: true, bloqueios: [], avisos: [], tipoPessoa: 'PF', recusa: null,
         match: { estado: 'NOVO_CLIENTE', clienteId: null, candidatos: [], motivo: 'Sintético' },
         passos: [{ tipo: 'CLIENTE', acao: 'CRIAR', dados: { nomeCompleto: 'Novo cliente confirmação única', cpf: cpfValido(), telefone: '11999990000', whatsapp: null, email: null } }, { tipo: 'CONTRATO_HISTORICO', acao: 'REGISTRAR_SNAPSHOT' }], snapshot: imp.snapshot };
       const d = decisoes(c, ev, { situacao: 'PAGO', parcelas: [
