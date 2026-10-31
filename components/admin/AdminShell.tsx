@@ -14,7 +14,7 @@ import { PermissoesAdminContext } from './PermissoesAdmin';
 
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
-import LogoEmpresa from './LogoEmpresa';
+import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
@@ -54,6 +54,8 @@ export default function AdminShell({ children, vitrine }: {
     const contaRef = useRef<HTMLElement>(null);
     const contaBotaoRef = useRef<HTMLButtonElement>(null);
     const router = useRouter();
+    // Lida só com a sessão confirmada (como quando o menu montava o LogoEmpresa); a vitrine fica sem logo.
+    const logo = useLogoEmpresa(Boolean(name) && !vitrine && path !== '/admin/login');
     useEffect(() => {
         if (vitrine || path === '/admin/login')
             return;
@@ -192,7 +194,7 @@ export default function AdminShell({ children, vitrine }: {
         <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto((valor) => !valor)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
         {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={fechar} />}
         <aside id="menu-admin" ref={painelRef} className={styles.sidebar} data-aberto={aberto}>
-            <Link className={styles.brand} href="/admin/dashboard" aria-label="Dashboard" onClick={() => setAberto(false)}><LogoEmpresa vitrine={Boolean(vitrine)} /></Link>
+            <Link className={styles.brand} href="/admin/dashboard" aria-label="Dashboard" onClick={() => setAberto(false)}><LogoEmpresa /></Link>
             <nav aria-label="Menu administrativo">
                 {grupos.map((grupo) => {
                     const links = itens.filter((item) => item.grupo === grupo);
@@ -230,8 +232,10 @@ export default function AdminShell({ children, vitrine }: {
                     <button type="button" className={styles.menuContaSair} disabled={saindo} onClick={sair}><AdminIcon name="logout" size={14} /> {saindo ? 'Saindo…' : 'Sair'}</button>
                 </div>}
                 <button ref={contaBotaoRef} type="button" className={styles.contaBotao} aria-expanded={contaAberta} aria-controls="menu-conta" aria-label={`Conta de ${name}: ${contaAberta ? 'fechar' : 'abrir'} menu`} onClick={() => setContaAberta((valor) => !valor)}>
-                    <span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span>
-                    <span className={styles.contaTexto}><strong>{name}</strong><small>{semEmpresa ? 'Sem empresa ativa' : `${permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}${empresa?.nome ? ` · ${empresa.nome}` : ''}`}</small></span>
+                    {/* Com empresa ativa, o cartão mostra a marca e o nome da empresa; quem está logado vai na segunda linha. */}
+                    {!semEmpresa && empresa?.nome
+                        ? <><MarcaEmpresa logo={logo} nome={empresa.nome} /><span className={styles.contaTexto}><strong>{empresa.nome}</strong><small>{name} · {permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}</small></span></>
+                        : <><span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span><span className={styles.contaTexto}><strong>{name}</strong><small>{semEmpresa ? 'Sem empresa ativa' : permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}</small></span></>}
                     <span className={styles.contaSeta} aria-hidden="true">{contaAberta ? '▾' : '▴'}</span>
                 </button>
             </footer>
@@ -244,7 +248,7 @@ export default function AdminShell({ children, vitrine }: {
                     <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href={ROTA_AJUDA}>Falar com o suporte</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
                         {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
                         <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
-                : <PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider>}</div>
+                : <LogoEmpresaContext.Provider value={logo}><PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider></LogoEmpresaContext.Provider>}</div>
     </PerguntarKidmaisProvider></div>;
 }
 
