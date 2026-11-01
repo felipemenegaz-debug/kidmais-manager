@@ -163,6 +163,36 @@ test('suporte só por e-mail (19/10): nenhum plano promete canal de suporte que 
     for (const plano of planos) assert.doesNotMatch(plano.descricao, /vender pela internet|IA trabalhando/);
 });
 
+test('planos iA.Fest (01/11): IA assistiva em todos os planos; WhatsApp.IA incluído só no Premium e adicional só do Profissional; cotas de importação da D-LOTE-6', () => {
+    const porId = Object.fromEntries(planos.map(p => [p.id, p]));
+    const incluido = (id: string, recurso: RecursoId) => porId[id].itens.filter(i => i.recursos.includes(recurso) && !i.excluido && !i.introducao);
+    const excluido = (id: string, recurso: RecursoId) => porId[id].itens.filter(i => i.recursos.includes(recurso) && i.excluido);
+    // D-PL-3: copiloto e convite aparecem como incluídos (com selo Em breve) nos três planos, sem números de franquia no site.
+    for (const id of ['essencial', 'profissional', 'premium']) for (const recurso of ['copiloto', 'convite'] as const) {
+        const itens = incluido(id, recurso);
+        assert.equal(itens.length, 1, `${id} inclui ${recurso}`);
+        assert.doesNotMatch(itens[0].texto, /\d/, 'franquia de IA sem número até o piloto');
+    }
+    assert.equal(excluido('essencial', 'copiloto').length, 0);
+    // D-PL-1: WhatsApp.IA — Essencial exclui explicitamente; Profissional só como adicional; Premium incluído.
+    assert.equal(excluido('essencial', 'walle_whatsapp').length, 1);
+    assert.equal(incluido('essencial', 'walle_whatsapp').length, 0);
+    assert.match(incluido('profissional', 'walle_whatsapp')[0].texto, /adicional/);
+    assert.match(incluido('premium', 'walle_whatsapp').find(i => /franquia/.test(i.texto))!.texto, /incluída/);
+    const adicional = adicionais.find(a => a.recursos.includes('walle_whatsapp'))!;
+    assert.match(adicional.descricao, /Para o Profissional/);
+    assert.doesNotMatch(adicional.descricao, /cobrado por uso\./, 'nenhum excedente cobrado automaticamente (D-C6)');
+    // D-LOTE-6: 5 na implantação, 10/mês, 30/mês — nada de "sem cota".
+    const importacao = (id: string) => incluido(id, 'importacao_contratos')[0].texto;
+    assert.match(importacao('essencial'), /até 5 documentos/); assert.match(importacao('profissional'), /até 10 documentos por mês/); assert.match(importacao('premium'), /até 30 documentos por mês/);
+    for (const plano of planos) for (const item of plano.itens) assert.doesNotMatch(item.texto, /sem cota/);
+    // D-PL-4: implantação do Premium inclui a conexão do WhatsApp, com o selo do recurso.
+    assert.ok(porId.premium.itens.some(i => i.recursos.includes('implantacao') && i.recursos.includes('walle_whatsapp')));
+    // D-PL-6: linhas dos planos; as descrições não prometem recurso Em breve sem selo.
+    assert.deepEqual(planos.map(p => p.descricao.split('.')[0]), ['Organize', 'Venda mais', 'Atenda 24 h']);
+    for (const plano of planos) assert.doesNotMatch(plano.descricao, /orçamento online|WhatsApp|copiloto|convite/i);
+});
+
 test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine', () => {
     const html = ['Hero', 'Diferenciais', 'WallE', 'Duvidas', 'Confianca'].map(nome =>
         renderToStaticMarkup(createElement(componente('components/site/secoes.tsx', nome), { aberto: false, config: configuracaoSite({}) }))
