@@ -39,7 +39,7 @@ export type ItemPlano = { texto: string; recursos: RecursoId[]; excluido?: boole
 export type Plano = { id: PlanoComercialId; nome: string; descricao: string; mensalCentavos: number; destaque?: boolean; itens: ItemPlano[] };
 export const comercial = condicoesComerciais;
 export const planos: Plano[] = [
-    { id: 'essencial', ...planosComerciais.essencial, descricao: 'Para começar a sair do caderno e da planilha.', itens: [
+    { id: 'essencial', ...planosComerciais.essencial, descricao: 'Organize. Para sair do caderno e da planilha.', itens: [
         { texto: 'Até 3 usuários', recursos: ['permissoes'] },
         { texto: 'Agenda, clientes, festas e pacotes', recursos: ['agenda', 'clientes', 'festas'] },
         { texto: 'Contrato com o seu modelo', recursos: ['contratos'] },
@@ -47,36 +47,41 @@ export const planos: Plano[] = [
         { texto: 'Pix copia e cola e contas a receber', recursos: ['pix', 'financeiro'] },
         // Horário nobre e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
         { texto: 'Horário nobre e adicionais na cotação', recursos: ['horarios'] },
-        { texto: 'Importação por IA na implantação (tabela de preços e contratos antigos)', recursos: ['importacao_precos', 'importacao_contratos'] },
+        { texto: 'Importação por IA na implantação: até 5 documentos (tabela de preços e contratos antigos)', recursos: ['importacao_precos', 'importacao_contratos'] },
+        // 01/11/2026 (D-PL-3): IA que ajuda o dono entra em todos os planos; os tamanhos das franquias só vão ao site depois do piloto.
+        { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },
+        { texto: 'Convite da festa com IA, franquia básica', recursos: ['convite'] },
         { texto: 'Suporte por e-mail', recursos: ['suporte'] },
         { texto: 'Financeiro completo', recursos: ['financeiro'], excluido: true },
         { texto: 'Orçamento online', recursos: ['orcamento'], excluido: true },
-        { texto: 'Copiloto de IA', recursos: ['copiloto'], excluido: true },
+        // 01/11/2026 (D-PL-1): o atendimento por IA no WhatsApp não entra no Essencial, nem como adicional.
+        { texto: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], excluido: true },
     ] },
-    { id: 'profissional', ...planosComerciais.profissional, descricao: 'Para quem quer o caixa completo e uma equipe maior no sistema.', destaque: true, itens: [
+    { id: 'profissional', ...planosComerciais.profissional, descricao: 'Venda mais. Caixa completo e uma equipe maior no sistema.', destaque: true, itens: [
         { texto: 'Tudo do Essencial, mais:', recursos: [], introducao: true },
         { texto: 'Até 10 usuários', recursos: ['permissoes'] },
         { texto: 'Orçamento online pela página do buffet', recursos: ['orcamento'] },
         { texto: 'Financeiro completo: contas a pagar, fluxo de caixa e relatórios', recursos: ['financeiro'] },
-        { texto: 'Importação por IA sempre que precisar, com cota', recursos: ['importacao_precos', 'importacao_contratos'] },
-        { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },
+        { texto: 'Importação por IA sempre que precisar: até 10 documentos por mês', recursos: ['importacao_precos', 'importacao_contratos'] },
+        { texto: 'Copiloto de IA, franquia maior', recursos: ['copiloto'] },
+        { texto: 'Convite da festa com IA, franquia maior', recursos: ['convite'] },
         { texto: 'Wall-e no WhatsApp como adicional', recursos: ['walle_whatsapp'] },
     ] },
-    { id: 'premium', ...planosComerciais.premium, descricao: 'Para buffets com equipe grande e implantação acompanhada de perto.', itens: [
+    { id: 'premium', ...planosComerciais.premium, descricao: 'Atenda 24 h. Para buffets com equipe grande e implantação acompanhada de perto.', itens: [
         { texto: 'Tudo do Profissional, mais:', recursos: [], introducao: true },
         { texto: 'Usuários ilimitados', recursos: ['permissoes'] },
-        { texto: 'Importação por IA sem cota', recursos: ['importacao_precos', 'importacao_contratos'] },
+        { texto: 'Importação por IA: até 30 documentos por mês', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Copiloto de IA, franquia ampla', recursos: ['copiloto'] },
+        { texto: 'Convite da festa com IA, franquia ampla', recursos: ['convite'] },
         { texto: 'Wall-e no WhatsApp com franquia incluída', recursos: ['walle_whatsapp'] },
         // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
         { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
-        { texto: 'Implantação dedicada', recursos: ['implantacao'] },
+        { texto: 'Implantação dedicada, com a conexão do seu WhatsApp', recursos: ['implantacao', 'walle_whatsapp'] },
     ] },
 ];
 export const adicionais: { nome: string; recursos: RecursoId[]; centavos: number | null; periodo: string; descricao: string }[] = [
     { nome: 'Unidade extra', recursos: ['multiunidade'], centavos: 14700, periodo: '/mês', descricao: 'Outro salão com CNPJ próprio, na mesma conta.' },
-    { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Com franquia de conversas. O que passar da franquia é cobrado por uso.' },
-    { nome: 'Wall-e publicitário', recursos: ['walle_publicitario'], centavos: null, periodo: '', descricao: 'Criação e calendário de publicações para as redes do buffet.' },
+    { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Para o Profissional, com franquia de conversas. Quando a franquia acaba, a conversa passa para a sua equipe; nada é cobrado por uso sem você comprar um pacote.' },
     { nome: 'Créditos extras de IA', recursos: ['copiloto', 'importacao_contratos'], centavos: null, periodo: '', descricao: 'Para quem usa o copiloto e a importação além da franquia do plano. Condições a definir.' },
     { nome: 'Implantação assistida', recursos: ['implantacao', 'importacao_precos', 'importacao_contratos'], centavos: 99000, periodo: 'avulsa · grátis no plano anual', descricao: 'Nossa equipe importa sua tabela de preços e seus contratos, configura os pacotes e treina a sua equipe.' },
 ];
