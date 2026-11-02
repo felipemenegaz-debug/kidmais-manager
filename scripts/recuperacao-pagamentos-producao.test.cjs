@@ -255,7 +255,7 @@ test('P2-R1-1: PG* no process.env (o que o pg de fato lê) recusa antes de criar
 
 test('B-23 (B23-F1): o CLI reconhece cada base antiga pelo SHA completo e recusa o desconhecido antes de criar o Client', async () => {
     // Literais, não a lista importada: tirar uma base da lista não pode tirá-la também do teste.
-    const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61'];
+    const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1'];
     // Barreira explícita: o `pg` do processo é trocado por um dublê cujo Client só registra e lança; nada conecta.
     const resolvido = require.resolve('pg');
     const original = require.cache[resolvido];

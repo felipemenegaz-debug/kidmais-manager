@@ -107,9 +107,15 @@ export function divergenciasDeMarcadores(declaradas: readonly string[], presente
 
 /**
  * B-23 (plano de promoção, rodada 18): bases ANTIGAS aceitas = commits de production anteriores à candidata, em lista
- * fechada e por SHA completo (antes: prefixo `00d3019a`). Cada entrada nova exige a prova de que o diff desde `00d3019a`
- * não toca `lib/`, `app/api/`, migrations, `scripts/assinatura-*` nem a entrada do cron — o comportamento de cobrança
- * do código antigo continua o homologado (a prova do cron antigo, artefato `7ce0916f`, não muda). Promoção seletiva
+ * fechada e por SHA completo (antes: prefixo `00d3019a`). B-23b (D-B23-1 = (a), 01/11/2026): cada entrada nova exige a
+ * prova FUNCIONAL `scripts/b23-prova-base.cjs --de=00d3019a… --ate=<base>` = PROVA_PASS — o diff não toca as raízes de
+ * cobrança e recuperação (`lib/assinatura`, `lib/creditos`, `lib/desenvolvedor/cobranca.ts`, `scripts/assinatura-*`,
+ * `scripts/recuperacao-*`, as rotas de assinatura, créditos, cobrança/renovações do desenvolvedor e webhook do Asaas), nem
+ * arquivo alcançável por elas (imports transitivos) ou que as chama (salvo revisão do delta fixada aos blobs), nem os globais de build
+ * e `proxy.ts`, e as migrations do diff (versão antiga e nova) não atingem o fecho SQL transitivo (tabelas/funções do
+ * fecho, marcadores do B-14, gatilhos e funções chamadas) —, com a saída guardada em `docs/evidencias/b23-bases-antigas/`
+ * (o teste exige a evidência de cada entrada, desta versão do analisador; o job `b23-bases` do CI a reexecuta). O comportamento de
+ * cobrança do código antigo continua o homologado (a prova do cron antigo, artefato `7ce0916f`, não muda). Promoção seletiva
  * para production depois de congelar a candidata = entrada nova revisada. Esta lista faz parte da árvore entregue: a
  * entrada nova muda a candidata, que é recongelada, e os blocos e manifestos da candidata anterior deixam de valer
  * (sequência em docs/RECUPERACAO_PAGAMENTOS_B14_IMPLEMENTACAO.md, seção B-23). A lista não é trava de deploy.
@@ -117,6 +123,7 @@ export function divergenciasDeMarcadores(declaradas: readonly string[], presente
 export const CODIGOS_ANTIGOS = Object.freeze([
     '00d3019ade199ce609eab296050e07f4b379e87b', // #232 (25/10/2026): a base da homologação do B-14
     '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', // #274 (30/10/2026): só o painel (8 arquivos de UI e roteiros de teste de UI)
+    '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1', // #290 (31/10/2026): Convites avulsos (#285 logo, #288 aplicador e 099, #290 telas); B-23b, prova funcional
 ] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
 /** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */
