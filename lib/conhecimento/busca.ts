@@ -30,6 +30,11 @@ export function termos(texto: string): string[] {
   return normalizar(texto).split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !STOPWORDS.has(t)).map(radical);
 }
 
+/** Linha de mídia (`![descrição](endereço)` ou `!video[descrição](endereço)`) vira só a descrição: o endereço não pontua. */
+export function semEnderecoDeMidia(texto: string) {
+  return texto.replace(/^[ \t]*!(?:video)?\[([^\]\n]*)\]\([^)\n]*\)[ \t]*$/gm, "$1");
+}
+
 export type Fragmento = { doc: DocumentoConhecimento; secao: SecaoDocumento };
 
 type Pontuado = Fragmento & { pontos: number };
@@ -38,7 +43,7 @@ type Pontuado = Fragmento & { pontos: number };
 function pontuar(consulta: readonly string[], fragmentos: readonly Fragmento[]): Pontuado[] {
   const unicos = [...new Set(consulta)];
   const docs = fragmentos.map((f) => {
-    const campos = [...termos(f.doc.titulo), ...termos(f.doc.titulo), ...termos(f.secao.titulo), ...termos(f.secao.titulo), ...termos(f.secao.texto)];
+    const campos = [...termos(f.doc.titulo), ...termos(f.doc.titulo), ...termos(f.secao.titulo), ...termos(f.secao.titulo), ...termos(semEnderecoDeMidia(f.secao.texto))];
     const freq = new Map<string, number>();
     for (const t of campos) freq.set(t, (freq.get(t) ?? 0) + 1);
     return { f, freq, tamanho: campos.length };
