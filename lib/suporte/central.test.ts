@@ -238,6 +238,8 @@ test('AdminShell: ajuda e artigos abertos sem empresa e com acesso bloqueado; li
     assert.match(shell, /!ROTAS_ABERTAS_SEM_EMPRESA\.includes\(path\) && !rotaDaAjuda\(path\)/);
     assert.match(shell, /!ROTAS_ABERTAS_BLOQUEADO\.includes\(path\) && !rotaDaAjuda\(path\)/);
     assert.match(shell, /artigoDaRota\(path, artigosAjuda, hojeBrasilia\(\)\)/);
+    // O assistente da agenda não abre por cima da ajuda (onde a pessoa vai entender a agenda).
+    assert.match(shell, /path !== CONSENTIMENTO_MCP && !rotaDaAjuda\(path\) && <AssistenteAgendaPendente/);
     assert.match(shell, /EmpresaSuporteContext\.Provider value=\{vitrine \? null : contexto\?\.empresaAtual\?\.id \?\? null\}/);
     for (const layout of ['../../app/admin/layout.tsx', '../../app/clientes/layout.tsx']) {
         assert.match(readFileSync(new URL(layout, import.meta.url), 'utf8'), /artigosAjuda=\{artigosDaCentral\(carregarCorpusAprovado\(\), hojeBrasilia\(\)\)\.map\(\(a\) => \(\{ id: a\.id, ate: a\.ate \}\)\)\}/, layout);
