@@ -1,0 +1,252 @@
+{
+  "versao": 1,
+  "documentos": [
+    {
+      "arquivo": "agenda-e-horarios.md",
+      "id": "agenda-e-horarios",
+      "titulo": "Agenda e horários",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "b6a20199327abb58ab7fe8d7e3a03829fb508aed701572c02b8eef46800b4184"
+    },
+    {
+      "arquivo": "assinatura-e-plano.md",
+      "id": "assinatura-e-plano",
+      "titulo": "Assinatura e plano",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "633ea5a1a2f36d90d09eb4156c06a9eef2d61e4dcc6d03fa4094214c6ef89f73"
+    },
+    {
+      "arquivo": "clientes.md",
+      "id": "clientes",
+      "titulo": "Clientes",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a"
+    },
+    {
+      "arquivo": "conectar-whatsapp.md",
+      "id": "conectar-whatsapp",
+      "titulo": "Conectar o WhatsApp da empresa",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "da7b468d12a9dfbb2fc6af1bb71d1042290c8b8a26498d99fd638c7722ddbe2e"
+    },
+    {
+      "arquivo": "contas-a-pagar-e-caixa.md",
+      "id": "contas-a-pagar-e-caixa",
+      "titulo": "Contas a pagar e caixa",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f"
+    },
+    {
+      "arquivo": "convites.md",
+      "id": "convites",
+      "titulo": "Convites digitais",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "2dd29015b47a372690375c5e88b300410520b057674415348c6ecc36a6ce397c"
+    },
+    {
+      "arquivo": "dashboard.md",
+      "id": "dashboard",
+      "titulo": "Dashboard",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb"
+    },
+    {
+      "arquivo": "fechamento-de-festa.md",
+      "id": "fechamento-de-festa",
+      "titulo": "Fechamento de festa",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "6ba50ba935fe282c2ac704764785a30e9a7460826acfafedb5bd7ca0ac23e24a"
+    },
+    {
+      "arquivo": "festas.md",
+      "id": "festas",
+      "titulo": "Festas",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "0183579062d0d1a9c5bf3e19596ab8be1ea32ebdef5dcdccea6b684cc50ca872"
+    },
+    {
+      "arquivo": "financeiro-recebimentos.md",
+      "id": "financeiro-recebimentos",
+      "titulo": "Recebimentos e parcelas",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58"
+    },
+    {
+      "arquivo": "importar-documentos.md",
+      "id": "importar-documentos",
+      "titulo": "Importar documentos em PDF",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "1f32c50cc2f250453ea3f6ed96808d4c6db8b14964104b15063d0f794cce48ee"
+    },
+    {
+      "arquivo": "marketing.md",
+      "id": "marketing",
+      "titulo": "Marketing",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5"
+    },
+    {
+      "arquivo": "perfil-da-empresa.md",
+      "id": "perfil-da-empresa",
+      "titulo": "Perfil da empresa",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "1fd29c600b8e212837a817eec764589c18254be6f63f21c98f79c5dfee9d7e32"
+    },
+    {
+      "arquivo": "perfil-e-senha.md",
+      "id": "perfil-e-senha",
+      "titulo": "Meu perfil e senha",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "cb74e5e854893872229b8adf07fa251774eddbeeae9fdeeacbc24bdd02da16b0"
+    },
+    {
+      "arquivo": "primeiros-passos.md",
+      "id": "primeiros-passos",
+      "titulo": "Primeiros passos",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "998ee37fe80674c1896eec4c89c91ece1aab1c842a005bdcd5ed5f83d5fdf3f5"
+    },
+    {
+      "arquivo": "privacidade-e-exportacao.md",
+      "id": "privacidade-e-exportacao",
+      "titulo": "Exportação de dados e privacidade",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c"
+    },
+    {
+      "arquivo": "usuarios-e-acessos.md",
+      "id": "usuarios-e-acessos",
+      "titulo": "Usuários e acessos",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650"
+    },
+    {
+      "arquivo": "contratos.md",
+      "id": "contratos",
+      "titulo": "Contratos",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "c41dbf099bcae2d691e4f683572c3bf39ab4d2571c34ddd8cbe962448feae073"
+    },
+    {
+      "arquivo": "saloes-pacotes-e-itens.md",
+      "id": "saloes-pacotes-e-itens",
+      "titulo": "Pacotes e itens do buffet",
+      "versao": 2,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "7c9d57c600ff2107290553e56d19ff78c0efaf2ca9f128639e8e18c46fdf2a15"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+/* Central de ajuda (S3): o reset do Admin zera marcadores de lista; nos artigos os passos precisam aparecer numerados. */
+.artigo ol { list-style: decimal; padding-left: 1.5em; }
+.artigo ul { list-style: disc; padding-left: 1.5em; }
+.artigo li { margin: 6px 0; line-height: 1.55; }
+.artigo p { line-height: 1.6; }
+.busca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.busca label { flex-basis: 100%; }
+.busca input { flex: 1 1 240px; min-width: 0; }
+.lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 24px; padding: 0; list-style: none; }
+.resultados { padding: 0; list-style: none; }
+.resultados li { margin: 0 0 14px; }
+.resultados p { margin: 4px 0 0; }
+.imagem, .video { display: block; width: 100%; max-width: 960px; height: auto; margin: 12px 0 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--km-violet) 25%, transparent); }
+.video { aspect-ratio: 16 / 9; background: #090D1B; }
