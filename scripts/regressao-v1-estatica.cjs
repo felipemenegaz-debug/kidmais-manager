@@ -5,11 +5,22 @@ const { arquivosDoCheckEstatico } = require("./regressao-v1-selecao.cjs");
 
 const raiz = path.resolve(__dirname, "..");
 
+// Travas de produto lidas de process.env não podem mudar o resultado dos testes: o build do Render roda este check com
+// as variáveis do serviço. Com ASSINATURA_AVISOS_EMAIL=ligado no web, testes com banco simulado passavam a executar o
+// gancho dos avisos (SAVEPOINT não modelado) e o build falhava (03/11/2026). Os testes dos avisos passam a trava
+// explicitamente; aqui ela é sempre removida.
+const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL"]);
+function ambienteDosTestes(base = process.env) {
+  const env = { ...base, NEXT_TELEMETRY_DISABLED: "1" };
+  for (const chave of TRAVAS_FORA_DOS_TESTES) delete env[chave];
+  return env;
+}
+
 function executar(nome, argumentos) {
   console.log(`\n=== ${nome} ===`);
   const resultado = spawnSync(process.execPath, argumentos, {
     cwd: raiz,
-    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+    env: ambienteDosTestes(),
     stdio: "inherit",
   });
   if (resultado.error) throw resultado.error;
