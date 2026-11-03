@@ -14,6 +14,7 @@ import { contaProvedor, contaValida } from '../creditos/config.ts';
 import type { DepsCreditos } from '../creditos/compra.ts';
 import { consumirLimite } from '../autenticacao/service.ts';
 import { drenarNotificacoes } from '../creditos/notificacoes.ts';
+import { enviarAvisosDaEmpresaAgora } from './avisos-padrao.ts';
 
 /**
  * Transação independente da aplicação (marcador de exclusão e resultado do DELETE): outra conexão do pool, com prazo do
@@ -51,6 +52,9 @@ export async function processarEventoAgendado(eventoInternoId: string) {
             ...(creditos ? { creditos } : {}) }));
         if (r.situacao === 'FALHOU')
             console.warn('[Asaas webhook] evento não processado agora; fica FALHOU para nova tentativa.');
+        // Avisos por e-mail (087) desta empresa, depois do commit; desligados por padrão (ASSINATURA_AVISOS_EMAIL).
+        else if (r.situacao === 'PROCESSADO' && r.empresaId)
+            await enviarAvisosDaEmpresaAgora(r.empresaId);
     }
     catch (error) {
         console.error('[Asaas webhook] falha ao processar evento', error instanceof Error ? error.name : typeof error);

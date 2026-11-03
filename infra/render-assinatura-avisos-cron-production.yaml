@@ -1,0 +1,69 @@
+# Definição REVISÁVEL do cron dos avisos por e-mail da assinatura (087) em PRODUÇÃO (recorte de 02/11/2026). NÃO é
+# aplicada automaticamente. Não conectar como Blueprint nem criar o serviço sem autorização explícita de Felipe
+# (docs/OPERACAO_AGENTES.md). Roteiro e ordem: docs/RECORTE_COBRANCA_PRODUCTION_20261102.md; comportamento do job:
+# scripts/assinatura-avisos.cjs e docs/AVISOS_ASSINATURA_EMAIL_20261020.md.
+# Criação recomendada: manual no painel (New -> Cron Job) copiando estes campos. Nenhum valor secreto neste arquivo:
+# as chaves `sync: false` são digitadas por Felipe no painel (copiadas do web de produção, nunca do staging).
+# Pré-condições para sair de `aguardando`: código do recorte implantado no web, 087 APLICADA e CONFERIDA em production,
+# ASSINATURA_AVISOS_EMAIL=ligado também no web (gancho da transição e envio após o webhook) e Resend configurado.
+services:
+  - type: cron
+    name: kidmais-assinatura-avisos-production
+    runtime: node
+    plan: 0.5c-512mb
+    # Mesma região do banco kidmais-production (dpg-dak750gae00c73fudmg0-a, Virginia): a URL interna só resolve nela.
+    region: virginia
+    repo: https://github.com/felipemenegaz-debug/kidmais-manager
+    branch: production
+    autoDeployTrigger: off
+    # Duas execuções por dia (09:00 e 21:00 UTC = 06:00 e 18:00 BRT): uma tentativa de envio falha é repetida dentro da
+    # janela de 23 h da chave idempotente do Resend (sem isso viraria INCERTO), e o último dia do teste recebe o aviso de
+    # manhã. P3 da revisão de 02/11. Não ampliar a janela de retentativa no código.
+    schedule: "0 9,21 * * *"
+    buildCommand: npm ci --include=dev && node --test scripts/assinatura-avisos.test.cjs scripts/assinatura-reconciliar.test.cjs
+    # O comando é fixo; KIDMAIS_AVISOS_MODO decide: `aguardando` sai 0 sem conectar; `simular` roda só leitura (relatório, zero
+    # envio) mesmo com --aplicar; `aplicar` grava e envia só com todas as guardas. A URL do banco não pode ter parâmetros além
+    # dos de TLS nem fragmento (`?host=`/`?port=` seriam recusados antes de conectar).
+    startCommand: node --experimental-strip-types scripts/assinatura-avisos.cjs --aplicar
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: KIDMAIS_DEPLOY_ENV
+        value: production
+      - key: RENDER
+        value: "true"
+      # aguardando → simular (só leitura, relatório) → aplicar. Cada passo com autorização própria.
+      - key: KIDMAIS_AVISOS_MODO
+        value: aguardando
+      # Só definir "087" depois do CONFERIR da 087 em production devolver JA_APLICADA_POSTCHECK_PASS.
+      - key: KIDMAIS_AVISOS_SCHEMA_VALIDADO
+        value: ""
+      - key: KIDMAIS_RECONCILIAR_ALVO
+        value: kidmais_production@dpg-dak750gae00c73fudmg0-a:5432
+      # A trava de alvo é a mesma do cron de reconciliação e exige o provedor de produção declarado; este job não chama o Asaas.
+      - key: ASAAS_AMBIENTE
+        value: producao
+      - key: ASSINATURA_AVISOS_EMAIL
+        value: ligado
+      - key: EMAIL_PROVIDER
+        value: resend
+      # TLS igual ao web de produção (lib/db/postgres.ts): DATABASE_SSL=true obrigatório; certificado autoassinado do Render.
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      # --- Secretas: copiadas do web de produção. NUNCA definir DATABASE_URL neste cron (o job recusa quando as duas são iguais). ---
+      # URL interna do banco COM porta (:5432) e usuário explícitos: sem eles o job recusa (PGPORT/PGUSER do ambiente não são aceitos);
+      # a conexão é montada só com host/porta/banco do alvo validado, nunca pela string.
+      - key: KIDMAIS_RECONCILIAR_DATABASE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_REMETENTE
+        sync: false
+      # Origem pública dos links dos e-mails (lib/acessos/email.ts → origemPublica): mesmo valor do web de produção.
+      - key: ADMIN_AUTH_ORIGIN
+        sync: false
+      # Prazos de acesso (lib/assinatura/configuracao.ts): copiar do web as variáveis ASSINATURA_* que ele definir; sem elas valem os padrões.
