@@ -1,4 +1,4 @@
-import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import type { CadastroContratual, DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { buscarCategoriaHorarioAplicavel } from '../../comercial/repositories/comercial.repository.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
@@ -39,16 +39,25 @@ export async function documentoOriginal(tx: DbExecutor, empresaId: string, docum
   return r.rows[0] ?? null;
 }
 
-export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>;
+export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>> & DadosPjCliente;
 
 export async function clienteDaEmpresa(tx: DbExecutor, empresaId: string, clienteId: string, travar: boolean): Promise<ClienteIntegracao | null> {
-  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>>(
-    `SELECT id::text, nome_completo, cpf, rg, telefone, whatsapp, email, cep, logradouro, numero, complemento, bairro, cidade, uf, status FROM clientes
-      WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
+  type Pj = { tipo_pessoa: string | null; cnpj: string | null; razao_social: string | null; nome_fantasia: string | null; representante_nome: string | null; representante_cpf: string | null };
+  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>> & Pj>(
+    // Entrega B: campos de PJ por to_jsonb (nulos sem a 112), sem citar coluna que pode não existir.
+    `SELECT c.id::text, c.nome_completo, c.cpf, c.rg, c.telefone, c.whatsapp, c.email, c.cep, c.logradouro, c.numero, c.complemento, c.bairro, c.cidade, c.uf, c.status,
+            to_jsonb(c) ->> 'tipo_pessoa' AS tipo_pessoa, to_jsonb(c) ->> 'cnpj' AS cnpj, to_jsonb(c) ->> 'razao_social' AS razao_social,
+            to_jsonb(c) ->> 'nome_fantasia' AS nome_fantasia, to_jsonb(c) ->> 'representante_nome' AS representante_nome, to_jsonb(c) ->> 'representante_cpf' AS representante_cpf
+       FROM clientes c
+      WHERE c.id = $1::uuid AND c.empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
     [clienteId, empresaId],
   );
   const l = r.rows[0];
-  return l ? { ...l, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
+  if (!l) return null;
+  const { tipo_pessoa, cnpj, razao_social, nome_fantasia, representante_nome, representante_cpf, ...base } = l;
+  // PF não ganha chave nova: o cliente (e tudo que é derivado dele) fica igual ao de antes da 112.
+  const pj = tipo_pessoa === 'PJ' ? { tipoPessoa: 'PJ', cnpj, razaoSocial: razao_social, nomeFantasia: nome_fantasia, representanteNome: representante_nome, representanteCpf: representante_cpf } : {};
+  return { ...base, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status, ...pj };
 }
 
 /** Unidades elegíveis para agenda (regra única da 062: kidmais062_unidade_agendavel; D6). A integração exige a 062. */

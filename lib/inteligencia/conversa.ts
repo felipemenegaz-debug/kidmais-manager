@@ -1720,7 +1720,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     // Tenant Context / Policy / entidade de outra empresa: recusa fail-closed, registrada como tal.
     rastreio.entendimento = falha.status === 401 || falha.status === 403 || falha.status === 404 ? "NEGADO_POLITICA" : null;
     rastreio.objetivo ??= objetivoDaCapacidade(rastreio.capacidade) ?? (rastreio.navegacao?.recurso ? `ABRIR:${rastreio.navegacao.recurso}` : null);
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try {

@@ -2,6 +2,16 @@ import { z } from "zod";
 
 const opcionalTexto = z.string().max(2000).nullable().optional();
 
+// Entrega B (112): PF por padrão; PJ leva CNPJ, nome fantasia e representante. A regra completa (DV, PF sem campos de
+// PJ, PJ sem CPF, 112 aplicada) fica no serviço; aqui só formato e tamanho.
+const camposPessoaJuridica = {
+  tipoPessoa: z.enum(["PF", "PJ"]).optional(),
+  cnpj: z.string().max(20).nullable().optional(),
+  nomeFantasia: z.string().max(180).nullable().optional(),
+  representanteNome: z.string().max(180).nullable().optional(),
+  representanteCpf: z.string().max(20).nullable().optional(),
+};
+
 const clienteCamposSchema = z.object({
   nomeCompleto: z.string().trim().min(3).max(180),
   cpf: z.string().max(20).nullable().optional(),
@@ -17,6 +27,7 @@ const clienteCamposSchema = z.object({
   cidade: z.string().max(120).nullable().optional(),
   uf: z.string().max(2).nullable().optional(),
   observacoes: opcionalTexto,
+  ...camposPessoaJuridica,
 });
 
 export const clienteCadastroSchema = clienteCamposSchema.superRefine((value, ctx) => {
@@ -40,6 +51,7 @@ export const analiseCadastroSchema = z.object({
   email: z.string().max(254).nullable().optional(),
   nomeCompleto: z.string().trim().min(3).max(180),
   cpf: z.string().max(20).nullable().optional(),
+  cnpj: z.string().max(20).nullable().optional(),
   telefone: z.string().max(30).nullable().optional(),
   whatsapp: z.string().max(30).nullable().optional(),
   excluirClienteId: z.string().uuid().optional(),

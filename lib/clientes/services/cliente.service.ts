@@ -3,6 +3,7 @@ import { isUniqueViolation } from "../../db/errors";
 import { withTransaction } from "../../db/postgres";
 import {
   atualizarCliente,
+  buscarClienteCanonicoPorCnpj,
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
   buscarClientePorId,
@@ -22,7 +23,10 @@ import {
   type CreateClienteInput,
   type UpdateClienteInput,
   INDICES_CPF_CANONICO,
+  INDICE_CNPJ_CANONICO,
+  migration112Aplicada,
 } from "../repositories";
+import { normalizarCnpj } from "../../cadastro/cnpj.ts";
 import {
   normalizarCpf,
   normalizarTelefone,
@@ -40,18 +44,27 @@ export type CandidatoDuplicidade = {
   motivos: string[];
   status?: ClienteStatus;
   similaridadeNome?: number;
+  /** 112: tipo do cadastro candidato (a importação só vincula cliente do mesmo tipo do contrato; R2-5). */
+  tipoPessoa?: "PF" | "PJ";
 };
 
 export type AnaliseCadastroCliente = {
   podeCadastrar: boolean;
   cpfExistente: { clienteId: string; nomeCompleto: string; status?: ClienteStatus } | null;
+  /** 112: mesma regra do CPF para o CNPJ da PJ na empresa (chave de identidade da PJ). */
+  cnpjExistente: { clienteId: string; nomeCompleto: string; status?: ClienteStatus } | null;
   possiveisDuplicidades: CandidatoDuplicidade[];
 };
 
 function clienteAuditSnapshot(cliente: ClienteRecord) {
   return {
     nomeCompleto: cliente.nomeCompleto,
+    tipoPessoa: cliente.tipoPessoa,
     cpf: cliente.cpf,
+    cnpj: cliente.cnpj,
+    nomeFantasia: cliente.nomeFantasia,
+    representanteNome: cliente.representanteNome,
+    representanteCpf: cliente.representanteCpf,
     rg: cliente.rg,
     telefone: cliente.telefone,
     whatsapp: cliente.whatsapp,
@@ -93,6 +106,7 @@ function mergeCandidato(
     nomeCompleto: cliente.nomeCompleto,
     motivos: [],
     status: cliente.status,
+    tipoPessoa: cliente.tipoPessoa,
   };
   if (!atual.motivos.includes(motivo)) atual.motivos.push(motivo);
   if (similaridadeNome != null) atual.similaridadeNome = similaridadeNome;
@@ -106,7 +120,7 @@ function mergeCandidato(
  * esse caso é tratado em `cadastrarClienteInterno` sem revelar o dono.
  */
 export async function analisarCadastroCliente(
-  input: Pick<CreateClienteInput, "nomeCompleto" | "cpf" | "telefone" | "whatsapp" | "email">,
+  input: Pick<CreateClienteInput, "nomeCompleto" | "cpf" | "cnpj" | "telefone" | "whatsapp" | "email">,
   empresaId: string,
   options: { excluirClienteId?: string } = {},
   customDb?: DbExecutor,
@@ -116,6 +130,10 @@ export async function analisarCadastroCliente(
   const cpfConflitante = cpfExistente && cpfExistente.id !== options.excluirClienteId
     ? cpfExistente
     : null;
+  // A chave da PJ é o CNPJ; o CPF do representante não entra na duplicidade (R2-1, R2-5).
+  const cnpj = normalizarCnpj(input.cnpj);
+  const cnpjExistente = cnpj ? await buscarClienteCanonicoPorCnpj(cnpj, empresaId, customDb) : null;
+  const cnpjConflitante = cnpjExistente && cnpjExistente.id !== options.excluirClienteId ? cnpjExistente : null;
 
   const candidatos = new Map<string, CandidatoDuplicidade>();
   const contatos = [
@@ -149,11 +167,15 @@ export async function analisarCadastroCliente(
     for (const cliente of porEmail) if(cliente.id!==options.excluirClienteId && cliente.email?.toLowerCase()===input.email.trim().toLowerCase()) mergeCandidato(candidatos,cliente,"EMAIL_IGUAL");
   }
   if (cpfConflitante) candidatos.delete(cpfConflitante.id);
+  if (cnpjConflitante) candidatos.delete(cnpjConflitante.id);
 
   return {
-    podeCadastrar: !cpfConflitante,
+    podeCadastrar: !cpfConflitante && !cnpjConflitante,
     cpfExistente: cpfConflitante
       ? { clienteId: cpfConflitante.id, nomeCompleto: cpfConflitante.nomeCompleto, status: cpfConflitante.status }
+      : null,
+    cnpjExistente: cnpjConflitante
+      ? { clienteId: cnpjConflitante.id, nomeCompleto: cnpjConflitante.nomeCompleto, status: cnpjConflitante.status }
       : null,
     possiveisDuplicidades: [...candidatos.values()].sort((a, b) => {
       const contatoA = a.motivos.some((m) => m.endsWith("_IGUAL")) ? 1 : 0;
@@ -193,7 +215,16 @@ export async function cadastrarClienteInterno(
   validarCadastroBasicoCliente(input);
 
   const executar = async (tx: DbExecutor) => {
+    if (input.tipoPessoa === "PJ") await exigirPj(tx);
     const analise = await analisarCadastroCliente(input, input.empresaId, {}, tx);
+    if (analise.cnpjExistente) {
+      throw new ClienteServiceError(
+        "CNPJ_EXISTENTE",
+        analise.cnpjExistente.status === "INATIVO" ? "Este CNPJ pertence a um cliente arquivado/excluído. Abra o perfil para restaurar." : "Já existe cliente com este CNPJ nesta empresa. Use o cadastro existente.",
+        409,
+        analise.cnpjExistente,
+      );
+    }
     if (!analise.podeCadastrar && analise.cpfExistente) {
       throw new ClienteServiceError(
         "CPF_EXISTENTE",
@@ -218,6 +249,10 @@ export async function cadastrarClienteInterno(
           "Este CPF não pode ser cadastrado agora. Confira o documento ou fale com o suporte.",
           409,
         );
+      }
+      // Corrida: duas criações com o mesmo CNPJ na empresa; a outra venceu (transação abortada, sem nova consulta).
+      if (isUniqueViolation(error, INDICE_CNPJ_CANONICO)) {
+        throw new ClienteServiceError("CNPJ_EXISTENTE", "Já existe cliente com este CNPJ nesta empresa.", 409);
       }
       throw error;
     }
@@ -274,6 +309,26 @@ export async function cadastrarClienteInterno(
     };
   };
   return customDb ? executar(customDb) : withTransaction(executar);
+}
+
+/** R21-4: código da Entrega B rodando sem a 112 → PJ_INDISPONIVEL (409) com motivo MIGRACAO_PENDENTE. */
+export const MENSAGEM_PJ_MIGRACAO_PENDENTE = "Cliente pessoa jurídica ainda não está disponível nesta instalação (atualização do banco pendente). Nada foi gravado.";
+/** A 112 está aplicada? Conferido na transação a cada chamada, sem cache (R2-3). */
+export const pessoaJuridicaDisponivel = (tx: DbExecutor) => migration112Aplicada(tx);
+async function exigirPj(tx: DbExecutor) {
+  if (!(await migration112Aplicada(tx))) {
+    throw new ClienteServiceError("PJ_INDISPONIVEL", MENSAGEM_PJ_MIGRACAO_PENDENTE, 409, { motivo: "MIGRACAO_PENDENTE", campo: "tipoPessoa" });
+  }
+}
+
+/** Fechamento (os contratos pendem dele) ou importação de contrato vinculados, em qualquer status: a troca PF↔PJ fica bloqueada. */
+async function temVinculoContratual(clienteId: string, tx: DbExecutor) {
+  const r = await tx.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM fechamentos WHERE cliente_id = $1)
+         OR (to_regclass('public.contrato_importacoes') IS NOT NULL AND EXISTS (SELECT 1 FROM contrato_importacoes WHERE cliente_id = $1)) AS ok`,
+    [clienteId],
+  );
+  return r.rows[0]?.ok === true;
 }
 
 async function montarClienteBase(original: ClienteRecord, cliente: ClienteRecord, customDb?: DbExecutor) {
@@ -378,6 +433,12 @@ export async function buscarClientesCrm(
     const porCpf = await buscarClienteCanonicoPorCpf(digits, empresaId, customDb);
     if (porCpf) encontrados.set(porCpf.id, porCpf);
   }
+  // CNPJ numérico ou alfanumérico (14 caracteres sem pontuação).
+  const doc = normalizarCnpj(q);
+  if (/^[0-9A-Z]{12}[0-9]{2}$/.test(doc)) {
+    const porCnpj = await buscarClienteCanonicoPorCnpj(doc, empresaId, customDb);
+    if (porCnpj) encontrados.set(porCnpj.id, porCnpj);
+  }
 
   if (digits.length >= 10) {
     const porContato = await buscarClientesPorContatoExato(digits, empresaId, customDb);
@@ -434,18 +495,51 @@ export async function atualizarClienteInterno(
       );
     }
 
-    if (normalizarCpf(atual.cpf) && patch.cpf !== undefined && normalizarCpf(patch.cpf) !== normalizarCpf(atual.cpf)) {
+    const tipoNovo = patch.tipoPessoa ?? atual.tipoPessoa;
+    const trocaTipo = tipoNovo !== atual.tipoPessoa;
+    if (patch.tipoPessoa !== undefined && patch.tipoPessoa !== "PF" && patch.tipoPessoa !== "PJ") {
+      throw new ClienteServiceError("DADOS_INVALIDOS", "Escolha pessoa física ou jurídica.", 400, { campo: "tipoPessoa" });
+    }
+    if (trocaTipo) {
+      // R2-5: troca PF↔PJ só sem contrato nem fechamento vinculados; senão, outro cadastro.
+      if (await temVinculoContratual(clienteId, tx)) {
+        throw new ClienteServiceError(
+          "TROCA_TIPO_PESSOA_BLOQUEADA",
+          "Este cliente já tem contrato ou fechamento. Para mudar entre pessoa física e jurídica, crie outro cadastro.",
+          409,
+          { campo: "tipoPessoa" },
+        );
+      }
+      if (tipoNovo === "PJ") await exigirPj(tx);
+    }
+    if (!trocaTipo && normalizarCpf(atual.cpf) && patch.cpf !== undefined && normalizarCpf(patch.cpf) !== normalizarCpf(atual.cpf)) {
       throw new ClienteServiceError(
         "ALTERACAO_CPF_REQUER_PERMISSAO",
         "Alteração de CPF é uma ação crítica e será habilitada na etapa de autenticação/permissões.",
         403,
       );
     }
+    // A mesma proteção vale para o CNPJ da PJ (chave de identidade).
+    if (!trocaTipo && atual.cnpj && patch.cnpj !== undefined && normalizarCnpj(patch.cnpj) !== atual.cnpj) {
+      throw new ClienteServiceError(
+        "ALTERACAO_DOCUMENTO_REQUER_PERMISSAO",
+        "Alteração de CNPJ é uma ação crítica e será habilitada na etapa de autenticação/permissões.",
+        403,
+      );
+    }
+    // Campos de PJ nunca entram num cadastro que continua PF (e PF→PJ exige o CPF removido explicitamente).
+    const valorFinal = <K extends "cpf" | "cnpj" | "nomeFantasia" | "representanteNome" | "representanteCpf">(k: K) =>
+      patch[k] !== undefined ? patch[k] : tipoNovo === "PF" && trocaTipo && k !== "cpf" ? null : atual[k];
 
     validarCadastroBasicoCliente({
       empresaId: atual.empresaId,
       nomeCompleto: patch.nomeCompleto ?? atual.nomeCompleto,
-      cpf: patch.cpf ?? atual.cpf,
+      tipoPessoa: tipoNovo,
+      cpf: valorFinal("cpf"),
+      cnpj: valorFinal("cnpj"),
+      nomeFantasia: valorFinal("nomeFantasia"),
+      representanteNome: valorFinal("representanteNome"),
+      representanteCpf: valorFinal("representanteCpf"),
       telefone: patch.telefone ?? atual.telefone,
       whatsapp: patch.whatsapp ?? atual.whatsapp,
       email: patch.email ?? atual.email,
@@ -462,7 +556,8 @@ export async function atualizarClienteInterno(
     const analise = await analisarCadastroCliente(
       {
         nomeCompleto: patch.nomeCompleto ?? atual.nomeCompleto,
-        cpf: patch.cpf ?? atual.cpf,
+        cpf: valorFinal("cpf"),
+        cnpj: valorFinal("cnpj"),
         telefone: patch.telefone ?? atual.telefone,
         whatsapp: patch.whatsapp ?? atual.whatsapp,
       },
@@ -471,16 +566,34 @@ export async function atualizarClienteInterno(
       tx,
     );
 
+    if (analise.cnpjExistente) {
+      throw new ClienteServiceError("CNPJ_EXISTENTE", "Já existe cliente com este CNPJ nesta empresa.", 409);
+    }
     if (!analise.podeCadastrar) {
       throw new ClienteServiceError("CPF_EXISTENTE", "Este CPF já está cadastrado. Confira o cliente vinculado.", 409);
     }
 
-    const atualizado = await atualizarCliente(
-      clienteId,
-      { tipo: "TENANT", empresaId },
-      { ...patch, usuarioId: context.usuarioId ?? null },
-      tx,
-    );
+    // Troca de tipo: a gravação leva o tipo e o documento juntos (PJ→PF limpa os campos de PJ no repositório).
+    // Sem troca, o tipo repetido pela tela não vai ao repositório (uma PF editada sem a 112 não toca colunas de PJ).
+    const { tipoPessoa: _tipoRepetido, ...patchSemTipo } = patch;
+    void _tipoRepetido;
+    const patchFinal: UpdateClienteInput = trocaTipo
+      ? { ...patch, tipoPessoa: tipoNovo, cpf: valorFinal("cpf"), ...(tipoNovo === "PJ" ? { cnpj: valorFinal("cnpj") } : {}) }
+      : patchSemTipo;
+    let atualizado: ClienteRecord | null;
+    try {
+      atualizado = await atualizarCliente(
+        clienteId,
+        { tipo: "TENANT", empresaId },
+        { ...patchFinal, usuarioId: context.usuarioId ?? null },
+        tx,
+      );
+    } catch (error) {
+      if (isUniqueViolation(error, INDICE_CNPJ_CANONICO)) {
+        throw new ClienteServiceError("CNPJ_EXISTENTE", "Já existe cliente com este CNPJ nesta empresa.", 409);
+      }
+      throw error;
+    }
     if (!atualizado) {
       throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não pôde ser atualizado.", 404);
     }

@@ -66,12 +66,15 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
   "lib/importacao-contrato/arquivo": ["ArquivoValidado", "limiteConfigurado", "validarArquivoEnviado"], // @pr:DOCUMENT
   "lib/importacao-contrato/pdf-texto": ["extrairTextoPdf", "temTextoNativo", "OpcoesExtracao", "TextoPdf"], // @pr:DOCUMENT
-  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO"], // @pr:DOCUMENT
-  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO", "CampoLido"], // @pr:DOCUMENT
+  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "completarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  // Entrega A (D-IMP-4): leitura pelo modelo ATIVO da empresa (função pura; o modelo chega já lido no Tenant Context).
+  "lib/importacao-contrato/modelo-referencia": ["casarComModelo", "ModeloReferencia"],
   "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
-  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano"], // @pr:IMPORT
+  // Entrega B (112): `buscaDoCliente` é pura (o que procurar no CRM: CPF na PF, CNPJ na PJ).
+  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano", "buscaDoCliente"], // @pr:IMPORT
   // Conclusão única: schema e tipos puros; a IA continua sem acesso ao executor do Core.
   "lib/contratos/integracao-importados/modelo": ["decisoesSchema", "DecisoesIntegracao", "ResumoIntegracao"],
   "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
@@ -103,7 +106,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1 (Establishment Context): prova da unidade no Core, dentro da transação do Tenant Context.
   "lib/saas/provar-estabelecimento": ["provarEstabelecimento"],
   "lib/db/postgres": ["db", "withTransaction"],
-  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno", "buscarClientesCrm"],
+  // Entrega B (112): `pessoaJuridicaDisponivel` só lê se a 112 está aplicada (catálogo), na transação da rota.
+  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno", "buscarClientesCrm", "pessoaJuridicaDisponivel"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres", "lerUsoAgrupado"],
   // AI V1 (Skills por empresa/unidade): leitura das camadas da 058; o catálogo revalida tudo.
@@ -150,7 +154,9 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao", "substituirImportacaoCancelada"], // @pr:IMPORT
   // Importação da tabela de preços (071): guarda do PDF e da leitura pelos serviços do Core, no Tenant Context.
   "lib/comercial/importacao-tabela/servico": ["arquivoDaImportacao", "gravarLeitura", "registrarImportacao"],
-  "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "registrarImportacaoContrato"],
+  "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "modeloContratoAtivo", "registrarImportacaoContrato"],
+  // Entrega A (D-IMP-4): só as cláusulas do modelo publicado, sem dado literal, como referência da leitura.
+  "lib/importacao-contrato/modelo-referencia": ["referenciaDoModeloPublicado"],
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */

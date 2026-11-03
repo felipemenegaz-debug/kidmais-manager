@@ -3,11 +3,12 @@ import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix,
   type PretensaoPixInput, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
-import { registrarAuditoria, registrarEventoHistorico } from "../../clientes/repositories";
+import { buscarClientePorId, registrarAuditoria, registrarEventoHistorico } from "../../clientes/repositories";
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava,
   listarAprovacoesDoFechamento, registrarDecisaoNoFechamento } from "../repositories/fechamento.repository";
 import { FechamentoServiceError } from "./errors";
 import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
+import { exigirModeloCompativelNoFechamento } from "./modelo-pj";
 
 /**
  * `empresaId` é o tenant comprovado pela rota. Fechamento de outra empresa, legado sem empresa ou
@@ -86,6 +87,11 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
     }
     if (aprovada && f.valorNegociado !== null && baseInformada === null) {
       throw new FechamentoServiceError("DADOS_INVALIDOS", "Confirme explicitamente a base comercial aprovada.");
+    }
+    // R2-2: aprovar leva ao contrato; contratante PJ com modelo que o qualifica como PF é recusado aqui.
+    if (aprovada && f.clienteId) {
+      const cliente = await buscarClientePorId(f.clienteId, tx);
+      if (cliente) await exigirModeloCompativelNoFechamento(tx, cliente);
     }
     const base = baseInformada ?? f.valorTabela;
     if (aprovada && f.valorNegociado === null && base !== f.valorTabela) {

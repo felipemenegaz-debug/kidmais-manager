@@ -7,6 +7,24 @@ import { formularioCadastro, type CadastroContratual } from '../../../lib/client
  * nenhuma parcela vem marcada como recebida, mesmo quando o documento fala em "à vista", "entrada" ou "30%".
  */
 import { recebimentosIntegrais, type LeituraRecebimentos } from '../../../lib/importacao-contrato/recebimentos.ts';
+import type { ErroCampo } from '../../../lib/ui/erros-formulario.ts';
+
+/**
+ * ID estável de cada controle do assistente (N1/N2): o erro aponta para ele. Parcela usa a chave gerada na criação,
+ * nunca o índice, então remover ou incluir parcela não troca o destaque de lugar.
+ */
+export const ID_INTEGRACAO = {
+  situacaoContrato: 'int-situacaoContrato', estabelecimentoId: 'int-estabelecimentoId', salaoId: 'int-salaoId',
+  pacoteReferenciaId: 'int-pacoteReferenciaId', data: 'int-data', horarioInicio: 'int-horarioInicio', horarioFim: 'int-horarioFim',
+  convidados: 'int-convidados', aniversariante: 'int-aniversariante', valorContratado: 'int-valorContratado',
+  situacaoFinanceira: 'int-situacaoFinanceira', parcelas: 'int-parcelas',
+} as const;
+export const idMotivo = (c: CampoDoc) => `int-motivo-${c}`;
+export const idParcela = (chave: string, campo: 'valor' | 'vencimento' | 'recebidaEm' | 'forma') => `int-parcela-${chave}-${campo}`;
+export const idCadastro = (campo: keyof CadastroContratual) => `cadastro-${campo}`;
+/** Campos da etapa "Festa e agenda": o erro neles abre essa etapa antes do foco. */
+export const etapaDoCampo = (campo: string): 'festa' | 'pagamentos' =>
+  /^(cadastro-|int-(situacaoContrato|estabelecimentoId|salaoId|pacoteReferenciaId|data|horario|convidados|aniversariante|motivo-(data|horario|convidados)))/.test(campo) ? 'festa' : 'pagamentos';
 
 export const FORMAS_ROTULO = {
   PIX: 'Pix', CARTAO_CREDITO: 'Cartão de crédito', CARTAO_DEBITO: 'Cartão de débito', BOLETO: 'Boleto',
@@ -137,41 +155,57 @@ export function ajustarSalao(anterior: FormIntegracao, novo: FormIntegracao, sal
 }
 
 export function errosFesta(f: FormIntegracao, s: Sugestao, unidades: number, exigeSalao = false): string[] {
-  const e: string[] = [];
-  if (!f.situacaoContrato) e.push('Informe a situação do contrato.');
-  if (unidades > 0 && !f.estabelecimentoId) e.push('Escolha a unidade.');
-  if (exigeSalao && !f.salaoId) e.push('Escolha o salão da festa.');
-  if (!f.pacoteReferenciaId) e.push('Escolha o pacote do sistema usado como referência.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.data)) e.push('Informe a data da festa.');
-  if (!/^\d{2}:\d{2}$/.test(f.horarioInicio) || !/^\d{2}:\d{2}$/.test(f.horarioFim)) e.push('Informe início e término.');
-  else if (f.horarioFim <= f.horarioInicio) e.push('O término deve ser depois do início.');
-  if (!/^\d{1,4}$/.test(f.convidados.trim()) || Number(f.convidados) < 1) e.push('Informe o número de convidados.');
+  return [...new Set(errosFestaPorCampo(f, s, unidades, exigeSalao).map((e) => e.mensagem))];
+}
+
+/** Erros da etapa "Festa e agenda", cada um ligado ao controle, na ordem visual da tela. */
+export function errosFestaPorCampo(f: FormIntegracao, s: Sugestao, unidades: number, exigeSalao = false): ErroCampo[] {
+  const e: ErroCampo[] = [];
+  const add = (campo: string, mensagem: string) => e.push({ campo, mensagem });
+  if (!f.situacaoContrato) add(ID_INTEGRACAO.situacaoContrato, 'Informe a situação do contrato.');
+  if (unidades > 0 && !f.estabelecimentoId) add(ID_INTEGRACAO.estabelecimentoId, 'Escolha a unidade.');
+  if (exigeSalao && !f.salaoId) add(ID_INTEGRACAO.salaoId, 'Escolha o salão da festa.');
+  if (!f.pacoteReferenciaId) add(ID_INTEGRACAO.pacoteReferenciaId, 'Escolha o pacote do sistema usado como referência.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.data)) add(ID_INTEGRACAO.data, 'Informe a data da festa.');
+  const horaInicio = /^\d{2}:\d{2}$/.test(f.horarioInicio), horaFim = /^\d{2}:\d{2}$/.test(f.horarioFim);
+  if (!horaInicio || !horaFim) {
+    if (!horaInicio) add(ID_INTEGRACAO.horarioInicio, 'Informe início e término.');
+    if (!horaFim) add(ID_INTEGRACAO.horarioFim, 'Informe início e término.');
+  } else if (f.horarioFim <= f.horarioInicio) add(ID_INTEGRACAO.horarioFim, 'O término deve ser depois do início.');
+  if (!/^\d{1,4}$/.test(f.convidados.trim()) || Number(f.convidados) < 1) add(ID_INTEGRACAO.convidados, 'Informe o número de convidados.');
   for (const c of camposCorrigidos(f, s).filter((c) => c !== 'valorContratado')) {
-    if ((f.motivos[c]?.trim().length ?? 0) < 5) e.push('Explique cada valor diferente do documento (correção de leitura).');
+    if ((f.motivos[c]?.trim().length ?? 0) < 5) add(idMotivo(c), 'Explique cada valor diferente do documento (correção de leitura).');
   }
-  return [...new Set(e)];
+  return e;
 }
 
 export function errosPagamentos(f: FormIntegracao, s: Sugestao, hoje: string): string[] {
-  const e: string[] = [];
+  return errosPagamentosPorCampo(f, s, hoje).map((e) => e.mensagem);
+}
+
+/** Erros da etapa "Pagamentos", cada um ligado ao controle (parcela pela chave estável). */
+export function errosPagamentosPorCampo(f: FormIntegracao, s: Sugestao, hoje: string): ErroCampo[] {
+  const e: ErroCampo[] = [];
+  const add = (campo: string, mensagem: string) => e.push({ campo, mensagem });
   const total = centavosDeTexto(f.valorContratado);
-  if (!total) e.push('Informe o valor contratado (ex.: 8.500,00).');
-  if (camposCorrigidos(f, s).includes('valorContratado') && (f.motivos.valorContratado?.trim().length ?? 0) < 5) e.push('Explique a diferença do valor contratado em relação ao documento.');
-  if (!f.situacaoFinanceira) e.push('Informe a situação dos pagamentos.');
+  if (!total) add(ID_INTEGRACAO.valorContratado, 'Informe o valor contratado (ex.: 8.500,00).');
+  if (camposCorrigidos(f, s).includes('valorContratado') && (f.motivos.valorContratado?.trim().length ?? 0) < 5) add(idMotivo('valorContratado'), 'Explique a diferença do valor contratado em relação ao documento.');
+  if (!f.situacaoFinanceira) add(ID_INTEGRACAO.situacaoFinanceira, 'Informe a situação dos pagamentos.');
   if (f.situacaoFinanceira && f.situacaoFinanceira !== 'NAO_CONFERIDO') {
-    if (!f.parcelas.length) e.push('Inclua ao menos uma parcela.');
+    if (!f.parcelas.length) add(ID_INTEGRACAO.parcelas, 'Inclua ao menos uma parcela.');
     let soma = 0;
     f.parcelas.forEach((p, i) => {
       const v = centavosDeTexto(p.valor);
-      if (!v) e.push(`Parcela ${i + 1}: valor inválido.`); else soma += v;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento)) e.push(`Parcela ${i + 1}: informe o vencimento.`);
+      if (!v) add(idParcela(p.chave, 'valor'), `Parcela ${i + 1}: valor inválido.`); else soma += v;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento)) add(idParcela(p.chave, 'vencimento'), `Parcela ${i + 1}: informe o vencimento.`);
       if (p.recebida) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(p.recebidaEm)) e.push(`Parcela ${i + 1}: informe a data em que foi recebida.`);
-        else if (p.recebidaEm > hoje) e.push(`Parcela ${i + 1}: a data de recebimento não pode ser futura.`);
-        if (!p.forma) e.push(`Parcela ${i + 1}: informe a forma de pagamento.`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(p.recebidaEm)) add(idParcela(p.chave, 'recebidaEm'), `Parcela ${i + 1}: informe a data em que foi recebida.`);
+        else if (p.recebidaEm > hoje) add(idParcela(p.chave, 'recebidaEm'), `Parcela ${i + 1}: a data de recebimento não pode ser futura.`);
+        if (!p.forma) add(idParcela(p.chave, 'forma'), `Parcela ${i + 1}: informe a forma de pagamento.`);
       }
     });
-    if (total && soma && soma !== total) e.push(`As parcelas somam ${reais(soma)}; o contratado é ${reais(total)}.`);
+    // Soma divergente: o destaque vai para o valor da primeira parcela (é onde a correção começa).
+    if (total && soma && soma !== total) add(f.parcelas[0] ? idParcela(f.parcelas[0].chave, 'valor') : ID_INTEGRACAO.parcelas, `As parcelas somam ${reais(soma)}; o contratado é ${reais(total)}.`);
   }
   return e;
 }

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// B-4: blocos de entrega dos aplicadores do grupo A (092/093 do B-1 e 099 do B-2) ao Shell de produção, executados DE
+// B-4: blocos de entrega do aplicador do grupo A (092/093 do B-1; a 099 do B-2 saiu em 31/10/2026, já aplicada em
+// production) ao Shell de produção, executados DE
 // VERDADE com bash num deploy temporário (só as pastas diferem das de produção; o comando do aplicador é o real — plano
 // offline ou recusa antes de conectar — ou um substituto que só imprime/devolve um código). Cobre a revisão de 26/10:
 // P2-1 (destino físico, links/junções no destino e nas subpastas), P2-2 (carregador conferido: perder QUALQUER linha nunca
@@ -8,7 +9,7 @@
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {spawnSync} = require('node:child_process'), {createHash, randomUUID} = require('node:crypto'), zlib = require('node:zlib');
 const b = require('./bloco-shell-entrega-grupo-a-producao.cjs');
-const b1 = require('./bloco-shell-092-094.cjs'), b2 = require('./bloco-shell-099.cjs');
+const b1 = require('./bloco-shell-092-094.cjs');
 const root = path.resolve(__dirname, '..');
 const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n');
 const sha = s => createHash('sha256').update(s).digest('hex');
@@ -18,7 +19,9 @@ const {partes: PARTES, lista: LISTA} = b.distribuir(root);
 const N = PARTES.length;
 const PASTA = b.NOME_DESTINO;
 const SQL_092 = 'database/migrations/20261022_092_precos_por_quantidade.sql';
-const CURTOS = ['CONFERIR-092-093', 'APLICAR-092-093', 'CONFERIR-099', 'APLICAR-099'];
+const CURTOS = ['CONFERIR-092-093', 'APLICAR-092-093'];
+/** Marcador da 099 no disco persistente (aplicada em production em 31/10/2026, fora deste pacote): nenhum bloco o toca. */
+const MARCADOR_099 = 'data/convites-avulsos-099-producao/migration-099.json';
 const OK = 'node -e "process.exitCode=0"';
 const RODOU = 'echo "APLICADOR_RODOU pwd=$PWD backup=${B:-}"';
 
@@ -30,6 +33,7 @@ function deploy({pg = true, modulosReais = false} = {}) {
   // Nunca lido, sobrescrito nem removido: os aplicadores leem os SQL da pasta própria.
   fs.mkdirSync(path.join(d, path.dirname(SQL_092)), {recursive: true}); fs.writeFileSync(path.join(d, SQL_092), '-- do deploy\r\n');
   fs.mkdirSync(path.join(d, 'data/agenda-precos-092-094-producao'), {recursive: true}); fs.writeFileSync(path.join(d, 'data/agenda-precos-092-094-producao/migration-092-093.json'), '{}');
+  fs.mkdirSync(path.join(d, path.dirname(MARCADOR_099)), {recursive: true}); fs.writeFileSync(path.join(d, MARCADOR_099), '{"resultado":"APLICADA_POSTCHECK_PASS"}');
   fs.mkdirSync(path.join(d, 'tmp'));
   return d;
 }
@@ -71,8 +75,10 @@ const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 const presentes = d => ARQ.filter(a => fs.existsSync(path.join(d, PASTA, a)));
 const partesPresentes = d => { try { return fs.readdirSync(path.join(d, PASTA, '.partes')).length; } catch { return 0; } };
 const temporarios = d => fs.readdirSync(path.join(d, 'tmp')).length;
-const intactoDoDeploy = d => fs.readFileSync(path.join(d, SQL_092), 'utf8') === '-- do deploy\r\n'
-  && fs.readFileSync(path.join(d, 'data/agenda-precos-092-094-producao/migration-092-093.json'), 'utf8') === '{}';
+// Arquivo removido = false (asserção), não ENOENT: um bloco que apague o marcador da 099 cai na asserção do teste.
+const intactoDoDeploy = d => conteudo(path.join(d, SQL_092)) === '-- do deploy\r\n'
+  && conteudo(path.join(d, 'data/agenda-precos-092-094-producao/migration-092-093.json')) === '{}'
+  && conteudo(path.join(d, MARCADOR_099)) === '{"resultado":"APLICADA_POSTCHECK_PASS"}';
 const re = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Corpo embutido num bloco (decodificado do heredoc CORPO) e o sha fixado no carregador; null no que faltar (P3-R8-2: quem
  * chama transforma a ausência em asserção, em vez de TypeError/erro de descompressão). */
@@ -88,15 +94,16 @@ function preparacao(rotulo, f) {
   try { return f(); } catch (e) { throw new Error('PREPARACAO_FIXTURE ' + rotulo + ': ' + String(e?.message ?? e).slice(0, 200)); }
 }
 
-test('arquivos: exatamente os que os blocos de produção do B-1 e do B-2 conferem (28, com as dependências da 107/108 do B-1); partes; todo bloco ≤ 36 KB; modos e destinos inválidos', () => {
-  assert.deepEqual(ARQ, [...b1.arquivos('production'), ...b2.arquivos('production')]);
-  assert.equal(ARQ.length, 28); assert.equal(new Set(ARQ).size, 28);
+test('arquivos: exatamente os que o bloco de produção do B-1 confere (22, com as dependências da 107/108), nenhum da 099; partes; todo bloco ≤ 36 KB; modos e destinos inválidos', () => {
+  assert.deepEqual(ARQ, b1.arquivos('production'));
+  assert.equal(ARQ.length, 22); assert.equal(new Set(ARQ).size, 22); assert.equal(N, 5);
+  assert.ok(!ARQ.some(a => /099/.test(a)), 'a 099 saiu do pacote: ' + ARQ.join(' '));
   assert.ok(!ARQ.some(a => /staging|_100_|_098_|_091_|rollback|_down\.sql/.test(a) && !a.includes('094_integridade_apos_100')), ARQ.join(' '));
   assert.ok(ARQ.every(a => /^(scripts|database)\/[A-Za-z0-9_./-]+$/.test(a) && !a.split('/').includes('..')));
   assert.deepEqual(PARTES.flatMap(p => p.itens.map(x => x.arquivo)), ARQ);
   assert.deepEqual(b.modos(root), [...PARTES.map((_, i) => `PARTE-${i + 1}`), ...CURTOS, 'LIMPEZA']);
   for (const modo of b.modos(root)) { const x = b.gerar({modo, rotulo: 'abcdef1'}); assert.ok(Buffer.byteLength(x) <= 36000, modo + ' ' + Buffer.byteLength(x)); }
-  for (const modo of ['X', `PARTE-${N + 1}`, 'PARTE-0', 'CONFERIR', 'APLICAR', 'APLICAR-094', 'CONFERIR-094', 'CONFERIR-092-094', 'APLICAR-091']) assert.throws(() => b.gerar({modo, rotulo: 'abcdef1'}), /MODO_DESCONHECIDO/, modo);
+  for (const modo of ['X', `PARTE-${N + 1}`, 'PARTE-0', 'CONFERIR', 'APLICAR', 'APLICAR-094', 'CONFERIR-094', 'CONFERIR-092-094', 'APLICAR-091', 'CONFERIR-099', 'APLICAR-099']) assert.throws(() => b.gerar({modo, rotulo: 'abcdef1'}), /MODO_DESCONHECIDO/, modo);
   assert.throws(() => b.gerar({modo: 'LIMPEZA', rotulo: 'abc; rm -rf /'}), /ROTULO_INVALIDO/);
   // P2-1: o destino é um único nome `.kidmais-…` diretamente sob o deploy, depois de normalizar.
   const P = '/opt/render/project/src';
@@ -126,13 +133,14 @@ test('carregador (P2-2): o bloco colado só tem guarda + carregador; o corpo vai
     assert.ok(e.texto !== null, modo + ': heredoc CORPO decodificável logo depois de LINHA_TEMPORARIO');
     assert.ok(e.sha !== null, modo + ': carregador com a linha que confere o sha do corpo');
     assert.equal(e.texto, b.corpo({modo})); assert.equal(sha(e.texto), e.sha, modo);
+    // A 099 está fora do pacote: nenhum corpo transporta, confere, aplica ou toca o marcador dela.
+    assert.doesNotMatch(e.texto, /migration-099|_099_|-099\b|convites-avulsos-099/, modo);
     assert.ok(e.texto.startsWith('T=\nfim() { c=$?;') && e.texto.includes('\ntrap fim EXIT\n'), modo + ': P2-N1 T zerado antes do trap');
     assert.ok(e.texto.indexOf('SHELL_ERRADO_NAO_E_PRODUCAO') < e.texto.indexOf("cd '/opt/render/project/src'"), modo + ': corpo repete a guarda');
   }
   const NP = "^NODE_PATH='\\/opt\\/render\\/project\\/src\\/node_modules' node ";
   for (const [modo, cmd] of [['CONFERIR-092-093', 'scripts\\/migration-092-094-production\\.cjs --conferir-092-093'],
-    ['APLICAR-092-093', 'scripts\\/migration-092-094-production\\.cjs --aplicar-092-093-autorizado --backup "\\$B"'],
-    ['CONFERIR-099', 'scripts\\/migration-099-production\\.cjs --conferir-099'], ['APLICAR-099', 'scripts\\/migration-099-production\\.cjs --aplicar-099-autorizado --backup "\\$B"']]) {
+    ['APLICAR-092-093', 'scripts\\/migration-092-094-production\\.cjs --aplicar-092-093-autorizado --backup "\\$B"']]) {
     const c = b.corpo({modo});
     assert.match(c, new RegExp(NP + cmd + ' \\|\\| codigo=\\$\\?$', 'm'), modo);
     assert.ok(c.indexOf("cd '.kidmais-entrega-grupo-a-producao'") < c.indexOf('NODE_PATH='), modo);
@@ -177,7 +185,7 @@ test('item 4 — backup: registro do E2 ausente, mal nomeado, inexistente, dump 
     ['PITR no futuro', d => backup(d, {registro: {pitrConferidoEm: futuro}}), /^BACKUP_REGISTRO_RECUSADO pitrConferidoEm$/m],
     ['sem PITR', d => backup(d, {registro: {pitrConferidoEm: undefined}}), /^BACKUP_REGISTRO_RECUSADO pitrConferidoEm$/m],
     ['ilegível', d => backup(d, {registro: '{nao e json'}), /^BACKUP_REGISTRO_ILEGIVEL$/m]];
-  for (const modo of ['APLICAR-092-093', 'APLICAR-099']) {
+  for (const modo of ['APLICAR-092-093']) {
     for (const [rotulo, registro, erro] of casos) {
       const d = deploy();
       try {
@@ -191,7 +199,7 @@ test('item 4 — backup: registro do E2 ausente, mal nomeado, inexistente, dump 
   const d = deploy();
   try {
     sessao(d, todasAsPartes(d));
-    const nome = backup(d), r = rodar(d, 'APLICAR-099', RODOU, {registro: nome});
+    const nome = backup(d), r = rodar(d, 'APLICAR-092-093', RODOU, {registro: nome});
     assert.equal(codigo(r.saida), 0, r.saida.slice(-300)); assert.match(r.saida, /^BACKUP_CONFERIDO criadoEm \S+ pitrConferidoEm \S+$/m);
     assert.match(r.saida, new RegExp(`^APLICADOR_RODOU pwd=.*${re(PASTA)} backup=data/lancamento-venda-20261011/${re(nome)}$`, 'm'));
     assert.ok(`data/lancamento-venda-20261011/${nome}`.length <= 120);
@@ -211,7 +219,7 @@ test('sem o pg implantado: curtos = 4 antes de montar (as partes não dependem d
 test('montagem só com TODAS as partes: sem partes ou faltando uma, o curto diz qual colar e não monta nada', () => {
   const d = deploy();
   try {
-    const r0 = rodar(d, 'CONFERIR-099', OK); assert.equal(codigo(r0.saida), 4); assert.match(r0.saida, /^MONTAGEM_RECUSADA/m);
+    const r0 = rodar(d, 'CONFERIR-092-093', OK); assert.equal(codigo(r0.saida), 4); assert.match(r0.saida, /^MONTAGEM_RECUSADA/m);
     assert.equal(linhas(r0.saida, /^PARTE_AUSENTE_OU_DIVERGENTE /), ARQ.length); assert.deepEqual(presentes(d), []);
     sessao(d, Array.from({length: N}, (_, i) => i === 1 ? '' : gerar(d, `PARTE-${i + 1}`)).join(''));
     const r1 = rodar(d, 'CONFERIR-092-093', OK); assert.equal(codigo(r1.saida), 4);
@@ -220,7 +228,7 @@ test('montagem só com TODAS as partes: sem partes ou faltando uma, o curto diz 
   } finally { limpar(d); }
 });
 
-test('fluxo do E3: partes (repetir = JA_PRESENTE) → CONFERIR-092-093 monta 28 → APLICAR-092-093 → CONFERIR-099 → APLICAR-099 → LIMPEZA; deploy e disco intactos', () => {
+test('fluxo do E3 (099 já aplicada antes, marcador preservado): partes (repetir = JA_PRESENTE) → CONFERIR-092-093 monta 22 → APLICAR-092-093 → CONFERIR-092-093 → LIMPEZA; deploy e disco intactos', () => {
   const d = deploy();
   try {
     const nada = rodar(d, 'LIMPEZA'); assert.equal(codigo(nada.saida), 0); assert.match(nada.saida, /^NADA_A_LIMPAR$/m); assert.ok(!fs.existsSync(path.join(d, PASTA)));
@@ -231,7 +239,7 @@ test('fluxo do E3: partes (repetir = JA_PRESENTE) → CONFERIR-092-093 monta 28 
     assert.match(r.saida, new RegExp('^APLICADOR_RODOU pwd=.*' + re(PASTA) + ' backup=$', 'm'), 'o aplicador roda da pasta própria');
     for (const a of ARQ) assert.equal(fs.readFileSync(path.join(d, PASTA, a), 'utf8'), lf(a), a);
     const nome = backup(d);
-    for (const [modo, opcoes] of [['APLICAR-092-093', {registro: nome}], ['CONFERIR-099', {}], ['APLICAR-099', {registro: nome}]]) {
+    for (const [modo, opcoes] of [['APLICAR-092-093', {registro: nome}], ['CONFERIR-092-093', {}]]) {
       const x = rodar(d, modo, RODOU, opcoes); assert.equal(codigo(x.saida), 0, modo + x.saida.slice(-300)); assert.equal(linhas(x.saida, /^JA_PRESENTE /), ARQ.length, modo);
       assert.match(x.saida, /^APLICADOR_RODOU /m); assert.match(x.saida, /^=== REGISTRO \(data\//m);
     }
@@ -242,22 +250,23 @@ test('fluxo do E3: partes (repetir = JA_PRESENTE) → CONFERIR-092-093 monta 28 
   } finally { limpar(d); }
 });
 
-test('pacote montado é completo e executável DA PASTA PRÓPRIA: planos offline reais do B-1 e do B-2; conferências e APLICAR reais fora do Render = 1 (resultado estruturado)', () => {
+test('pacote montado é completo e executável DA PASTA PRÓPRIA: plano offline real do B-1; conferência e APLICAR reais fora do Render = 1 (resultado estruturado); nada da 099 na pasta', () => {
   const d = deploy({modulosReais: true});
   try {
     sessao(d, todasAsPartes(d));
     const NP = `NODE_PATH='${posix(d)}/node_modules'`;
     // O deploy tem um SQL da 092 com o mesmo caminho e outro conteúdo: se o aplicador lesse o deploy, o plano recusaria.
-    const r = rodar(d, 'CONFERIR-092-093', `${NP} node scripts/migration-092-094-production.cjs > p1.json && ${NP} node scripts/migration-099-production.cjs > p2.json`
-      + ` && node -e "for (const f of ['./p1.json','./p2.json']) { const p = require(f); if (p.resultado !== 'PLANO' || p.conecta !== false) process.exit(9); } console.log('PLANOS_OK')" && rm -f p1.json p2.json`);
-    assert.equal(codigo(r.saida), 0, r.saida.slice(-500)); assert.match(r.saida, /^PLANOS_OK$/m);
-    for (const modo of ['CONFERIR-092-093', 'CONFERIR-099']) {
+    const r = rodar(d, 'CONFERIR-092-093', `${NP} node scripts/migration-092-094-production.cjs > p1.json`
+      + ` && node -e "const p = require('./p1.json'); if (p.resultado !== 'PLANO' || p.conecta !== false) process.exit(9); console.log('PLANOS_OK')" && rm -f p1.json`
+      + ' && { [ -z "$(find . -path ./.partes -prune -o -name \'*099*\' -print)" ] && echo SEM_099_NA_PASTA; }');
+    assert.equal(codigo(r.saida), 0, r.saida.slice(-500)); assert.match(r.saida, /^PLANOS_OK$/m); assert.match(r.saida, /^SEM_099_NA_PASTA$/m);
+    for (const modo of ['CONFERIR-092-093']) {
       const x = rodar(d, modo, 'REAL'); assert.equal(codigo(x.saida), 1, modo + x.saida.slice(-300)); assert.match(x.saida, /^RECUSADO FORA_DO_RENDER$/m);
     }
-    for (const modo of ['APLICAR-092-093', 'APLICAR-099']) {
+    for (const modo of ['APLICAR-092-093']) {
       const a = rodar(d, modo, 'REAL', {registro: backup(d)}); assert.equal(codigo(a.saida), 1, a.saida.slice(-300)); assert.match(a.saida, /^RECUSADO FORA_DO_RENDER$/m);
     }
-    assert.ok(intactoDoDeploy(d)); assert.equal(fs.readdirSync(path.join(d, 'data')).sort().join(','), 'agenda-precos-092-094-producao,lancamento-venda-20261011', 'nenhum marcador novo');
+    assert.ok(intactoDoDeploy(d)); assert.equal(fs.readdirSync(path.join(d, 'data')).sort().join(','), 'agenda-precos-092-094-producao,convites-avulsos-099-producao,lancamento-venda-20261011', 'nenhum marcador novo');
   } finally { limpar(d); }
 });
 
@@ -267,9 +276,9 @@ test('P2-1: pasta própria como junção para o deploy, para fora ou para data/ 
     try {
       if (alvo === 'fora') fs.mkdirSync(path.join(d, 'fora'));
       // Conteúdo "com o sha certo" no alvo do link: a LIMPEZA antiga o removeria (o sha prova conteúdo, não lugar).
-      const isca = path.join(d, alvo, 'scripts/migration-099-comum.cjs'); fs.mkdirSync(path.dirname(isca), {recursive: true}); fs.writeFileSync(isca, lf('scripts/migration-099-comum.cjs'));
+      const isca = path.join(d, alvo, 'scripts/migration-092-094-comum.cjs'); fs.mkdirSync(path.dirname(isca), {recursive: true}); fs.writeFileSync(isca, lf('scripts/migration-092-094-comum.cjs'));
       fs.symlinkSync(path.join(d, alvo), path.join(d, PASTA), 'junction');
-      for (const [modo, opcoes] of [['PARTE-1', {}], ['CONFERIR-099', {}], ['APLICAR-099', {registro: backup(d)}], ['LIMPEZA', {}]]) {
+      for (const [modo, opcoes] of [['PARTE-1', {}], ['CONFERIR-092-093', {}], ['APLICAR-092-093', {registro: backup(d)}], ['LIMPEZA', {}]]) {
         const r = rodar(d, modo, RODOU, opcoes);
         assert.equal(codigo(r.saida), 4, `${alvo} ${modo}: ` + r.saida.slice(-200)); assert.match(r.saida, new RegExp(`^LINK_RECUSADO ${re(PASTA)}$`, 'm'), `${alvo} ${modo}`);
         assert.doesNotMatch(r.saida, /APLICADOR_RODOU|REMOVIDO|TRANSPORTADO|ESCRITO/);
@@ -307,7 +316,7 @@ test('P2-1: lugar físico divergente que não é link (ex.: ponto de montagem) =
     // Simula o que um link não revela: dentro da pasta própria, `pwd -P` aponta para outro lugar.
     const falso = 'pwd() { if [ "${1:-}" = "-P" ] && [ "$(builtin pwd)" != "$DEPLOY_REAL" ]; then echo /montagem/outro-lugar; else builtin pwd "$@"; fi; }\nexport -f pwd\n'
       + `export DEPLOY_REAL='${posix(d)}'\n`;
-    for (const [modo, opcoes] of [['PARTE-1', {}], ['CONFERIR-099', {}], ['APLICAR-099', {registro: backup(d)}], ['LIMPEZA', {}]]) {
+    for (const [modo, opcoes] of [['PARTE-1', {}], ['CONFERIR-092-093', {}], ['APLICAR-092-093', {registro: backup(d)}], ['LIMPEZA', {}]]) {
       const r = sessao(d, falso + gerar(d, modo, RODOU), opcoes);
       assert.equal(codigo(r.saida), 4, modo + r.saida.slice(-200)); assert.match(r.saida, /^DESTINO_FORA_DO_LUGAR \/montagem\/outro-lugar$/m, modo);
       assert.doesNotMatch(r.saida, /APLICADOR_RODOU|REMOVIDO|TRANSPORTADO|ESCRITO/);
@@ -320,13 +329,13 @@ test('arquivo presente e diferente na pasta própria: código 4 sem montar os de
   const d = deploy();
   try {
     sessao(d, todasAsPartes(d));
-    const alvo = path.join(d, PASTA, 'scripts/migration-099-comum.cjs'); fs.mkdirSync(path.dirname(alvo), {recursive: true}); fs.writeFileSync(alvo, '// outro\n');
-    const r = rodar(d, 'CONFERIR-099', RODOU); assert.equal(codigo(r.saida), 4); assert.doesNotMatch(r.saida, /APLICADOR_RODOU/);
-    assert.match(r.saida, /JA_EXISTE_DIFERENTE scripts\/migration-099-comum\.cjs/); assert.deepEqual(presentes(d), ['scripts/migration-099-comum.cjs']);
+    const alvo = path.join(d, PASTA, 'scripts/migration-092-094-comum.cjs'); fs.mkdirSync(path.dirname(alvo), {recursive: true}); fs.writeFileSync(alvo, '// outro\n');
+    const r = rodar(d, 'CONFERIR-092-093', RODOU); assert.equal(codigo(r.saida), 4); assert.doesNotMatch(r.saida, /APLICADOR_RODOU/);
+    assert.match(r.saida, /JA_EXISTE_DIFERENTE scripts\/migration-092-094-comum\.cjs/); assert.deepEqual(presentes(d), ['scripts/migration-092-094-comum.cjs']);
     // Defesa em profundidade (P2-2): mesmo um corpo sem as linhas `livre`, o `inst` reconfere o sha antes de JA_PRESENTE.
-    const sem = rodar(d, 'CONFERIR-099', RODOU, {}, t => t.split('\n').filter(l => !l.startsWith('livre scripts/')).join('\n'));
-    assert.equal(codigo(sem.saida), 4, sem.saida.slice(-200)); assert.match(sem.saida, /^JA_EXISTE_DIFERENTE scripts\/migration-099-comum\.cjs$/m); assert.doesNotMatch(sem.saida, /APLICADOR_RODOU/);
-    const l = rodar(d, 'LIMPEZA'); assert.match(l.saida, /DIVERGENTE_PRESERVADO scripts\/migration-099-comum\.cjs/); assert.match(l.saida, /^PASTA_MANTIDA/m); assert.ok(fs.existsSync(alvo));
+    const sem = rodar(d, 'CONFERIR-092-093', RODOU, {}, t => t.split('\n').filter(l => !l.startsWith('livre scripts/')).join('\n'));
+    assert.equal(codigo(sem.saida), 4, sem.saida.slice(-200)); assert.match(sem.saida, /^JA_EXISTE_DIFERENTE scripts\/migration-092-094-comum\.cjs$/m); assert.doesNotMatch(sem.saida, /APLICADOR_RODOU/);
+    const l = rodar(d, 'LIMPEZA'); assert.match(l.saida, /DIVERGENTE_PRESERVADO scripts\/migration-092-094-comum\.cjs/); assert.match(l.saida, /^PASTA_MANTIDA/m); assert.ok(fs.existsSync(alvo));
   } finally { limpar(d); }
 });
 
@@ -368,15 +377,15 @@ test('parte grava só depois de conferir TODOS os itens: item seguinte já prese
 
 /** Remove a linha i (não comentário) do bloco e roda; devolve a saída. */
 function semLinha(d, bloco, i, opcoes) { const L = bloco.split('\n'); L.splice(i, 1); return sessao(d, L.join('\n'), opcoes).saida; }
-test('P2-2: perder QUALQUER linha de um curto (APLICAR-099, arquivo divergente presente) nunca dá 0 sem executar nem executa com o divergente', () => {
+test('P2-2: perder QUALQUER linha de um curto (APLICAR-092-093, arquivo divergente presente) nunca dá 0 sem executar nem executa com o divergente', () => {
   const d = deploy();
   try {
     sessao(d, todasAsPartes(d));
-    const nome = backup(d), alvo = path.join(d, PASTA, 'scripts/migration-099-comum.cjs');
+    const nome = backup(d), alvo = path.join(d, PASTA, 'scripts/migration-092-094-comum.cjs');
     fs.mkdirSync(path.dirname(alvo), {recursive: true}); fs.writeFileSync(alvo, '// divergente\n');
-    const bloco = gerar(d, 'APLICAR-099', RODOU), L = bloco.split('\n');
+    const bloco = gerar(d, 'APLICAR-092-093', RODOU), L = bloco.split('\n');
     const intacto = sessao(d, bloco, {registro: nome}).saida;
-    assert.equal(codigo(intacto), 4); assert.match(intacto, /^JA_EXISTE_DIFERENTE scripts\/migration-099-comum\.cjs$/m); assert.doesNotMatch(intacto, /APLICADOR_RODOU/);
+    assert.equal(codigo(intacto), 4); assert.match(intacto, /^JA_EXISTE_DIFERENTE scripts\/migration-092-094-comum\.cjs$/m); assert.doesNotMatch(intacto, /APLICADOR_RODOU/);
     let testadas = 0;
     for (let i = 0; i < L.length; i++) {
       if (L[i].startsWith('#') || L[i] === '') continue;
@@ -398,7 +407,7 @@ test('P2-2: perder QUALQUER linha de um curto íntegro: ou executa (0 com APLICA
       if (L[i].startsWith('#') || L[i] === '') continue;
       const s = semLinha(d, bloco, i, {registro: nome}), rodou = /^APLICADOR_RODOU /m.test(s);
       if (codigos(s).includes(0)) assert.ok(rodou, `linha ${i} (${L[i].slice(0, 40)}): 0 sem executar`);
-      if (rodou) assert.match(s, /^ARQUIVOS_OK 28$/m, `linha ${i}: executou sem a montagem conferida`);
+      if (rodou) assert.match(s, /^ARQUIVOS_OK 22$/m, `linha ${i}: executou sem a montagem conferida`);
     }
     // As duas sondas da revisão: sem a linha de execução do carregador, nada roda e não há código 0.
     const exec = L.findIndex(l => l.startsWith('if [ "$(sha256sum "$C"'));
@@ -424,12 +433,12 @@ test('P2-2: perder linhas de uma PARTE (amostra do corpo + todo o carregador): n
   } finally { limpar(d); }
 });
 
-test('colagem truncada (25/50/90/99,9 %) de uma parte ou do APLICAR-099: nada gravado nem executado', () => {
+test('colagem truncada (25/50/90/99,9 %) de uma parte ou do APLICAR-092-093: nada gravado nem executado', () => {
   const d = deploy();
   try {
     sessao(d, todasAsPartes(d).replace(gerar(d, 'PARTE-2'), ''));
     const semParte2 = new Set(LISTA.filter(y => y.parte !== 2).map(y => y.sha)).size, nome = backup(d);
-    for (const modo of ['PARTE-2', 'APLICAR-099']) {
+    for (const modo of ['PARTE-2', 'APLICAR-092-093']) {
       const x = gerar(d, modo, RODOU);
       for (const fr of [0.25, 0.5, 0.9, 0.999]) {
         const r = sessao(d, x.slice(0, Math.floor(x.length * fr)), {registro: nome});
@@ -442,9 +451,9 @@ test('colagem truncada (25/50/90/99,9 %) de uma parte ou do APLICAR-099: nada gr
 
 test('colagem interativa (bash -i): shell do operador sobrevive, sem opções/umask/cwd/trap herdados; códigos 0/1/2/3/4 legíveis', () => {
   const POS = ['echo "POS_BLOCO opcoes=$- umask=$(umask) pwd=$PWD"', 'trap -p EXIT', 'cat arquivo-que-nao-existe-no-teste', 'echo SHELL_DO_OPERADOR_VIVO'].join('\n') + '\n';
-  for (const [rotulo, modo, comando, comBackup, esperado] of [['conferido', 'CONFERIR-092-093', OK, false, 0], ['recusa antes de conectar', 'CONFERIR-099', 'node -e "process.exitCode=1"', false, 1],
-    ['falha', 'APLICAR-092-093', 'node -e "process.exitCode=2"', true, 2], ['recusaria', 'CONFERIR-099', 'node -e "process.exitCode=3"', false, 3],
-    ['sem backup', 'APLICAR-099', OK, false, 4]]) {
+  for (const [rotulo, modo, comando, comBackup, esperado] of [['conferido', 'CONFERIR-092-093', OK, false, 0], ['recusa antes de conectar', 'CONFERIR-092-093', 'node -e "process.exitCode=1"', false, 1],
+    ['falha', 'APLICAR-092-093', 'node -e "process.exitCode=2"', true, 2], ['recusaria', 'CONFERIR-092-093', 'node -e "process.exitCode=3"', false, 3],
+    ['sem backup', 'APLICAR-092-093', OK, false, 4]]) {
     const d = deploy();
     try {
       const op = {interativo: true, ...(comBackup ? {registro: backup(d)} : {})};
@@ -463,7 +472,7 @@ test('o corpo roda num bash sem BASH_ENV/ENV: um arquivo de inicialização do s
   try {
     sessao(d, todasAsPartes(d));
     const ini = path.join(d, 'injetado.sh'); fs.writeFileSync(ini, 'echo INJETADO_NO_CORPO\n');
-    const f = d + '-ini.sh'; fs.writeFileSync(f, gerar(d, 'CONFERIR-099', OK));
+    const f = d + '-ini.sh'; fs.writeFileSync(f, gerar(d, 'CONFERIR-092-093', OK));
     const env = {...process.env, RENDER_SERVICE_ID: b.SERVICO, BASH_ENV: posix(ini), ENV: posix(ini), TMPDIR: posix(path.join(d, 'tmp'))};
     // bash -i não lê BASH_ENV; um bash filho não interativo leria — só o corpo poderia imprimir a marca.
     const r = spawnSync('bash', ['--norc', '--noprofile', '-i'], {input: fs.readFileSync(f), encoding: 'utf8', env}); fs.rmSync(f, {force: true});
@@ -483,7 +492,7 @@ test('trap: falha do rm vira aviso TEMPORARIO_NAO_REMOVIDO e não muda o código
     const d = deploy();
     try {
       sessao(d, todasAsPartes(d));
-      const r = sessao(d, RM_FALSO + gerar(d, 'APLICAR-099', comando), {registro: backup(d)});
+      const r = sessao(d, RM_FALSO + gerar(d, 'APLICAR-092-093', comando), {registro: backup(d)});
       assert.equal(codigo(r.saida), esperado, comando + ': ' + r.saida.slice(-300)); assert.equal(linhas(r.saida, /^=== REGISTRO /), 1);
     } finally { limpar(d); }
   }
@@ -507,7 +516,7 @@ test('P2-N1: T exportado no Shell apontando para uma isca — em TODOS os modos 
     const I = isca(d), env = {T: I.caminho};
     const nome = backup(d);
     // Antes das partes: curtos recusam (montagem/backup) e a LIMPEZA não tem o que limpar — sem tocar na isca.
-    for (const [modo, opcoes] of [['CONFERIR-092-093', {}], ['CONFERIR-099', {}], ['APLICAR-092-093', {}], ['APLICAR-099', {registro: nome}], ['LIMPEZA', {}]]) {
+    for (const [modo, opcoes] of [['CONFERIR-092-093', {}], ['APLICAR-092-093', {}], ['APLICAR-092-093', {registro: nome}], ['LIMPEZA', {}]]) {
       const r = rodar(d, modo, RODOU, {...opcoes, env}); assert.ok([0, 4].includes(codigo(r.saida)), modo + r.saida.slice(-300));
       assert.ok(I.intacta(), 'R-ISCA-T antes das partes: ' + modo);
     }
@@ -518,14 +527,14 @@ test('P2-N1: T exportado no Shell apontando para uma isca — em TODOS os modos 
     // Partes e curtos de verdade, com o T herdado: a isca nunca é o temporário removido.
     for (let k = 1; k <= N; k++) { const p = rodar(d, `PARTE-${k}`, null, {env}); assert.equal(codigo(p.saida), 0, p.saida.slice(-300)); assert.ok(I.intacta(), 'R-ISCA-T PARTE-' + k); }
     assert.equal(temporarios(d), 0, 'o temporário da própria parte foi removido');
-    for (const [modo, opcoes] of [['CONFERIR-092-093', {}], ['APLICAR-092-093', {registro: nome}], ['CONFERIR-099', {}], ['APLICAR-099', {registro: nome}]]) {
+    for (const [modo, opcoes] of [['CONFERIR-092-093', {}], ['APLICAR-092-093', {registro: nome}]]) {
       const r = rodar(d, modo, RODOU, {...opcoes, env}); assert.equal(codigo(r.saida), 0, modo + r.saida.slice(-300)); assert.ok(I.intacta(), 'R-ISCA-T ' + modo);
     }
     const l = rodar(d, 'LIMPEZA', null, {env}); assert.equal(codigo(l.saida), 0, l.saida.slice(-300)); assert.ok(I.intacta(), 'R-ISCA-T LIMPEZA');
     assert.ok(intactoDoDeploy(d));
     // Defesa em profundidade: o CORPO executado diretamente (sem o "( unset C T" do carregador) com T herdado no ambiente.
-    for (const modo of ['CONFERIR-099', 'LIMPEZA', 'PARTE-1']) {
-      const programa = b.corpo({modo, destino: posix(d) + '/' + PASTA, deploy: posix(d), comando: modo === 'CONFERIR-099' ? RODOU : null});
+    for (const modo of ['CONFERIR-092-093', 'LIMPEZA', 'PARTE-1']) {
+      const programa = b.corpo({modo, destino: posix(d) + '/' + PASTA, deploy: posix(d), comando: modo === 'CONFERIR-092-093' ? RODOU : null});
       const r = sessao(d, programa, {env}); assert.ok([0, 4].includes(codigo(r.saida)), modo + r.saida.slice(-300));
       assert.ok(I.intacta(), 'R-ISCA-T corpo direto ' + modo);
     }
@@ -536,7 +545,7 @@ test('P3-N1: linha do mktemp perdida com C do shell do operador (não exportada 
   const d = deploy();
   try {
     sessao(d, todasAsPartes(d));
-    const L = gerar(d, 'CONFERIR-099', RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
+    const L = gerar(d, 'CONFERIR-092-093', RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
     assert.ok(i > 0); assert.ok(L.includes(b.ABERTURA_CARREGADOR), 'abertura limpa C e T');
     const semMktemp = [...L.slice(0, i), ...L.slice(i + 1)].join('\n') + '\n';
     const arquivo = posix(path.join(d, 'arquivo-do-operador.txt'));
@@ -554,7 +563,7 @@ test('P2-R3-1: C ou T SOMENTE LEITURA no shell (readonly / declare -rx; script e
   try {
     sessao(d, todasAsPartes(d));
     const arquivo = posix(path.join(d, 'arquivo do operador.txt')), pasta = isca(d);
-    for (const modo of ['CONFERIR-099', 'LIMPEZA']) {
+    for (const modo of ['CONFERIR-092-093', 'LIMPEZA']) {
       const L = gerar(d, modo, modo === 'LIMPEZA' ? null : RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
       const inteiro = L.join('\n') + '\n', semMktemp = [...L.slice(0, i), ...L.slice(i + 1)].join('\n') + '\n';
       for (const [rotulo, pre] of [['readonly C', `readonly C='${arquivo}'\n`], ['declare -rx C', `declare -rx C='${arquivo}'\n`],
@@ -583,7 +592,7 @@ test('P2-R4-1: aliases e funções do operador (builtin/command/unset) contornan
       ['função builtin', 'builtin() { return 0; }\n'],
       ['função command', 'command() { return 0; }\n'],
     ];
-    for (const modo of ['CONFERIR-099', 'LIMPEZA']) {
+    for (const modo of ['CONFERIR-092-093', 'LIMPEZA']) {
       // P3-R5-1: a linha perdida é a que atribui o temporário, achada pelo conteúdo — um carregador em outro formato
       // (ex.: mktemp, trap e heredoc em linhas separadas) chega às asserções da isca em vez de cair na procura.
       const L = gerar(d, modo, modo === 'LIMPEZA' ? null : RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
@@ -613,7 +622,7 @@ test('P3-R5-1: alias builtin/command/unset × C ou T SOMENTE LEITURA (script e b
   try {
     sessao(d, todasAsPartes(d));
     const arquivo = posix(path.join(d, 'arquivo do operador.txt')), pasta = isca(d);
-    for (const modo of ['CONFERIR-099', 'LIMPEZA']) {
+    for (const modo of ['CONFERIR-092-093', 'LIMPEZA']) {
       const L = gerar(d, modo, modo === 'LIMPEZA' ? null : RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
       assert.ok(i > 0, modo);
       const inteiro = L.join('\n') + '\n', semTemporario = [...L.slice(0, i), ...L.slice(i + 1)].join('\n') + '\n';
@@ -639,7 +648,7 @@ test('P3-R5-2: FUNÇÃO command (sintética, return 0) × C ou T somente leitura
   try {
     sessao(d, todasAsPartes(d));
     const arquivo = posix(path.join(d, 'arquivo do operador.txt')), pasta = isca(d), tmp = path.join(d, 'tmp');
-    for (const modo of ['CONFERIR-099', 'LIMPEZA']) {
+    for (const modo of ['CONFERIR-092-093', 'LIMPEZA']) {
       const L = gerar(d, modo, modo === 'LIMPEZA' ? null : RODOU).trimEnd().split('\n'), i = L.findIndex(l => l.startsWith('C="$(mktemp)"'));
       const inteiro = L.join('\n') + '\n', semTemporario = [...L.slice(0, i), ...L.slice(i + 1)].join('\n') + '\n';
       for (const [rotulo, ro] of [['readonly C', `readonly C='${arquivo}'\n`], ['readonly T', `readonly T='${pasta.caminho}'\n`]])
@@ -666,7 +675,7 @@ test('P3-R6-1: controles de execução legítima — sem o umask o corpo conferi
   try {
     sessao(d, todasAsPartes(d));
     // P3-R7-1: a preparação só procura as duas linhas que remove; qualquer outra forma do carregador chega ao comportamento.
-    const bloco = preparacao('bloco', () => gerar(d, 'CONFERIR-099', RODOU)), L = bloco.trimEnd().split('\n');
+    const bloco = preparacao('bloco', () => gerar(d, 'CONFERIR-092-093', RODOU)), L = bloco.trimEnd().split('\n');
     // (a) A linha do umask não muda os bytes conferidos: perdê-la roda o corpo conferido normalmente.
     const u = preparacao('linha do umask', () => { const k = L.indexOf('umask 077'); assert.ok(k > 0, 'ausente'); return k; });
     const semUmask = [...L.slice(0, u), ...L.slice(u + 1)].join('\n') + '\n';
@@ -681,7 +690,7 @@ test('P3-R6-1: controles de execução legítima — sem o umask o corpo conferi
     // depende da forma da linha do temporário nem da linha do sha. Que o heredoc traz exatamente b.corpo e o sha dele está
     // provado no teste do carregador (P2-2), por modo.
     const arquivo = posix(path.join(d, 'corpo exato.sh'));
-    const exato = preparacao('corpo exato', () => Buffer.from(b.corpo({modo: 'CONFERIR-099', destino: posix(d) + '/' + PASTA, deploy: posix(d), comando: RODOU}), 'utf8'));
+    const exato = preparacao('corpo exato', () => Buffer.from(b.corpo({modo: 'CONFERIR-092-093', destino: posix(d) + '/' + PASTA, deploy: posix(d), comando: RODOU}), 'utf8'));
     for (const [rotulo, atrib] of [['C comum', `C='${arquivo}'\n`], ['readonly C', `readonly C='${arquivo}'\n`]])
       for (const interativo of [false, true]) {
         const nome = `função command, ${rotulo}, corpo exato, sem temporário, ${interativo ? 'bash -i' : 'script'}`;
@@ -698,21 +707,21 @@ test('P3-N2: comando que falha antes do aplicador (ex.: .partes ocupado por um a
   const d = deploy();
   try {
     fs.mkdirSync(path.join(d, PASTA)); fs.writeFileSync(path.join(d, PASTA, '.partes'), 'arquivo, não pasta');
-    const r = rodar(d, 'CONFERIR-099', RODOU); assert.equal(codigo(r.saida), 1, r.saida.slice(-300));
+    const r = rodar(d, 'CONFERIR-092-093', RODOU); assert.equal(codigo(r.saida), 1, r.saida.slice(-300));
     assert.match(r.saida, /^BLOCO_PAROU_COMANDO_FALHOU \(linha \d+ do programa\)/m); assert.doesNotMatch(r.saida, /ARQUIVOS_OK|APLICADOR_RODOU/);
     // Caminhos normais nunca imprimem o motivo de parada.
     const ok = deploy();
     try {
       const p = sessao(ok, todasAsPartes(ok)); assert.doesNotMatch(p.saida, /BLOCO_PAROU/);
-      const c = rodar(ok, 'CONFERIR-099', 'node -e "process.exitCode=2"'); assert.equal(codigo(c.saida), 2); assert.doesNotMatch(c.saida, /BLOCO_PAROU/);
+      const c = rodar(ok, 'CONFERIR-092-093', 'node -e "process.exitCode=2"'); assert.equal(codigo(c.saida), 2); assert.doesNotMatch(c.saida, /BLOCO_PAROU/);
       const l = rodar(ok, 'LIMPEZA'); assert.equal(codigo(l.saida), 0); assert.doesNotMatch(l.saida, /BLOCO_PAROU/);
     } finally { limpar(ok); }
   } finally { limpar(d); }
 });
 
-test('hashes do corpo = conteúdo LF da árvore e = os que os blocos de produção do B-1 e do B-2 conferem', () => {
+test('hashes do corpo = conteúdo LF da árvore e = os que o bloco de produção do B-1 confere', () => {
   const x = b.corpo({modo: 'LIMPEZA'});
-  const origem = [b1.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'abcdef1'}), b2.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'abcdef1'})].join('\n');
+  const origem = b1.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'abcdef1'});
   for (const a of ARQ) {
     const h = sha(lf(a));
     assert.ok(x.includes(`limpar ${a} ${h}`), a); assert.ok(x.includes(`limpar .partes/${h} ${h}`), a);
@@ -726,7 +735,7 @@ test('CLI: TODOS grava os blocos com sha e bytes e recusa pasta existente; modo 
   const saida = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'grupo-a-cli-')), 'blocos');
   try {
     const r = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-entrega-grupo-a-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
-    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + 5);
+    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + 3);
     for (const l of L) { const [h, bytes, nome] = l.split(/\s+/); const conteudo = fs.readFileSync(path.join(saida, nome)); assert.equal(sha(conteudo), h); assert.equal(conteudo.length, Number(bytes)); }
     const denovo = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-entrega-grupo-a-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
     assert.equal(denovo.status, 1); assert.match(denovo.stderr, /PASTA_DE_SAIDA_INVALIDA_OU_EXISTENTE/);

@@ -27,10 +27,10 @@ function alvosDoEscopo(granular: unknown[], scope: string): string[] | null {
 const RELACAO_NAO_CONFIRMADA = () => new WhatsappOnboardingError('META_RELACAO_NAO_CONFIRMADA', 'A Meta não confirmou que a conta WhatsApp pertence ao negócio informado.', 409);
 
 /**
- * PERTENCIMENTO WABA ↔ negócio. Autorização (granular_scopes) não é relação: duas listas independentes não dizem qual
- * WABA é de qual negócio. A única relação documentada é `/{business}/owned_whatsapp_business_accounts` ("WABAs owned
- * by a business"), lida com o token do cliente. Recusa da Meta (4xx), resposta sem lista ou lista paginada sem a WABA:
- * relação NÃO confirmada (fail-closed). Falha do provedor (5xx/rede): mesma recusa genérica das demais etapas.
+ * PERTENCIMENTO WABA ↔ negócio pela aresta documentada `/{business}/owned_whatsapp_business_accounts`. Exige
+ * `business_management` (sem ele a Meta responde 403, prova P-DONO-WABA de 03/11): por isso só a demonstração de ativos
+ * de teste a usa; a conexão do cliente usa `negocioDonoDaWaba`. Recusa da Meta (4xx), resposta sem lista ou lista
+ * paginada sem a WABA: relação NÃO confirmada (fail-closed). Falha do provedor (5xx/rede): recusa genérica.
  */
 export async function wabaPertenceAoNegocio(businessId: string, wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
   const response = await fetchImpl(`https://graph.facebook.com/${config.graphApiVersion}/${businessId}/owned_whatsapp_business_accounts?fields=id&limit=100`, {
@@ -51,23 +51,24 @@ export async function lerNumerosDaWaba(wabaId: string, token: string, config: Co
   return await graphGet(`/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,account_mode,is_on_biz_app&limit=100`, token, config, fetchImpl) as GraphList<Record<string, unknown>>;
 }
 
-const MAX_NEGOCIOS_AUTORIZADOS = 10;
-
 /**
- * Negócio dono da WABA quando o evento da Meta não o informa (exemplo oficial do fluxo do WhatsApp Business App:
- * `data` só com `waba_id`). Candidatos = negócios AUTORIZADOS neste token (business_management.target_ids); dono = o
- * candidato cuja aresta de posse contém a WABA. Exatamente um dono; nenhum, mais de um, lista grande demais ou posse não
- * confirmada em qualquer candidato: recusa (nunca o primeiro da lista nem a ordem).
+ * Negócio DONO da WABA, lido no servidor com o token do cliente: `GET /{waba}?fields=id,owner_business_info`. Só roda
+ * depois de a WABA constar dos ativos que ESTE token autorizou. Não exige `business_management`, que a análise do app
+ * recusou em 03/11/2026: a prova P-DONO-WABA (token sem o escopo) devolveu o negócio certo. O campo não consta da
+ * referência oficial da WABA, por isso tudo fora do esperado recusa (fail-closed): erro da Meta (4xx), corpo de outra
+ * WABA, campo ausente ou id não numérico. Falha do provedor (5xx): recusa genérica das demais etapas.
  */
-async function negocioDonoDaWaba(candidatos: string[] | null, wabaId: string, token: string, config: Config, fetchImpl: Fetch) {
-  const unicos = [...new Set(candidatos ?? [])];
-  if (unicos.length === 0) throw new WhatsappOnboardingError('META_NEGOCIO_DIVERGENTE', 'A Meta não informou o negócio autorizado nesta conexão.', 409);
-  if (unicos.length > MAX_NEGOCIOS_AUTORIZADOS) throw RELACAO_NAO_CONFIRMADA();
-  const donos: string[] = [];
-  for (const businessId of unicos) if (await wabaPertenceAoNegocio(businessId, wabaId, token, config, fetchImpl)) donos.push(businessId);
-  if (donos.length === 0) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não pertence a nenhum negócio autorizado nesta conexão.', 409);
-  if (donos.length > 1) throw RELACAO_NAO_CONFIRMADA();
-  return donos[0];
+async function negocioDonoDaWaba(wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
+  const response = await fetchImpl(`https://graph.facebook.com/${config.graphApiVersion}/${wabaId}?fields=id,owner_business_info`, {
+    method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store',
+  });
+  if (response.status >= 500) throw new WhatsappOnboardingError('META_API_RECUSOU', 'A Meta recusou a validação da configuração.', 502);
+  const body = await response.json().catch(() => null) as { id?: unknown; owner_business_info?: unknown; error?: unknown } | null;
+  if (!response.ok || !body || body.error || String(body.id ?? '') !== wabaId) throw RELACAO_NAO_CONFIRMADA();
+  const dono = body.owner_business_info;
+  const id = dono && typeof dono === 'object' ? (dono as { id?: unknown }).id : undefined;
+  if ((typeof id !== 'string' && typeof id !== 'number') || !/^[0-9]{1,64}$/.test(String(id))) throw RELACAO_NAO_CONFIRMADA();
+  return String(id);
 }
 
 /**
@@ -146,21 +147,14 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
       || !['whatsapp_business_management', 'whatsapp_business_messaging'].every((scope) => scopes.includes(scope))) {
     throw new WhatsappOnboardingError('META_ESCOPO_INVALIDO', 'A autorização Meta não concedeu os acessos necessários.', 409);
   }
-  // AUTORIZAÇÃO: WABA e negócio entre os ativos que ESTE token autorizou (debug_token.granular_scopes.target_ids).
-  // Isso não prova a relação entre eles; a relação vem de wabaPertenceAoNegocio. `client_whatsapp_business_accounts`
-  // lista as WABAs compartilhadas COM o portfólio do parceiro e não serve com o negócio do cliente.
+  // AUTORIZAÇÃO: a WABA entre os ativos que ESTE token autorizou (debug_token.granular_scopes.target_ids). O negócio vem
+  // do dono da WABA lido no servidor (negocioDonoDaWaba), nunca do navegador; o informado no evento só é conferido.
+  // `client_whatsapp_business_accounts` lista as WABAs compartilhadas COM o portfólio do parceiro e não serve aqui.
   const granular = debugData?.granular_scopes;
   if (!Array.isArray(granular)) throw new WhatsappOnboardingError('META_AUTORIZACAO_INCOMPLETA', 'A Meta não informou quais ativos foram autorizados.', 409);
   if (!alvosDoEscopo(granular, 'whatsapp_business_management')?.includes(input.wabaId)) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não foi autorizada nesta conexão.', 409);
-  const negociosAutorizados = alvosDoEscopo(granular, 'business_management');
-  let businessId: string;
-  if (input.businessId) {
-    if (!negociosAutorizados?.includes(input.businessId)) throw new WhatsappOnboardingError('META_NEGOCIO_DIVERGENTE', 'O negócio informado não foi autorizado nesta conexão.', 409);
-    if (!await wabaPertenceAoNegocio(input.businessId, input.wabaId, accessToken, config, fetchImpl)) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não pertence ao negócio informado.', 409);
-    businessId = input.businessId;
-  } else {
-    businessId = await negocioDonoDaWaba(negociosAutorizados, input.wabaId, accessToken, config, fetchImpl);
-  }
+  const businessId = await negocioDonoDaWaba(input.wabaId, accessToken, config, fetchImpl);
+  if (input.businessId && input.businessId !== businessId) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não pertence ao negócio informado.', 409);
   const phones = await lerNumerosDaWaba(input.wabaId, accessToken, config, fetchImpl);
   const phone = numeroDaConexao(phones, input.phoneNumberId);
   const phoneNumberId = String(phone.id ?? '');

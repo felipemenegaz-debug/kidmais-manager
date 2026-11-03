@@ -18,6 +18,7 @@ import { periodoDoPedido } from '../comercial-schema';
 import { criarFechamentoComercial } from './fechamento.service';
 import { FechamentoServiceError } from './errors';
 import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
+import { exigirModeloCompativelNoFechamento, trechosIncompativeisDoContratante } from './modelo-pj';
 
 type Contexto = { token: string; requestId: string; userAgent: string | null; empresaSolicitada?: string | null };
 export function exigirPapelFechamento(papel: string) {
@@ -49,7 +50,9 @@ async function carregarCliente(id: string, empresaId: string, tx: DbExecutor, es
     if (faltantes.length) throw new FechamentoServiceError('CADASTRO_INCOMPLETO', 'Complete o cadastro no CRM antes de iniciar o Fechamento.', 409, { campos: faltantes });
     const aniversariantes = (await listarAniversariantesDoCliente(cliente.id, {}, tx)).filter(a => a.ativo);
     const responsaveis = (await listarResponsaveisDoCliente(cliente.id, {}, tx)).filter(r => r.ativo);
-    return { cliente, aniversariantes, responsaveis, redirecionadoDe: cliente.id !== seletor ? seletor : null };
+    // R2-2: na revisão a tela mostra o bloqueio (PJ × modelo que qualifica PF); no envio, o servidor recusa.
+    const modeloIncompativelPj = await trechosIncompativeisDoContratante(tx, cliente);
+    return { cliente, aniversariantes, responsaveis, modeloIncompativelPj, redirecionadoDe: cliente.id !== seletor ? seletor : null };
 }
 
 /**
@@ -121,6 +124,7 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
         // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
         await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
         const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, empresaId, tx, true);
+        await exigirModeloCompativelNoFechamento(tx, cliente);
         // Preparação vinculada (Kidmais): conferida e travada AQUI; reenvio da mesma preparação devolve o já criado.
         if (vinculo) {
             const conferido = await vinculo.validar(tx, { empresaId, usuarioId: sessao.usuario_id, clienteId: cliente.id,

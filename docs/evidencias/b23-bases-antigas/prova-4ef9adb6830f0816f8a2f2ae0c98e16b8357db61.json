@@ -1,0 +1,35 @@
+{
+ "de": "00d3019ade199ce609eab296050e07f4b379e87b",
+ "ate": "4ef9adb6830f0816f8a2f2ae0c98e16b8357db61",
+ "analisador": "2effd608911bcced62a3c483cafd64396b414797e640dcbd82d81245e8a2b01a",
+ "marcadoresSha": "29e1167ebdaaaa409fa15cded3538dbc4a8ac2a8976b177ec493bad999f6b7e2",
+ "alterados": 8,
+ "marcadores": [
+  "assinatura_encerramentos",
+  "assinatura_campanhas",
+  "empresa_documento_continuidades",
+  "agenda_saloes",
+  "kidmais094_salao_fechamento",
+  "ia_credito_carteiras",
+  "assinatura_comprovantes",
+  "assinatura_arrependimentos"
+ ],
+ "resultado": "PROVA_PASS",
+ "violacoes": [],
+ "objetos": [],
+ "revisados": [],
+ "fecho": {
+  "de": 149,
+  "ate": 149,
+  "sqlTabelas": 107,
+  "sqlFuncoes": 130
+ },
+ "limites": {
+  "importsCalculados": [
+   "scripts/assinatura-interface-completa.cjs",
+   "scripts/assinatura-schema-completo.cjs"
+  ],
+  "sqlDinamico": [],
+  "funcoesSemCorpo": []
+ }
+}

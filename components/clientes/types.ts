@@ -161,8 +161,14 @@ export type ClienteListaItem = {
 };
 
 export type ClienteFormData = {
+  /** PF (padrão) ou PJ (112). Na PJ, `nomeCompleto` é a razão social e o CPF fica vazio. */
+  tipoPessoa: "PF" | "PJ";
   nomeCompleto: string;
   cpf: string;
+  cnpj: string;
+  nomeFantasia: string;
+  representanteNome: string;
+  representanteCpf: string;
   rg: string;
   whatsapp: string;
   telefone: string;

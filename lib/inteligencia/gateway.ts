@@ -102,6 +102,7 @@ type Classificacao = Pick<RastreioInteligencia, "resultado" | "causa" | "fallbac
   status: number;
   codigo: string;
   erro: string;
+  motivo?: string;
 };
 
 function resultadoDoStatus(status: number): RastreioInteligencia["resultado"] {
@@ -161,6 +162,7 @@ export function classificar(error: unknown, mensagemFallback = MENSAGEM_FALLBACK
       status: error.httpStatus,
       codigo: error.code,
       erro: error.message,
+      ...(error.motivo ? { motivo: error.motivo } : {}),
       resultado: error.code === "INTELIGENCIA_DESATIVADA" ? "desativado" : resultadoDoStatus(error.httpStatus),
       causa: causaDaIA(error),
       fallback: false,
@@ -305,7 +307,7 @@ export async function atenderInteligencia(pedido: PedidoGateway, deps: Dependenc
     rastreio.codigo = falha.codigo;
     rastreio.causa = falha.causa;
     rastreio.fallback = falha.fallback;
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try {

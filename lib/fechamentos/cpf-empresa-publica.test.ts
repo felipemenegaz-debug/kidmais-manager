@@ -118,7 +118,8 @@ test('rotas: identidade pública resolvida pelo endereço; cotação aceita clie
     assert.match(post, /cpfSemRevelarCadastro: escopo\.porCodigo,/);
     assert.match(post, /crm: escopo\.porCodigo \? undefined : \{/);
     const contrato = ler('lib/contratos/services/contrato-publico.service.ts');
-    assert.match(contrato, /consultarCpfPublico\(cpfInformado, \{ clienteId: clienteContrato\.id \}\)/);
+    // Entrega B (R2-1): o documento informado (CPF ou CNPJ) é o congelado na versão; o escopo continua o cliente do contrato.
+    assert.match(contrato, /consultarCpfPublico\(informado!\.valor, \{ clienteId: clienteContrato\.id \}\)/);
     assert.match(contrato, /escopo: \{ clienteId: \(await clienteCanonicoDaVersao\(versao\)\)\.id \}/);
     assert.match(ler('lib/comercial/cotacao-publica.ts'), /incluirLegadoSemEmpresa: !escopo\.porCodigo/);
 });

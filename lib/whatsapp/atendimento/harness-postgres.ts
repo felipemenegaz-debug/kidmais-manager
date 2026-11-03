@@ -14,6 +14,7 @@ import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
+import * as cnpj from "../../cadastro/cnpj.ts";
 import { listarContratacoes } from "../../fechamentos/contratacoes.ts";
 
 /**
@@ -62,7 +63,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {
-    "../../db/postgres": postgres, "./mappers": mappers, "./normalizers": normalizers,
+    "../../db/postgres": postgres, "./mappers": mappers, "./normalizers": normalizers, "../../cadastro/cnpj.ts": cnpj,
   }).modulo as typeof import("../../clientes/repositories/cliente.repository.ts");
   const biblioteca = carregarComponente("lib/whatsapp/atendimento/prontas-servico.ts", {
     "../../clientes/repositories/cliente.repository.ts": clientes, "../../fechamentos/contratacoes.ts": { listarContratacoes },

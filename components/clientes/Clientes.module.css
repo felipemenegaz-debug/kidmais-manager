@@ -147,6 +147,14 @@
 .formGrid input, .textareaField textarea { min-height: 47px; border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; font: inherit; color: var(--ink); outline: 0; }
 .formGrid input:focus, .textareaField textarea:focus { border-color: var(--lilac); box-shadow: 0 0 0 4px rgba(149,91,225,.1); }
 .spanTwo { grid-column: span 2; }
+/* Entrega B: escolha pessoa física / jurídica. */
+.tipoPessoa { grid-column: span 2; display: flex; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; margin: 0 0 4px; }
+.tipoPessoa legend { font-size: 10px; font-weight: 850; margin-bottom: 7px; padding: 0; }
+.tipoPessoa label { flex-direction: row !important; align-items: center; gap: 8px !important; min-height: 42px; padding: 0 14px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.tipoPessoa label:has(input:checked) { border-color: var(--lilac); box-shadow: 0 0 0 3px rgba(149,91,225,.12); }
+.tipoPessoa label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.tipoPessoa input { min-height: 0 !important; accent-color: var(--lilac); }
+.tipoPessoa small { flex-basis: 100%; }
 .textareaField textarea { min-height: 105px; resize: vertical; width: 100%; }
 .formHint { display: block; color: var(--muted); line-height: 1.45; margin-top: 13px; }
 .formError { margin: 18px 30px 0; border: 1px solid var(--input-border); border-radius: 13px; background: rgba(251,191,36,.08); color: #fda4af; padding: 12px 14px; font-size: 11px; }

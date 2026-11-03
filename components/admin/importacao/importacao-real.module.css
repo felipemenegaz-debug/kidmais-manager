@@ -35,3 +35,12 @@
   .revisao .campo dd:last-of-type { grid-column: 2; grid-row: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .carregando span { animation: none; } }
+.tipoPessoa { display: flex; flex-wrap: wrap; gap: 8px; }
+.tipoPessoa button { min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--km-border); background: transparent; color: var(--km-text); font: 600 13px var(--admin-font); cursor: pointer; }
+.tipoPessoa button[aria-checked="true"] { border-color: color-mix(in srgb, var(--km-teal) 55%, transparent); background: color-mix(in srgb, var(--km-teal) 10%, transparent); }
+.tipoPessoa button:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+.recusa { margin: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .08); color: #fecaca; font-size: 13px; line-height: 1.5; }
+.bloqueios li { color: #fca5a5; }
+.alertas { margin: 6px 0 0; padding: 10px 12px 10px 28px !important; border-radius: 10px; border: 1px solid rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); color: #fde68a; }
+.revisao .campo[data-invalido="true"], .cliente[data-invalido="true"], .revisao section[data-invalido="true"] { outline: 1px solid #f87171; outline-offset: 4px; border-radius: 10px; background: rgba(248, 113, 113, .06); }
+.revisao .campo:focus-visible, .cliente:focus-visible, .revisao section[data-invalido="true"]:focus-visible { outline: 2px solid #f87171; }

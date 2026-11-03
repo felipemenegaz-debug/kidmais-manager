@@ -63,7 +63,7 @@ function resultadoPublico(i: ImportacaoLida): ResultadoImportacaoPublico | null 
   return { clienteId, clienteAcao: r.clienteAcao, pendencias, importadoEm: r.importadoEm, destino: `/clientes/${clienteId}` };
 }
 
-export type PlanoPublico = Pick<PlanoImportacao, "pronto" | "bloqueios" | "avisos" | "match">;
+export type PlanoPublico = Pick<PlanoImportacao, "pronto" | "bloqueios" | "avisos" | "match" | "tipoPessoa" | "recusa">;
 
 export type DependenciasImportacao = DependenciasGateway & {
   importacao: PortaImportacao | null;
@@ -81,7 +81,7 @@ function consultaPublica(i: ImportacaoLida): ConsultaImportacaoPublica {
   return { id: i.id, documentoId: i.documentoId, versao: i.versao, status: i.status, situacao: SITUACAO[i.status], resultado: resultadoPublico(i) };
 }
 
-const planoPublico = (p: PlanoImportacao): PlanoPublico => ({ pronto: p.pronto, bloqueios: p.bloqueios, avisos: p.avisos, match: p.match });
+const planoPublico = (p: PlanoImportacao): PlanoPublico => ({ pronto: p.pronto, bloqueios: p.bloqueios, avisos: p.avisos, match: p.match, tipoPessoa: p.tipoPessoa, recusa: p.recusa });
 
 const alvo = { importacaoId: z.string().uuid() };
 const comVersao = { ...alvo, versao: z.number().int().min(1) };
@@ -91,7 +91,7 @@ const pedidoSchema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("ler"), ...alvo }).strict(),
   // A6: consulta somente leitura pelo documento (ex.: depois de recarregar a tela). Nunca abre nem grava.
   z.object({ acao: z.literal("consultar"), documentoId: z.string().uuid() }).strict(),
-  z.object({ acao: z.literal("revisar"), ...comVersao, campoId: z.string().regex(/^[a-z]+\.[A-Za-z0-9_]{1,40}$/), valor: z.string().max(500).optional(), confirmarDivergencia: z.literal(true).optional() }).strict(),
+  z.object({ acao: z.literal("revisar"), ...comVersao, campoId: z.string().regex(/^[a-z]+\.[A-Za-z0-9_]{1,40}$/), valor: z.string().max(500).optional(), confirmarDivergencia: z.literal(true).optional(), limparEndereco: z.literal(true).optional() }).strict(),
   z.object({ acao: z.literal("cliente"), ...comVersao, decisao: decisaoSchema }).strict(),
   z.object({ acao: z.literal("opcoes-completas"), ...comVersao }).strict(),
   z.object({ acao: z.literal("simular-completa"), ...comVersao, integracao: decisoesSchema }).strict(),
@@ -173,6 +173,7 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
           campoId: entrada.campoId,
           ...(entrada.valor !== undefined ? { valor: entrada.valor } : {}),
           ...(entrada.confirmarDivergencia ? { confirmarDivergencia: true } : {}),
+          ...(entrada.limparEndereco ? { limparEndereco: true } : {}),
         });
         if ("erro" in revisado) throw new InteligenciaError("DADOS_INVALIDOS", revisado.erro, 422);
         const proxima = await gravar({ ...dados, extracao: revisado.extracao, revisados: revisado.revisados });

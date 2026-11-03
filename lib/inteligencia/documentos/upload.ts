@@ -1,6 +1,7 @@
 import { limiteConfigurado, validarArquivoEnviado, type ArquivoValidado } from "../../importacao-contrato/arquivo.ts";
 import { SCHEMA_VERSAO } from "../../importacao-contrato/extracao.ts";
 import type { ExtracaoContrato } from "../../importacao-contrato/modelo.ts";
+import type { ModeloReferencia } from "../../importacao-contrato/modelo-referencia.ts";
 import { montarRevisao } from "../../importacao-contrato/rascunho.ts";
 import type { ExtracaoRegistrada, RegistroExtracao } from "../../importacao-contrato/repositorio-documentos.ts";
 import { hojeBrasilia } from "../../financeiro/calculos.ts";
@@ -27,6 +28,11 @@ export type PortaDocumentos = {
   registrarDocumento(tx: DbExecutor, entrada: { empresaId: string; usuarioId: string; arquivo: ArquivoValidado }): Promise<{ documentoId: string; originalId: string; existente: boolean }>;
   registrarExtracao(tx: DbExecutor, extracao: RegistroExtracao): Promise<{ extracaoId: string }>;
   ultimaExtracao(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ExtracaoRegistrada | null>;
+  /**
+   * D-IMP-4: modelo ATIVO (publicado) da empresa, lido na transação dela: só as cláusulas com {{campos}} e o documento
+   * da contratada. O PDF original enviado nas configurações nunca entra. Ausente ou sem modelo ⇒ null.
+   */
+  modeloReferencia?(tx: DbExecutor, empresaId: string): Promise<{ modelo: ModeloReferencia; documentoContratada: string | null } | null>;
 };
 
 export type DependenciasDocumento = DependenciasGateway & {
@@ -73,7 +79,7 @@ export async function responderComRastreio(rastreio: RastreioInteligencia, deps:
     rastreio.codigo = falha.codigo;
     rastreio.causa = falha.causa;
     rastreio.fallback = rastreio.fallback || falha.fallback;
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try { deps.registrar(rastreio); } catch { /* O trace nunca derruba a resposta. */ }
@@ -107,7 +113,8 @@ export async function atenderDocumento(
       if (!await porta.disponivel(tx)) throw new InteligenciaError("DOCUMENTOS_INDISPONIVEIS", "O envio de documentos ainda não está disponível neste ambiente.", 503);
       const registro = await porta.registrarDocumento(tx, { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, arquivo });
       const anterior = registro.existente ? extracaoGuardada(await porta.ultimaExtracao(tx, tenant.empresaComprovada, registro.documentoId)) : null;
-      return { tenant, registro, anterior };
+      const referencia = anterior && extracaoTemDados(anterior) ? null : (await porta.modeloReferencia?.(tx, tenant.empresaComprovada)) ?? null;
+      return { tenant, registro, anterior, referencia };
     });
     // Reenvio do mesmo arquivo: devolve a extração que já existe, sem ler de novo.
     if (recepcao.anterior && extracaoTemDados(recepcao.anterior)) {
@@ -123,13 +130,18 @@ export async function atenderDocumento(
       arquivo,
       roteador: deps.roteador,
       envioExterno: envioDocumentoExternoAutorizado(deps.env),
+      modelo: recepcao.referencia?.modelo ?? null,
       alvo: { empresaId: recepcao.tenant.empresaComprovada, capacidade: "extrair_documento", correlationId: rastreio.requestId, hoje: hojeBrasilia(deps.agora()) },
     });
     anotarUsoModelo(rastreio, extracao.usos);
     if (extracao.avisos.includes("PDF_WORKER_FALHOU")) {
       throw new InteligenciaError("LEITURA_PDF_INDISPONIVEL", "Não foi possível ler o PDF agora. Tente enviar novamente; nenhum campo foi importado.", 503);
     }
-    const revisao = montarRevisao(extracao.lida, extracao.paginas, { nome: arquivo.nomeSeguro, tipo: arquivo.contentType, tamanhoBytes: arquivo.tamanhoBytes });
+    const revisao = montarRevisao(extracao.lida, extracao.paginas, { nome: arquivo.nomeSeguro, tipo: arquivo.contentType, tamanhoBytes: arquivo.tamanhoBytes }, {
+      porModelo: extracao.porModelo,
+      modeloReferencia: extracao.modeloReferencia,
+      documentoContratada: recepcao.referencia?.documentoContratada ?? null,
+    });
     const evidencias = revisao.secoes.flatMap((s) => s.campos).filter((c) => c.evidencia).map((c) => ({ campo: c.id, pagina: c.evidencia!.pagina, trecho: c.evidencia!.trecho, conferida: c.evidencia!.conferida }));
 
     await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {

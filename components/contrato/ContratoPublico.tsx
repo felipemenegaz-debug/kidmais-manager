@@ -123,7 +123,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       const response = await fetch(`/api/contratos/${contratoId}/acesso`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify({ documento: cpf }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível validar o acesso."));
@@ -148,7 +148,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       const response = await fetch(`/api/contratos/${contratoId}/identidade/iniciar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf, canal }),
+        body: JSON.stringify({ documento: cpf, canal }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível enviar o código."));
@@ -330,11 +330,11 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
           <section className={styles.card}>
             {etapa === 1 && (
               <>
-                <h2>1. Confirme seu CPF</h2>
-                <p>O CPF é usado somente para localizar o Contrato correto e liberar os canais cadastrados.</p>
+                <h2>1. Confirme seu CPF ou CNPJ</h2>
+                <p>O CPF (ou o CNPJ, se o contrato está em nome de uma empresa) é usado somente para localizar o Contrato correto e liberar os canais cadastrados.</p>
                 <label className={styles.field}>
-                  <span>CPF do contratante</span>
-                  <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" autoComplete="off" />
+                  <span>CPF ou CNPJ do contratante</span>
+                  <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="CPF ou CNPJ" autoComplete="off" />
                 </label>
                 <button className={styles.primary} disabled={carregando || !cpf.trim()} onClick={consultarCpf}>
                   {carregando ? "Validando..." : "Continuar"}

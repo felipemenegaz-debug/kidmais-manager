@@ -138,7 +138,7 @@ export async function atenderCustos(pedido: PedidoGateway, deps: DependenciasCus
     rastreio.codigo = falha.codigo;
     rastreio.causa = falha.causa;
     rastreio.fallback = falha.fallback;
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try {

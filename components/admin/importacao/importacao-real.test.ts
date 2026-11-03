@@ -4,6 +4,13 @@ import * as cliente from './cliente-importacao.ts';
 import * as revisao from '../../../lib/importacao-contrato/revisao.ts';
 import type { EtapaImportacao } from './ImportacaoReal';
 import { achar, carregarComponente, cssFalso, tique, texto, elementos } from '../teste-componente.ts';
+import * as errosFormulario from '../../../lib/ui/erros-formulario.ts';
+
+/** Mecanismo compartilhado de erros de formulário (N1/N2), real, com CSS falso. */
+const ERROS_FORMULARIO = {
+  '@/components/ui/ErrosFormulario': carregarComponente('components/ui/ErrosFormulario.tsx', { '@/lib/ui/erros-formulario': errosFormulario, './erros-formulario.module.css': cssFalso }).modulo,
+  '@/lib/ui/erros-formulario': errosFormulario,
+};
 
 type Pedido = { url: string; init: RequestInit };
 function buscador(resposta: (p: Pedido) => Promise<Response>) {
@@ -21,8 +28,8 @@ test('cancelar exige confirmação; continuar preserva revisão; falha no descar
       '@/components/admin/inteligencia/cliente-inteligencia':{decidirOperacao:async()=>{throw Error('gate não deve ser chamado na revisão');}},
       '@/components/admin/inteligencia/AcaoKidmais':{PreviewAcao:()=>null},
       '@/lib/importacao-contrato/revisao':revisao,
-      './cliente-importacao':{agirNaImportacao:async(_buscar:unknown,_estado:unknown,acao:unknown)=>{acoes.push(acao);return sucesso?{ok:true,dados:{}}:{ok:false,mensagem:'Revisão mudou em outra aba.'};}},
-      './importacao.module.css':cssFalso, './importacao-real.module.css':cssFalso, './IntegracaoContrato':{default:function IntegracaoContrato(){return null;}},
+      './cliente-importacao':{...cliente,agirNaImportacao:async(_buscar:unknown,_estado:unknown,acao:unknown)=>{acoes.push(acao);return sucesso?{ok:true,dados:{}}:{ok:false,mensagem:'Revisão mudou em outra aba.'};}},
+      './importacao.module.css':cssFalso, './importacao-real.module.css':cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato':{default:function IntegracaoContrato(){return null;}},
     });
     const props={vitrine:{etapa:'revisao',importacao,plano:null,avisos:[],ocupado:false,erro:null} as EtapaImportacao};
     let arvore=tela.render('default',props);
@@ -39,7 +46,7 @@ test('cancelar exige confirmação; continuar preserva revisão; falha no descar
     assert.deepEqual(acoes,[{acao:'descartar'}]);
     arvore=tela.render('default',props);
     if(sucesso) assert(achar(arvore,'h2','Enviar contrato'));
-    else { assert(achar(arvore,'button','Cancelar importação')); assert(achar(arvore,'p','Revisão mudou em outra aba.')); }
+    else { assert(achar(arvore,'button','Cancelar importação')); assert.equal(elementos(arvore).find((e)=>(e.type as {name?:string}).name==='AvisoGlobal')?.props.mensagem,'Revisão mudou em outra aba.'); }
   }
 });
 
@@ -102,8 +109,8 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => ({ tipo: 'ok', resposta: { tipo: 'resultado_acao', mensagem: 'Dados do contrato registrados e cliente criado.', destino: '/clientes/c1' } }) },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null },
     '@/lib/importacao-contrato/revisao': revisao,
-    './cliente-importacao': { agirNaImportacao: async () => ({ ok: true, dados: {} }) },
-    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, './IntegracaoContrato': { default: Integracao },
+    './cliente-importacao': { ...cliente, agirNaImportacao: async () => ({ ok: true, dados: {} }) },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: Integracao },
   });
   const props = { vitrine: { etapa: 'confirmacao', importacao, plano: null, rascunho, decidindo: false, erro: null } as unknown as EtapaImportacao };
   let arvore = tela.render('default', props);
@@ -126,10 +133,52 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
     'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao,
-    './cliente-importacao': { agirNaImportacao: async () => ({ ok: true, dados: {} }) },
-    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, './IntegracaoContrato': { default: Integracao },
+    './cliente-importacao': { ...cliente, agirNaImportacao: async () => ({ ok: true, dados: {} }) },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: Integracao },
   });
   const r = reaberta.render('default', { vitrine: { etapa: 'integracao', importacaoId: importacao.id, acabouDeRegistrar: false } as unknown as EtapaImportacao });
   assert.match(texto(r), /Os dados deste contrato já estão registrados/);
   assert(achar(r, Integracao));
+});
+
+test('rodada 2, P2-6/P3-7: continuar com pendência abre a edição do 1º campo e o erro fica no controle; PF escolhido aparece marcado', async () => {
+  const { ARQUIVO } = await import('../../../lib/importacao-contrato/apoio.test.ts');
+  const { NOVO, SEM_ENDERECO } = await import('../../../lib/importacao-contrato/apoio-entrega-a.test.ts');
+  const { extrairPorRegras } = await import('../../../lib/importacao-contrato/extracao.ts');
+  const { aplicarRevisao, montarRevisao } = await import('../../../lib/importacao-contrato/rascunho.ts');
+  const { montarPlano } = await import('../../../lib/importacao-contrato/plano.ts');
+  const r = aplicarRevisao(montarRevisao(extrairPorRegras(SEM_ENDERECO), SEM_ENDERECO, ARQUIVO), [], { campoId: 'contratante.tipoPessoa', valor: 'PF' });
+  assert(!('erro' in r));
+  const plano = montarPlano(r.extracao, r.revisados, NOVO, null) as unknown as cliente.PlanoPublico;
+  assert.equal(plano.pronto, false);
+  const imp = { ...importacao, extracao: r.extracao, revisados: r.revisados } as cliente.ImportacaoPublica;
+  const tela = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
+    'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
+    '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao, './cliente-importacao': cliente,
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: function IntegracaoContrato() { return null; } },
+  });
+  // Campo, TipoPessoa e mensagens são puros: expandidos para ver os controles de verdade.
+  const PUROS = new Set(['Campo', 'TipoPessoa', 'MensagemCampo', 'ResumoErros', 'AvisoGlobal']);
+  const expandir = (no: unknown): unknown => {
+    if (Array.isArray(no)) return no.map(expandir);
+    if (!no || typeof no !== 'object') return no;
+    const e = no as { type: unknown; props: Record<string, unknown> };
+    if (typeof e.type === 'function' && PUROS.has((e.type as { name: string }).name)) return expandir((e.type as (p: unknown) => unknown)(e.props));
+    return { ...e, props: { ...e.props, children: expandir(e.props?.children) } };
+  };
+  const props = { vitrine: { etapa: 'revisao', importacao: imp, plano, avisos: [], ocupado: false, erro: null } as EtapaImportacao };
+  (achar(tela.render('default', props), 'button', 'Continuar para festa e pagamentos').props.onClick as () => void)();
+  const arvore = expandir(tela.render('default', props));
+  const primeiro = cliente.errosDaRevisao(imp, plano)[0].campo;
+  const comId = elementos(arvore).filter((e) => e.props?.id === primeiro);
+  assert.equal(comId.length, 1, 'um só elemento com o ID do erro');
+  assert.equal(comId[0].type, 'input', 'o ID do erro é o do controle de edição, já aberto');
+  assert.equal(comId[0].props['aria-invalid'], true);
+  assert.equal(comId[0].props['aria-describedby'], `${primeiro}-erro`);
+  assert(elementos(arvore).some((e) => e.props?.id === `${primeiro}-erro`), 'mensagem ligada ao controle');
+  assert(achar(arvore, 'button', 'Manter como lido'), 'confirmar a leitura continua possível na edição');
+  const radios = elementos(arvore).filter((e) => e.props?.role === 'radio' && /^Pessoa /.test(texto(e)));
+  assert.deepEqual(radios.map((e) => [texto(e), e.props['aria-checked']]), [['Pessoa física', true], ['Pessoa jurídica', false]]);
+  assert.deepEqual([cliente.tipoPessoaMarcado({ id: 'contratante.tipoPessoa', rotulo: 'Tipo', valor: 'Pessoa jurídica', estado: 'PRECISA_REVISAO', origem: 'Definido pelo CNPJ lido' }, false)], [null], 'sugestão do documento não aparece marcada');
 });

@@ -12,10 +12,12 @@ const tenant = { empresaComprovada: 'e', membershipId: 'm', usuarioId: 'u', pape
 const importacao = { id: 'imp', documentoId: 'doc', extracaoId: 'ext', status: 'EM_REVISAO' as const, versao: 1, dados: {}, clienteId: null, resultado: null, criadoPor: 'u' };
 const plano = (dados: Record<string, string | null>) => ({ pronto: true, snapshot: {}, passos: [{ tipo: 'CLIENTE', acao: 'CRIAR', dados }] }) as unknown as PlanoImportacao;
 
-test('CPF, telefone, WhatsApp e e-mail do PDF chegam formatados e saem como o banco grava', async () => {
-  const fonte = await fonteDoRascunho(tx, tenant, importacao, plano({ nomeCompleto: ' Ana Souza ', cpf: '529.982.247-25', telefone: '(11) 99999-0000', whatsapp: null, email: ' Ana@Example.com ' }));
+test('CPF, telefone, WhatsApp, e-mail, RG e endereço do PDF chegam formatados e saem como o banco grava', async () => {
+  const fonte = await fonteDoRascunho(tx, tenant, importacao, plano({ nomeCompleto: ' Ana Souza ', cpf: '529.982.247-25', telefone: '(11) 99999-0000', whatsapp: null, email: ' Ana@Example.com ',
+    rg: ' 1.234.567 ', cep: '70000-000', logradouro: ' Rua das Acácias ', numero: '120', complemento: null, bairro: 'Asa Sul', cidade: 'Brasília', uf: 'df' }));
   assert.equal(fonte.clienteNovo, true);
-  const gravado = { id: 'imp', nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.com', status: 'ATIVO' };
+  const gravado = { id: 'imp', nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.com',
+    rg: '1.234.567', cep: '70000000', logradouro: 'Rua das Acácias', numero: '120', complemento: null, bairro: 'Asa Sul', cidade: 'Brasília', uf: 'DF', status: 'ATIVO' };
   assert.deepEqual(fonte.cliente, gravado);
   // O que entra no resumo/hash da simulação é idêntico ao que a confirmação relê do banco.
   assert.equal(hashCanonico(formularioCadastro(fonte.cliente)), hashCanonico(formularioCadastro(gravado)));

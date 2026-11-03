@@ -6,11 +6,13 @@ import {
   bloquearNomeAniversariante,
   buscarAniversarianteAtivoPorNome,
   buscarAniversariantePorId,
+  buscarClienteCanonicoPorCnpj,
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
   buscarResponsavelAtivoPorNome,
   cpfBloqueadoPorOutraEmpresa,
   INDICES_CPF_CANONICO,
+  INDICE_CNPJ_CANONICO,
   criarAniversariante,
   criarCliente,
   criarResponsavel,
@@ -26,8 +28,11 @@ import {
 import {
   analisarCadastroCliente,
   camposFaltantesParaContrato,
+  pessoaJuridicaDisponivel,
   validarCadastroBasicoCliente,
 } from "../../clientes/services";
+import { normalizarCnpj } from "../../cadastro/cnpj";
+import { exigirModeloCompativelNoFechamento } from "./modelo-pj";
 import { criarIdentityServiceComAmbiente } from "../../identidade/services";
 import { buscarPacoteAtivoPorId } from "../../comercial/repositories";
 import { criarFechamentoComercial } from "./fechamento.service";
@@ -46,8 +51,16 @@ import type {
 import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export type DadosClienteFechamentoPublico = {
+  /** PJ: razão social. */
   nomeCompleto: string;
+  /** PF: obrigatório. PJ: vazio (o CPF do representante não é a identidade do contratante). */
   cpf: string;
+  /** Entrega B (112): contratante PJ. Cadastro existente comprovado pelo CNPJ, ou empresa nova. */
+  cnpj?: string | null;
+  /** Só na PJ nova (opcionais, como no CRM); na PJ existente o cadastro não muda por aqui. */
+  nomeFantasia?: string | null;
+  representanteNome?: string | null;
+  representanteCpf?: string | null;
   rg?: string | null;
   telefone?: string | null;
   whatsapp?: string | null;
@@ -160,11 +173,19 @@ function diffCliente(before: ClienteRecord, after: ClienteRecord) {
   };
 }
 
+const ehPj = (dados: DadosClienteFechamentoPublico) => Boolean(dados.cnpj?.trim());
+
 function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
+  const pj = ehPj(dados);
   validarCadastroBasicoCliente({
     empresaId: null,
     nomeCompleto: dados.nomeCompleto,
+    tipoPessoa: pj ? "PJ" : "PF",
     cpf: dados.cpf,
+    cnpj: pj ? dados.cnpj : null,
+    nomeFantasia: pj ? dados.nomeFantasia : null,
+    representanteNome: pj ? dados.representanteNome : null,
+    representanteCpf: pj ? dados.representanteCpf : null,
     telefone: dados.telefone,
     whatsapp: dados.whatsapp,
     email: dados.email,
@@ -191,7 +212,7 @@ function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
     .filter(([, valor]) => !valor?.trim())
     .map(([campo]) => campo);
 
-  if (!normalizarCpf(dados.cpf) || faltantes.length > 0) {
+  if ((!pj && !normalizarCpf(dados.cpf)) || faltantes.length > 0) {
     throw new FechamentoServiceError(
       "CADASTRO_INCOMPLETO",
       "Preencha os dados cadastrais obrigatórios antes de continuar.",
@@ -223,6 +244,7 @@ async function registrarDuplicidadesNovoCliente(
     {
       nomeCompleto: dados.nomeCompleto,
       cpf: dados.cpf,
+      cnpj: dados.cnpj ?? null,
       telefone: dados.telefone,
       whatsapp: dados.whatsapp,
     },
@@ -256,6 +278,8 @@ export async function criarNovoCliente(
   empresaId: string,
   tx: DbExecutor,
 ) {
+  if (ehPj(dados)) return criarNovoClientePj(dados, input, empresaId, tx);
+  // PF: nome fantasia e representante, se vierem, são ignorados (não entram no cadastro da pessoa física).
   const cpf = normalizarCpf(dados.cpf);
   // CPF desta empresa: fluxo normal (validar a identidade, que é por empresa). Endereço por empresa: CPF de OUTRA
   // empresa não muda a resposta nem é revelado; antes da 076 (índice global) o cadastro nasce sem CPF.
@@ -344,20 +368,115 @@ export async function criarNovoCliente(
   return cliente;
 }
 
+const CNPJ_EXISTENTE = () => new FechamentoServiceError(
+  "CNPJ_EXISTENTE_REQUER_VALIDACAO",
+  "Este CNPJ já possui cadastro. Confirme a identidade para usar o cadastro existente.",
+  409,
+);
+
+/**
+ * Entrega B (decisão de Felipe, 01/11): o fechamento público também cadastra empresa (PJ) nova, só com a 112. O CNPJ é
+ * único por empresa (112): CNPJ já cadastrado nesta empresa pede a validação de identidade, como o CPF; de outra empresa
+ * não conflita nem é revelado. Razão social = nome; sem CPF e sem RG; representante opcional, como no CRM.
+ */
+async function criarNovoClientePj(
+  dados: DadosClienteFechamentoPublico,
+  input: CriarFechamentoPublicoInput,
+  empresaId: string,
+  tx: DbExecutor,
+) {
+  if (await buscarClienteCanonicoPorCnpj(dados.cnpj ?? "", empresaId, tx)) throw CNPJ_EXISTENTE();
+  let cliente: ClienteRecord;
+  try {
+    cliente = await criarCliente(
+      {
+        empresaId,
+        tipoPessoa: "PJ",
+        nomeCompleto: dados.nomeCompleto,
+        cpf: null,
+        cnpj: dados.cnpj,
+        nomeFantasia: dados.nomeFantasia,
+        representanteNome: dados.representanteNome,
+        representanteCpf: dados.representanteCpf,
+        telefone: dados.telefone,
+        whatsapp: dados.whatsapp,
+        email: dados.email,
+        cep: dados.cep,
+        logradouro: dados.logradouro,
+        numero: dados.numero,
+        complemento: dados.complemento,
+        bairro: dados.bairro,
+        cidade: dados.cidade,
+        uf: dados.uf,
+        usuarioId: null,
+      },
+      tx,
+    );
+  } catch (error) {
+    if (isUniqueViolation(error, INDICE_CNPJ_CANONICO)) throw CNPJ_EXISTENTE();
+    throw error;
+  }
+
+  await registrarDuplicidadesNovoCliente(cliente.id, empresaId, dados, tx);
+  await registrarEventoHistorico(
+    {
+      clienteId: cliente.id,
+      clienteOrigemId: cliente.id,
+      tipoEvento: "CADASTRO_CRIADO",
+      origem: "FECHAMENTO_PUBLICO",
+      entidadeTipo: "CLIENTE",
+      entidadeId: cliente.id,
+      detalhe: "Cadastro de pessoa jurídica criado durante Fechamento público.",
+      metadata: { fluxo: "FECHAMENTO_PUBLICO", tipoPessoa: "PJ" },
+    },
+    tx,
+  );
+  await registrarAuditoria(
+    {
+      clienteId: cliente.id,
+      atorTipo: "CLIENTE",
+      acao: "CLIENTE_CRIADO",
+      entidadeTipo: "CLIENTE",
+      entidadeId: cliente.id,
+      dadosDepois: { ...snapshotCliente(cliente), tipoPessoa: "PJ", cnpj: cliente.cnpj, nomeFantasia: cliente.nomeFantasia,
+        representanteNome: cliente.representanteNome, representanteCpf: cliente.representanteCpf },
+      origem: "FECHAMENTO_PUBLICO",
+      requestId: input.requestId ?? null,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+    },
+    tx,
+  );
+  return cliente;
+}
+
 async function atualizarClienteConfirmado(
   cliente: ClienteRecord,
   dados: DadosClienteFechamentoPublico,
   input: CriarFechamentoPublicoInput,
   tx: DbExecutor,
 ) {
-  const cpfRecebido = normalizarCpf(dados.cpf);
-  const cpfAtual = normalizarCpf(cliente.cpf);
-  if (!cpfAtual || cpfRecebido !== cpfAtual) {
-    throw new FechamentoServiceError(
-      "CPF_DIVERGENTE_DA_IDENTIDADE",
-      "O CPF informado não corresponde à identidade validada.",
-      409,
-    );
+  // Documento do contratante: CPF para PF, CNPJ para PJ. O tipo vem do cadastro comprovado, nunca do formulário.
+  const pj = cliente.tipoPessoa === "PJ";
+  if (pj || ehPj(dados)) {
+    const confere = pj && Boolean(cliente.cnpj) && !normalizarCpf(dados.cpf) && normalizarCnpj(dados.cnpj) === cliente.cnpj;
+    if (!confere) {
+      throw new FechamentoServiceError(
+        "DOCUMENTO_DIVERGENTE_DA_IDENTIDADE",
+        "O documento informado não corresponde à identidade validada.",
+        409,
+      );
+    }
+  } else {
+    const cpfRecebido = normalizarCpf(dados.cpf);
+    const cpfAtual = normalizarCpf(cliente.cpf);
+    if (!cpfAtual || cpfRecebido !== cpfAtual) {
+      throw new FechamentoServiceError(
+        "CPF_DIVERGENTE_DA_IDENTIDADE",
+        "O CPF informado não corresponde à identidade validada.",
+        409,
+      );
+    }
   }
 
   if (
@@ -373,7 +492,8 @@ async function atualizarClienteConfirmado(
     { tipo: "IDENTIDADE", clienteIdComprovado: cliente.id },
     {
       nomeCompleto: dados.nomeCompleto,
-      rg: dados.rg,
+      // PJ não tem RG: o campo do formulário é ignorado.
+      ...(pj ? {} : { rg: dados.rg }),
       telefone: dados.telefone,
       whatsapp: dados.whatsapp,
       email: dados.email,
@@ -639,6 +759,11 @@ export async function criarFechamentoPublicoComIdentidade(
     // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
     await travarConfiguracaoAgenda(tx, empresaDoPacote, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
 
+    // Entrega B: PJ (cadastro existente ou empresa nova) só com a 112.
+    if (ehPj(input.cliente) && !(await pessoaJuridicaDisponivel(tx))) {
+      throw new FechamentoServiceError("PJ_INDISPONIVEL", "Pessoa jurídica ainda não está disponível nesta instalação.", 409, { motivo: "MIGRACAO_PENDENTE" });
+    }
+
     let cliente: ClienteRecord;
     let clienteNovo = false;
     let cadastroAtualizado = false;
@@ -689,6 +814,7 @@ export async function criarFechamentoPublicoComIdentidade(
       cliente = await criarNovoCliente(input.cliente, input, empresaDoPacote, tx);
       clienteNovo = true;
     }
+    await exigirModeloCompativelNoFechamento(tx, cliente);
 
     const aniversariante = await resolverAniversariante(
       cliente,

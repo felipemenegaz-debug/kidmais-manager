@@ -5,6 +5,7 @@ import { PacoteAdminError } from "../../comercial/pacotes-admin.ts";
 import { gerarPdfContratoOficial } from "../documento/oficial/pdf.ts";
 import { CAMPOS_OBRIGATORIOS, REGRA_OBRIGATORIOS } from "./campos.ts";
 import { conteudoModeloSchema, problemasDoConteudo, type ConteudoModelo } from "./conteudo.ts";
+import { trechosIncompativeisPj, type TrechoIncompativelPj } from "./compatibilidade-pj.ts";
 import { aplicarContratada, contratadaEfetiva, type ContratadaConferida } from "./contratada.ts";
 import { SNAPSHOT_EXEMPLO } from "./exemplo.ts";
 import type { LeituraContrato } from "./leitura.ts";
@@ -50,6 +51,12 @@ export async function modeloContratoAtivo(tx: DbExecutor, empresaId: string): Pr
   if (!l) return null;
   const conteudo = conteudoModeloSchema.parse(l.conteudo);
   return { id: l.id, versao: Number(l.versao), conteudo, aprovadoEm: new Date(l.aprovado_em).toISOString() };
+}
+
+/** R2-2: trechos do modelo ATIVO da empresa que qualificam o contratante como PF. Sem modelo ativo (ou sem 072): nenhum. */
+export async function trechosModeloAtivoIncompativeisPj(tx: DbExecutor, empresaId: string): Promise<TrechoIncompativelPj[]> {
+  const modelo = await modeloContratoAtivo(tx, empresaId);
+  return modelo ? trechosIncompativeisPj(modelo.conteudo) : [];
 }
 
 type LinhaImp = { id: string; situacao: string; arquivo_nome: string; versao: number; modelo: string | null; avisos: string[]; revisao: RevisaoModelo | null; criado_em: Date; publicado_em: Date | null; resultado: Record<string, unknown> | null };

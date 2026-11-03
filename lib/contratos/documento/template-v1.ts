@@ -1,6 +1,7 @@
 import type { ContratoDocumentoLinha, GerarDocumentoContratoInput } from "./models.ts";
 import type { ContratoSnapshot } from "../repositories";
 import { salaoDoSnapshot } from "../repositories/models.ts";
+import { contratantePj, formatarCnpj, representanteDoContratante } from "./contratante-pj.ts";
 import {
   formatarCep,
   formatarCpf,
@@ -105,9 +106,18 @@ export function renderizarContratoTemplateV1(
     ),
 
     linha("1. IDENTIFICAÇÃO DO CONTRATANTE", "secao", 5),
-    linha(`Nome: ${s.contratante.nomeCompleto}`),
-    linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
-    linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
+    ...(contratantePj(s)
+      ? [
+          linha(`Razão social: ${s.contratante.nomeCompleto}`),
+          linha(`CNPJ: ${formatarCnpj(s.contratante.cnpj)}`),
+          ...(s.contratante.nomeFantasia ? [linha(`Nome fantasia: ${s.contratante.nomeFantasia}`)] : []),
+          linha(`Representante: ${representanteDoContratante(s)}`),
+        ]
+      : [
+          linha(`Nome: ${s.contratante.nomeCompleto}`),
+          linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
+          linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
+        ]),
     linha(`E-mail: ${textoOuNaoInformado(s.contratante.email)}`),
     linha(`Endereço: ${historico ? enderecoHistorico(s) : endereco(s)}`, "corpo", 10),
 

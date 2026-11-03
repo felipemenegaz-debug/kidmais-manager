@@ -1,0 +1,12 @@
+/* Erros de formulário (N1/N2). Vermelho só para erro; alerta continua amarelo nas telas. */
+.mensagem { display: block; margin-top: 4px; color: #fca5a5; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.resumo { margin: 12px 0; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(248, 113, 113, .5); background: rgba(248, 113, 113, .08); color: #fecaca; font-size: 13px; line-height: 1.5; }
+.resumo:focus { outline: 2px solid rgba(248, 113, 113, .7); outline-offset: 2px; }
+.resumo p { margin: 0 0 6px; font-weight: 700; }
+.resumo ul { margin: 0; padding-left: 18px; }
+.resumo a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.camadaAviso { position: fixed; left: 0; right: 0; bottom: 0; z-index: 80; display: flex; justify-content: center; padding: 0 16px 16px; pointer-events: none; }
+.aviso { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; width: min(560px, 100%); max-height: 40svh; overflow-y: auto; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(248, 113, 113, .6); background: #2a1016; color: #fee2e2; font-size: 14px; line-height: 1.5; box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
+.aviso p { margin: 0; flex: 1; overflow-wrap: anywhere; }
+.aviso button { flex: none; min-height: 32px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(254, 226, 226, .4); background: transparent; color: inherit; font: 600 13px inherit; cursor: pointer; }
+.aviso button:focus-visible { outline: 2px solid #fecaca; outline-offset: 2px; }
