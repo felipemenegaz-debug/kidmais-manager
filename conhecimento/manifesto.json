@@ -18,14 +18,14 @@
       "arquivo": "assinatura-e-plano.md",
       "id": "assinatura-e-plano",
       "titulo": "Assinatura e plano",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "633ea5a1a2f36d90d09eb4156c06a9eef2d61e4dcc6d03fa4094214c6ef89f73"
+      "sha256": "b99b7671f28947a6bbedf0f633228a4cd75a81ecf38984131ed44cf8ffacb95f"
     },
     {
       "arquivo": "clientes.md",

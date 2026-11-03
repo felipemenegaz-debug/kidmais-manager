@@ -31,6 +31,8 @@ Só quem tem acesso de Gestão contrata, paga ou cancela. Quem é Equipe vê a s
 
 O acesso muda quando o pagamento é confirmado. Se houver pagamento pendente, use **Continuar pagamento**.
 
+Se você começou a contratar um plano e ainda não pagou, o quadro mostra o botão **Retomar**, com o nome do plano e o valor, no lugar dos botões **Assinar**. Clique nele para continuar a mesma contratação. Enquanto ela estiver em aberto, o plano e o ciclo não mudam por essa tela. Para trocar, fale com o suporte.
+
 Se a tela disser que a contratação on-line ainda não está disponível, clique em **Fale com a Kidmais**.
 
 ## Como cancelar
