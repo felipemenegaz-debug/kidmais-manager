@@ -39,6 +39,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
     const [aviso, setAviso] = useState('');
     const [chaveCancelamento, setChaveCancelamento] = useState('');
     const [garantia, setGarantia] = useState<{ valorCentavos: number } | null>(null);
+    const [comProtocolo, setComProtocolo] = useState(false);
     const [cicloPlano, setCicloPlano] = useState<'MENSAL' | 'ANUAL'>('MENSAL');
     const a = dados.assinatura;
     if (!a)
@@ -80,12 +81,14 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         }
     }
 
-    /** P3-9: durante a garantia, o formulário de cancelar indica o arrependimento integral (opções calculadas no servidor). */
+    /** P3-9: durante a garantia, o formulário de cancelar indica o arrependimento integral (opções calculadas no servidor).
+     *  A mesma consulta diz se o ambiente registra protocolo (089): sem confirmação, o formulário não promete protocolo. */
     async function verGarantia() {
-        setGarantia(null);
+        setGarantia(null); setComProtocolo(false);
         try {
             const r = await adminFetch('/api/admin/assinatura/devolucao?opcoes=1');
-            const j = await r.json().catch(() => null) as { ok?: boolean; data?: { opcoes?: { arrependimento?: { disponivel?: boolean; valorCentavos?: number } } | null } } | null;
+            const j = await r.json().catch(() => null) as { ok?: boolean; data?: { instalado?: boolean; opcoes?: { arrependimento?: { disponivel?: boolean; valorCentavos?: number } } | null } } | null;
+            setComProtocolo(j?.ok === true && j.data?.instalado === true);
             const o = j?.ok ? j.data?.opcoes?.arrependimento : null;
             if (o?.disponivel && typeof o.valorCentavos === 'number') setGarantia({ valorCentavos: o.valorCentavos });
         }
@@ -153,7 +156,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
             <button type="button" className="danger" disabled={ocupado} onClick={() => { setCancelando(true); setChaveCancelamento(novaChave()); setErro(''); setAviso(''); void verGarantia(); }}>Cancelar ao fim do período…</button>
         </p>}
         {cancelando && <form onSubmit={(e) => { e.preventDefault(); if (senha) void cancelar(); }} data-cancelamento>
-            <p>Sem multa. A renovação é cancelada e o acesso completo continua até {a.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}. Depois disso a empresa fica em somente leitura por 60 dias, com exportação. Cobranças em aberto são removidas; nada é apagado. Você recebe um protocolo na hora.</p>
+            <p>Sem multa. A renovação é cancelada e o acesso completo continua até {a.periodoAtualFim ? dataCurta(a.periodoAtualFim) : 'o fim do período pago'}. Depois disso a empresa fica em somente leitura por 60 dias, com exportação. Cobranças em aberto são removidas; nada é apagado.{comProtocolo && ' Você recebe um protocolo na hora.'}</p>
             {garantia && <p role="note" data-aviso-garantia><strong>Você está nos 7 dias da primeira ativação paga.</strong> Em vez de cancelar só a renovação, você pode desistir com devolução integral de {reais(garantia.valorCentavos)} na seção “Cancelamento e devolução”, logo abaixo.</p>}
             <label>Motivo (opcional)<input value={motivo} maxLength={500} onChange={(e) => setMotivo(e.target.value)} /></label>
             <label>Sua senha<input type="password" autoComplete="current-password" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} required /></label>
