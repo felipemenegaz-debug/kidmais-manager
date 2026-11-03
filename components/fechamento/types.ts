@@ -61,6 +61,12 @@ export type FechamentoForm = {
 
   nomeCliente: string;
   cpf: string;
+  /** Entrega B: preenchido só para cliente PJ já cadastrado, comprovado pelo CNPJ (somente leitura na tela). */
+  cnpj?: string;
+  /** Só na PJ nova (opcionais, como no CRM). */
+  nomeFantasia?: string;
+  representanteNome?: string;
+  representanteCpf?: string;
   rg: string;
   email: string;
   telefone: string;

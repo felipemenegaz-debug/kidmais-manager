@@ -1,4 +1,5 @@
-import { cadastroContratualSchema, formularioCadastro, type CadastroConferido } from '../../clientes/cadastro-contratual.ts';
+import { cadastroContratualDoTipo, formularioCadastro, type CadastroConferido, type DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
+import { formatarCnpj } from '../documento/contratante-pj.ts';
 import {
   diagnosticarSalaoNoDestino, escolherSalaoDoContrato, escopoPorSalao, salaoAtivoDoEscopo, salaoServeNoDestino, saloesDoEscopoImportacao,
   TEXTO_MOTIVO_SALAO, type MotivoSalaoNaoServe,
@@ -150,6 +151,14 @@ async function salaoDoPedido(tx: DbExecutor, empresaId: string, d: DecisoesInteg
   return { porSalao: true, salao, bloqueio: salao ? null : 'O salão escolhido não está ativo nesta unidade. Escolha outro salão.' };
 }
 
+/**
+ * Entrega B: identificação da PJ só para exibir na conferência (não editável aqui; R2-5). PF não ganha chave nova.
+ */
+function dadosPjDaTela(c: DadosPjCliente) {
+  if (c.tipoPessoa !== 'PJ') return {};
+  return { pessoaJuridica: { cnpj: formatarCnpj(c.cnpj ?? ''), nomeFantasia: c.nomeFantasia || null, representante: c.representanteNome || null } };
+}
+
 /** Fonte interna para o preview anterior ao cadastro. Nunca é aceita de um corpo HTTP. */
 export type FonteIntegracaoRascunho = {
   importacao: repo.ImportacaoParaIntegrar & { snapshot: NonNullable<repo.ImportacaoParaIntegrar['snapshot']> };
@@ -179,7 +188,8 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   const clienteAtual = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
   if (!clienteAtual) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
   const cliente = { ...clienteAtual, ...decisoes.cadastro };
-  const cadastro = cadastroContratualSchema.safeParse(formularioCadastro(cliente));
+  const pj = clienteAtual.tipoPessoa === 'PJ';
+  const cadastro = cadastroContratualDoTipo(clienteAtual.tipoPessoa).safeParse(formularioCadastro(cliente));
   const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
@@ -200,7 +210,9 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   avaliacao.resumo.cadastro = formularioCadastro(cliente);
   // O cadastro lido também integra a revisão: não sobrescrever uma edição concorrente do CRM.
   avaliacao.resumo.cadastroFonteHash = hashCanonico(formularioCadastro(clienteAtual));
-  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
+  if (!cadastro.success) avaliacao.bloqueios.push(pj
+    ? 'Complete os dados do contratante: razão social e WhatsApp (ou telefone já cadastrado) são obrigatórios; CPF e RG ficam em branco na pessoa jurídica; e-mail é opcional e o endereço, se informado, precisa estar completo.'
+    : 'Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
   if (clienteAtual.cpf && decisoes.cadastro && clienteAtual.cpf.replace(/\D/g, '') !== decisoes.cadastro.cpf) avaliacao.bloqueios.push('O CPF do cliente vinculado não pode ser substituído. Confira o vínculo na etapa do cliente.');
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
@@ -272,7 +284,7 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
       return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos, contratoCancelado: vinculo.contratoCancelado };
     })() : null,
-    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente) } : null,
+    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente), ...dadosPjDaTela(cliente) } : null,
     documento: {
       pacote: importacao.snapshot.pacote?.nome ?? null,
       aniversariante: importacao.snapshot.evento?.aniversariante ?? null,
@@ -315,7 +327,7 @@ export async function opcoesIntegracaoRascunho(tx: DbExecutor, tenant: TenantCom
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   return {
     disponivel: true, hoje, integracao: null,
-    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente) },
+    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente), ...dadosPjDaTela(fonte.cliente) },
     documento: { pacote: snapshot.pacote?.nome ?? null, aniversariante: snapshot.evento?.aniversariante ?? null, tema: snapshot.evento?.tema ?? null },
     sugestao: { ...sugestaoInicial(snapshot), recebimentosDocumento: leituraRecebimentosGuardada(fonte.importacao.recebimentosDocumento) },
     // Mesma origem das opções da tela comum (P2-4).

@@ -15,7 +15,8 @@ import type { ImportacaoLida } from "./repositorio-importacao.ts";
  */
 export type ServicosImportacao = {
   cadastrarCliente(tx: DbExecutor, empresaId: string, dados: DadosClienteNovo, contexto: { usuarioId: string; requestId: string }): Promise<{ clienteId: string }>;
-  conferirCliente(tx: DbExecutor, empresaId: string, clienteId: string): Promise<void>;
+  /** Confere o cliente no tenant e devolve o tipo e o CNPJ gravados (relidos na transação). */
+  conferirCliente(tx: DbExecutor, empresaId: string, clienteId: string): Promise<{ tipoPessoa: "PF" | "PJ"; cnpj: string | null } | void>;
   atualizarImportacao(tx: DbExecutor, empresaId: string, importacao: ImportacaoLida, versaoEsperada: number): Promise<boolean>;
 };
 
@@ -37,17 +38,26 @@ export async function executarImportacao(
 ) {
   const { importacao, plano } = entrada;
   if (importacao.status !== "EM_REVISAO") throw new ImportacaoError("IMPORTACAO_ENCERRADA", "Esta importação já foi encerrada.");
-  // R21-2 (defesa em profundidade): só cliente pessoa física é cadastrado ou vinculado nesta entrega.
-  if (plano.recusa || plano.tipoPessoa !== "PF") throw new ImportacaoError("PJ_INDISPONIVEL", plano.recusa?.mensagem ?? "Confirme se o contratante é pessoa física ou jurídica.");
+  // R21-2 (defesa em profundidade): PJ só com a 112 (o plano já recusou sem ela); tipo indefinido nunca vira cadastro.
+  if (plano.recusa) throw new ImportacaoError("PJ_INDISPONIVEL", plano.recusa.mensagem);
+  if (plano.tipoPessoa !== "PF" && plano.tipoPessoa !== "PJ") throw new ImportacaoError("IMPORTACAO_BLOQUEADA", "Confirme se o contratante é pessoa física ou jurídica.");
   if (!plano.pronto) throw new ImportacaoError("IMPORTACAO_BLOQUEADA", plano.bloqueios[0] ?? "A importação ainda tem pendências.");
   const passoCliente = plano.passos.find((p) => p.tipo === "CLIENTE");
   if (!passoCliente || passoCliente.tipo !== "CLIENTE") throw new ImportacaoError("IMPORTACAO_BLOQUEADA", "Defina o cliente antes de importar.");
 
   let clienteId: string;
   if (passoCliente.acao === "VINCULAR") {
-    await servicos.conferirCliente(tx, entrada.empresaId, passoCliente.clienteId);
+    const gravado = await servicos.conferirCliente(tx, entrada.empresaId, passoCliente.clienteId);
+    // R2-5: o cliente vinculado é do mesmo tipo do contrato; na PJ, com o mesmo CNPJ quando o contrato traz CNPJ.
+    if (gravado && gravado.tipoPessoa !== plano.tipoPessoa) {
+      throw new ImportacaoError("TIPO_PESSOA_DIVERGENTE", "O cliente escolhido não é do mesmo tipo de pessoa do contrato. Escolha outro cliente ou crie um novo.");
+    }
+    if (gravado && plano.tipoPessoa === "PJ" && gravado.cnpj !== (plano.cnpj ?? null)) {
+      throw new ImportacaoError("TIPO_PESSOA_DIVERGENTE", "O CNPJ do cliente escolhido é diferente do CNPJ do contrato. Escolha outro cliente ou crie um novo.");
+    }
     clienteId = passoCliente.clienteId;
   } else {
+    if ((passoCliente.dados.tipoPessoa ?? "PF") !== plano.tipoPessoa) throw new ImportacaoError("IMPORTACAO_BLOQUEADA", "Confirme se o contratante é pessoa física ou jurídica.");
     clienteId = (await servicos.cadastrarCliente(tx, entrada.empresaId, passoCliente.dados, { usuarioId: entrada.usuarioId, requestId: entrada.requestId })).clienteId;
   }
 

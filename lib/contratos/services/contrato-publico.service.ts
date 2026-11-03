@@ -2,6 +2,8 @@ import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../assinatura-pa
 import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
 import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
+import { normalizarCnpj } from "../../cadastro/cnpj";
+import { classificarDocumentoIdentidade, documentoDoSnapshot, mesmoDocumento } from "../../identidade/documento";
 import {
   buscarClienteCanonicoPorId,
   registrarAuditoria,
@@ -133,7 +135,9 @@ async function clienteCanonicoDaVersao(
 
   if ('revisaoOperacional' in versao.snapshot &&
       (cliente.id !== versao.snapshot.contratante.clienteId ||
-       normalizarCpf(cliente.cpf) !== normalizarCpf(versao.snapshot.contratante.cpf))) {
+       normalizarCpf(cliente.cpf) !== normalizarCpf(versao.snapshot.contratante.cpf) ||
+       // PJ: o CNPJ é a identidade; PF: nenhum dos dois lados tem CNPJ.
+       (normalizarCnpj(cliente.cnpj) || null) !== (normalizarCnpj(versao.snapshot.contratante.cnpj) || null))) {
     throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES',
       'A identidade do contratante mudou. Cancele a proposta e prepare uma nova versão.', 409);
   }
@@ -201,14 +205,13 @@ export async function consultarAcessoContrato(input: {
   cpf: string;
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId);
-  const cpfInformado = normalizarCpf(input.cpf);
-  const cpfSnapshot = normalizarCpf(versao.snapshot.contratante.cpf);
+  // R2-1: documento informado == documento congelado (CPF na PF, CNPJ na PJ). O CPF do representante não abre nada.
+  const informado = classificarDocumentoIdentidade(input.cpf);
+  if (!mesmoDocumento(informado, documentoDoSnapshot(versao.snapshot.contratante))) acessoNegado();
 
-  if (!cpfInformado || !cpfSnapshot || cpfInformado !== cpfSnapshot) acessoNegado();
-
-  // Escopo = o cliente canônico do próprio contrato: o CPF nunca identifica cadastro de outra empresa.
+  // Escopo = o cliente canônico do próprio contrato: o documento nunca identifica cadastro de outra empresa.
   const clienteContrato = await clienteCanonicoDaVersao(versao);
-  const consulta = await consultarCpfPublico(cpfInformado, { clienteId: clienteContrato.id });
+  const consulta = await consultarCpfPublico(informado!.valor, { clienteId: clienteContrato.id });
   if (consulta.situacao === "NOVO_CLIENTE") acessoNegado();
 
   return {
@@ -652,6 +655,8 @@ export async function assinarContratoPublico(
           documentoPdfHash: documento.pdfHash,
           documentoTemplateVersao: documento.templateVersao,
           aceiteMetodo: "OTP",
+          // R2-1: documento usado na prova (o do snapshot, conferido no acesso).
+          aceiteTipoDocumento: versao.snapshot.contratante.tipoPessoa === "PJ" ? "CNPJ" : "CPF",
           validacaoId: prova.validacaoId,
         },
         origem: "CONTRATO_PUBLICO",

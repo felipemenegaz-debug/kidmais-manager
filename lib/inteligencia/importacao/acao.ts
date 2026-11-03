@@ -8,6 +8,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import type { CampoExtraido, ExtracaoContrato } from "../../importacao-contrato/modelo.ts";
 import { classificarMatch, montarPlano, type DecisaoCliente, type PlanoImportacao } from "../../importacao-contrato/plano.ts";
 import { completarRevisao, dadosNormalizados } from "../../importacao-contrato/rascunho.ts";
+import { buscaDoCliente } from "../../importacao-contrato/plano.ts";
 import type { AnaliseDuplicidade } from "../../importacao-contrato/plano.ts";
 import type { ExtracaoRegistrada } from "../../importacao-contrato/repositorio-documentos.ts";
 import type { ImportacaoLida } from "../../importacao-contrato/repositorio-importacao.ts";
@@ -82,7 +83,9 @@ export type PortaImportacao = {
    * (DESCARTADA, com o resultado anterior preservado em dados). true = substituída; false = nada mudou.
    */
   substituirImportacaoCancelada?(tx: DbExecutor, empresaId: string, i: ImportacaoLida, usuarioId: string): Promise<boolean>;
-  analisarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null }): Promise<AnaliseDuplicidade>;
+  analisarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; cnpj?: string | null; telefone: string | null; whatsapp: string | null; email: string | null }): Promise<AnaliseDuplicidade>;
+  /** Entrega B: a 112 está aplicada (conferida na transação, sem cache). Ausente = PJ recusada. */
+  pessoaJuridicaDisponivel?(tx: DbExecutor): Promise<boolean>;
   executar(tx: DbExecutor, entrada: { empresaId: string; usuarioId: string; requestId: string; importacao: ImportacaoLida; plano: PlanoImportacao; agora: string }): Promise<{ clienteId: string; clienteAcao: "VINCULAR" | "CRIAR"; pendencias: string[] }>;
 };
 
@@ -96,11 +99,12 @@ export function dadosDaImportacao(i: ImportacaoLida): DadosImportacao {
 /** Busca de cliente no tenant + plano. Usada no preview da tela, no preview do gate e de novo no clique. */
 export async function planejar(tx: DbExecutor, empresaId: string, porta: PortaImportacao, dados: DadosImportacao): Promise<PlanoImportacao> {
   const normal = dadosNormalizados(dados.extracao.secoes.flatMap((s) => s.campos));
-  const c = normal.contratante;
-  const analise = c.nome && c.nome.trim().length >= 3
-    ? await porta.analisarCliente(tx, empresaId, { nomeCompleto: c.nome, cpf: c.cpf, telefone: c.telefone, whatsapp: c.whatsapp, email: c.email })
-    : null;
-  return montarPlano(dados.extracao, dados.revisados, classificarMatch(normal, analise), dados.decisaoCliente);
+  // Entrega B (R2-1/R2-5): na PJ a chave é o CNPJ (só com a 112, conferida na transação); o CPF não é procurado.
+  const previa = buscaDoCliente(dados.extracao, false);
+  const pessoaJuridica = previa.tipoPessoa === "PJ" && (await porta.pessoaJuridicaDisponivel?.(tx)) === true;
+  const { tipoPessoa, busca } = pessoaJuridica ? buscaDoCliente(dados.extracao, true) : previa;
+  const analise = busca ? await porta.analisarCliente(tx, empresaId, busca) : null;
+  return montarPlano(dados.extracao, dados.revisados, classificarMatch(normal, analise, tipoPessoa), dados.decisaoCliente, { pessoaJuridica });
 }
 
 export function hashPlano(plano: PlanoImportacao) {

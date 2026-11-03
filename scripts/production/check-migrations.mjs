@@ -197,6 +197,11 @@ const approvedFiles = [
   // (índice parcial), sucessor obrigatório por gatilho diferido. Quebra o código anterior: código compatível antes (§3).
   // Postcheck GERADO do contrato lib/assinatura/renovacao-schema.ts. 109 conferida livre em 29/10 (clones, vault).
   '20261029_109_renovacao_substituta.sql',
+  // 112: cliente pessoa jurídica (Entrega B do plano "importação de contrato com dados completos", rev. 2.1 aprovado pelo
+  // Astra): tipo_pessoa, cnpj com DV no banco, razão social, nome fantasia e representante; CNPJ único por empresa (molde da
+  // 076). Aditiva; rollback recusa qualquer dado de PJ. Código compatível antes (sem a 112 recusa PJ). 110/111 reservadas pela
+  // satisfação (só locais); 112 conferida livre em 01/11 (clones, vault).
+  '20261101_112_clientes_pessoa_juridica.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -225,7 +230,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -273,7 +278,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

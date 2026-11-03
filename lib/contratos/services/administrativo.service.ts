@@ -14,6 +14,7 @@ import { guardarDocumento, lerDocumento } from '../storage/postgres';
 import { lerBaseDocumentoContrato } from '../documento/base-documento';
 import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, MENSAGEM_SEM_TEMPLATE_OFICIAL } from '../documento/fonte';
 import { renderizarModeloEmpresa } from '../modelo-empresa/renderizar';
+import { MENSAGEM_MODELO_INCOMPATIVEL_PJ, trechosIncompativeisPj } from '../modelo-empresa/compatibilidade-pj';
 import { edicaoFestaSchema } from '../../fechamentos/services/edicao-administrativa-schema';
 import { editarFechamentoAdministrativo } from '../../fechamentos/services/edicao-administrativa.service';
 import { buscarFechamentoPorIdParaAtualizacao, buscarFechamentoPorId, empresaDoFechamentoSemTrava } from '../../fechamentos/repositories';
@@ -150,6 +151,11 @@ export async function gerarDocumentoDaVersao(tx: DbExecutor, v: ContratoVersaoRe
     const { modeloEmpresa, base } = await lerBaseDocumentoContrato(tx, empresaAutorizada);
     if (fonteDoDocumentoContrato({ ...base, pacoteCodigo: v.snapshot.evento.pacote.codigo }) === 'SEM_MODELO_EMPRESA')
         conflito(MENSAGEM_SEM_MODELO_EMPRESA);
+    // R2-2: a versão PJ pode ter sido gerada antes de um modelo legado ser publicado; confere de novo no PDF.
+    if (modeloEmpresa && v.snapshot.contratante.tipoPessoa === 'PJ') {
+        const trechos = trechosIncompativeisPj(modeloEmpresa.conteudo);
+        if (trechos.length) throw new ContratoServiceError('MODELO_INCOMPATIVEL_PJ', MENSAGEM_MODELO_INCOMPATIVEL_PJ, 409, { trechos });
+    }
     const rendered = modeloEmpresa
         ? renderizarModeloEmpresa(modeloEmpresa, { snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash })
         : renderizarContratoOficial({ snapshot: v.snapshot, numeroVersao: v.numeroVersao, snapshotHash: v.snapshotHash });

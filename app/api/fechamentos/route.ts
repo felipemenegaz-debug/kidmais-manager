@@ -42,7 +42,13 @@ const fechamentoSchema = z.object({
   salaoPreferido: z.string().uuid().nullable().optional(),
 
   nomeCliente: z.string().trim().min(3),
-  cpf: z.string().min(11),
+  // PF: CPF obrigatório. PJ já cadastrada (Entrega B): CNPJ no lugar do CPF; o serviço confere o tipo no cadastro.
+  cpf: z.string().max(20).default(""),
+  cnpj: z.string().trim().max(20).optional(),
+  // PJ nova: opcionais, validados no serviço como no CRM.
+  nomeFantasia: z.string().trim().max(180).optional(),
+  representanteNome: z.string().trim().max(180).optional(),
+  representanteCpf: z.string().trim().max(20).optional(),
   rg: z.string().trim().max(30).optional(),
   email: z.string().trim().email(),
   telefone: z.string().optional(),
@@ -62,7 +68,8 @@ const fechamentoSchema = z.object({
   temaFesta: z.string().trim().max(200).optional(),
 
 
-}).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
+}).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido)
+  .refine((d) => Boolean(d.cnpj) || d.cpf.length >= 11, { path: ["cpf"], message: "Informe o CPF." });
 
 function requestMetadata(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -285,6 +292,10 @@ export async function POST(request: NextRequest) {
       cliente: {
         nomeCompleto: dados.data.nomeCliente,
         cpf: dados.data.cpf,
+        cnpj: dados.data.cnpj || null,
+        nomeFantasia: dados.data.nomeFantasia || null,
+        representanteNome: dados.data.representanteNome || null,
+        representanteCpf: dados.data.representanteCpf || null,
         rg: dados.data.rg,
         telefone: dados.data.telefone,
         whatsapp: dados.data.whatsapp,

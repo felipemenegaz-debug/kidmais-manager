@@ -10,6 +10,8 @@ import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo
 import { erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { AvisoGlobal, ResumoErros } from '@/components/ui/ErrosFormulario';
 import { focarPrimeiroErro, type ErroCampo } from '@/lib/ui/erros-formulario';
+import { formatarCnpj } from '@/lib/contratos/documento/contratante-pj';
+import { MENSAGEM_MODELO_INCOMPATIVEL_PJ } from '@/lib/contratos/modelo-empresa/compatibilidade-pj';
 
 /** ID estável de cada controle (N1/N2) e ordem visual do formulário, para o resumo e o foco no primeiro erro. */
 const idFechamento = (campo: string) => `fechamento-${campo}`;
@@ -296,6 +298,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         ...pendenciasAdicionais.map(mensagem => ({ campo: '', mensagem })),
     ];
     const nomeAniversariante = contexto?.aniversariantes.find(a => a.id === form.aniversarianteId)?.nome;
+    const modeloBloqueiaPj = Boolean(contexto?.modeloIncompativelPj?.length);
     const pagamentoNome = form.formaPagamento === 'pix_avista' ? 'PIX à vista' : form.formaPagamento === 'pix_parcelado' ? 'PIX parcelado' : 'Cartão Cielo';
     function erroCampo(campo: string) { return tentouRevisar && errosCampos[campo] ? <small id={`pendencia-${campo}`} className={styles.error}>{errosCampos[campo]}</small> : null; }
     function acessibilidade(campo: string) {
@@ -316,8 +319,16 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     return <main className={styles.page}>
         <h1>{revisando ? 'Revise antes de criar' : 'Preparar contratação'}</h1><p className={styles.intro}>Confira cliente, festa e pagamento. O contrato segue pelo fluxo comercial existente.</p>
         <section className={styles.card}><h2>Cliente</h2><p>Cliente: <strong>{contexto.cliente.nomeCompleto}</strong> — cadastro completo.</p>
-        <p>CPF: {contexto.cliente.cpf?.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '***.$2.$3-**')}</p>
+        {contexto.cliente.tipoPessoa === 'PJ'
+            ? <p>Pessoa jurídica · CNPJ: {formatarCnpj(contexto.cliente.cnpj)}</p>
+            : <p>CPF: {contexto.cliente.cpf?.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '***.$2.$3-**')}</p>}
         <Link href={`/clientes/${clienteId}`}>Conferir cadastro no CRM</Link></section>
+        {/* R2-2: PJ com modelo da empresa que qualifica o contratante como PF. O servidor recusa o envio; a tela avisa antes. */}
+        {modeloBloqueiaPj && <section className={styles.card} role="alert" aria-label="Modelo de contrato incompatível">
+            <p>{MENSAGEM_MODELO_INCOMPATIVEL_PJ}</p>
+            <ul>{contexto.modeloIncompativelPj.map(t => <li key={`${t.local}-${t.trecho}`}>{t.local}: {t.motivo}</li>)}</ul>
+            <Link href="/admin/configuracoes/modelo-contrato">Abrir o modelo de contrato</Link>
+        </section>}
         {/* Erro que não é de campo (servidor, agenda): aviso fixo, visível de qualquer ponto do formulário. */}
         <AvisoGlobal mensagem={erro} onFechar={() => setErro('')} />
         {avisoPreparacao && <p role="status">{avisoPreparacao}</p>}
@@ -378,7 +389,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 <section className={styles.card}><h2>Detalhes da contratação</h2><p>Buffet: {form.buffetDefinicao === 'agora' ? 'Definido nesta proposta' : 'Definir depois'}</p>{form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => form[key] ? <p key={key}>{label}: {form[key]}</p> : null)}<p>Adicionais: {form.adicionaisSelecionados.length ? form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis?.find(a => a.id === id); const ops = (form.adicionaisEscolhas?.[id] ?? []).map(op => a?.escolhas?.itens.find(i => i.id === op)?.nome).filter(Boolean); return `${a?.nome ?? id}${a && aceitaQuantidade(a.unidadeCobranca) ? ` × ${form.adicionaisQuantidades?.[id] ?? 1}` : ''}${ops.length ? ` (${ops.join(', ')})` : ''}`; }).join(', ') : 'Nenhum'}</p><p>Responsável adicional: {contexto.responsaveis.find(r => r.id === form.responsavelAdicionalId)?.nome ?? 'Nenhum'}</p>{form.alteracoesPacote && <p>Alterações do pacote: {form.alteracoesPacote}</p>}{form.observacoesCliente && <p>Observações do cliente: {form.observacoesCliente}</p>}{form.observacoesEquipe && <p>Observações da equipe: {form.observacoesEquipe}</p>}</section>
             </div>
             {tentouRevisar && !revisando && <ResumoErros id="fechamento-erros" erros={errosLista} titulo="Antes de continuar, corrija:" />}
-            <div className={styles.actions}>{revisando && <button type="button" disabled={enviando} onClick={() => { setRevisando(false); requestAnimationFrame(() => edicaoRef.current?.querySelector<HTMLElement>('select, input')?.focus()); }}>Voltar e corrigir</button>}<button type="submit" disabled={enviando || incerto}>{enviando ? 'Criando fechamento…' : revisando ? 'Confirmar e criar fechamento' : 'Revisar contratação'}</button></div>
+            <div className={styles.actions}>{revisando && <button type="button" disabled={enviando} onClick={() => { setRevisando(false); requestAnimationFrame(() => edicaoRef.current?.querySelector<HTMLElement>('select, input')?.focus()); }}>Voltar e corrigir</button>}<button type="submit" disabled={enviando || incerto || modeloBloqueiaPj}>{enviando ? 'Criando fechamento…' : revisando ? 'Confirmar e criar fechamento' : 'Revisar contratação'}</button></div>
         </form><aside className={styles.summary} aria-label="Resumo atualizado"><h2>Resumo da contratação</h2>{resumo}<hr/><p>Valor comercial proposto</p><strong>{form.valorCombinado ? `R$ ${form.valorCombinado}` : 'Valor pendente'}</strong><p>Preço oficial calculado pelo servidor ao concluir.</p>{pendencias.length > 0 && <div className={styles.pending}><strong>Antes de continuar</strong><ul>{pendencias.map(item => <li key={item}>{item}</li>)}</ul></div>}<p>Criar o fechamento inicia a contratação. Revisão comercial, geração do contrato e assinaturas seguem nas etapas próprias.</p></aside></div>
     </main>;
 }

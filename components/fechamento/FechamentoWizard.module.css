@@ -964,6 +964,10 @@
   line-height: 1.55;
 }
 .identificationPanel .field { max-width: 360px; }
+/* Rodada 2 (Entrega B): escolha CPF/CNPJ define o teclado do campo no celular. */
+.documentChoice { display: inline-flex; gap: 4px; margin-bottom: 14px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: #fff; }
+.documentChoice button { padding: 8px 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; }
+.documentChoice .documentChoiceSelected { background: linear-gradient(135deg, var(--blue), var(--purple)); color: #fff; }
 
 .foundBadge {
   display: inline-flex;

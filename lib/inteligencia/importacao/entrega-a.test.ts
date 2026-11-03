@@ -54,9 +54,10 @@ test("PJ_INDISPONIVEL nas duas confirmações (registro e conclusão integrada):
       assert.ok(erro instanceof InteligenciaError, `${etapa}: ${String(erro)}`);
       assert.equal(erro.code, "PJ_INDISPONIVEL");
       assert.equal(erro.httpStatus, 409);
-      assert.equal(erro.motivo, "ENTREGA_A");
+      // Entrega B: a porta sem `pessoaJuridicaDisponivel` (ou sem a 112) recusa com MIGRACAO_PENDENTE.
+      assert.equal(erro.motivo, "MIGRACAO_PENDENTE");
       const falha = classificar(erro);
-      assert.deepEqual([falha.status, falha.codigo, falha.motivo], [409, "PJ_INDISPONIVEL", "ENTREGA_A"]);
+      assert.deepEqual([falha.status, falha.codigo, falha.motivo], [409, "PJ_INDISPONIVEL", "MIGRACAO_PENDENTE"]);
     }
   }
   assert.deepEqual(gravados, [], "nenhum cadastro, simulação ou integração com contratante PJ");

@@ -12,7 +12,13 @@ type ClienteRow = {
   id: string;
   empresa_id: string | null;
   nome_completo: string;
+  tipo_pessoa: string | null;
   cpf: string | null;
+  cnpj: string | null;
+  razao_social: string | null;
+  nome_fantasia: string | null;
+  representante_nome: string | null;
+  representante_cpf: string | null;
   rg: string | null;
   telefone: string | null;
   whatsapp: string | null;
@@ -142,7 +148,14 @@ export function mapCliente(row: ClienteRow): ClienteRecord {
     id: row.id,
     empresaId: row.empresa_id,
     nomeCompleto: row.nome_completo,
+    // Sem a 112 a coluna não existe (null): todo cliente é PF.
+    tipoPessoa: row.tipo_pessoa === "PJ" ? "PJ" : "PF",
     cpf: row.cpf,
+    cnpj: row.cnpj ?? null,
+    razaoSocial: row.razao_social ?? null,
+    nomeFantasia: row.nome_fantasia ?? null,
+    representanteNome: row.representante_nome ?? null,
+    representanteCpf: row.representante_cpf ?? null,
     rg: row.rg,
     telefone: row.telefone,
     whatsapp: row.whatsapp,

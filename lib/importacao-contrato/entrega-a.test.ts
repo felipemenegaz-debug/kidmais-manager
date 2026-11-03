@@ -85,7 +85,8 @@ test("outra empresa PJ: CNPJ do contratante, representante separado; plano recus
   const confirmado = confirmarTudo(revisao);
   const plano = montarPlano(confirmado.extracao, confirmado.revisados, NOVO, null);
   assert.equal(plano.pronto, false);
-  assert.deepEqual(plano.recusa, { codigo: "PJ_INDISPONIVEL", motivo: "ENTREGA_A", mensagem: MENSAGEM_PJ_INDISPONIVEL });
+  // Entrega B: sem a 112 (opção ausente) a PJ é recusada com o motivo MIGRACAO_PENDENTE (R21-4).
+  assert.deepEqual(plano.recusa, { codigo: "PJ_INDISPONIVEL", motivo: "MIGRACAO_PENDENTE", mensagem: MENSAGEM_PJ_INDISPONIVEL });
   assert.equal(plano.bloqueios[0], MENSAGEM_PJ_INDISPONIVEL);
   // A identidade do cliente é o CNPJ: a busca de duplicidade nunca usa o CPF do representante.
   assert.equal(dadosNormalizados(confirmado.extracao.secoes.flatMap((s) => s.campos)).contratante.cpf, null);
@@ -133,7 +134,7 @@ test("rodada 2, P1-1: revisão v1 retomada com PJ e CNPJ é recusada; CNPJ sem e
   const pj = passo(aplicarRevisao(completa.extracao, completa.revisados, { campoId: "contratante.tipoPessoa", valor: "PJ" }));
   const comCnpj = passo(aplicarRevisao(pj.extracao, pj.revisados, { campoId: "contratante.cnpj", valor: "11.222.333/0001-81" }));
   const recusado = planoDe(comCnpj);
-  assert.deepEqual([recusado.pronto, recusado.tipoPessoa, recusado.recusa?.codigo, recusado.recusa?.motivo], [false, "PJ", "PJ_INDISPONIVEL", "ENTREGA_A"]);
+  assert.deepEqual([recusado.pronto, recusado.tipoPessoa, recusado.recusa?.codigo, recusado.recusa?.motivo], [false, "PJ", "PJ_INDISPONIVEL", "MIGRACAO_PENDENTE"]);
 
   const soCnpj = planoDe(passo(aplicarRevisao(completa.extracao, completa.revisados, { campoId: "contratante.cnpj", valor: "11.222.333/0001-81" })));
   assert.deepEqual([soCnpj.pronto, soCnpj.tipoPessoa, soCnpj.recusa], [false, null, null]);
@@ -280,10 +281,11 @@ test("motor (defesa em profundidade): plano PJ ou sem tipo de pessoa nunca cadas
     async atualizarImportacao() { chamadas.push("atualizar"); return true; },
   };
   const entrada = { empresaId: "e", usuarioId: "u", requestId: "r", importacao, agora: "2026-10-31T00:00:00Z" };
-  for (const p of [{ ...plano, pronto: true }, { ...plano, pronto: true, recusa: null, tipoPessoa: null }]) {
+  // Entrega B: PJ recusada (sem a 112) → PJ_INDISPONIVEL; tipo indefinido → IMPORTACAO_BLOQUEADA.
+  for (const [p, codigo] of [[{ ...plano, pronto: true }, "PJ_INDISPONIVEL"], [{ ...plano, pronto: true, recusa: null, tipoPessoa: null }, "IMPORTACAO_BLOQUEADA"]] as const) {
     const erro = await executarImportacao({} as never, { ...entrada, plano: p }, servicos).catch((e: unknown) => e);
     assert.ok(erro instanceof ImportacaoError);
-    assert.equal(erro.code, "PJ_INDISPONIVEL");
+    assert.equal(erro.code, codigo);
   }
   assert.deepEqual(chamadas, []);
 });
