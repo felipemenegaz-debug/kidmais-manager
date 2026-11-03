@@ -34,6 +34,7 @@ import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, 
     type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
 import { cobrancaDevolvidaOuAnterior, cobrancasDevolvidas, registrarAusenciaNoProvedor } from './devolucao-registro.ts';
+import { registrarAvisosDaTransicao } from './avisos-repositorio.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -111,6 +112,9 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
             depois: { situacao: alvo.situacao, periodoAtualFim: alvo.periodoAtualFim, emAtrasoDesde: alvo.emAtrasoDesde, provedorSituacao: alvo.provedorSituacao },
         });
+        // Avisos por e-mail (087): só a intenção, na mesma transação; desligado por padrão e isolado em SAVEPOINT.
+        await registrarAvisosDaTransicao(tx, empresaId,
+            { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, canceladaEm: linha.cancelada_em, encerradaEm: linha.encerrada_em }, alvo);
     }
     else {
         await tx.query('UPDATE empresa_assinaturas SET provedor_situacao = $2, sincronizado_em = clock_timestamp() WHERE empresa_id = $1::uuid', [empresaId, alvo.provedorSituacao]);

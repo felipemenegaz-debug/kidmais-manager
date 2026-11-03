@@ -217,6 +217,10 @@ const ESTADO_POSTGRES = {
   // 22/10/2026 (fase 1c): fechamento administrativo com pacote P_, regras da Kidmais no preço só para a dona (D2), site de
   // Marketing e limites de convidados na agenda da administração. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-1c.postgres.test.ts": { descartavel: "089" },
+  // Avisos por e-mail da assinatura (087, local 20/10/2026): a suíte aplica e desfaz a 087 sobre o modelo 086.
+  "lib/assinatura/avisos-087.postgres.test.ts": { descartavel: "086" },
+  // Recorte de production (02/11/2026): aplicadores reais da 087 (staging e produção) no modelo 086 (087 ausente), derivados dos da 089.
+  "lib/assinatura/aplicador-087.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
