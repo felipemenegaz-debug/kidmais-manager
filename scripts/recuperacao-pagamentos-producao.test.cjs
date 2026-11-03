@@ -255,7 +255,8 @@ test('P2-R1-1: PG* no process.env (o que o pg de fato lê) recusa antes de criar
 
 test('B-23 (B23-F1): o CLI reconhece cada base antiga pelo SHA completo e recusa o desconhecido antes de criar o Client', async () => {
     // Literais, não a lista importada: tirar uma base da lista não pode tirá-la também do teste.
-    const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1'];
+    const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1',
+        '7329cbfe1bd78fbf817fc418785b7f62910a9b01', '5e4340db485520eabc84f67f090907de7fddac06'];
     // Barreira explícita: o `pg` do processo é trocado por um dublê cujo Client só registra e lança; nada conecta.
     const resolvido = require.resolve('pg');
     const original = require.cache[resolvido];
@@ -295,4 +296,130 @@ test('B-23 (B23-F1): o CLI reconhece cada base antiga pelo SHA completo e recusa
         if (original) require.cache[resolvido] = original; else delete require.cache[resolvido];
         fs.rmSync(pasta, { recursive: true, force: true });
     }
+});
+
+test('B-23c (D-B23c-2): trava dos avisos ligada recusa AVISOS_EMAIL_LIGADOS antes do Client — ANTIGO e CANDIDATA, env e process.env', async () => {
+    const resolvido = require.resolve('pg');
+    const original = require.cache[resolvido];
+    const criados = [];
+    class BARREIRA extends Error {}
+    require.cache[resolvido] = { id: resolvido, filename: resolvido, loaded: true, exports: { Client: class { constructor(c) { criados.push(c.database); throw new BARREIRA(); } } } };
+    const saidas = [];
+    const log = console.log;
+    console.log = (x) => saidas.push(x);
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'b14-'));
+    const antes = process.env.ASSINATURA_AVISOS_EMAIL;
+    const ANTIGO = '5e4340db485520eabc84f67f090907de7fddac06';
+    const alvo = { ASAAS_AMBIENTE: 'sandbox', DATABASE_URL: 'postgresql://u@127.0.0.1:55498/kidmais_desc', KIDMAIS_B14_ALVO: 'kidmais_desc@127.0.0.1:55498', KIDMAIS_B14_DESCARTAVEL: 'kidmais_desc' };
+    // Schema P0a: ANTIGO admite JANELA-conferir e os restore; o schema de `comuns` admite CANDIDATA.
+    const ARGS = {
+        janela: ['--janela', '--conferir', `--desde=${ISO}`, `--ate=${ISO}`],
+        drenagem: ['--restore', '--drenagem', `--reinicio=${ISO}`, `--contencao-desde=${ISO}`],
+    };
+    const rodar = async ({ commit, args = ARGS.janela, migracoes = ['--migracoes=nenhuma', `--candidata=${CAND}`], env = {}, processo }) => {
+        const n = criados.length;
+        let codigo = null, barreira = false;
+        if (processo === undefined) delete process.env.ASSINATURA_AVISOS_EMAIL; else process.env.ASSINATURA_AVISOS_EMAIL = processo;
+        try { await main([...args, ...migracoes, `--saida=${pasta}`], { ...alvo, RENDER_GIT_COMMIT: commit, ...env }, (c) => { codigo = c; }, { cliente: {} }); }
+        catch (e) { if (!(e instanceof BARREIRA)) throw e; barreira = true; }
+        return barreira ? { barreira: criados.length - n } : { codigo, motivo: JSON.parse(saidas.at(-1)).motivo, criados: criados.length - n };
+    };
+    const RECUSA = { codigo: 1, motivo: 'AVISOS_EMAIL_LIGADOS', criados: 0 };
+    try {
+        for (const v of ['ligado', 'LIGADO', ' ligado ']) {
+            assert.deepEqual(await rodar({ commit: ANTIGO, env: { ASSINATURA_AVISOS_EMAIL: v } }), RECUSA, `ANTIGO, env "${v}"`);
+            assert.deepEqual(await rodar({ commit: ANTIGO, processo: v }), RECUSA, `ANTIGO, só process.env "${v}"`);
+        }
+        assert.deepEqual(await rodar({ commit: ANTIGO, args: ARGS.drenagem, env: { ASSINATURA_AVISOS_EMAIL: 'ligado' } }), RECUSA, 'restore também');
+        assert.deepEqual(await rodar({ commit: '00d3019ade199ce609eab296050e07f4b379e87b', processo: 'ligado' }), RECUSA, 'base sem o gancho também: roda esta árvore');
+        assert.deepEqual(await rodar({ commit: CAND, migracoes: comuns, env: { ASSINATURA_AVISOS_EMAIL: 'ligado' } }), RECUSA, 'CANDIDATA');
+        assert.deepEqual(await rodar({ commit: CAND, migracoes: comuns }), { barreira: 1 }, 'CANDIDATA desligada chega ao Client');
+        for (const v of [undefined, '', 'desligado', 'sim', 'true', 'ligada'])
+            assert.deepEqual(await rodar({ commit: ANTIGO, env: v === undefined ? {} : { ASSINATURA_AVISOS_EMAIL: v }, processo: v }), { barreira: 1 }, `desligada: ${v}`);
+        assert.doesNotMatch(saidas.join('\n'), /ligado/, 'só o código, nunca o valor');
+        // A guarda nunca altera a variável.
+        process.env.ASSINATURA_AVISOS_EMAIL = 'ligado';
+        const env = { ASSINATURA_AVISOS_EMAIL: 'ligado' };
+        await rodar({ commit: ANTIGO, env, processo: 'ligado' });
+        assert.deepEqual([env.ASSINATURA_AVISOS_EMAIL, process.env.ASSINATURA_AVISOS_EMAIL], ['ligado', 'ligado']);
+    }
+    finally {
+        console.log = log;
+        if (antes === undefined) delete process.env.ASSINATURA_AVISOS_EMAIL; else process.env.ASSINATURA_AVISOS_EMAIL = antes;
+        if (original) require.cache[resolvido] = original; else delete require.cache[resolvido];
+        fs.rmSync(pasta, { recursive: true, force: true });
+    }
+});
+
+// P2-B23C-COD-R1-01 (Astra, r1): a guarda é exercitada em CADA modo que conecta, com o código e o schema que a matriz
+// admite: ANTIGO (P0a, `--migracoes=nenhuma`) nos restores e na janela-conferir; CANDIDATA (`comuns`) em todos, inclusive
+// a janela-recuperar, que nunca é admitida ao ANTIGO. Os arquivos (backup, casos, drenagem…) só são lidos depois do Client,
+// então os nomes abaixo não precisam existir: com a trava desligada a execução tem de chegar à barreira.
+test('B-23c r2: a trava ligada recusa antes do Client em cada modo admitido (ANTIGO e CANDIDATA; env, process.env e desacordo)', async () => {
+    const resolvido = require.resolve('pg');
+    const original = require.cache[resolvido];
+    const criados = [];
+    class BARREIRA extends Error {}
+    require.cache[resolvido] = { id: resolvido, filename: resolvido, loaded: true, exports: { Client: class { constructor(c) { criados.push(c.database); throw new BARREIRA(); } } } };
+    const saidas = [];
+    const log = console.log;
+    console.log = (x) => saidas.push(x);
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'b14-'));
+    const antes = process.env.ASSINATURA_AVISOS_EMAIL;
+    const ANTIGO = '5e4340db485520eabc84f67f090907de7fddac06';
+    const alvo = { ASAAS_AMBIENTE: 'sandbox', DATABASE_URL: 'postgresql://u@127.0.0.1:55498/kidmais_desc', KIDMAIS_B14_ALVO: 'kidmais_desc@127.0.0.1:55498', KIDMAIS_B14_DESCARTAVEL: 'kidmais_desc' };
+    const P0A = ['--migracoes=nenhuma', `--candidata=${CAND}`];
+    const MODOS = {
+        'janela-conferir': { args: ['--janela', '--conferir', `--desde=${ISO}`, `--ate=${ISO}`], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+        'janela-recuperar': { args: ['--janela', '--recuperar', `--desde=${ISO}`, `--ate=${ISO}`, '--backup=backup.json'], codigos: [[CAND, comuns]] },
+        'restore-drenagem': { args: ['--restore', '--drenagem', `--reinicio=${ISO}`, `--contencao-desde=${ISO}`], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+        'restore-inventario': { args: ['--restore', '--inventario', `--desde=${ISO}`, `--reinicio=${ISO}`, '--drenagem=drenagem.json'], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+        'restore-aplicar': { args: ['--restore', `--aplicar-caso=${'b'.repeat(64)}`, `--proposta=${'a'.repeat(64)}`, '--casos=casos.json', '--backup=backup.json', `--restaurado-em=${ISO}`], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+        'restore-conferir': { args: ['--restore', `--conferir-caso=${'b'.repeat(64)}`, `--proposta=${'a'.repeat(64)}`, '--casos=casos.json', '--execucao=00000000-0000-4000-8000-000000000000'], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+        'restore-liberacao': { args: ['--restore', '--liberacao', `--desde=${ISO}`, `--reinicio=${ISO}`, '--drenagem=drenagem.json', '--decisoes=decisoes.json', '--url-webhook=https://exemplo.invalid/api/asaas/webhook'], codigos: [[ANTIGO, P0A], [CAND, comuns]] },
+    };
+    const rodar = async (args, migracoes, commit, env, processo) => {
+        const n = criados.length;
+        let codigo = null, barreira = false;
+        if (processo === undefined) delete process.env.ASSINATURA_AVISOS_EMAIL; else process.env.ASSINATURA_AVISOS_EMAIL = processo;
+        try { await main([...args, ...migracoes, `--saida=${pasta}`], { ...alvo, RENDER_GIT_COMMIT: commit, ...env }, (c) => { codigo = c; }, { cliente: {} }); }
+        catch (e) { if (!(e instanceof BARREIRA)) throw e; barreira = true; }
+        return barreira ? { barreira: criados.length - n } : { codigo, motivo: JSON.parse(saidas.at(-1)).motivo, criados: criados.length - n };
+    };
+    const RECUSA = { codigo: 1, motivo: 'AVISOS_EMAIL_LIGADOS', criados: 0 };
+    // [env recebido, process.env]: ligado só num deles, nos dois e em desacordo nos dois sentidos.
+    const LIGADA = [[{ ASSINATURA_AVISOS_EMAIL: 'ligado' }, undefined], [{}, 'ligado'], [{ ASSINATURA_AVISOS_EMAIL: 'ligado' }, 'ligado'],
+        [{ ASSINATURA_AVISOS_EMAIL: 'ligado' }, 'desligado'], [{ ASSINATURA_AVISOS_EMAIL: 'desligado' }, 'ligado']];
+    let cenarios = 0;
+    try {
+        for (const [modo, { args, codigos }] of Object.entries(MODOS))
+            for (const [commit, migracoes] of codigos) {
+                const rotulo = `${modo} ${commit === CAND ? 'CANDIDATA' : 'ANTIGO'}`;
+                for (const [env, processo] of LIGADA) {
+                    assert.deepEqual(await rodar(args, migracoes, commit, env, processo), RECUSA, `${rotulo}, env=${env.ASSINATURA_AVISOS_EMAIL} process=${processo}`);
+                    cenarios++;
+                }
+                assert.deepEqual(await rodar(args, migracoes, commit, { ASSINATURA_AVISOS_EMAIL: 'desligado' }, 'desligado'), { barreira: 1 }, `${rotulo}, desligada chega ao Client`);
+                assert.deepEqual(await rodar(args, migracoes, commit, {}, undefined), { barreira: 1 }, `${rotulo}, ausente chega ao Client`);
+                cenarios += 2;
+            }
+        // A janela-recuperar nunca é admitida ao ANTIGO: a recusa é da matriz, antes da guarda (e também sem Client).
+        assert.deepEqual(await rodar(MODOS['janela-recuperar'].args, P0A, ANTIGO, {}, 'ligado'), { codigo: 1, motivo: 'MODO_NAO_ADMITIDO', criados: 0 });
+        assert.equal(cenarios, 13 * 7, 'todos os modos que conectam, com cada código admitido');
+        assert.doesNotMatch(saidas.join('\n'), /ligado/, 'só o código, nunca o valor');
+    }
+    finally {
+        console.log = log;
+        if (antes === undefined) delete process.env.ASSINATURA_AVISOS_EMAIL; else process.env.ASSINATURA_AVISOS_EMAIL = antes;
+        if (original) require.cache[resolvido] = original; else delete require.cache[resolvido];
+        fs.rmSync(pasta, { recursive: true, force: true });
+    }
+});
+
+test('B-23c (D-B23c-2): a fila não é afetada pela trava', async () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'recuperacao-pagamentos-producao.cjs'), 'utf8');
+    const fila = fonte.indexOf("if (a.modo === 'fila') return terminar(");
+    const guarda = fonte.indexOf("motivo: 'AVISOS_EMAIL_LIGADOS'");
+    const cliente = fonte.indexOf("new Client({ ...alvo.conexao");
+    assert.ok(fila > 0 && guarda > fila && cliente > guarda, 'fila sai antes da guarda; a guarda vem antes do Client');
 });

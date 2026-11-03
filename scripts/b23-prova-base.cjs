@@ -47,11 +47,21 @@ const EXTENSOES = ['', '.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '/index.ts
 const MIGRATION = /^database\/migrations\/[^/]+\.sql$/;
 const LISTA = 'lib/assinatura/recuperacao-execucao.ts';
 /**
- * Revisões registradas de arquivos do diff que a prova reprova (FECHO ou CHAMADOR). Cada uma vale só para a regra, o
- * caminho e o PAR EXATO de blobs (`de` → `ate`; `null` = arquivo ausente naquele lado) e cobre o delta COMPLETO do
- * arquivo: qualquer outra versão volta a violar. A violação sai em `revisados` com autoria e análise. Autoria registrada
- * como ela é — revisão por agente não é assinatura humana; entrada nova aqui é entrada revisada (Astra) do B-23b.
+ * Revisões registradas de arquivos do diff que a prova reprova. Cada uma vale só para a regra, o caminho e o PAR EXATO de
+ * blobs (`de` → `ate`; `null` = arquivo ausente naquele lado) — nas regras SQL, também para o `objeto` — e cobre o
+ * delta COMPLETO do arquivo: qualquer outra versão volta a violar. A violação sai em `revisados` com autoria e análise.
+ * Autoria registrada como ela é — revisão por agente não é assinatura humana; entrada nova aqui é entrada revisada (Astra).
+ * Revisáveis (REVISAVEIS): FECHO e CHAMADOR (B-23b) e, pela exceção nominal D-B23c-1 = (A) de 03/11/2026, RAIZ e as regras
+ * SQL de fecho. GLOBAL, SQL_MARCADOR e FECHO_IMPORTA_TESTE nunca são revisáveis.
+ * As entradas de 5e4340db que dependem da trava ASSINATURA_AVISOS_EMAIL desligada (D-B23c-2) dizem isso na análise; a
+ * barreira executável é a guarda AVISOS_EMAIL_LIGADOS de scripts/recuperacao-pagamentos-producao.cjs.
  */
+const REVISAVEIS = new Set(['FECHO', 'CHAMADOR', 'RAIZ', 'SQL_TABELA_NO_FECHO', 'SQL_FUNCAO_NO_FECHO', 'SQL_GATILHO_EM_TABELA_DO_FECHO']);
+const B23C = 'Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), '
+    + 'das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, '
+    + 'sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.';
+const NOVO_087 = 'Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. ';
+const TESTE_087 = NOVO_087 + 'Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14.';
 const REVISOES = [
     {
         regra: 'FECHO', arquivo: 'scripts/production/check-migrations.mjs',
@@ -82,6 +92,158 @@ const REVISOES = [
             + 'revogarAutorizacao em convite_ia_autorizacoes; UPDATE de convites; INSERT em convite_eventos). Da cobrança só '
             + 'lê lerEstadoComercial e recusa com 402 (mesma guarda do editor); nenhum SQL em tabela de assinatura, crédito, '
             + 'pagamento ou marcador do B-14.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/site/catalogo.ts',
+        de: 'f282886a9bbdca6ab5f07026c177768e8b102a2e', ate: 'a650bd167dec9c22f2ef590a590e30ae03478605',
+        autoria: B23C,
+        analise: 'Delta de apresentação comercial (igual em 7329cbfe e 5e4340db): descrições dos planos, cotas de importação, itens e '
+            + 'recursos de Copiloto e Convites, exclusões e posição do Wall-e e remoção do Wall-e publicitário. O import de '
+            + 'planos-comerciais.ts (condicoesComerciais, planosComerciais, valorComercial) já existia em 00d3019a e não mudou; '
+            + 'o arquivo não calcula cobrança nem tem SQL.',
+    },
+    {
+        regra: 'FECHO', arquivo: 'scripts/production/check-migrations.mjs',
+        de: '0ebac5771a06ca5e70eb277e011838f31ec48db1', ate: '0fd96b6d36caeb1d0210ab78bb96625fb0ad4791',
+        autoria: B23C,
+        analise: 'Inventário do go/no-go de migrations, delta inteiro desde 00d3019a: acrescenta 099 e 087 a approvedFiles, '
+            + 'requiresExplicitAuthorization e pending, e corrige o comentário da 088. Não é carregado pelo app nem pelos crons; '
+            + 'entra no fecho só pelo import calculado de scripts/assinatura-schema-completo.cjs (ensaio offline), que corta '
+            + 'approvedFiles na 075 — as entradas novas ficam fora.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/aplicador-087.postgres.test.ts',
+        de: null, ate: '019871354cea2cc0884511f4dd05a6f1f8b26894',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-087.postgres.test.ts',
+        de: null, ate: '2819c6054a87726eae1913f072a19c9d5044c3e8',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-envio.test.ts',
+        de: null, ate: 'e97a42cfc487c97e937f48ecb69d229f2dd7749d',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-mensagens.test.ts',
+        de: null, ate: 'b72c2b69b8d3e49228301ce7894011dbd612bccc',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-repositorio.test.ts',
+        de: null, ate: '7895fb100c805264eb10d64a3d58c39f7c687a87',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos.test.ts',
+        de: null, ate: 'eee7dc800f313aacdc42de5926c8a209c4c24e57',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/migration-087.test.ts',
+        de: null, ate: 'bfe3d7d7269385eede69b19672a17512ee11431e',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'scripts/assinatura-avisos.test.cjs',
+        de: null, ate: '4a68b8b55cff509a83792010adbea301c626aef3',
+        autoria: B23C,
+        analise: TESTE_087,
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos.ts',
+        de: null, ate: 'b212898f36e49b05d899c55bca38d5c84419df96',
+        autoria: B23C,
+        analise: NOVO_087 + 'Regras puras dos avisos (marcos, transições, prazos, avisosLigados = trim().toLowerCase() === "ligado"); '
+            + 'sem SQL e sem efeito; só importa acesso.ts (cálculo comercial existente, sem escrita).',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-envio.ts',
+        de: null, ate: '7f9104a6f649f52acf8790e6cf8139c1cef58ff7',
+        autoria: B23C,
+        analise: NOVO_087 + 'Orquestra enfileirar/enviar pelo RepositorioAvisos injetado (escreve só em assinatura_avisos) e pelo '
+            + 'EnviarEmail injetado; sem SQL próprio. Só é chamado pelo job assinatura-avisos.cjs e por avisos-padrao.ts.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-mensagens.ts',
+        de: null, ate: 'cd35b89844e1846d70cba8a6c040e73e2fc2a604',
+        autoria: B23C,
+        analise: NOVO_087 + 'Texto dos e-mails (assunto/corpo) a partir do marco; função pura, sem SQL e sem efeito.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-padrao.ts',
+        de: null, ate: 'fc490ec176c73c325250f219b9e7f33e1b405ca9',
+        autoria: B23C,
+        analise: NOVO_087 + 'Dependências reais do envio no web; depsAvisosPadrao devolve null (nada enviado) com a trava desligada ou '
+            + 'e-mail não configurado. Usado só por cobranca-padrao.ts (processarEventoAgendado), que o B-14 não chama.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/avisos-repositorio.ts',
+        de: null, ate: 'e01a8fab5520d33c2532e5f2ef22adc164316600',
+        autoria: B23C,
+        analise: NOVO_087 + 'SQL dos avisos. Escritas: INSERT … ON CONFLICT DO NOTHING e UPDATE só em assinatura_avisos, e auditoria '
+            + 'AVISO_ASSINATURA_ENTREGA_FALHOU via auditarCobranca na devolução (webhook do Resend, que não consulta a trava). '
+            + 'registrarAvisosDaTransicao (chamado por sincronizarEmpresa, caminho do B-14) retorna 0 ANTES de qualquer consulta '
+            + 'com a trava desligada — condição D-B23c-2. Ligada, emite SAVEPOINT fora do try e pode inserir em '
+            + 'assinatura_avisos, tabela fora da fotografia do B-14: por isso a guarda AVISOS_EMAIL_LIGADOS.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/cobranca-padrao.ts',
+        de: 'b5957da5e0deab0e9a812b3cda06857a620b9a96', ate: 'f5df456506eb0d4e239a6160c3a8f0d9a9d2c0e6',
+        autoria: B23C,
+        analise: 'Delta: import de enviarAvisosDaEmpresaAgora e, em processarEventoAgendado, a chamada depois do commit do evento '
+            + 'PROCESSADO; no-op com a trava desligada ou sem e-mail; erro só vai ao log. O B-14 chama processarEvento direto, '
+            + 'não processarEventoAgendado: este caminho é o do webhook normal, coberto pela confirmação da trava no E0.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/renovacao-entrega.ts',
+        de: 'aa0949d91dc2802af09a5aa113c32cfde5381c23', ate: 'a02bba2bf3941f0cc8f4f7823e1d5b5d08acbb16',
+        autoria: B23C,
+        analise: 'Delta: no webhook do Resend, id que não é de renovação é procurado em assinatura_avisos (registrarDevolucaoAviso), '
+            + 'sem consultar a trava: sem a 087 o resultado é o de antes (DESCONHECIDO/NAO_INSTALADA); com a 087, só '
+            + 'ENVIADO → DEVOLVIDO em assinatura_avisos e auditoria. Nenhuma escrita nova em renovações, assinatura, crédito, '
+            + 'pagamento ou marcador do B-14; caminho externo ao B-14, sujeito às barreiras e drenagem da janela.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/sincronizacao.ts',
+        de: '4fcaf7dbd4368071c425b2e9a1bf2ccc94e2fdf8', ate: '410f97a3124663bf631ea394b620c767a93e0051',
+        autoria: B23C,
+        analise: 'Delta: import e uma chamada a registrarAvisosDaTransicao em sincronizarEmpresa, depois da mudança gravada, na '
+            + 'mesma transação. Caminho do B-14 (casos EMPRESA). Com a trava desligada (D-B23c-2) retorna 0 sem consulta: '
+            + 'comportamento de 00d3019a. Ligada, poderia inserir em assinatura_avisos fora da fotografia — a guarda '
+            + 'AVISOS_EMAIL_LIGADOS recusa o B-14 antes do Client.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'scripts/assinatura-avisos.cjs',
+        de: null, ate: 'e1aff377acbd3067dc1cf7a0e0ac8074ca4fb376',
+        autoria: B23C,
+        analise: NOVO_087 + 'Job dos avisos (simular por padrão; aplicar só em modos travados, com a trava ligada e a 087 conferida). '
+            + 'Escreve só por repositorioAvisos (assinatura_avisos); não consulta o Asaas. Não existe cron dele em production.',
+    },
+    {
+        regra: 'SQL_TABELA_NO_FECHO', arquivo: 'database/migrations/20261019_087_assinatura_avisos.sql', objeto: 'assinatura_avisos',
+        de: null, ate: 'b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840',
+        autoria: B23C,
+        analise: 'Migration 087 inteira (aditiva): cria assinatura_avisos (FKs para empresas e usuarios_administrativos), dois índices, a '
+            + 'função kidmais_087_aviso_guarda e dois gatilhos, todos só nessa tabela; nenhuma tabela existente é alterada. As FKs '
+            + 'só restringem DELETE/troca de chave das linhas-pai, que o B-14 não faz. ' + 'Objeto: a tabela nova, citada por avisos-repositorio.ts.',
+    },
+    {
+        regra: 'SQL_GATILHO_EM_TABELA_DO_FECHO', arquivo: 'database/migrations/20261019_087_assinatura_avisos.sql', objeto: 'kidmais_087_aviso_guarda',
+        de: null, ate: 'b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840',
+        autoria: B23C,
+        analise: 'Migration 087 inteira (aditiva): cria assinatura_avisos (FKs para empresas e usuarios_administrativos), dois índices, a '
+            + 'função kidmais_087_aviso_guarda e dois gatilhos, todos só nessa tabela; nenhuma tabela existente é alterada. As FKs '
+            + 'só restringem DELETE/troca de chave das linhas-pai, que o B-14 não faz. ' + 'Objeto: a função de guarda, gatilho só em assinatura_avisos (não apaga histórico; transições permitidas).',
     },
 ];
 const EVIDENCIAS = 'docs/evidencias/b23-bases-antigas';
@@ -270,10 +432,13 @@ function avaliar({ alterados, arvores, marcadores }) {
     const revisados = [];
     const nomes = ['de', 'ate'];
     const lados = nomes.map((k) => arvores[k]);
-    // Violação de FECHO/CHAMADOR com revisão registrada para esta regra, caminho e par exato de blobs vai para `revisados`.
+    // Violação revisável com revisão registrada para esta regra, caminho, objeto (SQL) e par exato de blobs vai para
+    // `revisados`; as outras regras nunca passam por aqui.
     const registrar = (v) => {
+        if (!REVISAVEIS.has(v.regra)) throw new Error(`Regra não revisável: ${v.regra}`);
         const blobs = lados.map((a) => (a.arquivos.includes(v.arquivo) ? blobGit(a.ler(v.arquivo)) : null));
-        const rev = REVISOES.find((x) => x.regra === v.regra && x.arquivo === v.arquivo && x.de === blobs[0] && x.ate === blobs[1]);
+        const rev = REVISOES.find((x) => x.regra === v.regra && x.arquivo === v.arquivo && (x.objeto ?? null) === (v.objeto ?? null)
+            && x.de === blobs[0] && x.ate === blobs[1]);
         if (rev) revisados.push({ ...v, de: rev.de, ate: rev.ate, autoria: rev.autoria, analise: rev.analise });
         else violacoes.push(v);
     };
@@ -284,7 +449,7 @@ function avaliar({ alterados, arvores, marcadores }) {
     });
     for (const f of alterados) {
         if (GLOBAIS.has(f)) violacoes.push({ regra: 'GLOBAL', arquivo: f });
-        else if (ehRaiz(f)) violacoes.push({ regra: 'RAIZ', arquivo: f });
+        else if (ehRaiz(f)) registrar({ regra: 'RAIZ', arquivo: f });
         else if (alcancavel.has(f)) registrar({ regra: 'FECHO', arquivo: f });
         else if (CODIGO.test(f) && !TESTE.test(f)) {
             const chamada = lados.map((a, i) => {
@@ -314,13 +479,13 @@ function avaliar({ alterados, arvores, marcadores }) {
         for (const t of o.tabelas) {
             const motivo = sql.tabelas.get(t);
             if (motivo === 'MARCADOR') violacoes.push({ regra: 'SQL_MARCADOR', arquivo: f, objeto: t });
-            else if (motivo) violacoes.push({ regra: 'SQL_TABELA_NO_FECHO', arquivo: f, objeto: t, motivo });
+            else if (motivo) registrar({ regra: 'SQL_TABELA_NO_FECHO', arquivo: f, objeto: t, motivo });
         }
         for (const fn of o.funcoes) {
             const motivo = sql.funcoes.get(fn);
             if (motivo === 'MARCADOR') violacoes.push({ regra: 'SQL_MARCADOR', arquivo: f, objeto: fn });
-            else if (motivo?.startsWith('gatilho ')) violacoes.push({ regra: 'SQL_GATILHO_EM_TABELA_DO_FECHO', arquivo: f, objeto: fn, motivo });
-            else if (motivo) violacoes.push({ regra: 'SQL_FUNCAO_NO_FECHO', arquivo: f, objeto: fn, motivo });
+            else if (motivo?.startsWith('gatilho ')) registrar({ regra: 'SQL_GATILHO_EM_TABELA_DO_FECHO', arquivo: f, objeto: fn, motivo });
+            else if (motivo) registrar({ regra: 'SQL_FUNCAO_NO_FECHO', arquivo: f, objeto: fn, motivo });
         }
     }
     const limites = {

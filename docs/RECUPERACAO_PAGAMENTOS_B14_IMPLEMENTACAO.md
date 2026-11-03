@@ -138,7 +138,7 @@ Alterados:
 - **Sessão:** `application_name = kidmais-recuperacao-b14`, `statement_timeout` de 60 s e `lock_timeout` de 5 s.
 - **Trava global de sessão** (`pg_try_advisory_lock(1414, 1027)`), só do B-14: ocupada → 1. A posse é reconferida antes de cada caso e de cada COMMIT (TRAVA_PERDIDA → 1).
 - **Paradas:** SIGTERM → 1; prazo total de 15 min → LIMITE_EXECUCAO → 3.
-- **Matriz ramo × código × schema** (§3.8): o código no ar vem de `RENDER_GIT_COMMIT`, que tem de ser a `--candidata` exata ou uma base antiga da lista fechada `CODIGOS_ANTIGOS` (SHA completo; B-23: `00d3019a…` e `4ef9adb6…`; B-23b: `5bdd5ac4…`). O prefixo vem de `--migracoes` (o CONFERIR do B-5), cruzado com os marcadores no banco; divergência → 1.
+- **Matriz ramo × código × schema** (§3.8): o código no ar vem de `RENDER_GIT_COMMIT`, que tem de ser a `--candidata` exata ou uma base antiga da lista fechada `CODIGOS_ANTIGOS` (SHA completo; B-23: `00d3019a…` e `4ef9adb6…`; B-23b: `5bdd5ac4…`; B-23c: `7329cbfe…` e `5e4340db…`, esta só com `ASSINATURA_AVISOS_EMAIL` desligada — guarda `AVISOS_EMAIL_LIGADOS`). O prefixo vem de `--migracoes` (o CONFERIR do B-5), cruzado com os marcadores no banco; divergência → 1.
 - **Backup** obrigatório nos modos que gravam (§3.9; D-B14-2/12).
 - **Arquivos** em `/opt/render/project/src/data/b14/`: pasta 700, arquivos 600 criados com `wx` (nunca sobrescritos), só nomes simples.
 - **Stdout** sanitizado (D-B14-3): só números, booleanos, ids opacos, datas e códigos. Cada execução deixa `execucao-<id>.json`.
@@ -1205,3 +1205,143 @@ Análise dos dois deltas (texto completo em `REVISOES` e em `revisados` da evid�
 P2-R2-01 fechado: importar uma raiz continua CHAMADOR mesmo só para leitura; a revisão exige regra, caminho e par exato de blobs, e revisão de CHAMADOR não libera FECHO. O Astra aceitou as duas revisões CHAMADOR **só para os deltas** `service.ts` `5d70a0ac → a77cf5f3` e `biblioteca.ts` ausente → `a83603cd` (guarda 402 mantida; nenhuma escrita nova em assinatura, créditos, pagamentos ou marcadores do B-14). Sem regressão em P2-2/P2-3/P3. Validação independente dele: hashes, 16/16, 39/39 mutantes, 28/28 testes adicionais, `LISTA_CONFERE`, três contraprovas recusadas, `git diff --check` limpo (Node 24.20.0). PG não executado; a matriz PG continua sem revalidação.
 
 Registro: autoria das duas entradas passou a "aceite independente por agente: Astra (r3, 02/11/2026), no escopo da prova B-23b" — revisão por agente, não assinatura humana. Como isso muda o sha do analisador (`11a5c8ab…` → `ec3abcec…`), as evidências foram regeneradas; o diff delas é só `analisador` e a autoria.
+
+## B-23c — production `5e4340db` e alvo de rollback `7329cbfe` na lista (LOCAL, 03/11/2026)
+
+Origem: production andou durante o B-23b. `7329cbfe` (#295, planos do site) foi ao ar em 01/11 e `5e4340db` (#299, avisos por e-mail da cobrança, migration 087) em 03/11. Nenhuma das duas estava em `CODIGOS_ANTIGOS`, e o CLI recusava com `CODIGO_NO_AR_DESCONHECIDO`. O plano r2 (`ambientes-locais/b23c-20261103/PLANO-B23C-r2.md`) foi aprovado pelo Astra (revisão por agente, 03/11). Felipe decidiu D-B23c-1..3 em 03/11/2026.
+
+- **D-B23c-1 = (A), exceção nominal.** `RAIZ` e as regras SQL de fecho (`SQL_TABELA_NO_FECHO`, `SQL_FUNCAO_NO_FECHO`, `SQL_GATILHO_EM_TABELA_DO_FECHO`) passam a aceitar revisão em `REVISOES`, como `FECHO` e `CHAMADOR` já aceitavam. A revisão é fixada a regra, caminho e par exato de blobs; nas regras SQL, também ao objeto. Essas regras passam por `registrar()`. `registrar()` lança erro para uma regra fora de `REVISAVEIS`. `GLOBAL`, `SQL_MARCADOR` e `FECHO_IMPORTA_TESTE` nunca são revisáveis e continuam indo direto para `violacoes`.
+- **D-B23c-2: trava `ASSINATURA_AVISOS_EMAIL` desligada durante o B-14, com guarda mecânica.**
+  - O que a guarda protege: na `5e4340db`, `sincronizarEmpresa` chama `registrarAvisosDaTransicao`. Com a trava ligada, essa chamada pode inserir em `assinatura_avisos`, que fica fora da fotografia do B-14.
+  - Onde fica: em `scripts/recuperacao-pagamentos-producao.cjs`, depois de `modoAdmitido` e antes do `require('pg')` e do `new Client`.
+  - O que faz: recusa com `AVISOS_EMAIL_LIGADOS` (código 1) quando `avisosLigados(env)` ou `avisosLigados(process.env)` é verdadeiro. É a mesma regra da 087: `trim` + minúsculas = `ligado`.
+  - Alcance: vale para ANTIGO e CANDIDATA. Nunca imprime nem altera a variável.
+  - Fora da guarda: o modo `fila` sai antes dela.
+- **D-B23c-3:** `7329cbfe` também entra na lista, porque é o alvo do rollback da #299.
+
+**Revisões novas (21; autoria "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aguarda aceite do Astra"):**
+
+| Regra | Arquivos | Par |
+|---|---|---|
+| CHAMADOR | `lib/site/catalogo.ts` | `f282886a` → `a650bd16` |
+| FECHO | `scripts/production/check-migrations.mjs` | `0ebac577` → `0fd96b6d` (inventário com a 087) |
+| RAIZ | 8 testes da 087, novos: `aplicador-087.postgres`, `avisos-087.postgres`, `avisos-envio`, `avisos-mensagens`, `avisos-repositorio`, `avisos`, `migration-087`, `scripts/assinatura-avisos.test.cjs` | ausente → blob |
+| RAIZ | `avisos.ts`, `avisos-envio.ts`, `avisos-mensagens.ts`, `avisos-padrao.ts`, `avisos-repositorio.ts`, `scripts/assinatura-avisos.cjs` | ausente → blob |
+| RAIZ | `cobranca-padrao.ts` | `b5957da5` → `f5df4565` |
+| RAIZ | `renovacao-entrega.ts` | `aa0949d9` → `a02bba2b` |
+| RAIZ | `sincronizacao.ts` | `4fcaf7db` → `410f97a3` |
+| SQL_TABELA_NO_FECHO | `20261019_087_assinatura_avisos.sql`, objeto `assinatura_avisos` | ausente → `b9a818d3` |
+| SQL_GATILHO_EM_TABELA_DO_FECHO | a mesma migration, objeto `kidmais_087_aviso_guarda` | ausente → `b9a818d3` |
+
+A análise de cada revisão está no analisador. As revisões de `sincronizacao.ts` e `avisos-repositorio.ts` registram que dependem da trava desligada, e a barreira dessa dependência é a guarda.
+
+**Resultados r1 (VERIFICADO, git local, sobre staging `158e3514`):**
+
+| Base | Fecho (de/ate) | Fecho SQL (tabelas/funções) | Revisados | Prova |
+|---|---|---|---|---|
+| `4ef9adb6` | — | — | 0 | PASS; evidência só muda `analisador` |
+| `5bdd5ac4` | — | — | 3 | PASS; evidência só muda `analisador` |
+| `7329cbfe` | 149/149 | 107/130 | 4 (check-migrations `06d81762`, `service.ts`, `biblioteca.ts`, `catalogo.ts`) | PASS |
+| `5e4340db` | 149/155 | 108/131 | 23 (RAIZ 17, CHAMADOR 3, FECHO 1, SQL 2) | PASS |
+
+Outras verificações:
+
+- `--verificar-lista`: `LISTA_CONFERE`.
+- `b23-prova-base.test.cjs`: 17/17.
+  - Teste novo de despacho: RAIZ/SQL passam pelo par exato. Recusam: outro blob, arquivo já existente em `de`, objeto trocado, regra trocada, RAIZ↔FECHO trocadas. GLOBAL, SQL_MARCADOR e FECHO_IMPORTA_TESTE seguem não revisáveis, mesmo com entrada que casa. No caso de FECHO_IMPORTA_TESTE, a revisão FECHO do arquivo vai para `revisados`, mas o import de apoio de teste continua como violação.
+  - Lista de chaves com objeto: 24 entradas.
+  - A evidência exige as 5 bases.
+- `recuperacao-pagamentos-producao.test.cjs`: 14/14.
+  - Teste da guarda: `ligado`, `LIGADO` e `" ligado "`, por `env` e só por `process.env`. Também a drenagem do restore, a base `00d3019a` e a CANDIDATA. Valores desligados chegam à barreira do `pg`. A variável não é impressa nem alterada.
+  - Teste de ordem no fonte: fila < guarda < `new Client`.
+- `recuperacao-execucao.test.ts`: 16/16. A lista é fixada nas 5 bases, e um SHA com o mesmo prefixo e sufixo falso é recusado para `7329cbfe` e `5e4340db`.
+- CI local completo (Node 22.23.2): 55 passos, 0 falhas.
+  - A 1ª tentativa falhou só no teste da lista em `recuperacao-execucao.test.ts`, que ainda não tinha sido atualizado.
+- Mutantes (`ambientes-locais/mutantes-b23c-r1-20261103.cjs`, cópia isolada): 29/29 mortos por asserção.
+  - Grupos: despacho (inclui FECHO_IMPORTA_TESTE revisável), chaves de REVISOES, lista e evidência, guarda e trava.
+  - A 1ª versão do g4 era equivalente e ficou VIVA: movia a guarda só para depois do `require('pg')`, que não conecta. Ela foi trocada por "depois do `new Client`"; o log da 1ª tentativa foi guardado.
+
+**Fora desta rodada:**
+
+- §6 do plano, a validação dirigida em PG descartável. Ela precisa de autorização própria. Precisão do Astra: sem a 087, comprovar que a tabela está ausente; com a 087, comparar o conteúdo integral de `assinatura_avisos`, inclusive alterações em linhas existentes.
+- `recuperacao-prefixos.postgres.test.ts`: não executado.
+- Job `b23-bases` no GitHub: sem push.
+
+### B-23c rodada 1 — revisão do Astra (03/11/2026): REPROVADA, 0 P1 / 1 P2 / 0 P3; as 21 revisões foram ACEITAS
+
+O Astra aceitou cada uma das 21 análises nominais, com suas chaves integrais. O aceite vale para o analisador `7a57df48…`.
+
+- O despacho foi considerado fechado.
+- A guarda foi considerada bem posicionada.
+- Ele reproduziu: 17/16/14 testes, 29/29 mutantes, LISTA_CONFERE e o CI local.
+
+**P2-B23C-COD-R1-01: faltava teste de barreira nos modos que aplicam casos.**
+
+- O teste da guarda só exercitava `janela-conferir` e `restore-drenagem`.
+- A asserção de ordem no fonte não detecta uma exclusão seletiva de modo.
+- Ele mostrou 5 mutantes vivos: `a.modo !== '<modo>' && (…)` para `janela-recuperar`, `restore-aplicar`, `restore-inventario`, `restore-conferir` e `restore-liberacao`.
+
+**Rodada 2 (LOCAL, 03/11/2026):**
+
+- **Teste novo:** "B-23c r2: a trava ligada recusa antes do Client em cada modo admitido".
+  - Cobre os 7 modos que conectam, cada um com o código e o schema que a matriz admite.
+    - ANTIGO, com P0a: `janela-conferir` e os 5 restores.
+    - CANDIDATA, com `comuns`: todos, inclusive `janela-recuperar`, que nunca é admitida ao ANTIGO.
+  - Cinco formas de trava ligada (`env` recebido / `process.env`):
+    - só `env`;
+    - só `process.env`;
+    - os dois;
+    - desacordo: `env` ligado e `process.env` `desligado`;
+    - desacordo: `env` `desligado` e `process.env` ligado.
+  - Todas recusam com `AVISOS_EMAIL_LIGADOS` e sem Client.
+  - Trava desligada e trava ausente chegam à barreira do `pg`.
+  - Total: 91 cenários.
+  - `janela-recuperar` com ANTIGO recusa `MODO_NAO_ADMITIDO`, antes da guarda.
+  - Os arquivos do modo só são lidos depois do Client, por isso o teste não precisa deles.
+- **Autoria:** as 21 entradas passam a trazer o texto de registro do Astra. Ele diz que o aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.
+- **Evidências regeneradas:** só mudaram `analisador` e `autoria`.
+  - `4ef9adb6`: 1 linha.
+  - `5bdd5ac4`: 1 linha.
+  - `7329cbfe`: 2 linhas.
+  - `5e4340db`: 22 linhas.
+- **Mutantes r2** (`ambientes-locais/mutantes-b23c-r2-20261103.cjs`). A bateria r1 continua congelada no pacote r1. Entram 9 mutantes novos:
+  - `g9-sem-guarda-<modo>` para os 7 modos (os 5 do Astra, mais `janela-conferir` e `restore-drenagem`);
+  - `g10-sem-guarda-candidata`;
+  - `g11-desacordo-vence-desligado`.
+
+**Resultados r2 (VERIFICADO):**
+
+- Testes: 17/17, 15/15 e 16/16.
+- `LISTA_CONFERE`.
+- Provas: PASS, com 0 / 3 / 4 / 23 revisados.
+- Mutantes r2: 38/38 mortos por asserção, em cópia isolada.
+- CI local: 55 passos, 0 falhas.
+
+Ainda não executados: o §6, o PG `recuperacao-prefixos` e o job `b23-bases` no GitHub.
+
+### B-23c rodada 2 — revisão do Astra (03/11/2026): APROVADA, 0 P1 / 0 P2 / 0 P3
+
+Registro (revisão por agente, não assinatura humana): "Astra — revisão r2 do CÓDIGO do B-23c, 03/11/2026: APROVADO, 0 P1 / 0 P2 / 0 P3. Fechado P2-B23C-COD-R1-01: testes de barreira cobrem todos os pares admitidos de modo/código, ambos os sentidos de desacordo entre env e process.env e controles que alcançam o Client; os cinco mutantes de exclusão seletiva da r1 foram reproduzidos e mortos pelo teste novo. Mantido o aceite das 21 análises nominais, exclusivamente para regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Evidências regeneradas diferem somente em analisador/autoria. Este aceite não substitui o §6, não declara revalidada a matriz PostgreSQL nem executado o job remoto e não autoriza operação ou promoção."
+
+O Astra reproduziu o seguinte:
+
+- 48/48 testes, no Node 24.20.0.
+- `LISTA_CONFERE`.
+- Provas PASS com 0 / 3 / 4 / 23 revisados.
+- 38/38 mutantes.
+- O teste novo, rodado isolado, mata os 5 mutantes da r1.
+- Comparação recursiva dos JSONs r1×r2: só `analisador` e `autoria` mudaram.
+- SHA256SUMS `bc079878…`.
+
+Ele não repetiu o CI completo; conferiu o registro dos 55 passos.
+
+O texto de autoria em `B23C` (analisador) fica ratificado como está. Para não mudar o sha do analisador nem as evidências aceitas, o registro acima fica só aqui, e não no código.
+
+Continuam pendentes, cada um com autorização própria:
+
+- a PR para staging;
+- o §6 (validação dirigida em PG descartável);
+- o PG `recuperacao-prefixos`;
+- o job `b23-bases` no GitHub.
+
+A promoção segue NO-GO.
