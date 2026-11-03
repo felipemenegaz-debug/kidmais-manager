@@ -45,6 +45,7 @@ import { pedidoDoEvento, processarEventoCreditos } from '../creditos/pagamento.t
  */
 /** `baseValidade`: só a recuperação de pagamentos (B-14, RESTORE, D-B14-15) passa 'PAGAMENTO'; web e cron não mudam. */
 export type ContextoCreditos = { ambiente: 'sandbox' | 'producao'; conta: string; baseValidade?: 'PAGAMENTO' };
+import { registrarAvisosDaTransicao } from './avisos-repositorio.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -126,6 +127,9 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
             depois: { situacao: alvo.situacao, periodoAtualFim: alvo.periodoAtualFim, emAtrasoDesde: alvo.emAtrasoDesde, provedorSituacao: alvo.provedorSituacao },
         });
+        // Avisos por e-mail (087): só a intenção, na mesma transação; desligado por padrão e isolado em SAVEPOINT.
+        await registrarAvisosDaTransicao(tx, empresaId,
+            { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, canceladaEm: linha.cancelada_em, encerradaEm: linha.encerrada_em }, alvo);
     }
     else {
         // B14: observação — sincronizado_em/provedor_situacao (e versao/atualizado_em pela 074a) no domínio do SEM_EFEITO.

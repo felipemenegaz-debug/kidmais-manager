@@ -405,6 +405,10 @@ const ESTADO_POSTGRES = {
   // 22/10/2026 (fase 1d): a IA (preparar contratação) resolve o pacote contra os pacotes reais da empresa comprovada
   // (nome ou código P_…); a dona da agenda pública continua só com os sete ids V1. Schema vigente (089), sem migration.
   "lib/inteligencia/acoes/pacotes-1d.postgres.test.ts": { descartavel: "089" },
+  // Avisos por e-mail da assinatura (087, local 20/10/2026): a suíte aplica e desfaz a 087 sobre o modelo 086.
+  "lib/assinatura/avisos-087.postgres.test.ts": { descartavel: "086" },
+  // Recorte de production (02/11/2026): aplicadores reais da 087 (staging e produção) no modelo 086 (087 ausente), derivados dos da 089.
+  "lib/assinatura/aplicador-087.postgres.test.ts": { descartavel: "086" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

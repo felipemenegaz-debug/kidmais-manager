@@ -121,6 +121,9 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do Kidmais Manager (situação e ciclo).', onde: EMP },
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
+    // 087 (recorte de production, 02/11/2026): avisos por e-mail da assinatura enviados à Gestão da própria empresa; mensagem e id do
+    // provedor saem como em assinatura_renovacoes (nenhum segredo: a chave de idempotência é derivada do id).
+    { arquivo: 'empresa/assinatura_avisos', tabela: 'assinatura_avisos', grupo: 'Empresa', descricao: 'Avisos por e-mail da assinatura (fim do teste, pagamento, leitura, suspensão, cancelamento).', onde: EMP },
     { arquivo: 'empresa/assinatura_encerramentos', tabela: 'assinatura_encerramentos', grupo: 'Empresa', descricao: 'Pedidos de cancelamento e devolução da assinatura (protocolo).', onde: EMP },
     { arquivo: 'empresa/assinatura_arrependimentos', tabela: 'assinatura_arrependimentos', grupo: 'Empresa', descricao: 'Manifestações do direito de arrependimento (protocolo, comunicação ao intermediador e conclusão).', onde: EMP, migracao: '097' },
     {
