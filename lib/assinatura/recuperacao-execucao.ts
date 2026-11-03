@@ -124,6 +124,10 @@ export const CODIGOS_ANTIGOS = Object.freeze([
     '00d3019ade199ce609eab296050e07f4b379e87b', // #232 (25/10/2026): a base da homologação do B-14
     '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', // #274 (30/10/2026): só o painel (8 arquivos de UI e roteiros de teste de UI)
     '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1', // #290 (31/10/2026): Convites avulsos (#285 logo, #288 aplicador e 099, #290 telas); B-23b, prova funcional
+    // B-23c (D-B23c-1 = (A), exceção nominal de 03/11/2026): entram por revisão do delta fixada aos blobs, aceita pelo Astra.
+    '7329cbfe1bd78fbf817fc418785b7f62910a9b01', // #295 (01/11/2026): planos do site; alvo do rollback da #299 (D-B23c-3)
+    '5e4340db485520eabc84f67f090907de7fddac06', // #299 (03/11/2026): avisos por e-mail da cobrança (087); exige a trava
+    //   ASSINATURA_AVISOS_EMAIL desligada (D-B23c-2), que scripts/recuperacao-pagamentos-producao.cjs confere (AVISOS_EMAIL_LIGADOS)
 ] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
 /** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */

@@ -264,6 +264,12 @@ async function main(argv = process.argv.slice(2), env = process.env, sair = (c) 
     const prefixo = (await import('../lib/assinatura/recuperacao-baseline.ts')).prefixoDoSchema(a.migracoes, alvo.ambiente);
     if (!exec.modoAdmitido(prefixo ? prefixo.indice : null, codigoNoAr, a.modo))
         return terminar({ modo, codigo: 1, execucao, resultado: 'RECUSADA', motivo: !codigoNoAr ? 'CODIGO_NO_AR_DESCONHECIDO' : !prefixo ? 'SCHEMA_FORA_DA_LISTA' : 'MODO_NAO_ADMITIDO' });
+    // B-23c (D-B23c-2): com a trava dos avisos (087) ligada, sincronizarEmpresa do caso poderia inserir em
+    // assinatura_avisos, fora da fotografia do B-14. Vale para ANTIGO e CANDIDATA (quem roda é esta árvore) e confere o
+    // `env` recebido e o process.env (o gancho lê o process.env). Nunca altera a variável.
+    const { avisosLigados } = await import('../lib/assinatura/avisos.ts');
+    if (avisosLigados(env) || avisosLigados(process.env))
+        return terminar({ modo, codigo: 1, execucao, resultado: 'RECUSADA', motivo: 'AVISOS_EMAIL_LIGADOS' });
 
     const { Client } = require('pg');
     const client = new Client({ ...alvo.conexao, connectionTimeoutMillis: 10_000, application_name: NOME_APLICACAO });
