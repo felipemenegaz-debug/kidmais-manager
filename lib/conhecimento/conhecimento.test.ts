@@ -185,7 +185,8 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   // 03/11/2026 (UTC): Felipe aprovou ("Approve all") as trocas dos 12 ajustados para production; o texto de cada um é o do
   // APROVACAO-ARTIGOS-PRODUCTION.md (auditoria-central-production-20261103).
   "agenda-e-horarios": { versao: 2, sha256: "b6a20199327abb58ab7fe8d7e3a03829fb508aed701572c02b8eef46800b4184", em: "2026-11-03" },
-  "assinatura-e-plano": { versao: 2, sha256: "633ea5a1a2f36d90d09eb4156c06a9eef2d61e4dcc6d03fa4094214c6ef89f73", em: "2026-11-03" },
+  // 03/11/2026 (Felipe: "aprovo"): v3 cita o botão Retomar <plano> da contratação em aberto.
+  "assinatura-e-plano": { versao: 3, sha256: "b99b7671f28947a6bbedf0f633228a4cd75a81ecf38984131ed44cf8ffacb95f", em: "2026-11-03" },
   "conectar-whatsapp": { versao: 2, sha256: "da7b468d12a9dfbb2fc6af1bb71d1042290c8b8a26498d99fd638c7722ddbe2e", em: "2026-11-03" },
   contratos: { versao: 2, sha256: "c41dbf099bcae2d691e4f683572c3bf39ab4d2571c34ddd8cbe962448feae073", em: "2026-11-03" },
   convites: { versao: 2, sha256: "2dd29015b47a372690375c5e88b300410520b057674415348c6ecc36a6ce397c", em: "2026-11-03" },
