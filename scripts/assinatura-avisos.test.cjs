@@ -2,7 +2,7 @@
 /** Job dos avisos (087): só configuração e alvo. Não conecta a banco nem envia e-mail. URLs sintéticas (senhas fictícias). */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { configuracaoExecucao, codigoDeSaida, recusarParametrosDeDestino, parametrosDeConexao, STAGING, SCHEMA_EXIGIDO, PARAMETROS_TLS } = require('./assinatura-avisos.cjs');
+const { configuracaoExecucao, codigoDeSaida, recusarParametrosDeDestino, parametrosDeConexao, descreverFalha, motivoDe, registroDaFalha, cicloComEncerramento, FalhaDoCiclo, ETAPAS, MOTIVOS, TIPOS, STAGING, SCHEMA_EXIGIDO, PARAMETROS_TLS } = require('./assinatura-avisos.cjs');
 const { PRODUCAO } = require('./assinatura-reconciliar.cjs');
 
 const LOCAL = 'postgresql://u:p@127.0.0.1:55599/kidmais_avisos_descartavel';
@@ -182,4 +182,121 @@ test('código de saída: 1 sem a 087, 2 com atenção humana, 0 caso contrário'
     assert.equal(codigoDeSaida({ instalado: false }, () => false), 1);
     assert.equal(codigoDeSaida({ instalado: true }, () => true), 2);
     assert.equal(codigoDeSaida({ instalado: true }, () => false), 0);
+});
+
+test('falha registrada r2 (P2 #1): motivo é só um código fechado; o texto da mensagem (argv, nomes de parâmetro, URL) nunca sai', () => {
+    const SENHA = 'senhaSecreta123';
+    const URL_FALSA = `postgresql://usuario_falso:${SENHA}@dpg-dak750gae00c73fudmg0-a:5432/kidmais_production`;
+    const sai = (d) => JSON.stringify(d);
+    // Argumento externo: antes o texto do argv ia ao log.
+    const argv = (() => { try { configuracaoExecucao({}, [`--senha=${SENHA}`]); } catch (e) { return e; } })();
+    const dArgv = descreverFalha(argv, 'configuracao');
+    assert.deepEqual(dArgv, { etapa: 'configuracao', tipo: 'Error', codigo: null, motivo: 'ARGUMENTO_DESCONHECIDO' });
+    assert.doesNotMatch(sai(dArgv), new RegExp(SENHA));
+    // Nomes de parâmetro da URL: antes iam no motivo.
+    const param = (() => { try { recusarParametrosDeDestino(`${URL_FALSA}?host_${SENHA}=x`); } catch (e) { return e; } })();
+    assert.match(param.message, new RegExp(SENHA), 'a mensagem crua carregaria o nome');
+    const dParam = descreverFalha(param, 'configuracao');
+    assert.equal(dParam.motivo, 'PARAMETRO_DE_DESTINO');
+    assert.doesNotMatch(sai(dParam), new RegExp(SENHA));
+    // Mensagem conhecida com texto anexado: só o código; a URL e a senha não saem.
+    const anexada = descreverFalha(new Error(`URL do alvo recusada: a porta deve ser explícita. ${URL_FALSA}`), 'configuracao');
+    assert.equal(anexada.motivo, 'PORTA_AUSENTE');
+    assert.doesNotMatch(sai(anexada), new RegExp(SENHA));
+    assert.doesNotMatch(sai(anexada), /postgresql/);
+    // Erro externo (driver): sem motivo, só código SQLSTATE.
+    const driver = Object.assign(new Error(`password authentication failed for user "x" ${URL_FALSA}`), { code: '28P01' });
+    assert.deepEqual(descreverFalha(driver, 'conexao'), { etapa: 'conexao', tipo: 'Error', codigo: '28P01', motivo: null });
+    // O caso real de 03/11 (origem dos links ausente).
+    assert.deepEqual(descreverFalha(Object.assign(new Error('Origem administrativa não configurada'), { code: 'EMAIL_NAO_CONFIGURADO' }), 'dependencias'),
+        { etapa: 'dependencias', tipo: 'Error', codigo: 'EMAIL_NAO_CONFIGURADO', motivo: null });
+    // Mensagem que só COMEÇA diferente não casa (âncora no início).
+    assert.equal(motivoDe(new Error(`${SENHA} Argumento desconhecido: x`)), null);
+    assert.equal(motivoDe(null), null);
+    assert.equal(motivoDe({ message: 42 }), null);
+    // Todo motivo emitido é um dos códigos do catálogo, e os códigos são únicos e em formato fechado.
+    const codigos = MOTIVOS.map(([c]) => c);
+    assert.equal(new Set(codigos).size, codigos.length);
+    for (const c of codigos) assert.match(c, /^[A-Z][A-Z_]+$/);
+    // Códigos: formatos aceitos e recusados.
+    for (const ok of ['28P01', '57P01', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'SELF_SIGNED_CERT_IN_CHAIN', 'EMAIL_NAO_CONFIGURADO'])
+        assert.equal(descreverFalha(Object.assign(new Error('x'), { code: ok }), 'conexao').codigo, ok, ok);
+    for (const ruim of [URL_FALSA, SENHA, 'senha', 'abc_def', 'X', 'A'.repeat(61), 'A_' + 'B'.repeat(60), 42, null])
+        assert.equal(descreverFalha(Object.assign(new Error('x'), { code: ruim }), 'conexao').codigo, null, String(ruim));
+    // Tipos: lista fechada; construtor arbitrário vira 'Outro'; não-objeto vira 'NaoErro'.
+    assert.equal(descreverFalha(new URIError('x'), 'execucao').tipo, 'URIError');
+    class SegredoNoNome extends Error {}
+    assert.equal(descreverFalha(new SegredoNoNome('x'), 'execucao').tipo, 'Outro');
+    assert.equal(descreverFalha('texto solto ' + SENHA, 'execucao').tipo, 'NaoErro');
+    assert.doesNotMatch(sai(descreverFalha('texto solto ' + SENHA, 'execucao')), new RegExp(SENHA));
+    assert.deepEqual(descreverFalha(null, 'execucao'), { etapa: 'execucao', tipo: 'NaoErro', codigo: null, motivo: null });
+    assert.ok(TIPOS.includes('DatabaseError'));
+    // Etapa fora da lista.
+    assert.equal(descreverFalha(new Error('x'), 'inventada').etapa, 'desconhecida');
+    assert.deepEqual(Object.keys(descreverFalha(new Error('x'), ETAPAS[0])).sort(), ['codigo', 'etapa', 'motivo', 'tipo']);
+});
+
+test('falha registrada r2 (P2 #2): corpo e encerramento — só corpo, só encerramento, ambos', async () => {
+    const erroCorpo = Object.assign(new Error('Conexão remota sem TLS recusada.'), {});
+    const erroFim = Object.assign(new Error('Connection terminated unexpectedly'), { code: 'ECONNRESET' });
+    const capturar = async (p) => { try { await p; } catch (e) { return e; } assert.fail('deveria falhar'); };
+    // Sem falha: devolve o resultado e encerra uma vez.
+    let encerrou = 0;
+    assert.equal(await cicloComEncerramento({ etapa: 'execucao' }, async () => 'ok', async () => { encerrou++; }), 'ok');
+    assert.equal(encerrou, 1);
+    // 1) Só o corpo falha: principal com a etapa do corpo; encerramento ainda roda; sem secundária.
+    encerrou = 0;
+    const estado1 = { etapa: 'conexao' };
+    const f1 = await capturar(cicloComEncerramento(estado1, async () => { estado1.etapa = 'identidade'; throw erroCorpo; }, async () => { encerrou++; }));
+    assert.ok(f1 instanceof FalhaDoCiclo);
+    assert.equal(encerrou, 1);
+    assert.deepEqual(registroDaFalha(f1, 'qualquer'), { falha: { etapa: 'identidade', tipo: 'Error', codigo: null, motivo: 'CONEXAO_SEM_TLS' } });
+    // 2) Só o encerramento falha: principal na etapa 'encerramento'.
+    const f2 = await capturar(cicloComEncerramento({ etapa: 'execucao' }, async () => 'ok', async () => { throw erroFim; }));
+    assert.deepEqual(registroDaFalha(f2, 'execucao'), { falha: { etapa: 'encerramento', tipo: 'Error', codigo: 'ECONNRESET', motivo: null } });
+    // 3) Ambos: a do corpo continua principal (erro e etapa originais); a do encerramento vai separada.
+    const estado3 = { etapa: 'execucao' };
+    const f3 = await capturar(cicloComEncerramento(estado3, async () => { throw Object.assign(new Error('relation x'), { code: '42P01' }); }, async () => { throw erroFim; }));
+    assert.deepEqual(registroDaFalha(f3, estado3.etapa), {
+        falha: { etapa: 'execucao', tipo: 'Error', codigo: '42P01', motivo: null },
+        secundaria: { etapa: 'encerramento', tipo: 'Error', codigo: 'ECONNRESET', motivo: null },
+    });
+    // Falha fora do ciclo (antes do pool): registro simples com a etapa corrente.
+    assert.deepEqual(registroDaFalha(new Error('E-mail do ambiente não configurado.'), 'email'),
+        { falha: { etapa: 'email', tipo: 'Error', codigo: null, motivo: 'EMAIL_NAO_CONFIGURADO' } });
+});
+
+test('falha registrada r2 (P3 #3): exceção do parser do driver vira mensagem própria fixa, sem a senha', () => {
+    const SENHA = 'SEGREDOparser';
+    // %E0%A4 é escape hexadecimal válido mas UTF-8 incompleto: decodeURIComponent do pg-connection-string lança URIError.
+    const url = `postgresql://u:%E0%A4${SENHA}@127.0.0.1:55599/kidmais_avisos_descartavel`;
+    assert.throws(() => require('pg-connection-string').parse(url), URIError, 'premissa: o parser cru lança');
+    const alvo = configuracaoExecucao(env(url), []).alvo;
+    const erro = (() => { try { parametrosDeConexao(alvo, {}); } catch (e) { return e; } })();
+    assert.ok(erro);
+    assert.equal(erro.constructor, Error);
+    assert.equal(erro.message, 'URL do alvo ilegível.');
+    assert.deepEqual(descreverFalha(erro, 'conexao-parametros'), { etapa: 'conexao-parametros', tipo: 'Error', codigo: null, motivo: 'URL_ILEGIVEL' });
+});
+
+test('falha registrada r2: o script real imprime etapa e código do motivo, sem a senha nem o texto', () => {
+    const { spawnSync } = require('node:child_process');
+    const SENHA = 'senhaSecreta123';
+    const base = {
+        PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT,
+        RENDER: 'true', NODE_ENV: 'production', KIDMAIS_DEPLOY_ENV: 'production', KIDMAIS_AVISOS_MODO: 'simular',
+        KIDMAIS_RECONCILIAR_ALVO: 'kidmais_production@dpg-dak750gae00c73fudmg0-a:5432',
+        KIDMAIS_RECONCILIAR_DATABASE_URL: `postgresql://usuario_falso:${SENHA}@dpg-dak750gae00c73fudmg0-a/kidmais_production`,
+        DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'false', ASAAS_AMBIENTE: 'producao',
+    };
+    const rodar = (argv) => spawnSync(process.execPath, ['--experimental-strip-types', require('node:path').join(__dirname, 'assinatura-avisos.cjs'), ...argv], { env: base, encoding: 'utf8', timeout: 20000 });
+    for (const [argv, motivo] of [[['--aplicar'], 'PORTA_AUSENTE'], [[`--senha=${SENHA}`], 'ARGUMENTO_DESCONHECIDO']]) {
+        const r = rodar(argv);
+        assert.equal(r.status, 1);
+        const linha = r.stderr.split('\n').find((l) => l.startsWith('{"falha"'));
+        assert.ok(linha, r.stderr);
+        assert.deepEqual(JSON.parse(linha), { falha: { etapa: 'configuracao', tipo: 'Error', codigo: null, motivo } });
+        assert.doesNotMatch(r.stderr + r.stdout, new RegExp(SENHA));
+        assert.doesNotMatch(r.stderr, /porta deve ser explícita|Argumento desconhecido/);
+    }
 });
