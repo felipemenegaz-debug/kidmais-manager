@@ -61,6 +61,7 @@ jobs:
           scripts/assinatura-reconciliar.test.cjs
           scripts/assinatura-reconciliar-preservacao.test.cjs
           scripts/recuperacao-pagamentos-producao.test.cjs
+          scripts/b23-prova-base.test.cjs
           scripts/bloco-shell-recuperacao-b14.test.cjs
           scripts/recuperacao-neutras-b14.test.cjs
           scripts/reparo-bloqueios-production.test.cjs
@@ -219,3 +220,25 @@ jobs:
       # Blocos de Shell da 112: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
       - name: Blocos de Shell da 112 (staging)
         run: node --test scripts/bloco-shell-112.test.cjs
+
+  # B-23b: reexecuta a prova funcional de cada base antiga da lista do B-14 (CODIGOS_ANTIGOS) e compara com a evidência
+  # guardada em docs/evidencias/b23-bases-antigas. Precisa do histórico completo (as bases estão no ramo de production);
+  # só lê o git local, sem dependências, rede de produto, banco ou .env.
+  b23-bases:
+    name: b23-bases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout com histórico
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Node do projeto
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+
+      - name: Prova funcional das bases antigas confere com a evidência
+        run: node scripts/b23-prova-base.cjs --verificar-lista

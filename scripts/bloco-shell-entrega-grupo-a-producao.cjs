@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // B-4 do plano de promoção (25/10/2026, decisão D-OP-2 opção a): blocos de Shell de PRODUÇÃO que ENTREGAM, antes do código
-// novo, os aplicadores do grupo A ao Web Shell do srv-dak77m2d0e5s73b8rkkg. No E3 o artefato publicado ainda é o antigo
-// (00d3019a), que tem o aplicador da 089 mas não os da 092/093 (B-1, escopo 092-093) nem o da 099 (B-2). Desenho dos blocos
+// novo, os aplicadores do grupo A ao Web Shell do srv-dak77m2d0e5s73b8rkkg. No E3 o artefato publicado ainda é o antigo,
+// sem o aplicador da 092/093 (B-1, escopo 092-093). A 099 (B-2) saiu deste pacote em 31/10/2026: o aplicador dela chegou a
+// production pelo próprio deploy (E-1, #288) e ela já foi aplicada (JA_APLICADA_POSTCHECK_PASS); no E3 é pré-condição,
+// conferida com o aplicador do artefato publicado, nunca entregue, aplicada nem desfeita por estes blocos. Desenho dos blocos
 // de produção de 19/10/2026 (scripts/bloco-shell-migracoes-producao-20261019.cjs, revisados e usados: P2-A colagem
 // interativa, P3-1 trap preserva o código, P3-2 bind antes da guarda, P3-3 partes ≤ 40 KB), com duas proteções a mais
 // pedidas na revisão do B-4 (26/10/2026):
@@ -18,20 +20,21 @@
 //   - PARTE-k-DE-N: só TRANSPORTA uma fração dos arquivos (gzip+base64, sha256 conferido) para
 //     /opt/render/project/src/.kidmais-entrega-grupo-a-producao/.partes/<sha256>; repetir é seguro (JA_PRESENTE só com o
 //     sha certo); conteúdo divergente para (4) sem gravar nada daquela parte. Não conecta ao banco;
-//   - CONFERIR-092-093 / APLICAR-092-093 / CONFERIR-099 / APLICAR-099: exigem TODAS as partes íntegras, montam a pasta
+//   - CONFERIR-092-093 / APLICAR-092-093: exigem TODAS as partes íntegras, montam a pasta
 //     própria (presente só vale com o sha certo) e rodam o aplicador DA PASTA PRÓPRIA (o `raiz` dos aplicadores é a pasta
 //     deles: lê os SQL transportados, nunca os do deploy) com o node_modules do deploy. APLICAR-* exige, ANTES de tocar em
 //     arquivo, o registro do backup do E2 (`backup-<uuid>.json` da ferramenta P1, scripts/backup-lancamento-production.cjs,
 //     presente no artefato publicado) conferido: serviço, banco, dump presente com o sha256 do registro, lido por inteiro,
 //     criado e com PITR conferido há menos de 24 h (item 4 da revisão);
 //   - LIMPEZA: remove só arquivos e partes cujo sha confere (divergente preservado) e as pastas vazias; nunca arquivos do
-//     deploy nem o disco persistente (/opt/render/project/src/data, onde ficam os marcadores e o backup).
-// A lista de arquivos é EXATAMENTE a que os blocos de produção do B-1 e do B-2 já conferem (bloco-shell-092-094.cjs e
-// bloco-shell-099.cjs, `arquivos('production')`). A 094 (E6), a 091 (E6, revisão do B-4) e a 100 rodam do artefato novo.
+//     deploy nem o disco persistente (/opt/render/project/src/data, onde ficam os marcadores e o backup — inclusive o da
+//     099, data/convites-avulsos-099-producao/migration-099.json).
+// A lista de arquivos é EXATAMENTE a que o bloco de produção do B-1 já confere (bloco-shell-092-094.cjs,
+// `arquivos('production')`). A 094 (E6), a 091 (E6, revisão do B-4) e a 100 rodam do artefato novo.
 // Fim esperado: CODIGO_SAIDA_BLOCO=<n> (0/1/2/3 do aplicador, 4 do bloco). Outro código (127, 130, 143) ou ausência da
 // linha = parar e ler; prompt `>` depois de colar = colagem incompleta: Ctrl-C e colar o MESMO bloco.
 // O bloco gerado é ASCII puro. Este gerador só lê arquivos e escreve; não conecta nem executa nada.
-//   node scripts/bloco-shell-entrega-grupo-a-producao.cjs <PARTE-k|CONFERIR-092-093|APLICAR-092-093|CONFERIR-099|APLICAR-099|LIMPEZA> <rotulo-da-arvore>
+//   node scripts/bloco-shell-entrega-grupo-a-producao.cjs <PARTE-k|CONFERIR-092-093|APLICAR-092-093|LIMPEZA> <rotulo-da-arvore>
 //   node scripts/bloco-shell-entrega-grupo-a-producao.cjs TODOS <rotulo-da-arvore> <pasta-de-saida>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -39,7 +42,6 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const {createHash} = require('node:crypto');
 const b1 = require('./bloco-shell-092-094.cjs');
-const b2 = require('./bloco-shell-099.cjs');
 
 const DEPLOY = '/opt/render/project/src';
 const NOME_DESTINO = '.kidmais-entrega-grupo-a-producao';
@@ -57,8 +59,6 @@ const SOBRA_POR_ARQUIVO = 320;
 const EXECUCOES = Object.freeze({
   'CONFERIR-092-093': {aplicador: 'scripts/migration-092-094-production.cjs', args: '--conferir-092-093', registro: 'data/agenda-precos-092-094-producao'},
   'APLICAR-092-093': {aplicador: 'scripts/migration-092-094-production.cjs', args: '--aplicar-092-093-autorizado --backup "$B"', registro: 'data/agenda-precos-092-094-producao'},
-  'CONFERIR-099': {aplicador: 'scripts/migration-099-production.cjs', args: '--conferir-099', registro: 'data/convites-avulsos-099-producao'},
-  'APLICAR-099': {aplicador: 'scripts/migration-099-production.cjs', args: '--aplicar-099-autorizado --backup "$B"', registro: 'data/convites-avulsos-099-producao'},
 });
 const FIXOS = Object.freeze([...Object.keys(EXECUCOES), 'LIMPEZA']);
 const H = '[0-9a-f]';
@@ -74,9 +74,9 @@ const JS_BACKUP = String.raw`const [j,h,s,b]=process.argv.slice(1);let r;try{r=J
   + String.raw`r.sha256!==h&&"sha256",r.arquivoIntegralmenteLido!==true&&"arquivoIntegralmenteLido",!recente(r.criadoEm)&&"criadoEm",!recente(r.pitrConferidoEm)&&"pitrConferidoEm"].filter(Boolean);`
   + String.raw`if(f.length){console.log("BACKUP_REGISTRO_RECUSADO "+f.join(" "));process.exit(4)}console.log("BACKUP_CONFERIDO criadoEm "+r.criadoEm+" pitrConferidoEm "+r.pitrConferidoEm)`;
 
-/** União ordenada (sem repetição) dos arquivos que os blocos de produção do B-1 e do B-2 conferem. */
+/** Arquivos (sem repetição, na ordem) que o bloco de produção do B-1 confere. A 099 não entra: já aplicada em production. */
 function arquivos() {
-  return [...new Set([...b1.arquivos('production'), ...b2.arquivos('production')])];
+  return [...new Set(b1.arquivos('production'))];
 }
 const sha = b => createHash('sha256').update(b).digest('hex');
 /** Conteúdo LF; os SQL têm o hash revisado de cada aplicador (o gerador recusa divergência, como os blocos de origem). */
@@ -89,9 +89,8 @@ const seguro = s => { assert.match(s, /^[A-Za-z0-9_./-]+$/, 'CAMINHO_INSEGURO');
 const b64 = buf => zlib.gzipSync(buf, {level: 9}).toString('base64').match(/.{1,76}/g);
 /** Arquivos com conteúdo, sha e carga gzip+base64 (determinística), agrupados em partes pela ordem da lista. */
 function distribuir(raiz = path.resolve(__dirname, '..')) {
-  // Os geradores de origem conferem os hashes revisados dos SQL: gerar um bloco deles falha se algum divergir.
+  // O gerador de origem confere os hashes revisados dos SQL: gerar um bloco dele falha se algum divergir.
   b1.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'abcdef1', raiz});
-  b2.gerar({ambiente: 'production', modo: 'CONFERIR', rotulo: 'abcdef1', raiz});
   const lista = arquivos().map(a => { const b = ler(raiz, a); return {arquivo: seguro(a), sha: sha(b), b64: b64(b)}; });
   const partes = [];
   for (const x of lista) {
@@ -121,21 +120,18 @@ function caminhos(deploy, destino) {
 function cabecalho(modo, n, rotulo) {
   const nome = /^PARTE-\d+$/.test(modo) ? `${modo}-DE-${n}` : modo;
   const exige = 'Exige as PARTES 1..' + n + ' coladas antes (nesta mesma instancia). Monta a pasta propria (efemera) e roda o aplicador DELA.';
+  const ja099 = 'A 099 ja esta aplicada em production (31/10/2026) e NAO faz parte deste pacote: conferir antes com o aplicador do deploy.';
   const backup = 'ANTES de colar, no mesmo shell: export KIDMAIS_REGISTRO_BACKUP=backup-<uuid>.json (registro do E2 em data/lancamento-venda-20261011:';
   const backup2 = 'dump conferido + PITR ha menos de 24 h; o bloco confere servico, banco, sha256 do dump e datas antes de gravar qualquer arquivo).';
   const titulo = {
     'CONFERIR-092-093': ['SOMENTE LEITURA no banco - E3 (codigo ANTIGO publicado). ' + exige,
-      'Roda --conferir-092-093 (B-1): identidade, estado, privilegios e checks SO do escopo 092-093; confirma a 094 AUSENTE.'],
+      'Roda --conferir-092-093 (B-1): identidade, estado, privilegios e checks SO do escopo 092-093; confirma a 094 AUSENTE.', ja099],
     'APLICAR-092-093': ['ESCRITA (DDL) EM PRODUCAO - E3: somente com a autorizacao especifica do escopo 092-093, codigo ANTIGO publicado.', backup, backup2, exige,
-      'Roda --aplicar-092-093-autorizado UMA vez (092 e 093; NUNCA a 094). Se parar, NAO repetir: copiar a saida, CONFERIR-092-093 e seguir o ENC.'],
-    'CONFERIR-099': ['SOMENTE LEITURA no banco - E3 (codigo ANTIGO publicado). ' + exige,
-      'Roda --conferir-099 (B-2): identidade, estado, dono, vinculo/versao dos convites e precheck ou postcheck da 099.'],
-    'APLICAR-099': ['ESCRITA (DDL) EM PRODUCAO - E3: somente com a autorizacao especifica da 099, codigo ANTIGO publicado, depois do 092-093.', backup, backup2, exige,
-      'Roda --aplicar-099-autorizado UMA vez (transacao unica com LOCK de convites). Se parar, NAO repetir: copiar a saida, CONFERIR-099 e seguir o ENC.'],
+      'Roda --aplicar-092-093-autorizado UMA vez (092 e 093; NUNCA a 094). Se parar, NAO repetir: copiar a saida, CONFERIR-092-093 e seguir o ENC.', ja099],
     LIMPEZA: ['Remove da pasta propria so arquivos e partes cujo sha256 confere, e as pastas vazias; nunca arquivos do deploy nem',
       'registros/marcadores/backup do disco persistente. Nao conecta ao banco. Opcional: a pasta propria some no proximo deploy.'],
   }[modo] ?? [`TRANSPORTE ${modo}-DE-${n}: grava parte dos aplicadores do grupo A em .partes/ (sha256 conferido). Nao conecta ao banco.`,
-    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-092-093 / CONFERIR-099 (ou APLICAR-*, com autorizacao).'];
+    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-092-093 (ou APLICAR-092-093, com autorizacao).'];
   return ['#!/usr/bin/env bash',
     `# BLOCO-SHELL-ENTREGA-GRUPO-A-PRODUCAO-${nome} - Web Shell do ${SERVICO} (kidmais-manager-production). Colar inteiro, uma vez, e Enter.`,
     ...titulo.map(t => '# ' + t),

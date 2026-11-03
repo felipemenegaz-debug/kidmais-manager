@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buscar, criarReferencia, resolverReferencia, termos } from "./busca.ts";
+import { buscar, criarReferencia, resolverReferencia, semEnderecoDeMidia, termos } from "./busca.ts";
 import { PASTA_CORPUS, carregarCorpusAprovado } from "./carregar.ts";
 import { CorpusInvalido, montarCorpus, segmentar, type Corpus } from "./corpus.ts";
 
@@ -165,12 +165,50 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
   }
 });
 
-test("corpus versionado do repositório: íntegro e, enquanto PENDENTE_APROVACAO, invisível", () => {
+/**
+ * Aprovações de Felipe, por id e versão. Documento novo ou versão nova entra PENDENTE_APROVACAO; para virar APROVADO
+ * precisa entrar nesta lista no mesmo diff (aprovação explícita, nunca acidental). Suspender ou revogar não exige mudança.
+ */
+const APROVADOS_POR_FELIPE: Readonly<Record<string, number>> = {
+  // 02/11/2026: os 3 primeiros artigos do MCP e os 21 da central de ajuda (S3).
+  "assistentes-externos": 1, "agenda-do-dia": 1, "contas-a-receber": 1, "agenda-e-horarios": 1, "assinatura-e-plano": 1,
+  "atendimento-whatsapp": 1, clientes: 1, "conectar-whatsapp": 1, "contas-a-pagar-e-caixa": 1, convites: 1, "creditos-de-ia": 1,
+  dashboard: 1, "fechamento-de-festa": 1, festas: 1, "financeiro-recebimentos": 1, "importar-documentos": 1, marketing: 1,
+  "perfil-da-empresa": 1, "perfil-e-senha": 1, "primeiros-passos": 1, "privacidade-e-exportacao": 1, "usuarios-e-acessos": 1,
+  contratos: 1, "saloes-pacotes-e-itens": 1,
+};
+
+test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO só com aprovação registrada", () => {
   const real = carregarCorpusAprovado(join(import.meta.dirname, "..", "..", "conhecimento"));
   assert.ok(real, "manifesto e hashes do repositório conferem");
   assert.ok(real.documentos.length >= 3);
-  assert.ok(real.documentos.every((d) => d.situacao === "PENDENTE_APROVACAO"), "nenhum documento aprovado por quem implementou");
-  assert.deepEqual(buscar(real, leitorA, HOJE, "como desconectar o assistente", 5), []);
+  for (const d of real.documentos) {
+    assert.equal(d.acl.tipo, "PLATAFORMA", `${d.id}: o repositório não guarda documento de empresa`);
+    if (d.situacao === "APROVADO") assert.equal(APROVADOS_POR_FELIPE[d.id], d.versao, `${d.id} v${d.versao} APROVADO sem aprovação registrada`);
+  }
+  assert.equal(buscar(real, leitorA, HOJE, "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
+  // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
+  const depois = "2026-11-02";
+  for (const d of real.documentos) {
+    for (const situacao of ["PENDENTE_APROVACAO", "SUSPENSO", "REVOGADO"] as const) {
+      const corpus: Corpus = { documentos: real.documentos.map((x) => (x === d ? { ...x, situacao } : x)) };
+      assert.equal(buscar(corpus, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), false, `${d.id} ${situacao} apareceu`);
+    }
+    assert.ok(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), `controle: ${d.id} aprovado aparece pelo título`);
+  }
+});
+
+test("endereço da mídia não pontua na busca; a descrição pontua", () => {
+  assert.equal(semEnderecoDeMidia("a\n  ![Tela de festas](/ajuda/imagens/festas.jpg)  \n!video[Passo a passo](/ajuda/videos/x.mp4)\nb"), "a\nTela de festas\nPasso a passo\nb");
+  assert.equal(semEnderecoDeMidia("texto ![a b c](/ajuda/imagens/x.jpg) no meio"), "texto ![a b c](/ajuda/imagens/x.jpg) no meio", "só linha própria é mídia");
+  const texto = "# Telas\n\n## Agenda\n\nVeja abaixo.\n\n![Calendário colorido](/ajuda/imagens/agenda-mensal.jpg)\n";
+  const sha256 = createHash("sha256").update(texto).digest("hex");
+  const corpus = montarCorpus(
+    { versao: 1, documentos: [{ arquivo: "m.md", id: "midia", titulo: "Telas", versao: 1, vigenteDesde: "2026-01-01", vigenteAte: null, situacao: "APROVADO", acl: { tipo: "PLATAFORMA" }, sha256 }] },
+    () => texto,
+  );
+  for (const consulta of ["jpg", "imagens", "mensal"]) assert.deepEqual(buscar(corpus, leitorA, HOJE, consulta, 5), [], consulta);
+  assert.equal(buscar(corpus, leitorA, HOJE, "calendário colorido", 5)[0]?.doc.id, "midia");
 });
 
 test("corpus fora de data/ e de qualquer disco do Render (staging e produção montam disco em src/data)", () => {

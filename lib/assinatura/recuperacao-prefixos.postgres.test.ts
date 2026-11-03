@@ -48,7 +48,7 @@ const ESPERADO: Record<string, string> = {
 const ativo = () => opt() && Object.hasOwn(ESPERADO, MODELO);
 const BANCO = 'kidmais_pacotes_v1_descartavel';
 const CAND = 'c'.repeat(40);
-const COMMIT: Record<CodigoNoAr, string> = { CANDIDATA: CAND, ANTIGO: CODIGOS_ANTIGOS[1] }; // B-23: a base de production vigente (#274)
+const COMMIT: Record<CodigoNoAr, string> = { CANDIDATA: CAND, ANTIGO: CODIGOS_ANTIGOS[2] }; // B-23b: a base de production vigente (#290)
 const URL_WEBHOOK = 'https://kidmais.example/api/integracoes/asaas/webhook';
 const raiz = path.resolve(import.meta.dirname, '../..');
 const requireCjs = createRequire(import.meta.url);

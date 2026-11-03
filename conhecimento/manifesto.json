@@ -8,7 +8,7 @@
       "versao": 1,
       "vigenteDesde": "2026-10-27",
       "vigenteAte": null,
-      "situacao": "PENDENTE_APROVACAO",
+      "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
@@ -21,7 +21,7 @@
       "versao": 1,
       "vigenteDesde": "2026-10-27",
       "vigenteAte": null,
-      "situacao": "PENDENTE_APROVACAO",
+      "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
@@ -34,11 +34,284 @@
       "versao": 1,
       "vigenteDesde": "2026-10-27",
       "vigenteAte": null,
-      "situacao": "PENDENTE_APROVACAO",
+      "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
       "sha256": "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0"
+    },
+    {
+      "arquivo": "agenda-e-horarios.md",
+      "id": "agenda-e-horarios",
+      "titulo": "Agenda e horários",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4"
+    },
+    {
+      "arquivo": "assinatura-e-plano.md",
+      "id": "assinatura-e-plano",
+      "titulo": "Assinatura e plano",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "cedfe7469304da2772067a4372db33ba083ff18a081870c5a24bcd89eb063e99"
+    },
+    {
+      "arquivo": "atendimento-whatsapp.md",
+      "id": "atendimento-whatsapp",
+      "titulo": "Atendimento WhatsApp",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "509f39cea24d401abdf70353d1585ca4eaf7e4fc35fd9999cf627a3e04e529f6"
+    },
+    {
+      "arquivo": "clientes.md",
+      "id": "clientes",
+      "titulo": "Clientes",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a"
+    },
+    {
+      "arquivo": "conectar-whatsapp.md",
+      "id": "conectar-whatsapp",
+      "titulo": "Conectar o WhatsApp da empresa",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "78bedd0f002557ec271d82351463e5f03cb077c84cf986c1f1be572c30a39c15"
+    },
+    {
+      "arquivo": "contas-a-pagar-e-caixa.md",
+      "id": "contas-a-pagar-e-caixa",
+      "titulo": "Contas a pagar e caixa",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f"
+    },
+    {
+      "arquivo": "convites.md",
+      "id": "convites",
+      "titulo": "Convites digitais",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "b67f5d6eaa5445f9b48df2745815956c5334e9f1a0401b02f96435a9b5580008"
+    },
+    {
+      "arquivo": "creditos-de-ia.md",
+      "id": "creditos-de-ia",
+      "titulo": "Créditos de IA",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "39a0fd9c10dd74e7d28da156dee574fdb2fa75c001b3821a1b8928850199aae6"
+    },
+    {
+      "arquivo": "dashboard.md",
+      "id": "dashboard",
+      "titulo": "Dashboard",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb"
+    },
+    {
+      "arquivo": "fechamento-de-festa.md",
+      "id": "fechamento-de-festa",
+      "titulo": "Fechamento de festa",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "8466add17a8ab0a6b7c5af11d2a8fd1ca473b52f4b9f9cd644358119cab1e1f9"
+    },
+    {
+      "arquivo": "festas.md",
+      "id": "festas",
+      "titulo": "Festas",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "3dcaa0d2ceece4295dcf282eeafcd92a3444ac45ad0baa37d3800453bdca369e"
+    },
+    {
+      "arquivo": "financeiro-recebimentos.md",
+      "id": "financeiro-recebimentos",
+      "titulo": "Recebimentos e parcelas",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58"
+    },
+    {
+      "arquivo": "importar-documentos.md",
+      "id": "importar-documentos",
+      "titulo": "Importar documentos em PDF",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "f7a1bd1e4e54407fc60698e838fa1c26f08ec1d5a71f38da30562efae2aec29b"
+    },
+    {
+      "arquivo": "marketing.md",
+      "id": "marketing",
+      "titulo": "Marketing",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5"
+    },
+    {
+      "arquivo": "perfil-da-empresa.md",
+      "id": "perfil-da-empresa",
+      "titulo": "Perfil da empresa",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "1a60c7737afcb854fa25bdf4db0ff41db05476572104ee3fd6ca138badb6a8d2"
+    },
+    {
+      "arquivo": "perfil-e-senha.md",
+      "id": "perfil-e-senha",
+      "titulo": "Meu perfil e senha",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "c247e2c74d5cb93ac13961269e20d44b7e54100b0984d081188c41429a996b0c"
+    },
+    {
+      "arquivo": "primeiros-passos.md",
+      "id": "primeiros-passos",
+      "titulo": "Primeiros passos",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "748b0f229189ff2f15bb6ef36349d3ca81072f7e923993d289e9918686867806"
+    },
+    {
+      "arquivo": "privacidade-e-exportacao.md",
+      "id": "privacidade-e-exportacao",
+      "titulo": "Exportação de dados e privacidade",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c"
+    },
+    {
+      "arquivo": "usuarios-e-acessos.md",
+      "id": "usuarios-e-acessos",
+      "titulo": "Usuários e acessos",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650"
+    },
+    {
+      "arquivo": "contratos.md",
+      "id": "contratos",
+      "titulo": "Contratos",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "a09b2415e0336dc14672f89fa4ba519ce09f706084be12322b2a2bd26aff44d7"
+    },
+    {
+      "arquivo": "saloes-pacotes-e-itens.md",
+      "id": "saloes-pacotes-e-itens",
+      "titulo": "Salões, pacotes e itens do buffet",
+      "versao": 1,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "5b727b2aa6b81a533adb326ff425f2daf13b062b54ab19fba0ce059617a71797"
     }
   ]
 }
