@@ -9,7 +9,34 @@ import { semEnderecoDeMidia, termos } from '../conhecimento/busca.ts';
 import { ARTIGO_DA_ROTA, artigoDaRota, rotaDaAjuda } from './ajuda-da-tela.ts';
 import { codigoSuporte, mensagemSuporte } from './codigo.ts';
 import { linkWhatsApp } from '../site/configuracao.ts';
-import { carregarComponente, cssFalso, elementos, texto } from '../../components/admin/teste-componente.ts';
+import { carregarComponente, cssFalso, elementos, texto, tique } from '../../components/admin/teste-componente.ts';
+import { jsx } from 'react/jsx-runtime';
+import ts from 'typescript';
+
+/**
+ * Valores literais do atributo JSX `id` escritos na própria tela, pela árvore do TypeScript: comentário e outros atributos
+ * (data-testid, aria-labelledby) não contam. Id que só existe num componente filho reprova (o link aponta para a tela).
+ */
+function idsDaTela(codigo: string): Set<string> {
+    const fonte = ts.createSourceFile('tela.tsx', codigo, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const ids = new Set<string>();
+    const visitar = (no: ts.Node): void => {
+        if (ts.isJsxAttribute(no) && no.name.getText(fonte) === 'id' && no.initializer) {
+            const valor = ts.isJsxExpression(no.initializer) ? no.initializer.expression : no.initializer;
+            if (valor && (ts.isStringLiteral(valor) || ts.isNoSubstitutionTemplateLiteral(valor))) ids.add(valor.text);
+        }
+        ts.forEachChild(no, visitar);
+    };
+    visitar(fonte);
+    return ids;
+}
+
+/** Telas (page.tsx) na pasta e abaixo dela, relativa à raiz do repositório. */
+function telasSob(pasta: string): string[] {
+    const url = new URL(`../../${pasta}/`, import.meta.url);
+    if (!existsSync(url)) return [];
+    return (readdirSync(url, { recursive: true }) as string[]).filter((f) => /(^|[\\/])page\.tsx$/.test(f));
+}
 
 const EMPRESA = '11111111-1111-4111-8111-111111111111';
 const HOJE = '2026-11-01';
@@ -251,6 +278,116 @@ test('AdminShell: ajuda e artigos abertos sem empresa e com acesso bloqueado; li
     }
 });
 
+test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado da tela; ajuda aberta sem empresa e bloqueada', async () => {
+    // O chip é verificado no componente real (sessão simulada), não no texto-fonte: comentado, inalcançável ou com o link
+    // errado, o teste reprova (achado P2 do Astra no recorte de production, 03/11/2026; gêmea em staging).
+    const marca = (nome: string) => Object.assign(function Marca() { return null; }, { displayName: nome });
+    const contextoFalso = () => ({ Provider: function Provider(p: { children?: unknown }) { return p.children; } });
+    const Link = marca('Link');
+    const suporte = contextoFalso();
+    const Assistente = marca('AssistenteAgendaPendente');
+    let caminho = '/admin/contratos';
+    let sessao: object = {};
+    const deps = {
+        'next/navigation': { usePathname: () => caminho, useRouter: () => ({ replace() {}, push() {} }) },
+        'next/link': { default: Link },
+        '@/lib/http/admin-fetch': { trocarEmpresaAtiva: async () => ({}) },
+        '@/lib/http/contexto-empresa-cliente': { marcaDaSessao: () => 0, registrarContextoEmpresa: () => true, reiniciarContextoEmpresa() {}, sessaoObsoletaDesde: () => false },
+        './shell.module.css': cssFalso, './tokens.module.css': cssFalso, './admin.module.css': cssFalso,
+        './AdminIcon': { AdminIcon: marca('AdminIcon') },
+        '@/lib/admin/navegacao': { itemAtivo: () => false, itensNavegacao: () => [] },
+        './sair': { lembrarCsrf() {}, sairDaSessao: async () => {} },
+        './PermissoesAdmin': { PermissoesAdminContext: contextoFalso() },
+        './inteligencia/PerguntarKidmais': { BotaoPerguntarKidmais: marca('BotaoPerguntarKidmais'), PerguntarKidmaisProvider: marca('PerguntarKidmaisProvider') },
+        './LogoEmpresa': { default: marca('LogoEmpresa'), LogoEmpresaContext: contextoFalso(), MarcaEmpresa: marca('MarcaEmpresa'), useLogoEmpresa: () => null },
+        './AvisoContexto': { default: marca('AvisoContexto') },
+        './AvisoComercial': { default: marca('AvisoComercial') },
+        './ExportacaoDados': { ExportacaoEmpresasSuspensas: marca('ExportacaoEmpresasSuspensas') },
+        '@/lib/suporte/rota': { ROTA_AJUDA: '/admin/ajuda' },
+        '@/lib/suporte/ajuda-da-tela': { artigoDaRota, rotaDaAjuda },
+        '@/lib/financeiro/calculos': { hojeBrasilia: () => HOJE },
+        './ajuda/CodigoSuporte': { EmpresaSuporteContext: suporte },
+        './AssistenteAgenda': { AssistenteAgendaPendente: Assistente },
+        '@/lib/http/retorno-login': { CONSENTIMENTO_MCP: '/admin/conexoes-ia/autorizar', loginDestaPagina: () => '/admin/login' },
+    };
+    const conteudo = jsx('section', { id: 'conteudo-da-tela' });
+    const EMPRESAS = [{ id: EMPRESA, nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }];
+    const globais = globalThis as Record<string, unknown>;
+    const antes = { window: globais.window, fetch: globais.fetch };
+    globais.window = { setInterval: () => 0, setTimeout: () => 0, addEventListener() {}, removeEventListener() {}, location: { replace() {} } };
+    globais.fetch = async () => ({ json: async () => ({ ok: true, data: sessao }) });
+    async function montar(rota: string, artigosAjuda: readonly { id: string; ate: string | null }[], opcoes: { nivel?: string; empresas?: typeof EMPRESAS; vitrine?: boolean } = {}) {
+        caminho = rota;
+        const empresas = opcoes.empresas ?? EMPRESAS;
+        sessao = { usuarioId: 'u1', nome: 'Ana', sessaoId: 's1', csrf: 'c', cadastroAberto: false, recursos: {}, comercial: { nivel: opcoes.nivel ?? 'ATIVO', cobrado: true },
+            contexto: { empresas, empresaAtual: empresas[0] ?? null, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false } };
+        const props = { children: conteudo, artigosAjuda, ...(opcoes.vitrine ? { vitrine: { nome: 'Administrador', caminho: rota } } : {}) };
+        const shell = carregarComponente('components/admin/AdminShell.tsx', deps);
+        shell.render('default', props);
+        shell.efeitos();
+        for (let i = 0; i < 5; i++) await tique();
+        const arvore = shell.render('default', props);
+        const chips = elementos(arvore).filter((e) => e.type === Link && e.props['data-ajuda-da-tela']);
+        const tela = elementos(arvore).some((e) => e.props?.id === 'conteudo-da-tela');
+        const assistente = elementos(arvore).some((e) => e.type === Assistente);
+        return { arvore, chips, tela, assistente, titulo: texto(elementos(arvore).find((e) => e.type === 'h1')) };
+    }
+    const publicado = (...ids: string[]) => ids.map((id) => ({ id, ate: null }));
+    try {
+        const comArtigo = await montar('/admin/contratos', publicado('contratos', 'festas'));
+        assert.equal(comArtigo.chips.length, 1);
+        assert.equal(comArtigo.chips[0].props.href, '/admin/ajuda/contratos');
+        assert.match(texto(comArtigo.chips[0]), /Ajuda desta tela/);
+        assert(comArtigo.tela, 'a tela continua abaixo do chip');
+        // #298: o assistente da agenda abre nas telas da empresa, nunca por cima da ajuda nem do consentimento do MCP.
+        assert(comArtigo.assistente, 'assistente da agenda nas telas da empresa');
+        assert.equal((await montar('/admin/ajuda/contratos', publicado('contratos'))).assistente, false, 'sem assistente na ajuda');
+        assert.equal((await montar('/admin/conexoes-ia/autorizar', publicado('contratos'))).assistente, false, 'sem assistente no consentimento');
+        const provedor = elementos(comArtigo.arvore).find((e) => e.type === suporte.Provider);
+        assert.equal(provedor?.props.value, EMPRESA, 'código de suporte da empresa ativa');
+        // Prefixo mais longo e subtelas: /admin/fechamentos não é tela, mas cobre a revisão.
+        assert.equal((await montar('/admin/fechamentos/abc/revisao', publicado('fechamento-de-festa'))).chips[0]?.props.href, '/admin/ajuda/fechamento-de-festa');
+        assert.equal((await montar('/admin/configuracoes/importar-documentos', publicado('importar-documentos'))).chips[0]?.props.href, '/admin/ajuda/importar-documentos');
+        // Sem chip: artigo não publicado, vencido, tela sem artigo e vitrine.
+        for (const [rota, artigos, vitrine] of [
+            ['/admin/contratos', [], false], ['/admin/contratos', [{ id: 'contratos', ate: '2026-10-31' }], false],
+            ['/admin/configuracoes', publicado('contratos', 'perfil-da-empresa'), false], ['/admin/contratos', publicado('contratos'), true],
+        ] as const) {
+            const r = await montar(rota, artigos, { vitrine });
+            assert.equal(r.chips.length, 0, `${rota} ${JSON.stringify(artigos)} vitrine=${vitrine}`);
+            assert(r.tela, rota);
+        }
+        // Acesso bloqueado: a tela de negócio dá lugar ao aviso (sem chip); ajuda e assinatura seguem abertas.
+        const bloqueada = await montar('/admin/contratos', publicado('contratos'), { nivel: 'BLOQUEADO' });
+        assert.equal(bloqueada.titulo, 'Acesso suspenso até a assinatura');
+        assert.equal(bloqueada.chips.length + Number(bloqueada.tela) + Number(bloqueada.assistente), 0);
+        assert((await montar('/admin/ajuda/contratos', publicado('contratos'), { nivel: 'BLOQUEADO' })).tela, 'artigo aberto com acesso bloqueado');
+        assert.equal((await montar('/admin/assinatura', publicado('assinatura-e-plano'), { nivel: 'BLOQUEADO' })).chips[0]?.props.href, '/admin/ajuda/assinatura-e-plano');
+        // Sem empresa ativa: só conta e ajuda.
+        const semEmpresa = await montar('/admin/contratos', publicado('contratos'), { empresas: [] });
+        assert.equal(semEmpresa.titulo, 'Sem empresa ativa');
+        assert.equal(semEmpresa.chips.length + Number(semEmpresa.tela), 0);
+        assert((await montar('/admin/ajuda', publicado('contratos'), { empresas: [] })).tela, 'ajuda aberta sem empresa');
+    } finally {
+        globais.window = antes.window;
+        globais.fetch = antes.fetch;
+    }
+});
+
+test('âncora de artigo: só o atributo id da tela conta (nem comentário, nem data-testid, nem aria)', () => {
+    const ids = idsDaTela([
+        'export default function T() { return <main>',
+        '    {/* <div id="comentado" /> */}',
+        '    <section id="secao" data-testid="so-teste" aria-labelledby="rotulo"><h2 id={\'chave\'}>A</h2><p id={`modelo`}>B</p></section>',
+        '</main>; }',
+    ].join('\n'));
+    assert.deepEqual([...ids].sort(), ['chave', 'modelo', 'secao']);
+    // Controle com a tela real que a central já usa (/admin/ajuda#t-falar).
+    const ajuda = idsDaTela(readFileSync(new URL('../../app/admin/ajuda/page.tsx', import.meta.url), 'utf8'));
+    assert(ajuda.has('t-falar'));
+    assert.equal(ajuda.has('nao-existe'), false);
+});
+
 test('corpus real: endereço de mídia não acha artigo; artigo fora de APROVADO some da central', () => {
     const corpus = carregarCorpusAprovado();
     assert(corpus);
@@ -275,7 +412,11 @@ test('corpus real: carrega, todo arquivo da pasta está no manifesto e toda tela
     const listados = new Set(manifesto.documentos.map((d) => d.arquivo));
     for (const arquivo of readdirSync(new URL('../../conhecimento/', import.meta.url)).filter((a) => a.endsWith('.md'))) assert(listados.has(arquivo), `fora do manifesto: ${arquivo}`);
     const ids = new Set(manifesto.documentos.map((d) => d.id));
-    for (const [rota, id] of Object.entries(ARTIGO_DA_ROTA)) assert(ids.has(id), `${rota} → ${id} sem artigo`);
+    for (const [rota, id] of Object.entries(ARTIGO_DA_ROTA)) {
+        assert(ids.has(id), `${rota} → ${id} sem artigo`);
+        // O mapa é por prefixo: vale se a rota é uma tela ou cobre telas abaixo dela (ex.: /admin/fechamentos/[id]/revisao).
+        assert(telasSob(`app${rota}`).length > 0, `${rota}: nenhuma tela neste código`);
+    }
     for (const d of manifesto.documentos) {
         const fonte = readFileSync(new URL(`../../conhecimento/${d.arquivo}`, import.meta.url), 'utf8');
         assert.equal(fonte.includes('\r'), false, `${d.arquivo} em LF`);
@@ -287,7 +428,14 @@ test('corpus real: carrega, todo arquivo da pasta está no manifesto e toda tela
                 for (const arquivo of arquivos) assert(existsSync(new URL(`../../public${arquivo}`, import.meta.url)), `${d.arquivo}: ${arquivo} ausente em public/`);
                 continue;
             }
-            for (const m of linhaFonte.matchAll(/\]\(([^)]+)\)/g)) assert(linkInterno(m[1]), `${d.arquivo}: link ${m[1]}`);
+            for (const m of linhaFonte.matchAll(/\]\(([^)]+)\)/g)) {
+                assert(linkInterno(m[1]), `${d.arquivo}: link ${m[1]}`);
+                const tela = new URL(`../../app${m[1].split(/[?#]/)[0]}/page.tsx`, import.meta.url);
+                assert(existsSync(tela), `${d.arquivo}: tela ${m[1]} inexistente`);
+                // Âncora só se a própria tela tiver o id (os artigos de hoje não usam; a guarda vale para os próximos).
+                const ancora = m[1].split('#')[1];
+                if (ancora) assert(idsDaTela(readFileSync(tela, 'utf8')).has(ancora), `${d.arquivo}: âncora #${ancora} inexistente em ${m[1]}`);
+            }
         }
     }
 });

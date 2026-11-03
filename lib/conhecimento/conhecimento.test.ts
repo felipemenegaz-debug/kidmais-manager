@@ -166,25 +166,54 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
 });
 
 /**
- * Aprovações de Felipe, por id e versão. Documento novo ou versão nova entra PENDENTE_APROVACAO; para virar APROVADO
- * precisa entrar nesta lista no mesmo diff (aprovação explícita, nunca acidental). Suspender ou revogar não exige mudança.
+ * Aprovações de Felipe, por id: versão, SHA-256 do texto aprovado e dia da aprovação. Documento novo ou versão nova entra
+ * PENDENTE_APROVACAO; para virar APROVADO precisa entrar nesta lista no mesmo diff (aprovação explícita, nunca acidental).
+ * O texto publicado é o aprovado: editar o artigo (e o hash do manifesto) sem nova aprovação reprova. `vigenteDesde` do
+ * manifesto é o início de validade do conteúdo; `em`, o dia da aprovação. Suspender ou revogar não exige mudança.
  */
-const APROVADOS_POR_FELIPE: Readonly<Record<string, number>> = {
+type Aprovacao = { versao: number; sha256: string; em: string };
+const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   // 02/11/2026: os 3 primeiros artigos do MCP e os 21 da central de ajuda (S3).
-  "assistentes-externos": 1, "agenda-do-dia": 1, "contas-a-receber": 1, "agenda-e-horarios": 1, "assinatura-e-plano": 1,
-  "atendimento-whatsapp": 1, clientes: 1, "conectar-whatsapp": 1, "contas-a-pagar-e-caixa": 1, convites: 1, "creditos-de-ia": 1,
-  dashboard: 1, "fechamento-de-festa": 1, festas: 1, "financeiro-recebimentos": 1, "importar-documentos": 1, marketing: 1,
-  "perfil-da-empresa": 1, "perfil-e-senha": 1, "primeiros-passos": 1, "privacidade-e-exportacao": 1, "usuarios-e-acessos": 1,
-  contratos: 1, "saloes-pacotes-e-itens": 1,
+  "assistentes-externos": { versao: 1, sha256: "769243d7962194932a717f9527a83b8e0c9ed347195ef4bba421d300738421fe", em: "2026-11-02" },
+  "agenda-do-dia": { versao: 1, sha256: "8781baaf336afca70fb79d4c421707a1abfb9a5eb590020e329ad0406fd92c24", em: "2026-11-02" },
+  "contas-a-receber": { versao: 1, sha256: "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0", em: "2026-11-02" },
+  "agenda-e-horarios": { versao: 1, sha256: "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4", em: "2026-11-02" },
+  "assinatura-e-plano": { versao: 1, sha256: "cedfe7469304da2772067a4372db33ba083ff18a081870c5a24bcd89eb063e99", em: "2026-11-02" },
+  "atendimento-whatsapp": { versao: 1, sha256: "509f39cea24d401abdf70353d1585ca4eaf7e4fc35fd9999cf627a3e04e529f6", em: "2026-11-02" },
+  clientes: { versao: 1, sha256: "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a", em: "2026-11-02" },
+  "conectar-whatsapp": { versao: 1, sha256: "78bedd0f002557ec271d82351463e5f03cb077c84cf986c1f1be572c30a39c15", em: "2026-11-02" },
+  "contas-a-pagar-e-caixa": { versao: 1, sha256: "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f", em: "2026-11-02" },
+  convites: { versao: 1, sha256: "b67f5d6eaa5445f9b48df2745815956c5334e9f1a0401b02f96435a9b5580008", em: "2026-11-02" },
+  "creditos-de-ia": { versao: 1, sha256: "39a0fd9c10dd74e7d28da156dee574fdb2fa75c001b3821a1b8928850199aae6", em: "2026-11-02" },
+  dashboard: { versao: 1, sha256: "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb", em: "2026-11-02" },
+  "fechamento-de-festa": { versao: 1, sha256: "8466add17a8ab0a6b7c5af11d2a8fd1ca473b52f4b9f9cd644358119cab1e1f9", em: "2026-11-02" },
+  festas: { versao: 1, sha256: "3dcaa0d2ceece4295dcf282eeafcd92a3444ac45ad0baa37d3800453bdca369e", em: "2026-11-02" },
+  "financeiro-recebimentos": { versao: 1, sha256: "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58", em: "2026-11-02" },
+  "importar-documentos": { versao: 1, sha256: "f7a1bd1e4e54407fc60698e838fa1c26f08ec1d5a71f38da30562efae2aec29b", em: "2026-11-02" },
+  marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
+  "perfil-da-empresa": { versao: 1, sha256: "1a60c7737afcb854fa25bdf4db0ff41db05476572104ee3fd6ca138badb6a8d2", em: "2026-11-02" },
+  "perfil-e-senha": { versao: 1, sha256: "c247e2c74d5cb93ac13961269e20d44b7e54100b0984d081188c41429a996b0c", em: "2026-11-02" },
+  "primeiros-passos": { versao: 1, sha256: "748b0f229189ff2f15bb6ef36349d3ca81072f7e923993d289e9918686867806", em: "2026-11-02" },
+  "privacidade-e-exportacao": { versao: 1, sha256: "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c", em: "2026-11-02" },
+  "usuarios-e-acessos": { versao: 1, sha256: "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650", em: "2026-11-02" },
+  contratos: { versao: 1, sha256: "a09b2415e0336dc14672f89fa4ba519ce09f706084be12322b2a2bd26aff44d7", em: "2026-11-02" },
+  "saloes-pacotes-e-itens": { versao: 1, sha256: "5b727b2aa6b81a533adb326ff425f2daf13b062b54ab19fba0ce059617a71797", em: "2026-11-02" },
 };
 
 test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO só com aprovação registrada", () => {
   const real = carregarCorpusAprovado(join(import.meta.dirname, "..", "..", "conhecimento"));
   assert.ok(real, "manifesto e hashes do repositório conferem");
   assert.ok(real.documentos.length >= 3);
+  const manifestoReal = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "conhecimento", "manifesto.json"), "utf8")) as { documentos: { id: string; arquivo: string }[] };
   for (const d of real.documentos) {
     assert.equal(d.acl.tipo, "PLATAFORMA", `${d.id}: o repositório não guarda documento de empresa`);
-    if (d.situacao === "APROVADO") assert.equal(APROVADOS_POR_FELIPE[d.id], d.versao, `${d.id} v${d.versao} APROVADO sem aprovação registrada`);
+    if (d.situacao !== "APROVADO") continue;
+    const aprovacao = APROVADOS_POR_FELIPE[d.id];
+    assert.equal(aprovacao?.versao, d.versao, `${d.id} v${d.versao} APROVADO sem aprovação registrada`);
+    // O hash vem do arquivo, não do manifesto: texto e hash trocados juntos, sem nova aprovação, não passam.
+    const arquivo = manifestoReal.documentos.find((m) => m.id === d.id)?.arquivo ?? "";
+    const texto = readFileSync(join(import.meta.dirname, "..", "..", "conhecimento", arquivo), "utf8");
+    assert.equal(createHash("sha256").update(texto, "utf8").digest("hex"), aprovacao.sha256, `${d.id} v${d.versao}: texto diferente do aprovado`);
   }
   assert.equal(buscar(real, leitorA, HOJE, "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
   // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
