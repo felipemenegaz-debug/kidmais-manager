@@ -11,7 +11,9 @@ function banco(op: { instalada?: boolean; autoridade?: boolean; unidade?: boolea
   const db: DbExecutor = { async query<Row extends object>(text: string, values: readonly unknown[] = []) {
     sql.push({ text, values });
     let rows: object[] = [];
-    if (text.includes('to_regclass')) rows = [{ instalada: op.instalada ?? true }];
+    // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+    if (text.includes('pg_locks')) rows = [{ ok: true, empresa: values[0] ?? escopo.empresaId }];
+    else if (text.includes('to_regclass')) rows = [{ instalada: op.instalada ?? true }];
     else if (text.includes('FROM plataforma_desenvolvedores')) rows = op.autoridade === false ? [] : [{ id: 'concessao' }];
     else if (text.includes('AS valida')) rows = [{ valida: op.unidade ?? true }];
     else if (text.startsWith('SELECT data')) rows = op.bloqueio === false ? [] : [{ data: '2026-10-18' }];
@@ -74,7 +76,9 @@ function bancoEmpresa(op: { unidade?: boolean; bloqueio?: boolean; autor?: strin
   const db: DbExecutor = { async query<Row extends object>(text: string, values: readonly unknown[] = []) {
     sql.push({ text, values });
     let rows: object[] = [];
-    if (text.includes('AS valida')) rows = [{ valida: op.unidade ?? true }];
+    // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+    if (text.includes('pg_locks')) rows = [{ ok: true, empresa: values[0] ?? escopo.empresaId }];
+    else if (text.includes('AS valida')) rows = [{ valida: op.unidade ?? true }];
     else if (text.startsWith('SELECT data')) rows = op.bloqueio === false ? [] : [{ data: '2026-12-05', criado_por_usuario_id: op.autor === undefined ? 'autor' : op.autor }];
     else if (text.includes('AS autor_da_empresa')) rows = [{ autor_da_empresa: op.autorDaEmpresa ?? true, unica_empresa: op.unica ?? false }];
     else if (text.startsWith('INSERT')) { if (resolucaoDe === undefined) resolucaoDe = String(values[1]); }

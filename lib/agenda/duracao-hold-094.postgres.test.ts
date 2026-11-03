@@ -10,6 +10,9 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
 import { carregar, cenario, decisoes, dia, id, importacao, integrar, type Cenario, type Evento, type Servico, comSalaoEscolhido } from "../../scripts/integracao-importados-test-support.ts";
 import { consultarDisponibilidadeData, duracaoDoPacoteDaEmpresa, revalidarHorarioSelecionado } from "../disponibilidade/services/availability.service.ts";
+import { escreverSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/duracao-hold-094.postgres.test.ts";
 
 /**
  * Gate antes de staging (conferência do delta 7, 22/10/2026), no PostgreSQL DESCARTÁVEL com o inventário até a 094:
@@ -221,7 +224,7 @@ test("rollback adversarial: festas sobrepostas válidas pela capacidade e salão
     const c = await cenario(a, 0);
     const salao = await id(a, `INSERT INTO agenda_saloes (empresa_id, nome, ordem, ativo) VALUES ($1::uuid, 'Salão A', 1, true) RETURNING id`, [c.empresa]);
     const { festa, revisao } = await integradaComRevisao(c, { data: dia(63), inicio: "09:00", fim: "13:00" });
-    await a.query(`UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid`, [revisao, salao]);
+    await escreverSalaoFixture(a, ARQUIVO_FIXTURE, `UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid`, [revisao, salao]);
     assert.equal((await a.query(`SELECT count(*)::int n FROM fechamentos WHERE id = $1::uuid AND salao_id IS NOT NULL`, [festa])).rows[0].n, 0);
     await a.query("SAVEPOINT d");
     await recusa(a.query(down), /há festas com salão/);

@@ -39,7 +39,7 @@ function nucleos(estados = {}) {
 /** Linha do catálogo dos combinados por estado (formato de lerCatalogoCombinados). */
 const NF = Object.keys(ret108.NOVA.funcoes).length, NG = ret108.NOVA.gatilhos.length;
 const LINHA_AUSENTE = Object.freeze({funcoes: 0, funcoes_qualquer: 0, combinado: false, membros: false, check_ok: false, gatilhos_ok: 0, gatilhos_qualquer: 0,
-  conflito: null, contrato: null, revisao: null, marcador: false});
+  conflito: null, contrato: null, revisao: null, marcador: false, marcador114: false});
 const NUCLEO = {funcoes: NF, funcoes_qualquer: NF, combinado: true, membros: true, check_ok: true, gatilhos_ok: NG, gatilhos_qualquer: NG,
   contrato: ret108.NOVA.hashes.contrato, revisao: ret108.NOVA.hashes.revisao};
 const LINHAS = Object.freeze({AUSENTE: LINHA_AUSENTE, ANTIGA: {...LINHA_AUSENTE, ...NUCLEO, conflito: b5.CONFLITO_098},
@@ -389,6 +389,7 @@ test('B-21: SQL dos combinados é o TEXTO de lerCatalogoCombinados (lib/agenda/e
   await det.lerCatalogoCombinados({query: async (sql, p) => { sqlTs = sql; params = p; return {rows: []}; }});
   assert.equal(b5.SQL_COMBINADOS, sqlTs); assert.equal(params, undefined);
   assert.equal(b5.CONFLITO_098, det.HASHES_COMBINADOS.conflito098);
+  assert.equal(b5.REVISAO_114, det.HASHES_COMBINADOS.revisao114);
   const tabelas = [...b5.SQL_COMBINADOS.matchAll(/\b(?:FROM|JOIN)\s+([a-z_.]+)/gi)].map(m => m[1]);
   assert.ok(tabelas.length >= 8);
   for (const t of tabelas) assert.match(t, /^pg_(proc|attribute|constraint|trigger)$/, 'só catálogo: ' + t);
@@ -399,7 +400,7 @@ test('B-21: lerCombinados mapeia a linha como o detector; classificarCombinados 
   const det = await detector();
   // Sonda de mapeamento: cada campo com valor distinto dos vizinhos (contagens diferentes entre si, booleanos alternados).
   const sonda = {funcoes: NF - 1, funcoes_qualquer: NF + 2, combinado: true, membros: false, check_ok: true, gatilhos_ok: NG - 1, gatilhos_qualquer: NG + 3,
-    conflito: b5.CONFLITO_098, contrato: ret108.NOVA.hashes.contrato, revisao: null, marcador: false};
+    conflito: b5.CONFLITO_098, contrato: ret108.NOVA.hashes.contrato, revisao: null, marcador: false, marcador114: true};
   for (const linha of [...Object.values(LINHAS), sonda]) {
     assert.deepEqual(b5.lerCombinados(linha), await det.lerCatalogoCombinados({query: async () => ({rows: [linha]})}));
   }
@@ -408,12 +409,12 @@ test('B-21: lerCombinados mapeia a linha como o detector; classificarCombinados 
   for (const funcoes of [0, NF - 1, NF]) for (const funcoesQualquer of [0, NF, NF + 1]) for (const colunaCombinado of [false, true])
   for (const colunaMembros of [false, true]) for (const checkValidado of [false, true]) for (const gatilhosOk of [0, NG - 1, NG])
   for (const gatilhosQualquer of [0, NG, NG + 1]) for (const conflito of [null, b5.CONFLITO_098, H.conflito108, 'f'.repeat(64)])
-  for (const contrato of [null, H.contrato]) for (const revisao of [null, H.revisao]) for (const marcador108 of [false, true]) {
-    const c = {funcoes, funcoesQualquer, colunaCombinado, colunaMembros, checkValidado, gatilhosOk, gatilhosQualquer, conflito, contrato, revisao, marcador108};
+  for (const contrato of [null, H.contrato]) for (const revisao of [null, H.revisao, b5.REVISAO_114]) for (const marcador108 of [false, true]) for (const marcador114 of [false, true]) {
+    const c = {funcoes, funcoesQualquer, colunaCombinado, colunaMembros, checkValidado, gatilhosOk, gatilhosQualquer, conflito, contrato, revisao, marcador108, marcador114};
     const e = b5.classificarCombinados(c);
     assert.equal(e, det.classificarCombinados(c), JSON.stringify(c)); vistos.add(e); n++;
   }
-  assert.equal(n, 20736); assert.deepEqual([...vistos].sort(), ['ANTIGA', 'AUSENTE', 'NOVA', 'PARCIAL']);
+  assert.equal(n, 62208); assert.deepEqual([...vistos].sort(), ['ANTIGA', 'AUSENTE', 'NOVA', 'PARCIAL']);
   for (const [k, linha] of Object.entries(LINHAS)) assert.equal((await det.estadoCombinados({query: async () => ({rows: [linha]})})).estado, k);
 });
 
@@ -437,7 +438,7 @@ test('B-21: E1 e E2c — AUSENTE confere; ANTIGA, PARCIAL e NOVA = PARAR (códig
 
 test('B-21: sem linha, várias linhas ou linha ilegível = PARAR (COMBINADOS_ILEGIVEIS) — ao contrário do detector, nunca AUSENTE por omissão', async () => {
   const ruins = [[], [LINHA_AUSENTE, LINHA_AUSENTE], [{...LINHA_AUSENTE, funcoes: '0'}], [{...LINHA_AUSENTE, gatilhos_qualquer: -1}],
-    [{...LINHA_AUSENTE, funcoes_qualquer: 1.5}], [{...LINHA_AUSENTE, combinado: 'f'}], [{...LINHA_AUSENTE, marcador: null}],
+    [{...LINHA_AUSENTE, funcoes_qualquer: 1.5}], [{...LINHA_AUSENTE, combinado: 'f'}], [{...LINHA_AUSENTE, marcador: null}], [{...LINHA_AUSENTE, marcador114: null}],
     [{...LINHA_AUSENTE, conflito: 'A'.repeat(64)}], [{...LINHA_AUSENTE, revisao: 'abc'}], [{...LINHA_AUSENTE, contrato: undefined}], [null],
     // P2 da revisão: hash válido embrulhado em tipo que não é string primitiva (RegExp.test converteria para texto).
     ...['conflito', 'contrato', 'revisao'].flatMap(k => [[LINHAS.ANTIGA.contrato], Buffer.from(LINHAS.ANTIGA.contrato), new String(LINHAS.ANTIGA.contrato),
@@ -456,6 +457,6 @@ test('B-21: falha na consulta dos combinados = FALHA (código 2) com ROLLBACK; s
   assert.equal(r.codigo, 2, JSON.stringify(r.saida)); assert.equal(r.log.at(-1).sql, 'ROLLBACK'); assert.ok(!r.saida.mensagem.includes('SENHA_FALSA'));
   const ok = await rodar(['--conferir-b5-estado']);
   assert.deepEqual(Object.keys(ok.saida.combinados.catalogo).sort(), ['colunaCombinado', 'colunaMembros', 'checkValidado', 'conflito', 'contrato', 'funcoes',
-    'funcoesQualquer', 'gatilhosOk', 'gatilhosQualquer', 'marcador108', 'revisao'].sort());
+    'funcoesQualquer', 'gatilhosOk', 'gatilhosQualquer', 'marcador108', 'marcador114', 'revisao'].sort());
   assert.ok(!JSON.stringify(ok.saida).includes('pg_proc'));
 });

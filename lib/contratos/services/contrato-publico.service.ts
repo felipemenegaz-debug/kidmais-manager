@@ -47,6 +47,7 @@ import type {
   AssinarContratoPublicoInput,
   ContratoPublicoRequestContext,
 } from "./models";
+import { empresaDoContrato, travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 
 function acessoNegado(): never {
   throw new ContratoServiceError(
@@ -436,6 +437,9 @@ export async function assinarContratoPublico(
   const identity = criarIdentityServiceComAmbiente(enviarOtp);
 
   return withTransaction(async (tx) => {
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    const empresa = await empresaDoContrato(tx, input.contratoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const { contrato, versao } = await carregarContratoComVersao(
       input.contratoId,
       tx,
@@ -558,7 +562,7 @@ export async function assinarContratoPublico(
       // A proposta inicial ainda não ocupa o fechamento. Seu destino é revalidado
       // ao aplicar os dados assinados, sob o mesmo lock da formalização 019.
       await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contrato.id]);
-    } else await bloquearAgendaFormalizacao(tx, contrato.id, versao.id);
+    } else await bloquearAgendaFormalizacao(tx, contrato.id, versao.id, { caminho: 'FORMALIZACAO_PRE_ASSINATURA', origem: 'ACEITE_PUBLICO' });
 
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,

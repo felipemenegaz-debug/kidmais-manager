@@ -17,16 +17,21 @@ import { achar, carregarComponente, cssFalso, elementos, texto } from './teste-c
 type Consulta = { sql: string; params: unknown[] };
 function executor(responder: (sql: string, params: unknown[]) => unknown[] | undefined) {
   const consultas: Consulta[] = [];
-  const tx = { async query(sql: string, params: unknown[] = []) { consultas.push({ sql, params }); return { rows: responder(sql, params) ?? [], rowCount: 0 }; } };
+  const tx = { async query(sql: string, params: unknown[] = []) {
+    consultas.push({ sql, params });
+    // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+    if (sql.includes('pg_locks')) return { rows: [{ ok: true, empresa: params[0] ?? EMPRESA }], rowCount: 1 };
+    return { rows: responder(sql, params) ?? [], rowCount: 0 };
+  } };
   return { tx: tx as unknown as DbExecutor, consultas };
 }
 const EMPRESA = '11111111-1111-4111-8111-111111111111';
 
 test('volta para um salão: bloqueada por ora (parecer do Astra, P2 da corrida em dias vazios), com ou sem liberação', () => {
-  assert.throws(() => exigirTipoDeAgendaLiberado('POR_HORARIO', 'POR_SALAO'), /Voltar da agenda com mais de um salão para um salão ainda não está disponível/);
+  assert.throws(() => exigirTipoDeAgendaLiberado('POR_HORARIO', 'POR_SALAO', false), /Voltar da agenda com mais de um salão para um salão ainda não está disponível/);
   assert.throws(() => exigirTipoDeAgendaLiberado('POR_HORARIO', 'POR_SALAO', true), /ainda não está disponível pela tela/);
-  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado('POR_HORARIO', 'POR_HORARIO'));
-  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado('POR_HORARIO', null));
+  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado('POR_HORARIO', 'POR_HORARIO', false));
+  assert.doesNotThrow(() => exigirTipoDeAgendaLiberado('POR_HORARIO', null, false));
   const fonte = readFileSync('lib/agenda/configuracao-unidade.ts', 'utf8');
   assert.doesNotMatch(fonte, /exigirVoltaParaUmSalaoSemSobreposicao/, 'sem conferência parcial: a troca não é feita');
 });

@@ -43,6 +43,7 @@ import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
 } from "./models";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export type DadosClienteFechamentoPublico = {
   nomeCompleto: string;
@@ -635,6 +636,8 @@ export async function criarFechamentoPublicoComIdentidade(
         409,
       );
     }
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    await travarConfiguracaoAgenda(tx, empresaDoPacote, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
 
     let cliente: ClienteRecord;
     let clienteNovo = false;

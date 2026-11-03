@@ -16,6 +16,7 @@ import {consultarPainelFinanceiro} from '../pagamentos/services/financeiro-consu
 import {exigir,FestaError,estadoDerivado,excedentes,type Capacidade} from './domain';
 import {criarSchema,comandoSchema,capacidadeSchema,areaSchema,type Comando} from './schema';
 import {formalizacaoElegivelSql,contrato,filhos,contagens,type Festa,type Registro,type Contrato} from './repository';
+import {travarConfiguracaoAgenda} from '../agenda/trava-configuracao';
 export type Contexto={token:string;requestId:string;userAgent:string|null;empresaSolicitada?:string|null};
 function hash(value:unknown){return createHash('sha256').update(JSON.stringify(value)).digest('hex');}
 export async function ambienteFesta(tx:DbExecutor=db()){await validarAmbienteFesta(tx);}
@@ -143,6 +144,8 @@ export async function comandarFesta(id:string,raw:unknown,ctx:Contexto){const i=
  // comprovada → travas do recurso (contrato → festa) → ação → revalidarTenant, no mesmo tx.
  await ambienteFesta(tx);const s=await sessao(tx,ctx,true);const tenant=await tenantDaSessao(tx,s,ctx);
  await capacidadeComando(tx,tenant,i);
+ // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+ if(i.acao==='cancelar_contratacao')await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
  const pre=await festaNoTenant(tx,tenant.empresaComprovada,id);exigir(pre,'Festa não encontrada.',404);
  const c=await contrato(tx,pre.contrato_id,true);const f=(await tx.query<Festa>('SELECT * FROM festas WHERE id=$1 FOR UPDATE',[id])).rows[0];
  const replay=await repeticao(tx,i.chave,i,s,id);if(replay){await revalidarTenant(tx,tenant);return replay;}

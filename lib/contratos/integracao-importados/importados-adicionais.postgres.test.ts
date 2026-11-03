@@ -7,6 +7,7 @@ import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id,
   importacao, integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
 } from "../../../scripts/integracao-importados-test-support.ts";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao.ts";
 
 /**
  * Plano "importados com adicionais" (rev. 2, D1/D2 de 28/10/2026) no PostgreSQL DESCARTÁVEL (modelo 106: hash v1 em
@@ -153,8 +154,19 @@ const revisaoDe = async (db: Client, versao: string) => (await db.query<{ id: st
 const snapshotComercial = async (db: Client, versao: string) => (await db.query<{ c: Record<string, number> }>(`SELECT snapshot->'comercial' c FROM contrato_versoes WHERE id = $1::uuid`, [versao])).rows[0]!.c;
 const edicao = async (v: string) => (await a.query<{ revisao: number }>(`SELECT revisao FROM contrato_edicoes WHERE contrato_versao_id = $1::uuid`, [v])).rows[0]!.revisao;
 
+/**
+ * Com a 114, os gatilhos de fechamentos e revisões exigem a trava da configuração da empresa: os disparos diretos da
+ * suíte (fora dos serviços, que já travam) a tomam como a entrada administrativa.
+ */
+async function travarEmpresaDe(sql: string, idLinha: string) {
+  const empresa = (await a.query<{ e: string }>(sql, [idLinha])).rows[0]!.e;
+  await travarConfiguracaoAgenda(executor(a), empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+}
+const travarDaFesta = (festa: string) => travarEmpresaDe(`SELECT empresa_id::text e FROM fechamentos WHERE id = $1::uuid`, festa);
+
 /** Dispara os gatilhos diferidos da revisão sem mudar nada (UPDATE sem efeito com os gatilhos ligados). */
 async function conferirRevisao(revisaoId: string) {
+  await travarEmpresaDe(`SELECT f.empresa_id::text e FROM fechamento_revisoes r JOIN fechamentos f ON f.id = r.fechamento_id WHERE r.id = $1::uuid`, revisaoId);
   await a.query(`UPDATE fechamento_revisoes SET motivo = motivo WHERE id = $1::uuid`, [revisaoId]);
   await a.query("SET CONSTRAINTS ALL IMMEDIATE");
 }
@@ -308,10 +320,12 @@ test("B V3 (POR_SALAO, hash v2, centavos): fonte original, edição cadastral pr
   assert.deepEqual(await valores(a, "fechamentos", r.festa), LEGADO, "fechamento intocado");
   // Fonte original: o mesmo disparo passa com o fechamento legado e é recusado se o fechamento ficasse normalizado.
   await semGravar(async () => {
+    await travarDaFesta(r.festa);
     await a.query(`UPDATE fechamentos SET tema_festa = tema_festa WHERE id = $1::uuid`, [r.festa]);
     await a.query("SET CONSTRAINTS ALL IMMEDIATE");
   });
   await semGravar(async () => {
+    await travarDaFesta(r.festa);
     await a.query("SET LOCAL session_replication_role = replica");
     await a.query(`UPDATE fechamentos SET valor_pacote_base = 5000, valor_pacote_aplicado = 5000, valor_adicionais = 0 WHERE id = $1::uuid`, [r.festa]);
     await a.query("SET LOCAL session_replication_role = origin");

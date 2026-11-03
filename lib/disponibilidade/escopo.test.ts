@@ -48,6 +48,8 @@ function banco(parcial: Partial<Estado> = {}): Estado & { db: DbExecutor } {
     async query(text: string, values: readonly unknown[] = []) {
       e.sql.push({ text, values });
       const v = values as Array<string | null | boolean>;
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes('pg_locks')) return linhas([{ ok: true, empresa: v[0] ?? A }]);
       if (text.includes("to_regprocedure('public.kidmais062_ocupacoes_escopo")) return linhas([{ instalada: e.v062 }]);
       if (text.includes('FROM public.estabelecimentos')) return linhas((e.unidades[v[0] as string] ?? []).map((id) => ({ id, codigo: id, nome: `Unidade ${id.slice(0, 2)}` })));
       if (text.includes('FROM public.empresas')) return linhas([{ ok: e.empresasAtivas.includes(v[0] as string) }]);

@@ -103,6 +103,54 @@ test('assistente: "Sim, mais de um salão" avisa que ainda não está disponíve
   assert.deepEqual(pedidos, []);
 });
 
+/**
+ * Plano "liberar agenda com mais de um salão" (bateria E, D-LIB-1/2): com a liberação vinda do servidor, a ida aparece
+ * nos dois formulários e o aviso de "sem volta" aparece ANTES de salvar (escolhida no formulário); nada é enviado.
+ */
+const liberadaDe = (capacidadeTipo: 'POR_HORARIO' | 'POR_SALAO' | null) => ({ ...agendaDe(capacidadeTipo), maisDeUmSalaoLiberado: true });
+const avisoIda = (arvore: unknown) => elementos(arvore).filter((e) => e.props['data-aviso-ida-sem-volta'] !== undefined).map(texto);
+
+test('E: Configurações com a liberação, agenda com um salão: as duas opções, e o aviso de sem volta só depois de escolher a ida', async () => {
+  const pedidos: Array<Record<string, unknown>> = [];
+  const { tela } = carregar(liberadaDe('POR_HORARIO'), pedidos);
+  tela.render(); tela.efeitos(); await tique(); await tique();
+  let arvore = tela.render();
+  assert.deepEqual(titulos(arvore).filter((t) => /salão/i.test(String(t))), ['Um salão', 'Mais de um salão']);
+  assert.equal(elementos(arvore).find((e) => e.props.titulo === 'Um salão')?.props.disabled, false, 'ainda em um salão: a opção atual fica habilitada');
+  assert.deepEqual(avisoIda(arvore), [], 'sem escolher a ida, sem aviso');
+  (elementos(arvore).find((e) => e.props.titulo === 'Mais de um salão')!.props.onClick as () => void)();
+  arvore = tela.render();
+  assert.deepEqual(avisoIda(arvore), [liberacao.AVISO_IDA_SEM_VOLTA], 'aviso antes de salvar');
+  (elementos(arvore).find((e) => e.props.titulo === 'Um salão')!.props.onClick as () => void)();
+  assert.deepEqual(avisoIda(tela.render()), [], 'voltar a escolha (ainda não salva) tira o aviso');
+  assert.deepEqual(pedidos, [], 'escolher não envia nada');
+});
+
+test('E: Configurações com a liberação, agenda já por salão: sem aviso de ida; a volta continua bloqueada', async () => {
+  const arvore = await telaCarregada(liberadaDe('POR_SALAO'));
+  assert.deepEqual(avisoIda(arvore), []);
+  assert.equal(elementos(arvore).find((e) => e.props.titulo === 'Um salão')?.props.disabled, true);
+  assert.match(texto(arvore), /Voltar da agenda com mais de um salão para um salão ainda não está disponível pela tela./);
+});
+
+test('E: assistente com a liberação: "Sim, mais de um salão" segue para os salões com o aviso de sem volta; "Não" tira o aviso', async () => {
+  const pedidos: Array<Record<string, unknown>> = [];
+  const agenda = liberadaDe(null);
+  const { assistente } = carregar(agenda, pedidos);
+  const props = { escopo: agenda.escopo, agenda, onConcluido: () => {}, onDepois: () => {} };
+  let arvore = assistente.render('AssistenteAgenda', props);
+  (achar(arvore, Botao, 'Começar').props.onClick as () => void)();
+  arvore = assistente.render('AssistenteAgenda', props);
+  assert.deepEqual(avisoIda(arvore), []);
+  (achar(arvore, 'button', 'Sim, mais de um salão').props.onClick as () => void)();
+  arvore = assistente.render('AssistenteAgenda', props);
+  assert.deepEqual(avisoIda(arvore), [liberacao.AVISO_IDA_SEM_VOLTA]);
+  assert.doesNotMatch(texto(arvore), /ainda não está disponível/, 'liberada: sem o aviso de "em breve"');
+  (achar(arvore, 'button', 'Não, um espaço só').props.onClick as () => void)();
+  assert.deepEqual(avisoIda(assistente.render('AssistenteAgenda', props)), []);
+  assert.deepEqual(pedidos, []);
+});
+
 test('pacote: com salões cadastrados, salvar sem escolher salão é recusado na tela e o rótulo pede a escolha', () => {
   const pacotes = readFileSync('components/admin/PacotesAdmin.tsx', 'utf8');
   assert.match(pacotes, /const salaoFaltando = saloes\.length > 0 && saloesEscolhidos\.length === 0;/);

@@ -186,7 +186,8 @@ test("098: o verificador fixa o hash de cada função da migration e o manifesto
   }
   const conjuntos: Record<string, Record<string, string>> = {};
   for (const [, c, nome, hash] of estruturaFesta019Sql.matchAll(/\('(\d{3})','(\w+)','([0-9a-f]{64})'\)/g)) (conjuntos[c!] ??= {})[nome!] = hash!;
-  assert.deepEqual(Object.keys(conjuntos), ["019", "061", "062", "094", "098"]);
+  // 114 (D-LIB-6, liberar agenda com mais de um salão): conjunto próprio sobre o 098, conferido no teste da 114.
+  assert.deepEqual(Object.keys(conjuntos).sort(), ["019", "061", "062", "094", "098", "114"]);
   assert.equal(conjuntos["098"]!.kidmais019_validar_contrato, sha(corpo(m098, "kidmais019_validar_contrato")));
   assert.equal(conjuntos["098"]!.kidmais_validar_agenda_revisao, sha(corpo(m098, "kidmais_validar_agenda_revisao")));
   for (const nome of Object.keys(conjuntos["094"]!)) {

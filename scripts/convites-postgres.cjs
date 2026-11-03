@@ -109,7 +109,7 @@ async function festa(empresaId) {
   await pool.query("INSERT INTO festa_membership_capacidades(id,empresa_id,membership_id,capacidade) VALUES($1,$2,$3,'FESTA_OPERAR')", [uuid(), empresaId, membership]);
   const token = crypto.randomBytes(32).toString('base64url'), publico = crypto.randomBytes(32).toString('base64url');
   await pool.query('INSERT INTO clientes VALUES($1)', [cliente]);
-  await pool.query('INSERT INTO fechamentos VALUES($1,$2,$3,NULL)', [fechamento, empresaId, cliente]);
+  await pool.query('INSERT INTO fechamentos(id,empresa_id,cliente_id,estabelecimento_id) VALUES($1,$2,$3,NULL)', [fechamento, empresaId, cliente]);
   await pool.query("INSERT INTO contratos VALUES($1,$2,'ASSINADO',NULL)", [contrato, fechamento]);
   await pool.query("INSERT INTO contrato_versoes VALUES($1,'ASSINADA',1,'{}')", [versao]);
   await pool.query('INSERT INTO contrato_fluxos VALUES($1,$2)', [contrato, versao]);

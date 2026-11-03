@@ -13,6 +13,8 @@ import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositorie
 import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
 import { montarSnapshotContratoV1 } from './contrato.service';
 import { escolherSalao, escolherSalaoParaEmissao } from '../../agenda/salao-festa.ts';
+import { recusarEstadoDocumental } from '../../agenda/estado-documental.ts';
+import { referenciaParaCaminho } from './salao-contrato.ts';
 import { salaoDoSnapshot, type ContratoSnapshot } from '../repositories/models';
 import { hashSnapshotContrato } from './snapshot-core';
 import { ContratoServiceError } from './errors';
@@ -70,6 +72,11 @@ export async function prepararEdicaoInicial(tx: DbExecutor, v: ContratoVersaoRec
     const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, salaoDoSnapshot(v.snapshot)?.id ?? null, {
         data: fechamento.dataEvento, inicio: fechamento.horarioInicio, fim: fechamento.horarioFim, configuracaoId: fechamento.configuracaoAgendaId,
         pacoteId: pacote.id, convidados: fechamento.convidados });
+    // D-LIB-4 (entrada 2, só leitura): a proposta inicial não é preparada sobre um estado documental inconsistente.
+    if (escolha.porSalao) {
+        const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id }, 'EMISSAO');
+        if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, 'EMISSAO');
+    }
     if (escolha.porSalao && !escolha.salao)
         throw new ContratoServiceError('SALAO_INDISPONIVEL', escolha.motivo === 'ESCOLHIDO_NAO_SERVE'
             ? 'O salão escolhido para a festa não serve no destino proposto. Escolha outro salão antes de salvar.'
@@ -106,14 +113,18 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
     if (!disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId)?.horarios.some(h =>
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');
-    await persistirEdicaoFechamento(tx, f, proposta.resumo);
+    // D-LIB-4 (entrada 3): estado documental exigido antes de qualquer escrita (dupla prova nativa, sem vigente).
+    const referencia = await referenciaParaCaminho(tx, { fechamentoId: f.id, versaoId: v.id }, 'APLICACAO_REVISAO_INICIAL');
+    if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, 'APLICACAO_REVISAO_INICIAL');
+    // Entrada 14: a edição solta o salão (B6) quando muda data, horário ou configuração; depois, B1 se houver salão.
+    await persistirEdicaoFechamento(tx, f, proposta.resumo, { caminho: 'EDICAO_LIMPA_SALAO', origem: 'ACEITE_PUBLICO' });
     // S-E (R3-E2 a): o salão fixado na proposta assinada é EXIGIDO no destino, depois das travas das datas (em ordem, acima),
     // e gravado na festa na mesma transação; indisponível = recusa e rollback da assinatura, da prova e da versão.
-    const salao = salaoDoSnapshot(v.snapshot);
-    if (v.snapshot.schemaVersao === 3) {
-        if (!salao || !(await escolherSalao(tx, f.id, salao.id)).salao)
-            recusar('O salão deste contrato não está mais disponível; o buffet vai enviar uma nova versão.');
-    }
+    // D-LIB-4: a origem é o snapshot da PRÓPRIA versão candidata (não fechamento_revisoes). Proposta sem salão (preparada
+    // antes da ida): não grava; a festa fica nula e o curinga vale (validação acima e kidmais019_validar_destino).
+    const salao = v.snapshot.schemaVersao === 3 ? salaoDoSnapshot(v.snapshot) : null;
+    if (salao && !(await escolherSalao(tx, f.id, { caminho: 'APLICACAO_REVISAO_INICIAL', origem: 'ACEITE_PUBLICO', exigido: salao.id })).salao)
+        recusar('O salão deste contrato não está mais disponível; o buffet vai enviar uma nova versão.');
     const fotografia = await fotografarEstadoFechamento(tx, f.id, { motivo: proposta.motivo, atorUsuarioId: null });
     await registrarAuditoria({ clienteId: f.clienteId, atorTipo: 'SISTEMA', acao: 'CONTRATO_REVISAO_INICIAL_APLICADA',
         entidadeTipo: 'CONTRATO_VERSAO', entidadeId: v.id, origem: 'CONTRATO_PUBLICO', dadosAntes: atual,

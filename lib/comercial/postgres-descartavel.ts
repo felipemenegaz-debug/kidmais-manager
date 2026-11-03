@@ -3,6 +3,9 @@ import { instrumentarTimeout, PRAZO_DIAGNOSTICO_MS } from "./diagnostico-timeout
 import { exigirAmbienteSemConexaoHerdada, exigirOptInDescartavel, PAPEL_DESCARTAVEL, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
+// Liberar agenda com mais de um salão (rodada 2, C''20–22): o script de reconciliação só aceita kidmais_019_<n> local; o cenário
+// cria esse banco no próprio cluster descartável e o remove no fim. Mesma prova de identidade abaixo.
+const permitido = (db: string) => PERMITIDOS.has(db) || /^kidmais_019_\d+$/.test(db);
 const TRAVA_TESTE = 8742036;
 // Guarda da porta num módulo puro (testável sem driver); reexportada para as suítes.
 export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
@@ -14,7 +17,7 @@ export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 export async function conectarDescartavel(opcoes?: { travar?: boolean; database?: string }) {
   exigirOptInDescartavel();
   const database = opcoes?.database ?? "kidmais_pacotes_v1_descartavel";
-  if (!PERMITIDOS.has(database)) throw new Error("banco recusado");
+  if (!permitido(database)) throw new Error("banco recusado");
   exigirAmbienteSemConexaoHerdada();
   const portaAutorizada = portaDescartavel();
   // Tudo explícito; nenhuma senha é carregada (pgpass/PGPASSWORD) e nenhuma variável PG* participa.
@@ -33,7 +36,7 @@ export async function conectarDescartavel(opcoes?: { travar?: boolean; database?
   const db = ident.rows[0]?.db;
   const port = Number(ident.rows[0]?.port);
   const { addr, papel, cluster } = ident.rows[0] ?? {};
-  if (!PERMITIDOS.has(String(db)) || port !== portaAutorizada || addr !== "127.0.0.1" || papel !== PAPEL_DESCARTAVEL || cluster !== PAPEL_DESCARTAVEL) {
+  if (!permitido(String(db)) || port !== portaAutorizada || addr !== "127.0.0.1" || papel !== PAPEL_DESCARTAVEL || cluster !== PAPEL_DESCARTAVEL) {
     await client.end();
     throw new Error("destino recusado");
   }

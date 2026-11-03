@@ -10,6 +10,9 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
 import { carregar, cenario, comSalaoEscolhido, decisoes, dia, id, importacao, integrar, representante, type Cenario, type Evento, type Servico } from "../../scripts/integracao-importados-test-support.ts";
 import { consultarDisponibilidadeData } from "../disponibilidade/services/availability.service.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/agenda-um-salao-100.postgres.test.ts";
 
 /**
  * 100 no PostgreSQL DESCARTÁVEL (modelo 097 = staging de hoje: 093–097 sem a 098; e modelo 098 para a recusa).
@@ -70,7 +73,7 @@ async function habilitar(c: Cenario, unidade: string) {
 async function confirmada(c: Cenario, cfg: string, inicio: string, fim: string, salao: string | null = null, unidade: string | null = null, data = D) {
   await a.query("BEGIN");
   try {
-    const f = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const f = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id,
           estabelecimento_id)
         SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,

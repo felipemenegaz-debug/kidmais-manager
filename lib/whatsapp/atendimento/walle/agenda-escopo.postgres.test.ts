@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { conectarDescartavel } from "../../../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../../../db/contracts.ts";
 import { criarBloqueioAgenda } from "../../../disponibilidade/repositories/disponibilidade.repository.ts";
+import { travarConfiguracaoAgenda } from "../../../agenda/trava-configuracao.ts";
 import { cod } from "../harness-postgres.ts";
 import { entenderPorRegras } from "./entendimento.ts";
 import { catalogosWallE, fontesPostgres } from "./fontes-postgres.ts";
@@ -46,7 +47,10 @@ test("Wall-e: disponibilidade informa o escopo real da agenda (unidade, empresa)
     await c.query(`INSERT INTO agenda_062_unidades_habilitacao (empresa_id, estabelecimento_id, habilitada_por, habilitada_papel, motivo_habilitacao) VALUES ($1, $2, $3, 'REPRESENTANTE_AUTORIZADO', 'Abertura da unidade (harness)')`, [A.e, comAgenda, A.u]);
     const dUnidade = somarDias(hoje, 41), dOutra = somarDias(hoje, 43);
     await c.query("BEGIN");
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada, de cada empresa antes do seu bloqueio.
+    await travarConfiguracaoAgenda(ex, A.e, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     await criarBloqueioAgenda({ data: dUnidade, diaInteiro: true, motivo: "Festa sintética da unidade", usuarioId: A.u, empresaId: A.e, estabelecimentoId: comAgenda }, ex);
+    await travarConfiguracaoAgenda(ex, B.e, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     await criarBloqueioAgenda({ data: dOutra, diaInteiro: true, motivo: "Festa sintética de outra empresa", usuarioId: B.u, empresaId: B.e }, ex);
     await c.query("COMMIT");
 

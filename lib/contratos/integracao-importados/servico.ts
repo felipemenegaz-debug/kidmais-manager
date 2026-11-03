@@ -3,6 +3,7 @@ import {
   diagnosticarSalaoNoDestino, escolherSalaoDoContrato, escopoPorSalao, salaoAtivoDoEscopo, salaoServeNoDestino, saloesDoEscopoImportacao,
   TEXTO_MOTIVO_SALAO, type MotivoSalaoNaoServe,
 } from '../../agenda/salao-festa.ts';
+import { referenciaParaCaminho } from '../services/salao-contrato.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -15,6 +16,7 @@ import {
   montarSnapshotVersao, reais, sugestaoInicial, type DecisoesFinanceiras, type DecisoesIntegracao, type Referencias, type ResumoFinanceiro,
 } from './modelo.ts';
 import * as repo from './repositorio.ts';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao.ts';
 
 /**
  * Integração do contrato importado ao Core, na transação do tenant comprovado (`withTenantTransaction`).
@@ -432,6 +434,8 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   await exigirDisponivel(tx);
   const decisoes = decisoesSchema.parse(pedido.decisoes);
   const empresaId = tenant.empresaComprovada;
+  // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+  await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   // Lock da importação primeiro: duas confirmações da mesma importação se enfileiram aqui.
   await importacaoConfirmada(tx, empresaId, importacaoId, true);
   const existente = await repo.vinculoDaImportacao(tx, empresaId, importacaoId);
@@ -483,6 +487,11 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     const motivo = await conflito(tx, p, decisoes);
     if (motivo?.codigo === 'SALAO_INDISPONIVEL') throw salaoIndisponivel(p.salaoDaFesta.salao?.id ?? null, motivo.motivo);
     if (motivo) throw new IntegracaoImportadoError('CONFLITO_AGENDA', motivo.mensagem, 409);
+    // D-LIB-4 (entrada 8): em "por salão", contrato que ocupa a agenda precisa do salão no documento (V3). Guarda de
+    // serviço (a tela já exige), ANTES do primeiro DML da integração (atualização cadastral logo abaixo).
+    if (p.salaoDaFesta.porSalao && !p.salaoDaFesta.salao) {
+      throw new IntegracaoImportadoError('SALAO_EXIGIDO_NA_IMPORTACAO', 'Esta unidade usa salões: escolha o salão da festa antes de confirmar.', 409);
+    }
   }
 
   if (decisoes.cadastro) await core.atualizarCliente(tx, p.cliente.id, empresaId, decisoes.cadastro, ctx);
@@ -539,14 +548,18 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contratoId]);
   // Parecer do Astra (P1): contrato futuro importado também precisa de salão elegível livre (capacidade por salão).
   // S-E restante: no V3 a escolha é ESTRITA (o salão do documento, sem substituto); a recusa vira erro de domínio.
+  const marcaImportacao = { caminho: 'INTEGRACAO_IMPORTADO' as const, origem: 'IMPORTACAO' as const };
   if (salaoV3) {
+    // D-LIB-4 (entrada 7): vigente com a prova da conferência em papel (versão 1 + vínculo da integração), já gravados acima.
+    const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id, versaoId }, 'INTEGRACAO_IMPORTADO');
+    if (referencia.recusa) throw new IntegracaoImportadoError('DADOS_INCONSISTENTES', 'O contrato importado ficou em estado inconsistente. Nada foi gravado; tente de novo.', 409, { motivo: referencia.recusa });
     try {
-      await escolherSalaoDoContrato(tx, contratoId, salaoV3.id);
+      await escolherSalaoDoContrato(tx, contratoId, { ...marcaImportacao, exigido: salaoV3.id });
     } catch (e) {
       if (e && typeof e === 'object' && (e as { salaoExigido?: unknown }).salaoExigido === true) throw salaoIndisponivel(salaoV3.id, null);
       throw e;
     }
-  } else if (ocupa) await escolherSalaoDoContrato(tx, contratoId);
+  } else if (ocupa) await escolherSalaoDoContrato(tx, contratoId, { ...marcaImportacao, exigido: null });
   if (ocupa) await tx.query('SELECT public.kidmais019_validar_destino($1::uuid)', [contratoId]);
   const causa = { origem: ORIGEM_INTEGRACAO, ator: 'USUARIO', importacaoId, contratoId, versaoId, requestId: ctx.requestId };
   const festaId = await repo.inserirFesta(tx, {
@@ -627,6 +640,8 @@ export async function simularFinanceiro(tx: DbExecutor, tenant: TenantComprovado
 export async function conferirFinanceiro(tx: DbExecutor, tenant: TenantComprovado, ctx: ContextoIntegracao, importacaoId: string, pedido: { financeiro: unknown; resumoHash: string; chave: string }, hoje: string, core: Core) {
   exigirPapel(tenant);
   await exigirDisponivel(tx);
+  // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+  await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   const p = await prepararFinanceiro(tx, tenant, importacaoId, pedido.financeiro, hoje, true);
   if (p.vinculo.financeiro) {
     if (repeticao(p.vinculo.financeiro, pedido)) {

@@ -11,6 +11,7 @@ import {
   type Cenario, type Evento, type Servico,
 } from "../../scripts/integracao-importados-test-support.ts";
 import type { EscopoAgenda } from "./escopo.ts";
+import { travarConfiguracaoAgenda } from "../agenda/trava-configuracao.ts";
 
 /**
  * Agenda por empresa e unidade (062) no PostgreSQL REAL, etapa por etapa da publicação.
@@ -80,6 +81,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO'${unidade !== undefined ? ", $4::uuid" : ""} FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $3::uuid RETURNING fechamentos.id`,
       unidade !== undefined ? [data, cc.empresa, cc.pacote, unidade] : [data, cc.empresa, cc.pacote]);
     const pendencia = (data: string, inicio: string, fim: string): Evento => ({ data, inicio, fim });
+    /** Configuração da empresa (compartilhada) na transação aberta de `db`, como a entrada do bloqueio administrativo. */
+    const travarConfiguracao = (db: Client, cc: Cenario) => travarConfiguracaoAgenda(executor(db), cc.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     // Subteste que falha no meio não pode deixar transação aberta (ou abortada) para o próximo.
     t.beforeEach(async () => { await a.query("ROLLBACK"); await b.query("ROLLBACK"); });
     const naoConferido = { situacao: "NAO_CONFERIDO" };
@@ -88,6 +91,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       const c = await cenario(a, 1);
       const outra = await cenario(a, 1);
       await bruto(c, d);
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(a, c);
       const bloqueio = await repo.criarBloqueioAgenda({ data: d, diaInteiro: true, motivo: rotulo, empresaId: c.empresa }, executor(a));
       assert.equal(bloqueio.alcance, "GLOBAL", "sem a 062 não há onde gravar a empresa: bloqueio global, como sempre");
       assert.equal(await periodo(a, outra, d, empresa(outra)), "INDISPONIVEL", "agenda continua global");
@@ -159,6 +164,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
     await t.test("D6 (opção A): nenhuma habilitação automática; SUSPENSO não é permissão; só o representante habilita", async () => {
       await a.query("BEGIN");
       const c = await cenario(a, 2);
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(a, c);
       const elegiveis = (await a.query<{ n: number }>(`SELECT count(*)::int n FROM estabelecimentos WHERE empresa_id = $1 AND kidmais062_unidade_agendavel(empresa_id, id)`, [c.empresa])).rows[0].n;
       assert.equal(elegiveis, 0, "unidades existentes (SUSPENSO) não ficam elegíveis sozinhas");
       assert.deepEqual(await integracaoRepo.estabelecimentosAtivos(executor(a), c.empresa), [], "integração não oferece unidade não habilitada");
@@ -738,6 +745,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       const cB = await cenario(a, 1);
       const tx = executor(a);
       const [d1, d2] = [dia(450), dia(451)];
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(a, c);
       await repo.criarBloqueioAgenda({ data: d1, diaInteiro: true, motivo: "Empresa A", empresaId: c.empresa }, tx);
       const global = await id(a, `INSERT INTO bloqueios_agenda (data, dia_inteiro, motivo) VALUES ($1::date, true, 'Legado sem dono') RETURNING id`, [d2]);
       const ev = (d: string) => pendencia(d, "14:00", "18:00");
@@ -746,6 +755,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       await assert.rejects(integrar(s, coreNativo, a, cB, (await importacao(a, cB, ev(d2))).id, decisoes(cB, ev(d2), naoConferido)), /bloqueado/i, "sem dono = global (pendência D3)");
       await validarAgora(a);
       await assert.rejects(repo.desativarBloqueioAgendaPorId(global, tx, empresa(c)), (e: { code?: string }) => e.code === "BLOQUEIO_SEM_DONO");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(a, cB);
       const deB = await repo.criarBloqueioAgenda({ data: dia(453), diaInteiro: true, motivo: "De B", empresaId: cB.empresa }, tx);
       assert.equal(await repo.desativarBloqueioAgendaPorId(deB.id, tx, empresa(c)), false, "outra empresa: não encontrado");
       assert.equal(await repo.desativarBloqueioAgendaPorId(deB.id, tx, empresa(cB)), true);
@@ -766,6 +777,8 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       // [R2] Bloqueio de OUTRA empresa no horário da reserva: sem a 062 todo bloqueio é global e passaria a conflitar.
       await a.query("BEGIN");
       const outraEmpresa = await cenario(a, 1);
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(a, outraEmpresa);
       const bloqueioOutra = (await repo.criarBloqueioAgenda({ data: ev.data, diaInteiro: true, motivo: "Outra empresa", empresaId: outraEmpresa.empresa }, executor(a))).id;
       await a.query("COMMIT");
       await assert.rejects(a.query(ler("database/rollback/20261002_062_agenda_empresa_unidade_down.sql")), /bloqueio de empresa\/unidade no horário de reserva de outro recurso/);
@@ -810,15 +823,22 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       await a.query("BEGIN");
       await integrar(s, coreNativo, a, c, imp1.id, decisoes(c, s1, naoConferido));
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      // Antes do lock_timeout: a compartilhada não espera a da importação; o timeout abaixo continua sendo o da DATA.
+      await travarConfiguracao(b, c);
       await b.query("SET LOCAL lock_timeout = '2s'");
       await assert.rejects(repo.criarBloqueioAgenda({ data: s1.data, diaInteiro: true, motivo: "Concorrente", empresaId: c.empresa }, executor(b)), /lock timeout|canceling statement/i);
       await b.query("ROLLBACK");
       await a.query("COMMIT");
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(b, c);
       await assert.rejects(repo.criarBloqueioAgenda({ data: s1.data, diaInteiro: true, motivo: "Concorrente", empresaId: c.empresa }, executor(b)), /Bloqueio conflita com contratação vigente/);
       await b.query("ROLLBACK");
       // Bloqueio nativo primeiro: a importação espera o lock e depois encontra o bloqueio.
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(b, c);
       await repo.criarBloqueioAgenda({ data: s2.data, diaInteiro: true, motivo: "Primeiro", empresaId: c.empresa }, executor(b));
       await a.query("BEGIN");
       await a.query("SET LOCAL lock_timeout = '2s'");

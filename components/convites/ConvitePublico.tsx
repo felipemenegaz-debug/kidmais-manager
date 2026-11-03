@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { type Conteudo } from '@/lib/convites/domain';
+import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
 import type { FamiliaPublica } from '@/lib/convites/familias-domain';
 import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
 import ConviteArte from './ConviteArte';
@@ -43,7 +43,9 @@ export default function ConvitePublico({ token }: { token: string }) {
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
       <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} /></div>
-      <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${conteudo.local} ${conteudo.endereco}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
+      {/* D-LIB-3/5: o bloco "Local" fica visível na página mesmo quando a arte completa traz os textos na imagem. */}
+      {conteudo.blocoLocal && <p className={styles.localFixo} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local</strong> {localDoConvite(conteudo)}{enderecoDoConvite(conteudo) ? <span>{enderecoDoConvite(conteudo)}</span> : null}</p>}
+      <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${localDoConvite(conteudo)} ${enderecoDoConvite(conteudo)}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
       {conteudo.confirmarPresenca && <form id="confirmar-presenca" aria-labelledby="titulo-presenca" className={`${styles.painel} ${styles.bordaAnimada}`} onSubmit={async e => {
         e.preventDefault(); const form = e.currentTarget; setBusy(true); setErro(''); setAviso('');
         try {

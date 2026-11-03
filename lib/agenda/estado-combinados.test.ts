@@ -6,16 +6,24 @@ import {
 } from "./estado-combinados.ts";
 
 const vazio: CatalogoCombinados = { funcoes: 0, funcoesQualquer: 0, colunaCombinado: false, colunaMembros: false, checkValidado: false, gatilhosOk: 0,
-  gatilhosQualquer: 0, conflito: "805cd427a7cc7a725fb3bdfb4fd050f04e618131104fcfc0678a0ddadd5b4bdb", contrato: "4d46", revisao: "9518", marcador108: false };
+  gatilhosQualquer: 0, conflito: "805cd427a7cc7a725fb3bdfb4fd050f04e618131104fcfc0678a0ddadd5b4bdb", contrato: "4d46", revisao: "9518", marcador108: false, marcador114: false };
 const nova: CatalogoCombinados = { funcoes: TOTAL_FUNCOES_COMBINADOS, funcoesQualquer: TOTAL_FUNCOES_COMBINADOS, colunaCombinado: true, colunaMembros: true,
   checkValidado: true, gatilhosOk: GATILHOS_COMBINADOS.length, gatilhosQualquer: GATILHOS_COMBINADOS.length, conflito: HASHES_COMBINADOS.conflito108,
-  contrato: HASHES_COMBINADOS.contrato, revisao: HASHES_COMBINADOS.revisao, marcador108: true };
+  contrato: HASHES_COMBINADOS.contrato, revisao: HASHES_COMBINADOS.revisao, marcador108: true, marcador114: false };
 const antiga: CatalogoCombinados = { ...nova, conflito: HASHES_COMBINADOS.conflito098, marcador108: false };
 
 test("estado: ausente, antiga e nova só com a instalação COMPLETA e ÍNTEGRA (pareceres de 29/10, P2-1)", () => {
   assert.equal(classificarCombinados(vazio), "AUSENTE");
   assert.equal(classificarCombinados(nova), "NOVA");
   assert.equal(classificarCombinados(antiga), "ANTIGA");
+});
+
+/** Liberar agenda com mais de um salão (D-LIB-6): a 114 recria a validação da revisão; com o marcador, só o corpo da 114 vale. */
+test("114: com o marcador, a validação da revisão da 114 é NOVA; o corpo da 108 com o marcador, ou o da 114 sem ele, é PARCIAL", () => {
+  assert.equal(classificarCombinados({ ...nova, marcador114: true, revisao: HASHES_COMBINADOS.revisao114 }), "NOVA");
+  assert.equal(classificarCombinados({ ...nova, marcador114: true }), "PARCIAL", "108 + marcador da 114");
+  assert.equal(classificarCombinados({ ...nova, revisao: HASHES_COMBINADOS.revisao114 }), "PARCIAL", "corpo da 114 sem o marcador");
+  assert.equal(classificarCombinados({ ...nova, marcador114: true, revisao: "x" }), "PARCIAL", "outro corpo com o marcador");
 });
 
 test("parcial: peça faltando, definição ou corpo divergente, CHECK trocado, marcador trocado", () => {
@@ -54,13 +62,15 @@ test("estadoCombinados lê o catálogo numa consulta só, com as definições, e
     query: async (sql: string) => { consultas.push(sql); return { rows: linha ? [linha] : [], rowCount: linha ? 1 : 0 }; },
   });
   const linhaNova = { funcoes: 10, funcoes_qualquer: 10, combinado: true, membros: true, check_ok: true, gatilhos_ok: 6, gatilhos_qualquer: 6,
-    conflito: HASHES_COMBINADOS.conflito108, contrato: HASHES_COMBINADOS.contrato, revisao: HASHES_COMBINADOS.revisao, marcador: true };
+    conflito: HASHES_COMBINADOS.conflito108, contrato: HASHES_COMBINADOS.contrato, revisao: HASHES_COMBINADOS.revisao, marcador: true, marcador114: false };
   assert.deepEqual(await estadoCombinados(db(linhaNova) as never), { estado: "NOVA", coluna: true });
   assert.deepEqual(await estadoCombinados(db({ ...linhaNova, gatilhos_ok: 5 }) as never), { estado: "PARCIAL", coluna: true });
   assert.deepEqual(await estadoCombinados(db(undefined) as never), { estado: "AUSENTE", coluna: false });
   assert.equal(consultas.length, 3);
   const sql = consultas[0]!;
   assert.match(sql, /kidmais108_instalada\(\)/);
+  assert.match(sql, /kidmais114_exigir_configuracao\(uuid\)/);
+  assert.deepEqual(await estadoCombinados(db({ ...linhaNova, marcador114: true, revisao: HASHES_COMBINADOS.revisao114 }) as never), { estado: "NOVA", coluna: true });
   assert.match(sql, /tgenabled = 'O'/);
   assert.match(sql, /t\.tgtype = g\.tipo AND t\.tgdeferrable = g\.diferido AND t\.tginitdeferred = g\.diferido/);
   assert.match(sql, /t\.tgnargs = 0 AND t\.tgqual IS NULL/);

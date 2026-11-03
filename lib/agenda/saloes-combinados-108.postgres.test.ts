@@ -11,12 +11,16 @@ import { cenario, dia, executor, id, representante, type Cenario } from "../../s
 import { estadoCombinados } from "./estado-combinados.ts";
 import { combinadosInstalados } from "./salao-festa.ts";
 import { trocarSalaoDaFesta } from "./troca-salao.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 import { ocupacaoImpedeCandidato } from "../disponibilidade/services/availability.service.ts";
 import { lerRegraCapacidadeAgenda, listarFechamentosConfirmadosPorPeriodo } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { criarSalaoCombinado, desativarSalao, impedimentosDesativacao, lerAgendaEscopo, salvarAgendaEscopo, type SalvarAgenda } from "./configuracao-unidade.ts";
 import { escolherSalao } from "./salao-festa.ts";
 import { saloesDoDia } from "./saloes-do-dia.ts";
 import { saloesCruzam } from "./saloes-conjuntos.ts";
+import { escreverSalaoFixture, idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/saloes-combinados-108.postgres.test.ts";
 
 /**
  * 108 (salões combinados rebaseados; plano "Retomada 098", rev. 2.1) no PostgreSQL DESCARTÁVEL, modelo 107 (cadeia até a
@@ -76,7 +80,7 @@ const combinado = (db: Client, c: Cenario, nome: string, membros: string[], unid
 
 /** Festa gravada e confirmada (sem contrato) na conexão dada; o chamador controla a transação. */
 async function festa(db: Client, c: Cenario, cfg: string, data: string, salao: string | null, ini = "15:00", fim = "19:00", unidade: string | null = null) {
-  const f = await id(db, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  const f = await idSalaoFixture(db, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, $8::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid LIMIT 1 RETURNING fechamentos.id`,
@@ -474,7 +478,7 @@ test("invariante de elegibilidade e D5 por SQL direto: salão inativo, combinado
   await recusa(confirmada(a, c, cfg, dia(45), C), /098: salão inativo/);
   // Mudança física revalidada: festa em A movida para C (inativo) é recusada.
   const emA = await confirmada(a, c, cfg, dia(46), A);
-  await recusa(a.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [emA, C]), /098: salão inativo/);
+  await recusa(escreverSalaoFixture(a, ARQUIVO_FIXTURE, `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [emA, C]), /098: salão inativo/);
   // Reativado, volta a valer.
   await a.query(`UPDATE agenda_saloes SET ativo = true WHERE id = ANY ($1::uuid[])`, [[B, C]]);
   await a.query(`UPDATE fechamentos SET status = 'CONFIRMADO' WHERE id = $1::uuid`, [f]);
@@ -724,21 +728,23 @@ test("concorrência: reserva na unidade (locks da 062) × cadastro em lote pelo 
   assert.equal((await a.query(`SELECT 1 FROM configuracao_agenda_saloes WHERE configuracao_agenda_id = $1::uuid AND salao_id = $2::uuid`, [cfg, AB])).rowCount, 1);
   await a.query("BEGIN");
   try {
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    await travarConfiguracaoAgenda(executor(a), c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const grande = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, status)
       SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, $4::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', 'AGUARDANDO_CONTRATO'
         FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $5::uuid LIMIT 1 RETURNING fechamentos.id`, [dia(60), cfg, c.empresa, c.unidade, pacoteAB]);
-    assert.deepEqual(await escolherSalao(executor(a), grande), { exigido: true, salao: AB });
+    assert.deepEqual(await escolherSalao(executor(a), grande, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true }), { exigido: true, salao: AB });
     const pequena = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, status)
       SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, $4::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', 'AGUARDANDO_CONTRATO'
         FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $5::uuid LIMIT 1 RETURNING fechamentos.id`, [dia(61), cfg, c.empresa, c.unidade, c.pacote]);
-    const escolha = await escolherSalao(executor(a), pequena);
+    const escolha = await escolherSalao(executor(a), pequena, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true });
     assert.ok(escolha.salao === A || escolha.salao === B, "A e B liberados: nunca AB");
     // Com A ocupado no dia 60 pela grande, a pequena no mesmo dia escolheria C? Não: o pacote só permite A e B; B serve? Não (AB ocupa B).
     await a.query(`UPDATE fechamentos SET data_evento = $2::date WHERE id = $1::uuid`, [pequena, dia(60)]);
     await a.query(`UPDATE fechamentos SET status = 'CONFIRMADO' WHERE id = $1::uuid`, [grande]);
-    assert.deepEqual(await escolherSalao(executor(a), pequena), { exigido: true, salao: null }, "sem candidato elegível livre = indisponível");
+    assert.deepEqual(await escolherSalao(executor(a), pequena, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true }), { exigido: true, salao: null }, "sem candidato elegível livre = indisponível");
   } finally {
     await a.query("ROLLBACK");
   }
@@ -758,6 +764,9 @@ test("concorrência (rev. 2.1, P2-R2-3): troca manual de salão para o combinado
     const [pb, pd] = [await pidDe(b), await pidDe(d)];
     // Ordem 1: a troca C → AB pega as travas primeiro (sem COMMIT); a desativação de A espera e, depois, vê a festa em AB.
     await b.query("BEGIN");
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    // Compartilhada: a desativação (EXCLUSIVA da mesma configuração, tomada por ela mesma) espera o COMMIT da troca.
+    await travarConfiguracaoAgenda(executor(b), c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     await trocarSalaoDaFesta(executor(b), ctx, F1, AB);
     await b.query("SET CONSTRAINTS ALL IMMEDIATE");
     const desativar = (async () => {
@@ -777,7 +786,11 @@ test("concorrência (rev. 2.1, P2-R2-3): troca manual de salão para o combinado
     await desativarSalao(executor(d), { ...ctx, requestId: randomUUID() }, E);
     const trocar = (async () => {
       await b.query("BEGIN");
-      try { await trocarSalaoDaFesta(executor(b), { ...ctx, requestId: randomUUID() }, F2, EG); await b.query("COMMIT"); return "ok"; }
+      try {
+        // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+        // A troca espera aqui, na compartilhada, a EXCLUSIVA que a desativação segura até o COMMIT.
+        await travarConfiguracaoAgenda(executor(b), c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+        await trocarSalaoDaFesta(executor(b), { ...ctx, requestId: randomUUID() }, F2, EG); await b.query("COMMIT"); return "ok"; }
       catch (e) { await b.query("ROLLBACK"); return e; }
     })();
     await esperaObservada(pb, pd);

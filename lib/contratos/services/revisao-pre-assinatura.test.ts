@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { hashSnapshotContrato } from './snapshot-core.ts';
 import { diferencasContratuais } from './alteracoes.ts';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 const req=createRequire(import.meta.url);
 function carregar(path:string,mocks:Record<string,unknown>,extra='') {
     const exports:Record<string,unknown>={};
@@ -26,7 +27,9 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     let capacidadeAssinar=true;
     const tx={query:async(sql:string,p:unknown[]=[])=>{
         sqls.push(sql);let rows:unknown[]=[];
-        if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
+        // Rev. 3: a entrada trava a configuração da agenda da empresa comprovada (compartilhada; linha já travada pelo tenant).
+        if(sql.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'")||sql.startsWith("SELECT set_config('kidmais.agenda_config_empresa'"))assert.deepEqual(p,['empresa-a']);
+        else if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
         else if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
         else if(sql.startsWith('SELECT status FROM contratos'))rows=[{status:contratoStatus}];
         else if(sql.startsWith('SELECT * FROM contrato_fluxos'))rows=[{...fluxo}];
@@ -49,6 +52,7 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     }};
     const mod=carregar('lib/contratos/services/administrativo.service.ts',{
         '../../db/postgres':{withTransaction:async(fn:(tx:unknown)=>unknown)=>fn(tx)},
+        '../../agenda/trava-configuracao':travaConfiguracao,
         '../../autenticacao/service':{authError:(m:string,s:number)=>Object.assign(new Error(m),{status:s}),consultarSessao:async()=>({usuario_id:'u',papel:'REPRESENTANTE_AUTORIZADO',autenticado_em:new Date().toISOString()})},
         '../../fechamentos/services/edicao-administrativa-schema':carregar('lib/fechamentos/services/edicao-administrativa-schema.ts',{}),
         './snapshot-core':{hashSnapshotContrato},'./errors':{ContratoServiceError:Falha},

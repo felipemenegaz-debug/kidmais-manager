@@ -25,6 +25,24 @@ function financeiro(): FinanceiroResumo {
   return { contrato: { id: 'contrato' }, vigente: { id: 'v2' }, reconhecida: { id: 'v2' }, posicao: { obrigacao: '881100', liquido: '400000', saldo: '481100' }, cobranca: { encerrada: false }, planos: [{ id: 'p', status: 'ATIVO', numero_versao: 2 }, { id: 'antigo', status: 'SUBSTITUIDO', numero_versao: 1 }], parcelas: [{ id: 'parcela', plano_id: 'p', numero: 1, valor_previsto: '8811.00', vencimento: '2027-06-26', status: 'PARCIAL' }, { id: 'antiga', plano_id: 'antigo', numero: 1, valor_previsto: '999.00', vencimento: '2027-01-01', status: 'CANCELADA' }], cronograma: null, itens: [] };
 }
 const conteudo = (resumo: ReturnType<typeof montarResumo>) => JSON.stringify(resumo);
+
+// Plano "liberar mais de um salão" (P2-1): o salão da versão selecionada no resumo do painel e no PDF dele.
+test('salão: linha "Salão" do snapshot V3 da versão selecionada; V1/V2 e V3 sem salão não têm a linha', async () => {
+  const { criarPdfResumo } = await import('./resumo-pdf.ts');
+  const textoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\((.*?)(?<!\\)\) Tj/g)].map((m) => m[1]).join('\n');
+  const p = painel();
+  const comSalao = (nome: string | null) => ({ ...structuredClone(snapshot), schemaVersao: 3, evento: { ...snapshot.evento, configuracaoAgendaId: 'cfg', salao: nome ? { id: 'salao', nome } : null } }) as unknown as ContratoSnapshotV1;
+  p.versoes[1] = { ...p.versoes[1], snapshot: comSalao('Salão Jardim de Inverno — Ala Ônix') };
+  p.versoes[0] = { ...p.versoes[0], snapshot: comSalao(null) };
+  const festa = (r: ReturnType<typeof montarResumo>) => r.secoes.find((x) => x.titulo === 'Festa')!.linhas;
+  const vigente = montarResumo(p);
+  assert.deepEqual(festa(vigente).find(([rotulo]) => rotulo === 'Salão'), ['Salão', 'Salão Jardim de Inverno — Ala Ônix']);
+  assert.deepEqual(festa(vigente).map(([rotulo]) => rotulo).slice(0, 3), ['Data', 'Horário', 'Salão']);
+  assert.match(textoPdf(criarPdfResumo(vigente)), /Jardim de Inverno/, 'o PDF baixado tem o nome do salão');
+  assert.equal(festa(montarResumo(p, 'v1')).some(([rotulo]) => rotulo === 'Salão'), false, 'V3 sem salão: sem a linha');
+  assert.equal(festa(montarResumo(p, 'v3')).some(([rotulo]) => rotulo === 'Salão'), false, 'V1: sem a linha');
+  assert.doesNotMatch(textoPdf(criarPdfResumo(montarResumo(p, 'v3'))), /Sal.o:/, 'PDF de V1 sem a linha');
+});
 test('vigente usa V2 persistida, nunca a preparação V3 nem recálculo comercial', () => {
   const p = painel(), antes = JSON.stringify(p), r = montarResumo(p);
   assert.equal(r.classificacao, 'Versão vigente');

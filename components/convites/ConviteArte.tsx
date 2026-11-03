@@ -1,7 +1,7 @@
 'use client';
 // Artes já são reencodadas no servidor; URLs privadas não devem passar pelo cache do otimizador Next.
 /* eslint-disable @next/next/no-img-element */
-import { type Conteudo } from '@/lib/convites/domain';
+import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
 import { useId } from 'react';
 import { modeloBiblioteca, modeloComFoto, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
@@ -20,7 +20,7 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
     </div>
     <div className={completa ? styles.somenteLeitor : styles.conviteTexto}><p className={styles.sobretitulo}>VAMOS COMEMORAR</p><h2>{c.nome || 'Nome do aniversariante'}</h2><p className={styles.idade}>{c.idade || 'Um dia muito especial'}</p><p className={styles.mensagem}>{c.mensagem}</p>
       <div className={styles.quando}><strong>{dataBonita(c.data)}</strong><span>às {c.horario || '00:00'}</span></div>
-      <strong>{c.local || 'Local da festa'}</strong><p className={styles.endereco}>{c.endereco || 'Endereço do evento'}</p>
+      <strong>{localDoConvite(c) || 'Local da festa'}</strong><p className={styles.endereco}>{enderecoDoConvite(c) || 'Endereço do evento'}</p>
     </div>
   </article>;
 }
@@ -71,7 +71,7 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
     rows.forEach((line, n) => ctx.fillText(line, 540, y + n * (size + 10), 930));
   };
   linhas(c.mensagem, 850, 30, 4); texto(`${dataBonita(c.data)} · ${c.horario}`, 1090, 40, true);
-  texto(c.local, 1200, 38, true); linhas(c.endereco, 1260, 27, 3);
+  texto(localDoConvite(c), 1200, 38, true); linhas(enderecoDoConvite(c), 1260, 27, 3);
   }
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
   if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a');

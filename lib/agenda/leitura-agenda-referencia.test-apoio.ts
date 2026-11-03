@@ -5,6 +5,7 @@
  * (escopoValido não é exportado). Não usar fora de testes.
  */
 import type { DbExecutor } from "../db/contracts.ts";
+import { maisDeUmSalaoLiberado } from "./saloes-liberacao-servidor.ts";
 import { listarConfiguracoesAgendaAtivas } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { combinadosInstalados } from "./salao-festa.ts";
 import type { AgendaEscopo, CapacidadeTipo, EscopoConfiguravel, HorarioAgenda, Modo, SalaoCombinado } from "./configuracao-unidade.ts";
@@ -123,6 +124,7 @@ export async function lerAgendaReferencia(db: DbExecutor, empresaId: string, est
     saloes: saloes.rows.map((s) => ({ id: s.id, nome: s.nome, capacidadeConvidados: s.capacidade_convidados == null ? null : Number(s.capacidade_convidados) })),
     combinados,
     combinadosDisponiveis: v098,
+    maisDeUmSalaoLiberado: maisDeUmSalaoLiberado(),
     horarios,
   };
 }

@@ -8,6 +8,9 @@ import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, congelarEAssinarKidmais, cpfValido, dia, executor, id,
   poolNaTransacao, validarAgora, type Cenario,
 } from "../../scripts/integracao-importados-test-support.ts";
+import { escreverSalaoFixture, idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/salao-contrato-se.postgres.test.ts";
 
 /**
  * S-E parte 2 (plano S-E/S-D rev. 4.1, R-E1/R-E2/R3-E2/R3-E3/R3-E5) no PostgreSQL DESCARTÁVEL, contratos NATIVOS pelos
@@ -129,7 +132,7 @@ test("sem troca silenciosa: equipe mudou o salão depois da emissão, ou a data 
     const s1 = await salao(c, "S1", 1, 50), s2 = await salao(c, "S2", 2, 80);
     const e = await emitida(c, nativo, D, 30);
     assert.equal((await snapshotDe(e.versao)).evento.salao?.id, s1);
-    await a.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [e.festa, s2]);
+    await escreverSalaoFixture(a, ARQUIVO_FIXTURE, `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [e.festa, s2]);
     await recusa(assinarComoCliente(e.contrato, e.cpf), /salão deste contrato não está mais disponível/);
     assert.notEqual(await contratoAssinado(a, e.contrato), "ASSINADO");
     assert.equal((await festaDe(a, e.festa)).salao, s2, "a escolha da equipe não foi desfeita nem trocada");
@@ -180,7 +183,7 @@ test("ocupação concorrente: outra conexão segura o lock da data e ocupa o sal
   };
   try {
     await b.query("BEGIN");
-    const x = await id(b, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const x = await idSalaoFixture(b, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT f.data_evento, f.horario_inicio, f.horario_fim, f.configuracao_agenda_id, f.empresa_id, f.pacote_id, f.tabela_preco_id, f.preco_pacote_id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $2::uuid FROM fechamentos f WHERE f.id = $1::uuid RETURNING fechamentos.id`, [prep.e.festa, prep.s1]);
@@ -299,7 +302,7 @@ const com104 = async () => (await a.query<{ ok: boolean }>(
   `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fechamento_revisoes'::regclass AND attname = 'hash_versao' AND NOT attisdropped) ok`)).rows[0].ok;
 /** Outra festa CONFIRMADA no mesmo dia e horário da festa `base`, no salão `s`. */
 const ocupar = async (base: string, s: string) => {
-  const x = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  const x = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
       categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
     SELECT f.data_evento, f.horario_inicio, f.horario_fim, f.configuracao_agenda_id, f.empresa_id, f.pacote_id, f.tabela_preco_id, f.preco_pacote_id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
            'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $2::uuid FROM fechamentos f WHERE f.id = $1::uuid RETURNING fechamentos.id`, [base, s]);
@@ -424,7 +427,7 @@ test("pagamento V3 com o salão do contrato ocupado: CONFLITO, recebimento prese
     await validarAgora(a);
     assert.equal((await festaDe(a, e.festa)).salao, s1);
     // Simula a perda do salão (festa sem salão e outra confirmada em S1) antes do pagamento.
-    await a.query(`UPDATE fechamentos SET salao_id = NULL WHERE id = $1::uuid`, [e.festa]);
+    await escreverSalaoFixture(a, ARQUIVO_FIXTURE, `UPDATE fechamentos SET salao_id = NULL WHERE id = $1::uuid`, [e.festa]);
     const x = await ocupar(e.festa, s1);
     const pag = carregar<typeof import("../pagamentos/services/pagamento.service.ts")>("lib/pagamentos/services/pagamento.service.ts");
     const tx = executor(a);

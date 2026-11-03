@@ -165,6 +165,8 @@ const presentes = s => Object.entries(s).filter(([k, v]) => !(k in EXCLUIDAS) &&
  * trata "sem linha" como AUSENTE; aqui a ausência só vale lida do catálogo).
  */
 const CONFLITO_098 = 'a3b9bcb198adbe4cd0595c56a5def99aff8463f96f0c192554f42099029ca05a';
+// Liberar agenda com mais de um salão (D-LIB-6): com o marcador da 114, só o corpo da revisão recriado por ela vale.
+const REVISAO_114 = 'dcbfd2b296635249273d36a2593baf15eefb27fa9628523357df4b56476638a1';
 const TOTAL_FUNCOES_COMBINADOS = Object.keys(ret108.NOVA.funcoes).length;
 const corpoCombinados = assinatura =>
   `(SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = to_regprocedure('public.${assinatura}'))`;
@@ -192,16 +194,17 @@ const SQL_COMBINADOS = (() => {
             ${corpoCombinados("kidmais094_conflito_ocupacao(uuid,date,time without time zone,time without time zone,uuid,uuid,uuid,uuid)")} AS conflito,
             ${corpoCombinados("kidmais019_validar_contrato()")} AS contrato,
             ${corpoCombinados("kidmais_validar_agenda_revisao()")} AS revisao,
-            to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS marcador`;
+            to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS marcador,
+            to_regprocedure('public.kidmais114_exigir_configuracao(uuid)') IS NOT NULL AS marcador114`;
 })();
 /** Linha do catálogo → objeto do detector (CatalogoCombinados). Tipos conferidos: qualquer desvio = ilegível (PARAR). */
 function lerCombinados(l) {
   for (const k of ['funcoes', 'funcoes_qualquer', 'gatilhos_ok', 'gatilhos_qualquer']) assert.ok(Number.isInteger(l?.[k]) && l[k] >= 0, 'COMBINADOS_ILEGIVEIS');
-  for (const k of ['combinado', 'membros', 'check_ok', 'marcador']) assert.equal(typeof l[k], 'boolean', 'COMBINADOS_ILEGIVEIS');
+  for (const k of ['combinado', 'membros', 'check_ok', 'marcador', 'marcador114']) assert.equal(typeof l[k], 'boolean', 'COMBINADOS_ILEGIVEIS');
   // typeof antes da regex: RegExp.test converte para texto, e array, Buffer ou String objeto passariam (P2 da revisão do B-21).
   for (const k of ['conflito', 'contrato', 'revisao']) assert.ok(l[k] === null || (typeof l[k] === 'string' && /^[0-9a-f]{64}$/.test(l[k])), 'COMBINADOS_ILEGIVEIS');
   return {funcoes: l.funcoes, funcoesQualquer: l.funcoes_qualquer, colunaCombinado: l.combinado, colunaMembros: l.membros, checkValidado: l.check_ok,
-    gatilhosOk: l.gatilhos_ok, gatilhosQualquer: l.gatilhos_qualquer, conflito: l.conflito, contrato: l.contrato, revisao: l.revisao, marcador108: l.marcador};
+    gatilhosOk: l.gatilhos_ok, gatilhosQualquer: l.gatilhos_qualquer, conflito: l.conflito, contrato: l.contrato, revisao: l.revisao, marcador108: l.marcador, marcador114: l.marcador114};
 }
 /** Mesma regra de classificarCombinados (lib/agenda/estado-combinados.ts). */
 function classificarCombinados(c) {
@@ -209,7 +212,7 @@ function classificarCombinados(c) {
   if (!algum) return 'AUSENTE';
   const nucleo = c.funcoes === TOTAL_FUNCOES_COMBINADOS && c.funcoesQualquer === TOTAL_FUNCOES_COMBINADOS && c.colunaCombinado && c.colunaMembros
     && c.checkValidado && c.gatilhosOk === ret108.NOVA.gatilhos.length && c.gatilhosQualquer === ret108.NOVA.gatilhos.length
-    && c.contrato === ret108.NOVA.hashes.contrato && c.revisao === ret108.NOVA.hashes.revisao;
+    && c.contrato === ret108.NOVA.hashes.contrato && c.revisao === (c.marcador114 ? REVISAO_114 : ret108.NOVA.hashes.revisao);
   if (nucleo && c.marcador108 && c.conflito === ret108.NOVA.hashes.conflito108) return 'NOVA';
   if (nucleo && !c.marcador108 && c.conflito === CONFLITO_098) return 'ANTIGA';
   return 'PARCIAL';
@@ -394,4 +397,4 @@ if (require.main === module) {
 module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, ASAAS, AVISO_DIAS, ANTECIPADO_DIAS, MARGEM_B9_DIAS, SQL_DOCUMENTOS, SQL_TOTAL_CONFIRMADAS,
   SQL_RENOVACAO_INSTALADA, sqlConcessoes, documentoValido091, dataValida, diasAntes, primeiraRenovacaoRegular, diaBrasil, somenteLeitura, estados, presentes,
   inventarioDocumentos, criarLeitorAsaas, fundador, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
-  MOTIVO_COMBINADOS, combinados};
+  MOTIVO_COMBINADOS, combinados, REVISAO_114};

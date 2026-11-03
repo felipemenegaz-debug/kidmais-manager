@@ -7,6 +7,7 @@ import { registrarAuditoria, registrarEventoHistorico } from "../../clientes/rep
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava,
   listarAprovacoesDoFechamento, registrarDecisaoNoFechamento } from "../repositories/fechamento.repository";
 import { FechamentoServiceError } from "./errors";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 /**
  * `empresaId` é o tenant comprovado pela rota. Fechamento de outra empresa, legado sem empresa ou
@@ -50,6 +51,10 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
   const executar = async (tx: DbExecutor) => {
     // Autorização sem lock; só então trava e revalida a empresa da linha travada.
     await exigirFechamentoDoTenant(id, empresaId, tx);
+    // Liberar agenda com mais de um salão (rodada 3, P1 do Astra): posse provada → configuração da agenda antes do
+    // primeiro FOR UPDATE; a decisão grava em fechamentos e a 114 recusaria sem ela (KD114). KEY_SHARE cobre a chamada
+    // sem customDb; sob o tenant, a empresa já está em FOR UPDATE.
+    await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const f = await buscarFechamentoPorIdParaAtualizacao(id, tx);
     if (!f || await empresaDoFechamentoComTrava(id, tx) !== empresaId) {
       throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);

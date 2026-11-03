@@ -23,6 +23,16 @@ export const temas = {
   acervo_baloes: { nome: 'Balões · coleção aberta', fundo: '#fff8f3', tinta: '#63443e', destaque: '#c99883', simbolo: '○' },
 } as const;
 
+/**
+ * Liberar agenda com mais de um salão (D-LIB-3/5): bloco "Local" do convite vinculado em escopo "por salão". Calculado
+ * pelo servidor (salão da versão vigente ou, sem salão nela, a unidade); o valor enviado pela tela é sempre descartado.
+ * Sem corte: o limite de 120 continua só no complemento (`local`).
+ */
+export const blocoLocalSchema = z.object({
+  origem: z.enum(['SALAO', 'UNIDADE']), nome: z.string().trim().min(1).max(400), endereco: z.string().trim().max(400),
+}).strict();
+export type BlocoLocal = z.infer<typeof blocoLocalSchema>;
+
 export const conteudoSchema = z.object({
   tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'foto_arco', 'foto_aquarela', 'foto_degrade', 'botanica', 'confete', 'estrelas', 'acervo_folhas', 'acervo_estrelas', 'acervo_baloes']),
   nome: z.string().trim().min(1).max(80),
@@ -30,8 +40,10 @@ export const conteudoSchema = z.object({
   mensagem: z.string().trim().max(400),
   data: z.iso.date(),
   horario: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  local: z.string().trim().min(1).max(120),
+  // Com o bloco "Local", o texto livre vira complemento e pode ficar vazio; sem ele, o servidor exige o local ao publicar.
+  local: z.string().trim().max(120),
   endereco: z.string().trim().min(1).max(240),
+  blocoLocal: blocoLocalSchema.optional(),
   arteId: z.uuid().nullable(),
   confirmarPresenca: z.boolean(),
   visual: z.object({
@@ -108,9 +120,29 @@ function localDoSalao(snapshot: unknown) {
   const nome = salaoDoSnapshot(s as ContratoSnapshot)?.nome;
   return typeof nome === 'string' && nome.trim() ? rotuloSalao(nome, true).slice(0, 120).trimEnd() : '';
 }
-export function inicioConteudo(snapshot: unknown): Conteudo {
+export function inicioConteudo(snapshot: unknown, bloco: BlocoLocal | null = null): Conteudo {
   const s = snapshot as { aniversariante?: { nome?: string; idadeNoEvento?: number }; evento?: { data?: string; horarioInicio?: string } };
-  return { tema: 'celebrar', nome: s?.aniversariante?.nome ?? '', idade: s?.aniversariante?.idadeNoEvento == null ? '' : `${s.aniversariante.idadeNoEvento} anos`,
+  return comBlocoLocal<Conteudo>({ tema: 'celebrar', nome: s?.aniversariante?.nome ?? '', idade: s?.aniversariante?.idadeNoEvento == null ? '' : `${s.aniversariante.idadeNoEvento} anos`,
     data: s?.evento?.data?.slice(0, 10) ?? '', horario: s?.evento?.horarioInicio?.slice(0, 5) ?? '',
-    local: localDoSalao(snapshot), endereco: '', mensagem: 'Um dia especial fica ainda melhor com você. Venha comemorar com a gente!', arteId: null, confirmarPresenca: true };
+    local: bloco ? '' : localDoSalao(snapshot), endereco: '', mensagem: 'Um dia especial fica ainda melhor com você. Venha comemorar com a gente!', arteId: null, confirmarPresenca: true }, bloco);
+}
+
+/** O bloco do servidor substitui qualquer bloco recebido; sem bloco aplicável, o campo sai do conteúdo. */
+export function comBlocoLocal<T extends { blocoLocal?: BlocoLocal }>(conteudo: T, bloco: BlocoLocal | null): T {
+  const { blocoLocal: _descartado, ...resto } = conteudo;
+  void _descartado;
+  return (bloco ? { ...resto, blocoLocal: bloco } : resto) as T;
+}
+
+/** Linha do local exibida na arte e na página: bloco (inteiro) + complemento; sem bloco, o texto livre como hoje. */
+export function localDoConvite(c: Pick<Conteudo, 'local' | 'blocoLocal'>) {
+  const complemento = (c.local ?? '').trim();
+  if (!c.blocoLocal) return complemento;
+  const repetido = complemento.localeCompare(c.blocoLocal.nome, 'pt-BR', { sensitivity: 'base' }) === 0;
+  return complemento && !repetido ? `${c.blocoLocal.nome} · ${complemento}` : c.blocoLocal.nome;
+}
+
+/** Endereço exibido: o da unidade gravado no bloco (D-LIB-5), quando houver; senão o texto livre. */
+export function enderecoDoConvite(c: Pick<Conteudo, 'endereco' | 'blocoLocal'>) {
+  return c.blocoLocal?.endereco || c.endereco;
 }

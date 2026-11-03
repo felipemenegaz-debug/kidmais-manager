@@ -6,6 +6,7 @@ import type { DbExecutor } from "../db/contracts";
 import { hashSnapshotContrato } from "../contratos/services/snapshot-core.ts";
 import type { Transacao } from "./servico.ts";
 import { lerZip } from "./zip.ts";
+import { travarConfiguracaoAgenda } from "../agenda/trava-configuracao.ts";
 import type { Manifesto } from "./pacote.ts";
 
 /**
@@ -93,6 +94,9 @@ export async function montarEmpresaCom(db: Client, letra: string, criarIdentidad
   const marca = `MARCA-${letra}-${randomBytes(4).toString("hex")}`;
   const empresa = await id(db, `INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod(), `Buffet ${marca}`]);
   await db.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [empresa]);
+  // Com a 114, os gatilhos de fechamentos/contratos exigem a trava da configuração da empresa; a suíte monta dentro de
+  // uma transação, então a compartilhada vale até o fim dela (como a entrada administrativa).
+  await travarConfiguracaoAgenda(db as unknown as DbExecutor, empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   const pessoa = async (papel: string, nome: string) => {
     const u = await criarIdentidade(db, `${cod()}@example.test`, `${nome} ${marca}`);
     const m = await id(db, `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', now(), $3) RETURNING id`, [empresa, u, papel]);

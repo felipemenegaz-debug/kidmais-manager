@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 import { painelPacoteAdmin, salvarPacoteComercial } from "@/lib/comercial/pacote-comercial";
 import { gravarFaixasPacote } from "@/lib/comercial/pacote-precos";
 import { alterarSituacaoPacoteAdmin, criarRevisaoPacoteAdmin, editarPacoteNaoUtilizado, listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
@@ -40,15 +41,20 @@ import { montarExtensoes } from "../extensoes";
  * buffet e itens a partir do retrato recebido. Edição usa `editarPacoteNaoUtilizado`,
  * `criarRevisaoPacoteAdmin` (copia o agregado inteiro) e `gravarFaixasPacote`.
  */
+const configuracaoDoPacote = (tx: Parameters<PortaPacotes["listar"]>[0], empresaId: string) =>
+  travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+
 export const portaPacotes: PortaPacotes = {
   listar: (tx, empresaId) => listarPacotesAdmin(tx, empresaId),
   painel: (tx, empresaId, id) => painelPacoteAdmin(tx, empresaId, id),
-  criar: (tx, dados, ctx) => salvarPacoteComercial(tx, { ...dados, disponibilidade: [], categorias: [], itens: [] }, ctx),
-  editarNaoUtilizado: (tx, id, dados, ctx) => editarPacoteNaoUtilizado(tx, id, dados, ctx),
+  // Liberar agenda com mais de um salão (rev. 3): os escritores de pacote leem a regra da agenda; a configuração é travada
+  // aqui, na porta (a camada de IA não fala com o PostgreSQL), dentro da transação do tenant.
+  criar: async (tx, dados, ctx) => { await configuracaoDoPacote(tx, ctx.empresaId); return salvarPacoteComercial(tx, { ...dados, disponibilidade: [], categorias: [], itens: [] }, ctx); },
+  editarNaoUtilizado: async (tx, id, dados, ctx) => { await configuracaoDoPacote(tx, ctx.empresaId); return editarPacoteNaoUtilizado(tx, id, dados, ctx); },
   // A revisão preserva a situação (ativo/inativo) da origem: nenhuma ativação invisível.
-  revisar: (tx, id, dados, ctx) => criarRevisaoPacoteAdmin(tx, id, dados, ctx, { preservarSituacao: true }),
+  revisar: async (tx, id, dados, ctx) => { await configuracaoDoPacote(tx, ctx.empresaId); return criarRevisaoPacoteAdmin(tx, id, dados, ctx, { preservarSituacao: true }); },
   gravarFaixas: (tx, empresaId, id, faixas, limites, ctx) => gravarFaixasPacote(tx, empresaId, id, faixas, limites, ctx),
-  alterarSituacao: (tx, id, situacao, ctx) => alterarSituacaoPacoteAdmin(tx, id, situacao, ctx),
+  alterarSituacao: async (tx, id, situacao, ctx) => { await configuracaoDoPacote(tx, ctx.empresaId); return alterarSituacaoPacoteAdmin(tx, id, situacao, ctx); },
 };
 
 /**

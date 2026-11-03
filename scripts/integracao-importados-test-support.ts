@@ -1,3 +1,4 @@
+import { escreverSalaoFixture } from "./guarda-salao-fixture-test-support.ts";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -216,8 +217,12 @@ export async function integrarLegadoV1(s: Servico, core: unknown, db: Client, c:
   await db.query(`UPDATE agenda_escopo_config SET capacidade_tipo = 'POR_HORARIO' WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`, escopo);
   const r = await integrar(s, core, db, c, imp, d, chave);
   await db.query(`UPDATE agenda_escopo_config SET capacidade_tipo = 'POR_SALAO' WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid`, escopo);
-  const { escolherSalaoDoContrato } = carregar<typeof import("../lib/agenda/salao-festa.ts")>("lib/agenda/salao-festa.ts");
-  await escolherSalaoDoContrato(executor(db), r.contratoId);
+  // D-LIB-4: a produção não escolhe mais salão para documento sem salão; o estado legado (V1 com salão escolhido pela
+  // 094) é montado aqui, pela escolha só leitura da emissão, e gravado por este fixture (camada C do inventário).
+  const { escolherSalaoParaEmissao } = carregar<typeof import("../lib/agenda/salao-festa.ts")>("lib/agenda/salao-festa.ts");
+  const fechamento = (await db.query<{ f: string }>(`SELECT fechamento_id::text AS f FROM contratos WHERE id = $1::uuid`, [r.contratoId])).rows[0].f;
+  const legado = await escolherSalaoParaEmissao(executor(db), fechamento);
+  if (legado.porSalao && legado.salao) await escreverSalaoFixture(db, "scripts/integracao-importados-test-support.ts", `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamento, legado.salao.id]);
   return r;
 }
 

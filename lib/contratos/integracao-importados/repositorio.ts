@@ -2,6 +2,7 @@ import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { buscarCategoriaHorarioAplicavel } from '../../comercial/repositories/comercial.repository.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
+import { exigirTravaConfiguracao } from '../../agenda/trava-configuracao.ts';
 
 /**
  * Persistência da integração de contratos importados (migration 061). Toda leitura filtra a empresa comprovada
@@ -158,6 +159,7 @@ export async function travarDuplicidade(tx: DbExecutor, empresaId: string) {
 
 /** Lock da data no mesmo namespace do Core (kidmais:agenda:YYYY-MM-DD). Segura até o fim da transação. */
 export async function travarData(tx: DbExecutor, data: string) {
+  await exigirTravaConfiguracao(tx);
   await tx.query('SELECT public.kidmais_lock_datas_revisao(ARRAY[$1::date])', [data]);
 }
 

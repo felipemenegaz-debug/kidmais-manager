@@ -115,6 +115,10 @@ test("duplicação copia o preço pela sucessora e a falha da cópia não deixa 
     const tx: DbExecutor = { async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       if (falharPreco && text.startsWith("INSERT INTO precos_pacote")) throw new Error("preço não copiado");
       confirmadas.push(text);
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return um({ ok: true, empresa: values?.[0] ?? empresa } as Row);
+      // Rev. 3: os pacotes tomam a trava da configuração (linha da empresa, advisory e variável da transação).
+      if (text.includes("FOR KEY SHARE") || text.includes("pg_advisory_xact_lock") || text.includes("set_config('kidmais.agenda_config_empresa'")) return um({} as Row);
       if (text.includes("AS utilizado")) return um(linhaPacote(String(values?.[0] ?? pacote)) as Row);
       if (text.startsWith("SELECT id FROM empresas")) return um({ id: empresa } as Row);
       if (text.startsWith("INSERT INTO pacotes")) return um({ id: "33333333-3333-4333-8333-333333333333" } as Row);

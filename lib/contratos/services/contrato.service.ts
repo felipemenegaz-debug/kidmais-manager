@@ -13,6 +13,8 @@ import { camposFaltantesParaContrato } from "../../clientes/services";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
 import { escolherSalaoParaEmissao } from "../../agenda/salao-festa.ts";
+import { recusarEstadoDocumental } from "../../agenda/estado-documental.ts";
+import { referenciaParaCaminho } from "./salao-contrato.ts";
 import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
 import {
   buscarFechamentoPorIdParaAtualizacao,
@@ -45,6 +47,7 @@ import type {
 
 import { hashSnapshotContrato, valorFinalContrato } from "./snapshot-core";
 import { calcularCondicaoComercial } from "../../comercial/condicao-pagamento";
+import { empresaDoFechamento, travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export function montarSnapshotContratoV1(input: {
   fechamento: FechamentoRecord;
@@ -311,6 +314,9 @@ export async function salaoDaEmissao(tx: DbExecutor, fechamento: FechamentoRecor
   await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
   const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, documentoAtual ? salaoDoSnapshot(documentoAtual)?.id ?? null : null);
   if (!escolha.porSalao) return undefined;
+  // D-LIB-4 (entrada 1, só leitura): em POR_SALAO, nenhuma emissão decide sobre um estado documental inconsistente.
+  const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id }, "EMISSAO");
+  if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, "EMISSAO");
   if (escolha.salao) return escolha.salao;
   throw new ContratoServiceError(
     "SALAO_INDISPONIVEL",
@@ -330,6 +336,9 @@ export async function gerarContrato(
 ): Promise<GerarContratoResult> {
   const emTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => (context.executor ? trabalho(context.executor) : withTransaction(trabalho));
   return emTransacao(async (tx) => {
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    const empresa = await empresaDoFechamento(tx, input.fechamentoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const fechamento = await buscarFechamentoPorIdParaAtualizacao(
       input.fechamentoId,
       tx,

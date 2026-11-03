@@ -25,6 +25,7 @@ import { decidirPreferencia } from "@/lib/agenda/preferencia-salao";
 import { isIdentityServiceError } from "@/lib/identidade/services";
 import { isClienteServiceError } from "@/lib/clientes/services";
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,6 +90,7 @@ async function recusaDaPreferencia(d: z.infer<typeof fechamentoSchema>, escopo: 
   if (!pacote) return null;
   const decisao = await withTransaction(async (tx) => {
     await tx.query("SET TRANSACTION READ ONLY");
+    await travarConfiguracaoAgenda(tx, escopo.empresaId, { modo: "COMPARTILHADA", linha: "SO_LEITURA" });
     return decidirPreferencia(tx, {
       data: d.dataFesta, inicio: d.horarioInicio, fim: d.horarioFim, configuracaoId: d.configuracaoId!, pacoteId: pacote.id,
       empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId ?? null, convidados: d.convidadosPagantes,

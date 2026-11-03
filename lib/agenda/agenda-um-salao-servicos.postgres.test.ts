@@ -12,8 +12,12 @@ import * as configuracaoUnidade from "./configuracao-unidade.ts";
 import { carregarModulo } from "../acessos/teste-carregador.ts";
 import { duplicarPacoteComercial, salvarPacoteComercial } from "../comercial/pacote-comercial.ts";
 import type { DbExecutor } from "../db/contracts.ts";
-import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
+import { cenario, dia, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
 import { definirSaloesPacote, lerAgendaEscopo, saloesDaEmpresa, salvarAgendaEscopo, type SalvarAgenda } from "./configuracao-unidade.ts";
+import * as travaConfiguracao from "./trava-configuracao.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/agenda-um-salao-servicos.postgres.test.ts";
 
 /**
  * Parecer do Astra de 25/10/2026 (agenda com um salão), pelos serviços reais no PostgreSQL DESCARTÁVEL (modelo 097):
@@ -59,7 +63,7 @@ const porSalao = (horarios: SalvarAgenda["horarios"]): SalvarAgenda => ({
 
 async function confirmada(c: Cenario, cfg: string, inicio: string, fim: string, salao: string) {
   return emTransacao(async () => {
-    const f = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const f = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
         SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid RETURNING fechamentos.id`,
@@ -176,7 +180,8 @@ type PortaIa = {
 };
 function portaIa(): PortaIa {
   const arquivo = "app/api/admin/inteligencia/operacoes/composicao.ts";
-  const reais: Record<string, unknown> = { "lib/agenda/configuracao-unidade": configuracaoUnidade, "lib/comercial/pacote-comercial": pacoteComercial,
+  // Liberar agenda com mais de um salão (rev. 3): a porta trava a configuração pelo módulo real.
+  const reais: Record<string, unknown> = { "lib/agenda/trava-configuracao": travaConfiguracao, "lib/agenda/configuracao-unidade": configuracaoUnidade, "lib/comercial/pacote-comercial": pacoteComercial,
     "lib/comercial/pacote-precos": pacotePrecos, "lib/comercial/pacotes-admin": pacotesAdmin };
   const dubles: Record<string, unknown> = { ...reais };
   for (const [, origem] of readFileSync(arquivo, "utf8").matchAll(/^import (?!type )[^;]*? from "([^"]+)";/gm)) {
