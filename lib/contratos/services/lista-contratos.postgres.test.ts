@@ -5,7 +5,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { versaoDeReferencia } from "../versao-referencia.ts";
 import { randomUUID } from "node:crypto";
-import { FINANCEIRO_SQL, ORIGEM_POR_PRIORIDADE, PRIORIDADE_REFERENCIA_SQL, decodificarCursor, financeiroDaLinha } from "./lista-contratos.ts";
+import { FINANCEIRO_SQL, ORIGEM_POR_PRIORIDADE, PRIORIDADE_REFERENCIA_SQL, dataCalendarioSql, dataDeCalendario, decodificarCursor, financeiroDaLinha } from "./lista-contratos.ts";
 import {
   carregar, cenario, decisoes, dia, executor, importacao, instalar055, instalar061, instalar062, integrar, PARCIAL, validarAgora, type Servico,
 } from "../../../scripts/integracao-importados-test-support.ts";
@@ -94,6 +94,28 @@ test("lista de contratos: paridade da versão de referência, números iguais à
       await a.query("ROLLBACK");
     });
 
+    await t.test("data do evento (P3-R1): SQL sem erro = dataDeCalendario em datas reais, impossíveis e texto livre", async () => {
+      const casos = ["2027-04-20", "2028-02-29", "2027-02-29", "2027-02-31", "2027-04-31", "2027-12-31", "2027-13-01", "2027-00-10", "2027-01-00",
+        "0000-01-01", "0999-12-31", "1000-01-01", "9999-12-31", "2027-4-20", "20/04/2027", "abc", "", " 2027-04-20", "2027-04-20T10:00", null,
+        "1900-02-29", "2000-02-29", "2100-02-29", "2400-02-29", "1600-02-29", "1700-02-29",
+        "\u0662\u0660\u0662\u0667-\u0660\u0662-\u0662\u0668", "\uFF12\uFF10\uFF12\uFF17-02-28", "\u0968\u0966\u0968\u096D-\u0966\u0968-\u0968\u096E"];
+      // Collation padrão do cluster e, se existir, uma ICU (onde \d aceitaria dígitos Unicode): mesmo resultado, sem erro.
+      const icu = (await a.query<{ n: string }>("SELECT collname AS n FROM pg_collation WHERE collprovider = 'i' AND collname = 'und-x-icu'")).rows[0]?.n;
+      for (const collate of [null, icu ?? null].filter((c, i) => i === 0 || c)) {
+        const col = collate ? `(x.t COLLATE "${collate}")` : "x.t";
+        const r = await a.query<{ i: number; d: string | null }>(
+          `SELECT x.i, (${dataCalendarioSql(col)})::text AS d FROM unnest($1::text[]) WITH ORDINALITY AS x(t, i) ORDER BY x.i`, [casos]);
+        assert.equal(r.rows.length, casos.length);
+        for (const { i, d } of r.rows) { const c = casos[Number(i) - 1]; assert.equal(d, dataDeCalendario(c) ? c : null, `${collate ?? "padrão"}: ${String(c)}`); }
+      }
+      if (icu) {
+        // Prova de que o risco é real: sob ICU, \d aceita o ano em dígitos arábicos que [0-9] recusa.
+        const s = await a.query<{ d: boolean; a: boolean }>(`SELECT ($1::text COLLATE "und-x-icu") ~ '^\\d{4}$' AS d, ($1::text COLLATE "und-x-icu") ~ '^[0-9]{4}$' AS a`, ["\u0662\u0660\u0662\u0667"]);
+        t.diagnostic(`ICU und-x-icu: \\d aceita dígitos arábicos = ${s.rows[0].d}; [0-9] aceita = ${s.rows[0].a}`);
+        assert.equal(s.rows[0].a, false);
+      } else t.diagnostic("cluster sem collation ICU und-x-icu: só a collation padrão foi exercitada");
+    });
+
     await t.test("contratos reais: números = leitura do contrato; isolamento; busca; cursor; volume", async () => {
       await instalar055(a); await instalar061(a); await instalar062(a);
       process.env.CONTRACT_IMPORT_INTEGRATION_ENABLED = "true";
@@ -139,27 +161,41 @@ test("lista de contratos: paridade da versão de referência, números iguais à
       //  L-2: contrato sem pagamento vira "Conferir"; vários movimentos: lista = leitura do contrato.
       await a.query("SET LOCAL session_replication_role = replica");
       const alvos = (await a.query<{ id: string }>(`SELECT c.id FROM contratos c JOIN fechamentos f ON f.id = c.fechamento_id
-          WHERE f.empresa_id = $1::uuid AND c.id <> ALL($2::uuid[]) ORDER BY c.id LIMIT 3`, [A.empresa, [a1, a2]])).rows.map((r) => r.id);
+          WHERE f.empresa_id = $1::uuid AND c.id <> ALL($2::uuid[]) ORDER BY c.id LIMIT 6`, [A.empresa, [a1, a2]])).rows.map((r) => r.id);
       await a.query("DELETE FROM contrato_edicoes WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id = $1::uuid)", [alvos[0]]);
       await a.query("UPDATE contratos SET status = 'AGUARDANDO_ASSINATURA' WHERE id = $1::uuid", [alvos[0]]);
       const pagamentosDe = "SELECT p.id FROM pagamentos p JOIN contrato_versoes v ON v.id = p.contrato_versao_id WHERE v.contrato_id = $1::uuid";
       await a.query(`DELETE FROM pagamento_recebimentos WHERE pagamento_id IN (${pagamentosDe})`, [alvos[1]]);
       await a.query(`DELETE FROM pagamentos WHERE id IN (${pagamentosDe})`, [alvos[1]]);
       await duplicarLinha(a, "pagamento_recebimentos", `pagamento_id IN (${pagamentosDe})`, [alvos[2]]);
+      // P3-R1: snapshots legados com data impossível (formato certo, dia inexistente; século não bissexto; dígitos
+      // Unicode) em todas as versões de três contratos — três datas nulas no fim, atravessando a última página.
+      const anomalos = alvos.slice(3, 6);
+      for (const [k, data] of ["2027-02-31", "1900-02-29", "\u0662\u0660\u0662\u0667-\u0660\u0662-\u0662\u0668"].entries())
+        await a.query(`UPDATE contrato_versoes SET snapshot = jsonb_set(snapshot, '{evento,data}', to_jsonb($2::text)) WHERE contrato_id = $1::uuid`, [anomalos[k], data]);
       await a.query("SET LOCAL session_replication_role = origin");
       const aguardando = await lista.listarContratosPaginados(tx, A.empresa, { filtro: "aguardando", busca: semBusca, cursor: null, hoje });
       assert.deepEqual(aguardando.itens.map((i) => i.id), [alvos[0]], "L-1: sem edição continua visível"); assert.equal(aguardando.contagens.aguardando, 1);
       assert.equal(aguardando.contagens.todas, 2 + copias, "L-1: nenhum contrato sumiu de Todas");
       // Percurso completo de "Todas" pelo cursor: sem repetição, total = contagem.
-      const vistos = new Map<string, (typeof aguardando.itens)[number]>();
-      let cursor: ReturnType<typeof decodificarCursor> = null;
+      const vistos = new Map<string, (typeof aguardando.itens)[number]>(), paginaDe = new Map<string, number>();
+      let cursor: ReturnType<typeof decodificarCursor> = null, n = 0;
       do {
         const pg = await lista.listarContratosPaginados(tx, A.empresa, { filtro: "todas", busca: semBusca, cursor, hoje });
-        for (const i of pg.itens) { assert.ok(!vistos.has(i.id), `repetido: ${i.id}`); vistos.set(i.id, i); }
-        cursor = decodificarCursor(pg.proximoCursor, "todas");
+        for (const i of pg.itens) { assert.ok(!vistos.has(i.id), `repetido: ${i.id}`); vistos.set(i.id, i); paginaDe.set(i.id, n); }
+        cursor = decodificarCursor(pg.proximoCursor, "todas"); n++;
       } while (cursor);
       assert.equal(vistos.size, 2 + copias);
       assert.deepEqual(vistos.get(alvos[1])!.financeiro, { tipo: "CONFERIR" }, "L-2: sem pagamento");
+      // P3-R1: a data anômala não derruba a página; o contrato aparece uma vez, sem data, marcado para conferência,
+      // no fim de "Todas" (datas nulas por último) e fora de "Próximas festas"; os demais seguem normais.
+      for (const id of anomalos) { const x = vistos.get(id)!; assert.equal(x.dataEvento, null, id); assert.equal(x.dataInvalida, true, id); }
+      assert.equal([...vistos.values()].filter((i) => i.dataInvalida).length, 3, "só os contratos alterados");
+      assert.deepEqual([...vistos.keys()].slice(-3), [...anomalos].sort().reverse(), "datas nulas no fim, por id decrescente");
+      assert.ok(new Set(anomalos.map((id) => paginaDe.get(id))).size > 1, "as datas nulas atravessam a divisa de páginas");
+      const proximasTodas = await lista.listarContratosPaginados(tx, A.empresa, { filtro: "proximas", busca: semBusca, cursor: null, hoje });
+      assert.equal(proximasTodas.contagens.proximas, 2 + copias - 3, "datas anômalas fora de Próximas festas");
+      assert.equal(proximasTodas.contagens.todas, 2 + copias);
       const dois = vistos.get(alvos[2])!.financeiro, p2pos = await fin.lerPosicaoFinanceira(tx, alvos[2]);
       assert.equal(dois.tipo, "OK");
       if (dois.tipo === "OK") assert.deepEqual({ recebido: dois.recebido, aCobrar: dois.aCobrar }, { recebido: p2pos.posicao.liquido.toString(), aCobrar: p2pos.cobranca.saldoACobrar.toString() }, "dois recebimentos");

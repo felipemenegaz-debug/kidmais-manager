@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,7 +9,7 @@ import type { DbExecutor } from '../db/contracts';
 import { celula, csv } from '../assinatura/csv.ts';
 import { crc32, escreverZip, lerZip } from './zip.ts';
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO } from './entidades.ts';
-import { expressoes, gerarPacote, limparSobras, naoClassificadas, planejarColunas, PREFIXO_TEMPORARIO, type Manifesto } from './pacote.ts';
+import { BLOCO_PDF_BYTES, expressoes, gerarPacote, Gravador, limparSobras, naoClassificadas, planejarColunas, PREFIXO_TEMPORARIO, type Manifesto } from './pacote.ts';
 import { exportacoesEmAndamento, exportarPacoteCompleto, MAXIMO_SIMULTANEAS } from './servico.ts';
 
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
@@ -139,8 +140,7 @@ test('colunas: segredos fora (declarados e pelo padrão), lista de permissão, b
 });
 
 /** Executor falso que fala o protocolo de cursor (DECLARE/FETCH/CLOSE): clientes e contrato_documentos presentes. */
-function bancoFalso(linhasClientes: number, extras: string[] = []) {
-    const pdf = Buffer.from('%PDF-1.4 falso');
+function bancoFalso(linhasClientes: number, extras: string[] = [], pdf = Buffer.from('%PDF-1.4 falso')) {
     const consultas: string[] = [];
     const cursores = new Map<string, object[]>();
     const tx: DbExecutor = {
@@ -163,7 +163,7 @@ function bancoFalso(linhasClientes: number, extras: string[] = []) {
                     assert.match(consulta, /WHERE t\.empresa_id = \$1::uuid ORDER BY t\."id"$/);
                     assert.doesNotMatch(consulta, /senha_hash/);
                     cursores.set(nome, Array.from({ length: linhasClientes }, (_, i) => ({ c0: `id-${i}`, c1: i === 0 ? '=HYPERLINK("x")' : `Cliente ${i}`, c2: '-10.50' })));
-                } else if (consulta.includes('AS b FROM "contrato_documentos"')) cursores.set(nome, [{ id: 'doc-1', b: pdf }]);
+                } else if (nome === 'exportacao_binarios') cursores.set(nome, [{ id: 'doc-1', tamanho: pdf.length }]);
                 else if (consulta.includes('FROM "contrato_documentos" t')) cursores.set(nome, [{ c0: 'doc-1', c1: String(pdf.length), c2: sha(pdf), c3: 'arquivos/contratos/doc-1.pdf' }]);
                 else throw new Error(`cursor inesperado: ${consulta.slice(0, 80)}`);
                 return r([]);
@@ -172,6 +172,14 @@ function bancoFalso(linhasClientes: number, extras: string[] = []) {
             if (buscar) { const fila = cursores.get(buscar[2])!; return r(fila.splice(0, Number(buscar[1]))); }
             if (/^CLOSE (\w+)$/.test(sql)) { cursores.delete(sql.slice(6)); return r([]); }
             if (sql.includes('coalesce(sum(')) return r([{ n: String(pdf.length) }]);
+            if (sql.startsWith('SELECT substring(')) {
+                assert.ok(sql.includes('empresa_id = $1::uuid'), 'filtro da empresa em cada bloco');
+                assert.ok(sql.includes('t.id = $2::uuid'));
+                assert.equal(valores[1], 'doc-1');
+                assert.ok(Number(valores[3]) <= BLOCO_PDF_BYTES);
+                const offset = Number(valores[2]) - 1;
+                return r([{ b: pdf.subarray(offset, offset + Number(valores[3])) }]);
+            }
             throw new Error(`consulta inesperada: ${sql.slice(0, 80)}`);
         },
     };
@@ -179,6 +187,146 @@ function bancoFalso(linhasClientes: number, extras: string[] = []) {
 }
 
 const discoFolgado = { livre: async () => 10 * 1024 * 1024 * 1024 };
+
+test('PDFs em blocos: vazio, fronteira e cauda preservam bytes e hash sem leitura integral', async () => {
+    for (const tamanho of [0, BLOCO_PDF_BYTES, BLOCO_PDF_BYTES * 2 + 17]) {
+        const base = pasta();
+        try {
+            const pdf = Buffer.alloc(tamanho);
+            for (let i = 0; i < tamanho; i++) pdf[i] = i % 251;
+            const b = bancoFalso(0, [], pdf);
+            const p = await gerarPacote(b.tx, '00000000-0000-4000-8000-000000000001', { base, disco: discoFolgado });
+            assert.deepEqual(lerZip(readFileSync(p.zipCaminho)).get('arquivos/contratos/doc-1.pdf'), pdf);
+            assert.equal(b.consultas.filter(s => s.startsWith('SELECT substring(')).length, Math.ceil(tamanho / BLOCO_PDF_BYTES));
+            assert.doesNotMatch(b.consultas.find(s => s.startsWith('DECLARE exportacao_binarios'))!, /AS b FROM/);
+            assert.equal(p.manifesto.arquivos.find(a => a.tipo === 'pdf')!.sha256, sha(pdf));
+            await p.limpar();
+            assert.deepEqual(readdirSync(base), []);
+        } finally { rmSync(base, { recursive: true, force: true }); }
+    }
+});
+
+test('falha, bloco truncado e adulteração recusam todo o pacote e limpam os temporários', async () => {
+    for (const modo of ['falha', 'truncado', 'adulterado']) {
+        const base = pasta();
+        const b = bancoFalso(0, [], Buffer.alloc(BLOCO_PDF_BYTES + 17, 65));
+        const original = b.tx.query.bind(b.tx);
+        b.tx.query = async (sql, valores) => {
+            if (sql.startsWith('SELECT substring(') && Number(valores?.[2]) > 1) {
+                if (modo === 'falha') throw new Error('falha sintética no segundo bloco');
+                const buffer = Buffer.alloc(modo === 'truncado' ? 16 : 17, 66);
+                return { rows: [{ b: buffer }] as never[], rowCount: 1 };
+            }
+            return original(sql, valores);
+        };
+        try {
+            await assert.rejects(gerarPacote(b.tx, '00000000-0000-4000-8000-000000000001', { base, disco: discoFolgado }),
+                /falha sintética|tamanho divergente|hash divergente/);
+            assert.deepEqual(readdirSync(base), []);
+            assert.equal(b.cursores.size, 0);
+        } finally { rmSync(base, { recursive: true, force: true }); }
+    }
+});
+
+/** FileHandle falso: grava de verdade em memória, mas no máximo `limite(pedido)` bytes por chamada. */
+function handleFalso(limite: (pedido: number) => number) {
+    const gravado: Buffer[] = [];
+    let chamadas = 0, fechado = false;
+    const fh = {
+        async write(b: Buffer, offset: number, length: number) {
+            chamadas++;
+            const n = Math.min(length, limite(length));
+            gravado.push(Buffer.from(b.subarray(offset, offset + n)));
+            return { bytesWritten: n, buffer: b };
+        },
+        async close() { fechado = true; },
+    };
+    return { fh: fh as unknown as FileHandle, conteudo: () => Buffer.concat(gravado), chamadas: () => chamadas, fechado: () => fechado };
+}
+
+test('Gravador.escrever (P3-2): escrita parcial continua do ponto certo; escrita sem progresso recusa', async () => {
+    const dados = Buffer.alloc(1000);
+    for (let i = 0; i < dados.length; i++) dados[i] = (i * 13) % 256;
+    for (const [nome, limite, chamadasEsperadas] of [
+        ['metade', (n: number) => Math.ceil(n / 2), 10],
+        ['um byte', () => 1, 1000],
+    ] as const) {
+        const h = handleFalso(limite);
+        const g = new Gravador('falso.tmp', h.fh);
+        await g.escrever(dados);
+        const r = await g.fechar();
+        assert.ok(h.conteudo().equals(dados), `${nome}: bytes completos e na ordem`);
+        assert.equal(h.chamadas(), chamadasEsperadas, `${nome}: uma chamada por parcial`);
+        assert.equal(r.bytes, dados.length);
+        assert.equal(r.sha256, sha(dados));
+        assert.equal(r.crc, crc32(dados));
+        assert.equal(h.fechado(), true);
+    }
+    // 0 bytes gravados: recusa em vez de laço infinito, e nada é contabilizado.
+    const zero = handleFalso(() => 0);
+    const g = new Gravador('falso.tmp', zero.fh);
+    await assert.rejects(g.escrever(dados), /escrita temporária sem progresso/);
+    assert.equal(zero.chamadas(), 1);
+    assert.equal(g.bytes, 0);
+    // Progresso parcial seguido de parada também recusa.
+    let vez = 0;
+    const trava = handleFalso((n) => (++vez === 1 ? Math.floor(n / 3) : 0));
+    await assert.rejects(new Gravador('falso.tmp', trava.fh).escrever(dados), /sem progresso/);
+    assert.equal(trava.conteudo().length, 333);
+});
+
+test('tamanho de PDF inválido no cursor (P3-3) recusa antes de qualquer bloco e limpa os temporários', async () => {
+    for (const tamanho of [-1, 1.5, '14', Number.NaN, 2 ** 53]) {
+        const base = pasta();
+        const b = bancoFalso(0);
+        const original = b.tx.query.bind(b.tx);
+        b.tx.query = (async (sql: string, valores?: readonly unknown[]) => {
+            const r = await original(sql, valores);
+            if (sql === 'FETCH 1 FROM exportacao_binarios' && r.rows[0]) return { ...r, rows: [{ ...r.rows[0], tamanho }] };
+            return r;
+        }) as DbExecutor['query'];
+        try {
+            await assert.rejects(gerarPacote(b.tx, '00000000-0000-4000-8000-000000000001', { base, disco: discoFolgado }),
+                /tamanho de PDF inválido/, `tamanho ${String(tamanho)}`);
+            assert.equal(b.consultas.filter(s => s.startsWith('SELECT substring(')).length, 0);
+            assert.deepEqual(readdirSync(base), []);
+        } finally { rmSync(base, { recursive: true, force: true }); }
+    }
+});
+
+test('close que falha depois de erro de bloco (P3-4) não esconde a causa; sem erro anterior, a falha do close aparece', async () => {
+    // close é propriedade da instância do FileHandle: envolve o de cada arquivo aberto pelo Gravador (fecha de verdade e
+    // então falha, enquanto quebrar estiver ligado).
+    const abrirOriginal = Gravador.abrir;
+    let quebrar = false;
+    Gravador.abrir = async (arquivo: string) => {
+        const g = await abrirOriginal.call(Gravador, arquivo);
+        const fh = (g as unknown as { fh: FileHandle }).fh;
+        const fecharOriginal = fh.close.bind(fh);
+        fh.close = async () => { await fecharOriginal(); if (quebrar) throw new Error('close sintético'); };
+        return g;
+    };
+    try {
+        for (const [falharBloco, esperado] of [[true, /falha sintética no segundo bloco/], [false, /close sintético/]] as const) {
+            const base = pasta();
+            quebrar = false;
+            const b = bancoFalso(0, [], Buffer.alloc(BLOCO_PDF_BYTES + 17, 65));
+            const original = b.tx.query.bind(b.tx);
+            b.tx.query = async (sql, valores) => {
+                if (sql.startsWith('SELECT substring(') && Number(valores?.[2]) > 1) {
+                    quebrar = true;
+                    if (falharBloco) throw new Error('falha sintética no segundo bloco');
+                }
+                return original(sql, valores);
+            };
+            try {
+                await assert.rejects(gerarPacote(b.tx, '00000000-0000-4000-8000-000000000001', { base, disco: discoFolgado }), esperado);
+                assert.deepEqual(readdirSync(base), []);
+                assert.equal(b.cursores.size, 0);
+            } finally { quebrar = false; rmSync(base, { recursive: true, force: true }); }
+        }
+    } finally { Gravador.abrir = abrirOriginal; }
+});
 
 test('pacote em fluxo: manifesto, SHA256SUMS e ZIP consistentes; lotes; ausentes declaradas; só leituras; temporários apagados', async () => {
     const base = pasta();

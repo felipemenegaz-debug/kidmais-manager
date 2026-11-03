@@ -14,6 +14,8 @@ import type { OrigemReferencia } from '../versao-referencia.ts';
  *   `reaisCentavos`). O que essas funções recusariam vira "Conferir", sem números. 0 ou 2+ pagamentos também.
  *   Não reproduz, por custo, a conferência de integridade do snapshot nem as checagens de versão da leitura do
  *   contrato: a tela do contrato continua sendo a fonte confiável.
+ * - Data do evento: só data de calendário real (`dataCalendarioSql`); data anômala no snapshot vira `dataInvalida`
+ *   ("Conferir data"), fica no fim como data nula e fora de "Próximas festas", sem derrubar a página.
  * - Paginação por cursor (data do evento, id), datas nulas no fim; contagens dos filtros sobre o conjunto da busca.
  *   Garantia: ordem estável para quem não muda; contrato cuja data muda durante a navegação pode repetir ou sumir.
  */
@@ -46,6 +48,19 @@ export function dataDeCalendario(d: unknown): d is string {
   if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || d < '1000-01-01') return false;
   const t = new Date(`${d}T12:00:00Z`);
   return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+}
+
+/**
+ * Mesma regra de `dataDeCalendario`, em SQL e sem cast que possa falhar: só vira `date` o texto AAAA-MM-DD de
+ * calendário real com ano de 1000 a 9999. O resto (2027-02-31, 0000-01-01, 2027-13-01, texto livre) fica NULL, sem
+ * abortar a consulta da página inteira. CASE aninhado garante a ordem: nenhum cast roda antes do formato conferido.
+ * Dígitos ASCII explícitos ([0-9], nunca \d): em collation ICU o \d do PostgreSQL aceita dígitos Unicode (٢٠٢٧), que o ::int recusa.
+ */
+export function dataCalendarioSql(t: string) {
+  const ano = `substr(${t}, 1, 4)::int`, mes = `substr(${t}, 6, 2)::int`, dia = `substr(${t}, 9, 2)::int`;
+  return `CASE WHEN ${t} IS NULL OR ${t} !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN NULL
+    WHEN ${ano} < 1000 OR ${mes} NOT BETWEEN 1 AND 12 THEN NULL
+    WHEN ${dia} BETWEEN 1 AND extract(day FROM make_date(${ano}, ${mes}, 1) + interval '1 month' - interval '1 day')::int THEN ${t}::date END`;
 }
 
 /** Busca de 2 a 80 caracteres: dd/mm/aaaa vira data exata; o resto, texto (sem curingas do usuário). */
@@ -82,9 +97,9 @@ function condicaoCursor(asc: boolean) {
 
 const BASE_SQL = `WITH base AS (
   SELECT c.id, c.status, ref.id AS versao_id, ref.prioridade, ref.snapshot,
-         CASE WHEN ref.snapshot->'evento'->>'data' ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN (ref.snapshot->'evento'->>'data')::date END AS data_evento,
+         de.data AS data_evento, ref.snapshot->'evento'->>'data' IS NOT NULL AND de.data IS NULL AS data_invalida,
          cf.versao_vigente_id, prep.estado AS estado_preparacao, ref_e.estado AS estado_referencia,
-         COALESCE(ref.snapshot->'evento'->>'data' >= $3::text, false) AS futura
+         COALESCE(de.data >= $3::date, false) AS futura
     FROM contratos c
     JOIN fechamentos fech ON fech.id = c.fechamento_id AND fech.empresa_id = $1::uuid
     JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
@@ -93,6 +108,7 @@ const BASE_SQL = `WITH base AS (
       SELECT v.id, v.snapshot, ${PRIORIDADE_REFERENCIA_SQL} AS prioridade
         FROM contrato_versoes v WHERE v.contrato_id = c.id
        ORDER BY prioridade, v.numero_versao DESC LIMIT 1) ref ON true
+    LEFT JOIN LATERAL (SELECT ${dataCalendarioSql("(ref.snapshot->'evento'->>'data')")} AS data) de ON true
     LEFT JOIN contrato_edicoes ref_e ON ref_e.contrato_versao_id = ref.id
     LEFT JOIN contrato_edicoes prep ON prep.contrato_versao_id = cf.versao_em_preparacao_id
    WHERE ($2::text IS NULL OR lower(ref.snapshot->'contratante'->>'nomeCompleto') LIKE '%' || $2::text || '%' ESCAPE '\\'
@@ -101,7 +117,7 @@ const BASE_SQL = `WITH base AS (
 )`;
 
 type SnapshotLista = { contratante?: { nomeCompleto?: unknown }; aniversariante?: { nome?: unknown; idadeNoEvento?: unknown }; evento?: { pacote?: { nome?: unknown }; convidados?: unknown }; comercial?: { valorFinalContrato?: unknown } };
-type LinhaBase = { id: string; status: string; versao_id: string | null; prioridade: number | null; snapshot: SnapshotLista | null; data_evento: string | null; versao_vigente_id: string | null; estado_preparacao: string | null; estado_referencia: string | null };
+type LinhaBase = { id: string; status: string; versao_id: string | null; prioridade: number | null; snapshot: SnapshotLista | null; data_evento: string | null; data_invalida: boolean; versao_vigente_id: string | null; estado_preparacao: string | null; estado_referencia: string | null };
 /** rec/est: somas em CENTAVOS dos movimentos confirmados; `invalido`: algum movimento confirmado que `reaisCentavos` recusaria. */
 type LinhaFinanceira = { contrato_id: string; n: number; status: string; valor_total_contratado: string; rec: string | null; est: string | null; dev: string | null; aj: string | null; res: string | null; invalido: boolean };
 
@@ -124,7 +140,7 @@ export function financeiroDaLinha(statusContrato: string, origem: OrigemReferenc
 
 export type ItemLista = {
   id: string; origem: 'CORE'; status: string; cancelado: boolean; alteracao: boolean; aguardandoCliente: boolean;
-  contratante: string | null; aniversariante: string | null; idade: number | null; dataEvento: string | null; pacote: string | null; convidados: number | null;
+  contratante: string | null; aniversariante: string | null; idade: number | null; dataEvento: string | null; dataInvalida: boolean; pacote: string | null; convidados: number | null;
   valor: number | null; referencia: { origem: OrigemReferencia; diagnostico: boolean }; financeiro: FinanceiroLista;
 };
 
@@ -142,7 +158,7 @@ export async function listarContratosPaginados(tx: DbExecutor, empresaId: string
     `${BASE_SQL} SELECT ${FILTROS.map(f => `count(*) FILTER (WHERE ${CONDICAO[f]})::int AS ${f}`).join(', ')} FROM base b
       WHERE $4::int IS NULL AND $5::date IS NULL AND $6::uuid IS NULL`, semCursor)).rows[0] ?? Object.fromEntries(FILTROS.map(f => [f, 0])) as Record<Filtro, number>;
   const linhas = (await tx.query<LinhaBase>(
-    `${BASE_SQL} SELECT b.id, b.status, b.versao_id, b.prioridade, b.snapshot, b.data_evento::text AS data_evento, b.versao_vigente_id, b.estado_preparacao, b.estado_referencia
+    `${BASE_SQL} SELECT b.id, b.status, b.versao_id, b.prioridade, b.snapshot, b.data_evento::text AS data_evento, b.data_invalida, b.versao_vigente_id, b.estado_preparacao, b.estado_referencia
        FROM base b WHERE ${CONDICAO[entrada.filtro]} AND ${condicaoCursor(asc)}
       ORDER BY ${ordem} LIMIT ${limite + 1}`, params)).rows;
   const pagina = linhas.slice(0, limite);
@@ -155,7 +171,7 @@ export async function listarContratosPaginados(tx: DbExecutor, empresaId: string
       alteracao: !cancelado && !!l.versao_vigente_id && ['EM_ELABORACAO', 'ASSINADA_KIDMAIS', 'AGUARDANDO_CLIENTE'].includes(l.estado_preparacao ?? ''),
       aguardandoCliente: !cancelado && (l.status === 'AGUARDANDO_ASSINATURA' || l.estado_preparacao === 'AGUARDANDO_CLIENTE'),
       contratante: texto(s.contratante?.nomeCompleto), aniversariante: texto(s.aniversariante?.nome), idade: inteiro(s.aniversariante?.idadeNoEvento),
-      dataEvento: l.data_evento, pacote: texto(s.evento?.pacote?.nome), convidados: inteiro(s.evento?.convidados),
+      dataEvento: l.data_evento, dataInvalida: l.data_invalida, pacote: texto(s.evento?.pacote?.nome), convidados: inteiro(s.evento?.convidados),
       valor: typeof s.comercial?.valorFinalContrato === 'number' ? s.comercial.valorFinalContrato : null,
       referencia: { origem, diagnostico: origem === 'SEM_VERSAO_VALIDA' },
       financeiro: financeiroDaLinha(l.status, origem, fin.filter(f => f.contrato_id === l.id)),
