@@ -85,3 +85,9 @@
 .menuContaSair { display:flex; align-items:center; gap:8px; min-height:40px; margin-top:4px; padding:8px 10px; border:0; border-top:1px solid #2a3149; border-radius:0 0 10px 10px; background:none; color:#fca5a5; font:inherit; font-size:13px; text-align:left; cursor:pointer; }
 .menuContaSair:hover { background:rgba(248,113,113,.08); }
 @media (prefers-reduced-motion: reduce) { .contaBotao { transition:none; } }
+/* Central de ajuda (S3): atalho discreto para o artigo da tela, no topo à direita do conteúdo. */
+.ajudaDaTela { display:inline-flex; float:right; align-items:center; gap:6px; margin:16px 24px 0 0; padding:6px 12px; min-height:32px; border-radius:999px; border:1px solid color-mix(in srgb, var(--km-violet) 30%, transparent); color:var(--km-text); font:600 12px/1.2 var(--admin-font); text-decoration:none; position:relative; z-index:2; }
+.ajudaDaTela span { display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:color-mix(in srgb, var(--km-violet) 22%, transparent); font-size:11px; }
+@media (hover: hover) { .ajudaDaTela:hover { border-color:color-mix(in srgb, var(--km-violet) 55%, transparent); } }
+/* No celular, .conteudo > * ganha padding-top de 72px (espaço do botão do menu): o atalho fica na mesma faixa do botão. */
+@media (max-width: 800px) { .conteudo > .ajudaDaTela { margin:18px 16px 0 0; padding-top:6px; } }
