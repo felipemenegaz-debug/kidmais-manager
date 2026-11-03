@@ -17,6 +17,7 @@ import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
 import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
+import { exigirModeloCompativelNoFechamento } from './modelo-pj';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import type { ContratoVersaoRecord } from '../../contratos/repositories';
@@ -149,6 +150,12 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
     if (r.revisao_comercial_aprovada === r.revisao)
         return null;
     const f = r.operacao;
+    // R2-2 (Entrega B): aprovar a preparação leva à nova versão do contrato; contratante PJ com modelo ativo que o
+    // qualifica como PF é recusado aqui, antes de qualquer escrita, como na revisão comercial do fechamento.
+    if (f.clienteId) {
+        const cliente = await buscarClientePorId(f.clienteId, tx);
+        if (cliente) await exigirModeloCompativelNoFechamento(tx, cliente);
+    }
     const a = (await tx.query<{
         id: string;
     }>(`INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,valor_aprovado,status,motivo,aprovado_por_usuario_id,condicao_pagamento,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao)
@@ -188,6 +195,11 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         f.clienteId = cliente.id;
         f.aniversarianteId = child.id;
         f.responsavelAdicionalId = input.vinculos.responsavelAdicionalId;
+    }
+    // R2-2: alteração comercial aprova a preparação no fim; o modelo incompatível com PJ recusa antes da primeira escrita.
+    if (input.comercial && f.clienteId) {
+        const contratante = await buscarClientePorId(f.clienteId, tx);
+        if (contratante) await exigirModeloCompativelNoFechamento(tx, contratante);
     }
     await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [f.clienteId]);
     await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [f.aniversarianteId]);

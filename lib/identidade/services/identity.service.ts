@@ -8,13 +8,14 @@ import {
 
 import type { DbExecutor } from "../../db/contracts";
 import {
+  buscarClienteCanonicoPorCnpjParaIdentidade,
   buscarClienteCanonicoPorCpfParaIdentidade,
   buscarClienteCanonicoPorId,
+  migration112Aplicada,
   type ClienteRecord,
   type EscopoIdentidade,
 } from "../../clientes/repositories";
-import { normalizarCpf } from "../../clientes/repositories/normalizers";
-import { cpfValidoServico } from "../../clientes/services/validators";
+import { classificarDocumentoIdentidade, pareceCpf, type DocumentoIdentidade } from "../documento";
 import {
   buscarProvaConfirmadaPorTokenHash,
   buscarValidacaoPorId,
@@ -58,19 +59,26 @@ function somenteDigitos(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function validarCpfObrigatorio(cpfInformado: string) {
-  const cpf = normalizarCpf(cpfInformado);
+/**
+ * CPF ou CNPJ (R2-1). Quem digita só números até 11 recebe o erro de hoje (CPF_INVALIDO); o resto, DOCUMENTO_INVALIDO.
+ */
+function validarDocumentoObrigatorio(informado: string): DocumentoIdentidade {
+  const documento = classificarDocumentoIdentidade(informado);
+  if (documento) return documento;
+  if (pareceCpf(informado)) throw new IdentityServiceError("CPF_INVALIDO", "Informe um CPF válido.", 400, { campo: "cpf" });
+  throw new IdentityServiceError("DOCUMENTO_INVALIDO", "Informe um CPF ou CNPJ válido.", 400, { campo: "documento" });
+}
 
-  if (!cpf || !cpfValidoServico(cpf)) {
-    throw new IdentityServiceError(
-      "CPF_INVALIDO",
-      "Informe um CPF válido.",
-      400,
-      { campo: "cpf" },
-    );
+/**
+ * Cliente canônico do documento no escopo. CNPJ exige a 112 (conferida na transação, sem cache): sem ela,
+ * PJ_INDISPONIVEL/MIGRACAO_PENDENTE (R21-4), sem consultar coluna inexistente.
+ */
+async function clienteDoDocumento(documento: DocumentoIdentidade, escopo: EscopoIdentidade, customDb?: DbExecutor) {
+  if (documento.tipo === "CPF") return buscarClienteCanonicoPorCpfParaIdentidade(documento.valor, escopo, customDb);
+  if (!(await migration112Aplicada(customDb))) {
+    throw new IdentityServiceError("PJ_INDISPONIVEL", "Acesso por CNPJ ainda não está disponível nesta instalação.", 409, { motivo: "MIGRACAO_PENDENTE", campo: "documento" });
   }
-
-  return cpf;
+  return buscarClienteCanonicoPorCnpjParaIdentidade(documento.valor, escopo, customDb);
 }
 
 export function mascararTelefoneIdentidade(value: string) {
@@ -240,8 +248,8 @@ export async function consultarCpfPublico(
   escopo: EscopoIdentidade,
   customDb?: DbExecutor,
 ): Promise<ConsultaCpfPublicaResult> {
-  const cpf = validarCpfObrigatorio(cpfInformado);
-  const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(escopo), customDb);
+  const documento = validarDocumentoObrigatorio(cpfInformado);
+  const cliente = await clienteDoDocumento(documento, exigirEscopo(escopo), customDb);
 
   if (!cliente) {
     return { situacao: "NOVO_CLIENTE", canais: [] };
@@ -285,8 +293,8 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     input: IniciarDesafioIdentidadeInput,
     customDb?: DbExecutor,
   ): Promise<DesafioIdentidadePublico> {
-    const cpf = validarCpfObrigatorio(input.cpf);
-    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(input.escopo), customDb);
+    const documento = validarDocumentoObrigatorio(input.cpf);
+    const cliente = await clienteDoDocumento(documento, exigirEscopo(input.escopo), customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(
@@ -615,8 +623,8 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     escopo: EscopoIdentidade,
     customDb?: DbExecutor,
   ): Promise<RecuperacaoIdentidadePublica> {
-    const cpf = validarCpfObrigatorio(cpfInformado);
-    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(escopo), customDb);
+    const documento = validarDocumentoObrigatorio(cpfInformado);
+    const cliente = await clienteDoDocumento(documento, exigirEscopo(escopo), customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(

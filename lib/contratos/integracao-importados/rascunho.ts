@@ -4,6 +4,7 @@ import type { PlanoImportacao } from '../../importacao-contrato/plano.ts';
 import type { ImportacaoLida } from '../../importacao-contrato/repositorio-importacao.ts';
 import { clienteDaEmpresa } from './repositorio.ts';
 import { normalizarCep, normalizarCpf, normalizarEmail, normalizarTelefone, normalizarUf, textoOuNull } from '../../clientes/repositories/normalizers.ts';
+import { normalizarCnpj } from '../../cadastro/cnpj.ts';
 import type { FonteIntegracaoRascunho } from './servico.ts';
 import { IntegracaoImportadoError } from './servico.ts';
 
@@ -19,7 +20,10 @@ export async function fonteDoRascunho(tx: DbExecutor, tenant: TenantComprovado, 
     : { id: importacao.id, ...passo.dados, nomeCompleto: passo.dados.nomeCompleto.trim(), cpf: normalizarCpf(passo.dados.cpf),
         telefone: normalizarTelefone(passo.dados.telefone), whatsapp: normalizarTelefone(passo.dados.whatsapp), email: normalizarEmail(passo.dados.email),
         rg: textoOuNull(passo.dados.rg), cep: normalizarCep(passo.dados.cep), logradouro: textoOuNull(passo.dados.logradouro), numero: textoOuNull(passo.dados.numero),
-        complemento: textoOuNull(passo.dados.complemento), bairro: textoOuNull(passo.dados.bairro), cidade: textoOuNull(passo.dados.cidade), uf: normalizarUf(passo.dados.uf), status: 'ATIVO' };
+        complemento: textoOuNull(passo.dados.complemento), bairro: textoOuNull(passo.dados.bairro), cidade: textoOuNull(passo.dados.cidade), uf: normalizarUf(passo.dados.uf), status: 'ATIVO',
+        // Entrega B: PJ nova (razão social = nome), como o repositório grava.
+        ...(passo.dados.tipoPessoa === 'PJ' ? { tipoPessoa: 'PJ', cnpj: normalizarCnpj(passo.dados.cnpj), razaoSocial: passo.dados.nomeCompleto.trim(), nomeFantasia: null,
+          representanteNome: textoOuNull(passo.dados.representanteNome), representanteCpf: normalizarCpf(passo.dados.representanteCpf) } : {}) };
   if (!cliente) throw new IntegracaoImportadoError('NAO_ENCONTRADO', 'Cliente não encontrado.', 404);
   return { cliente, clienteNovo: passo.acao === 'CRIAR', importacao: { id: importacao.id, documentoId: importacao.documentoId, clienteId: cliente.id, status: 'EM_REVISAO', snapshot: plano.snapshot,
     recebimentosDocumento: (importacao.dados as { extracao?: { recebimentosDocumento?: unknown } }).extracao?.recebimentosDocumento } };

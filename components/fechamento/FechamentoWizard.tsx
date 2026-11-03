@@ -58,6 +58,8 @@ import {
   statusDataPacote,
 } from "@/lib/agenda/disponibilidade";
 import { calcularIdade, cpfValido } from "@/lib/clientes/utils";
+import { cnpjRaizPlaceholder, cnpjValido, normalizarCnpj } from "@/lib/cadastro/cnpj";
+import { formatarCnpj } from "@/lib/contratos/documento/contratante-pj";
 import { aceitaQuantidade, agruparPorCategoria, lerAdicionaisDisponiveis, mensagemFalhaAdicionais, pendenciaEscolhas, rotuloUnidade, totalDoAdicional, type AdicionalDaEtapa, type EstadoAdicionais } from "./adicionais-etapa";
 
 const ETAPAS = [
@@ -89,6 +91,9 @@ type ClienteContextoValidado = {
   cliente: {
     nomeCompleto: string;
     cpf: string | null;
+    /** Só para PJ (Entrega B); ausente = PF. */
+    tipoPessoa?: "PJ";
+    cnpj?: string | null;
     rg: string | null;
     telefone: string | null;
     whatsapp: string | null;
@@ -206,6 +211,30 @@ function formatarCPF(valor: string) {
     .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
 }
 
+/** Identificação: CPF (só dígitos, até 11) ou CNPJ numérico/alfanumérico (14 posições), formatado enquanto digita. */
+function formatarDocumento(valor: string, tipo: TipoDocumentoIdentificacao) {
+  if (tipo === "CPF") return formatarCPF(valor);
+  return valor.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 14)
+    .replace(/^(.{2})(.)/, "$1.$2")
+    .replace(/^(.{2}\..{3})(.)/, "$1.$2")
+    .replace(/^(.{2}\..{3}\..{3})(.)/, "$1/$2")
+    .replace(/^(.{2}\..{3}\..{3}\/.{4})(.)/, "$1-$2");
+}
+
+type TipoDocumentoIdentificacao = "CPF" | "CNPJ";
+
+/** CNPJ válido digitado na identificação (normalizado), ou null (CPF ou texto inválido). */
+function cnpjDaIdentificacao(valor: string) {
+  const cnpj = normalizarCnpj(valor);
+  return /^[0-9A-Z]{12}\d{2}$/.test(cnpj) && cnpjValido(cnpj) && !cnpjRaizPlaceholder(cnpj) ? cnpj : null;
+}
+
+/** Corpo das rotas de identidade: PF continua mandando `cpf` como antes; CNPJ vai em `documento`. */
+function corpoDocumento(valor: string) {
+  const cnpj = cnpjDaIdentificacao(valor);
+  return cnpj ? { documento: cnpj } : { cpf: somenteDigitos(valor) };
+}
+
 function formatarTelefone(valor: string) {
   const digitos = somenteDigitos(valor).slice(0, 11);
   if (digitos.length <= 10) {
@@ -229,6 +258,7 @@ function clienteParaForm(clienteDetalhe: ClienteContextoValidado) {
   return {
     nomeCliente: cliente.nomeCompleto,
     cpf: formatarCPF(cliente.cpf ?? ""),
+    cnpj: cliente.tipoPessoa === "PJ" ? formatarCnpj(cliente.cnpj) : "",
     rg: cliente.rg ?? "",
     email: cliente.email ?? "",
     telefone: formatarTelefone(cliente.telefone ?? ""),
@@ -292,6 +322,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [identificacaoStatus, setIdentificacaoStatus] =
     useState<IdentificacaoClienteStatus>("AGUARDANDO_CPF");
   const [cpfIdentificacao, setCpfIdentificacao] = useState("");
+  const [tipoDocumentoIdentificacao, setTipoDocumentoIdentificacao] = useState<TipoDocumentoIdentificacao>("CPF");
   const [clienteEncontrado, setClienteEncontrado] =
     useState<ClienteContextoValidado | null>(null);
   const [canaisIdentidade, setCanaisIdentidade] =
@@ -725,10 +756,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   async function buscarClientePorCpf() {
     const cpf = somenteDigitos(cpfIdentificacao);
+    const cnpj = cnpjDaIdentificacao(cpfIdentificacao);
     setErroIdentificacao("");
 
-    if (cpf.length !== 11 || !cpfValido(cpf)) {
-      setErroIdentificacao("Informe um CPF válido para continuar.");
+    if (tipoDocumentoIdentificacao === "CNPJ" ? !cnpj : cpf.length !== 11 || !cpfValido(cpf)) {
+      setErroIdentificacao(tipoDocumentoIdentificacao === "CNPJ"
+        ? "Informe um CNPJ válido para continuar."
+        : "Informe um CPF válido para continuar.");
       return;
     }
 
@@ -738,7 +772,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/consultar-cpf", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify(corpoDocumento(cpfIdentificacao)),
       });
 
       if (!resposta.ok) {
@@ -755,7 +789,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       setAniversarianteSelecionadoId("");
       setSolicitarAtualizacaoCadastro(null);
       setRecuperacaoCadastralPendente(false);
-      setForm((anterior) => ({ ...anterior, cpf: formatarCPF(cpf) }));
+      // Empresa (CNPJ): cadastro existente segue a validação; sem cadastro, a empresa é cadastrada neste fechamento.
+      setForm((anterior) => ({ ...anterior, nomeFantasia: "", representanteNome: "", representanteCpf: "",
+        ...(cnpj ? { cpf: "", rg: "", cnpj: formatarCnpj(cnpj) } : { cpf: formatarCPF(cpf), cnpj: "" }) }));
 
       if (json.situacao === "NOVO_CLIENTE") {
         setCanaisIdentidade([]);
@@ -780,7 +816,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   async function enviarCodigoValidacao() {
-    const cpf = somenteDigitos(cpfIdentificacao);
+    const documento = corpoDocumento(cpfIdentificacao);
     const canal = canalSelecionado || canaisIdentidade[0]?.canal;
     if (!canal) {
       setErroIdentificacao(
@@ -797,7 +833,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/iniciar-desafio", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf, canal }),
+        body: JSON.stringify({ ...documento, canal }),
       });
       if (!resposta.ok) {
         throw new Error(
@@ -889,7 +925,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   async function iniciarRecuperacaoCadastral() {
-    const cpf = somenteDigitos(cpfIdentificacao);
+    const documento = corpoDocumento(cpfIdentificacao);
     setProcessandoIdentidade(true);
     setErroIdentificacao("");
 
@@ -897,7 +933,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/solicitar-recuperacao", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify(documento),
       });
       if (!resposta.ok) {
         throw new Error(
@@ -1188,8 +1224,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       // Cada obrigatório que falta fica marcado no próprio campo, na ordem da tela; o primeiro recebe rolagem e foco.
       const pendentes: ErroCampo[] = [];
       const exigir = (falta: boolean, nome: string, mensagem: string) => { if (falta) pendentes.push({ campo: idPublico(nome), mensagem }); };
-      exigir(!form.nomeCliente, "nomeCliente", "Informe o nome completo.");
-      exigir(somenteDigitos(form.cpf).length !== 11 || !cpfValido(form.cpf), "cpf", "Informe um CPF válido.");
+      exigir(!form.nomeCliente, "nomeCliente", form.cnpj ? "Informe a razão social." : "Informe o nome completo.");
+      exigir(!form.cnpj && (somenteDigitos(form.cpf).length !== 11 || !cpfValido(form.cpf)), "cpf", "Informe um CPF válido.");
+      const cpfRepresentante = somenteDigitos(form.representanteCpf ?? "");
+      exigir(Boolean(form.cnpj) && cpfRepresentante.length > 0 && (cpfRepresentante.length !== 11 || !cpfValido(cpfRepresentante)), "representanteCpf", "Informe um CPF válido para o representante.");
+      exigir(Boolean(form.cnpj) && cpfRepresentante.length > 0 && !form.representanteNome?.trim(), "representanteNome", "Informe o nome do representante.");
       exigir(!temContato, "whatsapp", "Informe WhatsApp ou telefone com DDD.");
       exigir(!form.email, "email", "Informe o e-mail.");
       exigir(somenteDigitos(form.cep).length !== 8, "cep", "Informe o CEP com 8 dígitos.");
@@ -2396,7 +2435,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               <StepTitle numero={numeroEtapaVisivel(6)} titulo="Dados para o fechamento">
                 {origemInterna
                   ? "Confira os dados do contratante antes de continuar."
-                  : "Use seu CPF para localizar um cadastro existente ou continuar com um novo cadastro."}
+                  : "Use seu CPF ou o CNPJ da empresa para localizar um cadastro existente ou continuar com um novo cadastro."}
               </StepTitle>
 
               {!origemInterna && identificacaoStatus === "AGUARDANDO_CPF" && (
@@ -2404,19 +2443,40 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <div className={styles.identificationIntro}>
                     <strong>Já fez festa com {marca.a}?</strong>
                     <p>
-                      Não precisa lembrar. Informe seu CPF e o sistema verifica
-                      automaticamente se já existe um cadastro.
+                      Não precisa lembrar. Informe seu CPF (ou o CNPJ, se a contratante for uma empresa)
+                      e o sistema verifica automaticamente se já existe um cadastro.
                     </p>
                   </div>
+                  <div className={styles.documentChoice} role="radiogroup" aria-label="Tipo de documento do contratante">
+                    {(["CPF", "CNPJ"] as const).map((tipo) => (
+                      <button
+                        key={tipo}
+                        type="button"
+                        role="radio"
+                        aria-checked={tipoDocumentoIdentificacao === tipo}
+                        className={tipoDocumentoIdentificacao === tipo ? styles.documentChoiceSelected : ""}
+                        onClick={() => {
+                          if (tipo === tipoDocumentoIdentificacao) return;
+                          setTipoDocumentoIdentificacao(tipo);
+                          setCpfIdentificacao("");
+                          setErroIdentificacao("");
+                        }}
+                      >
+                        {tipo === "CPF" ? "Pessoa física (CPF)" : "Empresa (CNPJ)"}
+                      </button>
+                    ))}
+                  </div>
                   <label className={styles.field}>
-                    <span>CPF do contratante *</span>
+                    <span>{tipoDocumentoIdentificacao === "CNPJ" ? "CNPJ da empresa contratante *" : "CPF do contratante *"}</span>
                     <input
                       type="text"
-                      inputMode="numeric"
-                      placeholder="000.000.000-00"
+                      inputMode={tipoDocumentoIdentificacao === "CNPJ" ? "text" : "numeric"}
+                      autoCapitalize={tipoDocumentoIdentificacao === "CNPJ" ? "characters" : "off"}
+                      autoComplete="off"
+                      placeholder={tipoDocumentoIdentificacao === "CNPJ" ? "00.000.000/0000-00" : "000.000.000-00"}
                       value={cpfIdentificacao}
                       onChange={(e) => {
-                        setCpfIdentificacao(formatarCPF(e.target.value));
+                        setCpfIdentificacao(formatarDocumento(e.target.value, tipoDocumentoIdentificacao));
                         setErroIdentificacao("");
                       }}
                     />
@@ -2434,7 +2494,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {!origemInterna && identificacaoStatus === "CLIENTE_ENCONTRADO" && (
                 <div className={styles.identificationPanel}>
                   <span className={styles.foundBadge}>Cadastro encontrado</span>
-                  <h3>Encontramos um cadastro para este CPF.</h3>
+                  <h3>Encontramos um cadastro para este {cnpjDaIdentificacao(cpfIdentificacao) ? "CNPJ" : "CPF"}.</h3>
                   <p className={styles.identificationText}>
                     Para proteger seus dados, nenhuma informação pessoal é exibida antes da validação.
                     O código será enviado pelo WhatsApp transacional oficial para o número cadastrado.
@@ -2541,8 +2601,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <div className={styles.infoBox}>
                   <strong>Nenhum cadastro encontrado.</strong>
                   <p>
-                    Vamos criar seu cadastro durante este fechamento. Você não
-                    precisará fazer nenhum cadastro separado.
+                    {form.cnpj
+                      ? "Vamos cadastrar a empresa durante este fechamento. Informe a razão social e, se quiser, o representante."
+                      : "Vamos criar seu cadastro durante este fechamento. Você não precisará fazer nenhum cadastro separado."}
                   </p>
                 </div>
               )}
@@ -2582,10 +2643,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   )}
 
                   <div className={styles.formGrid}>
-                    <Field label="Nome completo *" wide>
+                    <Field label={form.cnpj ? "Razão social *" : "Nome completo *"} wide>
                       <input
                         type="text"
-                        autoComplete="name"
+                        autoComplete={form.cnpj ? "organization" : "name"}
                         {...marcar("nomeCliente")}
                         value={form.nomeCliente}
                         onChange={(e) => atualizar("nomeCliente", e.target.value)}
@@ -2593,6 +2654,28 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       {mensagemDe("nomeCliente")}
                     </Field>
 
+                    {/* Entrega B: PJ (o CNPJ vem da identificação). Sem CPF nem RG do contratante; na empresa nova, nome
+                        fantasia e representante opcionais, como no CRM. */}
+                    {form.cnpj ? (<>
+                    <Field label="CNPJ">
+                      <input type="text" value={form.cnpj} readOnly />
+                    </Field>
+                    {identificacaoStatus === "NOVO_CLIENTE" && (<>
+                    <Field label="Nome fantasia">
+                      <input type="text" value={form.nomeFantasia ?? ""} maxLength={180} onChange={(e) => atualizar("nomeFantasia", e.target.value)} />
+                    </Field>
+                    <Field label="Representante (nome)">
+                      <input type="text" autoComplete="name" {...marcar("representanteNome")} value={form.representanteNome ?? ""} maxLength={180}
+                        onChange={(e) => atualizar("representanteNome", e.target.value)} />
+                      {mensagemDe("representanteNome")}
+                    </Field>
+                    <Field label="CPF do representante">
+                      <input type="text" inputMode="numeric" placeholder="000.000.000-00" {...marcar("representanteCpf")} value={form.representanteCpf ?? ""}
+                        onChange={(e) => atualizar("representanteCpf", formatarCPF(e.target.value))} />
+                      {mensagemDe("representanteCpf")}
+                    </Field>
+                    </>)}
+                    </>) : (<>
                     <Field label="CPF *">
                       <input
                         type="text"
@@ -2613,6 +2696,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         onChange={(e) => atualizar("rg", e.target.value)}
                       />
                     </Field>
+                    </>)}
 
                     <Field label="WhatsApp">
                       <input
@@ -2813,7 +2897,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           onClick={() => selecionarAniversariante("NOVO")}
                         >
                           <strong>+ Outro aniversariante</strong>
-                          <span>Adicionar ao mesmo cadastro da família</span>
+                          <span>{form.cnpj ? "Adicionar ao mesmo cadastro" : "Adicionar ao mesmo cadastro da família"}</span>
                         </button>
                       </div>
                     </div>

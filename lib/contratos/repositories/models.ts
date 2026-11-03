@@ -57,8 +57,17 @@ export type ContratoSnapshotV1 = {
   };
   contratante: {
     clienteId: string;
+    /** PJ: a razão social. */
     nomeCompleto: string;
+    /** PJ: vazio (o documento da PJ é o CNPJ). */
     cpf: string;
+    /** 112 (Entrega B): só existe na PJ. Ausente = PF, e o snapshot PF fica igual ao anterior. */
+    tipoPessoa?: "PJ";
+    cnpj?: string;
+    razaoSocial?: string | null;
+    nomeFantasia?: string | null;
+    /** Texto contratual ("neste ato representada por"), nunca identidade nem chave de acesso. */
+    representante?: { nome: string; cpf: string | null } | null;
     rg: string | null;
     telefone: string | null;
     whatsapp: string | null;

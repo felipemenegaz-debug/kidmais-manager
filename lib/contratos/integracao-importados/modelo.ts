@@ -1,4 +1,4 @@
-import { cadastroPayloadSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import { cadastroPayloadPjSchema, cadastroPayloadSchema, contratantePjSnapshot, contratanteSnapshot, formularioCadastro, type CadastroContratual, type DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -45,7 +45,8 @@ export const financeiroSchema = z.discriminatedUnion('situacao', [
 
 export const decisoesSchema = z.object({
   // Payload sem o telefone fixo (a tela não o envia); a regra de contato é aplicada ao cadastro mesclado com o CRM, em preparar().
-  cadastro: cadastroPayloadSchema.optional(),
+  // Entrega B: PJ envia CPF e RG vazios; qual das duas vale é decidido em preparar(), pelo tipo do cliente.
+  cadastro: z.union([cadastroPayloadSchema, cadastroPayloadPjSchema]).optional(),
   formaPagamento: z.enum(["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"]).nullable().optional(),
   aniversariante: z.string().trim().min(2).max(200).optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
@@ -305,7 +306,7 @@ export function montarSnapshotVersao(e: {
   nativo?: Record<string, unknown>;
   importacaoId: string; documento: { id: string; sha256: string };
   fechamentoId: string; snapshot: SnapshotHistorico; decisoes: DecisoesIntegracao; resumo: ResumoIntegracao;
-  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>>;
+  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>> & DadosPjCliente;
   aniversarianteId: string | null;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null };
   unidade: { id: string; nome: string } | null;
@@ -321,7 +322,7 @@ export function montarSnapshotVersao(e: {
     schemaVersao: v3 ? 3 : 1,
     origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: e.importacaoId, documentoOriginalId: e.documento.id, documentoSha256: e.documento.sha256, aceite: 'CONTRATO_ASSINADO_EM_PAPEL' },
     fechamento: { id: e.fechamentoId, status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
-    contratante: contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }),
+    contratante: { ...contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }), ...contratantePjSnapshot(e.cliente) },
     responsavelAdicional: null,
     aniversariante: { id: e.aniversarianteId, nome: d.aniversariante ?? s.evento?.aniversariante ?? null, dataNascimento: null, idadeNoEvento: s.evento?.idade ?? null, temaFesta: s.evento?.tema ?? null },
     evento: {

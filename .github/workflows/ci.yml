@@ -219,6 +219,14 @@ jobs:
       - name: Blocos de Shell da 109 (staging)
         run: node --test scripts/bloco-shell-109.test.cjs
 
+      # Aplicador da 112 (cliente pessoa jurídica, Entrega B, staging): cliente simulado, sem banco nem rede; estado pelos 19 objetos.
+      - name: Aplicador da 112 (staging) — cliente simulado
+        run: node --test scripts/migration-112.test.cjs
+
+      # Blocos de Shell da 112: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
+      - name: Blocos de Shell da 112 (staging)
+        run: node --test scripts/bloco-shell-112.test.cjs
+
   # B-23b: reexecuta a prova funcional de cada base antiga da lista do B-14 (CODIGOS_ANTIGOS) e compara com a evidência
   # guardada em docs/evidencias/b23-bases-antigas. Precisa do histórico completo (as bases estão no ramo de production);
   # só lê o git local, sem dependências, rede de produto, banco ou .env.

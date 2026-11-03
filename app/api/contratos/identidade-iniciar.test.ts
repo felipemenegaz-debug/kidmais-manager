@@ -43,8 +43,11 @@ function ambiente() {
     '@/lib/identidade/services': { isIdentityServiceError: () => false },
     '@/lib/festas/domain': { FestaError: class extends Error {} },
   });
+  // Entrega B (R2-1): o campo do documento (CPF ou CNPJ) vem do módulo real, que só depende do zod.
+  const documentoRota = carregar(new URL('../../../lib/identidade/documento-rota.ts', import.meta.url), { zod: { z } });
   const route = carregar(new URL('./[contratoId]/identidade/iniciar/route.ts', import.meta.url), {
     'next/server': next, zod: { z },
+    '@/lib/identidade/documento-rota': documentoRota,
     '@/lib/contratos/services': services,
     '@/lib/identidade/delivery': { enviarOtpComAmbiente: sender },
     '../../../route-utils': utils,

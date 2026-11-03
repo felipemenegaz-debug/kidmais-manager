@@ -234,12 +234,28 @@ const ESTADO_POSTGRES = {
   // 109 (renovação substituta): guarda, repositório e rollback; detector do retrato nas duas versões (108 = 075 íntegra, a suíte
   // aplica a 109); concorrência com a trava real, a de linha e sem serialização.
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
+  // Entrega B (01/11/2026): migration 112 (cliente PJ) aplicada pela suíte sobre o modelo 109; CHECKs, unicidade, corrida e rollback.
+  "lib/clientes/migration-112.postgres.test.ts": { descartavel: "109" },
+  // Entrega B: serviço PF/PJ com a 112 e, no 109, o código novo sem ela (PJ_INDISPONIVEL/MIGRACAO_PENDENTE).
+  "lib/clientes/cliente-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  // Entrega B: contrato de cliente PJ (MODELO_INCOMPATIVEL_PJ na emissão e no PDF; snapshot PJ).
+  "lib/contratos/contrato-pj.postgres.test.ts": { descartavel: "112" },
+  // Entrega B: importação de contrato com contratante PJ (plano, motor, integração); no 109, recusa MIGRACAO_PENDENTE.
+  "lib/inteligencia/importacao/importacao-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
+  "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
+  "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
   "lib/assinatura/renovacao-109-concorrencia.postgres.test.ts": { descartavel: "109" },
   // 30/10/2026 (B-9, aplicador da 109 em staging): modelo 106 (075 íntegra, sem a 109, como o staging de hoje), com uma
   // renovação real; sessão do cron, retrato divergente, papel dono não superusuário, capacidade no catálogo real, deriva,
   // down, falha real de lock e retomada.
   "lib/assinatura/aplicador-109.postgres.test.ts": { descartavel: "106" },
+  // 01/11/2026 (Entrega B, aplicador da 112 em staging): modelo 109 (sem a 112), com clientes PF reais e uma mesclagem;
+  // parcial, papel dono não superusuário, preservação na transação, postcheck no catálogo real, deriva, down, falha real de
+  // lock e retomada.
+  "lib/clientes/aplicador-112.postgres.test.ts": { descartavel: "109" },
   // B-14 (27/10/2026): fotografia, idempotência por fotografia nos estados estáveis, proposta/aplicação de caso e validade
   // pela data do pagamento; modelo 097 (inclui os créditos 095).
   // Revisão do HB-3 r4 (P2): estados estáveis da §3.3.1 também em cada prefixo e no PH do staging (combinações aplicáveis;

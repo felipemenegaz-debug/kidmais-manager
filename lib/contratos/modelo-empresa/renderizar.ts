@@ -2,6 +2,7 @@ import type { ContratoOficialRenderizado } from "../documento/oficial/models.ts"
 import { salaoDoSnapshot, type ContratoSnapshot } from "../repositories/models.ts";
 import { camposUsados, preencher } from "./campos.ts";
 import { textosDoConteudo, type ConteudoModelo } from "./conteudo.ts";
+import { contratantePj, identificacaoPj } from "../documento/contratante-pj.ts";
 
 /**
  * Contrato no padrão da empresa: o texto aprovado do modelo com os {{campos}} preenchidos pelo snapshot congelado
@@ -20,7 +21,10 @@ export function renderizarModeloEmpresa(
     `CONTRATADA: ${c.contratada.nome}${c.contratada.documento ? `, inscrita sob o nº ${c.contratada.documento}` : ""}${c.contratada.endereco ? `, com sede em ${c.contratada.endereco}` : ""}.`,
     ...(c.contratada.representante ? [`Representada por ${c.contratada.representante}.`] : []),
   ];
-  const contratante = [p("CONTRATANTE: {{contratante.nome}}, CPF {{contratante.cpf}}, RG {{contratante.rg}}, telefone {{contratante.telefone}}, e-mail {{contratante.email}}, endereço {{contratante.endereco}}.")];
+  // PF: exatamente o texto de antes. PJ: razão social, CNPJ e representante, sem RG (R2-2).
+  const contratante = [contratantePj(s)
+    ? `CONTRATANTE: ${identificacaoPj(s)}, ${p("telefone {{contratante.telefone}}, e-mail {{contratante.email}}, endereço {{contratante.endereco}}.")}`
+    : p("CONTRATANTE: {{contratante.nome}}, CPF {{contratante.cpf}}, RG {{contratante.rg}}, telefone {{contratante.telefone}}, e-mail {{contratante.email}}, endereço {{contratante.endereco}}.")];
   if (s.responsavelAdicional) contratante.push(`Responsável adicional: ${s.responsavelAdicional.nome}.`);
   contratante.push(p("Aniversariante: {{aniversariante.nome}}, {{aniversariante.idade}}. Tema: {{aniversariante.tema}}."));
   // S-E (plano S-E/S-D rev. 4.1, R-E5): salão fixado (V3) e texto publicado sem {{festa.salao}} → bloco fixo do sistema

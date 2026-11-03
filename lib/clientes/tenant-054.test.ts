@@ -152,11 +152,15 @@ test('busca global por CPF existe só para a identidade pública', () => {
 test('atualizarCliente: escopo TENANT filtra empresa; IDENTIDADE só vale para o próprio cliente comprovado', async () => {
     const r = repositorio();
     await r.mod.atualizarCliente('cliente-1', { tipo: 'TENANT', empresaId: empresaA }, { nomeCompleto: 'Novo Nome' });
-    assert.match(r.sql[0].texto, /AND empresa_id = \$\d+::uuid/); assert(r.sql[0].valores.includes(empresaA));
+    // A consulta ao catálogo da 112 (sem dado de cliente) fica fora da contagem de escritas.
+    const catalogo = (s: { texto: string }) => s.texto.includes('pg_attribute');
+    const filtrar = () => r.sql.filter(s => !catalogo(s));
+    assert.match(filtrar()[0].texto, /AND empresa_id = \$\d+::uuid/); assert(filtrar()[0].valores.includes(empresaA));
     await r.mod.atualizarCliente('cliente-1', { tipo: 'IDENTIDADE', clienteIdComprovado: 'cliente-1' }, { nomeCompleto: 'Novo Nome' });
-    assert.doesNotMatch(r.sql[1].texto, /AND empresa_id =/);
+    assert.doesNotMatch(filtrar()[1].texto, /AND empresa_id =/);
+    const antes = r.sql.length;
     await assert.rejects(r.mod.atualizarCliente('cliente-2', { tipo: 'IDENTIDADE', clienteIdComprovado: 'cliente-1' }, { nomeCompleto: 'X Y Z' }), /não pertence/);
-    assert.equal(r.sql.length, 2);
+    assert.equal(filtrar().length, 2); assert.equal(r.sql.length, antes);
 });
 test('possível duplicidade só entre clientes da mesma empresa comprovada (nunca A–B nem legado)', async () => {
     for (const [ok, esperado] of [[false, 'recusa'], [null, 'recusa'], [true, 'grava']] as const) {
