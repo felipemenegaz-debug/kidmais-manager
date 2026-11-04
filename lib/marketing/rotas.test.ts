@@ -147,6 +147,32 @@ test('formulário público: resposta igual para robô (honeypot) e pedido real; 
   assert.equal(invalido.status, 400);
 });
 
+test('formulário público (P2-R4-2): acima do limite → 429 sem ler o corpo; tamanho declarado acima do teto → 413 sem ler', async () => {
+  const anterior = { RENDER: process.env.RENDER, ORIGEM_CLIENTE_BORDA: process.env.ORIGEM_CLIENTE_BORDA };
+  process.env.RENDER = 'true';
+  process.env.ORIGEM_CLIENTE_BORDA = 'render-cloudflare-sobrescreve';
+  try {
+    const rota = rotaContato(SITE, []);
+    let leituras = 0;
+    const comContagem = (corpo: string, extra: Record<string, string> = {}) => ({
+      headers: new Headers({ host: 'localhost:3000', 'x-forwarded-for': '177.10.20.30, 104.23.190.11', 'cf-connecting-ip': '177.10.20.30', ...extra }),
+      async text() { leituras += 1; return corpo; },
+    });
+    const valido = JSON.stringify({ nome: 'Ana', telefone: '11999990000', chave: 'k'.repeat(20), website: 'http://robo' });
+    assert.equal((await rota.POST(comContagem('x'.repeat(16_001), { 'content-length': '16001' }), params)).status, 413);
+    assert.equal(leituras, 0, 'tamanho declarado acima do teto: corpo não lido');
+    for (let i = 0; i < 9; i++) assert.equal((await rota.POST(comContagem(valido), params)).status, 202);
+    leituras = 0;
+    const excedido = await rota.POST(comContagem('x'.repeat(16_001)), params);
+    assert.equal(excedido.status, 429);
+    assert.equal(leituras, 0, 'acima do limite: corpo não lido nem validado');
+    assert.equal((await rota.POST(comContagem('{lixo'), params)).status, 429, 'corpo inválido também não escapa do limite');
+    assert.equal(leituras, 0);
+  } finally {
+    for (const [k, v] of Object.entries(anterior)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+});
+
 type ModRotasPublicas = { viaDominioConfirmada(host: string, cabecalhos: Headers): { tipo: string; host: string } | null };
 const rotasPublicas = carregarModulo('lib/marketing/site/rotas-publicas.ts', { 'db/postgres': { db: () => { throw new Error('sem banco'); } } }) as unknown as ModRotasPublicas;
 

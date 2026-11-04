@@ -4,6 +4,7 @@ import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
 import { consumirLimite, prazoDoLimite } from '../autenticacao/service.ts';
+import { consumirOrigem } from './limite-origem.ts';
 import { conferirSenha as conferirSenhaPadrao, criarHashSenha as criarHashSenhaPadrao, hashToken } from '../autenticacao/senha.ts';
 import { nomePapelSistema, type NivelSistema } from '../autenticacao/papeis.ts';
 import { concederPerfilFesta, inserirIdentidadeNeutra, marcarAtor } from '../autenticacao/usuarios.ts';
@@ -180,10 +181,10 @@ export type ConsultaConvite =
 export async function consultarConvite(raw: unknown, ctx: ContextoRequisicao, deps: Pick<ConvitesDeps, 'withTransaction'> = convitesDepsPadrao()): Promise<ConsultaConvite> {
     const token = tokenSchema.safeParse((raw as { token?: unknown } | null)?.token);
     return deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE)) {
-            const aguardar = await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE.namespace);
-            throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429, aguardar ? { retryAfterSegundos: aguardar } : undefined);
-        }
+        // Sem IP confiável, a janela é a do próprio link (nunca uma chave que tranque todo mundo).
+        const recusa = await consumirOrigem(tx, ctx.ip, REGRA_ORIGEM_CONVITE, { porIdentificador: token.success ? hashToken(token.data) : 'TOKEN_MALFORMADO' });
+        if (recusa)
+            throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429, recusa.aguardar ? { retryAfterSegundos: recusa.aguardar } : undefined);
         if (!token.success)
             return { situacao: 'INVALIDO' as const };
         const c = (await tx.query<LinhaConvite & { empresa_nome: string; empresa_status: string; conta: boolean }>(
@@ -216,8 +217,9 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
     if (input.confirmacao !== undefined)
         validarNovaSenha(input.senha, input.confirmacao);
     const resultado = await deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE))
-            return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE.namespace) };
+        const recusa = await consumirOrigem(tx, ctx.ip, REGRA_ORIGEM_CONVITE, { porIdentificador: hashToken(input.token) });
+        if (recusa)
+            return { tipo: 'limite' as const, aguardar: recusa.aguardar };
         const inicial = (await tx.query<LinhaConvite>(`SELECT ${COLUNAS} FROM convites_acesso c WHERE c.token_hash = $1`, [hashToken(input.token)])).rows[0];
         if (!inicial || inicial.status !== 'PENDENTE' || inicial.expirado) return { tipo: 'link' as const };
         // Usuário → empresa → convite: não segurar o convite antes de disputar a trava de vagas.

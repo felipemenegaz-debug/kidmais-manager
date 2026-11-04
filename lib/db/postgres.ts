@@ -23,13 +23,24 @@ function criarPool() {
     );
   }
 
-  return new Pool({
-    connectionString,
-    ssl: sslConfig(),
-    max: Number(process.env.DATABASE_POOL_MAX ?? 10),
-    idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS ?? 30_000),
-    connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? 5_000),
-  });
+  return new Pool({ connectionString, ssl: sslConfig(), ...opcoesDoPool(process.env) });
+}
+
+/**
+ * Tamanho do pool (docs/LOGIN_LIMITE_ORIGEM_POOL_20261022.md). O Postgres do Render no plano 0.1c-256mb aceita
+ * cerca de 100 conexões (algumas reservadas ao superusuário). No deploy sem interrupção, a instância antiga e a nova
+ * coexistem: 2 × 30 = 60, e sobram ~35 para os crons (3 cada), migrations, psql e o monitoramento do Render.
+ * Mais conexões não trazem CPU: com a CPU saturada, a espera só muda de lugar (do pool para o processador).
+ * Valor inválido no ambiente cai no padrão, e o máximo nunca passa do teto seguro.
+ */
+export const POOL_PADRAO = { max: 30, teto: 40, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 } as const;
+export function opcoesDoPool(env: Record<string, string | undefined>) {
+  const inteiro = (valor: string | undefined, padrao: number) => (valor && /^[1-9]\d{0,8}$/.test(valor) ? Number(valor) : padrao);
+  return {
+    max: Math.min(inteiro(env.DATABASE_POOL_MAX, POOL_PADRAO.max), POOL_PADRAO.teto),
+    idleTimeoutMillis: inteiro(env.DATABASE_IDLE_TIMEOUT_MS, POOL_PADRAO.idleTimeoutMillis),
+    connectionTimeoutMillis: inteiro(env.DATABASE_CONNECTION_TIMEOUT_MS, POOL_PADRAO.connectionTimeoutMillis),
+  };
 }
 
 function getPool(): Pool {

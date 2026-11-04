@@ -4,6 +4,7 @@ import { recursoIncluido } from "../assinatura/recursos-plano.ts";
 import { agendaPorEscopoInstalada, escopoDaEmpresa } from "../disponibilidade/escopo.ts";
 import { AvailabilityServiceError } from "../disponibilidade/services/errors.ts";
 import { escopoCatalogoPublico } from "./catalogo-publico.ts";
+import { CODIGO_EMPRESA_PUBLICA, confirmarEmpresaPublica } from "../http/empresas-publicas.ts";
 
 /**
  * Cotação/fechamento públicos por empresa (Etapa 3). Dois caminhos:
@@ -17,7 +18,8 @@ import { escopoCatalogoPublico } from "./catalogo-publico.ts";
  * Toda recusa do caminho por código tem a mesma resposta (404), para não revelar se a empresa existe, qual é o plano
  * ou a situação da assinatura. Desligado por padrão: só COTACAO_PUBLICA_POR_EMPRESA=true habilita (Em breve até homologar).
  */
-export const CODIGO_EMPRESA_PUBLICA = /^[a-z][a-z0-9-]{1,62}[a-z0-9]$/;
+// Formato do código (031); definido junto do registro do limite público, que também o confere.
+export { CODIGO_EMPRESA_PUBLICA };
 
 export type AmbienteCotacaoPublica = { COTACAO_PUBLICA_POR_EMPRESA?: string; AGENDA_PUBLICA_EMPRESA_ID?: string; AGENDA_PUBLICA_UNIDADE_ID?: string };
 export type EscopoCotacaoPublica = { empresaId: string; estabelecimentoId: string | null; porCodigo: boolean };
@@ -86,6 +88,8 @@ export async function escopoCotacaoPublica(
     // Escopo V1: uma unidade. Zero unidade = agenda da empresa; uma = ela; mais de uma = recusa (UNIDADE_OBRIGATORIA →
     // 404). Nunca escolhe uma unidade por conta própria: a escolha pública de unidade ainda não existe.
     const unidade = await escopoDaEmpresa(db, empresaId, null, { exigirUnidade: true });
+    // Daqui em diante o limite público conta este código pela empresa (lib/http/empresas-publicas.ts).
+    confirmarEmpresaPublica(codigo, empresaId);
     return { empresaId, estabelecimentoId: unidade.estabelecimentoId, porCodigo: true };
   } catch {
     // Plano ilegível, estado comercial ou unidade: mesma resposta, sem detalhe da empresa.

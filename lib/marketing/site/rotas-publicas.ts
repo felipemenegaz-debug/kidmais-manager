@@ -104,7 +104,7 @@ export async function respostaCliqueCampanha(via: Via, codigoBruto: string, requ
   const campanha = codigo ? await campanhaPorCodigo(db(), pagina.site.empresaId, codigo).catch(() => null) : null;
   if (!campanha) return redirecionar(inicio);
   // Limite por origem: acima dele o redirecionamento continua, mas o clique não é contado (contra inflar números).
-  if (!limitarPublico(request, "LEITURA")) await registrarClique(db(), pagina.site, "CLIQUE_LINK_CAMPANHA", campanha.id).catch(() => undefined);
+  if (!await limitarPublico(request, "LEITURA")) await registrarClique(db(), pagina.site, "CLIQUE_LINK_CAMPANHA", campanha.id).catch(() => undefined);
   const destino = destinoComUtm("http://destino.invalid" + pagina.base, campanha);
   return redirecionar(`${destino.pathname}${destino.search}`);
 }
@@ -118,7 +118,7 @@ export async function respostaWhatsapp(via: Via, request: RequisicaoPublica) {
   if (!contato?.whatsapp) return NAO_ENCONTRADO();
   const captura = capturarCampanha(request.nextUrl.searchParams);
   const campanha = captura.codigoCampanha ? await campanhaPorCodigo(db(), pagina.site.empresaId, captura.codigoCampanha).catch(() => null) : null;
-  if (!limitarPublico(request, "LEITURA")) await registrarClique(db(), pagina.site, "CLIQUE_WHATSAPP", campanha?.id ?? null).catch(() => undefined);
+  if (!await limitarPublico(request, "LEITURA")) await registrarClique(db(), pagina.site, "CLIQUE_WHATSAPP", campanha?.id ?? null).catch(() => undefined);
   const texto = encodeURIComponent(`Olá! Vi o site do ${pagina.site.conteudo.identidade.nome} e gostaria de um orçamento.`);
   return redirecionar(`${contato.whatsapp.url}?text=${texto}`);
 }
