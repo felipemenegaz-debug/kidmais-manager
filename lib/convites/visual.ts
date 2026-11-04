@@ -16,6 +16,26 @@ export function tintaLegivel(fundo: string, preferida?: string) {
   if (preferida && contraste(fundo, preferida) >= 4.5) return preferida;
   return contraste(fundo, '#ffffff') > contraste(fundo, '#000000') ? '#ffffff' : '#000000';
 }
+const luminanciaRgb = (c: number[]) => {
+  const [r, g, b] = c.map(v => { const n = v / 255; return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4; });
+  return r * .2126 + g * .7152 + b * .0722;
+};
+const razao = (x: number, y: number) => (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+/**
+ * Opacidade da faixa na cor `fundo` atrás dos textos sobre a imagem própria (E-CP2).
+ * A luminância do fundo efetivo (alfa·fundo + (1−alfa)·foto, composição sRGB) cresce com cada canal da foto, então
+ * fica entre a foto preta e a branca: se as duas dão contraste >= 4,5 do mesmo lado da tinta, qualquer foto dá.
+ * Menor alfa a partir de 0,80 em passos de 0,02 (inteiros, sem erro acumulado); 1 quando nenhum serve.
+ */
+export function opacidadeFaixa(fundo: string, tinta: string) {
+  const f = rgb(fundo), t = luminancia(tinta);
+  for (let i = 40; i < 50; i++) {
+    const alfa = i / 50;
+    const escura = luminanciaRgb(f.map(v => alfa * v)), clara = luminanciaRgb(f.map(v => alfa * v + (1 - alfa) * 255));
+    if (razao(escura, t) >= 4.5 && razao(clara, t) >= 4.5 && (escura >= t) === (clara >= t)) return alfa;
+  }
+  return 1;
+}
 export function temaVisual(c: Conteudo) {
   const base = temas[c.tema], cores = c.visual?.cores;
   return cores ? { ...base, ...cores, tinta: tintaLegivel(cores.fundo, cores.tinta) } : base;
