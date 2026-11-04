@@ -292,7 +292,7 @@ test('B-23c: RAIZ e SQL revisáveis só pelo par exato (e pelo objeto); GLOBAL e
     } finally { REVISOES.length = n; }
 });
 
-test('revisões registradas: só os pares revisados (B-23b: 3; B-23c: 21), com autoria', () => {
+test('revisões registradas: só os pares revisados (B-23b: 3; B-23c: 21; B-23d: 9), com autoria', () => {
     const chave = (x) => `${x.regra}:${x.arquivo}:${x.objeto ?? ''}:${x.de}:${x.ate}`;
     assert.deepEqual(REVISOES.map(chave), [
         'FECHO:scripts/production/check-migrations.mjs::0ebac5771a06ca5e70eb277e011838f31ec48db1:06d817620e89c00e4ace0a8fd70afabdc12a81b9',
@@ -319,13 +319,30 @@ test('revisões registradas: só os pares revisados (B-23b: 3; B-23c: 21), com a
         'RAIZ:scripts/assinatura-avisos.cjs::null:e1aff377acbd3067dc1cf7a0e0ac8074ca4fb376',
         'SQL_TABELA_NO_FECHO:database/migrations/20261019_087_assinatura_avisos.sql:assinatura_avisos:null:b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840',
         'SQL_GATILHO_EM_TABELA_DO_FECHO:database/migrations/20261019_087_assinatura_avisos.sql:kidmais_087_aviso_guarda:null:b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840',
+        // B-23d (D-B23d-2 = (A)): bases 767fff4a (LIVE) e d67d10e6 (rollback).
+        'CHAMADOR:components/admin/AssinaturaAcoes.tsx::31c042fb6aa06bdd110304bedd4f3156c280b66c:60e8fac8491394a3671e0f0e03d00b9a61cb280a',
+        'CHAMADOR:components/site/secoes.tsx::d2a02ce0a2a77e8c41bccae4676b077c418a4e8b:5be85ed6f68b70607b87c7a7664794139fd57df6',
+        'RAIZ:lib/assinatura/transacao-com-prazo.postgres.test.ts::3fab557a22351c1249347e93157cb025f09b5256:a47298480692e2a52f21062ff5e9a406944786c0',
+        'CHAMADOR:lib/convites/service.ts::5d70a0ac5ebf2d3dbbb2592661ec405829d738a0:2e28822cdf519d925b3158f21c035e4e645bcdf1',
+        'CHAMADOR:lib/exportacao/pacote.ts::863abfe972079596819a39aa326937bd89309523:26099c4dfc464a98fcd538d1faf6c8500725e461',
+        'CHAMADOR:lib/site/catalogo.ts::f282886a9bbdca6ab5f07026c177768e8b102a2e:2006ad357acd8a451b5d495470031996dd4ea748',
+        'FECHO:lib/site/configuracao.ts::29a0d08476cd538d4818929e0f79b4b733003a15:57c006e2d377ef896a126687cd86de60932a4f28',
+        'RAIZ:scripts/assinatura-avisos.cjs::null:d20388aed9cdd2853b2190bde39cf0322ed36c8d',
+        'RAIZ:scripts/assinatura-avisos.test.cjs::null:fce75ad066407fff4fbb1edec341fbd0859c75ba',
     ], 'revisão nova = entrada revisada pelo Astra');
     for (const r of REVISOES) assert.ok(/^Revisão por agente: /.test(r.autoria) && r.analise.length > 80, r.arquivo);
-    for (const r of REVISOES.slice(3)) assert.match(r.autoria, /B-23c/, r.arquivo);
+    assert.equal(REVISOES.length, 33);
+    for (const r of REVISOES.slice(3, 24)) assert.match(r.autoria, /B-23c/, r.arquivo);
+    for (const r of REVISOES.slice(24)) assert.match(r.autoria, /B-23d/, r.arquivo);
     for (const r of REVISOES) assert.ok(r.objeto === undefined || r.regra.startsWith('SQL_'), `objeto só em SQL: ${r.arquivo}`);
     // As que dependem da trava dizem isso na análise (proveniência; a barreira é a guarda AVISOS_EMAIL_LIGADOS).
     for (const f of ['lib/assinatura/sincronizacao.ts', 'lib/assinatura/avisos-repositorio.ts'])
         assert.match(REVISOES.find((r) => r.arquivo === f).analise, /AVISOS_EMAIL_LIGADOS/, f);
+    // B-23d: o job dos avisos depende da trava e diz o limite do CODIGO_SEGURO; a exportação deixa a transação com o chamador.
+    const avisos = REVISOES.find((r) => r.arquivo === 'scripts/assinatura-avisos.cjs' && r.ate.startsWith('d20388ae')).analise;
+    assert.match(avisos, /AVISOS_EMAIL_LIGADOS/);
+    assert.match(avisos, /CODIGO_SEGURO, que restringe só o FORMATO/);
+    assert.match(REVISOES.find((r) => r.arquivo === 'lib/exportacao/pacote.ts').analise, /READ ONLY continua sendo obrigação do chamador/);
 });
 
 test('marcadores lidos do fonte do B-14 e uso inválido do CLI', () => {
@@ -343,7 +360,7 @@ test('evidência: cada base antiga além da homologada tem a prova PASS guardada
     const fonte = fs.readFileSync(path.join(__dirname, '../lib/assinatura/recuperacao-execucao.ts'), 'utf8');
     const lista = codigosAntigosDoFonte(fonte);
     assert.equal(lista[0], '00d3019ade199ce609eab296050e07f4b379e87b', 'a primeira é a base homologada');
-    assert.equal(lista.length, 5, 'B-23c: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db');
+    assert.equal(lista.length, 7, 'B-23d: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db, d67d10e6, 767fff4a');
     // Vínculo com a versão: a evidência foi gerada por ESTE analisador e com ESTES marcadores (a reprodução é do job
     // b23-bases do CI, `--verificar-lista`, que tem o histórico).
     const analisador = sha256(fs.readFileSync(path.join(__dirname, 'b23-prova-base.cjs'), 'utf8'));

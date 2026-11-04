@@ -401,6 +401,10 @@ const ESTADO_POSTGRES = {
   // 03/11/2026 (franquias por plano, F1): migration 116 aplicada pela suíte sobre o modelo 112; código compatível sem a 116,
   // categorias, reconstrução do devido, adoção, conflito, corrida de três sessões, pendência pela sincronização e avisos 80/100.
   "lib/creditos/franquias-116.postgres.test.ts": { descartavel: "112" },
+  // 04/11/2026 (franquias por plano, aplicador da 116 em staging): modelo 112 (sem a 116), com dados reais nas 4 tabelas
+  // travadas (carteira, lote, notificação, contratação); papel mínimo, preservação, postcheck real, deriva, down, falha de
+  // trava real e retomada.
+  "lib/creditos/aplicador-116.postgres.test.ts": { descartavel: "112" },
   // 04/11/2026 (E-ME1, atendimento multiempresa): migration 117 aplicada pela suíte sobre o modelo 112 (060–083 e 074a
   // presentes); a primeira parte roda SEM a 117 (modo efetivo PILOTO com a chave ligada).
   "lib/whatsapp/atendimento/multiempresa.postgres.test.ts": { descartavel: "112" },

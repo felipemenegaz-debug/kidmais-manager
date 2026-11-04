@@ -128,6 +128,10 @@ export const CODIGOS_ANTIGOS = Object.freeze([
     '7329cbfe1bd78fbf817fc418785b7f62910a9b01', // #295 (01/11/2026): planos do site; alvo do rollback da #299 (D-B23c-3)
     '5e4340db485520eabc84f67f090907de7fddac06', // #299 (03/11/2026): avisos por e-mail da cobrança (087); exige a trava
     //   ASSINATURA_AVISOS_EMAIL desligada (D-B23c-2), que scripts/recuperacao-pagamentos-producao.cjs confere (AVISOS_EMAIL_LIGADOS)
+    // B-23d (D-B23d-1 = (A) e D-B23d-2 = (A), 04/11/2026): base LIVE e alvo de rollback, pela mesma revisão nominal fixada aos blobs.
+    'd67d10e63e43c4f066f06456e72d0df55bfd1949', // #316 (04/11/2026): recortes #302–#316 (ajuda, avisos com log seguro, cancelamento
+    //   sem 089, recorte 1, Convite pronto, vídeos); alvo do rollback da #321. A trava continua exigida (D-B23c-2)
+    '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a', // #321 (04/11/2026): site iA.Fest (recorte 2); base LIVE de production
 ] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
 /** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */
