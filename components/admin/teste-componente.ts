@@ -60,6 +60,8 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
     useMemo: (fn: () => unknown) => { cursor++; return fn(); },
     createContext: (padrao: unknown) => ({ padrao, Provider: function Provider(props: { children?: unknown }) { return props.children; } }),
     useContext: (ctx: { padrao: unknown }) => ctx.padrao,
+    // Armazém externo: lê o valor atual a cada render (a assinatura fica a cargo do teste, que chama render de novo).
+    useSyncExternalStore: (_assinar: unknown, ler: () => unknown) => { cursor++; return ler(); },
   };
   const modulo: Record<string, unknown> = {};
   const js = ts.transpileModule(readFileSync(arquivo, 'utf8'), {

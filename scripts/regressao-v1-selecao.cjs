@@ -242,6 +242,9 @@ const ESTADO_POSTGRES = {
   "lib/contratos/contrato-pj.postgres.test.ts": { descartavel: "112" },
   // Entrega B: importação de contrato com contratante PJ (plano, motor, integração); no 109, recusa MIGRACAO_PENDENTE.
   "lib/inteligencia/importacao/importacao-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  // Lote L1 (03/11/2026): lista "aguardando revisão", identidades de abertura (limite 200), preservação em dados e trava do
+  // documento — sem migration; no modelo 112 (staging) e no 106 (production).
+  "lib/importacao-contrato/lote-l1.postgres.test.ts": { descartavel: "112", tambem: ["106"] },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.

@@ -5,12 +5,17 @@ import * as revisao from '../../../lib/importacao-contrato/revisao.ts';
 import type { EtapaImportacao } from './ImportacaoReal';
 import { achar, carregarComponente, cssFalso, tique, texto, elementos } from '../teste-componente.ts';
 import * as errosFormulario from '../../../lib/ui/erros-formulario.ts';
+import * as filaLote from './fila-lote.ts';
+import * as executorLote from './executor-lote.ts';
 
 /** Mecanismo compartilhado de erros de formulário (N1/N2), real, com CSS falso. */
 const ERROS_FORMULARIO = {
   '@/components/ui/ErrosFormulario': carregarComponente('components/ui/ErrosFormulario.tsx', { '@/lib/ui/erros-formulario': errosFormulario, './erros-formulario.module.css': cssFalso }).modulo,
   '@/lib/ui/erros-formulario': errosFormulario,
 };
+
+/** Lote (L1): módulos puros reais; painéis do lote vazios nestes testes da revisão de um arquivo. */
+const LOTE = { './FilaLote': { default: function FilaLote() { return null; } }, './ListaAguardando': { default: function ListaAguardando() { return null; } }, './fila-lote': filaLote, './executor-lote': executorLote };
 
 type Pedido = { url: string; init: RequestInit };
 function buscador(resposta: (p: Pedido) => Promise<Response>) {
@@ -29,7 +34,7 @@ test('cancelar exige confirmação; continuar preserva revisão; falha no descar
       '@/components/admin/inteligencia/AcaoKidmais':{PreviewAcao:()=>null},
       '@/lib/importacao-contrato/revisao':revisao,
       './cliente-importacao':{...cliente,agirNaImportacao:async(_buscar:unknown,_estado:unknown,acao:unknown)=>{acoes.push(acao);return sucesso?{ok:true,dados:{}}:{ok:false,mensagem:'Revisão mudou em outra aba.'};}},
-      './importacao.module.css':cssFalso, './importacao-real.module.css':cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato':{default:function IntegracaoContrato(){return null;}},
+      './importacao.module.css':cssFalso, './importacao-real.module.css':cssFalso, ...ERROS_FORMULARIO, ...LOTE, './IntegracaoContrato':{default:function IntegracaoContrato(){return null;}},
     });
     const props={vitrine:{etapa:'revisao',importacao,plano:null,avisos:[],ocupado:false,erro:null} as EtapaImportacao};
     let arvore=tela.render('default',props);
@@ -110,7 +115,7 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null },
     '@/lib/importacao-contrato/revisao': revisao,
     './cliente-importacao': { ...cliente, agirNaImportacao: async () => ({ ok: true, dados: {} }) },
-    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: Integracao },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, ...LOTE, './IntegracaoContrato': { default: Integracao },
   });
   const props = { vitrine: { etapa: 'confirmacao', importacao, plano: null, rascunho, decidindo: false, erro: null } as unknown as EtapaImportacao };
   let arvore = tela.render('default', props);
@@ -134,7 +139,7 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao,
     './cliente-importacao': { ...cliente, agirNaImportacao: async () => ({ ok: true, dados: {} }) },
-    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: Integracao },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, ...LOTE, './IntegracaoContrato': { default: Integracao },
   });
   const r = reaberta.render('default', { vitrine: { etapa: 'integracao', importacaoId: importacao.id, acabouDeRegistrar: false } as unknown as EtapaImportacao });
   assert.match(texto(r), /Os dados deste contrato já estão registrados/);
@@ -156,7 +161,7 @@ test('rodada 2, P2-6/P3-7: continuar com pendência abre a edição do 1º campo
     'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao, './cliente-importacao': cliente,
-    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, './IntegracaoContrato': { default: function IntegracaoContrato() { return null; } },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, ...ERROS_FORMULARIO, ...LOTE, './IntegracaoContrato': { default: function IntegracaoContrato() { return null; } },
   });
   // Campo, TipoPessoa e mensagens são puros: expandidos para ver os controles de verdade.
   const PUROS = new Set(['Campo', 'TipoPessoa', 'MensagemCampo', 'ResumoErros', 'AvisoGlobal']);

@@ -47,8 +47,35 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
       if (!atual || atual.empresaId !== empresaId || atual.versao !== versao) return false;
       if (atual.extracaoId !== i.extracaoId || atual.documentoId !== i.documentoId || atual.criadoPor !== i.criadoPor) throw new Error('Identidade da importação é imutável (055d).');
       if (atual.status !== 'EM_REVISAO' || i.versao <= atual.versao) throw new Error('Transição recusada pela guarda 055d.');
-      importacoes.set(i.id, { ...structuredClone(i), empresaId });
+      // Mesmo contrato do repositório (lote L1, R5-1): a lista de aberturas vem sempre do valor atual.
+      const { aberturas: _ignorada, ...novos } = structuredClone(i.dados) as Record<string, unknown>;
+      void _ignorada;
+      const atuais = (atual.dados as { aberturas?: unknown }).aberturas;
+      importacoes.set(i.id, { ...structuredClone(i), dados: atuais === undefined ? novos : { ...novos, aberturas: structuredClone(atuais) }, empresaId });
       return true;
+    },
+    async travarDocumento(tx, empresaId, documentoId) { return (await documentos.porta.ultimaExtracao(tx, empresaId, documentoId)) !== null; },
+    async importacaoPorAbertura(_tx, empresaId, documentoId, aberturaId) {
+      const doDocumento = [...importacoes.values()].filter((x) => x.documentoId === documentoId && x.empresaId === empresaId && ((x.dados as { aberturas?: string[] }).aberturas ?? []).includes(aberturaId));
+      const escolhida = doDocumento.find((x) => x.status !== "DESCARTADA") ?? doDocumento.at(-1);
+      return escolhida ? structuredClone(escolhida) : null;
+    },
+    async registrarAbertura(_tx, empresaId, importacaoId, aberturaId) {
+      const atual = importacoes.get(importacaoId);
+      if (!atual || atual.empresaId !== empresaId) throw new Error("IMPORTACAO_CONFLITO");
+      const lista = (atual.dados as { aberturas?: string[] }).aberturas ?? [];
+      if (lista.includes(aberturaId)) return { tipo: "JA_REGISTRADA" as const };
+      if (atual.status !== "EM_REVISAO") return { tipo: "ENCERRADA" as const };
+      if (lista.length >= 200) return { tipo: "LIMITE" as const };
+      const nova = { ...atual, versao: atual.versao + 1, dados: { ...atual.dados, aberturas: [...lista, aberturaId] } };
+      importacoes.set(importacaoId, nova);
+      return { tipo: "REGISTRADA" as const, importacao: structuredClone(nova) };
+    },
+    async listarParaRevisao(_tx, empresaId) {
+      const linhas = [...importacoes.values()].filter((x) => x.empresaId === empresaId && x.status === "EM_REVISAO").map((x) => ({
+        grupo: "REVISAO" as const, documentoId: x.documentoId, importacaoId: x.id, versao: x.versao, arquivo: "contrato.pdf", enviadoEm: "2026-09-28T15:00:00.000000Z", contratante: null, dataFesta: null,
+      }));
+      return { linhas, proximo: null };
     },
     // Mesmo contrato da guarda 064: só IMPORTADA, só com contrato cancelado, versão conferida; resultado vai para dados.
     async substituirImportacaoCancelada(_tx, empresaId, i, usuarioId) {
@@ -453,4 +480,254 @@ test("064: contrato integrado cancelado libera o documento; o mesmo arquivo abre
   assert.equal(consulta.data.importacao?.id, nova.id);
   assert.equal(consulta.data.situacao, "EM_ANDAMENTO");
   assert.equal(a.importacao.clientesCriados.length, 1, "nenhum cliente novo até a nova confirmação");
+});
+
+/* ---------------------------------------------------------------- Lote L1 (plano rev. 5.1) */
+const ab = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const aberturasNa = (a: ReturnType<typeof ambiente>, id: string) => ((a.importacao.importacoes.get(id)!.dados as { aberturas?: string[] }).aberturas ?? []);
+
+test("L1 abrir com aberturaId registra a identidade; retomar acha a mesma importação sem criar outra nem mudar versão", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const aberta = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  assert.deepEqual(aberturasNa(a, aberta.id), [ab(1)]);
+  const total = a.importacao.importacoes.size;
+  const retomada = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) });
+  assert.equal(retomada.status, 200, JSON.stringify(retomada.corpo));
+  assert.equal(dados(retomada).importacao.id, aberta.id);
+  assert.equal(dados(retomada).importacao.versao, aberta.versao, "retomar achado não grava");
+  assert.equal(a.importacao.importacoes.size, total);
+  // Abrir de novo com a mesma identidade também não duplica nem grava.
+  assert.equal(dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao.versao, aberta.versao);
+  // Envio único (sem aberturaId) continua igual: mesma importação, nenhuma identidade nova.
+  assert.equal(dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId })).importacao.id, aberta.id);
+  assert.deepEqual(aberturasNa(a, aberta.id), [ab(1)]);
+});
+
+test("L1 retomar de identidade que nunca gravou abre uma vez; segunda identidade na importação existente sobe a versão (desvio 055d)", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const primeira = dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  assert.deepEqual(aberturasNa(a, primeira.id), [ab(1)]);
+  const outra = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.equal(outra.id, primeira.id);
+  assert.equal(outra.versao, primeira.versao + 1, "registrar identidade em importação existente sobe a versão (guarda 055d)");
+  assert.deepEqual(aberturasNa(a, primeira.id), [ab(1), ab(2)]);
+  // Aba antiga com a versão anterior recebe IMPORTACAO_DESATUALIZADA (efeito declarado do desvio).
+  const velha = await a.importar({ acao: "descartar", importacaoId: primeira.id, versao: primeira.versao });
+  assert.equal(velha.status, 409);
+  assert.equal((velha.corpo as { codigo?: string }).codigo, "IMPORTACAO_DESATUALIZADA");
+  assert.equal(a.importacao.importacoes.get(primeira.id)!.status, "EM_REVISAO", "descarte da aba velha não aconteceu");
+});
+
+test("L1 limite de 200 identidades: A0..A199 aceitas, A200 recusada com LIMITE_ABERTURAS sem gravar; A0 continua recuperável", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const id = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(0) })).importacao.id;
+  for (let k = 1; k < 200; k++) assert.equal((await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(k) })).status, 200, `A${k}`);
+  assert.equal(aberturasNa(a, id).length, 200);
+  const versao = a.importacao.importacoes.get(id)!.versao;
+  const recusada = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(200) });
+  assert.equal(recusada.status, 409);
+  assert.equal((recusada.corpo as { codigo?: string }).codigo, "LIMITE_ABERTURAS");
+  assert.equal(a.importacao.importacoes.get(id)!.versao, versao, "nada gravado");
+  // r3: a recuperação tem caminho próprio; o abrir explícito também recusa a 201ª identidade.
+  const recusadaAbrir = await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(201) });
+  assert.equal(recusadaAbrir.status, 409);
+  assert.equal((recusadaAbrir.corpo as { codigo?: string }).codigo, "LIMITE_ABERTURAS");
+  assert.equal(a.importacao.importacoes.get(id)!.versao, versao, "nada gravado pelo abrir");
+  for (let k = 0; k < 50; k++) assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(0) })).importacao.id, id);
+  assert.equal(a.importacao.importacoes.get(id)!.versao, versao, "50 repetições sem gravar");
+});
+
+test("L1 importação concluída: abrir com identidade nova não grava (ENCERRADA) e volta IMPORTADA; retomar sem a identidade é RECUPERACAO_AMBIGUA; outra empresa 404 igual", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const aberta = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  const importada = { ...a.importacao.importacoes.get(aberta.id)!, status: "IMPORTADA" as const };
+  a.importacao.importacoes.set(aberta.id, importada);
+  const r = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.equal(r.status, "IMPORTADA");
+  assert.deepEqual(aberturasNa(a, aberta.id), [ab(1)]);
+  const total = a.importacao.importacoes.size;
+  const ambigua = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) });
+  assert.equal(ambigua.status, 409);
+  assert.equal((ambigua.corpo as { codigo?: string }).codigo, "RECUPERACAO_AMBIGUA");
+  assert.equal(a.importacao.importacoes.size, total, "recuperar nunca cria");
+  assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao.status, "IMPORTADA", "identidade registrada continua recuperável");
+  const outra = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) }, empresaB);
+  const inexistente = await a.importar({ acao: "retomar", documentoId: "99999999-9999-4999-8999-999999999999", aberturaId: ab(1) });
+  assert.equal(outra.status, 404);
+  assert.deepEqual(outra.corpo, inexistente.corpo);
+});
+
+test("L1 listar: DTO fechado da empresa comprovada; cursor adulterado 400; papel sem permissão 403; nada gravado", async () => {
+  const a = ambiente();
+  const aberta = await a.abrir();
+  await a.abrir(empresaB);
+  const antes = JSON.stringify([...a.importacao.importacoes.values()]);
+  const r = await a.importar({ acao: "listar" });
+  assert.equal(r.status, 200, JSON.stringify(r.corpo));
+  const pagina = (r.corpo as { data: { itens: Array<Record<string, unknown>>; proximo: string | null } }).data;
+  assert.deepEqual(pagina.itens.map((i) => i.importacaoId), [aberta.id], "só a empresa A");
+  assert.deepEqual(Object.keys(pagina.itens[0]).sort(), ["arquivo", "contratante", "dataFesta", "documentoId", "enviadoEm", "grupo", "importacaoId", "versao"]);
+  assert.equal(pagina.proximo, null);
+  assert.equal((await a.importar({ acao: "listar", cursor: "adulterado" })).status, 400);
+  assert.equal((await a.importar({ acao: "listar", empresaId: empresaB })).status, 400, "empresa no corpo é recusada (schema estrito)");
+  assert.equal(JSON.stringify([...a.importacao.importacoes.values()]), antes);
+  a.estado.sessao = { usuario_id: usuario, papel: "PAPEL_INVENTADO" } as SessaoParaTenant;
+  assert.equal((await a.importar({ acao: "listar" })).status, 403);
+});
+
+test("L1 retomar nunca cria sucessora: revisão da identidade descartada em outra aba volta DESCARTADA; abrir criaria outra", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const aberta = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  assert.equal((await a.importar({ acao: "descartar", importacaoId: aberta.id, versao: aberta.versao })).status, 200);
+  const total = a.importacao.importacoes.size;
+  const retomada = dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  assert.equal(retomada.id, aberta.id);
+  assert.equal(retomada.status, "DESCARTADA");
+  assert.equal(a.importacao.importacoes.size, total, "nenhuma revisão nova");
+  // Controle: o abrir comum, com outra identidade, abre uma revisão nova (é o que o retomar evita).
+  const nova = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.notEqual(nova.id, aberta.id);
+  assert.equal(nova.status, "EM_REVISAO");
+});
+
+/* ---------------------------------------------------------------- r2 (revisão do Astra, P2-1) */
+const codigoDe = (r: { corpo: unknown }) => (r.corpo as { codigo?: string }).codigo;
+
+test("r2 P2-1 (cenário 1): revisão descartada em outra aba antes da trava do abrir ⇒ a resposta nunca é o objeto antigo; a identidade fica numa importação viva e retomar nunca cria", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const outraAba = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId })).importacao;
+  // O descarte da outra aba confirma entre a busca da ativa e a trava da importação (o PG prova a espera depois da trava).
+  const original = a.importacao.porta.abrirImportacao;
+  let uma = true;
+  a.importacao.porta.abrirImportacao = async (tx, e) => {
+    const r = await original(tx, e);
+    if (uma && r.id === outraAba.id) { uma = false; const x = a.importacao.importacoes.get(r.id)!; a.importacao.importacoes.set(r.id, { ...x, status: "DESCARTADA", versao: x.versao + 1 }); }
+    return r;
+  };
+  const resposta = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(7) })).importacao;
+  a.importacao.porta.abrirImportacao = original;
+  assert.equal(resposta.status, "EM_REVISAO");
+  assert.notEqual(resposta.id, outraAba.id, "a revisão descartada não volta como aberta");
+  assert.deepEqual(aberturasNa(a, resposta.id), [ab(7)], "identidade gravada na revisão viva");
+  assert.equal(a.importacao.importacoes.get(outraAba.id)!.status, "DESCARTADA");
+  const total = a.importacao.importacoes.size;
+  for (let k = 0; k < 3; k++) assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(7) })).importacao.id, resposta.id);
+  assert.equal(a.importacao.importacoes.size, total, "retomar nunca cria");
+});
+
+test("r2 P2-1 (cenário 2): abrir devolve IMPORTADA sem registrar; contrato cancelado depois; retomar NÃO executa a 064 nem cria sucessora; abrir explícito sim", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const id = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId })).importacao.id;
+  a.importacao.importacoes.set(id, { ...a.importacao.importacoes.get(id)!, status: "IMPORTADA", versao: 5 });
+  const r = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.equal(r.status, "IMPORTADA");
+  assert.deepEqual(aberturasNa(a, id), [], "055d: identidade não gravada (resposta perdida no cenário)");
+  a.importacao.contratosCancelados.add(id);
+  const total = a.importacao.importacoes.size;
+  const retomada = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) });
+  assert.equal(retomada.status, 409);
+  assert.equal(codigoDe(retomada), "RECUPERACAO_AMBIGUA");
+  assert.equal(a.importacao.importacoes.size, total, "nenhuma sucessora");
+  assert.equal(a.importacao.importacoes.get(id)!.status, "IMPORTADA", "a 064 não rodou pela recuperação");
+  // Decisão explícita da pessoa ("Abrir de novo"): abrir comum com a mesma identidade substitui (064) e grava a identidade.
+  const explicita = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.notEqual(explicita.id, id);
+  assert.equal(explicita.status, "EM_REVISAO");
+  assert.equal(a.importacao.importacoes.get(id)!.status, "DESCARTADA");
+  assert.equal(a.importacao.importacoes.size, total + 1);
+  assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao.id, explicita.id, "agora recuperável");
+  assert.equal(a.importacao.importacoes.size, total + 1);
+});
+
+test("r2 P2-1: retomar sem a identidade — sem importação abre uma vez; com revisão aberta só registra nela; só descartada ⇒ RECUPERACAO_AMBIGUA sem gravar", async () => {
+  const a = ambiente();
+  // Sem nenhuma importação: a primeira tentativa nunca gravou ⇒ abre uma vez.
+  const d1 = await a.enviar();
+  const primeira = dados(await a.importar({ acao: "retomar", documentoId: d1.documentoId, aberturaId: ab(1) })).importacao;
+  assert.deepEqual(aberturasNa(a, primeira.id), [ab(1)]);
+  // Com revisão aberta (de outra aba, sem a identidade): registra nela, não cria.
+  const total = a.importacao.importacoes.size;
+  const nela = dados(await a.importar({ acao: "retomar", documentoId: d1.documentoId, aberturaId: ab(9) })).importacao;
+  assert.equal(nela.id, primeira.id);
+  assert.equal(a.importacao.importacoes.size, total);
+  assert.deepEqual(aberturasNa(a, primeira.id), [ab(1), ab(9)]);
+  // Só histórico descartado: ambígua, nada gravado.
+  a.importacao.importacoes.set(primeira.id, { ...a.importacao.importacoes.get(primeira.id)!, status: "DESCARTADA" });
+  const antes = JSON.stringify([...a.importacao.importacoes.values()]);
+  const ambigua = await a.importar({ acao: "retomar", documentoId: d1.documentoId, aberturaId: ab(3) });
+  assert.equal(ambigua.status, 409);
+  assert.equal(codigoDe(ambigua), "RECUPERACAO_AMBIGUA");
+  assert.equal(JSON.stringify([...a.importacao.importacoes.values()]), antes);
+  // A identidade que JÁ estava na descartada continua devolvendo a descartada (sem criar).
+  assert.equal(dados(await a.importar({ acao: "retomar", documentoId: d1.documentoId, aberturaId: ab(1) })).importacao.status, "DESCARTADA");
+  assert.equal(JSON.stringify([...a.importacao.importacoes.values()]), antes);
+  // Outra empresa: 404 igual ao inexistente, antes de olhar o histórico.
+  const outra = await a.importar({ acao: "retomar", documentoId: d1.documentoId, aberturaId: ab(3) }, empresaB);
+  assert.equal(outra.status, 404);
+});
+
+test("r2 D2/D3 caminho completo: revisão vazia substituída herda as identidades; retomar de qualquer delas devolve a revisão viva, nunca a descartada; nada mais é criado", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const vazia = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  const guardada = a.importacao.importacoes.get(vazia.id)!;
+  for (const s of (guardada.dados as unknown as { extracao: ImportacaoPublica["extracao"] }).extracao.secoes) for (const c of s.campos) { c.valor = null; c.estado = "NAO_ENCONTRADO"; }
+  a.documentos.extracoes.push({ ...structuredClone(a.documentos.extracoes[0]), extracaoId: "99999999-1111-4111-8111-111111111112" });
+  // retomar (recuperação) não substitui: devolve a vazia como está.
+  assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao.id, vazia.id);
+  // abrir com outra identidade troca a vazia pela nova leitura e leva as identidades.
+  const viva = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.notEqual(viva.id, vazia.id);
+  assert.equal(a.importacao.importacoes.get(vazia.id)!.status, "DESCARTADA");
+  assert.deepEqual(aberturasNa(a, viva.id), [ab(1), ab(2)]);
+  const total = a.importacao.importacoes.size;
+  for (const k of [1, 2]) assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(k) })).importacao.id, viva.id, `A${k} acha a viva`);
+  assert.equal(a.importacao.importacoes.size, total);
+});
+
+test("r3 P2-1: retomar com identidade NOVA sobre revisão vazia intocada (há leitura posterior com dados) só registra nela; não troca, não descarta, não cria; abrir explícito troca", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const vazia = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  const guardada = a.importacao.importacoes.get(vazia.id)!;
+  for (const s of (guardada.dados as unknown as { extracao: ImportacaoPublica["extracao"] }).extracao.secoes) for (const c of s.campos) { c.valor = null; c.estado = "NAO_ENCONTRADO"; }
+  a.documentos.extracoes.push({ ...structuredClone(a.documentos.extracoes[0]), extracaoId: "99999999-1111-4111-8111-111111111113" });
+  const total = a.importacao.importacoes.size;
+  const versao = a.importacao.importacoes.get(vazia.id)!.versao;
+  // Cenário do Astra: A2 nunca gravou e chega como recuperação.
+  const recuperada = dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao;
+  assert.equal(recuperada.id, vazia.id, "mesma revisão, sem substituição");
+  assert.equal(recuperada.status, "EM_REVISAO");
+  assert.equal(a.importacao.importacoes.get(vazia.id)!.status, "EM_REVISAO", "nada descartado");
+  assert.equal(a.importacao.importacoes.size, total, "nenhuma sucessora");
+  assert.deepEqual(aberturasNa(a, vazia.id), [ab(1), ab(2)], "A2 registrada na revisão aberta");
+  assert.equal(a.importacao.importacoes.get(vazia.id)!.versao, versao + 1, "registrar sobe a versão (055d)");
+  // Repetir a recuperação: idempotente.
+  assert.equal(dados(await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) })).importacao.id, vazia.id);
+  assert.equal(a.importacao.importacoes.size, total);
+  // A troca continua só no abrir explícito.
+  const viva = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(3) })).importacao;
+  assert.notEqual(viva.id, vazia.id);
+  assert.equal(a.importacao.importacoes.get(vazia.id)!.status, "DESCARTADA");
+  assert.deepEqual(aberturasNa(a, viva.id), [ab(1), ab(2), ab(3)]);
+});
+
+test("r3 P2-1: retomar com identidade nova sobre IMPORTADA cujo contrato foi cancelado é RECUPERACAO_AMBIGUA: a 064 não roda pela recuperação", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  const imp = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId, aberturaId: ab(1) })).importacao;
+  a.importacao.importacoes.set(imp.id, { ...a.importacao.importacoes.get(imp.id)!, status: "IMPORTADA" });
+  a.importacao.contratosCancelados.add(imp.id);
+  const antes = JSON.stringify([...a.importacao.importacoes.values()]);
+  const r = await a.importar({ acao: "retomar", documentoId: documento.documentoId, aberturaId: ab(2) });
+  assert.equal(r.status, 409);
+  assert.equal(codigoDe(r), "RECUPERACAO_AMBIGUA");
+  assert.equal(JSON.stringify([...a.importacao.importacoes.values()]), antes, "nada gravado, nada substituído");
 });
