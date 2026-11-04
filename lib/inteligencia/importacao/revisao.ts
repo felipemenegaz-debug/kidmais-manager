@@ -13,6 +13,8 @@ import { exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, type Dependenc
 import { InteligenciaError } from "../politica.ts";
 import { novoRastreio } from "../rastreio.ts";
 import { dadosDaImportacao, decisaoSchema, hashPlano, planejar, type DadosImportacao, type PortaImportacao } from "./acao.ts";
+import { codificarCursor, itemParaRevisao, lerCursor } from "./lista-revisao.ts";
+import { LIMITE_ABERTURAS } from "../../importacao-contrato/repositorio-importacao.ts";
 
 /**
  * Importação histórica (feature IMPORT): documento extraído → rascunho de importação → revisão →
@@ -87,7 +89,12 @@ const alvo = { importacaoId: z.string().uuid() };
 const comVersao = { ...alvo, versao: z.number().int().min(1) };
 const pedidoSchema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("estado") }).strict(),
-  z.object({ acao: z.literal("abrir"), documentoId: z.string().uuid() }).strict(),
+  // Lote L1 (R4-1/R5-1): aberturaId é a identidade estável do item do lote; o envio único segue sem ela.
+  z.object({ acao: z.literal("abrir"), documentoId: z.string().uuid(), aberturaId: z.string().uuid().optional() }).strict(),
+  // Recuperação de uma abertura incerta: devolve a importação que registrou a identidade; nunca cria sucessora.
+  z.object({ acao: z.literal("retomar"), documentoId: z.string().uuid(), aberturaId: z.string().uuid() }).strict(),
+  // Lista "Contratos aguardando revisão" (somente leitura).
+  z.object({ acao: z.literal("listar"), cursor: z.string().min(1).max(400).optional() }).strict(),
   z.object({ acao: z.literal("ler"), ...alvo }).strict(),
   // A6: consulta somente leitura pelo documento (ex.: depois de recarregar a tela). Nunca abre nem grava.
   z.object({ acao: z.literal("consultar"), documentoId: z.string().uuid() }).strict(),
@@ -98,6 +105,13 @@ const pedidoSchema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("preparar"), ...comVersao, integracao: decisoesSchema.optional(), integracaoHash: z.string().regex(/^[0-9a-f]{64}$/).optional(), planoHash: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(),
   z.object({ acao: z.literal("descartar"), ...comVersao }).strict(),
 ]);
+
+const aberturasDe = (i: ImportacaoLida): string[] => {
+  const lista = (i.dados as { aberturas?: unknown }).aberturas;
+  return Array.isArray(lista) ? lista.filter((a): a is string => typeof a === "string") : [];
+};
+export const MENSAGEM_RECUPERACAO_AMBIGUA = "Este contrato foi concluído ou descartado depois do envio. Confira antes de abrir de novo.";
+const limiteAberturas = () => new InteligenciaError("LIMITE_ABERTURAS", "Este contrato já foi aberto muitas vezes. Abra-o por Contratos aguardando revisão.", 409);
 
 /** Abertura, revisão e preparação do Human Gate. A confirmação em si vai para /operacoes. */
 export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; empresaSolicitada: string | null }, deps: DependenciasImportacao): Promise<RespostaGateway> {
@@ -123,29 +137,88 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
       if (!await p.disponivel(tx)) throw new InteligenciaError("IMPORTACAO_INDISPONIVEL", "A importação ainda não está disponível neste ambiente.", 503);
       // Sonda da tela: flag, sessão, papel, tenant e tabelas conferidos, sem ler nenhum documento.
       if (entrada.acao === "estado") return { habilitado: true, envioExterno: envioDocumentoExternoAutorizado(deps.env) };
-      if (entrada.acao === "abrir") {
-        // Documento de outra empresa ou inexistente: mesma resposta.
-        const registro = await p.ultimaExtracao(tx, tenant.empresaComprovada, entrada.documentoId);
+      if (entrada.acao === "listar") {
+        const cursor = entrada.cursor === undefined ? null : lerCursor(entrada.cursor);
+        if (entrada.cursor !== undefined && !cursor) throw new InteligenciaError("DADOS_INVALIDOS", "Dados inválidos.", 400);
+        const pagina = await p.listarParaRevisao(tx, tenant.empresaComprovada, { limite: 50, cursor });
+        return { itens: pagina.linhas.map(itemParaRevisao), proximo: codificarCursor(pagina.proximo) };
+      }
+      const resposta = async (i: ImportacaoLida) => ({ importacao: publico(i), plano: i.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(i))) : null });
+      /**
+       * Abertura com a trava do documento (R5-1), mantida até o commit: `abrir` (com ou sem aberturaId) e `retomar`
+       * se serializam por ela. Documento de outra empresa ou inexistente: mesma resposta, antes de qualquer escrita.
+       */
+      const abrir = async (documentoId: string, aberturaId: string | null) => {
+        if (!await p.travarDocumento(tx, tenant.empresaComprovada, documentoId)) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
+        const registro = await p.ultimaExtracao(tx, tenant.empresaComprovada, documentoId);
         const extracao = extracaoGuardada(registro);
         if (!registro || !extracao) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
         const dados: DadosImportacao = { extracao, revisados: [], decisaoCliente: null };
-        let aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        // Revisão nova já nasce com a identidade (e as herdadas, na troca da revisão vazia abaixo).
+        const novos = (herdadas: string[] = []) => {
+          const aberturas = aberturaId ? [...new Set([...herdadas, aberturaId])] : herdadas;
+          if (aberturas.length > LIMITE_ABERTURAS) throw limiteAberturas();
+          return (aberturas.length ? { ...dados, aberturas } : dados) as unknown as Record<string, unknown>;
+        };
+        const nova = (herdadas?: string[]) => p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: novos(herdadas) });
+        // P2-1 (r2): a importação encontrada fica travada até o commit. O descarte de outra aba (que trava só a
+        // importação) espera e, ao seguir, preserva a identidade gravada aqui; descartada antes da trava ⇒ estado relido
+        // e a abertura segue como se tivesse chegado depois do descarte. A resposta nunca usa um objeto anterior à trava.
+        const travar = async (i: ImportacaoLida) => {
+          const t = await p.lerImportacao(tx, tenant.empresaComprovada, i.id, true);
+          if (!t) throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
+          return t;
+        };
+        let aberta = await travar(await nova());
+        if (aberta.status === "DESCARTADA") {
+          aberta = await travar(await nova());
+          if (aberta.status === "DESCARTADA") throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
+        }
         // 064: importação concluída cujo contrato integrado foi CANCELADO deixa de ocupar o documento (passa a
         // DESCARTADA, resultado preservado em dados) e o mesmo arquivo abre uma nova revisão. Contrato ativo: nada muda.
         if (aberta.status === "IMPORTADA" && p.substituirImportacaoCancelada
           && await p.substituirImportacaoCancelada(tx, tenant.empresaComprovada, aberta, sessao.usuario_id)) {
-          aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+          aberta = await nova();
         }
         const anterior = dadosDaImportacao(aberta);
         // Recupera só revisão vazia e intocada. Edições, decisões e importações concluídas são preservadas.
         if (aberta.status === "EM_REVISAO" && aberta.extracaoId !== registro.extracaoId && anterior.revisados.length === 0 && anterior.decisaoCliente === null && !extracaoTemDados(anterior.extracao) && extracaoTemDados(extracao)) {
           // A extração faz parte da identidade imutável (055d). Encerra a revisão vazia
-          // e abre outra, na mesma transação, em vez de trocar seu vínculo histórico.
+          // e abre outra, na mesma transação, em vez de trocar seu vínculo histórico. As identidades já registradas
+          // passam para a nova, para a recuperação de um item do lote encontrar a revisão viva.
           const descartada = { ...aberta, status: "DESCARTADA" as const, versao: aberta.versao + 1 };
           if (!await p.atualizarImportacao(tx, tenant.empresaComprovada, descartada, aberta.versao)) throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
-          aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+          aberta = await nova(aberturasDe(aberta));
         }
-        return { importacao: publico(aberta), plano: aberta.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(aberta))) : null };
+        if (aberturaId && !aberturasDe(aberta).includes(aberturaId)) {
+          const registrada = await p.registrarAbertura(tx, tenant.empresaComprovada, aberta.id, aberturaId);
+          if (registrada.tipo === "REGISTRADA") aberta = registrada.importacao;
+          else if (registrada.tipo === "LIMITE") throw limiteAberturas();
+          // ENCERRADA: importação concluída não muda (guarda da 055d). Volta como está e o item sai do lote (R2-4).
+        }
+        return resposta(aberta);
+      };
+      if (entrada.acao === "abrir") return abrir(entrada.documentoId, entrada.aberturaId ?? null);
+      if (entrada.acao === "retomar") {
+        // Recuperação (R4-1/R5-1): mesma trava do abrir. Achou a identidade ⇒ devolve essa importação como está (aberta,
+        // importada ou descartada), sem criar nada.
+        if (!await p.travarDocumento(tx, tenant.empresaComprovada, entrada.documentoId)) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
+        const achada = await p.importacaoPorAbertura(tx, tenant.empresaComprovada, entrada.documentoId, entrada.aberturaId);
+        if (achada) return resposta(achada);
+        // Não achou (P2-1). Sem nenhuma importação, a primeira tentativa nunca gravou: abre uma vez (não há o que
+        // substituir). Com revisão aberta (r3): trava, relê e registra a identidade NELA — nunca passa pelo `abrir`, então
+        // nem a troca da revisão vazia nem a 064 rodam na recuperação. Só histórico encerrado (importada ou descartada) é
+        // ambíguo: a primeira tentativa pode ter visto essa importação sem poder gravar a identidade (055d). Recuperar
+        // nunca cria sucessora: exige abertura explícita.
+        const existente = await p.importacaoPorDocumento(tx, tenant.empresaComprovada, entrada.documentoId);
+        if (!existente) return abrir(entrada.documentoId, entrada.aberturaId);
+        const viva = existente.status === "EM_REVISAO" ? await p.lerImportacao(tx, tenant.empresaComprovada, existente.id, true) : null;
+        if (!viva || viva.status !== "EM_REVISAO") throw new InteligenciaError("RECUPERACAO_AMBIGUA", MENSAGEM_RECUPERACAO_AMBIGUA, 409);
+        const registrada = await p.registrarAbertura(tx, tenant.empresaComprovada, viva.id, entrada.aberturaId);
+        if (registrada.tipo === "REGISTRADA") return resposta(registrada.importacao);
+        if (registrada.tipo === "LIMITE") throw limiteAberturas();
+        if (registrada.tipo === "JA_REGISTRADA") return resposta(viva);
+        throw new InteligenciaError("RECUPERACAO_AMBIGUA", MENSAGEM_RECUPERACAO_AMBIGUA, 409);
       }
       if (entrada.acao === "consultar") {
         const existente = await p.importacaoPorDocumento(tx, tenant.empresaComprovada, entrada.documentoId);

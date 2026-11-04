@@ -147,3 +147,31 @@ export function errosDaRevisao(i: Pick<ImportacaoPublica, 'extracao' | 'revisado
   }
   return erros;
 }
+
+/** Linha da lista "Contratos aguardando revisão" (DTO fechado e sanitizado do servidor; lote L1). */
+export type ItemParaRevisao = {
+  grupo: 'REVISAO' | 'LIDO';
+  documentoId: string;
+  importacaoId: string | null;
+  versao: number | null;
+  arquivo: string;
+  enviadoEm: string;
+  contratante: string | null;
+  dataFesta: string | null;
+};
+export type PaginaRevisao = { itens: ItemParaRevisao[]; proximo: string | null };
+
+function parecePagina(d: unknown): d is PaginaRevisao {
+  const x = d as Partial<PaginaRevisao> | null;
+  return !!x && Array.isArray(x.itens) && (x.proximo === null || typeof x.proximo === 'string')
+    && x.itens.every((i) => typeof i?.documentoId === 'string' && (i.grupo === 'REVISAO' || i.grupo === 'LIDO') && typeof i.arquivo === 'string');
+}
+
+export function listarParaRevisao(buscar: Buscador, cursor?: string | null) {
+  return ler(postarJson(buscar, cursor ? { acao: 'listar', cursor } : { acao: 'listar' }), parecePagina);
+}
+
+/** Abertura explícita a partir da lista (reabrir é decisão da pessoa): `abrir` comum, sem identidade de lote. */
+export function abrirDocumento(buscar: Buscador, documentoId: string) {
+  return ler(postarJson(buscar, { acao: 'abrir', documentoId }), pareceImportacao);
+}

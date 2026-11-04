@@ -8,6 +8,21 @@ import { loginDestaPagina } from './retorno-login';
 
 type InfoSessao = { ok?: boolean; data?: { usuarioId?: string | null; sessaoId?: string; csrf?: string; contexto?: { empresaAtual?: { id: string } | null } } };
 
+/**
+ * Erro das telas administrativas com a causa tipada (lote de importação, plano rev. 2 R2-3). A mensagem é a mesma de
+ * antes: quem só lê `message` não muda. `enviado` diz se o pedido chegou a sair para o servidor.
+ */
+export type TipoErroContexto = 'SESSAO_NAO_CONFIRMADA' | 'CONTEXTO_MUDOU' | 'SESSAO_ENCERRADA' | 'REDE' | 'RESULTADO_INCERTO' | 'RECUSADA_PELO_CONTEXTO';
+export class ErroContextoAdmin extends Error {
+    readonly tipo: TipoErroContexto;
+    readonly enviado: boolean;
+    constructor(tipo: TipoErroContexto, mensagem: string, enviado: boolean) {
+        super(mensagem);
+        this.tipo = tipo;
+        this.enviado = enviado;
+    }
+}
+
 export const AVISO_RESULTADO_INCERTO = 'Resultado incerto: a operação pode ou não ter sido concluída. Confira antes de repetir — nada é reenviado automaticamente.';
 
 /**
@@ -53,13 +68,13 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     const previa = await confirmarSessao();
     if (previa.estado === 'falha')
         // Nada foi pedido ao servidor e nada é entregue: o componente só recebe o erro.
-        throw Error(escrita ? 'Não foi possível confirmar a sessão antes do envio. Nada foi enviado.' : 'Não foi possível confirmar a sessão. Tente novamente.');
+        throw new ErroContextoAdmin('SESSAO_NAO_CONFIRMADA', escrita ? 'Não foi possível confirmar a sessão antes do envio. Nada foi enviado.' : 'Não foi possível confirmar a sessão. Tente novamente.', false);
     if (previa.estado === 'obsoleta') {
         // A troca de empresa desta página está em curso: nada é enviado com a sessão anterior; a própria troca navega.
         // Escrita impedida: a próxima tela diz que nada foi enviado. Origem 'escrita' quando a prioridade de avisos (#155)
         // existe; sem ela, o segundo argumento é ignorado.
         if (escrita) (guardarAvisoDeContexto as (texto: string, origem?: 'escrita') => void)(AVISO_ESCRITA_NAO_ENVIADA_NA_TROCA, 'escrita');
-        throw Error(escrita ? AVISO_ESCRITA_NAO_ENVIADA_NA_TROCA : 'A empresa ou a sessão mudou. Atualizando a página.');
+        throw new ErroContextoAdmin('CONTEXTO_MUDOU', escrita ? AVISO_ESCRITA_NAO_ENVIADA_NA_TROCA : 'A empresa ou a sessão mudou. Atualizando a página.', false);
     }
     const info: InfoSessao = previa.estado === 'valida' ? previa.info : {};
     if (previa.estado === 'encerrada' || !info.data?.usuarioId) {
@@ -69,10 +84,10 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
             // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
             window.location.assign(loginDestaPagina());
         }
-        throw Error('Faça login para continuar.');
+        throw new ErroContextoAdmin('SESSAO_ENCERRADA', 'Faça login para continuar.', false);
     }
     if (!registrarContextoEmpresa(info.data.sessaoId!, empresaDe(info), escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : undefined, origem))
-        throw Error('A empresa ou a sessão mudou. Atualizando a página.');
+        throw new ErroContextoAdmin('CONTEXTO_MUDOU', 'A empresa ou a sessão mudou. Atualizando a página.', false);
     const headers = new Headers(init.headers);
     headers.set('x-kidmais-sessao', info.data.sessaoId!);
     headers.set('x-csrf-token', info.data.csrf ?? '');
@@ -81,15 +96,17 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         resposta = await fetch(input, { ...init, headers, cache: 'no-store' });
     }
     catch (erro) {
-        if (escrita) throw Error(AVISO_RESULTADO_INCERTO);
-        throw erro;
+        if (escrita) throw new ErroContextoAdmin('RESULTADO_INCERTO', AVISO_RESULTADO_INCERTO, true);
+        // Leitura: o MESMO erro de antes (nome, pilha, instanceof), só com a causa tipada anexada.
+        if (erro instanceof Error) throw Object.assign(erro, { tipo: 'REDE' as const, enviado: true });
+        throw new ErroContextoAdmin('REDE', String(erro), true);
     }
     if (resposta.status === 409) {
         const corpo = await resposta.clone().json().catch(() => null) as { codigo?: string } | null;
         if (corpo?.codigo === 'AUTENTICACAO_ADMINISTRATIVA') {
             // O servidor recusou ANTES de executar: a página usava uma sessão/empresa que já não é a atual.
             reiniciarContextoEmpresa('A empresa ativa ou a sessão mudou antes de a operação ser processada. Nada foi alterado.', undefined, origem);
-            throw Error('A empresa ou a sessão mudou. Nada foi alterado.');
+            throw new ErroContextoAdmin('RECUSADA_PELO_CONTEXTO', 'A empresa ou a sessão mudou. Nada foi alterado.', true);
         }
     }
     // Reautenticação e troca de senha renovam a sessão e são confirmadas por quem as chamou.
@@ -105,7 +122,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
             : resposta.ok ? AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO
                 : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
         reiniciarContextoEmpresa(aviso, undefined, origem);
-        throw Error(aviso);
+        throw new ErroContextoAdmin('SESSAO_NAO_CONFIRMADA', aviso, true);
     }
     const encerrada = depois.estado === 'encerrada';
     // Obsoleta (troca de empresa desta página em curso) = contexto mudou, sem ir ao login: o resultado da escrita é avisado.
@@ -116,7 +133,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
                 ? 'A operação foi concluída antes da mudança de empresa ou de sessão. Os dados da tela anterior foram descartados; confira o resultado.'
                 : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
         reiniciarContextoEmpresa(aviso, encerrada ? loginDestaPagina() : undefined, origem);
-        throw Error(aviso);
+        throw new ErroContextoAdmin(encerrada ? 'SESSAO_ENCERRADA' : 'CONTEXTO_MUDOU', aviso, true);
     }
     return resposta;
 }

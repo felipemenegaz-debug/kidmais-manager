@@ -11,7 +11,7 @@ import { completarRevisao, dadosNormalizados } from "../../importacao-contrato/r
 import { buscaDoCliente } from "../../importacao-contrato/plano.ts";
 import type { AnaliseDuplicidade } from "../../importacao-contrato/plano.ts";
 import type { ExtracaoRegistrada } from "../../importacao-contrato/repositorio-documentos.ts";
-import type { ImportacaoLida } from "../../importacao-contrato/repositorio-importacao.ts";
+import type { CursorRevisao, ImportacaoLida, LinhaParaRevisao, RegistroAbertura } from "../../importacao-contrato/repositorio-importacao.ts";
 import { jsonCanonico } from "../acoes/hash.ts";
 import { ErroCampo } from "../acoes/human-gate.ts";
 import type { FerramentaAcao } from "../acoes/tipos.ts";
@@ -74,6 +74,13 @@ export type PortaImportacao = {
   disponivel(tx: DbExecutor): Promise<boolean>;
   ultimaExtracao(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ExtracaoRegistrada | null>;
   abrirImportacao(tx: DbExecutor, e: { empresaId: string; documentoId: string; extracaoId: string; usuarioId: string; dados: Record<string, unknown> }): Promise<ImportacaoLida>;
+  /** Lote L1 (R5-1): trava do documento no tenant comprovado; false = outra empresa ou inexistente. */
+  travarDocumento(tx: DbExecutor, empresaId: string, documentoId: string): Promise<boolean>;
+  /** Importação do documento que registrou a identidade de abertura (inclusive encerrada). */
+  importacaoPorAbertura(tx: DbExecutor, empresaId: string, documentoId: string, aberturaId: string): Promise<ImportacaoLida | null>;
+  registrarAbertura(tx: DbExecutor, empresaId: string, importacaoId: string, aberturaId: string): Promise<RegistroAbertura>;
+  /** Somente leitura: revisões abertas e lidos sem revisão da empresa comprovada. */
+  listarParaRevisao(tx: DbExecutor, empresaId: string, opcoes: { limite: number; cursor: CursorRevisao | null }): Promise<{ linhas: LinhaParaRevisao[]; proximo: CursorRevisao | null }>;
   lerImportacao(tx: DbExecutor, empresaId: string, id: string, travar: boolean): Promise<ImportacaoLida | null>;
   /** Somente leitura: ativa do documento ou, sem ativa, a última descartada. */
   importacaoPorDocumento(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ImportacaoLida | null>;

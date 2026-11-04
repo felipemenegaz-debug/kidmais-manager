@@ -8,7 +8,7 @@ import type { NextRequest } from "next/server";
 import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase, pessoaJuridicaDisponivel } from "@/lib/clientes/services";
 import { executarImportacao } from "@/lib/importacao-contrato/motor";
 import { documentosDisponiveis, ultimaExtracao } from "@/lib/importacao-contrato/repositorio-documentos";
-import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorDocumento, lerImportacao, substituirImportacaoCancelada } from "@/lib/importacao-contrato/repositorio-importacao";
+import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorAbertura, importacaoPorDocumento, lerImportacao, listarParaRevisao, registrarAbertura, substituirImportacaoCancelada, travarDocumento } from "@/lib/importacao-contrato/repositorio-importacao";
 import { CHAVE_ACOES, CHAVE_HUMAN_GATE } from "@/lib/inteligencia/acoes/modulo";
 import type { RegistroExtensoes } from "@/lib/inteligencia/extensoes";
 import { criarAcaoImportacao, type PortaImportacao } from "@/lib/inteligencia/importacao/acao";
@@ -62,6 +62,10 @@ export function portaImportacaoCom(sessaoDaConfirmacao: SessaoImportacao): Porta
     disponivel: async (tx) => await importacaoDisponivel(tx) && await documentosDisponiveis(tx),
     ultimaExtracao,
     abrirImportacao,
+    travarDocumento,
+    importacaoPorAbertura,
+    registrarAbertura,
+    listarParaRevisao,
     lerImportacao,
     importacaoPorDocumento,
     atualizarImportacao,

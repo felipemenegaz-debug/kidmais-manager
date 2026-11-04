@@ -77,7 +77,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano", "buscaDoCliente"], // @pr:IMPORT
   // Conclusão única: schema e tipos puros; a IA continua sem acesso ao executor do Core.
   "lib/contratos/integracao-importados/modelo": ["decisoesSchema", "DecisoesIntegracao", "ResumoIntegracao"],
-  "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["CursorRevisao", "ImportacaoLida", "LIMITE_ABERTURAS", "LinhaParaRevisao", "RegistroAbertura"], // @pr:IMPORT
   // Importação da tabela de preços (071): só o esquema puro da leitura; a escrita segue no Core.
   "lib/comercial/importacao-tabela/esquema": ["INSTRUCAO_LEITURA_TABELA", "LEITURA_JSON_SCHEMA", "leituraSchema", "LeituraTabela"],
   // Limite único de duração (parecer do Astra, P2-2): só constantes puras; a IA segue sem acesso à agenda.
@@ -148,7 +148,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/contratos/integracao-importados/composicao": ["coreNativo"],
   "lib/contratos/integracao-importados/servico": ["confirmarIntegracao", "opcoesIntegracaoRascunho", "simularIntegracao", "IntegracaoImportadoError"],
   "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
-  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao", "substituirImportacaoCancelada"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorAbertura", "importacaoPorDocumento", "lerImportacao", "listarParaRevisao", "registrarAbertura", "substituirImportacaoCancelada", "travarDocumento"], // @pr:IMPORT
   // Importação da tabela de preços (071): guarda do PDF e da leitura pelos serviços do Core, no Tenant Context.
   "lib/comercial/importacao-tabela/servico": ["arquivoDaImportacao", "gravarLeitura", "registrarImportacao"],
   "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "modeloContratoAtivo", "registrarImportacaoContrato"],
@@ -161,7 +161,7 @@ const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
-  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em"], // @pr:IMPORT
+  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em", "travarDocumento,", "registrarAbertura,", "importacaoPorAbertura,", "listarParaRevisao,"], // @pr:IMPORT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */
