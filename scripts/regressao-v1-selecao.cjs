@@ -401,6 +401,10 @@ const ESTADO_POSTGRES = {
   // 03/11/2026 (franquias por plano, F1): migration 116 aplicada pela suíte sobre o modelo 112; código compatível sem a 116,
   // categorias, reconstrução do devido, adoção, conflito, corrida de três sessões, pendência pela sincronização e avisos 80/100.
   "lib/creditos/franquias-116.postgres.test.ts": { descartavel: "112" },
+  // 04/11/2026 (franquias por plano, aplicador da 116 em staging): modelo 112 (sem a 116), com dados reais nas 4 tabelas
+  // travadas (carteira, lote, notificação, contratação); papel mínimo, preservação, postcheck real, deriva, down, falha de
+  // trava real e retomada.
+  "lib/creditos/aplicador-116.postgres.test.ts": { descartavel: "112" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
