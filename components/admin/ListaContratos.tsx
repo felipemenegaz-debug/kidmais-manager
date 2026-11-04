@@ -83,7 +83,7 @@ export default function ListaContratos({ onAbrir }: { onAbrir(selecao: string): 
       : (pagina.itens.length ? <>
         <ul className={styles.listaItens}>{pagina.itens.map((i) => { const t = tituloFesta({ contratante: { nomeCompleto: i.contratante ?? 'Contratante não informado' }, aniversariante: { nome: i.aniversariante, idadeNoEvento: i.idade } }), s = situacao(i);
           return <li key={i.id}><button type="button" className={styles.linhaContrato} onClick={() => onAbrir(i.id)}>
-            <span><strong>{t.titulo}{t.idade ? ` · ${t.idade}` : ''}</strong><span className={styles.discreto}>{[t.aniversariante ? i.contratante : null, i.dataEvento ? dataPorExtenso(i.dataEvento) : 'Data não informada', i.pacote, i.convidados != null ? `${i.convidados} convidados` : null].filter(Boolean).join(' · ')}</span></span>
+            <span><strong>{t.titulo}{t.idade ? ` · ${t.idade}` : ''}</strong><span className={styles.discreto}>{[t.aniversariante ? i.contratante : null, i.dataEvento ? dataPorExtenso(i.dataEvento) : i.dataInvalida ? 'Conferir data' : 'Data não informada', i.pacote, i.convidados != null ? `${i.convidados} convidados` : null].filter(Boolean).join(' · ')}</span></span>
             <span className={s.tom === 'alerta' ? styles.chipAlerta : styles.chip}>{s.texto}</span>
             <Pagamento f={i.financeiro} />
             <strong className={styles.valorLinha}>{i.valor != null && i.financeiro.tipo !== 'CONFERIR' && !i.referencia.diagnostico ? reais(i.valor) : '—'}</strong>

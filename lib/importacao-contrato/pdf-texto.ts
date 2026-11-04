@@ -6,6 +6,9 @@ import { inflateSync } from "node:zlib";
  * Cobre o que contratos digitais costumam ter: objetos diretos e em object streams (/ObjStm),
  * FlateDecode, fontes simples (WinAnsi/Latin-1) e fontes com /ToUnicode (bfchar/bfrange), árvore de
  * páginas com herança de /Resources, operadores Tj, TJ, ', " e quebras por Td/TD/T*\/Tm.
+ * Espaço entre palavras sai da posição: com as larguras da fonte (/Widths ou /W), o leitor sabe onde
+ * terminou o texto anterior e só põe espaço quando o próximo começa depois de uma lacuna real. Sem as
+ * larguras, cada deslocamento para a direita continua valendo espaço (comportamento anterior).
  * PDF escaneado (só imagem) devolve páginas vazias: aí a leitura precisa de visão/OCR, nunca de chute.
  *
  * Arquivo hostil: todo trabalho é contado (orçamento determinístico) e há prazo de relógio e
@@ -56,7 +59,16 @@ export const LIMITES = {
   itensArray: 256,
   /** Um dicionário de objeto nunca é analisado além disto: nenhuma regex roda sobre texto maior. */
   bytesDicionario: 64 * 1024,
+  /** Entradas de larguras (/W ou /Widths) de uma fonte; o excesso é ignorado com aviso. */
+  entradasLarguras: 65_536,
+  faixasLarguras: 4_096,
 };
+
+/** Lacuna (em fração do tamanho da fonte) a partir da qual um deslocamento vira espaço entre palavras. */
+const LACUNA_ESPACO = 0.15;
+
+/** Ligaduras tipográficas (ﬀ, ﬁ…) viram as letras comuns: o texto precisa ser comparável ao digitado. */
+const LIGADURAS: Record<string, string> = { "\uFB00": "ff", "\uFB01": "fi", "\uFB02": "fl", "\uFB03": "ffi", "\uFB04": "ffl", "\uFB05": "st", "\uFB06": "st" };
 
 class Interrupcao extends Error {
   readonly motivo: MotivoInterrupcao;
@@ -250,7 +262,9 @@ function subdicionario(texto: string, chave: string): string | null {
   return null;
 }
 
-type Fonte = { mapa: Map<number, string> | null; bytesPorCodigo: 1 | 2 };
+/** Larguras em milésimos do tamanho da fonte, por código. `padrao` null = largura desconhecida. */
+type Larguras = { porCodigo: Map<number, number>; faixas: Array<[number, number, number]>; padrao: number | null };
+type Fonte = { mapa: Map<number, string> | null; bytesPorCodigo: 1 | 2; larguras: Larguras | null };
 
 /**
  * Destino do CMap em UTF-16BE. Devolve as unidades de código, ou null quando o destino não é
@@ -460,7 +474,105 @@ function carregarFonte(leitor: Leitor, dicionarioFonte: string): Fonte {
   const dados = cmapObj?.stream ? leitor.descomprimir(cmapObj.stream, cmapObj.dicionario) : null;
   const mapa = dados ? lerToUnicode(latin1(dados), leitor.avisos, leitor.trabalho) : null;
   const doisBytes = composta || (mapa !== null && [...mapa.keys()].some((k) => k > 0xff));
-  return { mapa, bytesPorCodigo: doisBytes ? 2 : 1 };
+  const larguras = composta ? largurasCid(leitor, dicionarioFonte) : doisBytes ? null : largurasSimples(leitor, dicionarioFonte);
+  return { mapa, bytesPorCodigo: doisBytes ? 2 : 1, larguras };
+}
+
+/** Números e arrays de um único nível (/W, /Widths), lidos caractere a caractere, sem regex. */
+function lerArrayNumeros(texto: string, inicio: number, trabalho: Trabalho): Array<number | number[]> {
+  const itens: Array<number | number[]> = [];
+  let interno: number[] | null = null;
+  let numero = "";
+  const fecharNumero = () => {
+    if (!numero) return;
+    const n = Number(numero);
+    if (Number.isFinite(n)) (interno ?? itens).push(n);
+    numero = "";
+  };
+  // Posição `inicio`: o "[" externo. Aninhamento além de um nível encerra a leitura.
+  for (let i = inicio + 1; i < texto.length; i += 1) {
+    trabalho.gastar(1);
+    const c = texto[i];
+    if ((c >= "0" && c <= "9") || c === "." || c === "-" || c === "+") { if (numero.length < 32) numero += c; continue; }
+    fecharNumero();
+    // Comentário vai até o fim da linha e não é número (cada caractere pulado conta no orçamento).
+    if (c === "%") { while (i + 1 < texto.length && texto[i + 1] !== "\n" && texto[i + 1] !== "\r") { i += 1; trabalho.gastar(1); } continue; }
+    if (c === "[") { if (interno) return itens; interno = []; continue; }
+    if (c === "]") { if (!interno) return itens; itens.push(interno); interno = null; }
+  }
+  return itens;
+}
+
+/** Valor de `/Chave` que é array, inline ou por referência a outro objeto. */
+function arrayDaChave(leitor: Leitor, dicionario: string, chave: string): Array<number | number[]> | null {
+  const achado = new RegExp(`/${chave}(?![A-Za-z])\\s{0,64}(\\[|\\d{1,9}\\s{1,64}\\d{1,9}\\s{1,64}R)`).exec(dicionario);
+  if (!achado) return null;
+  if (achado[1] === "[") return lerArrayNumeros(dicionario, achado.index + achado[0].length - 1, leitor.trabalho);
+  const alvo = leitor.objetos.get(Number(achado[1].match(/\d{1,9}/)![0]))?.dicionario ?? "";
+  const abre = alvo.indexOf("[");
+  return abre < 0 ? null : lerArrayNumeros(alvo, abre, leitor.trabalho);
+}
+
+function numeroDaChave(dicionario: string, chave: string): number | null {
+  const achado = new RegExp(`/${chave}(?![A-Za-z])\\s{0,64}(-?\\d{1,9}(?:\\.\\d{0,16})?)`).exec(dicionario);
+  return achado ? Number(achado[1]) : null;
+}
+
+/** Fonte composta: /W e /DW da CIDFont descendente, só com Identity-H (código = CID). Outra codificação ⇒ desconhecida. */
+function largurasCid(leitor: Leitor, dicionarioFonte: string): Larguras | null {
+  if (!/\/Encoding\s{0,64}\/Identity-H\b/.test(dicionarioFonte)) return null;
+  let descendente = dicionarioFonte.match(/\/DescendantFonts\s{0,64}\[\s{0,64}(\d{1,9})\s{1,64}\d{1,9}\s{1,64}R/)?.[1];
+  if (!descendente) {
+    const ref = referencia(dicionarioFonte, "DescendantFonts");
+    descendente = ref ? leitor.objetos.get(ref.num)?.dicionario.match(/(\d{1,9})\s{1,64}\d{1,9}\s{1,64}R/)?.[1] : undefined;
+  }
+  const cid = descendente ? leitor.objetos.get(Number(descendente))?.dicionario : undefined;
+  if (!cid) return null;
+  const larguras: Larguras = { porCodigo: new Map(), faixas: [], padrao: numeroDaChave(cid, "DW") ?? 1000 };
+  const itens = arrayDaChave(leitor, cid, "W") ?? [];
+  for (let i = 0; i < itens.length;) {
+    const primeiro = itens[i];
+    const segundo = itens[i + 1];
+    if (typeof primeiro !== "number" || segundo === undefined) break;
+    if (Array.isArray(segundo)) {
+      if (larguras.porCodigo.size + segundo.length > LIMITES.entradasLarguras) { leitor.avisos.push("LARGURAS_GRANDES"); break; }
+      for (const [k, w] of segundo.entries()) larguras.porCodigo.set(primeiro + k, w);
+      i += 2;
+    } else {
+      const w = itens[i + 2];
+      if (typeof w !== "number") break;
+      if (larguras.faixas.length >= LIMITES.faixasLarguras) { leitor.avisos.push("LARGURAS_GRANDES"); break; }
+      larguras.faixas.push([primeiro, segundo, w]);
+      i += 3;
+    }
+  }
+  larguras.faixas.sort((a, b) => a[0] - b[0]);
+  return larguras;
+}
+
+/** Fonte simples: /FirstChar + /Widths. Código fora da lista ⇒ largura desconhecida. */
+function largurasSimples(leitor: Leitor, dicionarioFonte: string): Larguras | null {
+  const primeiro = numeroDaChave(dicionarioFonte, "FirstChar");
+  const itens = arrayDaChave(leitor, dicionarioFonte, "Widths");
+  if (primeiro === null || !itens) return null;
+  const larguras: Larguras = { porCodigo: new Map(), faixas: [], padrao: null };
+  for (const [k, w] of itens.slice(0, 256).entries()) if (typeof w === "number") larguras.porCodigo.set(primeiro + k, w);
+  return larguras;
+}
+
+function largura(larguras: Larguras, codigo: number): number | null {
+  const direta = larguras.porCodigo.get(codigo);
+  if (direta !== undefined) return direta;
+  // Faixas ordenadas pelo início: busca binária da última que começa até o código (custo constante por glifo).
+  let baixo = 0;
+  let alto = larguras.faixas.length - 1;
+  let candidata = -1;
+  while (baixo <= alto) {
+    const meio = (baixo + alto) >>> 1;
+    if (larguras.faixas[meio][0] <= codigo) { candidata = meio; baixo = meio + 1; } else alto = meio - 1;
+  }
+  if (candidata >= 0 && codigo <= larguras.faixas[candidata][1]) return larguras.faixas[candidata][2];
+  return larguras.padrao;
 }
 
 function fontesDaPagina(leitor: Leitor, recursos: string, cache: Map<number, Fonte>): Map<string, Fonte> {
@@ -554,20 +666,103 @@ function tokenizar(t: string, trabalho: Trabalho): Token[] {
 
 function decodificar(bytes: number[], fonte: Fonte | undefined): string {
   if (!fonte) return String.fromCharCode(...bytes);
+  let saida = "";
   if (fonte.bytesPorCodigo === 2) {
     if (!fonte.mapa) return "";
-    let saida = "";
     for (let i = 0; i + 1 < bytes.length; i += 2) saida += fonte.mapa.get((bytes[i] << 8) | bytes[i + 1]) ?? "";
-    return saida;
+  } else {
+    saida = bytes.map((b) => fonte.mapa?.get(b) ?? String.fromCharCode(b)).join("");
   }
-  return bytes.map((b) => fonte.mapa?.get(b) ?? String.fromCharCode(b)).join("");
+  return saida.replace(/[\uFB00-\uFB06]/g, (c) => LIGADURAS[c]);
+}
+
+type EstadoTexto = { tamanho: number; espacoCaractere: number; espacoPalavra: number; escala: number };
+
+/** Avanço horizontal de uma string em unidades de texto; null quando alguma largura é desconhecida. */
+function avanco(bytes: number[], fonte: Fonte | undefined, estado: EstadoTexto): number | null {
+  if (!fonte?.larguras) return null;
+  const passo = fonte.bytesPorCodigo;
+  let total = 0;
+  for (let i = 0; i + passo <= bytes.length; i += passo) {
+    const codigo = passo === 2 ? (bytes[i] << 8) | bytes[i + 1] : bytes[i];
+    const w = largura(fonte.larguras, codigo);
+    if (w === null) return null;
+    total += w / 1000 * estado.tamanho + estado.espacoCaractere + (passo === 1 && codigo === 32 ? estado.espacoPalavra : 0);
+  }
+  return total * estado.escala;
 }
 
 export function textoDoConteudo(conteudo: string, fontes: Map<string, Fonte>, trabalho: Trabalho = new Trabalho({})): string {
   const linhas: string[] = [];
   let atual = "";
   let fonte: Fonte | undefined;
+  // Início da linha atual (translação da matriz de linha) e escalas da matriz, nas coordenadas da página
+  // (sem rotação: é o que contratos usam). `yAtual` é a altura da linha em vigor, atualizada por Tm, Td/TD,
+  // T*, ' e ". `caneta` = fim do texto já escrito, em unidades de texto a partir do início da linha;
+  // null = desconhecida (fonte sem larguras).
+  let linhaX = 0;
+  let linhaY = 0;
+  let escalaX = 1;
+  let escalaY = 1;
+  let entrelinha = 0;
   let yAtual: number | null = null;
+  let caneta: number | null = 0;
+  const estado: EstadoTexto = { tamanho: 0, espacoCaractere: 0, espacoPalavra: 0, escala: 1 };
+  // O espaço entre trechos só entra junto com o texto seguinte: um recuo sem texto depois dele (número final
+  // do TJ antes do ET) não pode deixar um espaço que a decisão do bloco seguinte já não consegue desfazer.
+  let separador = false;
+  const espacar = () => { if (atual) separador = true; };
+  /** Fim do texto já escrito, nas coordenadas da página (null = desconhecido). */
+  const fimNaPagina = () => (caneta === null ? null : linhaX + escalaX * caneta);
+  /** Novo trecho na mesma linha: espaço só com lacuna real; sem larguras, qualquer avanço à direita (regra anterior). */
+  const deslocar = (lacuna: number | null, paraDireita: boolean) => {
+    if (lacuna === null) { if (paraDireita) espacar(); return; }
+    if (lacuna > LACUNA_ESPACO * Math.abs(estado.tamanho)) espacar();
+  };
+  const escrever = (bytes: number[]) => {
+    trabalho.gastar(bytes.length);
+    if (bytes.length === 0) return;
+    if (quebraPendente) decidirContinuacao();
+    if (separador && !atual.endsWith(" ")) atual += " ";
+    separador = false;
+    atual += decodificar(bytes, fonte);
+    const a = avanco(bytes, fonte, estado);
+    caneta = caneta === null || a === null ? null : caneta + a;
+    // A referência é o fim desta string, gravado agora: Tm, Td e números do TJ depois dela (até o ET) movem
+    // só a caneta e não podem fingir que o texto terminou noutro ponto. Fonte sem larguras deixa o fim desconhecido.
+    fimDoBloco = fimNaPagina();
+    alturaDoBloco = linhaY;
+    escalaDoBloco = escalaX;
+  };
+  /** Próxima linha (T*, ' e "): desce a entrelinha a partir do início da linha atual. */
+  const proximaLinha = () => {
+    // Com a decisão pendente (depois do ET), a quebra fica para a primeira string: um bloco vazio com T*, ' ou "
+    // não pode descarregar a linha que o bloco seguinte ainda pode continuar.
+    if (!quebraPendente) quebrar();
+    linhaY += escalaY * -entrelinha;
+    yAtual = linhaY;
+    caneta = 0;
+  };
+  // ET não quebra na hora: o bloco seguinte pode continuar a mesma linha (troca de fonte no meio da frase).
+  // A decisão espera a PRIMEIRA string escrita depois do ET, na posição em que ela realmente cai (depois de
+  // Tm, Td e números do TJ): só continua se estiver na mesma altura e escala, colada ao fim da última
+  // string escrita antes (lacuna de no máximo 0,15 em, para os dois lados). Qualquer distância maior pode
+  // separar campos independentes ("Pacote: Ouro" | "Tema: Frozen") e as regras determinísticas leem até o fim da linha.
+  // Enquanto a decisão está pendente, os deslocamentos só movem a caneta: não quebram nem põem espaço.
+  let quebraPendente = false;
+  let fimDoBloco: number | null = null;
+  let alturaDoBloco: number | null = null;
+  let escalaDoBloco = 1;
+  const decidirContinuacao = () => {
+    quebraPendente = false;
+    // Separador deixado depois da última string do bloco anterior: a lacuna real é medida aqui.
+    separador = false;
+    const inicio = fimNaPagina();
+    const colado = inicio !== null && fimDoBloco !== null && alturaDoBloco !== null && escalaX !== 0 && escalaX === escalaDoBloco
+      && Math.abs(linhaY - alturaDoBloco) <= 0.5
+      && Math.abs((inicio - fimDoBloco) / escalaX) <= LACUNA_ESPACO * Math.abs(estado.tamanho);
+    if (!colado) quebrar();
+  };
   const quebrar = () => { if (atual.trim()) linhas.push(atual.replace(/\s+/g, " ").trim()); atual = ""; };
   const operandos: Token[] = [];
   for (const token of tokenizar(conteudo, trabalho)) {
@@ -578,26 +773,71 @@ export function textoDoConteudo(conteudo: string, fontes: Map<string, Fonte>, tr
     if (op === "Tf") {
       const nome = operandos.find((t) => t.tipo === "nome") as { valor: string } | undefined;
       fonte = nome ? fontes.get(nome.valor) : undefined;
+      estado.tamanho = num(1);
+    } else if (op === "Tc") {
+      estado.espacoCaractere = num(1);
+    } else if (op === "Tw") {
+      estado.espacoPalavra = num(1);
+    } else if (op === "Tz") {
+      estado.escala = num(1) / 100;
+    } else if (op === "TL") {
+      entrelinha = num(1);
     } else if (op === "Td" || op === "TD") {
-      if (num(1) !== 0) quebrar();
-      else if (num(2) > 0 && atual && !atual.endsWith(" ")) atual += " ";
+      const tx = num(2);
+      const ty = num(1);
+      if (op === "TD") entrelinha = -ty;
+      if (quebraPendente) { /* só move a caneta; a decisão é na primeira escrita */ } else if (ty !== 0) quebrar();
+      // Td é relativo ao início da linha: a caneta volta a ser conhecida mesmo depois de uma fonte sem larguras.
+      else deslocar(caneta === null ? null : tx - caneta, tx > 0);
+      linhaX += escalaX * tx;
+      linhaY += escalaY * ty;
+      yAtual = linhaY;
+      caneta = 0;
     } else if (op === "Tm") {
-      const y = num(1);
-      if (yAtual !== null && Math.abs(y - yAtual) > 0.5) quebrar();
-      else if (atual && !atual.endsWith(" ")) atual += " ";
+      const [x, y, escala, escalaVertical] = [num(2), num(1), num(6), num(3)];
+      const mesmaLinha = yAtual !== null && Math.abs(y - yAtual) <= 0.5;
+      if (quebraPendente) {
+        // Só move a caneta; a decisão é na primeira escrita.
+      } else if (yAtual !== null && !mesmaLinha) {
+        quebrar();
+      } else if (mesmaLinha) {
+        const fim = fimNaPagina();
+        deslocar(fim !== null && escala !== 0 && escala === escalaX ? (x - fim) / escala : null, true);
+      }
+      linhaX = x;
+      linhaY = y;
+      escalaX = escala;
+      escalaY = escalaVertical;
       yAtual = y;
-    } else if (op === "T*" || op === "ET") {
-      quebrar();
+      caneta = 0;
+    } else if (op === "BT") {
+      // A matriz de texto volta à identidade; a altura e o fim do bloco anterior ficam para a comparação.
+      linhaX = 0;
+      linhaY = 0;
+      escalaX = 1;
+      escalaY = 1;
+      caneta = 0;
+    } else if (op === "ET") {
+      // A referência (fim, altura e escala da última string escrita) já foi gravada em escrever: bloco vazio não a muda.
+      quebraPendente = true;
+    } else if (op === "T*") {
+      proximaLinha();
     } else if (op === "Tj" || op === "'" || op === "\"") {
-      if (op !== "Tj") quebrar();
+      if (op === "\"") { estado.espacoPalavra = num(3); estado.espacoCaractere = num(2); }
+      if (op !== "Tj") proximaLinha();
       const s = [...operandos].reverse().find((t) => t.tipo === "string") as { bytes: number[] } | undefined;
-      if (s) { trabalho.gastar(s.bytes.length); atual += decodificar(s.bytes, fonte); }
+      if (s) escrever(s.bytes);
     } else if (op === "TJ") {
       const arr = [...operandos].reverse().find((t) => t.tipo === "array") as { itens: Token[] } | undefined;
       for (const item of arr?.itens ?? []) {
         trabalho.gastar(1);
-        if (item.tipo === "string") atual += decodificar(item.bytes, fonte);
-        else if (item.tipo === "numero" && item.valor < -200 && !atual.endsWith(" ")) atual += " ";
+        if (item.tipo === "string") escrever(item.bytes);
+        else if (item.tipo === "numero") {
+          // Recuo em milésimos do tamanho; mais de 0,2 em vira espaço (regra anterior, mantida). Antes da
+          // primeira escrita depois de um ET o separador é descartado pela decisão, que mede a lacuna real.
+          if (item.valor < -200) espacar();
+          if (caneta !== null) caneta -= item.valor / 1000 * estado.tamanho * estado.escala;
+        }
       }
     }
     operandos.length = 0;
