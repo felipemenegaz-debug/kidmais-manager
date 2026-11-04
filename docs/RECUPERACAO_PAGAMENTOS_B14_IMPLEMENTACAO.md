@@ -1345,3 +1345,71 @@ Continuam pendentes, cada um com autorização própria:
 - o job `b23-bases` no GitHub.
 
 A promoção segue NO-GO.
+
+## B-23d — production `767fff4a` e alvo de rollback `d67d10e6` na lista (LOCAL, 04/11/2026)
+
+**Por quê.** Production andou de `5e4340db` para `767fff4a`, com 9 merges (#302, #304, #307, #309, #311, #313, #315, #316 e #321). Nenhum desses SHAs estava em `CODIGOS_ANTIGOS`, então o B-14 recusava em production com `CODIGO_NO_AR_DESCONHECIDO`. Pela regra de recongelamento (seção B-23), a base nova entra na lista **antes** de recongelar `C`.
+
+**Leitura do Render (04/11):**
+- O web de production está LIVE em `767fff4a` (#321, `dep-dblbok2j…`); o deploy anterior é `d67d10e6` (#316, `dep-dblb51aj…`).
+- Os crons estão em `7ce0916f` (reconciliar) e `6564e7aa` (avisos). O B-14 roda no web, então os crons ficam fora da lista.
+
+**Decisões de Felipe (04/11):**
+- **D-B23d-1 = (A):** entram as bases `767fff4a` (LIVE) e `d67d10e6` (rollback). Se outro alvo de rollback for escolhido depois, ele precisa de prova própria.
+- **D-B23d-2 = (A):** exceção nominal de RAIZ, restrita a 3 pares de blobs. `REVISAVEIS` não muda, e os testes continuam classificados como antes.
+- **D-B23d-3 = (A):** congelar as promoções para production até a E0. Uma urgência reabre um B-23x.
+
+**Plano:** r1, aprovado pelo Astra (revisão por agente) com 0 P1, 1 P2 e 0 P3. A r2 incorpora o P2-B23D-PLANO-R1-01: regenerar as seis evidências e fixar o inventário de revisões em 33.
+
+### O que mudou
+
+- **`lib/assinatura/recuperacao-execucao.ts`:** `CODIGOS_ANTIGOS` passa de 5 para 7 entradas, com `d67d10e6…` e `767fff4a…`. Ambas dependem da trava `ASSINATURA_AVISOS_EMAIL` desligada (D-B23c-2).
+- **`scripts/b23-prova-base.cjs`:** `REVISOES` passa de 24 para 33, com a autoria `B23D`, que registra o aceite do Astra (código r1, 04/11/2026: 0 P1, 0 P2, 1 P3 documental, fechado na r2 com as linhas do delta herdado de Convites e do catálogo). As 9 revisões, cada uma presa ao par exato de blobs `00d3019a` → base, com análise do delta integral e as linhas citadas:
+
+  | Regra | Arquivo | Origem |
+  |---|---|---|
+  | CHAMADOR | `components/admin/AssinaturaAcoes.tsx` | #311 |
+  | CHAMADOR | `components/site/secoes.tsx` | #321 |
+  | RAIZ (teste) | `lib/assinatura/transacao-com-prazo.postgres.test.ts` | #313 |
+  | CHAMADOR | `lib/convites/service.ts` | B-23b + #315 |
+  | CHAMADOR | `lib/exportacao/pacote.ts` | #313; a transação RR READ ONLY continua com o chamador |
+  | CHAMADOR | `lib/site/catalogo.ts` | B-23c + #321 |
+  | FECHO | `lib/site/configuracao.ts` | #321, só strings |
+  | RAIZ | `scripts/assinatura-avisos.cjs` | arquivo inteiro; `CODIGO_SEGURO` restringe só o formato; depende da trava e da guarda `AVISOS_EMAIL_LIGADOS` |
+  | RAIZ (teste) | `scripts/assinatura-avisos.test.cjs` | — |
+
+- **`docs/evidencias/b23-bases-antigas/`:** as seis provas foram regeneradas. As quatro antigas mudam **só** no campo `analisador`, conferido por diff de JSON. As duas novas dão PROVA_PASS.
+- **Testes:**
+  - `recuperacao-execucao.test.ts`: a lista com 7 entradas e os prefixos falsos das bases novas.
+  - `b23-prova-base.test.cjs`:
+    - o inventário exato de 33 revisões, as autorias B-23c e B-23d por faixa e o tamanho da lista em 7;
+    - as frases obrigatórias de `assinatura-avisos.cjs` e de `pacote.ts`.
+  - `recuperacao-pagamentos-producao.test.cjs`:
+    - BASES com 7 entradas;
+    - o teste da trava cobre `5e4340db`, `d67d10e6`, `767fff4a` e a CANDIDATA em cada modo admitido, com env, process.env e desacordo ((6×4+1)×7 cenários);
+    - a janela-recuperar é recusada pela matriz para cada base antiga.
+  - `bloco-shell-recuperacao-b14.test.cjs`: o CONFERIR-E0 com a base vigente `767fff4a`.
+  - `recuperacao-prefixos.postgres.test.ts`: o ANTIGO passa a ser a base vigente `767fff4a`, por literal conferido contra a lista. A matriz foi executada (ver Validação local), o que fecha a pendência do `5bdd5ac4`.
+
+**Achado registrado:** `767fff4a` não contém o CLI do B-14. A árvore entregue vem da candidata, e a base só entra como `RENDER_GIT_COMMIT`. A árvore calculada sobre staging `ff90f8cd` tem 55 arquivos, e só `lib/site/configuracao.ts` (strings) cruza o delta `5e4340db..767fff4a`.
+
+**O que não muda:**
+- a matriz de modos;
+- a guarda `AVISOS_EMAIL_LIGADOS`;
+- a semântica de ANTIGO;
+- `REVISAVEIS`;
+- a regra de recongelamento.
+
+### Validação local (04/11/2026)
+
+- `--verificar-lista`: LISTA_CONFERE, saída 0, para as 7 entradas; as 6 evidências com PROVA_PASS.
+- Testes do analisador 17/17, do bloco de Shell 5/5 e da execução/CLI 31/31.
+- PG descartável (porta 55771, cluster criado e removido): `recuperacao-prefixos.postgres.test.ts` nos 13 modelos (P0a–P11 e PH), 92 testes executados, 0 falhas. O único skip por modelo é o teste S0 → S2, que por desenho só roda no P0a, onde passou (8/8).
+- Mutantes em cópia isolada: 25 mortos por asserção e 0 vivos. A 1ª bateria teve 3 vivos:
+  - o d3 era mal direcionado: o teste do bloco não lê a lista, e o mesmo corte morre no d2;
+  - o d11 tirava só uma das menções a B-23d da autoria; foi refeito como d11b, que remove todas;
+  - o d20 (evidência sem um revisado) não é coberto pelo teste unitário, que confere só campos-chave; morre no `--verificar-lista` do job b23-bases (d20b, saída 1 do verificador, não asserção unitária).
+- CI local (Node 22.23.2): 55 passos, 54 executados sem falha e `npm ci` pulado (dependências já instaladas).
+- Depois do aceite (r2): as 6 evidências foram regeneradas. Nas antigas só muda `analisador`; nas novas, também `autoria`/`analise` dos `revisados`. Analisador 17/17, `--verificar-lista` LISTA_CONFERE.
+
+O recongelamento de `C` vem depois do merge desta entrada, com autorização própria. A promoção continua NO-GO.
