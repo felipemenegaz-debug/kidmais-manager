@@ -1,0 +1,297 @@
+{
+ "de": "00d3019ade199ce609eab296050e07f4b379e87b",
+ "ate": "767fff4ac3bce2dcc03fa16d01c42dc25d7b563a",
+ "analisador": "61f17280aa93877f484e038c5b60b139de78105315dde1fc725937628374c541",
+ "marcadoresSha": "29e1167ebdaaaa409fa15cded3538dbc4a8ac2a8976b177ec493bad999f6b7e2",
+ "alterados": 203,
+ "marcadores": [
+  "assinatura_encerramentos",
+  "assinatura_campanhas",
+  "empresa_documento_continuidades",
+  "agenda_saloes",
+  "kidmais094_salao_fechamento",
+  "ia_credito_carteiras",
+  "assinatura_comprovantes",
+  "assinatura_arrependimentos"
+ ],
+ "resultado": "PROVA_PASS",
+ "violacoes": [],
+ "objetos": [
+  {
+   "migration": "database/migrations/20261019_087_assinatura_avisos.sql",
+   "tabelas": [
+    "assinatura_avisos"
+   ],
+   "funcoes": [
+    "kidmais_087_aviso_guarda"
+   ]
+  },
+  {
+   "migration": "database/migrations/20261024_099_convites_avulsos.sql",
+   "tabelas": [
+    "convite_ia_autorizacoes",
+    "convites"
+   ],
+   "funcoes": [
+    "convite_ia_autorizacao_validar",
+    "convite_validar_vinculo"
+   ]
+  }
+ ],
+ "revisados": [
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "components/admin/AssinaturaAcoes.tsx",
+   "importa": "lib/assinatura/planos-comerciais.ts",
+   "arvore": "de",
+   "de": "31c042fb6aa06bdd110304bedd4f3156c280b66c",
+   "ate": "60e8fac8491394a3671e0f0e03d00b9a61cb280a",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a = #311 (+7/−4; linhas 42, 84–85, 87, 90–91 e 159 do blob 60e8fac8): estado comProtocolo, lido de data.instalado no GET /api/admin/assinatura/devolucao?opcoes=1 (campo já existente em lib/assinatura/devolucao.ts, inalterado), e a frase do protocolo só aparece com a 089 instalada. Componente de UI no cliente: nenhum import novo (o de planos-comerciais.ts é o de 00d3019a), nenhuma rota, SQL ou escrita nova; não está no caminho do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "components/site/secoes.tsx",
+   "importa": "lib/assinatura/texto.ts",
+   "arvore": "de",
+   "de": "d2a02ce0a2a77e8c41bccae4676b077c418a4e8b",
+   "ate": "5be85ed6f68b70607b87c7a7664794139fd57df6",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a = #321 (+59/−29): marca iA.Fest nos textos (linhas 20, 36, 44, 54, 70, 85–86, 178, 234, 236, 249 e 256 do blob 5be85ed6), seções novas ImportacaoDocumentos, FinanceiroDetalhes e Marketing (linhas 92–135) e o Wall-e só como atendente, sem o Wall-e publicitário (linhas 139–141; bloco antigo 117–130 removido). Só JSX estático e textos do site público: nenhum import mudou (o de lib/assinatura/texto.ts é o de 00d3019a), sem rota, SQL, fetch ou cálculo de cobrança."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/aplicador-087.postgres.test.ts",
+   "de": null,
+   "ate": "019871354cea2cc0884511f4dd05a6f1f8b26894",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-087.postgres.test.ts",
+   "de": null,
+   "ate": "2819c6054a87726eae1913f072a19c9d5044c3e8",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-envio.test.ts",
+   "de": null,
+   "ate": "e97a42cfc487c97e937f48ecb69d229f2dd7749d",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-envio.ts",
+   "de": null,
+   "ate": "7f9104a6f649f52acf8790e6cf8139c1cef58ff7",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Orquestra enfileirar/enviar pelo RepositorioAvisos injetado (escreve só em assinatura_avisos) e pelo EnviarEmail injetado; sem SQL próprio. Só é chamado pelo job assinatura-avisos.cjs e por avisos-padrao.ts."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-mensagens.test.ts",
+   "de": null,
+   "ate": "b72c2b69b8d3e49228301ce7894011dbd612bccc",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-mensagens.ts",
+   "de": null,
+   "ate": "cd35b89844e1846d70cba8a6c040e73e2fc2a604",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Texto dos e-mails (assunto/corpo) a partir do marco; função pura, sem SQL e sem efeito."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-padrao.ts",
+   "de": null,
+   "ate": "fc490ec176c73c325250f219b9e7f33e1b405ca9",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Dependências reais do envio no web; depsAvisosPadrao devolve null (nada enviado) com a trava desligada ou e-mail não configurado. Usado só por cobranca-padrao.ts (processarEventoAgendado), que o B-14 não chama."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-repositorio.test.ts",
+   "de": null,
+   "ate": "7895fb100c805264eb10d64a3d58c39f7c687a87",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos-repositorio.ts",
+   "de": null,
+   "ate": "e01a8fab5520d33c2532e5f2ef22adc164316600",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. SQL dos avisos. Escritas: INSERT … ON CONFLICT DO NOTHING e UPDATE só em assinatura_avisos, e auditoria AVISO_ASSINATURA_ENTREGA_FALHOU via auditarCobranca na devolução (webhook do Resend, que não consulta a trava). registrarAvisosDaTransicao (chamado por sincronizarEmpresa, caminho do B-14) retorna 0 ANTES de qualquer consulta com a trava desligada — condição D-B23c-2. Ligada, emite SAVEPOINT fora do try e pode inserir em assinatura_avisos, tabela fora da fotografia do B-14: por isso a guarda AVISOS_EMAIL_LIGADOS."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos.test.ts",
+   "de": null,
+   "ate": "eee7dc800f313aacdc42de5926c8a209c4c24e57",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/avisos.ts",
+   "de": null,
+   "ate": "b212898f36e49b05d899c55bca38d5c84419df96",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Regras puras dos avisos (marcos, transições, prazos, avisosLigados = trim().toLowerCase() === \"ligado\"); sem SQL e sem efeito; só importa acesso.ts (cálculo comercial existente, sem escrita)."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/cobranca-padrao.ts",
+   "de": "b5957da5e0deab0e9a812b3cda06857a620b9a96",
+   "ate": "f5df456506eb0d4e239a6160c3a8f0d9a9d2c0e6",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Delta: import de enviarAvisosDaEmpresaAgora e, em processarEventoAgendado, a chamada depois do commit do evento PROCESSADO; no-op com a trava desligada ou sem e-mail; erro só vai ao log. O B-14 chama processarEvento direto, não processarEventoAgendado: este caminho é o do webhook normal, coberto pela confirmação da trava no E0."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/migration-087.test.ts",
+   "de": null,
+   "ate": "bfe3d7d7269385eede69b19672a17512ee11431e",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/renovacao-entrega.ts",
+   "de": "aa0949d91dc2802af09a5aa113c32cfde5381c23",
+   "ate": "a02bba2bf3941f0cc8f4f7823e1d5b5d08acbb16",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Delta: no webhook do Resend, id que não é de renovação é procurado em assinatura_avisos (registrarDevolucaoAviso), sem consultar a trava: sem a 087 o resultado é o de antes (DESCONHECIDO/NAO_INSTALADA); com a 087, só ENVIADO → DEVOLVIDO em assinatura_avisos e auditoria. Nenhuma escrita nova em renovações, assinatura, crédito, pagamento ou marcador do B-14; caminho externo ao B-14, sujeito às barreiras e drenagem da janela."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/sincronizacao.ts",
+   "de": "4fcaf7dbd4368071c425b2e9a1bf2ccc94e2fdf8",
+   "ate": "410f97a3124663bf631ea394b620c767a93e0051",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Delta: import e uma chamada a registrarAvisosDaTransicao em sincronizarEmpresa, depois da mudança gravada, na mesma transação. Caminho do B-14 (casos EMPRESA). Com a trava desligada (D-B23c-2) retorna 0 sem consulta: comportamento de 00d3019a. Ligada, poderia inserir em assinatura_avisos fora da fotografia — a guarda AVISOS_EMAIL_LIGADOS recusa o B-14 antes do Client."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "lib/assinatura/transacao-com-prazo.postgres.test.ts",
+   "de": "3fab557a22351c1249347e93157cb025f09b5256",
+   "ate": "a47298480692e2a52f21062ff5e9a406944786c0",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Teste (#313, D1 do PRAZO determinístico; +41/−10, linhas 12, 22–27, 120–136, 149, 168–257 do blob a4729848): suíte PG que roda só no harness local em banco descartável (citada apenas por scripts/regressao-v1-selecao.cjs). Não roda em production, não entra no build do web e não é importada por código de produção; não muda nenhum caminho do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/convites/biblioteca.ts",
+   "importa": "lib/assinatura/estado.ts",
+   "arvore": "ate",
+   "de": null,
+   "ate": "a83603cd11088d454e84bb0a579930b7472c4eff",
+   "autoria": "Revisão por agente: Claude (implementador, r3, 01/11/2026); aceite independente por agente: Astra (r3, 02/11/2026), no escopo da prova B-23b.",
+   "analise": "Arquivo novo (120 linhas): listagem e miniatura (só SELECT em convites/convite_artes/festas/contratos/contrato_versoes/membership_estabelecimentos), criar avulso (INSERT em convites e convite_eventos; não reserva créditos) e vincular (contrato() → festas FOR UPDATE → convites FOR UPDATE; leitura de convite_geracoes; revogarAutorizacao em convite_ia_autorizacoes; UPDATE de convites; INSERT em convite_eventos). Da cobrança só lê lerEstadoComercial e recusa com 402 (mesma guarda do editor); nenhum SQL em tabela de assinatura, crédito, pagamento ou marcador do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/convites/service.ts",
+   "importa": "lib/assinatura/estado.ts",
+   "arvore": "de",
+   "de": "5d70a0ac5ebf2d3dbbb2592661ec405829d738a0",
+   "ate": "2e28822cdf519d925b3158f21c035e4e645bcdf1",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a (+40/−18; linhas 16–85, 166, 199, 222, 248–250 e 636–675 do blob 2e28822c) = o par já aceito no B-23b (5d70a0ac → a77cf5f3, Convites avulsos: Acesso por conviteId, ramo sem festa em comConvite, guarda do editor, publico() com LEFT JOIN e confirmar() travando festas só quando há festa) + a #315 (linhas 248–250 do blob 2e28822c): ao excluir a arte de um rascunho em modo completa (Convite pronto), o modo volta para modelo, no mesmo UPDATE de convites da mesma transação e empresa. Escritas: só convites, convite_artes, convite_geracoes e convite_eventos. Cobrança: o import de lerEstadoComercial (lib/assinatura/estado.ts) e a guarda 402 são os de 00d3019a; nenhum SQL em tabela de assinatura, crédito, pagamento ou marcador do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/exportacao/pacote.ts",
+   "importa": "lib/assinatura/csv.ts",
+   "arvore": "de",
+   "de": "863abfe972079596819a39aa326937bd89309523",
+   "ate": "26099c4dfc464a98fcd538d1faf6c8500725e461",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a = #313, exportação em blocos (+41/−11; linhas 15, 17, 32–33, 178–194 e 374–409 do blob 26099c4d): o cursor passa a ler só octet_length do PDF e cada bloco de até BLOCO_PDF_BYTES (1 MiB) vem por substring com o mesmo filtro de empresa (WHERE do tenant AND t.id), no mesmo executor transacional; o Gravador escreve em laço até o fim (escrita parcial tratada) e o tamanho e o hash finais são conferidos. Só leitura no banco; csv.ts (import de lib/assinatura/csv.ts) inalterado. A transação REPEATABLE READ READ ONLY continua sendo obrigação do chamador (lib/exportacao/servico.ts). Nada de cobrança ou do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/site/catalogo.ts",
+   "importa": "lib/assinatura/planos-comerciais.ts",
+   "arvore": "de",
+   "de": "f282886a9bbdca6ab5f07026c177768e8b102a2e",
+   "ate": "2006ad357acd8a451b5d495470031996dd4ea748",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a (+16/−12; linhas 41–83 do blob 2006ad35; removidas as linhas 19 e 78–79 do blob f282886a) = o par já aceito no B-23c (f282886a → a650bd16, apresentação comercial dos planos: descrições, cotas de importação, Copiloto e Convites, exclusões e posição do Wall-e, adicionais) + a #321, que tira do catálogo o recurso walle_publicitario (linha 19 do blob f282886a, removida, e o adicional Wall-e publicitário, linha 79). Dados estáticos do site; o import de planos-comerciais.ts (condicoesComerciais, planosComerciais, valorComercial) é o de 00d3019a; o arquivo não calcula cobrança nem tem SQL."
+  },
+  {
+   "regra": "FECHO",
+   "arquivo": "lib/site/configuracao.ts",
+   "de": "29a0d08476cd538d4818929e0f79b4b733003a15",
+   "ate": "57c006e2d377ef896a126687cd86de60932a4f28",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Delta completo desde 00d3019a = #321, só strings (linhas 2, 31–32 e 34–35 do blob 57c006e2): Kidmais/Kidmais Manager passam a iA.Fest na frase de cadastro fechado e nas mensagens de WhatsApp e e-mail do site. Funções, assinaturas, variáveis de ambiente lidas e retorno de configuracaoSite iguais. Está na árvore entregue do B-14, mas o pacote leva a versão da candidata, não a de production."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "scripts/assinatura-avisos.cjs",
+   "de": null,
+   "ate": "d20388aed9cdd2853b2190bde39cf0322ed36c8d",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Arquivo inteiro (280 linhas; B-23c aceitou o blob e1aff377 da 087, aqui somado à #304/#309): job do cron de avisos. Configuração (linhas 38–99): simular por padrão; aplicar só com ASSINATURA_AVISOS_EMAIL=ligado, KIDMAIS_AVISOS_MODO e alvo explícito validado por validarAlvo/opcoesConexao de assinatura-reconciliar.cjs (nunca DATABASE_URL), TLS obrigatório fora do local (linhas 101–115). Execução (linhas 228–278): importa avisos-envio, avisos-repositorio, configuracao e acessos/email; escreve só em assinatura_avisos por repositorioAvisos, em transações próprias; não consulta o Asaas. Diagnóstico (#309, linhas 118–221): ETAPAS, MOTIVOS e TIPOS fechados e CODIGO_SEGURO, que restringe só o FORMATO do code (não garante o sigilo de um conteúdo externo compatível com esse formato); cicloComEncerramento separa a falha do corpo da do encerramento; URL ilegível vira mensagem fixa. Fora da árvore entregue do B-14 e não importado pelo app: isso é evidência auxiliar. Continuam necessárias a trava ASSINATURA_AVISOS_EMAIL desligada na janela (D-B23c-2), conferida pela guarda AVISOS_EMAIL_LIGADOS, e as barreiras operacionais existentes."
+  },
+  {
+   "regra": "RAIZ",
+   "arquivo": "scripts/assinatura-avisos.test.cjs",
+   "de": null,
+   "ate": "fce75ad066407fff4fbb1edec341fbd0859c75ba",
+   "autoria": "Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, 04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais existentes. Este aceite não autoriza operação ou promoção.",
+   "analise": "Teste do job de avisos (302 linhas; B-23c aceitou o blob 4a68b8b5, aqui somado aos testes do log seguro da #309): roda no build do cron (node --test) e no CI, nunca em runtime; não é importado por código de produção e não muda o caminho do B-14."
+  },
+  {
+   "regra": "FECHO",
+   "arquivo": "scripts/production/check-migrations.mjs",
+   "de": "0ebac5771a06ca5e70eb277e011838f31ec48db1",
+   "ate": "0fd96b6d36caeb1d0210ab78bb96625fb0ad4791",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Inventário do go/no-go de migrations, delta inteiro desde 00d3019a: acrescenta 099 e 087 a approvedFiles, requiresExplicitAuthorization e pending, e corrige o comentário da 088. Não é carregado pelo app nem pelos crons; entra no fecho só pelo import calculado de scripts/assinatura-schema-completo.cjs (ensaio offline), que corta approvedFiles na 075 — as entradas novas ficam fora."
+  },
+  {
+   "regra": "SQL_TABELA_NO_FECHO",
+   "arquivo": "database/migrations/20261019_087_assinatura_avisos.sql",
+   "objeto": "assinatura_avisos",
+   "motivo": "citada em lib/assinatura/avisos-repositorio.ts",
+   "de": null,
+   "ate": "b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Migration 087 inteira (aditiva): cria assinatura_avisos (FKs para empresas e usuarios_administrativos), dois índices, a função kidmais_087_aviso_guarda e dois gatilhos, todos só nessa tabela; nenhuma tabela existente é alterada. As FKs só restringem DELETE/troca de chave das linhas-pai, que o B-14 não faz. Objeto: a tabela nova, citada por avisos-repositorio.ts."
+  },
+  {
+   "regra": "SQL_GATILHO_EM_TABELA_DO_FECHO",
+   "arquivo": "database/migrations/20261019_087_assinatura_avisos.sql",
+   "objeto": "kidmais_087_aviso_guarda",
+   "motivo": "gatilho em assinatura_avisos",
+   "de": null,
+   "ate": "b9a818d3f59f8f6cd3d217e9a8fc066de4ff4840",
+   "autoria": "Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.",
+   "analise": "Migration 087 inteira (aditiva): cria assinatura_avisos (FKs para empresas e usuarios_administrativos), dois índices, a função kidmais_087_aviso_guarda e dois gatilhos, todos só nessa tabela; nenhuma tabela existente é alterada. As FKs só restringem DELETE/troca de chave das linhas-pai, que o B-14 não faz. Objeto: a função de guarda, gatilho só em assinatura_avisos (não apaga histórico; transições permitidas)."
+  }
+ ],
+ "fecho": {
+  "de": 149,
+  "ate": 155,
+  "sqlTabelas": 108,
+  "sqlFuncoes": 131
+ },
+ "limites": {
+  "importsCalculados": [
+   "scripts/assinatura-interface-completa.cjs",
+   "scripts/assinatura-schema-completo.cjs"
+  ],
+  "sqlDinamico": [],
+  "funcoesSemCorpo": []
+ }
+}

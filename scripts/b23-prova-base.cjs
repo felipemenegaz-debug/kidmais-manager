@@ -60,6 +60,10 @@ const REVISAVEIS = new Set(['FECHO', 'CHAMADOR', 'RAIZ', 'SQL_TABELA_NO_FECHO', 
 const B23C = 'Revisão por agente: Claude (implementador, B-23c, 03/11/2026); aceite independente por agente: Astra (r1, 03/11/2026), '
     + 'das 21 análises nominais, exclusivamente para as regras, caminhos, pares integrais de blobs e objetos SQL registrados, '
     + 'sob D-B23c-1/2/3. Este aceite não encerra o P2-B23C-COD-R1-01, não substitui o §6 e não autoriza operação ou promoção.';
+const B23D = 'Revisão por agente: Claude (implementador, B-23d, 04/11/2026); aceite independente por agente: Astra (código r1, '
+    + '04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob '
+    + 'D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais '
+    + 'existentes. Este aceite não autoriza operação ou promoção.';
 const NOVO_087 = 'Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. ';
 const TESTE_087 = NOVO_087 + 'Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14.';
 const REVISOES = [
@@ -244,6 +248,94 @@ const REVISOES = [
         analise: 'Migration 087 inteira (aditiva): cria assinatura_avisos (FKs para empresas e usuarios_administrativos), dois índices, a '
             + 'função kidmais_087_aviso_guarda e dois gatilhos, todos só nessa tabela; nenhuma tabela existente é alterada. As FKs '
             + 'só restringem DELETE/troca de chave das linhas-pai, que o B-14 não faz. ' + 'Objeto: a função de guarda, gatilho só em assinatura_avisos (não apaga histórico; transições permitidas).',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'components/admin/AssinaturaAcoes.tsx',
+        de: '31c042fb6aa06bdd110304bedd4f3156c280b66c', ate: '60e8fac8491394a3671e0f0e03d00b9a61cb280a',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a = #311 (+7/−4; linhas 42, 84–85, 87, 90–91 e 159 do blob 60e8fac8): estado comProtocolo, lido de '
+            + 'data.instalado no GET /api/admin/assinatura/devolucao?opcoes=1 (campo já existente em lib/assinatura/devolucao.ts, inalterado), '
+            + 'e a frase do protocolo só aparece com a 089 instalada. Componente de UI no cliente: nenhum import novo (o de planos-comerciais.ts é '
+            + 'o de 00d3019a), nenhuma rota, SQL ou escrita nova; não está no caminho do B-14.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'components/site/secoes.tsx',
+        de: 'd2a02ce0a2a77e8c41bccae4676b077c418a4e8b', ate: '5be85ed6f68b70607b87c7a7664794139fd57df6',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a = #321 (+59/−29): marca iA.Fest nos textos (linhas 20, 36, 44, 54, 70, 85–86, 178, 234, 236, 249 e '
+            + '256 do blob 5be85ed6), seções novas ImportacaoDocumentos, FinanceiroDetalhes e Marketing (linhas 92–135) e o Wall-e só como '
+            + 'atendente, sem o Wall-e publicitário (linhas 139–141; bloco antigo 117–130 removido). Só JSX estático e textos do site público: '
+            + 'nenhum import mudou (o de lib/assinatura/texto.ts é o de 00d3019a), sem rota, SQL, fetch ou cálculo de cobrança.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'lib/assinatura/transacao-com-prazo.postgres.test.ts',
+        de: '3fab557a22351c1249347e93157cb025f09b5256', ate: 'a47298480692e2a52f21062ff5e9a406944786c0',
+        autoria: B23D,
+        analise: 'Teste (#313, D1 do PRAZO determinístico; +41/−10, linhas 12, 22–27, 120–136, 149, 168–257 do blob a4729848): suíte PG que roda '
+            + 'só no harness local em banco descartável (citada apenas por scripts/regressao-v1-selecao.cjs). Não roda em production, não entra '
+            + 'no build do web e não é importada por código de produção; não muda nenhum caminho do B-14.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/convites/service.ts',
+        de: '5d70a0ac5ebf2d3dbbb2592661ec405829d738a0', ate: '2e28822cdf519d925b3158f21c035e4e645bcdf1',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a (+40/−18; linhas 16–85, 166, 199, 222, 248–250 e 636–675 do blob 2e28822c) = o par já '
+            + 'aceito no B-23b (5d70a0ac → a77cf5f3, Convites avulsos: Acesso por conviteId, '
+            + 'ramo sem festa em comConvite, guarda do editor, publico() com LEFT JOIN e confirmar() travando festas só quando há festa) + a #315 '
+            + '(linhas 248–250 do blob 2e28822c): ao excluir a arte de um rascunho em modo completa (Convite pronto), o modo volta para modelo, '
+            + 'no mesmo UPDATE de convites da mesma transação e empresa. Escritas: só convites, convite_artes, convite_geracoes e '
+            + 'convite_eventos. Cobrança: o import de lerEstadoComercial (lib/assinatura/estado.ts) e a guarda 402 são os de 00d3019a; nenhum SQL '
+            + 'em tabela de assinatura, crédito, pagamento ou marcador do B-14.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/exportacao/pacote.ts',
+        de: '863abfe972079596819a39aa326937bd89309523', ate: '26099c4dfc464a98fcd538d1faf6c8500725e461',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a = #313, exportação em blocos (+41/−11; linhas 15, 17, 32–33, 178–194 e 374–409 do blob 26099c4d): '
+            + 'o cursor passa a ler só octet_length do PDF e cada bloco de até BLOCO_PDF_BYTES (1 MiB) vem por substring com o mesmo filtro de '
+            + 'empresa (WHERE do tenant AND t.id), no mesmo executor transacional; o Gravador escreve em laço até o fim (escrita parcial tratada) '
+            + 'e o tamanho e o hash finais são conferidos. Só leitura no banco; csv.ts (import de lib/assinatura/csv.ts) inalterado. A transação '
+            + 'REPEATABLE READ READ ONLY continua sendo obrigação do chamador (lib/exportacao/servico.ts). Nada de cobrança ou do B-14.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/site/catalogo.ts',
+        de: 'f282886a9bbdca6ab5f07026c177768e8b102a2e', ate: '2006ad357acd8a451b5d495470031996dd4ea748',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a (+16/−12; linhas 41–83 do blob 2006ad35; removidas as linhas 19 e 78–79 do blob f282886a) '
+            + '= o par já aceito no B-23c (f282886a → a650bd16, apresentação comercial dos planos: '
+            + 'descrições, cotas de importação, Copiloto e Convites, exclusões e posição do Wall-e, adicionais) + a #321, que tira do catálogo o '
+            + 'recurso walle_publicitario (linha 19 do blob f282886a, removida, e o adicional Wall-e publicitário, linha 79). Dados estáticos do site; o import de planos-comerciais.ts '
+            + '(condicoesComerciais, planosComerciais, valorComercial) é o de 00d3019a; o arquivo não calcula cobrança nem tem SQL.',
+    },
+    {
+        regra: 'FECHO', arquivo: 'lib/site/configuracao.ts',
+        de: '29a0d08476cd538d4818929e0f79b4b733003a15', ate: '57c006e2d377ef896a126687cd86de60932a4f28',
+        autoria: B23D,
+        analise: 'Delta completo desde 00d3019a = #321, só strings (linhas 2, 31–32 e 34–35 do blob 57c006e2): Kidmais/Kidmais Manager passam a '
+            + 'iA.Fest na frase de cadastro fechado e nas mensagens de WhatsApp e e-mail do site. Funções, assinaturas, variáveis de ambiente '
+            + 'lidas e retorno de configuracaoSite iguais. Está na árvore entregue do B-14, mas o pacote leva a versão da candidata, não a de '
+            + 'production.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'scripts/assinatura-avisos.cjs',
+        de: null, ate: 'd20388aed9cdd2853b2190bde39cf0322ed36c8d',
+        autoria: B23D,
+        analise: 'Arquivo inteiro (280 linhas; B-23c aceitou o blob e1aff377 da 087, aqui somado à #304/#309): job do cron de avisos. Configuração '
+            + '(linhas 38–99): simular por padrão; aplicar só com ASSINATURA_AVISOS_EMAIL=ligado, KIDMAIS_AVISOS_MODO e alvo explícito validado '
+            + 'por validarAlvo/opcoesConexao de assinatura-reconciliar.cjs (nunca DATABASE_URL), TLS obrigatório fora do local (linhas 101–115). '
+            + 'Execução (linhas 228–278): importa avisos-envio, avisos-repositorio, configuracao e acessos/email; escreve só em assinatura_avisos '
+            + 'por repositorioAvisos, em transações próprias; não consulta o Asaas. Diagnóstico (#309, linhas 118–221): ETAPAS, MOTIVOS e TIPOS '
+            + 'fechados e CODIGO_SEGURO, que restringe só o FORMATO do code (não garante o sigilo de um conteúdo externo compatível com esse '
+            + 'formato); cicloComEncerramento separa a falha do corpo da do encerramento; URL ilegível vira mensagem fixa. Fora da árvore '
+            + 'entregue do B-14 e não importado pelo app: isso é evidência auxiliar. Continuam necessárias a trava ASSINATURA_AVISOS_EMAIL '
+            + 'desligada na janela (D-B23c-2), conferida pela guarda AVISOS_EMAIL_LIGADOS, e as barreiras operacionais existentes.',
+    },
+    {
+        regra: 'RAIZ', arquivo: 'scripts/assinatura-avisos.test.cjs',
+        de: null, ate: 'fce75ad066407fff4fbb1edec341fbd0859c75ba',
+        autoria: B23D,
+        analise: 'Teste do job de avisos (302 linhas; B-23c aceitou o blob 4a68b8b5, aqui somado aos testes do log seguro da #309): roda no build '
+            + 'do cron (node --test) e no CI, nunca em runtime; não é importado por código de produção e não muda o caminho do B-14.',
     },
 ];
 const EVIDENCIAS = 'docs/evidencias/b23-bases-antigas';
