@@ -6,6 +6,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 import {
   ambienteAssinatura, carregar, catalogoNativo, cenario, congelarEAssinarKidmais, cpfValido, dia, executor, id, poolNaTransacao, type Cenario,
 } from "../../scripts/integracao-importados-test-support.ts";
+import { travarConfiguracaoAgenda } from "../agenda/trava-configuracao.ts";
 
 /**
  * Entrega B (112) — contrato de cliente PJ no PostgreSQL DESCARTÁVEL (modelo 112), pelos serviços reais:
@@ -49,6 +50,8 @@ async function cliente(c: Cenario, pj: boolean) {
 }
 async function proposta(c: Cenario, nativo: Nativo, clienteId: string, data: string) {
   const aniversariante = await id(a, `INSERT INTO aniversariantes (cliente_id, nome) VALUES ($1::uuid, 'Aniversariante PJ') RETURNING id`, [clienteId]);
+  // Com a 114 (merge com staging 03/11): o INSERT direto da suíte, fora dos serviços, toma a trava da configuração.
+  await travarConfiguracaoAgenda(executor(a), c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
   return id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, aniversariante_id, status)
       SELECT $1::date, '10:00', '22:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 30, 30, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $5::uuid, $6::uuid, 'AGUARDANDO_CONTRATO'

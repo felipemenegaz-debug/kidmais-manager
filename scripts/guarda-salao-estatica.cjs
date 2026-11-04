@@ -203,21 +203,311 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
   }
   const simboloDe = (nome) => checker.getSymbolAtLocation(nome);
 
+  /**
+   * Vínculos provados (P2-1 do Astra no delta do merge 03/11; P2-R2-1/P2-R2-2 na r2 de 04/11). A resolução pelo
+   * inicializador só vale para um vínculo que nada no repositório pode trocar. Pré-passada única e conservadora por
+   * todos os arquivos analisados (inclusive testes):
+   * - identificador: nenhuma escrita (=, compostas, ++/--, delete, for-in/of, qualquer alvo de desestruturação — o
+   *   abreviado `({h} = …)` resolve o símbolo do VALOR, não o da propriedade);
+   * - cadeia `raiz.p1…pn` (objeto): a raiz tem de ser um objeto literal novo (`const|let|var o = { … }`) ou um namespace
+   *   de import, que NUNCA vaza como valor — toda referência é `o.x` ou `o[…]` (sem alias, argumento, retorno, spread,
+   *   abreviado, export default); nenhum nome da cadeia é escrito por nome em lugar nenhum (`X.p =`, `X["p"] =`, delete,
+   *   desestruturação), sob qualquer alias ou tipo; elos intermediários não vazam por nome (`X.p` usado como valor,
+   *   `const {p} = X`); escrita por índice dinâmico na raiz/num elo, ou em base que não é identificador nem `X.p`
+   *   (`this[k] =`, `f()[k] =`), invalida; o `this` que vaza (valor ou índice dinâmico) exige raiz "pura" (só funções
+   *   sem `this` e literais); eval/with derrubam tudo.
+   * Fora disso o callee não resolve e o SQL fica não resolvido.
+   */
+  let mutacoes = null;
+  function simboloValor(n) {
+    let s = n.parent && ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n
+      ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
+    if (s && s.flags & ts.SymbolFlags.Alias) { try { s = checker.getAliasedSymbol(s); } catch { /* sem alvo */ } }
+    return s;
+  }
+  const literalDeChave = (a) => a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) || ts.isNumericLiteral(a)) ? a.text : null;
+  const ehBaseDeAcesso = (n) => n.parent && (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n;
+  const SUPER = Symbol("super"); // membro lido por `super`: nunca é próprio
+  const ehDeclaracaoDeAlias = (p) => ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p) || ts.isExportSpecifier(p) || ts.isImportEqualsDeclaration(p);
+  function coletarMutacoes() {
+    const atribuidos = new Map(), dinamicos = new Set(), nomesEscritos = new Set(), nomesDinamicos = new Set(), nomesEscapados = new Set();
+    const candidatos = new Map(); // texto do identificador → nós usados como valor (não base de acesso)
+    const membrosPorBase = new Map(), membrosPorElo = new Map(); // `id.membro` por texto de id; `X.elo.membro` por elo
+    const membrosDeThis = new Set(); // `this.membro`/`super.membro` em qualquer lugar (P2-R4-1); super = sempre herdado
+    let dinamicoGeral = false, thisVaza = false, total = false;
+    const aliases = []; // nomes locais de import/export (a raiz pode ser usada por outro nome)
+    const marcar = (s) => { if (s) atribuidos.set(s, (atribuidos.get(s) ?? 0) + 1); };
+    const dinamicoEm = (base) => {
+      base = semEmbrulho(base);
+      if (base && ts.isIdentifier(base)) { const s = simboloValor(base); if (s) dinamicos.add(s); }
+      else if (base && ts.isPropertyAccessExpression(base)) nomesDinamicos.add(base.name.text);
+      else if (base && ts.isElementAccessExpression(base) && literalDeChave(base.argumentExpression) !== null) nomesDinamicos.add(literalDeChave(base.argumentExpression));
+      // Outras bases (chamada, new, condicional…) só alcançam um objeto que já vazou como valor — a raiz e os elos são
+      // conferidos por isso. `this` pode ser a raiz (método chamado como `o.m()`): exige raiz pura.
+      else if (base && (base.kind === ts.SyntaxKind.ThisKeyword || base.kind === ts.SyntaxKind.SuperKeyword)) thisVaza = true;
+    };
+    const alvo = (e) => {
+      e = semEmbrulho(e);
+      if (!e) return;
+      if (ts.isIdentifier(e)) return marcar(simboloValor(e));
+      if (ts.isPropertyAccessExpression(e)) { nomesEscritos.add(e.name.text); return marcar(simbolo(e.name)); }
+      if (ts.isElementAccessExpression(e)) {
+        const chave = literalDeChave(e.argumentExpression);
+        if (chave !== null) { nomesEscritos.add(chave); const s = checker.getSymbolAtLocation(e); if (s) marcar(s); return; }
+        return dinamicoEm(e.expression);
+      }
+      if (ts.isArrayLiteralExpression(e)) { for (const x of e.elements) alvo(ts.isSpreadElement(x) ? x.expression : x); return; }
+      if (ts.isObjectLiteralExpression(e)) {
+        for (const p of e.properties) {
+          if (ts.isPropertyAssignment(p)) alvo(p.initializer);
+          else if (ts.isShorthandPropertyAssignment(p)) marcar(simboloValor(p.name)); // P2-R2-1: símbolo do valor
+          else if (ts.isSpreadAssignment(p)) alvo(p.expression);
+        }
+        return;
+      }
+      if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.EqualsToken) return alvo(e.left); // padrão
+      dinamicoGeral = true; // alvo de forma desconhecida: conservador
+    };
+    const ATRIB = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken,
+      ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.SlashEqualsToken, ts.SyntaxKind.PercentEqualsToken,
+      ts.SyntaxKind.AsteriskAsteriskEqualsToken, ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+      ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken, ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.BarEqualsToken,
+      ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+      ts.SyntaxKind.QuestionQuestionEqualsToken]);
+    const visitar = (n) => {
+      if (ts.isBinaryExpression(n) && ATRIB.has(n.operatorToken.kind)) alvo(n.left);
+      else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) alvo(n.operand);
+      else if (ts.isDeleteExpression(n)) alvo(n.expression);
+      else if ((ts.isForInStatement(n) || ts.isForOfStatement(n)) && !ts.isVariableDeclarationList(n.initializer)) alvo(n.initializer);
+      else if (ts.isWithStatement(n)) total = true;
+      // P2-R3-2: qualquer referência ao identificador eval (direta, `(eval)(…)`, alias, argumento) derruba tudo.
+      // Só não conta o nome numa declaração/literal (`{ eval: true }`, `function eval`); o abreviado `{eval}` e
+      // `globalThis.eval` contam (conservador: eval indireto também).
+      if (ts.isIdentifier(n) && n.text === "eval" && !(n.parent && !ts.isShorthandPropertyAssignment(n.parent)
+        && !ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) total = true;
+      // P2-R3-1: membro lido de uma base. Raiz e elos só podem ter membros PRÓPRIOS declarados no literal — um membro
+      // herdado (`__defineGetter__`, `__defineSetter__`, …) chamado na raiz recebe a raiz como `this` e pode trocá-la.
+      if (ts.isPropertyAccessExpression(n) || (ts.isElementAccessExpression(n) && literalDeChave(n.argumentExpression) !== null)) {
+        const membro = ts.isPropertyAccessExpression(n) ? n.name.text : literalDeChave(n.argumentExpression);
+        const b = n.expression;
+        if (ts.isIdentifier(b)) { const l = membrosPorBase.get(b.text); if (l) l.push(n); else membrosPorBase.set(b.text, [n]); }
+        // P2-R4-1: dentro de um método, `this` é o próprio objeto (raiz ou elo); `super.x(…)` lê do protótipo e passa
+        // o objeto como `this`. O membro lido conta contra os próprios de todo literal com método que usa this/super.
+        else if (b.kind === ts.SyntaxKind.ThisKeyword) membrosDeThis.add(membro);
+        else if (b.kind === ts.SyntaxKind.SuperKeyword) membrosDeThis.add(SUPER);
+        else if (ts.isPropertyAccessExpression(b) || (ts.isElementAccessExpression(b) && literalDeChave(b.argumentExpression) !== null)) {
+          const elo = ts.isPropertyAccessExpression(b) ? b.name.text : literalDeChave(b.argumentExpression);
+          const s = membrosPorElo.get(elo); if (s) s.add(membro); else membrosPorElo.set(elo, new Set([membro]));
+        }
+      }
+      if (ts.isIdentifier(n) && !ehBaseDeAcesso(n) && !(n.parent && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)
+        && !(n.parent && ts.isQualifiedName(n.parent)) && !(n.parent && ts.isTypeQueryNode(n.parent))) {
+        const lista = candidatos.get(n.text); if (lista) lista.push(n); else candidatos.set(n.text, [n]);
+      }
+      if (n.kind === ts.SyntaxKind.ThisKeyword && !ehBaseDeAcesso(n)) thisVaza = true;
+      // Elo usado como valor (não base de outro acesso, não callee): o objeto em `X.p` ganha alias.
+      if ((ts.isPropertyAccessExpression(n) || (ts.isElementAccessExpression(n) && literalDeChave(n.argumentExpression) !== null))
+        && !ehBaseDeAcesso(n) && !(n.parent && ts.isCallExpression(n.parent) && n.parent.expression === n)) {
+        nomesEscapados.add(ts.isPropertyAccessExpression(n) ? n.name.text : literalDeChave(n.argumentExpression));
+      }
+      if (ts.isElementAccessExpression(n) && literalDeChave(n.argumentExpression) === null) {
+        // `X[k]` em qualquer posição (valor, base de outro acesso, callee `X[k](…)` com X como `this`) alcança qualquer
+        // membro de X, próprio ou herdado: X (ou o nome do elo) deixa de ser provado.
+        dinamicoEm(n.expression);
+      }
+      if (ts.isIdentifier(n) && n.parent && ehDeclaracaoDeAlias(n.parent) && n.parent.name === n) aliases.push(n);
+      ts.forEachChild(n, visitar);
+    };
+    for (const sf of nossos) visitar(sf);
+    return { atribuidos, dinamicos, nomesEscritos, nomesDinamicos, nomesEscapados, candidatos, aliases, membrosPorBase, membrosPorElo, membrosDeThis, dinamicoGeral, thisVaza, total, escapaCache: new Map(), nomesPorAlvo: null };
+  }
+  function mutavel(s) {
+    if (!s) return false;
+    mutacoes ??= coletarMutacoes();
+    if (mutacoes.total || mutacoes.dinamicos.has(s)) return true;
+    const n = mutacoes.atribuidos.get(s) ?? 0;
+    if (n === 0) return false;
+    if (n >= 2) return true;
+    // Uma atribuição: só é a própria declaração quando todas as declarações nascem de atribuição (expando de JS).
+    return !(s.declarations ?? []).every((d) => d.parent && ts.isBinaryExpression(d.parent) ||
+      (ts.isBinaryExpression(d) && d.operatorToken.kind === ts.SyntaxKind.EqualsToken));
+  }
+  /** Algum uso do símbolo como valor (fora de `s.x`/`s[…]`), por qualquer nome local que o importe? */
+  function vazaComoValor(s) {
+    const m = mutacoes;
+    if (m.escapaCache.has(s)) return m.escapaCache.get(s);
+    if (!m.nomesPorAlvo) {
+      m.nomesPorAlvo = new Map();
+      for (const n of m.aliases) { const a = simboloValor(n); if (!a) continue; const c = m.nomesPorAlvo.get(a); if (c) c.add(n.text); else m.nomesPorAlvo.set(a, new Set([n.text])); }
+    }
+    const nomes = new Set([s.name, ...(m.nomesPorAlvo.get(s) ?? [])]);
+    let vaza = false;
+    for (const nome of nomes) {
+      for (const n of m.candidatos.get(nome) ?? []) {
+        if (n.parent && ehDeclaracaoDeAlias(n.parent)) continue; // a própria importação/reexportação (os usos são conferidos)
+        if ((s.declarations ?? []).some((d) => d.name === n)) continue; // o nome na declaração
+        if (simboloValor(n) === s) { vaza = true; break; }
+      }
+      if (vaza) break;
+    }
+    m.escapaCache.set(s, vaza);
+    return vaza;
+  }
+  /** Objeto literal "puro": só funções sem `this` próprio, literais e objetos puros — nenhum método herda o objeto. */
+  function objetoPuro(o) {
+    // Uma função/método/acessor/classe interna tem receptor próprio no corpo, mas partes dela são avaliadas no contexto
+    // externo e enxergam o this/super do método (P2-R5-1): decoradores, nome computado e, na classe, a herança
+    // (`extends`) e o nome computado e os decoradores de cada membro. Só essas partes são visitadas; o corpo não.
+    const receptorProprio = (n) => ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isMethodDeclaration(n)
+      || ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n) || ts.isConstructorDeclaration(n) || ts.isClassLike(n);
+    const usaThis = (f) => {
+      let achou = false;
+      const externas = (n) => {
+        for (const d of (ts.canHaveDecorators(n) ? ts.getDecorators(n) : undefined) ?? []) v(d);
+        if (n.name && ts.isComputedPropertyName(n.name)) v(n.name);
+        // Decoradores de parâmetro (legados) também são avaliados fora (P2-R6-1); o default do parâmetro não: usa o
+        // receptor da invocação interna.
+        for (const p of n.parameters ?? []) for (const d of (ts.canHaveDecorators(p) ? ts.getDecorators(p) : undefined) ?? []) v(d);
+        if (ts.isClassLike(n)) {
+          for (const h of n.heritageClauses ?? []) v(h);
+          for (const membro of n.members) externas(membro);
+        }
+      };
+      const v = (n) => {
+        if (achou) return;
+        if (n.kind === ts.SyntaxKind.ThisKeyword || n.kind === ts.SyntaxKind.SuperKeyword) { achou = true; return; }
+        if (n !== f && receptorProprio(n)) { externas(n); return; }
+        ts.forEachChild(n, v);
+      };
+      v(f);
+      return achou;
+    };
+    for (const p of o.properties) {
+      if (ts.isMethodDeclaration(p) || ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) { if (usaThis(p)) return false; continue; }
+      if (!ts.isPropertyAssignment(p)) return false;
+      const v = semEmbrulho(p.initializer);
+      if (ts.isArrowFunction(v)) continue;
+      if (ts.isFunctionExpression(v)) { if (usaThis(v)) return false; continue; }
+      if (ts.isObjectLiteralExpression(v)) { if (!objetoPuro(v)) return false; continue; }
+      if (ts.isStringLiteral(v) || ts.isNoSubstitutionTemplateLiteral(v) || ts.isNumericLiteral(v) || v.kind === ts.SyntaxKind.TrueKeyword || v.kind === ts.SyntaxKind.FalseKeyword || v.kind === ts.SyntaxKind.NullKeyword) continue;
+      return false;
+    }
+    return true;
+  }
+  /** Motivo pelo qual o vínculo do callee não está provado; null quando está. */
+  function vinculoNaoProvado(expr) {
+    mutacoes ??= coletarMutacoes();
+    const m = mutacoes;
+    if (m.total) return "eval/with no repositório";
+    const elos = [];
+    let e = semEmbrulho(expr);
+    while (e && ts.isPropertyAccessExpression(e)) { elos.unshift(e); e = semEmbrulho(e.expression); }
+    if (!e || !ts.isIdentifier(e)) return "raiz não é identificador";
+    const sRaiz = simboloValor(e);
+    if (!elos.length) return mutavel(sRaiz) ? "identificador reatribuído" : null;
+    if (m.dinamicoGeral) return "objeto mutável por índice/forma dinâmica no repositório";
+    if (!sRaiz || mutavel(sRaiz)) return "raiz reatribuída ou mutada por índice";
+    const d = sRaiz.declarations?.[0];
+    const ehNamespace = (sRaiz.flags & ts.SymbolFlags.ValueModule) !== 0 && d && ts.isSourceFile(d);
+    const literal = d && sRaiz.declarations.length === 1 && ts.isVariableDeclaration(d) && ts.isIdentifier(d.name) && d.initializer
+      && ts.isObjectLiteralExpression(semEmbrulho(d.initializer)) ? semEmbrulho(d.initializer) : null;
+    if (!ehNamespace && !literal) return "raiz não é objeto literal novo nem namespace";
+    if (vazaComoValor(sRaiz)) return "raiz vaza como valor (alias, argumento, retorno ou spread)";
+    if (literal && m.thisVaza && !objetoPuro(literal)) return "this vaza no repositório e a raiz tem método com this";
+    if (literal && !membrosProprios(sRaiz, literal)) return "raiz com membro herdado ou não declarado (receptor implícito)";
+    if (literal && !thisSoProprios(literal)) return "raiz com método que lê membro herdado por this/super";
+    for (let i = 0; i < elos.length; i++) {
+      const nome = elos[i].name.text;
+      if (m.nomesEscritos.has(nome) || mutavel(simbolo(elos[i].name))) return `elo ${nome} escrito`;
+      if (i === elos.length - 1) break;
+      if (m.nomesEscapados.has(nome) || m.nomesDinamicos.has(nome)) return `elo ${nome} vaza ou é mutado por índice`;
+      // Elo intermediário: objeto literal declarado (propriedade de literal ou const exportada), só com membros próprios.
+      const sElo = simbolo(elos[i].name);
+      const de = sElo?.declarations ?? [];
+      const dl = de.length === 1 && (ts.isPropertyAssignment(de[0]) || ts.isVariableDeclaration(de[0])) && de[0].initializer
+        && ts.isObjectLiteralExpression(semEmbrulho(de[0].initializer)) ? semEmbrulho(de[0].initializer) : null;
+      if (!dl) return `elo ${nome} não é objeto literal declarado`;
+      const proprios = propriosDe(dl);
+      if (!proprios || [...(m.membrosPorElo.get(nome) ?? [])].some((x) => !proprios.has(x))) return `elo ${nome} com membro herdado ou não declarado`;
+      if (ts.isVariableDeclaration(de[0])) { // objeto de módulo alcançado pelo namespace: as mesmas regras da raiz
+        if (mutavel(sElo) || vazaComoValor(sElo) || !membrosProprios(sElo, dl)) return `elo ${nome} mutado, com alias ou membro herdado no módulo`;
+      }
+      if (m.thisVaza && !objetoPuro(dl)) return `this vaza no repositório e o elo ${nome} tem método com this`;
+      if (!thisSoProprios(dl)) return `elo ${nome} com método que lê membro herdado por this/super`;
+    }
+    return null;
+  }
+  /** Nomes próprios declarados num literal; null se há spread ou chave computada (conjunto desconhecido). */
+  function propriosDe(literal) {
+    const s = new Set();
+    for (const p of literal.properties) {
+      if (ts.isSpreadAssignment(p)) return null;
+      const nome = p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name) || ts.isNumericLiteral(p.name)) ? p.name.text : null;
+      if (nome === null) return null;
+      s.add(nome);
+    }
+    return s;
+  }
+  /**
+   * P2-R4-1: um literal com método que usa this/super (não puro) recebe a si mesmo como `this`. Todo `this.x`/`this["x"]`
+   * do repositório tem de ser membro próprio dele, e `super.x` nunca é. Conservador: os acessos por this não são
+   * atribuídos a um objeto específico.
+   */
+  function thisSoProprios(literal) {
+    if (objetoPuro(literal)) return true;
+    const proprios = propriosDe(literal);
+    if (!proprios) return false;
+    for (const x of mutacoes.membrosDeThis) if (!proprios.has(x)) return false;
+    return true;
+  }
+  /** Todo `s.membro` (por qualquer nome local de s) lê um membro próprio do literal — nenhum herdado (P2-R3-1). */
+  function membrosProprios(s, literal) {
+    const m = mutacoes;
+    const proprios = propriosDe(literal);
+    if (!proprios) return false;
+    vazaComoValor(s); // garante m.nomesPorAlvo
+    for (const nome of new Set([s.name, ...(m.nomesPorAlvo?.get(s) ?? [])])) {
+      for (const n of m.membrosPorBase.get(nome) ?? []) {
+        const membro = ts.isPropertyAccessExpression(n) ? n.name.text : literalDeChave(n.argumentExpression);
+        if (!proprios.has(membro) && simboloValor(n.expression) === s) return false;
+      }
+    }
+    return true;
+  }
+
   /** Declaração de função alcançada pelo callee (identificador, propriedade, require ou desestruturação de require). */
-  function funcaoDoCallee(expr, prof = 0) {
+  function funcaoDoCallee(expr, prof = 0, permissivo = false) {
     if (prof > 4) return null;
+    if (!permissivo && vinculoNaoProvado(expr)) return null; // vínculo não provado imutável: não resolve pelo inicializador (P2-1, P2-R2)
     const s = simbolo(ts.isPropertyAccessExpression(expr) ? expr.name : expr);
     const decls = [...(s?.declarations ?? [])].sort((a, b) => Number(!!b.body) - Number(!!a.body));
     for (const d of decls) {
       if (ehFuncao(d)) return d;
       if ((ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d)) && d.initializer && ehFuncao(semEmbrulho(d.initializer))) return semEmbrulho(d.initializer);
       if ((ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d)) && d.initializer && (ts.isIdentifier(d.initializer) || ts.isPropertyAccessExpression(d.initializer))) {
-        const f = funcaoDoCallee(d.initializer, prof + 1); if (f) return f;
+        const f = funcaoDoCallee(d.initializer, prof + 1, permissivo); if (f) return f;
       }
-      if (ts.isShorthandPropertyAssignment(d)) { const f = funcaoDoCallee(d.name, prof + 1); if (f) return f; }
+      if (ts.isShorthandPropertyAssignment(d)) { const f = funcaoDoCallee(d.name, prof + 1, permissivo); if (f) return f; }
       if (d.parent && ts.isBinaryExpression(d.parent) && ehFuncao(semEmbrulho(d.parent.right))) return semEmbrulho(d.parent.right);
     }
     return null;
+  }
+  /**
+   * Callback de map/flatMap por identificador (P2-1 do Astra, delta do merge 03/11): só resolve quando o vínculo é
+   * imutável — uma única declaração, `const` com identificador simples e inicializador que é a própria função literal.
+   * Não seguir alias (`const a = b`), nem let/var (reatribuíveis), nem parâmetro, nem declaração de função (em JS
+   * `function f` também é reatribuível). Fora disso devolve null e o SQL fica não resolvido (conservador).
+   */
+  function callbackImutavel(identificador) {
+    const s = simbolo(identificador);
+    const decls = s?.declarations ?? [];
+    if (decls.length !== 1 || mutavel(s)) return null;
+    const d = decls[0];
+    if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name) || !d.initializer) return null;
+    if (!ts.isVariableDeclarationList(d.parent) || (d.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    const f = semEmbrulho(d.initializer);
+    return f && (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) ? f : null;
   }
   function semEmbrulho(e) {
     while (e && (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || (ts.isSatisfiesExpression && ts.isSatisfiesExpression(e)) || ts.isTypeAssertionExpression(e) || ts.isNonNullExpression(e) || ts.isAwaitExpression(e))) e = e.expression;
@@ -239,9 +529,16 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
     if (ehSinkBase(call) && call.arguments[0]) saida.push({ funcao: null, entrada: { expr: call.arguments[0], pilha: [] } });
     const f = funcaoDoCallee(call.expression);
     if (f && sinks.has(f)) for (const entrada of sinks.get(f).values()) saida.push({ funcao: f, entrada });
+    else if (!f) {
+      // Vínculo não provado (P2-R2): se o alvo pelo inicializador é sink derivado, a chamada não some — vira não resolvida.
+      const fp = funcaoDoCallee(call.expression, 0, true);
+      // A origem é a própria chamada: a exceção de outra função (ex.: do aplicador) não absorve um vínculo não provado aqui.
+      if (fp && sinks.has(fp)) saida.push({ funcao: null, entrada: { expr: call, pilha: [], naoProvado: vinculoNaoProvado(call.expression) } });
+    }
     return saida;
   }
   function avaliarEntrada(call, funcao, entrada) {
+    if (entrada.naoProvado) return NAO(`vínculo não provado: ${entrada.naoProvado}`);
     let amb = funcao ? ligar(funcao, call, null) : null;
     for (const [fk, ck] of entrada.pilha) amb = ligar(fk, ck, amb);
     return valorDe(alvo(REF(entrada.expr, amb)));
@@ -477,7 +774,11 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
       if (m === "map" || m === "flatMap") {
         const els = elementosDe(REF(base, amb), prof + 1);
         if (!Array.isArray(els)) return els;
-        const cb = semEmbrulho(no.arguments[0]);
+        // Merge com staging 03/11 (cliente PJ, colunasCliente): callback também pode ser um identificador, mas só com
+        // vínculo imutável (callbackImutavel: `const nome = <função literal>`). Reatribuição, alias, let/var, parâmetro
+        // ou declaração de função seguem não resolvidos (P2-1 do Astra no delta do merge).
+        const arg = semEmbrulho(no.arguments[0]);
+        const cb = arg && (ehFuncao(arg) ? arg : ts.isIdentifier(arg) ? callbackImutavel(arg) : null);
         if (!cb || !ehFuncao(cb)) return { nao: "map sem função literal" };
         const out = [];
         els.forEach((e) => {
@@ -644,7 +945,10 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
       }
       ts.forEachChild(n, visitar);
     })(sf);
-    return invalida ? null : saida;
+    if (invalida) return null;
+    mutacoes ??= coletarMutacoes();
+    if (mutacoes.total || (mutacoes.atribuidos.get(s) ?? 0) > saida.length) return null; // P2-R2-1: outra forma de escrita
+    return saida;
   }
 
   const PATH = { join: (...a) => path.join(...a), resolve: (...a) => path.resolve(raiz, ...a), normalize: (a) => path.normalize(a), dirname: (a) => path.dirname(a), basename: (...a) => path.basename(...a) };

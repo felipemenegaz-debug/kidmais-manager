@@ -58,7 +58,10 @@ const APLICADORES = [
   "festa-016-prepare-environments.cjs", "festa-016-preservacao.cjs", "festa-016-verify-environments.cjs",
   "migration-013.apply.cjs", "migration-014.apply.cjs", "migration-014.validation.cjs", "migration-015.integration.cjs",
   "migration-016.integration.cjs", "migration-078-staging.cjs", "migration-079-production.cjs", "migration-079-staging.cjs",
-  "migration-083-staging.cjs", "migration-084-production.cjs", "migration-084-staging.cjs", "migration-085-086-staging.cjs",
+  "migration-083-staging.cjs", "migration-084-production.cjs",
+  // Merge com staging 5f38b31a (03/11/2026): aplicadores 087 (cobrança) e 112 (cliente PJ), mesma forma dos demais
+  // (os wrappers -staging/-production só herdavam a origem do -comum; sem exceção própria, lista exata).
+  "migration-087-comum.cjs", "migration-112-comum.cjs", "migration-084-staging.cjs", "migration-085-086-staging.cjs",
   "migration-088-comum.cjs", "migration-089-comum.cjs", "migration-090-comum.cjs", "migration-091-comum.cjs",
   "migration-092-094-comum.cjs", "migration-095-comum.cjs", "migration-096-comum.cjs", "migration-097-comum.cjs",
   "migration-098-comum.cjs", "migration-099-comum.cjs", "migration-099-staging.cjs", "migration-100-comum.cjs",
