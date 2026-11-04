@@ -109,6 +109,19 @@
       "arquivo": "festas.md",
       "id": "festas",
       "titulo": "Festas",
+      "versao": 3,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "fd162359805c43fb7c0c08a6dc70ee79a29e3120b950943d906d96d76a8949e9"
+    },
+    {
+      "arquivo": "financeiro-recebimentos.md",
+      "id": "financeiro-recebimentos",
+      "titulo": "Recebimentos e parcelas",
       "versao": 2,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
@@ -116,20 +129,7 @@
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "0183579062d0d1a9c5bf3e19596ab8be1ea32ebdef5dcdccea6b684cc50ca872"
-    },
-    {
-      "arquivo": "financeiro-recebimentos.md",
-      "id": "financeiro-recebimentos",
-      "titulo": "Recebimentos e parcelas",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
-      "vigenteAte": null,
-      "situacao": "APROVADO",
-      "acl": {
-        "tipo": "PLATAFORMA"
-      },
-      "sha256": "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58"
+      "sha256": "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72"
     },
     {
       "arquivo": "importar-documentos.md",
@@ -187,14 +187,14 @@
       "arquivo": "primeiros-passos.md",
       "id": "primeiros-passos",
       "titulo": "Primeiros passos",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "998ee37fe80674c1896eec4c89c91ece1aab1c842a005bdcd5ed5f83d5fdf3f5"
+      "sha256": "2083a2d593da0ce04165e23cbb9814f0071a1f35da6265429e119eb2428fc61d"
     },
     {
       "arquivo": "privacidade-e-exportacao.md",
