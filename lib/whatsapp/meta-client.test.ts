@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { trocarCodigoEValidarAtivos } from './meta-client.ts';
+import { CORPO_NAO_LIDO, registroRecusaMeta, trocarCodigoEValidarAtivos } from './meta-client.ts';
 import { exigirConfiguracaoWhatsappPrivada } from './configuracao.ts';
 
 const config = exigirConfiguracaoWhatsappPrivada({
@@ -280,4 +280,109 @@ test('inscrição tem prazo próprio (AbortSignal) na chamada', async () => {
   await trocarCodigoEValidarAtivos(entrada, config, meta.fetch);
   assert.equal(meta.sinais.length, 1);
   assert.ok(meta.sinais[0] instanceof AbortSignal);
+});
+
+/**
+ * Troca do código (03/11/2026): a tentativa real em staging (23:27Z) parou em META_API_RECUSOU; causa provável, o envio de
+ * `redirect_uri` na troca. A troca documentada do Embedded Signup (Tech Provider) usa só client_id, client_secret e code.
+ */
+test('troca do código: só client_id, client_secret e code — sem redirect_uri', async () => {
+  const meta = metaSimulada();
+  await trocarCodigoEValidarAtivos(entrada, config, meta.fetch);
+  const troca = new URL(meta.urls[0]);
+  assert.equal(troca.origin + troca.pathname, 'https://graph.facebook.com/v24.0/oauth/access_token');
+  assert.deepEqual([...troca.searchParams.keys()].sort(), ['client_id', 'client_secret', 'code']);
+  assert.equal(troca.searchParams.get('code'), 'codigo-sintetico');
+  assert.equal(troca.searchParams.get('client_id'), '1');
+  assert.ok(!meta.urls[0].includes('example.invalid'), 'o redirect configurado não vai para a Meta');
+});
+
+/** Registro seguro: só etapa, inteiros e listas fechadas; nenhum texto vindo da Meta (message, type fora da lista, fbtrace). */
+const SEGREDOS = ['codigo-sintetico', 'segredo-sintetico-valido', 'token-sintetico', 'example.invalid', 'redirect_uri', 'mensagem-com-dado', 'AbC_12-x', 'fbtrace'];
+const erroMeta = { error: { message: 'mensagem-com-dado redirect_uri https://staging.example.invalid/callback', type: 'OAuthException', code: 100, error_subcode: 36008, fbtrace_id: 'AbC_12-x' } };
+type Falha = 'oauth' | 'debug' | 'dono' | 'numeros';
+function metaRecusando(etapaQueFalha: Falha, resposta: () => Response) {
+  const ok = metaSimulada();
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const etapa = url.includes('/oauth/access_token') ? 'oauth' : url.includes('/debug_token') ? 'debug' : url.includes('owner_business_info') ? 'dono' : url.includes('/phone_numbers') ? 'numeros' : 'outra';
+    if (etapa === etapaQueFalha) return resposta();
+    return ok.fetch(input, init);
+  }) as typeof fetch;
+}
+const json = (corpo: unknown, status: number) => () => new Response(typeof corpo === 'string' ? corpo : JSON.stringify(corpo), { status });
+const ETAPA: Record<Falha, string> = { oauth: 'troca_codigo', debug: 'debug_token', dono: 'dono_waba', numeros: 'numeros' };
+type Avisos = { mock: { resetCalls(): void; callCount(): number; calls: { arguments: unknown[] }[] } };
+
+async function umRegistro(avisos: Avisos, promessa: Promise<unknown>, codigo: string, rotulo: string) {
+  avisos.mock.resetCalls();
+  await assert.rejects(promessa, { code: codigo }, rotulo);
+  assert.equal(avisos.mock.callCount(), 1, `${rotulo}: um registro`);
+  assert.equal(avisos.mock.calls[0].arguments.length, 1);
+  const linha = String(avisos.mock.calls[0].arguments[0]);
+  for (const s of SEGREDOS) assert.ok(!linha.includes(s), `${rotulo}: ${s} fora do log`);
+  return JSON.parse(linha).whatsappMetaRecusa as Record<string, unknown>;
+}
+
+test('recusa da Meta (4xx com erro) registra etapa, inteiros e tipo da lista, sem texto da Meta', async (t) => {
+  const avisos = t.mock.method(console, 'warn', () => {});
+  for (const falha of ['oauth', 'debug', 'numeros', 'dono'] as const) {
+    const codigo = falha === 'dono' ? 'META_RELACAO_NAO_CONFIRMADA' : 'META_API_RECUSOU';
+    const r = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando(falha, json(erroMeta, 400))), codigo, falha);
+    assert.deepEqual(r, { etapa: ETAPA[falha], http: 400, corpo: 'com_erro', codigo: 100, subcodigo: 36008, tipo: 'OAuthException' });
+  }
+});
+
+test('HTTP 200 com error e corpo ilegível também registram, nas quatro etapas', async (t) => {
+  const avisos = t.mock.method(console, 'warn', () => {});
+  for (const falha of ['oauth', 'debug', 'numeros', 'dono'] as const) {
+    const codigo = falha === 'dono' ? 'META_RELACAO_NAO_CONFIRMADA' : 'META_API_RECUSOU';
+    const com200 = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando(falha, json(erroMeta, 200))), codigo, `${falha} 200+error`);
+    assert.deepEqual([com200.etapa, com200.http, com200.corpo, com200.codigo], [ETAPA[falha], 200, 'com_erro', 100]);
+    const ilegivel = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando(falha, json('<html>mensagem-com-dado</html>', 400))), codigo, `${falha} ilegível`);
+    assert.deepEqual(ilegivel, { etapa: ETAPA[falha], http: 400, corpo: 'ilegivel', codigo: null, subcodigo: null, tipo: null });
+  }
+});
+
+test('dono 5xx: recusa pelo status, sem esperar o corpo (que pode nunca terminar)', async (t) => {
+  const avisos = t.mock.method(console, 'warn', () => {});
+  const pendente = () => new Response(new ReadableStream({ start() { /* nunca envia nem fecha */ } }), { status: 503 });
+  let relogio: ReturnType<typeof setTimeout> | undefined;
+  const prazo = new Promise((_, rejeitar) => { relogio = setTimeout(() => rejeitar(new Error('esperou o corpo do 5xx')), 2000); });
+  try {
+    const r = await umRegistro(avisos, Promise.race([trocarCodigoEValidarAtivos(entrada, config, metaRecusando('dono', pendente)), prazo]), 'META_API_RECUSOU', 'dono 503 pendente');
+    assert.deepEqual(r, { etapa: 'dono_waba', http: 503, corpo: 'nao_lido', codigo: null, subcodigo: null, tipo: null });
+  } finally { clearTimeout(relogio); }
+  const comErro = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando('dono', json(erroMeta, 500))), 'META_API_RECUSOU', 'dono 500');
+  assert.equal(comErro.corpo, 'nao_lido', 'nem o corpo pronto do 5xx é lido');
+});
+
+test('sucesso e recusas locais (sem erro da Meta) não registram recusa da Meta', async (t) => {
+  const avisos = t.mock.method(console, 'warn', () => {});
+  await trocarCodigoEValidarAtivos(entrada, config, metaSimulada().fetch);
+  await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, metaSimulada({ dono: { id: '20' } }).fetch), { code: 'META_RELACAO_NAO_CONFIRMADA' });
+  assert.equal(avisos.mock.callCount(), 0);
+});
+
+test('registroRecusaMeta: tipo só da lista fechada; inteiros com limites; fbtrace e textos nunca saem', () => {
+  const r = (body: unknown, http = 400) => registroRecusaMeta('troca_codigo', http, body).whatsappMetaRecusa;
+  // Textos que passariam por um filtro de alfabeto (nome, telefone) não saem: tipo vira 'outro', fbtrace não existe.
+  const pessoal = r({ error: { type: 'MariaSilva', fbtrace_id: '5511999999999', code: 1 } });
+  assert.deepEqual(pessoal, { etapa: 'troca_codigo', http: 400, corpo: 'com_erro', codigo: 1, subcodigo: null, tipo: 'outro' });
+  assert.ok(!JSON.stringify(pessoal).includes('Maria') && !JSON.stringify(pessoal).includes('5511999999999'));
+  for (const tipo of ['OAuthException', 'GraphMethodException', 'FacebookApiException', 'GraphBatchException']) assert.equal(r({ error: { type: tipo } }).tipo, tipo);
+  for (const tipo of ['oauthexception', 'OAuthException ', 'x'.repeat(41), 123, null, {}]) assert.equal(r({ error: { type: tipo } }).tipo, 'outro', String(tipo));
+  assert.equal(r({ error: {} }).tipo, null, 'sem type: null');
+  // Inteiros: 0 e 999.999.999 entram; negativos, frações, 1e9, strings, NaN e Infinity viram null.
+  assert.deepEqual([r({ error: { code: 0 } }).codigo, r({ error: { code: 999_999_999 } }).codigo], [0, 999_999_999]);
+  for (const v of [-1, 1.5, 1_000_000_000, '100', Number.NaN, Infinity]) {
+    assert.equal(r({ error: { code: v, error_subcode: v } }).codigo, null, String(v));
+    assert.equal(r({ error: { code: v, error_subcode: v } }).subcodigo, null, String(v));
+  }
+  assert.equal(r({}, 1_000_000_000).http, null);
+  assert.equal(r(null, 502).corpo, 'ilegivel');
+  assert.equal(r({ data: [] }, 200).corpo, 'sem_erro');
+  assert.equal(r({ error: 'texto' }).codigo, null);
+  assert.equal(r(CORPO_NAO_LIDO, 503).corpo, 'nao_lido');
+  assert.ok(!('fbtrace' in r(erroMeta)), 'fbtrace não faz parte do registro');
 });
