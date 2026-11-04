@@ -7,9 +7,12 @@ A tela [Primeiros passos](/admin/inicio) mostra o mínimo para começar a usar o
 Para abrir:
 
 1. Clique no cartão da sua conta, no rodapé do menu lateral.
-2. Escolha **Primeiros passos**.
+2. Abra [Ajuda e suporte](/admin/ajuda).
+3. Em **Atalhos**, clique em **Primeiros passos**.
 
-Você também encontra o atalho em [Ajuda e suporte](/admin/ajuda). Nada dessa lista é obrigatório para entrar no sistema, e você pode fazer na ordem que preferir.
+Quem tem acesso de Gestão numa empresa com assinatura também vê **Primeiros passos** direto no cartão da conta. Nada dessa lista é obrigatório para entrar no sistema, e você pode fazer na ordem que preferir.
+
+!video[Vídeo: primeiros passos no sistema, passo a passo](/ajuda/videos/primeiros-passos.mp4)
 
 ## Como ler cada item
 
