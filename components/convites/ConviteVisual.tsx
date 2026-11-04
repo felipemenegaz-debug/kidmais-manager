@@ -1,20 +1,19 @@
 'use client';
 import type { Conteudo } from '@/lib/convites/domain';
 import { temaVisual, tintaLegivel, visualPadrao } from '@/lib/convites/visual';
-import { modeloComFoto } from '@/lib/convites/modelos';
+import SeletorComposicao from './SeletorComposicao';
+import type { Composicao } from './composicao';
 
 type Visual = NonNullable<Conteudo['visual']>;
-export default function ConviteVisual({ conteudo, arte, ui, busy, mudar, extrair, mostrarPosicao = true }: {
+export default function ConviteVisual({ conteudo, arte, ui, busy, mudar, extrair, opcoesPosicao = [] }: {
   conteudo: Conteudo; arte?: string; ui: Record<string, string>; busy: boolean;
-  mudar: (visual: Visual) => void; extrair: () => void; mostrarPosicao?: boolean;
+  mudar: (visual: Visual) => void; extrair: () => void; opcoesPosicao?: Composicao[];
 }) {
   const visual: Visual = conteudo.visual ?? visualPadrao, tema = temaVisual(conteudo);
   return <>
-    {mostrarPosicao && arte && !modeloComFoto(conteudo.tema) && <div className={ui.posicaoImagem}>
+    {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}>
       <p>Posição da imagem</p>
-      <div className={ui.acoes}>
-        {(['fundo', 'topo'] as const).map(posicao => <button key={posicao} type="button" disabled={busy} aria-pressed={(visual.posicao ?? 'fundo') === posicao && visual.modo !== 'completa'} onClick={() => mudar({ ...visual, modo: 'modelo', posicao })}>{posicao === 'fundo' ? 'Imagem como fundo' : 'Imagem no topo'}</button>)}
-      </div>
+      <SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.acoes} mudar={v => { if (v) mudar(v); }} />
     </div>}
     <details className={ui.ajustesVisual}>
     <summary>Personalizar cores</summary>
