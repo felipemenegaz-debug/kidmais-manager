@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { temas, type Conteudo } from '@/lib/convites/domain';
 import { baseNeutra, modeloBiblioteca, modeloComFoto, modelosBiblioteca } from '@/lib/convites/modelos';
-import ConviteArte, { baixarConvite } from './ConviteArte';
+import ConviteArte, { baixarConvite, dataBonita } from './ConviteArte';
 import PromptComCorretor from './PromptComCorretor';
 import ConviteVisual from './ConviteVisual';
 import ConvitePresencas from './ConvitePresencas';
@@ -17,7 +17,9 @@ import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
-import { aplicarModoArteLocal, selecionarArte } from './arte-local';
+import { aplicarModoArteLocal, selecionarArte, semArte } from './arte-local';
+import SeletorComposicao from './SeletorComposicao';
+import { opcoesComposicao } from './composicao';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 import VincularFesta from './VincularFesta';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
@@ -169,7 +171,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     if (file.size > 5_000_000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { setErro('Envie PNG, JPEG ou WebP de até 5 MB.'); return; }
     try {
       const imagem = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file); });
-      const r = await executar({ acao: 'upload', imagem }, 'Arte enviada. Salve ou publique para aplicar.', true);
+      const dica = !dados?.laboratorioLocal && conteudo && !modeloComFoto(conteudo.tema) ? ' Sua imagem já tem os dados da festa? Escolha “Convite pronto”.' : '';
+      const r = await executar({ acao: 'upload', imagem }, `Arte enviada. Salve ou publique para aplicar.${dica}`, true);
       if (r?.arteId) setConteudo(c => c ? selecionarArte(c, r.arteId, false) : c);
     } catch { setErro('Não foi possível ler o arquivo.'); }
   }
@@ -317,12 +320,17 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     const id = arteExcluir.id;
     const r = await executar({ acao: 'excluir_arte', arteId: id, revisao: dados.revisao }, 'Imagem excluída da galeria. As demais alterações no editor foram preservadas.', true);
     if (r) {
-      setConteudo(c => c?.arteId === id ? { ...c, arteId: null } : c);
+      setConteudo(c => c?.arteId === id ? semArte(c) : c);
       setReferencias(refs => refs.filter(ref => ref !== id));
       setArteExcluir(null);
     }
   }
   const arte = dados?.artes.find(a => a.id === conteudo?.arteId)?.url;
+  const arteCompletaIA = dados?.artes.find(a => a.id === conteudo?.arteId)?.completo === true;
+  const opcoesPosicao = conteudo ? opcoesComposicao({ temArte: !!arte, comFoto: modeloComFoto(conteudo.tema), arteCompletaIA, laboratorio: !!dados?.laboratorioLocal }) : [];
+  const conviteProprioPronto = !!arte && !arteCompletaIA && conteudo?.visual?.modo === 'completa';
+  const quando = conteudo ? [conteudo.data ? dataBonita(conteudo.data) : '', conteudo.horario ? `às ${conteudo.horario}` : ''].filter(Boolean).join(' ') : '';
+  const dadosConferencia = [quando, conteudo?.local.trim() ?? ''].filter(Boolean).join(', ');
   const modelosFiltrados = modelosBiblioteca.filter(id => (dados?.laboratorioLocal || !(modelosAcervo as readonly string[]).includes(id)) && (categoriaModelo === 'todos' || (categoriaModelo === 'abertos' ? (modelosAcervo as readonly string[]).includes(id) : categoriaModelo === 'fotos' ? modeloComFoto(id) : categoriaModelo === 'neutros' ? baseNeutra(id) : !baseNeutra(id) && !modeloComFoto(id))));
   const totalPaginas = Math.max(1, Math.ceil(modelosFiltrados.length / 9));
   const paginaAtual = Math.min(paginaModelo, totalPaginas);
@@ -333,7 +341,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const paginaArteAtual = Math.min(paginaArte, paginasArte);
   const inicioArte = (paginaArteAtual - 1) * tamanhoPaginaArte;
   const artesVisiveis = dados?.artes.slice(inicioArte, inicioArte + tamanhoPaginaArte);
-  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
+  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { setConteudo(c => c ? semArte(c) : c); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
   const conteudoGeracao = dados && conteudo ? (<><h3>Como você imagina a arte?</h3><p id="orientacao-arte">Diga o tema, as cores e o que gostaria de ver na cena.</p><p><small>Tema · Cores · Estilo · Elementos da cena</small></p><PromptComCorretor habilitado corrigir={texto => { setPrompt(texto); setConflitoPrompt(false); }} lang="pt-BR" spellCheck autoCorrect="on" autoCapitalize="sentences" title="Clique com o botão direito sobre uma palavra para ver sugestões de escrita." aria-label="Descreva a arte do convite" aria-describedby="orientacao-arte" rows={4} maxLength={3000} value={prompt} onChange={e => { setPrompt(e.target.value); setConflitoPrompt(false); }} placeholder="Uma aventura espacial em cartoon 3D, com uma pequena astronauta, planetas e estrelas. Cores azul, lilás e dourado. Cena alegre e delicada." disabled={busy} />
           {completoAtivo && <>
             <details className={ui.fotoReferencia}><summary>Foto do aniversariante · opcional</summary>
@@ -389,7 +397,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           {modeloComFoto(conteudo.tema) && <small>{arte ? 'A foto aparece inteira. Você pode trocá-la ou removê-la abaixo.' : 'Envie uma foto ou escolha uma imagem da festa para completar o modelo.'}</small>}
           </>}
           {galeriaArtes}
-          {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} mostrarPosicao={!dados.laboratorioLocal} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />}</details>
+          {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} opcoesPosicao={dados.laboratorioLocal ? [] : opcoesPosicao} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />}</details>
         </fieldset>}
         <fieldset disabled={busy} className={`${ui.painel} ${ui.dadosCompactos}`} aria-label="Dados da festa">
           <h2 className={ui.tituloEtapa}>Dados da festa</h2>
@@ -414,10 +422,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             <input type="checkbox" checked={conteudo.confirmarPresenca} onChange={e => campo('confirmarPresenca', e.target.checked)} />
             Receber confirmações de presença
           </label>
-          <small>{conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
+          <small>{conviteProprioPronto ? 'Sua imagem aparece como está. Os dados abaixo continuam valendo para a página do convite e a confirmação de presença.' : conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
         </fieldset>
       </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} />
-        {arte && conteudo.visual?.modo !== 'completa' && !modeloComFoto(conteudo.tema) && <div className={ui.posicaoImagem}><div className={ui.seletorCriacao} role="group" aria-label="Posição da imagem">{(['fundo', 'topo'] as const).map(posicao => <button key={posicao} type="button" disabled={busy} aria-pressed={(conteudo.visual?.posicao ?? 'fundo') === posicao} onClick={() => campo('visual', { ...visualPadrao, ...conteudo.visual, modo: 'modelo', posicao })}>{posicao === 'fundo' ? 'Imagem como fundo' : 'Imagem no topo'}</button>)}</div></div>}
+        {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
+          {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
         <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
         {painelGeracao}<div className={ui.acoes}><button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button>{!dados.laboratorioLocal && <button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar!')}>Publicar convite</button>}</div>
         {dados.publicado && <div className={ui.painel}><a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite publicado ↗</a><div className={ui.acoes}><button onClick={() => void copiar(dados.linkPublico)}>Copiar link público</button><button onClick={() => { const url = new URL(dados.linkPublico, window.location.origin).href; window.open(`https://wa.me/?text=${encodeURIComponent(`Você está convidado! ${url}`)}`, '_blank', 'noopener,noreferrer'); }}>Compartilhar no WhatsApp</button><button disabled={busy} onClick={() => void executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true)}>Despublicar</button></div></div>}
