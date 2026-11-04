@@ -12,6 +12,7 @@ import * as transporte from "./transporte.ts";
 import * as arquivos from "./arquivos.ts";
 import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
+import * as multiempresa from "./multiempresa.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
 import * as cnpj from "../../cadastro/cnpj.ts";
@@ -50,7 +51,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
   const postgres = { withTransaction, db };
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
-    "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento,
+    "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa,
   }).modulo as typeof import("./service.ts");
   // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.
   // 12/10: a privacidade comprova a empresa ATIVA da sessão (não a piloto) pelo mesmo Tenant Context, na conexão do harness.
@@ -59,7 +60,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {

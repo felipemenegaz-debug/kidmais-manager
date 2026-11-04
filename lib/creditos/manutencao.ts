@@ -5,13 +5,18 @@
  *   - franquia mensal de Convites para empresas CORTADAS: o mesmo limite legado (convite_carteiras ativo), com acesso
  *     COMPLETO, chave FRANQUIA:<AAAA-MM> (nunca duas no mês), vencendo no fim do mês; o mês do corte já tem o lote LEGADO;
  *     Wall-e não recebe franquia enquanto indisponível (e nenhuma franquia proposta é aplicada sem decisão);
- *   - avisos de vencimento de lotes pagos/cortesia em 30 e 7 dias (outbox deduplicado por lote e marco).
+ *   - avisos de vencimento de lotes pagos/cortesia em 30 e 7 dias (outbox deduplicado por lote e marco);
+ *   - com CREDITOS_FRANQUIA_PLANO_ATIVO e a 116: franquia pela tabela do plano (lib/creditos/franquias.ts) no lugar do
+ *     limite legado, e avisos de 80%/100% da franquia do mês. Empresa sem limite (isenta, teste, legado) segue o legado.
+ * Ordem de travas: empresa (FOR SHARE) → carteira → assinatura, em qualquer caminho (com ou sem a flag) — ver franquias.ts.
  */
 import type { DbExecutor } from '../db/contracts';
 import { lerEstadoComercial } from '../assinatura/estado.ts';
 import { fimDoMesBrasilia, mesBrasilia } from './dominio.ts';
 import { creditarLote, expirarVencidos, lerCarteira } from './ledger.ts';
 import { enfileirarNotificacao } from './notificacoes.ts';
+import { flagsCreditos } from './config.ts';
+import { avisosDeUsoFranquia, franquiasInstaladas, reconhecerFranquia, travarEmpresaAntesDaCarteira } from './franquias.ts';
 
 export async function empresasComCarteira(tx: DbExecutor) {
     return (await tx.query<{ empresa_id: string }>('SELECT DISTINCT empresa_id FROM ia_credito_carteiras ORDER BY empresa_id')).rows.map((r) => r.empresa_id);
@@ -47,9 +52,19 @@ export async function avisosVencimento(tx: DbExecutor, empresaId: string) {
     return n;
 }
 
-export async function manutencaoEmpresa(tx: DbExecutor, empresaId: string) {
+/** Franquia do mês: pela tabela do plano com a flag e a 116; senão (ou empresa sem limite) o caminho legado intacto. */
+export async function franquiaDoMes(tx: DbExecutor, empresaId: string, env: Record<string, string | undefined> = process.env) {
+    if (!flagsCreditos(env).franquiaPlano || !await franquiasInstaladas(tx)) return { ...await concederFranquiaConvites(tx, empresaId), porPlano: false };
+    const r = await reconhecerFranquia(tx, empresaId);
+    if (r.motivo === 'SEM_LIMITE') return { ...await concederFranquiaConvites(tx, empresaId), porPlano: false };
+    return { concedida: r.concedida, motivo: r.motivo, porPlano: true };
+}
+
+export async function manutencaoEmpresa(tx: DbExecutor, empresaId: string, env: Record<string, string | undefined> = process.env) {
+    // Antes de expirarVencidos (que já trava a carteira): os avisos inserem notificações, cuja FK pede a empresa.
+    await travarEmpresaAntesDaCarteira(tx, empresaId);
     const expirados = { CONVITES: await expirarVencidos(tx, empresaId, 'CONVITES'), WALLE: await expirarVencidos(tx, empresaId, 'WALLE') };
-    const franquia = await concederFranquiaConvites(tx, empresaId);
-    const avisos = await avisosVencimento(tx, empresaId);
+    const franquia = await franquiaDoMes(tx, empresaId, env);
+    const avisos = await avisosVencimento(tx, empresaId) + (franquia.porPlano ? await avisosDeUsoFranquia(tx, empresaId) : 0);
     return { expirados, franquia, avisos };
 }

@@ -69,7 +69,16 @@ async function main() {
         await client.query("SET statement_timeout = '60s'");
         await client.query("SET lock_timeout = '5s'");
         if (!await ledger.creditosInstalados(client)) { console.log(JSON.stringify({ instalado: false })); return; }
+        // Franquias por plano (116): pendências da sincronização primeiro, cada uma na própria transação (simulação = ROLLBACK).
+        const { flagsCreditos } = await import('../lib/creditos/config.ts');
+        let pendencias = null;
+        if (flagsCreditos(process.env).franquiaPlano) {
+            const { processarPendenciasFranquia } = await import('../lib/creditos/franquias.ts');
+            const tx = async (w) => { await client.query('BEGIN'); try { const r = await w(client); await client.query(aplicar ? 'COMMIT' : 'ROLLBACK'); return r; } catch (e) { await client.query('ROLLBACK'); throw e; } };
+            pendencias = await processarPendenciasFranquia(tx, 200);
+        }
         const relatorio = await executar({ client, aplicar, manutencao: man.manutencaoEmpresa, empresasComCarteira: man.empresasComCarteira });
+        if (pendencias) { relatorio.pendenciasFranquia = pendencias; relatorio.falhas += pendencias.falhas; }
         if (autorizacao) relatorio.autorizacao = autorizacao;
         // P2-3: pedidos pelo mesmo serviço do webhook (só leitura no Asaas), uma transação por pedido.
         const asaas = await import('../lib/assinatura/asaas.ts');

@@ -138,6 +138,11 @@ export function normalizarDestinoWhatsapp(
   return digits;
 }
 
+/**
+ * Modelo da categoria Autenticação da Meta: o botão de código (copiar código ou preenchimento automático) é
+ * obrigatório nessa categoria e exige o mesmo código como parâmetro do botão (índice 0); sem ele a Meta recusa o
+ * envio por parâmetro ausente.
+ */
 function payloadTemplateOtp(delivery: OtpDelivery, config: WhatsappCloudConfig) {
   return {
     messaging_product: "whatsapp",
@@ -153,6 +158,12 @@ function payloadTemplateOtp(delivery: OtpDelivery, config: WhatsappCloudConfig) 
       components: [
         {
           type: "body",
+          parameters: [{ type: "text", text: delivery.codigo }],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
           parameters: [{ type: "text", text: delivery.codigo }],
         },
       ],

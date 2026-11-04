@@ -124,3 +124,21 @@ test('P2-3 (incremento 4): efeitosPresentes exige a prova da aplicação — aud
     // DELETE nunca é localizável.
     assert.equal(efeitosPresentes(depois, [{ tabela: 'auditoria', chave: 'x', operacao: 'DELETE', colunas: {} }], prova), false);
 });
+
+test('116: pendência da franquia criada pela sincronização é efeito (nunca SEM_EFEITO); trilha nova com lote novo vira símbolo', () => {
+    const C = '22222222-2222-4222-8222-222222222222';
+    const pendencia = { empresa_id: EMP, contratacao_id: C, criada_em: '2026-11-03T12:00:00+00:00', processada_em: null, tentativas: 0, ultimo_motivo: null };
+    const so = diferenca({}, { ia_credito_franquia_pendencias: [pendencia] });
+    assert.deepEqual(so.map((e) => [e.tabela, e.chave, e.operacao]), [['ia_credito_franquia_pendencias', `${EMP}:${C}`, 'INSERT']]);
+    assert.equal(semEfeito(so), false);
+    // Processar a pendência muda tentativas/motivo (não gerados): é efeito; o instante de processamento vira marcador.
+    const processada = diferenca({ ia_credito_franquia_pendencias: [pendencia] },
+        { ia_credito_franquia_pendencias: [{ ...pendencia, processada_em: '2026-11-03T12:05:00+00:00', tentativas: 1, ultimo_motivo: 'CONCEDIDA' }] });
+    assert.deepEqual(Object.keys(processada[0].colunas).sort(), ['processada_em', 'tentativas', 'ultimo_motivo']);
+    // Trilha: o lote_id da linha nova aponta para o lote novo e vira o símbolo do lote (estável entre T1 e T2).
+    const lote = { id: 'L-novo', empresa_id: EMP, recurso: 'CONVITES', chave_origem: 'FRANQUIA:2026-11', quantidade: 30, criado_em: 'x', liberado_em: 'x', atualizado_em: 'x' };
+    const trilha = { id: 'T-novo', empresa_id: EMP, recurso: 'CONVITES', ciclo: '2026-11-01', chave: 'FRANQUIA:2026-11', lote_id: 'L-novo', tipo: 'RECONHECIMENTO', concedido: 30, criado_em: 'x' };
+    const e = diferenca({}, { ia_credito_lotes: [lote], ia_credito_franquias_ciclo: [trilha] }).find((x) => x.tabela === 'ia_credito_franquias_ciclo')!;
+    assert.equal(e.chave, 'CONVITES:2026-11-01:FRANQUIA:2026-11');
+    assert.equal(e.colunas.lote_id.depois, '$ia_credito_lotes:CONVITES:FRANQUIA:2026-11');
+});

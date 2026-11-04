@@ -79,6 +79,9 @@ class Banco implements DbExecutor {
             // Devolver cópias na leitura reproduz o snapshot recebido pelo repository.
             this.contrato = { ...this.contrato!, estado: 'CONFIRMADA', pagamento_confirmacao_id: args[2] as string };
         } else if (sql.includes('FROM assinatura_contratacoes')) rows = this.contrato ? [{ ...this.contrato }] : [];
+        // Pendência da franquia (F1): sem a 116 neste banco simulado, o SAVEPOINT abre e fecha sem gravar nada.
+        else if (/^(RELEASE |ROLLBACK TO )?SAVEPOINT kidmais_pendencia_franquia$/.test(sql)) rows = [];
+        else if (sql.includes("to_regclass('public.ia_credito_franquias_ciclo')")) rows = [{ ok: false }];
         else throw new Error(`SQL não modelado no teste: ${sql}`);
         return { rows: rows as Row[], rowCount: rows.length };
     }

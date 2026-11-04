@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -7,10 +7,14 @@ import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/model
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
-import { agirNaImportacao, enviarContrato, errosDaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { abrirDocumento, agirNaImportacao, enviarContrato, errosDaRevisao, listarParaRevisao, type ItemParaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
 import { AvisoGlobal, MensagemCampo, ResumoErros } from '@/components/ui/ErrosFormulario';
 import { focarPrimeiroErro, idMensagemErro, mapaErros, propsCampo } from '@/lib/ui/erros-formulario';
 import IntegracaoContrato, { type PassoIntegracao } from './IntegracaoContrato';
+import FilaLote from './FilaLote';
+import ListaAguardando from './ListaAguardando';
+import { abrirDeNovo, concluirItem, continuarLote, contratoImportadoUrl, loteOcupado, MENSAGEM_LOTE_OCUPADO, novoLote, prepararArquivos, retirar, situacaoNaLista, tentarDeNovo, type ItemLote } from './fila-lote';
+import { criarArmazemLote, type Aplicar } from './executor-lote';
 import styles from './importacao.module.css';
 import real from './importacao-real.module.css';
 
@@ -47,7 +51,6 @@ function campos(i: ImportacaoPublica) {
 export type EtapaImportacao = Etapa;
 
 /** Registro criado pela confirmação: o contrato importado, consultado em Contratos pela URL. */
-export const contratoImportadoUrl = (importacaoId: string) => `/admin/contratos?importacaoId=${importacaoId}`;
 
 /** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
 function etapaDaResposta(dados: RespostaImportacao): Etapa {
@@ -69,6 +72,118 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   /** N1/N2: depois de uma tentativa de continuar com pendências, cada campo pendente fica marcado até ser resolvido. */
   const [marcarPendencias, setMarcarPendencias] = useState(false);
   const dialogo = useRef<HTMLDialogElement>(null);
+  /**
+   * Envio em lote (L1): a fila vive no navegador. Cada arquivo segue o mesmo caminho do envio único (documento + abrir);
+   * a revisão é a de sempre, um contrato por vez. `itemEmRevisao` liga a revisão aberta ao item do lote.
+   */
+  const [versaoLista, setVersaoLista] = useState(0);
+  const [armazem] = useState(() => criarArmazemLote({ buscar: adminFetch, agora: () => Date.now(), aoParar: () => setVersaoLista((v) => v + 1) }));
+  const lote = useSyncExternalStore(armazem.assinar, armazem.ler, armazem.ler);
+  // r3 P2-3: chamadas em voo contam como ocupação mesmo depois de o item sair do lote.
+  const emVoo = useSyncExternalStore(armazem.assinar, armazem.emVoo, armazem.emVoo);
+  const filaOcupada = emVoo > 0 || loteOcupado(lote);
+  const [itemEmRevisao, setItemEmRevisao] = useState<string | null>(null);
+  useEffect(() => { armazem.montar(); return () => armazem.desmontar(); }, [armazem]);
+  const gravarLote = (aplicar: Aplicar) => armazem.aplicar(aplicar);
+  const rodar = () => armazem.rodar();
+  // Consultas marcadas para depois (outra leitura do mesmo arquivo em andamento): acorda a fila na hora prevista.
+  const proximaConsulta = lote && !lote.parada ? Math.min(...lote.itens.map((i) => i.proximaConsultaEm ?? Infinity)) : Infinity;
+  useEffect(() => {
+    if (!Number.isFinite(proximaConsulta)) return;
+    const espera = setTimeout(() => armazem.rodar(), Math.max(0, proximaConsulta - Date.now()) + 50);
+    return () => clearTimeout(espera);
+  }, [proximaConsulta, armazem]);
+
+  function iniciarLote(escolhidos: File[]) {
+    const preparo = prepararArquivos(escolhidos);
+    if (!preparo.ok) { setEstado({ etapa: 'upload', erro: preparo.mensagem }); return; }
+    const arquivos = new Map<string, File>();
+    const itens = preparo.arquivos.map((a) => {
+      const id = crypto.randomUUID();
+      arquivos.set(id, a);
+      return { id, aberturaId: crypto.randomUUID(), nome: a.name, tamanho: a.size };
+    });
+    setEstado({ etapa: 'upload', erro: preparo.ignorados.length ? `Ficaram fora do lote (não são PDF): ${preparo.ignorados.join(', ')}.` : null });
+    armazem.iniciar(novoLote(itens), arquivos);
+  }
+
+  /**
+   * Vários arquivos ⇒ lote; um só ⇒ envio único, como sempre. Seletor e arrastar passam pela mesma guarda (r2 P2-3):
+   * com o lote ocupado (estado ATUAL do armazém, não o da última renderização) nada é enviado.
+   */
+  function escolher(arquivos: FileList | null | undefined) {
+    if (armazem.ocupado()) { setEstado({ etapa: 'upload', erro: MENSAGEM_LOTE_OCUPADO }); return; }
+    const lista = arquivos ? [...arquivos] : [];
+    if (lista.length > 1) iniciarLote(lista);
+    else void enviar(lista[0]);
+  }
+
+  function encerrarLote() {
+    armazem.encerrar();
+    setItemEmRevisao(null);
+  }
+
+  /**
+   * Muda de etapa; se a revisão era de um item do lote e terminou, o item sai da fila de pendentes. `descartada`: o
+   * descarte bem-sucedido volta ao envio, como sempre, mas encerra o item do lote.
+   */
+  function irPara(proxima: Etapa, descartada = false) {
+    if (itemEmRevisao && (proxima.etapa === 'integracao' || proxima.etapa === 'cancelada' || proxima.etapa === 'upload')) {
+      if (proxima.etapa !== 'upload' || descartada) gravarLote((l) => concluirItem(l, itemEmRevisao, proxima.etapa === 'integracao' ? 'IMPORTADA' : 'DESCARTADA'));
+      setItemEmRevisao(null);
+    }
+    setEstado(proxima);
+  }
+
+  /** Revisar e "Próximo da fila" sempre leem de novo (R1-5): versão e plano atuais, preview antigo descartado. */
+  async function revisarDoLote(i: ItemLote) {
+    if (!i.importacaoId) return;
+    setEstado({ etapa: 'lendo', nome: i.nome });
+    const r = await agirNaImportacao(adminFetch, { id: i.importacaoId, versao: i.versao ?? 1 }, { acao: 'ler' });
+    if (!r.ok) { setEstado({ etapa: 'upload', erro: r.mensagem }); return; }
+    setEditando(null); setMarcarPendencias(false);
+    if (r.dados.importacao.status !== 'EM_REVISAO') {
+      // Encerrada em outra aba (R2-4): sai da fila sem reenviar o PDF.
+      gravarLote((l) => concluirItem(l, i.id, r.dados.importacao.status === 'IMPORTADA' ? 'IMPORTADA' : 'DESCARTADA'));
+      setEstado({ etapa: 'upload', erro: null });
+      return;
+    }
+    setItemEmRevisao(i.id);
+    setEstado(etapaDaResposta(r.dados));
+  }
+
+  /** Da lista: revisão aberta ⇒ `ler`; lido sem revisão ⇒ `abrir` comum (decisão explícita da pessoa). */
+  async function revisarDaLista(i: ItemParaRevisao) {
+    setEstado({ etapa: 'lendo', nome: i.arquivo });
+    const r = i.grupo === 'REVISAO' && i.importacaoId
+      ? await agirNaImportacao(adminFetch, { id: i.importacaoId, versao: i.versao ?? 1 }, { acao: 'ler' })
+      : await abrirDocumento(adminFetch, i.documentoId);
+    if (!r.ok) { setEstado({ etapa: 'upload', erro: r.mensagem }); setVersaoLista((v) => v + 1); return; }
+    setEditando(null); setMarcarPendencias(false);
+    setItemEmRevisao(lote?.itens.find((x) => x.documentoId === i.documentoId && !x.concluido)?.id ?? null);
+    setEstado(etapaDaResposta(r.dados));
+  }
+
+  /** Presença na lista comprovada pela própria lista; falha na consulta ⇒ desconhecido (R5-2). */
+  async function documentosNaLista() {
+    const ids = new Set<string>();
+    let cursor: string | null = null;
+    for (let pagina = 0; pagina < 20; pagina += 1) {
+      const r = await listarParaRevisao(adminFetch, cursor);
+      if (!r.ok) return null;
+      for (const x of r.dados.itens) ids.add(x.documentoId);
+      if (!r.dados.proximo) return ids;
+      cursor = r.dados.proximo;
+    }
+    return null;
+  }
+
+  async function retirarDoLote(i: ItemLote) {
+    const naLista = i.documentoId ? await documentosNaLista() : null;
+    gravarLote((l) => retirar(l, i.id, situacaoNaLista(i, naLista)));
+    setVersaoLista((v) => v + 1);
+    rodar();
+  }
   const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
   useEffect(() => { if (cancelando) dialogo.current?.showModal(); else dialogo.current?.close(); }, [cancelando]);
 
@@ -84,7 +199,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     const resposta = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'descartar' });
     if (!resposta.ok) {
       setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem });
-    } else { setEstado({ etapa: 'upload', erro: null }); setEditando(null); }
+    } else { irPara({ etapa: 'upload', erro: null }, true); setEditando(null); }
     setCancelando(false);
   }
 
@@ -105,12 +220,12 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (!r.ok) {
       if (r.codigo === 'IMPORTACAO_ENCERRADA') {
         const atual = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'ler' });
-        if (atual.ok) { setEditando(null); setEstado(etapaDaResposta(atual.dados)); return; }
+        if (atual.ok) { setEditando(null); irPara(etapaDaResposta(atual.dados)); return; }
       }
       setEstado({ ...estado, ocupado: false, erro: r.mensagem }); return;
     }
     setEditando(null);
-    if (acao.acao === 'descartar') { setEstado({ etapa: 'upload', erro: null }); return; }
+    if (acao.acao === 'descartar') { irPara({ etapa: 'upload', erro: null }, true); return; }
     const rascunho = r.dados.gate?.tipo === 'preview' ? r.dados.gate.rascunho : undefined;
     if (rascunho) { setEstado({ etapa: 'confirmacao', importacao: r.dados.importacao, plano: r.dados.plano ?? null, rascunho, decidindo: false, erro: null }); return; }
     setEstado({ ...estado, importacao: r.dados.importacao, plano: r.dados.plano ?? estado.plano, ocupado: false, erro: null });
@@ -123,7 +238,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
     if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
     const resposta = r.resposta;
-    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
+    if (resposta.tipo === 'resultado_acao') irPara({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
@@ -144,18 +259,28 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       <div className={styles.zona} data-arrastando={arrastando}
         onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
         onDragLeave={() => setArrastando(false)}
-        onDrop={(e) => { e.preventDefault(); setArrastando(false); void enviar(e.dataTransfer?.files?.[0]); }}>
+        onDrop={(e) => { e.preventDefault(); setArrastando(false); escolher(e.dataTransfer?.files); }}>
         <span className={styles.icone} aria-hidden="true">↥</span>
         <p className={styles.zonaTitulo}>Arraste o contrato para cá</p>
-        <p className={styles.zonaDica}>PDF, JPG ou PNG</p>
+        <p className={styles.zonaDica}>PDF, JPG ou PNG · para migrar vários, escolha até 20 PDFs de uma vez</p>
         <label className={styles.selecionar}>
-          Selecionar arquivo
-          <input className={styles.oculto} type="file" accept={ACEITE_ARQUIVO} onChange={(e) => { void enviar(e.target.files?.[0]); e.target.value = ''; }} />
+          Selecionar arquivos
+          <input className={styles.oculto} type="file" multiple accept={ACEITE_ARQUIVO} disabled={filaOcupada}
+            onChange={(e) => { escolher(e.target.files); e.target.value = ''; }} />
         </label>
         {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
       </div>
       <p className={styles.garantia}>O arquivo fica guardado de forma privada nesta empresa. Nenhum cadastro é criado ou alterado sem a sua confirmação.</p>
     </section>}
+    {estado.etapa === 'upload' && lote && <FilaLote lote={lote}
+      ocupado={filaOcupada}
+      onRevisar={(i) => void revisarDoLote(i)}
+      onTentar={(i) => { gravarLote((l) => tentarDeNovo(l, i.id)); rodar(); }}
+      onAbrirDeNovo={(i) => { gravarLote((l) => abrirDeNovo(l, i.id)); rodar(); }}
+      onRetirar={(i) => void retirarDoLote(i)}
+      onContinuar={() => { gravarLote(continuarLote); rodar(); }}
+      onNovoLote={encerrarLote} />}
+    {estado.etapa === 'upload' && !vitrine && <ListaAguardando atualizar={versaoLista} onRevisar={(i) => void revisarDaLista(i)} />}
 
     {estado.etapa === 'lendo' && <section className={styles.painel} aria-busy="true" aria-live="polite">
       <h2 className={styles.titulo}>Lendo o contrato</h2>
@@ -252,7 +377,11 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
 
     {estado.etapa === 'operacional' && <>
       <IntegracaoContrato importacaoId={estado.importacao.id} versaoRascunho={estado.importacao.versao} onPasso={setPassoIntegracao} onOcupado={setIntegracaoOcupada}
-        onIntegrado={r => router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId))} />
+        onIntegrado={r => {
+          // Lote: mantém a fila e oferece o próximo (R1-5). Envio único: segue para o contrato, como antes.
+          if (itemEmRevisao) { gravarLote((l) => concluirItem(l, itemEmRevisao, 'IMPORTADA')); setItemEmRevisao(null); setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); return; }
+          router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId));
+        }} />
       <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); }}>Voltar aos dados do contrato</button></div>
     </>}
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
@@ -271,13 +400,13 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       <div className={styles.acoesFinais}>
         <Link className={styles.fantasma} href={contratoImportadoUrl(estado.importacaoId)}>{passoIntegracao === 'concluida' ? 'Ver contrato' : 'Continuar depois'}</Link>
         {estado.destino && <Link className={styles.fantasma} href={estado.destino}>Abrir cliente</Link>}
-        <button type="button" className={styles.fantasma} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); }}>Importar outro contrato</button>
+        <button type="button" className={styles.fantasma} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); }}>{lote ? 'Voltar à fila do lote' : 'Importar outro contrato'}</button>
       </div>
     </>}
     {estado.etapa === 'cancelada' && <section className={styles.painel} role="status">
       <h2 className={styles.titulo}>Esta revisão foi cancelada.</h2>
-      <p className={styles.texto}>Envie o contrato novamente para iniciar uma nova revisão.</p>
-      <button type="button" className={styles.primario} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Enviar contrato novamente</button>
+      <p className={styles.texto}>{lote ? 'O contrato saiu da fila do lote.' : 'Envie o contrato novamente para iniciar uma nova revisão.'}</p>
+      <button type="button" className={styles.primario} onClick={() => setEstado({ etapa: 'upload', erro: null })}>{lote ? 'Voltar à fila do lote' : 'Enviar contrato novamente'}</button>
     </section>}
     <dialog ref={dialogo} className={`${styles.painel} ${real.cancelarDialogo}`} aria-labelledby="cancelar-importacao" onCancel={e => { e.preventDefault(); if (!decidindoCancelamento) setCancelando(false); }}><h2 id="cancelar-importacao">Descartar esta revisão?</h2><p>Nenhum cliente ou contrato será criado. O documento privado continuará sujeito à política de retenção do sistema.</p><div className={styles.acoesFinais}><button type="button" className={styles.fantasma} onClick={() => setCancelando(false)} disabled={decidindoCancelamento}>Continuar revisão</button><button type="button" className={styles.primario} onClick={() => void cancelarImportacao()} disabled={decidindoCancelamento}>Sim, cancelar importação</button></div></dialog>
   </main>;

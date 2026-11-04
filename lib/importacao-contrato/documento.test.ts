@@ -131,6 +131,165 @@ test("arquivo hostil: bomba de descompressão e PDF só com imagem não derrubam
   assert.equal(temTextoNativo(semTexto), false);
 });
 
+/** Conteúdo FlateDecode cujo último byte comprimido é `alvo` (o comentário final muda o adler32 até bater). */
+function comprimidoTerminadoEm(alvo: number, condicao: (c: Buffer) => boolean = () => true) {
+  for (let n = 0; n < 100_000; n += 1) {
+    const c = deflateSync(Buffer.from(`BT /F1 10 Tf 1 0 0 1 50 700 Tm (Clausula 17: valor total R$ 8.900,00) Tj ET\n% ${n}`, "latin1"));
+    if (c[c.length - 1] === alvo && condicao(c)) return c;
+  }
+  throw new Error("sem candidato");
+}
+
+/** Uma página com o conteúdo no objeto 4; `length` é o texto de /Length e `eol` o que vem antes de `endstream`. */
+function pdfComStream(dados: Buffer, length: string, eol: string, extras = "", filtro = " /Filter /FlateDecode") {
+  return new Uint8Array(Buffer.concat([
+    Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n", "latin1"),
+    Buffer.from(`4 0 obj\n<< /Length ${length}${filtro} >>\nstream\n`, "latin1"), dados, Buffer.from(`${eol}endstream\nendobj\n${extras}%%EOF\n`, "latin1"),
+  ]));
+}
+
+test("/Length direto: stream terminado em 0x0D não perde o último byte (com LF, CRLF, CR ou sem EOL antes de endstream)", () => {
+  const dados = comprimidoTerminadoEm(0x0d);
+  for (const eol of ["\n", "\r\n", "\r", ""]) {
+    const texto = extrairTextoPdf(pdfComStream(dados, String(dados.length), eol));
+    assert.deepEqual(texto.paginas, ["Clausula 17: valor total R$ 8.900,00"], JSON.stringify(eol));
+    assert.ok(!texto.avisos.includes("STREAM_INVALIDO"), JSON.stringify(eol));
+  }
+  // Terminado em 0x0A também: com CRLF antes de endstream a regra antiga cortaria o LF dos dados.
+  const lf = comprimidoTerminadoEm(0x0a);
+  assert.deepEqual(extrairTextoPdf(pdfComStream(lf, String(lf.length), "\r\n")).paginas, ["Clausula 17: valor total R$ 8.900,00"]);
+});
+
+test("/Length indireto, ausente ou que não bate com endstream cai na regra antiga do EOL", () => {
+  // Indireto não é resolvido: mesmo com o número igual ao tamanho real, o 0x0D final é cortado (limite conhecido).
+  const cr = comprimidoTerminadoEm(0x0d, (c) => c.length < 1000);
+  const indireto = extrairTextoPdf(pdfComStream(cr, `${cr.length} 0 R`, "\n", `${cr.length} 0 obj\n${cr.length}\nendobj\n`));
+  assert.deepEqual(indireto.paginas, [""]);
+  assert.ok(indireto.avisos.includes("STREAM_INVALIDO"));
+  // Referência cujo número começa pelo tamanho real (ex.: 1237 0 R com 123 bytes) também não vira /Length direto.
+  const prefixo = extrairTextoPdf(pdfComStream(cr, `${cr.length}7 0 R`, "\n"));
+  assert.ok(prefixo.avisos.includes("STREAM_INVALIDO"));
+
+  // Stream comum (último byte nem CR nem LF): /Length errado, grande demais, com lixo antes de endstream ou ausente
+  // é ignorado e a leitura segue pela regra antiga.
+  const comum = comprimidoTerminadoEm(0x41);
+  for (const [length, eol] of [[String(comum.length - 1), "\n"], [String(comum.length - 2), "\n"], [String(comum.length + 50), "\n"], [String(comum.length), " \n"], [String(comum.length), "\n\n"]]) {
+    const texto = extrairTextoPdf(pdfComStream(comum, length, eol));
+    assert.deepEqual(texto.paginas, ["Clausula 17: valor total R$ 8.900,00"], `${length} ${JSON.stringify(eol)}`);
+  }
+  // Sem filtro, /Length além do endstream não puxa os bytes de depois (endobj, objetos seguintes) para o conteúdo.
+  const plano = Buffer.from("BT /F1 10 Tf 1 0 0 1 50 700 Tm (Clausula 17) Tj ET", "latin1");
+  const alem = extrairTextoPdf(pdfComStream(plano, String(plano.length + 200), "\n", "BT /F1 10 Tf 1 0 0 1 50 600 Tm (INJETADO) Tj ET\n", ""));
+  assert.deepEqual(alem.paginas, ["Clausula 17"]);
+  const semLength = Buffer.from(pdfComStream(comum, "0", "\n")).toString("latin1").replace("/Length 0 ", "");
+  assert.deepEqual(extrairTextoPdf(new Uint8Array(Buffer.from(semLength, "latin1"))).paginas, ["Clausula 17: valor total R$ 8.900,00"]);
+});
+
+test("/Length: vale só a primeira chave do nível de topo, com valor inteiro completo", () => {
+  const cr = comprimidoTerminadoEm(0x0d);
+  const L = cr.length;
+  const ler = (pdf: Uint8Array) => extrairTextoPdf(pdf);
+  const antes = (pdf: Uint8Array, prefixo: string) => new Uint8Array(Buffer.from(Buffer.from(pdf).toString("latin1").replace("<< /Length ", `<< ${prefixo} /Length `), "latin1"));
+  const lido = ["Clausula 17: valor total R$ 8.900,00"];
+
+  // Primeira entrada indireta: não procura outro /Length (aninhado) depois dela.
+  const indiretaDepoisAninhado = ler(pdfComStream(cr, `9 0 R /Params << /Length ${L} >>`, "\n"));
+  assert.ok(indiretaDepoisAninhado.avisos.includes("STREAM_INVALIDO"));
+  // Valor que não é um inteiro completo (fracionário, com sinal) não vira /Length.
+  for (const valor of [`${L}.0`, `${L}.5`, `+${L}`]) assert.ok(ler(pdfComStream(cr, valor, "\n")).avisos.includes("STREAM_INVALIDO"), valor);
+  // /Length em dicionário aninhado, string, array ou como valor de outra chave antes da chave real é ignorado.
+  for (const prefixo of ["/DecodeParms << /Length 3 >>", "/Title (x /Length 3 \\) y)", "/Arr [ /Length 3 << /Length 4 >> ]", "/H <4C656E677468 33>", "/Nome /Length", "/Ref 7 0 R", "% /Length 3\n"]) {
+    const texto = ler(antes(pdfComStream(cr, String(L), "\n"), prefixo));
+    assert.deepEqual(texto.paginas, lido, prefixo);
+    assert.ok(!texto.avisos.includes("STREAM_INVALIDO"), prefixo);
+  }
+  // Chave repetida: vale a primeira, mesmo quando ela é inválida.
+  assert.ok(ler(pdfComStream(cr, `${L - 1} /Length ${L}`, "\n")).avisos.includes("STREAM_INVALIDO"));
+  assert.ok(ler(pdfComStream(cr, `${L}.0 /Length ${L}`, "\n")).avisos.includes("STREAM_INVALIDO"));
+  assert.deepEqual(ler(pdfComStream(cr, `${L} /Length ${L - 1}`, "\n")).paginas, lido);
+});
+
+test("/Length: só vale se o dicionário inteiro do stream for bem formado", () => {
+  const cr = comprimidoTerminadoEm(0x0d);
+  const L = cr.length;
+  const lido = ["Clausula 17: valor total R$ 8.900,00"];
+  const original = `<< /Length ${L} /Filter /FlateDecode >>\nstream`;
+  const comDicionario = (d: string) => {
+    const texto = Buffer.from(pdfComStream(cr, String(L), "\n")).toString("latin1");
+    assert.equal(texto.split(original).length, 2);
+    return extrairTextoPdf(new Uint8Array(Buffer.from(texto.split(original).join(`${d}\nstream`), "latin1")));
+  };
+
+  // Malformado (fechamento trocado, string ou hex aberto, sem ">>", lixo entre chaves ou depois do fim): regra antiga.
+  for (const d of [
+    `<< /Params << /Bad ] /Length ${L} >> /Filter /FlateDecode >>`,
+    `<< /Params << /Bad ] /Length ${L} /Filter /FlateDecode >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A (aberto >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A <41`,
+    `<< /Length ${L} /Filter /FlateDecode`,
+    `<< /Length ${L} 5 Q /Filter /FlateDecode >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A ] >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A [ >> >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A { } >>`,
+    `<< /Length ${L} /Filter /FlateDecode >> sobra`,
+    `<< /Length ${L} /Filter /FlateDecode /A R >>`,
+    `<< /Length ${L} /Filter /FlateDecode 5 6 >>`,
+    // Léxico: hex com caractere que não é dígito hexadecimal, nome com #xx inválido ou #00, número malformado.
+    `<< /Length ${L} /Filter /FlateDecode /A <GG> >>`,
+    `<< /H <41 /Length 3 42> /Length ${L} /Filter /FlateDecode >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A /Bad#xx >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A /Bad#00 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A /Bad#4 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A# 1 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A 1.2.3 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A --1 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A . >>`,
+  ]) {
+    const texto = comDicionario(d);
+    assert.deepEqual(texto.paginas, [""], d);
+    assert.ok(texto.avisos.includes("STREAM_INVALIDO"), d);
+  }
+  // Bem formado, com valores compostos, nome com #xx e comentário depois do fim: /Length vale.
+  for (const d of [
+    `<< /L#65ngth ${L} /Filter /FlateDecode >>`,
+    `<< /Length ${L} /Filter /FlateDecode /DecodeParms << /K -1 /Columns 1.5 /A [1 0 R [true null] (s\\)) <41> .5] >> >>`,
+    `<< /Length ${L} /Filter /FlateDecode >> % comentario`,
+    // Léxico válido: hex vazio, com espaços e quantidade ímpar de dígitos; #xx válidos; números reais com sinal.
+    `<< /Length ${L} /Filter /FlateDecode /A <> /B <4 1 F> /C <\n41\t42\r> >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A#23 /B#20C /D#2fE 1 >>`,
+    `<< /Length ${L} /Filter /FlateDecode /A [+.5 -.5 1. -0 +12.25] >>`,
+  ]) {
+    const texto = comDicionario(d);
+    assert.deepEqual(texto.paginas, lido, d);
+    assert.ok(!texto.avisos.includes("STREAM_INVALIDO"), d);
+  }
+});
+
+test("/Length: dicionário hostil de até 60 mil caracteres é lido em tempo linear", () => {
+  const cr = comprimidoTerminadoEm(0x0d);
+  const L = cr.length;
+  const original = `<< /Length ${L} /Filter /FlateDecode >>\nstream`;
+  const base = Buffer.from(pdfComStream(cr, String(L), "\n")).toString("latin1");
+  const comDicionario = (d: string) => new Uint8Array(Buffer.from(base.split(original).join(`${d}\nstream`), "latin1"));
+  // Quase número (dígitos seguidos de caractere inválido), hex longo inválido no fim, nome longo com # ruim no fim e
+  // pilha válida profunda: cada um termina em regra antiga (STREAM_INVALIDO) ou em leitura, sempre bem abaixo do prazo.
+  const casos: [string, (n: number) => string, boolean][] = [
+    ["quase número", (n) => `<< /Length ${L} /Filter /FlateDecode /A [${"1".repeat(n)}x] >>`, false],
+    ["quase real", (n) => `<< /Length ${L} /Filter /FlateDecode /A [${"1".repeat(n)}.${"1".repeat(n)}.] >>`, false],
+    ["hex longo", (n) => `<< /Length ${L} /Filter /FlateDecode /A <${"A".repeat(n)}G> >>`, false],
+    ["nome longo", (n) => `<< /Length ${L} /Filter /FlateDecode /A /${"#41".repeat(n / 3)}#4 >>`, false],
+    ["pilha válida", (n) => `<< /Length ${L} /Filter /FlateDecode /A ${"[".repeat(n / 2)}${"]".repeat(n / 2)} >>`, true],
+  ];
+  for (const [nome, gerar, valido] of casos) {
+    const pdf = comDicionario(gerar(60_000));
+    const inicio = performance.now();
+    const texto = extrairTextoPdf(pdf, { prazoMs: 60_000 });
+    const ms = performance.now() - inicio;
+    assert.equal(texto.avisos.includes("STREAM_INVALIDO"), !valido, nome);
+    assert.ok(ms < 1000, `${nome}: ${ms.toFixed(0)} ms`);
+  }
+});
+
 /** PDF sem compressão com uma página: /F1 é o objeto 3 e /F2 o 6 (os dois opcionais); `extras` completa ou substitui. */
 function pdfObjetos(conteudo: string, extras: Record<number, string>) {
   const objetos: Record<number, string> = {

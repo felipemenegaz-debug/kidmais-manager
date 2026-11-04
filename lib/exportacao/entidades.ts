@@ -269,6 +269,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'creditos/devolucoes', tabela: 'ia_credito_devolucoes', grupo: 'Créditos de IA', descricao: 'Devoluções de pacotes (cálculo, valor, prazo e resultado).', onde: EMP },
     { arquivo: 'creditos/cortesias', tabela: 'ia_credito_cortesias', grupo: 'Créditos de IA', descricao: 'Cortesias recebidas (quantidade, campanha e protocolo).', onde: EMP },
     { arquivo: 'creditos/corte_legado', tabela: 'ia_credito_cortes', grupo: 'Créditos de IA', descricao: 'Conversão do saldo do modelo anterior (mês, limite, usado e lote criado).', onde: EMP },
+    { arquivo: 'creditos/franquias', tabela: 'ia_credito_franquias_ciclo', grupo: 'Créditos de IA', descricao: 'Franquia mensal reconhecida pelo plano (mês, lote, quantidade e cálculo).', onde: EMP, migracao: '116' },
 
     // Marketing
     { arquivo: 'marketing/sites', tabela: 'marketing_sites', grupo: 'Marketing', descricao: 'Sites.', onde: EMP },
@@ -348,6 +349,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     convite_consumos: 'Consumo de créditos de convites (controle da plataforma).',
     convite_limites_http: 'Limites de requisição dos links públicos: segurança.',
     convite_orcamento_global: 'Orçamento global de IA dos convites (todas as empresas).',
+    ia_credito_franquia_pendencias: 'Fila técnica de reconhecimento da franquia após a troca de plano (a franquia útil está em creditos/franquias).',
     ia_credito_notificacoes: 'Fila técnica de e-mails dos créditos (controle de entrega; a situação útil está no pedido e na devolução).',
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
@@ -356,6 +358,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',
     whatsapp_atendimento_retencao_execucoes: 'Execuções da rotina de retenção (todas as empresas).',
+    whatsapp_atendimento_rodizio: 'Controle técnico da vez de cada empresa na fila do atendimento (117; só um contador).',
+    whatsapp_atendimento_status_colisoes: 'Identificadores técnicos do provedor vistos em mais de uma saída (117; sem conteúdo nem empresa).',
     whatsapp_onboarding_tentativas: 'Tentativas técnicas de conexão com a Meta.',
     agenda_062_bloqueios_resolucao: 'Tabela técnica da migração da agenda (062).',
     agenda_062_fechamentos_resolucao: 'Tabela técnica da migração da agenda (062).',

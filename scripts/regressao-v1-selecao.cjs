@@ -251,6 +251,9 @@ const ESTADO_POSTGRES = {
   "lib/contratos/contrato-pj.postgres.test.ts": { descartavel: "112" },
   // Entrega B: importação de contrato com contratante PJ (plano, motor, integração); no 109, recusa MIGRACAO_PENDENTE.
   "lib/inteligencia/importacao/importacao-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  // Lote L1 (03/11/2026): lista "aguardando revisão", identidades de abertura (limite 200), preservação em dados e trava do
+  // documento — sem migration; no modelo 112 (staging) e no 106 (production).
+  "lib/importacao-contrato/lote-l1.postgres.test.ts": { descartavel: "112", tambem: ["106"] },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
@@ -281,6 +284,9 @@ const ESTADO_POSTGRES = {
   // cada prefixo P0a…P11 e no PH exato do staging.
   "lib/assinatura/recuperacao-prefixos.postgres.test.ts": { descartavel: "b14-P11",
     tambem: ["b14-P0a", "b14-P1", "b14-P2", "b14-P3", "b14-P4", "b14-P5", "b14-P6", "b14-P7", "b14-P8", "b14-P9", "b14-P10", "b14-PH-staging"] },
+  // B-23c §6 (03/11/2026): B-14 com a trava dos avisos desligada não muda assinatura_avisos (087 presente e ausente; ANTIGO
+  // nos P0a, CANDIDATA nos P11), pelo pacote entregue, com controle positivo da trava ligada sem a guarda.
+  "lib/assinatura/recuperacao-avisos-b23c.postgres.test.ts": { descartavel: "b14-P0a", tambem: ["b14-P0a-sem087", "b14-P11", "b14-P11-sem087"] },
   // B-19 (plano de promoção, rodada 18): candidata DORMENTE no schema final da promoção, com (P11) e sem (P10) a 091, sem
   // 098 e 102–109. As suítes de domínio com "b14-P10"/"b14-P11" cobrem os fluxos normais nesses mesmos modelos. Fora de
   // propósito: lista-contratos (instala 055/061/062 sozinha; nos P já aplicadas) e remarcacao-salao-094 (P2-2 exige
@@ -421,6 +427,21 @@ const ESTADO_POSTGRES = {
   "lib/creditos/creditos-095.postgres.test.ts": { descartavel: "094" },
   // Aplicadores reais da 095 (staging e produção) no modelo 094 (095 ausente): conferência, privilégios, parcial, falha e anti-repetição.
   "lib/creditos/aplicador-095.postgres.test.ts": { descartavel: "094" },
+  // 03/11/2026 (franquias por plano, F1): migration 116 aplicada pela suíte sobre o modelo 112; código compatível sem a 116,
+  // categorias, reconstrução do devido, adoção, conflito, corrida de três sessões, pendência pela sincronização e avisos 80/100.
+  "lib/creditos/franquias-116.postgres.test.ts": { descartavel: "112" },
+  // 04/11/2026 (franquias por plano, aplicador da 116 em staging): modelo 112 (sem a 116), com dados reais nas 4 tabelas
+  // travadas (carteira, lote, notificação, contratação); papel mínimo, preservação, postcheck real, deriva, down, falha de
+  // trava real e retomada.
+  "lib/creditos/aplicador-116.postgres.test.ts": { descartavel: "112" },
+  // 04/11/2026 (E-ME1, atendimento multiempresa): migration 117 aplicada pela suíte sobre o modelo 112 (060–083 e 074a
+  // presentes); a primeira parte roda SEM a 117 (modo efetivo PILOTO com a chave ligada).
+  "lib/whatsapp/atendimento/multiempresa.postgres.test.ts": { descartavel: "112" },
+  // E-ME1 r2 (revisão Astra 04/11): corridas, portões/revogações/isolamento e rollback §6, cada uma aplica a 117 sobre o 112.
+  "lib/whatsapp/atendimento/multiempresa-corridas.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-portoes.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-rollback.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-fontes.postgres.test.ts": { descartavel: "112" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },

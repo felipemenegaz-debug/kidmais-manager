@@ -10,7 +10,8 @@ import type { EnviarEmail, MensagemEmail } from '../acessos/email.ts';
 import { createHash } from 'node:crypto';
 import { canaisSuporte } from '../suporte/canais.ts';
 
-export type TipoNotificacao = 'PAGAMENTO_CONFIRMADO' | 'DEVOLUCAO_REGISTRADA' | 'AVISO_INTERNO_DEVOLUCAO' | 'LOTE_VENCENDO_30' | 'LOTE_VENCENDO_7';
+export type TipoNotificacao = 'PAGAMENTO_CONFIRMADO' | 'DEVOLUCAO_REGISTRADA' | 'AVISO_INTERNO_DEVOLUCAO' | 'LOTE_VENCENDO_30' | 'LOTE_VENCENDO_7'
+    | 'FRANQUIA_80' | 'FRANQUIA_100';
 
 export async function enfileirarNotificacao(tx: DbExecutor, n: { empresaId: string; tipo: TipoNotificacao; dedupe: string; protocolo?: string | null }) {
     await tx.query(`INSERT INTO ia_credito_notificacoes (empresa_id, tipo, dedupe, protocolo) VALUES ($1::uuid, $2, $3, $4) ON CONFLICT (dedupe) DO NOTHING`,
@@ -23,6 +24,8 @@ const ASSUNTO: Record<TipoNotificacao, string> = {
     AVISO_INTERNO_DEVOLUCAO: '[Kidmais] Devolução de pacote de créditos para processar',
     LOTE_VENCENDO_30: 'Seus créditos de IA vencem em 30 dias',
     LOTE_VENCENDO_7: 'Seus créditos de IA vencem em 7 dias',
+    FRANQUIA_80: 'Você já usou 80% dos convites com IA do mês',
+    FRANQUIA_100: 'Os convites com IA do mês acabaram',
 };
 const TEXTO: Record<TipoNotificacao, string> = {
     PAGAMENTO_CONFIRMADO: 'O pagamento do pedido foi confirmado pelo Asaas e os créditos já estão disponíveis em Assinatura → Créditos de IA.',
@@ -30,6 +33,8 @@ const TEXTO: Record<TipoNotificacao, string> = {
     AVISO_INTERNO_DEVOLUCAO: 'Há uma devolução de pacote de créditos registrada. Confira a fila de devoluções (prazo e forma no painel).',
     LOTE_VENCENDO_30: 'Parte dos seus créditos de IA vence em cerca de 30 dias. Confira os vencimentos em Assinatura → Créditos de IA.',
     LOTE_VENCENDO_7: 'Parte dos seus créditos de IA vence em cerca de 7 dias. Confira os vencimentos em Assinatura → Créditos de IA.',
+    FRANQUIA_80: 'A sua empresa já usou 80% dos convites com IA incluídos no plano neste mês. A franquia renova no dia 1; o saldo fica em Assinatura → Créditos de IA.',
+    FRANQUIA_100: 'Os convites com IA incluídos no plano acabaram neste mês. A franquia renova no dia 1; o saldo e os pacotes ficam em Assinatura → Créditos de IA.',
 };
 /**
  * P2-4 (revisão de 22/10): a chave de idempotência é POR NOTIFICAÇÃO E DESTINATÁRIO (id da notificação + hash do e-mail),
