@@ -390,3 +390,7 @@ Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `Consentimen
 - base sintética preenchida na TESTE S3, para provar a redução aos DTOs;
 - POST 403 real com uma conta só fora do piloto;
 - correlação do refresh com o evento `TOKEN_RENOVADO` e com a mesma concessão.
+
+### Acesso pelo painel
+
+Com o canal MCP habilitado, Configurações → IA e créditos mostra Gerenciar conexões abaixo do saldo de convites. O atalho abre a lista existente em /admin/conexoes-ia. O perfil continua oferecendo acesso à mesma lista.

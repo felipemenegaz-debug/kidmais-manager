@@ -2,9 +2,7 @@
 
 ## Onde fica
 
-Abra Configurações e escolha **IA e créditos**, ou vá direto para [IA e créditos](/admin/configuracoes/creditos). A tela tem dois blocos: **Créditos de convite** e **Créditos do WhatsApp.AI**.
-
-Quando a conexão com assistentes estiver habilitada, use **ChatGPT e Claude → Gerenciar conexões** abaixo do saldo de convites.
+Abra Configurações e escolha **Créditos de IA**, ou vá direto para [Créditos de IA](/admin/configuracoes/creditos). A tela tem dois blocos: **Créditos de convite** e **Créditos do WhatsApp.AI**.
 
 ## O que são os créditos
 

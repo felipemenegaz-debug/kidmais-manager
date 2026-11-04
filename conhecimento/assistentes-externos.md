@@ -14,4 +14,4 @@ Não envia mensagens, não cria cobranças, não altera contratos, festas ou cad
 
 ## Como desconectar
 
-No KidMais, abra **Configurações → IA e créditos → Gerenciar conexões**. Você também pode acessar por **Meu perfil e senha → Assistentes conectados**. Escolha a conexão e clique em Desconectar. As novas consultas param na hora. O que o assistente já recebeu continua no histórico dele, conforme as regras do fabricante.
+No KidMais, abra Meu perfil e depois Assistentes conectados. Escolha a conexão e clique em Desconectar. As novas consultas param na hora. O que o assistente já recebeu continua no histórico dele, conforme as regras do fabricante.
