@@ -1,5 +1,5 @@
 import type { Conteudo } from './domain.ts';
-import { temaVisual } from './visual.ts';
+import { opacidadeFaixa, temaVisual } from './visual.ts';
 import { bordaAcervo, modelosAcervo } from './acervo.ts';
 
 export const modelosComFoto = ['foto_arco', 'foto_aquarela', 'foto_degrade'] as const;
@@ -102,15 +102,24 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
         ${texto(`${data} · ${c.horario || '00:00'}`, 1390, 75, 34, false, true)}
         ${texto(c.local || 'Local da festa', 1480, 90, 36, true, false, 660)}
         ${texto(c.endereco || 'Endereço do evento', 1590, 85, 28, false, false, 640)}`;
-    } else if (fundoProprio) conteudo = `
-      ${texto('VAMOS CELEBRAR', 180, 70, 28)}
-      ${texto(c.nome || 'Nome do aniversariante', 285, 230, 110, true, true)}
-      ${texto(c.idade || 'Um dia muito especial', 535, 70, 48, true)}
-      ${texto(c.mensagem, 665, 220, 33, true)}
-      ${texto(`${data} · ${c.horario || '00:00'}`, 975, 75, 34, false, true)}
-      ${texto(c.local || 'Local da festa', 1090, 80, 36, true, false, 660)}
-      ${texto(c.endereco || 'Endereço do evento', 1190, 90, 28, false, false, 640)}`;
-    else conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
+    } else if (fundoProprio) {
+      // E-CP2: sem textos de exemplo sobre a foto; uma faixa translúcida atrás dos blocos garante o contraste.
+      const horario = c.horario.trim(), quando = c.data ? (horario ? `${data} · ${horario}` : data) : horario ? `às ${horario}` : '';
+      const blocos: [string, number, number, number, boolean?, boolean?, number?][] = [
+        ['VAMOS CELEBRAR', 180, 70, 28],
+        [c.nome, 285, 230, 110, true, true],
+        [c.idade, 535, 70, 48, true],
+        [c.mensagem, 665, 220, 33, true],
+        [quando, 975, 75, 34, false, true],
+        [c.local, 1090, 80, 36, true, false, 660],
+        [c.endereco, 1190, 90, 28, false, false, 640],
+      ];
+      const visiveis = blocos.filter(([valor]) => valor.trim());
+      const limites = visiveis.map(([valor, y, h, size, , , width = 740]) => { const b = comporTexto(valor, width, h, size); return [y + (h - b.altura) / 2, y + (h + b.altura) / 2]; });
+      const topo = Math.max(0, Math.min(...limites.map(l => l[0])) - 36), base = Math.min(1440, Math.max(...limites.map(l => l[1])) + 36);
+      const faixa = `<rect x="120" y="${topo}" width="840" height="${base - topo}" rx="48" fill="${fundo}" fill-opacity="${opacidadeFaixa(tema.fundo, tema.tinta)}"/>`;
+      conteudo = `${faixa}${visiveis.map(([valor, y, h, size, serif, bold, width]) => texto(valor, y, h, size, serif, bold, width)).join('')}`;
+    } else conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
       ${texto(planetas ? 'UMA AVENTURA ESPACIAL' : 'VAMOS CELEBRAR', op.arte ? 475 : 360, 85, 30)}
       ${texto(c.nome || 'Nome do aniversariante', 575, 295, 166, true, true)}
       ${texto(c.idade || 'Um dia muito especial', 885, 90, 65, true)}
