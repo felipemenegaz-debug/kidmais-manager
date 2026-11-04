@@ -134,6 +134,10 @@ const MODELOS = {
   "b14-P10": { banco: "kidmais_v1_modelo_b14_p10", ate: "100", sem: ["091", "098"], runbook: true },
   "b14-P11": { banco: "kidmais_v1_modelo_b14_p11", ate: "100", sem: ["098"], runbook: true },
   "b14-PH-staging": { banco: "kidmais_v1_modelo_b14_ph_staging", ate: "105", sem: ["098", "104"] },
+  // B-23c §6 (03/11/2026): os mesmos prefixos SEM a 087 (production antes de 03/11; staging), para provar o B-14 com a 087
+  // presente (b14-P0a/b14-P11, que a incluem pelo inventário) e ausente.
+  "b14-P0a-sem087": { banco: "kidmais_v1_modelo_b14_p0a_sem087", ate: "088", sem: ["087"], runbook: true },
+  "b14-P11-sem087": { banco: "kidmais_v1_modelo_b14_p11_sem087", ate: "100", sem: ["087", "098"], runbook: true },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

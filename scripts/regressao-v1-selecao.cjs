@@ -272,6 +272,9 @@ const ESTADO_POSTGRES = {
   // cada prefixo P0a…P11 e no PH exato do staging.
   "lib/assinatura/recuperacao-prefixos.postgres.test.ts": { descartavel: "b14-P11",
     tambem: ["b14-P0a", "b14-P1", "b14-P2", "b14-P3", "b14-P4", "b14-P5", "b14-P6", "b14-P7", "b14-P8", "b14-P9", "b14-P10", "b14-PH-staging"] },
+  // B-23c §6 (03/11/2026): B-14 com a trava dos avisos desligada não muda assinatura_avisos (087 presente e ausente; ANTIGO
+  // nos P0a, CANDIDATA nos P11), pelo pacote entregue, com controle positivo da trava ligada sem a guarda.
+  "lib/assinatura/recuperacao-avisos-b23c.postgres.test.ts": { descartavel: "b14-P0a", tambem: ["b14-P0a-sem087", "b14-P11", "b14-P11-sem087"] },
   // B-19 (plano de promoção, rodada 18): candidata DORMENTE no schema final da promoção, com (P11) e sem (P10) a 091, sem
   // 098 e 102–109. As suítes de domínio com "b14-P10"/"b14-P11" cobrem os fluxos normais nesses mesmos modelos. Fora de
   // propósito: lista-contratos (instala 055/061/062 sozinha; nos P já aplicadas) e remarcacao-salao-094 (P2-2 exige
