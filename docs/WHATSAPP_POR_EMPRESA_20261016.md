@@ -338,3 +338,19 @@ Isso vale também para os status de entrega de mensagens enviadas pela Meta. Com
 | Testes | `lib/whatsapp/atendimento/meta.test.ts`, `lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts` (R8) |
 
 **Variáveis reais:** nenhuma é criada por esta mudança. Ausentes, as chaves mantêm envio pelo Gupshup e recepção Meta desligada.
+
+## Troca do código sem `redirect_uri` e registro seguro da recusa (03/11/2026)
+
+**O que aconteceu:** na tentativa real em staging de 03/11 às 23:27Z, a janela da Meta concluiu. A anterior, às 22:56Z, não chegou ao servidor. O evento foi `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`, com business, WABA e número, e o código chegou à tela. Mesmo assim, `concluir` respondeu 502 `META_API_RECUSOU` em ~200 ms. O servidor não registrava qual etapa falhou.
+
+**Causa provável** (não comprovada, porque a etapa não era registrada): a troca do código enviava `redirect_uri` = `META_OAUTH_REDIRECT_URI`. O código do Embedded Signup vem do `FB.login` do SDK, e a troca documentada (Tech Provider, "Exchange the token code for a business token") usa só `client_id`, `client_secret` e `code`, com validade de 30 s.
+
+**Mudança** (`lib/whatsapp/meta-client.ts`):
+- A troca não envia mais `redirect_uri`. `META_OAUTH_REDIRECT_URI` continua exigida na configuração; a limpeza fica para depois.
+- `registroRecusaMeta` / `console.warn` grava uma linha `{"whatsappMetaRecusa":{etapa,http,corpo,codigo,subcodigo,tipo}}` quando a Meta recusa nas etapas `troca_codigo`, `debug_token`, `dono_waba` ou `numeros`.
+  - Só entram inteiros (0 a 999.999.999) e valores de lista fechada: etapa; `corpo` (`com_erro`, `sem_erro`, `ilegivel` ou `nao_lido`); `type` (`OAuthException`, `GraphMethodException`, `FacebookApiException` ou `GraphBatchException`, senão `outro`).
+  - Nenhum texto vindo da Meta é copiado: nem `error.message` nem `fbtrace_id`. URL, código, token e segredo também nunca entram.
+  - Dono 5xx: a recusa sai pelo status, sem ler o corpo (`nao_lido`), como antes. Uma leitura que nunca termina não segura a resposta.
+- A inscrição (`subscribed_apps`) não mudou.
+
+**Limite:** a troca sem `redirect_uri` segue a documentação, mas só a próxima tentativa real em staging confirma. Se falhar de novo, o log passa a mostrar a etapa e o código do erro da Meta.
