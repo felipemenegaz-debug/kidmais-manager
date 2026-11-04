@@ -48,9 +48,9 @@ const ESPERADO: Record<string, string> = {
 const ativo = () => opt() && Object.hasOwn(ESPERADO, MODELO);
 const BANCO = 'kidmais_pacotes_v1_descartavel';
 const CAND = 'c'.repeat(40);
-// B-23d: a base de production vigente (#321, LIVE em 04/11/2026), pelo literal e conferida contra a lista.
-const VIGENTE = '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a';
-if (!CODIGOS_ANTIGOS.includes(VIGENTE as never)) throw new Error('B-23d: a base vigente saiu de CODIGOS_ANTIGOS');
+// B-23e (D-B23e-3 = (A)): a base de production vigente (#325, LIVE em 04/11/2026), pelo literal e conferida contra a lista.
+const VIGENTE = '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735';
+if (CODIGOS_ANTIGOS.at(-1) !== VIGENTE) throw new Error('B-23e: a base vigente tem de ser a última de CODIGOS_ANTIGOS');
 const COMMIT: Record<CodigoNoAr, string> = { CANDIDATA: CAND, ANTIGO: VIGENTE };
 const URL_WEBHOOK = 'https://kidmais.example/api/integracoes/asaas/webhook';
 const raiz = path.resolve(import.meta.dirname, '../..');
