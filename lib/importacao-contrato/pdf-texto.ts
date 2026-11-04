@@ -176,6 +176,149 @@ function limitarDicionario(texto: string, inicio: number, fim: number, leitor: L
   return texto.slice(inicio, fim);
 }
 
+const ESPACO_PDF = "\0\t\n\f\r ";
+const DELIMITADOR_PDF = "()<>[]{}/%";
+
+/**
+ * Próximo token do dicionário a partir de `i`: "<<", ">>", "[", "]", "(" (string inteira), "<" (hex inteiro), nome
+ * ou palavra comum. Strings, hex e comentários são pulados por inteiro. `inicio` é o primeiro caractere do token;
+ * `fim` sempre avança.
+ */
+function tokenDicionario(d: string, i: number): { token: string; inicio: number; fim: number } | null {
+  const n = d.length;
+  while (i < n) {
+    if (ESPACO_PDF.includes(d[i])) i += 1;
+    else if (d[i] === "%") { while (i < n && d[i] !== "\n" && d[i] !== "\r") i += 1; }
+    else break;
+  }
+  if (i >= n) return null;
+  const c = d[i];
+  if ((c === "<" || c === ">") && d[i + 1] === c) return { inicio: i, token: c + c, fim: i + 2 };
+  if (c === "[" || c === "]" || c === "{" || c === "}" || c === ">" || c === ")") return { inicio: i, token: c, fim: i + 1 };
+  if (c === "<") { const f = d.indexOf(">", i + 1); return { inicio: i, token: "<", fim: f < 0 ? n : f + 1 }; }
+  if (c === "(") {
+    let nivel = 0;
+    for (let k = i; k < n; k += 1) {
+      if (d[k] === "\\") k += 1;
+      else if (d[k] === "(") nivel += 1;
+      else if (d[k] === ")" && --nivel === 0) return { inicio: i, token: "(", fim: k + 1 };
+    }
+    return { inicio: i, token: "(", fim: n };
+  }
+  let k = i + 1;
+  while (k < n && !ESPACO_PDF.includes(d[k]) && !DELIMITADOR_PDF.includes(d[k])) k += 1;
+  return { inicio: i, token: d.slice(i, k), fim: k };
+}
+
+const HEX_PDF = "0123456789ABCDEFabcdef";
+const DIGITO_PDF = "0123456789";
+
+/** Número PDF (inteiro ou real: `4`, `-1`, `+.5`, `1.`), reconhecido em uma passada linear. */
+function numeroPdf(s: string): boolean {
+  let k = s[0] === "+" || s[0] === "-" ? 1 : 0;
+  let digitos = 0;
+  let ponto = false;
+  for (; k < s.length; k += 1) {
+    if (DIGITO_PDF.includes(s[k])) digitos += 1;
+    else if (s[k] === "." && !ponto) ponto = true;
+    else return false;
+  }
+  return digitos > 0;
+}
+
+/** Hex fechado (`<…>`) só com dígitos hexadecimais e espaços PDF; vazio e quantidade ímpar de dígitos valem. */
+function hexPdf(d: string, inicio: number, fim: number): boolean {
+  if (d[fim - 1] !== ">" || fim - inicio < 2) return false;
+  for (let k = inicio + 1; k < fim - 1; k += 1) if (!HEX_PDF.includes(d[k]) && !ESPACO_PDF.includes(d[k])) return false;
+  return true;
+}
+
+/** Nome cujo `#` é sempre seguido de dois dígitos hexadecimais diferentes de `00`. */
+function nomePdf(nome: string): boolean {
+  for (let k = nome.indexOf("#"); k >= 0; k = nome.indexOf("#", k + 3)) {
+    const a = nome[k + 1] ?? "", b = nome[k + 2] ?? "";
+    if (!HEX_PDF.includes(a) || !HEX_PDF.includes(b) || a === "" || b === "" || (a === "0" && b === "0")) return false;
+  }
+  return true;
+}
+
+/** Nome PDF com `#xx` decodificado (`/L#65ngth` é `/Length`). */
+function nomeDecodificado(nome: string): string {
+  return nome.includes("#") ? nome.replace(/#([0-9A-Fa-f]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16))) : nome;
+}
+
+/**
+ * Valor da PRIMEIRA chave /Length do nível de topo do dicionário do stream, só se o dicionário INTEIRO for bem
+ * formado: cada "<<" fecha com ">>" e cada "[" com "]", chaves são nomes, strings fecham, hex fecha e só tem dígitos
+ * hexadecimais e espaços, nomes só usam `#xx` válido (nunca `#00`), valores simples são nome, número, true, false,
+ * null ou referência `n g R`, e depois do ">>" final não há mais nada (string ou hex sem fechamento consome o resto
+ * e deixa o ">>" faltando). Caracteres comuns de nome fora de 0x21–0x7E não são recusados (leitura tolerante).
+ * Tudo em tempo linear: nenhuma expressão regular com retrocesso. A primeira /Length
+ * é guardada sem procurar substituta; só vira número se for inteiro completo e não for referência. Qualquer outra
+ * forma (indireto, fracionário, sinal, ausente, malformado) devolve null. Pilha explícita, sem recursão.
+ */
+function lengthDireto(dicionario: string): number | null {
+  const inteiro = /^\d{1,10}$/;
+  const pilha: { tipo: "<<" | "["; esperaChave: boolean }[] = [];
+  let chaveTopo = "";
+  let length: number | null | undefined;
+  let t = tokenDicionario(dicionario, 0);
+  if (!t || t.token !== "<<") return null;
+  pilha.push({ tipo: "<<", esperaChave: true });
+  let i = t.fim;
+  // Um valor terminou no nível que agora está no topo da pilha.
+  const concluir = (valor: number | null) => {
+    const nivel = pilha[pilha.length - 1];
+    if (!nivel || nivel.tipo !== "<<") return;
+    nivel.esperaChave = true;
+    if (pilha.length === 1 && chaveTopo === "/Length" && length === undefined) length = valor;
+  };
+  while (pilha.length > 0) {
+    const nivel = pilha[pilha.length - 1];
+    t = tokenDicionario(dicionario, i);
+    if (!t) return null;
+    i = t.fim;
+    if (nivel.tipo === "<<" && nivel.esperaChave) {
+      if (t.token === ">>") { pilha.pop(); concluir(null); continue; }
+      if (!t.token.startsWith("/") || !nomePdf(t.token)) return null;
+      nivel.esperaChave = false;
+      if (pilha.length === 1) chaveTopo = nomeDecodificado(t.token);
+      continue;
+    }
+    if (nivel.tipo === "[" && t.token === "]") { pilha.pop(); concluir(null); continue; }
+    if (t.token === "<<" || t.token === "[") { pilha.push({ tipo: t.token, esperaChave: t.token === "<<" }); continue; }
+    if (t.token === "<" && !hexPdf(dicionario, t.inicio, t.fim)) return null;
+    if (t.token.startsWith("/") && !nomePdf(t.token)) return null;
+    if (t.token === "(" || t.token === "<" || t.token.startsWith("/") || ["true", "false", "null"].includes(t.token)) {
+      concluir(null);
+      continue;
+    }
+    if (!numeroPdf(t.token)) return null;
+    let valor = inteiro.test(t.token) ? Number(t.token) : null;
+    if (valor !== null) {
+      const geracao = tokenDicionario(dicionario, i);
+      const r = geracao && inteiro.test(geracao.token) ? tokenDicionario(dicionario, geracao.fim) : null;
+      if (r && r.token === "R") { valor = null; i = r.fim; }
+    }
+    concluir(valor);
+  }
+  if (tokenDicionario(dicionario, i)) return null;
+  return length ?? null;
+}
+
+/**
+ * Fim dos dados pelo /Length direto, só quando ele cai exatamente antes do EOL opcional (CRLF, CR ou LF) e do
+ * `endstream` já achado. /Length indireto (`n g R`), ausente ou que não bate devolve null (regra antiga do EOL).
+ */
+function fimPeloLength(texto: string, dicionario: string, dados: number, fimStream: number): number | null {
+  const length = lengthDireto(dicionario);
+  if (length === null) return null;
+  const fim = dados + length;
+  if (!Number.isSafeInteger(fim) || fim > fimStream) return null;
+  const eol = texto.slice(fim, fimStream);
+  return eol === "" || eol === "\r\n" || eol === "\r" || eol === "\n" ? fim : null;
+}
+
 /** Varredura "n g obj ... endobj", pulando o conteúdo binário de cada stream. */
 function lerObjetos(bytes: Uint8Array, leitor: Leitor) {
   const texto = latin1(bytes);
@@ -199,10 +342,15 @@ function lerObjetos(bytes: Uint8Array, leitor: Leitor) {
       if (texto[dados] === "\n") dados += 1;
       const fimStream = proxima(finsStream, dados);
       if (fimStream < 0) break;
-      let fimDados = fimStream;
-      if (texto[fimDados - 1] === "\n") fimDados -= 1;
-      if (texto[fimDados - 1] === "\r") fimDados -= 1;
-      leitor.objetos.set(num, { dicionario: limitarDicionario(texto, inicio, posStream, leitor), stream: bytes.subarray(dados, Math.max(dados, fimDados)) });
+      const dicionario = limitarDicionario(texto, inicio, posStream, leitor);
+      let fimDados = fimPeloLength(texto, dicionario, dados, fimStream);
+      if (fimDados === null) {
+        // Sem /Length confiável: corta o EOL antes de `endstream` (pode comer um último byte 0x0D/0x0A legítimo).
+        fimDados = fimStream;
+        if (texto[fimDados - 1] === "\n") fimDados -= 1;
+        if (texto[fimDados - 1] === "\r") fimDados -= 1;
+      }
+      leitor.objetos.set(num, { dicionario, stream: bytes.subarray(dados, Math.max(dados, fimDados)) });
       const depois = proxima(fins, fimStream);
       cabecalho.lastIndex = depois < 0 ? texto.length : depois + 6;
     } else {
