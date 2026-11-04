@@ -360,7 +360,7 @@ test('evidência: cada base antiga além da homologada tem a prova PASS guardada
     const fonte = fs.readFileSync(path.join(__dirname, '../lib/assinatura/recuperacao-execucao.ts'), 'utf8');
     const lista = codigosAntigosDoFonte(fonte);
     assert.equal(lista[0], '00d3019ade199ce609eab296050e07f4b379e87b', 'a primeira é a base homologada');
-    assert.equal(lista.length, 7, 'B-23d: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db, d67d10e6, 767fff4a');
+    assert.equal(lista.length, 9, 'B-23e: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db, d67d10e6, 767fff4a, 0de9aea2, 4b9ce830');
     // Vínculo com a versão: a evidência foi gerada por ESTE analisador e com ESTES marcadores (a reprodução é do job
     // b23-bases do CI, `--verificar-lista`, que tem o histórico).
     const analisador = sha256(fs.readFileSync(path.join(__dirname, 'b23-prova-base.cjs'), 'utf8'));

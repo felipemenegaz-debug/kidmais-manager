@@ -1413,3 +1413,54 @@ A promoção segue NO-GO.
 - Depois do aceite (r2): as 6 evidências foram regeneradas. Nas antigas só muda `analisador`; nas novas, também `autoria`/`analise` dos `revisados`. Analisador 17/17, `--verificar-lista` LISTA_CONFERE.
 
 O recongelamento de `C` vem depois do merge desta entrada, com autorização própria. A promoção continua NO-GO.
+
+## B-23e — production `4b9ce830` e alvo de rollback `0de9aea2` na lista (LOCAL, 04/11/2026)
+
+**Por quê.** Depois da aprovação do B-23d, production recebeu duas promoções:
+- #323 (Convite pronto E-CP2), `0de9aea2`;
+- #325 (leitor de PDF pelo `/Length`, recorte 3), `4b9ce830`, LIVE às 16:30Z.
+
+As bases do B-23d (`767fff4a`, `d67d10e6`) foram desativadas, e o B-14 voltaria a recusar com `CODIGO_NO_AR_DESCONHECIDO`.
+
+**Prova sem revisão:** `4b9ce830` e `0de9aea2` dão PROVA_PASS, com 0 violações e 28 revisados (os mesmos do `767fff4a`).
+- O delta `767fff4a..4b9ce830` tem 10 arquivos de Convites e de importação de contrato.
+- Não há migration, `lib/assinatura`, global de build nem interseção com a árvore entregue.
+- Por isso `REVISOES` continua com 33 entradas, e o analisador não muda: as 6 evidências anteriores ficam intactas.
+
+**Decisões de Felipe (04/11):**
+- **D-B23e-1 = (A):** entram as bases `4b9ce830` (LIVE) e `0de9aea2` (rollback). A trava continua desligada.
+- **D-B23e-2 = (A):** o congelamento das promoções para production fica reafirmado até a E0, com Felipe como responsável. No procedimento de promoção (B-22), o SHA a promover precisa estar na lista **antes** do deploy; numa urgência, o B-23x é aberto antes. Abrir um B-23x não revalida C sozinho.
+- **D-B23e-3 = (A):** os testes de E0 e de prefixos usam `4b9ce830` como base vigente, e a matriz PG é reexecutada.
+
+**Plano:** a r1 foi aprovada pelo Astra (revisão por agente) com 0 P1, 0 P2 e 1 P3. A r2 traz os mutantes explícitos.
+
+### O que mudou
+
+- **`lib/assinatura/recuperacao-execucao.ts`:** `CODIGOS_ANTIGOS` passa de 7 para 9 entradas, com `0de9aea2…` e `4b9ce830…`.
+- **`docs/evidencias/b23-bases-antigas/`:** entram `prova-0de9aea2….json` e `prova-4b9ce830….json`, idênticas às provas sem revisão do pacote.
+- **Testes:**
+  - `recuperacao-execucao.test.ts`: a lista com 9 entradas e os prefixos falsos das bases novas.
+  - `b23-prova-base.test.cjs`: a lista com 9 entradas; o inventário de 33 revisões fica inalterado.
+  - `recuperacao-pagamentos-producao.test.cjs`:
+    - BASES com 9 entradas;
+    - a trava em 5 bases antigas e na candidata, em cada modo admitido, com env, process.env e desacordo: (6×6+1)×7 = 259 cenários;
+    - a `janela-recuperar` recusada para cada base antiga.
+  - `bloco-shell-recuperacao-b14.test.cjs` e `recuperacao-prefixos.postgres.test.ts`: a base vigente passa a `4b9ce830`.
+    - Os dois testes passam a **exigir** que ela seja a última entrada de `CODIGOS_ANTIGOS` (a LIVE: cada B-23x acrescenta o rollback e depois a LIVE).
+    - Antes, só se exigia que estivesse na lista, e o mutante e9 (vigente de volta a `767fff4a`) sobrevivia.
+
+### Validação local (04/11/2026, Node 22.23.2)
+
+- `--verificar-lista`: LISTA_CONFERE, 8/8 entradas.
+- As 6 evidências antigas ficaram intactas (git diff vazio); as 2 novas são iguais byte a byte às provas sem revisão.
+- Testes: analisador 17/17, bloco de Shell 5/5, trava/CLI 15/15, execução 16/16.
+- PG descartável (porta 55781; cluster criado e removido), `recuperacao-prefixos.postgres.test.ts`:
+  - 13 modelos (P0a–P11 e PH), 92 execuções, 0 falhas;
+  - os 12 skips são do S0→S2, que só roda no P0a, onde passou;
+  - a matriz foi rodada de novo depois do reforço do e9.
+- Árvore entregue da candidata: 55 arquivos, a mesma lista de antes, sem interseção com o delta; hash `423221be…`.
+- Mutantes (plano r2: e1–e8 por base mais o e9): 17 mortos, 0 vivos, 0 OUTRO.
+  - O e7 morre no `--verificar-lista`.
+  - Na 1ª bateria o e9 sobreviveu e motivou o reforço acima.
+
+Ficam iguais o analisador, `REVISOES`, `REVISAVEIS`, a matriz de modos, a guarda `AVISOS_EMAIL_LIGADOS` e a regra de recongelamento. O recongelamento de `C` vem depois do merge desta entrada, com autorização própria. A promoção continua NO-GO.

@@ -256,7 +256,8 @@ test('P2-R1-1: PG* no process.env (o que o pg de fato lê) recusa antes de criar
 test('B-23 (B23-F1): o CLI reconhece cada base antiga pelo SHA completo e recusa o desconhecido antes de criar o Client', async () => {
     // Literais, não a lista importada: tirar uma base da lista não pode tirá-la também do teste.
     const BASES = ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1',
-        '7329cbfe1bd78fbf817fc418785b7f62910a9b01', '5e4340db485520eabc84f67f090907de7fddac06', 'd67d10e63e43c4f066f06456e72d0df55bfd1949', '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a'];
+        '7329cbfe1bd78fbf817fc418785b7f62910a9b01', '5e4340db485520eabc84f67f090907de7fddac06', 'd67d10e63e43c4f066f06456e72d0df55bfd1949', '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a',
+        '0de9aea27715b64bea73cbefb20bfc87bc96deec', '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735'];
     // Barreira explícita: o `pg` do processo é trocado por um dublê cujo Client só registra e lança; nada conecta.
     const resolvido = require.resolve('pg');
     const original = require.cache[resolvido];
@@ -355,7 +356,7 @@ test('B-23c (D-B23c-2): trava dos avisos ligada recusa AVISOS_EMAIL_LIGADOS ante
 // admite: ANTIGO (P0a, `--migracoes=nenhuma`) nos restores e na janela-conferir; CANDIDATA (`comuns`) em todos, inclusive
 // a janela-recuperar, que nunca é admitida ao ANTIGO. Os arquivos (backup, casos, drenagem…) só são lidos depois do Client,
 // então os nomes abaixo não precisam existir: com a trava desligada a execução tem de chegar à barreira.
-test('B-23c r2/B-23d: a trava ligada recusa antes do Client em cada modo admitido (5e4340db, d67d10e6, 767fff4a e CANDIDATA; env, process.env e desacordo)', async () => {
+test('B-23c r2/B-23d/B-23e: a trava ligada recusa antes do Client em cada modo admitido (5e4340db, d67d10e6, 767fff4a, 0de9aea2, 4b9ce830 e CANDIDATA; env, process.env e desacordo)', async () => {
     const resolvido = require.resolve('pg');
     const original = require.cache[resolvido];
     const criados = [];
@@ -366,8 +367,9 @@ test('B-23c r2/B-23d: a trava ligada recusa antes do Client em cada modo admitid
     console.log = (x) => saidas.push(x);
     const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'b14-'));
     const antes = process.env.ASSINATURA_AVISOS_EMAIL;
-    // Literais: as bases cujo código no ar depende da trava (#299 e os recortes do B-23d).
-    const ANTIGOS = ['5e4340db485520eabc84f67f090907de7fddac06', 'd67d10e63e43c4f066f06456e72d0df55bfd1949', '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a'];
+    // Literais: as bases cujo código no ar depende da trava (#299 e os recortes do B-23d e do B-23e).
+    const ANTIGOS = ['5e4340db485520eabc84f67f090907de7fddac06', 'd67d10e63e43c4f066f06456e72d0df55bfd1949', '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a',
+        '0de9aea27715b64bea73cbefb20bfc87bc96deec', '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735'];
     const alvo = { ASAAS_AMBIENTE: 'sandbox', DATABASE_URL: 'postgresql://u@127.0.0.1:55498/kidmais_desc', KIDMAIS_B14_ALVO: 'kidmais_desc@127.0.0.1:55498', KIDMAIS_B14_DESCARTAVEL: 'kidmais_desc' };
     const P0A = ['--migracoes=nenhuma', `--candidata=${CAND}`];
     const comAntigos = () => [...ANTIGOS.map((a) => [a, P0A]), [CAND, comuns]];
@@ -408,7 +410,7 @@ test('B-23c r2/B-23d: a trava ligada recusa antes do Client em cada modo admitid
         // A janela-recuperar nunca é admitida ao ANTIGO: a recusa é da matriz, antes da guarda (e também sem Client).
         for (const antigo of ANTIGOS)
             assert.deepEqual(await rodar(MODOS['janela-recuperar'].args, P0A, antigo, {}, 'ligado'), { codigo: 1, motivo: 'MODO_NAO_ADMITIDO', criados: 0 }, antigo);
-        assert.equal(cenarios, (6 * 4 + 1) * 7, 'todos os modos que conectam, com cada código admitido (3 bases antigas + candidata)');
+        assert.equal(cenarios, (6 * 6 + 1) * 7, 'todos os modos que conectam, com cada código admitido (5 bases antigas + candidata)');
         assert.doesNotMatch(saidas.join('\n'), /ligado/, 'só o código, nunca o valor');
     }
     finally {
