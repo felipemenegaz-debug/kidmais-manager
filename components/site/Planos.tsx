@@ -19,7 +19,7 @@ export default function Planos({ publicado, aberto, contato }: { publicado: bool
             <Cadastro aberto={aberto} destaque={plano.destaque}>Testar o {plano.nome}{plano.destaque && <span aria-hidden="true">↗</span>}</Cadastro>
         </article>)}</div></CicloPlanos>
         <div className={cx('extras')}><div className={cx('panel')} role="group" aria-labelledby="t-add"><h3 id="t-add">Adicionais</h3><div className={cx('addons')}>{adicionais.map((adicional, i) => <div key={adicional.nome} className={cx('addon')} style={i === adicionais.length - 1 ? { gridColumn: '1/-1' } : undefined}>
-            <b><Recurso ids={adicional.recursos}>{adicional.nome}</Recurso></b><span className={cx('v')}>{adicional.nome === 'Wall-e publicitário' ? 'A definir' : moeda(adicional.centavos)}{publicado && adicional.centavos !== null && <small> {adicional.periodo}</small>}</span><p>{adicional.descricao}</p>
+            <b><Recurso ids={adicional.recursos}>{adicional.nome}</Recurso></b><span className={cx('v')}>{moeda(adicional.centavos)}{publicado && adicional.centavos !== null && <small> {adicional.periodo}</small>}</span><p>{adicional.descricao}</p>
         </div>)}</div></div>
             {ancoraExibivel(ancora) && <div className={cx('receipt')} role="group" aria-labelledby="t-rec"><h4 id="t-rec">Se fosse comprar separado</h4>{ancora.map(item => <div key={item.nome} className={cx('line')}><Recurso ids={item.recursos}>{item.nome}</Recurso><span>{moeda(item.centavos)}</span></div>)}<div className={cx('sum')}><span>Total por mês</span><s>{moeda(ancora.reduce((soma, item) => soma + item.centavos, 0))}</s></div><div className={cx('deal')}><span>Tudo no Premium</span><b>{moeda(premium.mensalCentavos)}{publicado && '/mês'}</b></div></div>}
         </div>

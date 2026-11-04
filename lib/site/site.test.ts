@@ -19,7 +19,7 @@ const Planos = componente('components/site/Planos.tsx', 'default');
 const metadataSiteDescricao = () => String((carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as () => { description: string })().description);
 
 test('catálogo: status obrigatório; cada recurso futuro renderiza selo, inclusive em grupos', () => {
-    const futuros: RecursoId[] = ['walle_whatsapp','walle_publicitario','cartao','convite','assinatura_whatsapp','copiloto','importacao_contratos','importacao_precos'];
+    const futuros: RecursoId[] = ['walle_whatsapp','cartao','convite','assinatura_whatsapp','copiloto','importacao_contratos','importacao_precos'];
     for (const [id, recurso] of Object.entries(recursos)) {
         assert.ok(['disponivel', 'em_breve'].includes(recurso.status));
         assert.ok(recurso.evidencia.length > 20);
@@ -121,7 +121,7 @@ test('contato por e-mail: sem WhatsApp, o visitante ainda tem uma ação clicáv
 test('rodapé: e-mail de atendimento clicável e ano corrente', () => {
     const html = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' }) }));
     assert.match(html, /E-mail: <a href="mailto:contato@exemplo\.com\.br\?subject=[^"]*">contato@exemplo\.com\.br<\/a>/);
-    assert.match(html, new RegExp(`© ${new Date().getFullYear()} Kidmais Manager`));
+    assert.match(html, new RegExp(`© ${new Date().getFullYear()} iA.Fest`));
 });
 test('metadados: /planos tem título e descrição próprios, sem recurso Em breve', () => {
     const metadataSite = carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as (rota?: string) => { title: string; description: string };
@@ -193,4 +193,54 @@ test('planos iA.Fest (01/11): IA assistiva em todos os planos; WhatsApp.IA inclu
     for (const plano of planos) assert.doesNotMatch(plano.descricao, /orçamento online|WhatsApp|copiloto|convite/i);
     // Recorte de production (01/11): o adicional Wall-e publicitário sai da seção de planos (pausa de 23/10).
     assert.equal(adicionais.some(a => /publicitário/i.test(a.nome)), false);
+});
+
+test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine', () => {
+    const html = ['Hero', 'Diferenciais', 'WallE', 'Duvidas', 'Confianca'].map(nome =>
+        renderToStaticMarkup(createElement(componente('components/site/secoes.tsx', nome), { aberto: false, config: configuracaoSite({}) }))
+    ).join('') + renderToStaticMarkup(createElement(Planos, { publicado: false, aberto: false, contato: configuracaoSite({}) }));
+    assert.match(html, /iA\.Fest/);
+    assert.doesNotMatch(html, /Kidmais Manager|Wall-e publicitário|departamento de marketing|cria a divulgação|Calendário de publicações/);
+    assert.equal(adicionais.some(a => /publicitário/i.test(a.nome)), false);
+    const footer = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({}) }));
+    assert.match(footer, /alt="iA\.Fest"/);
+    assert.match(footer, /site\/iafest\/logotipo\.png/);
+});
+
+test('recorte 2 de production (04/11): galeria e seções novas sinalizam Em breve e plano, sem salões nem intervalo', () => {
+    const { galeria } = carregarModulo('lib/site/galeria.ts', dubles, new Map()) as { galeria: { id: string; nome: string; recursos: RecursoId[]; planos?: string }[] };
+    const comImagem = { ...dubles, 'next/image': { __esModule: true, default: (props: Record<string, unknown>) => createElement('img', { src: props.src, alt: props.alt }) } };
+    const Galeria = carregarModulo('components/site/RecursosGaleria.tsx', comImagem, new Map()).default as ComponentType;
+    const html = renderToStaticMarkup(createElement(Galeria));
+    // P2-1: cada aba usa os recursos do catálogo; o selo aparece exatamente nas que têm recurso Em breve.
+    const abas = [...html.matchAll(/role="tab"[^>]*>([\s\S]*?)<\/button>/g)].map(m => m[1]);
+    assert.equal(abas.length, galeria.length);
+    galeria.forEach((item, i) => {
+        for (const id of item.recursos) assert.ok(id in recursos, `${item.id}: recurso ${id} no catálogo`);
+        assert.equal(abas[i].includes('Em breve'), statusDosRecursos(item.recursos) === 'em_breve', `selo da aba ${item.id}`);
+    });
+    assert.deepEqual(galeria.filter(item => statusDosRecursos(item.recursos) === 'em_breve').map(item => item.id), ['orcamento', 'convites', 'ia', 'copiloto']);
+    // P2-2: planos da galeria e da seção Marketing seguem a barreira do servidor (lida como texto, sem importar lib/assinatura).
+    const barreira = readFileSync('lib/assinatura/recursos-plano.ts', 'utf8');
+    for (const chave of ['ORCAMENTO_ONLINE', 'MARKETING']) assert.match(barreira, new RegExp(`${chave}: \['profissional', 'premium'\]`));
+    assert.deepEqual(galeria.filter(item => item.planos).map(item => [item.id, item.planos]), [['orcamento', 'Profissional e Premium'], ['site', 'Profissional e Premium'], ['marketing', 'Profissional e Premium']]);
+    assert.doesNotMatch(html, /data-planos-galeria/, 'Agenda (primeira aba) não tem barreira de plano');
+    for (const item of galeria) {
+        // Cada item como painel ativo: selo no título do painel e linha de planos só onde há barreira.
+        const painel = renderToStaticMarkup(createElement(carregarModulo('components/site/RecursosGaleria.tsx', { ...comImagem, 'lib/site/galeria': { galeria: [item] } }, new Map()).default as ComponentType));
+        const eyebrow = /<div class="galeriaTexto"><div class="eyebrow">([\s\S]*?)<\/div>/.exec(painel)![1];
+        assert.equal(eyebrow.includes('Em breve'), statusDosRecursos(item.recursos) === 'em_breve', `selo do painel ${item.id}`);
+        if (item.planos) assert.match(painel, /data-planos-galeria="true">Nos planos Profissional e Premium</, item.id);
+        else assert.doesNotMatch(painel, /data-planos-galeria/, item.id);
+    }
+    const secao = (nome: string) => renderToStaticMarkup(createElement(componente('components/site/secoes.tsx', nome)));
+    const marketing = secao('Marketing');
+    assert.match(marketing, /data-planos-marketing="true">Nos planos Profissional e Premium/);
+    assert.match(marketing, /Site do buffet · dentro do Marketing · planos Profissional e Premium/);
+    // P2-3/P3: nenhuma superfície nova ou reescrita promete salões (singular ou plural) nem intervalo entre festas.
+    const textoGaleria = JSON.stringify(galeria.map(({ ...item }) => { delete (item as Record<string, unknown>).imagens; return item; }));
+    for (const [nome, texto] of [['galeria', textoGaleria], ...['AntesDepois', 'Diferenciais', 'ImportacaoDocumentos', 'FinanceiroDetalhes', 'Marketing'].map(n => [n, secao(n)])])
+        assert.doesNotMatch(texto, /sal[ãa]o|sal[õo]es|intervalo/i, nome);
+    assert.equal('AgendaSaloes' in carregarModulo('components/site/secoes.tsx', dubles, new Map()), false);
+    assert.doesNotMatch(readFileSync('components/site/NavegacaoSite.tsx', 'utf8') + readFileSync('components/site/Site.tsx', 'utf8'), /#?saloes/);
 });
