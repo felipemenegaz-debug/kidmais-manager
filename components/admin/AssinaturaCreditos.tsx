@@ -77,7 +77,7 @@ const EXPLICACAO: Record<Recurso, string> = {
     WALLE: 'O Wall-e usa créditos conforme o tamanho de cada atendimento. Respostas da equipe não gastam créditos.',
 };
 
-export function CreditosIA({ recurso }: { recurso: Recurso }) {
+export function CreditosIA({ recurso, children }: { recurso: Recurso; children?: React.ReactNode }) {
     const [c, setC] = useState<Consulta | null>(null);
     const [erro, setErro] = useState('');
     const [ocupado, setOcupado] = useState(false);
@@ -112,7 +112,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
     }, [resultado, carregar]);
 
     const titulo = TITULO[recurso];
-    if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
+    if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p>{children}</section> : children ?? null;
     // WhatsApp.AI: o bloco sempre aparece; sem o Wall-e liberado para a empresa, só o aviso (sem saldo, pacotes ou pedidos).
     // R4-P3-2: liberado e ainda sem carteira (primeira compra) = ativo com saldo zero.
     const walleInativo = recurso === 'WALLE' && !c.walleDisponivel;
@@ -169,6 +169,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
         {recurso === 'CONVITES' && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
         {recurso === 'WALLE' && !walleInativo && (c.walle ? <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />
             : <p data-saldo="WALLE"><strong>WhatsApp.AI:</strong> <span data-disponivel>0</span> {UNIDADE.WALLE} disponíveis</p>)}
+        {children}
         {walleInativo && <p data-walle-inativo>O atendimento com IA (Wall-e) ainda não está ativo para a sua empresa. Os créditos do WhatsApp.AI ficam disponíveis quando ele for ativado.</p>}
         {!walleInativo && !c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
         {!walleInativo && !c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}
