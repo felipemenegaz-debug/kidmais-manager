@@ -35,6 +35,8 @@ const token = 'p'.repeat(43);
         let data;
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
+        // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
+        else if (url.pathname === '/api/admin/configuracoes/agenda' && url.searchParams.get('pendentes') === '1') data = { instalada: true, pendentes: [] };
         else if (url.pathname === `/api/convites/publico/${token}`) {
           if (!publicado) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, erro: 'Convite indisponível.' }) });
           if (url.searchParams.get('arte') === '1') return route.fulfill({ contentType: 'image/webp', body: montada });

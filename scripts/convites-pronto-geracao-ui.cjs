@@ -37,6 +37,8 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
         let data;
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
+        // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
+        else if (url.pathname === '/api/admin/configuracoes/agenda' && url.searchParams.get('pendentes') === '1') data = { instalada: true, pendentes: [] };
         else if (['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) {
           const geracao = url.searchParams.get('geracao');
           if (request.method() === 'POST') {
