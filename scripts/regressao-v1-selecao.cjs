@@ -401,6 +401,14 @@ const ESTADO_POSTGRES = {
   // 03/11/2026 (franquias por plano, F1): migration 116 aplicada pela suíte sobre o modelo 112; código compatível sem a 116,
   // categorias, reconstrução do devido, adoção, conflito, corrida de três sessões, pendência pela sincronização e avisos 80/100.
   "lib/creditos/franquias-116.postgres.test.ts": { descartavel: "112" },
+  // 04/11/2026 (E-ME1, atendimento multiempresa): migration 117 aplicada pela suíte sobre o modelo 112 (060–083 e 074a
+  // presentes); a primeira parte roda SEM a 117 (modo efetivo PILOTO com a chave ligada).
+  "lib/whatsapp/atendimento/multiempresa.postgres.test.ts": { descartavel: "112" },
+  // E-ME1 r2 (revisão Astra 04/11): corridas, portões/revogações/isolamento e rollback §6, cada uma aplica a 117 sobre o 112.
+  "lib/whatsapp/atendimento/multiempresa-corridas.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-portoes.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-rollback.postgres.test.ts": { descartavel: "112" },
+  "lib/whatsapp/atendimento/multiempresa-fontes.postgres.test.ts": { descartavel: "112" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },

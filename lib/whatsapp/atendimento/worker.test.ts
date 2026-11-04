@@ -5,6 +5,7 @@ import { carregarComponente } from '../../../components/admin/teste-componente.t
 import * as core from './core.ts';
 import * as transporte from './transporte.ts';
 import * as arquivos from './arquivos.ts';
+import * as multiempresa from './multiempresa.ts';
 import type { Conversa, Mensagem } from './service.ts';
 
 const agora = new Date();
@@ -19,6 +20,7 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
+    './multiempresa.ts':multiempresa,
     './core.ts':core,
     './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
@@ -500,7 +502,8 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) \? entender : null;/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarPelaEmpresa,wallE:criarPortaWallE\(portas\.entender/);
+  // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender/);
 });
 
 // Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.
@@ -521,4 +524,54 @@ test('pausa antes do limite diário esgotado: nenhuma saída, conversa à equipe
   assert.ok(!comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),'nenhuma saída criada (nem o texto fixo)');
   assert.ok(!comandos.some(c=>c.sql.includes('SELECT count(*) AS n')),'a pausa é tratada antes de contar o limite');
   assert.ok(comandos.some(c=>/SET estado='AGUARDANDO_HUMANO',versao=versao\+1/.test(c.sql)),'conversa à equipe');
+});
+
+// E-ME1 (§2.1/§2.4, casos 6, 7 e E): empresa NÃO piloto no modo MULTI (chave + tabelas da 117 simuladas).
+const mensagemB: Mensagem = {...mensagem,id:'mb',conversa_id:'cb',empresa_id:'b'};
+const conversaB: Conversa = {...conversa,id:'cb',empresa_id:'b'};
+function bancoMulti(isencao:()=>boolean, registro:{sql:string;args?:unknown[]}[]) {
+  return async (sql:string,args?:unknown[]) => {
+    registro.push({sql,args});
+    if(sql.includes("to_regclass('public.whatsapp_atendimento_rodizio')")) return {rows:[{rodizio:true,colisoes:true,comercial:true}]};
+    if(sql.includes('LEFT JOIN whatsapp_atendimento_rodizio')) return {rows:[{empresa_id:'b'}]};
+    if(sql.includes('FROM whatsapp_conexoes')) return {rows:[{'?column?':1}]};
+    if(sql.includes('AS instalado074')) return {rows:[{instalado074:true}]};
+    if(sql.includes('FROM assinatura_isencoes')) return {rows:[{isenta:isencao()}]};
+    if(sql.includes('SELECT id FROM empresas')) return {rows:[{id:'b'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[mensagemB]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversaB]};
+    return {rows:[]};
+  };
+}
+test('E-ME1: outra empresa no MULTI sai pela identidade dela (alvo) e trava o identificador antes de gravá-lo',async()=>{
+  const antes=process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA; process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA='true';
+  try {
+    const registro:{sql:string;args?:unknown[]}[]=[]; const alvos:unknown[]=[];
+    const worker=carregar(bancoMulti(()=>true,registro));
+    const enviar=(async(_c:string,_m:unknown,alvo:unknown)=>{alvos.push(alvo);return 'wamid.B1';}) as never;
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar}),'SUBMETIDA');
+    assert.deepEqual(alvos,[{empresaId:'b',ambiente:'staging',conversaId:'cb',saidaId:'mb',piloto:false}]);
+    const trava=registro.findIndex(r=>r.sql.includes('pg_advisory_xact_lock')&&r.args?.[0]==='wa-prov:staging:wamid.B1');
+    const submetida=registro.findIndex(r=>r.sql.includes("SET estado='SUBMETIDA'"));
+    assert.ok(trava>=0&&trava<submetida,'trava por identificador antes de gravar SUBMETIDA');
+    assert.ok(registro.some(r=>r.sql.includes('INSERT INTO whatsapp_atendimento_rodizio')),'vez registrada no rodízio');
+  } finally { if(antes===undefined) delete process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA; else process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA=antes; }
+});
+test('E-ME1 caso 7: leitura transitória do direito antes de ENVIANDO devolve a tarefa à fila, sem enviar nem fechar',async()=>{
+  const antes=process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA; process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA='true';
+  try {
+    const registro:{sql:string;args?:unknown[]}[]=[]; let leituras=0, envios=0;
+    // 1ª leitura (reserva) concede; 2ª (antes de ENVIANDO) falha: transitório.
+    const worker=carregar(bancoMulti(()=>{ if(++leituras>1) throw new Error('falha de leitura'); return true; },registro));
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'x';}}),'ADIADA');
+    assert.equal(envios,0,'nada enviado');
+    assert.ok(registro.some(r=>r.sql.includes("SET estado='PENDENTE',iniciada_em=NULL")),'tarefa devolvida (PENDENTE)');
+    assert.ok(!registro.some(r=>/SET estado=CASE WHEN estado='ENVIANDO'/.test(r.sql)),'não vira FALHOU/INCERTO');
+  } finally { if(antes===undefined) delete process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA; else process.env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA=antes; }
+});
+test('E-ME1: mensagem e conversa de empresas (ou ambientes) diferentes nunca são válidas juntas',()=>{
+  const {mensagemAindaValida:valida}=carregar(async()=>({rows:[]}));
+  assert.equal(valida(mensagem,conversa,agora),true);
+  assert.equal(valida({...mensagem,empresa_id:'b'},conversa,agora),false);
+  assert.equal(valida({...mensagem,ambiente:'production'},conversa,agora),false);
 });

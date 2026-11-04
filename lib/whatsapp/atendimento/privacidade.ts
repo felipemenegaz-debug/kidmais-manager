@@ -284,8 +284,8 @@ async function travarConversasDoArquivo(tx: DbExecutor, arquivoId: string, empre
  */
 async function cancelarFilaDoArquivo(tx: DbExecutor, arquivoId: string, empresa: string, ambiente: string, motivo: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO') {
   const linhas = (await tx.query<{ conversa_id: string; midia_pronta_id: string | null; automatica: boolean }>(`WITH arq AS (
-      SELECT id, origem_grupo_id FROM whatsapp_atendimento_mensagens WHERE midia_arquivo_id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED),
-    irmas AS (SELECT id FROM whatsapp_atendimento_mensagens WHERE origem_grupo_id IN (SELECT origem_grupo_id FROM arq WHERE origem_grupo_id IS NOT NULL)
+      SELECT id, origem_grupo_id, conversa_id FROM whatsapp_atendimento_mensagens WHERE midia_arquivo_id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED),
+    irmas AS (SELECT id FROM whatsapp_atendimento_mensagens WHERE (origem_grupo_id, conversa_id) IN (SELECT origem_grupo_id, conversa_id FROM arq WHERE origem_grupo_id IS NOT NULL)
       AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED)
     UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento=$4 WHERE id IN (SELECT id FROM arq UNION SELECT id FROM irmas)
     RETURNING conversa_id, midia_pronta_id, autor_usuario_id IS NULL AS automatica`, [arquivoId, empresa, ambiente, motivo])).rows;
@@ -320,7 +320,8 @@ export async function revogarArquivo(sessao: SessaoPrivacidade, pedido: { arquiv
     if (!arquivo) throw new Error('ATENDIMENTO_ARQUIVO_NAO_ENCONTRADO');
     const emCurso = await tx.query<{ enviando: boolean }>(`SELECT (m.estado='ENVIANDO') AS enviando FROM whatsapp_atendimento_mensagens m WHERE m.midia_arquivo_id=$1 AND m.empresa_id=$2 AND m.ambiente=$3 AND (m.estado='ENVIANDO'
       OR (m.estado IN ('PENDENTE','PROCESSANDO') AND m.origem_grupo_id IS NOT NULL AND EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens g
-          WHERE g.origem_grupo_id=m.origem_grupo_id AND g.id<>m.id AND g.direcao='SAIDA' AND g.estado IN ('ENVIANDO','SUBMETIDA','ENTREGUE','INCERTO')))) ORDER BY 1 DESC LIMIT 1`, [pedido.arquivoId, empresa, ambiente]);
+          WHERE g.origem_grupo_id=m.origem_grupo_id AND g.empresa_id=m.empresa_id AND g.ambiente=m.ambiente AND g.conversa_id=m.conversa_id
+            AND g.id<>m.id AND g.direcao='SAIDA' AND g.estado IN ('ENVIANDO','SUBMETIDA','ENTREGUE','INCERTO')))) ORDER BY 1 DESC LIMIT 1`, [pedido.arquivoId, empresa, ambiente]);
     // B2 (revisão de 69dc301): envio em curso passa sozinho (aguardar); grupo já parcialmente enviado não passa sozinho —
     // a equipe assume ou encerra a conversa (a fila automática sai) e revoga de novo.
     if (emCurso.rows.length) throw new Error(emCurso.rows[0].enviando ? 'ATENDIMENTO_ENVIO_EM_ANDAMENTO' : 'ATENDIMENTO_GRUPO_PARCIAL');

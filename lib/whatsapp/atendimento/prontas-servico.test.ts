@@ -13,7 +13,7 @@ const PRONTA = '7f1d2c3b-4a5e-4f60-8a71-b2c3d4e5f601';
 const CONVERSA = '0e9d8c7b-6a5f-4e3d-9c2b-1a0f9e8d7c6b';
 const linha = (x: Partial<Pronta> = {}): Pronta => ({ id: PRONTA, titulo: 'Fechamento', categoria: 'Comercial', tipo: 'TEXTO', texto: 'Olá!', link: null, midia_url: null, atalho: null, versao: 2, atualizada_em: '', ...x });
 // midia: a 081 está aplicada (colunas de mídia presentes). Padrão: ausente, o comportamento da 080.
-type Op = { recusa?: string; papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string; midia?: boolean; r082?: boolean };
+type Op = { recusa?: string; papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string; midia?: boolean; r082?: boolean; semEscrita?: boolean };
 function carregar(op: Op = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const chamadas: string[] = [];
@@ -33,7 +33,7 @@ function carregar(op: Op = {}) {
     '../../clientes/repositories/cliente.repository.ts': { buscarClientesPorContatoExato: async (tel: string, empresa: string) => { chamadas.push(`cliente:${tel}:${empresa}`); return op.clientes ?? []; } },
     '../../fechamentos/contratacoes.ts': { listarContratacoes: async (_tx: unknown, empresa: string, cliente: string) => { chamadas.push(`contratacoes:${empresa}:${cliente}`); return op.contratacoes ?? []; } },
     './configuracao.ts': { ambienteAtendimento: () => 'staging' },
-    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => { if (op.recusa) throw new Error(op.recusa); return work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO'); }, temMidia: async () => op.midia ?? false, tem082: async () => op.r082 ?? false },
+    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => { if (op.recusa) throw new Error(op.recusa); return work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO'); }, temMidia: async () => op.midia ?? false, tem082: async () => op.r082 ?? false, exigirEscritaAtendimento: async () => { chamadas.push('escrita'); if (op.semEscrita) throw new Error('ATENDIMENTO_RECURSO_NAO_INCLUIDO'); } },
     './prontas.ts': prontas,
     './prontas-link.ts': prontasLink,
     './arquivos.ts': arquivos,
@@ -148,4 +148,25 @@ test('recusas de acesso (empresa divergente, seleção pendente, sem acesso) che
       assert.equal(comandos.length, 0);
     } finally { restaurar(); }
   }
+});
+
+// E-ME1 r2 (F4): toda ESCRITA na biblioteca passa pelo portão de modo (exigirEscritaAtendimento) antes de tocar o banco;
+// recusada, nada é gravado. Ler (listar, rascunho) não passa por ele.
+test('E-ME1 F4: escrita na biblioteca recusada pelo modo não grava nada; leitura continua', async () => {
+  const pedidos: [string, (m: Record<string, (s: unknown, v: unknown) => Promise<unknown>>) => Promise<unknown>][] = [
+    ['salvar', (m) => m.salvarPronta(sessao, nova)],
+    ['publicar', (m) => m.publicarPronta(sessao, { id: PRONTA, versao: 1, publicar: true })],
+    ['arquivar', (m) => m.arquivarPronta(sessao, { id: PRONTA, versao: 1 })],
+    ['favoritar', (m) => m.favoritarPronta(sessao, { id: PRONTA, favorita: true })],
+  ];
+  for (const [rotulo, pedir] of pedidos) {
+    const c = carregar({ papel: 'REPRESENTANTE_AUTORIZADO', r082: true, midia: true, semEscrita: true });
+    try {
+      await assert.rejects(pedir(c.modulo as never), /ATENDIMENTO_RECURSO_NAO_INCLUIDO/, rotulo);
+      assert.ok(!c.comandos.some((x: { sql: string }) => /^(INSERT|UPDATE|DELETE)/.test(x.sql.trim())), rotulo + ': nada gravado');
+    } finally { c.restaurar(); }
+  }
+  const leitura = carregar({ papel: 'REPRESENTANTE_AUTORIZADO', semEscrita: true });
+  try { await leitura.modulo.listarProntas(sessao, { gerenciar: true }); assert.ok(!leitura.chamadas.includes('escrita'), 'listar não passa pelo portão de escrita'); }
+  finally { leitura.restaurar(); }
 });

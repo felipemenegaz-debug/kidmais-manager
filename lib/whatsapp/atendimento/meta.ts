@@ -3,9 +3,11 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import type { AmbienteWhatsapp } from '../configuracao.ts';
 import { carregarChaveCredencial, decifrarCredencialWhatsapp } from '../credencial.ts';
 import type { EventosMeta } from '../../integracoes/meta/webhook.ts';
-import { ambienteAtendimento, canalEnvio, empresaPiloto, recepcaoAtiva, recepcaoMetaAtiva } from './configuracao.ts';
+import { ambienteAtendimento, canalEnvio, empresaPiloto, recepcaoMetaAtiva, recepcaoTecnicaAtiva } from './configuracao.ts';
 import { APP_META, nomePerfilSeguro, type Entrada } from './core.ts';
 import { receberEntrada, registrarStatus } from './service.ts';
+import { chaveMultiempresa, ehPilotoDe, pilotoOpcional } from './multiempresa.ts';
+import type { AlvoEnvio } from './worker.ts';
 import { enviarMensagem, type ConteudoSaida } from './transporte.ts';
 
 /**
@@ -23,9 +25,18 @@ type LinhaConexao = { id: string; empresa_id: string; meta_app_id: string; busin
 
 /** Empresa dona do número conectado (CONFIGURADA, mesmo ambiente e mesma conta WhatsApp do evento) ou null. */
 export async function empresaDoNumeroMeta(tx: DbExecutor, phoneNumberId: string, wabaId: string) {
-  const r = await tx.query<{ empresa_id: string }>(`SELECT empresa_id FROM whatsapp_conexoes
-    WHERE ambiente=$1 AND phone_number_id=$2 AND waba_id=$3 AND status='CONFIGURADA' AND empresa_id IS NOT NULL`, [ambienteConexao(), phoneNumberId, wabaId]);
-  return r.rows[0]?.empresa_id ?? null;
+  return (await numeroMeta(tx, phoneNumberId, wabaId)).dona;
+}
+/**
+ * F2 (revisão da E-ME1): identidade do número do evento neste ambiente. `conhecido`: o número (com a mesma conta) já foi
+ * conectado a alguma empresa daqui, em qualquer estado — é o que basta para aceitar um STATUS (a assinatura do app já foi
+ * conferida pelo webhook). `dona`: a conexão CONFIGURADA atual, usada para mensagens e para o buffer de status antecipado.
+ */
+export async function numeroMeta(tx: DbExecutor, phoneNumberId: string, wabaId: string) {
+  const r = await tx.query<{ empresa_id: string; configurada: boolean }>(`SELECT empresa_id,status='CONFIGURADA' AS configurada FROM whatsapp_conexoes
+    WHERE ambiente=$1 AND phone_number_id=$2 AND waba_id=$3 AND empresa_id IS NOT NULL ORDER BY (status='CONFIGURADA') DESC LIMIT 1`, [ambienteConexao(), phoneNumberId, wabaId]);
+  const linha = r.rows[0];
+  return { conhecido: !!linha, dona: linha?.configurada ? linha.empresa_id : null };
 }
 
 /** Entrada da Meta no formato do atendimento: `source` é o wa_id (só dígitos, com DDI) e o horário vem em ms. */
@@ -38,20 +49,29 @@ export function entradaMeta(e: EventosMeta['entradas'][number]): Entrada {
  * Status `read` e `delivered` valem ENTREGUE; `failed` vale FALHOU (o mesmo tratamento da falha do Gupshup).
  */
 export async function receberEventosMeta(eventos: EventosMeta, opcoes: { automacaoGlobal?: boolean } = {}) {
-  const piloto = empresaPiloto();
-  const empresas = new Map<string, string | null>();
-  const empresaDe = async (phoneNumberId: string, wabaId: string) => {
+  // E-ME1 (§2.2/§5): com a chave multiempresa, a entrada de QUALQUER número conectado vai para receberEntrada, que decide
+  // na transação (modo efetivo, C1, C2, C4). Sem a chave, só a piloto, como antes. Status não depende do modo: o de
+  // qualquer número conectado é registrado (registrarStatus procura a saída em todas as empresas).
+  // F2: a piloto é opcional aqui também; sem ela, no PILOTO, nenhuma ENTRADA é gravada, mas os status continuam.
+  const multi = chaveMultiempresa() === 'MULTI';
+  const piloto = pilotoOpcional(empresaPiloto);
+  const ehPiloto = (empresa: string) => ehPilotoDe(empresa, piloto);
+  const numeros = new Map<string, Awaited<ReturnType<typeof numeroMeta>>>();
+  const numeroDe = async (phoneNumberId: string, wabaId: string) => {
     const chave = `${phoneNumberId}:${wabaId}`;
-    if (!empresas.has(chave)) empresas.set(chave, await empresaDoNumeroMeta(db(), phoneNumberId, wabaId));
-    return empresas.get(chave) ?? null;
+    if (!numeros.has(chave)) numeros.set(chave, await numeroMeta(db(), phoneNumberId, wabaId));
+    return numeros.get(chave)!;
   };
   for (const e of eventos.entradas) {
-    if ((await empresaDe(e.phoneNumberId, e.wabaId)) !== piloto) continue;
-    await receberEntrada(entradaMeta(e), { ...opcoes, empresa: piloto });
+    const empresa = (await numeroDe(e.phoneNumberId, e.wabaId)).dona;
+    if (!empresa || (!multi && !ehPiloto(empresa))) continue;
+    await receberEntrada(entradaMeta(e), { ...opcoes, empresa: ehPiloto(empresa) ? piloto! : empresa });
   }
+  // Status: número desconhecido neste ambiente é descartado; conhecido (mesmo DESCONECTADO) procura a saída primeiro.
   for (const s of eventos.status) {
-    if ((await empresaDe(s.phoneNumberId, s.wabaId)) !== piloto) continue;
-    await registrarStatus(piloto, s.id, s.tipo === 'failed' ? 'FALHOU' : 'ENTREGUE');
+    const numero = await numeroDe(s.phoneNumberId, s.wabaId);
+    if (!numero.conhecido) continue;
+    await registrarStatus(numero.dona && ehPiloto(numero.dona) ? piloto! : numero.dona, s.id, s.tipo === 'failed' ? 'FALHOU' : 'ENTREGUE');
   }
 }
 
@@ -63,8 +83,8 @@ export type ConexaoEnvioMeta = { phoneNumberId: string; token: string };
  * não usa a Meta). Chave de outra versão ou token vencido: transporte não configurado (nada sai, a mensagem termina
  * FALHOU e vai para a equipe), nunca uma tentativa com credencial errada.
  */
-export async function conexaoEnvioMeta(tx: DbExecutor, empresaId: string, env: NodeJS.ProcessEnv = process.env): Promise<ConexaoEnvioMeta | null> {
-  const ambiente = ambienteConexao();
+export async function conexaoEnvioMeta(tx: DbExecutor, empresaId: string, env: NodeJS.ProcessEnv = process.env, ambienteSaida?: string): Promise<ConexaoEnvioMeta | null> {
+  const ambiente: AmbienteWhatsapp = ambienteSaida === undefined ? ambienteConexao() : ambienteSaida === 'production' ? 'PRODUCTION' : 'STAGING';
   const c = (await tx.query<LinhaConexao>(`SELECT id,empresa_id,meta_app_id,business_id,waba_id,phone_number_id,credencial_cifrada,credencial_iv,credencial_tag,credencial_chave_versao,token_expira_em::text
     FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2 AND status='CONFIGURADA'`, [ambiente, empresaId])).rows[0];
   if (!c) return null;
@@ -132,12 +152,24 @@ export async function enviarMensagemMeta(conexao: ConexaoEnvioMeta, destination:
  * fallback; INVALIDO não envia. Toda recusa acontece antes da rede (ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO: nada saiu,
  * o worker marca FALHOU).
  */
-export async function enviarPelaEmpresa(contato: string, conteudo: ConteudoSaida, deps: { gupshup?: typeof enviarMensagem; buscar?: typeof fetch; executor?: DbExecutor; env?: NodeJS.ProcessEnv } = {}) {
+export async function enviarPelaEmpresa(contato: string, conteudo: ConteudoSaida, deps: { gupshup?: typeof enviarMensagem; buscar?: typeof fetch; executor?: DbExecutor; env?: NodeJS.ProcessEnv; alvo?: AlvoEnvio } = {}) {
+  // P3 (revisão da E-ME1): o alvo vem da saída reservada e leva o ambiente dela; um ambiente diferente do deste processo
+  // nunca sai (nada vai pela rede).
+  if (deps.alvo && deps.alvo.ambiente !== ambienteAtendimento()) throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO');
+  // E-ME1 (§2.4): saída de empresa que NÃO é a piloto sai só pela conexão Meta CONFIGURADA dela; nunca pelo Gupshup nem
+  // pela conexão de outra empresa, qualquer que seja WHATSAPP_ATENDIMENTO_CANAL_ENVIO (canal da piloto).
+  if (deps.alvo && !deps.alvo.piloto) {
+    let conexao: ConexaoEnvioMeta | null;
+    try { conexao = await conexaoEnvioMeta(deps.executor ?? db(), deps.alvo.empresaId, deps.env, deps.alvo.ambiente); }
+    catch { throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO'); }
+    if (!conexao) throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO');
+    return enviarMensagemMeta(conexao, contato, conteudo, deps.buscar, deps.env);
+  }
   const canal = canalEnvio(deps.env ?? process.env);
   if (canal === 'INVALIDO') throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO');
   if (canal === 'GUPSHUP') return (deps.gupshup ?? enviarMensagem)(contato, conteudo, deps.buscar);
   let conexao: ConexaoEnvioMeta | null;
-  try { conexao = await conexaoEnvioMeta(deps.executor ?? db(), empresaPiloto()); }
+  try { conexao = await conexaoEnvioMeta(deps.executor ?? db(), deps.alvo?.empresaId ?? empresaPiloto()); }
   catch { throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO'); }
   if (!conexao) throw new Error('ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO');
   return enviarMensagemMeta(conexao, contato, conteudo, deps.buscar);
@@ -149,6 +181,8 @@ export async function enviarPelaEmpresa(contato: string, conteudo: ConteudoSaida
  * 200, DESCARTANDO mensagens e status (sem gravar, enfileirar ou chamar a IA; a Meta não reenvia).
  */
 export function persistenciaWebhookMeta(opcoes: { automacaoGlobal?: boolean }, env: NodeJS.ProcessEnv = process.env, receber: typeof receberEventosMeta = receberEventosMeta) {
-  if (!recepcaoAtiva(env) || !recepcaoMetaAtiva(env)) return undefined;
+  // F2: a persistência não depende da piloto (status de saídas existentes vale em qualquer modo); as ENTRADAS sem piloto no
+  // PILOTO são descartadas dentro de receberEventosMeta.
+  if (!recepcaoTecnicaAtiva(env) || !recepcaoMetaAtiva(env)) return undefined;
   return (eventos: EventosMeta) => receber(eventos, opcoes);
 }
