@@ -245,7 +245,9 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
         // O histórico e o consumo permanecem; só desfazemos o vínculo com o arquivo excluído.
         await tx.query('UPDATE convite_geracoes SET arte_id=NULL WHERE arte_id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
         await tx.query('DELETE FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
-        const rascunho = c.rascunho.arteId === i.arteId ? { ...c.rascunho, arteId: null } : c.rascunho;
+        // Sem imagem não há "Convite pronto" (modo 'completa'): o rascunho volta à composição com os dados da festa.
+        const rascunho = c.rascunho.arteId !== i.arteId ? c.rascunho : c.rascunho.visual?.modo === 'completa'
+          ? { ...c.rascunho, arteId: null, visual: { ...c.rascunho.visual, modo: 'modelo' as const } } : { ...c.rascunho, arteId: null };
         await tx.query('UPDATE convites SET rascunho=$2,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id, rascunho]);
         await evento(tx, c, a, 'ARTE_EXCLUIDA', { arteId: i.arteId });
         return { excluida: true };
