@@ -20,6 +20,8 @@ const FILTROS: Record<string, string> = {
     ia_credito_lancamentos: 'empresa_id = $1::uuid',
     ia_credito_devolucoes: 'empresa_id = $1::uuid',
     ia_credito_notificacoes: 'empresa_id = $1::uuid',
+    ia_credito_franquia_pendencias: 'empresa_id = $1::uuid',
+    ia_credito_franquias_ciclo: 'empresa_id = $1::uuid',
 };
 
 /**
@@ -60,8 +62,13 @@ const REGRAVAVEIS: Record<string, readonly string[]> = { empresa_assinaturas: TA
  * em T2. Só grava com mudança (§3.3.1). A diferença final é comparada com a proposta aprovada por quem chama.
  */
 export async function regravarDoInstante(tx: DbExecutor, valores: readonly { tabela: string; chave: string; coluna: string; valor: unknown }[]) {
-    for (const v of valores) {
+    for (const v of valores)
         if (!REGRAVAVEIS[v.tabela]?.includes(v.coluna) || typeof v.valor !== 'string') throw new Error(`Valor do instante não regravável: ${v.tabela}.${v.coluna}`);
+    // Empresa ANTES da assinatura (F1 r3): o UPDATE abaixo dispara o gatilho 068 (empresa FOR UPDATE); travada aqui, a ordem é
+    // a da sincronização e da manutenção dos créditos. Ordem por id: duas regravações nunca se cruzam.
+    const empresas = [...new Set(valores.map((v) => v.chave))].sort();
+    if (empresas.length) await tx.query('SELECT id FROM empresas WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE', [empresas]);
+    for (const v of valores) {
         await tx.query(`UPDATE empresa_assinaturas SET ${v.coluna} = $2::timestamptz WHERE empresa_id = $1::uuid AND ${v.coluna} IS DISTINCT FROM $2::timestamptz`,
             [v.chave, v.valor]);
     }

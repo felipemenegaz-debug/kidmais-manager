@@ -109,8 +109,10 @@ test('exibição e aviso de saldo: Wall-e em créditos inteiros (para baixo), 20
 });
 
 test('flags: tudo desligado por padrão; só o texto "true" liga; produção nunca vende catálogo sem aprovação registrada', () => {
-    assert.deepEqual(flagsCreditos({}), { catalogo: false, compra: false, consumoConvites: false, consumoWalle: false, estorno: false });
-    assert.deepEqual(flagsCreditos({ CREDITOS_COMPRA_ATIVA: 'TRUE', CREDITOS_CATALOGO_ATIVO: '1', CREDITOS_ESTORNO_ATIVO: ' true ' }), { catalogo: false, compra: false, consumoConvites: false, consumoWalle: false, estorno: true });
+    assert.deepEqual(flagsCreditos({}), { catalogo: false, compra: false, consumoConvites: false, consumoWalle: false, estorno: false, franquiaPlano: false });
+    assert.deepEqual(flagsCreditos({ CREDITOS_COMPRA_ATIVA: 'TRUE', CREDITOS_CATALOGO_ATIVO: '1', CREDITOS_ESTORNO_ATIVO: ' true ' }), { catalogo: false, compra: false, consumoConvites: false, consumoWalle: false, estorno: true, franquiaPlano: false });
+    assert.equal(flagsCreditos({ CREDITOS_FRANQUIA_PLANO_ATIVO: 'true' }).franquiaPlano, true);
+    assert.equal(flagsCreditos({ CREDITOS_FRANQUIA_PLANO_ATIVO: '1' }).franquiaPlano, false, 'franquia por plano: só o texto "true" liga');
     assert.equal(flagsCreditos({ ASSINATURA_ESTORNO_ATIVO: 'true' }).estorno, false, 'nunca reutiliza a flag da assinatura');
     const ligado = { CREDITOS_CATALOGO_ATIVO: 'true', CREDITOS_COMPRA_ATIVA: 'true' };
     assert.deepEqual(vendaAberta(CATALOGO_DEMO, {}), { ok: false, motivo: 'CATALOGO_DESLIGADO' });

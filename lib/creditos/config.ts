@@ -6,6 +6,8 @@
  *   CREDITOS_CONVITES_CONSUMO_ATIVO  geração de Convites debita do motor novo nas empresas com corte registrado;
  *   CREDITOS_WALLE_CONSUMO_ATIVO     reservas/débitos do Wall-e no motor novo (o atendimento continua com gates próprios);
  *   CREDITOS_ESTORNO_ATIVO           estorno automático de pacote (Pix/cartão) pelo provedor; sem ela, fila manual.
+ *   CREDITOS_FRANQUIA_PLANO_ATIVO    franquia mensal de Convites pela tabela do plano (116, lib/creditos/franquias.ts);
+ *                                    sem ela, o worker concede o mesmo limite legado de sempre.
  * Nunca reutiliza ASSINATURA_ESTORNO_ATIVO (assinatura e pacote têm filas e decisões separadas).
  *
  * Desligar compra ou consumo NÃO desliga obrigações já assumidas: webhook, reconciliação, histórico, devolução e o
@@ -21,7 +23,7 @@ import type { Catalogo } from './catalogo.ts';
 type Ambiente = Record<string, string | undefined>;
 const ligada = (v: string | undefined) => v?.trim() === 'true';
 
-export type FlagsCreditos = { catalogo: boolean; compra: boolean; consumoConvites: boolean; consumoWalle: boolean; estorno: boolean };
+export type FlagsCreditos = { catalogo: boolean; compra: boolean; consumoConvites: boolean; consumoWalle: boolean; estorno: boolean; franquiaPlano: boolean };
 export function flagsCreditos(env: Ambiente = process.env): FlagsCreditos {
     return {
         catalogo: ligada(env.CREDITOS_CATALOGO_ATIVO),
@@ -29,6 +31,7 @@ export function flagsCreditos(env: Ambiente = process.env): FlagsCreditos {
         consumoConvites: ligada(env.CREDITOS_CONVITES_CONSUMO_ATIVO),
         consumoWalle: ligada(env.CREDITOS_WALLE_CONSUMO_ATIVO),
         estorno: ligada(env.CREDITOS_ESTORNO_ATIVO),
+        franquiaPlano: ligada(env.CREDITOS_FRANQUIA_PLANO_ATIVO),
     };
 }
 

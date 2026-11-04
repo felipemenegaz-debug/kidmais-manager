@@ -206,6 +206,7 @@ const approvedFiles = [
   // 076). Aditiva; rollback recusa qualquer dado de PJ. Código compatível antes (sem a 112 recusa PJ). 110/111 reservadas pela
   // satisfação (só locais); 112 conferida livre em 01/11 (clones, vault).
   '20261101_112_clientes_pessoa_juridica.sql',
+  '20261103_116_franquias_ciclo.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -234,7 +235,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '116'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
