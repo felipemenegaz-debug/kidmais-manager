@@ -22,7 +22,7 @@ export default function Abas({ telas }: { telas: Record<AbaId, ReactNode> }) {
     return <section className={cx('block')} id="recursos" aria-labelledby="t-recursos"><div className={cx('wrap')}>
         <div className={cx('head')}><div className={cx('eyebrow')}>Recursos</div><h2 id="t-recursos">O que acontece nos bastidores<br /><em>faz a festa acontecer.</em></h2></div>
         <div className={cx('stage')}>
-            <div className={cx('story')}><div className={cx('tabs')} role="tablist" aria-label="Recursos do Kidmais Manager">
+            <div className={cx('story')}><div className={cx('tabs')} role="tablist" aria-label="Recursos do iA.Fest">
                 {chaves.map((id, i) => <button type="button" role="tab" key={id} id={`tab-${id}`} aria-controls={`painel-${id}`} aria-selected={ativa === id} tabIndex={ativa === id ? 0 : -1} ref={el => { botoes.current[i] = el; }} onClick={() => setAtiva(id)} onKeyDown={event => navegar(event, i)}>{abas[id].nome}</button>)}
             </div><h3 id="recurso-titulo"><Recurso ids={abas[ativa].recursos}>{abas[ativa].titulo}</Recurso></h3><p id="recurso-descricao"><Recurso ids={abas[ativa].recursos}>{abas[ativa].texto}</Recurso></p><ul>{abas[ativa].itens.map(texto => <li key={texto}><Recurso ids={abas[ativa].recursos}>{texto}</Recurso></li>)}</ul></div>
             <div className={cx('preview')}>{chaves.map(id => <div key={id} id={`painel-${id}`} role="tabpanel" aria-labelledby={`tab-${id}`} aria-describedby="recurso-titulo recurso-descricao" hidden={ativa !== id} tabIndex={0} className={cx('app')}>

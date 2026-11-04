@@ -16,7 +16,6 @@ export const recursos = {
     exportacao: { nome: 'Exportação dos dados', status: 'disponivel', evidencia: implementado },
     permissoes: { nome: 'Papéis e permissões', status: 'disponivel', evidencia: implementado },
     walle_whatsapp: { nome: 'Wall-e no WhatsApp', status: 'em_breve', evidencia: 'Planejamento; entrega de mensagens não comprovada em production.' },
-    walle_publicitario: { nome: 'Wall-e publicitário', status: 'em_breve', evidencia: 'Protótipo local informado por Felipe; sem ativação comprovada.' },
     cartao: { nome: 'Cartão de crédito nas parcelas', status: 'em_breve', evidencia: 'Depende da conexão Asaas da conta do buffet; não comprovada.' },
     convite: { nome: 'Convite da festa', status: 'em_breve', evidencia: 'Módulo desenvolvido, sem homologação e ativação comprovadas.' },
     assinatura_whatsapp: { nome: 'Assinatura com código pelo WhatsApp', status: 'em_breve', evidencia: 'Depende da entrega Gupshup; não comprovada.' },
