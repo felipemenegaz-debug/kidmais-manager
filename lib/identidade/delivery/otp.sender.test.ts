@@ -75,10 +75,35 @@ test("envia template OTP pela API oficial sem expor metadados internos", async (
           type: "body",
           parameters: [{ type: "text", text: "123456" }],
         },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
+          parameters: [{ type: "text", text: "123456" }],
+        },
       ],
     },
   });
   assert.equal(JSON.stringify(body).includes(delivery.validacaoId), false);
+});
+
+test("código com zeros à esquerda segue como texto igual no corpo e no botão", async () => {
+  let requestInit: RequestInit | undefined;
+  const fetchMock: typeof fetch = async (_input, init) => {
+    requestInit = init;
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await criarWhatsappCloudSender(config, fetchMock)({ ...delivery, codigo: "000123" });
+
+  const componentes = JSON.parse(String(requestInit?.body)).template.components;
+  assert.deepEqual(componentes, [
+    { type: "body", parameters: [{ type: "text", text: "000123" }] },
+    { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "000123" }] },
+  ]);
 });
 
 test("recusa SMS antes de chamar o provedor externo", async () => {
