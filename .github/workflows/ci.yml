@@ -58,6 +58,7 @@ jobs:
           scripts/assinatura-cron-producao-20261020.test.cjs
           scripts/assinatura-cron.test.cjs
           scripts/assinatura-renovacao-cron.test.cjs
+          scripts/creditos-manutencao-cron.test.cjs
           scripts/assinatura-reconciliar.test.cjs
           scripts/assinatura-reconciliar-preservacao.test.cjs
           scripts/recuperacao-pagamentos-producao.test.cjs
