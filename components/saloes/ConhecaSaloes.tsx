@@ -107,7 +107,7 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
       const seguir = () => {
         const p = new URLSearchParams({ origem: "DISPONIBILIDADE" });
         for (const k of PARAMETROS) { const v = atuais.get(k); if (v) p.set(k, v); }
-        router.replace(`${paginaPublica("/fechamento", empresa)}?${p}`);
+        router.replace(`${paginaPublica("/orcamento", empresa)}?${p}`);
       };
       try {
         const r = await fetch(apiPublica(`/api/publico/saloes?${consulta}`, empresa), { cache: "no-store" });
@@ -146,7 +146,7 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
     const p = new URLSearchParams({ origem: "DISPONIBILIDADE" });
     for (const k of PARAMETROS) { const v = params.get(k); if (v) p.set(k, v); }
     p.set("salao", escolhido.id);
-    router.push(`${paginaPublica("/fechamento", empresa)}?${p}`);
+    router.push(`${paginaPublica("/orcamento", empresa)}?${p}`);
   }
 
   const voltar = `${paginaPublica("/disponibilidade", empresa)}`;

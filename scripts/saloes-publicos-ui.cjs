@@ -202,7 +202,7 @@ async function principal() {
       await semRolagemLateral(page, `${nome} salões`);
       await page.getByRole('article', { name: 'Grande' }).getByRole('button', { name: 'Escolher este salão' }).click();
       await page.getByRole('button', { name: 'Continuar com Grande →' }).click();
-      await page.waitForURL(/\/fechamento\?/);
+      await page.waitForURL((u) => u.pathname === `/b/${A.empresa.codigo}/orcamento` && u.search.length > 1);
       assert.equal(new URL(page.url()).searchParams.get('salao'), grande);
       await page.getByText('Grande', { exact: true }).first().waitFor();
       await page.getByText(/Salão de preferência:/).first().waitFor();
@@ -236,9 +236,9 @@ async function principal() {
 
       // Buffet B (um salão pronto): sem a etapa, direto ao fechamento.
       await ateContinuar(page, B.empresa.codigo, diaB);
-      await page.waitForURL(/\/fechamento\?/);
+      await page.waitForURL((u) => u.pathname === `/b/${B.empresa.codigo}/orcamento` && u.search.length > 1);
       assert.equal(new URL(page.url()).searchParams.get('salao'), null);
-      resultados.push(`${nome}: buffet com um salão pronto → direto ao /fechamento (sem a etapa)`);
+      resultados.push(`${nome}: buffet com um salão pronto → direto ao /orcamento (sem a etapa)`);
 
       // Revisão P2-1: a etapa some (404) com um salão já escolhido → nada segue sozinho; o cliente decide.
       const q = new URLSearchParams({ data: DB, codigoPeriodo: 'TARDE_SD_UI', configuracaoId: B.tarde, inicio: '15:00', fim: '19:00', ajuste: '0', convidados: '80', salao: grande });
@@ -248,9 +248,31 @@ async function principal() {
       await page.getByRole('link', { name: 'Voltar e escolher outra data' }).waitFor();
       await page.screenshot({ path: path.join(relatorios, `${nome}-4-sem-etapa-com-salao.png`), fullPage: true });
       await page.getByRole('button', { name: 'Continuar sem salão de preferência' }).click();
-      await page.waitForURL(/\/fechamento\?/);
+      await page.waitForURL((u) => u.pathname === `/b/${B.empresa.codigo}/orcamento` && u.search.length > 1);
       assert.equal(new URL(page.url()).searchParams.get('salao'), null, 'segue sem a preferência por decisão do cliente');
       resultados.push(`${nome}: etapa fora do ar com salão escolhido → aviso + "Voltar e escolher outra data" / "Continuar sem salão de preferência" (sem redirecionar sozinho)`);
+
+      // D1 (iA.Fest): página inicial do buffet /b/<código> → consulta de datas; nada do painel; código inexistente = 404.
+      const respostaInicial = await page.goto(`${base}/b/${A.empresa.codigo}`);
+      assert.equal(respostaInicial.status(), 200);
+      await page.getByRole('heading', { level: 1, name: 'Buffet Três Salões UI' }).waitFor();
+      await page.getByRole('heading', { name: 'Como funciona' }).waitFor();
+      const entrada = page.getByRole('link', { name: 'Ver datas e pedir orçamento →' });
+      assert.equal(await entrada.getAttribute('href'), `/b/${A.empresa.codigo}/disponibilidade`);
+      assert.equal(await page.locator('a[href*="/admin"], a[href*="/login"], a[href*="/desenvolvedor"]').count(), 0, 'sem link para o painel');
+      await semRolagemLateral(page, `${nome} página do buffet`);
+      await page.screenshot({ path: path.join(relatorios, `${nome}-5-pagina-buffet.png`), fullPage: true });
+      await entrada.click();
+      await page.waitForURL(new RegExp(`/b/${A.empresa.codigo}/disponibilidade$`));
+      await page.getByRole('button', { name: '80', exact: true }).waitFor();
+      const semDados = await page.goto(`${base}/b/${A.empresa.codigo}/orcamento`);
+      assert.equal(semDados.status(), 200);
+      await page.waitForURL(new RegExp(`/b/${A.empresa.codigo}/disponibilidade$`));
+      for (const caminho of ['', '/orcamento', '/disponibilidade']) {
+        const inexistente = await page.goto(`${base}/b/buffet-que-nao-existe-d1${caminho}`);
+        assert.equal(inexistente.status(), 404, `código inexistente${caminho}`);
+      }
+      resultados.push(`${nome}: /b/<código> abre com o nome do buffet e leva à consulta de datas; /orcamento sem data volta à consulta; código inexistente = 404 (raiz, /orcamento, /disponibilidade)`);
       await contexto.close();
     }
     fs.writeFileSync(path.join(relatorios, 'resultados.json'), JSON.stringify({ diaA: DA, diaB: DB, saloes: { pequeno, medio, grande }, resultados }, null, 2));
