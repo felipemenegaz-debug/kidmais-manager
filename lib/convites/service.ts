@@ -1,3 +1,4 @@
+import { franquiaDaEmpresa } from './franquia-empresa.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { db, withTransaction } from '../db/postgres';
 import type { DbExecutor } from '../db/contracts';
@@ -136,9 +137,8 @@ async function evento(tx: DbExecutor, c: Convite, a: Acesso, acao: string, detal
   await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [c.id, ator(a, c), acao, detalhe]);
 }
 async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
-  const w = (await tx.query<{ limite: number; usado: number }>(`SELECT CASE WHEN w.ativo THEN w.limite_mensal ELSE 0 END limite,COALESCE(u.usado,0)::int usado
-    FROM convite_carteiras w LEFT JOIN convite_consumos u ON u.empresa_id=w.empresa_id AND u.mes=date_trunc('month',now() AT TIME ZONE 'America/Sao_Paulo')::date WHERE w.empresa_id=$1`, [c.empresa_id])).rows[0];
-  return { empresa: w?.limite ?? 0, empresaUsado: w?.usado ?? 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
+  const { limite, usado } = await franquiaDaEmpresa(tx, c.empresa_id);
+  return { empresa: limite, empresaUsado: usado, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
 }
 export async function consultar(a: Acesso, criar = false) {
   return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {

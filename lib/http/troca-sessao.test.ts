@@ -172,7 +172,7 @@ test('sessão inválida no servidor: CSRF existente e bem formado é reaproveita
 test('AdminShell: leituras do shell que saíram antes ou durante a troca ignoram a resposta (sem login)', () => {
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /const carregar = \(\) => \{ const marca = marcaDaSessao\(\); return fetch\('\/api\/admin\/autenticacao'[\s\S]*?if \(sessaoObsoletaDesde\(marca\)\)\s*return;\s*if \(!b\.ok \|\| !b\.data\.usuarioId\) \{/);
-    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) router\.replace\('\/admin\/login'\); \}\);/);
+    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) router\.replace\(loginDestaPagina\(\)\); \}\);/);
 });
 
 // ---------------------------------------------------------------- B1, B2 e aviso perdido (parecer de 11/10/2026)

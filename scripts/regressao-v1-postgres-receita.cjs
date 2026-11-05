@@ -85,6 +85,8 @@ const MODELOS = {
   // com a devolução (22/10/2026), até a 089 (assinatura_encerramentos); a 087 não existe
   // neste repositório (trabalho local de cobrança, não integrado).
   "088": { banco: "kidmais_v1_modelo_088", ate: "088", sem: [] },
+  "099": { banco: "kidmais_v1_modelo_099", ate: "099", sem: [] },
+  "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: [] },
   "089": { banco: "kidmais_v1_modelo_089", ate: "089", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */

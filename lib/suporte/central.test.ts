@@ -288,6 +288,7 @@ test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado d
     const deps = {
         'next/navigation': { usePathname: () => caminho, useRouter: () => ({ replace() {}, push() {} }) },
         'next/link': { default: Link },
+        '@/lib/http/retorno-login': { loginDestaPagina: () => '/admin/login' },
         '@/lib/http/admin-fetch': { trocarEmpresaAtiva: async () => ({}) },
         '@/lib/http/contexto-empresa-cliente': { marcaDaSessao: () => 0, registrarContextoEmpresa: () => true, reiniciarContextoEmpresa() {}, sessaoObsoletaDesde: () => false },
         './shell.module.css': cssFalso, './tokens.module.css': cssFalso, './admin.module.css': cssFalso,
