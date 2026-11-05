@@ -4302,3 +4302,14 @@ test('mesma pergunta, duas empresas com prazos distintos e outra sem modelo', as
   fontes.contratoDaEmpresa = async () => null;
   assert.ok((await resolverWallE(entrada, fontes)).passagem);
 });
+
+test('explica os sete pacotes e mostra o mínimo mesmo sem teto de convidados', async () => {
+  const pergunta = 'Explique os pacotes';
+  const { fontes } = fontesFake();
+  const [base] = await fontes.pacotes();
+  const pacotes = Array.from({length: 7}, (_, i) => ({...base, id: 'p' + i, codigo: 'P' + i, nome: 'Festa ' + i, convidadosMinimos: 20 + i, convidadosMaximos: null}));
+  fontes.pacotes = async () => pacotes;
+  const catalogo = {...catalogos, pacotes};
+  const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogo), contexto: {}, config, catalogos: catalogo, agora: HOJE }, fontes);
+  for (const p of pacotes) assert.ok(texto(r).includes(p.nome + ': a partir de ' + p.convidadosMinimos + ' convidados'));
+});

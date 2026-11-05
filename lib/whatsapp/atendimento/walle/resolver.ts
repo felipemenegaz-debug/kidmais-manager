@@ -393,7 +393,7 @@ async function pacotes(e: Estado) {
   const t = semAcento(e.texto);
   const doContexto = !doTexto.length && !!e.ctx.pacote && !!n && CABE.test(t) && !/\b(pacotes|algum|alguns|qual|quais|nenhum|todos|outro|outros)\b/.test(t) && t.trim().split(/\s+/).length <= 6;
   const citados = doContexto ? [e.ctx.pacote!] : e.entendimento.comparar && doTexto.length === 1 && e.ctx.pacote && !doTexto.includes(e.ctx.pacote) ? [e.ctx.pacote, ...doTexto] : doTexto;
-  const escolhidos = (citados.length ? citados.map((c) => todos.find((p) => p.codigo === c)).filter((p): p is PacoteResumo => !!p) : todos).slice(0, 4);
+  const escolhidos = citados.length ? citados.map((c) => todos.find((p) => p.codigo === c)).filter((p): p is PacoteResumo => !!p) : todos;
   // "O Premium cabe 150 pessoas?": resposta direta pela faixa cadastrada.
   const unico = escolhidos.length === 1 ? escolhidos[0] : null;
   if (n && unico?.convidadosMaximos && CABE.test(semAcento(e.texto))) {
@@ -438,7 +438,7 @@ async function pacotes(e: Estado) {
     const comp = await e.fontes.composicao(p.codigo);
     composicoes.set(p.codigo, comp);
     const partes = [
-      p.convidadosMaximos ? (p.convidadosMinimos ? `de ${p.convidadosMinimos} a ${p.convidadosMaximos} convidados` : `até ${p.convidadosMaximos} convidados`) : null,
+      p.convidadosMaximos ? (p.convidadosMinimos ? `de ${p.convidadosMinimos} a ${p.convidadosMaximos} convidados` : `até ${p.convidadosMaximos} convidados`) : p.convidadosMinimos ? `a partir de ${p.convidadosMinimos} convidados` : 'quantidade de convidados a confirmar',
       p.duracaoMinutos ? `${p.duracaoMinutos % 60 === 0 ? `${p.duracaoMinutos / 60} horas` : `${p.duracaoMinutos} minutos`} de festa` : null,
       comp?.categorias.length ? `buffet com ${lista(comp.categorias.map((c) => c.nome.toLowerCase()))}` : null,
       comp?.inclusos.length ? `inclui ${lista(comp.inclusos.slice(0, 5).map((i) => i.nome))}` : null,
@@ -523,13 +523,23 @@ async function itensDoBuffet(e: Estado, itens: string[]) {
   for (const item of itens) {
     const achados = alvo.map((pacote) => ({ pacote, categoria: comps.get(pacote)?.categorias.find((c) => c.itens.some((i) => mesmo(i, item))) }))
       .filter((x): x is { pacote: string; categoria: Composicao['categorias'][number] } => !!x.categoria);
-    if (achados.length) linhas.push(`${item}: sim, faz parte do buffet ${achados.length === alvo.length && alvo.length > 2 ? 'de todos os pacotes' : nomes(achados.map((x) => x.pacote))} (${achados[0].categoria.nome.toLowerCase()}, escolha até ${achados[0].categoria.escolhasMax}).`);
+    if (achados.length) {
+      const categoria = achados[0].categoria;
+      const mesmaRegra = achados.every(x => x.categoria.nome === categoria.nome && x.categoria.escolhasMax === categoria.escolhasMax);
+      const limite = mesmaRegra ? ` (${categoria.nome.toLowerCase()}, escolha até ${categoria.escolhasMax})` : '';
+      linhas.push(`${item}: sim, faz parte do buffet ${achados.length === alvo.length && alvo.length > 2 ? 'de todos os pacotes' : nomes(achados.map((x) => x.pacote))}${limite}.`);
+    }
     else linhas.push(`${item} não está no buffet cadastrado ${nomes(alvo)}.`);
     fontes.push(...(achados.length ? achados.map((x) => x.pacote) : alvo).map((p) => ({ tipo: 'CATALOGO_BUFFET', pacote: p } as Fonte)));
   }
   dizer(e, linhas.join('\n'), [...new Map(fontes.map((f) => [JSON.stringify(f), f])).values()]);
 }
 async function cardapio(e: Estado) {
+  if (/\b(?:doces?|salgados?|sabores?)\b[^?!]{0,40}\b(?:tem que|deveria|deveriam|precisa) (?:ter|ser) (?:um )?limite\b/.test(semAcento(e.texto))) {
+    dizer(e, 'Obrigada por avisar. Vou pedir à equipe que confira o limite de sabores desse pacote.');
+    passar(e, 'INFORMACAO_INDISPONIVEL');
+    return;
+  }
   if (e.entendimento.alergia) return; // tratado à parte: a equipe confirma
   const pratos = e.entendimento.itens ?? [];
   const alvo = e.entendimento.entidades.pacotes.length ? e.entendimento.entidades.pacotes.slice(0, 2) : e.ctx.pacote ? [e.ctx.pacote] : e.catalogos.pacotes.length === 1 ? [e.catalogos.pacotes[0].codigo] : [];
@@ -665,7 +675,7 @@ async function decoracao(e: Estado) {
   // Teste manual de 12/10/2026: quando o número de convidados decide o preço do adicional, só ele é pedido nesta volta.
   if (e.ctx.adicionalPendente) return;
   if (e.entendimento.temaAmbiguo && !e.entendimento.entidades.tema) { dizer(e, TEMA_A_DECIDIR); perguntar(e, 'tema', 'DECORACAO'); return; }
-  if (e.ctx.tema && e.entendimento.entidades.tema) dizer(e, `Anotei o tema “${e.ctx.tema}”. Se tiver fotos de referência, pode mandar por aqui que a equipe recebe.`);
+  if (e.ctx.tema && e.entendimento.entidades.tema) dizer(e, `Anotei o tema “${e.ctx.tema}”. A equipe pode confirmar quais opções de decoração estão disponíveis para a sua festa.`);
   else if (!e.ctx.tema) perguntar(e, 'tema', 'DECORACAO', true);
 }
 const CUSTO_DECORACAO = /\b(cobrad\w*|cobra|cobram|a parte|separad\w*|inclus\w*|inclui|incluid\w*|vem no pacote|vem junto|custa|custo|pago|paga|extra|extras|adicional|adicionais)\b/;
