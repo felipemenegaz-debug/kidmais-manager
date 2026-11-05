@@ -186,8 +186,8 @@ test('entrega em partes → conferência → a árvore roda FORA do checkout (FI
             assert.match(r.saida, /CONFERIR_E0_SO_COM_CODIGO_ANTIGO/);
             assert.doesNotMatch(r.saida, /"motivo"/, 'nada executado');
         }
-        // B-23e (D-B23e-3 = (A)): a base vigente é a última da lista fechada (a LIVE de production), lida do fonte.
-        const VIGENTE = '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735'; // #325
+        // B-23f: a base vigente é a última da lista fechada (a de production), lida do fonte.
+        const VIGENTE = 'cc4bab508dd617dbdbc402f049113a8e99b2239a'; // #332
         const { codigosAntigosDoFonte } = require('./b23-prova-base.cjs');
         assert.equal(codigosAntigosDoFonte(fs.readFileSync(path.join(root, 'lib/assinatura/recuperacao-execucao.ts'), 'utf8')).at(-1), VIGENTE, 'a base vigente do E0 é a última de CODIGOS_ANTIGOS');
         const e0 = sessao(d, gerar(d, 'CONFERIR-E0'), { env: { ...ENV_JANELA, RENDER_GIT_COMMIT: VIGENTE } });

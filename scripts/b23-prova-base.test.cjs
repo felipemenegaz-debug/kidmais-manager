@@ -329,11 +329,23 @@ test('revisões registradas: só os pares revisados (B-23b: 3; B-23c: 21; B-23d:
         'FECHO:lib/site/configuracao.ts::29a0d08476cd538d4818929e0f79b4b733003a15:57c006e2d377ef896a126687cd86de60932a4f28',
         'RAIZ:scripts/assinatura-avisos.cjs::null:d20388aed9cdd2853b2190bde39cf0322ed36c8d',
         'RAIZ:scripts/assinatura-avisos.test.cjs::null:fce75ad066407fff4fbb1edec341fbd0859c75ba',
+        'FECHO:lib/db/postgres.ts::d01e32abba3abca697a0c317f7b0442924be5342:09364f0e704bed16013e228809557a541ac86f3b',
+        'FECHO:lib/autenticacao/service.ts::30f68c775c8ace5ff1cd3c10d639008fc6a00527:b0f8bbeb4bfc804b42c2441aa58b6927b983e125',
+        'FECHO:lib/acessos/http.ts::50e597aae6c9aea93cac6a30de95dbce9986ee5a:1e79344073f824e6016b09a2a850ce0e43dce07d',
+        'FECHO:lib/http/origem-cliente.ts::null:5c11df9ec1b1cec306f534a5ee5a5685bd963eb2',
+        'CHAMADOR:app/api/admin/autenticacao/route.ts::a1944485aed549f7101b62602a49a9a56ce42d1a:1006b41a9d0a6a4493806cc99da06d943de213b7',
+        'CHAMADOR:lib/acessos/convites.ts::7a8d379c1a59380e0f406173d8241565ebe38434:da7bba3d3e467f2083d14cf7cd2bc1d7d2b312d2',
+        'CHAMADOR:lib/cadastro/publico.ts::a363d29c68b370b47a5cc04615300df167bcd95d:7ee991b879f8e962549bcbcf6d946f4abfe42154',
+        'CHAMADOR:lib/comercial/cotacao-publica.ts::a16b9c72fc0042f3b61f6821716ff1535a9b7985:e0ee700049954abe9e9356f174c0e19d4499c7d0',
     ], 'revisão nova = entrada revisada pelo Astra');
     for (const r of REVISOES) assert.ok(/^Revisão por agente: /.test(r.autoria) && r.analise.length > 80, r.arquivo);
-    assert.equal(REVISOES.length, 33);
+    assert.equal(REVISOES.length, 41);
     for (const r of REVISOES.slice(3, 24)) assert.match(r.autoria, /B-23c/, r.arquivo);
-    for (const r of REVISOES.slice(24)) assert.match(r.autoria, /B-23d/, r.arquivo);
+    for (const r of REVISOES.slice(24, 33)) assert.match(r.autoria, /B-23d/, r.arquivo);
+    for (const r of REVISOES.slice(33)) assert.match(r.autoria, /B-23f/, r.arquivo);
+    // B-23f: as duas ressalvas homologadas ficam na análise.
+    assert.match(REVISOES.find((r) => r.arquivo === 'lib/db/postgres.ts' && r.autoria.includes('B-23f')).analise, /D-R4-2/);
+    assert.match(REVISOES.find((r) => r.arquivo === 'lib/acessos/http.ts' && r.autoria.includes('B-23f')).analise, /ip=null/);
     for (const r of REVISOES) assert.ok(r.objeto === undefined || r.regra.startsWith('SQL_'), `objeto só em SQL: ${r.arquivo}`);
     // As que dependem da trava dizem isso na análise (proveniência; a barreira é a guarda AVISOS_EMAIL_LIGADOS).
     for (const f of ['lib/assinatura/sincronizacao.ts', 'lib/assinatura/avisos-repositorio.ts'])
@@ -360,7 +372,7 @@ test('evidência: cada base antiga além da homologada tem a prova PASS guardada
     const fonte = fs.readFileSync(path.join(__dirname, '../lib/assinatura/recuperacao-execucao.ts'), 'utf8');
     const lista = codigosAntigosDoFonte(fonte);
     assert.equal(lista[0], '00d3019ade199ce609eab296050e07f4b379e87b', 'a primeira é a base homologada');
-    assert.equal(lista.length, 9, 'B-23e: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db, d67d10e6, 767fff4a, 0de9aea2, 4b9ce830');
+    assert.equal(lista.length, 10, 'B-23f: 00d3019a, 4ef9adb6, 5bdd5ac4, 7329cbfe, 5e4340db, d67d10e6, 767fff4a, 0de9aea2, 4b9ce830, cc4bab50');
     // Vínculo com a versão: a evidência foi gerada por ESTE analisador e com ESTES marcadores (a reprodução é do job
     // b23-bases do CI, `--verificar-lista`, que tem o histórico).
     const analisador = sha256(fs.readFileSync(path.join(__dirname, 'b23-prova-base.cjs'), 'utf8'));

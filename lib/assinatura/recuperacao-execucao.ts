@@ -135,7 +135,10 @@ export const CODIGOS_ANTIGOS = Object.freeze([
     // B-23e (D-B23e-1 = (A), 04/11/2026): promovidas depois do B-23d; PROVA_PASS sem revisão nova (delta só Convites e importação
     //   de contrato, 10 arquivos, sem migration nem lib/assinatura). A trava continua exigida (D-B23c-2).
     '0de9aea27715b64bea73cbefb20bfc87bc96deec', // #323 (04/11/2026): Convite pronto E-CP2; alvo do rollback da #325
-    '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735', // #325 (04/11/2026): leitor de PDF pelo /Length (recorte 3); base LIVE de production
+    '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735', // #325 (04/11/2026): leitor de PDF pelo /Length (recorte 3); alvo do rollback da #332
+    // B-23f (05/11/2026): Recorte 4 publicado por decisão de Felipe; 8 REVISOES homologadas pelo B-23d (árvore a72555ab). A trava
+    //   continua exigida (D-B23c-2).
+    'cc4bab508dd617dbdbc402f049113a8e99b2239a', // #332 (05/11/2026): login com limite por origem real e pool (recorte 4); base de production
 ] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
 /** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */
