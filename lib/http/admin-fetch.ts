@@ -5,6 +5,8 @@ import {
     sessaoObsoletaDesde,
 } from './contexto-empresa-cliente';
 
+import { loginDestaPagina } from './retorno-login';
+
 type InfoSessao = { ok?: boolean; data?: { usuarioId?: string | null; sessaoId?: string; csrf?: string; contexto?: { empresaAtual?: { id: string } | null } } };
 
 export const AVISO_RESULTADO_INCERTO = 'Resultado incerto: a operação pode ou não ter sido concluída. Confira antes de repetir — nada é reenviado automaticamente.';
@@ -67,7 +69,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
             if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.', 'escrita');
             // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
             // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.assign('/admin/login');
+            window.location.assign(loginDestaPagina());
         }
         throw Error('Faça login para continuar.');
     }
@@ -115,7 +117,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
             : resposta.ok
                 ? 'A operação foi concluída antes da mudança de empresa ou de sessão. Os dados da tela anterior foram descartados; confira o resultado.'
                 : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
-        reiniciarContextoEmpresa(aviso, encerrada ? '/admin/login' : undefined, origem);
+        reiniciarContextoEmpresa(aviso, encerrada ? loginDestaPagina() : undefined, origem);
         throw Error(aviso);
     }
     return resposta;
@@ -181,7 +183,7 @@ export async function trocarEmpresaAtiva(empresaId: string): Promise<Response> {
     if (previa.estado === 'encerrada' || !previa.info.data?.usuarioId) {
         if (!saidaDaSessaoEmAndamento()) {
             // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.assign('/admin/login');
+            window.location.assign(loginDestaPagina());
         }
         throw Error('Faça login para continuar.');
     }
@@ -210,7 +212,7 @@ export async function trocarEmpresaAtiva(empresaId: string): Promise<Response> {
         // A sessão já não valia: fim real da sessão, não resposta antiga.
         if (!saidaDaSessaoEmAndamento()) {
             // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.assign('/admin/login');
+            window.location.assign(loginDestaPagina());
         }
         throw Error('Faça login para continuar.');
     }

@@ -36,6 +36,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         'Itens do Buffet',
         'Usuários e acessos',
         'WhatsApp',
+        'IA e créditos',
         'PDF de Pacotes',
     ]);
     assert.equal(configuracao.indexOf('Itens do Buffet'), configuracao.indexOf('Pacotes') + 1);

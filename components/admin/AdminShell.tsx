@@ -21,12 +21,13 @@ import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
 import { artigoDaRota, rotaDaAjuda, type ArtigoPublicado } from '@/lib/suporte/ajuda-da-tela';
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
+import { loginDestaPagina } from '@/lib/http/retorno-login';
 import { EmpresaSuporteContext } from './ajuda/CodigoSuporte';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio', ROTA_AJUDA];
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/conexoes-ia', '/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio', ROTA_AJUDA];
 /** Telas abertas sem empresa ativa: conta e ajuda (nenhum dado de negócio). */
-const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/perfil', ROTA_AJUDA];
+const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/conexoes-ia', '/admin/perfil', ROTA_AJUDA];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
@@ -71,7 +72,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 return;
             if (!b.ok || !b.data.usuarioId) {
                 setName(null);
-                window.location.replace('/admin/login');
+                window.location.replace(loginDestaPagina());
             }
             else if (alive) {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
@@ -84,7 +85,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };

@@ -92,3 +92,10 @@ test('toda rota /api/admin passa por exigirApiAdminCrmDisponivel (onde o paywall
     for (const c of ['documentos', 'importacoes', 'operacoes'])
         assert.match(readFileSync(`app/api/admin/inteligencia/${c}/composicao.ts`, 'utf8'), /import \{ dependenciasGateway[^}]*\} from "\.\.\/dependencias"/, c);
 });
+
+test('assinatura bloqueada permite listar e revogar a própria conexão, sem liberar novo consentimento', () => {
+    assert.equal(decidirPaywall(bloqueado, 'GET', '/api/admin/mcp/conexoes').permitido, true);
+    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/mcp/conexoes').permitido, true);
+    assert.equal(decidirPaywall(bloqueado, 'DELETE', '/api/admin/mcp/conexoes').permitido, false);
+    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/mcp/consentimento').permitido, false);
+});

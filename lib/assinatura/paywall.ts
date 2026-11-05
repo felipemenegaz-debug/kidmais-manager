@@ -40,7 +40,8 @@ export type DecisaoPaywall =
     | { permitido: false; status: 402; codigo: 'ASSINATURA_NECESSARIA'; mensagem: string; nivel: AcessoComercial['nivel']; motivo: MotivoAcesso };
 
 export function decidirPaywall(acesso: AcessoComercial, metodo: string, caminho: string): DecisaoPaywall {
-    if (acesso.nivel === 'COMPLETO' || rotaSemprePermitida(caminho))
+    const gerenciarConexoes = caminho.replace(/\/+$/, '') === '/api/admin/mcp/conexoes' && ['GET', 'POST'].includes(metodo.toUpperCase());
+    if (acesso.nivel === 'COMPLETO' || rotaSemprePermitida(caminho) || gerenciarConexoes)
         return { permitido: true };
     if (acesso.nivel === 'SOMENTE_LEITURA' && LEITURA.has(metodo.toUpperCase()))
         return { permitido: true };
