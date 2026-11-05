@@ -39,7 +39,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         'Importar documentos',
         'Usuários e acessos',
         'WhatsApp',
-        'Créditos de IA',
+        'IA e créditos',
     ]);
     assert.equal(configuracao.indexOf('Itens do Buffet'), configuracao.indexOf('Pacotes') + 1);
     // O grupo continua; só o item clicável redundante saiu. A rota segue acessível diretamente.
@@ -118,7 +118,7 @@ test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configur
     assert.equal(gestao.some((item) => item.href.includes('tabela-pacotes')), false);
     const documentos = gestao.find((item) => item.href === '/admin/configuracoes/importar-documentos');
     assert.deepEqual(documentos, { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações' });
-    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'Créditos de IA']);
+    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'IA e créditos']);
     const hub = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
     assert.doesNotMatch(hub, /tabela-pacotes|PDF de Pacotes/);
     assert.match(hub, /route:'importar-documentos'/);

@@ -288,7 +288,7 @@ async function principal() {
         await irPara(eq.page, `${base}/admin/configuracoes`);
         await eq.page.getByRole('heading', { name: 'Configurações' }).waitFor();
         await espera(1000);
-        assert.equal(await eq.page.getByRole('link', { name: 'Abrir créditos de ia' }).count(), 0, 'Equipe sem o cartão de créditos em Configurações');
+        assert.equal(await eq.page.getByRole('link', { name: 'Abrir ia e créditos' }).count(), 0, 'Equipe sem o cartão de créditos em Configurações');
         await eq.contexto.close();
         resultados.push('6: preço alterado 409; pedido de outra empresa 404; Equipe vê só o saldo e recebe 403 ao comprar');
 
@@ -305,9 +305,9 @@ async function principal() {
         // com o Wall-e desligado); Assinatura só com o link; convite da festa e Atendimento sem cartão de créditos.
         await page.setViewportSize({ width: 1440, height: 1000 });
         await irPara(page, `${base}/admin/configuracoes`);
-        await page.getByRole('link', { name: 'Abrir créditos de ia' }).waitFor();
+        await page.getByRole('link', { name: 'Abrir ia e créditos' }).waitFor();
         await page.screenshot({ path: path.join(relatorios, '9-configuracoes.png'), fullPage: true });
-        await page.getByRole('link', { name: 'Abrir créditos de ia' }).click();
+        await page.getByRole('link', { name: 'Abrir ia e créditos' }).click();
         await page.waitForURL((url) => url.pathname === '/admin/configuracoes/creditos');
         await secao.locator(`[data-pedido="${protocolo}"]`).waitFor();
         const blocoWalle = page.locator('[data-creditos="WALLE"]');

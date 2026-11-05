@@ -1,0 +1,33 @@
+# Blueprint de referência do cron criado em 04/11/2026 pelo painel/API (não aplicar como blueprint sem revisão).
+# Nasce em `aguardando` (nada conecta). Habilitar: Felipe grava KIDMAIS_RECONCILIAR_DATABASE_URL (segredo, credencial
+# própria, nunca a DATABASE_URL do web) → KIDMAIS_MANUTENCAO_MODO=simular → conferir a saída → `aplicar` com autorização.
+# A franquia por plano (116) só é processada com CREDITOS_FRANQUIA_PLANO_ATIVO ligada neste serviço e no web.
+services:
+  - type: cron
+    name: kidmais-creditos-manutencao-staging   # crn-dblpgn3m8hqs739r366g
+    runtime: node
+    plan: 0.5c-512mb
+    region: virginia
+    repo: https://github.com/felipemenegaz-debug/kidmais-manager
+    branch: staging
+    autoDeployTrigger: off
+    schedule: "0 9 * * *"   # 06:00 em São Paulo
+    buildCommand: npm ci --include=dev
+    startCommand: if [ -f scripts/creditos-manutencao-cron.cjs ]; then node scripts/creditos-manutencao-cron.cjs; else echo AGUARDANDO_CODIGO; fi
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: KIDMAIS_DEPLOY_ENV
+        value: staging
+      - key: ASAAS_AMBIENTE
+        value: sandbox
+      - key: KIDMAIS_MANUTENCAO_MODO
+        value: aguardando
+      - key: KIDMAIS_RECONCILIAR_TLS
+        value: render-interno-criptografado
+      - key: KIDMAIS_RECONCILIAR_ALVO
+        value: kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432
+      - key: KIDMAIS_RECONCILIAR_DATABASE_URL
+        sync: false
