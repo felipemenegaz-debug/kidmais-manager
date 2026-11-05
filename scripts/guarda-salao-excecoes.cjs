@@ -71,6 +71,12 @@ const APLICADORES = [
   "migrations-producao-20261019.cjs", "modelos-oficiais.integridade.cjs", "navegador-local-seed.cjs",
   "reparo-bloqueios-producao-20261020.cjs", "testar-reenvio-postgres.mjs", "verificacao-acabamento.cjs",
   "verificacao-final-013.cjs",
+  // Merge com staging a7951a2e (04/11/2026): aplicador 116 (franquias por plano), mesma forma do 112 (o wrapper -staging
+  // só herda a origem do -comum; sem exceção própria).
+  "migration-116-comum.cjs",
+  // Merge com staging 40e50fd7 (05/11/2026): aplicador 117 (atendimento multiempresa, #334), mesma forma do 116; as
+  // origens do wrapper -staging nascem no -comum (sem exceção própria).
+  "migration-117-comum.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",

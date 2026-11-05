@@ -149,6 +149,18 @@ const token = 'p'.repeat(43);
       assert.equal(dados.conteudo.arteId, null); assert.equal(dados.conteudo.visual.modo, 'modelo');
       assert.equal(await grupo.count(), 0); assert.equal(await previa.getByRole('img', { name: 'Arte escolhida para o convite' }).count(), 0);
 
+      // 8. Salão contratado (bloco "Local" do contrato): o aviso de conferência mostra o salão, sem e com complemento,
+      // na mesma linha da arte e da página pública (localDoConvite).
+      dados.conteudo = { ...dados.conteudo, local: '', blocoLocal: { origem: 'SALAO', nome: 'Salão Jardim', endereco: 'Quadra 1 · Brasília' } };
+      await page.reload(); await page.getByLabel('Complemento do local (opcional)', { exact: true }).waitFor();
+      await page.getByLabel('Usar uma arte própria').first().setInputFiles(upload);
+      await grupo.waitFor(); await botao('Convite pronto').click();
+      assert.deepEqual(await marcado(), ['Convite pronto']);
+      assert.equal((await aviso.textContent()).trim(), 'Confira se a sua imagem tem os mesmos dados da festa: 3 de março às 17:00, Salão Jardim.');
+      await page.getByLabel('Complemento do local (opcional)', { exact: true }).fill('Portão 2');
+      assert.equal((await aviso.textContent()).trim(), 'Confira se a sua imagem tem os mesmos dados da festa: 3 de março às 17:00, Salão Jardim · Portão 2.');
+      await previa.screenshot({ path: path.join(out, `${quem}-8-salao-contratado.png`) });
+
       assert(!comandos.some(c => c.acao === 'gerar'), 'nenhuma geração');
       assert.deepEqual(erros, []);
       resumo.push(`${quem}: ok (${comandos.map(c => c.acao).join(', ')})`);

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { temas, type Conteudo } from '@/lib/convites/domain';
+import { localDoConvite, temas, type Conteudo } from '@/lib/convites/domain';
 import { baseNeutra, modeloBiblioteca, modeloComFoto, modelosBiblioteca } from '@/lib/convites/modelos';
 import ConviteArte, { baixarConvite, dataBonita } from './ConviteArte';
 import PromptComCorretor from './PromptComCorretor';
@@ -330,7 +330,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const opcoesPosicao = conteudo ? opcoesComposicao({ temArte: !!arte, comFoto: modeloComFoto(conteudo.tema), arteCompletaIA, laboratorio: !!dados?.laboratorioLocal }) : [];
   const conviteProprioPronto = !!arte && !arteCompletaIA && conteudo?.visual?.modo === 'completa';
   const quando = conteudo ? [conteudo.data ? dataBonita(conteudo.data) : '', conteudo.horario ? `às ${conteudo.horario}` : ''].filter(Boolean).join(' ') : '';
-  const dadosConferencia = [quando, conteudo?.local.trim() ?? ''].filter(Boolean).join(', ');
+  // Salão contratado (blocoLocal) + complemento, a mesma linha da arte e da página pública.
+  const dadosConferencia = [quando, conteudo ? localDoConvite(conteudo) : ''].filter(Boolean).join(', ');
   const modelosFiltrados = modelosBiblioteca.filter(id => (dados?.laboratorioLocal || !(modelosAcervo as readonly string[]).includes(id)) && (categoriaModelo === 'todos' || (categoriaModelo === 'abertos' ? (modelosAcervo as readonly string[]).includes(id) : categoriaModelo === 'fotos' ? modeloComFoto(id) : categoriaModelo === 'neutros' ? baseNeutra(id) : !baseNeutra(id) && !modeloComFoto(id))));
   const totalPaginas = Math.max(1, Math.ceil(modelosFiltrados.length / 9));
   const paginaAtual = Math.min(paginaModelo, totalPaginas);

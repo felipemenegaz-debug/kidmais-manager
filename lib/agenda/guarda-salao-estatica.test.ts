@@ -308,8 +308,11 @@ const TABELA_B = [
 ];
 /** Camada C fora do padrão de nome de teste: harness PG com schema sintético próprio (fechamentos de 4 colunas). */
 const C_DECLARADA = ["scripts/convites-postgres.cjs"];
-/** `.query` usado como valor fora de arquivo de teste: só a própria instrumentação da guarda dinâmica. */
-const COMO_VALOR_DECLARADO = ["scripts/guarda-salao-preload.cjs"];
+/**
+ * `.query` usado como valor fora de arquivo de teste: a própria instrumentação da guarda dinâmica e o harness PG do
+ * atendimento multiempresa (lê a coluna `query` de pg_stat_activity; importado só pelos `.postgres.test.ts`).
+ */
+const COMO_VALOR_DECLARADO = ["scripts/guarda-salao-preload.cjs", "lib/whatsapp/atendimento/harness-multiempresa.ts"];
 
 /**
  * A guarda inteira (as mesmas regras dos testes de repositório abaixo), como lista de violações. Rodada 2: os mutantes
