@@ -1,4 +1,4 @@
-import { franquiaDaEmpresa } from './franquia-empresa';
+import { franquiaDaEmpresa } from './franquia-empresa.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { db, withTransaction } from '../db/postgres';
 import type { DbExecutor } from '../db/contracts';
