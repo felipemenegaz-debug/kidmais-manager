@@ -1,3 +1,4 @@
+import { lerBaseDocumentoContrato } from '../../../contratos/documento/base-documento.ts';
 import type { DbExecutor } from '../../../db/contracts.ts';
 import { listarPacotesAdmin } from '../../../comercial/pacotes-admin.ts';
 import { ARQUIVO_DISPONIVEL_SQL } from '../arquivos.ts';
@@ -109,6 +110,11 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
       };
     });
   return {
+    async contratoDaEmpresa() {
+      const { modeloEmpresa, base } = await lerBaseDocumentoContrato(ex, empresaId);
+      if (modeloEmpresa) return { id: modeloEmpresa.id, versao: modeloEmpresa.versao, clausulas: modeloEmpresa.conteudo.clausulas };
+      return base.empresaKidmais ? 'OFICIAL_KIDMAIS' : null;
+    },
     async prontasAutorizadas(finalidade: Finalidade) {
       const r = await ex.query<{ id: string; versao: string; titulo: string; tipo: ProntaAutorizada['tipo']; texto: string; link: string | null; midia_url: string | null; arquivo_id: string | null; arquivo_nome: string | null; finalidade: Finalidade; pacote_codigo: string | null; estabelecimento_id: string | null }>(
         `SELECT p.id, p.versao, p.titulo, p.tipo, p.texto, p.link, p.midia_url, p.arquivo_id, a.nome AS arquivo_nome, p.finalidade, p.pacote_codigo, p.estabelecimento_id::text AS estabelecimento_id
