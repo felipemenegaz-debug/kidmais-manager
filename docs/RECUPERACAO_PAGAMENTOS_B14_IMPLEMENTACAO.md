@@ -1464,3 +1464,48 @@ As bases do B-23d (`767fff4a`, `d67d10e6`) foram desativadas, e o B-14 voltaria 
   - Na 1ª bateria o e9 sobreviveu e motivou o reforço acima.
 
 Ficam iguais o analisador, `REVISOES`, `REVISAVEIS`, a matriz de modos, a guarda `AVISOS_EMAIL_LIGADOS` e a regra de recongelamento. O recongelamento de `C` vem depois do merge desta entrada, com autorização própria. A promoção continua NO-GO.
+
+## B-23f — production `cc4bab50` (#332, Recorte 4) na lista, com as 8 REVISOES homologadas no B-23d (LOCAL, 05/11/2026)
+
+**Por quê.** Felipe publicou a #332 (Recorte 4: login com limite por origem real e pool) em production antes da E0 e confirmou que foi intencional. O deploy `dep-dblsh159el5s73elhl0g` está LIVE em `cc4bab50` desde 00:17Z de 05/11. Sem esta entrada, o B-14 recusa a base de production com `CODIGO_NO_AR_DESCONHECIDO`.
+
+**Prova sem revisão:** `cc4bab50` dá PROVA_FALHOU, com 8 violações (4 FECHO e 4 CHAMADOR).
+
+**Base de homologação.** As 8 exceções já tinham sido homologadas pela trilha B-23 no B-23d para a árvore `a72555ab` sobre `4b9ce830` (revisão nominal r2). A homologação previa esta PR: oito REVISOES, alvo e rollback com PROVA_PASS e b23-bases verde.
+
+O aplicador confere a identidade e recusa se divergir:
+- a árvore de `cc4bab50`, merge da #332 com pais `4b9ce830` e `66027273`, é `a72555ab`;
+- nos 8 arquivos, o blob em `00d3019a` é igual ao de `4b9ce830` (ausente em `origem-cliente.ts`);
+- e o blob em `cc4bab50` é igual ao de `a72555ab`.
+
+Por isso os pares registrados (`00d3019a` → base) são os deltas integrais homologados.
+
+### O que mudou
+
+- **`scripts/b23-prova-base.cjs`:**
+  - constante de autoria `B23F`;
+  - 8 entradas novas em `REVISOES` (33 → 41), fixando regra, caminho e o par completo de blobs;
+  - as análises vêm da revisão nominal r2 e carregam as duas ressalvas homologadas: D-R4-2 em `postgres.ts` (encerrada em 04/11 com 10/5000/30000) e, em `http.ts`, `ip=null` com o limite compartilhado do webhook.
+  - O analisador passa de `61f17280…` a `fb74bc40…`.
+- **`lib/assinatura/recuperacao-execucao.ts`:** `CODIGOS_ANTIGOS` passa de 9 para 10 entradas. `4b9ce830` vira o alvo do rollback da #332, e `cc4bab50` entra como a última entrada (a LIVE).
+- **`docs/evidencias/b23-bases-antigas/`:**
+  - as 8 evidências anteriores foram regeneradas, e o diff de cada uma é só a linha `analisador`;
+  - entra `prova-cc4bab50….json`, com PROVA_PASS, 0 violações e 36 revisados (28 + 8).
+- **Testes:**
+  - `b23-prova-base.test.cjs`: inventário de 41 chaves; autoria por faixa (B-23c 3–23, B-23d 24–32, B-23f 33–40); as duas ressalvas exigidas no texto da análise; lista de 10 entradas.
+  - `recuperacao-execucao.test.ts`: lista de 10 entradas e prefixo falso de `cc4bab50`.
+  - `recuperacao-pagamentos-producao.test.cjs`: BASES e ANTIGOS com `cc4bab50`; trava em 6 bases antigas mais a candidata, num total de (6×7+1)×7 = 301 cenários.
+  - `bloco-shell-recuperacao-b14.test.cjs` e `recuperacao-prefixos.postgres.test.ts`: a base vigente passa a `cc4bab50`, que tem de ser a última da lista.
+
+### Validação local (05/11/2026, Node 22.23.2)
+
+- `--verificar-lista`: LISTA_CONFERE, 9/9.
+- Testes: analisador 17/17, bloco de Shell 5/5, trava/CLI 15/15, execução 16/16.
+- PG descartável (porta 55791; cluster criado e removido): 13 modelos, 92 execuções, 0 falhas. Os 12 skips são do S0→S2, que só roda no P0a.
+- Mutantes (e1–e8 de `cc4bab50`, e9 vigente, e10–e12 REVISOES): 12 mortos, 0 vivos, 0 OUTRO. O e7 e o e12 morrem no verificador.
+- CI local completo: 56 passos, 0 falhas.
+- Árvore entregue: 55 arquivos, a mesma lista; só `recuperacao-execucao.ts` difere de `2e0213f3`.
+  - O hash da árvore é `271682d2…`.
+  - Em staging (`a7951a2e` e `2e0213f3`) o hash é `89e8277d…`. O `423221be…` citado acima no B-23e era o da branch `c5dd37f1`, antes do merge com a E-ME1 (`3444dc9d`), que altera `lib/whatsapp/atendimento/configuracao.ts`.
+
+A matriz de modos, a guarda `AVISOS_EMAIL_LIGADOS` e `REVISAVEIS` não mudam. O recongelamento de `C` vem depois do merge, com as pontas novas e o hash correto, e tem autorização própria. A promoção continua NO-GO.

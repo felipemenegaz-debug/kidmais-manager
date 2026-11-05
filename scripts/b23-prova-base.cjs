@@ -64,6 +64,10 @@ const B23D = 'Revisão por agente: Claude (implementador, B-23d, 04/11/2026); ac
     + '04/11/2026), das nove análises nominais, exclusivamente para as regras, caminhos e pares integrais de blobs registrados, sob '
     + 'D-B23d-1/2/3 = (A), com ressalva documental P3-B23D-COD-R1-01. Mantidas a trava desligada e as barreiras operacionais '
     + 'existentes. Este aceite não autoriza operação ou promoção.';
+const B23F = 'Revisão por agente: Claude (implementador do Recorte 4, revisão nominal r2, 04/11/2026); aceite independente por agente: '
+    + 'Astra (candidata r2, 04/11/2026) e homologação da sessão da trilha B-23 (B-23d, 04/11/2026), das oito análises nominais, '
+    + 'exclusivamente para as regras, caminhos e pares integrais de blobs registrados (árvore a72555ab = cc4bab50). Registradas na B-23f '
+    + '(05/11/2026), depois da publicação da #332 por decisão de Felipe. Este aceite não autoriza operação ou promoção.';
 const NOVO_087 = 'Arquivo novo da 087 (avisos por e-mail da assinatura, #299), ausente em 00d3019a. ';
 const TESTE_087 = NOVO_087 + 'Teste: não roda em production nem é importado por código de produção; não muda o caminho do B-14.';
 const REVISOES = [
@@ -336,6 +340,76 @@ const REVISOES = [
         autoria: B23D,
         analise: 'Teste do job de avisos (302 linhas; B-23c aceitou o blob 4a68b8b5, aqui somado aos testes do log seguro da #309): roda no build '
             + 'do cron (node --test) e no CI, nunca em runtime; não é importado por código de produção e não muda o caminho do B-14.',
+    },
+    {
+        regra: 'FECHO', arquivo: 'lib/db/postgres.ts',
+        de: 'd01e32abba3abca697a0c317f7b0442924be5342', ate: '09364f0e704bed16013e228809557a541ac86f3b',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Pool: new Pool passa a usar opcoesDoPool(process.env); sem env o padrão '
+            + 'muda de 10 conexões/5 s para 30/10 s, valor inválido cai no padrão novo e o máximo tem teto 40; executor, transações e SSL '
+            + 'não mudam. Toda consulta da cobrança usa este pool: muda o comportamento sob carga, não a lógica. Ressalva homologada: D-R4-2 '
+            + 'antes do deploy — encerrada em 04/11/2026 (Felipe leu DATABASE_POOL_MAX=10, DATABASE_CONNECTION_TIMEOUT_MS=5000, '
+            + 'DATABASE_IDLE_TIMEOUT_MS=30000; regras antiga e nova resolvem 10/5000/30000).',
+    },
+    {
+        regra: 'FECHO', arquivo: 'lib/autenticacao/service.ts',
+        de: '30f68c775c8ace5ff1cd3c10d639008fc6a00527', ate: 'b0f8bbeb4bfc804b42c2441aa58b6927b983e125',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Login em três fases (limites em transação curta, scrypt sem conexão, '
+            + 'resultado relido com FOR UPDATE), reserva/devolução/confirmação de falha por origem (login-falhas, 300/900 s), IP e user '
+            + 'agent na sessão e na reautenticação. Na cobrança: o webhook Asaas injeta consumirLimite, que ganha LEAST(janela_iniciada_em, '
+            + 'now()) — corrige a corrida em que uma transação antiga encontra janela mais nova (antes 500 na CHECK de datas), preservando '
+            + 'contagem e teto. Prova PG determinística nos dois modelos.',
+    },
+    {
+        regra: 'FECHO', arquivo: 'lib/acessos/http.ts',
+        de: '50e597aae6c9aea93cac6a30de95dbce9986ee5a', ate: '1e79344073f824e6016b09a2a850ce0e43dce07d',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). ipDaRequisicao deixa o último XFF e delega a origemConfiavel (penúltimo XFF '
+            + 'conferido com CF-Connecting-IP só com ORIGEM_CLIENTE_BORDA=render-cloudflare-sobrescreve; senão null). Ressalva homologada '
+            + '(D-R4-3 opção A): com a flag desligada (D-R4-4) o webhook Asaas recebe ip=null, audita IP nulo e compartilha o limite '
+            + 'ORIGEM_NAO_VERIFICADA 300/60 s; token inválido pode esgotá-lo e atrasar entregas legítimas até o reenvio do Asaas. Correção '
+            + 'com a promoção da cobrança.',
+    },
+    {
+        regra: 'FECHO', arquivo: 'lib/http/origem-cliente.ts',
+        de: null, ate: '5c11df9ec1b1cec306f534a5ee5a5685bd963eb2',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Arquivo novo, módulo puro (só node:net): regra da origem confiável, '
+            + 'normalização IPv4/IPv6, chaveDaOrigem (IPv6 por /64) e diagnóstico [origem] sem endereço. Não toca banco nem cobrança; o '
+            + 'efeito na cobrança é o de lib/acessos/http.ts. Prova: origem-cliente.test.ts e mutantes M1–M3 mortos.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'app/api/admin/autenticacao/route.ts',
+        de: 'a1944485aed549f7101b62602a49a9a56ce42d1a', ate: '1006b41a9d0a6a4493806cc99da06d943de213b7',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Passa ipDaRequisicao ao login e à reautenticação (antes null), user agent '
+            + 'na reautenticação, diagnóstico [origem], SyntaxError → 400 e 500 com causa só no log. O uso de lib/assinatura/paywall.ts '
+            + '(resumoComercialDaEmpresa no GET) não mudou.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/acessos/convites.ts',
+        de: '7a8d379c1a59380e0f406173d8241565ebe38434', ate: 'da7bba3d3e467f2083d14cf7cd2bc1d7d2b312d2',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Consulta e aceite de convite trocam consumirLimite(ip ?? '
+            + 'ORIGEM_NAO_VERIFICADA) por consumirOrigem com porIdentificador = hash do token (sem IP confiável, limite por link). As '
+            + 'chamadas a lib/assinatura/limites-usuarios.ts não mudaram.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/cadastro/publico.ts',
+        de: 'a363d29c68b370b47a5cc04615300df167bcd95d', ate: '7ee991b879f8e962549bcbcf6d946f4abfe42154',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). Pedido de cadastro com consumirOrigem e teto global 300 sem IP, avaliado '
+            + 'depois do limite do e-mail; confirmação conta pelo link; sai o import de prazoDoLimite. As chamadas a '
+            + 'lib/assinatura/servico.ts (criação da assinatura no cadastro) não mudaram.',
+    },
+    {
+        regra: 'CHAMADOR', arquivo: 'lib/comercial/cotacao-publica.ts',
+        de: 'a16b9c72fc0042f3b61f6821716ff1535a9b7985', ate: 'e0ee700049954abe9e9356f174c0e19d4499c7d0',
+        autoria: B23F,
+        analise: 'Delta completo desde 00d3019a = Recorte 4 (#332). CODIGO_EMPRESA_PUBLICA reexportado de lib/http/empresas-publicas.ts (mesma '
+            + 'expressão); escopoCotacaoPublica registra em memória a empresa do código para o limite público. O uso de '
+            + 'lib/assinatura/estado.ts não mudou.',
     },
 ];
 const EVIDENCIAS = 'docs/evidencias/b23-bases-antigas';
