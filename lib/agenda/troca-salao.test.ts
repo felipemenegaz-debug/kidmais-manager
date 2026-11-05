@@ -36,6 +36,8 @@ function banco(c: Cenario = {}) {
     async query<Row extends object>(sql: string, valores: readonly unknown[] = []) {
       sqls.push({ sql, valores });
       const r = (rows: object[]) => ({ rows, rowCount: rows.length }) as DbQueryResult<Row>;
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (sql.includes("pg_locks")) return r([{ ok: true, empresa: valores[0] ?? EMPRESA }]);
       if (sql.includes("to_regprocedure")) return r([{ ok: c.instalada ?? true }]);
       if (sql.includes("AS por_salao")) {
         if (c.existe === false || valores[1] !== EMPRESA) return r([]);
@@ -43,6 +45,12 @@ function banco(c: Cenario = {}) {
           salao_nome: salaoAtual ? nomes[salaoAtual] : null, por_salao: c.porSalao ?? true }]);
       }
       if (sql.includes("AS permitido")) return r(opcoes);
+      if (sql.includes("set_config('kidmais.escritor_salao'")) return r([{ ok: "" }]);
+      if (sql.includes("AS contrato_id, c.status")) return r(c.contrato ? [{ contrato_id: "c", status: "ASSINADO", vigente: "v", preparacao: null, empresa: EMPRESA }] : []);
+      if (sql.includes("FROM fechamento_revisoes r LEFT JOIN contrato_versoes b")) return r([]);
+      if (sql.includes("FROM contrato_versoes WHERE id = $1::uuid")) return r([{ id: "v", numero: 1, status: "ASSINADA", schema: 1, snapshot: { schemaVersao: 1 }, aceite: null, contrato: "c" }]);
+      if (sql.includes("FROM contrato_assinaturas")) return r([{ parte: "KIDMAIS" }, { parte: "CLIENTE" }]);
+      if (sql.includes("FROM contrato_edicoes")) return r([]);
       if (sql.includes("FROM contratos c") && sql.includes("contrato_fluxos")) return r(c.contrato ? [c.contrato] : []);
       if (sql.includes("attname = 'convidados_minimo'")) return r([{ ok: true }]);
       if (sql.includes("kidmais098_salao_elegivel") && sql.includes("to_regprocedure")) return r([{ ok: false }]);
@@ -122,6 +130,19 @@ test("troca: fechamento travado, lock das datas, UPDATE e auditoria, nessa ordem
   assert.deepEqual(JSON.parse(String(valores[5])), { salaoId: S1, salaoNome: "Kids", empresaId: EMPRESA });
   assert.deepEqual(JSON.parse(String(valores[6])), { salaoId: S2, salaoNome: "Jardim", empresaId: EMPRESA });
   assert.equal(b.escritas().length, 2);
+});
+
+// Plano "liberar mais de um salão" (D-LIB-4, entrada 11): contrato que não fixa salão = recusa; só sem contrato grava (B7).
+test("avulsa: com contrato sem salão recusa SALAO_EXIGE_REVISAO_CONTRATUAL sem escrever; sem contrato grava marcada B7", async () => {
+  const semSalao = banco({ contrato: { fixa: null, rid: null, estado: null, sid: null, snome: null } });
+  await assert.rejects(trocarSalaoDaFesta(semSalao.tx, ctx, FESTA, S2), (e: { code?: string }) => e.code === "SALAO_EXIGE_REVISAO_CONTRATUAL");
+  assert.equal(semSalao.escritas().length, 0);
+  const livre = banco();
+  await trocarSalaoDaFesta(livre.tx, ctx, FESTA, S2);
+  const i = livre.sqls.findIndex((q) => q.sql.startsWith("UPDATE fechamentos SET salao_id"));
+  assert.match(livre.sqls[i - 1]!.sql, /set_config\('kidmais\.escritor_salao', \$1, true\)/, "marca logo antes da escrita");
+  assert.match(String(livre.sqls[i - 1]!.valores[0]), /^B7:ATRIBUICAO_AVULSA:EQUIPE:[0-9a-f]{32}$/);
+  assert.match(livre.sqls[i + 1]!.sql, /set_config\('kidmais\.escritor_salao', '', true\)/, "limpeza logo depois");
 });
 
 test("escolher o salão atual não escreve nada", async () => {

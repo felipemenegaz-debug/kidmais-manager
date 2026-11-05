@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { temas, type Conteudo } from '@/lib/convites/domain';
+import { localDoConvite, temas, type Conteudo } from '@/lib/convites/domain';
 import { baseNeutra, modeloBiblioteca, modeloComFoto, modelosBiblioteca } from '@/lib/convites/modelos';
 import ConviteArte, { baixarConvite, dataBonita } from './ConviteArte';
 import PromptComCorretor from './PromptComCorretor';
@@ -33,7 +33,7 @@ const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CL
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
 function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }
-type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
+type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; avisoLocal?: string | null; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
   disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; autorizacaoIA?: AutorizacaoIATela | null; geracaoIncerta?: boolean; geracaoEmAndamento?: string | null; id?: string; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   creditos?: { motor: 'LEGADO' } | { motor: 'CREDITOS'; disponivel: number; reservado: number; consumoAtivo: boolean } | null;
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
@@ -330,7 +330,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const opcoesPosicao = conteudo ? opcoesComposicao({ temArte: !!arte, comFoto: modeloComFoto(conteudo.tema), arteCompletaIA, laboratorio: !!dados?.laboratorioLocal }) : [];
   const conviteProprioPronto = !!arte && !arteCompletaIA && conteudo?.visual?.modo === 'completa';
   const quando = conteudo ? [conteudo.data ? dataBonita(conteudo.data) : '', conteudo.horario ? `às ${conteudo.horario}` : ''].filter(Boolean).join(' ') : '';
-  const dadosConferencia = [quando, conteudo?.local.trim() ?? ''].filter(Boolean).join(', ');
+  // Salão contratado (blocoLocal) + complemento, a mesma linha da arte e da página pública.
+  const dadosConferencia = [quando, conteudo ? localDoConvite(conteudo) : ''].filter(Boolean).join(', ');
   const modelosFiltrados = modelosBiblioteca.filter(id => (dados?.laboratorioLocal || !(modelosAcervo as readonly string[]).includes(id)) && (categoriaModelo === 'todos' || (categoriaModelo === 'abertos' ? (modelosAcervo as readonly string[]).includes(id) : categoriaModelo === 'fotos' ? modeloComFoto(id) : categoriaModelo === 'neutros' ? baseNeutra(id) : !baseNeutra(id) && !modeloComFoto(id))));
   const totalPaginas = Math.max(1, Math.ceil(modelosFiltrados.length / 9));
   const paginaAtual = Math.min(paginaModelo, totalPaginas);
@@ -401,10 +402,12 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
         </fieldset>}
         <fieldset disabled={busy} className={`${ui.painel} ${ui.dadosCompactos}`} aria-label="Dados da festa">
           <h2 className={ui.tituloEtapa}>Dados da festa</h2>
+          {/* D-LIB-3/5: bloco "Local" do contrato, somente leitura; o servidor o recalcula ao publicar. */}
+          {conteudo.blocoLocal && <p className={ui.blocoLocal} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local (do contrato)</strong> {conteudo.blocoLocal.nome}{conteudo.blocoLocal.endereco ? ` — ${conteudo.blocoLocal.endereco}` : ''}{dados.avisoLocal ? <small>{dados.avisoLocal}</small> : null}</p>}
           <div className={ui.campos}>
             {campos.map(([k, label]) => (
               <label key={k}>
-                {label}
+                {k === 'local' && conteudo.blocoLocal ? 'Complemento do local (opcional)' : label}
                 <input
                   type={k === 'data' ? 'date' : k === 'horario' ? 'time' : 'text'}
                   value={conteudo[k]}

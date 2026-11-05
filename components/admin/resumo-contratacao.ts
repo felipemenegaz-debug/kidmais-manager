@@ -1,4 +1,4 @@
-import type { ContratoSnapshotV1 } from '../../lib/contratos/repositories/models';
+import { salaoDoSnapshot, type ContratoSnapshot, type ContratoSnapshotV1 } from '../../lib/contratos/repositories/models.ts';
 import { formatarMoeda, formatarFormaPagamento, formatarCondicaoPix, formatarDataContrato, formatarHorarioContrato } from '../../lib/contratos/documento/formatters.ts';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../../lib/contratos/assinatura-papel.ts';
 
@@ -43,7 +43,10 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   const secao = (titulo: string, linhas: SecaoResumo['linhas']) => secoes.push({ titulo, linhas });
   secao('Contratação', [['Fechamento', p.contrato.fechamento_id], ['Contrato', p.contrato.id], ['Versão', `V${v.numero_versao} · ${classificacao}`], ['Status atual do contrato', papel && p.contrato.status === 'ASSINADO' ? 'ASSINADO (em papel)' : p.contrato.status], ['Estado desta versão', papel ? 'Conferência do contrato assinado em papel' : v.estado_edicao ?? v.status]]);
   secao('Contratante e aniversariante', [['Contratante', s.contratante.nomeCompleto], ['Aniversariante', s.aniversariante.nome], ['Idade no evento', texto(s.aniversariante.idadeNoEvento)], ['Tema', texto(s.aniversariante.temaFesta)], ...(s.responsavelAdicional ? [['Responsável adicional', s.responsavelAdicional.nome] as [string, string]] : [])]);
-  secao('Festa', [['Data', formatarDataContrato(s.evento.data)], ['Horário', `${formatarHorarioContrato(s.evento.horarioInicio)}–${formatarHorarioContrato(s.evento.horarioFim)}`], ['Pacote', s.evento.pacote.nome], ['Convidados', texto(s.evento.convidados)], ['Convidados faturados', texto(s.evento.convidadosFaturados)]]);
+  // Plano "liberar mais de um salão" (P2-1): o salão vem do snapshot DA VERSÃO SELECIONADA (V3 com salão), nunca do
+  // cadastro atual; V1/V2 e V3 sem salão não têm a linha, como no resumo público. O PDF herda esta seção.
+  const salao = salaoDoSnapshot(s as unknown as ContratoSnapshot);
+  secao('Festa', [['Data', formatarDataContrato(s.evento.data)], ['Horário', `${formatarHorarioContrato(s.evento.horarioInicio)}–${formatarHorarioContrato(s.evento.horarioFim)}`], ...(salao ? [['Salão', salao.nome] as [string, string]] : []), ['Pacote', s.evento.pacote.nome], ['Convidados', texto(s.evento.convidados)], ['Convidados faturados', texto(s.evento.convidadosFaturados)]]);
   const buffet = s.contratacao.buffet;
   secao('Buffet', [['Situação', buffet.status === 'DEFINIDO' ? 'Definido' : 'Pendente'], ...([
     ['Salgados', buffet.salgados], ['Bebidas', buffet.bebidas], ['Doces', buffet.doces], ['Bolo', buffet.bolo], ['Outros', buffet.outros], ['Lembrancinha', buffet.lembrancinha], ['Empratado', buffet.empratado], ['Bombom', buffet.bombom],

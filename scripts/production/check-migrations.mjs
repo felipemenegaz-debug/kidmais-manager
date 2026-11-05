@@ -201,6 +201,12 @@ const approvedFiles = [
   // (índice parcial), sucessor obrigatório por gatilho diferido. Quebra o código anterior: código compatível antes (§3).
   // Postcheck GERADO do contrato lib/assinatura/renovacao-schema.ts. 109 conferida livre em 29/10 (clones, vault).
   '20261029_109_renovacao_substituta.sql',
+  // 114: D-LIB-6 do plano "liberar agenda com mais de um salão" (rev. 3; aprovado pelo Astra na rev. 7; Felipe 31/10/2026):
+  // os gatilhos da 019 (lock_ocupacao e agenda da revisão) VERIFICAM a trava da configuração da agenda da empresa antes das
+  // datas (kidmais114_exigir_configuracao, KD114). Corpos recriados do pg_get_functiondef atual (cadeia 109); pré e
+  // pós-check inline por hash do prosrc. Só depois do código que trava as entradas. 110/111 reservadas pela satisfação; 112 é a PJ (staging, ordem por
+  // nome de arquivo: 114 antes da 112); 114 conferida livre em 31/10 (clones, vault).
+  '20261031_114_trava_configuracao_gatilhos.sql',
   // 112: cliente pessoa jurídica (Entrega B do plano "importação de contrato com dados completos", rev. 2.1 aprovado pelo
   // Astra): tipo_pessoa, cnpj com DV no banco, razão social, nome fantasia e representante; CNPJ único por empresa (molde da
   // 076). Aditiva; rollback recusa qualquer dado de PJ. Código compatível antes (sem a 112 recusa PJ). 110/111 reservadas pela
@@ -214,7 +220,7 @@ const approvedFiles = [
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
-// - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
+// - 049–051 and 114 carry their prechecks (and 114 its postcheck) inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
 // - 055a–d, 058, 059, 060, 065, 080, 081 and 082 (WhatsApp atendimento: 065 kept, reserved by staging; the original
@@ -226,7 +232,7 @@ const approvedFiles = [
 //   a number being free in one reading is never a reservation across sessions)
 //   carry the precheck inline and have an external postcheck.
 const checkFiles = {
-  '049': [], '050': [], '051': [],
+  '049': [], '050': [], '051': [], '114': [],
   '052': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
   '054': ['20260928_054_precheck.sql', '20260928_054_backfill_imediato.sql', '20260928_054_postcheck.sql'],
   '055a': ['20260928_055a_postcheck.sql'], '055b': ['20260928_055b_postcheck.sql'],
@@ -239,7 +245,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '116', '117'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -287,7 +293,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

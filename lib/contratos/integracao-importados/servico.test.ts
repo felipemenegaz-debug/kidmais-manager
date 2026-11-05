@@ -68,6 +68,10 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
   const query = async (sql: string, v: readonly unknown[] = []) => {
     estado.sql.push(sql);
     const linhas = (rows: unknown[]) => ({ rows: rows as never[], rowCount: rows.length });
+    // Rev. 3: configuração da agenda da empresa (entrada) e a guarda dos helpers de agenda (pg_locks).
+    if (sql.includes("hashtextextended('kidmais:agenda-config:'") && sql.includes('pg_advisory_xact_lock')) { estado.locks.push(`config:${v[0]}`); return linhas([]); }
+    if (sql.includes("set_config('kidmais.agenda_config_empresa'")) return linhas([]);
+    if (sql.includes('pg_locks')) return linhas([{ ok: estado.locks.some((l) => l.startsWith('config:')), empresa: v[0] ?? EMPRESA }]);
     // Antes dos demais: as consultas de salão também citam configuracao_agenda_saloes e pacote_saloes.
     // S-E restante: sem estado.v3, a 094 não está instalada e nenhuma unidade é POR_SALAO (caso V1).
     if (sql.includes("to_regprocedure('public.kidmais094_conflito_ocupacao")) return linhas([{ ok: !!estado.v3 }]);
@@ -104,6 +108,8 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
         return linhas([{ salao_id: v3.salaoGravado ?? null, por_salao: true, data: '2026-11-14', inicio: '14:00:00', fim: '18:00:00', cfg: '66666666-6666-4666-8666-666666666666',
           pacote: '33333333-3333-4333-8333-333333333333', empresa: EMPRESA, unidade: '22222222-2222-4222-8222-222222222222', convidados: 80 }]);
       }
+      // D-LIB-4: marca do escritor (B1) antes e depois da escrita do salão.
+      if (sql.includes("set_config('kidmais.escritor_salao'")) return linhas([{ ok: '' }]);
       if (sql.includes('UPDATE fechamentos SET salao_id')) { estado.inserts.push({ tabela: 'fechamentos.salao_id', valores: v }); v3.salaoGravado = String(v[1]); return linhas([]); }
     }
     if (sql.includes("to_regclass('public.contrato_importacoes')")) return linhas([{ ok: estado.disponivel }]);
@@ -188,6 +194,8 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
     }
     // 094 (parecer do Astra, P1): escolha de salão da festa importada; sem a 094 no banco simulado, nada a escolher.
     if (sql.includes("SELECT fechamento_id::text AS fechamento_id FROM contratos")) return linhas([]);
+    // D-LIB-4: referência do caminho; sem a festa no banco simulado, fora de POR_SALAO (nada a conferir).
+    if (sql.includes("SELECT empresa_id::text AS empresa, estabelecimento_id::text AS unidade FROM fechamentos")) return linhas([]);
     throw new Error(`SQL não previsto no teste: ${sql.slice(0, 120)}`);
   };
   return { query, estado } as unknown as DbExecutor & { estado: Estado };
@@ -256,6 +264,9 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   assert.equal(res.agendaOcupada, true);
   assert.deepEqual(tabelas(estado), ['contratos', 'contrato_versoes', 'contrato_edicoes', 'contrato_fluxos', 'contrato_importacoes', 'festas', 'festa_eventos', 'contrato_importacao_financeiro']);
   assert.ok(estado.locks.indexOf(`importacao:${IMP}`) < estado.locks.indexOf('data:2026-11-14'), 'lock da importação antes do lock da data');
+  // Rev. 3: a configuração da agenda da empresa comprovada vem antes de qualquer outra trava da confirmação.
+  const lockConfig = estado.locks.lastIndexOf(`config:${EMPRESA}`);
+  assert.ok(lockConfig >= 0 && lockConfig < estado.locks.lastIndexOf(`importacao:${IMP}`), 'configuração → importação');
   // Ordem única da 062: unidade (empresa → unidade → habilitação) antes da data.
   const lockUnidade = estado.locks.indexOf('unidade:22222222-2222-4222-8222-222222222222');
   const lockDuplicidade = estado.locks.indexOf(`duplicidade:${EMPRESA}`);

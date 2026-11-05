@@ -117,6 +117,9 @@ const MODELOS = {
   "109": { banco: "kidmais_v1_modelo_109", ate: "109", sem: ["098"] },
   // Entrega B (01/11/2026): cliente pessoa jurídica (112) sobre o estado da 109. O par 109 × 112 prova o código com e sem a 112.
   "112": { banco: "kidmais_v1_modelo_112", ate: "112", sem: ["098"] },
+  // Liberar agenda com mais de um salão (D-LIB-6, 31/10/2026): a 114 (gatilhos da 019 verificam a trava da configuração)
+  // sobre o estado da 109. a cadeia até a 114 passa pela 112 (cliente PJ, staging).
+  "114": { banco: "kidmais_v1_modelo_114", ate: "114", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a

@@ -7,6 +7,7 @@ import {
   normalizarTexto, ordemDaNovaFoto, pendenciasPublicacao, planejarReordenacao, TEXTO_PENDENCIA,
   type Exclusivo, type GrupoItem, type Pendencia,
 } from "./salao-apresentacao-regras.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 
 /**
  * Apresentação do salão ao cliente (102), única porta de escrita do conteúdo. Plano rev. 4 aprovado com ressalvas pelo
@@ -89,7 +90,7 @@ const SELECT_SALAO = `SELECT s.id::text, s.nome, s.capacidade_convidados, s.ativ
  * salão alheio ou inexistente) → versão esperada. Combinado da 098 nunca chega aqui (a 102 recusa a 098).
  */
 async function travarSalao(tx: DbExecutor, empresaId: string, salaoId: string, versaoEsperada: number) {
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [empresaId]);
+  await travarConfiguracaoAgenda(tx, empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   const r = await tx.query<LinhaSalao>(`${SELECT_SALAO} WHERE s.id = $1::uuid AND s.empresa_id = $2::uuid FOR UPDATE OF s`, [salaoId, empresaId]);
   const salao = r.rows[0] ?? recusar("SALAO_NAO_ENCONTRADO", "Salão não encontrado.", 404);
   if (salao.conteudo_versao !== versaoEsperada) recusar("SALAO_MUDOU", "O salão mudou desde que você abriu esta tela. Recarregue a página.", 409);

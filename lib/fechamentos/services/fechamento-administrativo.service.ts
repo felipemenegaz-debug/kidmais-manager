@@ -17,6 +17,7 @@ import { fechamentoAdministrativoSchema } from '../administrativo-schema';
 import { periodoDoPedido } from '../comercial-schema';
 import { criarFechamentoComercial } from './fechamento.service';
 import { FechamentoServiceError } from './errors';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 import { exigirModeloCompativelNoFechamento, trechosIncompativeisDoContratante } from './modelo-pj';
 
 type Contexto = { token: string; requestId: string; userAgent: string | null; empresaSolicitada?: string | null };
@@ -120,6 +121,8 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
 
 async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessao: SessaoAdmin, empresaId: string, tx: DbExecutor, vinculo?: VinculoPreparacaoFechamento): Promise<ResultadoFechamentoAdministrativo> {
         const input = fechamentoAdministrativoSchema.parse(raw);
+        // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+        await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
         const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, empresaId, tx, true);
         await exigirModeloCompativelNoFechamento(tx, cliente);
         // Preparação vinculada (Kidmais): conferida e travada AQUI; reenvio da mesma preparação devolve o já criado.

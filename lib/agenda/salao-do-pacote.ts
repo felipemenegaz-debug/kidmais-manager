@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 
 /**
  * Salão (alias s) de unidade cuja agenda é por salão: só esses aparecem e são exigidos no pacote (decisão de Felipe,
@@ -13,6 +14,10 @@ export const SALAO_DE_AGENDA_POR_SALAO = `EXISTS (SELECT 1 FROM agenda_escopo_co
  * (editar, revisar, ativar, duplicar — tela, IA ou importação). Vínculo com salão desativado depois continua contando.
  */
 export async function pacoteSemSalaoNaAgendaPorSalao(tx: DbExecutor, empresaId: string, pacoteId: string) {
+  // Liberar agenda com mais de um salão (rev. 3), desvio declarado: os escritores de pacote (tela, IA, importação, adicionais,
+  // categorias) tomam a configuração AQUI, na primeira leitura da regra. Não seguram trava da agenda (data, salão, fechamento) e
+  // os exclusivos não tocam pacotes; a espera atrás de uma exclusiva enfileirada é aresta suave, que o PostgreSQL reordena.
+  await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
   const instalada = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.pacote_saloes') IS NOT NULL AS ok`);
   if (!instalada.rows[0]?.ok) return false;
   const r = await tx.query<{ por_salao: boolean; tem: boolean }>(

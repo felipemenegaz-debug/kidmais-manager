@@ -4,6 +4,7 @@ import { combinadosPublicos } from "./combinados-publicos.ts";
 import { diagnosticarSalaoNoDestino, salaoServeNoDestino } from "./salao-festa.ts";
 import { pronto, salaoDoEscopoParaPublicacao, saloesProntosPublicos, SalaoPublicoIndisponivel } from "./salao-publico.ts";
 import { MOTIVOS_PREFERENCIA, TEXTO_MOTIVO_PREFERENCIA, type MotivoPreferencia } from "./preferencia-salao-textos.ts";
+import { exigirTravaConfiguracao } from "./trava-configuracao.ts";
 
 /**
  * E2b — decisão da preferência de salão do cliente (plano técnico E2b rev. 2.1, R2-P2-1/R2-P2-2; D-R4). Só existe com
@@ -40,9 +41,13 @@ export type DestinoPreferencia = {
 
 const GENERICA: DecisaoPreferencia = { resultado: "RECUSA_GENERICA" };
 
-/** Configuração da empresa (compartilhada) → data: a ordem fixa da conferência pública da preferência. */
+/**
+ * Configuração da empresa (compartilhada) → data: a ordem fixa da conferência pública da preferência. Desde a liberação
+ * da agenda com mais de um salão (rev. 3), a configuração é travada pela entrada (empresa → configuração); aqui só se
+ * confere.
+ */
 export async function travarConferenciaPreferencia(tx: DbExecutor, empresaId: string, data: string) {
-  await tx.query(`SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [empresaId]);
+  await exigirTravaConfiguracao(tx, empresaId);
   await adquirirLockConfirmacaoAgenda(data, tx);
 }
 

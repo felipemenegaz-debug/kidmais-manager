@@ -17,6 +17,10 @@ import {
 import { versaoAgenda, type LinhaHorarioProjecao, type NivelHeranca, type ProjecaoVersao } from "./versao-agenda.ts";
 import { lerAgendaReferencia } from "./leitura-agenda-referencia.test-apoio.ts";
 import { provarTenant } from "../saas/provar-tenant.ts";
+import { escreverSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/agenda-versao.postgres.test.ts";
 
 /**
  * Plano "Agenda: concorrência otimista do agregado" (rev. 1.1, seção 8 + R1-2/R1-3), no PostgreSQL DESCARTÁVEL.
@@ -73,6 +77,7 @@ function exComPausa(c: Client, depois: RegExp) {
   };
   return { executor, estado, pausado, liberar };
 }
+const direto = (c: Client): DbExecutor => ({ async query<Row extends object>(text: string, values?: readonly unknown[]) { const r = await c.query(text, values as unknown[]); return { rows: r.rows as Row[], rowCount: r.rowCount }; } });
 async function emTx<T>(c: Client, fn: () => Promise<T>): Promise<T> {
   await c.query("BEGIN");
   try {
@@ -622,7 +627,9 @@ test("T-B6: cancelamento datado concorrente — muda a versão; cancelar e salva
 /** Festa confirmada (dia +30) no horário e, com a 098, no salão: os gatilhos diferidos conferem a agenda no COMMIT. */
 async function festaConfirmada(c: Cenario, cfg: string, inicio: string, fim: string, salao: string | null = null) {
   return emTx(a, async () => {
-    const f = (await a.query<{ id: string }>(`INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    // Com a 114, os gatilhos de fechamentos exigem a trava da configuração: a fixture a toma como a entrada administrativa.
+    await travarConfiguracaoAgenda(direto(a), c.empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+    const f = (await escreverSalaoFixture<{ id: string }>(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status${salao ? ", salao_id" : ""})
         SELECT CURRENT_DATE + 30, $1::time, $2::time, $3::uuid, $4::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO'${salao ? ", $6::uuid" : ""} FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $5::uuid RETURNING fechamentos.id::text AS id`,

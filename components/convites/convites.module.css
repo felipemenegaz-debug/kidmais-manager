@@ -94,3 +94,8 @@
 .alternativaSemIA { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid #e3e9e2; }
 .confirmacaoImagens { margin: 12px 0; padding: 12px 16px; border: 1px solid #efd3c4; border-radius: 12px; background: #fff7f1; }
 .confirmacaoImagens .check { align-items: flex-start; font-size: 13px; line-height: 1.5; }
+
+/* D-LIB-3/5: bloco "Local" do contrato no editor da família (somente leitura). */
+.blocoLocal { margin: 0 0 16px; padding: 12px 14px; border: 1px solid currentColor; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.blocoLocal strong { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.blocoLocal small { display: block; margin-top: 6px; }

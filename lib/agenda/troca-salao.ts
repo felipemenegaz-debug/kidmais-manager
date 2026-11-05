@@ -2,6 +2,9 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "../comercial/auditoria-comercial.ts";
 import { AgendaConfiguracaoError } from "./configuracao-unidade.ts";
 import { combinadosInstalados, definirSalaoDestinoRevisao } from "./salao-festa.ts";
+import { escreverSalao } from "./escrever-salao.ts";
+import { estadoDocumental } from "./estado-documental.ts";
+import { exigirTravaConfiguracao } from "./trava-configuracao.ts";
 
 /**
  * 094 (decisão de Felipe em 22/10/2026): o sistema escolhe o salão da festa (lib/agenda/salao-festa.ts) e a equipe
@@ -212,6 +215,7 @@ export async function trocarSalaoDaFesta(
   salaoId: string,
 ): Promise<SalaoDaFesta | null> {
   if (!(await instalada(tx))) recusar("SALOES_INDISPONIVEIS", "A escolha de salão ainda não está disponível.");
+  await exigirTravaConfiguracao(tx, ctx.empresaId);
   // Ordem de locks igual à do pagamento e da revisão (parecer do Astra, P2): primeiro o fechamento, depois as datas
   // (a da festa e a do destino de remarcação aberta), em ordem, pela mesma função da 014.
   const festa = await festaDaEmpresa(tx, ctx.empresaId, fechamentoId, true);
@@ -237,7 +241,7 @@ export async function trocarSalaoDaFesta(
     if (rev.salao?.id === salaoId) return lerSalaoDaFesta(tx, ctx.empresaId, fechamentoId);
     // Escolha explícita: se não serve no destino da revisão, recusa (nunca vira outro salão).
     if (!(await serveNoDestino(tx, rev.revisaoId, salaoId))) recusar("SALAO_OCUPADO", `${nomeEscolhido} não serve no destino da revisão (horário, pacote, convidados ou ocupação).`);
-    await definirSalaoDestinoRevisao(tx, rev.revisaoId, salaoId);
+    await definirSalaoDestinoRevisao(tx, rev.revisaoId, salaoId, "PREPARACAO_REVISAO");
     await auditarMutacaoComercial(tx, {
       usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "FESTA_SALAO_TROCA_NA_REVISAO", entidadeTipo: "FECHAMENTO", entidadeId: fechamentoId,
       empresaId: ctx.empresaId, antes: { salaoContrato: contrato.fixa, destino: rev.salao }, depois: { destino: { id: salaoId, nome: nomeEscolhido } }, motivo: null,
@@ -247,9 +251,15 @@ export async function trocarSalaoDaFesta(
   const escolhido = opcoes.find((o) => o.id === salaoId);
   if (!escolhido) recusar("SALAO_NAO_ENCONTRADO", "Salão não encontrado nesta unidade.", 404);
   if (festa.salao_id === escolhido.id) return montar(festa, opcoes);
+  // D-LIB-4 (entrada 11): com contrato (vigente, em preparação ou emitido aguardando) que NÃO fixa salão, a escolha avulsa
+  // tiraria a festa do curinga sem documento. O salão entra por uma nova versão do contrato. Só sem contrato grava (B7).
+  const documental = await estadoDocumental(tx, { fechamentoId });
+  if (documental.contrato === "COM_CONTRATO" && documental.contratoStatus !== "CANCELADO") {
+    recusar("SALAO_EXIGE_REVISAO_CONTRATUAL", "Esta festa já tem contrato sem salão definido. Para escolher o salão, prepare uma nova versão do contrato e escolha o salão nela.");
+  }
   if (!escolhido.permitido) recusar("SALAO_NAO_PERMITIDO", `O salão ${escolhido.nome} não é permitido para este horário ou pacote.`);
   if (!escolhido.livre) recusar("SALAO_OCUPADO", `${escolhido.nome} não está livre nesse horário.`);
-  await tx.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid AND empresa_id = $3::uuid`, [
+  await escreverSalao(tx, { escritor: "B7", caminho: "ATRIBUICAO_AVULSA", origem: "EQUIPE" }, `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid AND empresa_id = $3::uuid`, [
     fechamentoId,
     escolhido.id,
     ctx.empresaId,

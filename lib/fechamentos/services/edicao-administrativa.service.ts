@@ -27,7 +27,7 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     const anteriorAdicionais = await listarAdicionaisDoFechamento(id, tx);
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
     if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
-    await persistirEdicaoFechamento(tx, novo, resumo);
+    await persistirEdicaoFechamento(tx, novo, resumo, { caminho: 'EDICAO_LIMPA_SALAO', origem: 'EQUIPE' });
     const fotografia = await fotografarEstadoFechamento(tx, id, { motivo: input.motivo, atorUsuarioId: usuarioId });
     await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null } }, tx);
     return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;

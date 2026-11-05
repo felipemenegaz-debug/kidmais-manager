@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { analisarRevisao } from './alteracoes.ts';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 import { hashSnapshotContrato } from './snapshot-core.ts';
 import type { ContratoSnapshotV1 } from '../repositories/models';
 
@@ -54,7 +55,9 @@ function ambiente(opcoes: { historico?: boolean; cadastroIncompleto?: boolean } 
     const tx = { query: async (sql: string, values: unknown[] = []) => {
         queries.push(sql);
         let rows: unknown[] = [];
-        if (sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE')) rows = values[1] === 'empresa-a' ? [{ id: 'f' }] : [];
+        // Rev. 3: a entrada trava a configuração da agenda da empresa comprovada (compartilhada; linha já travada pelo tenant).
+        if (sql.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'") || sql.startsWith("SELECT set_config('kidmais.agenda_config_empresa'")) assert.deepEqual(values, ['empresa-a']);
+        else if (sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE')) rows = values[1] === 'empresa-a' ? [{ id: 'f' }] : [];
         else if (sql.startsWith('SELECT id,fechamento_id,status')) rows = [{ id: 'c', fechamento_id: 'f', status: contratoStatus }];
         else if (sql.startsWith('SELECT status FROM contratos')) rows = [{ status: contratoStatus }];
         else if (sql.startsWith('SELECT * FROM contrato_fluxos')) rows = [fluxo];
@@ -73,6 +76,7 @@ function ambiente(opcoes: { historico?: boolean; cadastroIncompleto?: boolean } 
     const schema = carregar('lib/fechamentos/services/edicao-administrativa-schema.ts', {});
     const mod = carregar('lib/contratos/services/administrativo.service.ts', {
         '../../db/postgres': { withTransaction: async (fn: (t: typeof tx) => unknown) => fn(tx) },
+        '../../agenda/trava-configuracao': travaConfiguracao,
         '../../autenticacao/service': { consultarSessao: async () => ({ usuario_id: 'u' }) },
         '../../fechamentos/services/edicao-administrativa-schema': schema,
         './revisao-inicial': carregar('lib/contratos/services/revisao-inicial.ts', { './errors': { ContratoServiceError } }),
@@ -148,8 +152,10 @@ test('conflito no destino impede aplicação; cancelamento da revisão conserva 
     const r = { id: 'r', fechamento_id: 'f', contrato_id: 'c', contrato_versao_id: 'v2', estado: 'CONGELADA', hold_destino_adquirido_em: 'sintetico', operacao: { clienteId: 'cl', dataEvento: '2026-09-26', horarioInicio: '11:00', horarioFim: '15:00', configuracaoAgendaId: 'cfg' } };
     let livre = false, aplicacoes = 0;
     const sqls: string[] = [];
-    const tx = { query: async (sql: string) => { sqls.push(sql); return { rows: sql.includes(' AS ocupa') ? [{ ocupa: true }] : [] }; } };
+    // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+    const tx = { query: async (sql: string, values: unknown[] = []) => { sqls.push(sql); return { rows: sql.includes('pg_locks') ? [{ ok: true, empresa: values[0] ?? 'empresa-a' }] : sql.includes(' AS ocupa') ? [{ ocupa: true }] : [] }; } };
     const mod = carregar('lib/fechamentos/services/revisao-operacional.service.ts', {
+        '../../agenda/trava-configuracao.ts': travaConfiguracao,
         '../repositories': { buscarFechamentoPorId: async () => f, buscarFechamentoPorIdParaAtualizacao: async () => f },
         '../repositories/revisao.repository': { aplicarOperacaoPreparada: async () => { aplicacoes++; } },
         '../../disponibilidade/services': { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: 'cfg', horarios: [{ status: livre ? 'DISPONIVEL' : 'OCUPADO', inicio: '11:00', fim: '15:00' }] }] }) },
@@ -187,7 +193,9 @@ test('impacto financeiro registra pendência sem alterar recebimentos ou obriga�
 
 test('promoção atualiza ponteiro no mesmo fluxo; Festa lê versão vigente e conserva identidade', () => {
     const publico = readFileSync('lib/contratos/services/contrato-publico.service.ts','utf8');
-    assert(publico.indexOf('await bloquearAgendaFormalizacao(tx, contrato.id);') < publico.indexOf('const versaoAssinada = await marcarVersaoContratoAssinada'));
+    // A chamada ganhou versão e marca (D-LIB-4); o trecho tem de existir, senão o indexOf -1 tornaria a comparação vazia.
+    assert(publico.indexOf('await bloquearAgendaFormalizacao(tx, contrato.id, versao.id, { caminho: \x27FORMALIZACAO_PRE_ASSINATURA\x27') > 0);
+    assert(publico.indexOf('await bloquearAgendaFormalizacao(tx, contrato.id, versao.id, { caminho: \x27FORMALIZACAO_PRE_ASSINATURA\x27') < publico.indexOf('const versaoAssinada = await marcarVersaoContratoAssinada'));
     assert.match(publico,/await garantirFestaFormalizada\(tx, contrato.id, versaoAssinada.id, context\)/);
     const fluxo = readFileSync('lib/contratos/services/fluxo-publico.ts','utf8');
     assert(fluxo.indexOf('await concluirPreparacao(tx,preparacao') < fluxo.indexOf('SET versao_vigente_id=$2'));

@@ -11,10 +11,14 @@ import { normalizarWebp } from "../imagens/normalizar-webp.ts";
 import { adicionarFoto, confirmarDeclaracao, salvarApresentacao, type CamposInformados } from "./salao-apresentacao.ts";
 import { fotoPublica, listarSaloesPublicos, SalaoPublicoIndisponivel } from "./salao-publico.ts";
 import { escolherSalaoParaEmissao } from "./salao-festa.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 import { adquirirLockConfirmacaoAgenda } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { carregarComBanco, executor, porTransacao } from "../marketing/harness-postgres.ts";
 import * as cotacaoPublicaReal from "../comercial/cotacao-publica.ts";
 import * as escopoReal from "../disponibilidade/escopo.ts";
+import { escreverSalaoFixture, idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/saloes-publicos-sd.postgres.test.ts";
 
 /**
  * S-D no PostgreSQL DESCARTÁVEL (modelo 104 = staging; a 106 é aplicada aqui). Plano S-E/S-D rev. 4.1 (D7, R-T, R3-T, R4-T):
@@ -76,7 +80,7 @@ async function buffet() {
 async function ocupar(c: Cenario, data: string, cfg: string, salao: string, db: Client = a) {
   await db.query("BEGIN");
   try {
-    const f = await id(db as Client, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const f = await idSalaoFixture(db as Client, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
         SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 80, 80, 100, 100, 100,
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $5::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`,
@@ -328,10 +332,12 @@ test("S-D: POST real — preferido livre grava; não comporta, ocupado ou de out
     const pidRota = await pid(a);
     try {
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracaoAgenda(executor(b), c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
       await adquirirLockConfirmacaoAgenda(d5, executor(b));
       const corrida = enviar(d5, 80, grande);
       await esperarBloqueio(b, pidRota);
-      const f = await id(b, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+      const f = await idSalaoFixture(b, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
             categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
           SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 80, 80, 100, 100, 100,
                  'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $5::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`,
@@ -356,19 +362,24 @@ test("S-D: emissão usa o preferido; preferido que não serve = PREFERIDO_NAO_SE
         origem_fechamento, cliente_id, status)
       SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', $5, $5, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO'
         FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`, [data, tarde, c.empresa, c.pacote, convidados]);
+  // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+  const emitir = (festa: string) => emTransacao(async () => {
+    await travarConfiguracaoAgenda(tx, c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+    return escolherSalaoParaEmissao(tx, festa);
+  });
   const d = dia(180);
   const f = await novaFesta(d, 40);
   await a.query(`UPDATE fechamentos SET salao_preferido_id = $2::uuid WHERE id = $1::uuid`, [f, pequeno]);
-  assert.deepEqual(await escolherSalaoParaEmissao(tx, f), { porSalao: true, salao: { id: pequeno, nome: "Pequeno" } }, "o automático daria o mesmo; aqui é o preferido");
+  assert.deepEqual(await emitir(f), { porSalao: true, salao: { id: pequeno, nome: "Pequeno" } }, "o automático daria o mesmo; aqui é o preferido");
   const g = await novaFesta(d, 80);
   await a.query(`UPDATE fechamentos SET salao_preferido_id = $2::uuid WHERE id = $1::uuid`, [g, grande]);
-  assert.deepEqual(await escolherSalaoParaEmissao(tx, g), { porSalao: true, salao: { id: grande, nome: "Grande" } });
+  assert.deepEqual(await emitir(g), { porSalao: true, salao: { id: grande, nome: "Grande" } });
   await ocupar(c, d, tarde, grande);
-  assert.deepEqual(await escolherSalaoParaEmissao(tx, g), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" }, "nunca troca em silêncio");
+  assert.deepEqual(await emitir(g), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" }, "nunca troca em silêncio");
   // A equipe escolhe outro de forma explícita (salao_id) — essa escolha vem antes da preferência.
   const h = await novaFesta(dia(181), 40);
   await a.query(`UPDATE fechamentos SET salao_preferido_id = $2::uuid WHERE id = $1::uuid`, [h, grande]);
-  assert.equal((await escolherSalaoParaEmissao(tx, h) as { motivo?: string }).motivo, "PREFERIDO_NAO_SERVE", "40 está abaixo do mínimo do Grande");
-  await a.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [h, pequeno]);
-  assert.deepEqual(await escolherSalaoParaEmissao(tx, h), { porSalao: true, salao: { id: pequeno, nome: "Pequeno" } }, "escolha da equipe vence");
+  assert.equal((await emitir(h) as { motivo?: string }).motivo, "PREFERIDO_NAO_SERVE", "40 está abaixo do mínimo do Grande");
+  await escreverSalaoFixture(a, ARQUIVO_FIXTURE, `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [h, pequeno]);
+  assert.deepEqual(await emitir(h), { porSalao: true, salao: { id: pequeno, nome: "Pequeno" } }, "escolha da equipe vence");
 });

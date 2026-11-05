@@ -10,6 +10,9 @@ import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, decisoes, dia, executor, id, importacao,
   integrar, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico, comSalaoEscolhido,
 } from "../../scripts/integracao-importados-test-support.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/remarcacao-salao-094.postgres.test.ts";
 
 /**
  * Gate PG da agenda (conferência do Astra, 22/10/2026), no PostgreSQL DESCARTÁVEL com o inventário até a 094:
@@ -44,7 +47,7 @@ async function configurar(db: Client, c: Cenario, tipo: "POR_HORARIO" | "POR_SAL
 
 /** Festa gravada e confirmada pelo caminho do banco (gatilhos da 019/062/094), sem contrato. */
 async function inserirFesta(db: Client, c: Cenario, cfg: string, data: string, salao: string | null = null) {
-  return id(db, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  return idSalaoFixture(db, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid LIMIT 1 RETURNING fechamentos.id`,

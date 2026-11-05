@@ -7,6 +7,7 @@ import {
   ambienteAssinatura, carregar, cenario, cpfValido, ctxIntegracao, decisoes, dia, executor, id, importacao, PARCIAL, poolNaTransacao, validarAgora,
   type Cenario, type Servico,
 } from "../../../scripts/integracao-importados-test-support.ts";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao.ts";
 
 /**
  * S-E restante (plano rev. 3 + parecer focal, critérios CA-1..CA-5) no PostgreSQL DESCARTÁVEL, pelos serviços reais:
@@ -426,7 +427,7 @@ test("CA-2 Human Gate do produto: recusa estrita DEPOIS de fechamento, contrato 
   }
 });
 
-test("D2 legado V1: contrato importado ANTES da unidade usar salão continua V1 (nada fixado, troca direta)", { timeout: 300_000 }, async () => {
+test("D2 legado V1: contrato importado ANTES da unidade usar salão continua V1 (nada fixado); troca avulsa recusada (D-LIB-4)", { timeout: 300_000 }, async () => {
   await emTransacao(async () => {
     const c = await cenario(a, 0);
     await a.query(`INSERT INTO agenda_escopo_config (empresa_id, modo, capacidade_tipo, limite_festas_dia, intervalo_minimo_minutos, configurado_por)
@@ -444,9 +445,14 @@ test("D2 legado V1: contrato importado ANTES da unidade usar salão continua V1 
     assert.deepEqual(await exigido.salaoExigidoDaFesta(executor(a), vid), { situacao: "SEM_SALAO_FIXADO" });
     const troca = carregar<typeof import("../../agenda/troca-salao.ts")>("lib/agenda/troca-salao.ts");
     const festa = (await a.query<{ f: string }>(`SELECT fechamento_id::text f FROM contratos WHERE id = $1::uuid`, [r!.contratoId])).rows[0]!.f;
-    const lido = await troca.trocarSalaoDaFesta(executor(a), { empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() }, festa, A);
-    assert.equal(lido?.contratoFixa, undefined, "legado V1 não fixa salão");
-    assert.equal(lido?.salaoAtual?.id, A, "troca direta da 094");
+    // Liberar agenda com mais de um salão (D-LIB-4, entrada 11): com contrato não cancelado, a troca avulsa tiraria a festa do
+    // curinga sem documento; antes era a troca direta da 094. O salão entra por uma nova versão do contrato.
+    await a.query("SAVEPOINT troca_avulsa");
+    await travarConfiguracaoAgenda(executor(a), c.empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+    await assert.rejects(troca.trocarSalaoDaFesta(executor(a), { empresaId: c.empresa, usuarioId: c.usuario, requestId: randomUUID() }, festa, A),
+      (e: { code?: string }) => e.code === "SALAO_EXIGE_REVISAO_CONTRATUAL");
+    await a.query("ROLLBACK TO SAVEPOINT troca_avulsa");
+    assert.equal((await a.query<{ s: string | null }>(`SELECT salao_id::text s FROM fechamentos WHERE id = $1::uuid`, [festa])).rows[0]!.s, null, "legado V1 continua sem salão (curinga)");
     await validarAgora(a);
   });
 });
@@ -508,22 +514,25 @@ test("CA-3 Desistir da troca: o que mudou depois da leitura (outra conexão com 
     const tentar = (t: typeof x.lido, mudar: Record<string, unknown> = {}) => emTransacao(() => x.operar(t.versaoId,
       { acao: "cancelar_revisao", revisao: t.revisaoEdicao, motivo: "Cliente desistiu", esperado: { ...esperadoDe(t), ...mudar } }, x.c.token, ctxOp(), x.c.empresa), "COMMIT");
     const cancelada = async () => (await revisaoDe(b, x.lido.revisaoId)).estado === "CANCELADA";
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada (B, outra conexão).
+    const trocarEmB = async (salao: string) => {
+      await b.query("BEGIN");
+      await travarConfiguracaoAgenda(executor(b), x.c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+      await x.troca.trocarSalaoDaFesta(executor(b), x.ctx, x.festa, salao);
+      await b.query("COMMIT");
+    };
     // Divergências diretas: contador, estado e destino igual ao fixado.
     await assert.rejects(tentar(x.lido, { revisaoOperacional: x.lido.revisaoOperacional + 1 }), /A revisão mudou/);
     await assert.rejects(tentar(x.lido, { estado: "CONGELADA" }), /A revisão mudou/);
     assert.equal(await cancelada(), false);
     // B troca o destino para C e faz COMMIT (no modelo 098 a revisão é hash v1: o contador da edição não muda).
-    await b.query("BEGIN");
-    await x.troca.trocarSalaoDaFesta(executor(b), x.ctx, x.festa, x.C);
-    await b.query("COMMIT");
+    await trocarEmB(x.C);
     const relida = await ler();
     assert.equal(relida.salao?.id, x.C);
     await assert.rejects(tentar(x.lido), /A revisão mudou/, "A desiste com os valores antigos (destino B)");
     assert.equal(await cancelada(), false, "revisão intacta");
     // B leva o destino de volta ao salão do contrato (A): não é mais troca.
-    await b.query("BEGIN");
-    await x.troca.trocarSalaoDaFesta(executor(b), x.ctx, x.festa, x.A);
-    await b.query("COMMIT");
+    await trocarEmB(x.A);
     const igual = await ler();
     assert.equal(igual.salao?.id, x.A);
     await assert.rejects(tentar(igual), /A revisão mudou/, "destino igual ao fixado não é troca (conferido no servidor)");
@@ -532,9 +541,7 @@ test("CA-3 Desistir da troca: o que mudou depois da leitura (outra conexão com 
     const adm = carregar<typeof import("../services/administrativo.service.ts")>("lib/contratos/services/administrativo.service.ts");
     assert.equal(adm.acaoContratoSchema.safeParse({ acao: "cancelar_revisao", revisao: 1, motivo: "Desistiu", esperado: { ...esperadoDe(igual), salaoDestinoId: null } }).success, false);
     // Nova conferência: troca de novo para C, relê e desiste.
-    await b.query("BEGIN");
-    await x.troca.trocarSalaoDaFesta(executor(b), x.ctx, x.festa, x.C);
-    await b.query("COMMIT");
+    await trocarEmB(x.C);
     await tentar(await ler());
     assert.equal(await cancelada(), true);
   } finally {

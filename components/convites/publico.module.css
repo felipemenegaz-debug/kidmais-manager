@@ -57,6 +57,9 @@
 }
 .controleEfeitos { display: block; margin: 14px auto 0; padding: 6px 12px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); color: var(--convite-tinta); font: 12px Arial, sans-serif; cursor: pointer; }
 .publico[data-efeitos-pausados=true] .bordaAnimada::before, .publico[data-efeitos-pausados=true] .enfeites span { animation-play-state: paused; }
+.localFixo { margin: 20px 0 0; padding: 14px 16px; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--convite-tinta); font-size: 15px; line-height: 1.5; text-align: center; overflow-wrap: anywhere; }
+.localFixo strong { display: block; margin-bottom: 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.localFixo span { display: block; color: var(--secundario); font-size: 13px; }
 .mapa { display: block; margin-top: 20px; padding: 16px; text-align: center; text-decoration: none; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--convite-tinta); font-size: 14px; font-weight: 600; }
 .painel { position: relative; min-width: 0; margin: 0; padding: 32px; border: 3px solid var(--borda); border-radius: 24px; background: var(--superficie); scroll-margin-top: 24px; }
 .selo { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 28px; border: 1px solid var(--borda); border-radius: 50%; color: var(--convite-tinta); background: color-mix(in srgb, var(--convite-destaque) 16%, var(--convite-fundo)); font: 32px Georgia, serif; }

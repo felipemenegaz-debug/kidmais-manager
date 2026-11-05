@@ -8,7 +8,9 @@ import { combinadosInstalados } from "./salao-festa.ts";
 import { membrosCanonicos } from "./saloes-conjuntos.ts";
 import { pacoteSemSalaoNaAgendaPorSalao, SALAO_DE_AGENDA_POR_SALAO } from "./salao-do-pacote.ts";
 import { versaoAgenda, type LinhaConfigProjecao, type LinhaHorarioProjecao, type LinhaSalaoProjecao, type NivelHeranca, type ProjecaoVersao } from "./versao-agenda.ts";
-import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE, AVISO_SALAO_DO_PACOTE, AVISO_SALAO_DO_PACOTE_ORIGEM, AVISO_UM_SALAO, AVISO_VOLTA_UM_SALAO } from "./saloes-liberacao.ts";
+import { AVISO_IDA_HORARIOS_HERDADOS, AVISO_IDA_SO_SALOES, AVISO_MAIS_DE_UM_SALAO_EM_BREVE, AVISO_SALAO_DO_PACOTE, AVISO_SALAO_DO_PACOTE_ORIGEM, AVISO_UM_SALAO, AVISO_VOLTA_UM_SALAO } from "./saloes-liberacao.ts";
+import { maisDeUmSalaoLiberado } from "./saloes-liberacao-servidor.ts";
+import { exigirTravaConfiguracao, travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 
 /**
  * Configuração da agenda por unidade (093, etapa 2a das decisões de Felipe em 22/10/2026).
@@ -53,6 +55,8 @@ export type AgendaEscopo = {
   horarios: HorarioAgenda[];
   /** Versão do agregado do escopo (lib/agenda/versao-agenda.ts), da mesma leitura que gerou este objeto. */
   versaoAgenda: string;
+  /** D-LIB-1: a ida a "mais de um salão" está liberada neste ambiente (env lida no servidor); a tela só recebe o valor. */
+  maisDeUmSalaoLiberado: boolean;
 };
 
 export type SalaoCombinado = {
@@ -271,6 +275,7 @@ async function lerAgendaComProjecao(db: DbExecutor, empresaId: string, estabelec
     combinadosDisponiveis: v098,
     horarios,
     versaoAgenda: versaoAgenda(projecao),
+    maisDeUmSalaoLiberado: maisDeUmSalaoLiberado(),
   };
   return { agenda, projecao };
 }
@@ -318,6 +323,7 @@ function mensagemImpedimentos(nome: string, lista: ImpedimentoSalao[]) {
 
 /** Trava TODOS os salões do escopo, por id, antes de qualquer DML do cadastro (mesma ordem da reserva: id crescente). */
 async function travarSaloesDoEscopo(tx: DbExecutor, empresaId: string, estabelecimentoId: string | null) {
+  await exigirTravaConfiguracao(tx, empresaId);
   await tx.query(
     `SELECT id FROM agenda_saloes WHERE empresa_id = $1::uuid AND estabelecimento_id IS NOT DISTINCT FROM $2::uuid
       ORDER BY id FOR NO KEY UPDATE`,
@@ -340,9 +346,47 @@ export async function escopoJaConfigurado(db: DbExecutor, empresaId: string, est
  * compartilham a trava da configuração, e duas festas em salões distintos num dia ainda vazio poderiam entrar entre a
  * conferência e a troca. Volta só quando houver um protocolo comum entre a troca e as reservas.
  */
-export function exigirTipoDeAgendaLiberado(pedido: CapacidadeTipo, atual: CapacidadeTipo | null, liberada = AGENDA_MAIS_DE_UM_SALAO_LIBERADA) {
+export function exigirTipoDeAgendaLiberado(pedido: CapacidadeTipo, atual: CapacidadeTipo | null, liberada: boolean) {
   if (pedido === "POR_SALAO" && !liberada && atual !== "POR_SALAO") recusar("DADOS_INVALIDOS", AVISO_MAIS_DE_UM_SALAO_EM_BREVE);
   if (atual === "POR_SALAO" && pedido === "POR_HORARIO") recusar("DADOS_INVALIDOS", AVISO_VOLTA_UM_SALAO);
+}
+
+/** Capacidade de um horário por salão: o número de salões dele (a mesma regra do formulário, corpoSalvar). */
+const capacidadePorSalao = (saloes: string[]) => Math.min(20, Math.max(1, saloes.length));
+
+/**
+ * Plano "liberar agenda com mais de um salão" (rev. 3, P2 do save; aprovado pelo Astra na rev. 7): a ida
+ * POR_HORARIO → POR_SALAO só muda o tipo de capacidade, cria salões NOVOS (sem id) e cria vínculos de salão nos horários
+ * existentes. O esperado sai do estado lido sob a exclusiva e o pedido é comparado campo a campo; qualquer outra
+ * diferença recusa sem gravar nada (DADOS_INVALIDOS). A capacidade do horário por salão é derivada dos vínculos.
+ * Horários ainda herdados (não materializados) recusam: primeiro um save normal, ainda com um salão.
+ */
+export function exigirIdaSoComSaloes(input: SalvarAgenda, antes: AgendaEscopo) {
+  const c = antes.config;
+  if (!c || c.capacidadeTipo !== "POR_HORARIO" || input.capacidadeTipo !== "POR_SALAO") return;
+  if (antes.horarios.some((h) => h.herdado)) recusar("DADOS_INVALIDOS", AVISO_IDA_HORARIOS_HERDADOS);
+  const diferente = (): never => recusar("DADOS_INVALIDOS", AVISO_IDA_SO_SALOES);
+  const nome = (texto: string) => texto.trim().toLocaleLowerCase("pt-BR");
+  const dias = (lista: number[]) => [...lista].sort((a, b) => a - b).join(",");
+  if (input.modo !== c.modo || input.limiteFestasDia !== c.limiteFestasDia || input.intervaloMinimoMinutos !== c.intervaloMinimoMinutos) diferente();
+  if (input.saloes.length < antes.saloes.length) diferente();
+  antes.saloes.forEach((s, i) => {
+    const p = input.saloes[i]!;
+    if (p.id !== s.id || p.nome.trim() !== s.nome || p.capacidadeConvidados !== s.capacidadeConvidados) diferente();
+  });
+  if (input.saloes.slice(antes.saloes.length).some((p) => p.id)) diferente();
+  if (input.horarios.length !== antes.horarios.length) diferente();
+  const nomeDoSalao = new Map([...antes.saloes, ...antes.combinados].map((s) => [s.id, nome(s.nome)]));
+  antes.horarios.forEach((h, i) => {
+    const p = input.horarios[i]!;
+    if (p.id !== h.id || p.nome.trim() !== h.nome || p.inicio !== h.inicio || p.fim !== h.fim || dias(p.dias) !== dias(h.dias)) diferente();
+    if (p.capacidade !== capacidadePorSalao(p.saloes)) diferente();
+    const pedidos = new Set(p.saloes.map(nome));
+    for (const id of h.saloes) {
+      const existente = nomeDoSalao.get(id);
+      if (!existente || !pedidos.has(existente)) diferente();
+    }
+  });
 }
 
 function validarEntrada(input: SalvarAgenda) {
@@ -518,7 +562,7 @@ export async function lerCorteDaAgenda(tx: DbExecutor) {
  * Grava a configuração do escopo inteiro (assistente ou tela). Horários com festas futuras não mudam início, fim nem
  * dias (decisão de Felipe: bloquear, avisar e oferecer "desativar a partir de"). Troca de modo/capacidade é
  * permitida: as festas já marcadas ficam como estão — exceto voltar de "por salão" para "um salão", bloqueada por ora.
- * `maisDeUmSalaoLiberada` só existe para as provas da agenda por salão (093/098); a rota usa a constante.
+ * `maisDeUmSalaoLiberada` só existe para as provas da agenda por salão (093/098); a rota usa a env (D-LIB-1).
  *
  * Concorrência otimista (plano "Agenda: concorrência otimista do agregado", rev. 1.1): advisory → escopo → salões (098)
  * → leitura atual (projeção única) → AGENDA_JA_CONFIGURADA → versão esperada (409 AGENDA_MUDOU, sem nenhuma escrita)
@@ -528,7 +572,7 @@ export async function lerCorteDaAgenda(tx: DbExecutor) {
 export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ctx: Contexto, origem: "ASSISTENTE" | "CONFIGURACOES",
   opcoes: { maisDeUmSalaoLiberada?: boolean; lerCorte?: (tx: DbExecutor) => Promise<string> } = {}) {
   validarEntrada(input);
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
   // 098 (P2-3 da revisão 3): logo depois do lock da configuração e antes de qualquer DML, todos os salões do escopo
   // (mantidos, omitidos e membros) numa única consulta, em ordem de id — a mesma ordem da reserva.
@@ -541,7 +585,9 @@ export async function salvarAgendaEscopo(tx: DbExecutor, input: SalvarAgenda, ct
   const nomesCombinados = new Map(antes.combinados.map((c) => [c.nome.trim().toLocaleLowerCase("pt-BR"), c]));
   const repetido = input.saloes.find((s) => nomesCombinados.has(s.nome.trim().toLocaleLowerCase("pt-BR")));
   if (repetido) recusar("DADOS_INVALIDOS", `Já existe um salão combinado chamado ${repetido.nome.trim()}. Dê outro nome ao salão.`);
-  exigirTipoDeAgendaLiberado(input.capacidadeTipo, antes.config?.capacidadeTipo ?? null, opcoes.maisDeUmSalaoLiberada ?? AGENDA_MAIS_DE_UM_SALAO_LIBERADA);
+  exigirTipoDeAgendaLiberado(input.capacidadeTipo, antes.config?.capacidadeTipo ?? null, opcoes.maisDeUmSalaoLiberada ?? maisDeUmSalaoLiberado());
+  // Ida a "mais de um salão": comparação fechada antes de qualquer DML; AGENDA_MUDOU (acima) tem precedência.
+  exigirIdaSoComSaloes(input, antes);
   // Corte único das regras copiadas, depois da espera pelo advisory (não a data do início da transação).
   const corte = await (opcoes.lerCorte ?? lerCorteDaAgenda)(tx);
 
@@ -694,7 +740,7 @@ async function horarioProprio(tx: DbExecutor, empresaId: string, horarioId: stri
  */
 export async function desativarHorarioAPartirDe(tx: DbExecutor, ctx: Contexto, horarioId: string, aPartirDe: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(aPartirDe)) recusar("DADOS_INVALIDOS", "Informe a data.");
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   const h = await horarioProprio(tx, ctx.empresaId, horarioId);
   const festas = (await festasFuturas(tx, [horarioId])).get(horarioId);
   const hoje = (await tx.query<{ d: string }>(`SELECT CURRENT_DATE::text AS d`)).rows[0]!.d;
@@ -729,7 +775,7 @@ export async function desativarHorarioAPartirDe(tx: DbExecutor, ctx: Contexto, h
 /** Cancela a desativação enquanto a data não chegou. */
 export async function cancelarDesativacao(tx: DbExecutor, ctx: Contexto, horarioId: string) {
   // Mesmo protocolo dos demais escritores da agenda: advisory antes da linha (plano rev. 1.1, seção 6).
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   const h = await horarioProprio(tx, ctx.empresaId, horarioId);
   const hoje = (await tx.query<{ d: string }>(`SELECT CURRENT_DATE::text AS d`)).rows[0]!.d;
   if (!h.desativado_a_partir_de) recusar("SEM_DESATIVACAO", "Este horário não tem desativação marcada.");
@@ -758,7 +804,7 @@ export async function criarSalaoCombinado(tx: DbExecutor, ctx: Contexto, input: 
   const membros = membrosCanonicos(input.membros);
   if (membros.length < 2) recusar("DADOS_INVALIDOS", "Escolha pelo menos dois salões diferentes para combinar.");
   if (!(await combinadosInstalados(tx))) recusar("SALOES_COMBINADOS_INDISPONIVEIS", "Salões combinados ainda não estão disponíveis.", 503);
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   await escopoValido(tx, ctx.empresaId, input.estabelecimentoId);
   await travarSaloesDoEscopo(tx, ctx.empresaId, input.estabelecimentoId);
   const validos = await tx.query<{ id: string; nome: string }>(
@@ -798,7 +844,7 @@ export async function criarSalaoCombinado(tx: DbExecutor, ctx: Contexto, input: 
  */
 export async function desativarSalao(tx: DbExecutor, ctx: Contexto, salaoId: string) {
   if (!(await combinadosInstalados(tx))) recusar("SALOES_COMBINADOS_INDISPONIVEIS", "Esta ação ainda não está disponível.", 503);
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [ctx.empresaId]);
+  await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "EXCLUSIVA", linha: "JA_TRAVADA" });
   const salao = (await tx.query<{ id: string; nome: string; estabelecimento_id: string | null; ativo: boolean; combinado: boolean }>(
     `SELECT id::text AS id, nome, estabelecimento_id::text AS estabelecimento_id, ativo, combinado FROM agenda_saloes
       WHERE id = $1::uuid AND empresa_id = $2::uuid`,
@@ -821,6 +867,10 @@ export async function desativarSalao(tx: DbExecutor, ctx: Contexto, salaoId: str
 
 /** Salões permitidos do pacote (vazio = todos). */
 export async function definirSaloesPacote(tx: DbExecutor, empresaId: string, pacoteId: string, saloes: string[] | undefined) {
+  // Liberar agenda com mais de um salão (rev. 3), desvio declarado: os escritores de pacote (tela, IA, importação, adicionais,
+  // categorias) tomam a configuração AQUI, na primeira leitura da regra. Não seguram trava da agenda (data, salão, fechamento) e
+  // os exclusivos não tocam pacotes; a espera atrás de uma exclusiva enfileirada é aresta suave, que o PostgreSQL reordena.
+  await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
   const instalada = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.pacote_saloes') IS NOT NULL AS ok`);
   if (!instalada.rows[0]?.ok) return;
   if (saloes === undefined) {

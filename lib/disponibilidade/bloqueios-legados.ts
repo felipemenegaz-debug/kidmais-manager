@@ -3,6 +3,7 @@ import type { EscopoAgenda } from './escopo.ts';
 import { AvailabilityServiceError } from './services/errors.ts';
 import { reautenticacaoPerfilRecente } from '../perfil/reautenticacao.ts';
 import { temConcessaoDesenvolvedor } from '../desenvolvedor/autorizacao.ts';
+import { exigirTravaConfiguracao } from '../agenda/trava-configuracao.ts';
 
 /** Autoridade da plataforma, nunca inferida do papel da empresa. Compatível sem a 063. */
 export async function podeResolverBloqueioLegado(tx: DbExecutor, usuarioId: string) {
@@ -20,7 +21,8 @@ export async function resolverEDesativarBloqueioLegado(tx: DbExecutor, escopo: E
     throw new AvailabilityServiceError('REAUTENTICACAO', 'Entre novamente para confirmar sua senha antes de atribuir este bloqueio.', 403);
   if (!escopo.empresaId || !escopo.estabelecimentoId || motivo.trim().length < 5 || motivo.trim().length > 1000)
     throw new AvailabilityServiceError('RESOLUCAO_INVALIDA', 'Selecione uma unidade e informe o motivo da atribuição (5 a 1000 caracteres).', 400);
-  // Mesma ordem do reparo 062: habilitação da unidade antes da data e do bloqueio.
+  // Mesma ordem do reparo 062: habilitação da unidade antes da data e do bloqueio; a configuração já travada pela entrada (rev. 3).
+  await exigirTravaConfiguracao(tx, escopo.empresaId);
   await tx.query('SELECT kidmais062_travar_habilitacao($1::uuid)', [escopo.estabelecimentoId]);
   const unidade = (await tx.query<{ valida: boolean }>('SELECT kidmais062_unidade_agendavel($1::uuid,$2::uuid) AS valida', [escopo.empresaId, escopo.estabelecimentoId])).rows[0];
   if (!unidade?.valida) throw new AvailabilityServiceError('UNIDADE_INVALIDA', 'Unidade indisponível para agenda.', 409);
@@ -59,6 +61,7 @@ export async function liberarBloqueioLegadoPelaEmpresa(tx: DbExecutor, escopo: E
   if (!escopo.empresaId || justificativa.length < 5 || justificativa.length > 1000)
     throw new AvailabilityServiceError('RESOLUCAO_INVALIDA', 'Selecione a empresa e informe o motivo da liberação (5 a 1000 caracteres).', 400);
   // Mesma ordem do reparo 062 e da resolução pela plataforma: habilitação da unidade antes da data e do bloqueio.
+  await exigirTravaConfiguracao(tx, escopo.empresaId);
   if (escopo.estabelecimentoId) {
     await tx.query('SELECT kidmais062_travar_habilitacao($1::uuid)', [escopo.estabelecimentoId]);
     const unidade = (await tx.query<{ valida: boolean }>('SELECT kidmais062_unidade_agendavel($1::uuid,$2::uuid) AS valida', [escopo.empresaId, escopo.estabelecimentoId])).rows[0];

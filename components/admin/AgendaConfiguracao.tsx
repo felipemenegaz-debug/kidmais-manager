@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { AgendaEscopo, EscopoConfiguravel } from '@/lib/agenda/configuracao-unidade';
-import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_VOLTA_UM_SALAO } from '@/lib/agenda/saloes-liberacao';
+import { AVISO_IDA_SEM_VOLTA, AVISO_VOLTA_UM_SALAO } from '@/lib/agenda/saloes-liberacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import {
@@ -291,13 +291,16 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
 
         <section className={ws.card} aria-labelledby="agenda-capacidade">
           <h2 id="agenda-capacidade">2. Salões e limites</h2>
-          {/* Decisão de Felipe (25/10/2026): a escolha de "mais de um salão" só aparece para quem já está nela, até ser liberada. */}
-          {AGENDA_MAIS_DE_UM_SALAO_LIBERADA || config?.capacidadeTipo === 'POR_SALAO'
+          {/* Decisão de Felipe (25/10/2026): a escolha de "mais de um salão" só aparece para quem já está nela, até ser
+              liberada; D-LIB-1 (31/10/2026): a liberação vem do servidor, por ambiente, na leitura da agenda. */}
+          {agenda.maisDeUmSalaoLiberado || config?.capacidadeTipo === 'POR_SALAO'
             ? <div className={css.opcoes}>
               {/* Parecer do Astra (25/10/2026, P2): voltar de por salão para um salão fica bloqueado por ora (servidor recusa). */}
               <Opcao ativo={form.capacidadeTipo === 'POR_HORARIO'} titulo="Um salão" texto="Uma festa por horário" disabled={bloqueado || config?.capacidadeTipo === 'POR_SALAO'} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_HORARIO' })} />
               <Opcao ativo={form.capacidadeTipo === 'POR_SALAO'} titulo="Mais de um salão" texto="Uma festa por salão por vez" disabled={bloqueado} onClick={() => setForm({ ...form, capacidadeTipo: 'POR_SALAO' })} />
               {config?.capacidadeTipo === 'POR_SALAO' && <p className={css.fraco} data-volta-um-salao-bloqueada>{AVISO_VOLTA_UM_SALAO}</p>}
+              {/* D-LIB-2: aviso ANTES da ida (escolhida no formulário, ainda não salva). */}
+              {config?.capacidadeTipo !== 'POR_SALAO' && form.capacidadeTipo === 'POR_SALAO' && <p className={css.fraco} role="status" data-aviso-ida-sem-volta>{AVISO_IDA_SEM_VOLTA}</p>}
             </div>
             : <p className={`${css.fraco} ${css.umSalao}`} data-agenda-um-salao>Agenda com um salão: cada horário recebe uma festa por vez.</p>}
           <div className={css.campos}>

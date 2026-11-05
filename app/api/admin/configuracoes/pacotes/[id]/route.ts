@@ -7,6 +7,7 @@ import { alterarSituacaoPacoteAdmin, criarRevisaoPacoteAdmin, editarPacoteNaoUti
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
       exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar pacotes.");
+      // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+      await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,

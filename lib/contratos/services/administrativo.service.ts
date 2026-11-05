@@ -27,6 +27,7 @@ import { buscarClientePorId, buscarAniversariantePorId } from '../../clientes/re
 import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { diferencasContratuais } from './alteracoes';
 import { exigirVersaoEditavel, fonteDaRevisaoInicial, prepararEdicaoInicial, type RevisaoInicial } from './revisao-inicial';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 const uuid=z.string().uuid().transform(value=>value.toLowerCase());
 export const acaoContratoSchema = z.discriminatedUnion('acao', [
     edicaoFestaSchema,
@@ -180,6 +181,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         // do fechamento, independente do payload; tentativa A→B é recusada sem travar nada de B.
         const s = await consultarSessao(token, tx, true);
         const { contrato: c, empresaAutorizada, tenant } = await contratoDoTenant(tx, s, versaoId, empresaSolicitada);
+        // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+        await travarConfiguracaoAgenda(tx, empresaAutorizada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
         // Primeiro lock já no escopo do tenant: revalida a empresa do fechamento atomicamente.
         const fechamentoTravado = (await tx.query('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE', [c.fechamento_id, empresaAutorizada])).rows[0];
         if (!fechamentoTravado) conflito('Versão não encontrada.');

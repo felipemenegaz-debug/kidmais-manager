@@ -21,6 +21,7 @@ import { exigirModeloCompativelNoFechamento } from './modelo-pj';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import type { ContratoVersaoRecord } from '../../contratos/repositories';
+import { exigirTravaConfiguracao } from '../../agenda/trava-configuracao.ts';
 type Contexto = {
     usuarioId: string | null;
     validacaoIdentidadeId?: string;
@@ -32,7 +33,7 @@ type Contexto = {
 };
 function recusar(message: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', message, 409); }
 async function auditar(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, acao: string, antes: unknown, depois: unknown) { await registrarAuditoria({ atorTipo: c.usuarioId ? 'USUARIO' : c.validacaoIdentidadeId ? 'CLIENTE' : 'SISTEMA', usuarioId: c.usuarioId, clienteId: r.operacao.clienteId, entidadeTipo: 'FECHAMENTO_REVISAO', entidadeId: r.id, origem: 'FECHAMENTO_ADMIN', acao, requestId: c.requestId ?? null, ip: c.ip ?? null, userAgent: c.userAgent ?? null, dadosAntes: antes === null ? null : { estado: antes }, dadosDepois: { resultado: depois, validacaoIdentidadeId: c.validacaoIdentidadeId ?? null } }, tx); }
-export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
+export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { await exigirTravaConfiguracao(tx); const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
 /**
  * Horário histórico preservado: contrato integrado da importação (origem IMPORTACAO_HISTORICA) cuja revisão mantém
  * EXATAMENTE o destino da reserva vigente — mesma data, início, fim (logo, mesma duração) e turno. Empresa e unidade
@@ -74,7 +75,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
         && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id, op.configuracaoAgendaId);
     // Parecer do Astra (P1): com capacidade por salão, o destino precisa de salão elegível livre (horário × pacote ×
     // salão ativo); o salão da festa só fica se servir no destino.
-    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id) : null;
+    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id, 'PREPARACAO_REVISAO', 'EQUIPE') : null;
     const livre = (candidatoOficial || historicoPreservado) && !(salaoDestino?.exigido && !salaoDestino.salao);
     const revisao = salaoDestino?.gravou ? (await buscarRevisaoDaVersao(r.contrato_versao_id, tx))! : r;
     if (!livre) {

@@ -1,5 +1,7 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { combinadosHabilitadosOuRecusa, estadoCombinados } from "./estado-combinados.ts";
+import { escreverSalao, type MarcaSalao, type OrigemSalao } from "./escrever-salao.ts";
+import { exigirTravaConfiguracao } from "./trava-configuracao.ts";
 
 /**
  * 094 (decisão de Felipe em 22/10/2026): com capacidade por salão, o sistema escolhe o salão da festa — um salão
@@ -236,6 +238,7 @@ export type DestinoProposto = { data: string; inicio: string; fim: string; confi
 export async function escolherSalaoParaEmissao(
   tx: DbExecutor, fechamentoId: string, documentoAtual: string | null = null, proposta?: DestinoProposto,
 ): Promise<SalaoDaEmissao> {
+  await exigirTravaConfiguracao(tx);
   if (!(await instalada(tx))) return { porSalao: false };
   const f = (await tx.query<{
     salao_id: string | null; por_salao: boolean; data: string; inicio: string; fim: string; cfg: string; pacote: string;
@@ -283,9 +286,19 @@ export async function combinadosInstalados(tx: DbExecutor) {
 const POR_SALAO =`EXISTS (SELECT 1 FROM agenda_escopo_config c WHERE c.empresa_id = f.empresa_id
                      AND c.estabelecimento_id IS NOT DISTINCT FROM f.estabelecimento_id AND c.capacidade_tipo = 'POR_SALAO')`;
 
-export async function escolherSalaoDaFesta(tx: DbExecutor, fechamentoId: string): Promise<string | null> {
-  return (await escolherSalao(tx, fechamentoId)).salao;
-}
+/**
+ * Pedido de salão da festa (plano "liberar mais de um salão", D-LIB-4): o caminho e a origem são obrigatórios e o
+ * modo vem do documento de referência, lido por quem chama (referenciaParaCaminho):
+ * - exigido string: o salão fixado no documento (B1, estrito);
+ * - exigido null: o documento não fixa salão. Não escolhe nem grava; a festa fica como está (nula = curinga, ocupa
+ *   todos os salões) e a validação do banco decide. Nunca vira conflito de salão (exigido:false na resposta);
+ * - automatico: só a confirmação de pagamento SEM contrato (B2); o próprio seletor confere que não há contrato.
+ */
+export type PedidoSalao = MarcaSalao & (
+  | { exigido: string; capacidade?: boolean }
+  | { exigido: null }
+  | { caminho: "CONFIRMACAO_PAGAMENTO"; automatico: true }
+);
 
 /**
  * Salão da própria festa (confirmação, formalização, importação). Grava a escolha quando muda.
@@ -294,7 +307,8 @@ export async function escolherSalaoDaFesta(tx: DbExecutor, fechamentoId: string)
  * capacidade: false = não reavalia convidados (salão da base ao assinar uma revisão, que leva a festa ao destino).
  * Nunca há substituto.
  */
-export async function escolherSalao(tx: DbExecutor, fechamentoId: string, exigido?: string, opcoes: { capacidade?: boolean } = {}): Promise<EscolhaSalao> {
+export async function escolherSalao(tx: DbExecutor, fechamentoId: string, pedido: PedidoSalao): Promise<EscolhaSalao> {
+  await exigirTravaConfiguracao(tx);
   if (!(await instalada(tx))) return { exigido: false, salao: null };
   const festa = await tx.query<{
     salao_id: string | null; por_salao: boolean; data: string; inicio: string; fim: string; cfg: string; pacote: string;
@@ -308,21 +322,33 @@ export async function escolherSalao(tx: DbExecutor, fechamentoId: string, exigid
   );
   const f = festa.rows[0];
   if (!f || !f.por_salao) return { exigido: false, salao: f?.salao_id ?? null };
-  if (exigido) {
+  if ("exigido" in pedido && pedido.exigido === null) return { exigido: false, salao: f.salao_id };
+  if ("exigido" in pedido) {
+    const exigido = pedido.exigido;
+    const opcoes = { capacidade: pedido.capacidade };
     if (f.salao_id && f.salao_id !== exigido) return { exigido: true, salao: null };
     const serve = (await saloesQueServem(tx, {
       fechamentoId, data: f.data, inicio: f.inicio, fim: f.fim, configuracaoId: f.cfg, pacoteId: f.pacote,
       empresaId: f.empresa, estabelecimentoId: f.unidade, convidados: opcoes.capacidade === false ? null : f.convidados,
     }, exigido))[0];
     if (!serve) return { exigido: true, salao: null };
-    if (f.salao_id !== exigido) await tx.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamentoId, exigido]);
+    if (f.salao_id !== exigido) {
+      await escreverSalao(tx, { escritor: "B1", caminho: pedido.caminho, origem: pedido.origem },
+        `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamentoId, exigido]);
+    }
     return { exigido: true, salao: exigido };
   }
+  // B2: só a confirmação de pagamento de festa SEM contrato (não há documento a contrariar; a emissão seguinte fixa o salão).
+  const contrato = (await tx.query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM contratos WHERE fechamento_id = $1::uuid) AS ok`, [fechamentoId])).rows[0]?.ok === true;
+  if (contrato) throw new Error("escolherSalao: escolha automática com contrato existente (só sem contrato).");
   const salao = await salaoElegivelLivre(tx, {
     fechamentoId, data: f.data, inicio: f.inicio, fim: f.fim, configuracaoId: f.cfg, pacoteId: f.pacote,
     empresaId: f.empresa, estabelecimentoId: f.unidade, preferido: f.salao_id, convidados: f.convidados,
   });
-  if (salao && salao !== f.salao_id) await tx.query(`UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamentoId, salao]);
+  if (salao && salao !== f.salao_id) {
+    await escreverSalao(tx, { escritor: "B2", caminho: pedido.caminho, origem: pedido.origem },
+      `UPDATE fechamentos SET salao_id = $2::uuid WHERE id = $1::uuid`, [fechamentoId, salao]);
+  }
   return { exigido: true, salao };
 }
 
@@ -331,7 +357,8 @@ export async function escolherSalao(tx: DbExecutor, fechamentoId: string, exigid
  * definido (destino ou, sem ele, o atual da festa) se ele servir no destino. Grava em fechamento_revisoes.salao_id
  * (copiado para a festa ao aplicar).
  */
-export async function escolherSalaoDestinoRevisao(tx: DbExecutor, revisaoId: string): Promise<EscolhaSalao> {
+export async function escolherSalaoDestinoRevisao(tx: DbExecutor, revisaoId: string, caminho: "PREPARACAO_REVISAO", origem: OrigemSalao): Promise<EscolhaSalao> {
+  await exigirTravaConfiguracao(tx);
   if (!(await instalada(tx))) return { exigido: false, salao: null };
   const destino = await tx.query<{
     fechamento_id: string; salao_atual: string | null; salao_destino: string | null; estado: string; por_salao: boolean;
@@ -362,7 +389,7 @@ export async function escolherSalaoDestinoRevisao(tx: DbExecutor, revisaoId: str
   if (d.estado !== 'EM_ELABORACAO') return { exigido: true, salao: mantido };
   const salao = mantido ?? (await saloesQueServem(tx, alvo, null))[0]?.id ?? null;
   if (salao !== d.salao_destino) {
-    await tx.query(`UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid`, [revisaoId, salao]);
+    await escreverSalao(tx, { escritor: "B4", caminho, origem }, `UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid`, [revisaoId, salao]);
     await recalcularHashRevisao(tx, revisaoId);
     return { exigido: true, salao, gravou: true };
   }
@@ -391,8 +418,10 @@ export async function recalcularHashRevisao(tx: DbExecutor, revisaoId: string) {
  * S-E (R-E3): escolha EXPLÍCITA da equipe para o destino de uma revisão aberta (quem chama já conferiu que o salão serve).
  * Mesmo módulo e mesma regra do seletor: grava e, em seguida, recalcula o hash (R41-1). Só EM_ELABORACAO.
  */
-export async function definirSalaoDestinoRevisao(tx: DbExecutor, revisaoId: string, salaoId: string) {
-  const r = await tx.query(`UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid AND estado = 'EM_ELABORACAO'`, [revisaoId, salaoId]);
+export async function definirSalaoDestinoRevisao(tx: DbExecutor, revisaoId: string, salaoId: string, caminho: "PREPARACAO_REVISAO") {
+  await exigirTravaConfiguracao(tx);
+  const r = await escreverSalao(tx, { escritor: "B5", caminho, origem: "EQUIPE" },
+    `UPDATE fechamento_revisoes SET salao_id = $2::uuid WHERE id = $1::uuid AND estado = 'EM_ELABORACAO'`, [revisaoId, salaoId]);
   if (r.rowCount !== 1) throw Object.assign(new Error('Revisão não está em elaboração.'), { code: '23514' });
   await recalcularHashRevisao(tx, revisaoId);
 }
@@ -423,9 +452,10 @@ export async function salaoDoDestinoRevisao(tx: DbExecutor, revisaoId: string): 
 }
 
 /** Ao aplicar a revisão, a festa passa ao salão escolhido para o destino (sem a 094, nada a copiar). */
-export async function aplicarSalaoDaRevisao(tx: DbExecutor, revisaoId: string) {
+export async function aplicarSalaoDaRevisao(tx: DbExecutor, revisaoId: string, caminho: "APLICACAO_REVISAO_OPERACIONAL", origem: OrigemSalao) {
+  await exigirTravaConfiguracao(tx);
   if (!(await instalada(tx))) return;
-  await tx.query(
+  await escreverSalao(tx, { escritor: "B3", caminho, origem },
     `UPDATE fechamentos f SET salao_id = r.salao_id
        FROM fechamento_revisoes r
       WHERE r.id = $1::uuid AND f.id = r.fechamento_id AND r.salao_id IS NOT NULL`,
@@ -434,14 +464,15 @@ export async function aplicarSalaoDaRevisao(tx: DbExecutor, revisaoId: string) {
 }
 
 /**
- * Na formalização e na importação: o salão da festa do contrato; sem salão elegível livre, recusa.
- * S-E: `exigido` = salão fixado no documento (salaoExigidoDaFesta); indisponível ou festa em outro salão = recusa.
+ * Na formalização e na importação: o salão da festa do contrato. `exigido` = salão fixado no documento (B1);
+ * indisponível ou festa em outro salão = recusa. `exigido: null` (documento sem salão, D-LIB-4): não escolhe, a festa
+ * fica como está (nula = curinga) e a validação do destino decide; sem escolha automática.
  */
-export async function escolherSalaoDoContrato(tx: DbExecutor, contratoId: string, exigido?: string, opcoes: { capacidade?: boolean } = {}) {
+export async function escolherSalaoDoContrato(tx: DbExecutor, contratoId: string, pedido: MarcaSalao & ({ exigido: string; capacidade?: boolean } | { exigido: null })) {
   const r = await tx.query<{ fechamento_id: string }>(`SELECT fechamento_id::text AS fechamento_id FROM contratos WHERE id = $1::uuid`, [contratoId]);
   if (!r.rows[0]) return;
-  const escolha = await escolherSalao(tx, r.rows[0].fechamento_id, exigido, opcoes);
-  if (exigido && !escolha.salao) {
+  const escolha = await escolherSalao(tx, r.rows[0].fechamento_id, pedido);
+  if (pedido.exigido && !escolha.salao) {
     throw Object.assign(new Error('O salão deste contrato não está mais disponível; o buffet vai enviar uma nova versão.'), { code: '23514', salaoExigido: true });
   }
   if (escolha.exigido && !escolha.salao) {

@@ -48,6 +48,7 @@ import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
 } from "./models";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export type DadosClienteFechamentoPublico = {
   /** PJ: razão social. */
@@ -755,6 +756,8 @@ export async function criarFechamentoPublicoComIdentidade(
         409,
       );
     }
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    await travarConfiguracaoAgenda(tx, empresaDoPacote, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
 
     // Entrega B: PJ (cadastro existente ou empresa nova) só com a 112.
     if (ehPj(input.cliente) && !(await pessoaJuridicaDisponivel(tx))) {

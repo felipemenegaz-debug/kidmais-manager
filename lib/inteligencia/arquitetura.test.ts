@@ -118,6 +118,9 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1.1 (PR 5.5): posição financeira OFICIAL do contrato (somente leitura), após a prova de posse no tenant.
   "lib/pagamentos/repositories/alteracao-financeira.repository": ["lerPosicaoFinanceira"],
   "lib/pagamentos/services/alteracao-financeira-core": ["AlteracaoFinanceiraError"],
+  // Liberar agenda com mais de um salão, rev. 3: a trava passou ao helper travarConfiguracaoAgenda (a porta de pacotes
+  // trava a configuração na transação do tenant; a IA continua sem SQL).
+  "lib/agenda/trava-configuracao": ["travarConfiguracaoAgenda"], // @pr:ACTIONS
   "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
@@ -159,7 +162,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
-  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "travarConfiguracaoAgenda(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em", "travarDocumento,", "registrarAbertura,", "importacaoPorAbertura,", "listarParaRevisao,"], // @pr:IMPORT
 };
@@ -275,7 +278,8 @@ test("rotas da IA: composition root sem SQL, só POST, com guard e Tenant Contex
   }
   // Editar pacote nunca passa por salvarPacoteComercial (regrava disponibilidade/buffet): só criar.
   const acoes = join(PASTA_ROTAS, "operacoes", "composicao.ts");
-  if (existsSync(acoes)) assert.match(readFileSync(acoes, "utf8"), /criar: \(tx, dados, ctx\) => salvarPacoteComercial\(tx, \{ \.\.\.dados, disponibilidade: \[\], categorias: \[\], itens: \[\] \}, ctx\)/);
+  // Liberar agenda com mais de um salão, rev. 3: a trava passou ao helper travarConfiguracaoAgenda (a porta trava antes de criar).
+  if (existsSync(acoes)) assert.match(readFileSync(acoes, "utf8"), /criar: async \(tx, dados, ctx\) => \{ await configuracaoDoPacote\(tx, ctx\.empresaId\); return salvarPacoteComercial\(tx, \{ \.\.\.dados, disponibilidade: \[\], categorias: \[\], itens: \[\] \}, ctx\); \}/);
 });
 
 test("persistência da IA: SQL só das tabelas ia_*; da camada de IA importa apenas tipos", () => {

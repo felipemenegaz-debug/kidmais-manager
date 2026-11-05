@@ -74,6 +74,11 @@ function ambiente() {
         if (sql === "SELECT id FROM empresas WHERE codigo = 'kidmais'") return { rows: state.dona ? [{ id: state.dona }] : [] };
         if (sql === "SELECT id FROM empresas WHERE status <> 'DESATIVADA' LIMIT 2") return { rows: [{ id: empresaA }, { id: empresaB }] };
         if (sql === 'SELECT id FROM empresas WHERE id = $1::uuid') return { rows: [] };
+        // Rev. 3: entrada trava a configuração da agenda da empresa comprovada (compartilhada; a linha já vem do tenant).
+        if (sql.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'") || sql.startsWith("SELECT set_config('kidmais.agenda_config_empresa'")) {
+            assert.equal(params[0], state.tenant); return { rows: [] };
+        }
+        if (sql.includes('pg_locks')) return { rows: [{ ok: true, empresa: params[0] ?? state.tenant }] };
         if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
             // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
             for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));

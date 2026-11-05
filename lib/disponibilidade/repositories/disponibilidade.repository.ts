@@ -12,6 +12,7 @@ import type {
   OcupacaoConfirmadaRecord,
   RegraCapacidadeAgenda,
 } from "./models.ts";
+import { exigirTravaConfiguracao } from "../../agenda/trava-configuracao.ts";
 
 // Escopo (062): toda função abaixo aceita um EscopoAgenda opcional. Sem a 062 instalada as consultas são as
 // anteriores (agenda global) e o escopo é ignorado; com a 062, a comparação passa a ser por recurso
@@ -523,6 +524,8 @@ export async function adquirirLockConfirmacaoAgenda(
   data: string,
   customDb: DbExecutor,
 ): Promise<void> {
+  // Liberar agenda com mais de um salão (rev. 3): a configuração da empresa já está segura nesta transação.
+  await exigirTravaConfiguracao(executor(customDb));
   await executor(customDb).query(
     `SELECT pg_advisory_xact_lock(
        hashtextextended('kidmais:agenda:' || $1::text, 0)

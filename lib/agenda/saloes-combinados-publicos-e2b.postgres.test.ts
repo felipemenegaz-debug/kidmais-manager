@@ -17,10 +17,14 @@ import { combinadosPublicos } from "./combinados-publicos.ts";
 import { decidirPreferencia } from "./preferencia-salao.ts";
 import { desativarSalao } from "./configuracao-unidade.ts";
 import { escolherSalaoParaEmissao } from "./salao-festa.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 import { adquirirLockConfirmacaoAgenda } from "../disponibilidade/repositories/disponibilidade.repository.ts";
 import { carregarComBanco, executor, porTransacao } from "../marketing/harness-postgres.ts";
 import * as cotacaoPublicaReal from "../comercial/cotacao-publica.ts";
 import * as escopoReal from "../disponibilidade/escopo.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/saloes-combinados-publicos-e2b.postgres.test.ts";
 
 /**
  * E2b (plano técnico rev. 2.1, D-E2b-1..5) no PostgreSQL DESCARTÁVEL, modelo 107 (a 108 é aplicada aqui):
@@ -56,6 +60,9 @@ async function emTransacao<T>(fn: () => Promise<T>, db: Client = a): Promise<T> 
   await db.query("BEGIN");
   try { const r = await fn(); await db.query("COMMIT"); return r; } catch (e) { await db.query("ROLLBACK"); throw e; }
 }
+/** Configuração da empresa (compartilhada) na transação aberta de `db`, como a entrada pública/worker. */
+const travarConfiguracao = (empresaId: string, db: Client = a) =>
+  travarConfiguracaoAgenda(executor(db), empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
 async function imagem() {
   const cor = { r: randomBytes(1)[0]!, g: randomBytes(1)[0]!, b: randomBytes(1)[0]! };
   return normalizarWebp(await sharp({ create: { width: 40, height: 30, channels: 3, background: cor } }).png().toBuffer());
@@ -95,7 +102,7 @@ async function buffet(codigo: string) {
 }
 /** Festa confirmada no salão (ocupação), na transação já aberta de `db`. */
 async function ocuparNaTransacao(db: Client, c: Cenario, data: string, cfg: string, salao: string) {
-  const f = await id(db, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  const f = await idSalaoFixture(db, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 40, 40, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $5::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`,
@@ -373,7 +380,9 @@ test("E2b: POST real — aceita o combinado; recusa com motivo; E2a sem marcador
     assert.equal(await contagem(), antes + 1, "só a ocupação de teste entrou");
     // A decisão direta, com a ocupação: recusa com motivo, nunca grava.
     const destino = { data: d3, inicio: "15:00", fim: "19:00", configuracaoId: tarde, pacoteId: c.pacote, empresaId: c.empresa, estabelecimentoId: null, convidados: 100 };
-    assert.deepEqual(await emTransacao(() => decidirPreferencia(tx, destino, AB, LIGADO)), { resultado: "RECUSA_COM_MOTIVO", motivo: "OCUPADO_OU_LIMITE" });
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    assert.deepEqual(await emTransacao(async () => { await travarConfiguracao(destino.empresaId); return decidirPreferencia(tx, destino, AB, LIGADO); }),
+      { resultado: "RECUSA_COM_MOTIVO", motivo: "OCUPADO_OU_LIMITE" });
     // Salão sem conteúdo próprio pronto (serviria pelo horário e capacidade): recusa genérica, nada gravado.
     const naoPronto = await simples(c, "Sem conteúdo", 120, 4, false);
     const semConteudo = await enviar(dia(196), 100, naoPronto);
@@ -463,7 +472,8 @@ test("E2b (P2-C2): matriz concorrente com os serviços reais — chave e modo ad
       const [f2] = await preferencias(d2);
       assert.deepEqual([f2?.p, f2?.s], [AB, null], "linha 2: preferência gravada, nada reservado");
       assert.equal(await ativo(B), false);
-      assert.deepEqual(await emTransacao(() => escolherSalaoParaEmissao(tx, f2!.id)), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" });
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      assert.deepEqual(await emTransacao(async () => { await travarConfiguracao(c.empresa); return escolherSalaoParaEmissao(tx, f2!.id); }), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" });
       await reativar(B);
 
       // Linha 3 — confirmação primeiro × reserva de A: a reserva toma a trava da DATA (adquirirLockConfirmacaoAgenda, a
@@ -474,6 +484,9 @@ test("E2b (P2-C2): matriz concorrente com os serviços reais — chave e modo ad
       const confirmacao3 = emFundo(enviar(d3, 100, AB));
       await pausa3.chegada;
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      // A compartilhada não conflita com a da confirmação parada: a espera continua sendo a da DATA.
+      await travarConfiguracao(c.empresa, b);
       const reserva3 = emFundo((async () => { await adquirirLockConfirmacaoAgenda(d3, executor(b)); await ocuparNaTransacao(b, c, d3, tarde, A); })());
       await esperaAdvisory(obs, pb, pa, `kidmais:agenda:${d3}`, "ExclusiveLock", "ExclusiveLock");
       pausa3.liberar();
@@ -482,12 +495,15 @@ test("E2b (P2-C2): matriz concorrente com os serviços reais — chave e modo ad
       await b.query("COMMIT");
       const [f3] = await preferencias(d3);
       assert.deepEqual([f3?.p, f3?.s], [AB, null]);
-      assert.deepEqual(await emTransacao(() => escolherSalaoParaEmissao(tx, f3!.id)), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" });
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      assert.deepEqual(await emTransacao(async () => { await travarConfiguracao(c.empresa); return escolherSalaoParaEmissao(tx, f3!.id); }), { porSalao: true, salao: null, motivo: "PREFERIDO_NAO_SERVE" });
 
       // Linha 3b — reserva de A primeiro (trava da data + ocupação ainda sem COMMIT): a confirmação espera na DATA (a
       // compartilhada da configuração não conflita com ela), relê e recusa com OCUPADO_OU_LIMITE, sem gravar.
       const d4 = dia(203);
       await b.query("BEGIN");
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracao(c.empresa, b);
       await adquirirLockConfirmacaoAgenda(d4, executor(b));
       await ocuparNaTransacao(b, c, d4, tarde, A);
       const confirmacao4 = emFundo(enviar(d4, 100, AB));
@@ -527,10 +543,11 @@ test("E2b (revisão de código): PARCIAL com as flags, motivos restantes, escopo
   const destino = (extra: Partial<{ convidados: number; estabelecimentoId: string | null; empresaId: string; fim: string }> = {}) => ({
     data: d, inicio: "15:00", fim: "19:00", configuracaoId: tarde, pacoteId: c.pacote, empresaId: c.empresa, estabelecimentoId: null, convidados: 100, ...extra,
   });
-  const decidir = (dst = destino(), salao = AB, env = LIGADO) => emTransacao(() => decidirPreferencia(tx, dst, salao, env));
+  // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+  const decidir = (dst = destino(), salao = AB, env = LIGADO) => emTransacao(async () => { await travarConfiguracao(dst.empresaId); return decidirPreferencia(tx, dst, salao, env); });
   const dentro = async (sql: string, params: unknown[], prova: () => Promise<void>) => {
     await a.query("BEGIN");
-    try { await a.query(sql, params); await prova(); } finally { await a.query("ROLLBACK"); }
+    try { await travarConfiguracao(c.empresa); await a.query(sql, params); await prova(); } finally { await a.query("ROLLBACK"); }
   };
   assert.deepEqual(await decidir(), { resultado: "ACEITA" }, "controle");
 

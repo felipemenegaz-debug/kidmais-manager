@@ -13,6 +13,10 @@ import {
 import {
   assinaturaEstruturaFesta016, assinaturaEstruturaFestaAtual, assinaturaEstruturaFestaCom104, estruturaFesta016Sql, tabelasFesta016,
 } from "../festas/estrutura-016.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/hash-revisao-104.postgres.test.ts";
 
 /**
  * S-E, migration 104 (plano S-E/S-D rev. 4.1, R4-E1 e R41-1..R41-5), no PostgreSQL DESCARTÁVEL (modelo 103, sem a 104):
@@ -157,7 +161,7 @@ test("104: revisões v1 reais com hash idêntico; assinatura da Festa; recusas; 
     const P = await contratada(cs, D1);
     // Legado V1: a escolha automática da 094 na integração ficou no Salão 1 (o primeiro livre).
     assert.equal((await a.query(`SELECT salao_id::text s FROM fechamentos WHERE id = $1::uuid`, [P.festa])).rows[0].s, S1, "importação no Salão 1");
-    const X = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const X = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, f.configuracao_agenda_id, f.empresa_id, f.pacote_id, f.tabela_preco_id, f.preco_pacote_id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $4::uuid FROM fechamentos f WHERE f.id = $5::uuid RETURNING fechamentos.id`, [D2, HORA.inicio, HORA.fim, S1, P.festa]);
@@ -333,6 +337,8 @@ test("104: edição comercial + troca de salão juntas, cópia da revisão conge
   const ctx = { usuarioId: null, requestId: randomUUID() };
   await a.query("BEGIN");
   try {
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    await travarConfiguracaoAgenda(executor(a), r.cs.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     await a.query(`UPDATE agenda_saloes SET ativo = false WHERE id = ANY($1::uuid[])`, [[r.S1, r.S2]]);
     const atual = (await rr.buscarRevisaoDaVersao(copia.v3, executor(a)))!;
     const res = await rs.revalidarAgendaRevisao(executor(a), atual, ctx, { naoFalharPorConflito: true });
@@ -345,6 +351,8 @@ test("104: edição comercial + troca de salão juntas, cópia da revisão conge
   } finally { await a.query("ROLLBACK"); }
   await a.query("BEGIN");
   try {
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    await travarConfiguracaoAgenda(executor(a), r.cs.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const atual = (await rr.buscarRevisaoDaVersao(copia.v3, executor(a)))!;
     const res = await rs.revalidarAgendaRevisao(executor(a), atual, ctx, { naoFalharPorConflito: true });
     assert.equal(res.livre, true);
