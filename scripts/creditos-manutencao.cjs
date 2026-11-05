@@ -18,7 +18,57 @@
  * com `--autorizacao "<registro>"` (sem ele, recusado). Staging também exige autorização (operacional, não técnica).
  * Não chama o Asaas (pagamentos ficam com o webhook e a reconciliação).
  */
-const { validarAlvo, opcoesConexao } = require('./assinatura-reconciliar.cjs');
+const { validarAlvo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO } = require('./assinatura-reconciliar.cjs');
+// Mesmas proteções já revisadas no job dos avisos (Astra, 03/11/2026): parâmetros de destino na URL e falha sem texto.
+const { recusarParametrosDeDestino, descreverFalha } = require('./assinatura-avisos.cjs');
+const { parse: parseConexaoDoDriver } = require('pg-connection-string');
+
+/**
+ * Lista FECHADA da exceção TLS `render-interno-criptografado` para a manutenção (04/11/2026, Felipe: "Cron novo + PR"), nas
+ * mesmas condições da reconciliação (Render, staging, sandbox, alvo literal de staging):
+ *   - cron da reconciliação de staging (já estava: o Shell dele roda a manutenção à mão);
+ *   - cron da manutenção de staging (`kidmais-creditos-manutencao-staging`, criado em aguardando em 04/11/2026).
+ * O web não entra. Production não usa esta exceção (TLS de production em opcoesConexao).
+ */
+const CRON_MANUTENCAO_STAGING = 'crn-dblpgn3m8hqs739r366g'; // kidmais-creditos-manutencao-staging, criado em aguardando em 04/11/2026
+const SERVICOS_TLS_MANUTENCAO = Object.freeze([...SERVICOS_TLS_RECONCILIACAO, CRON_MANUTENCAO_STAGING]);
+
+/**
+ * P2-1 (Astra, cron da manutenção r1, 04/11/2026): validarAlvo confere host/porta/banco da URL, mas o driver pg deixa a query
+ * string (host, port, hostaddr, dbname, user, options…) substituir o destino. Recusa qualquer parâmetro fora dos de TLS,
+ * confere o que o PARSER DO DRIVER lê na URL final contra o alvo validado e entrega ao Client só campos explícitos.
+ */
+function conexaoDaManutencao(alvo, env) {
+    recusarParametrosDeDestino(alvo.connectionString);
+    const { connectionString: limpa, ssl } = opcoesConexao(alvo, env, SERVICOS_TLS_MANUTENCAO);
+    let lido;
+    try { lido = parseConexaoDoDriver(limpa); } catch { throw new Error('URL do alvo ilegível.'); }
+    if ((lido.host ?? '').toLowerCase() !== alvo.host || Number(lido.port) !== alvo.port || lido.database !== alvo.database)
+        throw new Error('URL do alvo diverge do alvo validado (host, porta ou banco).');
+    if (!lido.user) throw new Error('URL do alvo sem usuário.');
+    return { host: alvo.host, port: alvo.port, database: alvo.database, user: lido.user, password: lido.password ?? undefined, ssl };
+}
+
+/** Mensagens próprias desta manutenção → código fechado (as da reconciliação/avisos já vêm de descreverFalha). */
+const MOTIVOS_MANUTENCAO = Object.freeze([
+    ['PRODUCAO_EXIGE_AUTORIZACAO', /^Produção: escrita só com --autorizacao /],
+    ['ENVIAR_EXIGE_APLICAR', /^--enviar-emails exige --aplicar.$/],
+    ['AUTORIZACAO_INVALIDA', /^--autorizacao exige --aplicar /],
+    ['BANCO_CONECTADO_DIVERGE', /^Alvo recusado: o banco conectado não é o confirmado.$/],
+]);
+
+/**
+ * P2-2 (Astra, cron da manutenção r1): a saída nunca leva o texto do erro (DNS revela host; autenticação, usuário). Só etapa,
+ * tipo e código de listas fechadas/formatos restritos, como no job dos avisos.
+ */
+function falhaSegura(error, etapa) {
+    const falha = descreverFalha(error, etapa);
+    if (falha.motivo === null && error instanceof Error) {
+        const achado = MOTIVOS_MANUTENCAO.find(([, padrao]) => padrao.test(error.message));
+        if (achado) falha.motivo = achado[0];
+    }
+    return falha;
+}
 
 function argumentos(argv) {
     let aplicar = false, enviar = false, autorizacao = null;
@@ -48,24 +98,34 @@ async function executar({ client, aplicar, manutencao, empresasComCarteira }) {
         catch (error) {
             await client.query('ROLLBACK').catch(() => undefined);
             relatorio.falhas += 1;
-            console.error('[creditos-manutencao] empresa adiada', error instanceof Error ? error.name : typeof error);
+            console.error('[creditos-manutencao] empresa adiada', JSON.stringify(falhaSegura(error, 'execucao')));
         }
     }
     return relatorio;
 }
 
+/** Etapa corrente, para o registro da falha (lista fechada ETAPAS do job dos avisos). */
+let etapa = 'configuracao';
+
 async function main() {
+    etapa = 'configuracao';
     const { aplicar, enviar, autorizacao } = argumentos(process.argv.slice(2));
     const alvo = validarAlvo(process.env);
     if (alvo.producao && aplicar && !autorizacao) throw new Error('Produção: escrita só com --autorizacao "<registro da autorização de Felipe>".');
+    etapa = 'conexao-parametros';
+    const parametros = conexaoDaManutencao(alvo, process.env);
+    etapa = 'modulos';
     const ledger = await import('../lib/creditos/ledger.ts');
     const man = await import('../lib/creditos/manutencao.ts');
     const { Client } = require('pg');
-    const client = new Client({ ...opcoesConexao(alvo, process.env), connectionTimeoutMillis: 10_000, application_name: 'kidmais-creditos-manutencao' });
+    const client = new Client({ ...parametros, connectionTimeoutMillis: 10_000, application_name: 'kidmais-creditos-manutencao' });
     client.on('error', () => undefined);
+    etapa = 'conexao';
     await client.connect();
     try {
+        etapa = 'identidade';
         if ((await client.query('SELECT current_database() AS db')).rows[0].db !== alvo.database) throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
+        etapa = 'execucao';
         await client.query("SET statement_timeout = '60s'");
         await client.query("SET lock_timeout = '5s'");
         if (!await ledger.creditosInstalados(client)) { console.log(JSON.stringify({ instalado: false })); return; }
@@ -106,7 +166,7 @@ async function main() {
                 catch (error) {
                     await client.query('ROLLBACK').catch(() => undefined);
                     relatorio.falhas += 1;
-                    console.error('[creditos-manutencao] pedido adiado', error instanceof Error ? error.name : typeof error);
+                    console.error('[creditos-manutencao] pedido adiado', JSON.stringify(falhaSegura(error, 'execucao')));
                 }
             }
         }
@@ -121,15 +181,15 @@ async function main() {
         if (!aplicar) console.log('Simulação: nada foi gravado. Use --aplicar (com autorização para o alvo) para gravar.');
     }
     finally {
-        await client.end();
+        await client.end().catch(() => undefined);
     }
 }
 
 if (require.main === module) {
     main().catch((error) => {
-        console.error(`Manutenção recusada/interrompida: ${error instanceof Error ? error.message : 'erro'}`);
+        console.error(JSON.stringify({ estado: 'MANUTENCAO_RECUSADA_OU_INTERROMPIDA', falha: falhaSegura(error, etapa) }));
         process.exitCode = 1;
     });
 }
 
-module.exports = { argumentos, executar };
+module.exports = { argumentos, executar, conexaoDaManutencao, falhaSegura, SERVICOS_TLS_MANUTENCAO, CRON_MANUTENCAO_STAGING };
