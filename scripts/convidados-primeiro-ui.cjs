@@ -163,7 +163,7 @@ async function principal() {
       await page.getByRole('button', { name: /15:00–19:00.*Escolher/ }).click();
       await page.screenshot({ path: path.join(relatorios, `${nome}-3-horario.png`), fullPage: true });
       await page.getByRole('button', { name: /Continuar para escolher o pacote/ }).click();
-      await page.waitForURL(/\/fechamento\?/);
+      await page.waitForURL((u) => u.pathname === `/b/${empresa.codigo}/orcamento` && u.search.length > 1);
       assert.equal(new URL(page.url()).searchParams.get('convidados'), '80');
       await page.getByText('80 convidados', { exact: true }).waitFor();
       assert.match(await etapa(page), /Etapa 1 de 7/, 'sem a etapa Convidados');

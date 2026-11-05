@@ -220,7 +220,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
         return;
       }
     }
-    router.push(`${paginaPublica("/fechamento", empresa)}?${params.toString()}`);
+    router.push(`${paginaPublica("/orcamento", empresa)}?${params.toString()}`);
   }
 
   return (
