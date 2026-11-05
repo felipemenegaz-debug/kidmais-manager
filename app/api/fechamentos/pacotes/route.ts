@@ -18,7 +18,7 @@ function precoMinimo(linhas: Array<{ porConvidado: boolean; min: number; valor: 
 }
 
 export async function GET(request: NextRequest) {
-  const limite = limitarPublico(request, "LEITURA");
+  const limite = await limitarPublico(request, "LEITURA");
   if (limite) return limite;
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
