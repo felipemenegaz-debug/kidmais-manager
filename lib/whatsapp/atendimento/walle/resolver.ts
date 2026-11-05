@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { trechoParaRegistro, type ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
@@ -26,6 +27,7 @@ export type PrecoCalculado =
   | { valor: number; convidadosFaturados: number; minimoAplicado: boolean; desconto: { percentual: number; titulo: string | null } | null; tabela: { id: string; codigo: string; nome: string } }
   | { erro: 'ACIMA_CAPACIDADE' | 'INDISPONIVEL' | 'SOB_CONSULTA' | 'FALHA'; maximo?: number | null };
 export interface FontesWallE {
+  contratoDaEmpresa?(): Promise<'OFICIAL_KIDMAIS' | null | { id: string; versao: number; clausulas: { titulo: string | null; texto: string }[] }>;
   prontasAutorizadas(finalidade: Finalidade): Promise<ProntaAutorizada[]>;
   pacotes(): Promise<PacoteResumo[]>;
   composicao(pacoteCodigo: string): Promise<Composicao | null>;
@@ -362,6 +364,24 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
   if (!e.ctx.avisoReserva) { dizer(e, RESERVA_SO_COM_CONTRATACAO); e.ctx = { ...e.ctx, avisoReserva: true }; }
   return disponivel;
 }
+function perguntaMinimoGeral(texto: string) {
+  const t = semAcento(texto).trim().replace(/[?!.]+$/, '').trim();
+  return /^(?:(?:qual (?:e )?(?:o |a )?|existe (?:um |uma )?|tem (?:um |uma )?)(?:(?:numero|quantidade) )?minim[oa] de (?:convidados|pessoas)(?: (?:que (?:voces |vcs )?atendem|(?:por|para a|pra) festa))?|(?:(?:voces |vcs )?(?:fazem|atendem|realizam) (?:festas? )?)?a partir de quant(?:os convidados|as pessoas)(?: (?:voces |vcs )?(?:atendem|fazem festas?))?)$/.test(t);
+}
+
+async function minimoGeral(e: Estado) {
+  const todos = await e.fontes.pacotes();
+  const conhecidos = todos.filter(p => p.convidadosMinimos !== null && p.convidadosMinimos > 0);
+  const menor = conhecidos.sort((a, b) => a.convidadosMinimos! - b.convidadosMinimos!)[0];
+  if (menor) {
+    dizer(e, `O pacote ${menor.nome} atende a partir de ${menor.convidadosMinimos} convidados.`, [{ tipo: 'PACOTE', codigo: menor.codigo, id: menor.id }]);
+  }
+  if (conhecidos.length !== todos.length || !menor) {
+    dizer(e, menor ? 'Vou pedir à equipe que confirme se temos opções para grupos menores.' : 'Vou pedir à equipe que confirme a partir de quantos convidados atendemos.');
+    passar(e, 'INFORMACAO_INDISPONIVEL');
+  }
+}
+
 async function pacotes(e: Estado) {
   const todos = await e.fontes.pacotes();
   if (!todos.length) { dizer(e, 'Ainda não tenho os pacotes cadastrados para explicar por aqui.'); passar(e, 'INFORMACAO_INDISPONIVEL'); return; }
@@ -373,7 +393,7 @@ async function pacotes(e: Estado) {
   const t = semAcento(e.texto);
   const doContexto = !doTexto.length && !!e.ctx.pacote && !!n && CABE.test(t) && !/\b(pacotes|algum|alguns|qual|quais|nenhum|todos|outro|outros)\b/.test(t) && t.trim().split(/\s+/).length <= 6;
   const citados = doContexto ? [e.ctx.pacote!] : e.entendimento.comparar && doTexto.length === 1 && e.ctx.pacote && !doTexto.includes(e.ctx.pacote) ? [e.ctx.pacote, ...doTexto] : doTexto;
-  const escolhidos = (citados.length ? citados.map((c) => todos.find((p) => p.codigo === c)).filter((p): p is PacoteResumo => !!p) : todos).slice(0, 4);
+  const escolhidos = citados.length ? citados.map((c) => todos.find((p) => p.codigo === c)).filter((p): p is PacoteResumo => !!p) : todos;
   // "O Premium cabe 150 pessoas?": resposta direta pela faixa cadastrada.
   const unico = escolhidos.length === 1 ? escolhidos[0] : null;
   if (n && unico?.convidadosMaximos && CABE.test(semAcento(e.texto))) {
@@ -418,7 +438,7 @@ async function pacotes(e: Estado) {
     const comp = await e.fontes.composicao(p.codigo);
     composicoes.set(p.codigo, comp);
     const partes = [
-      p.convidadosMaximos ? (p.convidadosMinimos ? `de ${p.convidadosMinimos} a ${p.convidadosMaximos} convidados` : `até ${p.convidadosMaximos} convidados`) : null,
+      p.convidadosMaximos ? (p.convidadosMinimos ? `de ${p.convidadosMinimos} a ${p.convidadosMaximos} convidados` : `até ${p.convidadosMaximos} convidados`) : p.convidadosMinimos ? `a partir de ${p.convidadosMinimos} convidados` : 'quantidade de convidados a confirmar',
       p.duracaoMinutos ? `${p.duracaoMinutos % 60 === 0 ? `${p.duracaoMinutos / 60} horas` : `${p.duracaoMinutos} minutos`} de festa` : null,
       comp?.categorias.length ? `buffet com ${lista(comp.categorias.map((c) => c.nome.toLowerCase()))}` : null,
       comp?.inclusos.length ? `inclui ${lista(comp.inclusos.slice(0, 5).map((i) => i.nome))}` : null,
@@ -503,13 +523,23 @@ async function itensDoBuffet(e: Estado, itens: string[]) {
   for (const item of itens) {
     const achados = alvo.map((pacote) => ({ pacote, categoria: comps.get(pacote)?.categorias.find((c) => c.itens.some((i) => mesmo(i, item))) }))
       .filter((x): x is { pacote: string; categoria: Composicao['categorias'][number] } => !!x.categoria);
-    if (achados.length) linhas.push(`${item}: sim, faz parte do buffet ${achados.length === alvo.length && alvo.length > 2 ? 'de todos os pacotes' : nomes(achados.map((x) => x.pacote))} (${achados[0].categoria.nome.toLowerCase()}, escolha até ${achados[0].categoria.escolhasMax}).`);
+    if (achados.length) {
+      const categoria = achados[0].categoria;
+      const mesmaRegra = achados.every(x => x.categoria.nome === categoria.nome && x.categoria.escolhasMax === categoria.escolhasMax);
+      const limite = mesmaRegra ? ` (${categoria.nome.toLowerCase()}, escolha até ${categoria.escolhasMax})` : '';
+      linhas.push(`${item}: sim, faz parte do buffet ${achados.length === alvo.length && alvo.length > 2 ? 'de todos os pacotes' : nomes(achados.map((x) => x.pacote))}${limite}.`);
+    }
     else linhas.push(`${item} não está no buffet cadastrado ${nomes(alvo)}.`);
     fontes.push(...(achados.length ? achados.map((x) => x.pacote) : alvo).map((p) => ({ tipo: 'CATALOGO_BUFFET', pacote: p } as Fonte)));
   }
   dizer(e, linhas.join('\n'), [...new Map(fontes.map((f) => [JSON.stringify(f), f])).values()]);
 }
 async function cardapio(e: Estado) {
+  if (/\b(?:doces?|salgados?|sabores?)\b[^?!]{0,40}\b(?:tem que|deveria|deveriam|precisa) (?:ter|ser) (?:um )?limite\b/.test(semAcento(e.texto))) {
+    dizer(e, 'Obrigada por avisar. Vou pedir à equipe que confira o limite de sabores desse pacote.');
+    passar(e, 'INFORMACAO_INDISPONIVEL');
+    return;
+  }
   if (e.entendimento.alergia) return; // tratado à parte: a equipe confirma
   const pratos = e.entendimento.itens ?? [];
   const alvo = e.entendimento.entidades.pacotes.length ? e.entendimento.entidades.pacotes.slice(0, 2) : e.ctx.pacote ? [e.ctx.pacote] : e.catalogos.pacotes.length === 1 ? [e.catalogos.pacotes[0].codigo] : [];
@@ -645,7 +675,7 @@ async function decoracao(e: Estado) {
   // Teste manual de 12/10/2026: quando o número de convidados decide o preço do adicional, só ele é pedido nesta volta.
   if (e.ctx.adicionalPendente) return;
   if (e.entendimento.temaAmbiguo && !e.entendimento.entidades.tema) { dizer(e, TEMA_A_DECIDIR); perguntar(e, 'tema', 'DECORACAO'); return; }
-  if (e.ctx.tema && e.entendimento.entidades.tema) dizer(e, `Anotei o tema “${e.ctx.tema}”. Se tiver fotos de referência, pode mandar por aqui que a equipe recebe.`);
+  if (e.ctx.tema && e.entendimento.entidades.tema) dizer(e, `Anotei o tema “${e.ctx.tema}”. A equipe pode confirmar quais opções de decoração estão disponíveis para a sua festa.`);
   else if (!e.ctx.tema) perguntar(e, 'tema', 'DECORACAO', true);
 }
 const CUSTO_DECORACAO = /\b(cobrad\w*|cobra|cobram|a parte|separad\w*|inclus\w*|inclui|incluid\w*|vem no pacote|vem junto|custa|custo|pago|paga|extra|extras|adicional|adicionais)\b/;
@@ -927,11 +957,36 @@ const VALOR_DA_FESTA = /\b(?:quanto|valor|preco|custa|custo)\b[^.?!]{0,30}\b(?:f
  * frequente cadastrada sobre o item (já respondida como DUVIDA) ou cláusula do modelo de contrato vigente que trate de
  * trazer o item. Sem regra, diz que não está cadastrada e passa ESSA parte para a equipe (o resto é respondido).
  */
+const assuntosDoModelo = {
+  CANCELAMENTO: /cancelamento|desistencia/, REMARCACAO: /remarcacao|reagendamento/, PAGAMENTO: /pagamento/,
+  SINAL: /\bsinal\b/, INADIMPLENCIA: /inadimplencia|atraso no pagamento/, CONVIDADOS: /convidados/,
+  CORTESIA: /cortesia|gratuidade/, HORARIOS: /horario|duracao/, DANOS: /danos|avarias/, BEBIDAS: /bebidas/,
+  LIMPEZA: /limpeza/, BALOES: /baloes/, LEMBRANCINHAS: /lembrancinhas/,
+};
+
+async function responderModeloDaEmpresa(e: Estado, assunto?: RegExp) {
+  const modelo = await e.fontes.contratoDaEmpresa?.();
+  if (modelo === 'OFICIAL_KIDMAIS' && (!e.ctx.pacote || modeloVigente(e.ctx.pacote))) return false;
+  if (modelo && modelo !== 'OFICIAL_KIDMAIS' && assunto) {
+    const candidatas = modelo.clausulas.map((c, i) => ({ ...c, numero: i + 1 }))
+      .filter(c => assunto.test(semAcento(c.titulo || c.texto)));
+    if (candidatas.length === 1 && !/[{}]/.test(candidatas[0].texto)) {
+      const c = candidatas[0];
+      dizer(e, c.texto, [{ tipo: 'CONTRATO_MODELO', modelo: modelo.id, versao: modelo.versao, clausula: c.numero, sha256: createHash('sha256').update(c.texto).digest('hex') }]);
+      return true;
+    }
+  }
+  dizer(e, 'Vou pedir à equipe que confirme essa condição para a sua festa.');
+  passar(e, 'INFORMACAO_INDISPONIVEL');
+  return true;
+}
+
 async function externo(e: Estado, i: Intencao, intencoes: Intencao[]) {
   const item = itemExternoDoCliente(e.texto, i.trecho);
   const raiz = item ? semAcento(item).slice(0, 5) : null;
   const faq = raiz && intencoes.some((x) => x.tipo === 'DUVIDA' && e.config.perguntas.some((p) => p.id === x.perguntaId && semAcento(`${p.pergunta} ${p.resposta}`).includes(raiz)));
   if (faq) return;
+  if (await responderModeloDaEmpresa(e)) return;
   const modelo = modeloVigente(null);
   const clausula = raiz ? modelo?.clausulas.find((c) => { const tx = semAcento(c.texto); return tx.includes(raiz) && /\b(trouxer|trazer|levar|por conta propria|de fora|terceir)/.test(tx); }) : null;
   if (modelo && clausula) { dizer(e, `Pelo modelo de contrato vigente (versão ${modelo.templateVersao}):\nCláusula ${clausula.numero}: “${clausula.texto}”`, [{ tipo: 'CONTRATO_MODELO', modelo: modelo.modeloCodigo, versao: modelo.templateVersao, clausula: clausula.numero, sha256: clausula.sha256 }]); return; }
@@ -940,6 +995,7 @@ async function externo(e: Estado, i: Intencao, intencoes: Intencao[]) {
 }
 async function contrato(e: Estado, intencao: Intencao) {
   const tema = intencao.tema ?? 'GERAL';
+  if (await responderModeloDaEmpresa(e, tema === 'GERAL' ? undefined : assuntosDoModelo[tema])) return;
   // Rodada 19: "tem multa se eu trocar de pacote?" — "multa" com outra mudança e sem desistir/cancelar/remarcar não é a
   // cláusula de desistência. Sem cláusula do assunto no modelo, nenhuma de outro assunto é citada: a equipe responde.
   if (tema === 'CANCELAMENTO' && MULTA_SEM_CLAUSULA(e.texto)) { dizer(e, 'Não encontrei essa condição no modelo de contrato cadastrado.'); passar(e, 'INFORMACAO_INDISPONIVEL'); return; }
@@ -1246,6 +1302,8 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
 
   // Confirmação curta: continua o que estava pendente (a pergunta anterior). Sem pendência, só reconhece.
   let intencoes = entendimento.intencoes;
+  const minimoGeralPedido = perguntaMinimoGeral(entrada.texto) && intencoes.every(i => ['CONTRATO', 'PACOTES', 'OUTRO'].includes(i.tipo));
+  if (minimoGeralPedido) intencoes = [{ tipo: 'PACOTES', trecho: entrada.texto }];
   // Agradecimento ("aah entendi, brigada") encerra o assunto: não retoma nem repete a pergunta pendente.
   const agradecimento = intencoes.length === 1 && intencoes[0].tipo === 'CONFIRMACAO' && /\b(obrigad|brigad|valeu|vlw|entendi|obg|agradec|gratid|grat[ao]\b)/.test(semAcento(entrada.texto));
   if (intencoes.length === 1 && intencoes[0].tipo === 'CONFIRMACAO') intencoes = entrada.contexto.pendente && !entrada.contexto.pendente.opcional && !agradecimento ? [{ tipo: entrada.contexto.pendente.para, trecho: intencoes[0].trecho }] : intencoes;
@@ -1371,7 +1429,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       case 'PRECOS': await precos(e); break;
       case 'LOCALIZACAO': await localizacao(e); break;
       case 'DISPONIBILIDADE': if (!tipos.has('CONTRATAR')) await disponibilidade(e); break;
-      case 'PACOTES': await pacotes(e); break;
+      case 'PACOTES': if (minimoGeralPedido) await minimoGeral(e); else await pacotes(e); break;
       case 'CARDAPIO': await cardapio(e); break;
       case 'DECORACAO': await decoracao(e); break;
       case 'CONTRATO': await contrato(e, i); break;
