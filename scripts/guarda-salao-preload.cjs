@@ -43,7 +43,11 @@ function instalar() {
    * identidade, esses quadros saem como "eval at …, <anonymous>:L:C" e eram descartados, e o primeiro quadro reconhecido
    * passava a ser o wrapper do teste (falso "ordem de teste"). Aqui cada quadro vira {arquivo, linha} ou INDETERMINADO.
    */
-  const RE_QUADRO = /\(?((?:file:\/\/\/)?[A-Za-z]:[\\/][^():]+|\/[^():]+):(\d+):\d+\)?\s*$/;
+  // r11 (CI do GitHub, Linux): o prefixo file:// é casado explicitamente antes do caminho POSIX (/…) ou Windows (/D:/…,
+  // D:\…). Antes, em `file:///home/…` o casamento mais à esquerda era "e:///home/…" (o "e:" de "file:" lido como letra de
+  // unidade), o quadro virava um caminho fora da raiz e o serviço transpilado não contava como produção.
+  const RE_QUADRO = /\(?((?:file:\/\/)?(?:\/?[A-Za-z]:[\\/]|\/)[^():]+):(\d+):\d+\)?\s*$/;
+  const { fileURLToPath: deUrl } = require("node:url");
   function quadros(erro) {
     const q = [];
     for (const bruta of String(erro?.stack ?? "").split("\n").slice(1)) {
@@ -55,8 +59,12 @@ function instalar() {
         if (/<anonymous>:\d+:\d+\)?$|\beval at\b/.test(linha)) q.push({ indeterminado: true, texto: linha.slice(0, 160) });
         continue; // quadro nativo, ex. "at new Promise (<anonymous>)"
       }
-      let f = m[1].replace(/^file:\/\/\//, "");
-      try { f = decodeURIComponent(f); } catch { /* caminho já legível */ }
+      let f = m[1];
+      if (/^file:\/\//.test(f)) {
+        try { f = deUrl(f); } catch { f = f.replace(/^file:\/\/\/?/, ""); }
+      } else {
+        try { f = decodeURIComponent(f); } catch { /* caminho já legível */ }
+      }
       const rel = path.relative(raiz, f).replace(/\\/g, "/");
       if (/node_modules|guarda-salao-preload\.cjs/.test(rel)) continue;
       q.push({ rel, linha: m[2] });
