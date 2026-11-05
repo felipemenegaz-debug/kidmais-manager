@@ -195,6 +195,9 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
+  "lib/integracoes/oauth/aplicador-105-production.postgres.test.ts": { descartavel: "099" },
+  "lib/integracoes/oauth/aplicador-105.postgres.test.ts": { descartavel: "099" },
+  "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105" },
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "089" },
   "lib/convites/autorizacoes-088.postgres.test.ts": { descartavel: "086" },
   // Aplicadores reais da 088 (staging e produção) no modelo 086: conferência, privilégios, parcial, falha real e anti-repetição.
@@ -236,6 +239,7 @@ function arquivosDoCheckEstatico(raiz) {
   return [
     ...listarTestesEstaticos(raiz),
     path.join(raiz, "scripts", "regressao-v1-estatica.test.cjs"),
+    path.join(raiz, "scripts", "migration-105-production.test.cjs"),
     // Regressão do Wall-e com os casos dos holdouts já analisados (sem rede nem banco; usa a composition root da IA).
     path.join(raiz, "scripts", "walle-avaliacao", "regressao-holdouts.test.mjs"),
     // Livro único de uso de IA do Wall-e: teto do dia entre processos (arquivo temporário próprio; sem rede nem banco).

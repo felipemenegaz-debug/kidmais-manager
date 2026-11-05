@@ -80,7 +80,7 @@ test('Admin: ajuda aberta com acesso bloqueado e sem empresa; avisos apontam par
     assert.equal(ROTA_AJUDA, '/admin/ajuda');
     const shell = readFileSync(new URL('../../components/admin/AdminShell.tsx', import.meta.url), 'utf8');
     assert.match(shell, /ROTAS_ABERTAS_BLOQUEADO = \[[^\]]*ROTA_AJUDA\]/);
-    assert.match(shell, /ROTAS_ABERTAS_SEM_EMPRESA = \['\/admin\/perfil', ROTA_AJUDA\]/);
+    assert.match(shell, /ROTAS_ABERTAS_SEM_EMPRESA = \['\/admin\/conexoes-ia', '\/admin\/perfil', ROTA_AJUDA\]/);
     for (const arquivo of ['WhatsappConfiguracao.tsx', 'Assinatura.tsx', 'AssinaturaAcoes.tsx', 'atendimento/PrivacidadeAtendimento.tsx']) {
         const fonte = readFileSync(new URL(`../../components/admin/${arquivo}`, import.meta.url), 'utf8');
         assert.match(fonte, /<Link href=\{ROTA_AJUDA\}>/, arquivo);

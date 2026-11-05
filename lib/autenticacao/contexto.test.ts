@@ -52,7 +52,7 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
 test('menu: Configurações de empresa (inclusive o WhatsApp, 083) só com Gestão na empresa; PDF só com autoridade de plataforma', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), ['/admin/configuracoes/tabela-pacotes']);
 });
 
