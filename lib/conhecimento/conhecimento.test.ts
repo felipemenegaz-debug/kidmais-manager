@@ -174,7 +174,7 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
 type Aprovacao = { versao: number; sha256: string; em: string };
 const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   // 02/11/2026: os 3 primeiros artigos do MCP e os 21 da central de ajuda (S3).
-  "assistentes-externos": { versao: 1, sha256: "769243d7962194932a717f9527a83b8e0c9ed347195ef4bba421d300738421fe", em: "2026-11-02" },
+  "assistentes-externos": { versao: 2, sha256: "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6", em: "2026-11-06" },
   "agenda-do-dia": { versao: 1, sha256: "8781baaf336afca70fb79d4c421707a1abfb9a5eb590020e329ad0406fd92c24", em: "2026-11-02" },
   "contas-a-receber": { versao: 1, sha256: "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0", em: "2026-11-02" },
   "agenda-e-horarios": { versao: 1, sha256: "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4", em: "2026-11-02" },
@@ -215,9 +215,9 @@ test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO 
     const texto = readFileSync(join(import.meta.dirname, "..", "..", "conhecimento", arquivo), "utf8");
     assert.equal(createHash("sha256").update(texto, "utf8").digest("hex"), aprovacao.sha256, `${d.id} v${d.versao}: texto diferente do aprovado`);
   }
-  assert.equal(buscar(real, leitorA, HOJE, "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
+  assert.equal(buscar(real, leitorA, "2026-11-06", "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
   // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
-  const depois = "2026-11-02";
+  const depois = "2026-11-06";
   for (const d of real.documentos) {
     for (const situacao of ["PENDENTE_APROVACAO", "SUSPENSO", "REVOGADO"] as const) {
       const corpus: Corpus = { documentos: real.documentos.map((x) => (x === d ? { ...x, situacao } : x)) };
