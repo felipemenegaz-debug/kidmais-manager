@@ -152,7 +152,11 @@ test("falha da Cloud API fica no log só com campos validados", async (t) => {
   const erros = t.mock.method(console, "error", () => {});
   const responder = (status: number, corpo: unknown): typeof fetch => async () =>
     new Response(JSON.stringify(corpo), { status, headers: { "Content-Type": "application/json" } });
-  const linha = (indice: number) => String(erros.mock.calls[indice].arguments[0]);
+  // O Node imprime os próprios avisos por console.error; eles entram na checagem de segredos, mas não contam como linha do envio.
+  process.emitWarning("aviso alheio ao envio");
+  const impressos = () => erros.mock.calls.map((chamada) => String(chamada.arguments[0]));
+  const linhasDoEnvio = () => impressos().filter((texto) => texto.startsWith('{"provider":"whatsapp_cloud"'));
+  const linha = (indice: number) => linhasDoEnvio()[indice];
 
   await assert.rejects(
     criarWhatsappCloudSender(config, responder(400, {
@@ -219,10 +223,10 @@ test("falha da Cloud API fica no log só com campos validados", async (t) => {
   assert.equal(JSON.parse(linha(4)).causa, "tempo_limite");
 
   // Uma linha por falha, e nenhuma com token, destino ou código.
-  assert.equal(erros.mock.callCount(), 5);
-  for (let i = 0; i < 5; i += 1) {
+  assert.equal(linhasDoEnvio().length, 5);
+  for (const texto of impressos()) {
     for (const segredo of [config.accessToken, delivery.destino, "5511999998888", delivery.codigo, "do-not-expose"]) {
-      assert.equal(linha(i).includes(segredo), false, segredo);
+      assert.equal(texto.includes(segredo), false, segredo);
     }
   }
 });
@@ -232,7 +236,8 @@ test("envio aceito pela Cloud API não registra falha", async (t) => {
   await criarWhatsappCloudSender(config, async () =>
     new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), { status: 200 }),
   )(delivery);
-  assert.equal(erros.mock.callCount(), 0);
+  const doEnvio = erros.mock.calls.filter((chamada) => String(chamada.arguments[0]).startsWith('{"provider":"whatsapp_cloud"'));
+  assert.equal(doEnvio.length, 0);
 });
 
 test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
