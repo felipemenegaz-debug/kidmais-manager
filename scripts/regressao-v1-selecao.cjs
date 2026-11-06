@@ -392,6 +392,8 @@ const ESTADO_POSTGRES = {
   "lib/agenda/transicao-ida-saloes.postgres.test.ts": { descartavel: "114" },
   // Bateria D (114): gatilho de fechamentos exige a trava da configuração (KD114); down/up com os corpos do pre/postcheck.
   "lib/agenda/migration-114.postgres.test.ts": { descartavel: "114" },
+  // Aplicador real da 114 em staging: parte do modelo 114 e roda o down para voltar aos corpos da cadeia 108/109.
+  "lib/agenda/aplicador-114.postgres.test.ts": { descartavel: "114" },
   // Bateria D (concorrência): save exclusivo × entrada compartilhada nas duas ordens, espera observada, sem deadlock.
   "lib/agenda/concorrencia-ida-saloes.postgres.test.ts": { descartavel: "114" },
   // Testes C'' (D-LIB-4) na transição: assinatura/revisão de documento sem salão depois da ida, V3 indisponível, importação.
