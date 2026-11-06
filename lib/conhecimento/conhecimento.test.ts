@@ -173,6 +173,8 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
  */
 type Aprovacao = { versao: number; sha256: string; em: string };
 const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
+  // 06/11/2026: Felipe aprovou o artigo revisado após o piloto Claude em produção.
+  "assistentes-externos": { versao: 2, sha256: "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6", em: "2026-11-06" },
   // 02/11/2026: artigos da central (S3) aprovados em staging. Recorte de production: os 7 que valem iguais em production
   // ficam na versão 1 (mesmo hash de staging); os de recurso ausente (MCP, créditos de IA, atendimento piloto) ficam fora.
   clientes: { versao: 1, sha256: "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a", em: "2026-11-02" },
@@ -218,7 +220,7 @@ test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO 
   }
   assert.equal(buscar(real, leitorA, "2026-11-03", "como baixar o pacote completo dos dados", 5)[0]?.doc.id, "privacidade-e-exportacao");
   // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
-  const depois = "2026-11-02";
+  const depois = "2026-11-06";
   for (const d of real.documentos) {
     for (const situacao of ["PENDENTE_APROVACAO", "SUSPENSO", "REVOGADO"] as const) {
       const corpus: Corpus = { documentos: real.documentos.map((x) => (x === d ? { ...x, situacao } : x)) };
@@ -228,7 +230,7 @@ test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO 
     if (d.situacao === "APROVADO") assert.ok(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), `controle: ${d.id} aprovado aparece pelo título`);
     else assert.equal(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), false, `${d.id} ${d.situacao} apareceu`);
   }
-  assert.equal(real.documentos.filter((d) => d.situacao === "APROVADO").length, 19, "controle: os 19 do recorte aprovados");
+  assert.equal(real.documentos.filter((d) => d.situacao === "APROVADO").length, 20, "controle: os 20 do recorte aprovados");
 });
 
 test("endereço da mídia não pontua na busca; a descrição pontua", () => {

@@ -2,6 +2,19 @@
   "versao": 1,
   "documentos": [
     {
+      "arquivo": "assistentes-externos.md",
+      "id": "assistentes-externos",
+      "titulo": "Assistentes externos conectados ao iA.Fest",
+      "versao": 2,
+      "vigenteDesde": "2026-11-06",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6"
+    },
+    {
       "arquivo": "agenda-e-horarios.md",
       "id": "agenda-e-horarios",
       "titulo": "Agenda e horários",
