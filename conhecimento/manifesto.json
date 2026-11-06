@@ -4,15 +4,15 @@
     {
       "arquivo": "assistentes-externos.md",
       "id": "assistentes-externos",
-      "titulo": "Assistentes externos conectados ao KidMais",
-      "versao": 1,
-      "vigenteDesde": "2026-10-27",
+      "titulo": "Assistentes externos conectados ao iA.Fest",
+      "versao": 2,
+      "vigenteDesde": "2026-11-06",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "769243d7962194932a717f9527a83b8e0c9ed347195ef4bba421d300738421fe"
+      "sha256": "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6"
     },
     {
       "arquivo": "agenda-do-dia.md",
