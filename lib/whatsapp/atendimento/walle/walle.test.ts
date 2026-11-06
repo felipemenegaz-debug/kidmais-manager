@@ -4287,6 +4287,38 @@ test('mínimo ausente em outro pacote exige confirmação antes de afirmar o mí
   assert.ok(r.passagem);
 });
 
+test('mínimo geral pelas regras responde sem passagem e respeita singular cadastrado', async () => {
+  for (const pergunta of ['Qual o mínimo de convidados que vocês atendem?', 'Vocês fazem festas a partir de quantos convidados?']) {
+    const { fontes } = fontesFake();
+    const pacotes = await fontes.pacotes();
+    pacotes[0].convidadosMinimos = 1;
+    fontes.pacotes = async () => pacotes;
+    const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE }, fontes);
+    assert.match(texto(r), /a partir de 1 convidado\./);
+    assert.doesNotMatch(texto(r), /não tenho cadastrada|passar sua conversa/);
+    assert.ok(!r.passagem);
+  }
+});
+
+test('categoria genérica não cita sabor específico mas mantém nomes e variações explícitas', () => {
+  const itens = ['Doce de Leite Ninho', 'Coxinha com catupiry', 'Coxinha sem catupiry'];
+  assert.deepEqual(itensCitados('Quantos sabores de doces posso escolher?', itens), []);
+  assert.deepEqual(itensCitados('Tem doce de Leite Ninho?', itens), ['Doce de Leite Ninho']);
+  assert.deepEqual(itensCitados('Tem coxinhas?', itens), itens.slice(1));
+});
+
+test('limite de sabores é direto e respeita categorias e pacotes diferentes', async () => {
+  for (const [pergunta, limite, categoria] of [
+    ['Quantos sabores de salgados posso escolher no Essencial?', 4, 'salgados'],
+    ['Quantos sabores de doces posso escolher no Completa?', 3, 'doces'],
+  ] as const) {
+    const { ultima } = await conversa([pergunta]);
+    assert.match(texto(ultima), new RegExp(`${limite} sabores de ${categoria}`));
+    assert.doesNotMatch(texto(ultima), /Buffet do pacote|Coxinha|Kibe|Leite Ninho/);
+    assert.ok(!ultima.passagem);
+  }
+});
+
 test('mesma pergunta, duas empresas com prazos distintos e outra sem modelo', async () => {
   const pergunta = 'Qual a regra de cancelamento?';
   const entrada = { texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE };

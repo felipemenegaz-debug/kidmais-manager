@@ -2970,3 +2970,41 @@ pagamento da parcela, como faço pra pagar?" continua com a equipe.
 Código: reverter os commits da branch. Banco: `database/rollback/20261007_072_wall_e_atendimento_down.sql` com
 `SET LOCAL kidmais.rollback_072_descartar = 'sim'` (remove PDFs, arquivos próprios, várias saídas e memória; mantém o que
 a 071 conhecia). Operação: desligar o Wall-e na Configuração volta ao atendimento da fase B sem migration.
+
+### Limites do buffet corrigidos em staging — 06/11/2026
+
+Felipe autorizou a alteração dos limites comerciais da KidMais. Confirmados antes: 8 sabores de salgados nos seis pacotes e 16 de doces nos cinco que incluem doces. Salvos e relidos após commit: todos esses 11 limites agora são 4. Pacotes: Compacta (apenas salgados), Completa, Essencial, Mini Festa, Pocket e Premium. Pizza Party e demais categorias preservados no postcheck integral.
+
+Executado pelo serviço alterarComposicaoPacoteAdmin, com auditoria, guarda de destino/empresa e transação única. Completa e Premium receberam revisões novas, preservando versões utilizadas. Request de auditoria: 04472a3c-5cd0-41f3-9a8b-e9b66d988f44. Revisão independente review_limits aprovou procedimento e ajuste.
+
+As duas primeiras tentativas foram revertidas integralmente pelo erro 23514 da migration 048: várias sucessões de tabelas de preço no lote faziam a validação diferida encontrar uma sucessora intermediária já substituída. Resolvido validando somente tabelas_preco_supersessao_fim_trg IMMEDIATE após cada operação completa e retornando a DEFERRED antes da seguinte. Nenhum trigger desabilitado. Terceira tentativa: commit confirmado e consulta independente confirmou os 11 valores persistidos.
+
+Estado: dados corrigidos no staging; nenhum deploy ou mudança em produção. Respostas reais no WhatsApp ainda precisam de reteste. Publicação da PR #335 continua separada e pendente da revisão formal já registrada nesta nota. Script operacional local: kidmais-walle-fontes-por-empresa/.local-corrigir-limites-staging.mjs.
+
+### Reteste do catálogo no motor publicado — 06/11/2026
+
+Autorização: Felipe pediu para retestar. Executado no web staging srv-daif418ae00c73e8k2gg, commit informado pelo processo 6e9018bf50e8e5ffaa72519f3a69522f50b89de1. Leitura BEGIN READ ONLY/ROLLBACK dos pacotes e composições reais via fontesPostgres; execução de entenderPorRegras + resolverWallE em memória. Sem envio, escrita no banco, modelo externo ou deploy. Configuração de teste com nome Kidmais, FAQs/biblioteca vazias e contexto inicial vazio; não equivale à porta completa, ao worker ou ao percurso Meta.
+
+Resultados das seis perguntas:
+- Explique os pacotes: lista os sete. Pocket 20+, Mini 30+, Compacta 40+, Essencial/Completa/Premium 50–150 e Pizza Party 1–50. O corte em quatro e omissão dos mínimos sem teto não se reproduzem nesse motor publicado.
+- Qual o mínimo de convidados que vocês atendem?: responde “O pacote Pizza Party atende a partir de 1 convidados.” e encaminha por parte sem cadastro (classificação local OUTRO). Texto gramatical incorreto e encaminhamento desnecessário nesse cenário.
+- Vocês fazem festas a partir de quantos convidados?: mesma resposta de mínimo 1, sem encaminhamento. O 1 vem do cadastro Pizza Party; precisa confirmação comercial, sem alterar por inferência.
+- Quantos sabores de salgados posso escolher na Festa Essencial?: buffet com limite 4, correto, mas resposta extensa para pergunta pontual.
+- Quantos sabores de doces posso escolher na Festa Completa?: limite 4 correto, mas abre com confirmação não solicitada de Doce de Leite Ninho e detalha todo buffet.
+- Tem doce de Leite Ninho?: confirma presença nos cinco pacotes e limite 4; também menciona recheio Leite Ninho e pede pacote. Há margem para resposta mais direta.
+
+Conclusão: correção de limites confirmada nas respostas do resolvedor, qualidade geral ainda não aprovada. Pendente corrigir classificação da pergunta de mínimo, singular/plural, pertinência de itens e concisão; confirmar mínimo comercial Pizza Party e testar modelo + canal real. A evidência atual de código publicado supera a suposição anterior de que todas as melhorias aguardavam publicação; não foi consultado nesta rodada o estado de merge/review da PR #335, e não se deve inferi-lo do comportamento. Nenhuma mudança operacional nesta rodada.
+
+### Correção local das respostas do reteste — 06/11/2026
+
+Pedido de Felipe: “Pode corrigir”. Implementado no checkout kidmais-walle-fontes-por-empresa: pergunta inteira de mínimo já respondida não gera passagem por semFonte residual; singular para mínimo 1; categorias genéricas não identificam itens pelo primeiro termo (doces não equivale a Doce de Leite Ninho); perguntas pontuais de quantos sabores/tipos posso escolher respondem somente categoria e limite por pacote, com fonte contendo ID real. Não há limite 4 fixo no código nem alteração do mínimo Pizza Party.
+
+Validação local: 262 testes passaram, TypeScript e ESLint passaram; revisão independente review_respostas aprovada, incluindo delta de referência do pacote. Build iniciado, resultado ainda pendente neste registro. Estado: implementação local, sem commit/push/deploy nesta rodada. Requer integração sobre staging atual e reteste do canal após publicação autorizada. As respostas curtas cobrem as formulações do reteste; outras seguem o fluxo existente. A confirmação comercial do mínimo Pizza Party continua pendente.
+
+**Validação final:** build local com webpack concluído com exit 0, incluindo TypeScript e 83 páginas. A primeira tentativa foi bloqueada por DNS de fonts.googleapis.com e EPERM no sandbox; repetição autorizada pela ferramenta fora do sandbox passou. Nenhum banco ou deploy executado. git diff --check passou.
+
+### Integração autorizada das respostas — 06/11/2026
+
+Felipe autorizou seguir e finalizar integração/publicação no staging. PR #335 confirmada merged (3d024547); a correção incremental foi transportada sem conflito para branch codex/walle-respostas-diretas-20261106, base staging 3c7ba59a. Os três arquivos de implementação/teste não tinham mudanças concorrentes entre as bases. Os 262 testes pertinentes passaram novamente. Não há migration ou alteração de configuração neste delta. Revisão independente anterior aprovada; conferência sobre base atual solicitada. Publicação depende da conclusão das validações e do deploy de documentação já em andamento no staging. Produção permanece na branch production, auto-deploy desligado; web staging manual e worker staging automático.
+
+**Base 3c7ba59a validada:** 262 testes pertinentes, build webpack completo (inclui TypeScript) e diff-check passaram. ESLint do mesmo delta aprovado. review_respostas aprovou novamente contra essa base; código pronto para PR de staging.

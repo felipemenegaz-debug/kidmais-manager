@@ -1370,7 +1370,7 @@ export function itensCitados(texto: string, itens: string[] = []) {
   });
   if (inteiros.length) return inteiros;
   // Nome curto ("tem coxinha?") quando o cadastro tem variações ("Coxinha com catupiry", "Coxinha sem catupiry").
-  const palavras = new Set(limpo(texto).split(' ').filter((p) => p.length >= 4).map((p) => p.replace(/s$/, '')));
+  const palavras = new Set(limpo(texto).split(' ').filter((p) => p.length >= 4).map((p) => p.replace(/s$/, '')).filter(p => !/^(doce|docinho|salgado|salgadinho|bolo|bebida)$/.test(p)));
   return unicos.filter((nome) => { const primeira = limpo(nome.replace(/\([^)]*\)/g, ' ')).split(' ')[0].replace(/s$/, ''); return primeira.length >= 4 && palavras.has(primeira); });
 }
 /**

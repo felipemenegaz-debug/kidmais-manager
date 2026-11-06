@@ -374,7 +374,7 @@ async function minimoGeral(e: Estado) {
   const conhecidos = todos.filter(p => p.convidadosMinimos !== null && p.convidadosMinimos > 0);
   const menor = conhecidos.sort((a, b) => a.convidadosMinimos! - b.convidadosMinimos!)[0];
   if (menor) {
-    dizer(e, `O pacote ${menor.nome} atende a partir de ${menor.convidadosMinimos} convidados.`, [{ tipo: 'PACOTE', codigo: menor.codigo, id: menor.id }]);
+    dizer(e, `O pacote ${menor.nome} atende a partir de ${menor.convidadosMinimos} ${menor.convidadosMinimos === 1 ? 'convidado' : 'convidados'}.`, [{ tipo: 'PACOTE', codigo: menor.codigo, id: menor.id }]);
   }
   if (conhecidos.length !== todos.length || !menor) {
     dizer(e, menor ? 'Vou pedir à equipe que confirme se temos opções para grupos menores.' : 'Vou pedir à equipe que confirme a partir de quantos convidados atendemos.');
@@ -546,6 +546,22 @@ async function cardapio(e: Estado) {
   // Buffet cadastrado dos pacotes em questão (sem pacote, de todos): categorias e itens, para saber o que tem fonte.
   const comps = new Map<string, Composicao | null>();
   for (const pacote of alvo.length ? alvo : e.catalogos.pacotes.map((p) => p.codigo)) comps.set(pacote, await e.fontes.composicao(pacote));
+  // Pergunta pontual sobre escolhas: usa o limite de cada pacote, não o total de itens disponíveis.
+  const quantidade = /^quantos (?:sabores|tipos) de (doces?|salgados?) (?:eu )?posso escolher(?: (?:no|na) (.+))?$/.exec(semAcento(e.texto).replace(/[?!.]+$/g, '').trim());
+  const nomePedido = quantidade?.[2]?.replace(/^pacote /, '');
+  if (quantidade && (!nomePedido || e.catalogos.pacotes.some(p => semAcento(p.nome) === nomePedido))) {
+    const pacotes = await e.fontes.pacotes();
+    const categorias = [...comps].map(([codigo, comp]) => ({ codigo, categoria: comp?.categorias.find(c => semAcento(c.nome).replace(/s$/, '') === quantidade[1].replace(/s$/, '')) }));
+    if (categorias.length && categorias.every(c => c.categoria && c.categoria.escolhasMax > 0 && pacotes.some(p => p.codigo === c.codigo))) {
+      for (const { codigo, categoria } of categorias) {
+        const pacote = pacotes.find(p => p.codigo === codigo)!;
+        const nome = pacote.nome;
+        const limite = categoria!.escolhasMin && categoria!.escolhasMin !== categoria!.escolhasMax ? `de ${categoria!.escolhasMin} a ${categoria!.escolhasMax}` : `até ${categoria!.escolhasMax}`;
+        dizer(e, `No pacote ${nome}, você pode escolher ${limite} ${categoria!.escolhasMax === 1 ? 'sabor' : 'sabores'} de ${categoria!.nome.toLowerCase()}.`, [{ tipo: 'PACOTE', codigo, id: pacote.id }]);
+      }
+      return;
+    }
+  }
   const doBuffet = [...comps.values()].flatMap((c) => (c?.categorias ?? []).flatMap((x) => [x.nome, ...x.itens])).map((n) => semAcento(n));
   // Bolo, doces e bebidas: sem categoria nem item no buffet cadastrado, o cadastro não diz se vem nem se não vem ("como
   // é o bolo do Premium?", "quais doces vêm?"). O que está no trecho do item de fora ("levar o bolo da tia") fica com ele;
@@ -1473,7 +1489,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // Rodada 19: com a festa já contratada, a equipe responde a mensagem inteira (sem a frase de "parte não cadastrada").
   // Rodada 19: idem quando a mensagem já vai para a equipe por alergia, reclamação, pedido de pessoa, pagamento ou
   // negociação — a frase de "parte não cadastrada" só serve quando o resto foi respondido pelo Wall-e.
-  if (entendimento.semFonte?.length && !intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO') && !e.encaminhar.some((m) => ['RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PEDIDO_CLIENTE', 'PAGAMENTO', 'NEGOCIACAO'].includes(m))) { dizer(e, entendimento.semFonte.length > 1 ? 'Algumas perguntas da sua mensagem eu não tenho cadastradas para responder por aqui.' : 'Uma parte da sua mensagem eu não tenho cadastrada para responder por aqui.'); passar(e, 'INFORMACAO_INDISPONIVEL'); }
+  if (!minimoGeralPedido && entendimento.semFonte?.length && !intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO') && !e.encaminhar.some((m) => ['RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PEDIDO_CLIENTE', 'PAGAMENTO', 'NEGOCIACAO'].includes(m))) { dizer(e, entendimento.semFonte.length > 1 ? 'Algumas perguntas da sua mensagem eu não tenho cadastradas para responder por aqui.' : 'Uma parte da sua mensagem eu não tenho cadastrada para responder por aqui.'); passar(e, 'INFORMACAO_INDISPONIVEL'); }
 
   // Rodada 40: "tem essa data?", "quero reservar", "quero fechar": o link PÚBLICO de disponibilidade/fechamento da empresa
   // (o mesmo para todos; diferente do link individual de contrato). Não sai com proteção, pedido de pessoa, reclamação ou
