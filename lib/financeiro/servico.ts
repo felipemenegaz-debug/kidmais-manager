@@ -772,6 +772,7 @@ export async function pagarConta(
   tx: DbExecutor,
   empresaId: string,
   atorId: string,
+  hoje: string,
   input: { contaId: string; valor: number; data: string; forma: FormaFinanceira; observacao?: string; chave: string },
 ) {
   const repetida = await tx.query<{ id: string; conta_id: string; valor: string; pago_em: string; forma: string; observacao: string | null }>(
@@ -785,6 +786,7 @@ export async function pagarConta(
     if (!mesmaSaida(linha, input)) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outro pagamento nesta empresa.", 409);
     return { reutilizado: true, id: linha.id };
   }
+  if (input.data > hoje) recusar("DADOS_INVALIDOS", "A data do pagamento não pode ser futura.", 409);
   const trava = await travarConta(tx, empresaId, input.contaId);
   if (trava.cancelado_em) recusar("CANCELADA", "Conta cancelada não recebe pagamento.", 409);
   const saldo = saldoCentavos(centavosDe(trava.valor), centavosDe(trava.pago));
