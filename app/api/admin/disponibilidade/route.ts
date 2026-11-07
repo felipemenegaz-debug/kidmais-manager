@@ -39,6 +39,7 @@ import {
   resolverEDesativarBloqueioLegado,
 } from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { telaDoClienteGlobal } from "@/lib/enderecos/roteamento";
 import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
 import {
   contextoCrmDaRequest,
@@ -193,7 +194,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     regrasPacotes,
     pacotes,
     // "Ver tela do cliente": a dona continua no endereço atual; as demais, no endereço público delas (/b/<código>).
-    telaDoCliente: configuracaoComercial ? "/disponibilidade" : await telaDoClienteDaEmpresa(tx, empresaComprovada),
+    telaDoCliente: configuracaoComercial ? telaDoClienteGlobal(process.env) : await telaDoClienteDaEmpresa(tx, empresaComprovada),
     bloqueios,
   };
 }

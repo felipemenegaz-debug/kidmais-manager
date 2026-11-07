@@ -9,6 +9,8 @@ export const PAGINAS_INDEXADAS = [ROTA_SITE, '/planos'] as const;
  * respondem `X-Robots-Tag: noindex` (next.config.ts); bloquear o rastreio delas aqui esconderia esse cabeçalho.
  */
 export function robotsDaPlataforma(env: AmbienteSite = process.env): MetadataRoute.Robots {
+    // Staging não deve aparecer em buscas (plano D4): nem as páginas públicas, nem sitemap. Não é controle de acesso.
+    if (env.KIDMAIS_DEPLOY_ENV === 'staging') return { rules: { userAgent: '*', disallow: '/' } };
     const { origem } = configuracaoSite(env);
     return { rules: { userAgent: '*', allow: '/', disallow: ['/api/', '/preview-ux/'] }, ...(origem ? { sitemap: `${origem}/sitemap.xml` } : {}) };
 }

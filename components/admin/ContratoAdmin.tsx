@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
 import styles from './contratos-ux.module.css';
 import Link from 'next/link';
@@ -230,6 +231,7 @@ export default function ContratoAdmin() {
         if(!motivo||motivo.trim().length<3)return;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
         if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
+            if(enderecoFinal())return;
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }

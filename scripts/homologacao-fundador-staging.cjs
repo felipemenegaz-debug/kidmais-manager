@@ -11,7 +11,7 @@ const {alvo: alvoEnsaio, documento, cookies} = require('./assinatura-staging-ens
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 const {sqlPreservacao, processoVivo, erroFinal, projecaoAgenda} = require('./homologacao-planos-cotacao-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const ARQUIVO = DIR + '/fundador-rodada-2.json';
 const MARCA = 'homologacao-fundador-20261010-r2';

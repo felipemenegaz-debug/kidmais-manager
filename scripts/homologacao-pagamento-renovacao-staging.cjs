@@ -15,8 +15,8 @@ const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assin
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 const {sqlPreservacao, processoVivo, erroFinal, projecaoAgenda, cpfSintetico} = require('./homologacao-planos-cotacao-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
-const URL_WEBHOOK = BASE + '/api/integracoes/asaas/webhook';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
+const URL_WEBHOOK = require('./alvo-staging.cjs').ORIGEM_WEBHOOK_STAGING + '/api/integracoes/asaas/webhook';
 const ASAAS = 'https://api-sandbox.asaas.com/v3';
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const ARQUIVO = DIR + '/pagamento-renovacao-rodada-3.json';

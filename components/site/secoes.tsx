@@ -19,7 +19,7 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
           <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão de crédito</span><span>Implantação guiada</span></div>
         </div>
         <div className={cx('halo')} data-fundo-proteger><div className={cx('app')} role="img" aria-label="Tela de exemplo do iA.Fest com as próximas festas">
-          <div className={cx('app-bar')}><i></i><i></i><i></i><span>manager.kidmaisfestas.com/admin/festas</span></div>
+          <div className={cx('app-bar')}><i></i><i></i><i></i><span>iafest.demerzellabs.com.br/admin/festas</span></div>
           <div className={cx('app-body')}>
             <div className={cx('app-head')}><strong>Próximas festas</strong><small>OUTUBRO</small></div>
             <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>17</span>SÁB</span><span><b>Sofia · 6 anos</b><small>15h · Horário nobre · 60 convidados</small></span><span className={cx('pill ok')}>Contrato assinado</span></div>
