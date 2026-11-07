@@ -533,9 +533,11 @@ export function leituraPeriodo(
 export async function prepararBaixa(
   tx: DbExecutor,
   empresaId: string,
+  hoje: string,
   input: { parcelaId: string; valor: number; data: string; forma: FormaFinanceira; taxa?: number },
 ) {
   if (!FORMAS.includes(input.forma)) recusar("DADOS_INVALIDOS", "Escolha uma forma de pagamento.", 409);
+  if (input.data > hoje) recusar("DADOS_INVALIDOS", "A data do recebimento não pode ser futura.", 409);
   const alvo = (await listarRecebiveis(tx, empresaId, input.data)).find((item) => item.id === input.parcelaId);
   if (!alvo || alvo.origem === "ENTRADA_MANUAL" || alvo.status === "Cancelado" || alvo.status === "Pago" || alvo.status === "Reembolsado") {
     recusar("NAO_ENCONTRADO", "Esta parcela não está aberta nesta empresa.", 404);

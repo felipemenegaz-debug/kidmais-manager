@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { criarEntradaManual, leituraPeriodo, pagarConta, painelGeral, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
+import { criarEntradaManual, leituraPeriodo, pagarConta, painelGeral, prepararBaixa, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
 import { readFileSync } from "node:fs";
 
 test("o resumo do dashboard e do financeiro usa a mesma fórmula", () => {
@@ -222,6 +222,33 @@ test("pagarConta confronta o payload quando o INSERT colide com a mesma chave", 
       JSON.stringify(diferente),
     );
   }
+});
+
+test("prepararBaixa recusa data de recebimento futura sem consultar o banco e deixa passar hoje", async () => {
+  const consultas: string[] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string) {
+      consultas.push(text);
+      return { rows: [] as Row[], rowCount: 0 };
+    },
+  };
+  const pedido = { parcelaId: "55555555-5555-4555-8555-555555555555", valor: 10, forma: "PIX" as const };
+
+  await assert.rejects(
+    () => prepararBaixa(tx, "empresa", "2026-11-30", { ...pedido, data: "2026-12-01" }),
+    (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS" && error.httpStatus === 409 && /não pode ser futura/.test(error.message),
+  );
+  assert.equal(consultas.length, 0);
+
+  for (const data of ["2026-11-30", "2026-11-29"]) {
+    // Sem parcela no banco simulado: passar da data leva à consulta e à recusa seguinte.
+    await assert.rejects(
+      () => prepararBaixa(tx, "empresa", "2026-11-30", { ...pedido, data }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "NAO_ENCONTRADO",
+      data,
+    );
+  }
+  assert(consultas.length > 0);
 });
 
 test("a leitura de recebíveis e saídas fica presa à empresa", () => {
