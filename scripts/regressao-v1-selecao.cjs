@@ -254,6 +254,8 @@ const ESTADO_POSTGRES = {
   // Lote L1 (03/11/2026): lista "aguardando revisão", identidades de abertura (limite 200), preservação em dados e trava do
   // documento — sem migration; no modelo 112 (staging) e no 106 (production).
   "lib/importacao-contrato/lote-l1.postgres.test.ts": { descartavel: "112", tambem: ["106"] },
+  // L2 (04/11/2026): cota de leitura de documentos (118); a suíte aplica a 118 sobre o modelo 112.
+  "lib/importacao-contrato/cota.postgres.test.ts": { descartavel: "112" },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
