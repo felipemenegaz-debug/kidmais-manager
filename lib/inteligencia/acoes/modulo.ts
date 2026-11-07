@@ -74,7 +74,7 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
 
   async function iniciar(capacidade: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>) {
     const acao = registro.acao(capacidade);
-    if (!acao || acao.classe !== "CONFIRM") throw new InteligenciaError("ACAO_NEGADA", "Essa ação não é feita pelo Kidmais.", 403);
+    if (!acao || acao.classe !== "CONFIRM") throw new InteligenciaError("ACAO_NEGADA", "Essa ação não é feita pelo Copiloto.", 403);
     const avanco = await iniciarRascunho(acao, texto, ctx, gate, doModelo);
     return { resposta: paraRevisao(acao, avanco.draft, avanco.resposta), capacidade: acao.capacidade, ferramenta: acao.nome, draft: avanco.draft };
   }

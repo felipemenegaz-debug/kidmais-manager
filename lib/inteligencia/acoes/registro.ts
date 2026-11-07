@@ -11,7 +11,7 @@ import type { FerramentaAcao } from "./tipos.ts";
  * (/api/admin/configuracoes/catalogo); sem a 078 a rota recusa (`CATALOGO_GLOBAL_SEM_AUTORIDADE`). Na Fase 1 a IA é
  * somente leitura — escrever no catálogo exigiria uma ação CONFIRM própria, não liberada.
  */
-const MENSAGEM_BUFFET = "O Kidmais Intelligence não altera o catálogo do Buffet. Categorias e itens são editados pela Gestão da empresa em Configurações › Itens do Buffet.";
+const MENSAGEM_BUFFET = "O Copiloto não altera o catálogo do Buffet. Categorias e itens são editados pela Gestão da empresa em Configurações › Itens do Buffet.";
 
 function negada(capacidade: string, titulo: string, mensagem: string, indisponivel = false): FerramentaAcao {
   const recusar = (): never => { throw new InteligenciaError("ACAO_NEGADA", mensagem, 403); };
@@ -42,9 +42,9 @@ export function acoesNegadas(): FerramentaAcao[] {
     negada("criar_item_buffet", "Novo item do Buffet", MENSAGEM_BUFFET, true),
     negada("editar_categoria_buffet", "Editar categoria do Buffet", MENSAGEM_BUFFET, true),
     negada("editar_item_buffet", "Editar item do Buffet", MENSAGEM_BUFFET, true),
-    negada("excluir", "Excluir", "Exclusão definitiva não é feita pelo Kidmais Intelligence. Use a tela correspondente, que confere todos os vínculos antes."),
+    negada("excluir", "Excluir", "Exclusão definitiva não é feita pelo Copiloto. Use a tela correspondente, que confere todos os vínculos antes."),
     negada("mutacao_nao_suportada", "Ação não disponível", "Enviar mensagens, cobrar, registrar pagamento, cancelar ou mudar contratos continua nas telas, com as conferências de cada uma.", true),
-    negada("sql", "Consulta direta ao banco", "O Kidmais Intelligence não executa SQL nem acessa o banco diretamente. Pergunte pelo que você quer saber."),
+    negada("sql", "Consulta direta ao banco", "O Copiloto não executa SQL nem acessa o banco diretamente. Pergunte pelo que você quer saber."),
   ];
 }
 

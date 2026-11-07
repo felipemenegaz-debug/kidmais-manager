@@ -218,7 +218,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                     <Link href={ROTA_AJUDA} aria-current={rotaDaAjuda(path) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
             </nav>
-            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>}
+            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Copiloto</BotaoPerguntarKidmais>}
             {/* Conta compacta: uma linha no rodapé; o clique abre, acima dela, a troca de empresa, os links da conta e o Sair. */}
             <footer className={styles.contaCompacta} ref={contaRef} onKeyDown={(evento) => {
                 // Esc fecha só o menu da conta (a gaveta do celular continua aberta). O React escuta no próprio document,

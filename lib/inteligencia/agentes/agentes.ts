@@ -119,7 +119,7 @@ const atendimento: Agente = {
       if (!skill || !objecao) return recusa("Ainda não tenho uma orientação para essa situação. A equipe comercial pode ajudar.");
       return resposta(atendimento, `Orientação para "${objecao.objecao}".`, [], {
         titulo: `Como responder: ${objecao.objecao}`, texto: objecao.resposta, fonte: `skill:${skill.id}@${skill.versao}`,
-        aviso: "Sugestão de resposta para a equipe adaptar. Condições e valores são sempre os do sistema; o Kidmais não negocia.", pendentes: [],
+        aviso: "Sugestão de resposta para a equipe adaptar. Condições e valores são sempre os do sistema; o Copiloto não negocia.", pendentes: [],
       });
     }
     // RASCUNHO: template da skill + marcadores preenchidos pelo Core (entidade aberta); nada é enviado.
@@ -137,7 +137,7 @@ const atendimento: Agente = {
     });
     return resposta(atendimento, pendentes.length ? "Rascunho pronto; complete os campos entre colchetes antes de usar." : "Rascunho pronto para você revisar.", [], {
       titulo: template.titulo, texto, fonte: `skill:${skill.id}@${skill.versao}#${template.id}`,
-      aviso: "Rascunho para você revisar e enviar pelo canal oficial. O Kidmais não envia mensagens.", pendentes: pendentes.map((p) => ROTULO_MARCADOR[p] ?? p),
+      aviso: "Rascunho para você revisar e enviar pelo canal oficial. O Copiloto não envia mensagens.", pendentes: pendentes.map((p) => ROTULO_MARCADOR[p] ?? p),
     });
   },
 };
@@ -163,7 +163,7 @@ const documentos: Agente = {
   },
   async executar(e, portas) {
     if (e.motivo === "ASSINAR") {
-      return recusa("O Kidmais não assina contratos. A assinatura é feita pelas partes no fluxo de assinatura do contrato, com as conferências de identidade de cada uma.");
+      return recusa("O Copiloto não assina contratos. A assinatura é feita pelas partes no fluxo de assinatura do contrato, com as conferências de identidade de cada uma.");
     }
     if (e.motivo === "IMPORTAR") {
       const s = await secao(documentos, portas, "onde_encontrar", { tema: "importar_contrato" }, "Onde importar");
@@ -230,7 +230,7 @@ export function criarRegistroAgentes(): RegistroAgentes {
     },
     async executar(id, entrada, portas) {
       const agente = AGENTES.find((a) => a.id === id);
-      if (!agente) return recusa("Esse pedido não é atendido pelo Kidmais.");
+      if (!agente) return recusa("Esse pedido não é atendido pelo Copiloto.");
       return agente.executar(entrada, portas);
     },
   };

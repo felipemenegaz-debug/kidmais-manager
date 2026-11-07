@@ -332,8 +332,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         {/* Erro que não é de campo (servidor, agenda): aviso fixo, visível de qualquer ponto do formulário. */}
         <AvisoGlobal mensagem={erro} onFechar={() => setErro('')} />
         {avisoPreparacao && <p role="status">{avisoPreparacao}</p>}
-        {preparacao && !semPreparacao && <section className={styles.card} aria-label="Preparado pelo Kidmais">
-            <p>Preparado pelo Kidmais. Confira, complete e conclua: nada foi gravado até você concluir.</p>
+        {preparacao && !semPreparacao && <section className={styles.card} aria-label="Preparado pelo Copiloto">
+            <p>Preparado pelo Copiloto. Confira, complete e conclua: nada foi gravado até você concluir.</p>
             {preparacao.pendencias.length > 0 && <ul>{preparacao.pendencias.map(p => <li key={p}>{p}</li>)}</ul>}
             {erroPreparacao && !incerto && !semPreparacao && <button type="button" onClick={() => { setSemPreparacao(true); setErroPreparacao(false); setErro(''); }}>Enviar sem a preparação do Kidmais</button>}
             {incerto && <button type="button" onClick={() => void verificarDeNovo()}>Verificar de novo</button>}

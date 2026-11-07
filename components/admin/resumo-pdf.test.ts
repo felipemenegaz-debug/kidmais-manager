@@ -48,7 +48,7 @@ test('PDF real: cabeçalho, xref válido e conteúdo do mesmo resumo exibido', (
 
 test('não inclui menu, sidebar nem atalhos do Admin', () => {
   const texto = textoDoPdf(criarPdfResumo(resumo()));
-  for (const proibido of ['Menu administrativo', 'Dashboard', 'Perguntar ao Kidmais', 'Sair', 'Voltar a Contratos', 'Imprimir']) {
+  for (const proibido of ['Menu administrativo', 'Dashboard', 'Perguntar ao Copiloto', 'Perguntar ao Kidmais', 'Sair', 'Voltar a Contratos', 'Imprimir']) {
     assert.equal(texto.includes(proibido), false, proibido);
   }
 });

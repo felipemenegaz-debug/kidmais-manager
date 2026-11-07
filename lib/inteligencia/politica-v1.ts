@@ -62,7 +62,7 @@ const MENSAGENS: Readonly<Record<Exclude<ResultadoPolitica, "PERMITIDO">, [strin
   NEGADO_CLASSE: ["INTELIGENCIA_NAO_AUTORIZADA", 403, "Seu acesso não permite esta operação."],
   NEGADO_ORIGEM: ["INTELIGENCIA_NAO_AUTORIZADA", 403, "Esta ação só é concluída pela sua confirmação."],
   NEGADO_PAPEL: ["INTELIGENCIA_NAO_AUTORIZADA", 403, "Seu acesso não permite esta operação."],
-  NEGADO_FLAG: ["INTELIGENCIA_DESATIVADA", 503, "Kidmais Intelligence indisponível neste ambiente."],
+  NEGADO_FLAG: ["INTELIGENCIA_DESATIVADA", 503, "Copiloto indisponível neste ambiente."],
   NEGADO_ESTABELECIMENTO: ["ESTABELECIMENTO_OBRIGATORIO", 400, "Escolha a unidade para esta consulta."],
 };
 

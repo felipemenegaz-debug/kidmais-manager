@@ -57,7 +57,7 @@ function espiao(opcoes: {
     propor: async (capacidade) => {
       e.propostas.push(capacidade);
       const acao = ACOES[capacidade];
-      if (!acao) return { tipo: "nao_suportado", mensagem: "Essa ação ainda não está disponível no Kidmais.", sugestoes: [] };
+      if (!acao) return { tipo: "nao_suportado", mensagem: "Essa ação ainda não está disponível no Copiloto.", sugestoes: [] };
       if (acao.classe === "DENY") return { tipo: "nao_suportado", mensagem: acao.mensagemNegada ?? "", sugestoes: [] };
       return { tipo: "rascunho", rascunho: { operacaoId: "op-1", capacidade, estado: "COLETANDO", versao: 1, payloadHash: "", expiraEm: "", titulo: "t", campos: [], avisos: [] }, pergunta: "Qual o nome?", faltando: ["nome"] };
     },
