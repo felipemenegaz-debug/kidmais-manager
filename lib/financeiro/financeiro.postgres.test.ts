@@ -61,6 +61,8 @@ async function usuario(db: Client) {
   )).rows[0].id;
 }
 
+const HOJE_PAGAMENTO = "2026-12-31";
+
 test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, async () => {
   const client = await conectarDescartavel();
   const db = client as unknown as Client;
@@ -103,17 +105,17 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     assert.equal(antes.find((item) => item.id === contaId)?.status, "Vencido");
     assert.equal((await listarContasPagar(tx, empresaB, hoje)).some((item) => item.id === contaId), false);
     await assert.rejects(
-      () => pagarConta(tx, empresaB, ator, { contaId, valor: 10, data: hoje, forma: "PIX", chave: randomUUID() }),
+      () => pagarConta(tx, empresaB, ator, HOJE_PAGAMENTO, { contaId, valor: 10, data: hoje, forma: "PIX", chave: randomUUID() }),
       (error: unknown) => error instanceof PacoteAdminError && error.httpStatus === 404,
     );
     const chave = randomUUID();
-    const pago = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
-    const deNovo = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    const pago = await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    const deNovo = await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
     assert.equal(pago.reutilizado, false);
     assert.equal(deNovo.reutilizado, true);
     assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_saidas WHERE conta_id = $1::uuid", [contaId])).rows[0].n, 1);
     await assert.rejects(
-      () => pagarConta(tx, empresaA, ator, { contaId, valor: 90, data: hoje, forma: "PIX", chave: randomUUID() }),
+      () => pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 90, data: hoje, forma: "PIX", chave: randomUUID() }),
       (error: unknown) => error instanceof PacoteAdminError,
     );
     const parcial = (await listarContasPagar(tx, empresaA, hoje)).find((item) => item.id === contaId);
@@ -159,26 +161,26 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
       descricao: "Aluguel B", categoriaId: categoriaB, valor: 50, vencimento: "2026-03-01",
     });
     const chaveCompartilhada = randomUUID();
-    const saidaA = await pagarConta(tx, empresaA, ator, { contaId, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
-    const saidaB = await pagarConta(tx, empresaB, ator, { contaId: contaB, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
+    const saidaA = await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
+    const saidaB = await pagarConta(tx, empresaB, ator, HOJE_PAGAMENTO, { contaId: contaB, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
     assert.equal(saidaA.reutilizado, false);
     assert.equal(saidaB.reutilizado, false);
-    const retryParcial = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    const retryParcial = await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
     assert.equal(retryParcial.reutilizado, true);
     await assert.rejects(
-      () => pagarConta(tx, empresaA, ator, { contaId, valor: 1, data: hoje, forma: "PIX", chave }),
+      () => pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 1, data: hoje, forma: "PIX", chave }),
       (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
     );
     await assert.rejects(
-      () => pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: "2026-03-19", forma: "PIX", chave }),
+      () => pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: "2026-03-19", forma: "PIX", chave }),
       (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
     );
     await assert.rejects(
-      () => pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", observacao: "outra", chave }),
+      () => pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: hoje, forma: "PIX", observacao: "outra", chave }),
       (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
     );
-    await pagarConta(tx, empresaA, ator, { contaId, valor: 70, data: hoje, forma: "PIX", chave: randomUUID() });
-    const retryQuitado = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 70, data: hoje, forma: "PIX", chave: randomUUID() });
+    const retryQuitado = await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
     assert.equal(retryQuitado.reutilizado, true);
     assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_saidas WHERE chave_idempotencia = $1", [chave])).rows[0].n, 1);
     await assert.rejects(
@@ -220,10 +222,10 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     const pid2 = (await db2.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
     assert.equal((await db2.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_contas_pagar WHERE id = $1::uuid", [conta])).rows[0].n, 1, "conta visível à segunda conexão");
     await db.query("BEGIN");
-    await pagarConta(executor(db), dona, ator2, { contaId: conta, valor: 60, data: "2026-04-01", forma: "DINHEIRO", chave: randomUUID() });
+    await pagarConta(executor(db), dona, ator2, HOJE_PAGAMENTO, { contaId: conta, valor: 60, data: "2026-04-01", forma: "DINHEIRO", chave: randomUUID() });
     await db2.query("BEGIN");
     // O tratamento da rejeição é registrado no mesmo instante em que a operação concorrente começa.
-    const corrida = pagarConta(executor(db2), dona, ator2, { contaId: conta, valor: 50, data: "2026-04-01", forma: "PIX", chave: randomUUID() })
+    const corrida = pagarConta(executor(db2), dona, ator2, HOJE_PAGAMENTO, { contaId: conta, valor: 50, data: "2026-04-01", forma: "PIX", chave: randomUUID() })
       .then(() => null, (error: unknown) => error);
     for (let tentativa = 0; ; tentativa += 1) {
       const espera = await db.query(`SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted`, [pid2]);
@@ -247,7 +249,7 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
       const alvo = await criarContaPagar(executor(db), dona, ator2, { descricao: `Corrida ${operacao}`, categoriaId: categoria, valor: 30, vencimento: "2026-04-02" });
       await db.query("COMMIT");
       await db.query("BEGIN");
-      await pagarConta(executor(db), dona, ator2, { contaId: alvo, valor: 10, data: "2026-04-02", forma: "PIX", chave: randomUUID() });
+      await pagarConta(executor(db), dona, ator2, HOJE_PAGAMENTO, { contaId: alvo, valor: 10, data: "2026-04-02", forma: "PIX", chave: randomUUID() });
       await db2.query("BEGIN");
       const concorrente = (operacao === "cancelar"
         ? cancelarConta(executor(db2), dona, ator2, alvo)
@@ -442,7 +444,7 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     const despesa = await criarContaPagar(tx, empresaA, ator, {
       descricao: "Insumo da festa", categoriaId: categoria, valor: 10, vencimento: "2026-03-10", festaId: festa,
     });
-    await pagarConta(tx, empresaA, ator, { contaId: despesa, valor: 10, data: "2026-03-10", forma: "PIX", chave: randomUUID() });
+    await pagarConta(tx, empresaA, ator, HOJE_PAGAMENTO, { contaId: despesa, valor: 10, data: "2026-03-10", forma: "PIX", chave: randomUUID() });
     await db.query(
       `INSERT INTO pagamento_parcelas (plano_id, numero, valor_previsto, vencimento, status)
        VALUES ($1::uuid, 2, 50, '2026-03-01', 'CANCELADA'), ($1::uuid, 3, 10, '2026-04-15', 'PENDENTE')`,

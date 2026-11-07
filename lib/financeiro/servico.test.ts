@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { criarEntradaManual, leituraPeriodo, painelGeral, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
+import { criarEntradaManual, leituraPeriodo, pagarConta, painelGeral, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
 import { readFileSync } from "node:fs";
 
 test("o resumo do dashboard e do financeiro usa a mesma fórmula", () => {
@@ -139,6 +139,89 @@ test("entrada manual nova revalida a festa vinculada", async () => {
     (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS",
   );
   assert.equal(viuFesta, true);
+});
+
+test("pagarConta recusa data futura sem efeito e aceita até o dia de hoje", async () => {
+  const contaId = "44444444-4444-4444-8444-444444444444";
+  const consultas: string[] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string) {
+      consultas.push(text);
+      if (text.includes("FROM financeiro_saidas") && text.includes("chave_idempotencia")) return { rows: [], rowCount: 0 };
+      if (text.includes("SUM(valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
+      if (text.includes("financeiro_contas_pagar") && text.includes("FOR UPDATE")) {
+        return { rows: [{ id: contaId, valor: "100.00", pago: "0.00", cancelado_em: null } as unknown as Row], rowCount: 1 };
+      }
+      if (text.includes("INSERT INTO financeiro_saidas")) return { rows: [{ id: "saida" } as unknown as Row], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const pagamento = { contaId, valor: 10, forma: "PIX" as const, chave: "chave-pagamento" };
+
+  await assert.rejects(
+    () => pagarConta(tx, "empresa", "ator", "2026-11-30", { ...pagamento, data: "2026-12-01" }),
+    (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS" && error.httpStatus === 409 && /não pode ser futura/.test(error.message),
+  );
+  assert.equal(consultas.length, 1, "só a consulta da chave: nem trava da conta nem gravação");
+
+  for (const data of ["2026-11-30", "2026-11-29"]) {
+    const pago = await pagarConta(tx, "empresa", "ator", "2026-11-30", { ...pagamento, data });
+    assert.equal(pago.reutilizado, false, data);
+  }
+});
+
+test("pagarConta devolve a chave já gravada antes de julgar a data", async () => {
+  const contaId = "44444444-4444-4444-8444-444444444444";
+  const linha = { id: "saida-antiga", conta_id: contaId, valor: "10.00", pago_em: "2026-12-20", forma: "PIX", observacao: null };
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string) {
+      if (text.includes("FROM financeiro_saidas")) return { rows: [linha as unknown as Row], rowCount: 1 };
+      throw new Error("consulta inesperada");
+    },
+  };
+  const pagamento = { contaId, valor: 10, forma: "PIX" as const, chave: "chave-antiga" };
+  const repetido = await pagarConta(tx, "empresa", "ator", "2026-11-30", { ...pagamento, data: "2026-12-20" });
+  assert.deepEqual(repetido, { reutilizado: true, id: "saida-antiga" });
+  await assert.rejects(
+    () => pagarConta(tx, "empresa", "ator", "2026-11-30", { ...pagamento, data: "2026-12-21" }),
+    (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+  );
+});
+
+test("pagarConta confronta o payload quando o INSERT colide com a mesma chave", async () => {
+  const contaId = "44444444-4444-4444-8444-444444444444";
+  const gravada = { id: "saida-concorrente", conta_id: contaId, valor: "10.00", pago_em: "2026-11-29", forma: "PIX", observacao: null };
+  const consultas: string[] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string) {
+      consultas.push(text);
+      if (text.includes("INSERT INTO financeiro_saidas")) throw Object.assign(new Error("duplicada"), { code: "23505" });
+      if (text.includes("SUM(valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
+      if (text.includes("financeiro_contas_pagar") && text.includes("FOR UPDATE")) {
+        return { rows: [{ valor: "100.00", cancelado_em: null } as unknown as Row], rowCount: 1 };
+      }
+      if (text.includes("FROM financeiro_saidas")) {
+        // A primeira leitura não vê a chave; a releitura, depois da colisão, vê a gravação concorrente.
+        const releitura = consultas.some((sql) => sql.includes("INSERT INTO financeiro_saidas"));
+        return releitura ? { rows: [gravada as unknown as Row], rowCount: 1 } : { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const pagamento = { contaId, valor: 10, data: "2026-11-29", forma: "PIX" as const, chave: "chave-colisao" };
+
+  const igual = await pagarConta(tx, "empresa", "ator", "2026-11-30", pagamento);
+  assert.deepEqual(igual, { reutilizado: true, id: "saida-concorrente" });
+  assert(consultas.some((sql) => sql.includes("ROLLBACK TO SAVEPOINT saida_idempotente")), "desfaz o INSERT recusado");
+
+  for (const diferente of [{ valor: 11 }, { data: "2026-11-28" }, { forma: "DINHEIRO" as const }, { observacao: "outra" }]) {
+    consultas.length = 0;
+    await assert.rejects(
+      () => pagarConta(tx, "empresa", "ator", "2026-11-30", { ...pagamento, ...diferente }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+      JSON.stringify(diferente),
+    );
+  }
 });
 
 test("a leitura de recebíveis e saídas fica presa à empresa", () => {

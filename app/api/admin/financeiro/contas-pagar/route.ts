@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       await exigirRecursoPlano(tx, empresaId, "FINANCEIRO_COMPLETO");
       if (input.acao === "criar") return criarContaPagar(tx, empresaId, tenant.usuarioId, input);
       if (input.acao === "editar") return editarContaPagar(tx, empresaId, tenant.usuarioId, input.id, input);
-      if (input.acao === "pagar") return pagarConta(tx, empresaId, tenant.usuarioId, input);
+      if (input.acao === "pagar") return pagarConta(tx, empresaId, tenant.usuarioId, hoje, input);
       await cancelarConta(tx, empresaId, tenant.usuarioId, input.id);
       return listarContasPagar(tx, empresaId, hoje);
     });
