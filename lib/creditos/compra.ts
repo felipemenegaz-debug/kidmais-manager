@@ -12,6 +12,7 @@
  * Criar a cobrança NÃO libera crédito: só a confirmação reconsultada (lib/creditos/pagamento.ts). Cobrança avulsa nunca
  * passa pelo sincronizador da assinatura (não ativa nem renova assinatura).
  */
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -104,6 +105,7 @@ export async function criarPedido(sessao: SessaoAdmin, empresaSolicitada: string
 
     // A. pedido (ou o já registrado com a mesma chave).
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'criarPedido', env);
         exigirGestao(tenant);
         if (!await creditosInstalados(tx)) throw naoInstalados();
         const empresaId = tenant.empresaComprovada;

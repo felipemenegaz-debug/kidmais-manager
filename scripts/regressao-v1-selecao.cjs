@@ -243,6 +243,8 @@ const ESTADO_POSTGRES = {
   // 109 (renovação substituta): guarda, repositório e rollback; detector do retrato nas duas versões (108 = 075 íntegra, a suíte
   // aplica a 109); concorrência com a trava real, a de linha e sem serialização.
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
+  // B-25: trava de cobrança (L2) com linha presente, sobre o modelo 109.
+  "lib/assinatura/trava-cobranca.postgres.test.ts": { descartavel: "109" },
   // Entrega B (01/11/2026): migration 112 (cliente PJ) aplicada pela suíte sobre o modelo 109; CHECKs, unicidade, corrida e rollback.
   "lib/clientes/migration-112.postgres.test.ts": { descartavel: "109" },
   // Entrega B: serviço PF/PJ com a 112 e, no 109, o código novo sem ela (PJ_INDISPONIVEL/MIGRACAO_PENDENTE).
