@@ -411,10 +411,10 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     const visivel = await listarRecebiveis(tx, empresaA, "2026-03-18");
     assert.equal(visivel.some((item) => item.id === parcela && item.status === "Vencido"), true);
     assert.equal((await listarRecebiveis(tx, empresaB, "2026-03-18")).length, 0);
-    const baixa = await prepararBaixa(tx, empresaA, { parcelaId: parcela, valor: 40, data: "2026-03-18", forma: "PIX", taxa: 1 });
+    const baixa = await prepararBaixa(tx, empresaA, "2026-12-31", { parcelaId: parcela, valor: 40, data: "2026-03-18", forma: "PIX", taxa: 1 });
     assert.equal(baixa.liquidoCentavos, 3900);
-    await assert.rejects(() => prepararBaixa(tx, empresaA, { parcelaId: parcela, valor: 101, data: "2026-03-18", forma: "PIX" }));
-    await assert.rejects(() => prepararBaixa(tx, empresaB, { parcelaId: parcela, valor: 10, data: "2026-03-18", forma: "PIX" }));
+    await assert.rejects(() => prepararBaixa(tx, empresaA, "2026-12-31", { parcelaId: parcela, valor: 101, data: "2026-03-18", forma: "PIX" }));
+    await assert.rejects(() => prepararBaixa(tx, empresaB, "2026-12-31", { parcelaId: parcela, valor: 10, data: "2026-03-18", forma: "PIX" }));
     const recebimento = (await db.query<{ id: string }>(
       `INSERT INTO pagamento_recebimentos (pagamento_id, status, meio_pagamento, valor_bruto, recebido_em, confirmado_em, chave_idempotencia, metadata_provedor)
        VALUES ($1::uuid, 'CONFIRMADO', 'PIX', 40, '2026-03-01', now(), $2, '{"forma":"PIX","taxaCentavos":100}'::jsonb) RETURNING id`,
@@ -543,7 +543,7 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
       (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS",
     );
     await assert.rejects(
-      () => prepararBaixa(tx, empresaA, { parcelaId: entradaAberta.id, valor: 10, data: "2026-09-27", forma: "PIX" }),
+      () => prepararBaixa(tx, empresaA, "2026-12-31", { parcelaId: entradaAberta.id, valor: 10, data: "2026-09-27", forma: "PIX" }),
       (error: unknown) => error instanceof PacoteAdminError && error.code === "NAO_ENCONTRADO" && error.httpStatus === 404,
     );
 
