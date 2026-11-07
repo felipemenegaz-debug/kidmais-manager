@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { escolherParcelaAberta, reaisDe } from '@/lib/financeiro/calculos';
+import { escolherParcelaAberta, hojeBrasilia, reaisDe } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import styles from './festa.module.css';
 import { PixParcela } from '@/components/admin/PixParcela';
@@ -132,7 +132,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     {aberto === 'receber' && <form aria-busy={enviando} onSubmit={(evento) => { evento.preventDefault(); void receber(new FormData(evento.currentTarget)); }}>
       <label>Parcela<select name="parcelaId" required aria-label="Parcela" value={parcelaId} onChange={(evento) => setParcelaId(evento.target.value)}>{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').length !== 1 && <option value="">Escolha a parcela</option>}{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').map((item) => <option key={item.id} value={item.id}>Parcela {item.parcela} · {reaisDe(item.valorCentavos)}</option>)}</select></label>
       <label>Valor<input name="valor" type="number" min="0.01" step="0.01" required aria-label="Valor recebido" /></label>
-      <label>Data<input name="data" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} aria-label="Data" /></label>
+      <label>Data<input name="data" type="date" required defaultValue={hojeBrasilia()} aria-label="Data" /></label>
       <label>Forma<select name="forma" aria-label="Forma de pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="TRANSFERENCIA">Transferência</option></select></label>
       {aviso && <p role="alert">{aviso}</p>}
       <button className={styles.cta} type="submit" disabled={enviando}>{enviando ? 'Processando…' : 'Confirmar'}</button>
