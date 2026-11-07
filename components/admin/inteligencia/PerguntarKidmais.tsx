@@ -21,7 +21,7 @@ export function usePerguntarKidmais() {
 }
 
 /**
- * Drawer global "Perguntar ao Kidmais".
+ * Drawer global "Perguntar ao Copiloto".
  *
  * - "O que precisa da minha atenção hoje?" sem tela específica continua no endpoint da V1 (só a flag-mestra).
  * - O resto vai ao orquestrador do servidor, que decide: leitura, rascunho sob Human Gate ou "ainda não".
@@ -131,7 +131,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   </Contexto.Provider>;
 }
 
-export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Kidmais', aoAbrir }: { className?: string; children?: React.ReactNode; aoAbrir?(): void }) {
+export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Copiloto', aoAbrir }: { className?: string; children?: React.ReactNode; aoAbrir?(): void }) {
   const assistente = usePerguntarKidmais();
   if (!assistente) return null;
   return <button type="button" className={`${className ?? ''} ${visual.assistente}`} data-km-assistente aria-haspopup="dialog" onClick={() => { aoAbrir?.(); assistente.abrir(); }}>{children}</button>;

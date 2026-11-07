@@ -373,7 +373,7 @@ async function resolverCliente(tx: DbExecutor, empresaId: string, nome: string, 
   const ativos = (await porta.buscarClientes(tx, empresaId, nome)).filter((c) => c.ativo);
   const exatos = ativos.filter((c) => mesmoNome(c.nome, nome));
   const candidatos = exatos.length ? exatos : ativos;
-  if (!candidatos.length) throw new ErroCampo(["cliente"], `Não encontrei cliente ativo chamado "${nome}" nesta empresa (o Kidmais não cadastra clientes por aqui).`);
+  if (!candidatos.length) throw new ErroCampo(["cliente"], `Não encontrei cliente ativo chamado "${nome}" nesta empresa (o Copiloto não cadastra clientes por aqui).`);
   if (candidatos.length > 1) {
     const lista = candidatos.slice(0, 5).map((c) => c.nome).join("; ");
     throw new ErroCampo(["cliente"], `Encontrei ${candidatos.length} clientes para "${nome}": ${lista}. Qual deles? Responda com o nome completo.`);
