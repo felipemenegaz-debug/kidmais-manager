@@ -48,6 +48,12 @@ Variáveis (nomes): `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, `EMAIL_REMETENTE`
 
 ### Production
 
+> **Bloqueio em production (B-27, 07/11/2026).** "Mesmo roteiro" não inclui ligar `CADASTRO_PUBLICO_ATIVO`, do passo 5, que está bloqueado em production. `USUARIOS_CRIACAO_DIRETA=desativada`, a outra parte do passo 5, não é configuração de e-mail: é decisão de acesso (E1), separada, com autorização própria. Os passos 1 a 4 são configuração e prova de e-mail, também com autorização própria.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Mesmo roteiro com chave e remetente de production, em janela autorizada. `RECUPERACAO_SENHA_ATIVA=true` só depois do
 teste com a caixa real.
 

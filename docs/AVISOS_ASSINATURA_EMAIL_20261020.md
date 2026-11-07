@@ -1,5 +1,13 @@
 # Avisos por e-mail da assinatura — 20/10/2026
 
+> **Bloqueio em production (B-27, 07/11/2026).** No ramo G-VAZIO, a D-VZ-6 exige suspender os avisos de production (`crn-dbkt25m7bikc73fqhlh0`) no início da barreira, antes do P1, com a autorização A-VZ-2 e prova de que a execução ativa terminou; a retomada exige a dívida fechada e autorização. `AVISADA` e `aviso_enviado_em` não provam notificação: antes de retomar processador que os use, concilia-se a entrega e verifica-se o endpoint do Resend e o que ainda é recuperável. `ASSINATURA_AVISOS_EMAIL` tem o estado registrado e não precisa ser desligada para o G-VAZIO; registrar e preservar esse estado não permite ligá-la, criar substituto ou rodar o cron.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Status: IMPLEMENTADO SÓ LOCALMENTE. Nada publicado.** Sem commit, push, PR ou deploy. A migration 087 está preparada e
 não foi aplicada em staging nem em produção. Só a suíte PG a aplicou e desfez num cluster descartável, já removido. Nenhuma variável de ambiente foi alterada. Nenhum e-mail real
 foi enviado.
@@ -110,6 +118,8 @@ Regras gerais:
 6. Criar o cron do job: primeiro em simulação, depois com envio. Antes, liberar o `--aplicar` remoto no script, que hoje
    o recusa.
 7. Homologar e só então promover para produção.
+
+> **Bloqueio em production (B-27, 07/11/2026).** Promover o código não ativa os avisos: em production, ligar a flag, criar substituto ou rodar o cron seguem bloqueados. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 **Rollback:**
 

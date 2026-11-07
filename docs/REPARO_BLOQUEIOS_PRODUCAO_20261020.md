@@ -140,6 +140,12 @@ Os sha256/bytes dos blocos gerados da árvore do commit ficam no `LEIA-ME.md` do
 6. **LIMPEZA** (opcional).
 7. Só depois disso faz sentido ligar `CADASTRO_PUBLICO_ATIVO` (último passo da abertura).
 
+> **Bloqueio em production (B-27, 07/11/2026).** Reparo concluído não libera o passo 7: ligar `CADASTRO_PUBLICO_ATIVO` em production está bloqueado. Os passos 1 a 6 tratam só do reparo da agenda e continuam sujeitos às próprias autorizações.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 | Código | Leitura | Próximo passo |
 |---|---|---|
 | 1 | recusa antes de conectar (flag ligada, backup antigo, serviço/URL) | corrigir a causa; nada foi gravado |

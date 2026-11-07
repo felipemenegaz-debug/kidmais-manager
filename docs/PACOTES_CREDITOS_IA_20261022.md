@@ -1,5 +1,13 @@
 # Pacotes de créditos de IA — implementação LOCAL (22/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Crédito pago, cortesia, consumo e franquia por plano seguem bloqueados em production. `CREDITOS_CATALOGO_ATIVO`, `CREDITOS_COMPRA_ATIVA`, `CREDITOS_FRANQUIA_PLANO_ATIVO`, `CREDITOS_CONVITES_CONSUMO_ATIVO` e `CREDITOS_WALLE_CONSUMO_ATIVO` devem seguir desligadas, e o cron de manutenção de créditos não deve ser criado. A cortesia do painel não depende dessas flags: em `M`, com a L2 efetiva, a recusa vem da L2; num artefato sem ela, o controle é não executar.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Estado:** implementação e validação **locais**. Nada foi publicado, aplicado em staging/produção, cobrado no Asaas
 (nem sandbox) ou enviado a provedor de IA. Preços, franquias, validade, cortesias, tetos e garantia ampliada continuam
 **PROPOSTAS** de `docs/PLANO_PACOTES_CREDITOS.md` (commit documental `aa706ad`), sem aprovação comercial, jurídica ou fiscal.
@@ -174,6 +182,8 @@ disputas revisitados por item (simulação = ROLLBACK; produção só conferênc
 cliente/referência), pagamento duplicado, estorno externo parcial, arrependimento vencido e divergência de carteira são
 `CRITICO` e alarmam em toda conferência até resolução (substituto de Felipe ainda não definido). `DOCUMENTO_FISCAL` não
 existe (NFS-e fora desta versão).
+
+> **Bloqueio em production (B-27, 07/11/2026).** O `--aplicar` de `creditos-manutencao` e de `creditos-corte-legado` em production está bloqueado, mesmo com `--autorizacao`: o registro exigido pelo script não substitui o gate da dívida. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 **Caminho de escrita em produção (P2-3).** `scripts/creditos-manutencao.cjs` e `scripts/creditos-corte-legado.cjs` aceitam
 `--aplicar` em produção **somente** com `--autorizacao "<registro>"` (ASCII, 6–120 caracteres, gravado no relatório); sem

@@ -1,5 +1,13 @@
 # B-9 para production: contagem de PUTs e janela de aviso perdida (plano rev. 5, 29/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Este plano não libera o `aplicar` da renovação em production. No ramo G-VAZIO, pela D-VZ-7, o E8c fica adiado e pendente de ativação: não criar o cron enquanto a dívida estiver aberta, nem em `aguardando`.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Estado: **PROPOSTA**. Nada implementado, nada aplicado, nada remoto.
 Base: clone `kidmais-manager-b9-production-20261029`, staging `fc37e885`, branch local `codex/b9-production-20261029` (sem commit).
 
@@ -273,6 +281,8 @@ Ordem obrigatória em cada ambiente:
 1. publicar o código novo em **todos** os consumidores (web, cron da renovação, cron da reconciliação e ferramentas manuais que rodam no Shell do web) e validar com a 075 (nenhuma mudança de comportamento). O roteiro futuro confere o commit de cada serviço e drena execuções antigas (nenhuma execução do cron com o commit anterior em andamento). Pausar o cron não substitui essa conferência;
 2. aplicar a 109 numa janela própria, com o cron da renovação em `aguardando` ou suspenso durante a aplicação;
 3. conferir a capacidade `'109'` e voltar ao modo anterior.
+
+> **Bloqueio em production (B-27, 07/11/2026).** Em production, o cutover técnico não cria nem retoma cron de cobrança: "modo anterior" não vale para o E8c adiado pela D-VZ-7 nem para os crons suspensos pela D-VZ-6. A sequência de staging segue no seu próprio escopo. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 **Rollback:**
 - código novo → antigo só com a 109 **ausente**;
