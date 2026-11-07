@@ -74,6 +74,12 @@ Tamanhos (rótulo `58c5451`, 11 arquivos): partes de 22,0 a 28,4 KB; curtos de 4
 
 ## Uso (artefato de revisão — não executar sem autorização)
 
+> **Bloqueio em production (B-27, 07/11/2026).** O modo E1 deste artefato recusa sem `ASAAS_API_KEY`. Não instalar a chave em production para rodá-lo, nem por pouco tempo: a chave deve seguir ausente. O plano prevê a parte Fundador e Asaas vazia e sem GET quando não houver conta, o que é entrega do B-5 ampliado, ainda não descrita aqui.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 1. Gerar da árvore integrada final: `node scripts/bloco-shell-conferencia-b5-producao.cjs TODOS <commit> <pasta-nova>`. Conferir sha256 e bytes de cada bloco.
 2. **E1** (A1, ampliada para o Asaas): colar as 5 partes e depois `CONFERIR-B5`. Copiar a saída JSON para as evidências. Com `PARAR`, seguir o plano: decisão D-COM-4 ou D-OP-4, conforme o motivo.
 3. **E2c** (A2c): na instância live, depois do E2/E2b, colar as partes (se a pasta sumiu) e depois `CONFERIR-B5-ESTADO`.

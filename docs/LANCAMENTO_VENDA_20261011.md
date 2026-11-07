@@ -1,5 +1,13 @@
 # Lançamento da venda — candidata única, testes finais e publicação em produção (11/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Este roteiro e a [rodada final](RODADA_FINAL_LANCAMENTO_20261013.md) não liberam venda em production: contratação (`ASSINATURA_PLANOS_ATIVOS`, `POST /api/admin/assinatura/checkout`), campanha 090 (`ASSINATURA_CAMPANHA_FUNDADOR_ATIVA`) e concessão LEGADO seguem bloqueadas, mesmo depois da promoção técnica. A abertura LEGADO ainda depende de D-COM-4, da primeira data e de −47.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Roteiro do que falta (13/10/2026): [RODADA_FINAL_LANCAMENTO_20261013.md](RODADA_FINAL_LANCAMENTO_20261013.md).** E0 PASS em staging.
 
 **Status (11/10):** validação local concluída; candidata publicada em staging, com health e vitrine 200. P0 de produção somente leitura concluído: faltam 074a–079 e há cinco bloqueios globais ativos futuros. Produção sem alterações. [Evidência P0](evidencias/diagnostico-production-codex-20261011.md). Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
@@ -94,6 +102,8 @@ Validações offline da candidata integrada: `tsc --noEmit` 0; ESLint 0 erros (1
 | S8 | Evidência sanitizada | commit local |
 
 ## 5. Publicação em produção (P) — só com L e S PASS
+
+> **Bloqueio em production (B-27, 07/11/2026).** P6 a P8 estão bloqueados em production: instalar `ASAAS_AMBIENTE=producao`, chave e token, registrar webhook, ligar `ASSINATURA_PLANOS_ATIVOS` e `CADASTRO_PUBLICO_ATIVO`, criar ou disparar o cron de conferência, fazer a primeira venda e dar GO por este roteiro. P0 a P5 são publicação técnica de 11/10 e não substituem o roteiro vigente da promoção. O item de credenciais Asaas em `docs/CONFIGURACAO_VENDA_APROVADA_20261011.json`, arquivo que não aceita comentário, está sob esta mesma nota. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 | # | Passo | Quem | Aceite / parada |
 |---|---|---|---|

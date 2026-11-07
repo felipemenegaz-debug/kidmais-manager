@@ -1,5 +1,13 @@
 # Plano B-9 — renovação Fundador agendada (25/10/2026, revisão 3.1)
 
+> **Bloqueio em production (B-27, 07/11/2026).** No ramo G-VAZIO, pela D-VZ-7, o cron da renovação em production (E8c) fica adiado e pendente de ativação: não criar enquanto a dívida estiver aberta, nem em `aguardando`. Processar zero casos não conta como conclusão, e a B-9 segue pré-condição da campanha 090.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Estado:** PLANO **APROVADO COM RESSALVAS** pela revisão independente (rev. 3, 25/10), pronto para implementação local. O P3 do contador e a orientação de trava única já estão incorporados nesta rev. 3.1. **Decisões D-B9-1 a D-B9-5 aceitas por Felipe em 25/10; implementado localmente, ver `docs/RENOVACAO_AGENDADA_B9_20261025.md`.** Antes desta aprovação, era PLANO para revisão. Nenhum código de agendamento foi escrito. Nenhum cron, variável, deploy ou execução remota.
 
 **Histórico:**
@@ -264,6 +272,8 @@ O relatório JSON continua sanitizado: id interno da empresa, códigos e contage
 5. `aplicar`.
 
 ### Production
+
+> **Bloqueio em production (B-27, 07/11/2026).** Esta sequência não vale no ramo G-VAZIO: criar o cron, `simular` e `aplicar` ficam adiados pela D-VZ-7. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 Depois da promoção que leva o B-9 à branch `production`, com a data do B-5 e as condições do §1.1:
 1. criar o cron em `aguardando`;

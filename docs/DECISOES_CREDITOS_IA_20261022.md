@@ -40,6 +40,12 @@ Consumo pelo menor vencimento, franquia/cortesia antes do pago no empate (implem
 - Wall-e: sem franquia enquanto indisponível.
 - **Implementação pendente:** a franquia por plano e a proporcionalidade ainda não estão no código (hoje: só o limite legado).
 
+> **Bloqueio em production (B-27, 07/11/2026).** Aprovar o catálogo e repetir a versão em `CREDITOS_CATALOGO_APROVADO` não abre a venda em production: crédito pago, cortesia, consumo e franquia por plano seguem bloqueados.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Catálogo:** a aprovação de venda exige uma **nova versão** do catálogo no código (ex.: `PILOTO-20261022`, só Convites 10
 e 30), com o registro desta decisão em `aprovacao`, depois do gate de preço, das respostas fiscais e da aprovação de Felipe dos termos (sem parecer jurídico, D5); só então
 `CREDITOS_CATALOGO_APROVADO` pode repetir essa versão em produção. A versão atual (`PROPOSTA-20261022-DEMO`) continua de
@@ -103,6 +109,8 @@ pendência de pessoa, necessária antes de abrir a venda (o arrependimento exige
   e momento da NFS-e; documento na devolução; tributação no regime do CNPJ; emissão automática pelo Asaas no município).
   As outras 5 perguntas de `02-CONTADOR.md` ficam para depois da abertura. **Envio por Felipe.**
 - A venda abre com: respostas fiscais, gate de preço da D1 e aprovação do catálogo por Felipe.
+
+> **Bloqueio em production (B-27, 07/11/2026).** As condições acima são comerciais e fiscais, e não bastam: a venda de créditos em production também depende do gate da dívida. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 ## Situação
 

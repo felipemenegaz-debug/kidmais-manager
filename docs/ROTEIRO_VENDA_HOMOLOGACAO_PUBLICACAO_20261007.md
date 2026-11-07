@@ -69,6 +69,12 @@ Scripts locais de evidência: `scripts/painel-implantacao-ui.cjs`, `scripts/assi
 
 ## Publicação em production (depois de staging homologado)
 
+> **Bloqueio em production (B-27, 07/11/2026).** O item 5 abaixo está bloqueado em production: cadastro aberto, preços de venda e Asaas de produção não seguem da publicação técnica.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 1. Confirmar o estado real de production (diagnóstico v7).
 2. Concessão de desenvolvedor de Felipe (se faltar): blocos `cutover/concessao-desenvolvedor-20261007/`
    (`VERIFICAR` somente leitura; `CONCEDER` usa a função oficial do CLI, auditada). Exige a 063.
