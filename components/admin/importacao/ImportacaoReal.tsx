@@ -8,7 +8,7 @@ import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/model
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
-import { abrirDocumento, agirNaImportacao, enviarContrato, errosDaRevisao, listarParaRevisao, type ItemParaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { abrirDocumento, agirNaImportacao, enviarContrato, lerCota, textoCota, errosDaRevisao, listarParaRevisao, type ItemParaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
 import { AvisoGlobal, MensagemCampo, ResumoErros } from '@/components/ui/ErrosFormulario';
 import { focarPrimeiroErro, idMensagemErro, mapaErros, propsCampo } from '@/lib/ui/erros-formulario';
 import IntegracaoContrato, { type PassoIntegracao } from './IntegracaoContrato';
@@ -28,9 +28,9 @@ import real from './importacao-real.module.css';
 type Etapa =
   | { etapa: 'upload'; erro: string | null }
   | { etapa: 'lendo'; nome: string }
-  | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
-  | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
-  | { etapa: 'operacional'; importacao: ImportacaoPublica; plano: PlanoPublico | null }
+  | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null; cota?: string | null }
+  | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null; cota?: string | null }
+  | { etapa: 'operacional'; importacao: ImportacaoPublica; plano: PlanoPublico | null; cota?: string | null }
   | { etapa: 'cancelada' }
   /** Dados do contrato e cliente registrados; segue o assistente de integração (festa, agenda, pagamentos). */
   | { etapa: 'integracao'; importacaoId: string; destino?: string; acabouDeRegistrar: boolean };
@@ -56,9 +56,10 @@ export type EtapaImportacao = Etapa;
 /** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
 function etapaDaResposta(dados: RespostaImportacao): Etapa {
   const i = dados.importacao;
+  const cota = lerCota(dados.cota);
   if (i.status === 'IMPORTADA') return { etapa: 'integracao', importacaoId: i.id, destino: i.resultado?.destino, acabouDeRegistrar: false };
   if (i.status === 'DESCARTADA') return { etapa: 'cancelada' };
-  return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null };
+  return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null, cota: cota ? textoCota(cota) : null };
 }
 
 /** `vitrine`: estado inicial estático para /preview-ux (sem sessão e sem rede). */
@@ -199,7 +200,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (estado.etapa !== 'revisao' && estado.etapa !== 'confirmacao') return;
     const resposta = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'descartar' });
     if (!resposta.ok) {
-      setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem });
+      setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem, cota: estado.cota });
     } else { irPara({ etapa: 'upload', erro: null }, true); setEditando(null); }
     setCancelando(false);
   }
@@ -228,7 +229,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     setEditando(null);
     if (acao.acao === 'descartar') { irPara({ etapa: 'upload', erro: null }, true); return; }
     const rascunho = r.dados.gate?.tipo === 'preview' ? r.dados.gate.rascunho : undefined;
-    if (rascunho) { setEstado({ etapa: 'confirmacao', importacao: r.dados.importacao, plano: r.dados.plano ?? null, rascunho, decidindo: false, erro: null }); return; }
+    if (rascunho) { setEstado({ etapa: 'confirmacao', importacao: r.dados.importacao, plano: r.dados.plano ?? null, rascunho, decidindo: false, erro: null, cota: estado.cota }); return; }
     setEstado({ ...estado, importacao: r.dados.importacao, plano: r.dados.plano ?? estado.plano, ocupado: false, erro: null });
   }
 
@@ -237,7 +238,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     setEstado({ ...estado, decidindo: true, erro: null });
     const r = await decidirOperacao(adminFetch, rascunho, decisao);
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
-    if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
+    if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null, cota: estado.cota }); return; }
     const resposta = r.resposta;
     if (resposta.tipo === 'resultado_acao') irPara({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
@@ -309,7 +310,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
           focarPrimeiroErro(errosDaRevisao(estado.importacao, estado.plano), { abrir: abrirCampo, resumoId: 'revisao-erros' });
           return;
         }
-        setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano });
+        setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano, cota: estado.cota });
       };
       return <div className={`${styles.revisao} ${real.revisao}`}>
         <div className={styles.principal}>
@@ -320,6 +321,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
             </div>
           </div>
           {estado.avisos.filter((a) => AVISOS[a]).map((a) => <p key={a} className={styles.aviso}>{AVISOS[a]}</p>)}
+          {estado.cota && <p className={styles.arquivo} data-cota>{estado.cota}</p>}
           <p className={styles.contagem}>
             <span data-estado="ENCONTRADO">{contagem.ENCONTRADO} encontrados</span>
             <span data-estado="PRECISA_REVISAO">{contagem.PRECISA_REVISAO} precisam revisão</span>
@@ -383,7 +385,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
           if (itemEmRevisao) { gravarLote((l) => concluirItem(l, itemEmRevisao, 'IMPORTADA')); setItemEmRevisao(null); setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); return; }
           if (!enderecoFinal()) router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId));
         }} />
-      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); }}>Voltar aos dados do contrato</button></div>
+      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null, cota: estado.cota }); }}>Voltar aos dados do contrato</button></div>
     </>}
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
       <h2 id="confirmar-real" className={styles.titulo}>Registrar dados do contrato e cliente</h2>

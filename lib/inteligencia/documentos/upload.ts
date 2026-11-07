@@ -4,10 +4,11 @@ import type { ExtracaoContrato } from "../../importacao-contrato/modelo.ts";
 import type { ModeloReferencia } from "../../importacao-contrato/modelo-referencia.ts";
 import { montarRevisao } from "../../importacao-contrato/rascunho.ts";
 import type { ExtracaoRegistrada, RegistroExtracao } from "../../importacao-contrato/repositorio-documentos.ts";
+import type { Posse, ResultadoReserva } from "../../importacao-contrato/cota.ts";
 import { hojeBrasilia } from "../../financeiro/calculos.ts";
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { SessaoParaTenant } from "../../saas/provar-tenant.ts";
-import { envioDocumentoExternoAutorizado, grupoAtivo, inteligenciaAtiva } from "../flags.ts";
+import { cotaImportacaoDispensada, envioDocumentoExternoAutorizado, grupoAtivo, inteligenciaAtiva } from "../flags.ts";
 import { classificar, exigirGrupoNaEmpresa, recursoDesativado, type DependenciasGateway, type RespostaGateway } from "../gateway.ts";
 import type { RoteadorModelos } from "../modelos/roteador.ts";
 import { InteligenciaError } from "../politica.ts";
@@ -33,6 +34,15 @@ export type PortaDocumentos = {
    * da contratada. O PDF original enviado nas configurações nunca entra. Ausente ou sem modelo ⇒ null.
    */
   modeloReferencia?(tx: DbExecutor, empresaId: string): Promise<{ modelo: ModeloReferencia; documentoContratada: string | null } | null>;
+  /** L2 (migration 118): cota de leitura de documentos. Ausente ou sem tabelas ⇒ recusa COTA_INDISPONIVEL, salvo a dispensa de staging. */
+  cota?: PortaCota;
+};
+
+export type PortaCota = {
+  instalada(tx: DbExecutor): Promise<boolean>;
+  reservar(tx: DbExecutor, entrada: { empresaId: string; documentoId: string; sha256: string }): Promise<ResultadoReserva>;
+  concluir(tx: DbExecutor, entrada: { empresaId: string; posse: Posse; comDados: boolean }): Promise<void>;
+  liberar(tx: DbExecutor, entrada: { empresaId: string; posse: Posse }): Promise<boolean>;
 };
 
 export type DependenciasDocumento = DependenciasGateway & {
@@ -51,6 +61,21 @@ export type DocumentoPublico = {
   extracao: ExtracaoContrato | null;
   avisos: string[];
 };
+
+const CODIGOS_COTA = new Set(["COTA_IMPORTACAO_ESGOTADA", "COTA_INDISPONIVEL", "LEITURA_EM_ANDAMENTO", "LEITURA_EXPIRADA"]);
+
+/** Converte o erro da cota (ErroCota) em InteligenciaError com o mesmo código, status e mensagem; outros erros passam intactos. */
+async function comCota<T>(trabalho: () => Promise<T>): Promise<T> {
+  try {
+    return await trabalho();
+  } catch (error) {
+    const f = error as { codigo?: unknown; status?: unknown };
+    if (error instanceof Error && error.name === "ErroCota" && typeof f.codigo === "string" && CODIGOS_COTA.has(f.codigo) && typeof f.status === "number") {
+      throw new InteligenciaError(f.codigo, error.message, f.status);
+    }
+    throw error;
+  }
+}
 
 const MENSAGEM_FALLBACK = "Não foi possível processar o contrato agora. Nenhum cadastro foi alterado; tente de novo.";
 
@@ -111,50 +136,76 @@ export async function atenderDocumento(
       rastreio.empresaId = tenant.empresaComprovada;
       exigirGrupoNaEmpresa(deps.env, "CONTRACT_IMPORT", tenant);
       if (!await porta.disponivel(tx)) throw new InteligenciaError("DOCUMENTOS_INDISPONIVEIS", "O envio de documentos ainda não está disponível neste ambiente.", 503);
-      const registro = await porta.registrarDocumento(tx, { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, arquivo });
-      const anterior = registro.existente ? extracaoGuardada(await porta.ultimaExtracao(tx, tenant.empresaComprovada, registro.documentoId)) : null;
-      const referencia = anterior && extracaoTemDados(anterior) ? null : (await porta.modeloReferencia?.(tx, tenant.empresaComprovada)) ?? null;
-      return { tenant, registro, anterior, referencia };
+      // L2 (R2-2): sem controle de cota, sem leitura — antes de gravar o documento e de qualquer trabalho caro.
+      const cota = porta.cota && await porta.cota.instalada(tx) ? porta.cota : null;
+      if (!cota && !cotaImportacaoDispensada(deps.env)) {
+        throw new InteligenciaError("COTA_INDISPONIVEL", "A leitura de documentos ainda não está disponível neste ambiente. Nenhum arquivo foi lido.", 503);
+      }
+      const empresaId = tenant.empresaComprovada;
+      const registro = await porta.registrarDocumento(tx, { empresaId, usuarioId: sessao.usuario_id, arquivo });
+      const anterior = registro.existente ? extracaoGuardada(await porta.ultimaExtracao(tx, empresaId, registro.documentoId)) : null;
+      const reaproveitar = !!anterior && extracaoTemDados(anterior);
+      // Reserva antes da leitura, sob a trava da empresa (R2-1/R3-1). Extração com dados reaproveitada não reserva.
+      const reserva = cota && !reaproveitar ? await comCota(() => cota.reservar(tx, { empresaId, documentoId: registro.documentoId, sha256: arquivo.sha256 })) : null;
+      const referencia = reaproveitar ? null : (await porta.modeloReferencia?.(tx, empresaId)) ?? null;
+      return { tenant, registro, anterior, referencia, cota, reserva };
     });
     // Reenvio do mesmo arquivo: devolve a extração que já existe, sem ler de novo.
     if (recepcao.anterior && extracaoTemDados(recepcao.anterior)) {
       rastreio.estado = "reaproveitado";
       return { documentoId: recepcao.registro.documentoId, reaproveitado: true, metodo: null, extracao: recepcao.anterior, avisos: ["DOCUMENTO_JA_ENVIADO"] };
     }
-
-    const iniciadoEm = deps.agora().toISOString();
-    // Extração fora de transação: chamada de modelo nunca segura lock no banco.
-    const extracao = await extrairDocumento({
-      sinal: pedido.sinal,
-      lerPdf: deps.lerPdf,
-      arquivo,
-      roteador: deps.roteador,
-      envioExterno: envioDocumentoExternoAutorizado(deps.env),
-      modelo: recepcao.referencia?.modelo ?? null,
-      alvo: { empresaId: recepcao.tenant.empresaComprovada, capacidade: "extrair_documento", correlationId: rastreio.requestId, hoje: hojeBrasilia(deps.agora()) },
-    });
-    anotarUsoModelo(rastreio, extracao.usos);
-    if (extracao.avisos.includes("PDF_WORKER_FALHOU")) {
-      throw new InteligenciaError("LEITURA_PDF_INDISPONIVEL", "Não foi possível ler o PDF agora. Tente enviar novamente; nenhum campo foi importado.", 503);
-    }
-    const revisao = montarRevisao(extracao.lida, extracao.paginas, { nome: arquivo.nomeSeguro, tipo: arquivo.contentType, tamanhoBytes: arquivo.tamanhoBytes }, {
-      porModelo: extracao.porModelo,
-      modeloReferencia: extracao.modeloReferencia,
-      documentoContratada: recepcao.referencia?.documentoContratada ?? null,
-    });
-    const evidencias = revisao.secoes.flatMap((s) => s.campos).filter((c) => c.evidencia).map((c) => ({ campo: c.id, pagina: c.evidencia!.pagina, trecho: c.evidencia!.trecho, conferida: c.evidencia!.conferida }));
-
-    await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
-      if (tenant.empresaComprovada !== recepcao.tenant.empresaComprovada) throw new InteligenciaError("TENANT_NAO_COMPROVADO", "A empresa mudou durante o envio.", 403);
-      return porta.registrarExtracao(tx, {
-        empresaId: tenant.empresaComprovada, documentoId: recepcao.registro.documentoId, originalId: recepcao.registro.originalId,
-        metodo: extracao.metodo, provedor: extracao.provedor, modelo: extracao.modelo, schemaVersao: SCHEMA_VERSAO, status: extracao.status,
-        resultado: revisao as unknown as Record<string, unknown>, erro: extracao.avisos.find((a) => a.startsWith("MODELO_"))?.slice(0, 40) ?? null,
-        correlationId: rastreio.requestId, iniciadoEm, concluidoEm: deps.agora().toISOString(), evidencias,
+    const posse = recepcao.reserva?.tipo === "RESERVADA" ? recepcao.reserva.posse : null;
+    try {
+      const iniciadoEm = deps.agora().toISOString();
+      // Extração fora de transação: chamada de modelo nunca segura lock no banco.
+      const extracao = await extrairDocumento({
+        sinal: pedido.sinal,
+        lerPdf: deps.lerPdf,
+        arquivo,
+        roteador: deps.roteador,
+        envioExterno: envioDocumentoExternoAutorizado(deps.env),
+        modelo: recepcao.referencia?.modelo ?? null,
+        alvo: { empresaId: recepcao.tenant.empresaComprovada, capacidade: "extrair_documento", correlationId: rastreio.requestId, hoje: hojeBrasilia(deps.agora()) },
       });
-    });
-    rastreio.estado = extracao.metodo;
-    rastreio.ferramentasExecutadas = [`documentos.extrair.${extracao.metodo.toLowerCase()}`];
-    return { documentoId: recepcao.registro.documentoId, reaproveitado: false, metodo: extracao.metodo, extracao: revisao, avisos: extracao.avisos };
+      anotarUsoModelo(rastreio, extracao.usos);
+      if (extracao.avisos.includes("PDF_WORKER_FALHOU")) {
+        throw new InteligenciaError("LEITURA_PDF_INDISPONIVEL", "Não foi possível ler o PDF agora. Tente enviar novamente; nenhum campo foi importado.", 503);
+      }
+      const revisao = montarRevisao(extracao.lida, extracao.paginas, { nome: arquivo.nomeSeguro, tipo: arquivo.contentType, tamanhoBytes: arquivo.tamanhoBytes }, {
+        porModelo: extracao.porModelo,
+        modeloReferencia: extracao.modeloReferencia,
+        documentoContratada: recepcao.referencia?.documentoContratada ?? null,
+      });
+      const evidencias = revisao.secoes.flatMap((s) => s.campos).filter((c) => c.evidencia).map((c) => ({ campo: c.id, pagina: c.evidencia!.pagina, trecho: c.evidencia!.trecho, conferida: c.evidencia!.conferida }));
+
+      await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
+        if (tenant.empresaComprovada !== recepcao.tenant.empresaComprovada) throw new InteligenciaError("TENANT_NAO_COMPROVADO", "A empresa mudou durante o envio.", 403);
+        // Posse, estado e prazo conferidos sob a trava; 0 linhas ⇒ LEITURA_EXPIRADA e a extração não é gravada.
+        const cota = recepcao.cota;
+        if (posse && cota) await comCota(() => cota.concluir(tx, { empresaId: tenant.empresaComprovada, posse, comDados: extracaoTemDados(revisao) }));
+        return porta.registrarExtracao(tx, {
+          empresaId: tenant.empresaComprovada, documentoId: recepcao.registro.documentoId, originalId: recepcao.registro.originalId,
+          metodo: extracao.metodo, provedor: extracao.provedor, modelo: extracao.modelo, schemaVersao: SCHEMA_VERSAO, status: extracao.status,
+          resultado: revisao as unknown as Record<string, unknown>, erro: extracao.avisos.find((a) => a.startsWith("MODELO_"))?.slice(0, 40) ?? null,
+          correlationId: rastreio.requestId, iniciadoEm, concluidoEm: deps.agora().toISOString(), evidencias,
+        });
+      });
+      rastreio.estado = extracao.metodo;
+      rastreio.ferramentasExecutadas = [`documentos.extrair.${extracao.metodo.toLowerCase()}`];
+      return { documentoId: recepcao.registro.documentoId, reaproveitado: false, metodo: extracao.metodo, extracao: revisao, avisos: extracao.avisos };
+    } catch (error) {
+      // Falha entre reservar e concluir (leitor caiu, aborto, PDF_WORKER_FALHOU, posse perdida, gravação falhou): libera só
+      // a própria reserva, numa transação própria. Nunca reverte CONSUMIDA nem toca sucessor; se não der, vence em 15 min.
+      const cota = recepcao.cota;
+      if (posse && cota) {
+        try {
+          await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
+            if (tenant.empresaComprovada === recepcao.tenant.empresaComprovada) await cota.liberar(tx, { empresaId: tenant.empresaComprovada, posse });
+          });
+        } catch { /* A reserva vence sozinha; o erro original é o que importa. */ }
+      }
+      throw error;
+    }
   });
 }

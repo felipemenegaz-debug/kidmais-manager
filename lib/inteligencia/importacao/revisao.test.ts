@@ -731,3 +731,20 @@ test("r3 P2-1: retomar com identidade nova sobre IMPORTADA cujo contrato foi can
   assert.equal(codigoDe(r), "RECUPERACAO_AMBIGUA");
   assert.equal(JSON.stringify([...a.importacao.importacoes.values()]), antes, "nada gravado, nada substituído");
 });
+
+test("L2: abrir e ler devolvem a cota atual da empresa comprovada; revisão encerrada e porta sem o resumo não trazem o campo", async () => {
+  const a = ambiente();
+  const documento = await a.enviar();
+  assert.equal("cota" in documento, false, "o upload não devolve resumo capturado antes da conclusão");
+  const semResumo = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId }));
+  assert.equal("cota" in semResumo, false);
+  const empresas: string[] = [];
+  a.importacao.porta.resumoCota = async (tx, empresaId) => { empresas.push(empresaId); return a.documentos.cota.resumo(tx, empresaId); };
+  const aberta = dados(await a.importar({ acao: "abrir", documentoId: documento.documentoId })) as unknown as { importacao: ImportacaoPublica; cota: { franquia: { usados: number } } };
+  assert.equal(aberta.cota.franquia.usados, 1, "já inclui a leitura concluída");
+  const lida = dados(await a.importar({ acao: "ler", importacaoId: aberta.importacao.id })) as unknown as { cota: { franquia: { usados: number } } };
+  assert.equal(lida.cota.franquia.usados, 1);
+  assert.deepEqual([...new Set(empresas)], [empresaA]);
+  await a.importar({ acao: "descartar", importacaoId: aberta.importacao.id, versao: aberta.importacao.versao });
+  assert.equal("cota" in dados(await a.importar({ acao: "ler", importacaoId: aberta.importacao.id })), false);
+});

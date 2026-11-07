@@ -72,6 +72,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/modelo-referencia": ["casarComModelo", "ModeloReferencia"],
   "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/cota": ["Posse", "ResultadoReserva", "ResumoCota"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
   // Entrega B (112): `buscaDoCliente` é pura (o que procurar no CRM: CPF na PF, CNPJ na PJ).
   "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano", "buscaDoCliente"], // @pr:IMPORT
@@ -146,6 +147,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
   "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/cota": ["concluirCota", "cotaInstalada", "liberarCota", "reservarCota", "resumoCotaParaTela"], // @pr:DOCUMENT
   // Composition root explícito: preview e conclusão nativa no mesmo Tenant Context/Human Gate.
   "lib/contratos/integracao-importados/rascunho": ["fonteDoRascunho"],
   "lib/contratos/integracao-importados/composicao": ["coreNativo"],
@@ -422,7 +424,7 @@ function camadaDe(chave: string): Camada | null {
   if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", agentes: "AGENTES", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
   if (/^app\/api\/admin\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
   if (/^lib\/importacao-contrato\/(plano|motor|repositorio-importacao)$/.test(chave)) return "IMPORT";
-  if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|multipart)$/.test(chave)) return "DOCUMENT";
+  if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|cota|multipart)$/.test(chave)) return "DOCUMENT";
   if (/^lib\/ia-persistencia\/operacoes$/.test(chave)) return "ACTIONS";
   if (/^lib\/ia-persistencia\/uso$/.test(chave)) return "CORE";
   return null;
