@@ -4,6 +4,8 @@ import Link from 'next/link';
 import admin from '@/components/admin/admin.module.css';
 import { lembrarCsrf } from '@/components/admin/sair';
 import { reautenticarSessao } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
+import { abrirEmpresaCriada } from '@/lib/cadastro/abrir-empresa-criada';
 
 type Socio = { nome: string; qualificacao: 'SOCIO' | 'ADMINISTRADOR' | 'SOCIO_ADMINISTRADOR' };
 type Sessao = { nome: string; termos: string; privacidade: string; cpf: boolean };
@@ -24,6 +26,7 @@ export default function CadastroEmpresa() {
     const [sessao, setSessao] = useState<Sessao | null>(null);
     const csrf = useRef('');
     const [semSessao, setSemSessao] = useState(false);
+    const [criadaSemAbrir, setCriadaSemAbrir] = useState(false);
     const [tipoPessoa, setTipoPessoa] = useState<'PJ' | 'PF'>('PJ');
     const [documento, setDocumento] = useState('');
     const [razaoSocial, setRazaoSocial] = useState('');
@@ -47,6 +50,8 @@ export default function CadastroEmpresa() {
         }).catch(() => setErro('Falha de conexão. Tente novamente.'));
     }, []);
     async function postar(url: string, corpo: unknown) {
+        // Aba no estado final da troca de host: nada mais sai.
+        if (enderecoFinal()) throw Error('ENDERECO_EM_VERIFICACAO');
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf.current }, body: JSON.stringify(corpo), cache: 'no-store' });
         return { status: r.status, corpo: await r.json().catch(() => null) as { ok?: boolean; data?: { empresaId?: string; csrf?: string }; erro?: string; codigo?: string } | null };
     }
@@ -58,7 +63,7 @@ export default function CadastroEmpresa() {
         }
         catch {
             setOcupado(false);
-            setErro('A conexão falhou antes da resposta. Tente de novo: se a empresa já tiver sido criada, você continua nela.');
+            setErro(enderecoFinal() ? 'Este sistema mudou de endereço. Nada mais foi enviado. Atualize a página para conferir o cadastro.' : 'A conexão falhou antes da resposta. Tente de novo: se a empresa já tiver sido criada, você continua nela.');
         }
     }
     async function enviarDados() {
@@ -85,9 +90,13 @@ export default function CadastroEmpresa() {
         if (r.status === 409 && r.corpo?.codigo === 'CNPJ_EXISTENTE') { setOcupado(false); setAviso(r.corpo.erro ?? ''); return; }
         if (!r.corpo?.ok || !r.corpo.data?.empresaId) { setOcupado(false); setErro(r.corpo?.erro ?? 'Não foi possível cadastrar a empresa.'); return; }
         // A empresa nova vira a empresa ativa da sessão (mesma regra do seletor do Admin) e o início guiado abre.
-        await postar('/api/admin/autenticacao', { acao: 'selecionar-empresa', empresaId: r.corpo.data.empresaId });
+        // Daqui em diante a empresa existe: falha na seleção não cai no erro genérico, que incentivaria repetir o cadastro.
+        if (!await abrirEmpresaCriada(postar, r.corpo.data.empresaId)) { setOcupado(false); setCriadaSemAbrir(true); return; }
+        if (enderecoFinal()) { setOcupado(false); setCriadaSemAbrir(true); return; }
         window.location.replace('/admin/inicio');
     }
+    if (criadaSemAbrir)
+        return <main className={`${admin.page} ${admin.login}`}><h1>Kidmais Manager</h1><p role="alert">Sua empresa foi criada, mas não conseguimos abri-la. Entre com seu login para continuar.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
     if (semSessao)
         return <main className={`${admin.page} ${admin.login}`}><h1>Kidmais Manager</h1><p role="alert">Entre na sua conta para cadastrar a empresa.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
     return <main className={`${admin.page} ${admin.login}`} data-cadastro-empresa>

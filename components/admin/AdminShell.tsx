@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
-import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { conferirLeituraDaSessao, enderecoFinal } from '@/lib/enderecos/cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
@@ -12,6 +13,7 @@ import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
+type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean } } };
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
@@ -62,6 +64,8 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
     const contaRef = useRef<HTMLElement>(null);
     const contaBotaoRef = useRef<HTMLButtonElement>(null);
     const router = useRouter();
+    // Sem tela carregada não há o que preservar na troca de host: a falha segue o caminho de hoje (plano D4, H23).
+    const telaCarregada = useRef(false);
     // Lida só com a sessão confirmada (como quando o menu montava o LogoEmpresa); a vitrine fica sem logo.
     const logo = useLogoEmpresa(Boolean(name) && !vitrine && path !== '/admin/login');
     useEffect(() => {
@@ -69,7 +73,11 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
             return;
         let alive = true;
         // Resposta de leitura que saiu antes de uma troca de empresa desta página é da sessão anterior: ignorada.
-        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+        const ctxDe = (marca: ReturnType<typeof marcaDaSessao>) => ({ telaCarregada: () => telaCarregada.current, vivo: () => alive, aindaValida: () => !sessaoObsoletaDesde(marca) && !saidaDaSessaoEmAndamento() });
+        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => conferirLeituraDaSessao<LeituraSessaoShell>({ resposta: r }, ctxDe(marca)), erro => conferirLeituraDaSessao<LeituraSessaoShell>({ erro }, ctxDe(marca))).then(b => {
+            // Null: endereço mudou ou em verificação; a tela fica como está, sem login nem descarte.
+            if (b === null)
+                return;
             if (sessaoObsoletaDesde(marca))
                 return;
             if (!b.ok || !b.data.usuarioId) {
@@ -80,6 +88,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
                 lembrarCsrf(b.data.csrf);
                 if (!registrarContextoEmpresa(b.data.sessaoId, c?.empresaAtual?.id ?? null)) return;
+                telaCarregada.current = true;
                 setName(b.data.nome);
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
@@ -89,8 +98,10 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
             }
         }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
         void carregar();
-        const timer = window.setInterval(carregar, 15000);
-        const foco = () => { void carregar(); };
+        // Estado final da troca de host: para o ciclo de sessão e o foco. A faixa do aviso continua à vista.
+        const ciclo = () => { if (!enderecoFinal()) void carregar(); };
+        const timer = window.setInterval(ciclo, 15000);
+        const foco = ciclo;
         const outraAba = (e: StorageEvent) => { if (e.key === 'kidmais-contexto-alterado') reiniciarContextoEmpresa('A empresa ativa foi trocada em outra aba. Os dados desta tela foram descartados.'); };
         window.addEventListener('focus', foco);
         window.addEventListener('storage', outraAba);

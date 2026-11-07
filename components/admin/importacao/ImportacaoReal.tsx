@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/modelo';
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
@@ -380,7 +381,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
         onIntegrado={r => {
           // Lote: mantém a fila e oferece o próximo (R1-5). Envio único: segue para o contrato, como antes.
           if (itemEmRevisao) { gravarLote((l) => concluirItem(l, itemEmRevisao, 'IMPORTADA')); setItemEmRevisao(null); setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); return; }
-          router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId));
+          if (!enderecoFinal()) router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId));
         }} />
       <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); }}>Voltar aos dados do contrato</button></div>
     </>}
