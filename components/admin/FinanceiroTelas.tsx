@@ -261,14 +261,14 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     }} />}
     {dialogo === 'receber' && alvo && 'cliente' in alvo && acao.chave && <Dialogo titulo="Registrar recebimento" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-receber', { parcelaId: alvo.id, valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), taxa: Number(form.get('taxa') || 0), observacao: String(form.get('observacao') || ''), chave: acao.chave })}>
       <Campo nome="valor" rotulo="Valor recebido" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} />
-      <Campo nome="data" rotulo="Data" tipo="date" padrao={new Date().toISOString().slice(0, 10)} />
+      <Campo nome="data" rotulo="Data" tipo="date" padrao={hojeBrasilia()} />
       <Forma />
       <Campo nome="taxa" rotulo="Taxa (opcional)" tipo="number" />
       <Campo nome="observacao" rotulo="Observação (opcional)" />
     </Dialogo>}
     {dialogo === 'pagar' && alvo && 'descricao' in alvo && acao.chave && <Dialogo titulo="Registrar pagamento" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-pagar', { acao: 'pagar', contaId: alvo.id, valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), observacao: String(form.get('observacao') || ''), chave: acao.chave })}>
       <Campo nome="valor" rotulo="Valor" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} />
-      <Campo nome="data" rotulo="Data" tipo="date" padrao={new Date().toISOString().slice(0, 10)} />
+      <Campo nome="data" rotulo="Data" tipo="date" padrao={hojeBrasilia()} />
       <Forma />
       <Campo nome="observacao" rotulo="Observação (opcional)" />
     </Dialogo>}

@@ -533,9 +533,11 @@ export function leituraPeriodo(
 export async function prepararBaixa(
   tx: DbExecutor,
   empresaId: string,
+  hoje: string,
   input: { parcelaId: string; valor: number; data: string; forma: FormaFinanceira; taxa?: number },
 ) {
   if (!FORMAS.includes(input.forma)) recusar("DADOS_INVALIDOS", "Escolha uma forma de pagamento.", 409);
+  if (input.data > hoje) recusar("DADOS_INVALIDOS", "A data do recebimento não pode ser futura.", 409);
   const alvo = (await listarRecebiveis(tx, empresaId, input.data)).find((item) => item.id === input.parcelaId);
   if (!alvo || alvo.origem === "ENTRADA_MANUAL" || alvo.status === "Cancelado" || alvo.status === "Pago" || alvo.status === "Reembolsado") {
     recusar("NAO_ENCONTRADO", "Esta parcela não está aberta nesta empresa.", 404);
@@ -772,6 +774,7 @@ export async function pagarConta(
   tx: DbExecutor,
   empresaId: string,
   atorId: string,
+  hoje: string,
   input: { contaId: string; valor: number; data: string; forma: FormaFinanceira; observacao?: string; chave: string },
 ) {
   const repetida = await tx.query<{ id: string; conta_id: string; valor: string; pago_em: string; forma: string; observacao: string | null }>(
@@ -785,6 +788,7 @@ export async function pagarConta(
     if (!mesmaSaida(linha, input)) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outro pagamento nesta empresa.", 409);
     return { reutilizado: true, id: linha.id };
   }
+  if (input.data > hoje) recusar("DADOS_INVALIDOS", "A data do pagamento não pode ser futura.", 409);
   const trava = await travarConta(tx, empresaId, input.contaId);
   if (trava.cancelado_em) recusar("CANCELADA", "Conta cancelada não recebe pagamento.", 409);
   const saldo = saldoCentavos(centavosDe(trava.valor), centavosDe(trava.pago));
