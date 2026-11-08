@@ -3,7 +3,7 @@ import { db } from '../../db/postgres';
 import type { ContratoVersaoRecord } from '../repositories';
 import type { Edicao, fontesEdicao } from './administrativo.service';
 import type { EdicaoFestaInput } from '../../fechamentos/services/edicao-administrativa-schema';
-import { calcularEdicaoFechamento } from '../../fechamentos/services/edicao-administrativa.service';
+import { calcularEdicaoFechamento, horarioPersonalizadoLivre } from '../../fechamentos/services/edicao-administrativa.service';
 import { persistirEdicaoFechamento } from '../../fechamentos/repositories/edicao.repository';
 import { fotografarEstadoFechamento } from '../../fechamentos/services/pacote-snapshot';
 import { buscarFechamentoPorId, listarAdicionaisDoFechamento, type FechamentoAdicionalRecord } from '../../fechamentos/repositories';
@@ -27,6 +27,8 @@ export type RevisaoInicial = {
     resumo: Awaited<ReturnType<typeof calcularEdicaoFechamento>>['resumo'];
     baseHash: string;
     motivo: string;
+    /** Horário fora das opções do período escolhido na correção; na aplicação vale o intervalo exato livre. */
+    horarioPersonalizado?: boolean;
 };
 function recusar(message: string): never {
     throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES', message, 409);
@@ -88,7 +90,7 @@ export async function prepararEdicaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         : base;
     const baseHash = e.dados_fonte.revisaoInicial?.baseHash ?? hashSnapshotContrato({
         fechamento: await buscarFechamentoPorId(fechamento.id, tx), adicionais: await listarAdicionaisDoFechamento(fechamento.id, tx) });
-    const proposta: RevisaoInicial = { fechamento, cliente, aniversariante, resumo, baseHash, motivo: input.motivo };
+    const proposta: RevisaoInicial = { fechamento, cliente, aniversariante, resumo, baseHash, motivo: input.motivo, ...(input.horarioPersonalizado ? { horarioPersonalizado: true } : {}) };
     return { proposta, snapshot: { ...snapshot, documental: { observacoes: e.dados_fonte.observacoesDocumentais ?? '' } } };
 }
 
@@ -110,8 +112,9 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
     // Horário livre: duração do próprio intervalo da proposta (parecer do Astra, P2).
     const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id },
         { duracaoMinutos: duracaoDoIntervalo(f.horarioInicio, f.horarioFim), incluirCombinados: true });
-    if (!disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId)?.horarios.some(h =>
-        h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
+    const periodo = disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId);
+    const oficial = periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)) === true;
+    if (!oficial && !(proposta.horarioPersonalizado && await horarioPersonalizadoLivre(tx, f.id, f, Boolean(periodo))))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');
     // D-LIB-4 (entrada 3): estado documental exigido antes de qualquer escrita (dupla prova nativa, sem vigente).
     const referencia = await referenciaParaCaminho(tx, { fechamentoId: f.id, versaoId: v.id }, 'APLICACAO_REVISAO_INICIAL');

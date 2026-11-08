@@ -68,7 +68,7 @@ export async function GET(request: NextRequest, context: {
             }
             // Regras de pagamento da empresa comprovada (077); null = antes da 077 (prévia usa o legado).
             const regrasPagamento = await lerRegrasPagamento(tx, empresaId);
-            return { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos, regrasPagamento };
+            return { fonte, somenteRevisao, horarioPersonalizado: !preparada, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos, regrasPagamento };
         });
         return jsonNoStore({ ok: true, data });
     }
