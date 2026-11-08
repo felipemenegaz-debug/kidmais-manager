@@ -139,6 +139,9 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
 export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, input: EdicaoFestaInput, c: Contexto) {
     if (r.estado !== 'EM_ELABORACAO' || !c.usuarioId)
         recusar('Preparação congelada ou usuário inválido.');
+    // Horário fora do padrão vale só na correção antes da assinatura; a remarcação de contrato assinado segue os horários oficiais.
+    if (input.horarioPersonalizado)
+        recusar('Horário fora do padrão não vale para alteração de contrato assinado. Escolha um horário do período.');
     // Qualquer edição (data, pacote, comercial, cadastro, vínculo): tenant comprovado pelo
     // chamador = empresa do fechamento da revisão, antes de ler ou alterar qualquer campo. Não
     // depende do payload. Fechamento legado sem empresa falha fechado.

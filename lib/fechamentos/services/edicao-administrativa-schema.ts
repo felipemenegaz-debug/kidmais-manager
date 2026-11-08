@@ -8,6 +8,8 @@ export const edicaoFestaSchema = z.object({
     pacoteId: uuid, convidados: z.number().int().positive(),
     dataEvento: z.string().date(), configuracaoAgendaId: uuid,
     horarioInicio: z.string().regex(/^\d{2}:\d{2}(?::00)?$/), horarioFim: z.string().regex(/^\d{2}:\d{2}(?::00)?$/),
+    /** Horário fora das opções do período (correção de contrato): exige o intervalo exato livre na agenda. */
+    horarioPersonalizado: z.boolean().optional(),
     adicionais: z.array(z.object({ codigo: z.string().trim().min(1).max(80).transform(value => value.toUpperCase()), quantidade: z.number().positive().finite() }).strict()).max(60),
     idadeAniversarianteEvento: z.number().int().min(0).max(120).nullable(), temaFesta: texto,
     buffetStatus: z.enum(['PENDENTE', 'DEFINIDO']), buffetSalgados: texto, buffetBebidas: texto, buffetDoces: texto, buffetBolo: texto, buffetOutros: texto, buffetLembrancinha: texto.optional(), buffetEmpratado: texto.optional(), buffetBombom: texto.optional(),
