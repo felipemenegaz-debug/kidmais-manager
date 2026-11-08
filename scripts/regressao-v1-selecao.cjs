@@ -451,6 +451,10 @@ const ESTADO_POSTGRES = {
   // 04/11/2026 (E-ME2, aplicador da 117 em staging): modelo 112 (sem a 117), com empresa e mensagens reais nas 2 tabelas
   // travadas; papel mínimo, preservação, postcheck real, deriva, down, falha de trava real e retomada.
   "lib/whatsapp/atendimento/aplicador-117.postgres.test.ts": { descartavel: "112" },
+  // 08/11/2026 (L2, aplicador da 118 em staging): modelo 117 (staging de hoje: 112, 114, 116 e 117, sem a 118), com empresa e
+  // documentos reais nas 2 tabelas travadas; papel mínimo, preservação, postcheck real, deriva, down vazio, falha de trava real
+  // e retomada; cota (reserva, consumo, liberação), exportação antes e depois e down recusado com histórico.
+  "lib/importacao-contrato/aplicador-118.postgres.test.ts": { descartavel: "117" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },
