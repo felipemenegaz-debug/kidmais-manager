@@ -11,6 +11,7 @@
  * Fonte: https://docs.asaas.com/docs/sobre-os-webhooks (token fixo no cabeçalho, entrega "ao menos uma vez", só 200 é
  * sucesso, ordem não garantida). Nada aqui confia no conteúdo do evento para mudar estado.
  */
+import { cobrancaDestravada } from './trava-cobranca.ts';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { configuracaoAsaas } from './asaas.ts';
@@ -106,6 +107,8 @@ export async function receberWebhookAsaas(request: Request, deps: DepsWebhook): 
 
     // Limite por IP e registro da recusa: só o motivo, o IP (quando conhecido) e um id; nada do corpo ou do token.
     const triagem = await deps.withTransaction(async (tx) => {
+        if (!await cobrancaDestravada(tx, 'webhook Asaas', deps.env))
+            return 503;
         if (!await deps.consumirLimite(tx, 'ORIGEM', origem, regraIp))
             return 429;
         if (valido)

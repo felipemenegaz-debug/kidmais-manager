@@ -19,6 +19,7 @@ function cenario(opcoes: { prefixo: 'remocao' | 'vinculo'; listagem: 'vazia' | '
     const aberto = () => (marcador.situacao === 'PENDENTE' ? [{ ...marcador }] : []);
     const tx = {
         async query(sql: string, p: unknown[] = []) {
+            if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
             if (sql.startsWith('SELECT to_regclass')) return { rows: [{ ok: sql.includes('cobranca_eventos') }] };
             if (sql.startsWith('SELECT a.situacao')) return { rows: [{ ...linha }] };
             // marcadoresDeRemocao: evento_id LIKE 'kidmais:remocao:%'
