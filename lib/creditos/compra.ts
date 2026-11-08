@@ -55,7 +55,7 @@ const MENSAGEM: Record<string, string> = {
     AGUARDANDO_PAGAMENTO: 'Pagamento em confirmação. Os créditos serão liberados após a confirmação do Asaas.',
     VENCIDO: 'O prazo de pagamento terminou. Se você já pagou, os créditos serão liberados quando o Asaas confirmar.',
     CREDITADO: 'Pagamento confirmado: créditos liberados.',
-    REVISAO: 'O pedido está em conferência pela equipe Kidmais. Guarde o protocolo.',
+    REVISAO: 'O pedido está em conferência pela equipe iA.Fest. Guarde o protocolo.',
     ENCERRADO: 'Pedido encerrado sem cobrança.',
 };
 
@@ -166,7 +166,7 @@ export async function criarPedido(sessao: SessaoAdmin, empresaSolicitada: string
     let estadoFinal: 'FALHOU_CRIACAO' | 'CRIACAO_INCERTA' | null = null;
     try {
         criada = await prov.cliente.criarCobrancaAvulsa({ cliente: a.cliente!, forma: BILLING_TYPE[forma], valorCentavos: oferta.precoCentavos, vencimento: pedido.vencimento,
-            descricao: `Kidmais Manager - creditos de IA ${pedido.protocolo}`, referencia: referenciaExterna(prov.ambiente, pedido.id) });
+            descricao: `iA.Fest - creditos de IA ${pedido.protocolo}`, referencia: referenciaExterna(prov.ambiente, pedido.id) });
     }
     catch (error) {
         estadoFinal = error instanceof AsaasFalhou && error.motivo === 'HTTP' && error.status !== null && error.status >= 400 && error.status < 500 && ![408, 409, 425, 429].includes(error.status)

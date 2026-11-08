@@ -11,7 +11,7 @@ import { withTransaction } from '@/lib/db/postgres';
 import { versaoArquivada, versaoDoCatalogo } from '@/lib/assinatura/comprovante';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Versão de documento — Kidmais Manager', robots: { index: false } };
+export const metadata: Metadata = { title: 'Versão de documento — iA.Fest', robots: { index: false } };
 
 const PARAM: Record<string, DocumentoPublicado> = { termos_uso: 'TERMOS_USO', privacidade: 'PRIVACIDADE', dpa: 'DPA' };
 

@@ -32,7 +32,7 @@ Só quem tem acesso de Gestão contrata, paga ou cancela. Quem é Equipe vê a s
 
 O acesso muda quando o pagamento é confirmado. Se houver pagamento pendente, use **Continuar pagamento**. O link **Ver comprovante da contratação** mostra o comprovante.
 
-Se a tela disser que a contratação on-line ainda não está disponível, clique em **Fale com a Kidmais**.
+Se a tela disser que a contratação on-line ainda não está disponível, clique em **Fale com a equipe iA.Fest**.
 
 ## Como cancelar
 

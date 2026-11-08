@@ -13,4 +13,4 @@ export const AVISO_SALAO_DO_PACOTE_ORIGEM = 'Este pacote ainda não tem salão. 
 export const AVISO_IDA_SEM_VOLTA = 'Depois de mudar para mais de um salão, esta unidade não volta para um salão só. As festas já contratadas sem salão continuam ocupando todos os salões até a revisão do contrato.';
 export const AVISO_IDA_HORARIOS_HERDADOS = 'Salve a agenda desta unidade antes de mudar para mais de um salão.';
 export const AVISO_IDA_SO_SALOES = 'Ao mudar para mais de um salão, salve só os salões novos e os salões de cada horário. Mude o resto depois, num novo salvamento.';
-export const AVISO_VOLTA_UM_SALAO = 'Voltar da agenda com mais de um salão para um salão ainda não está disponível pela tela. Fale com o suporte Kidmais.';
+export const AVISO_VOLTA_UM_SALAO = 'Voltar da agenda com mais de um salão para um salão ainda não está disponível pela tela. Fale com o suporte do iA.Fest.';

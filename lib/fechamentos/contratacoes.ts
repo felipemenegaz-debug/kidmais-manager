@@ -28,11 +28,11 @@ export function classificarContratacao(row: ContratacaoRow): Contratacao | null 
             proximoPasso = 'Acompanhar a assinatura do cliente pelo acesso público.';
             acessoPublico = `/contrato/${encodeURIComponent(row.contratoId)}`;
         } else if (row.edicaoEstado === 'ASSINADA_KIDMAIS') {
-            situacao = 'Assinado pela Kidmais';
+            situacao = 'Assinado pelo buffet';
             proximoPasso = 'Liberar o contrato para assinatura do cliente.';
         } else if (row.edicaoEstado === 'EM_ELABORACAO' && row.documentoRevisado) {
-            situacao = 'Aguardando assinatura da Kidmais';
-            titulo = 'Assinar pela Kidmais';
+            situacao = 'Aguardando assinatura do buffet';
+            titulo = 'Assinar pelo buffet';
             proximoPasso = 'Abrir o contrato e concluir a assinatura administrativa.';
         } else if (row.edicaoEstado === 'EM_ELABORACAO') {
             situacao = row.contratoStatus === 'ASSINADO' ? 'Revisão em elaboração' : 'Contrato em elaboração';

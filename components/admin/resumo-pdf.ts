@@ -15,6 +15,8 @@ export type ResumoParaPdf = {
   secoes: SecaoResumo[];
   parcelas: Array<{ rotulo: string; valor: string; vencimento: string; estado: string }>;
   avisoFinanceiro: string;
+  /** Buffet comprovado; sem ele o cabeçalho sai só com o título do documento. */
+  marca?: { kidmais: boolean; nome: string | null } | null;
 };
 
 export type LogoJpeg = { bytes: Uint8Array; largura: number; altura: number };
@@ -41,24 +43,138 @@ const COR = {
 
 type Fonte = 'F1' | 'F2';
 
+/**
+ * Glifos da WinAnsiEncoding fora do Latin-1 (bytes 0x80–0x9F). As fontes Type1 padrão (/WinAnsiEncoding) só desenham
+ * esse conjunto; não há fonte Unicode embutida, então o resto vira a letra base sem acento ou '?'.
+ */
+const WIN_ANSI_EXTRA: Record<string, number> = {
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87, 'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a,
+  '‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
+  '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b, 'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f,
+};
+
+/**
+ * SÓ PARA O NOME DO BUFFET: letras latinas que o NFD não separa em base + acento (traço, gancho, barra, cauda, versalete…),
+ * agrupadas pela letra base. Gerada a partir dos nomes Unicode (16.0): nome "LATIN … LETTER <X> <modificador>" com uma
+ * única letra base, versaletes (→ maiúscula), DOTLESS I/J, LONG S e KRA, mais o par de caixa de cada uma (Ɵ traz ɵ).
+ * Ficam fora os dígrafos, "PRECEDED BY APOSTROPHE", "REVERSED-SCHWA", glifos WinAnsi (ƒ) e o que a decomposição de
+ * compatibilidade já resolve dentro do WinAnsi (Ŀ → L·, ſ → s). 276 letras. O texto comum do Resumo não usa esta tabela.
+ */
+export const LETRAS_POR_BASE: Record<string, string> = {
+  A: 'Ⱥᴀ',
+  a: 'ᶏẚⱥ',
+  B: 'ƁƂɃʙꞖ',
+  b: 'ƀƃɓᵬᶀꞗ',
+  C: 'ƇȻᴄꞒꟄ',
+  c: 'ƈȼɕꞓꞔ𝼝',
+  D: 'ĐƉƊƋᴅꟇ',
+  d: 'đƌȡɖɗᵭᶁᶑꟈ𝼥',
+  E: 'Ɇᴇ',
+  e: 'ɇᶒⱸꬴ',
+  F: 'ƑꜰꞘ',
+  f: 'ᵮᶂꞙ',
+  G: 'ƓǤɢʛꞠ',
+  g: 'ǥɠᶃꞡ',
+  H: 'ĦʜⱧꞪ',
+  h: 'ħɦⱨꞕ',
+  I: 'ƗɪꞮ',
+  i: 'ıɨᶖ𝼚',
+  J: 'ɈᴊꞲ',
+  j: 'ȷɉɟʄʝ',
+  K: 'ƘᴋⱩꝀꝂꝄꞢ',
+  k: 'ĸƙᶄⱪꝁꝃꝅꞣ',
+  L: 'ŁȽʟᴌⱠⱢꝈꞭ𝼄',
+  l: 'łƚȴɫɬɭᶅⱡꝉꞎꬷꬸꬹ𝼑𝼓𝼦',
+  M: 'ᴍⱮ',
+  m: 'ɱᵯᶆꬺ',
+  N: 'ƝȠɴꞐꞤ',
+  n: 'ƞȵɲɳᵰᶇꞑꞥꬻ𝼧',
+  O: 'ƟᴏꝊꝌ',
+  o: 'ɵⱺꝋꝍ𝼛',
+  P: 'ƤᴘⱣꝐꝒꝔ',
+  p: 'ƥᵱᵽᶈꝑꝓꝕ',
+  Q: 'ɊꝖꝘꞯ',
+  q: 'ɋʠꝗꝙ',
+  R: 'ƦɌʀⱤꝚꞦꭆ',
+  r: 'ɍɼɽɾᵲᵳᶉꝛꞧꭇꭉ𝼖𝼨',
+  S: 'ⱾꜱꞨꟅꟉꟌ',
+  s: 'ȿʂᵴᶊẜẝꞩꟊꟍ𝼞𝼩',
+  T: 'ŦƬƮȾᴛ',
+  t: 'ŧƫƭȶʈᵵⱦ𝼉𝼪',
+  U: 'ɄᴜꞸ',
+  u: 'ʉᶙꞹꭎꭏꭒ',
+  V: 'ƲᴠꝞ',
+  v: 'ʋᶌⱱⱴꝟ',
+  W: 'ᴡⱲ',
+  w: 'ⱳ',
+  x: 'ᶍꭖꭗꭘꭙ',
+  Y: 'ƳɎʏỾ',
+  y: 'ƴɏỿꭚ',
+  Z: 'ƵȤᴢⱫⱿꟆ',
+  z: 'ƶȥɀʐʑᵶᶎⱬ',
+};
+
+const LATINA_SEM_DECOMPOSICAO = new Map<string, string>(
+  Object.entries(LETRAS_POR_BASE).flatMap(([base, letras]) => Array.from(letras, (letra) => [letra, base] as [string, string])),
+);
+
+function glifoWinAnsi(c: string) {
+  const codigo = c.codePointAt(0) ?? 0;
+  return (codigo >= 0x20 && codigo <= 0x7e) || (codigo >= 0xa0 && codigo <= 0xff) || c in WIN_ANSI_EXTRA;
+}
+
+/** Letra do alfabeto latino (não símbolo, número ou outra escrita): só ela passa pela decomposição de compatibilidade. */
+const LETRA_LATINA = /^(?=\p{L})\p{Script=Latin}$/u;
+
+function caractereWinAnsi(c: string, nome = false): string {
+  if (glifoWinAnsi(c)) return c;
+  if (nome && LETRA_LATINA.test(c)) {
+    // Dígrafos, ligaduras e formas de compatibilidade (Ŀ → L·, ǅ → Dž, ﬁ → fi, Ａ → A): no máximo 3 glifos, todos WinAnsi.
+    const compativel = c.normalize('NFKD').normalize('NFC');
+    if (compativel !== c && Array.from(compativel).length <= 3 && Array.from(compativel).every(glifoWinAnsi)) return compativel;
+    if (LATINA_SEM_DECOMPOSICAO.has(c)) return LATINA_SEM_DECOMPOSICAO.get(c)!;
+  }
+  const base = c.normalize('NFD').replace(/\p{M}+/gu, '');
+  if (base.length === 1 && base !== c && caractereWinAnsi(base) === base) return base;
+  if (nome && LETRA_LATINA.test(c)) {
+    // Compatibilidade com acento fora do WinAnsi (ẛ → s): sem as marcas, de 1 a 3 letras ASCII.
+    const semMarcas = c.normalize('NFKD').replace(/\p{M}+/gu, '');
+    if (/^[A-Za-z]{1,3}$/.test(semMarcas)) return semMarcas;
+  }
+  return '?';
+}
+
 export function normalizarTextoPdf(valor: string) {
-  return valor
+  const texto = valor
     .replace(/[–—]/g, '-')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/…/g, '...')
     .replace(/[•·]/g, '-')
     .replace(/\s+/g, ' ')
-    .normalize('NFC')
-    .replace(/[^\x20-\x7E\xA0-\xFF]/gu, '?');
+    .normalize('NFC');
+  return Array.from(texto, (c) => caractereWinAnsi(c)).join('');
+}
+
+/**
+ * Nome da empresa: só espaços colapsados e cada caractere levado ao conjunto WinAnsi, SEM as trocas tipográficas do texto
+ * comum (travessão, aspas curvas, reticências, marcador e ponto médio ficam como no cadastro). Sem fonte Unicode embutida,
+ * decisão de Felipe em 08/11/2026: letra fora do WinAnsi vira a letra base (Ț → T, ă → a) e escrita não latina vira '?'.
+ */
+export function normalizarNomePdf(valor: string) {
+  return Array.from(valor.replace(/\s+/g, ' ').normalize('NFC'), (c) => caractereWinAnsi(c, true)).join('');
+}
+
+function escaparLiteral(valor: string) {
+  return valor.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
 function literal(valor: string) {
-  return normalizarTextoPdf(valor).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  return escaparLiteral(normalizarTextoPdf(valor));
 }
 
-function texto(t: string, x: number, y: number, tamanho: number, fonte: Fonte = 'F1', cor = COR.texto) {
-  return `BT /${fonte} ${tamanho.toFixed(2)} Tf ${cor} rg 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${literal(t)}) Tj ET\n`;
+function texto(t: string, x: number, y: number, tamanho: number, fonte: Fonte = 'F1', cor = COR.texto, jaNormalizado = false) {
+  return `BT /${fonte} ${tamanho.toFixed(2)} Tf ${cor} rg 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${jaNormalizado ? escaparLiteral(t) : literal(t)}) Tj ET\n`;
 }
 
 function linha(x1: number, x2: number, y: number, cor = COR.linha, largura = 0.6) {
@@ -218,21 +334,99 @@ function montarPaginas(resumo: ResumoParaPdf) {
   p.garantir(20);
   p.atual += linha(MX, A4_W - MX, p.y + 4);
   p.y -= 10;
-  paragrafo(p, 'Kidmais - Resumo para consulta - Condições comerciais da versão selecionada, sem recálculo.', { cor: COR.secundario, tamanho: 8 });
+  paragrafo(p, 'Resumo para consulta - Condições comerciais da versão selecionada, sem recálculo.', { cor: COR.secundario, tamanho: 8 });
   return p.fechar();
+}
+
+/** Larguras AFM da Helvetica-Bold (F2) para ASCII 32 a 126, em milésimos do corpo. */
+const HELVETICA_BOLD = [
+  278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+  556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+  975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+  333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+  611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
+];
+
+/** Larguras AFM da Helvetica-Bold para os glifos WinAnsi de 0x80–0x9F. */
+const HELVETICA_BOLD_EXTRA: Record<string, number> = {
+  '€': 556, '‚': 278, 'ƒ': 556, '„': 500, '…': 1000, '†': 556, '‡': 556, 'ˆ': 333, '‰': 1000, 'Š': 667, '‹': 333,
+  'Œ': 1000, 'Ž': 611, '‘': 278, '’': 278, '“': 500, '”': 500, '•': 350, '–': 556, '—': 1000, '˜': 333, '™': 1000,
+  'š': 556, '›': 333, 'œ': 944, 'ž': 500, 'Ÿ': 667,
+};
+
+/** Largura real em pontos. Letra acentuada mede como a base; símbolo sem medida conta como 1 em (estimativa por cima). */
+export function larguraNegrito(valor: string, tamanho: number) {
+  let milesimos = 0;
+  for (const caractere of valor) {
+    const base = caractere.normalize('NFD').charCodeAt(0);
+    milesimos += HELVETICA_BOLD_EXTRA[caractere] ?? HELVETICA_BOLD[base - 32] ?? 1000;
+  }
+  return milesimos * tamanho / 1000;
+}
+
+function cortarPorLargura(valor: string, largura: number, tamanho: number) {
+  const linhas: string[] = [];
+  let atual = '';
+  for (const caractere of valor) {
+    if (atual && larguraNegrito(atual + caractere, tamanho) > largura) { linhas.push(atual); atual = ''; }
+    atual += caractere;
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
+function quebrarPorLargura(valor: string, largura: number, tamanho: number) {
+  const linhas: string[] = [];
+  let atual = '';
+  for (const palavra of valor.split(' ')) {
+    const candidato = atual ? `${atual} ${palavra}` : palavra;
+    if (larguraNegrito(candidato, tamanho) <= largura) { atual = candidato; continue; }
+    if (atual) linhas.push(atual);
+    const partes = cortarPorLargura(palavra, largura, tamanho);
+    atual = partes.pop() ?? '';
+    linhas.push(...partes);
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
+/**
+ * Nome inteiro (o cadastro aceita até 160 caracteres) entre `x` e a coluna do rótulo (x 400), acima da faixa (y 748).
+ * Escolhe o maior corpo que couber; no menor, corta sem respeitar palavras e fica só com as linhas que cabem acima da
+ * faixa, a última terminada em "…" (letras de compatibilidade podem render até 3 glifos cada).
+ */
+function nomeNoCabecalho(nome: string, x: number, topo: number) {
+  const limpo = normalizarNomePdf(nome).trim();
+  const largura = 400 - 12 - x;
+  const desenhar = (linhas: string[], tamanho: number) => linhas
+    .map((l, i) => texto(l, x, topo - tamanho - i * tamanho * 1.2, tamanho, 'F2', COR.violeta, true)).join('');
+  const cabe = (linhas: string[], tamanho: number) => topo - tamanho - (linhas.length - 1) * tamanho * 1.2 - tamanho * 0.21 >= 751;
+  for (const tamanho of [16, 14, 12, 10, 9, 8, 7]) {
+    const linhas = quebrarPorLargura(limpo, largura, tamanho);
+    if (cabe(linhas, tamanho)) return desenhar(linhas, tamanho);
+  }
+  const linhas = cortarPorLargura(limpo, largura, 7);
+  let cabem = linhas.length;
+  while (cabem > 1 && !cabe(linhas.slice(0, cabem), 7)) cabem -= 1;
+  if (cabem === linhas.length) return desenhar(linhas, 7);
+  let ultima = linhas[cabem - 1];
+  while (ultima && larguraNegrito(ultima + '…', 7) > largura) ultima = Array.from(ultima).slice(0, -1).join('');
+  return desenhar([...linhas.slice(0, cabem - 1), ultima + '…'], 7);
 }
 
 function cabecalho(resumo: ResumoParaPdf, logo: LogoJpeg | null) {
   let c = '';
+  let xNome = MX;
   if (logo) {
     // Logo acima da faixa de marca (y 748): nunca cruzam, qualquer que seja a proporção da imagem.
     const proporcao = logo.altura / logo.largura;
     const h = Math.min(112 * proporcao, 50);
     const w = h / proporcao;
     c += `q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${MX} ${(808 - h).toFixed(2)} cm /Logo Do Q\n`;
-  } else {
-    c += texto('KIDMAIS', MX, 786, 16, 'F2', COR.violeta);
+    xNome = MX + w + 10;
   }
+  if (resumo.marca?.nome) c += nomeNoCabecalho(resumo.marca.nome, xNome, 806);
   c += texto('RESUMO DA CONTRATAÇÃO', 400, 796, 8, 'F2', COR.secundario);
   c += texto(`V${resumo.numeroVersao} - ${resumo.classificacao}`.slice(0, 40), 400, 783, 8.6, 'F2', COR.violeta);
   c += `q ${COR.violeta} rg ${MX} 748 ${(LARGURA * 0.62).toFixed(2)} 2 re f Q\n`;
@@ -242,14 +436,14 @@ function cabecalho(resumo: ResumoParaPdf, logo: LogoJpeg | null) {
 
 function rodape(pagina: number, total: number) {
   return linha(MX, A4_W - MX, 52)
-    + texto('Kidmais Manager - Resumo da Contratação - documento informativo', MX, 38, 7.4, 'F1', COR.secundario)
+    + texto('iA.Fest - Resumo da Contratação - documento informativo', MX, 38, 7.4, 'F1', COR.secundario)
     + texto(`Página ${pagina} de ${total}`, A4_W - MX - 62, 38, 7.4, 'F1', COR.secundario);
 }
 
-/** Bytes WinAnsi/Latin-1: todo texto já passou por normalizarTextoPdf. */
+/** Bytes WinAnsi: todo texto já passou por normalizarTextoPdf (Latin-1 mais os glifos de 0x80–0x9F). */
 function bytesLatin1(valor: string) {
   const bytes = new Uint8Array(valor.length);
-  for (let i = 0; i < valor.length; i += 1) bytes[i] = valor.charCodeAt(i) & 0xff;
+  for (let i = 0; i < valor.length; i += 1) bytes[i] = WIN_ANSI_EXTRA[valor[i]] ?? (valor.charCodeAt(i) & 0xff);
   return bytes;
 }
 

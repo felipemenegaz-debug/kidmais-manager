@@ -183,7 +183,7 @@ async function main() {
         page.on('dialog', dialog => dialog.accept());
         await page.getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();
         await page.getByLabel('Confirme sua senha').fill('senha-sintetica-sem-credencial-real');
-        await page.getByRole('button', { name: 'Aprovar e assinar pela Kidmais', exact: true }).click();
+        await page.getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();
         await page.getByRole('button', { name: 'Liberar para o cliente', exact: true }).click();
         const publico = page.getByRole('link', { name: /^Abrir página do cliente/ });
         await publico.waitFor(); assert.equal(await publico.count(),1);

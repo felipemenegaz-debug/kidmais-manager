@@ -182,7 +182,7 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
   if (!elegivel.ok) return concluir(tx, e, "SUPRIMIDA", elegivel.motivo);
   if (await frequenciaExcedida(tx, e.empresa_id, e.cliente_id, regra.limiteFrequenciaDias, e.id)) return concluir(tx, e, "SUPRIMIDA", "LIMITE_FREQUENCIA");
   if (!regra.templateTexto || !regra.templateProvedor || !regra.templateRevisadoEm) return concluir(tx, e, "CANCELADA", "MODELO_NAO_REVISADO");
-  const buffet = (await nomePublicoDaEmpresa(tx, e.empresa_id)) ?? "buffet";
+  const buffet = (await nomePublicoDaEmpresa(tx, e.empresa_id, { propagarErroDeBanco: true })) ?? "buffet";
   const texto = renderizarModelo(regra.templateTexto, { nome: alvo.clienteNome, buffet, dataFesta: alvo.dataFesta });
   const tentativa = e.tentativas + 1;
   await tx.query(`UPDATE marketing_automacao_execucoes SET estado = 'ENVIANDO', conteudo = $2, destinatario_mascarado = $3, posse_ate = clock_timestamp() + interval '5 minutes',

@@ -16,7 +16,7 @@ import {
 } from "@/lib/clientes/api-client";
 import { cpfValido } from "@/lib/clientes/utils";
 import { cnpjRaizPlaceholder, cnpjValido } from "@/lib/cadastro/cnpj";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import ProdutoBrand from "@/components/layout/ProdutoBrand";
 import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
 import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
 import styles from "./Clientes.module.css";
@@ -346,13 +346,13 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       <main className={styles.page}>
         <div className={styles.shellNarrow}>
           <header className={styles.topbar}>
-            <KidmaisBrand compact context="manager" href="/clientes" />
+            <ProdutoBrand href="/clientes" />
             <Link className={styles.backLink} href="/clientes">← Clientes</Link>
           </header>
           <section className={styles.successBox}>
             <div>✓</div>
             <h2>{mode === "create" ? "Cliente cadastrado" : "Alterações salvas"}</h2>
-            <p>Os dados foram gravados pela API do Kidmais Manager e persistidos no PostgreSQL.</p>
+            <p>Os dados foram gravados pela API do iA.Fest e persistidos no PostgreSQL.</p>
             <button className={styles.primaryButton} type="button" onClick={() => router.push(destino)}>Abrir perfil do cliente</button>
           </section>
         </div>
@@ -364,7 +364,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
     <main className={styles.page}>
       <div className={styles.shellNarrow}>
         <header className={styles.topbar}>
-          <KidmaisBrand compact context="manager" href="/clientes" />
+          <ProdutoBrand href="/clientes" />
           <Link className={styles.backLink} href={voltar}>← Voltar</Link>
         </header>
 

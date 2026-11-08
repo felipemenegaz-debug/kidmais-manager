@@ -446,7 +446,7 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       assert.equal(versao.aceiteMetodo, "CONFERENCIA_PAPEL");
       // Cliente sem endereço: o snapshot grava `endereco: null` (nunca objeto vazio nem parcial) e `email: null`.
       assert.equal((versao.snapshot.contratante as unknown as Record<string, unknown>).endereco, null, "snapshot persistido sem endereço (como a importação grava)");
-      const gerado = documento.gerarResumoContratacaoPdfDaVersao(versao);
+      const gerado = documento.gerarResumoContratacaoPdfDaVersao(versao, { kidmais: true, nome: "Kidmais" });
       assert.equal(Buffer.from(gerado.pdf).subarray(0, 5).toString(), "%PDF-");
       const linhas = gerado.documento.linhas.map((l) => l.texto).join("\n");
       assert.match(linhas, /Endereço: Não informado/);

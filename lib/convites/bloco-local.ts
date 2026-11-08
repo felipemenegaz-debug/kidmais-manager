@@ -1,5 +1,6 @@
 import type { DbExecutor } from '../db/contracts';
 import { rotuloSalao, salaoDoSnapshot, type ContratoSnapshot } from '../contratos/repositories/models.ts';
+import { ClienteServiceError } from '../clientes/services/errors.ts';
 import { estruturaPerfilInstalada } from '../perfil/estrutura.ts';
 import { nomePublicoDaEmpresa } from '../perfil/nome-publico.ts';
 import { perfilDoTenantOuNulo } from '../perfil/tenant.ts';
@@ -33,11 +34,12 @@ async function blocoDaUnidade(tx: DbExecutor, empresaId: string, estabelecimento
   const estabelecimento = estabelecimentoId ? (await tx.query<{ nome: string; total: number }>(
     `SELECT e.nome, (SELECT count(*)::int FROM estabelecimentos x WHERE x.empresa_id = e.empresa_id AND x.status <> 'DESATIVADO') AS total
        FROM estabelecimentos e WHERE e.id = $1::uuid AND e.empresa_id = $2::uuid`, [estabelecimentoId, empresaId])).rows[0] : undefined;
-  if (!estabelecimento) return { origem: 'UNIDADE', nome: ((await nomePublicoDaEmpresa(tx, empresaId)) ?? 'Buffet').slice(0, 400), endereco: '' };
+  if (!estabelecimento) return { origem: 'UNIDADE', nome: ((await nomePublicoDaEmpresa(tx, empresaId, { propagarErroDeBanco: true })) ?? 'Buffet').slice(0, 400), endereco: '' };
   let unidade: LinhaUnidade | undefined;
   if (estabelecimento.total === 1 && await estruturaPerfilInstalada(tx)) {
     // Perfil ambíguo recusa em JavaScript (nenhuma consulta falha): segue sem o cadastro, nunca com o de outra empresa.
-    const perfil = await perfilDoTenantOuNulo(tx, empresaId).catch(() => null);
+    // Falha de SQL sobe: a transação já está abortada.
+    const perfil = await perfilDoTenantOuNulo(tx, empresaId).catch((erro: unknown) => { if (erro instanceof ClienteServiceError) return null; throw erro; });
     const unidades = perfil ? (await tx.query<LinhaUnidade>(
       `SELECT u.nome, u.mesmo_endereco_sede, u.logradouro, u.numero, u.sem_numero, u.complemento, u.bairro, u.cidade, u.uf,
               p.sede_logradouro, p.sede_numero, p.sede_sem_numero, p.sede_complemento, p.sede_bairro, p.sede_cidade, p.sede_uf

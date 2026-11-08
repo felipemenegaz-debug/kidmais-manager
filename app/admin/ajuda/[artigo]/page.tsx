@@ -36,6 +36,6 @@ export default async function Artigo({ params }: { params: Promise<{ artigo: str
                             ? <ul key={i}>{b.itens.map((item, j) => <li key={j}>{linha(item)}</li>)}</ul>
                             : <ol key={i}>{b.itens.map((item, j) => <li key={j}>{linha(item)}</li>)}</ol>)}
         </section>)}
-        <p className={workspace.muted} data-nao-resolveu>Não resolveu? <Link href={`${ROTA_AJUDA}#t-falar`}>Fale com a equipe Kidmais</Link>.</p>
+        <p className={workspace.muted} data-nao-resolveu>Não resolveu? <Link href={`${ROTA_AJUDA}#t-falar`}>Fale com a equipe iA.Fest</Link>.</p>
     </main>;
 }

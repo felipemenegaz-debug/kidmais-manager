@@ -127,7 +127,7 @@ export async function estornarSePermitido(deps: Pick<DepsCreditos, 'withTransact
     let estado: 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO';
     let status: string | null = null;
     try {
-        status = (await prov.estornarCobranca(pagamentoId, valorCentavos, `Kidmais Manager - devolucao de creditos ${protocolo}`)).status;
+        status = (await prov.estornarCobranca(pagamentoId, valorCentavos, `iA.Fest - devolucao de creditos ${protocolo}`)).status;
         estado = 'SOLICITADO';
     }
     catch (error) {

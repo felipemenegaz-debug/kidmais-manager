@@ -30,7 +30,7 @@ Se você não lembra a senha atual:
 
 O link vale por 30 minutos e só pode ser usado uma vez. Depois de definir a nova senha, todas as sessões abertas da conta são encerradas.
 
-A equipe Kidmais nunca pede a sua senha.
+A equipe iA.Fest nunca pede a sua senha.
 
 ## Como sair
 

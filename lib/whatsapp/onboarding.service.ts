@@ -127,7 +127,7 @@ function tentativaDaSessao(tentativa: Tentativa | undefined, sessao: SessaoAdmin
   return Boolean(tentativa && tentativa.usuario_id === sessao.usuario_id && tentativa.sessao_referencia_id === sessao.id && tentativa.empresa_id === tenant.empresaComprovada);
 }
 
-const NUMERO_EM_USO = () => new WhatsappOnboardingError('WHATSAPP_NUMERO_EM_USO', 'Este número de WhatsApp já está conectado a outra empresa no Kidmais.', 409);
+const NUMERO_EM_USO = () => new WhatsappOnboardingError('WHATSAPP_NUMERO_EM_USO', 'Este número de WhatsApp já está conectado a outra empresa no iA.Fest.', 409);
 
 export async function concluirOnboardingWhatsapp(raw: unknown, token: string, contexto: ContextoWhatsapp, deps: DepsWhatsapp = {}) {
   const input = concluirOnboardingSchema.safeParse(raw);
