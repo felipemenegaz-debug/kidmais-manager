@@ -1,4 +1,4 @@
-import { erroAcesso } from '../acessos/erros.ts';
+import { erroAcesso, type AcessoErroCodigo } from '../acessos/erros.ts';
 import type { DbExecutor } from '../db/contracts.ts';
 
 /**
@@ -15,6 +15,13 @@ import type { DbExecutor } from '../db/contracts.ts';
  * sobe e desfaz a transação: nunca vira "aberta".
  */
 type Ambiente = Record<string, string | undefined>;
+
+/**
+ * Código da recusa. Fica fora de `AcessoErroCodigo` de propósito: `lib/acessos/erros.ts` tem o hash fixado pelo executor de
+ * e-mail de production (`scripts/email-producao-20261020.cjs`, TRANSPORTE), e mudar aquele arquivo exigiria novo pacote de
+ * e-mail. Em execução é um `AcessoServiceError` comum, com `code` = 'COBRANCA_TRAVADA' e HTTP 503.
+ */
+export const COBRANCA_TRAVADA = 'COBRANCA_TRAVADA' as unknown as AcessoErroCodigo;
 
 /** Serviço web de production no Render, conforme `docs/OPERACAO_AGENTES.md`. */
 const SERVICO_PRODUCTION = 'srv-dak77m2d0e5s73b8rkkg';
@@ -60,5 +67,5 @@ export async function cobrancaDestravada(tx: Pick<DbExecutor, 'query'>, ponto: s
 /** Para os pontos que respondem por erro de serviço: recusa com 503, sem efeito e sem auditoria. */
 export async function exigirCobrancaDestravada(tx: Pick<DbExecutor, 'query'>, ponto: string, env: Ambiente = process.env): Promise<void> {
     if (!await cobrancaDestravada(tx, ponto, env))
-        throw erroAcesso('COBRANCA_TRAVADA', 'Esta operação comercial não está disponível neste ambiente.', 503);
+        throw erroAcesso(COBRANCA_TRAVADA, 'Esta operação comercial não está disponível neste ambiente.', 503);
 }
