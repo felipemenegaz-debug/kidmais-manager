@@ -6,7 +6,7 @@
 // link inválido e cada item da Agenda de hoje abrindo sua festa.
 // Uso: node scripts/contratos-selecao-url.ui.cjs   (BROWSER_PATH aponta para msedge/chrome se não for o padrão)
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const PORTA_APP = 3041, PORTA_CDP = 9233, origin = `http://127.0.0.1:${PORTA_APP}`;
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -66,6 +66,22 @@ function cdp(wsUrl) {
   };
 }
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+// No Windows, kill() encerra só o processo principal do navegador; os filhos seguram o perfil e o rmSync falhava calado,
+// deixando ~0,2–0,5 GB por execução em %TEMP%/kidmais-cdp-*. Encerra a árvore, espera sair e tenta apagar de novo.
+async function encerrarNavegador(browser, perfil) {
+  if (browser && browser.exitCode === null && browser.signalCode === null) {
+    const saiu = new Promise((r) => browser.once('exit', r));
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    else browser.kill();
+    await Promise.race([saiu, esperar(5000)]);
+  }
+  for (let i = 0; i < 40 && fs.existsSync(perfil); i++) {
+    try { fs.rmSync(perfil, { recursive: true, force: true }); } catch { await esperar(250); }
+    // Processos auxiliares (crashpad, utilitários) podem ficar fora da árvore: encerra quem cita o perfil.
+    if (i === 8 && process.platform === 'win32') spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${path.basename(perfil)}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`], { stdio: 'ignore', windowsHide: true });
+  }
+  if (fs.existsSync(perfil)) console.warn(`aviso: perfil do navegador não removido: ${perfil}`);
+}
 
 async function main() {
   assert(!fs.readdirSync('.').some((n) => n === '.env' || (n.startsWith('.env.') && n !== '.env.example')), 'Execute em worktree sem arquivos .env.');
@@ -235,9 +251,8 @@ async function main() {
     console.log(`PASS ${resultados.length} cenários; chamadas não simuladas: ${JSON.stringify([...new Set(inesperados)])}`);
   } finally {
     try { cliente?.fechar(); } catch { /* fechado */ }
-    browser?.kill(); server.kill();
+    await encerrarNavegador(browser, perfil); server.kill();
     for (const [p, conteudo] of gerados) fs.writeFileSync(p, conteudo);
-    try { fs.rmSync(perfil, { recursive: true, force: true }); } catch { /* em uso */ }
   }
 }
 main().catch((e) => { console.error(`FAIL ${e.message}`); process.exit(1); });
