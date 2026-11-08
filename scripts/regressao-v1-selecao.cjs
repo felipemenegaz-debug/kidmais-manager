@@ -68,6 +68,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/supersessao-048.postgres.test.ts": { descartavel: "atual" },
   "lib/contratos/migration-057.postgres.test.ts": { descartavel: "atual" },
   "lib/contratos/integracao-importados/integracao.postgres.test.ts": { descartavel: "atual" },
+  // 08/11/2026: B1 do P1 monetário (D-P1r4-2) — original pela extração da importação, com duas versões do documento.
+  "lib/contratos/integracao-importados/original-por-id.postgres.test.ts": { descartavel: "atual" },
   // 25/10/2026: lista de contratos (fase 2 da tela) — paridade da versão de referência SQL × TS, números iguais à leitura
   // do contrato com contratos reais da integração (instala 055/061/062 como a suíte acima), isolamento, cursor e volume.
   "lib/contratos/services/lista-contratos.postgres.test.ts": { descartavel: "atual" },
