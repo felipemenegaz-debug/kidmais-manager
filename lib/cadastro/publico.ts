@@ -1,3 +1,4 @@
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
@@ -84,6 +85,11 @@ export async function exigirAgendaSemBloqueioGlobal(tx: Pick<DbExecutor, 'query'
     if (n !== 0)
         throw erroAcesso('CADASTRO_INDISPONIVEL', 'O cadastro de novas empresas não está disponível no momento.', 503);
 }
+/** L2 do pedido de cadastro: na rota, antes do `after()`, para a recusa chegar a quem pediu. */
+export async function exigirPedidoCadastroDestravado(withTransaction: typeof withTransactionPadrao = withTransactionPadrao, env: Ambiente = process.env) {
+    await withTransaction((tx) => exigirCobrancaDestravada(tx, 'POST /api/cadastro', env));
+}
+
 export function exigirCadastroAtivo(env: Ambiente = process.env) {
     const s = situacaoCadastro(env);
     if (!s.ativo)
@@ -152,6 +158,7 @@ export function mensagemContaExistente(para: string, origem = origemPublica()): 
  */
 export async function processarPedidoCadastro(input: PedidoCadastro, ctx: ContextoRequisicao, deps: CadastroDeps = cadastroDepsPadrao()) {
     const r = await deps.withTransaction(async (tx) => {
+        await exigirCobrancaDestravada(tx, 'processarPedidoCadastro');
         // Com IP, o limite dele vem primeiro. Sem IP, o teto global de envios só depois do limite do próprio e-mail: todo
         // pedido que passa dele gera um envio (confirmação ou aviso de conta existente), e repetição já recusada para um
         // endereço não gasta a cota dos outros (revisão de 22/10, P2-R3-2).
@@ -293,6 +300,7 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
     }
     try {
         return await deps.withTransaction(async (tx) => {
+            await exigirCobrancaDestravada(tx, 'cadastrarEmpresa', env);
             await travarUsuariosNaOrdem(tx, [sessao.usuario_id]);
             const usuario = (await tx.query<{ nome: string; email: string; ativo: boolean }>('SELECT nome, email, ativo FROM usuarios_administrativos WHERE id = $1::uuid', [sessao.usuario_id])).rows[0];
             if (!usuario?.ativo)

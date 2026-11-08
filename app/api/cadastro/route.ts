@@ -1,7 +1,7 @@
 ﻿import { after, type NextRequest } from 'next/server';
 import { verificarOrigem } from '@/lib/http/admin-crm-api';
 import { contextoDaRequisicao, falhar, lerJson, responder } from '@/lib/acessos/http';
-import { exigirCadastroAtivo, MENSAGEM_PEDIDO_CADASTRO, processarPedidoCadastro, situacaoCadastro, validarPedidoCadastro } from '@/lib/cadastro/publico';
+import { exigirCadastroAtivo, exigirPedidoCadastroDestravado, MENSAGEM_PEDIDO_CADASTRO, processarPedidoCadastro, situacaoCadastro, validarPedidoCadastro } from '@/lib/cadastro/publico';
 import { versaoVigente } from '@/lib/cadastro/documentos-legais';
 import { duracaoTesteDias, precoDoCiclo } from '@/lib/assinatura/configuracao';
 import { cpfContratacaoLigado } from '@/lib/assinatura/documento-contratante';
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
         verificarOrigem(request);
         const input = validarPedidoCadastro(await lerJson(request));
         exigirCadastroAtivo();
+        await exigirPedidoCadastroDestravado();
         const ctx = contextoDaRequisicao(request);
         after(async () => {
             try {

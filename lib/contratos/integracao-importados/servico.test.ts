@@ -36,6 +36,10 @@ type Estado = {
   /** Candidatos que só aparecem a partir da 2ª consulta da mesma confirmação (commit concorrente antes do lock). */
   vinculosDepoisDoLock: Array<Record<string, unknown>> | null;
   locks: string[]; sql: string[];
+  /** Importações cujo original foi consultado (pela cadeia importação → extração → original). */
+  originaisConsultados: string[];
+  /** Simula o original ausente: a consulta pela cadeia não devolve linha. */
+  semOriginal?: boolean;
   aniversarianteExistente: string | null;
   /**
    * S-E restante (importação V3): 094 instalada e unidade POR_SALAO. saloes = cadastro (ativo/nome); serve = a regra estrita
@@ -57,7 +61,7 @@ function estadoInicial(): Estado {
   return {
     importacoes: [{ id: IMP, empresa: EMPRESA, cliente: CLIENTE, documento: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', status: 'IMPORTADA', snapshot: snapshotBase() }],
     vinculos: [], financeiros: [], inserts: [], ocupado: false, bloqueado: false, disponivel: true, vinculosCliente: [],
-    contratoStatus: 'ASSINADO', fechamentoStatus: 'CONFIRMADO', locks: [], sql: [], aniversarianteExistente: null,
+    contratoStatus: 'ASSINADO', fechamentoStatus: 'CONFIRMADO', locks: [], sql: [], originaisConsultados: [], aniversarianteExistente: null,
     versaoVigente: true, revisaoAberta: false, comPagamento: false, sqlVinculos: [], paramsVinculos: [], vinculosDepoisDoLock: null,
   };
 }
@@ -117,7 +121,12 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
       if (sql.includes('FOR UPDATE')) estado.locks.push(`importacao:${v[0]}`);
       return linhas(estado.importacoes.filter((i) => i.id === v[0] && i.empresa === v[1]).map((i) => ({ id: i.id, cliente_id: i.cliente, documento_id: i.documento, status: i.status, snapshot: structuredClone(i.snapshot) })));
     }
-    if (sql.includes('FROM ia_documento_originais')) return linhas(v[1] === EMPRESA ? [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', sha256: 'f'.repeat(64) }] : []);
+    // Original da extração da importação (importação → extração → original), nunca "a última versão do documento".
+    if (sql.includes('JOIN ia_documento_originais o ON o.id = x.original_id')) {
+      estado.originaisConsultados.push(String(v[0]));
+      return linhas(estado.importacoes.some((i) => i.id === v[0] && i.empresa === v[1]) && !estado.semOriginal ? [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', sha256: 'f'.repeat(64) }] : []);
+    }
+    if (sql.includes('FROM ia_documento_originais')) throw new Error('original consultado sem a extração da importação');
     if (sql.includes('FROM clientes')) return linhas(v[0] === CLIENTE && v[1] === EMPRESA ? [{ id: CLIENTE, nome_completo: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.invalid', cep: '01001000', logradouro: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', uf: 'SP', status: 'ATIVO' }] : []);
     if (sql.includes('FROM estabelecimentos')) return linhas(v[0] === EMPRESA ? [{ id: '22222222-2222-4222-8222-222222222222', nome: 'Unidade Centro' }] : []);
     if (sql.includes('FROM pacotes p')) return linhas([{ id: '33333333-3333-4333-8333-333333333333', codigo: 'COMPLETA', nome: 'Festa Completa', duracao_minutos: 240, ativo: true }]);
@@ -962,4 +971,33 @@ test('V3 (P2-4): opções iguais nos dois caminhos (tela comum e Human Gate), co
   const virtual = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE, { ...fonte, clienteNovo: true }));
   if (virtual.integrada) throw new Error('já integrada');
   assert.deepEqual(virtual.resumo.agenda, real.resumo.agenda, 'o salão não depende do cliente');
+});
+
+test('original pela cadeia: simulação, confirmação e vínculo usam o original da extração da importação', async () => {
+  const estado = estadoInicial();
+  const chamadas: Chamada[] = [];
+  const { res } = await simularEConfirmar(estado, decisoesBase(), chamadas);
+  assert.equal(res.reutilizado, false);
+  assert.ok(estado.originaisConsultados.length >= 2 && estado.originaisConsultados.every((i) => i === IMP), 'consulta por importação, nunca pelo documento');
+  const vinculo = estado.inserts.find((i) => i.tabela === 'contrato_importacoes');
+  assert.ok(vinculo, 'vínculo gravado');
+  assert.ok(vinculo.valores.includes('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee') && vinculo.valores.includes('f'.repeat(64)), 'vínculo com o ID e o SHA do original da extração');
+});
+
+test('original pela cadeia: simulação a partir do rascunho consulta pela importação da fonte', async () => {
+  const estado = estadoInicial();
+  estado.importacoes[0].status = 'EM_REVISAO';
+  const fonte = { importacao: { ...estado.importacoes[0], clienteId: CLIENTE, documentoId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', recebimentosDocumento: null, versao: 1 },
+    cliente: { id: CLIENTE, nomeCompleto: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.invalid', status: 'ATIVO' }, clienteNovo: true } as unknown as FonteIntegracaoRascunho;
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase(), HOJE, fonte));
+  assert.equal(sim.integrada, false);
+  assert.deepEqual(estado.originaisConsultados, [IMP]);
+});
+
+test('original ausente na cadeia: simulação e confirmação recusam com DOCUMENTO_ORIGINAL_AUSENTE, sem gravar', async () => {
+  const estado = { ...estadoInicial(), semOriginal: true };
+  await assert.rejects(emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase(), HOJE)), (e: { code?: string }) => e.code === 'DOCUMENTO_ORIGINAL_AUSENTE');
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: decisoesBase(), resumoHash: '0'.repeat(64), chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: { code?: string }) => e.code === 'DOCUMENTO_ORIGINAL_AUSENTE');
+  assert.deepEqual(estado.inserts, []);
 });

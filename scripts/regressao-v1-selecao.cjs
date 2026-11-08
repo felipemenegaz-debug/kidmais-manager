@@ -68,6 +68,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/supersessao-048.postgres.test.ts": { descartavel: "atual" },
   "lib/contratos/migration-057.postgres.test.ts": { descartavel: "atual" },
   "lib/contratos/integracao-importados/integracao.postgres.test.ts": { descartavel: "atual" },
+  // 08/11/2026: B1 do P1 monetário (D-P1r4-2) — original pela extração da importação, com duas versões do documento.
+  "lib/contratos/integracao-importados/original-por-id.postgres.test.ts": { descartavel: "atual" },
   // 25/10/2026: lista de contratos (fase 2 da tela) — paridade da versão de referência SQL × TS, números iguais à leitura
   // do contrato com contratos reais da integração (instala 055/061/062 como a suíte acima), isolamento, cursor e volume.
   "lib/contratos/services/lista-contratos.postgres.test.ts": { descartavel: "atual" },
@@ -243,6 +245,8 @@ const ESTADO_POSTGRES = {
   // 109 (renovação substituta): guarda, repositório e rollback; detector do retrato nas duas versões (108 = 075 íntegra, a suíte
   // aplica a 109); concorrência com a trava real, a de linha e sem serialização.
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
+  // B-25: trava de cobrança (L2) com linha presente, sobre o modelo 109.
+  "lib/assinatura/trava-cobranca.postgres.test.ts": { descartavel: "109" },
   // Entrega B (01/11/2026): migration 112 (cliente PJ) aplicada pela suíte sobre o modelo 109; CHECKs, unicidade, corrida e rollback.
   "lib/clientes/migration-112.postgres.test.ts": { descartavel: "109" },
   // Entrega B: serviço PF/PJ com a 112 e, no 109, o código novo sem ela (PJ_INDISPONIVEL/MIGRACAO_PENDENTE).
@@ -449,6 +453,10 @@ const ESTADO_POSTGRES = {
   // 04/11/2026 (E-ME2, aplicador da 117 em staging): modelo 112 (sem a 117), com empresa e mensagens reais nas 2 tabelas
   // travadas; papel mínimo, preservação, postcheck real, deriva, down, falha de trava real e retomada.
   "lib/whatsapp/atendimento/aplicador-117.postgres.test.ts": { descartavel: "112" },
+  // 08/11/2026 (L2, aplicador da 118 em staging): modelo 117 (staging de hoje: 112, 114, 116 e 117, sem a 118), com empresa e
+  // documentos reais nas 2 tabelas travadas; papel mínimo, preservação, postcheck real, deriva, down vazio, falha de trava real
+  // e retomada; cota (reserva, consumo, liberação), exportação antes e depois e down recusado com histórico.
+  "lib/importacao-contrato/aplicador-118.postgres.test.ts": { descartavel: "117" },
   // 22/10/2026: re-salvar pacote mantendo dia/horário com regra aberta (gatilho de vigência da 006 antes do ON CONFLICT);
   // pacote usado e não usado, manter/remover/acrescentar e casos de borda. Schema vigente (089), sem migration.
   "lib/comercial/pacotes-revigencia.postgres.test.ts": { descartavel: "089" },

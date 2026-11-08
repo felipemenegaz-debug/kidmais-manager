@@ -11,6 +11,7 @@
  * Confirmação por e-mail ao solicitante e aviso interno [AÇÃO HOJE] à plataforma: melhor esforço, nunca desfazem o registro.
  * O fluxo automático da 089 (ARREPENDIMENTO_7_DIAS, quando elegível) continua; este registro cobre todos os outros casos.
  */
+import { exigirCobrancaDestravada } from './trava-cobranca.ts';
 import { randomBytes } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -108,6 +109,7 @@ export async function registrarArrependimento(sessao: SessaoAdmin, empresaSolici
     const motivo = typeof corpo.motivo === 'string' ? corpo.motivo.trim().slice(0, 500) : '';
     exigirReautenticacaoRecente(sessao);
     const r = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'registrarArrependimento', env);
         if (tenant.papelAtual !== GESTAO) throw erroAcesso('COBRANCA_SEM_PERMISSAO', 'Somente a Gestão desta empresa registra o arrependimento.', 403);
         if (!await arrependimentosInstalados(tx))
             throw erroAcesso('ARREPENDIMENTO_INDISPONIVEL', `O registro pela tela ainda não está disponível neste ambiente. Envie o pedido de arrependimento para ${CANAL_OFICIAL}: ele vale a partir do envio.`, 503);

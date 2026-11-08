@@ -1,3 +1,4 @@
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { z } from 'zod';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { erroAcesso } from '../acessos/erros.ts';
@@ -66,6 +67,7 @@ export async function operarCreditos(sessao: SessaoAdmin, raw: unknown, ctx: Con
     if (op.acao !== 'simular_corte') exigirReautenticacaoRecente(sessao);
     try {
         return await deps.withTransaction(async (tx) => {
+            if (op.acao !== 'simular_corte') await exigirCobrancaDestravada(tx, 'operarCreditos');
             await exigirDesenvolvedorNaTransacao(tx, sessao);
             if (!await creditosInstalados(tx)) throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'Os créditos de IA não estão instalados neste ambiente.', 503);
             if (op.acao === 'simular_corte') return simularCorte(tx, op.empresaId);

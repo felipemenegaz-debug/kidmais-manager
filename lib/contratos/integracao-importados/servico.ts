@@ -192,7 +192,7 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   const cliente = { ...clienteAtual, ...decisoes.cadastro };
   const pj = clienteAtual.tipoPessoa === 'PJ';
   const cadastro = cadastroContratualDoTipo(clienteAtual.tipoPessoa).safeParse(formularioCadastro(cliente));
-  const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
+  const documento = await repo.documentoOriginal(tx, empresaId, importacao.id);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   const pacote = decisoes.pacoteReferenciaId ? await repo.pacoteDaEmpresa(tx, empresaId, decisoes.pacoteReferenciaId) : null;

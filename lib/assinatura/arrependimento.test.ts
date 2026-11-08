@@ -15,6 +15,7 @@ const CHAVE = '6f1c2a34-1b2c-4d5e-8f90-123456789abc';
 function deps(instalado: boolean, papel = 'REPRESENTANTE_AUTORIZADO'): DepsArrependimento & { consultas: string[] } {
     const consultas: string[] = [];
     const tx = { query: async (sql: string) => {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         consultas.push(sql);
         if (sql.includes("to_regclass('public.assinatura_arrependimentos')")) return { rows: [{ ok: instalado }], rowCount: 1 };
         throw new Error('consulta inesperada: ' + sql.slice(0, 40));

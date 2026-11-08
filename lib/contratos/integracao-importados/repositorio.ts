@@ -31,10 +31,19 @@ export async function lerImportacao(tx: DbExecutor, empresaId: string, importaca
   return { id: l.id, clienteId: l.cliente_id, documentoId: l.documento_id, status: l.status, recebimentosDocumento: l.recebimentos_documento, snapshot: l.snapshot && typeof l.snapshot === 'object' ? l.snapshot : null };
 }
 
-export async function documentoOriginal(tx: DbExecutor, empresaId: string, documentoId: string) {
+/**
+ * Original que a extração da importação leu: importação → extração → original, pela cadeia imutável (055c/055d), com
+ * empresa e documento em cada junção. Nunca "a última versão do documento": outra versão do mesmo documento não é o
+ * arquivo conferido nesta importação.
+ */
+export async function documentoOriginal(tx: DbExecutor, empresaId: string, importacaoId: string) {
   const r = await tx.query<{ id: string; sha256: string }>(
-    `SELECT id::text, sha256 FROM ia_documento_originais WHERE documento_id = $1::uuid AND empresa_id = $2::uuid ORDER BY versao DESC LIMIT 1`,
-    [documentoId, empresaId],
+    `SELECT o.id::text, o.sha256
+       FROM ia_importacoes i
+       JOIN ia_extracoes x ON x.id = i.extracao_id AND x.empresa_id = i.empresa_id AND x.documento_id = i.documento_id
+       JOIN ia_documento_originais o ON o.id = x.original_id AND o.empresa_id = x.empresa_id AND o.documento_id = x.documento_id
+      WHERE i.id = $1::uuid AND i.empresa_id = $2::uuid`,
+    [importacaoId, empresaId],
   );
   return r.rows[0] ?? null;
 }

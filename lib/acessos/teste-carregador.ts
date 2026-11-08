@@ -61,6 +61,9 @@ export function executorFalso(respostas: Array<[RegExp, (params: unknown[]) => u
     return {
         executados,
         async query(sql: string, params: unknown[] = []) {
+            // Trava de cobrança (B-25): a suíte roda como execução local; quem testa a recusa usa a trava de verdade.
+            if (sql === 'SELECT current_database() AS banco')
+                return { rows: [{ banco: 'kidmais_teste_local' }], rowCount: 1 };
             executados.push({ sql, params });
             for (const [padrao, resposta] of respostas) {
                 if (padrao.test(sql))

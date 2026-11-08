@@ -247,6 +247,14 @@ jobs:
       - name: Blocos de Shell da 117 (staging)
         run: node --test scripts/bloco-shell-117.test.cjs
 
+      # Aplicador da 118 (cota de leitura da importação, staging): cliente simulado, sem banco nem rede; estado pelos 7 objetos.
+      - name: Aplicador da 118 (staging) — cliente simulado
+        run: node --test scripts/migration-118.test.cjs
+
+      # Blocos de Shell da 118: colagem real em bash e bash -i num destino temporário; não toca banco nem /opt/render.
+      - name: Blocos de Shell da 118 (staging)
+        run: node --test scripts/bloco-shell-118.test.cjs
+
       # Aplicador da 114 (trava da configuração nos gatilhos da 019, staging): cliente simulado, sem banco nem rede.
       - name: Aplicador da 114 (staging) — cliente simulado
         run: node --test scripts/migration-114.test.cjs

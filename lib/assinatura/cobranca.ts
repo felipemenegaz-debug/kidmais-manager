@@ -31,6 +31,7 @@
  *   - exclusão confirmada e sincronização local falhou → também COBRANCA_FALHOU (502): o provedor já removeu e a
  *     situação local vem pelo webhook ou pela reconciliação.
  */
+import { exigirCobrancaDestravada } from './trava-cobranca.ts';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import type { TenantComprovado } from '../saas/provar-tenant.ts';
@@ -175,7 +176,8 @@ export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: 
         const pedido = validarPedidoOferta(raw);
         const provedor = deps.provedor();
         if (!provedor) throw desligada();
-        const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, tenant) => {
+        const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+            await exigirCobrancaDestravada(tx, 'iniciarAssinatura', env);
             exigirGestao(tenant); return tenant.empresaComprovada;
         });
         return deps.travarContratacao(empresaId, async () => {
@@ -196,6 +198,7 @@ export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: 
     if (ciclo !== 'MENSAL' && ciclo !== 'ANUAL')
         throw erroAcesso('DADOS_INVALIDOS', 'Escolha o plano mensal ou anual.', 400, { campo: 'ciclo' });
     const contexto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'iniciarAssinatura', env);
         exigirGestao(tenant);
         return { empresaId: tenant.empresaComprovada,
             apenasRetomar: await conferirCheckoutLegado(tx, tenant.empresaComprovada, ciclo, env) };
@@ -591,6 +594,7 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         throw desligada();
 
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'cancelarAssinatura', deps.env ?? process.env);
         exigirGestao(tenant);
         const protocolo = await encerramentosInstalados(tx);
         // Repetição do mesmo pedido (duplo clique, nova tentativa da tela). P2-2 (revisão de 21/10/2026): a resposta é a

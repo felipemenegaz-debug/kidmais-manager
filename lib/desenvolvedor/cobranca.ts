@@ -1,3 +1,4 @@
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { z } from 'zod';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { erroAcesso } from '../acessos/erros.ts';
@@ -29,6 +30,7 @@ export async function sincronizarCobrancaEmpresa(sessao: SessaoAdmin, id: string
     if (!provedor)
         throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'A cobrança não está configurada neste ambiente.', 503);
     return deps.withTransaction(async (tx) => {
+        await exigirCobrancaDestravada(tx, 'sincronizarCobrancaEmpresa');
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0]?.ok)
             throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'A cobrança não está instalada neste banco (migration 068).', 503);
@@ -72,7 +74,10 @@ export async function liberarIntencaoCobranca(sessao: SessaoAdmin, id: string, r
     if (!provedor)
         throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'A cobrança não está configurada neste ambiente.', 503);
     try {
-        return await deps.withTransaction((tx) => liberarIntencaoCriacao(tx, sessao, empresaId, raw, provedor, ctx));
+        return await deps.withTransaction(async (tx) => {
+            await exigirCobrancaDestravada(tx, 'liberarIntencaoCobranca');
+            return liberarIntencaoCriacao(tx, sessao, empresaId, raw, provedor, ctx);
+        });
     }
     catch (error) {
         if (error instanceof AsaasFalhou)

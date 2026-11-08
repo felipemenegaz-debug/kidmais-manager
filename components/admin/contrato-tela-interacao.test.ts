@@ -186,37 +186,60 @@ test('fase 2: sem contrato na URL a tela mostra a lista; com contrato, o caminho
   assert.match(texto(r), /O link do contrato é inválido/); assert.ok(elementos(r).find(e => e.type === Lista));
 }));
 
-test('O-1 e O-3: filtro e busca da lista ficam na URL e voltam com "← Contratos"; outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
+test('O-1 e O-3: só o filtro vai à URL; a busca fica em memória e volta com "← Contratos"; outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
   const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const ouvintes: Record<string, Array<() => void>> = {};
-  const janela = { location: { hash: '#historico', search: '', pathname: '/admin/contratos' }, history: { state: null, replaceState() {} },
+  const navegacoes: string[] = [];
+  const janela = { location: { hash: '#historico', search: '', pathname: '/admin/contratos' }, history: { state: null, replaceState(_d: unknown, _t: string, u: string) { navegacoes.push(`historico ${u}`); } },
     addEventListener(t: string, f: () => void) { (ouvintes[t] ??= []).push(f); }, removeEventListener() {} };
   Object.defineProperty(globalThis, 'window', { configurable: true, value: janela });
   try {
-    const url = { q: 'filtro=todas&busca=lucas' }, navegacoes: string[] = [];
+    const url = { q: 'filtro=todas' };
     const m = montar(url, async () => Response.json({ ok: true, data: dados() }), navegacoes);
     let r = await m.ciclo();
-    const lista = elementos(r).find(e => e.type === Lista)!;
-    assert.equal(lista.props.filtroInicial, 'todas'); assert.equal(lista.props.buscaInicial, 'lucas');
-    // Trocar o filtro grava na URL (replace, sem empilhar histórico); voltar ao padrão limpa o parâmetro.
-    (lista.props.onFiltro as (a: string, b: string) => void)('canceladas', 'lucas');
-    (lista.props.onFiltro as (a: string, b: string) => void)('proximas', '');
-    assert.deepEqual(navegacoes.splice(0), ['replace /admin/contratos?filtro=canceladas&busca=lucas', 'replace /admin/contratos']);
-    // Abrir um contrato preserva filtro e busca na URL e descarta a aba anterior (#historico ainda na janela).
-    (lista.props.onAbrir as (s: string) => void)(ID);
-    assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?filtro=todas&busca=lucas&contratoId=${ID}`]);
-    url.q = `filtro=todas&busca=lucas&contratoId=${ID}`; r = await m.ciclo();
+    const lista = () => elementos(m.render()).find(e => e.type === Lista)!;
+    assert.equal(lista().props.filtroInicial, 'todas'); assert.equal(lista().props.buscaInicial, '');
+    // Trocar filtro ou busca grava só o filtro na URL (API nativa, sem pedido ao servidor nem nova entrada); voltar ao padrão limpa o parâmetro.
+    (lista().props.onFiltro as (a: string, b: string) => void)('canceladas', 'lucas');
+    (lista().props.onFiltro as (a: string, b: string) => void)('proximas', '');
+    (lista().props.onFiltro as (a: string, b: string) => void)('proximas', 'lucas');
+    assert.deepEqual(navegacoes.splice(0), ['historico /admin/contratos?filtro=canceladas', 'historico /admin/contratos', 'historico /admin/contratos?filtro=proximas']);
+    assert.equal(lista().props.buscaInicial, 'lucas', 'a busca em uso volta da memória');
+    // Abrir um contrato preserva o filtro na URL, sem o termo, e descarta a aba anterior (#historico ainda na janela).
+    (lista().props.onAbrir as (s: string) => void)(ID);
+    assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?filtro=todas&contratoId=${ID}`]);
+    url.q = `filtro=todas&contratoId=${ID}`; r = await m.ciclo();
     const abaAtiva = () => elementos(m.render()).find(e => e.props?.role === 'tab' && e.props['aria-selected'] === true)?.props.id;
     assert.equal(abaAtiva(), 'aba-geral', 'outro contrato abre no Resumo');
     // Voltar/avançar do navegador: popstate com outro hash troca a aba visível.
     janela.location.hash = '#financeiro'; for (const f of ouvintes.popstate ?? []) f();
     assert.equal(abaAtiva(), 'aba-financeiro', 'popstate sincroniza a aba com o hash');
-    // "← Contratos" volta à lista com o mesmo filtro e a mesma busca.
+    // "← Contratos" volta à lista com o mesmo filtro e, da memória, a mesma busca.
     clicar(m.render(), '← Contratos');
-    assert.deepEqual(navegacoes.splice(0), ['push /admin/contratos?filtro=todas&busca=lucas']);
+    assert.deepEqual(navegacoes.splice(0), ['push /admin/contratos?filtro=todas']);
     assert.equal(abaAtiva(), 'aba-geral', 'a aba volta ao Resumo ao sair do contrato');
+    url.q = 'filtro=todas'; await m.ciclo();
+    assert.equal(lista().props.buscaInicial, 'lucas', 'a lista reabre com a busca');
+    // Item "Contratos" do menu: URL sem filtro abre a lista limpa, mesmo com um termo na memória.
+    url.q = ''; await m.ciclo();
+    assert.equal(lista().props.filtroInicial, 'proximas'); assert.equal(lista().props.buscaInicial, '');
+    assert.deepEqual(navegacoes.splice(0), [], 'sem termo não há o que corrigir na URL');
+    // Link antigo com o termo: não vira busca, e o termo sai da barra de endereço.
+    url.q = 'filtro=todas&busca=theo'; await m.ciclo();
+    assert.deepEqual([...new Set(navegacoes.splice(0))], ['historico /admin/contratos?filtro=todas', 'replace /admin/contratos?filtro=todas']);
+    assert.notEqual(lista().props.buscaInicial, 'theo', 'o termo do link antigo não é aplicado');
   } finally { if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window'); }
 });
+
+test('O-1: com a limpeza do link antigo ainda pendente, "Fechar consulta" não repropaga o termo', () => comJanela(async () => {
+  const url = { q: `contratoId=${ID}&versaoId=${V2}&busca=theo` }, navegacoes: string[] = [];
+  const m = montar(url, async (u: string) => Response.json({ ok: true, data: u.includes('contratoId=') ? dados() : [] }), navegacoes);
+  const r = await m.ciclo();
+  assert.equal(url.q.includes('busca=theo'), true, 'o roteador ainda não aplicou a limpeza');
+  navegacoes.length = 0;
+  clicar(r, 'Fechar consulta');
+  assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?contratoId=${ID}`]);
+}));
 
 
 // ── Plano UX achados Frente C (rev. 3): aviso da fonte do PDF pelo ALVO de ação e botões principais ──────────────────
