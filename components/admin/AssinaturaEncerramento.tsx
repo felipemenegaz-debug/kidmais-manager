@@ -30,11 +30,11 @@ export const TIPO: Record<Tipo, string> = {
 };
 const ESTORNO: Record<string, string> = {
     NAO_SE_APLICA: 'Sem devolução',
-    AGUARDANDO_MANUAL: 'Devolução registrada: em processamento pela equipe Kidmais',
+    AGUARDANDO_MANUAL: 'Devolução registrada: em processamento pela equipe iA.Fest',
     EM_CURSO: 'Devolução em andamento',
     SOLICITADO: 'Devolução enviada ao provedor de pagamento',
-    SEM_CONFIRMACAO: 'Devolução em conferência pela equipe Kidmais',
-    RECUSADO: 'Devolução em processamento pela equipe Kidmais',
+    SEM_CONFIRMACAO: 'Devolução em conferência pela equipe iA.Fest',
+    RECUSADO: 'Devolução em processamento pela equipe iA.Fest',
     CONCLUIDO: 'Devolução concluída',
 };
 const INDISPONIVEL: Record<string, string> = {

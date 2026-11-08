@@ -669,14 +669,14 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
 
 export async function publico(tokenPublico: string, executor: DbExecutor = db()) {
   habilitado(); exigir(/^[\w-]{43}$/.test(tokenPublico), 'Convite indisponível.', 404);
-  const c = (await executor.query<Convite>(`SELECT ci.* FROM convites ci LEFT JOIN festas f ON f.id=ci.festa_id
+  const c = (await executor.query<Convite & { empresa_codigo?: string }>(`SELECT ci.*, e.codigo AS empresa_codigo FROM convites ci LEFT JOIN festas f ON f.id=ci.festa_id
     LEFT JOIN contratos co ON co.id=f.contrato_id LEFT JOIN contrato_fluxos cf ON cf.contrato_id=co.id
     JOIN empresas e ON e.id=ci.empresa_id WHERE ci.publico_token=$1 AND ci.publicado IS NOT NULL
       AND e.status='ATIVA' AND (ci.festa_id IS NULL OR (f.invalidada_em IS NULL AND co.status<>'CANCELADO'
       AND cf.versao_vigente_id=ci.versao_contrato_id))`, [tokenPublico])).rows[0];
   exigir(c, 'Convite indisponível. Solicite o link atualizado ao organizador.', 404);
   const conteudo = conteudoSchema.parse(c.publicado);
-  return { c, conteudo };
+  return { c, conteudo, marcaKidmais: c.empresa_codigo === 'kidmais' };
 }
 export async function artePublica(tokenPublico: string) {
   const { c, conteudo } = await publico(tokenPublico);
@@ -685,8 +685,8 @@ export async function artePublica(tokenPublico: string) {
   exigir(arte, 'Arte não encontrada.', 404); return arte.imagem;
 }
 export async function consultarPublico(tokenPublico: string, tokenFamilia: string | null) {
-  const { c, conteudo } = await publico(tokenPublico);
-  return { conteudo, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+  const { c, conteudo, marcaKidmais } = await publico(tokenPublico);
+  return { conteudo, marcaKidmais, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
 }
 export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);

@@ -41,7 +41,7 @@ const pedido = (mudar: Partial<PedidoResumo> = {}): PedidoResumo => ({
 
 test('e-mail de confirmação: protocolo, valor, prazo e somente leitura; sem id do provedor; HTML escapado; idempotente pelo pedido', () => {
     const m = mensagemConfirmacao({ para: 'gestao@example.test', empresa: 'Buffet <Teste>', pedido: pedido(), periodoFim: null, estornoAutomatico: false });
-    assert.equal(m.assunto, 'Kidmais Manager — protocolo KM-20261021-ABCDEFGH');
+    assert.equal(m.assunto, 'iA.Fest — protocolo KM-20261021-ABCDEFGH');
     assert.match(m.texto, /KM-20261021-ABCDEFGH/);
     assert.match(m.texto, /R\$\s?2\.882,33/);
     assert.match(m.texto, /28\/10\/2026 \(5 dias úteis\)/);
@@ -97,7 +97,7 @@ test('P2-3: aviso interno só com protocolo, tipo, valor, prazo e situação; ur
     assert.equal(canalDaPlataforma({ SITE_ATENDIMENTO_EMAIL: ' contato@demerzellabs.com.br ' }), 'contato@demerzellabs.com.br');
     assert.equal(canalDaPlataforma({ SITE_ATENDIMENTO_EMAIL: 'a definir' }), null);
     const m = mensagemAvisoInterno({ para: 'contato@exemplo.test', pedido: pedido(), detalhes: { formaPagamento: 'PIX', prazoArrependimento: false } });
-    assert.equal(m.assunto, 'Kidmais Manager — pedido KM-20261021-ABCDEFGH (Encerramento antecipado do plano anual (devolução proporcional))');
+    assert.equal(m.assunto, 'iA.Fest — pedido KM-20261021-ABCDEFGH (Encerramento antecipado do plano anual (devolução proporcional))');
     assert.match(m.texto, /R\$\s?2\.882,33\. Meio de pagamento: PIX/);
     assert.match(m.texto, /iniciar até 28\/10\/2026/);
     assert.equal(m.idempotencia, 'encerramento-interno:00000000-0000-4000-8000-000000000001');

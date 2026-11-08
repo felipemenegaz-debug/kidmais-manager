@@ -2984,7 +2984,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 <Summary
                   label="Origem do fechamento"
-                  value={origemInterna ? "Atendimento Kidmais" : "Cliente"}
+                  value={origemInterna ? (marca.kidmais ? "Atendimento Kidmais" : "Atendimento do buffet") : "Cliente"}
                 />
                 <Summary label="Pacote" value={pacote?.nome || "-"} />
                 {salaoPreferido ? (

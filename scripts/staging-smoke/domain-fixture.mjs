@@ -28,6 +28,7 @@ export function fixture(root, env, smokeId) {
     else if (q.startsWith('UPDATE contrato_fluxos')) state.flow = { versao_vigente_id: values[1], versao_em_preparacao_id: null };
     else if (q.startsWith('UPDATE contratos')) state.contract.status = 'ASSINADO';
     else if (q.startsWith('SELECT public.kidmais019_formalizacao')) { state.calls.push('formalization-validation'); rows = [{ valida: state.signatures.length === 2 && state.version.status === 'ASSINADA' }]; }
+    else if (q.startsWith('SELECT f.empresa_id::text AS e FROM public.contratos')) rows = [];
     else if (q.startsWith('SELECT id,invalidada_em FROM public.festas')) rows = state.parties;
     else if (q.startsWith('SELECT public.kidmais019_bloquear_contrato') || q.startsWith('SELECT public.kidmais019_validar_destino')) rows = [];
     // 094 (salão da festa na formalização): a festa do contrato e a função da 094 ausente (schema do smoke = antes da 094).

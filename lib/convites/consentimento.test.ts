@@ -12,11 +12,11 @@ const env = (provedor: string): NodeJS.ProcessEnv => ({ NODE_ENV: 'test', CONVIT
 
 test('aviso da Astra com o nome do provedor real; consentimento e foto separados, sem documento', () => {
   const openai = textosAutorizacaoIA('openai', 'CLIENTE'), gemini = textosAutorizacaoIA('gemini', 'CLIENTE');
-  assert.equal(openai.aviso, 'Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no Kidmais e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.');
+  assert.equal(openai.aviso, 'Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no iA.Fest e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.');
   assert.match(gemini.aviso, /^Para criar este convite com IA, enviaremos ao Google \(Gemini\) os dados/);
   assert.doesNotMatch(gemini.aviso + gemini.foto, /OpenAI/); assert.doesNotMatch(openai.aviso + openai.foto, /Gemini/);
   assert.equal(openai.consentimento, 'Declaro ser responsável legal pela criança e autorizo especificamente o uso dos dados selecionados para gerar este convite por IA, nas condições informadas. Sei que posso escolher uma alternativa sem IA e revogar esta autorização para usos futuros.');
-  assert.equal(VERSAO_TEXTOS_IA, 'convites-ia-20261021.2');
+  assert.equal(VERSAO_TEXTOS_IA, 'convites-ia-20261107.1');
   // P2-3: a confirmação menciona fotografia e imagens da galeria selecionadas e vale para esta geração.
   assert.equal(openai.foto, 'Autorizo também o envio desta fotografia e das imagens da galeria selecionadas ao provedor indicado (OpenAI) para gerar esta arte.');
   assert.match(openai.imagens, /vale só para esta geração/);

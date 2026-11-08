@@ -124,7 +124,7 @@ export async function registrarArrependimento(sessao: SessaoAdmin, empresaSolici
               FROM empresa_assinaturas a JOIN empresas e ON e.id = a.empresa_id
               LEFT JOIN LATERAL (SELECT max(confirmada_em) AS contratado_em FROM assinatura_contratacoes c WHERE c.empresa_id = a.empresa_id AND c.estado = 'CONFIRMADA') ref ON true
              WHERE a.empresa_id = $1::uuid`, [empresaId])).rows[0];
-        if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no Kidmais Manager.', 409);
+        if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no iA.Fest.', 409);
         const m = await inserirComProtocolo(tx, [empresaId, chave, 'FERRAMENTA', sessao.usuario_id, motivo || null, a.situacao, a.contratado_em, a.dentro, configuracaoAsaas(env).ligado, a.assinatura]);
         await auditarCobranca(tx, { acao: 'ARREPENDIMENTO_REGISTRADO', empresaId, origem: { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId },
             ip: ctx.ip ?? null, justificativa: motivo || null, depois: { protocolo: m.protocolo, canal: 'FERRAMENTA', situacaoAssinatura: a.situacao } });
@@ -142,10 +142,10 @@ const mensagem = (para: string, assunto: string, linhas: string[], idempotencia:
     html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${linhas.map((l) => `<p>${escapar(l)}</p>`).join('')}</div>`, idempotencia });
 
 export function mensagemConfirmacaoArrependimento(para: string, empresa: string, m: Pick<Manifestacao, 'protocolo' | 'solicitadoEm'>): MensagemEmail {
-    return mensagem(para, `Kidmais Manager — arrependimento registrado, protocolo ${m.protocolo}`, [
-        `Recebemos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}.`,
+    return mensagem(para, `iA.Fest — arrependimento registrado, protocolo ${m.protocolo}`, [
+        `Recebemos o seu pedido de arrependimento da contratação do iA.Fest${empresa ? ` (${empresa})` : ''}.`,
         `Protocolo: ${m.protocolo}. Registrado em ${horaBr(m.solicitadoEm)} (horário de Brasília).`,
-        'Este e-mail confirma o registro do pedido. A equipe Kidmais vai analisá-lo e, quando cabível, comunicar o intermediador de pagamento e providenciar a restituição dos valores pagos, informando o resultado pelo canal oficial. O prazo do crédito depende do meio de pagamento.',
+        'Este e-mail confirma o registro do pedido. A equipe iA.Fest vai analisá-lo e, quando cabível, comunicar o intermediador de pagamento e providenciar a restituição dos valores pagos, informando o resultado pelo canal oficial. O prazo do crédito depende do meio de pagamento.',
         `Dúvidas: ${CANAL_OFICIAL}, informando o protocolo.`,
     ], `arrependimento:${m.protocolo}`);
 }
@@ -172,7 +172,7 @@ async function enviarConfirmacaoArrependimento(deps: DepsNotificacao, m: Manifes
 
 /** Aviso interno imediato: só protocolo, canal, informativos e instrução; sem nome, pessoa, e-mail ou documento. */
 export function mensagemAvisoArrependimento(para: string, m: Pick<Manifestacao, 'protocolo' | 'solicitadoEm' | 'dentroDe7Dias' | 'provedorDisponivel'>): MensagemEmail {
-    return mensagem(para, `[AÇÃO HOJE] Kidmais Manager — arrependimento ${m.protocolo}`, [
+    return mensagem(para, `[AÇÃO HOJE] iA.Fest — arrependimento ${m.protocolo}`, [
         `Manifestação de arrependimento registrada na tela Assinatura. Protocolo: ${m.protocolo}. Em ${horaBr(m.solicitadoEm)} (Brasília).`,
         `Informativo (não decide): ${m.dentroDe7Dias === null ? 'sem data de contratação confirmada' : m.dentroDe7Dias ? 'dentro de 7 dias da última contratação confirmada' : 'mais de 7 dias da última contratação confirmada'}; provedor ${m.provedorDisponivel ? 'configurado' : 'indisponível neste ambiente'}.`,
         'Prazo: IMEDIATO. Comunicar o intermediador (Asaas) e restituir os valores pagos, ou registrar por que não se aplica, no painel do desenvolvedor (situação comercial da empresa), localizando pelo protocolo.',
@@ -237,7 +237,7 @@ export async function registrarArrependimentoAtendimento(tx: DbExecutor, input: 
           LEFT JOIN LATERAL (SELECT max(confirmada_em) AS contratado_em FROM assinatura_contratacoes c WHERE c.empresa_id = a.empresa_id AND c.estado = 'CONFIRMADA'
             AND c.confirmada_em <= $2::timestamptz) ref ON true
          WHERE a.empresa_id = $1::uuid`, [input.empresaId, input.recebidoEm])).rows[0];
-    if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no Kidmais Manager.', 409);
+    if (!a) throw erroAcesso('CONFLITO', 'Esta empresa não tem assinatura registrada no iA.Fest.', 409);
     if (!a.valido) throw erroAcesso('DADOS_INVALIDOS', 'A data do recebimento precisa estar entre a criação da assinatura e agora (até 90 dias atrás).', 400, { campo: 'recebidoEm' });
     const solicitante = (await tx.query<{ id: string; email: string }>(`SELECT u.id, u.email FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
         WHERE m.empresa_id = $1::uuid AND m.status = 'ATIVA' AND m.papel = $2 AND u.ativo AND lower(u.email) = $3 LIMIT 1`, [input.empresaId, GESTAO, email])).rows[0];
@@ -267,16 +267,16 @@ export function mensagemConclusaoArrependimento(para: string, empresa: string, d
         ? ['O período contratado foi encerrado; a área do sistema fica disponível em somente leitura pelo prazo informado nos Termos, com exportação dos dados.']
         : d.efeito === 'CONTRATACAO_ATUAL_MANTIDA' ? ['Este pedido se refere à contratação anterior e não altera a sua contratação atual.'] : [];
     const linhas = d.situacao === 'RESTITUIDO' ? [
-        `Concluímos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
+        `Concluímos o seu pedido de arrependimento da contratação do iA.Fest${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
         `A restituição de ${reais(d.valorRestituidoCentavos ?? 0)} foi solicitada ao intermediador de pagamento. O prazo do crédito depende do meio de pagamento.`,
         ...efeito,
         `Dúvidas: ${CANAL_OFICIAL}, informando o protocolo.`,
     ] : [
-        `Analisamos o seu pedido de arrependimento da contratação do Kidmais Manager${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
+        `Analisamos o seu pedido de arrependimento da contratação do iA.Fest${empresa ? ` (${empresa})` : ''}, protocolo ${d.protocolo}.`,
         `Resultado: não se aplica. Motivo: ${d.justificativa ?? ''}`,
         `Se discordar ou tiver dúvidas, responda pelo canal oficial ${CANAL_OFICIAL}, informando o protocolo.`,
     ];
-    return mensagem(para, `Kidmais Manager — resultado do pedido de arrependimento, protocolo ${d.protocolo}`, linhas, `arrependimento-conclusao:${d.protocolo}`);
+    return mensagem(para, `iA.Fest — resultado do pedido de arrependimento, protocolo ${d.protocolo}`, linhas, `arrependimento-conclusao:${d.protocolo}`);
 }
 
 /**

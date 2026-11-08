@@ -249,7 +249,7 @@ export default function FestaAcessos(){
     return;
    }
    // F2: a resposta é a mesma para e-mail novo ou já usado no Kidmais; a tela não diz qual foi o caso.
-   setNotice('Acesso a esta empresa concedido. Se a pessoa já usa o Kidmais, ela entra com a senha que já tem.');
+   setNotice('Acesso a esta empresa concedido. Se a pessoa já usa o iA.Fest, ela entra com a senha que já tem.');
    form.reset();
    fecharCriar();
    setAba('ativas');
@@ -477,7 +477,7 @@ export default function FestaAcessos(){
        {convitesDisponiveis&&criacaoDireta&&<fieldset className={layout.niveis}>
         <legend>Como adicionar</legend>
         <label className={modo==='convite'?layout.nivelAtivo:layout.nivel}>
-         <span><strong>Convidar por e-mail</strong><small>Recomendado. A pessoa aceita e define a própria senha; quem já usa o Kidmais confirma com a senha que tem.</small></span>
+         <span><strong>Convidar por e-mail</strong><small>Recomendado. A pessoa aceita e define a própria senha; quem já usa o iA.Fest confirma com a senha que tem.</small></span>
          <input name="modo" type="radio" checked={modo==='convite'} onChange={()=>{setModo('convite');setSenhaErro('');}} aria-label="Como adicionar: convidar por e-mail"/>
         </label>
         <label className={modo==='senha'?layout.nivelAtivo:layout.nivel}>
@@ -513,7 +513,7 @@ export default function FestaAcessos(){
         <input name="confirmacao" type={verSenha?'text':'password'} autoComplete="new-password" required minLength={8} maxLength={128} aria-invalid={Boolean(senhaErro)} aria-describedby={senhaErro?'senha-erro':undefined}/>
         {senhaErro&&<span id="senha-erro" role="alert">{senhaErro}</span>}
        </label>
-       <p className={layout.dica}><span className={layout.infoIcon} aria-hidden="true">i</span>Você define a senha inicial para quem ainda não usa o Kidmais. Quem já usa continua com a própria senha.</p>
+       <p className={layout.dica}><span className={layout.infoIcon} aria-hidden="true">i</span>Você define a senha inicial para quem ainda não usa o iA.Fest. Quem já usa continua com a própria senha.</p>
        </>}
       </fieldset>
      </div>

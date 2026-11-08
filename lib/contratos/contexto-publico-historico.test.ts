@@ -38,11 +38,11 @@ function versaoHistorica(snapshotDocumento: SnapshotHistorico, cliente: { email:
   };
 }
 
-const textoDoResumo = (v: ContratoVersaoRecord) => documento.gerarResumoContratacaoPdfDaVersao(v).documento.linhas.map((l) => l.texto).join('\n');
+const textoDoResumo = (v: ContratoVersaoRecord) => documento.gerarResumoContratacaoPdfDaVersao(v, { kidmais: true, nome: 'Kidmais' }).documento.linhas.map((l) => l.texto).join('\n');
 
 test('resumo em PDF do contrato histórico: gerado do snapshot real; ausências como "Não informado", nada inventado', () => {
   const v = versaoHistorica(snapshotBase(), { email: null, cpf: null });
-  const gerado = documento.gerarResumoContratacaoPdfDaVersao(v);
+  const gerado = documento.gerarResumoContratacaoPdfDaVersao(v, { kidmais: true, nome: 'Kidmais' });
   assert.equal(Buffer.from(gerado.pdf).subarray(0, 5).toString(), '%PDF-');
   const texto = textoDoResumo(v);
   assert.match(texto, /Endereço: Não informado/);
@@ -64,7 +64,7 @@ test('página pública do contrato histórico (serviço real): contexto "assinad
   const contexto = await publico.montarContextoContratoPublico({ id: 'k1', status: 'ASSINADO', assinadoEm: '2026-10-02T12:00:00Z' }, v as never,
     [{ id: 'nao-deveria', parte: 'CLIENTE', nome: 'x', assinado_em: '2026-10-02' }], async () => { leuDocumento = true; throw new Error('documento eletrônico não deveria ser lido'); });
   assert.equal(leuDocumento, false, 'pacote com modelo oficial (COMPLETA) não leva a procurar documento eletrônico');
-  assert.deepEqual(contexto.assinatura, { tipo: 'PAPEL', texto: 'Contrato assinado em papel, conferido pela Kidmais na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.' });
+  assert.deepEqual(contexto.assinatura, { tipo: 'PAPEL', texto: 'Contrato assinado em papel, conferido pelo buffet na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.' });
   assert.equal(contexto.aceitePermitido, false);
   assert.equal(contexto.versao.contratoOficial.disponivel, false);
   assert.deepEqual(contexto.comprovantes, []);

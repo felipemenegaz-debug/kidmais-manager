@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { conexaoDescartavelDoPool } from "@/lib/db/postgres";
+import { lerMarcaComPrazo } from "@/lib/contratos/marca-com-prazo";
+import { marcaDaEmpresa } from "@/lib/contratos/marca-contrato";
 import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
 import { ResumoTenantError, resumoContratacaoDoTenant } from "@/lib/contratos/services/resumo-tenant";
 import { apiErrorResponse } from "@/lib/http/api-response";
@@ -26,6 +29,7 @@ export async function GET(request: NextRequest) {
       withTenantTransaction,
       painel: detalheAdministrativo,
       financeiro: consultarPainelFinanceiro,
+      marca: (empresaId) => lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDaEmpresa(tx, empresaId)),
     });
     return NextResponse.json({ ok: true, data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

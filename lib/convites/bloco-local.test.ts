@@ -73,6 +73,35 @@ test('sem estabelecimento: nome comercial do perfil da empresa', async () => {
   }
 });
 
+test('falha de SQL na transação sobe com a causa original; perfil ambíguo segue sem o cadastro', async () => {
+  const cancelada = Object.assign(new Error('canceling statement'), { code: '57014' });
+  const emTransacao = (falhaEm: string) => {
+    let abortada = false;
+    return { async query(sql: string) {
+      if (abortada) throw Object.assign(new Error('current transaction is aborted'), { code: '25P02' });
+      const r = (rows: unknown[]) => ({ rows, rowCount: rows.length });
+      if (sql.includes(falhaEm)) { abortada = true; throw cancelada; }
+      if (sql.includes('agenda_escopo_config')) return r([{ ok: true }]);
+      if (sql.includes('FROM estabelecimentos e')) return r(falhaEm === 'JOIN LATERAL' ? [{ nome: 'Unidade', total: 1 }] : []);
+      if (sql.includes("to_regclass('public.perfil_empresas')")) return r([{ empresas: 'perfil_empresas', concessoes: 'perfil_empresa_concessoes' }]);
+      if (sql.includes('JOIN LATERAL')) return r([{ id: 'perfil-1' }]);
+      return r([]);
+    } } as never;
+  };
+  for (const falhaEm of ['JOIN LATERAL', 'SELECT nome_comercial AS nome']) {
+    await assert.rejects(blocoLocalDaFesta(emTransacao(falhaEm), { empresaId: EMPRESA, estabelecimentoId: ESTAB, snapshot: v3(null) }), (e: { code?: string }) => e.code === '57014');
+  }
+  const ambiguo = { async query(sql: string) {
+    const r = (rows: unknown[]) => ({ rows, rowCount: rows.length });
+    if (sql.includes('agenda_escopo_config')) return r([{ ok: true }]);
+    if (sql.includes('FROM estabelecimentos e')) return r([{ nome: 'Unidade', total: 1 }]);
+    if (sql.includes("to_regclass('public.perfil_empresas')")) return r([{ empresas: 'perfil_empresas', concessoes: 'perfil_empresa_concessoes' }]);
+    if (sql.includes('JOIN LATERAL')) return r([{ id: 'perfil-1' }, { id: 'perfil-2' }]);
+    throw new Error('consulta inesperada: ' + sql.slice(0, 60));
+  } } as never;
+  assert.deepEqual(await blocoLocalDaFesta(ambiguo, { empresaId: EMPRESA, estabelecimentoId: ESTAB, snapshot: v3(null) }), { origem: 'UNIDADE', nome: 'Unidade', endereco: '' });
+});
+
 test('endereço utilizável exige logradouro e cidade', () => {
   assert.equal(enderecoUtilizavel({ ...RUA, cidade: null }), '');
   assert.equal(enderecoUtilizavel({ ...RUA, complemento: null, bairro: null, uf: null }), 'Rua A, 10 - Brasília');

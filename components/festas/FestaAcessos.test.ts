@@ -34,7 +34,7 @@ test('layout unifica lista, busca, abas e painel Adicionar pessoa', () => {
     assert.match(ui, /<dt>Assina contratos<\/dt>/);
     // F2: nenhuma mensagem diz que o e-mail já existia no Kidmais; a confirmação é a mesma nos dois casos.
     assert.doesNotMatch(ui, /já está sendo usado|já existe uma conta/i);
-    assert.match(ui, /Acesso a esta empresa concedido\. Se a pessoa já usa o Kidmais, ela entra com a senha que já tem\./);
+    assert.match(ui, /Acesso a esta empresa concedido\. Se a pessoa já usa o iA.Fest, ela entra com a senha que já tem\./);
     assert.match(ui, /Você define a senha inicial/);
     assert.match(ui, /Nenhum resultado encontrado/);
     assert.match(ui, /Estas pessoas não acessam mais esta empresa/);

@@ -110,8 +110,8 @@ export function mensagemRenovacao(c: ContextoRenovacao, id: string, data: string
     const u = new URL(origem);
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost','127.0.0.1'].includes(u.hostname))) throw new Error('Origem de aviso inválida.');
     const link = `${u.origin}/admin/assinatura`;
-    const texto = `Seu benefício Fundador do Kidmais Manager está terminando. A partir do vencimento ${data.split('-').reverse().join('/')}, o plano ${c.plano} renova por ${reais(c.valorRegular)} por ${c.ciclo === 'ANUAL' ? 'ano' : 'mês'}, em lugar de ${reais(c.valorFinal)}.\n\nVocê pode acompanhar a assinatura ou cancelar a renovação antes desse vencimento em ${link}. O cancelamento preserva o acesso até o fim do período pago.${substituta ? '\n\nEste aviso substitui qualquer data de renovação informada antes.' : ''}`;
-    return { para: c.email, assunto: 'Kidmais Manager: renovação após o benefício Fundador', texto,
+    const texto = `Seu benefício Fundador do iA.Fest está terminando. A partir do vencimento ${data.split('-').reverse().join('/')}, o plano ${c.plano} renova por ${reais(c.valorRegular)} por ${c.ciclo === 'ANUAL' ? 'ano' : 'mês'}, em lugar de ${reais(c.valorFinal)}.\n\nVocê pode acompanhar a assinatura ou cancelar a renovação antes desse vencimento em ${link}. O cancelamento preserva o acesso até o fim do período pago.${substituta ? '\n\nEste aviso substitui qualquer data de renovação informada antes.' : ''}`;
+    return { para: c.email, assunto: 'iA.Fest: renovação após o benefício Fundador', texto,
         html: `<p>${escapar(texto).replace(/\n\n/g,'</p><p>')}</p>`, idempotencia: `kidmais-renovacao/${id}` };
 }
 function identidade(c: ContextoRenovacao, s: AssinaturaProvedor | null) {

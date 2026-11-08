@@ -1,3 +1,4 @@
+import { marcaDaEmpresa } from "@/lib/contratos/marca-contrato";
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -63,12 +64,13 @@ export async function POST(request: NextRequest, contexto: Contexto) {
     if (pedido.acao === "previa") {
       // Dados fictícios do contratante; a contratada é composta no servidor (Gestão) ou fica a do modelo, marcada.
       const previa = await withTenantTransaction(sessao, pedido.empresaId ?? null, async (tx, tenant) => {
-        if (!comGestao(tenant)) return { conteudo: pedido.conteudo, conferida: null };
+        const marca = await marcaDaEmpresa(tx, tenant.empresaComprovada);
+        if (!comGestao(tenant)) return { conteudo: pedido.conteudo, conferida: null, marca };
         const efetiva = await contratadaEfetiva(tx, tenant.empresaComprovada, pedido.conteudo);
         if (efetiva.estado === "ERRO") throw new ModeloContratoError("PERFIL_INDISPONIVEL", efetiva.erro, 409);
-        return { conteudo: aplicarContratada(pedido.conteudo, efetiva), conferida: conferidaDe(efetiva) };
+        return { conteudo: aplicarContratada(pedido.conteudo, efetiva), conferida: conferidaDe(efetiva), marca };
       });
-      const pdf = previaModeloContrato(previa.conteudo, { semPerfil: !previa.conferida });
+      const pdf = previaModeloContrato(previa.conteudo, { semPerfil: !previa.conferida, marca: previa.marca });
       const cabecalhos: Record<string, string> = { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="previa-contrato-${id.slice(0, 8)}.pdf"`, "Cache-Control": "no-store" };
       if (previa.conferida) {
         cabecalhos["X-Contratada-Origem"] = previa.conferida.origem;

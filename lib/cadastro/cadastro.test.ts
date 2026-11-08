@@ -110,7 +110,7 @@ test('documentos legais 22/10 (v2, parecer Astra, sobre a minuta5a): versões no
     const decisoes = Object.values(DOCUMENTOS).flatMap((d) => marcadoresPendentes(d).filter((m) => m.startsWith(MARCADORES.DECISAO)));
     assert.equal(decisoes.length, 1, 'só o ponto urgente 4 (IA no WhatsApp) continua sem decisão');
     assert.match(decisoes[0], /^\[DECISÃO PENDENTE: ponto urgente 4 /);
-    assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261021.2) está publicado; o aviso descreve o que existe');
+    assert.ok(!privacidade.includes(MARCADORES.CONSENTIMENTO), 'convites com IA: o consentimento (088, textos convites-ia-20261107.1) está publicado; o aviso descreve o que existe');
     assert.equal(termos.match(/\[CONTROLE AINDA NÃO IMPLEMENTADO:/g)?.length, 7, 'comprovante por e-mail entra; protocolo/arrependimento e anual proporcional saem (grupo C)');
     assert.match(termos, /em “Desistir da contratação”, mesmo quando a devolução automática não estiver disponível/);
     assert.match(termos, /vale a partir do registro, com protocolo/);

@@ -231,7 +231,7 @@ test('anual proporcional com a flag (Pix): valor sobre o pago, registro prévio 
     assert.equal(c.opcoes?.anualProporcional.disponivel && c.opcoes.anualProporcional.valorCentavos, esperado.valorCentavos);
     const r = await solicitarEncerramento(await sessao(), null, { tipo: 'ENCERRAMENTO_ANUAL_PROPORCIONAL', confirmar: true, chave: randomUUID(), valorEsperadoCentavos: esperado.valorCentavos }, ctx(), depsDev(env));
     assert.deepEqual([r.estorno, r.cancelamentoProvedor, r.valorDevolucaoCentavos], ['SOLICITADO', 'CONFIRMADO', esperado.valorCentavos]);
-    assert.deepEqual(estado.estornos, [{ id: b.pagamento, valor: esperado.valorCentavos, descricao: `Kidmais Manager - devolucao ${r.protocolo}` }]);
+    assert.deepEqual(estado.estornos, [{ id: b.pagamento, valor: esperado.valorCentavos, descricao: `iA.Fest - devolucao ${r.protocolo}` }]);
     const p = await pedido(r.protocolo);
     assert.deepEqual([p.estorno_modo, p.estorno_status_provedor, p.dias_ciclo, p.dias_utilizados, p.estorno_atualizado_em !== null], ['AUTOMATICO', 'RECEIVED', esperado.diasCiclo, 100, true]);
     assert.ok(r.prazoProcessamento && r.prazoProcessamento > hoje, '5 dias úteis');

@@ -79,6 +79,8 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
       pendentes = [];
       return (modulo[componente] as (p: object) => unknown)(props);
     },
+    /** Valores guardados nos hooks (estado e refs), para conferir o que a tela ainda retém. */
+    estado: () => [...slots],
     /** Executa os efeitos do último render cujas dependências mudaram. */
     efeitos() {
       for (const efeito of pendentes) {

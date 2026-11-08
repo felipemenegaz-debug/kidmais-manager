@@ -230,7 +230,7 @@ async function principal() {
         const formD = arr.locator('[data-form-arrependimento]');
         assert.equal(await formD.getByRole('button', { name: 'Confirmar arrependimento' }).isDisabled(), true, 'sem confirmação marcada, botão desabilitado');
         await formD.getByLabel('Motivo (opcional)').fill('Teste E2E: arrependimento fora da garantia');
-        await formD.getByLabel('Quero desistir da contratação do Kidmais Manager.').check();
+        await formD.getByLabel('Quero desistir da contratação do iA.Fest.').check();
         await formD.getByLabel('Sua senha').fill(password);
         await formD.getByRole('button', { name: 'Confirmar arrependimento' }).click();
         const protD = arr.locator('[data-protocolo-arrependimento]');

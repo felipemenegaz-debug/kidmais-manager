@@ -207,7 +207,7 @@ export default function SitePublicoPagina({ conteudo, urlImagem, base, acaoFormu
           {contato.email && <li><a href={`mailto:${contato.email}`}>{contato.email}</a></li>}
           {contato.instagram && <li><a href={contato.instagram.url} rel="nofollow noopener noreferrer" target="_blank">Instagram {contato.instagram.texto}</a></li>}
         </ul>}
-        <p className={styles.creditos}>© {c.identidade.nome} · Site feito com Kidmais Manager</p>
+        <p className={styles.creditos}>© {c.identidade.nome} · Site feito com iA.Fest</p>
       </footer>
 
       <BarraAcaoCelular orcamento={c.formulario.ativo} whatsapp={linkWhatsapp} />

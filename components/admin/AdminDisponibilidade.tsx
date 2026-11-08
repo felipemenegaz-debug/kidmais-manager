@@ -982,7 +982,7 @@ export default function AdminDisponibilidade() {
                     <input
                       value={descontoTitulo}
                       onChange={(e) => setDescontoTitulo(e.target.value)}
-                      placeholder="Ex.: Sexta especial Kidmais"
+                      placeholder="Ex.: Sexta especial"
                     />
                   </label>
 

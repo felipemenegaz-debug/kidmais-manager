@@ -24,7 +24,7 @@ const PEDIDO_COMPLETO = z.object({ tipo: z.literal("completa"), empresaId: z.str
 function exigirMesmaOrigem(request: NextRequest) {
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== "same-origin" && site !== "none")
-    throw new PacoteAdminError("ORIGEM_RECUSADA", "Abra a exportação pela tela do Kidmais Manager.", 403);
+    throw new PacoteAdminError("ORIGEM_RECUSADA", "Abra a exportação pela tela do iA.Fest.", 403);
 }
 
 /**

@@ -231,7 +231,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         await exigirEmpresaCobravel(tx, empresaId);
         const linha = await linhaDaEmpresa(tx, empresaId, false);
         if (!linha)
-            throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
+            throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no iA.Fest.', 409);
         const apenasRetomar = !oferta && await conferirCheckoutLegado(tx, empresaId, ciclo, deps.env ?? process.env);
         return { linha, apenasRetomar, cliente: await dadosDoCliente(tx, empresaId, linha, deps.env ?? process.env) };
     });
@@ -269,11 +269,11 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 clienteId = existente.id;
             else {
                 if (!a.cliente.documento)
-                    throw erroAcesso('CONFLITO', 'Cadastre o CPF ou CNPJ da contratante antes de assinar (atendimento Kidmais).', 409);
+                    throw erroAcesso('CONFLITO', 'Cadastre o CPF ou CNPJ da contratante antes de assinar (atendimento iA.Fest).', 409);
                 if (a.cliente.divergente)
                     throw erroAcesso('DOCUMENTO_DIVERGENTE', 'O documento do teste e o do cadastro são diferentes. A troca de CPF ou CNPJ é feita pelo atendimento, sem perder condições já garantidas.', 409);
                 if (a.cliente.semNomeCivil)
-                    throw erroAcesso('DADOS_INVALIDOS', MENSAGEM_NOME_CIVIL + ' Peça ao atendimento Kidmais para completar o cadastro.', 409, { campo: 'nomeEmpresarial' });
+                    throw erroAcesso('DADOS_INVALIDOS', MENSAGEM_NOME_CIVIL + ' Peça ao atendimento iA.Fest para completar o cadastro.', 409, { campo: 'nomeEmpresarial' });
                 clienteId = (await provedor.criarCliente({ nome: a.cliente.nome, cpfCnpj: a.cliente.documento, referencia: empresaId })).id;
             }
         }
@@ -327,7 +327,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         try {
             assinatura = await provedor.criarAssinatura({
                 cliente: clienteId, valorCentavos: preco, ciclo, vencimento: a.linha.hoje, referencia: empresaId,
-                descricao: `Kidmais Manager — ${oferta ? `${oferta.plano} · ` : ''}assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
+                descricao: `iA.Fest — ${oferta ? `${oferta.plano} · ` : ''}assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
             });
         }
         catch (error) {
@@ -366,7 +366,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
             let linha = await linhaDaEmpresa(tx, empresaId, true);
             if (!linha)
-                throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
+                throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no iA.Fest.', 409);
             if (linha.provedor_cliente_id && b.clienteId && linha.provedor_cliente_id !== b.clienteId)
                 throw erroAcesso('CONFLITO', 'O cadastro no provedor mudou durante a operação. Atualize a página e tente de novo.', 409);
             // D5: a identidade usada no provedor ainda é a vigente (defesa além da trava de contratação).
@@ -654,7 +654,7 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
             await enviarAvisoInterno(deps, a.empresaId!, incerto, { formaPagamento: null, prazoArrependimento: false });
         const protocoloIncerto = incerto?.protocolo ?? null;
         const sufixo = protocoloIncerto ? ' Protocolo do pedido: ' + protocoloIncerto + '.' : '';
-        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida.' + sufixo + ' Nada foi registrado como cancelado. A situação será conferida com o provedor e aparecerá nesta tela; você pode tentar de novo, e a equipe Kidmais foi avisada.', 503,
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida.' + sufixo + ' Nada foi registrado como cancelado. A situação será conferida com o provedor e aparecerá nesta tela; você pode tentar de novo, e a equipe iA.Fest foi avisada.', 503,
             protocoloIncerto ? { protocolo: protocoloIncerto } : undefined);
     }
 
