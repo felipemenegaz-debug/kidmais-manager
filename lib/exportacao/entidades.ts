@@ -88,6 +88,8 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // termos, protocolo), cobranças, devoluções, cortesias e o corte do legado. Ficam fora chaves técnicas de repetição e
     // deduplicação, a URL da fatura (contém token de acesso), a conta do provedor, controles internos de risco e a
     // identidade/motivo do operador da plataforma.
+    // 118 (cota de leitura): saem o marco da migração e as leituras contadas; fica fora o token de posse da reserva.
+    ia_importacao_usos: { operacao_id: 'identificador técnico de posse da reserva' },
     ia_credito_lotes: { chave_origem: 'identificador técnico de deduplicação da concessão' },
     ia_credito_lancamentos: { operacao: 'identificador técnico de deduplicação do lançamento' },
     ia_credito_reservas: { operacao_id: 'identificador técnico da operação (geração/chamada)' },
@@ -308,6 +310,8 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'ia/extracoes', tabela: 'ia_extracoes', grupo: 'Importações', descricao: 'Extrações dos documentos.', onde: EMP },
     { arquivo: 'ia/evidencias', tabela: 'ia_evidencias', grupo: 'Importações', descricao: 'Evidências das extrações.', onde: EMP },
     { arquivo: 'ia/importacoes', tabela: 'ia_importacoes', grupo: 'Importações', descricao: 'Importações a partir das extrações.', onde: EMP },
+    { arquivo: 'ia/cota_importacao', tabela: 'ia_importacao_cotas', grupo: 'Importações', descricao: 'Cota de leitura de documentos da empresa (início da janela de migração).', onde: EMP, migracao: '118' },
+    { arquivo: 'ia/cota_importacao_leituras', tabela: 'ia_importacao_usos', grupo: 'Importações', descricao: 'Leituras contadas na cota (documento, SHA-256, período e situação).', onde: EMP, migracao: '118' },
     { arquivo: 'ia/skills', tabela: 'ia_skills', grupo: 'Importações', descricao: 'Instruções (skills) da empresa.', onde: EMP },
 ];
 

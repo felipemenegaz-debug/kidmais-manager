@@ -30,7 +30,7 @@ export type PlanoPublico = {
   /** Recusa de cliente pessoa jurídica (PJ_INDISPONIVEL): nada é gravado; leitura e correções seguem salvas. */
   recusa?: { codigo: 'PJ_INDISPONIVEL'; motivo: 'ENTREGA_A' | 'MIGRACAO_PENDENTE'; mensagem: string } | null;
 };
-export type RespostaImportacao = { importacao: ImportacaoPublica; plano?: PlanoPublico | null; gate?: { tipo: string; rascunho?: RascunhoPublico } | null; metodo?: string | null; avisos?: string[] };
+export type RespostaImportacao = { importacao: ImportacaoPublica; plano?: PlanoPublico | null; gate?: { tipo: string; rascunho?: RascunhoPublico } | null; metodo?: string | null; avisos?: string[]; cota?: unknown };
 
 export type Resultado<T> = { ok: true; dados: T } | { ok: false; mensagem: string; codigo: string | null };
 type Buscador = (url: string, init: RequestInit) => Promise<Response>;
@@ -65,6 +65,37 @@ export async function importacaoHabilitada(buscar: Buscador) {
   const r = await verificarImportacao(buscar);
   if (!r.ok) throw new Error(r.mensagem);
   return r.dados.habilitado;
+}
+
+/** Resumo da cota de leitura (L2) devolvido ao abrir e ao ler a revisão. Só exibição: quem recusa é o servidor. */
+export type CotaPublica = {
+  franquia: { periodo: string; usados: number; limite: number | null };
+  migracao: { usados: number; extra: number; ate: string | null } | null;
+};
+
+const inteiro = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/** Valida a forma; qualquer desvio vira null (a tela só deixa de mostrar a linha). */
+export function lerCota(d: unknown): CotaPublica | null {
+  const x = d as { franquia?: { periodo?: unknown; usados?: unknown; limite?: unknown }; migracao?: { usados?: unknown; extra?: unknown; ate?: unknown } | null } | null;
+  const f = x?.franquia;
+  if (!f || typeof f.periodo !== 'string' || !inteiro(f.usados) || !(f.limite === null || inteiro(f.limite))) return null;
+  const m = x.migracao;
+  if (m === null || m === undefined) return { franquia: { periodo: f.periodo, usados: f.usados, limite: f.limite }, migracao: null };
+  if (!inteiro(m.usados) || !inteiro(m.extra) || !(m.ate === null || (typeof m.ate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.ate)))) return null;
+  return { franquia: { periodo: f.periodo, usados: f.usados, limite: f.limite }, migracao: { usados: m.usados, extra: m.extra, ate: m.ate } };
+}
+
+/** Uma linha para a revisão. Extra de migração enquanto a janela está aberta e tem saldo; senão a franquia; sem limite (sem plano), nada. */
+export function textoCota(c: CotaPublica): string | null {
+  const m = c.migracao;
+  if (m && m.usados < m.extra) {
+    const ate = m.ate ? `, até ${m.ate.slice(8, 10)}/${m.ate.slice(5, 7)}` : ' (30 dias a partir da primeira leitura com dados)';
+    return `Cota de migração: ${m.usados} de ${m.extra} leituras usadas${ate}.`;
+  }
+  const f = c.franquia;
+  if (f.limite === null) return null;
+  return f.periodo === 'IMPLANTACAO' ? `Leituras da implantação: ${f.usados} de ${f.limite}.` : `Leituras do mês: ${f.usados} de ${f.limite}.`;
 }
 
 type DocumentoEnviado = { documentoId: string; avisos: string[] };
