@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { decidirEndereco } from "./lib/enderecos/roteamento";
 import { rotear } from "./lib/marketing/dominios/hosts";
+import { pareceListaDeContratos, urlSemBuscaAntiga } from "./components/admin/contrato-url";
 
 const PAGINA_NEUTRA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Endereço em ajuste</title></head><body style="font-family:system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#090D1B;color:#F4F4F8;padding:24px;text-align:center"><p>Estamos ajustando o endereço. Tente de novo em alguns minutos.</p></body></html>';
 
@@ -11,7 +12,9 @@ function comIndexacao<T extends NextResponse>(resposta: T): T {
 }
 
 /**
- * Proxy (Next 16, antigo middleware). Duas funções:
+ * Proxy (Next 16, antigo middleware). Três funções:
+ *   - Em /admin/contratos, tirar o termo `busca=` de links antigos. Vem primeiro: o termo nunca entra num Location
+ *     para outro host. Vale também para o caminho codificado ou com barras a mais, que o Next resolve para a mesma página.
  *   - Troca de host do iA.Fest (lib/enderecos/roteamento.ts): páginas em GET/HEAD recebem 307 sem cache, conforme
  *     ENDERECOS_MODO. APIs nunca são redirecionadas. Sem o modo, só o invariante de demerzellabs.com.br age.
  *   - Domínio personalizado do site público (Marketing):
@@ -24,6 +27,11 @@ function comIndexacao<T extends NextResponse>(resposta: T): T {
  */
 export function proxy(request: NextRequest) {
   const host = request.headers.get("host");
+  // Link antigo da lista de contratos: o termo pode ser o nome de uma pessoa. Sai antes de a aplicação ser entregue, porque
+  // a página não consegue responder 307: o AdminShell só monta a tela depois da sessão, e a resposta já saiu como 200.
+  // O destino é sempre o caminho canônico: uma variante como `//admin/contratos` nunca vira Location para outro host.
+  const limpa = pareceListaDeContratos(request.nextUrl.pathname) ? urlSemBuscaAntiga("/admin/contratos", request.nextUrl.searchParams) : null;
+  if (limpa) return NextResponse.redirect(new URL(limpa, request.url), { status: 307, headers: { "Cache-Control": "no-store" } });
   const endereco = decidirEndereco({ metodo: request.method, host, pathname: request.nextUrl.pathname, search: request.nextUrl.search }, process.env);
   if (endereco.tipo === "REDIRECIONAR") {
     return comIndexacao(new NextResponse(null, { status: 307, headers: { Location: endereco.destino, "Cache-Control": "no-store" } }));

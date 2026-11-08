@@ -50,6 +50,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
       return slots[i];
     },
     useEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
+    useLayoutEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
     // Como no React: a mesma função enquanto as dependências não mudam (efeitos que dependem dela não rodam de novo).
     useCallback: (fn: unknown, dependencias?: readonly unknown[]) => {
       const i = cursor++; const antes = slots[i] as { fn: unknown; deps?: readonly unknown[] } | undefined;
