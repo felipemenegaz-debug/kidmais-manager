@@ -3,7 +3,7 @@ import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
 import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
 import { classePrimaria } from './AdminPrimaryButton';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
@@ -19,7 +19,7 @@ import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import PagamentosResumo from './PagamentosResumo';
 import { contextoCriacao } from './criacao-financeira';
 import ListaContratos from './ListaContratos';
-import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, pedidoDaUrl, urlDaLista, urlDaSelecao } from './contrato-url';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, pedidoDaUrl, urlDaLista, urlDaSelecao, urlSemBuscaAntiga, urlComVersao, urlSemVersao } from './contrato-url';
 import { ETAPAS, chaveConferencia, dataPorExtenso, etapaAtual, faixaHorario, predicados, proximoPasso, referenciasDaTela, rotuloContrato, rotuloVersao, saidaPagamentos, situacaoReserva, tituloFesta } from './contrato-tela';
 import { referenciaVigente } from '@/lib/contratos/versao-referencia';
 import ContratoImportado from './ContratoImportado';
@@ -105,6 +105,10 @@ function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodi
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
     const [retorno,setRetorno]=useState<string|null>(null),[destino,setDestino]=useState(''),[financeiroPronto,setFinanceiroPronto]=useState('');
+    // Termo da busca da lista: só em memória, nunca na URL nem no armazenamento do navegador (ver contrato-url.ts). O filtro
+    // vai à URL pela API nativa de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos"
+    // do menu sempre encontra a URL já atualizada, mesmo logo depois da primeira busca.
+    const [buscaLista,setBuscaLista]=useState('');
     const posicionado=useRef('');
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
@@ -120,7 +124,15 @@ export default function ContratoAdmin() {
     const invalidarConferencia = () => { geracaoAtual.current++; setConferido(null); };
     // A URL é a fonte da seleção (link do Dashboard/Financeiro/festa/assistente, seletor, voltar/avançar). Ver contrato-url.ts.
     const params = useSearchParams(), pathname = usePathname(), router = useRouter();
-    const pedidoUrl = pedidoDaUrl(params), lista = listaDaUrl(params);
+    const pedidoUrl = pedidoDaUrl(params), lista = listaDaUrl(params), urlLimpa = urlSemBuscaAntiga(pathname, params);
+    // Link antigo com `busca=`: o servidor já redireciona (proxy.ts); isto é a segunda camada, para uma URL que chegue aqui por
+    // navegação no cliente. Efeito de layout e API nativa: a URL fica limpa antes dos pedidos que os efeitos da tela disparam.
+    // O `replace` do roteador vem junto porque a API nativa copia o estado interno do Next, que também guardava o termo.
+    useLayoutEffect(() => { if (urlLimpa) { window.history.replaceState(null, '', urlLimpa); router.replace(urlLimpa, { scroll: false }); } }, [urlLimpa, router]);
+    // Tela devolvida pelo bfcache (ex.: Voltar depois do logout): a memória é de antes, com o termo da busca e os dados do contrato,
+    // e a próxima leitura da sessão só viria no foco ou no intervalo. A nova carga refaz essa leitura. Vale só para esta tela:
+    // nas demais telas do painel, o retorno pelo bfcache preserva rascunhos em memória e segue como antes.
+    useEffect(() => { const restaurada = (e: PageTransitionEvent) => { if (e.persisted) window.location.reload(); }; window.addEventListener('pageshow', restaurada); return () => window.removeEventListener('pageshow', restaurada); }, []);
     const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
     // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
     const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
@@ -278,10 +290,10 @@ export default function ContratoAdmin() {
         setMenuAberto(false);
         if (destino === '#cancelar-contrato') { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); setDestino(''); }
     }
-    function abrirVersao(id: string) { const q = new URLSearchParams(params.toString()); q.set('versaoId', id); router.push(`${pathname}?${q.toString()}#historico`, { scroll: false }); }
+    function abrirVersao(id: string) { router.push(urlComVersao(pathname, params, id), { scroll: false }); }
     // Abrir outro contrato ou voltar à lista começa no Resumo (a URL nova não tem hash; a aba anterior não passa adiante).
     function trocarSelecao(selecao: string) { setDestino(''); router.push(urlDaSelecao(pathname, params, selecao), { scroll: false }); }
-    function fecharConsulta() { const q = new URLSearchParams(params.toString()); q.delete('versaoId'); router.push(`${pathname}?${q.toString()}`, { scroll: false }); }
+    function fecharConsulta() { router.push(urlSemVersao(pathname, params), { scroll: false }); }
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
     // Faixa: preparação aberta sobre o alvo (alteração de contrato assinado ou contratação inicial).
     const faixa = !!v && EDICAO_ABERTA.includes(v.estado_edicao ?? '') && data?.contrato.status !== 'CANCELADO';
@@ -300,7 +312,7 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.busca} onFiltro={(aba, busca) => router.replace(urlDaLista(pathname, params, aba, busca), { scroll: false })} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
+ {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
  <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>

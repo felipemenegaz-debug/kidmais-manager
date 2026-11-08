@@ -33,12 +33,13 @@ export function pedidoDaUrl(params: Pick<URLSearchParams, 'get'>): PedidoContrat
 }
 
 /**
- * URL da seleção feita pelo seletor: preserva os demais parâmetros (ex.: returnTo) e descarta a versão anterior.
- * `selecao` é o id do contrato do Core, `importacao:<id>` para o importado ou vazio para limpar.
+ * URL da seleção feita pelo seletor: preserva os demais parâmetros (ex.: returnTo) e descarta a versão anterior e o
+ * termo de busca de links antigos. `selecao` é o id do contrato do Core, `importacao:<id>` para o importado ou vazio para limpar.
  */
 export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toString'>, selecao: string): string {
   const params = new URLSearchParams(atual.toString());
   params.delete('versaoId');
+  params.delete('busca');
   if (selecao.startsWith(PREFIXO_IMPORTADO)) {
     params.delete('contratoId');
     params.set('importacaoId', selecao.slice(PREFIXO_IMPORTADO.length));
@@ -52,20 +53,69 @@ export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toS
 }
 
 /**
- * Filtro e busca da lista também ficam na URL (`?filtro=todas&busca=lucas`): abrir um contrato preserva os dois (via
- * `urlDaSelecao`), e "← Contratos" ou voltar do navegador reabrem a lista como estava. Valor desconhecido cai no padrão.
+ * O filtro da lista fica na URL (`?filtro=todas`); o termo de busca, não: ele pode ser o nome de uma pessoa ou de uma
+ * criança, e fica só na memória de `ContratoAdmin`. Abrir um contrato preserva o filtro (via `urlDaSelecao`), e
+ * "← Contratos" ou voltar do navegador reabrem a lista como estava. Valor desconhecido cai no padrão.
+ *
+ * `filtro` também marca a lista em uso: com busca ativa ele é gravado mesmo no padrão (`filtro=proximas`), e a URL sem
+ * ele (item "Contratos" do menu) abre a lista limpa. `busca=` de links antigos é ignorado na leitura e nunca regravado.
  */
 export const ABAS_LISTA = ['proximas', 'aguardando', 'alteracao', 'todas', 'canceladas', 'importados'] as const;
 export type AbaLista = typeof ABAS_LISTA[number];
-export function listaDaUrl(params: Pick<URLSearchParams, 'get'>): { aba: AbaLista; busca: string } {
-  const filtro = params.get('filtro') ?? '';
-  const busca = (params.get('busca') ?? '').trim().slice(0, 80);
-  return { aba: (ABAS_LISTA as readonly string[]).includes(filtro) ? filtro as AbaLista : 'proximas', busca };
+export function listaDaUrl(params: Pick<URLSearchParams, 'get'>): { aba: AbaLista; emUso: boolean } {
+  const filtro = params.get('filtro');
+  return { aba: (ABAS_LISTA as readonly string[]).includes(filtro ?? '') ? filtro as AbaLista : 'proximas', emUso: filtro !== null };
 }
-export function urlDaLista(pathname: string, atual: Pick<URLSearchParams, 'toString'>, aba: AbaLista, busca: string): string {
+export function urlDaLista(pathname: string, atual: Pick<URLSearchParams, 'toString'>, aba: AbaLista, comBusca: boolean): string {
   const params = new URLSearchParams(atual.toString());
-  if (aba === 'proximas') params.delete('filtro'); else params.set('filtro', aba);
-  if (busca) params.set('busca', busca); else params.delete('busca');
+  params.delete('busca');
+  if (aba === 'proximas' && !comBusca) params.delete('filtro'); else params.set('filtro', aba);
+  const q = params.toString();
+  return q ? `${pathname}?${q}` : pathname;
+}
+/**
+ * URL sem o termo de links antigos; `null` quando não há o que tirar. Usada por `proxy.ts`, que redireciona antes de a
+ * aplicação ser entregue (nenhum pedido da tela sai com o termo no Referer e a entrada do histórico já nasce sem ele), e por
+ * `ContratoAdmin`, para uma URL que chegue por navegação no cliente.
+ */
+export function urlSemBuscaAntiga(pathname: string, atual: Pick<URLSearchParams, 'toString' | 'has'>): string | null {
+  if (!atual.has('busca')) return null;
+  const params = new URLSearchParams(atual.toString());
+  params.delete('busca');
+  const q = params.toString();
+  return q ? `${pathname}?${q}` : pathname;
+}
+/**
+ * O caminho chega ao proxy como veio no pedido, ainda codificado (`/admin/%63ontratos`), e o Next o decodifica ao achar
+ * a página. Comparar só o literal deixava o termo seguir para a troca de host. Aqui o caminho é decodificado até
+ * estabilizar (no máximo 5 vezes; sequência inválida é decodificada byte a byte), com `\` virando `/`, segmentos `.`/`..`
+ * resolvidos, barras repetidas e finais reduzidas e sem diferença de caixa. Na dúvida tira-se o termo: tirar `busca` de um
+ * caminho que não é a lista não custa nada.
+ */
+export function pareceListaDeContratos(pathname: string): boolean {
+  let p = pathname;
+  for (let i = 0; i < 5; i++) {
+    let d: string;
+    try { d = decodeURIComponent(p); } catch { d = p.replace(/%([0-9a-f]{2})/gi, (_t, h: string) => String.fromCharCode(parseInt(h, 16))); }
+    if (d === p) break;
+    p = d;
+  }
+  // Barras repetidas saem antes de resolver `.`/`..`: `//admin/…` seria lido como host.
+  p = p.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
+  try { p = new URL(p.startsWith('/') ? p : `/${p}`, 'http://caminho.invalid').pathname; } catch { /* segue com o texto decodificado */ }
+  return p.replace(/\/{2,}/g, '/').replace(/\/+$/, '').toLowerCase() === '/admin/contratos';
+}
+/** Abrir e fechar a consulta de uma versão: preservam os demais parâmetros e nunca levam o termo de links antigos adiante. */
+export function urlComVersao(pathname: string, atual: Pick<URLSearchParams, 'toString'>, versaoId: string): string {
+  const params = new URLSearchParams(atual.toString());
+  params.delete('busca');
+  params.set('versaoId', versaoId);
+  return `${pathname}?${params.toString()}#historico`;
+}
+export function urlSemVersao(pathname: string, atual: Pick<URLSearchParams, 'toString'>): string {
+  const params = new URLSearchParams(atual.toString());
+  params.delete('busca');
+  params.delete('versaoId');
   const q = params.toString();
   return q ? `${pathname}?${q}` : pathname;
 }
