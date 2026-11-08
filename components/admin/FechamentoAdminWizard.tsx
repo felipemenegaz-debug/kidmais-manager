@@ -307,6 +307,9 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 {pacotesEmpresa && !pacotesEmpresa.length && <p>Nenhum pacote criado ainda. Cadastre em <a href="/admin/configuracoes/pacotes">Configurações → Pacotes</a>.</p>}
                 {unidades.length > 1 && <label>Unidade<select required value={unidadeId} onChange={e => { limparAgenda(); campo('estabelecimentoId', e.target.value || null); }}>
                     <option value="">Selecione</option>{unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
+                {/* Período antes da data, como no fechamento público: sem ele a consulta ficava presa no almoço (TURNO_1). */}
+                <label>Período<select aria-label="Período" value={form.horarioBase} onChange={e => { limparAgenda(); campo('horarioBase', e.target.value as FechamentoAdministrativoInput['horarioBase']); }}>
+                    <option value="almoco">Almoço · 11h às 15h</option><option value="noite">Noite · 17h às 21h</option></select></label>
                 {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} regrasPacote={pacotesEmpresa ? (regrasEmpresa?.[form.pacote] ?? []) : null} horario={form.horarioBase} dataSelecionada={form.dataFesta} consultar={consultarMes}
                     onSelecionar={data => void selecionarData(data)} onTrocarHorario={horario => { limparAgenda(); if (horario) campo('horarioBase', horario); }} />
                 <label >Horário disponível<select {...acessibilidade('horarioInicio')} required value={form.horarioInicio} onChange={e => {

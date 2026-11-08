@@ -344,7 +344,7 @@ async function formulario() {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { sessaoId: a.state.sessao.id, usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf, contexto: { empresaAtual: { id: empresaA } } } });
         // Admin lê a agenda da empresa comprovada (062); a API pública (sem tenant) não é usada pelo wizard.
         assert(!url.startsWith('/api/disponibilidade'), 'wizard admin não usa a disponibilidade pública');
-        if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] }], unidades: [] });
+        if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }, { codigo: 'TURNO_2', horarios: [{ inicio: '17:30', fim: '21:30', ajusteMinutos: 30, status: 'DISPONIVEL' }] }] }], unidades: [] });
         // Admin lê adicionais pela rota com Tenant Context; a pública (fechada desde a PR-A) não é usada.
         if (url.startsWith('/api/admin/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
         assert(!url.startsWith('/api/fechamentos/adicionais'), 'wizard admin não usa a rota pública de adicionais');
@@ -371,8 +371,23 @@ async function formulario() {
         await new Promise(resolve => setImmediate(resolve));
     }
     async function submit() { await nodes(render()).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); }
-    return { ...a, render, text, preencher, submit, redirects };
+    return { ...a, render, text, nodes, field, preencher, submit, redirects };
 }
+
+test('fechamento pelo perfil: período Noite consulta os horários do TURNO_2, não só os do almoço', async () => {
+    const a = await formulario();
+    const temOpcao = (valor: string) => a.nodes(a.render()).some((n: any) => n.type === 'option' && n.props.value === valor);
+    const escolherData = async () => {
+        a.nodes(a.render()).find((n: any) => n.type?.name === 'CalendarioDisponibilidade').props.onSelecionar(payload.dataFesta);
+        await new Promise(resolve => setImmediate(resolve)); a.render(); await new Promise(resolve => setImmediate(resolve));
+    };
+    await escolherData();
+    assert(temOpcao('11:00')); assert(!temOpcao('17:30'));
+    a.field('Período', 'noite');
+    assert.equal(a.nodes(a.render()).find((n: any) => n.type?.name === 'CalendarioDisponibilidade').props.horario, 'noite');
+    await escolherData();
+    assert(temOpcao('17:30'), 'horário da noite não carregou'); assert(!temOpcao('11:00'));
+});
 
 test('CRM → formulário administrativo → conclusão com GET/POST e núcleo reais, sem OTP', async () => {
     const profile = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');
