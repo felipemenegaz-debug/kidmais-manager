@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { reaisDe } from '@/lib/financeiro/calculos';
+import { VERSAO_RESUMO_FINANCEIRO, cabecalhoVersaoFinanceira, reaisDe } from '@/lib/financeiro/calculos';
 import styles from './dashboard.module.css';
 import InteligenciaCard from './InteligenciaCard';
 import { MarcaEmpresa, useLogoEmpresaAtiva } from './LogoEmpresa';
@@ -17,7 +17,7 @@ export type PainelDashboard = {
   hoje: string;
   /** false quando o plano não inclui contas a pagar; ausente nas amostras = incluído. */
   financeiroCompleto?: boolean;
-  numeros: { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number };
+  numeros: { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; aPagar30DiasCentavos: number; emAtrasoReceberCentavos: number; emAtrasoPagarCentavos: number; movimentoPeriodoCentavos: number | null; versao?: number };
   agenda: Festa[];
   proximas: Festa[];
   /** Eventos de contratos importados com data futura, ainda não integrados à agenda. Não são festas operacionais. */
@@ -72,7 +72,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
   useEffect(() => {
     if (inicial) return;
     let ativo = true;
-    adminFetch('/api/admin/dashboard').then((resposta) => resposta.json()).then((corpo) => {
+    adminFetch('/api/admin/dashboard', { headers: cabecalhoVersaoFinanceira() }).then((resposta) => resposta.json()).then((corpo) => {
       if (!ativo) return;
       if (corpo.ok) setPainel(corpo.data);
       else setErro(corpo.erro || 'Não foi possível carregar o dashboard.');
@@ -82,6 +82,8 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
 
   if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button className={styles.atalho} type="button" onClick={() => { setErro(''); setTentativa((n) => n + 1); }}>Tentar novamente</button></main>;
   if (!painel) return <main className={styles.pagina} aria-busy="true"><p>Carregando o dia…</p></main>;
+  // Tela e servidor de versões diferentes: não mostra número de outro contrato.
+  if (painel.numeros.versao !== VERSAO_RESUMO_FINANCEIRO) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button className={styles.atalho} type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
 
   return <main className={styles.pagina}>
     <header className={styles.topo}>
@@ -102,7 +104,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <article className={styles.kpi}><strong>{painel.festasProximas}</strong><span>Festas próximas</span></article>
         <article className={styles.kpi}><strong>{painel.contratosPendentes}</strong><span>Contratos pendentes</span></article>
         <article className={`${styles.kpi} ${styles.receber}`}><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong><span>A receber total</span></article>
-        <article className={`${styles.kpi} ${styles.atraso}`}><strong>{reaisDe(painel.numeros.emAtrasoCentavos)}</strong><span>Em atraso</span></article>
+        <article className={`${styles.kpi} ${styles.atraso}`}><strong>{reaisDe(painel.numeros.emAtrasoReceberCentavos ?? 0)}</strong><span>A receber em atraso</span></article>
       </section>
 
       <InteligenciaCard />
@@ -157,8 +159,8 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <h2>Resumo financeiro</h2>
         <div className={styles.resumoLinha}><span>Recebido no mês</span><strong>{reaisDe(painel.numeros.recebidoMesCentavos)}</strong></div>
         <div className={styles.resumoLinha}><span>A receber total</span><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong></div>
-        {painel.financeiroCompleto !== false && <div className={styles.resumoLinha}><span>A pagar total</span><strong>{reaisDe(painel.numeros.aPagarCentavos)}</strong></div>}
-        <div className={`${styles.resumoLinha} ${styles.saldo}`}><span className={styles.verde}>Saldo previsto</span><strong>{reaisDe(painel.numeros.saldoPrevistoCentavos)}</strong></div>
+        {painel.financeiroCompleto !== false && <><div className={styles.resumoLinha}><span>A pagar em 30 dias</span><strong>{reaisDe(painel.numeros.aPagar30DiasCentavos ?? 0)}</strong></div><div className={styles.resumoLinha}><span>A pagar vencido</span><strong>{reaisDe(painel.numeros.emAtrasoPagarCentavos ?? 0)}</strong></div></>}
+        {painel.numeros.movimentoPeriodoCentavos != null && <div className={`${styles.resumoLinha} ${styles.saldo}`}><span className={styles.verde}>Movimento do mês</span><strong>{reaisDe(painel.numeros.movimentoPeriodoCentavos)}</strong></div>}
         <Link className={styles.botao} href="/admin/financeiro">Ver financeiro</Link>
       </section>
 

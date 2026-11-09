@@ -66,6 +66,9 @@ const ESTADO_POSTGRES = {
   "lib/fechamentos/migration-054.postgres.test.ts": { descartavel: "053", alvo054: true },
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
+  // 062: mesmo checkpoint usado em staging, para comparar os dois ramos; sem a 066, instalada pela própria suíte na
+  // transação. 105: inventário inteiro de production (até a 089, mais 099 e 105). Esta base não tem a 114.
+  "lib/financeiro/titulos-motor.postgres.test.ts": { descartavel: "062", tambem: ["105"] },
   "lib/pagamentos/pix/pix.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },

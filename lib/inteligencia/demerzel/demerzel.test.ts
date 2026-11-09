@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { posicaoSimulada } from "../../financeiro/titulo-simulado.ts";
 import test from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
 import type { DbExecutor } from "../../db/contracts.ts";
@@ -284,7 +285,7 @@ function bancoFalso() {
     async query<Row extends object>(sql: string, values: readonly unknown[] = []) {
       consultas.push(sql);
       const r = (rows: object[]) => ({ rows, rowCount: rows.length }) as { rows: Row[]; rowCount: number };
-      if (sql.includes("FROM pagamento_parcelas")) return r(values[0] === empresaA ? [{ id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-20", status_gravado: "PENDENTE", cliente: "Cliente A", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" }] : []);
+      if (sql.includes("FROM pagamento_parcelas")) return r(values[0] === empresaA ? [{ id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-20", status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: "Cliente A", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" }] : []);
       if (sql.includes("FROM financeiro_entradas_manuais")) return r([]);
       if (sql.includes("m.status AS membership")) return r(values[0] === membershipA.id ? [{ membership: "ATIVA" }] : []);
       if (sql.includes("SELECT DISTINCT m.empresa_id")) return r([{ id: empresaA }]);
