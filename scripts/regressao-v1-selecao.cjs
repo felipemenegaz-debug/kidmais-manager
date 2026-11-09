@@ -56,7 +56,7 @@ const ESTADO_POSTGRES = {
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
-  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063", tambem: ["094", "b14-P10", "b14-P11"] },
+  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063", tambem: ["094", "b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
   "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
@@ -89,7 +89,7 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
-  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063", "094", "b14-P10", "b14-P11"] },
+  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063", "094", "b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/uso-custos.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/migration-058.postgres.test.ts": { descartavel: "atual" },
@@ -245,29 +245,32 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/beneficio-fundador.postgres.test.ts": { descartavel: "089" },
   // 25/10/2026: B-9 — entrada agendada da renovação Fundador (processo filho, repositório real 074a/075, provedor e e-mail falsos), modelo 097.
   // B-9 production (29/10/2026, plano rev. 5): o cron também no modelo 109 (capacidade 109, janela perdida → sucessor → aviso → PUT).
-  "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097", tambem: ["109", "b14-P10", "b14-P11"] },
+  "lib/assinatura/renovacao-agendada.postgres.test.ts": { descartavel: "097", tambem: ["109", "b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // 109 (renovação substituta): guarda, repositório e rollback; detector do retrato nas duas versões (108 = 075 íntegra, a suíte
   // aplica a 109); concorrência com a trava real, a de linha e sem serialização.
   "lib/assinatura/renovacao-109.postgres.test.ts": { descartavel: "109" },
   // B-25: trava de cobrança (L2) com linha presente, sobre o modelo 109.
-  "lib/assinatura/trava-cobranca.postgres.test.ts": { descartavel: "109" },
+  // B-19 ampliado: L2 também no b14-P12. Fora de propósito no b14-P12-sem091: os controles abertos esperam a continuidade
+  // (091) funcionando; sem a 091 ela recusa CONTINUIDADE_INDISPONIVEL por desenho (ensaio de 09/11: só esses 2 controles
+  // falharam; as recusas da L2 passaram). A L2 sem a 091 fica provada pela própria suíte B-19 nesse modelo.
+  "lib/assinatura/trava-cobranca.postgres.test.ts": { descartavel: "109", tambem: ["b14-P12"] },
   // Entrega B (01/11/2026): migration 112 (cliente PJ) aplicada pela suíte sobre o modelo 109; CHECKs, unicidade, corrida e rollback.
   "lib/clientes/migration-112.postgres.test.ts": { descartavel: "109" },
   // Entrega B: serviço PF/PJ com a 112 e, no 109, o código novo sem ela (PJ_INDISPONIVEL/MIGRACAO_PENDENTE).
-  "lib/clientes/cliente-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  "lib/clientes/cliente-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   // Entrega B: contrato de cliente PJ (MODELO_INCOMPATIVEL_PJ na emissão e no PDF; snapshot PJ).
   "lib/contratos/contrato-pj.postgres.test.ts": { descartavel: "112" },
   // Entrega B: importação de contrato com contratante PJ (plano, motor, integração); no 109, recusa MIGRACAO_PENDENTE.
-  "lib/inteligencia/importacao/importacao-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  "lib/inteligencia/importacao/importacao-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   // Lote L1 (03/11/2026): lista "aguardando revisão", identidades de abertura (limite 200), preservação em dados e trava do
   // documento — sem migration; no modelo 112 (staging) e no 106 (production).
   "lib/importacao-contrato/lote-l1.postgres.test.ts": { descartavel: "112", tambem: ["106"] },
   // L2 (04/11/2026): cota de leitura de documentos (118); a suíte aplica a 118 sobre o modelo 112.
   "lib/importacao-contrato/cota.postgres.test.ts": { descartavel: "112" },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
-  "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
-  "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109"] },
+  "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
   "lib/assinatura/renovacao-109-concorrencia.postgres.test.ts": { descartavel: "109" },
   // 30/10/2026 (B-9, aplicador da 109 em staging): modelo 106 (075 íntegra, sem a 109, como o staging de hoje), com uma
@@ -301,7 +304,14 @@ const ESTADO_POSTGRES = {
   // 098 e 102–109. As suítes de domínio com "b14-P10"/"b14-P11" cobrem os fluxos normais nesses mesmos modelos. Fora de
   // propósito: lista-contratos (instala 055/061/062 sozinha; nos P já aplicadas) e remarcacao-salao-094 (P2-2 exige
   // capacidade 2 em POR_HORARIO, que a 100 proíbe; a regra da 100 nos P é provada pela própria suíte B-19).
-  "lib/promocao/candidata-dormente-b19.postgres.test.ts": { descartavel: "b14-P11", tambem: ["b14-P10"] },
+  // B-19 AMPLIADO (§9.2.7, rodada 25; ensaio LOCAL 09/11/2026): + b14-P12 (105 presente; sem 102–104, 106–109, 112, 114,
+  // 116, 117 e 118), b14-P12-sem091 e b14-P12-118. As suítes de domínio, a da B-25 (L2), as de PJ (sem a 112), a guarda da
+  // 114 em TypeScript e a regra da 100 rodam também nos P12.
+  // Rodada 2 (parecer r1): + b14-P12-118-sem091; P12-118/-118-sem091 na trajetória (c) da D-ESC-8 (100 → 118 → 091). Os
+  // consumidores da 116 (executor do cron, sincronização) e da 117 (recepção, status, tela, limpeza, worker) são cenários
+  // PRÓPRIOS desta suíte, adaptados de franquias-116 e multiempresa sem instalar 116/117: essas duas suítes NÃO entram nos
+  // P (instalam as migrations e partem do modelo 112).
+  "lib/promocao/candidata-dormente-b19.postgres.test.ts": { descartavel: "b14-P11", tambem: ["b14-P10", "b14-P12", "b14-P12-sem091", "b14-P12-118", "b14-P12-118-sem091"] },
   // 23/10/2026 (grupo C): manifestações de arrependimento pela ferramenta (097), aplicada pela suíte sobre o modelo 089.
   "lib/assinatura/arrependimento-097.postgres.test.ts": { descartavel: "089" },
   // Revisão f6b6fbb (P2-N5): controle físico da 097 SEM a 089 (modelo 086: 068 e 074a, sem assinatura_encerramentos).
@@ -328,10 +338,10 @@ const ESTADO_POSTGRES = {
   "lib/agenda/agenda-um-salao-100.postgres.test.ts": { descartavel: "097", tambem: ["098"] },
   // B-13 (revisão do Astra, 31/10/2026, P3-2): remarcação pelos serviços sob a regra da 100 — origem + hold contam uma festa no
   // limite diário; hold adquirido e liberado pelos serviços, com COMMIT e outra conexão. Modelos com o corpo da 100: b14-P11 e b14-P10 (a 108 dos modelos 108/109 troca a regra).
-  "lib/agenda/remarcacao-100.postgres.test.ts": { descartavel: "b14-P11", tambem: ["b14-P10"] },
+  "lib/agenda/remarcacao-100.postgres.test.ts": { descartavel: "b14-P11", tambem: ["b14-P10", "b14-P12"] },
   // Parecer do Astra (25/10/2026) pelos serviços reais: trava da agenda por salão, volta para um salão com/sem festas
   // sobrepostas, salão obrigatório no pacote só na agenda por salão e duplicação copiando os salões (modelo 097).
-  "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097", tambem: ["b14-P10", "b14-P11"] },
+  "lib/agenda/agenda-um-salao-servicos.postgres.test.ts": { descartavel: "097", tambem: ["b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // 26/10/2026: concorrência otimista do agregado da agenda (versaoAgenda): projeção única, 409 AGENDA_MUDOU, advisory no
   // cancelamento, regras (b) e corte, rota real e guarda de tenant. Modelos 097 (sem 100), 097 + 100 (variante) e 098.
   "lib/agenda/agenda-versao.postgres.test.ts": { descartavel: "097", tambem: ["108", "114"] },
@@ -395,7 +405,7 @@ const ESTADO_POSTGRES = {
   // Liberar agenda com mais de um salão (rev. 7, P3-1): manifesto D das funções SQL que mencionam salao_id.
   "lib/agenda/manifesto-salao-d.postgres.test.ts": { descartavel: "114" },
   // Bateria D': cada helper protegido recusa sem a trava da configuração (TRAVA_CONFIGURACAO_AUSENTE).
-  "lib/agenda/trava-configuracao-ausente.postgres.test.ts": { descartavel: "114" },
+  "lib/agenda/trava-configuracao-ausente.postgres.test.ts": { descartavel: "114", tambem: ["b14-P12"] },
   // Bateria C': a ida só muda o tipo, cria salões novos e vínculos; qualquer outra mudança junto recusa sem gravar.
   "lib/agenda/ida-saloes-save.postgres.test.ts": { descartavel: "114" },
   // Bateria C: festa de antes da ida = curinga (S1, S2, combinado); atribuída, só o disjunto livra; SQL × Core.
@@ -432,7 +442,7 @@ const ESTADO_POSTGRES = {
   "lib/agenda/remarcacao-salao-094.postgres.test.ts": { descartavel: "094" },
   // Correções do navegador (22–23/10): revisão de festa importada/nativa no horário fixo que o modo livre deixou de
   // oferecer, com a regra da 094 (salão com/sem vaga, limite do dia, bloqueio), COMMIT real e outra conexão.
-  "lib/agenda/historico-livre-094.postgres.test.ts": { descartavel: "094", tambem: ["b14-P10", "b14-P11"] },
+  "lib/agenda/historico-livre-094.postgres.test.ts": { descartavel: "094", tambem: ["b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // 22/10/2026 (base 094 desde 23/10): créditos de IA (095) aplicados pela suíte sobre o modelo 094: pre/postcheck, rollback,
   // ledger, concorrência real (duas conexões, travas observadas), compra/webhook/reconciliação com Asaas dublê, devolução,
   // corte e exportação sem/com 095.
