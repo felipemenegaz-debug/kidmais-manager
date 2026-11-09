@@ -349,11 +349,25 @@ export async function chaveUsadaEmOutra(tx: DbExecutor, chave: string, importaca
   return r.rows[0]?.outra === true;
 }
 
-/** Aniversariante ativo do cliente com o mesmo nome (o CRM já impede dois ativos com o mesmo nome no cliente). */
+/**
+ * Aniversariante ativo do cliente para o nome lido. O nome igual (sem diferenciar maiúsculas) continua valendo como antes;
+ * sem ele, um nome equivalente (sem acento, espaços simples) é vinculado só quando há exatamente um cadastro equivalente.
+ * Dois ou mais equivalentes, ou nenhum: cria-se um novo cadastro, como antes (sem adivinhar qual é o da festa).
+ */
 export async function aniversarianteDoCliente(tx: DbExecutor, clienteId: string, nome: string) {
   const r = await tx.query<{ id: string }>(
-    `SELECT id::text FROM aniversariantes WHERE cliente_id = $1::uuid AND ativo AND lower(btrim(nome)) = lower(btrim($2)) ORDER BY criado_em LIMIT 1`,
-    [clienteId, nome],
+    `WITH equivalentes AS (
+       SELECT id, criado_em, lower(btrim(nome)) = lower(btrim($2::text)) AS exato
+         FROM aniversariantes
+        WHERE cliente_id = $1::uuid AND ativo
+          AND (lower(btrim(nome)) = lower(btrim($2::text)) OR ${NOME_SQL('nome')} = ${NOME_SQL('$3::text')})
+     )
+     SELECT id::text FROM equivalentes
+      WHERE exato OR (SELECT count(*) FROM equivalentes) = 1
+      ORDER BY exato DESC, criado_em LIMIT 1`,
+    // $2: nome como veio, na comparação antiga (inalterada). $3: composto (NFC) só na equivalência, porque a tabela do
+    // translate só conhece acentos compostos.
+    [clienteId, nome, nome.normalize('NFC')],
   );
   return r.rows[0]?.id ?? null;
 }
