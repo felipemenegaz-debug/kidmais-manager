@@ -242,7 +242,7 @@ function cabecalho(resumo: ResumoParaPdf, logo: LogoJpeg | null) {
 
 function rodape(pagina: number, total: number) {
   return linha(MX, A4_W - MX, 52)
-    + texto('Kidmais Manager - Resumo da Contratação - documento informativo', MX, 38, 7.4, 'F1', COR.secundario)
+    + texto('iA.Fest - Resumo da Contratação - documento informativo', MX, 38, 7.4, 'F1', COR.secundario)
     + texto(`Página ${pagina} de ${total}`, A4_W - MX - 62, 38, 7.4, 'F1', COR.secundario);
 }
 

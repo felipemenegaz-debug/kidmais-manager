@@ -343,7 +343,7 @@ const FONTES: Readonly<Record<string, string>> = {
   'festas.buffet_efetivo': 'Festas · Buffet',
   'empresa.parametros_consumo': 'Regra da empresa',
   'operador.informado': 'Informado por você',
-  'operacional.calculo': 'Cálculo do Kidmais',
+  'operacional.calculo': 'Cálculo do iA.Fest',
   'operacional.parametro_ausente': 'Regra da empresa',
 };
 

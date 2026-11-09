@@ -160,7 +160,7 @@ test('código de suporte: curto, estável, igual à fórmula SQL e sem dado da e
     assert.equal(codigo, `KM-${createHash('sha256').update(`kidmais-suporte-v1:${EMPRESA}`, 'utf8').digest('hex').slice(0, 8).toUpperCase()}`);
     assert.notEqual(await codigoSuporte('22222222-2222-4222-8222-222222222222'), codigo);
     assert.equal(codigo.includes(EMPRESA.slice(0, 8)), false);
-    assert.equal(mensagemSuporte(codigo), `Olá! Sou cliente do Kidmais Manager e preciso de ajuda. Código de suporte: ${codigo}`);
+    assert.equal(mensagemSuporte(codigo), `Olá! Sou cliente do iA.Fest e preciso de ajuda. Código de suporte: ${codigo}`);
     assert.equal(mensagemSuporte(null).includes('Código'), false);
     assert.equal(decodeURIComponent(linkWhatsApp('+55 61 99999-0000', mensagemSuporte(codigo))!.split('text=')[1]).endsWith(codigo), true);
 });
@@ -244,7 +244,7 @@ test('página de ajuda: lista, busca com resultado, busca sem resultado e corpus
 
     const sem = await montarPagina('app/admin/ajuda/page.tsx', null).render('default', {});
     assert.equal(elementos(sem).some((e) => e.props['data-central'] !== undefined), false, 'sem corpus, sem seção de artigos');
-    assert.match(texto(sem), /Fale com a equipe Kidmais/);
+    assert.match(texto(sem), /Fale com a equipe iA\.Fest/);
 });
 
 test('página do artigo: renderiza o publicado e responde 404 para pendente, de empresa, inexistente ou id inválido', async () => {

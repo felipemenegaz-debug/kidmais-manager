@@ -2,7 +2,7 @@
 
 ## Onde fica a tela Primeiros passos
 
-A tela [Primeiros passos](/admin/inicio) mostra o mínimo para começar a usar o Kidmais e marca o que já está pronto. No topo aparece quantos itens essenciais já estão prontos, por exemplo "3 de 4 itens essenciais prontos".
+A tela [Primeiros passos](/admin/inicio) mostra o mínimo para começar a usar o iA.Fest e marca o que já está pronto. No topo aparece quantos itens essenciais já estão prontos, por exemplo "3 de 4 itens essenciais prontos".
 
 Para abrir:
 

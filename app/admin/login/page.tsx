@@ -12,7 +12,7 @@ export default function LoginAdmin() {
     const router = useRouter();
     const [mostrarSenha, setMostrarSenha] = useState(false);
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
+    return <main className={`${styles.page} ${styles.login}`}><h1>iA.Fest</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form method="post" onSubmit={async (event) => {
             event.preventDefault();
             setBusy(true);
