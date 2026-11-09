@@ -136,16 +136,16 @@ function corpo(paragrafos: string[], link: string, botao: string) {
 
 export function mensagemConvite(input: { para: string; empresa: string; papel: string; link: string; validadeDias: number }): MensagemEmail {
     const { texto, html } = corpo([
-        `Você foi convidado para acessar ${input.empresa} no Kidmais Manager como ${input.papel}.`,
+        `Você foi convidado para acessar ${input.empresa} no iA.Fest como ${input.papel}.`,
         `O convite vale por ${input.validadeDias} dias e só pode ser usado uma vez.`,
     ], input.link, 'Aceitar convite');
-    return { para: input.para, assunto: `Convite para acessar ${input.empresa} no Kidmais Manager`, texto, html };
+    return { para: input.para, assunto: `Convite para acessar ${input.empresa} no iA.Fest`, texto, html };
 }
 
 export function mensagemRecuperacao(input: { para: string; link: string; validadeMinutos: number }): MensagemEmail {
     const { texto, html } = corpo([
-        'Recebemos um pedido para redefinir a senha da sua conta no Kidmais Manager.',
-        `O link vale por ${input.validadeMinutos} minutos e só pode ser usado uma vez. Ninguém da equipe Kidmais vê ou escolhe a sua senha.`,
+        'Recebemos um pedido para redefinir a senha da sua conta no iA.Fest.',
+        `O link vale por ${input.validadeMinutos} minutos e só pode ser usado uma vez. Ninguém da equipe iA.Fest vê ou escolhe a sua senha.`,
     ], input.link, 'Definir nova senha');
-    return { para: input.para, assunto: 'Redefinição de senha do Kidmais Manager', texto, html };
+    return { para: input.para, assunto: 'Redefinição de senha do iA.Fest', texto, html };
 }
