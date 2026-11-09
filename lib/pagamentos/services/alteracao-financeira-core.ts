@@ -29,6 +29,11 @@ export function posicaoEconomica(original: bigint, ajustes: bigint, recebido: bi
   if (reservado > credito) recusarFinanceiro('CREDITO_RESERVADO_INCOMPATIVEL', 'Cancele explicitamente a reserva de devolução incompatível antes desta operação.');
   return { obrigacao, recebido, estornado, devolvido, liquido, saldo, credito, reservado, disponivel: credito - reservado };
 }
+/** Saldo de um item: cronograma (base = saldo inicial, descontadas as bases) ou parcela (base = valor previsto). Nunca negativo. */
+export function saldoItemVigente(i: { base: bigint; recebido: bigint; estornado: bigint; recebidoBase?: bigint; estornadoBase?: bigint }) {
+  const saldo = i.base - (i.recebido - i.estornado - (i.recebidoBase ?? 0n) + (i.estornadoBase ?? 0n));
+  return saldo > 0n ? saldo : 0n;
+}
 export function distribuirCentavos(total: bigint, quantidade: number): bigint[] {
   if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 60 || total < BigInt(quantidade) || total > LIMITE_CENTAVOS) recusarFinanceiro('CRONOGRAMA_INCONSISTENTE', 'Quantidade incompatível com o saldo.', 422);
   const q = BigInt(quantidade), base = total / q, resto = total % q;

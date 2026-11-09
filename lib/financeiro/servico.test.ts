@@ -19,8 +19,11 @@ test("o resumo do dashboard e do financeiro usa a mesma fórmula", () => {
   const numeros = resumo(receber, pagar, 5000, "2026-03-18");
   assert.equal(numeros.aReceberCentavos, 10000);
   assert.equal(numeros.aPagarCentavos, 4000);
-  assert.equal(numeros.emAtrasoCentavos, 14000);
-  assert.equal(numeros.saldoPrevistoCentavos, 5000 + 10000 - 4000);
+  assert.equal(numeros.emAtrasoReceberCentavos, 10000);
+  assert.equal(numeros.emAtrasoPagarCentavos, 4000);
+  assert.equal("emAtrasoCentavos" in numeros, false);
+  assert.equal("saldoPrevistoCentavos" in numeros, false);
+  assert.equal(numeros.movimentoPeriodoCentavos, null);
 });
 
 test("leitura do período ignora parcela cancelada e separa margem de caixa", () => {
@@ -79,7 +82,8 @@ test("resultado de caixa do relatório usa o líquido do período", () => {
   assert.equal(agosto.faturamentoCentavos, 0);
   assert.equal(agosto.margens[0]?.festaId, "f");
   assert.equal(agosto.margens[0]?.resultadoCaixaCentavos, 249000);
-  assert.equal(agosto.margens[0]?.margemEstimadaCentavos, 0);
+  assert.equal(agosto.margens[0]?.margemEstimadaCentavos, null);
+  assert.equal(agosto.margens[0]?.noEscopo, false);
 });
 
 test("entrada manual repetida consulta a chave antes da festa", async () => {

@@ -13,6 +13,7 @@ type Resumo = {
   /** false quando o plano não inclui contas a pagar: sem despesas, custos, margem nem caixa. Ausente = incluído. */
   despesasIncluidas?: boolean;
   custosCentavos: number | null;
+  custosLancados?: boolean | null;
   margemEstimadaCentavos: number | null;
   resultadoCaixaCentavos: number | null;
   recebimentos: Array<{ id: string; parcela: number; vencimento: string; valorCentavos: number; status: string }>;
@@ -92,10 +93,10 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
 
   async function despesa(form: FormData) {
     const envio = confirmarAcao(acaoRef.current);
-    if (!envio) return;
+    if (!envio?.chave) return;
     aplicar(envio);
     try {
-      const corpo = await (await adminFetch(`/api/admin/festas/${festaId}/financeiro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ descricao: String(form.get('descricao')), categoriaId: String(form.get('categoriaId')), valor: Number(form.get('valor')), vencimento: String(form.get('vencimento')), favorecido: String(form.get('favorecido') || '') }) })).json();
+      const corpo = await (await adminFetch(`/api/admin/festas/${festaId}/financeiro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chave: envio.chave, descricao: String(form.get('descricao')), categoriaId: String(form.get('categoriaId')), valor: Number(form.get('valor')), vencimento: String(form.get('vencimento')), favorecido: String(form.get('favorecido') || '') }) })).json();
       if (!corpo.ok) { setAviso(corpo.erro || 'Não foi possível adicionar a despesa.'); aplicar(finalizarAcao(acaoRef.current, 'erro')); return; }
       aplicar(finalizarAcao(acaoRef.current, 'sucesso'));
       setAberto(null);
@@ -115,6 +116,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     <p>A receber {reaisDe(dados.aReceberCentavos)}</p>
     {dados.custosCentavos !== null && <p>Custos {reaisDe(dados.custosCentavos)}</p>}
     {dados.margemEstimadaCentavos !== null && <p>Margem estimada {reaisDe(dados.margemEstimadaCentavos)}</p>}
+    {dados.margemEstimadaCentavos === null && dados.custosLancados === false && <p>Margem estimada: custos não lançados</p>}
     {dados.resultadoCaixaCentavos !== null && <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>}
     <h3>Recebimentos</h3>
     {dados.recebimentos.length === 0 && <p>Nenhuma parcela nesta festa.</p>}
