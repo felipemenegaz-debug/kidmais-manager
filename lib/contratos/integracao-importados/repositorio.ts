@@ -205,8 +205,14 @@ export type AlcanceDuplicidade = 'MESMO_DIA' | 'OUTRA_DATA';
 /** Datas próximas (em dias) para a busca complementar com sinais combinados; a festa do ano seguinte fica fora. */
 export const JANELA_DATA_PROXIMA_DIAS = 90;
 
-/** Nome comparável no SQL: sem acento, minúsculo, espaços simples. */
-const NOME_SQL = (expr: string) => `lower(translate(regexp_replace(btrim(${expr}), '\\s+', ' ', 'g'), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ', 'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn'))`;
+/**
+ * Nome comparável no SQL. Política: forma canônica NFD (não a de compatibilidade), sem o bloco inteiro de marcas combinantes
+ * U+0300–U+036F, minúsculo, espaços simples. Composto e decomposto dão sempre o mesmo resultado, em qualquer letra aceita.
+ * Letras sem decomposição canônica (ø, ß, ł) não viram outras, mas a caixa delas é ignorada: lower() usa a collation Unicode
+ * pg_c_utf8, igual em qualquer locale do banco (Ø = ø mesmo em locale C). Remove as marcas desse bloco, não todas as marcas
+ * Unicode. Exige PostgreSQL 17 ou mais novo e banco UTF8: normalize() e pg_c_utf8 não existem fora disso.
+ */
+const NOME_SQL = (expr: string) => `lower(regexp_replace(regexp_replace(normalize(btrim(${expr}), NFD), '[\u0300-\u036f]', '', 'g'), '\\s+', ' ', 'g') COLLATE "pg_c_utf8")`;
 /** Só os dígitos (CPF e telefone comparáveis no SQL). */
 const DIGITOS_SQL = (expr: string) => `regexp_replace(coalesce(${expr}, ''), '\\D', '', 'g')`;
 
@@ -369,13 +375,19 @@ export async function chaveUsadaEmOutra(tx: DbExecutor, chave: string, importaca
   return r.rows[0]?.outra === true;
 }
 
-/** Aniversariante ativo do cliente com o mesmo nome (o CRM já impede dois ativos com o mesmo nome no cliente). */
-export async function aniversarianteDoCliente(tx: DbExecutor, clienteId: string, nome: string) {
-  const r = await tx.query<{ id: string }>(
-    `SELECT id::text FROM aniversariantes WHERE cliente_id = $1::uuid AND ativo AND lower(btrim(nome)) = lower(btrim($2)) ORDER BY criado_em LIMIT 1`,
+/**
+ * Aniversariantes ativos do cliente com nome equivalente, ignorando acento, caixa e espaços: o documento costuma vir sem
+ * acento e não pode criar um segundo cadastro da mesma criança. Mais de um resultado é ambiguidade, resolvida pelo operador
+ * (resolverAniversariante): grafia e antiguidade nunca escolhem sozinhas.
+ */
+export async function aniversariantesDoCliente(tx: DbExecutor, clienteId: string, nome: string) {
+  const r = await tx.query<{ id: string; nome: string }>(
+    `SELECT id::text, nome FROM aniversariantes
+      WHERE cliente_id = $1::uuid AND ativo AND ${NOME_SQL('nome')} = ${NOME_SQL('$2::text')}
+      ORDER BY criado_em, id`,
     [clienteId, nome],
   );
-  return r.rows[0]?.id ?? null;
+  return r.rows;
 }
 
 /** Resultado já gravado de uma integração (repetição após timeout devolve o mesmo, sem escrever nada). */

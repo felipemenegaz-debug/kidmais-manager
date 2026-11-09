@@ -260,7 +260,11 @@ async function gateDoProduto(c: Cenario, cpf: string, ev: { data: string; inicio
     "app/api/admin/inteligencia/importacoes/composicao.ts");
   const sessaoId = (await a.query<{ id: string }>(`SELECT id::text FROM sessoes_administrativas WHERE usuario_id = $1::uuid ORDER BY autenticado_em DESC LIMIT 1`, [c.usuario])).rows[0]!.id;
   const sessao = { id: sessaoId, usuario_id: c.usuario, papel: "ADMINISTRATIVO" };
-  const env = { INTELIGENCIA_ENABLED: "true", AI_CONTRACT_IMPORT_ENABLED: "true", CONTRACT_IMPORT_INTEGRATION_ENABLED: "true" };
+  // L2 (#354): os modelos não têm a 118; a leitura do documento usa a dispensa da cota, como o serviço de staging.
+  const env = {
+    INTELIGENCIA_ENABLED: "true", AI_CONTRACT_IMPORT_ENABLED: "true", CONTRACT_IMPORT_INTEGRATION_ENABLED: "true",
+    RENDER: "true", RENDER_SERVICE_ID: "srv-daif418ae00c73e8k2gg", IMPORTACAO_COTA_DISPENSADA: "srv-daif418ae00c73e8k2gg",
+  };
   const base = {
     env, autenticar: async () => sessao, withTenantTransaction: tenantTx.withTenantTransaction, agora: () => new Date(), requestId: randomUUID,
     registrar: () => undefined, relogio: () => 0,
@@ -300,9 +304,10 @@ async function gateDoProduto(c: Cenario, cpf: string, ev: { data: string; inicio
   const importacaoAntesDoClique = await linhaImportacao(a, importacao.id);
   if (mudarEntre) await mudarEntre();
   const modulo = acoesMod.criarModuloAcoes([acao], gate);
-  const resposta = await operacoes.atenderOperacao({ lerCorpo: async () => ({ operacaoId: rascunho.rascunho.operacaoId, versao: rascunho.rascunho.versao, payloadHash: rascunho.rascunho.payloadHash, decisao: "confirmar" }), empresaSolicitada: c.empresa } as never,
+  const confirmar = () => operacoes.atenderOperacao({ lerCorpo: async () => ({ operacaoId: rascunho.rascunho.operacaoId, versao: rascunho.rascunho.versao, payloadHash: rascunho.rascunho.payloadHash, decisao: "confirmar" }), empresaSolicitada: c.empresa } as never,
     { ...base, acoes: modulo } as never);
-  return { resposta, importacaoId: importacao.id, operacaoId: rascunho.rascunho.operacaoId, importacaoAntesDoClique };
+  const resposta = await confirmar();
+  return { resposta, confirmar, importacaoId: importacao.id, operacaoId: rascunho.rascunho.operacaoId, importacaoAntesDoClique };
 }
 /**
  * Pool global ligado à conexão `a` SEM troca de BEGIN/COMMIT/ROLLBACK: cada rota abre e encerra a PRÓPRIA transação
@@ -318,12 +323,13 @@ function poolNaConexao(db: Client) {
 const linhaImportacao = async (db: Client, importacaoId: string) => (await db.query<{ l: string }>(`SELECT row_to_json(i)::text l FROM ia_importacoes i WHERE i.id = $1::uuid`, [importacaoId])).rows[0]?.l ?? null;
 const estadoOperacao = async (db: Client, operacaoId: string) => (await db.query<{ estado: string }>(`SELECT estado FROM ia_operacoes WHERE id = $1::uuid`, [operacaoId])).rows[0]?.estado ?? null;
 
-test("CA-2/CA-4 Human Gate do produto (CRIAR e VINCULAR): salão deixa de servir DEPOIS da preparação, na trava da data; resposta 409 SALAO_INDISPONIVEL, operação não EXECUTADA, nada persistido", { timeout: 300_000 }, async () => {
+test("CA-2/CA-4 Human Gate do produto (CRIAR e VINCULAR): salão deixa de servir DEPOIS da preparação, na trava da data; resposta 409 SALAO_INDISPONIVEL, operação não EXECUTADA, nada persistido", { timeout: 300_000 }, async (t) => {
   for (const modo of ["CRIAR", "VINCULAR"] as const) {
     const b = await conectarDescartavel({ travar: false });
     const obs = await conectarDescartavel({ travar: false });
     const restaurarPool = poolNaConexao(a);
     const restaurarAmbiente = ambienteAssinatura();
+    let fluxoAssentado: Promise<unknown> = Promise.resolve();
     try {
       const ev = { data: dia(modo === "CRIAR" ? 76 : 78), ...HORA };
       const cpf = cpfValido();
@@ -339,25 +345,49 @@ test("CA-2/CA-4 Human Gate do produto (CRIAR e VINCULAR): salão deixa de servir
       const antes = await retratoGate(obs, c.empresa, existente, null);
       const [pa, pb] = [(await a.query<{ p: number }>("SELECT pg_backend_pid() p")).rows[0]!.p, (await b.query<{ p: number }>("SELECT pg_backend_pid() p")).rows[0]!.p];
       let daData: string[] = [];
+      let bSegura!: () => void;
+      const bAdquiriu = new Promise<void>((fim) => { bSegura = fim; });
+      const t0 = Date.now();
       const fluxo = gateDoProduto(c, cpf, ev, A, async () => {
         // Depois do preview: B segura SÓ a trava da data, antes do clique.
         await b.query("BEGIN");
         const antesB = new Set((await b.query<{ k: string }>(`SELECT classid || ':' || objid || ':' || objsubid k FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'advisory'`)).rows.map((r) => r.k));
         await b.query("SELECT public.kidmais_lock_datas_revisao(ARRAY[$1::date])", [ev.data]);
         daData = (await b.query<{ k: string }>(`SELECT classid || ':' || objid || ':' || objsubid k FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'advisory'`)).rows.map((r) => r.k).filter((k) => !antesB.has(k));
+        bSegura();
       });
+      // O fluxo pode falhar em qualquer etapa: o desfecho fica guardado e o finally o aguarda, para nada disputar com a limpeza.
+      let desfecho: { erro?: unknown; resposta?: { status: number; corpo: unknown } } | null = null;
+      fluxoAssentado = fluxo.then((r) => { desfecho = { resposta: r.resposta }; }, (erro) => { desfecho = { erro }; });
+      const descrever = () => {
+        const d = desfecho as { erro?: unknown; resposta?: { status: number; corpo: unknown } } | null;
+        if (!d) return "fluxo ainda em andamento";
+        if (d.resposta) return `resposta ${d.resposta.status} ${JSON.stringify(d.resposta.corpo)}`;
+        return `erro ${(d.erro as { code?: string }).code ?? "sem SQLSTATE"} ${msg(d.erro)}`;
+      };
+      await Promise.race([bAdquiriu, fluxoAssentado]);
+      assert.ok(daData.length, `${modo}: etapa preparação: o fluxo parou antes de B segurar a trava da data (${descrever()})`);
+      const tB = Date.now();
       // A confirmação do Gate passa da preparação com o salão ativo e espera na trava da data; só então o salão deixa de servir.
+      // A janela conta a partir da trava de B e termina antes se o fluxo acabar: acabar sem esperar é recusa anterior, não lentidão.
       let esperou = false;
-      for (let i = 0; i < 800 && !esperou; i++) {
+      const limite = tB + 90_000;
+      while (!esperou && !desfecho && Date.now() < limite) {
         const r = (await obs.query<{ bloqueado: boolean; k: string | null }>(
           `SELECT $2::int = ANY (pg_blocking_pids($1::int)) bloqueado,
                   (SELECT classid || ':' || objid || ':' || objsubid FROM pg_locks WHERE pid = $1::int AND NOT granted AND locktype = 'advisory' LIMIT 1) k`, [pa, pb])).rows[0]!;
         if (r.bloqueado) { assert.ok(r.k && daData.includes(r.k), `${modo}: espera na trava da data, não em outra: ${r.k}`); esperou = true; } else await new Promise((fim) => setTimeout(fim, 25));
       }
-      assert.ok(esperou, `${modo}: a confirmação esperou B na trava da data`);
+      const tEspera = Date.now();
+      if (!esperou) {
+        const conexaoA = (await obs.query<{ estado: string }>(`SELECT coalesce(state, '-') || ' ' || coalesce(wait_event_type, '-') || ' ' || coalesce(wait_event, '-') || ' ' || left(query, 100) estado FROM pg_stat_activity WHERE pid = $1::int`, [pa])).rows[0]?.estado;
+        assert.fail(`${modo}: etapa confirmação: não esperou B na trava da data em ${tEspera - tB} ms (pid A ${pa}, pid B ${pb}; ${descrever()}; conexão A: ${conexaoA})`);
+      }
+      t.diagnostic(`corrida ${modo}: pid A ${pa}, pid B ${pb}, até B segurar ${tB - t0} ms, até A esperar na trava ${tEspera - tB} ms`);
       await b.query(`UPDATE agenda_saloes SET ativo = false WHERE id = $1::uuid`, [A]);
       await b.query("COMMIT");
       const { resposta, importacaoId, operacaoId, importacaoAntesDoClique } = await fluxo;
+      t.diagnostic(`corrida ${modo}: resposta ${resposta.status} ${(resposta.corpo as { codigo?: string }).codigo ?? "sem código"}`);
       // A resposta é a do produto, já com a transação da rota encerrada.
       assert.equal(resposta.status, 409, JSON.stringify(resposta.corpo));
       assert.equal((resposta.corpo as { codigo?: string }).codigo, "SALAO_INDISPONIVEL", JSON.stringify(resposta.corpo));
@@ -368,9 +398,112 @@ test("CA-2/CA-4 Human Gate do produto (CRIAR e VINCULAR): salão deixa de servir
       assert.deepEqual({ ...depois, importacao: null }, { ...antes, importacao: null }, `${modo}: nada persistido (cliente novo/vinculado, contrato, versão, vínculo, festa, financeiro, histórico, auditoria)`);
     } finally {
       await b.query("ROLLBACK").catch(() => undefined);
+      // Com B liberado o fluxo termina; só então a conexão e o ambiente dele são restaurados.
+      await fluxoAssentado;
       restaurarAmbiente();
       restaurarPool();
       await encerrarDescartavel(b, false);
+      await encerrarDescartavel(obs, false);
+    }
+  }
+});
+
+/**
+ * 503 da confirmação: gatilho só deste teste faz a instrução real dormir na transação da rota, e o observador a cancela com
+ * pg_cancel_backend (57014, o mesmo SQLSTATE do statement timeout). A resposta promete que nenhum cadastro mudou: a prova é a
+ * fotografia por outra conexão. Sem o gatilho, o reenvio do mesmo clique conclui uma vez e a repetição não executa de novo.
+ */
+const PONTOS_DE_CANCELAMENTO = [
+  {
+    nome: "atualização da importação",
+    instrucao: "UPDATE ia_importacoes",
+    gatilho: (f: string, empresa: string) => `CREATE TRIGGER se_v3_cancela BEFORE UPDATE ON ia_importacoes FOR EACH ROW WHEN (NEW.empresa_id = '${empresa}'::uuid) EXECUTE FUNCTION public.${f}()`,
+    tabela: "ia_importacoes",
+  },
+  {
+    nome: "versão do contrato já materializada",
+    instrucao: "INSERT INTO contrato_versoes",
+    gatilho: (f: string) => `CREATE TRIGGER se_v3_cancela AFTER INSERT ON contrato_versoes FOR EACH ROW EXECUTE FUNCTION public.${f}()`,
+    tabela: "contrato_versoes",
+  },
+] as const;
+
+test("Confirmação do Gate cancelada (CRIAR e VINCULAR, duas instruções): 503, operação pendente, nada persistido; reenvio conclui uma vez e a repetição não executa", { timeout: 300_000 }, async (t) => {
+  let n = 0;
+  for (const ponto of PONTOS_DE_CANCELAMENTO) for (const modo of ["CRIAR", "VINCULAR"] as const) {
+    const rotulo = `${modo}, ${ponto.nome}`;
+    const obs = await conectarDescartavel({ travar: false });
+    const restaurarPool = poolNaConexao(a);
+    const restaurarAmbiente = ambienteAssinatura();
+    let fluxoAssentado: Promise<unknown> = Promise.resolve();
+    let funcao: string | null = null;
+    const removerGatilho = async () => {
+      if (!funcao) return;
+      await a.query(`DROP TRIGGER IF EXISTS se_v3_cancela ON ${ponto.tabela}`);
+      await a.query(`DROP FUNCTION IF EXISTS public.${funcao}()`);
+      funcao = null;
+    };
+    try {
+      const ev = { data: dia(120 + n++ * 2), ...HORA };
+      const cpf = cpfValido();
+      await a.query("BEGIN");
+      const c = await cenario(a, 0);
+      await configurar(a, c);
+      const A = await salao(a, c, "Salão A", 1);
+      const existente = await id(a, `INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ($3, $1::uuid, $4, $4, $2) RETURNING id`,
+        [c.empresa, modo === "VINCULAR" ? cpf : cpfValido(), modo === "VINCULAR" ? "Mariana Souza Lima" : "Cliente alheio da empresa", modo === "VINCULAR" ? "11987654321" : "11911112222"]);
+      await a.query("COMMIT");
+      const antes = await retratoGate(obs, c.empresa, existente, null);
+      const pa = (await a.query<{ p: number }>("SELECT pg_backend_pid() p")).rows[0]!.p;
+      let armado = false;
+      const fluxo = gateDoProduto(c, cpf, ev, A, async () => {
+        const nome = `se_v3_cancela_${c.empresa.replace(/-/g, "")}`;
+        await a.query(`CREATE OR REPLACE FUNCTION public.${nome}() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN PERFORM pg_sleep(120); RETURN NEW; END $f$`);
+        funcao = nome;
+        await a.query(ponto.gatilho(nome, c.empresa));
+        armado = true;
+      });
+      let terminou = false;
+      fluxoAssentado = fluxo.then(() => { terminou = true; }, () => { terminou = true; });
+      let cancelou = false;
+      const limite = Date.now() + 200_000;
+      while (!cancelou && !terminou && Date.now() < limite) {
+        const r = (await obs.query<{ q: string; e: string | null }>(`SELECT query q, wait_event e FROM pg_stat_activity WHERE pid = $1::int`, [pa])).rows[0];
+        if (armado && r?.e === "PgSleep") {
+          assert.ok(r.q.trimStart().startsWith(ponto.instrucao), `${rotulo}: dormiu em outra instrução: ${r.q.slice(0, 80)}`);
+          assert.equal((await obs.query<{ c: boolean }>(`SELECT pg_cancel_backend($1::int) c`, [pa])).rows[0]!.c, true);
+          cancelou = true;
+        } else await new Promise((fim) => setTimeout(fim, 25));
+      }
+      const { resposta, confirmar, importacaoId, operacaoId, importacaoAntesDoClique } = await fluxo;
+      assert.ok(cancelou, `${rotulo}: o clique terminou sem chegar à instrução: ${resposta.status} ${JSON.stringify(resposta.corpo)}`);
+      const corpo = resposta.corpo as { codigo?: string; erro?: string };
+      t.diagnostic(`cancelamento ${rotulo}: pid ${pa}, resposta ${resposta.status} ${corpo.codigo ?? "sem código"}`);
+      assert.equal(resposta.status, 503, JSON.stringify(resposta.corpo));
+      assert.match(String(corpo.erro), /Nenhuma alteração de cadastro foi feita/);
+      assert.equal(await estadoOperacao(obs, operacaoId), "AGUARDANDO_CONFIRMACAO", `${rotulo}: operação segue pendente`);
+      const depois = await retratoGate(obs, c.empresa, existente, importacaoId);
+      assert.equal(await linhaImportacao(obs, importacaoId), importacaoAntesDoClique, `${rotulo}: importação idêntica à de antes do clique`);
+      assert.deepEqual({ ...depois, importacao: null }, { ...antes, importacao: null }, `${rotulo}: nada persistido`);
+
+      await removerGatilho();
+      const reenvio = await confirmar();
+      assert.equal(reenvio.status, 200, `${rotulo}: reenvio: ${JSON.stringify(reenvio.corpo)}`);
+      assert.equal(await estadoOperacao(obs, operacaoId), "EXECUTADA", `${rotulo}: reenvio executou`);
+      const concluido = await retratoGate(obs, c.empresa, existente, importacaoId);
+      assert.equal(JSON.parse(String(concluido.importacao)).status, "IMPORTADA", `${rotulo}: importação concluída`);
+      assert.equal(concluido.clientes, antes.clientes + (modo === "CRIAR" ? 1 : 0), `${rotulo}: cadastro uma vez`);
+      for (const k of ["fechamentos", "contratos", "vinculos"] as const) assert.equal(concluido[k], antes[k] + 1, `${rotulo}: ${k} uma vez`);
+
+      const repetido = await confirmar();
+      assert.equal(repetido.status, 200, `${rotulo}: repetição: ${JSON.stringify(repetido.corpo)}`);
+      assert.deepEqual(await retratoGate(obs, c.empresa, existente, importacaoId), concluido, `${rotulo}: a repetição não executa de novo`);
+      t.diagnostic(`cancelamento ${rotulo}: reenvio 200, repetição 200 sem efeito`);
+    } finally {
+      await fluxoAssentado;
+      await removerGatilho().catch(() => undefined);
+      restaurarAmbiente();
+      restaurarPool();
       await encerrarDescartavel(obs, false);
     }
   }

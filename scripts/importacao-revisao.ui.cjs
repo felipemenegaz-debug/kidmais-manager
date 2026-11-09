@@ -67,13 +67,22 @@ const opcoesIntegracao = (integrado) => ({
   pacotes: [{ id: '00000000-0000-4000-8000-0000000000b1', codigo: 'COMPLETA', nome: 'Festa Completa', duracaoMinutos: 240, ativo: true }],
   formas: ['PIX'], declaracao: 'Conferi o documento original assinado em papel. Os dados confirmados correspondem a ele, exceto as correções e complementos indicados. Nenhuma assinatura digital é registrada.',
 });
+// Cliente com dois aniversariantes de nome equivalente: a revisão pede a escolha do cadastro (sintético).
+const ANIVERSARIANTES_EQUIVALENTES = [{ id: '00000000-0000-4000-8000-0000000000c1', nome: 'Lia Exemplo' }, { id: '00000000-0000-4000-8000-0000000000c2', nome: 'Lía Exemplo' }];
+let aniversariantesAmbiguos = false;
+function festaDoCadastro(d) {
+  if (!aniversariantesAmbiguos) return { aniversarianteCadastro: 'NOVO' };
+  const escolhido = ANIVERSARIANTES_EQUIVALENTES.find((a) => a.id === d.aniversarianteId);
+  return { aniversarianteCadastro: 'EXISTENTE', aniversarianteOpcoes: ANIVERSARIANTES_EQUIVALENTES, ...(escolhido ? { aniversarianteCadastroId: escolhido.id, aniversarianteCadastroNome: escolhido.nome } : {}) };
+}
+
 function resumoDoServidor(d) {
   const hoje = new Date().toISOString().slice(0, 10);
   const parcelas = (d.financeiro.parcelas ?? []).map((p, i) => ({ ...p, numero: i + 1 }));
   const recebido = parcelas.filter((p) => p.recebimento).reduce((s, p) => s + p.valorCentavos, 0);
   return {
     contrato: { cliente: 'Pessoa Exemplo', pacoteDocumento: 'Original 2025', pacoteReferencia: 'Festa Completa (COMPLETA)', unidade: 'Unidade Exemplo', valorContratadoCentavos: d.valorContratadoCentavos, conferencia: 'Contrato assinado em papel, conferido por operador autorizado. Sem assinatura digital.' },
-    festa: { data: d.evento.data, horarioInicio: d.evento.horarioInicio, horarioFim: d.evento.horarioFim, convidados: d.evento.convidados, aniversariante: 'Aniversariante Exemplo', tema: 'Carros', aniversarianteCadastro: 'NOVO' },
+    festa: { data: d.evento.data, horarioInicio: d.evento.horarioInicio, horarioFim: d.evento.horarioFim, convidados: d.evento.convidados, aniversariante: 'Aniversariante Exemplo', tema: 'Carros', ...festaDoCadastro(d) },
     agenda: { ocupa: d.evento.data >= hoje, descricao: 'Ocupa a agenda em ' + d.evento.data.split('-').reverse().join('/') + ', das ' + d.evento.horarioInicio + ' às ' + d.evento.horarioFim + ' (Unidade Exemplo).' },
     financeiro: d.financeiro.situacao === 'NAO_CONFERIDO' ? { situacao: 'NAO_CONFERIDO', contratadoCentavos: d.valorContratadoCentavos, pendencia: 'Conferir pagamentos do contrato importado.' } : {
       situacao: d.financeiro.situacao, contratadoCentavos: d.valorContratadoCentavos, recebidoCentavos: recebido, saldoCentavos: d.valorContratadoCentavos - recebido, parcelas: [],
@@ -196,7 +205,7 @@ async function main() {
         if (url.pathname === '/api/admin/contratos/importados/' + IMPORTACAO + '/integracao') {
           if (p.request.method === 'GET') return ok(opcoesIntegracao(integrado));
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
-          if (corpo.acao === 'simular') return ok({ integrada: false, pronto: true, bloqueios: [], avisos: corpo.decisoes.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo: resumoDoServidor(corpo.decisoes), resumoHash: (corpo.decisoes.conferenciaDeclarada ? 'b' : 'a').repeat(64), possiveisVinculos: [] });
+          if (corpo.acao === 'simular') return ok({ integrada: false, pronto: !(aniversariantesAmbiguos && !corpo.decisoes.aniversarianteId), bloqueios: aniversariantesAmbiguos && !corpo.decisoes.aniversarianteId ? ['Este cliente tem mais de um aniversariante com nome equivalente. Escolha qual cadastro é o desta festa.'] : [], avisos: corpo.decisoes.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo: resumoDoServidor(corpo.decisoes), resumoHash: (corpo.decisoes.conferenciaDeclarada ? 'b' : 'a').repeat(64), possiveisVinculos: [] });
           if (corpo.acao === 'confirmar') {
             if (corpo.resumoHash !== 'b'.repeat(64)) return json(409, { ok: false, codigo: 'RESUMO_DESATUALIZADO', erro: 'Os dados mudaram desde a revisão.' });
             integrado = true;
@@ -476,6 +485,7 @@ async function main() {
 
     await caso('Integrar ao sistema (importação existente): festa e agenda, pagamentos conferidos, revisão do servidor e declaração; sucesso só após confirmar; link antigo leva ao contrato integrado', async () => {
       integrado = false;
+      aniversariantesAmbiguos = true;
       contratoImportado.podeIntegrar = true;
       await ir('/admin/contratos?importacaoId=' + IMPORTACAO);
       await aguardar(texto('Ainda não integrado ao sistema.'), 'contrato importado sem integração');
@@ -512,11 +522,37 @@ async function main() {
       await aguardar(texto('Ocupa a agenda em 10/10/2099'), 'agenda no resumo');
       await aguardar(texto('Parcela 1: R$ 1.000,00 em 01/09/2026 · Pix'), 'recebimento na data real');
       await aguardar(texto('Parcela 3: R$ 2.000,00, vence 10/09/2099'), 'parcela a receber');
-      assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'sem declaração não confirma');
+      // Dois cadastros equivalentes: nenhum vem marcado, o bloqueio aparece e a escolha refaz a revisão com o id no pedido.
+      const seletorCadastro = 'select[aria-label="Cadastro do aniversariante"]';
+      await aguardar(texto('Escolha abaixo o cadastro do aniversariante.'), 'resumo pede a escolha do cadastro');
+      await aguardar(texto('mais de um aniversariante com nome equivalente'), 'bloqueio visível');
+      assert.equal(await avaliar(`document.querySelector(${JSON.stringify(seletorCadastro)}).value`), '', 'nenhum cadastro vem escolhido');
+      await avaliar(`document.querySelector(${JSON.stringify(seletorCadastro)}).scrollIntoView({block:'center'})`); await esperar(300);
+      await fotografar('integracao-aniversariante-ambiguo');
+      // A trava é da ambiguidade: com declaração e senha preenchidas, sem escolha, a confirmação continua impedida.
+      await marcar('Conferi o documento original');
+      await aguardar(`!!document.querySelector('input[aria-label="Senha para confirmar"]')`, 'senha visível com a declaração');
+      await digitar('input[aria-label="Senha para confirmar"]', 'senha-sintetica');
+      await esperar(800);
+      assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'ambiguidade impede com declaração e senha');
+      await fotografar('integracao-aniversariante-trava');
+      await escolher(seletorCadastro, ANIVERSARIANTES_EQUIVALENTES[1].id);
+      await aguardar(texto('vinculado ao cadastro existente: Lía Exemplo.'), 'revisão refeita mostra o cadastro escolhido');
+      assert.equal(await avaliar(texto('mais de um aniversariante com nome equivalente')), false, 'a escolha resolve o bloqueio');
+      assert.equal(await avaliar(`document.querySelector(${JSON.stringify(seletorCadastro)}).value`), ANIVERSARIANTES_EQUIVALENTES[1].id, 'seletor mantém a escolha');
+      assert.equal(posts.filter((x) => x.url.endsWith('/integracao') && x.corpo.acao === 'simular').at(-1).corpo.decisoes.aniversarianteId, ANIVERSARIANTES_EQUIVALENTES[1].id, 'id escolhido vai ao servidor');
+      await avaliar(`document.querySelector(${JSON.stringify(seletorCadastro)}).scrollIntoView({block:'center'})`); await esperar(300);
+      await fotografar('integracao-aniversariante-escolhido');
+      // Controle da trava acima: mesmas declaração e senha, só a escolha mudou.
+      await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'a escolha libera a confirmação');
+      await marcar('Conferi o documento original');
+      await aguardar(`(${botao("Confirmar integração")})?.disabled === true`, 'sem declaração não confirma');
+      await aguardar("[...document.querySelectorAll('label')].some(x => x.textContent.includes('Conferi o documento original'))", 'declaração de volta após refazer a revisão');
       assert.equal(await avaliar(texto('Contrato integrado ao sistema')), false);
       await marcar('Conferi o documento original');
-      await esperar(300);
-      assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'sem senha não confirma (autenticação recente)');
+      await aguardar(`!!document.querySelector('input[aria-label="Senha para confirmar"]')`, 'senha de volta após refazer a revisão');
+      await digitar('input[aria-label="Senha para confirmar"]', '');
+      await aguardar(`(${botao("Confirmar integração")})?.disabled === true`, 'sem senha não confirma (autenticação recente)');
       await digitar('input[aria-label="Senha para confirmar"]', 'senha-sintetica');
       await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração e senha liberam a confirmação');
       await fotografar('integracao-revisao-final');
@@ -529,6 +565,7 @@ async function main() {
       assert.equal(JSON.stringify(enviados).includes('senha-sintetica'), false, 'a senha nunca vai para a integração');
       const confirmacao = enviados.find((x) => x.acao === 'confirmar');
       assert.equal(confirmacao.resumoHash, 'b'.repeat(64));
+      assert.equal(confirmacao.decisoes.aniversarianteId, ANIVERSARIANTES_EQUIVALENTES[1].id, 'a confirmação envia o cadastro escolhido');
       assert.match(confirmacao.chave, /^[0-9a-f-]{36}$/);
       assert.equal(/empresa|usuario|tenant/i.test(JSON.stringify(Object.keys(confirmacao.decisoes))), false, 'payload sem empresa/usuário');
       assert.deepEqual(confirmacao.decisoes.financeiro.parcelas.map((p) => p.recebimento?.data ?? null), ['2026-09-01', null, null]);
@@ -540,6 +577,7 @@ async function main() {
       assert.equal(await avaliar(texto('Ainda não integrado ao sistema.')), false, 'projeção da importação não aparece duplicada');
       await fotografar('contrato-integrado');
       integrado = false;
+      aniversariantesAmbiguos = false;
       delete contratoImportado.podeIntegrar;
     });
 
@@ -568,6 +606,8 @@ async function main() {
     });
 
     assert.deepEqual(falhas, [], `cenários com falha: ${falhas.join(' | ')}`);
+    // Filtro que não casa com nenhum cenário não é aprovação: zero cenários rodados falha.
+    assert.ok(resultados.length > 0, `nenhum cenário rodou${process.env.UI_SOMENTE ? ` com UI_SOMENTE=${process.env.UI_SOMENTE}` : ''}`);
     assert.deepEqual(erros, [], `erros de página: ${erros.join(' | ')}`);
     console.log(`PASS ${resultados.length} cenários; chamadas não simuladas: ${JSON.stringify([...new Set(inesperados)])}`);
   } finally {
