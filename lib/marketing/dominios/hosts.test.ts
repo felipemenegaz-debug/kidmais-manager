@@ -46,6 +46,15 @@ test('hosts reservados da plataforma não podem ser cadastrados por empresa', ()
   assert.equal(hostReservado('festas.buffet.com.br', LIGADO), false);
 });
 
+test('D1: demerzellabs.com.br e subdomínios (iA.Fest) são da plataforma mesmo sem env configurada', () => {
+  for (const host of ['demerzellabs.com.br', 'www.demerzellabs.com.br', 'iafest.demerzellabs.com.br', 'staging-iafest.demerzellabs.com.br']) {
+    assert.equal(hostReservado(host, {}), true, host);
+    assert.deepEqual(rotear(host, '/b/mundo-encantado', LIGADO), { tipo: 'PLATAFORMA' }, host);
+  }
+  for (const host of ['demerzellabs.com.br.buffet.com', 'xdemerzellabs.com.br', 'demerzellabs.com'])
+    assert.equal(hostReservado(host, {}), false, host);
+});
+
 test('caminhos aceitos no domínio são só os do site público', () => {
   assert.equal(caminhoNoDominio('/'), '');
   assert.equal(caminhoNoDominio('/sitemap.xml'), '/sitemap.xml');

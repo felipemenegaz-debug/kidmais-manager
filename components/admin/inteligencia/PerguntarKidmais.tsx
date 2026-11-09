@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import { interpretarPergunta } from './perguntas';
 import { consultarAtencaoHoje, continuacaoValida, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type ContinuacaoUI, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
 import {
@@ -84,7 +85,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
           setMensagens((h) => registrarPedidoSeguinte(h, idSeguinte, resultado));
         }
         // Navegação pedida explicitamente, com destino único da lista fechada (revalidado aqui): abre a tela.
-        if (!abortar.signal.aborted && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
+        if (!abortar.signal.aborted && !enderecoFinal() && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
           router.push(resultado.resposta.destino);
           // Com um segundo pedido, a conversa continua aberta sobre a tela aberta (a revisão não o apaga nem esconde).
           if (!manterAberto) fechar();

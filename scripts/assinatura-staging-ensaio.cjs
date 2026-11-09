@@ -10,9 +10,10 @@ const QUINTA = process.argv.includes('--rodada-5-autorizada');
 const EMPRESA = QUINTA ? 'cbfbdb83-09d8-46d9-a1d4-9aeb6dc2b9dd' : QUARTA ? '531f9c46-6026-4bfe-86aa-babce78b0cfd' : 'e4b274ca-3a51-40c5-bef6-39012a96cfbc';
 const USUARIO = QUINTA ? 'cc401acf-f43c-4f86-b22e-7440ee394acd' : QUARTA ? 'a3f1de69-7ed9-47aa-9864-4b8f7fca8c65' : '067a7b63-7588-4897-b66b-a93f9fdbd56e';
 const EMAIL = QUINTA ? 'assinatura-staging-cc401acf@example.invalid' : QUARTA ? 'assinatura-staging-a3f1de69@example.invalid' : 'assinatura-staging-067a7b63@example.invalid';
-const BASE = 'https://kidmais-manager-staging.onrender.com';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
 const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-' + (QUINTA ? '5' : QUARTA ? '4' : '3');
 const ROTA = '/api/integracoes/asaas/webhook';
+const URL_WEBHOOK = require('./alvo-staging.cjs').ORIGEM_WEBHOOK_STAGING + ROTA;
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 function alvo(env) {
     assert.equal(env.RENDER, 'true'); assert.equal(env.RENDER_SERVICE_ID, 'srv-daif418ae00c73e8k2gg');
@@ -43,9 +44,9 @@ function cookies(headers, jar) {
 async function prepararWebhook(api, cfg, r, salvar) {
     const lista=await api('/webhooks?limit=100');assert.ok(!lista.hasMore,'WEBHOOKS_PAGINADOS');
     const conhecidos=[];
-    for(const candidato of lista.data.filter(w=>w.url===BASE+ROTA)){
+    for(const candidato of lista.data.filter(w=>w.url===URL_WEBHOOK)){
         const w=await api('/webhooks/'+encodeURIComponent(candidato.id));
-        assert.equal(w?.url,BASE+ROTA,'WEBHOOK_URL_DIVERGE');
+        assert.equal(w?.url,URL_WEBHOOK,'WEBHOOK_URL_DIVERGE');
         assert.equal(w.enabled,true,'WEBHOOK_DESABILITADO');assert.equal(w.interrupted,false,'WEBHOOK_INTERROMPIDO');
         assert.ok(w.events.includes('PAYMENT_RECEIVED')&&w.events.includes('PAYMENT_CONFIRMED'),'WEBHOOK_EVENTOS_DIVERGEM');
         // GET omite o token por desenho do Asaas. A entrega real comprova a autenticação;
@@ -59,11 +60,11 @@ async function prepararWebhook(api, cfg, r, salvar) {
     r.webhookNome='Kidmais staging ensaio '+r.empresa;
     assert.ok(!lista.data.some(w=>w.name===r.webhookNome),'WEBHOOK_NOME_PREEXISTENTE');
     r.intencaoWebhook=true;salvar();
-    const w=await api('/webhooks','POST',{name:r.webhookNome,url:BASE+ROTA,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,
+    const w=await api('/webhooks','POST',{name:r.webhookNome,url:URL_WEBHOOK,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,
         authToken:cfg.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED'],sendType:'SEQUENTIALLY',apiVersion:3});
     assert.ok(w&&typeof w.id==='string');r.webhookId=w.id;salvar();
     const salvo=await api('/webhooks/'+encodeURIComponent(w.id));
-    assert.equal(salvo.name,r.webhookNome);assert.equal(salvo.url,BASE+ROTA);
+    assert.equal(salvo.name,r.webhookNome);assert.equal(salvo.url,URL_WEBHOOK);
     assert.equal(salvo.enabled,true);assert.equal(salvo.interrupted,false);
     assert.ok(salvo.events.includes('PAYMENT_CONFIRMED')&&salvo.events.includes('PAYMENT_RECEIVED'));
 }
@@ -160,7 +161,7 @@ async function main() {
         assert.equal(antes.ofertas.habilitado,true);const oferta=antes.ofertas.planos.find(x=>x.id==='essencial');
         assert.equal(oferta.mensalRegular,19700);r.valor=antes.ofertas.fundador?11820:19700;
         assert.equal(oferta.mensal,r.valor);assert.equal(antes.ofertas.aguardandoVaga,false);r.fundador=antes.ofertas.fundador;salvar();
-        assert.equal((await fetch(BASE+ROTA,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
+        assert.equal((await fetch(URL_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
         etapa='CHECKOUT'; r.intencaoCheckout=true;salvar();
         await post('/api/admin/assinatura/checkout',{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:r.valor,versao:antes.ofertas.versao});
         const linha=(await db.query('SELECT provedor_cliente_id,provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id=$1',[EMPRESA])).rows[0];
@@ -186,7 +187,7 @@ async function main() {
         assert.equal(s.contratos[0].estado,'CONFIRMADA');assert.equal(s.contratos[0].pagamento_confirmacao_id,r.pagamentoId);
         assert.equal(s.fundadores.length,r.fundador?1:0);if(r.fundador)assert.equal(s.fundadores[0].estado,'CONFIRMADA');
         etapa='REPLAY'; const ev=eventos.find(e=>e.situacao==='PROCESSADO');
-        const replay=await fetch(BASE+ROTA,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json','asaas-access-token':cfg.config.webhookToken},
+        const replay=await fetch(URL_WEBHOOK,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json','asaas-access-token':cfg.config.webhookToken},
             body:JSON.stringify({id:ev.evento_id,event:ev.tipo,payment:{id:r.pagamentoId,subscription:r.assinaturaId,externalReference:EMPRESA}})});
         assert.equal(replay.status,200);await pausa(2000);assert.deepEqual(await snapshot(),s);r.replay=true;salvar();
         console.log(JSON.stringify({etapa:'PAGAMENTO_E_CALLBACK_APROVADOS',acesso:r.acessoDepois,replayIdempotente:true,aguardandoCron:true}));
@@ -206,8 +207,8 @@ async function main() {
             r.cancelada=true;salvar();}}
         catch{r.limpezaAssinaturaPendente=true;erro??=Error('LIMPEZA_ASSINATURA');salvar();}
         try{if(r.intencaoWebhook){if(!r.webhookId){const l=await api('/webhooks?limit=100');
-                const candidatos=l.data.filter(w=>w.name===r.webhookNome&&w.url===BASE+ROTA);assert.ok(candidatos.length<=1);r.webhookId=candidatos[0]?.id;salvar();}
-            if(r.webhookId){const w=await api('/webhooks/'+encodeURIComponent(r.webhookId));if(w){assert.equal(w.name,r.webhookNome);assert.equal(w.url,BASE+ROTA);
+                const candidatos=l.data.filter(w=>w.name===r.webhookNome&&w.url===URL_WEBHOOK);assert.ok(candidatos.length<=1);r.webhookId=candidatos[0]?.id;salvar();}
+            if(r.webhookId){const w=await api('/webhooks/'+encodeURIComponent(r.webhookId));if(w){assert.equal(w.name,r.webhookNome);assert.equal(w.url,URL_WEBHOOK);
                     await api('/webhooks/'+encodeURIComponent(r.webhookId),'DELETE');}assert.equal(await api('/webhooks/'+encodeURIComponent(r.webhookId)),null);}
             r.webhookRemovido=true;salvar();}}
         catch{r.limpezaWebhookPendente=true;erro??=Error('LIMPEZA_WEBHOOK');salvar();}

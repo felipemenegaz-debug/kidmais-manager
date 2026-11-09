@@ -145,6 +145,14 @@ test('robots e sitemap da plataforma: só com origem confiável; áreas privadas
     for (const arquivo of ['app/robots.ts', 'app/sitemap.ts']) assert.match(readFileSync(new URL(`../../${arquivo}`, import.meta.url), 'utf8'), /dynamic = 'force-dynamic'/);
 });
 
+test('staging bloqueia o rastreio de tudo e não publica sitemap; demais ambientes seguem iguais (plano D4)', () => {
+    const env = { SITE_URL: 'https://manager.exemplo.com.br/conheca', KIDMAIS_DEPLOY_ENV: 'staging' };
+    assert.deepEqual(robotsDaPlataforma(env), { rules: { userAgent: '*', disallow: '/' } });
+    const producao = robotsDaPlataforma({ ...env, KIDMAIS_DEPLOY_ENV: 'production' });
+    assert.equal(producao.sitemap, 'https://manager.exemplo.com.br/sitemap.xml');
+    assert.equal((Array.isArray(producao.rules) ? producao.rules[0] : producao.rules).allow, '/');
+});
+
 test('oferta inicial = núcleo de gestão (19/10): topo, antes/depois e fluxo principal sem selo Em breve', () => {
     const secao = (nome: string) => componente('components/site/secoes.tsx', nome);
     const hero = renderToStaticMarkup(createElement(secao('Hero'), { aberto: false, config: configuracaoSite({}) }));

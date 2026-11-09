@@ -1,16 +1,21 @@
 'use client';
-import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
+import { adminFetch, lerCorpoOuNulo, reautenticarSessao } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import { saidaDaSessaoEmAndamento } from '@/lib/http/contexto-empresa-cliente';
 
 /** Chamada às APIs do painel com CSRF; devolve sempre o resultado real (sucesso ou erro com mensagem do servidor). */
 export type Falha = { ok: false; erro: string; codigo: string | null; detalhes: Record<string, unknown> | null; status: number };
 export type Resposta<T> = { ok: true; data: T } | Falha;
 
+/** Leitura direta com a aba no estado final da troca de host: a tela fica como está, sem login e sem dados novos. */
+const LEITURA_NO_ENDERECO_FINAL: Falha = { ok: false, erro: 'Este sistema mudou de endereço. Atualize a página.', codigo: 'ENDERECO_EM_VERIFICACAO', detalhes: null, status: 0 };
+
 export async function chamar<T>(url: string, metodo: 'GET' | 'POST' | 'PATCH' = 'GET', corpo?: unknown): Promise<Resposta<T>> {
     try {
         const res = metodo === 'GET'
             ? await fetch(url, { cache: 'no-store' })
             : await adminFetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo ?? {}) });
+        if (enderecoFinal()) return LEITURA_NO_ENDERECO_FINAL;
         if (res.status === 401 || res.redirected) {
             // Helper fora de React (mesmo padrão de admin-fetch): sessão expirada volta ao login — salvo durante a saída
             // iniciada pela própria tela (components/admin/sair.ts), que já navega; uma resposta tardia não muda o destino.
@@ -20,7 +25,8 @@ export async function chamar<T>(url: string, metodo: 'GET' | 'POST' | 'PATCH' = 
             }
             return { ok: false, erro: 'Sua sessão terminou. Entre novamente.', codigo: 'AUTENTICACAO', detalhes: null, status: 401 };
         }
-        const json = await res.json().catch(() => null) as { ok?: boolean; data?: T; erro?: string; codigo?: string; detalhes?: Record<string, unknown> } | null;
+        const json = await lerCorpoOuNulo<{ ok?: boolean; data?: T; erro?: string; codigo?: string; detalhes?: Record<string, unknown> }>(res);
+        if (enderecoFinal()) return LEITURA_NO_ENDERECO_FINAL;
         if (res.ok && json?.ok)
             return { ok: true, data: json.data as T };
         return { ok: false, erro: json?.erro ?? `Falha na operação (HTTP ${res.status}).`, codigo: json?.codigo ?? null, detalhes: json?.detalhes ?? null, status: res.status };

@@ -68,6 +68,8 @@ type AdminPayload = DisponibilidadeConfig & {
   pacotes?: Array<{ id: string; nome: string }> | null;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
+  /** "Ver tela do cliente" (D4, H21): relativo fora de ATIVA; em ATIVA, a origem antiga. */
+  telaDoCliente?: string;
 };
 
 export default function AdminDisponibilidade() {
@@ -101,6 +103,7 @@ export default function AdminDisponibilidade() {
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
   const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
+  const [telaDoCliente, setTelaDoCliente] = useState("/disponibilidade");
   const [regrasPacotes, setRegrasPacotes] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
   const [pacotesEmpresa, setPacotesEmpresa] = useState<Array<{ id: string; nome: string }> | null>(null);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
@@ -165,6 +168,7 @@ export default function AdminDisponibilidade() {
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
       configuracaoComercial: admin.configuracaoComercial !== false,
+      telaDoCliente: admin.telaDoCliente ?? "/disponibilidade",
       regrasPacotes: admin.regrasPacotes ?? null,
       pacotes: admin.regrasPacotes ? (admin.pacotes ?? []) : null,
       config: {
@@ -220,6 +224,7 @@ export default function AdminDisponibilidade() {
       setAgendaPorEscopo(dados.agendaPorEscopo);
       setPodeResolverLegado(dados.podeResolverLegado);
       setConfiguracaoComercial(dados.configuracaoComercial);
+      setTelaDoCliente(dados.telaDoCliente);
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
       sincronizarDescontoFormulario(
@@ -252,6 +257,7 @@ export default function AdminDisponibilidade() {
         setAgendaPorEscopo(dados.agendaPorEscopo);
         setPodeResolverLegado(dados.podeResolverLegado);
         setConfiguracaoComercial(dados.configuracaoComercial);
+        setTelaDoCliente(dados.telaDoCliente);
         setRegrasPacotes(dados.regrasPacotes);
         aplicarPacotesEmpresa(dados.pacotes);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
@@ -539,7 +545,7 @@ export default function AdminDisponibilidade() {
           </p>
         )}
 
-        <div className={styles.contentActions}><a className={styles.clientView} href="/disponibilidade">Ver tela do cliente →</a></div>
+        <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>
 
         <section className={styles.layout}>
           <div className={styles.calendarPanel}>

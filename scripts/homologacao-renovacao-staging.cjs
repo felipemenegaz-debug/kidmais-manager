@@ -13,7 +13,7 @@ const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-sta
 const {sqlPreservacao, processoVivo, erroFinal, projecaoAgenda} = require('./homologacao-planos-cotacao-staging.cjs');
 const {cancelamentoComprovado, pagamentoConhecido} = require('./homologacao-fundador-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
 const ROTA_WEBHOOK = '/api/integracoes/asaas/webhook';
 const ASAAS = 'https://api-sandbox.asaas.com/v3';
 const DIR = '/opt/render/project/src/data/homologacao-renovacao-20261010';
@@ -550,7 +550,7 @@ async function main() {
             let pago; for (let i = 0; i < 20; i++) { pago = await p.obterCobranca(r[f.chave].pagamentoId); if (['RECEIVED','CONFIRMED'].includes(pago?.status)) break; await pausa(1500); }
             conferir(f.chave + '.asaas.pago', ['RECEIVED','CONFIRMED'].includes(pago?.status), true);
             const ev = eventoConfirmacao(f, r[f.chave].pagamentoId, sub.id);
-            const entrega = await fetch(BASE + ROTA_WEBHOOK, {method:'POST', redirect:'error', signal:AbortSignal.timeout(60000),
+            const entrega = await fetch(require('./alvo-staging.cjs').ORIGEM_WEBHOOK_STAGING + ROTA_WEBHOOK, {method:'POST', redirect:'error', signal:AbortSignal.timeout(60000),
                 headers:{'Content-Type':'application/json', 'asaas-access-token':cfg.webhookToken}, body:JSON.stringify(ev)});
             conferir(f.chave + '.webhook', entrega.status, 200);
             let c; for (let i = 0; i < 120; i++) {

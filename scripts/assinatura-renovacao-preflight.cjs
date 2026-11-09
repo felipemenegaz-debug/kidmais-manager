@@ -30,7 +30,7 @@ async function configuracao(env) {
     const bloqueios = [];
     if (!configuracaoAsaas(env).ligado) bloqueios.push('ASAAS_NAO_CONFIGURADO');
     if (!email.configurado || email.provedor !== 'resend') bloqueios.push('RESEND_NAO_CONFIGURADO');
-    if (env.ADMIN_AUTH_ORIGIN !== 'https://kidmais-manager-staging.onrender.com') bloqueios.push('ORIGEM_STAGING_DIVERGENTE');
+    if (!require('./alvo-staging.cjs').ORIGENS_DO_STAGING.includes(env.ADMIN_AUTH_ORIGIN)) bloqueios.push('ORIGEM_STAGING_DIVERGENTE');
     if (env.KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO !== '074-075') bloqueios.push('SCHEMA_NAO_LIBERADO');
     return { alvo, conexao, bloqueios };
 }

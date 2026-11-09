@@ -48,6 +48,9 @@ jobs:
       - name: Testes unitários do bloqueio de OTP
         run: node --test scripts/otp-staging.test.cjs
 
+      - name: Conferidor da troca de host e alvo dos roteiros de staging (plano D4)
+        run: node --test scripts/enderecos-conferir.test.cjs scripts/alvo-staging.test.cjs
+
       # Sem banco e sem rede: executor do reparo com cliente simulado, blocos de Shell executados com bash (e bash -i,
       # pulado com motivo se indisponível) em pastas temporárias, e o cron de produção recusando antes de conectar.
       - name: Testes do reparo de bloqueios e do cron de conferência (produção)
