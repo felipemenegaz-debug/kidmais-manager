@@ -309,7 +309,7 @@ async function main() {
         const pedir = async (caminho, method = 'GET', body, extras = {}) => {
             assert.ok(caminho.startsWith('/api/admin/'));
             const res = await fetch(BASE + caminho, {method, redirect:'error', signal:AbortSignal.timeout(60000),
-                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
+                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', 'x-kidmais-financeiro-versao':'2', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
             cookies(res.headers, jar); const j = await res.json().catch(() => ({})); return {status:res.status, j};
         };
         const post = async (caminho, body) => { const s = (await pedir('/api/admin/autenticacao')).j.data ?? {};
