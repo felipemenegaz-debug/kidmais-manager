@@ -5,10 +5,18 @@
 // explícita; modo real: corrigir campo, "Não consta no documento", cancelar com confirmação (continuar e confirmar);
 // modo demonstração: editar, "Não consta no documento", cancelar com confirmação (recusar e aceitar).
 // Uso: node scripts/importacao-revisao.ui.cjs   (BROWSER_PATH aponta para msedge/chrome se não for o padrão)
+// UI_SOMENTE='início do nome' roda só os cenários que começam assim; UI_CONTINUAR_APOS_FALHA=1 segue após falha. Os três
+// cenários "Modo real" continuam a mesma revisão: rode-os juntos, com UI_SOMENTE='Modo real'.
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), assert = require('node:assert/strict');
 const { spawn, spawnSync } = require('node:child_process');
 
-const PORTA_APP = 3043, PORTA_CDP = 9235, origin = `http://127.0.0.1:${PORTA_APP}`;
+// Portas configuráveis (UI_PORTA_APP/UI_PORTA_CDP): duas sessões rodando o roteiro ao mesmo tempo não podem dividir porta,
+// senão uma prova roda contra o servidor da outra. Porta ocupada recusa a rodada (ver `portaOcupada`).
+const PORTA_APP = Number(process.env.UI_PORTA_APP || 3043), PORTA_CDP = Number(process.env.UI_PORTA_CDP || 9235), origin = `http://127.0.0.1:${PORTA_APP}`;
+const portaOcupada = (porta) => Promise.all(['127.0.0.1', '::1'].map((host) => new Promise((ok) => {
+  const s = require('node:net').connect({ host, port: porta }, () => { s.destroy(); ok(true); });
+  s.on('error', () => ok(false));
+}))).then((r) => r.some(Boolean));
 const IMPORTACAO = '00000000-0000-4000-8000-0000000000a1', DOCUMENTO = '00000000-0000-4000-8000-0000000000d1';
 // Sessão sintética: muda a cada reautenticação, como a sessão real renovada.
 let sessaoSimulada = '00000000-0000-4000-8000-0000000000e9', renovacoesSimuladas = 0;
@@ -126,6 +134,7 @@ async function main() {
   assert(!fs.readdirSync('.').some((n) => n === '.env' || (n.startsWith('.env.') && n !== '.env.example')), 'Execute em worktree sem arquivos .env.');
   const navegador = process.env.BROWSER_PATH || ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((p) => fs.existsSync(p));
   assert(navegador, 'Navegador Chromium não encontrado (defina BROWSER_PATH).');
+  for (const porta of [PORTA_APP, PORTA_CDP]) assert.equal(await portaOcupada(porta), false, `Porta ${porta} já em uso (outro servidor ou navegador); defina UI_PORTA_APP/UI_PORTA_CDP.`);
   const out = '.local-ux/importacao-revisao'; fs.mkdirSync(out, { recursive: true });
   const gerados = ['next-env.d.ts', 'tsconfig.json'].map((p) => [p, fs.readFileSync(p)]);
   const arquivoPdf = path.resolve(out, 'contrato-exemplo.pdf');
@@ -146,8 +155,9 @@ async function main() {
   const continuar = process.env.UI_CONTINUAR_APOS_FALHA === '1';                  // só para controle negativo
   const falhas = [];
   const caso = async (nome, fn) => {
+    if (process.env.UI_SOMENTE && !nome.startsWith(process.env.UI_SOMENTE)) return;
     try { await fn(); resultados.push(nome); console.log(`ok - ${nome}`); }
-    catch (e) { if (!continuar) throw e; falhas.push(nome); console.log(`not ok - ${nome}: ${String(e.message).split(/\r?\n/)[0]}`); }
+    catch (e) { if (!continuar) throw e; falhas.push(nome); console.log(`not ok - ${nome}: ${String(e.message).split(/\r?\n/).slice(0, 12).join(' / ')}`); }
   };
   try {
     let pronto = false;
@@ -159,7 +169,7 @@ async function main() {
     assert(alvo, 'DevTools do navegador indisponível.');
     cliente = cdp(alvo.webSocketDebuggerUrl); await cliente.aberto;
     cliente.on('Runtime.exceptionThrown', (p) => erros.push(p.exceptionDetails?.exception?.description?.split('\n')[0] ?? p.exceptionDetails?.text));
-    cliente.on('Page.javascriptDialogOpening', (p) => { dialogos.push(p.message); void cliente.enviar('Page.handleJavaScriptDialog', { accept: respostaConfirm }); });
+    cliente.on('Page.javascriptDialogOpening', (p) => { dialogos.push(p.message); cliente.enviar('Page.handleJavaScriptDialog', { accept: respostaConfirm }).catch((e) => erros.push(`diálogo "${p.type}": ${e.message}`)); });
     cliente.on('Fetch.requestPaused', async (p) => {
       const url = new URL(p.request.url);
       const json = (status, corpo) => cliente.enviar('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: status, responseHeaders: [{ name: 'content-type', value: 'application/json' }], body: Buffer.from(JSON.stringify(corpo)).toString('base64') });
@@ -208,6 +218,7 @@ async function main() {
             return ok({ habilitado: true, envioExterno: false });
           }
           if (corpo.acao === 'abrir') { importacao = { id: IMPORTACAO, documentoId: DOCUMENTO, versao: 1, status: statusAbertura, resultado: statusAbertura === 'IMPORTADA' ? { clienteId: DOCUMENTO, destino: `/clientes/${DOCUMENTO}`, importadoEm: '2026-10-02T12:00:00Z', pendencias: [] } : null, extracao: extracaoInicial(), revisados: [], decisaoCliente: null }; return ok({ importacao, plano: statusAbertura === 'EM_REVISAO' ? plano : null, avisos: [] }); }
+          if (corpo.acao === 'listar') return ok({ itens: [], proximo: null });                 // ListaAguardando (L1): sem pendências
           if (corpo.acao === 'ler' && corpo.importacaoId === IMPORTACAO) return ok({ importacao, plano: null });
           if (importacao?.status !== 'EM_REVISAO') return json(409, { ok: false, codigo: 'IMPORTACAO_ENCERRADA', erro: 'Esta importação já foi encerrada.' });
           if (corpo.importacaoId !== IMPORTACAO || corpo.versao !== importacao?.versao) return json(409, { ok: false, codigo: 'IMPORTACAO_DESATUALIZADA', erro: 'A revisão mudou em outra aba. Atualize a página.' });
@@ -256,12 +267,23 @@ async function main() {
     const existeBotao = (rotulo) => avaliar(`!!(${botao(rotulo)})`);
     const digitar = (seletor, valor) => avaliar(`(() => { const i = document.querySelector(${JSON.stringify(seletor)}); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, ${JSON.stringify(valor)}); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
     const enviarArquivo = async () => {
-      const { root } = await cliente.enviar('DOM.getDocument', { depth: -1, pierce: true });
-      const { nodeId } = await cliente.enviar('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"]' });
+      // A hidratação pode trocar o documento entre a leitura e a busca: tenta de novo por até 5 s antes de desistir.
+      let nodeId = 0;
+      for (let i = 0; i < 50 && !nodeId; i++) {
+        const { root } = await cliente.enviar('DOM.getDocument', { depth: -1, pierce: true });
+        nodeId = (await cliente.enviar('DOM.querySelector', { nodeId: root.nodeId, selector: 'input[type="file"]' }).catch(() => ({ nodeId: 0 }))).nodeId;
+        if (!nodeId) await esperar(100);
+      }
       assert(nodeId, 'campo de arquivo');
       await cliente.enviar('DOM.setFileInputFiles', { nodeId, files: [arquivoPdf] });
     };
-    const posteriores = (n) => posts.slice(n).filter((x) => x.url === '/api/admin/inteligencia/importacoes' && x.corpo.acao !== 'estado').map((x) => x.corpo);
+    const posteriores = (n) => posts.slice(n).filter((x) => x.url === '/api/admin/inteligencia/importacoes' && x.corpo.acao !== 'estado' && x.corpo.acao !== 'listar').map((x) => x.corpo);
+    // A origem histórica fica na aba Histórico do contrato (painel oculto nas demais); o selo do topo abre a aba.
+    const abrirOrigemHistorica = async (descricao) => {
+      await aguardar(`[...document.querySelectorAll('a[href="#historico"]')].some(a => a.textContent === 'Assinado em papel')`, descricao);
+      await avaliar(`document.querySelector('a[href="#historico"]').click()`);
+      await aguardar(texto('Contrato histórico — assinado em papel'), `${descricao}: aba Histórico`);
+    };
     const fotografar = async (nome) => {
       const { data } = await cliente.enviar('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.writeFileSync(`${out}/${nome}.png`, Buffer.from(data, 'base64'));
@@ -331,8 +353,8 @@ async function main() {
       assert.equal(await avaliar(`[...document.querySelectorAll('details')].at(-1)?.open`), true, 'evidência pendente permanece visível');
       await fotografar('revisao-desktop');
       await clicar('Corrigir Nome do contratante');
-      await aguardar(`!!document.querySelector('#editar-contratante\\\\.nomeCompleto')`, 'editor real');
-      await digitar('#editar-contratante\\.nomeCompleto', 'Pessoa Exemplo Corrigida');
+      await aguardar(`!!document.querySelector('#revisao-contratante-nomeCompleto')`, 'editor real');
+      await digitar('#revisao-contratante-nomeCompleto', 'Pessoa Exemplo Corrigida');
       const m = posts.length;
       await clicar('Salvar');
       await aguardar(texto('Pessoa Exemplo Corrigida'), 'valor corrigido');
@@ -407,7 +429,10 @@ async function main() {
       assert.equal(await avaliar(texto('Carros')), true);
       assert.equal(await avaliar(texto('Itens originais')), true, 'snapshot do documento');
       assert.equal(await avaliar(`!!document.querySelector('a[href="/api/admin/contratos/importados/${IMPORTACAO}/original"]')`), true, 'original visível ao papel autorizado');
-      assert.equal(await avaliar(`document.querySelector('select[aria-label="Contrato"]')?.value`), `importacao:${IMPORTACAO}`, 'seletor aponta o contrato importado');
+      // Desde a lista de contratos (786be0ba) não há mais seletor: a seleção fica na URL, e a lista dá lugar ao "← Contratos".
+      assert.equal(await avaliar(`new URLSearchParams(location.search).get('importacaoId')`), IMPORTACAO, 'URL aponta o contrato importado');
+      assert.equal(await avaliar(`!!document.querySelector('section[aria-label="Lista de contratos"]')`), false, 'contrato aberto, sem a lista');
+      assert.equal(await existeBotao('← Contratos'), true, 'volta à lista');
       assert.equal(await existeBotao('Editar dados desta revisão'), false, 'nenhuma ação de contrato do Core');
       await fotografar('contrato-importado');
       await ir('/admin/festas?visao=proximas');
@@ -456,7 +481,13 @@ async function main() {
       await aguardar(texto('Ainda não integrado ao sistema.'), 'contrato importado sem integração');
       await clicar('Integrar ao sistema');
       await aguardar(texto('Festa e agenda'), 'assistente aberto sem reenviar arquivo');
-      assert.equal(await avaliar(`(${botao("Continuar para pagamentos")})?.disabled`), true, 'situação do contrato começa em branco');
+      // A situação começa em branco. O botão fica habilitado e valida ao clicar: a tela aponta o campo e não avança.
+      const n0 = posts.length;
+      assert.equal(await avaliar(`[...document.querySelectorAll('input[name="situacaoContrato"]')].some(i => i.checked)`), false, 'situação do contrato começa em branco');
+      await clicar('Continuar para pagamentos');
+      await aguardar(`document.querySelector('#int-situacaoContrato-erro')?.textContent === 'Informe a situação do contrato.'`, 'situação em branco é apontada');
+      assert.equal(await avaliar(texto('não comprova que algo foi pago')), false, 'em branco não avança para pagamentos');
+      assert.deepEqual(posts.slice(n0), [], 'em branco não envia nada');
       const marcar = (rotulo) => avaliar(`(() => { const l = [...document.querySelectorAll('label')].find(x => x.textContent.includes(${JSON.stringify(rotulo)})); l.querySelector('input').click(); return true; })()`);
       const escolher = (seletor, valor) => avaliar(`(() => { const s = document.querySelector(${JSON.stringify(seletor)}); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, ${JSON.stringify(valor)}); s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
       await marcar('Cancelado');
@@ -490,7 +521,7 @@ async function main() {
       await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração e senha liberam a confirmação');
       await fotografar('integracao-revisao-final');
       await clicar('Confirmar integração');
-      await aguardar(texto('Contrato histórico — assinado em papel'), 'contrato do Core só depois da resposta');
+      await abrirOrigemHistorica('contrato do Core só depois da resposta');
       const ordem = posts.slice(m).filter((x) => x.url === '/api/admin/autenticacao' || (x.url.endsWith('/integracao') && x.corpo.acao === 'confirmar'));
       assert.deepEqual(ordem.map((x) => x.corpo.acao), ['reautenticar', 'confirmar'], 'reautentica antes de confirmar');
       assert.equal(ordem[0].corpo.senhaInformada, true);
@@ -504,7 +535,7 @@ async function main() {
       await fotografar('integracao-concluida');
       await ir('/admin/contratos?importacaoId=' + IMPORTACAO);
       await aguardar(`location.search.includes('contratoId=' + ${JSON.stringify(CONTRATO)})`, 'link antigo redireciona ao contrato integrado');
-      await aguardar(texto('Contrato histórico — assinado em papel'), 'origem histórica no contrato do Core');
+      await abrirOrigemHistorica('origem histórica no contrato do Core');
       assert.equal(await avaliar(texto('Não há assinatura digital, OTP nem comprovante eletrônico')), true);
       assert.equal(await avaliar(texto('Ainda não integrado ao sistema.')), false, 'projeção da importação não aparece duplicada');
       await fotografar('contrato-integrado');
