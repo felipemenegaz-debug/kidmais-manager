@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import Link from 'next/link';
-import { FORMAS, VERSAO_RESUMO_FINANCEIRO, cabecalhoVersaoFinanceira, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira, somarDias } from '@/lib/financeiro/calculos';
+import { FORMAS, cabecalhoVersaoFinanceira, respostaFinanceiraDesatualizada, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira, somarDias } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
@@ -12,7 +12,8 @@ type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCen
 type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; clienteId?: string | null; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
 type Conta = { id: string; descricao: string; favorecido: string | null; categoria: string; categoriaId: string; vencimento: string; valorCentavos: number; saldoCentavos: number; pagoCentavos: number; status: string; forma: string | null };
 type Categoria = { id: string; nome: string };
-type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; recebimentosSemTaxa?: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
+type MotivoSaldo = 'SEM_ABERTURA' | 'ANTERIOR_A_ABERTURA' | 'ATRAVESSA_ABERTURA';
+type Fluxo = { versao?: number; saldoInicialCentavos: number | null; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number | null; movimentoPeriodoCentavos?: number; motivoSaldo?: MotivoSaldo | null; abertura?: { versao: number; dataBase: string; saldoCentavos: number } | null; pendencias?: { quantidade: number; centavos: number }; recebimentosSemTaxa?: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
 type Relatorio = {
   versao?: number;
   inicio?: string;
@@ -181,7 +182,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   if (carregando) return <main className={styles.pagina} aria-busy="true"><p>Carregando…</p></main>;
   if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button type="button" onClick={() => void carregar()}>Tentar novamente</button></main>;
   // Tela e servidor de versões diferentes: não mostra número de outro contrato.
-  if ((resumo && resumo.versao !== VERSAO_RESUMO_FINANCEIRO) || (tela === 'relatorios' && relatorio && relatorio.versao !== VERSAO_RESUMO_FINANCEIRO)) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
+  if (respostaFinanceiraDesatualizada(resumo, tela === 'relatorios' ? relatorio : null, tela === 'fluxo' ? fluxo : null)) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
 
   return <main className={styles.pagina}>
     {tela === 'visao' && <>
@@ -218,7 +219,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     </>}
     {tela === 'pagar' && <>
       <header className={styles.topo}><div><h1>Contas a pagar</h1><p>Saídas previstas e pagas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('nova')}>+ Nova conta</AdminPrimaryButton></header>
-      <Kpis itens={[['A pagar em 30 dias', contas.filter((item) => item.status === 'A pagar' && item.vencimento <= somarDias(hojeBrasilia(), 30)).reduce((t, item) => t + item.saldoCentavos, 0)], ['Total em aberto', contas.filter((item) => item.status === 'A pagar' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
+      <Kpis itens={[['A pagar em 30 dias', contas.filter((item) => (item.status === 'A pagar' || item.status === 'Parcialmente paga') && item.vencimento <= somarDias(hojeBrasilia(), 30)).reduce((t, item) => t + item.saldoCentavos, 0)], ['Total em aberto', contas.filter((item) => item.status === 'A pagar' || item.status === 'Parcialmente paga' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
       {contas.length === 0 && <p className={styles.vazio}>Você ainda não tem contas a pagar.</p>}
       <Tabela colunas={['Descrição', 'Favorecido', 'Categoria', 'Vencimento', 'Valor', 'Status', '']} linhas={contas.map((item) => ({
         id: item.id,
@@ -231,8 +232,9 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <header className={styles.topo}><div><h1>Fluxo de caixa</h1><p>Previsto e realizado no período.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <Kpis itens={[['Saldo inicial', fluxo.saldoInicialCentavos], ['Entradas', fluxo.entradasCentavos], ['Saídas', fluxo.saidasCentavos], ['Saldo final', fluxo.saldoFinalCentavos]]} />
+      <AvisoSaldo fluxo={fluxo} />
       <AvisoTaxas semTaxa={fluxo.recebimentosSemTaxa} />
-      <section className={styles.cartao}><h2>Saldo ao longo do período</h2><Grafico linhas={fluxo.linhas} /></section>
+      {fluxo.saldoFinalCentavos != null && <section className={styles.cartao}><h2>Saldo ao longo do período</h2><Grafico linhas={fluxo.linhas} /></section>}
       {fluxo.linhas.length === 0 && <p className={styles.vazio}>Nenhuma movimentação neste período.</p>}
       <Tabela colunas={['Data', 'Descrição', 'Entrada', 'Saída', 'Saldo', '']} linhas={fluxo.linhas.map((item, indice) => ({ id: String(indice), celulas: [item.data, `${item.descricao} (${item.tipo})`, item.entrada ? reaisDe(item.entrada) : '—', item.saida ? reaisDe(item.saida) : '—', item.saldo == null ? '—' : reaisDe(item.saldo)], status: item.tipo }))} />
     </>}
@@ -302,15 +304,28 @@ function textoMargem(item: { margemEstimadaCentavos: number | null; noEscopo?: b
   if (item.margemEstimadaCentavos != null) return reaisDe(item.margemEstimadaCentavos);
   return item.noEscopo === false ? '—' : 'custos não lançados';
 }
+function AvisoSaldo({ fluxo }: { fluxo: Fluxo }) {
+  const pend = fluxo.pendencias;
+  const dataBase = fluxo.abertura?.dataBase;
+  const motivo = fluxo.motivoSaldo === 'SEM_ABERTURA' ? 'O saldo aparece depois que o saldo de abertura for informado. Até lá, mostramos só as entradas e saídas do período.'
+    : fluxo.motivoSaldo === 'ANTERIOR_A_ABERTURA' ? `Este período é anterior ao saldo de abertura (${dataBase}). Mostramos só as entradas e saídas.`
+    : fluxo.motivoSaldo === 'ATRAVESSA_ABERTURA' ? `O saldo começa em ${dataBase}, data do saldo de abertura.`
+    : '';
+  return <>
+    {motivo && <p className={styles.vazio}>{motivo}{fluxo.movimentoPeriodoCentavos != null ? ` Entradas menos saídas no período: ${reaisDe(fluxo.movimentoPeriodoCentavos)}.` : ''}</p>}
+    {pend && pend.quantidade > 0 && <p className={styles.erro} role="status">A conferir: {pend.quantidade === 1 ? '1 movimento' : `${pend.quantidade} movimentos`} desde a abertura, somando {reaisDe(pend.centavos)}. O saldo considera o que está lançado hoje.</p>}
+  </>;
+}
 function AvisoTaxas({ semTaxa }: { semTaxa?: number }) {
   const n = semTaxa ?? 0;
   return <p className={styles.vazio}>Valores líquidos das taxas informadas.{n > 0 ? ` ${n === 1 ? '1 recebimento de cartão ou boleto está' : `${n} recebimentos de cartão ou boleto estão`} sem taxa informada.` : ''}</p>;
 }
-function Kpis({ itens }: { itens: Array<[string, number | undefined]> }) {
+function Kpis({ itens }: { itens: Array<[string, number | null | undefined]> }) {
   const acento = itens.length <= 5;
-  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
+  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{valor === null ? '—' : reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
 }
-function tomKpi(rotulo: string, valor?: number) {
+function tomKpi(rotulo: string, valor?: number | null) {
+  if (valor === null) return '';
   const nome = rotulo.toLowerCase();
   if (nome.includes('atraso') || nome.includes('vencido') || nome.includes('inadimpl')) return styles.alerta;
   if (nome.includes('saída') || nome.includes('saida')) return styles.saida;
@@ -331,7 +346,7 @@ function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: st
     <div className={styles.painel}>
       <table className={styles.tabela}>
         <thead><tr>{colunas.filter(Boolean).map((coluna) => <th key={coluna}>{coluna}</th>)}<th><span className={styles.srOnly}>Ações</span></th></tr></thead>
-        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.pix ? <button className={styles.acao} type="button" aria-label="Pix da parcela" onClick={(evento) => { evento.stopPropagation(); linha.pix?.(); }}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
+        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "Parcialmente paga", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.pix ? <button className={styles.acao} type="button" aria-label="Pix da parcela" onClick={(evento) => { evento.stopPropagation(); linha.pix?.(); }}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
       </table>
     </div>
     <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.pix ? <button className={styles.acao} type="button" onClick={linha.pix}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>

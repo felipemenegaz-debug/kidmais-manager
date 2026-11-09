@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { periodoSelecionado } from "@/lib/financeiro/calculos";
+import { PAGAR_EM_ABERTO, periodoSelecionado } from "@/lib/financeiro/calculos";
 import { listarContasPagar, listarRecebiveis, pagoNoPeriodo, recebidoNoPeriodo, resumo } from "@/lib/financeiro/servico";
 import { consultarFinanceiro, hojeIso } from "@/lib/financeiro/http";
 import { recursoIncluido } from "@/lib/assinatura/recursos-plano";
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       financeiroCompleto,
       resumo: resumo(recebiveis, contas, recebido, hoje, pago),
       recebimentos: recebiveis.filter((item) => item.saldoCentavos > 0).slice(0, 5),
-      pagamentos: contas.filter((item) => item.status === "A pagar" || item.status === "Vencido").slice(0, 5),
+      pagamentos: contas.filter((item) => PAGAR_EM_ABERTO.has(item.status)).slice(0, 5),
       alertas: [
         ...recebiveis.filter((item) => item.status === "Vencido").slice(0, 3).map((item) => `${item.cliente} está em atraso`),
         ...contas.filter((item) => item.status === "Vencido").slice(0, 3).map((item) => `${item.descricao} venceu`),

@@ -197,7 +197,11 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     )).rows[0].n, 3);
     const fluxo = await fluxoCaixa(tx, empresaA, "2026-03-01", "2026-03-31", hoje);
     assert.ok(fluxo.saidasCentavos >= 4000);
-    assert.equal(fluxo.saldoFinalCentavos, fluxo.saldoInicialCentavos + fluxo.entradasCentavos - fluxo.saidasCentavos);
+    // P2 (D-FIN-9): sem abertura não há saldo absoluto; só o movimento do período, com o motivo.
+    assert.equal(fluxo.saldoInicialCentavos, null);
+    assert.equal(fluxo.saldoFinalCentavos, null);
+    assert.equal(fluxo.motivoSaldo, "SEM_ABERTURA");
+    assert.equal(fluxo.movimentoPeriodoCentavos, fluxo.entradasCentavos - fluxo.saidasCentavos);
     assert.ok(fluxo.linhas.some((linha) => linha.tipo === "realizado" && linha.saida > 0));
     assert.ok(fluxo.linhas.filter((linha) => linha.tipo === "previsto").every((linha) => linha.saldo === null));
     const leitura = await relatorio(tx, empresaA, "2026-03-01", "2026-03-31", hoje);
@@ -352,6 +356,9 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     await db.query("BEGIN");
     const empresaA = await empresa(db, "Empresa receber A");
     const empresaB = await empresa(db, "Empresa receber B");
+    // Como a entrada real (travarConfiguracaoAgenda): com a 114 (modelo 121), os gatilhos da 019 exigem a trava da
+    // configuração da agenda na transação (KD114). Vale até o ROLLBACK; sem a 114, não muda nada.
+    await db.query("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:' || $1::text, 0))", [empresaA]);
     const ator = await usuario(db);
     const pacote = (await db.query<{ id: string }>(
       `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
@@ -394,8 +401,10 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
        VALUES ($1::uuid, 1, 'ASSINADA', '{}'::jsonb, $2, now(), 1, $3, 'OTP') RETURNING id`,
       [contrato, "a".repeat(64), "c".repeat(64)],
     )).rows[0].id;
+    // 110 = parcela 1 (100) + parcela 3 (10), inserida adiante; a 2 nasce cancelada. Desde a P1 o saldo do título
+    // nunca passa do restante da posição do pagamento: com 100 contratados, a parcela 3 nasceria quitada.
     const pagamento = (await db.query<{ id: string }>(
-      `INSERT INTO pagamentos (contrato_versao_id, valor_total_contratado) VALUES ($1::uuid, 100) RETURNING id`,
+      `INSERT INTO pagamentos (contrato_versao_id, valor_total_contratado) VALUES ($1::uuid, 110) RETURNING id`,
       [versao],
     )).rows[0].id;
     const plano = (await db.query<{ id: string }>(
@@ -478,11 +487,26 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     assert.equal(caixaLiquido.entradasCentavos, 3900);
     assert.equal(daFesta.resultadoCaixaCentavos, caixaLiquido.entradasCentavos - 1000);
     assert.equal(daFesta.despesas.some((item) => item.id === aberta && item.status !== "Cancelado"), true);
-    const caixa = await fluxoCaixa(tx, empresaA, "2026-03-05", "2026-03-31", "2026-03-18");
-    assert.equal(caixa.saldoInicialCentavos, 3900);
-    assert.equal(caixa.entradasCentavos, 0);
-    assert.equal(caixa.saidasCentavos, 1000);
-    assert.equal(caixa.saldoFinalCentavos, 2900);
+    // P2: sem abertura, só o movimento; com abertura explícita em D0 = 01/03 (saldo zero), saldo contíguo a partir de D0.
+    const semSaldo = await fluxoCaixa(tx, empresaA, "2026-03-05", "2026-03-31", "2026-03-18");
+    assert.deepEqual([semSaldo.saldoInicialCentavos, semSaldo.saldoFinalCentavos, semSaldo.motivoSaldo], [null, null, "SEM_ABERTURA"]);
+    assert.equal(semSaldo.movimentoPeriodoCentavos, -1000);
+    const temAbertura = (await db.query<{ ok: boolean }>("SELECT to_regclass('public.financeiro_aberturas') IS NOT NULL AS ok")).rows[0]?.ok;
+    assert.equal(temAbertura, process.env.KIDMAIS_POSTGRES_MODELO === "121", "a 121 existe só no modelo 121");
+    if (temAbertura) {
+      await db.query(
+        `INSERT INTO financeiro_aberturas (empresa_id, versao, data_base, saldo, justificativa, conjunto_hash, chave_idempotencia, criado_por)
+         VALUES ($1::uuid, 1, '2026-03-01', 0, 'Abertura do teste', repeat('0', 64), $2, $3::uuid)`,
+        [empresaA, `teste-${randomUUID()}`, ator]);
+      const ateD0 = await fluxoCaixa(tx, empresaA, "2026-03-01", "2026-03-04", "2026-03-18");
+      assert.deepEqual([ateD0.saldoInicialCentavos, ateD0.saldoFinalCentavos], [0, 3900], "período começando em D0 parte da abertura");
+      const caixa = await fluxoCaixa(tx, empresaA, "2026-03-05", "2026-03-31", "2026-03-18");
+      assert.equal(caixa.saldoInicialCentavos, ateD0.saldoFinalCentavos, "contíguo a partir de D0");
+      assert.equal(caixa.saldoInicialCentavos, 3900);
+      assert.equal(caixa.entradasCentavos, 0);
+      assert.equal(caixa.saidasCentavos, 1000);
+      assert.equal(caixa.saldoFinalCentavos, 2900);
+    }
 
     const chavePaga = randomUUID();
     const entradaAberta = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
@@ -587,7 +611,9 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     assert.equal(agosto.formas.some((item) => item.forma === "PIX" && item.centavos === 249000), true);
     const agostoFesta = agosto.margens.find((item) => item.festaId === festa);
     assert.equal(agostoFesta?.resultadoCaixaCentavos, 249000);
-    assert.equal(agostoFesta?.margemEstimadaCentavos, 0);
+    // Festa de março com caixa em agosto: fora do escopo do período. Desde a P1, sem margem presumida (null, nunca 0).
+    assert.equal(agostoFesta?.noEscopo, false);
+    assert.equal(agostoFesta?.margemEstimadaCentavos, null);
     const caixaAgosto = await fluxoCaixa(tx, empresaA, "2026-08-01", "2026-08-31", "2026-09-27");
     assert.equal(caixaAgosto.entradasCentavos, 249000);
     assert.equal(caixaAgosto.linhas.some((linha) => linha.descricao === "Venda anterior ao Kidmais Manager" && linha.entrada === 249000), true);

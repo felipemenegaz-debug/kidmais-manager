@@ -152,7 +152,7 @@ test("pagarConta recusa data futura sem efeito e aceita até o dia de hoje", asy
     async query<Row extends object>(text: string) {
       consultas.push(text);
       if (text.includes("FROM financeiro_saidas") && text.includes("chave_idempotencia")) return { rows: [], rowCount: 0 };
-      if (text.includes("SUM(valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
+      if (text.includes("SUM(saida.valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
       if (text.includes("financeiro_contas_pagar") && text.includes("FOR UPDATE")) {
         return { rows: [{ id: contaId, valor: "100.00", pago: "0.00", cancelado_em: null } as unknown as Row], rowCount: 1 };
       }
@@ -200,7 +200,7 @@ test("pagarConta confronta o payload quando o INSERT colide com a mesma chave", 
     async query<Row extends object>(text: string) {
       consultas.push(text);
       if (text.includes("INSERT INTO financeiro_saidas")) throw Object.assign(new Error("duplicada"), { code: "23505" });
-      if (text.includes("SUM(valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
+      if (text.includes("SUM(saida.valor)")) return { rows: [{ pago: "0.00" } as unknown as Row], rowCount: 1 };
       if (text.includes("financeiro_contas_pagar") && text.includes("FOR UPDATE")) {
         return { rows: [{ valor: "100.00", cancelado_em: null } as unknown as Row], rowCount: 1 };
       }
