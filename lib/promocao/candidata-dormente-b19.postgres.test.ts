@@ -27,9 +27,6 @@ import { franquiaDoMes } from "../creditos/manutencao.ts";
 import { colisoesDisponivel, modoEfetivo } from "../whatsapp/atendimento/multiempresa.ts";
 import { concluirCota, cotaInstalada, liberarCota, reservarCota } from "../importacao-contrato/cota.ts";
 import { documentosDisponiveis, registrarDocumento, registrarExtracao, ultimaExtracao } from "../importacao-contrato/repositorio-documentos.ts";
-import { atenderDocumento, type DependenciasDocumento, type PortaDocumentos } from "../inteligencia/documentos/upload.ts";
-import { lerPdfEmProcesso, type LeitorPdf } from "../inteligencia/documentos/extrair.ts";
-import { LINHAS, pdf } from "../inteligencia/documentos/apoio.test.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../saas/provar-tenant.ts";
 import { cobrancaDestravada, decidirTravaCobranca, exigirCobrancaDestravada } from "../assinatura/trava-cobranca.ts";
 // Rodada 2 (parecer B19A-R1): consumidores reais da 116 (manutenção, executor do cron, sincronização) e da 117 (recepção,
@@ -667,6 +664,16 @@ test("B-19 (117): sem a 117 o atendimento fica no modo PILOTO mesmo com a chave 
 });
 
 test("B-19 (118): envio de documento com CONTRACT_IMPORT ligado = 503 COTA_INDISPONIVEL sem a 118 (antes de gravar e de ler); com a 118 lê e consome", async () => {
+  // Camada de IA carregada pelo suporte de integração (mesmo padrão de importacao-v3-desistir.postgres.test.ts):
+  // a regra 10 de lib/inteligencia/arquitetura.test.ts proíbe import estático da IA fora das camadas de IA.
+  type Upload = typeof import("../inteligencia/documentos/upload.ts");
+  type Extrair = typeof import("../inteligencia/documentos/extrair.ts");
+  type LeitorPdf = import("../inteligencia/documentos/extrair.ts").LeitorPdf;
+  type PortaDocumentos = import("../inteligencia/documentos/upload.ts").PortaDocumentos;
+  type DependenciasDocumento = import("../inteligencia/documentos/upload.ts").DependenciasDocumento;
+  const { atenderDocumento } = carregar<Upload>("lib/inteligencia/documentos/upload.ts");
+  const { lerPdfEmProcesso } = carregar<Extrair>("lib/inteligencia/documentos/extrair.ts");
+  const { LINHAS, pdf } = carregar<typeof import("../inteligencia/documentos/apoio.test.ts")>("lib/inteligencia/documentos/apoio.test.ts");
   const c = await cenario(a, 0);
   const leituras = { n: 0 };
   const lerPdf: LeitorPdf = async (bytes, o) => { leituras.n += 1; return lerPdfEmProcesso(bytes, o); };
