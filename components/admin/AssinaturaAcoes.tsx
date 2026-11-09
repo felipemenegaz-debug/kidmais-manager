@@ -111,7 +111,7 @@ export function AcoesCobranca({ dados, recarregar }: { dados: DadosAssinatura; r
         {!dados.gestao && <p className={workspace.muted}>Somente a Gestão desta empresa contrata ou cancela a assinatura.</p>}
         {dados.gestao && !cobranca?.disponivel && <>
             {precos && (precos.MENSAL || precos.ANUAL) && <p>{[precos.MENSAL ? `${reais(precos.MENSAL)} por mês` : null, precos.ANUAL ? `${reais(precos.ANUAL)} por ano` : null].filter(Boolean).join(' · ')}</p>}
-            <p className={workspace.muted}>A contratação on-line ainda não está disponível neste ambiente. <Link href={ROTA_AJUDA}>Fale com a Kidmais</Link> para assinar.</p>
+            <p className={workspace.muted}>A contratação on-line ainda não está disponível neste ambiente. <Link href={ROTA_AJUDA}>Fale com a equipe iA.Fest</Link> para assinar.</p>
         </>}
         {dados.gestao && cobranca?.disponivel && pagamento?.urlPagamento && <div data-pagamento-aberto>
             <p>{pagamento.reaproveitada ? 'Há um pagamento em aberto desta assinatura.' : 'Assinatura criada.'}{pagamento.vencimento ? ` Vencimento: ${pagamento.vencimento.split('-').reverse().join('/')}.` : ''} Pague pela página segura do provedor (Pix, boleto ou cartão).</p>

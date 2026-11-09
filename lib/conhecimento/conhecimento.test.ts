@@ -182,25 +182,27 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   dashboard: { versao: 1, sha256: "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb", em: "2026-11-02" },
   marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
   "privacidade-e-exportacao": { versao: 1, sha256: "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c", em: "2026-11-02" },
-  "usuarios-e-acessos": { versao: 1, sha256: "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650", em: "2026-11-02" },
   // 03/11/2026 (UTC): Felipe aprovou ("Approve all") as trocas dos 12 ajustados para production; o texto de cada um é o do
   // APROVACAO-ARTIGOS-PRODUCTION.md (auditoria-central-production-20261103).
   "agenda-e-horarios": { versao: 2, sha256: "b6a20199327abb58ab7fe8d7e3a03829fb508aed701572c02b8eef46800b4184", em: "2026-11-03" },
   // 03/11/2026 (Felipe: "aprovo"): v3 cita o botão Retomar <plano> da contratação em aberto.
-  "assinatura-e-plano": { versao: 3, sha256: "b99b7671f28947a6bbedf0f633228a4cd75a81ecf38984131ed44cf8ffacb95f", em: "2026-11-03" },
-  "conectar-whatsapp": { versao: 2, sha256: "da7b468d12a9dfbb2fc6af1bb71d1042290c8b8a26498d99fd638c7722ddbe2e", em: "2026-11-03" },
   contratos: { versao: 2, sha256: "c41dbf099bcae2d691e4f683572c3bf39ab4d2571c34ddd8cbe962448feae073", em: "2026-11-03" },
   convites: { versao: 2, sha256: "2dd29015b47a372690375c5e88b300410520b057674415348c6ecc36a6ce397c", em: "2026-11-03" },
   "fechamento-de-festa": { versao: 2, sha256: "6ba50ba935fe282c2ac704764785a30e9a7460826acfafedb5bd7ca0ac23e24a", em: "2026-11-03" },
-  "importar-documentos": { versao: 2, sha256: "1f32c50cc2f250453ea3f6ed96808d4c6db8b14964104b15063d0f794cce48ee", em: "2026-11-03" },
   "perfil-da-empresa": { versao: 2, sha256: "1fd29c600b8e212837a817eec764589c18254be6f63f21c98f79c5dfee9d7e32", em: "2026-11-03" },
-  "perfil-e-senha": { versao: 2, sha256: "cb74e5e854893872229b8adf07fa251774eddbeeae9fdeeacbc24bdd02da16b0", em: "2026-11-03" },
   "saloes-pacotes-e-itens": { versao: 2, sha256: "7c9d57c600ff2107290553e56d19ff78c0efaf2ca9f128639e8e18c46fdf2a15", em: "2026-11-03" },
   // 03/11/2026 (Felipe: "Aprovo, preparar"): vídeos de ajuda de production (pilotos) nos artigos; primeiros-passos v3 também
   // corrige o caminho (o item do cartão da conta só existe com assinatura + Gestão): cartão › Ajuda e suporte › Atalhos.
   festas: { versao: 3, sha256: "fd162359805c43fb7c0c08a6dc70ee79a29e3120b950943d906d96d76a8949e9", em: "2026-11-03" },
   "financeiro-recebimentos": { versao: 2, sha256: "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72", em: "2026-11-03" },
-  "primeiros-passos": { versao: 3, sha256: "2083a2d593da0ce04165e23cbb9814f0071a1f35da6265429e119eb2428fc61d", em: "2026-11-03" },
+  // 09/11/2026 (Felipe: "pode tirar Kidmais Manager e trocar por iA.Fest ou IA.Fest onde ainda falta"): nova versão só
+  // com o nome do produto (Kidmais → iA.Fest), na redação de staging; o resto do texto é o da versão anterior aprovada.
+  "assinatura-e-plano": { versao: 4, sha256: "7754a37b145e26a56dc4be501409eb60f051f5cec7c984092bb03ce4f1789b74", em: "2026-11-09" },
+  "conectar-whatsapp": { versao: 3, sha256: "57f7b2435afc7f2b662fe8fa6cb116fa1077f56a0031347c06ce2466d0cd39e2", em: "2026-11-09" },
+  "importar-documentos": { versao: 3, sha256: "9af743323dbdbf48301d7352398fe52bf93297f6181ad48b4007b7b78d96c6e6", em: "2026-11-09" },
+  "perfil-e-senha": { versao: 3, sha256: "6bd78b8caa15d2ac01d885ff6b831e4b0b23251f10646076d31c835d1a9d01be", em: "2026-11-09" },
+  "primeiros-passos": { versao: 4, sha256: "4e1f6e70cbbe396abbb1abf48a2347b5e3668592fbb721f6e91823df831503ff", em: "2026-11-09" },
+  "usuarios-e-acessos": { versao: 2, sha256: "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852", em: "2026-11-09" },
 };
 
 test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO só com aprovação registrada", () => {

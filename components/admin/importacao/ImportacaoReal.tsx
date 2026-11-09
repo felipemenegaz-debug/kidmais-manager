@@ -33,7 +33,7 @@ const PASSOS = ['Enviar', 'Dados do contrato e cliente', 'Festa e agenda', 'Paga
 const PASSO_INTEGRACAO: Record<PassoIntegracao, number> = { festa: 2, pagamentos: 3, revisao: 4, concluida: 5 };
 const ROTULO: Record<EstadoCampo | 'REVISADO', string> = { ENCONTRADO: 'Encontrado', PRECISA_REVISAO: 'Precisa revisão', NAO_ENCONTRADO: 'Não encontrado', REVISADO: 'Revisado' };
 const AVISOS: Readonly<Record<string, string>> = {
-  ENVIO_EXTERNO_NAO_AUTORIZADO: 'Leitura feita só no servidor do Kidmais, por regras. Confira os campos com atenção.',
+  ENVIO_EXTERNO_NAO_AUTORIZADO: 'Leitura feita só no servidor do iA.Fest, por regras. Confira os campos com atenção.',
   SEM_TEXTO_NATIVO: 'O PDF não tem texto (parece escaneado). Preencha os campos na revisão.',
   SEM_VISAO_DISPONIVEL: 'Leitura automática de imagem indisponível. Preencha os campos na revisão.',
   DOCUMENTO_JA_ENVIADO: 'Este arquivo já tinha sido enviado. Continuamos de onde parou.',
@@ -129,7 +129,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     <Link className={styles.voltar} href="/admin/contratos">← Contratos</Link>
     <header className={styles.topo}>
       <div className={styles.tituloLinha}><h1>Importar contrato antigo</h1></div>
-      <p>Envie o contrato em PDF, JPG ou PNG. O Kidmais lê e sugere; você confere os dados, a festa, a agenda e os pagamentos e só então confirma.</p>
+      <p>Envie o contrato em PDF, JPG ou PNG. O iA.Fest lê e sugere; você confere os dados, a festa, a agenda e os pagamentos e só então confirma.</p>
     </header>
     <ol className={styles.passos} aria-label="Etapas da importação">
       {PASSOS.map((p, i) => <li key={p} data-estado={i < passo ? 'feito' : i === passo ? 'atual' : 'pendente'} aria-current={i === passo ? 'step' : undefined}><span aria-hidden="true">{i + 1}</span>{p}</li>)}

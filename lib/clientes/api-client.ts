@@ -123,7 +123,7 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
       cache: "no-store",
     });
   } catch {
-    throw new CrmApiError("Não foi possível conectar à API do Kidmais Manager.", { status: 0 });
+    throw new CrmApiError("Não foi possível conectar à API do iA.Fest.", { status: 0 });
   }
 
   let payload: ApiOk<T> | ApiFalha | null = null;

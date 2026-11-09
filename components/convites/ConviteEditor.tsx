@@ -29,7 +29,7 @@ const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não prec
 const ROTULOS_HISTORICO: Record<string, string> = { IA_RESERVADA: 'geração de arte solicitada', IA_CONCLUIDA: 'arte gerada', IA_EM_VERIFICACAO: 'geração em verificação',
   IA_NAO_INICIADA: 'geração não iniciada; crédito devolvido', IA_VERIFICACAO_CONCLUIDA: 'verificação da geração concluída',
   AUTORIZACAO_IA_REGISTRADA: 'autorização de IA do responsável registrada', AUTORIZACAO_IA_REVOGADA: 'autorização de IA revogada' };
-const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'Kidmais' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
+const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'iA.Fest' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
 function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }

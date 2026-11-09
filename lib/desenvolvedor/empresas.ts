@@ -269,7 +269,7 @@ export async function previaProvisionamento(sessao: SessaoAdmin, raw: unknown, d
                 'Grava o cadastro administrativo (responsável, contatos, documento e observações).',
                 interessada ? `Marca a interessada "${interessada.nome}" como contratante.` : 'Não há interessada vinculada.',
                 `Cria um convite de Gestão para ${d.email}, válido por 7 dias. Nenhum usuário é criado agora.`,
-                contaExistente ? 'Este e-mail já tem conta no Kidmais Manager: no aceite, a pessoa confirma com a senha atual.' : 'Este e-mail ainda não tem conta: no aceite, a pessoa define nome e senha.',
+                contaExistente ? 'Este e-mail já tem conta no iA.Fest: no aceite, a pessoa confirma com a senha atual.' : 'Este e-mail ainda não tem conta: no aceite, a pessoa define nome e senha.',
                 email.configurado ? 'O e-mail do convite é enviado logo após a confirmação.' : `O convite fica criado, mas NÃO será enviado: ${email.motivo}`,
             ],
             conflitos,

@@ -159,7 +159,7 @@ export const TITULO_PEDIDO: Record<TipoPedido, string> = {
 export function mensagemConfirmacao(input: { para: string; empresa: string; pedido: PedidoResumo; periodoFim: string | null; estornoAutomatico: boolean }): MensagemEmail {
     const p = input.pedido;
     const linhas = [
-        `Recebemos o pedido de ${TITULO_PEDIDO[p.tipo].toLowerCase()} de ${input.empresa} no Kidmais Manager.`,
+        `Recebemos o pedido de ${TITULO_PEDIDO[p.tipo].toLowerCase()} de ${input.empresa} no iA.Fest.`,
         `Protocolo: ${p.protocolo}. Registrado em ${horaBr(p.solicitadoEm)} (horário de Brasília).`,
     ];
     if (p.tipo === 'CANCELAMENTO_FIM_PERIODO')
@@ -176,7 +176,7 @@ export function mensagemConfirmacao(input: { para: string; empresa: string; pedi
     linhas.push('Dúvidas: contato@demerzellabs.com.br, informando o protocolo.');
     const texto = linhas.join('\n\n');
     const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${linhas.map((l) => `<p>${escapar(l)}</p>`).join('')}</div>`;
-    return { para: input.para, assunto: `Kidmais Manager — protocolo ${p.protocolo}`, texto, html, idempotencia: `encerramento:${p.id}` };
+    return { para: input.para, assunto: `iA.Fest — protocolo ${p.protocolo}`, texto, html, idempotencia: `encerramento:${p.id}` };
 }
 
 /** Envia (melhor esforço) e grava a situação. Falha no envio nunca desfaz o pedido. */
@@ -227,7 +227,7 @@ export function mensagemAvisoInterno(input: { para: string; pedido: PedidoResumo
     const texto = linhas.join('\n\n');
     const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${linhas.map((l) => `<p>${escapar(l)}</p>`).join('')}</div>`;
     const urgente = p.tipo === 'ARREPENDIMENTO_7_DIAS' || (p.cancelamentoProvedor !== 'CONFIRMADO' && p.cancelamentoProvedor !== 'AUSENTE' && p.cancelamentoProvedor !== 'JA_REMOVIDA');
-    return { para: input.para, assunto: `${urgente ? '[AÇÃO HOJE] ' : ''}Kidmais Manager — pedido ${p.protocolo} (${TITULO_PEDIDO[p.tipo]})`, texto, html,
+    return { para: input.para, assunto: `${urgente ? '[AÇÃO HOJE] ' : ''}iA.Fest — pedido ${p.protocolo} (${TITULO_PEDIDO[p.tipo]})`, texto, html,
         idempotencia: `encerramento-interno:${p.id}` };
 }
 

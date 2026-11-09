@@ -90,11 +90,11 @@ export default function CadastroEmpresa() {
         window.location.replace('/admin/inicio');
     }
     if (criadaSemAbrir)
-        return <main className={`${admin.page} ${admin.login}`}><h1>Kidmais Manager</h1><p role="alert">Sua empresa foi criada, mas não conseguimos abri-la. Entre com seu login para continuar.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
+        return <main className={`${admin.page} ${admin.login}`}><h1>iA.Fest</h1><p role="alert">Sua empresa foi criada, mas não conseguimos abri-la. Entre com seu login para continuar.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
     if (semSessao)
-        return <main className={`${admin.page} ${admin.login}`}><h1>Kidmais Manager</h1><p role="alert">Entre na sua conta para cadastrar a empresa.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
+        return <main className={`${admin.page} ${admin.login}`}><h1>iA.Fest</h1><p role="alert">Entre na sua conta para cadastrar a empresa.</p><p><Link href="/admin/login">Entrar</Link></p></main>;
     return <main className={`${admin.page} ${admin.login}`} data-cadastro-empresa>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Dados da empresa</h2>
         {!sessao && !erro && <p aria-live="polite">Carregando…</p>}
         {sessao && <form onSubmit={(e) => { e.preventDefault(); void enviar(); }}>
@@ -107,7 +107,7 @@ export default function CadastroEmpresa() {
             <fieldset>
                 <legend>Sua relação com a empresa</legend>
                 {QUALIFICACAO.map((q) => <label key={q.valor} style={{ display: 'flex', gap: 8 }}><input type="radio" name="qualificacao" value={q.valor} checked={qualificacao === q.valor} onChange={() => setQualificacao(q.valor)} style={{ width: 'auto' }} />{q.rotulo}</label>)}
-                <small>A representação fica registrada como declarada e pode ser confirmada pela Kidmais. Ela não muda o seu acesso.</small>
+                <small>A representação fica registrada como declarada e pode ser confirmada pela equipe iA.Fest. Ela não muda o seu acesso.</small>
             </fieldset>
             <fieldset>
                 <legend>Sócios (opcional)</legend>

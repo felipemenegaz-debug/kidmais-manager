@@ -30,9 +30,9 @@ Se você não lembra a senha atual:
 
 O link vale por 30 minutos e só pode ser usado uma vez. Depois de definir a nova senha, todas as sessões abertas da conta são encerradas.
 
-Se a tela disser que a recuperação de senha está temporariamente indisponível, fale com o suporte da Kidmais.
+Se a tela disser que a recuperação de senha está temporariamente indisponível, fale com o suporte do iA.Fest.
 
-A equipe Kidmais nunca pede a sua senha.
+A equipe iA.Fest nunca pede a sua senha.
 
 ## Como sair
 

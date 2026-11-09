@@ -31,14 +31,14 @@
       "arquivo": "assinatura-e-plano.md",
       "id": "assinatura-e-plano",
       "titulo": "Assinatura e plano",
-      "versao": 3,
+      "versao": 4,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "b99b7671f28947a6bbedf0f633228a4cd75a81ecf38984131ed44cf8ffacb95f"
+      "sha256": "7754a37b145e26a56dc4be501409eb60f051f5cec7c984092bb03ce4f1789b74"
     },
     {
       "arquivo": "clientes.md",
@@ -57,14 +57,14 @@
       "arquivo": "conectar-whatsapp.md",
       "id": "conectar-whatsapp",
       "titulo": "Conectar o WhatsApp da empresa",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "da7b468d12a9dfbb2fc6af1bb71d1042290c8b8a26498d99fd638c7722ddbe2e"
+      "sha256": "57f7b2435afc7f2b662fe8fa6cb116fa1077f56a0031347c06ce2466d0cd39e2"
     },
     {
       "arquivo": "contas-a-pagar-e-caixa.md",
@@ -148,14 +148,14 @@
       "arquivo": "importar-documentos.md",
       "id": "importar-documentos",
       "titulo": "Importar documentos em PDF",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "1f32c50cc2f250453ea3f6ed96808d4c6db8b14964104b15063d0f794cce48ee"
+      "sha256": "9af743323dbdbf48301d7352398fe52bf93297f6181ad48b4007b7b78d96c6e6"
     },
     {
       "arquivo": "marketing.md",
@@ -187,19 +187,6 @@
       "arquivo": "perfil-e-senha.md",
       "id": "perfil-e-senha",
       "titulo": "Meu perfil e senha",
-      "versao": 2,
-      "vigenteDesde": "2026-11-01",
-      "vigenteAte": null,
-      "situacao": "APROVADO",
-      "acl": {
-        "tipo": "PLATAFORMA"
-      },
-      "sha256": "cb74e5e854893872229b8adf07fa251774eddbeeae9fdeeacbc24bdd02da16b0"
-    },
-    {
-      "arquivo": "primeiros-passos.md",
-      "id": "primeiros-passos",
-      "titulo": "Primeiros passos",
       "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
@@ -207,7 +194,20 @@
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "2083a2d593da0ce04165e23cbb9814f0071a1f35da6265429e119eb2428fc61d"
+      "sha256": "6bd78b8caa15d2ac01d885ff6b831e4b0b23251f10646076d31c835d1a9d01be"
+    },
+    {
+      "arquivo": "primeiros-passos.md",
+      "id": "primeiros-passos",
+      "titulo": "Primeiros passos",
+      "versao": 4,
+      "vigenteDesde": "2026-11-01",
+      "vigenteAte": null,
+      "situacao": "APROVADO",
+      "acl": {
+        "tipo": "PLATAFORMA"
+      },
+      "sha256": "4e1f6e70cbbe396abbb1abf48a2347b5e3668592fbb721f6e91823df831503ff"
     },
     {
       "arquivo": "privacidade-e-exportacao.md",
@@ -226,14 +226,14 @@
       "arquivo": "usuarios-e-acessos.md",
       "id": "usuarios-e-acessos",
       "titulo": "Usuários e acessos",
-      "versao": 1,
+      "versao": 2,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650"
+      "sha256": "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852"
     },
     {
       "arquivo": "contratos.md",

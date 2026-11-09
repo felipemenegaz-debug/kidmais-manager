@@ -47,7 +47,7 @@ const REGRA_EMPRESA = { namespace: 'cadastro-empresa', janelaSegundos: 86_400, l
 export const TETO_PEDIDOS_SEM_ORIGEM = 300;
 
 export const MENSAGEM_PEDIDO_CADASTRO = `Se for possível criar a conta com este e-mail, enviamos um link de confirmação. Ele vale por ${VALIDADE_CADASTRO_HORAS} horas. Confira também a caixa de spam.`;
-export const MENSAGEM_CNPJ_EXISTENTE = 'Este CNPJ já está cadastrado no Kidmais Manager. Registramos seu pedido de acesso; a empresa e a Kidmais avaliam e você recebe um convite se for aprovado. Nenhum dado da empresa é exibido aqui.';
+export const MENSAGEM_CNPJ_EXISTENTE = 'Este CNPJ já está cadastrado no iA.Fest. Registramos seu pedido de acesso; a empresa e a equipe iA.Fest avaliam e você recebe um convite se for aprovado. Nenhum dado da empresa é exibido aqui.';
 
 export type CadastroDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -124,20 +124,20 @@ function escapar(t: string) {
     return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 export function mensagemConfirmacao(para: string, link: string): MensagemEmail {
-    const p = ['Recebemos um pedido para criar uma conta no Kidmais Manager com este e-mail.', `Confirme em até ${VALIDADE_CADASTRO_HORAS} horas. O link só pode ser usado uma vez.`];
+    const p = ['Recebemos um pedido para criar uma conta no iA.Fest com este e-mail.', `Confirme em até ${VALIDADE_CADASTRO_HORAS} horas. O link só pode ser usado uma vez.`];
     return {
-        para, assunto: 'Confirme seu e-mail no Kidmais Manager',
+        para, assunto: 'Confirme seu e-mail no iA.Fest',
         texto: `${p.join('\n\n')}\n\n${link}\n\nSe você não pediu, ignore esta mensagem: nenhuma conta é criada sem a confirmação.`,
         html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${p.map((x) => `<p>${escapar(x)}</p>`).join('')}<p><a href="${escapar(link)}" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#7C3AED;color:#fff;text-decoration:none">Confirmar e-mail</a></p><p style="color:#555;font-size:13px">Se você não pediu, ignore esta mensagem: nenhuma conta é criada sem a confirmação.</p></div>`,
     };
 }
 export function mensagemContaExistente(para: string, origem = origemPublica()): MensagemEmail {
-    const p = ['Recebemos um pedido para criar uma conta no Kidmais Manager com este e-mail, mas ele já tem uma conta.', 'Entre com a sua senha. Para cadastrar outra empresa, use "Cadastrar empresa" depois de entrar. Se esqueceu a senha, use "Esqueci minha senha" na tela de entrada.'];
+    const p = ['Recebemos um pedido para criar uma conta no iA.Fest com este e-mail, mas ele já tem uma conta.', 'Entre com a sua senha. Para cadastrar outra empresa, use "Cadastrar empresa" depois de entrar. Se esqueceu a senha, use "Esqueci minha senha" na tela de entrada.'];
     const link = `${origem}/admin/login`;
     return {
-        para, assunto: 'Você já tem conta no Kidmais Manager',
+        para, assunto: 'Você já tem conta no iA.Fest',
         texto: `${p.join('\n\n')}\n\n${link}\n\nSe não foi você, ignore esta mensagem.`,
-        html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${p.map((x) => `<p>${escapar(x)}</p>`).join('')}<p><a href="${escapar(link)}">Entrar no Kidmais Manager</a></p><p style="color:#555;font-size:13px">Se não foi você, ignore esta mensagem.</p></div>`,
+        html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">${p.map((x) => `<p>${escapar(x)}</p>`).join('')}<p><a href="${escapar(link)}">Entrar no iA.Fest</a></p><p style="color:#555;font-size:13px">Se não foi você, ignore esta mensagem.</p></div>`,
     };
 }
 
@@ -294,7 +294,7 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
                 return { situacao: 'CRIADA' as const, empresaId: propria.empresa_id, testeFim: propria.teste_fim, repetido: true };
             await exigirAgendaSemBloqueioGlobal(tx);
             if (!await consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_EMPRESA))
-                throw erroAcesso('LIMITE_TENTATIVAS', 'Limite diário de cadastros de empresa atingido. Fale com a Kidmais.', 429);
+                throw erroAcesso('LIMITE_TENTATIVAS', 'Limite diário de cadastros de empresa atingido. Fale com a equipe iA.Fest.', 429);
             await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:cnpj:' || $1))", [documento]);
             const existente = (await tx.query<{ empresa_id: string | null }>(
                 `SELECT empresa_id::text FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1

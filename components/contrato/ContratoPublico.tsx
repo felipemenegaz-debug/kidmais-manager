@@ -495,7 +495,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
         )}
 
         <footer className={styles.footer}>
-          <span>Kidmais Manager</span>
+          <span>iA.Fest</span>
           <span>O token de identidade não é incluído no endereço da página.</span>
         </footer>
       </div>
