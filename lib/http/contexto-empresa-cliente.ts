@@ -1,4 +1,5 @@
 'use client';
+import { enderecoFinal } from '../enderecos/cliente';
 
 /**
  * Contexto de acesso da página (sessão + empresa ativa). Qualquer mudança descarta a página inteira (navegação
@@ -119,6 +120,12 @@ export function saidaDaSessaoEmAndamento() {
 
 export function reiniciarContextoEmpresa(aviso?: string, destino?: string, origem: OrigemAviso = 'descarte') {
     if (saidaDaSessao) return;
+    // Ponto único do descarte: com a aba no estado final da troca de host, nenhum caminho, nem o sinal de outra aba, tira a
+    // tela preservada. O resultado de uma escrita continua registrado.
+    if (enderecoFinal()) {
+        if (aviso && origem === 'escrita') guardarAvisoDeContexto(aviso, origem);
+        return;
+    }
     if (aviso) guardarAvisoDeContexto(aviso, origem);
     descarteIniciado = true;
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.

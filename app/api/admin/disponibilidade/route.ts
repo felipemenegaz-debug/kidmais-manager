@@ -33,6 +33,7 @@ import {
   resolverEDesativarBloqueioLegado,
 } from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { telaDoClienteGlobal } from "@/lib/enderecos/roteamento";
 import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
 import {
   contextoCrmDaRequest,
@@ -183,6 +184,9 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     regrasPacotes,
     pacotes,
     bloqueios,
+    // "Ver tela do cliente" (D4, H21): production ainda não tem a tela pública por empresa, então o atalho é o
+    // global de hoje para todas; em ATIVA aponta para A, da configuração validada.
+    telaDoCliente: telaDoClienteGlobal(process.env),
   };
 }
 

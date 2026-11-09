@@ -44,7 +44,8 @@ export function hostsDaPlataforma(env: AmbienteDominios) {
 /** O host pertence à plataforma (ou é subdomínio de um host da plataforma): nunca pode ser cadastrado por empresa. */
 export function hostReservado(host: string, env: AmbienteDominios) {
   for (const p of hostsDaPlataforma(env)) if (host === p || host.endsWith(`.${p}`)) return true;
-  return /(^|\.)(onrender\.com|kidmais\.com\.br|kidmaisfestas\.com|kidmaisfestas\.com\.br)$/.test(host);
+  // demerzellabs.com.br: site da Demerzel Labs e do iA.Fest (iafest.demerzellabs.com.br), nunca de um buffet.
+  return /(^|\.)(onrender\.com|kidmais\.com\.br|kidmaisfestas\.com|kidmaisfestas\.com\.br|demerzellabs\.com\.br)$/.test(host);
 }
 
 export function dominiosPersonalizadosAtivos(env: AmbienteDominios) {

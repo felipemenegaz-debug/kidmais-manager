@@ -65,7 +65,8 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
   const js = ts.transpileModule(readFileSync(arquivo, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
-  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, ...deps };
+  // Aba fora da troca de host, salvo se o teste disser outra coisa.
+  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, ...deps };
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 
   return {
