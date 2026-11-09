@@ -41,6 +41,9 @@ type Estado = {
   /** Simula o original ausente: a consulta pela cadeia não devolve linha. */
   semOriginal?: boolean;
   aniversarianteExistente: string | null;
+  /** Equivalentes além do primeiro, e o que passa a existir depois da trava de duplicidade. */
+  aniversariantesExtras?: Array<{ id: string; nome: string }>;
+  aniversariantesDepoisDoLock?: Array<{ id: string; nome: string }>;
   /**
    * S-E restante (importação V3): 094 instalada e unidade POR_SALAO. saloes = cadastro (ativo/nome); serve = a regra estrita
    * (salaoServeNoDestino) por salão ANTES e DEPOIS da trava da data; diag = motivo; escolha = a escolha estrita pós-contrato.
@@ -161,7 +164,10 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
       const linhasVinculo = depoisDoLock && estado.vinculosDepoisDoLock ? estado.vinculosDepoisDoLock : estado.vinculosCliente;
       return linhas(linhasVinculo.map((l) => ({ data_evento: v[2], ...l })));
     }
-    if (sql.includes('FROM aniversariantes')) return linhas(estado.aniversarianteExistente ? [{ id: estado.aniversarianteExistente }] : []);
+    if (sql.includes('FROM aniversariantes')) {
+      if (estado.aniversariantesDepoisDoLock && estado.locks.some((l) => l.startsWith('duplicidade:'))) return linhas(estado.aniversariantesDepoisDoLock);
+      return linhas([...(estado.aniversarianteExistente ? [{ id: estado.aniversarianteExistente, nome: 'Lia' }] : []), ...(estado.aniversariantesExtras ?? [])]);
+    }
     if (sql.includes('kidmais061_historico_passado(ci.fechamento_id)')) {
       const ci = estado.vinculos.find((x) => x.id === v[0] && x.empresa_id === v[1]);
       if (!ci) return linhas([]);
@@ -610,6 +616,66 @@ test('aniversariante já cadastrado no cliente com o mesmo nome é reaproveitado
   assert.equal(sim.resumo.festa.aniversarianteCadastro, 'EXISTENTE');
   assert.equal(chamadas.filter((c) => c.metodo === 'cadastrarAniversariante').length, 0);
   assert.equal((chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>).aniversarianteId, 'abababab-abab-4bab-8bab-abababababab');
+});
+
+const ANIV_A = 'abababab-abab-4bab-8bab-abababababab', ANIV_B = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+async function simularAniversariante(estado: Estado, d: DecisoesIntegracao) {
+  const r = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE));
+  if (!('resumo' in r) || !r.resumo || !r.resumoHash) throw new Error('simulação sem resumo');
+  return { resumo: r.resumo, resumoHash: r.resumoHash, bloqueios: r.bloqueios };
+}
+
+test('aniversariante: vários cadastros equivalentes bloqueiam até o operador escolher; a escolha é a que vale', async () => {
+  const estado = estadoInicial();
+  estado.aniversarianteExistente = ANIV_A;
+  estado.aniversariantesExtras = [{ id: ANIV_B, nome: 'Lía' }];
+  const sim = await simularAniversariante(estado, decisoesBase());
+  assert.ok(sim.bloqueios.some((b) => /mais de um aniversariante/.test(b)));
+  assert.equal(sim.resumo.festa.aniversarianteCadastroId, undefined, 'nenhum cadastro é escolhido sozinho');
+  assert.deepEqual(sim.resumo.festa.aniversarianteOpcoes!.map((o) => o.id), [ANIV_A, ANIV_B]);
+
+  const chamadas: Chamada[] = [];
+  await simularEConfirmar(estado, { ...decisoesBase(), aniversarianteId: ANIV_B }, chamadas);
+  assert.equal(chamadas.filter((c) => c.metodo === 'cadastrarAniversariante').length, 0);
+  assert.equal((chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>).aniversarianteId, ANIV_B);
+});
+
+test('aniversariante: escolha fora dos equivalentes é recusada, sem cair em outro cadastro', async () => {
+  const estado = estadoInicial();
+  estado.aniversarianteExistente = ANIV_A;
+  const sim = await simularAniversariante(estado, { ...decisoesBase(), aniversarianteId: ANIV_B });
+  assert.ok(sim.bloqueios.some((b) => /não está mais disponível/.test(b)));
+  assert.equal(sim.resumo.festa.aniversarianteCadastroId, undefined);
+});
+
+test('aniversariante: a identidade entra no hash; trocar o cadastro entre simular e confirmar é recusado', async () => {
+  const estado = estadoInicial();
+  estado.aniversarianteExistente = ANIV_A;
+  const d = decisoesBase();
+  const sim = await simularAniversariante(estado, d);
+  assert.equal(sim.resumo.festa.aniversarianteCadastroId, ANIV_A);
+  estado.aniversarianteExistente = ANIV_B;
+  const outro = await simularAniversariante(estado, d);
+  assert.equal(outro.resumo.festa.aniversarianteCadastro, 'EXISTENTE', 'a classificação não muda; só a identidade');
+  assert.notEqual(outro.resumoHash, sim.resumoHash);
+  await assert.rejects(
+    emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: { code?: string }) => e.code === 'RESUMO_DESATUALIZADO',
+  );
+});
+
+test('aniversariante: equivalente criado até a trava de duplicidade invalida a revisão antes de qualquer escrita', async () => {
+  const estado = estadoInicial();
+  const d = decisoesBase();
+  const sim = await simularAniversariante(estado, d);
+  assert.equal(sim.resumo.festa.aniversarianteCadastro, 'NOVO');
+  estado.aniversariantesDepoisDoLock = [{ id: ANIV_A, nome: 'Lia' }];
+  const chamadas: Chamada[] = [];
+  await assert.rejects(
+    emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso(chamadas))),
+    (e: { code?: string }) => e.code === 'RESUMO_DESATUALIZADO',
+  );
+  assert.equal(chamadas.length, 0, 'nada foi criado');
 });
 
 test('idempotência: repetição após timeout (mesma chave) e reenvio do mesmo conteúdo (outra chave) devolvem o resultado gravado', async () => {

@@ -13,7 +13,7 @@ import { validarPlanoPagamento } from '../../pagamentos/services/financeiro-core
 import { reautenticacaoPerfilRecente } from '../../perfil/reautenticacao.ts';
 import { hashSnapshotContrato } from '../services/snapshot-core.ts';
 import {
-  agendaComSalao, avaliarFinanceiro, avaliarIntegracao, centavosParaReais, DECLARACAO_CONFERENCIA, decisoesSchema, financeiroSchema, hashCanonico, hashResumo,
+  resolverAniversariante, agendaComSalao, avaliarFinanceiro, avaliarIntegracao, centavosParaReais, DECLARACAO_CONFERENCIA, decisoesSchema, financeiroSchema, hashCanonico, hashResumo,
   montarSnapshotVersao, reais, sugestaoInicial, type DecisoesFinanceiras, type DecisoesIntegracao, type Referencias, type ResumoFinanceiro,
 } from './modelo.ts';
 import * as repo from './repositorio.ts';
@@ -220,8 +220,17 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
   const nomeAniversariante = decisoes.aniversariante ?? (importacao.snapshot.evento?.aniversariante?.trim() || null);
   avaliacao.resumo.festa.aniversariante = nomeAniversariante;
-  const aniversarianteExistente = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
-  avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
+  const lerAniversariante = async () => {
+    const candidatos = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversariantesDoCliente(tx, cliente.id, nomeAniversariante) : [];
+    return resolverAniversariante(candidatos, decisoes.aniversarianteId);
+  };
+  const resolucaoAniversariante = await lerAniversariante();
+  const aniversarianteExistente = resolucaoAniversariante.id;
+  if (!nomeAniversariante || nomeAniversariante.length < 2) avaliacao.resumo.festa.aniversarianteCadastro = null;
+  else {
+    avaliacao.resumo.festa = { ...avaliacao.resumo.festa, ...resolucaoAniversariante.festa };
+    if (resolucaoAniversariante.bloqueio) avaliacao.bloqueios.push(resolucaoAniversariante.bloqueio);
+  }
   const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
   if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
   if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.bloqueios.push('Informe o nome do aniversariante para criar o cadastro e vinculá-lo à festa.');
@@ -239,7 +248,7 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   const salaoDaFesta = await salaoDoPedido(tx, empresaId, decisoes, agendaSemSalao.ocupa);
   if (salaoDaFesta.bloqueio) avaliacao.bloqueios.push(salaoDaFesta.bloqueio);
   if (salaoDaFesta.salao) avaliacao.resumo.agenda = agendaComSalao(agendaSemSalao, salaoDaFesta.salao);
-  return { agendaSemSalao, salaoDaFesta, empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, criterio, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente };
+  return { agendaSemSalao, salaoDaFesta, empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, criterio, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente, lerAniversariante };
 }
 
 type Conflito = { codigo: 'CONFLITO_AGENDA'; mensagem: string } | { codigo: 'SALAO_INDISPONIVEL'; mensagem: string; motivo: MotivoSalaoNaoServe | null };
@@ -481,6 +490,17 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
       { resumo: p.avaliacao.resumo, possiveisVinculos: vinculosAgora });
   }
   p.vinculos = vinculosAgora;
+  // Cadastro do aniversariante relido dentro da mesma serialização por empresa: se outra confirmação criou um equivalente,
+  // ou o cadastro mudou depois da leitura acima, a revisão conferida não vale mais.
+  if (p.avaliacao.resumo.festa.aniversarianteCadastro) {
+    const relidoAniversariante = await p.lerAniversariante();
+    const festaRelida = { ...p.avaliacao.resumo.festa };
+    delete festaRelida.aniversarianteCadastroId; delete festaRelida.aniversarianteCadastroNome; delete festaRelida.aniversarianteOpcoes;
+    const resumoAniversariante = { ...p.avaliacao.resumo, festa: { ...festaRelida, ...relidoAniversariante.festa } };
+    if (relidoAniversariante.bloqueio || hashDaRevisao(importacaoId, decisoes, resumoAniversariante, p.vinculos) !== resumoHash) {
+      throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'O cadastro do aniversariante mudou desde a revisão. Confira o resumo atualizado e confirme de novo.', 409, { resumo: resumoAniversariante });
+    }
+  }
   if (ocupa) {
     // Lock da data no namespace do Core e revalidação depois dele (READ COMMITTED vê o último vencedor).
     await repo.travarData(tx, decisoes.evento.data);

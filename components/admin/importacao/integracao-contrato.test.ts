@@ -399,6 +399,29 @@ test('V3 no Human Gate (rascunho): a mesma revisão mostra "Salão" antes de con
   assert.equal(conf.args[4], 'b'.repeat(64));
 });
 
+test('aniversariante ambíguo: nenhum cadastro vem escolhido; a escolha refaz a revisão e vai ao servidor', async () => {
+  const A = 'abababab-abab-4bab-8bab-abababababab', B = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { resumo: { ...resumo, festa: { ...resumo.festa, aniversarianteCadastro: 'EXISTENTE', aniversarianteOpcoes: [{ id: A, nome: 'Lia' }, { id: B, nome: 'Lía' }] } } });
+  const a = await ateRevisao(tela);
+  assert.match(texto(a), /Escolha abaixo o cadastro do aniversariante/);
+  const seletor = achar(a, 'select', 'Cadastro do aniversariante');
+  assert.equal(seletor.props.value, '', 'nada vem marcado');
+  const antes = chamadas.filter((c) => c.fn === 'simular').length;
+  assert.equal(Object.hasOwn(chamadas.filter((c) => c.fn === 'simular').at(-1)!.args[2] as object, 'aniversarianteId'), false, 'sem escolha, o payload não muda');
+  (seletor.props.onChange as (e: unknown) => void)(evento(B));
+  await tique();
+  const simulacoes = chamadas.filter((c) => c.fn === 'simular');
+  assert.equal(simulacoes.length, antes + 1);
+  assert.equal((simulacoes.at(-1)!.args[2] as { aniversarianteId?: string }).aniversarianteId, B);
+});
+
+test('aniversariante único: a revisão mostra qual cadastro será usado, sem seletor', async () => {
+  const { tela } = montar(async () => ({ ok: true, dados: {} }), { resumo: { ...resumo, festa: { ...resumo.festa, aniversarianteCadastro: 'EXISTENTE', aniversarianteCadastroId: 'abababab-abab-4bab-8bab-abababababab', aniversarianteCadastroNome: 'Lía' } } });
+  const a = await ateRevisao(tela);
+  assert.match(texto(a), /vinculado ao cadastro existente: Lía/);
+  assert.equal(elementos(a).some((e) => e.type === 'select' && e.props?.['aria-label'] === 'Cadastro do aniversariante'), false);
+});
+
 test('V1: sem unidade por salão, nem seletor nem linha "Salão"', async () => {
   const { tela } = montar(async () => ({ ok: true, dados: {} }));
   const a = await ateRevisao(tela);
