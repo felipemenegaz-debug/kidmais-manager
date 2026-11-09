@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const financeiroCompleto = await recursoIncluido(tx, empresaId, "FINANCEIRO_COMPLETO");
     const contas = financeiroCompleto ? await listarContasPagar(tx, empresaId, hoje) : [];
     const recebido = await recebidoNoPeriodo(tx, empresaId, periodo.inicio, periodo.fim);
-    const pago = financeiroCompleto ? await pagoNoPeriodo(tx, empresaId, periodo.inicio, periodo.fim) : 0;
+    const pago = financeiroCompleto ? await pagoNoPeriodo(tx, empresaId, periodo.inicio, periodo.fim) : null;
     return {
       periodo,
       financeiroCompleto,

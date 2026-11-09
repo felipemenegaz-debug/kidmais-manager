@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { createHash } from "node:crypto";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { contarEventosImportadosAIntegrar } from "../contratos/importados.ts";
 import {
@@ -6,6 +7,7 @@ import {
   FORMAS,
   HORIZONTE_RECORRENCIA_MESES,
   IMPLANTACAO_FINANCEIRO,
+  VERSAO_RESUMO_FINANCEIRO,
   aceitaBaixa,
   centavosDe,
   formaParaRecebimento,
@@ -14,6 +16,7 @@ import {
   periodoSelecionado,
   resultadoCaixa,
   saldoCentavos,
+  somarDias,
   statusPagar,
   statusReceber,
   vencimentosMensais,
@@ -21,6 +24,7 @@ import {
   type StatusPagar,
   type StatusReceber,
 } from "./calculos.ts";
+import { saldoItemVigente } from "../pagamentos/services/alteracao-financeira-core.ts";
 
 function recusar(code: string, message: string, status: number): never {
   throw new PacoteAdminError(code, message, status);
@@ -53,22 +57,15 @@ export async function listarCategoriasDespesa(tx: DbExecutor, empresaId: string)
   )).rows;
 }
 
-const RECEBER_SQL = `
-  SELECT parcela.id::text AS id,
-         pag.id::text AS pagamento_id,
-         parcela.numero,
-         parcela.valor_previsto::text AS valor,
-         parcela.vencimento::text AS vencimento,
-         parcela.status AS status_gravado,
-         COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
-         cliente.id::text AS cliente_id,
-         festa.id::text AS festa_id,
-         COALESCE(NULLIF(ver.snapshot #>> '{evento,pacote,nome}', ''), pac.nome) AS pacote,
-         fech.data_evento::text AS data_evento,
-         COALESCE(SUM(aloc.valor_alocado) FILTER (WHERE rec.status = 'CONFIRMADO'), 0)::text AS recebido,
-         plano.meio_pagamento AS forma
+/**
+ * Títulos vigentes: fonte única da seleção de contar e listar.
+ * Com cronograma ativo, valem os itens dele, mesmo que a parcela esteja em plano substituído (cronograma misto);
+ * parcela do plano ativo fora do cronograma só aparece se já recebeu, como histórico, sem saldo nem elegibilidade.
+ * Sem cronograma, valem as parcelas do plano ativo.
+ */
+const TITULOS_VIGENTES_SQL = `
     FROM pagamento_parcelas parcela
-    JOIN pagamento_planos plano ON plano.id = parcela.plano_id AND plano.status = 'ATIVO'
+    JOIN pagamento_planos plano ON plano.id = parcela.plano_id
     JOIN pagamentos pag ON pag.id = plano.pagamento_id
     JOIN contrato_versoes ver ON ver.id = pag.contrato_versao_id
     JOIN contratos contrato ON contrato.id = ver.contrato_id
@@ -76,26 +73,90 @@ const RECEBER_SQL = `
     JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
     LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id AND cliente.empresa_id = $1::uuid
     LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
-    LEFT JOIN pagamento_recebimento_alocacoes aloc ON aloc.parcela_id = parcela.id
-    LEFT JOIN pagamento_recebimentos rec ON rec.id = aloc.recebimento_id
-   GROUP BY parcela.id, pag.id, parcela.numero, parcela.valor_previsto, parcela.vencimento, parcela.status,
-            cliente.id, cliente.nome_completo, festa.id, ver.id, pac.nome, fech.data_evento, plano.meio_pagamento
+    LEFT JOIN pagamento_cronogramas crono ON crono.pagamento_id = pag.id AND crono.estado = 'ATIVO'
+    LEFT JOIN pagamento_cronograma_itens item ON item.cronograma_id = crono.id AND item.parcela_id = parcela.id
+   WHERE (crono.id IS NULL AND plano.status = 'ATIVO')
+      OR item.id IS NOT NULL
+      OR (plano.status = 'ATIVO' AND EXISTS (
+            SELECT 1 FROM pagamento_recebimento_alocacoes aloc
+              JOIN pagamento_recebimentos rec ON rec.id = aloc.recebimento_id
+             WHERE aloc.parcela_id = parcela.id AND rec.status = 'CONFIRMADO'))
 `;
 
-type LinhaReceber = {
+/**
+ * Mesmo comando para título e posição do pagamento: uma só fotografia, nas mesmas somas de lerPosicaoFinanceira.
+ * As somas por parcela e o EXISTS do histórico usam o escopo do motor e do validador 015 (alocação e estorno da
+ * parcela, sem filtrar o pagamento do recebimento). Filtrar só aqui faria a lista divergir da baixa. Um vínculo de
+ * recebimento de outro pagamento numa parcela não é impedido pelo schema (011 valida as FKs separadamente); fechar
+ * isso exige mudar motor e 015 juntos, fora da P1.
+ */
+const RECEBER_SQL = `
+  SELECT parcela.id::text AS id,
+         pag.id::text AS pagamento_id,
+         parcela.numero,
+         parcela.valor_previsto::text AS valor,
+         parcela.vencimento::text AS vencimento,
+         parcela.status AS status_gravado,
+         pag.status AS status_pagamento,
+         contrato.status AS status_contrato,
+         COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
+         cliente.id::text AS cliente_id,
+         festa.id::text AS festa_id,
+         COALESCE(NULLIF(ver.snapshot #>> '{evento,pacote,nome}', ''), pac.nome) AS pacote,
+         fech.data_evento::text AS data_evento,
+         plano.meio_pagamento AS forma,
+         crono.id::text AS cronograma_id,
+         item.id::text AS item_id,
+         item.saldo_inicial_centavos::text AS item_saldo_inicial,
+         item.recebido_base_centavos::text AS item_recebido_base,
+         item.estornado_base_centavos::text AS item_estornado_base,
+         item.vencimento_referencia::text AS item_vencimento,
+         (SELECT COALESCE(SUM(aloc.valor_alocado), 0)
+            FROM pagamento_recebimento_alocacoes aloc
+            JOIN pagamento_recebimentos rec ON rec.id = aloc.recebimento_id
+           WHERE aloc.parcela_id = parcela.id AND rec.status = 'CONFIRMADO')::text AS recebido,
+         (SELECT COALESCE(SUM(est.valor), 0)
+            FROM pagamento_estornos est
+           WHERE est.parcela_id = parcela.id AND est.status = 'CONFIRMADO')::text AS estornado,
+         pag.valor_total_contratado::text AS pos_contratado,
+         (SELECT COALESCE(SUM(aj.delta_centavos), 0) FROM pagamento_ajustes_contratuais aj WHERE aj.pagamento_id = pag.id)::text AS pos_ajustes_centavos,
+         (SELECT COALESCE(SUM(rec.valor_bruto), 0) FROM pagamento_recebimentos rec WHERE rec.pagamento_id = pag.id AND rec.status = 'CONFIRMADO')::text AS pos_recebido,
+         (SELECT COALESCE(SUM(est.valor), 0)
+            FROM pagamento_estornos est
+            JOIN pagamento_recebimentos rec ON rec.id = est.recebimento_id
+           WHERE rec.pagamento_id = pag.id AND est.status = 'CONFIRMADO')::text AS pos_estornado,
+         (SELECT COALESCE(SUM(dev.valor_centavos), 0) FROM pagamento_devolucoes dev WHERE dev.pagamento_id = pag.id AND dev.estado = 'CONCLUIDA')::text AS pos_devolvido_centavos
+  ${TITULOS_VIGENTES_SQL}
+`;
+
+export type LinhaReceber = {
   id: string;
   pagamento_id: string;
   numero: number;
   valor: string;
   vencimento: string;
   status_gravado: string;
+  status_pagamento: string;
+  status_contrato: string;
   cliente: string;
   cliente_id: string | null;
   festa_id: string | null;
   pacote: string;
   data_evento: string;
-  recebido: string;
   forma: string;
+  cronograma_id: string | null;
+  item_id: string | null;
+  item_saldo_inicial: string | null;
+  item_recebido_base: string | null;
+  item_estornado_base: string | null;
+  item_vencimento: string | null;
+  recebido: string;
+  estornado: string;
+  pos_contratado: string;
+  pos_ajustes_centavos: string;
+  pos_recebido: string;
+  pos_estornado: string;
+  pos_devolvido_centavos: string;
 };
 
 export type Recebivel = {
@@ -115,40 +176,78 @@ export type Recebivel = {
   forma: string;
   status: StatusReceber;
   diasAtraso: number;
+  /** Bruto alocado neste título, sem o estorno. Não é caixa. */
+  brutoRecebidoCentavos?: number;
+  estornadoCentavos?: number;
+  /** Posição do pagamento no motor. Com cronograma, a festa soma por aqui, e não pelo nominal das parcelas. */
+  motor?: { obrigacaoCentavos: number; liquidoCentavos: number; cronograma: boolean };
 };
 
-function mapearRecebivel(linha: LinhaReceber, hoje: string): Recebivel {
-  const valor = centavosDe(linha.valor);
-  const recebido = centavosDe(linha.recebido);
-  const status = statusReceber({
-    cancelado: linha.status_gravado === "CANCELADA",
-    reembolsado: linha.status_gravado === "ESTORNADA",
-    valorCentavos: valor,
-    recebidoCentavos: recebido,
-    vencimento: linha.vencimento,
-    hoje,
-  });
-  const atraso = status === "Vencido"
-    ? Math.max(0, Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${linha.vencimento}T00:00:00Z`)) / 86400000))
+function diasDeAtraso(status: StatusReceber, vencimento: string, hoje: string) {
+  return status === "Vencido"
+    ? Math.max(0, Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${vencimento}T00:00:00Z`)) / 86400000))
     : 0;
-  return {
-    id: linha.id,
-    origem: "CONTRATO",
-    pagamentoId: linha.pagamento_id,
-    cliente: linha.cliente,
-    clienteId: linha.cliente_id,
-    festaId: linha.festa_id,
-    pacote: linha.pacote,
-    data: linha.data_evento,
-    parcela: Number(linha.numero),
-    vencimento: linha.vencimento,
-    valorCentavos: valor,
-    recebidoCentavos: recebido,
-    saldoCentavos: saldoCentavos(valor, recebido),
-    forma: linha.forma,
-    status,
-    diasAtraso: atraso,
-  };
+}
+
+/**
+ * Adaptador único do motor para as leituras gerenciais. O saldo do título é a mesma conta de lerPosicaoFinanceira
+ * e nunca passa do saldo da posição, que é o que validarCapacidadeConsolidada aceita na confirmação.
+ */
+export function consolidarTitulos(linhas: LinhaReceber[], hoje: string): Recebivel[] {
+  const ordem = [...linhas].sort((a, b) =>
+    (a.item_vencimento ?? a.vencimento).localeCompare(b.item_vencimento ?? b.vencimento)
+    || Number(a.numero) - Number(b.numero) || a.id.localeCompare(b.id));
+  const restantePorPagamento = new Map<string, number>();
+  return ordem.map((linha) => {
+    const bruto = centavosDe(linha.recebido);
+    const estornado = centavosDe(linha.estornado);
+    const liquidoItem = bruto - estornado;
+    const comItem = linha.item_id != null;
+    const recebidoBase = comItem ? Number(linha.item_recebido_base) : 0;
+    const estornadoBase = comItem ? Number(linha.item_estornado_base) : 0;
+    const baseSaldo = comItem ? Number(linha.item_saldo_inicial) : centavosDe(linha.valor);
+    const saldoItem = Number(saldoItemVigente({
+      base: BigInt(baseSaldo),
+      recebido: BigInt(bruto),
+      estornado: BigInt(estornado),
+      recebidoBase: BigInt(recebidoBase),
+      estornadoBase: BigInt(estornadoBase),
+    }));
+    const obrigacao = centavosDe(linha.pos_contratado) + Number(linha.pos_ajustes_centavos);
+    const liquidoPosicao = centavosDe(linha.pos_recebido) - centavosDe(linha.pos_estornado) - Number(linha.pos_devolvido_centavos);
+    const encerrada = linha.status_contrato === "CANCELADO" || linha.status_pagamento === "CANCELADO";
+    const reembolsado = encerrada && estornado > 0 && liquidoItem <= 0;
+    const cancelado = !reembolsado && (encerrada || (!comItem && linha.status_gravado === "CANCELADA"));
+    const restante = restantePorPagamento.get(linha.pagamento_id) ?? Math.max(0, obrigacao - liquidoPosicao);
+    const foraDoCronograma = linha.cronograma_id != null && !comItem;
+    const saldo = cancelado || reembolsado || foraDoCronograma ? 0 : Math.min(saldoItem, restante);
+    if (!cancelado && !reembolsado) restantePorPagamento.set(linha.pagamento_id, restante - saldo);
+    const vencimento = linha.item_vencimento ?? linha.vencimento;
+    const recebido = Math.max(0, liquidoItem);
+    const valor = comItem ? baseSaldo + recebidoBase - estornadoBase : foraDoCronograma ? recebido : centavosDe(linha.valor);
+    const status = statusReceber({ cancelado, reembolsado, valorCentavos: valor, recebidoCentavos: recebido, saldoCentavos: saldo, vencimento, hoje });
+    return {
+      id: linha.id,
+      origem: "CONTRATO" as const,
+      pagamentoId: linha.pagamento_id,
+      cliente: linha.cliente,
+      clienteId: linha.cliente_id,
+      festaId: linha.festa_id,
+      pacote: linha.pacote,
+      data: linha.data_evento,
+      parcela: Number(linha.numero),
+      vencimento,
+      valorCentavos: valor,
+      recebidoCentavos: recebido,
+      saldoCentavos: saldo,
+      forma: linha.forma,
+      status,
+      diasAtraso: diasDeAtraso(status, vencimento, hoje),
+      brutoRecebidoCentavos: bruto,
+      estornadoCentavos: estornado,
+      motor: { obrigacaoCentavos: obrigacao, liquidoCentavos: liquidoPosicao, cronograma: linha.cronograma_id != null },
+    };
+  });
 }
 
 const MANUAL_SQL = `
@@ -185,9 +284,7 @@ function mapearManual(linha: {
     vencimento: linha.vencimento,
     hoje,
   });
-  const atraso = status === "Vencido"
-    ? Math.max(0, Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${linha.vencimento}T00:00:00Z`)) / 86400000))
-    : 0;
+  const atraso = diasDeAtraso(status, linha.vencimento, hoje);
   const cliente = [linha.contraparte, linha.descricao].filter(Boolean).join(" · ");
   return {
     id: linha.id,
@@ -222,27 +319,20 @@ export async function listarRecebiveis(tx: DbExecutor, empresaId: string, hoje: 
     recebido_em: string | null;
     taxa: string;
   }>(MANUAL_SQL, [empresaId]);
-  return [...resultado.rows.map((linha) => mapearRecebivel(linha, hoje)), ...manuais.rows.map((linha) => mapearManual(linha, hoje))]
+  return [...consolidarTitulos(resultado.rows, hoje), ...manuais.rows.map((linha) => mapearManual(linha, hoje))]
     .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.cliente.localeCompare(b.cliente));
 }
 
 /**
  * Quantas linhas `listarRecebiveis` devolveria, contando no banco e parando em `teto` + 1 (trabalho e memória limitados).
- * Mesmos JOINs de RECEBER_SQL sem os de recebimento (o GROUP BY de RECEBER_SQL tem uma linha por parcela × festa) e uma
- * linha por entrada manual. Usado por quem precisa recusar volumes grandes ANTES de materializar a lista.
+ * Usa a mesma seleção de títulos da lista e conta uma linha por entrada manual. Quem precisa recusar volumes grandes
+ * chama antes de materializar a lista.
  */
 export async function contarRecebiveis(tx: DbExecutor, empresaId: string, teto: number) {
   const r = await tx.query<{ n: number }>(`
     SELECT (SELECT count(*) FROM (
               SELECT 1
-                FROM pagamento_parcelas parcela
-                JOIN pagamento_planos plano ON plano.id = parcela.plano_id AND plano.status = 'ATIVO'
-                JOIN pagamentos pag ON pag.id = plano.pagamento_id
-                JOIN contrato_versoes ver ON ver.id = pag.contrato_versao_id
-                JOIN contratos contrato ON contrato.id = ver.contrato_id
-                JOIN fechamentos fech ON fech.id = contrato.fechamento_id
-                JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
-                LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
+              ${TITULOS_VIGENTES_SQL}
                LIMIT $2) parcelas)
          + (SELECT count(*) FROM (SELECT 1 FROM financeiro_entradas_manuais entrada WHERE entrada.empresa_id = $1::uuid LIMIT $2) manuais)
          AS n`, [empresaId, teto + 1]);
@@ -327,21 +417,47 @@ export async function listarContasPagar(tx: DbExecutor, empresaId: string, hoje:
   return resultado.rows.map((linha) => mapearPagar(linha, hoje));
 }
 
-export function resumo(recebiveis: Recebivel[], contas: ContaPagar[], recebidoMesCentavos: number, _hoje: string, pagoMesCentavos = 0) {
+/** `pagoMesCentavos` nulo = saídas fora do alcance desta leitura: sem movimento do período, em vez de um número só com as entradas. */
+export function resumo(recebiveis: Recebivel[], contas: ContaPagar[], recebidoMesCentavos: number, hoje: string, pagoMesCentavos: number | null = null) {
   const abertos = recebiveis.filter((item) => item.status === "A receber" || item.status === "Parcialmente pago" || item.status === "Vencido");
   const aReceber = abertos.reduce((total, item) => total + item.saldoCentavos, 0);
   const emAtrasoReceber = recebiveis.filter((item) => item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
   const aPagar = contas.filter((item) => item.status === "A pagar" || item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
   const emAtrasoPagar = contas.filter((item) => item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
+  const limite30 = somarDias(hoje, 30);
+  const aPagar30 = contas
+    .filter((item) => item.status === "A pagar" && item.vencimento >= hoje && item.vencimento <= limite30)
+    .reduce((total, item) => total + item.saldoCentavos, 0);
   return {
     recebidoMesCentavos,
     aReceberCentavos: aReceber,
     aPagarCentavos: aPagar,
-    emAtrasoCentavos: emAtrasoReceber + emAtrasoPagar,
-    saldoPrevistoCentavos: recebidoMesCentavos + aReceber - aPagar,
-    pagoMesCentavos,
+    aPagar30DiasCentavos: aPagar30,
+    emAtrasoReceberCentavos: emAtrasoReceber,
+    emAtrasoPagarCentavos: emAtrasoPagar,
+    movimentoPeriodoCentavos: pagoMesCentavos == null ? null : recebidoMesCentavos - pagoMesCentavos,
+    pagoMesCentavos: pagoMesCentavos ?? 0,
+    versao: VERSAO_RESUMO_FINANCEIRO,
   };
 }
+
+/** Data de Brasília de um horário real (estorno confirmado, devolução concluída). Não depende do timezone da sessão. */
+function dataBrasiliaSql(coluna: string) {
+  return `(${coluna} AT TIME ZONE 'America/Sao_Paulo')::date`;
+}
+
+/**
+ * Data civil da baixa. A baixa manual grava a data escolhida à meia-noite UTC; esse instante exato é a própria data.
+ * Qualquer outro é um horário real e vale a data de Brasília. Só vale para `recebido_em`: estorno e devolução
+ * gravam horário real, e meia-noite UTC neles é 21:00 de Brasília do dia anterior.
+ */
+function dataCivilSql(coluna: string) {
+  return `(CASE WHEN ${coluna} = (date_trunc('day', ${coluna} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+    THEN (${coluna} AT TIME ZONE 'UTC')::date
+    ELSE (${coluna} AT TIME ZONE 'America/Sao_Paulo')::date END)`;
+}
+
+const DATA_RECEBIDO_SQL = dataCivilSql("rec.recebido_em");
 
 const LIQUIDO_RECEBIDO_SQL = `(rec.valor_bruto - LEAST(rec.valor_bruto, COALESCE((rec.metadata_provedor->>'taxaCentavos')::numeric, 0) / 100))`;
 
@@ -357,6 +473,84 @@ const RECEBIDO_EMPRESA_SQL = `
 
 const LIQUIDO_MANUAL_SQL = `(valor - LEAST(valor, taxa))`;
 
+type Abatimento = { data: string; tipo: "ESTORNO" | "DEVOLUCAO"; centavos: number; festaId: string | null; forma: string };
+
+/**
+ * Saídas de caixa do motor: estorno confirmado e devolução concluída, na data em que ocorreram. Reserva e devolução
+ * pendente não saem do caixa. A taxa do recebimento original não volta: ela já ficou fora do líquido.
+ */
+async function abatimentosContratuais(
+  tx: DbExecutor,
+  empresaId: string,
+  filtro: { inicio?: string; fim?: string; antesDe?: string; festaId?: string } = {},
+): Promise<Abatimento[]> {
+  const contrato = `
+       JOIN contrato_versoes ver ON ver.id = pag.contrato_versao_id
+       JOIN contratos contrato ON contrato.id = ver.contrato_id
+       JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+       JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
+       LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL`;
+  const resultado = await tx.query<{ data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string }>(
+    `SELECT mov.data::text AS data, mov.tipo, mov.centavos::text AS centavos, mov.festa_id, mov.forma
+       FROM (
+         SELECT ${dataBrasiliaSql("est.confirmado_em")} AS data, 'ESTORNO' AS tipo, (est.valor * 100)::bigint AS centavos,
+                festa.id::text AS festa_id, COALESCE(rec.metadata_provedor->>'forma', rec.meio_pagamento)::text AS forma
+           FROM pagamento_estornos est
+           JOIN pagamento_recebimentos rec ON rec.id = est.recebimento_id
+           JOIN pagamentos pag ON pag.id = rec.pagamento_id
+           ${contrato}
+          WHERE est.status = 'CONFIRMADO'
+         UNION ALL
+         SELECT ${dataBrasiliaSql("dev.devolvido_em")}, 'DEVOLUCAO', dev.valor_centavos,
+                festa.id::text, dev.meio_devolucao::text
+           FROM pagamento_devolucoes dev
+           JOIN pagamentos pag ON pag.id = dev.pagamento_id
+           ${contrato}
+          WHERE dev.estado = 'CONCLUIDA'
+       ) mov
+      WHERE ($2::date IS NULL OR mov.data >= $2::date)
+        AND ($3::date IS NULL OR mov.data <= $3::date)
+        AND ($4::date IS NULL OR mov.data < $4::date)
+        AND ($5::text IS NULL OR mov.festa_id = $5::text)
+      ORDER BY 1`,
+    [empresaId, filtro.inicio ?? null, filtro.fim ?? null, filtro.antesDe ?? null, filtro.festaId ?? null],
+  );
+  return resultado.rows.map(abatimentoDeLinha);
+}
+
+/** A coluna `centavos` já vem em centavos inteiros (estorno × 100, devolução em centavos): não passa por centavosDe. */
+export function abatimentoDeLinha(linha: { data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string }): Abatimento {
+  const centavos = Number(linha.centavos);
+  if (!/^-?\d+$/.test(linha.centavos) || !Number.isSafeInteger(centavos)) throw new Error("abatimento sem centavos inteiros");
+  return { data: linha.data, tipo: linha.tipo, centavos, festaId: linha.festa_id, forma: linha.forma };
+}
+
+function somaAbatimentos(itens: Abatimento[]) {
+  return itens.reduce((total, item) => total + item.centavos, 0);
+}
+
+/**
+ * Recebimentos de cartão ou boleto sem taxa informada no período. Ausente ou zero não prova que não houve tarifa.
+ * Dinheiro, transferência e Pix ficam de fora, para não alertar onde normalmente não há tarifa.
+ */
+async function recebimentosSemTaxa(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
+  const resultado = await tx.query<{ n: number }>(
+    `SELECT (SELECT count(*)
+               ${RECEBIDO_EMPRESA_SQL}
+               AND ${DATA_RECEBIDO_SQL} BETWEEN $2::date AND $3::date
+               AND (rec.meio_pagamento = 'CARTAO' OR rec.metadata_provedor->>'forma' IN ('CARTAO_CREDITO', 'CARTAO_DEBITO', 'BOLETO'))
+               AND COALESCE((rec.metadata_provedor->>'taxaCentavos')::numeric, 0) = 0)
+          + (SELECT count(*)
+               FROM financeiro_entradas_manuais entrada
+              WHERE entrada.empresa_id = $1::uuid
+                AND entrada.recebido_em BETWEEN $2::date AND $3::date
+                AND entrada.forma IN ('CARTAO_CREDITO', 'CARTAO_DEBITO', 'BOLETO')
+                AND entrada.taxa = 0) AS n`,
+    [empresaId, inicio, fim],
+  );
+  return Number(resultado.rows[0]?.n ?? 0);
+}
+
 async function liquidoManualNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ liquido: string }>(
     `SELECT COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
@@ -369,14 +563,17 @@ async function liquidoManualNoPeriodo(tx: DbExecutor, empresaId: string, inicio:
   return centavosDe(resultado.rows[0]?.liquido ?? "0");
 }
 
+/** Caixa de entrada do período: recebido líquido das taxas informadas, menos estornos e devoluções efetivos. Pode ser negativo. */
 export async function recebidoNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ liquido: string }>(
     `SELECT COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido
        ${RECEBIDO_EMPRESA_SQL}
-       AND rec.recebido_em::date BETWEEN $2::date AND $3::date`,
+       AND ${DATA_RECEBIDO_SQL} BETWEEN $2::date AND $3::date`,
     [empresaId, inicio, fim],
   );
-  return centavosDe(resultado.rows[0]?.liquido ?? "0") + await liquidoManualNoPeriodo(tx, empresaId, inicio, fim);
+  return centavosDe(resultado.rows[0]?.liquido ?? "0")
+    + await liquidoManualNoPeriodo(tx, empresaId, inicio, fim)
+    - somaAbatimentos(await abatimentosContratuais(tx, empresaId, { inicio, fim }));
 }
 
 export async function liquidoRecebidoPorFesta(
@@ -396,7 +593,7 @@ export async function liquidoRecebidoPorFesta(
        JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
       WHERE rec.status = 'CONFIRMADO'
         AND ($2::uuid IS NULL OR festa.id = $2::uuid)
-        AND ($3::date IS NULL OR rec.recebido_em::date BETWEEN $3::date AND $4::date)
+        AND ($3::date IS NULL OR ${DATA_RECEBIDO_SQL} BETWEEN $3::date AND $4::date)
       GROUP BY festa.id`,
     [empresaId, festaId ?? null, periodo?.inicio ?? null, periodo?.fim ?? null],
   );
@@ -413,6 +610,9 @@ export async function liquidoRecebidoPorFesta(
     [empresaId, festaId ?? null, periodo?.inicio ?? null, periodo?.fim ?? null],
   );
   for (const linha of manuais.rows) mapa.set(linha.festa_id, (mapa.get(linha.festa_id) ?? 0) + centavosDe(linha.liquido));
+  for (const item of await abatimentosContratuais(tx, empresaId, { inicio: periodo?.inicio, fim: periodo?.fim, festaId })) {
+    if (item.festaId) mapa.set(item.festaId, (mapa.get(item.festaId) ?? 0) - item.centavos);
+  }
   return mapa;
 }
 
@@ -460,8 +660,32 @@ export type LeituraPeriodo = {
   ticketCentavos: number;
   pacoteMaisVendido: string;
   pacotes: Array<{ pacote: string; centavos: number }>;
-  margens: Array<{ festaId: string; cliente: string; margemEstimadaCentavos: number; resultadoCaixaCentavos: number }>;
+  /** `margemEstimadaCentavos` nula: festa fora do escopo do período ou sem custo lançado. Nunca zero presumido. */
+  margens: Array<{ festaId: string; cliente: string; margemEstimadaCentavos: number | null; resultadoCaixaCentavos: number; custosLancados: boolean; noEscopo: boolean }>;
 };
+
+/** Contratado e recebido de um conjunto de títulos. Pagamento com cronograma soma uma vez pela posição do motor. */
+function somaContratual(itens: Recebivel[]) {
+  const vistos = new Set<string>();
+  let valor = 0;
+  let recebido = 0;
+  for (const item of itens) {
+    if (item.motor?.cronograma) {
+      if (vistos.has(item.pagamentoId)) continue;
+      vistos.add(item.pagamentoId);
+      valor += item.motor.obrigacaoCentavos;
+      recebido += Math.max(0, item.motor.liquidoCentavos);
+      continue;
+    }
+    valor += item.valorCentavos;
+    recebido += item.recebidoCentavos;
+  }
+  return { valor, recebido };
+}
+
+function tituloAtivo(item: Recebivel) {
+  return item.status !== "Cancelado" && item.status !== "Reembolsado";
+}
 
 export function leituraPeriodo(
   recebiveis: Recebivel[],
@@ -471,13 +695,12 @@ export function leituraPeriodo(
   liquidoPorFesta: ReadonlyMap<string, number> = new Map(),
   pagoPorFestaNoPeriodo?: ReadonlyMap<string, number>,
 ): LeituraPeriodo {
-  const ativos = recebiveis.filter((item) => item.origem !== "ENTRADA_MANUAL" && item.status !== "Cancelado" && item.festaId && noIntervalo(item.data, inicio, fim));
+  const ativos = recebiveis.filter((item) => item.origem !== "ENTRADA_MANUAL" && tituloAtivo(item) && item.festaId && noIntervalo(item.data, inicio, fim));
+  const titulosPorFesta = new Map<string, Recebivel[]>();
+  for (const item of ativos) titulosPorFesta.set(item.festaId!, [...(titulosPorFesta.get(item.festaId!) ?? []), item]);
   const porFesta = new Map<string, { cliente: string; pacote: string; valor: number; recebido: number }>();
-  for (const item of ativos) {
-    const atual = porFesta.get(item.festaId!) ?? { cliente: item.cliente, pacote: item.pacote, valor: 0, recebido: 0 };
-    atual.valor += item.valorCentavos;
-    atual.recebido += item.recebidoCentavos;
-    porFesta.set(item.festaId!, atual);
+  for (const [festaId, titulos] of titulosPorFesta) {
+    porFesta.set(festaId, { cliente: titulos[0].cliente, pacote: titulos[0].pacote, ...somaContratual(titulos) });
   }
   const festas = [...porFesta.values()];
   const faturamento = festas.reduce((total, festa) => total + festa.valor, 0);
@@ -498,18 +721,26 @@ export function leituraPeriodo(
     return {
       festaId,
       cliente: festa.cliente,
-      margemEstimadaCentavos: margemEstimada(festa.valor, custos),
+      margemEstimadaCentavos: vinculadas.length ? margemEstimada(festa.valor, custos) : null,
       resultadoCaixaCentavos: resultadoCaixa(liquidoPorFesta.get(festaId) ?? 0, pagas),
+      custosLancados: vinculadas.length > 0,
+      noEscopo: true,
     };
   });
-  for (const [festaId, liquido] of liquidoPorFesta) {
-    if (liquido <= 0 || porFesta.has(festaId)) continue;
-    const cliente = recebiveis.find((item) => item.festaId === festaId)?.cliente ?? "Cliente";
+  // Festa com movimento de caixa no período, mas evento em outra data: resultado de caixa, sem margem presumida.
+  // Só no modo período (mapas do período): a chave do mapa é o movimento, mesmo que entrada e estorno se anulem.
+  const foraDoEscopo = pagoPorFestaNoPeriodo ? new Set([...liquidoPorFesta.keys(), ...pagoPorFestaNoPeriodo.keys()]) : new Set<string>();
+  for (const festaId of foraDoEscopo) {
+    const liquido = liquidoPorFesta.get(festaId) ?? 0;
+    const pago = pagoPorFestaNoPeriodo?.get(festaId) ?? 0;
+    if (porFesta.has(festaId)) continue;
     margens.push({
       festaId,
-      cliente,
-      margemEstimadaCentavos: 0,
-      resultadoCaixaCentavos: resultadoCaixa(liquido, pagoPorFestaNoPeriodo?.get(festaId) ?? 0),
+      cliente: recebiveis.find((item) => item.festaId === festaId)?.cliente ?? "Cliente",
+      margemEstimadaCentavos: null,
+      resultadoCaixaCentavos: resultadoCaixa(liquido, pago),
+      custosLancados: contas.some((item) => item.festaId === festaId && item.status !== "Cancelado"),
+      noEscopo: false,
     });
   }
   return {
@@ -644,45 +875,103 @@ export async function criarEntradaManual(
   return { reutilizado: false, id };
 }
 
+type PedidoContaPagar = {
+  descricao: string;
+  favorecido?: string | null;
+  categoriaId: string;
+  valor: number;
+  vencimento: string;
+  competencia?: string | null;
+  festaId?: string | null;
+  forma?: FormaFinanceira | null;
+  observacao?: string | null;
+  recorrente?: boolean;
+  chave?: string | null;
+};
+
+const ACAO_PEDIDO_CONTA = "CONTA_PAGAR_PEDIDO";
+
+/** Impressão do pedido de criação, gravada na auditoria. Só hash: nenhum dado do pedido sai em claro. */
+export function impressaoPedidoConta(input: PedidoContaPagar) {
+  const normalizado = [
+    input.recorrente === true, input.categoriaId, input.festaId ?? "", input.descricao.trim(), input.favorecido ?? "",
+    centavosDe(input.valor), input.vencimento, input.competencia ?? "", input.forma ?? "", input.observacao ?? "",
+  ];
+  return `sha256:${createHash("sha256").update(JSON.stringify(normalizado)).digest("hex")}`;
+}
+
+/**
+ * A chave vale para avulsa e série na mesma empresa. Devolve a conta já criada quando o pedido é o mesmo da criação e
+ * recusa quando diverge, mesmo que a conta tenha sido editada depois.
+ * Política:
+ * 1. Conta com impressão (criada desde a P1): o pedido é comparado com a impressão, em qualquer modalidade.
+ * 2. Sem impressão (legado): responde a conta da modalidade do pedido, como antes (série pela chave da recorrência,
+ *    primeira por vencimento; avulsa pela chave da conta), comparada com o estado atual. A 052 permite a mesma chave
+ *    legada nas duas tabelas, e cada modalidade continua respondendo pela sua.
+ * 3. Chave legada só na outra modalidade: 409, sem criar. A criação gravaria uma impressão, que passaria a responder
+ *    pela chave e invalidaria o retry intacto da conta legada.
+ */
+async function contaDaMesmaChave(tx: DbExecutor, empresaId: string, chave: string, input: PedidoContaPagar) {
+  const encontrada = await tx.query<{
+    id: string; recorrencia_id: string | null; categoria_id: string; festa_id: string | null; descricao: string; favorecido: string | null;
+    valor: string; vencimento: string; competencia: string | null; forma: string | null; observacao: string | null; impressao: string | null;
+  }>(
+    `SELECT conta.id::text AS id, conta.recorrencia_id::text AS recorrencia_id, conta.categoria_id::text AS categoria_id,
+            conta.festa_id::text AS festa_id, conta.descricao, conta.favorecido, conta.valor::text AS valor,
+            conta.vencimento::text AS vencimento, conta.competencia::text AS competencia, conta.forma, conta.observacao,
+            impressao.detalhe AS impressao
+       FROM financeiro_contas_pagar conta
+       LEFT JOIN financeiro_recorrencias serie ON serie.id = conta.recorrencia_id AND serie.empresa_id = conta.empresa_id
+       LEFT JOIN LATERAL (
+         SELECT aud.detalhe FROM financeiro_auditoria aud
+          WHERE aud.empresa_id = conta.empresa_id AND aud.entidade_id = conta.id AND aud.acao = $3
+          ORDER BY aud.criado_em, aud.id LIMIT 1
+       ) impressao ON true
+      WHERE conta.empresa_id = $1::uuid
+        AND ((conta.chave_criacao = $2 AND conta.recorrencia_id IS NULL) OR serie.chave_idempotencia = $2)
+      ORDER BY (impressao.detalhe IS NULL), conta.vencimento, conta.id`,
+    [empresaId, chave, ACAO_PEDIDO_CONTA],
+  );
+  if (!encontrada.rowCount) return null;
+  // A impressão fica na primeira conta criada; editar vencimentos da série não muda qual conta a guarda.
+  const comImpressao = encontrada.rows.find((candidata) => candidata.impressao != null);
+  if (comImpressao) {
+    if (comImpressao.impressao !== impressaoPedidoConta(input)) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outra conta nesta empresa.", 409);
+    return comImpressao.id;
+  }
+  const linha = encontrada.rows.find((candidata) => (candidata.recorrencia_id != null) === (input.recorrente === true));
+  if (!linha) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outra conta nesta empresa.", 409);
+  const mesma = linha.categoria_id === input.categoriaId
+    && (linha.festa_id ?? "") === (input.festaId ?? "")
+    && linha.descricao === input.descricao.trim()
+    && (linha.favorecido ?? "") === (input.favorecido ?? "")
+    && centavosDe(linha.valor) === centavosDe(input.valor)
+    && linha.vencimento === input.vencimento
+    && (linha.competencia ?? "") === (input.competencia ?? "")
+    && (linha.forma ?? "") === (input.forma ?? "")
+    && (linha.observacao ?? "") === (input.observacao ?? "");
+  if (!mesma) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outra conta nesta empresa.", 409);
+  return linha.id;
+}
+
+function chaveDeContaRepetida(error: unknown) {
+  return chaveRepetida(error)
+    && ["financeiro_recorrencias_chave_uk", "financeiro_contas_pagar_criacao_uk"].includes(String((error as { constraint?: string }).constraint));
+}
+
 export async function criarContaPagar(
   tx: DbExecutor,
   empresaId: string,
   atorId: string,
-  input: {
-    descricao: string;
-    favorecido?: string | null;
-    categoriaId: string;
-    valor: number;
-    vencimento: string;
-    competencia?: string | null;
-    festaId?: string | null;
-    forma?: FormaFinanceira | null;
-    observacao?: string | null;
-    recorrente?: boolean;
-    chave?: string | null;
-  },
+  input: PedidoContaPagar,
 ) {
   await garantirCategorias(tx, empresaId);
   const chave = input.chave?.trim() || null;
-  if (chave && input.recorrente) {
-    const serie = await tx.query<{ id: string }>(
-      `SELECT id::text AS id FROM financeiro_recorrencias WHERE empresa_id = $1::uuid AND chave_idempotencia = $2`,
-      [empresaId, chave],
-    );
-    if (serie.rowCount) {
-      const primeira = await tx.query<{ id: string }>(
-        `SELECT id::text AS id FROM financeiro_contas_pagar WHERE recorrencia_id = $1::uuid AND empresa_id = $2::uuid ORDER BY vencimento LIMIT 1`,
-        [serie.rows[0].id, empresaId],
-      );
-      return primeira.rows[0].id;
-    }
-  }
-  if (chave && !input.recorrente) {
-    const existente = await tx.query<{ id: string }>(
-      `SELECT id::text AS id FROM financeiro_contas_pagar WHERE empresa_id = $1::uuid AND chave_criacao = $2`,
-      [empresaId, chave],
-    );
-    if (existente.rowCount) return existente.rows[0].id;
+  if (chave) {
+    // Avulsa e série gravam em tabelas com restrições únicas diferentes: a trava serializa a mesma chave entre as duas.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`financeiro_conta_pagar:${empresaId}:${chave}`]);
+    const existente = await contaDaMesmaChave(tx, empresaId, chave, input);
+    if (existente) return existente;
   }
   const categoria = await tx.query(
     `SELECT id FROM financeiro_categorias WHERE id = $1::uuid AND empresa_id = $2::uuid AND ativo`,
@@ -704,26 +993,39 @@ export async function criarContaPagar(
   const valor = (centavosDe(input.valor) / 100).toFixed(2);
   let recorrenciaId: string | null = null;
   const vencimentos = input.recorrente ? vencimentosMensais(input.vencimento, HORIZONTE_RECORRENCIA_MESES) : [input.vencimento];
-  if (input.recorrente) {
-    const recorrencia = await tx.query<{ id: string }>(
-      `INSERT INTO financeiro_recorrencias (empresa_id, horizonte_meses, chave_idempotencia) VALUES ($1::uuid, $2, $3) RETURNING id`,
-      [empresaId, HORIZONTE_RECORRENCIA_MESES, chave],
-    );
-    recorrenciaId = recorrencia.rows[0].id;
+  // Duas conexões com a mesma chave: a segunda espera a primeira, recebe 23505 e passa a comparar o pedido.
+  if (chave) await tx.query("SAVEPOINT conta_idempotente");
+  try {
+    if (input.recorrente) {
+      const recorrencia = await tx.query<{ id: string }>(
+        `INSERT INTO financeiro_recorrencias (empresa_id, horizonte_meses, chave_idempotencia) VALUES ($1::uuid, $2, $3) RETURNING id`,
+        [empresaId, HORIZONTE_RECORRENCIA_MESES, chave],
+      );
+      recorrenciaId = recorrencia.rows[0].id;
+    }
+    let primeira = "";
+    for (const vencimento of vencimentos) {
+      const criada = await tx.query<{ id: string }>(
+        `INSERT INTO financeiro_contas_pagar
+           (empresa_id, categoria_id, recorrencia_id, festa_id, descricao, favorecido, valor, vencimento, competencia, forma, observacao, chave_criacao, criado_por)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::date, $10, $11, $12, $13::uuid)
+         RETURNING id`,
+        [empresaId, input.categoriaId, recorrenciaId, input.festaId ?? null, input.descricao.trim(), input.favorecido ?? null, valor, vencimento, input.competencia ?? null, input.forma ?? null, input.observacao ?? null, input.recorrente ? null : chave, atorId],
+      );
+      primeira ||= criada.rows[0].id;
+    }
+    await auditar(tx, empresaId, "CONTA_PAGAR_CRIADA", "financeiro_contas_pagar", primeira, atorId, input.descricao.trim());
+    if (chave) await auditar(tx, empresaId, ACAO_PEDIDO_CONTA, "financeiro_contas_pagar", primeira, atorId, impressaoPedidoConta(input));
+    if (chave) await tx.query("RELEASE SAVEPOINT conta_idempotente");
+    return primeira;
+  } catch (error) {
+    if (!chave) throw error;
+    await tx.query("ROLLBACK TO SAVEPOINT conta_idempotente");
+    if (!chaveDeContaRepetida(error)) throw error;
+    const existente = await contaDaMesmaChave(tx, empresaId, chave, input);
+    if (!existente) throw error;
+    return existente;
   }
-  let primeira = "";
-  for (const vencimento of vencimentos) {
-    const criada = await tx.query<{ id: string }>(
-      `INSERT INTO financeiro_contas_pagar
-         (empresa_id, categoria_id, recorrencia_id, festa_id, descricao, favorecido, valor, vencimento, competencia, forma, observacao, chave_criacao, criado_por)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::date, $10, $11, $12, $13::uuid)
-       RETURNING id`,
-      [empresaId, input.categoriaId, recorrenciaId, input.festaId ?? null, input.descricao.trim(), input.favorecido ?? null, valor, vencimento, input.competencia ?? null, input.forma ?? null, input.observacao ?? null, input.recorrente ? null : chave, atorId],
-    );
-    primeira ||= criada.rows[0].id;
-  }
-  await auditar(tx, empresaId, "CONTA_PAGAR_CRIADA", "financeiro_contas_pagar", primeira, atorId, input.descricao.trim());
-  return primeira;
 }
 
 /**
@@ -852,14 +1154,16 @@ export async function cancelarConta(tx: DbExecutor, empresaId: string, atorId: s
 /** `despesasIncluidas` = o plano inclui contas a pagar; sem ele, custos/margem/caixa não são calculados (dados preservados). */
 export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festaId: string, hoje: string, despesasIncluidas = true) {
   const recebiveis = (await listarRecebiveis(tx, empresaId, hoje)).filter((item) => item.origem !== "ENTRADA_MANUAL" && item.festaId === festaId);
+  const ativos = recebiveis.filter(tituloAtivo);
+  const contratual = somaContratual(ativos);
   if (!despesasIncluidas) {
-    const ativos = recebiveis.filter((item) => item.status !== "Cancelado");
     return {
       despesasIncluidas,
-      valorContratadoCentavos: ativos.reduce((total, item) => total + item.valorCentavos, 0),
-      recebidoCentavos: ativos.reduce((total, item) => total + item.recebidoCentavos, 0),
+      valorContratadoCentavos: contratual.valor,
+      recebidoCentavos: contratual.recebido,
       aReceberCentavos: ativos.reduce((total, item) => total + item.saldoCentavos, 0),
       custosCentavos: null,
+      custosLancados: null,
       margemEstimadaCentavos: null,
       resultadoCaixaCentavos: null,
       recebimentos: recebiveis,
@@ -867,10 +1171,9 @@ export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festa
     };
   }
   const contas = (await listarContasPagar(tx, empresaId, hoje)).filter((item) => item.festaId === festaId);
-  const ativos = recebiveis.filter((item) => item.status !== "Cancelado");
   const vinculadas = contas.filter((item) => item.status !== "Cancelado");
-  const contratado = ativos.reduce((total, item) => total + item.valorCentavos, 0);
-  const recebido = ativos.reduce((total, item) => total + item.recebidoCentavos, 0);
+  const contratado = contratual.valor;
+  const recebido = contratual.recebido;
   const liquido = (await liquidoRecebidoPorFesta(tx, empresaId, festaId)).get(festaId) ?? 0;
   const custos = vinculadas.reduce((total, item) => total + item.valorCentavos, 0);
   const pagas = vinculadas.reduce((total, item) => total + item.pagoCentavos, 0);
@@ -880,7 +1183,8 @@ export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festa
     recebidoCentavos: recebido,
     aReceberCentavos: ativos.reduce((total, item) => total + item.saldoCentavos, 0),
     custosCentavos: custos,
-    margemEstimadaCentavos: margemEstimada(contratado, custos),
+    custosLancados: vinculadas.length > 0,
+    margemEstimadaCentavos: vinculadas.length ? margemEstimada(contratado, custos) : null,
     resultadoCaixaCentavos: resultadoCaixa(liquido, pagas),
     recebimentos: recebiveis,
     despesas: contas,
@@ -892,7 +1196,9 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
   const contas = financeiroCompleto ? await listarContasPagar(tx, empresaId, hoje) : [];
   const recebido = await recebidoNoMes(tx, empresaId, hoje);
-  const numeros = resumo(recebiveis, contas, recebido, hoje);
+  const mesAtual = periodoSelecionado(hoje, "mes");
+  const pago = financeiroCompleto ? await pagoNoPeriodo(tx, empresaId, mesAtual.inicio, mesAtual.fim) : null;
+  const numeros = resumo(recebiveis, contas, recebido, hoje, pago);
   const festas = await tx.query<{ id: string; contratoId: string; versaoId: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string }>(
     `SELECT festa.id::text AS id, contrato.id::text AS "contratoId", fluxo.versao_vigente_id::text AS "versaoId", fech.data_evento::text AS data, COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
             COALESCE(NULLIF(vigente.snapshot #>> '{evento,pacote,nome}', ''), pac.nome) AS pacote, fech.convidados, contrato.status AS status, fech.horario_inicio::text AS hora
@@ -980,10 +1286,11 @@ export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: stri
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
   const contas = await listarContasPagar(tx, empresaId, hoje);
   const saldoInicialCentavos = await saldoCaixaAte(tx, empresaId, inicio);
+  const abatimentos = await abatimentosContratuais(tx, empresaId, { inicio, fim });
   const entradas = await tx.query<{ data: string; descricao: string; valor: string }>(
-    `SELECT rec.recebido_em::date::text AS data, 'Recebimento' AS descricao, ${LIQUIDO_RECEBIDO_SQL}::text AS valor
+    `SELECT ${DATA_RECEBIDO_SQL}::text AS data, 'Recebimento' AS descricao, ${LIQUIDO_RECEBIDO_SQL}::text AS valor
        ${RECEBIDO_EMPRESA_SQL}
-       AND rec.recebido_em::date BETWEEN $2::date AND $3::date
+       AND ${DATA_RECEBIDO_SQL} BETWEEN $2::date AND $3::date
      UNION ALL
      SELECT entrada.recebido_em::text AS data, entrada.descricao, ${LIQUIDO_MANUAL_SQL}::text AS valor
        FROM financeiro_entradas_manuais entrada
@@ -1009,6 +1316,9 @@ export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: stri
   const realizados = [
     ...entradas.rows.map((item) => ({ data: item.data, descricao: item.descricao, entrada: centavosDe(item.valor), saida: 0, tipo: "realizado" as const })),
     ...saidas.rows.map((item) => ({ data: item.data, descricao: item.descricao, entrada: 0, saida: centavosDe(item.valor), tipo: "realizado" as const })),
+    ...abatimentos.map((item) => ({
+      data: item.data, descricao: item.tipo === "ESTORNO" ? "Estorno de recebimento" : "Devolução ao cliente", entrada: 0, saida: item.centavos, tipo: "realizado" as const,
+    })),
   ].sort((a, b) => a.data.localeCompare(b.data));
   let saldo = saldoInicialCentavos;
   const linhasRealizadas = realizados.map((linha) => {
@@ -1026,6 +1336,7 @@ export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: stri
     entradasCentavos,
     saidasCentavos,
     saldoFinalCentavos: saldoInicialCentavos + entradasCentavos - saidasCentavos,
+    recebimentosSemTaxa: await recebimentosSemTaxa(tx, empresaId, inicio, fim),
     linhas,
   };
 }
@@ -1034,7 +1345,7 @@ async function saldoCaixaAte(tx: DbExecutor, empresaId: string, inicio: string) 
   const entradas = await tx.query<{ liquido: string }>(
     `SELECT COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido
        ${RECEBIDO_EMPRESA_SQL}
-       AND rec.recebido_em::date < $2::date`,
+       AND ${DATA_RECEBIDO_SQL} < $2::date`,
     [empresaId, inicio],
   );
   const manuais = await tx.query<{ liquido: string }>(
@@ -1049,7 +1360,8 @@ async function saldoCaixaAte(tx: DbExecutor, empresaId: string, inicio: string) 
       WHERE empresa_id = $1::uuid AND pago_em < $2::date`,
     [empresaId, inicio],
   );
-  return centavosDe(entradas.rows[0]?.liquido ?? "0") + centavosDe(manuais.rows[0]?.liquido ?? "0") - centavosDe(saidas.rows[0]?.pago ?? "0");
+  return centavosDe(entradas.rows[0]?.liquido ?? "0") + centavosDe(manuais.rows[0]?.liquido ?? "0") - centavosDe(saidas.rows[0]?.pago ?? "0")
+    - somaAbatimentos(await abatimentosContratuais(tx, empresaId, { antesDe: inicio }));
 }
 
 export async function relatorio(tx: DbExecutor, empresaId: string, inicio: string, fim: string, hoje: string) {
@@ -1081,7 +1393,7 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
             COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido,
             COALESCE(SUM(LEAST(rec.valor_bruto, COALESCE((rec.metadata_provedor->>'taxaCentavos')::numeric, 0) / 100)), 0)::text AS taxa
        ${RECEBIDO_EMPRESA_SQL}
-       AND rec.recebido_em::date BETWEEN $2::date AND $3::date
+       AND ${DATA_RECEBIDO_SQL} BETWEEN $2::date AND $3::date
       GROUP BY 1
       ORDER BY 1`,
     [empresaId, inicio, fim],
@@ -1104,8 +1416,16 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
     atual.taxa += centavosDe(linha.taxa);
     formasPorNome.set(linha.forma, atual);
   }
+  // A forma fecha com "Recebido no período": estorno sai da forma do recebimento, e devolução, do meio usado.
+  for (const item of await abatimentosContratuais(tx, empresaId, { inicio, fim })) {
+    const atual = formasPorNome.get(item.forma) ?? { liquido: 0, taxa: 0 };
+    atual.liquido -= item.centavos;
+    formasPorNome.set(item.forma, atual);
+  }
   const taxasCentavos = [...formasPorNome.values()].reduce((total, linha) => total + linha.taxa, 0);
   return {
+    // Mesmo contrato do resumo: a tela nova recusa relatório sem versão (servidor antigo, margem sem custos cheia).
+    versao: VERSAO_RESUMO_FINANCEIRO,
     inicio,
     fim,
     faturamentoCentavos: leitura.faturamentoCentavos,
@@ -1119,6 +1439,7 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
     pacotes: leitura.pacotes,
     formas: [...formasPorNome.entries()].map(([forma, linha]) => ({ forma, centavos: linha.liquido })),
     taxasCentavos,
+    recebimentosSemTaxa: await recebimentosSemTaxa(tx, empresaId, inicio, fim),
     margens: leitura.margens,
   };
 }

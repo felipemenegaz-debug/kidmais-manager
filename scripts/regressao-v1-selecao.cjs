@@ -66,6 +66,10 @@ const ESTADO_POSTGRES = {
   "lib/fechamentos/migration-054.postgres.test.ts": { descartavel: "053", alvo054: true },
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
+  // 062: menor modelo em que o aceite real da V2 roda (concluirFluxoCliente → aplicarRevisaoInicial → referenciaParaCaminho
+  // lê fechamentos.estabelecimento_id, criada na 062; no "atual", até a 057, o teste 3 caía em 42703). Sem a 066, instalada
+  // pela própria suíte na transação. 114: 066 presente e gatilhos da 019 com KD114.
+  "lib/financeiro/titulos-motor.postgres.test.ts": { descartavel: "062", tambem: ["114"] },
   "lib/pagamentos/pix/pix.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },

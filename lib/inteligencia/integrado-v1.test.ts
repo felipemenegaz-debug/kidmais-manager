@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { posicaoSimulada } from "../financeiro/titulo-simulado.ts";
 import test from "node:test";
 import type { DbExecutor } from "../db/contracts.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../saas/provar-tenant.ts";
@@ -47,7 +48,7 @@ function banco(estado: { papel: string }) {
       const r = (rows: object[]) => ({ rows: rows as Row[], rowCount: rows.length });
       if (sql.includes("FROM pagamento_parcelas")) {
         return r(values[0] === EMPRESA_A ? [
-          { id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-01", status_gravado: "PENDENTE", cliente: `Mariana Souza ${CPF}`, festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
+          { id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-01", status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: `Mariana Souza ${CPF}`, festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
         ] : []);
       }
       if (sql.includes("FROM financeiro_entradas_manuais")) return r([]);

@@ -1,7 +1,7 @@
 import { situacaoCobranca } from '../services/cancelamento-core';
 import type { DbExecutor } from '../../db/contracts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
-import { chaveExcecaoHistorica, posicaoEconomica, reaisCentavos, recusarFinanceiro } from '../services/alteracao-financeira-core';
+import { chaveExcecaoHistorica, posicaoEconomica, reaisCentavos, recusarFinanceiro, saldoItemVigente } from '../services/alteracao-financeira-core';
 
 /**
  * Parcelas do PLANO HISTÓRICO (versão 1 do pagamento criado pela integração 061) cujo vencimento depois da festa foi
@@ -53,7 +53,7 @@ export async function lerPosicaoFinanceira(tx: DbExecutor, contratoId: string, m
   const itens=cronograma?(await tx.query<ItemCronograma>('SELECT id,parcela_id,saldo_inicial_centavos::text,recebido_base_centavos::text,estornado_base_centavos::text,vencimento_referencia::text FROM pagamento_cronograma_itens WHERE cronograma_id=$1 ORDER BY ordem',[cronograma.id])).rows:[];
   const excecoesHistoricas=await excecoesHistoricasDoPagamento(tx,p.id);
   const encerrada=contrato.status==='CANCELADO'||p.status==='CANCELADO';
-  const futuro=encerrada?[]:cronograma?itens.map(i=>{const parcela=parcelas.find(p=>p.id===i.parcela_id)!;const saldo=BigInt(i.saldo_inicial_centavos)-(reaisCentavos(parcela.recebido)-reaisCentavos(parcela.estornado)-BigInt(i.recebido_base_centavos)+BigInt(i.estornado_base_centavos));return{parcelaId:parcela.id,itemId:i.id,valorCentavos:(saldo>0n?saldo:0n).toString(),vencimento:i.vencimento_referencia};}):parcelas.filter(pp=>planos.some(pl=>pl.id===pp.plano_id&&pl.status==='ATIVO')&&pp.status!=='CANCELADA').map(pp=>{const saldo=reaisCentavos(pp.valor_previsto)-reaisCentavos(pp.recebido)+reaisCentavos(pp.estornado);return{parcelaId:pp.id,itemId:null,valorCentavos:(saldo>0n?saldo:0n).toString(),vencimento:pp.vencimento};});
+  const futuro=encerrada?[]:cronograma?itens.map(i=>{const parcela=parcelas.find(p=>p.id===i.parcela_id)!;return{parcelaId:parcela.id,itemId:i.id,valorCentavos:saldoItemVigente({base:BigInt(i.saldo_inicial_centavos),recebido:reaisCentavos(parcela.recebido),estornado:reaisCentavos(parcela.estornado),recebidoBase:BigInt(i.recebido_base_centavos),estornadoBase:BigInt(i.estornado_base_centavos)}).toString(),vencimento:i.vencimento_referencia};}):parcelas.filter(pp=>planos.some(pl=>pl.id===pp.plano_id&&pl.status==='ATIVO')&&pp.status!=='CANCELADA').map(pp=>{return{parcelaId:pp.id,itemId:null,valorCentavos:saldoItemVigente({base:reaisCentavos(pp.valor_previsto),recebido:reaisCentavos(pp.recebido),estornado:reaisCentavos(pp.estornado)}).toString(),vencimento:pp.vencimento};});
   const posicao=posicaoEconomica(reaisCentavos(p.valor_total_contratado),ajustes.reduce((a,j)=>a+BigInt(j.delta_centavos),0n),recebimentos.filter(r=>r.status==='CONFIRMADO').reduce((a,r)=>a+reaisCentavos(r.valor_bruto),0n),estornos.filter(e=>e.status==='CONFIRMADO').reduce((a,e)=>a+reaisCentavos(e.valor),0n),devolucoes.filter(d=>d.estado==='CONCLUIDA').reduce((a,d)=>a+BigInt(d.valor_centavos),0n),reservas.filter(r=>r.estado==='ATIVA').reduce((a,r)=>a+BigInt(r.valor_centavos),0n));
   const valorVigente=reaisCentavos(vigente.snapshot.comercial.valorFinalContrato);
   const comercial=(v:VersaoFinanceira)=>({forma:v.snapshot.comercial.condicaoPagamento?.forma??v.snapshot.comercial.formaPagamentoPretendida??null,condicao:v.snapshot.comercial.condicaoPagamento?.aprovada??null});
