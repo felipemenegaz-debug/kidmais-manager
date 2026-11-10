@@ -12,7 +12,7 @@ O contrato nasce do fechamento. Para começar, clique em **Novo contrato** e esc
 2. Confira a proposta, marque **Conferi o valor e as condições com o cliente.**, clique em **Aprovar condição** e depois em **Gerar contrato**.
 3. Abra o contrato e clique em **Preparar documento**.
 4. Clique em **Ver PDF**, leia o documento e clique em **Confirmar revisão do PDF**.
-5. Digite sua senha em **Confirme sua senha** e clique em **Aprovar e assinar pela Kidmais**. Esta é a assinatura do buffet.
+5. Digite sua senha em **Confirme sua senha** e clique em **Aprovar e assinar pelo buffet**. Esta é a assinatura do buffet.
 
 !video[Vídeo: do fechamento ao contrato assinado, passo a passo](/ajuda/videos/do-fechamento-ao-contrato.mp4)
 

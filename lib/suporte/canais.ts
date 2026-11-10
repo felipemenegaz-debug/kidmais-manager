@@ -11,11 +11,11 @@ const EMAIL = /^[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[^\s@<>()"',;:]+$/;
 export function canaisSuporte(env: AmbienteSite = process.env) {
     const email = env.SITE_ATENDIMENTO_EMAIL?.trim() ?? '';
     const emailValido = email.length <= 254 && EMAIL.test(email) ? email : null;
-    const whatsapp = linkWhatsApp(env.SITE_ATENDIMENTO_WHATSAPP, 'Olá! Sou cliente do Kidmais Manager e preciso de ajuda.');
+    const whatsapp = linkWhatsApp(env.SITE_ATENDIMENTO_WHATSAPP, 'Olá! Sou cliente do iA.Fest e preciso de ajuda.');
     const horario = env.SITE_ATENDIMENTO_HORARIO?.trim() || null;
     return {
         email: emailValido,
-        emailHref: emailValido ? `mailto:${emailValido}?subject=${encodeURIComponent('Suporte Kidmais Manager')}` : null,
+        emailHref: emailValido ? `mailto:${emailValido}?subject=${encodeURIComponent('Suporte iA.Fest')}` : null,
         whatsapp: whatsapp ? env.SITE_ATENDIMENTO_WHATSAPP!.trim() : null,
         whatsappHref: whatsapp,
         horario: emailValido || whatsapp ? horario : null,

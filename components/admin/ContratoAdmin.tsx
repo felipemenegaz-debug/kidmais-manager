@@ -3,10 +3,11 @@ import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
 import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
 import { classePrimaria } from './AdminPrimaryButton';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
 import styles from './contratos-ux.module.css';
 import Link from 'next/link';
@@ -18,7 +19,7 @@ import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import PagamentosResumo from './PagamentosResumo';
 import { contextoCriacao } from './criacao-financeira';
 import ListaContratos from './ListaContratos';
-import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, pedidoDaUrl, urlDaLista, urlDaSelecao } from './contrato-url';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, mensagemFalhaContrato, pedidoDaUrl, urlDaLista, urlDaSelecao, urlSemBuscaAntiga, urlComVersao, urlSemVersao } from './contrato-url';
 import { ETAPAS, chaveConferencia, dataPorExtenso, etapaAtual, faixaHorario, predicados, proximoPasso, referenciasDaTela, rotuloContrato, rotuloVersao, saidaPagamentos, situacaoReserva, tituloFesta } from './contrato-tela';
 import { referenciaVigente } from '@/lib/contratos/versao-referencia';
 import ContratoImportado from './ContratoImportado';
@@ -104,6 +105,10 @@ function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodi
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
     const [retorno,setRetorno]=useState<string|null>(null),[destino,setDestino]=useState(''),[financeiroPronto,setFinanceiroPronto]=useState('');
+    // Termo da busca da lista: só em memória, nunca na URL nem no armazenamento do navegador (ver contrato-url.ts). O filtro
+    // vai à URL pela API nativa de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos"
+    // do menu sempre encontra a URL já atualizada, mesmo logo depois da primeira busca.
+    const [buscaLista,setBuscaLista]=useState('');
     const posicionado=useRef('');
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
@@ -119,7 +124,15 @@ export default function ContratoAdmin() {
     const invalidarConferencia = () => { geracaoAtual.current++; setConferido(null); };
     // A URL é a fonte da seleção (link do Dashboard/Financeiro/festa/assistente, seletor, voltar/avançar). Ver contrato-url.ts.
     const params = useSearchParams(), pathname = usePathname(), router = useRouter();
-    const pedidoUrl = pedidoDaUrl(params), lista = listaDaUrl(params);
+    const pedidoUrl = pedidoDaUrl(params), lista = listaDaUrl(params), urlLimpa = urlSemBuscaAntiga(pathname, params);
+    // Link antigo com `busca=`: o servidor já redireciona (proxy.ts); isto é a segunda camada, para uma URL que chegue aqui por
+    // navegação no cliente. Efeito de layout e API nativa: a URL fica limpa antes dos pedidos que os efeitos da tela disparam.
+    // O `replace` do roteador vem junto porque a API nativa copia o estado interno do Next, que também guardava o termo.
+    useLayoutEffect(() => { if (urlLimpa) { window.history.replaceState(null, '', urlLimpa); router.replace(urlLimpa, { scroll: false }); } }, [urlLimpa, router]);
+    // Tela devolvida pelo bfcache (ex.: Voltar depois do logout): a memória é de antes, com o termo da busca e os dados do contrato,
+    // e a próxima leitura da sessão só viria no foco ou no intervalo. A nova carga refaz essa leitura. Vale só para esta tela:
+    // nas demais telas do painel, o retorno pelo bfcache preserva rascunhos em memória e segue como antes.
+    useEffect(() => { const restaurada = (e: PageTransitionEvent) => { if (e.persisted) window.location.reload(); }; window.addEventListener('pageshow', restaurada); return () => window.removeEventListener('pageshow', restaurada); }, []);
     const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
     // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
     const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
@@ -230,6 +243,7 @@ export default function ContratoAdmin() {
         if(!motivo||motivo.trim().length<3)return;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
         if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
+            if(enderecoFinal())return;
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }
@@ -249,7 +263,7 @@ export default function ContratoAdmin() {
     }
     async function assinar(){
         if(!v?.documento_revisado_id)return;
-        if (!window.confirm(`APROVAR E ASSINAR PELA KIDMAIS: versão ${v.numero_versao}, revisão ${v.revisao}, PDF ${v.documento_revisado_id}. O conteúdo será congelado.`))
+        if (!window.confirm(`APROVAR E ASSINAR PELO BUFFET: versão ${v.numero_versao}, revisão ${v.revisao}, PDF ${v.documento_revisado_id}. O conteúdo será congelado.`))
             return; setError(''); try {
             // Renovação anunciada: a reautenticação troca a sessão; sem o anúncio a página seria descartada antes de assinar.
             const auth = await reautenticarSessao(senha);
@@ -276,10 +290,10 @@ export default function ContratoAdmin() {
         setMenuAberto(false);
         if (destino === '#cancelar-contrato') { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); setDestino(''); }
     }
-    function abrirVersao(id: string) { const q = new URLSearchParams(params.toString()); q.set('versaoId', id); router.push(`${pathname}?${q.toString()}#historico`, { scroll: false }); }
+    function abrirVersao(id: string) { router.push(urlComVersao(pathname, params, id), { scroll: false }); }
     // Abrir outro contrato ou voltar à lista começa no Resumo (a URL nova não tem hash; a aba anterior não passa adiante).
     function trocarSelecao(selecao: string) { setDestino(''); router.push(urlDaSelecao(pathname, params, selecao), { scroll: false }); }
-    function fecharConsulta() { const q = new URLSearchParams(params.toString()); q.delete('versaoId'); router.push(`${pathname}?${q.toString()}`, { scroll: false }); }
+    function fecharConsulta() { router.push(urlSemVersao(pathname, params), { scroll: false }); }
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
     // Faixa: preparação aberta sobre o alvo (alteração de contrato assinado ou contratação inicial).
     const faixa = !!v && EDICAO_ABERTA.includes(v.estado_edicao ?? '') && data?.contrato.status !== 'CANCELADO';
@@ -298,7 +312,7 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.busca} onFiltro={(aba, busca) => router.replace(urlDaLista(pathname, params, aba, busca), { scroll: false })} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
+ {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
  <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>
@@ -327,7 +341,7 @@ export default function ContratoAdmin() {
  <div className={styles.actions}>
  {pred.podeGerarPdf && !pdfDaRevisao && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Preparar documento</button>}
  {pred.podeRevisarPdf && !v.documento_revisado_id && pdfDaRevisao && <><a className={styles.documentButton} href={docUrl(pdfDaRevisao.id)} target="_blank" rel="noreferrer">Ver PDF</a><button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => { if (window.confirm(`Confirmo que revisei o PDF ${pdfDaRevisao.id} da versão ${v.numero_versao}, revisão ${v.revisao}, e que seus dados refletem as condições oficiais aprovadas.`)) action({ acao: 'revisar', revisao: v.revisao, documentoId: pdfDaRevisao.id }); }}>Confirmar revisão do PDF</button></>}
- {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario className={classePrimaria} disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pela Kidmais</button></>}
+ {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario className={classePrimaria} disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pelo buffet</button></>}
  {pred.podeLiberar && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
  {pred.podeAbrirPublico && <a className={styles.documentButton} href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir página do cliente ↗</a>}
  {pred.podeEditar && <button type="button" disabled={busy} onClick={() => { invalidarConferencia(); setEditando(!editando); }}>{editando ? 'Fechar edição' : 'Editar dados desta revisão'}</button>}
@@ -335,9 +349,9 @@ export default function ContratoAdmin() {
  {pred.podeRecusarComercial && <button type="button" disabled={busy} onClick={() => { const m = window.prompt('Motivo da recusa comercial. A reserva e a preparação serão mantidas.'); if (m && m.trim().length >= 3) action({ acao: 'recusar_comercial', revisao: v.revisao, motivo: m, chaveDecisao: crypto.randomUUID() }); }}>Recusar condição comercial</button>}
  {pred.podeCancelarRevisao && <button type="button" disabled={busy} onClick={() => void cancelarRevisao()}>{alteracao ? 'Descartar alteração' : 'Cancelar revisão'}</button>}
  </div>
- {pred.podeSubstituir && <details><summary>Criar nova revisão</summary><p>Esta versão e a assinatura da Kidmais serão preservadas. O acesso anterior será encerrado. A nova revisão exigirá novo PDF e nova assinatura da Kidmais antes da liberação ao cliente.</p><label>Motivo <input value={motivo} maxLength={500} onChange={e => setMotivo(e.target.value)}/></label><button type="button" disabled={busy || motivo.trim().length < 3} onClick={criarRevisao}>Criar nova revisão</button></details>}
+ {pred.podeSubstituir && <details><summary>Criar nova revisão</summary><p>Esta versão e a assinatura do buffet serão preservadas. O acesso anterior será encerrado. A nova revisão exigirá novo PDF e nova assinatura do buffet antes da liberação ao cliente.</p><label>Motivo <input value={motivo} maxLength={500} onChange={e => setMotivo(e.target.value)}/></label><button type="button" disabled={busy || motivo.trim().length < 3} onClick={criarRevisao}>Criar nova revisão</button></details>}
  {editando && <EdicaoFesta key={vid} versaoId={vid} revisao={v.revisao} serverError={error} onSave={action} onClose={()=>{invalidarConferencia();setEditando(false);}}/>}
- <details><summary>Ver diferenças</summary>{origem&&<p>Versão anterior preservada: V{origem.numero_versao} → nova versão: V{v.numero_versao} · {rotuloVersao(v)} · motivo: {v.motivo_nova_versao} · criada em {instante(v.criado_em)}</p>}{analise&&<><p>{analise.natureza==='MATERIAL'?'Alteração material':analise.natureza==='DOCUMENTAL'?'Alteração documental / não material':'Nenhuma alteração de conteúdo'}. Esta revisão exige nova assinatura da Kidmais e do cliente para entrar em vigor, inclusive em correções documentais.</p>{analise.alteraAgenda&&<p>A data e o horário vigentes continuam ocupados até a formalização desta revisão. O destino será revalidado; conflitos impedem a troca.</p>}{analise.reclassificacaoHistorica&&<p data-reclassificacao>Reclassificação do contrato histórico: R$ {analise.reclassificacaoHistorica.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} de adicionais sem itens passam a compor o pacote. O valor do contrato não muda.</p>}{analise.impactoFinanceiro&&<p>Há impacto financeiro. Recebimentos anteriores são preservados. Após formalização, confira as pendências e ajuste as obrigações futuras pelo fluxo financeiro existente; não há quitação ou estorno automático.</p>}</>}{(analise?.campos ?? v.alteracoes?.campos)?.length ? <div className={styles.tableWrap}><table><thead><tr><th>Campo</th><th>Antes</th><th>Depois</th></tr></thead><tbody>{(analise?.campos ?? v.alteracoes?.campos ?? []).map(d=><tr key={d.campo}><td>{rotuloCampo(d.campo)}</td><td>{valorDiferenca(d.antes,d.campo)}</td><td>{valorDiferenca(d.depois,d.campo)}</td></tr>)}</tbody></table></div>:<p>Nenhuma diferença registrada nesta elaboração.</p>}</details>
+ <details><summary>Ver diferenças</summary>{origem&&<p>Versão anterior preservada: V{origem.numero_versao} → nova versão: V{v.numero_versao} · {rotuloVersao(v)} · motivo: {v.motivo_nova_versao} · criada em {instante(v.criado_em)}</p>}{analise&&<><p>{analise.natureza==='MATERIAL'?'Alteração material':analise.natureza==='DOCUMENTAL'?'Alteração documental / não material':'Nenhuma alteração de conteúdo'}. Esta revisão exige nova assinatura do buffet e do cliente para entrar em vigor, inclusive em correções documentais.</p>{analise.alteraAgenda&&<p>A data e o horário vigentes continuam ocupados até a formalização desta revisão. O destino será revalidado; conflitos impedem a troca.</p>}{analise.reclassificacaoHistorica&&<p data-reclassificacao>Reclassificação do contrato histórico: R$ {analise.reclassificacaoHistorica.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} de adicionais sem itens passam a compor o pacote. O valor do contrato não muda.</p>}{analise.impactoFinanceiro&&<p>Há impacto financeiro. Recebimentos anteriores são preservados. Após formalização, confira as pendências e ajuste as obrigações futuras pelo fluxo financeiro existente; não há quitação ou estorno automático.</p>}</>}{(analise?.campos ?? v.alteracoes?.campos)?.length ? <div className={styles.tableWrap}><table><thead><tr><th>Campo</th><th>Antes</th><th>Depois</th></tr></thead><tbody>{(analise?.campos ?? v.alteracoes?.campos ?? []).map(d=><tr key={d.campo}><td>{rotuloCampo(d.campo)}</td><td>{valorDiferenca(d.antes,d.campo)}</td><td>{valorDiferenca(d.depois,d.campo)}</td></tr>)}</tbody></table></div>:<p>Nenhuma diferença registrada nesta elaboração.</p>}</details>
  </section>}
  {!faixa && proximoHistorico && <div className={styles.next}><div><strong>Próximo passo</strong><p>{proximoHistorico}</p></div><a href="#financeiro" onClick={e=>{e.preventDefault();abrirAba('#financeiro');}}>Ver pagamentos</a></div>}
  {versaoDesconhecida && <p className={styles.notice} role="status">Versão não encontrada neste contrato. Mostrando o contrato atual.</p>}
@@ -392,7 +406,7 @@ function ListaDocumentos({ docs, vazio, docUrl }: { docs: Doc[]; vazio: string; 
     return <div className={styles.documentList}>{docs.map(d => <article key={d.id} className={styles.documentRow}><div><h3>{tituloDocumento(d.categoria)}</h3><p>Revisão {d.revisao}</p></div><div className={styles.documentActions}><a className={styles.documentButton} href={docUrl(d.id)} target="_blank" rel="noreferrer">Visualizar</a><a className={styles.documentButton} href={`${docUrl(d.id)}?baixar=1`}>Baixar PDF</a><a className={styles.documentButton} href={docUrl(d.id)} target="_blank" rel="noreferrer">Abrir para imprimir</a></div></article>)}</div>;
 }
 function Comprovantes({ v, assinaturas, docUrl }: { v: Versao; assinaturas: Painel['assinaturas']; docUrl: (id: string) => string }) {
-    return <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({assinaturas.length})</summary>{assinaturas.length === 0 && <p>{versaoAssinadaEmPapel(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{assinaturas.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {instante(s.assinado_em)} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>;
+    return <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({assinaturas.length})</summary>{assinaturas.length === 0 && <p>{versaoAssinadaEmPapel(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{assinaturas.map(s => <p key={s.id}>{s.parte === 'KIDMAIS' ? 'Buffet' : 'Cliente'}: {s.identidade_snapshot.nome} · {instante(s.assinado_em)} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>;
 }
 /** Diferenças de uma versão consultada em relação à própria origem — só leitura, sem nenhum controle. */
 function DiferencasDaVersao({ versao, origem }: { versao: Versao; origem: Versao | null }) {

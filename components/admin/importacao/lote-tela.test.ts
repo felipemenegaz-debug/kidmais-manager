@@ -22,7 +22,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const importacaoDe = (id: string, status = 'EM_REVISAO') => ({ id, versao: 2, status, extracao: { fonte: 'DOCUMENTO', arquivo: { nome: 'c.pdf', tipo: 'application/pdf', tamanhoBytes: 10 }, secoes: [] }, revisados: [], decisaoCliente: null });
 
 type Chamada = { url: string; acao?: string; aberturaId?: string; documentoId?: string };
-function tela(opcoes: { agir?: (acao: { acao: string }) => unknown; abrirDocumento?: (id: string) => unknown; segurarPrimeiroEnvio?: Promise<void>; envios?: Array<(() => Response | Promise<Response>) | undefined> } = {}) {
+function tela(opcoes: { agir?: (acao: { acao: string }) => unknown; decidir?: () => unknown; abrirDocumento?: (id: string) => unknown; segurarPrimeiroEnvio?: Promise<void>; envios?: Array<(() => Response | Promise<Response>) | undefined> } = {}) {
   const chamadas: Chamada[] = [];
   const acoes: unknown[] = [];
   let n = 0;
@@ -41,7 +41,7 @@ function tela(opcoes: { agir?: (acao: { acao: string }) => unknown; abrirDocumen
   };
   const t = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
     'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch },
-    '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
+    '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { if (opcoes.decidir) return opcoes.decidir(); throw Error('sem gate'); } },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao,
     './cliente-importacao': {
       ...cliente,
@@ -237,6 +237,56 @@ test('tela (r2): concluir a integração de um item do lote volta à fila, encer
   assert.deepEqual(s.acoes, [{ id: b.importacaoId, acao: 'ler' }], 'Próximo da fila lê de novo o seguinte');
 });
 
+test('tela (L2 r2.1): a linha da cota sobrevive a toda volta para a revisão, sem reler o servidor', async () => {
+  const COTA = { franquia: { periodo: '2026-11', usados: 3, limite: 10 }, migracao: { usados: 3, extra: 100, ate: '2026-12-05' } };
+  const LINHA = 'Cota de migração: 3 de 100 leituras usadas, até 05/12.';
+  const id = '10000000-0000-4000-8000-000000000000';
+  const candidato = { clienteId: 'c1', nome: 'Ana' };
+  const plano = { pronto: true, bloqueios: [], avisos: [], recusa: null, match: { estado: 'POSSIVEL_MATCH', motivo: 'Parecido', candidatos: [candidato] } };
+  const rascunho = { operacaoId: 'op', versao: 1, payloadHash: 'h', campos: [], avisos: [] };
+  const s = tela({
+    decidir: () => ({ tipo: 'ok' }),
+    agir: (acao) => {
+      if (acao.acao === 'descartar') return { ok: false, mensagem: 'Não deu para cancelar.' };
+      if (acao.acao === 'cliente') return { ok: true, dados: { importacao: importacaoDe(id), plano, gate: { tipo: 'preview', rascunho } } };
+      return { ok: true, dados: { importacao: importacaoDe(id), plano, cota: COTA } };
+    },
+  });
+  const linha = () => elementos(s.t.render()).find((e) => e.props['data-cota'] !== undefined);
+  const clicar = async (rotulo: string) => { (achar(s.t.render(), 'button', rotulo).props.onClick as () => void)(); await esperar(); };
+  s.escolher([pdf('a.pdf'), pdf('b.pdf')]);
+  await esperar();
+  s.fila()!.onRevisar(s.fila()!.lote.itens[0]);
+  await esperar();
+  assert.ok(texto(linha()!).includes(LINHA), 'ao abrir');
+  s.acoes.length = 0;
+
+  // Festa e pagamentos, e volta.
+  await clicar('Continuar para festa e pagamentos');
+  assert.equal(linha(), undefined, 'a linha é da revisão, não do assistente');
+  await clicar('Voltar aos dados do contrato');
+  assert.ok(texto(linha()!).includes(LINHA), 'depois de Voltar aos dados do contrato');
+
+  // Confirmação humana, e volta.
+  await clicar('Criar novo cliente');
+  assert.ok(achar(s.t.render(), 'button', 'Voltar e corrigir'), 'está na confirmação');
+  await clicar('Voltar e corrigir');
+  assert.ok(texto(linha()!).includes(LINHA), 'depois de Voltar e corrigir');
+
+  // Cancelar falha estando na revisão.
+  await clicar('Cancelar importação');
+  await clicar('Sim, cancelar importação');
+  assert.ok(texto(linha()!).includes(LINHA), 'depois de cancelar falhar na revisão');
+
+  // Cancelar falha estando na confirmação: volta à revisão com o erro.
+  await clicar('Criar novo cliente');
+  await clicar('Cancelar importação');
+  await clicar('Sim, cancelar importação');
+  assert.ok(texto(linha()!).includes(LINHA), 'depois de cancelar falhar na confirmação');
+
+  assert.deepEqual(s.acoes.filter((a) => (a as { acao?: string }).acao === 'ler'), [], 'preserva, não relê');
+});
+
 test('FilaLote real: botões por estado, parada, pausa de orçamento com Continuar, Tentar de novo só fora do envio automático', () => {
   const comp = carregarComponente('components/admin/importacao/FilaLote.tsx', {
     'next/link': { default: 'a' }, '@/lib/importacao-contrato/revisao': revisao, './fila-lote': filaLote, './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso,
@@ -308,4 +358,27 @@ test('ListaAguardando real: some quando vazia; Mostrar mais pede a próxima pág
   paginas = [{ ok: false, mensagem: 'Sem acesso.' }];
   comp.render('default', { atualizar: 2, onRevisar() {} }); comp.efeitos(); await tique();
   assert.ok(talvez(comp.render('default', { atualizar: 2, onRevisar() {} }), 'p', 'Sem acesso.'));
+});
+
+test('tela (L2): upload do lote, Revisar e a linha da cota visível; forma inválida não mostra linha nem quebra a revisão', async () => {
+  const COTA = { franquia: { periodo: '2026-11', usados: 3, limite: 10 }, migracao: { usados: 3, extra: 100, ate: '2026-12-05' } };
+  let cota: unknown = COTA;
+  const s = tela({ agir: () => ({ ok: true, dados: { importacao: importacaoDe('10000000-0000-4000-8000-000000000000'), plano: null, cota } }) });
+  const linha = () => elementos(s.t.render()).find((e) => e.props['data-cota'] !== undefined);
+  s.escolher([pdf('a.pdf'), pdf('b.pdf')]);
+  await esperar();
+  const [a, b] = s.fila()!.lote.itens;
+  s.fila()!.onRevisar(a);
+  await esperar();
+  assert.deepEqual(s.acoes, [{ id: a.importacaoId, acao: 'ler' }]);
+  assert.ok(linha(), 'a linha aparece na revisão do item do lote');
+  assert.ok(texto(linha()!).includes('Cota de migração: 3 de 100 leituras usadas, até 05/12.'));
+  cota = { franquia: { periodo: 'x', usados: -1, limite: 10 } };
+  (achar(s.t.render(), 'button', 'Cancelar importação').props.onClick as () => void)();
+  (achar(s.t.render(), 'button', 'Sim, cancelar importação').props.onClick as () => void)();
+  await esperar();
+  s.fila()!.onRevisar(s.fila()!.lote.itens.find((i) => i.id === b.id)!);
+  await esperar();
+  assert.ok(achar(s.t.render(), 'button', 'Cancelar importação'), 'a revisão abre');
+  assert.equal(linha(), undefined);
 });

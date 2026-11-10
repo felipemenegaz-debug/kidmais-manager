@@ -94,7 +94,7 @@ for(const estado of ['ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'])test(`${estado}: s
     assert((await a.substituir()).reutilizado);assert.equal(a.versoes.length,2);
     await assert.rejects(a.substituir({motivo:'Outra intenção'}),/outro pedido/);
     await assert.rejects(a.substituir({chaveCriacao:'22222222-2222-4222-8222-222222222222'}),/preparação mudou/);
-    await assert.rejects(a.operar('v2',{acao:'liberar',revisao:1},'sintetico',{}),/assinatura Kidmais/);
+    await assert.rejects(a.operar('v2',{acao:'liberar',revisao:1},'sintetico',{}),/assinatura do buffet/);
     await assert.rejects(a.operar('v2',{acao:'assinar',revisao:1,documentoId:chave,chaveIdempotencia:chave},'sintetico',{}),/Revise e aprove o documento exato/);
     // Simula somente a assinatura externa ao cenário; a liberação executa o serviço real.
     a.edicoes.v2='ASSINADA_KIDMAIS';

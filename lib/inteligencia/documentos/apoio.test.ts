@@ -1,7 +1,8 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { ArquivoValidado } from "../../importacao-contrato/arquivo.ts";
 import type { ExtracaoRegistrada, RegistroExtracao } from "../../importacao-contrato/repositorio-documentos.ts";
-import type { PortaDocumentos } from "./upload.ts";
+import { ErroCota, type Posse } from "../../importacao-contrato/cota.ts";
+import type { PortaCota, PortaDocumentos } from "./upload.ts";
 
 /**
  * Apoio compartilhado pelos testes de DOCUMENT e IMPORT (sem testes próprios).
@@ -59,8 +60,58 @@ export function sequencia(sufixo = "1111-4111-8111-111111111111") {
   return () => `${String(++n).padStart(8, "0")}-${sufixo}`;
 }
 
-/** Repositório de documentos em memória: idempotência por sha256 na empresa; leitura filtra a empresa. */
-export function documentosMemoria(novoId = sequencia()) {
+export type UsoMemoria = { id: string; operacaoId: string; empresaId: string; documentoId: string; sha256: string; estado: "RESERVADA" | "CONSUMIDA" | "LIBERADA" };
+export type OpcoesCota = { instalada?: boolean; limite?: number; expirarNaConclusao?: boolean };
+
+/**
+ * Cota (L2) em memória com a semântica da 118 reduzida ao que os testes de DOCUMENT/IMPORT precisam: identidade por empresa +
+ * sha256, uma linha viva por arquivo, posse por operação, limite simples (todos os válidos da empresa). Prazo, período, janela
+ * de migração e concorrência são provados no PostgreSQL descartável (cota.postgres.test.ts).
+ */
+export function cotaMemoria(opcoes: OpcoesCota = {}) {
+  const usos: UsoMemoria[] = [];
+  const eventos: string[] = [];
+  let n = 0;
+  const dono = (empresaId: string, posse: Posse) => usos.find((u) => u.id === posse.usoId && u.operacaoId === posse.operacaoId && u.empresaId === empresaId);
+  const cota: PortaCota = {
+    async instalada() { return opcoes.instalada ?? true; },
+    async reservar(_tx, e) {
+      eventos.push("reservar");
+      const viva = usos.find((u) => u.empresaId === e.empresaId && u.sha256 === e.sha256 && u.estado !== "LIBERADA");
+      if (viva?.estado === "CONSUMIDA") return { tipo: "JA_CONTADO" };
+      if (viva) throw new ErroCota("LEITURA_EM_ANDAMENTO", "Este arquivo já está sendo lido em outro envio. Aguarde alguns minutos.", 409);
+      const validos = usos.filter((u) => u.empresaId === e.empresaId && u.estado !== "LIBERADA").length;
+      if (opcoes.limite !== undefined && validos >= opcoes.limite) throw new ErroCota("COTA_IMPORTACAO_ESGOTADA", "A cota de leitura de documentos do mês foi usada. Nenhum arquivo foi lido.", 409);
+      n += 1;
+      const uso: UsoMemoria = { id: "uso-" + n, operacaoId: "op-" + n, empresaId: e.empresaId, documentoId: e.documentoId, sha256: e.sha256, estado: "RESERVADA" };
+      usos.push(uso);
+      return { tipo: "RESERVADA", posse: { usoId: uso.id, operacaoId: uso.operacaoId, periodo: "2026-11" } };
+    },
+    async concluir(_tx, e) {
+      eventos.push(e.comDados ? "concluir:com-dados" : "concluir:sem-dados");
+      const u = dono(e.empresaId, e.posse);
+      if (!u || u.estado !== "RESERVADA" || opcoes.expirarNaConclusao) throw new ErroCota("LEITURA_EXPIRADA", "A leitura demorou demais e não foi salva. Envie o arquivo de novo.", 409);
+      u.estado = e.comDados ? "CONSUMIDA" : "LIBERADA";
+    },
+    async liberar(_tx, e) {
+      eventos.push("liberar");
+      const u = dono(e.empresaId, e.posse);
+      if (!u || u.estado !== "RESERVADA") return false;
+      u.estado = "LIBERADA";
+      return true;
+    },
+  };
+  /** O que a porta da revisão devolve à tela (resumoCotaParaTela). */
+  const resumo = async (_tx: unknown, empresaId: string) => {
+    const usados = usos.filter((u) => u.empresaId === empresaId && u.estado !== "LIBERADA").length;
+    return { plano: null, franquia: { periodo: "2026-11", usados, limite: opcoes.limite ?? null }, migracao: null };
+  };
+  return { cota, usos, eventos, opcoes, resumo };
+}
+
+/** Repositório de documentos em memória: idempotência por sha256 na empresa; leitura filtra a empresa. Com a cota (L2) em memória. */
+export function documentosMemoria(novoId = sequencia(), opcoesCota: OpcoesCota = {}) {
+  const cota = cotaMemoria(opcoesCota);
   const documentos = new Map<string, { empresaId: string; sha: string }>();
   const extracoes: Array<RegistroExtracao & { extracaoId: string }> = [];
   const porta: PortaDocumentos = {
@@ -81,6 +132,7 @@ export function documentosMemoria(novoId = sequencia()) {
       const e = extracoes.filter((x) => x.documentoId === documentoId && x.empresaId === empresaId).at(-1);
       return e ? { extracaoId: e.extracaoId, documentoId, metodo: e.metodo, status: e.status, resultado: structuredClone(e.resultado) } : null;
     },
+    cota: cota.cota,
   };
-  return { porta, documentos, extracoes };
+  return { porta, documentos, extracoes, cota };
 }

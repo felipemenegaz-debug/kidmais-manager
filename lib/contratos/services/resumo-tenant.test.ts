@@ -67,6 +67,30 @@ test("A/B, legado e inexistente: mesma recusa 404 e nenhuma leitura de painel/fi
   }
 });
 
+test("marca: lida depois do commit, só com a empresa comprovada; qualquer falha dela deixa o Resumo neutro", async () => {
+  const a = ambiente();
+  const empresas: string[] = [];
+  const certa = await resumoContratacaoDoTenant(a.sessao, null, CONTRATO_A, { ...a.deps, marca: async (empresaId: string) => {
+    assert.equal(a.estado.aberta, false, "fora da transação da prova");
+    empresas.push(empresaId);
+    return { kidmais: false, nome: "Buffet A" };
+  } });
+  assert.deepEqual(certa.marca, { kidmais: false, nome: "Buffet A" });
+  assert.deepEqual(empresas, [A]);
+
+  const b = ambiente();
+  const neutra = await resumoContratacaoDoTenant(b.sessao, null, CONTRATO_A, { ...b.deps, marca: async () => { throw new Error("falha de leitura"); } });
+  assert.equal(neutra.marca, null);
+  assert.deepEqual(neutra.painel.contrato, { id: CONTRATO_A });
+});
+
+test("marca: leitura recusada não consulta a marca", async () => {
+  const a = ambiente();
+  let consultas = 0;
+  await assert.rejects(resumoContratacaoDoTenant(a.sessao, null, CONTRATO_B, { ...a.deps, marca: async () => { consultas += 1; return { kidmais: false, nome: "B" }; } }));
+  assert.equal(consultas, 0);
+});
+
 test("empresa alvo no pedido não prova nada: pedir a empresa B sem membership é recusado pelo Tenant Context", async () => {
   const a = ambiente();
   await assert.rejects(resumoContratacaoDoTenant(a.sessao, B, CONTRATO_B, a.deps));

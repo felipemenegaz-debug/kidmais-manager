@@ -26,14 +26,16 @@ const IDEMPOTENCIA_PREFIXO = 'kidmais-email-producao-20261020/';
 /** Flags da venda: devem estar desligadas (ausentes ou "false"); qualquer outro valor recusa antes de tudo (§2 do doc). */
 const FLAGS_VENDA = Object.freeze(['CADASTRO_PUBLICO_ATIVO', 'ASSINATURA_PLANOS_ATIVOS', 'RECUPERACAO_SENHA_ATIVA']);
 /**
- * Transporte do produto conferido por conteúdo (LF): o mesmo módulo que o app usa. email.ts da árvore 7ce0916 (production),
- * inalterado. erros.ts REVALIDADO em 23/10/2026 para a integração CPF/Fundador + textos/comprovante + arrependimento: a
- * mudança desde 883b0944… (7ce0916) é só de TIPO — novos códigos na união AcessoErroCodigo, sem efeito em execução; o
- * JavaScript emitido pelo TypeScript é idêntico nas duas versões (docs/EMAIL_PRODUCAO_20261020.md, "Revalidação de
+ * Transporte do produto conferido por conteúdo (LF): o mesmo módulo que o app usa. email.ts REVALIDADO em 08/11/2026: desde
+ * 0ff9c138… (7ce0916) mudou só o texto de mensagemConvite e mensagemRecuperacao (nome do produto iA.Fest); situacaoEmail,
+ * criarEnviarEmail e o envio ao Resend não mudaram (docs/EMAIL_PRODUCAO_20261020.md, "Revalidação de 08/11/2026");
+ * com este hash, o utilitário recusa um deploy que ainda tenha o email.ts antigo. erros.ts REVALIDADO em 23/10/2026 para
+ * a integração CPF/Fundador + textos/comprovante + arrependimento: a mudança desde 883b0944… (7ce0916) é só de TIPO —
+ * novos códigos na união AcessoErroCodigo, sem efeito em execução; o JavaScript emitido pelo TypeScript é idêntico nas duas versões (docs/EMAIL_PRODUCAO_20261020.md, "Revalidação de
  * 23/10/2026"). Com este hash, o utilitário recusa um deploy que ainda tenha o erros.ts antigo (produção atual).
  */
 const TRANSPORTE = Object.freeze({
-  'lib/acessos/email.ts': '0ff9c1388da510f5ca4f145831ee285bdd41984e670a19107f83b1152af0363b',
+  'lib/acessos/email.ts': '3df0a128b8951b966a6cf044f37f636d82e079d94449629dff80031de3cbd0ad',
   'lib/acessos/erros.ts': '77ebaaf0791d82f38464869f57d94bbd494ad70bb19ad83e1be9d56da0ea3dd1',
 });
 const MOTIVO = /^[A-Z][A-Z0-9_]{2,60}(?: [A-Z][A-Z0-9_]{2,60})?$/;

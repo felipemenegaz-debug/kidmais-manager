@@ -6,7 +6,8 @@
 // Versão .2 (P2-3 da revisão de 15aa937): a autorização geral (dados da festa) vale até a revogação; a da fotografia e
 // das imagens da galeria é confirmada a cada geração que as envia (uso único, com o sha-256 das imagens no evento).
 
-export const VERSAO_TEXTOS_IA = 'convites-ia-20261021.2';
+// Versão 20261107.1: nome do produto (iA.Fest) no lugar de Kidmais; decisão de Felipe em 07/11/2026.
+export const VERSAO_TEXTOS_IA = 'convites-ia-20261107.1';
 
 // Seção do Aviso de privacidade que descreve os recursos de IA (L5), com âncora própria.
 export const LINK_AVISO_IA = '/privacidade#inteligencia-artificial';
@@ -52,7 +53,7 @@ export function textosAutorizacaoIA(provedor: ProvedorIA, operador: OperadorIA):
   if (!ehProvedorIA(provedor)) throw new Error('Provedor de IA desconhecido.');
   const p = PROVEDORES_IA[provedor];
   // Texto da Astra: "O nome deve corresponder ao provedor realmente escolhido."
-  const aviso = `Para criar este convite com IA, enviaremos ${p.comArtigo} os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no Kidmais e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.`;
+  const aviso = `Para criar este convite com IA, enviaremos ${p.comArtigo} os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no iA.Fest e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.`;
   const consentimento = operador === 'CLIENTE'
     ? 'Declaro ser responsável legal pela criança e autorizo especificamente o uso dos dados selecionados para gerar este convite por IA, nas condições informadas. Sei que posso escolher uma alternativa sem IA e revogar esta autorização para usos futuros.'
     // Funcionário do buffet: registra a autorização dada pelo responsável (adaptação; ver documentação).

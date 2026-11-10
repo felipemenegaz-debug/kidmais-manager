@@ -11,5 +11,5 @@ export async function codigoSuporte(empresaId: string) {
 }
 
 export function mensagemSuporte(codigo: string | null) {
-    return codigo ? `Olá! Sou cliente do Kidmais Manager e preciso de ajuda. Código de suporte: ${codigo}` : 'Olá! Sou cliente do Kidmais Manager e preciso de ajuda.';
+    return codigo ? `Olá! Sou cliente do iA.Fest e preciso de ajuda. Código de suporte: ${codigo}` : 'Olá! Sou cliente do iA.Fest e preciso de ajuda.';
 }

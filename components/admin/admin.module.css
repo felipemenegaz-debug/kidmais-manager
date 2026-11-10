@@ -31,3 +31,5 @@
 /* PDF de Pacotes: links de abrir/baixar com alvo de toque de 44 px. */
 .linksPdf { display:flex; flex-wrap:wrap; gap:0 20px; }
 .linksPdf a { display:inline-flex; align-items:center; min-height:44px; }
+/* Horário fora do padrão na correção de contrato: alerta em laranja (único uso do laranja no painel). */
+.avisoHorario { border-left:3px solid var(--km-orange); border-radius:0; padding:8px 12px; font-size:13px; }

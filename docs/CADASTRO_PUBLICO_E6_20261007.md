@@ -1,5 +1,13 @@
 # E6/E7 — Cadastro público, verificação de e-mail, identificação da empresa e início guiado (07/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Não abrir o cadastro público nem criar teste por ele em production: `CADASTRO_PUBLICO_ATIVO` deve seguir desligada, e `POST /api/cadastro` e `POST /api/cadastro/empresa` são entradas bloqueadas. `POST /api/cadastro/confirmar` é C3, sem L1 nem L2: só produz efeito com link que resolva para pedido `PENDENTE`, não expirado e apto. A matriz veda pendência não expirada a partir de P3 e a L1 impede novos pedidos pelos iniciadores; flags desligadas, sozinhas, não provam que um link antigo seja ineficaz.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Empilhada sobre o painel comercial (E5). Migration nova: **069** (NÃO APLICADA). Depende de 063, 067 e 068.
 
 ## Fluxo
@@ -45,6 +53,8 @@ convidar pelo fluxo de convites, ou recusar). Nada disso concede acesso. Ativida
 `CADASTRO_PUBLICO`.
 
 ## Pré-requisitos para ligar (`situacaoCadastro`)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Estas condições dizem quando o código responde, não quando é permitido ligar. Atendê-las não libera o cadastro em production. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 `CADASTRO_PUBLICO_ATIVO=true` **e** e-mail configurado (`EMAIL_PROVIDER=resend` com remetente verificado — D1) **e**
 `USUARIOS_CRIACAO_DIRETA=desativada` (E1). Faltando qualquer um, o cadastro responde 503 e a página explica.

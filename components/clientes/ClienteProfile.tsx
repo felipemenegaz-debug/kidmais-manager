@@ -15,7 +15,7 @@ import {
 import ClienteLixeira from "./ClienteLixeira";
 import Contratacoes from "@/components/festas/Contratacoes";
 import OrigemPainel from "@/components/admin/marketing/OrigemPainel";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import ProdutoBrand from "@/components/layout/ProdutoBrand";
 import styles from "./Clientes.module.css";
 
 type Tab = "resumo" | "aniversariantes" | "eventos" | "responsaveis";
@@ -143,7 +143,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
       <div className={styles.decoracaoDois} />
       <div className={styles.shell}>
         <header className={styles.topbar}>
-          <KidmaisBrand compact context="manager" href="/clientes" />
+          <ProdutoBrand href="/clientes" />
           <Link className={styles.backLink} href="/clientes">← Clientes</Link>
         </header>
 

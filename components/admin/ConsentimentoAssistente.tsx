@@ -5,7 +5,7 @@ import { AdminPrimaryButton } from '@/components/admin/AdminPrimaryButton';
 import workspace from '@/components/admin/workspace.module.css';
 import { sairDaSessao } from '@/components/admin/sair';
 import { ESCOPOS_INICIAIS, ORDEM_ESCOPOS, ROTULO_ESCOPO } from '@/components/admin/conexoes-assistentes-guia';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, lerCorpoOuNulo, mensagemDoEndereco } from '@/lib/http/admin-fetch';
 import { fimDaTrocaEmCurso, guardarAvisoDeContexto, marcaDaSessao, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import { formatarDataHora } from '@/lib/integracoes/oauth/situacao-conexao';
 import { loginComRetorno } from '@/lib/http/retorno-login';
@@ -135,8 +135,8 @@ export async function carregarPedido(deps: {
     const trabalho = (async (): Promise<CargaConsentimento> => {
         try {
             const [rp, rs] = await Promise.all([deps.lerPedido(controle.signal), deps.lerSessao(controle.signal)]);
-            const cp = await rp.json().catch(() => null) as { ok?: boolean; erro?: string; data?: PedidoTela } | null;
-            const cs = await rs.json().catch(() => null) as unknown;
+            const cp = await lerCorpoOuNulo<{ ok?: boolean; erro?: string; data?: PedidoTela }>(rp);
+            const cs = await lerCorpoOuNulo<unknown>(rs);
             if (!rp.ok || !cp?.ok || !cp.data) return { ok: false, erro: cp?.erro ?? 'Pedido de conexão inválido ou expirado.', recuperavel: rp.status >= 500 };
             // 11º parecer, P3: só depois de a sessão responder com sucesso e com usuário é que a falta de empresa significa
             // "sem empresa". 401, 5xx, corpo inválido ou sessão sem usuário são falha de sessão, nunca semEmpresa.
@@ -157,6 +157,9 @@ export async function carregarPedido(deps: {
             if (!atual) return { ok: false, erro: 'Este usuário não tem empresa selecionada. Escolha a empresa no menu da conta e recarregue esta página, ou entre com outra conta.', recuperavel: false, semEmpresa: true };
             return { ok: true, pedido: cp.data, empresa: atual };
         } catch (e) {
+            // Troca de host (F2a): o sistema mudou de endereço; tentar de novo aqui não adianta, a página precisa ser atualizada.
+            const doEndereco = mensagemDoEndereco(e);
+            if (doEndereco) return { ok: false, erro: doEndereco, recuperavel: false };
             // 11º parecer, P3: o adminFetch do pedido também confere a sessão; quando ela não se confirma ele lança
             // ErroContextoAdmin (reconhecido pela forma: o módulo é substituído nos testes). É falha de sessão, não de rede.
             if (e && typeof e === 'object' && 'tipo' in e && 'enviado' in e && e.tipo !== 'REDE') return { ok: false, erro: ERRO_SESSAO_NAO_CONFIRMADA, recuperavel: true };
@@ -190,7 +193,7 @@ export type DecisaoEnviada =
 export async function enviarDecisao(decisao: Decisao, post: () => Promise<Response>, navegar: (destino: string) => void): Promise<DecisaoEnviada> {
     const res = await post();
     const marca = marcaDaSessao();
-    const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string; data?: { destino?: string } } | null;
+    const corpo = await lerCorpoOuNulo<{ ok?: boolean; erro?: string; data?: { destino?: string } }>(res);
     const destino = corpo?.data?.destino;
     if (!res.ok || !corpo?.ok || !destino || !/^https:\/\//.test(destino)) return { tipo: 'erro', erro: corpo?.erro ?? 'Não foi possível concluir a conexão.' };
     if (sessaoObsoletaDesde(marca)) {
@@ -268,8 +271,8 @@ export default function ConsentimentoAssistente({ pedidoId }: { pedidoId: string
                 await r.fim?.catch(() => undefined);
                 setRetorno({ decisao: r.decisao, destino: r.destino, liberado: true });
             }
-        } catch {
-            setErro('Resultado incerto. Volte ao aplicativo e confira se a conexão foi criada; nada é reenviado automaticamente.');
+        } catch (falha) {
+            setErro(mensagemDoEndereco(falha) ?? 'Resultado incerto. Volte ao aplicativo e confira se a conexão foi criada; nada é reenviado automaticamente.');
         } finally {
             setOcupado(false);
         }

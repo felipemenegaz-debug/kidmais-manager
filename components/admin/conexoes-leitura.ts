@@ -62,8 +62,14 @@ export const avisosDaVista = (v: { erroLeitura: string; erroRevogacao: string; e
 
 export type ControladorDeConexoes = { iniciar: () => void; atualizar: () => void; aoFocar: () => void; revogar: (id: string) => Promise<void>; encerrar: () => void };
 
-export function criarControladorDeConexoes<E>({ buscar, publicar, prazoMs = PRAZO_LEITURA_MS, esperaRevogacaoMs = ESPERA_REVOGACAO_MS, agora, intervaloFocoMs }: {
+/** Corpo ilegível vira nulo. Na tela, `lerCorpoOuNulo` do adminFetch: o estado final do endereço (F2a) não vira corpo ilegível. */
+const lerCorpoPadrao = async <T,>(r: Response): Promise<T | null> => await r.json().catch(() => null) as T | null;
+
+export function criarControladorDeConexoes<E>({ buscar, publicar, prazoMs = PRAZO_LEITURA_MS, esperaRevogacaoMs = ESPERA_REVOGACAO_MS, agora, intervaloFocoMs, lerCorpo = lerCorpoPadrao, mensagemDoEndereco = () => null }: {
     buscar: (url: string, init?: RequestInit) => Promise<Response>;
+    lerCorpo?: <T>(r: Response) => Promise<T | null>;
+    /** Texto real da troca de host (F2a), quando o erro for dela: vale no lugar do aviso genérico. */
+    mensagemDoEndereco?: (erro: unknown) => string | null;
     publicar: (vista: VistaConexoes<E>) => void;
     prazoMs?: number;
     esperaRevogacaoMs?: number;
@@ -85,15 +91,17 @@ export function criarControladorDeConexoes<E>({ buscar, publicar, prazoMs = PRAZ
         const interrompida = new Promise<never>((_, recusar) => controle.signal.addEventListener('abort', () => recusar(controle.signal.reason), { once: true }));
         const pedido = (async () => {
             const res = await buscar(URL_CONEXOES, { cache: 'no-store', signal: controle.signal });
-            const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string; data?: E } | null;
+            const corpo = await lerCorpo<{ ok?: boolean; erro?: string; data?: E }>(res);
             return { ok: res.ok, corpo };
         })();
         try {
             const { ok, corpo } = await Promise.race([pedido, interrompida]);
             if (!ok || !corpo?.ok || !corpo.data) alterar({ erroLeitura: corpo?.erro ?? 'Não foi possível carregar as conexões.' });
             else alterar({ erroLeitura: '', estado: corpo.data });
-        } catch {
-            if (controle.signal.aborted) alterar({ erroLeitura: vista.estado ? AVISO_PRAZO_COM_DADOS : AVISO_PRAZO_SEM_DADOS });
+        } catch (falha) {
+            const doEndereco = mensagemDoEndereco(falha);
+            if (doEndereco) alterar({ erroLeitura: doEndereco });
+            else if (controle.signal.aborted) alterar({ erroLeitura: vista.estado ? AVISO_PRAZO_COM_DADOS : AVISO_PRAZO_SEM_DADOS });
             else alterar({ erroLeitura: 'Falha de conexão ao carregar as conexões.' });
         } finally {
             clearTimeout(prazo);
@@ -117,10 +125,10 @@ export function criarControladorDeConexoes<E>({ buscar, publicar, prazoMs = PRAZ
             }, esperaRevogacaoMs);
             try {
                 const res = await buscar(URL_CONEXOES, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concessaoId: id }) });
-                const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string } | null;
+                const corpo = await lerCorpo<{ ok?: boolean; erro?: string }>(res);
                 if (!res.ok || !corpo?.ok) alterar({ erroRevogacao: corpo?.erro ?? 'Não foi possível desconectar. Atualize a página e confira.' });
-            } catch {
-                alterar({ erroRevogacao: 'Resultado incerto: confira a lista antes de tentar de novo.' });
+            } catch (falha) {
+                alterar({ erroRevogacao: mensagemDoEndereco(falha) ?? 'Resultado incerto: confira a lista antes de tentar de novo.' });
             } finally {
                 clearTimeout(espera);
                 if (semConfirmacao) alterar({ emEspera: vista.emEspera.filter((x) => x !== id) });

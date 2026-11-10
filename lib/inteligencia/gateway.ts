@@ -84,7 +84,7 @@ export type RespostaGateway = {
 const MENSAGEM_FALLBACK = "Não foi possível preparar este resumo agora. O Dashboard e o Financeiro continuam disponíveis.";
 
 export function recursoDesativado(): never {
-  throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
+  throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Copiloto indisponível neste ambiente.", 503);
 }
 
 /**

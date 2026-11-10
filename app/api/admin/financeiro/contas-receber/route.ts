@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
     const input = baixa.parse(json);
     const crm = contextoCrmDaRequest(request);
-    const data = await withTenantTransaction(sessao, null, (tx, tenant) => baixarRecebimentoNoTenant(tx, tenant, input, {
+    const data = await withTenantTransaction(sessao, null, (tx, tenant) => baixarRecebimentoNoTenant(tx, tenant, hojeIso(), input, {
       ...crm,
       token: tokenAdmin(request),
       origem: "financeiro",

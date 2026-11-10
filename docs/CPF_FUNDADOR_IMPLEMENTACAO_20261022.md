@@ -245,6 +245,8 @@ Ordem futura, para cada uma das migrations, independentes:
 5. `--aplicar-09x-autorizado`;
 6. `--conferir-09x`.
 
+> **Bloqueio em production (B-27, 07/11/2026).** Em production, ativar a campanha 090 e ligar `ASSINATURA_CAMPANHA_FUNDADOR_ATIVA` estão bloqueados, mesmo depois das migrations. `ASSINATURA_CPF_ATIVO` não está na lista L1, mas a liberação de CPF é da fase comercial (E10), fora da promoção, e também não segue das migrations. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 Só depois disso, com autorização própria, vêm a campanha (rascunho, decisões e ativação) e a chave
 `ASSINATURA_CAMPANHA_FUNDADOR_ATIVA`, e também `ASSINATURA_CPF_ATIVO`.
 
@@ -296,6 +298,8 @@ O resultado completo está no §10.
    - ativação autorizada;
    - janela, corte, lote posterior e renovação, em campanha sintética de staging.
 8. Produção: mesma ordem, com autorizações próprias. A data real nunca é copiada de staging.
+
+> **Bloqueio em production (B-27, 07/11/2026).** O item 8 não vale em production quanto à campanha: a ativação do item 7 não se repete lá. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 ## 9. Perguntas e impedimentos (Astra / contador)
 
@@ -1422,6 +1426,12 @@ o staging atual, refazer o merge e validar.
 - identidade: **iA.Fest**, desenvolvido pela **Demerzel Labs**, CNPJ previsto para algumas semanas.
 
 Os textos legais seguem "Kidmais Manager" com nota de transição até a versão com a identidade completa.
+
+> **Bloqueio em production (B-27, 07/11/2026).** Criar o cron do vigia em production está bloqueado, mesmo somente leitura ou em `aguardando`.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
 
 **Próximo, com autorização:**
 1. Push da branch `codex/integracao-cpf-textos-arrependimento-20261023` e PR para `staging` (o remote `github` tem push

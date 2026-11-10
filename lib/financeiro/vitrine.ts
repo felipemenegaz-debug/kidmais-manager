@@ -4,7 +4,7 @@ import type { AmostraFinanceira } from "@/components/admin/FinanceiroTelas";
 export const painelVitrine: PainelDashboard = {
   empresa: "Kidmais",
   hoje: "2026-03-17",
-  numeros: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, emAtrasoCentavos: 320000, saldoPrevistoCentavos: 9080000 },
+  numeros: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, versao: 2 },
   agenda: [
     { id: "1", data: "2026-03-17", hora: "14:00", cliente: "Maria Silva", pacote: "Festa Premium", convidados: 45, status: "ASSINADO" },
     { id: "2", data: "2026-03-17", hora: "18:30", cliente: "João Souza", pacote: "Festa Completa", convidados: 60, status: "AGUARDANDO_ASSINATURA" },
@@ -26,7 +26,7 @@ export const painelVitrine: PainelDashboard = {
 };
 
 export const financeiroVitrine: AmostraFinanceira = {
-  resumo: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, emAtrasoCentavos: 320000, saldoPrevistoCentavos: 9080000, pagoMesCentavos: 1200000 },
+  resumo: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, pagoMesCentavos: 1200000, versao: 2 },
   recebiveis: [
     { id: "r1", cliente: "Roberto Lima", pacote: "Festa Premium", festaId: "f1", parcela: 2, vencimento: "2026-03-12", valorCentavos: 320000, recebidoCentavos: 0, saldoCentavos: 320000, forma: "PIX", status: "Vencido", diasAtraso: 5 },
     { id: "r2", cliente: "Maria Silva", pacote: "Festa Completa", festaId: "f2", parcela: 1, vencimento: "2026-03-28", valorCentavos: 1500000, recebidoCentavos: 500000, saldoCentavos: 1000000, forma: "PIX", status: "Parcialmente pago", diasAtraso: 0 },
@@ -47,6 +47,7 @@ export const financeiroVitrine: AmostraFinanceira = {
     ],
   },
   relatorio: {
+    versao: 2,
     faturamentoCentavos: 9000000,
     recebidoCentavos: 6240000,
     aReceberCentavos: 4730000,

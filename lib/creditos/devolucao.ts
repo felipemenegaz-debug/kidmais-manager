@@ -13,6 +13,7 @@
  * Pedido pelo atendimento (login inacessível): mesma função `registrarDevolucao`, com origem ATENDIMENTO e operador
  * da plataforma (lib/creditos/operacao.ts).
  */
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -127,7 +128,7 @@ export async function estornarSePermitido(deps: Pick<DepsCreditos, 'withTransact
     let estado: 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO';
     let status: string | null = null;
     try {
-        status = (await prov.estornarCobranca(pagamentoId, valorCentavos, `Kidmais Manager - devolucao de creditos ${protocolo}`)).status;
+        status = (await prov.estornarCobranca(pagamentoId, valorCentavos, `iA.Fest - devolucao de creditos ${protocolo}`)).status;
         estado = 'SOLICITADO';
     }
     catch (error) {
@@ -151,6 +152,7 @@ export async function solicitarDevolucao(sessao: SessaoAdmin, empresaSolicitada:
     if (typeof corpo.chave !== 'string' || !UUID.test(corpo.chave)) throw erroAcesso('DADOS_INVALIDOS', 'Atualize a página e tente de novo.', 400, { campo: 'chave' });
     exigirReautenticacaoRecente(sessao);
     const r = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'solicitarDevolucao', deps.env ?? process.env);
         exigirGestao(tenant);
         const registro = await registrarDevolucao(tx, { empresaId: tenant.empresaComprovada, protocoloPedido: corpo.pedido as string, tipo: corpo.tipo as TipoDevolucaoPacote,
             valorEsperado: corpo.valorEsperadoCentavos as number, chave: (corpo.chave as string).toLowerCase(), solicitadoPor: sessao.usuario_id, origem: 'GESTAO' });

@@ -8,7 +8,7 @@ import type { PedidoTela } from './ConsentimentoAssistente';
 
 // Renderiza o formulário real do consentimento MCP. CSS e rede são isolados; não abre banco ou navegador.
 const semRede = () => { throw new Error('Rede proibida no teste do consentimento.'); };
-const css = { 'workspace.module.css': {}, 'admin.module.css': {}, 'visual.module.css': {}, 'conexoes-assistentes.module.css': {}, 'http/admin-fetch': { adminFetch: semRede }, 'components/admin/sair': { sairDaSessao: semRede } };
+const css = { 'workspace.module.css': {}, 'admin.module.css': {}, 'visual.module.css': {}, 'conexoes-assistentes.module.css': {}, 'http/admin-fetch': { adminFetch: semRede, lerCorpoOuNulo: (r: Response) => r.json().catch(() => null), mensagemDoEndereco: (e: unknown) => (e as { tipo?: string } | null)?.tipo === 'ENDERECO_EM_VERIFICACAO' ? (e as Error).message : null }, 'components/admin/sair': { sairDaSessao: semRede } };
 const cache = new Map<string, Record<string, unknown>>();
 const { FormularioConsentimento } = carregarModulo('components/admin/ConsentimentoAssistente.tsx', css, cache) as {
     FormularioConsentimento: ComponentType<{ pedido: PedidoTela; empresa: { id: string; nome: string }; ocupado: boolean; enviar: () => void }>;
@@ -203,7 +203,10 @@ for (const [decisao, status] of [['PERMITIR', 200], ['PERMITIR', 403], ['NEGAR',
                 return sessaoS1Consent();
             }
             postsConsentimento++;
-            return { ok: true, status: 200, json: () => { corpoIniciado(); return corpo; } };
+            // Formato lido pelo adminFetch (F2a): headers, os cinco leitores do corpo e clone. Sem content-type, a situação da escrita
+            // não relê o corpo por clone: a única leitura é a da tela, que é onde a troca começa.
+            const semUso = () => Promise.reject(Error('leitor não usado'));
+            return { ok: true, status: 200, headers: new Headers(), json: () => { corpoIniciado(); return corpo; }, text: semUso, blob: semUso, arrayBuffer: semUso, formData: semUso, clone: () => { throw Error('clone não usado'); } };
         };
         const navegou: string[] = [];
         const envio = ui.enviarDecisao(decisao, postConsentimento(mod), (d) => navegou.push(d));
@@ -289,4 +292,10 @@ test('17º parecer: tela da troca diz "recusado" para Não permitir e orienta o 
         // Sem prazo inventado na tela: nenhum número de segundos/minutos.
         assert.doesNotMatch(permitiu + negou, /\d+\s*(s|seg|segundos?|min|minutos?)\b/);
     }
+});
+
+test('troca de host (F2a): o estado final do endereço vale no lugar do aviso genérico e não é recuperável aqui', async () => {
+    const doEndereco = Object.assign(new Error('O iA.Fest mudou de endereço. Atualize a página.'), { tipo: 'ENDERECO_EM_VERIFICACAO' });
+    const c = await carregarPedido({ lerPedido: async () => { throw doEndereco; }, lerSessao: sessaoOk, prazoMs: 1000 });
+    assert.deepEqual(c, { ok: false, erro: 'O iA.Fest mudou de endereço. Atualize a página.', recuperavel: false });
 });

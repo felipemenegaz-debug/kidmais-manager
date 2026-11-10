@@ -210,7 +210,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
       </fieldset>
       {!bloqueadoPelaSituacao && <>
         <CamposCadastroContratual value={f.cadastro} cpfProtegido={!!o.cliente?.cadastro?.cpf} pessoaJuridica={o.cliente?.pessoaJuridica ?? null} invalidos={cadastroInvalido} onChange={cadastro => atualizar({ cadastro })} />
-        <label className={ui.campo}><span>Aniversariante</span><input {...campo(ID_INTEGRACAO.aniversariante)} required value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} />{mensagem(ID_INTEGRACAO.aniversariante)}</label>
+        <label className={ui.campo}><span>Aniversariante</span><input {...campo(ID_INTEGRACAO.aniversariante)} required value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value, aniversarianteId: '' })} />{mensagem(ID_INTEGRACAO.aniversariante)}</label>
         <label className={ui.campo}><span>Forma contratada</span><select value={f.formaPagamento} onChange={e => atualizar({ formaPagamento: e.target.value as FormIntegracao["formaPagamento"] })}><option value="">Outra / conforme documento original</option><option value="PIX_AVISTA">Pix à vista</option><option value="PIX_PARCELADO">Pix parcelado</option><option value="CARTAO_CIELO">Cartão / Cielo</option></select><small>O valor contratado é mantido. Nenhum desconto atual será aplicado à importação.</small></label>
         <div className={ui.grade}>
           <label className={ui.campo}><span>Unidade</span>
@@ -308,7 +308,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         <p className={styles.texto}>Isto é o que será registrado. Nada foi gravado ainda.</p>
         <dl className={ui.resumo}>
           <div><dt>Contrato</dt><dd>{revisao.sim.resumo.contrato.cliente} · {reais(revisao.sim.resumo.contrato.valorContratadoCentavos)}<small>{revisao.sim.resumo.contrato.pacoteDocumento ?? 'Pacote do documento não informado'}{revisao.sim.resumo.contrato.pacoteReferencia ? ` · referência: ${revisao.sim.resumo.contrato.pacoteReferencia}` : ''}</small><small>{revisao.sim.resumo.contrato.conferencia}</small></dd></div>
-          <div><dt>Festa</dt><dd>{dataBr(revisao.sim.resumo.festa.data)}, {revisao.sim.resumo.festa.horarioInicio}–{revisao.sim.resumo.festa.horarioFim} · {revisao.sim.resumo.festa.convidados} convidados<small>{[revisao.sim.resumo.festa.aniversariante, revisao.sim.resumo.festa.tema].filter(Boolean).join(' · ')}</small>{revisao.sim.resumo.festa.aniversarianteCadastro && <small>{revisao.sim.resumo.festa.aniversarianteCadastro === 'NOVO' ? `Aniversariante será cadastrado no cliente ${revisao.sim.resumo.contrato.cliente}.` : 'Aniversariante vinculado ao cadastro existente do cliente.'}</small>}</dd></div>
+          <div><dt>Festa</dt><dd>{dataBr(revisao.sim.resumo.festa.data)}, {revisao.sim.resumo.festa.horarioInicio}–{revisao.sim.resumo.festa.horarioFim} · {revisao.sim.resumo.festa.convidados} convidados<small>{[revisao.sim.resumo.festa.aniversariante, revisao.sim.resumo.festa.tema].filter(Boolean).join(' · ')}</small>{revisao.sim.resumo.festa.aniversarianteCadastro && <small>{revisao.sim.resumo.festa.aniversarianteCadastro === 'NOVO' ? `Aniversariante será cadastrado no cliente ${revisao.sim.resumo.contrato.cliente}.` : revisao.sim.resumo.festa.aniversarianteCadastroNome ? `Aniversariante vinculado ao cadastro existente: ${revisao.sim.resumo.festa.aniversarianteCadastroNome}.` : 'Escolha abaixo o cadastro do aniversariante.'}</small>}</dd></div>
           <div><dt>Agenda</dt><dd data-ocupa={revisao.sim.resumo.agenda.ocupa}>{revisao.sim.resumo.agenda.descricao}{revisao.sim.resumo.contrato.unidade && <small>Unidade: {revisao.sim.resumo.contrato.unidade}</small>}</dd></div>
           {revisao.sim.resumo.agenda.salao && <div data-salao={revisao.sim.resumo.agenda.salao.id}><dt>Salão</dt><dd>{revisao.sim.resumo.agenda.salao.nome}</dd></div>}
         </dl>
@@ -328,6 +328,15 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
             <input aria-label="Motivo: é outro contrato" value={f.motivoOutroContrato} maxLength={500} onChange={(e) => setForm({ ...f, motivoOutroContrato: e.target.value })} /></label>}
           <button type="button" className={styles.fantasma} disabled={f.outroContratoConfirmado && f.motivoOutroContrato.trim().length < 5} onClick={() => void revisar(f)}>Registrar decisão</button>
         </div>}
+        {revisao.sim.resumo.festa.aniversarianteOpcoes && <div className={styles.aviso}>
+          <label className={ui.campo}><span>Qual cadastro é o aniversariante desta festa?</span>
+            <select aria-label="Cadastro do aniversariante" value={f.aniversarianteId} onChange={(e) => { const novo = { ...f, aniversarianteId: e.target.value }; setForm(novo); void revisar(novo); }}>
+              <option value="">Escolha</option>
+              {revisao.sim.resumo.festa.aniversarianteOpcoes.map((a, i) => <option key={a.id} value={a.id}>{a.nome} (cadastro {i + 1})</option>)}
+            </select>
+          </label>
+        </div>}
+        {f.aniversarianteId && !revisao.sim.resumo.festa.aniversarianteCadastroId && <button type="button" className={styles.fantasma} onClick={() => { const novo = { ...f, aniversarianteId: '' }; setForm(novo); void revisar(novo); }}>Limpar a escolha do aniversariante</button>}
         <Erros erros={revisao.sim.bloqueios} />
         {revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).length > 0 && <ul className={styles.discreto}>{revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).map((a) => <li key={a}>{a}</li>)}</ul>}
         <label className={ui.declaracao}><input type="checkbox" checked={f.conferenciaDeclarada} onChange={(e) => { const novo = { ...f, conferenciaDeclarada: e.target.checked }; setForm(novo); void revisar(novo); }} />{o.declaracao}</label>

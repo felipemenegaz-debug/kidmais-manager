@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, AVISO_ENDERECO_MUDOU } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import type { obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/services/fechamento-administrativo.service';
 import type { FechamentoAdministrativoInput } from '@/lib/fechamentos/administrativo-schema';
 import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo-schema';
@@ -271,7 +272,12 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     function aplicarDesfecho(d: DesfechoEnvio) {
         setIncerto(d.tipo === 'INCERTO');
         if (d.tipo === 'CRIADO') return setResultado(d.data);
-        if (d.tipo === 'SESSAO') { router.replace('/admin/login'); return setErro('Sessão expirada. Faça login novamente.'); }
+        if (d.tipo === 'SESSAO') {
+            // A resposta 401 foi lida antes, e a aba chegou ao estado final da troca de host depois: a tela fica.
+            if (enderecoFinal()) return setErro(AVISO_ENDERECO_MUDOU);
+            router.replace('/admin/login');
+            return setErro('Sessão expirada. Faça login novamente.');
+        }
         if (d.tipo === 'RECUSADO' && d.daPreparacao) setErroPreparacao(true);
         setErro(d.erro);
     }
@@ -332,8 +338,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         {/* Erro que não é de campo (servidor, agenda): aviso fixo, visível de qualquer ponto do formulário. */}
         <AvisoGlobal mensagem={erro} onFechar={() => setErro('')} />
         {avisoPreparacao && <p role="status">{avisoPreparacao}</p>}
-        {preparacao && !semPreparacao && <section className={styles.card} aria-label="Preparado pelo Kidmais">
-            <p>Preparado pelo Kidmais. Confira, complete e conclua: nada foi gravado até você concluir.</p>
+        {preparacao && !semPreparacao && <section className={styles.card} aria-label="Preparado pelo Copiloto">
+            <p>Preparado pelo Copiloto. Confira, complete e conclua: nada foi gravado até você concluir.</p>
             {preparacao.pendencias.length > 0 && <ul>{preparacao.pendencias.map(p => <li key={p}>{p}</li>)}</ul>}
             {erroPreparacao && !incerto && !semPreparacao && <button type="button" onClick={() => { setSemPreparacao(true); setErroPreparacao(false); setErro(''); }}>Enviar sem a preparação do Kidmais</button>}
             {incerto && <button type="button" onClick={() => void verificarDeNovo()}>Verificar de novo</button>}

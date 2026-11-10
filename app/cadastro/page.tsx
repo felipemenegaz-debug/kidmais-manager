@@ -25,12 +25,12 @@ export default function Cadastro() {
             .catch(() => setErroCarga('Falha de conexão. Tente novamente.'));
     }, []);
     return <main className={`${admin.page} ${admin.login}`} data-cadastro-pessoa>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Criar conta da empresa</h2>
         {erroCarga && <p role="alert">{erroCarga}</p>}
         {!situacao && !erroCarga && <p aria-live="polite">Carregando…</p>}
         {situacao && !situacao.ativo && <>
-            <p role="status">O cadastro de novas empresas ainda não está aberto. Fale com a Kidmais para começar.</p>
+            <p role="status">O cadastro de novas empresas ainda não está aberto. Fale com a equipe iA.Fest para começar.</p>
             <p><Link href="/planos">Conheça os planos</Link> · <Link href="/admin/login">Já tenho conta</Link></p>
         </>}
         {situacao?.ativo && (enviado ? <>

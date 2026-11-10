@@ -103,3 +103,17 @@ export function skillsEmpresaAtivas(env: Ambiente) {
 export function operacionalAtivo(env: Ambiente) {
   return inteligenciaAtiva(env) && env.AI_OPERACIONAL_ENABLED === "true";
 }
+
+/** Serviços web de STAGING que podem dispensar a cota de importação (lista fechada no código; plano rev. 2, R2-2). */
+export const SERVICOS_DISPENSA_COTA_IMPORTACAO: readonly string[] = Object.freeze(["srv-daif418ae00c73e8k2gg"]);
+
+/**
+ * A cota de leitura de documentos (L2, migration 118) é obrigatória por padrão: sem as tabelas, a leitura é recusada com
+ * COTA_INDISPONIVEL antes de qualquer trabalho caro. A única dispensa é IMPORTACAO_COTA_DISPENSADA com valor IGUAL ao
+ * RENDER_SERVICE_ID (que o Render injeta), num serviço da lista de staging acima e com RENDER=true. Copiada para outro serviço,
+ * não vale. NODE_ENV não é consultado. A dispensa só cobre a AUSÊNCIA das tabelas: com a 118 presente, a cota vale sempre.
+ */
+export function cotaImportacaoDispensada(env: Ambiente) {
+  const servico = env.RENDER_SERVICE_ID?.trim();
+  return env.RENDER === "true" && !!servico && env.IMPORTACAO_COTA_DISPENSADA === servico && SERVICOS_DISPENSA_COTA_IMPORTACAO.includes(servico);
+}

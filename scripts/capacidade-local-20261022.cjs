@@ -87,7 +87,7 @@ async function main() {
     servidor=spawn(process.execPath,['--require',path.resolve('scripts/capacidade-local-sonda.cjs'),'node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(WEB)],{env,stdio:['ignore',logs,logs],windowsHide:true});
     async function req(url,s=sessoes[0],body) {
       return new Promise((resolve,reject)=>{
-        const request=http.request({hostname:'127.0.0.1',port:WEB,path:url,method:body?'POST':'GET',headers:{host:'capacidade.example.test','x-forwarded-host':'capacidade.example.test','x-forwarded-proto':'https',origin:ORIGEM,cookie:s.cookie,
+        const request=http.request({hostname:'127.0.0.1',port:WEB,path:url,method:body?'POST':'GET',headers:{host:'capacidade.example.test','x-forwarded-host':'capacidade.example.test','x-forwarded-proto':'https',origin:ORIGEM,cookie:s.cookie,'x-kidmais-financeiro-versao':'2',
           'x-csrf-token':s.csrf,'x-kidmais-sessao':s.id,'content-type':'application/json'}},r=>{
           let bytes=0; r.on('data',b=>bytes+=b.length); r.on('error',reject); r.on('end',()=>resolve({status:r.statusCode,bytes}));
         });

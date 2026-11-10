@@ -1951,7 +1951,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               </div>
 
               {cotacaoEstado === 'carregando' && <p role="status">Calculando o preço da sua festa…</p>}
-              {cotacaoEstado === 'erro' && <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>}
+              {cotacaoEstado === 'erro' && erro !== cotacaoAtual?.erro && <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>}
               {referenciaTabela != null && cotacaoAtual?.dados && (
                 <div className={styles.priceReference}>
                   <span>Preço da tabela para sua festa</span>
@@ -2984,7 +2984,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 <Summary
                   label="Origem do fechamento"
-                  value={origemInterna ? "Atendimento Kidmais" : "Cliente"}
+                  value={origemInterna ? (marca.kidmais ? "Atendimento Kidmais" : "Atendimento do buffet") : "Cliente"}
                 />
                 <Summary label="Pacote" value={pacote?.nome || "-"} />
                 {salaoPreferido ? (

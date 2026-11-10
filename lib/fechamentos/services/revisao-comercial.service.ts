@@ -116,7 +116,7 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
       dadosDepois: { status: fechamento.status, decisaoId: decisao.id, condicaoPagamento: condicao } }, tx);
     if (f.clienteId) await registrarEventoHistorico({ clienteId: f.clienteId, clienteOrigemId: f.clienteId,
       tipoEvento: "REVISAO_COMERCIAL_REGISTRADA", origem: context.origem, entidadeTipo: "FECHAMENTO", entidadeId: id,
-      detalhe: aprovada ? "Condição comercial aprovada pela Kidmais." : "Condição comercial recusada pela Kidmais.",
+      detalhe: aprovada ? "Condição comercial aprovada pelo buffet." : "Condição comercial recusada pelo buffet.",
       metadata: { decisaoId: decisao.id } }, tx);
     return { fechamento, decisao, reutilizada: false };
   };

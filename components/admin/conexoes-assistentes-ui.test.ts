@@ -10,7 +10,7 @@ import type { PedidoTela } from './ConsentimentoAssistente';
 const semRede = () => { throw new Error('Rede proibida neste teste.'); };
 const dubles = {
     'workspace.module.css': {}, 'admin.module.css': {}, 'visual.module.css': {}, 'conexoes-assistentes.module.css': {},
-    'http/admin-fetch': { adminFetch: semRede }, 'components/admin/sair': { sairDaSessao: semRede },
+    'http/admin-fetch': { adminFetch: semRede, lerCorpoOuNulo: (r: Response) => r.json().catch(() => null), mensagemDoEndereco: () => null }, 'components/admin/sair': { sairDaSessao: semRede },
 };
 const cache = new Map<string, Record<string, unknown>>();
 const modulo = carregarModulo('components/admin/ConexoesAssistentes.tsx', dubles, cache) as {

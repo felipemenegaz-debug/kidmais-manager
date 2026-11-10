@@ -10,7 +10,7 @@ const {createHash, randomBytes, randomUUID} = require('node:crypto');
 const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assinatura-staging-ensaio.cjs');
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const ARQUIVO = DIR + '/pagamento-rodada-3.json';
 const SINAL_NAVEGADOR = DIR + '/pagamento-rodada-3-fim-navegador';
@@ -135,7 +135,7 @@ function cpfSintetico() {
     }
 }
 
-const URL_WEBHOOK = BASE + '/api/integracoes/asaas/webhook';
+const URL_WEBHOOK = require('./alvo-staging.cjs').ORIGEM_WEBHOOK_STAGING + '/api/integracoes/asaas/webhook';
 
 /**
  * O que a rodada comprovadamente criou, só a partir do estado gravado ANTES de cada criação:
@@ -309,7 +309,7 @@ async function main() {
         const pedir = async (caminho, method = 'GET', body, extras = {}) => {
             assert.ok(caminho.startsWith('/api/admin/'));
             const res = await fetch(BASE + caminho, {method, redirect:'error', signal:AbortSignal.timeout(60000),
-                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
+                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', 'x-kidmais-financeiro-versao':'2', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
             cookies(res.headers, jar); const j = await res.json().catch(() => ({})); return {status:res.status, j};
         };
         const post = async (caminho, body) => { const s = (await pedir('/api/admin/autenticacao')).j.data ?? {};

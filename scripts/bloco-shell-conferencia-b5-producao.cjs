@@ -6,14 +6,17 @@
 // sha256 (só o corpo conferido imprime CODIGO_SAIDA_BLOCO=0), destino físico sem links, partes ≤ 40 KB, T zerado antes do
 // trap, `builtin unset -v C T` na abertura, trap ERR com o motivo. Unificar os dois geradores depois do aceite do B-4 é
 // pendência registrada. Diferenças: só leitura — sem APLICAR, sem backup, sem registro em disco persistente.
-//   - PARTE-k-DE-N: transporta os 15 arquivos (gzip+base64, sha256 conferido) para
+//   - PARTE-k-DE-N: transporta os 28 arquivos (gzip+base64, sha256 conferido) para
 //     /opt/render/project/src/.kidmais-conferencia-b5-producao/.partes/<sha256>. Não conecta ao banco;
-//   - CONFERIR-B5 (E1): monta a pasta própria e roda `--conferir-b5` (estados + B-15 + Fundador; lê o Asaas só por GET);
-//   - CONFERIR-B5-ESTADO (E2c): idem com `--conferir-b5-estado` (identidade e estados; 091/094 têm de estar ausentes);
+//   - CONFERIR-B5-COM-CONTA e CONFERIR-B5-SEM-CONTA (E1): montam a pasta própria e rodam `--conferir-b5` (estados 089–118,
+//     combinados, matriz, B-15 reescopado e Fundador SEM provedor, §9.2.7) com o ramo do provedor rotulado no próprio bloco
+//     (revisão Astra r1, P2-D): cola-se só o do ramo que o registro SEPARADO da §9.2.2 confirmar (conta Asaas Demerzel existe
+//     = COM-CONTA, a referência). Nenhum dos dois consulta o provedor; as ASAAS_* são retiradas do ambiente do node;
+//   - CONFERIR-B5-ESTADO (E2c): idem com `--conferir-b5-estado` (identidade, estados, combinados e matriz; 091/094 ausentes);
 //   - LIMPEZA: remove só arquivos e partes cujo sha confere; nunca o deploy nem data/.
 // Fim esperado: CODIGO_SAIDA_BLOCO=<n> (0 CONFERIDO, 1 recusa antes de conectar, 2 FALHA, 3 PARAR; 4 bloco). Outro código ou
 // ausência da linha = parar e ler; prompt `>` depois de colar = Ctrl-C e colar o MESMO bloco.
-//   node scripts/bloco-shell-conferencia-b5-producao.cjs <PARTE-k|CONFERIR-B5|CONFERIR-B5-ESTADO|LIMPEZA> <rotulo-da-arvore>
+//   node scripts/bloco-shell-conferencia-b5-producao.cjs <PARTE-k|CONFERIR-B5-COM-CONTA|CONFERIR-B5-SEM-CONTA|CONFERIR-B5-ESTADO|LIMPEZA> <rotulo-da-arvore>
 //   node scripts/bloco-shell-conferencia-b5-producao.cjs TODOS <rotulo-da-arvore> <pasta-de-saida>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -27,13 +30,25 @@ const NOME_DESTINO = '.kidmais-conferencia-b5-producao';
 const DESTINO = DEPLOY + '/' + NOME_DESTINO;
 const SERVICO = 'srv-dak77m2d0e5s73b8rkkg';
 const LIMITE_PARTE = 40000;
-const CARGA_PARTE = 26000;
+const CARGA_PARTE = 31000;
 const SOBRA_POR_ARQUIVO = 320;
 const AGREGADOR = 'scripts/conferencia-b5-producao.cjs';
+/**
+ * Ramo do provedor declarado no E1 (§9.2.7), um bloco rotulado por ramo (revisão Astra r1, P2-D): o gerador não escolhe.
+ * Referência: a conta Asaas Demerzel existe (memória 02/11) ⇒ COM-CONTA; o SEM-CONTA existe para o registro separado da
+ * §9.2.2 que disser o contrário. Os dois só declaram: nenhum consulta o provedor.
+ */
+const RAMOS_BLOCO = Object.freeze({'CONFERIR-B5-COM-CONTA': 'com-conta', 'CONFERIR-B5-SEM-CONTA': 'sem-conta'});
 const EXECUCOES = Object.freeze({
-  'CONFERIR-B5': {args: b5.FLAG_COMPLETO, etapa: 'E1'},
+  ...Object.fromEntries(Object.entries(RAMOS_BLOCO).map(([modo, ramo]) => [modo, {args: b5.FLAG_COMPLETO, etapa: 'E1', ramo}])),
   'CONFERIR-B5-ESTADO': {args: b5.FLAG_ESTADO, etapa: 'E2c'},
 });
+/** As ASAAS_* saem do ambiente do node (defesa em profundidade: o agregador nem as lê, §9.2.4 L1). */
+const SEM_ASAAS = 'env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE';
+/** Contrato TS da 109 (capacidadeRenovacao), conferido por sha256 (n109.CONTRATO) e importado com --experimental-strip-types. */
+const CONTRATO_109 = Object.freeze(['lib/assinatura/renovacao-schema.ts', 'lib/assinatura/renovacao-schema-retratos.ts']);
+/** Integridade de catálogo da 105 (revisão Astra r2, A): o arquivo revisado do aplicador, conferido pelo sha256 de ETAPAS. */
+const INTEGRIDADE_105 = b5.INTEGRIDADE_105[1];
 const FIXOS = Object.freeze([...Object.keys(EXECUCOES), 'LIMPEZA']);
 
 /**
@@ -45,7 +60,8 @@ const FIXOS = Object.freeze([...Object.keys(EXECUCOES), 'LIMPEZA']);
 const MODULOS_108 = Object.freeze(['scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs',
   'scripts/migration-107-definicoes.cjs']);
 function arquivos() {
-  return [AGREGADOR, 'scripts/migration-092-094-production.cjs', ...b5.MIGRACOES.map(([, m]) => m.replace('./', 'scripts/')), ...MODULOS_108];
+  const nucleos = [...b5.MIGRACOES, ...b5.AMPLIADAS].map(([, m]) => m.replace('./', 'scripts/'));
+  return [...new Set([AGREGADOR, 'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-production.cjs', ...nucleos, ...MODULOS_108, ...CONTRATO_109, INTEGRIDADE_105])];
 }
 const sha = b => createHash('sha256').update(b).digest('hex');
 function ler(raiz, arquivo) {
@@ -57,13 +73,16 @@ const seguro = s => { assert.match(s, /^[A-Za-z0-9_./-]+$/, 'CAMINHO_INSEGURO');
 const b64 = buf => zlib.gzipSync(buf, {level: 9}).toString('base64').match(/.{1,76}/g);
 function distribuir(raiz = path.resolve(__dirname, '..')) {
   const lista = arquivos().map(a => { const b = ler(raiz, a); return {arquivo: seguro(a), sha: sha(b), b64: b64(b)}; });
+  // Primeiro encaixe, do maior para o menor (determinístico; empate pela ordem da lista): menos partes para colar com 28 arquivos.
   const partes = [];
-  for (const x of lista) {
-    const tam = x.b64.join('\n').length + SOBRA_POR_ARQUIVO;
+  const ordem = lista.map((x, i) => ({x, i, tam: x.b64.join('\n').length + SOBRA_POR_ARQUIVO})).sort((a, b) => b.tam - a.tam || a.i - b.i);
+  for (const {x, tam} of ordem) {
     assert.ok(tam < CARGA_PARTE, 'ARQUIVO_MAIOR_QUE_A_PARTE ' + x.arquivo);
-    if (!partes.length || partes.at(-1).carga + tam > CARGA_PARTE) partes.push({carga: 0, itens: []});
-    partes.at(-1).itens.push(x); partes.at(-1).carga += tam;
+    let p = partes.find(q => q.carga + tam <= CARGA_PARTE);
+    if (!p) partes.push(p = {carga: 0, itens: []});
+    p.itens.push(x); p.carga += tam;
   }
+  for (const p of partes) p.itens.sort((a, b) => lista.indexOf(a) - lista.indexOf(b));
   lista.forEach(x => { x.parte = partes.findIndex(p => p.itens.includes(x)) + 1; });
   return {lista, partes};
 }
@@ -86,17 +105,19 @@ function cabecalho(modo, n, rotulo) {
   const nome = /^PARTE-\d+$/.test(modo) ? `${modo}-DE-${n}` : modo;
   const exige = 'Exige as PARTES 1..' + n + ' coladas antes (nesta mesma instancia). Monta a pasta propria (efemera) e roda a conferencia DELA.';
   const titulo = {
-    'CONFERIR-B5': ['SOMENTE LEITURA - E1 (autorizacao A1). ' + exige,
-      'Roda --conferir-b5: estados de 089-097, 099 e 100, combinados 098/108 (B-21: so catalogo; so AUSENTE passa), DV legado (B-15)',
-      'e Fundador (le o Asaas so por GET).',
-      'Saida sem ids, documentos, e-mails ou valores. Codigo 3 = PARAR com motivos nomeados.'],
+    ...Object.fromEntries(Object.entries(RAMOS_BLOCO).map(([modo, ramo]) => [modo, ['SOMENTE LEITURA - E1 (autorizacao A1). ' + exige,
+      'Roda --conferir-b5: estados de 089-118 (prefixo antes do E3: base 088 + 099 + 105), combinados 098/108 (B-21),',
+      'matriz da 9.2.2 por contagens (REPEATABLE READ READ ONLY), B-15 reescopado e Fundador sem provedor (nada lido do Asaas).',
+      `RAMO DO PROVEDOR DECLARADO NESTE BLOCO: ${ramo.toUpperCase()}. Colar so se o registro SEPARADO da 9.2.2 (painel ou declaracao)`,
+      `confirmar ${ramo === 'com-conta' ? 'que a conta Asaas Demerzel existe' : 'que NAO ha conta Asaas'}; senao, colar o bloco do outro ramo. Nunca os dois.`,
+      'Saida sem ids, documentos, e-mails ou valores. Codigo 2 = FALHA (consulta/leitura), 3 = PARAR com motivos nomeados.']])),
     'CONFERIR-B5-ESTADO': ['SOMENTE LEITURA - E2c (autorizacao A2c). ' + exige,
-      'Roda --conferir-b5-estado: identidade, estados e combinados 098/108 (B-21: so AUSENTE passa); 091 e 094 tem de estar ausentes.',
-      'Nao le documentos nem o Asaas.'],
+      'Roda --conferir-b5-estado: identidade, estados 089-118, combinados 098/108 (B-21) e matriz; 091 e 094 tem de estar ausentes.',
+      'Nao le documentos, Fundador nem o Asaas.'],
     LIMPEZA: ['Remove da pasta propria so arquivos e partes cujo sha256 confere, e as pastas vazias; nunca arquivos do deploy nem',
       'o disco persistente. Nao conecta ao banco. Opcional: a pasta propria some no proximo deploy.'],
   }[modo] ?? [`TRANSPORTE ${modo}-DE-${n}: grava parte da conferencia B-5 em .partes/ (sha256 conferido). Nao conecta ao banco.`,
-    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-B5 (E1) ou CONFERIR-B5-ESTADO (E2c).'];
+    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-B5-COM-CONTA ou -SEM-CONTA (E1) ou CONFERIR-B5-ESTADO (E2c).'];
   return ['#!/usr/bin/env bash',
     `# BLOCO-SHELL-CONFERENCIA-B5-PRODUCAO-${nome} - Web Shell do ${SERVICO} (kidmais-manager-production). Colar inteiro, uma vez, e Enter.`,
     ...titulo.map(t => '# ' + t),
@@ -150,7 +171,8 @@ function corpo({modo, raiz = path.resolve(__dirname, '..'), destino = DESTINO, d
     L.push('find . -mindepth 1 -depth -type d -empty -delete 2>/dev/null || true', 'cd "$P"',
       `rmdir '${c.nome}' 2>/dev/null && echo "PASTA_REMOVIDA" || echo "PASTA_MANTIDA (arquivos divergentes preservados)"`, 'echo LIMPEZA_FIM');
   } else {
-    const cmd = comando === undefined ? `NODE_PATH='${c.deploy}/node_modules' node ${AGREGADOR} ${execucao.args}` : comando;
+    const ramo = execucao.ramo ? `KIDMAIS_B5_RAMO_PROVEDOR=${execucao.ramo} ` : '';
+    const cmd = comando === undefined ? `${SEM_ASAAS} ${ramo}NODE_PATH='${c.deploy}/node_modules' node --experimental-strip-types ${AGREGADOR} ${execucao.args}` : comando;
     L.push('falta=0', 'tem() { [ -f ".partes/$1" ] && [ "$(h ".partes/$1")" = "$1" ] || { echo "PARTE_AUSENTE_OU_DIVERGENTE $2 (colar a PARTE-$3)"; falta=1; }; }');
     for (const x of lista) L.push(`tem ${x.sha} ${x.arquivo} ${x.parte}`);
     L.push(`[ "$falta" = 0 ] || { echo "MONTAGEM_RECUSADA: colar as partes indicadas (1..${n}) e repetir este bloco"; exit 4; }`,
@@ -205,4 +227,4 @@ if (require.main === module) {
     }
   } catch (e) { console.error('RECUSADO ' + String(e?.message ?? e).slice(0, 160)); process.exitCode = 1; }
 }
-module.exports = {DEPLOY, DESTINO, NOME_DESTINO, ABERTURA_CARREGADOR, SERVICO, AGREGADOR, EXECUCOES, FIXOS, LIMITE_PARTE, arquivos, totalPartes, distribuir, modos, caminhos, corpo, gerar, nomeArquivo};
+module.exports = {DEPLOY, DESTINO, NOME_DESTINO, ABERTURA_CARREGADOR, SERVICO, AGREGADOR, EXECUCOES, RAMOS_BLOCO, SEM_ASAAS, CONTRATO_109, FIXOS, LIMITE_PARTE, arquivos, totalPartes, distribuir, modos, caminhos, corpo, gerar, nomeArquivo};

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
+import { ClienteServiceError } from "../../clientes/services/errors.ts";
 import { buscarPacoteVigenteDaEmpresaPorCodigo, listarPacotesContrataveisDaEmpresa } from "../../comercial/repositories/comercial.repository.ts";
 import { lerPrecosCorrentes } from "../../comercial/pacote-precos.ts";
 import { nomePublicoDaEmpresa } from "../../perfil/nome-publico.ts";
@@ -94,7 +95,7 @@ export async function pacotesDisponiveis(tx: DbExecutor, empresaId: string) {
 
 /** Rascunho inicial a partir do cadastro APLICADO (nome comercial, endereço e contatos da unidade). Nada é publicado. */
 export async function rascunhoInicial(tx: DbExecutor, empresaId: string): Promise<ConteudoSite> {
-  const nome = (await nomePublicoDaEmpresa(tx, empresaId)) ?? "Nosso buffet";
+  const nome = (await nomePublicoDaEmpresa(tx, empresaId, { propagarErroDeBanco: true })) ?? "Nosso buffet";
   const base = conteudoVazio(nome);
   try {
     const perfil = await perfilDoTenantOuNulo(tx, empresaId);
@@ -115,8 +116,9 @@ export async function rascunhoInicial(tx: DbExecutor, empresaId: string): Promis
         if (ok.success) return ok.data;
       }
     }
-  } catch {
-    // Perfil ausente/ambíguo: rascunho só com o nome. Nada de outra empresa.
+  } catch (erro) {
+    // Perfil ausente/ambíguo: rascunho só com o nome. Nada de outra empresa. Falha de SQL sobe: a transação já está abortada.
+    if (!(erro instanceof ClienteServiceError)) throw erro;
   }
   return base;
 }

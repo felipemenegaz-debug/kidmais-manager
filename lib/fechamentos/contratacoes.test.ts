@@ -14,8 +14,8 @@ const comContrato = { ...fechamento, contratoId: 'contrato-sintetico', contratoS
 
 for (const [edicaoEstado, documentoRevisado, situacao, acao] of [
     ['EM_ELABORACAO', false, 'Revisão em elaboração', 'Abrir contrato'],
-    ['EM_ELABORACAO', true, 'Aguardando assinatura da Kidmais', 'Assinar pela Kidmais'],
-    ['ASSINADA_KIDMAIS', true, 'Assinado pela Kidmais', 'Abrir contrato'],
+    ['EM_ELABORACAO', true, 'Aguardando assinatura do buffet', 'Assinar pelo buffet'],
+    ['ASSINADA_KIDMAIS', true, 'Assinado pelo buffet', 'Abrir contrato'],
     ['AGUARDANDO_CLIENTE', true, 'Aguardando assinatura do cliente', 'Abrir contrato'],
 ] as const) test(`V2 ${edicaoEstado}/${documentoRevisado} prevalece sobre contrato ASSINADO`, () => {
     const row = { ...comContrato, contratoStatus: 'ASSINADO', versaoId: 'v2', edicaoEstado, documentoRevisado };
@@ -44,8 +44,8 @@ test('aprovação e fechamento sem contrato abrem revisão sem UUID manual', () 
 });
 for (const [edicaoEstado, documentoRevisado, situacao] of [
     ['EM_ELABORACAO', false, 'Contrato em elaboração'],
-    ['EM_ELABORACAO', true, 'Aguardando assinatura da Kidmais'],
-    ['ASSINADA_KIDMAIS', true, 'Assinado pela Kidmais'],
+    ['EM_ELABORACAO', true, 'Aguardando assinatura do buffet'],
+    ['ASSINADA_KIDMAIS', true, 'Assinado pelo buffet'],
     ['AGUARDANDO_CLIENTE', true, 'Aguardando assinatura do cliente'],
 ] as const) test(`edição ${situacao} abre contrato existente`, () => {
     const item = classificarContratacao({ ...comContrato, edicaoEstado, documentoRevisado })!;

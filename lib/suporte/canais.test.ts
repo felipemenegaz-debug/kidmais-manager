@@ -20,7 +20,7 @@ test('canais: e-mail e WhatsApp válidos viram links', () => {
     const c = canaisSuporte({ SITE_ATENDIMENTO_EMAIL: ' suporte@exemplo.com.br ', SITE_ATENDIMENTO_WHATSAPP: '+55 61 99999-0000', SITE_ATENDIMENTO_HORARIO: 'Seg a sex, 9h às 18h' });
     assert.equal(c.configurado, true);
     assert.equal(c.email, 'suporte@exemplo.com.br');
-    assert.equal(c.emailHref, 'mailto:suporte@exemplo.com.br?subject=Suporte%20Kidmais%20Manager');
+    assert.equal(c.emailHref, 'mailto:suporte@exemplo.com.br?subject=Suporte%20iA.Fest');
     assert.match(c.whatsappHref ?? '', /^https:\/\/wa\.me\/5561999990000\?text=/);
     assert.equal(c.whatsapp, '+55 61 99999-0000');
     assert.equal(c.horario, 'Seg a sex, 9h às 18h');
@@ -113,7 +113,7 @@ test('página de ajuda: canais configurados viram links; sem canais, orientaçã
     const whatsapp = elementos(com).find((e) => e.type === 'CodigoSuporte' && e.props.numero);
     assert.match(String(whatsapp?.props.hrefSemCodigo), /^https:\/\/wa\.me\/5561999990000\?text=/);
     assert.equal(whatsapp?.props.numero, '+55 61 99999-0000');
-    assert(links.includes('mailto:suporte@exemplo.com.br?subject=Suporte%20Kidmais%20Manager'));
+    assert(links.includes('mailto:suporte@exemplo.com.br?subject=Suporte%20iA.Fest'));
     assert(links.includes('/admin/inicio') && links.includes('/admin/assinatura') && links.includes('/admin/perfil'));
     assert.match(texto(com), /Horário de atendimento: Seg a sex, 9h às 18h/);
     assert.match(texto(com), /nunca pede a sua senha/);

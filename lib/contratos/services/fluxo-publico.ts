@@ -1,3 +1,4 @@
+import { marcaDoContratoNaTransacao } from '../marca-contrato';
 import { buscarRevisaoDaVersao } from '../../fechamentos/repositories/revisao.repository';
 import { concluirPreparacao } from '../../fechamentos/services/revisao-operacional.service';
 import { aplicarRevisaoInicial } from './revisao-inicial';
@@ -55,7 +56,7 @@ export async function versaoPublicaId(contratoId: string, tx: DbExecutor = db())
     }
     if (f.versao_vigente_id)
         return f.versao_vigente_id;
-    conflito('Contrato ainda não liberado pela Kidmais.');
+    conflito('Contrato ainda não liberado pelo buffet.');
 }
 export async function registrarPendenciasDaVigencia(tx: DbExecutor, v: ContratoVersaoRecord, anterior: string | null) {
     return detectarPendenciasFinanceiras(tx,v,anterior);
@@ -71,7 +72,7 @@ export async function concluirFluxoCliente(tx: DbExecutor, v: ContratoVersaoReco
         conflito('Versão não liberada para aceite.');
     const d = await lerDocumento(e.documento_revisado_id, tx);
     const identity = { schemaVersao: 1, clienteId: v.snapshot.contratante.clienteId, nome: v.snapshot.contratante.nomeCompleto };
-    const proof = await guardarDocumento(tx, { versaoId: v.id, categoria: 'COMPROVANTE_ASSINATURA', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: 'COMPROVANTE_INTERNO_V1', usuarioId: null, pdf: comprovantePdf({ versao: v, parte: 'CLIENTE', identidade: identity, instante: v.assinadoEm!, pdfHash: d.pdf_hash, metodo: 'OTP' }) });
+    const proof = await guardarDocumento(tx, { versaoId: v.id, categoria: 'COMPROVANTE_ASSINATURA', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: 'COMPROVANTE_INTERNO_V1', usuarioId: null, pdf: comprovantePdf({ versao: v, parte: 'CLIENTE', identidade: identity, instante: v.assinadoEm!, pdfHash: d.pdf_hash, metodo: 'OTP', marca: await marcaDoContratoNaTransacao(tx, v.contratoId) }) });
     await tx.query(`INSERT INTO contrato_assinaturas(contrato_versao_id,parte,documento_id,validacao_identidade_id,identidade_snapshot,snapshot_hash,pdf_hash,metodo,provider,assinado_em,ip,user_agent,request_id,chave_idempotencia,comprovante_documento_id)
   VALUES($1,'CLIENTE',$2,$3,$4,$5,$6,'OTP','INTERNAL',$7,$8,$9,$10,$11,$12)`, [v.id, d.id, validacaoId, identity, v.snapshotHash, d.pdf_hash, v.assinadoEm, context.ip ?? null, context.userAgent ?? null, context.requestId ?? randomUUID(), validacaoId, proof.id]);
     const f = (await tx.query<{

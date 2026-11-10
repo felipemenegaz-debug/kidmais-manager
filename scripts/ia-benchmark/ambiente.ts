@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../../lib/db/contracts.ts";
+import { posicaoSimulada } from "../../lib/financeiro/titulo-simulado.ts";
 import { ClienteServiceError } from "../../lib/clientes/services/errors.ts";
 import { FestaError } from "../../lib/festas/domain.ts";
 import { InteligenciaError } from "../../lib/inteligencia/politica.ts";
@@ -155,7 +156,7 @@ function banco(violacoes: Violacoes) {
         return r(FIXTURE.contratos.flatMap((ct) => (FIXTURE.financeiro[ct.id]?.parcelas ?? []).map((pa) => {
           const cli = FIXTURE.clientes.find((x) => x.id === ct.cliente);
           const f = FIXTURE.festas.find((x) => x.contrato === ct.id && x.empresa === EMPRESA_A && x.data >= "2026-09-30");
-          return { id: `${ct.id.slice(0, 30)}${String(pa.numero).padStart(6, "0")}`, pagamento_id: ct.id, numero: pa.numero, valor: (pa.valor / 100).toFixed(2), vencimento: pa.vencimento, status_gravado: "PENDENTE", cliente: cli?.nome ?? "Cliente", festa_id: f?.id ?? null, pacote: "Premium", data_evento: ct.data, recebido: (pa.recebido / 100).toFixed(2), forma: "PIX" };
+          return { id: `${ct.id.slice(0, 30)}${String(pa.numero).padStart(6, "0")}`, pagamento_id: ct.id, numero: pa.numero, valor: (pa.valor / 100).toFixed(2), vencimento: pa.vencimento, status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: cli?.nome ?? "Cliente", festa_id: f?.id ?? null, pacote: "Premium", data_evento: ct.data, recebido: (pa.recebido / 100).toFixed(2), forma: "PIX" };
         })));
       }
       // Relações do contrato antes das festas: a consulta tem uma subconsulta em festas.

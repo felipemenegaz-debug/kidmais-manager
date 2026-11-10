@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import { interpretarPergunta } from './perguntas';
 import { consultarAtencaoHoje, continuacaoValida, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type ContinuacaoUI, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
 import {
@@ -21,7 +22,7 @@ export function usePerguntarKidmais() {
 }
 
 /**
- * Drawer global "Perguntar ao Kidmais".
+ * Drawer global "Perguntar ao Copiloto".
  *
  * - "O que precisa da minha atenção hoje?" sem tela específica continua no endpoint da V1 (só a flag-mestra).
  * - O resto vai ao orquestrador do servidor, que decide: leitura, rascunho sob Human Gate ou "ainda não".
@@ -84,7 +85,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
           setMensagens((h) => registrarPedidoSeguinte(h, idSeguinte, resultado));
         }
         // Navegação pedida explicitamente, com destino único da lista fechada (revalidado aqui): abre a tela.
-        if (!abortar.signal.aborted && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
+        if (!abortar.signal.aborted && !enderecoFinal() && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
           router.push(resultado.resposta.destino);
           // Com um segundo pedido, a conversa continua aberta sobre a tela aberta (a revisão não o apaga nem esconde).
           if (!manterAberto) fechar();
@@ -131,7 +132,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   </Contexto.Provider>;
 }
 
-export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Kidmais', aoAbrir }: { className?: string; children?: React.ReactNode; aoAbrir?(): void }) {
+export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Copiloto', aoAbrir }: { className?: string; children?: React.ReactNode; aoAbrir?(): void }) {
   const assistente = usePerguntarKidmais();
   if (!assistente) return null;
   return <button type="button" className={`${className ?? ''} ${visual.assistente}`} data-km-assistente aria-haspopup="dialog" onClick={() => { aoAbrir?.(); assistente.abrir(); }}>{children}</button>;

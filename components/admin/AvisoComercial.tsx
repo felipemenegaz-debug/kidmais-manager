@@ -36,7 +36,7 @@ export function textoComercial(c: ComercialCliente): { tom: 'info' | 'alerta'; t
         if (c.motivo === 'CANCELADA_NO_PERIODO')
             return { tom: 'info', texto: `Assinatura cancelada. O acesso completo continua até ${quando}.` };
         if (c.motivo === 'EXCECAO_COMERCIAL')
-            return { tom: 'info', texto: `Acesso liberado pela Kidmais até ${quando}.` };
+            return { tom: 'info', texto: `Acesso liberado pela equipe iA.Fest até ${quando}.` };
         return null;
     }
     if (c.nivel === 'SOMENTE_LEITURA')

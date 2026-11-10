@@ -313,6 +313,12 @@ Regra: toda ação comercial altera **somente** os eixos comerciais da empresa a
 
 ## 8. Plano técnico (entregas pequenas e verificáveis)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Esta proposta de 06/10 não é roteiro vigente. Lançamento, venda e a tarefa agendada de E11 estão bloqueados em production.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Cada entrega em clone e branch próprios a partir de `staging`, com migration separada quando houver, testes no PostgreSQL descartável e autorização explícita para aplicar migrations e publicar.
 
 | # | Entrega | Conteúdo | Verificação |

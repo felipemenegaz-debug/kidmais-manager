@@ -29,6 +29,7 @@ const { baixarRecebimentoNoTenant } = exigir(resolve(root, "lib/financeiro/baixa
   baixarRecebimentoNoTenant: (
     tx: Executor,
     tenant: Tenant,
+    hoje: string,
     input: { parcelaId: string; valor: number; data: string; forma: "PIX"; chave: string },
     context: { token: string; usuarioId: string; origem: string; requestId: string },
   ) => Promise<unknown>;
@@ -268,7 +269,7 @@ test("a rota de baixa usa o token e confirma auditoria na mesma transação", { 
     const sessaoTenant = { usuario_id: usuarioA, papel: "REPRESENTANTE_AUTORIZADO" as const };
     await assert.rejects(
       () => withTenantTransaction(sessaoTenant, null, async (tx, tenant) => {
-        await baixarRecebimentoNoTenant(tx, tenant, { parcelaId: parcela, valor: 40, data: "2026-09-01", forma: "PIX", chave: randomUUID() }, contexto);
+        await baixarRecebimentoNoTenant(tx, tenant, "2026-12-31", { parcelaId: parcela, valor: 40, data: "2026-09-01", forma: "PIX", chave: randomUUID() }, contexto);
         await tx.query(`UPDATE memberships SET status = 'REVOGADA' WHERE id = $1::uuid`, [tenant.membershipId]);
       }),
       (error: unknown) => recusaTenant(error),
@@ -276,7 +277,7 @@ test("a rota de baixa usa o token e confirma auditoria na mesma transação", { 
     assert.deepEqual(await contar(), { recebimentos: 0, auditorias: 0 });
     await assert.rejects(
       () => withTenantTransaction(sessaoTenant, null, async (tx, tenant) => {
-        await baixarRecebimentoNoTenant(tx, tenant, { parcelaId: parcela, valor: 40, data: "2026-09-01", forma: "PIX", chave: randomUUID() }, contexto);
+        await baixarRecebimentoNoTenant(tx, tenant, "2026-12-31", { parcelaId: parcela, valor: 40, data: "2026-09-01", forma: "PIX", chave: randomUUID() }, contexto);
         await tx.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [tenant.empresaComprovada]);
       }),
       (error: unknown) => recusaTenant(error),

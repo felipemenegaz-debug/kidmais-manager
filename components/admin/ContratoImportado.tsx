@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import type { ContratoImportadoDetalhe } from '@/lib/contratos/importados';
 import { MENSAGEM_SEM_ACESSO } from './contrato-url';
 import IntegracaoContrato from './importacao/IntegracaoContrato';
@@ -32,7 +33,7 @@ export default function ContratoImportado({ importacaoId }: { importacaoId: stri
     let ativo = true;
     adminFetch(`/api/admin/contratos/painel?importacaoId=${encodeURIComponent(importacaoId)}`).then(async (r) => ({ status: r.status, corpo: await r.json() })).then(({ status, corpo }) => {
       if (!ativo) return;
-      if (corpo.ok && corpo.data?.integrado === true && typeof corpo.data.contratoId === 'string') { router.replace(`/admin/contratos?contratoId=${encodeURIComponent(corpo.data.contratoId)}`, { scroll: false }); return; }
+      if (corpo.ok && corpo.data?.integrado === true && typeof corpo.data.contratoId === 'string') { if (!enderecoFinal()) router.replace(`/admin/contratos?contratoId=${encodeURIComponent(corpo.data.contratoId)}`, { scroll: false }); return; }
       if (corpo.ok) setDados(corpo.data as ContratoImportadoDetalhe);
       else setErro(status === 404 || status === 403 ? MENSAGEM_SEM_ACESSO : corpo.erro || 'Não foi possível carregar o contrato importado.');
     }).catch(() => { if (ativo) setErro('Não foi possível carregar o contrato importado.'); });
@@ -59,7 +60,7 @@ export default function ContratoImportado({ importacaoId }: { importacaoId: stri
       </div>
     </header>
 
-    {integrando && <IntegracaoContrato importacaoId={dados.id} onIntegrado={({ contratoId }) => router.replace(`/admin/contratos?contratoId=${encodeURIComponent(contratoId)}`, { scroll: false })} />}
+    {integrando && <IntegracaoContrato importacaoId={dados.id} onIntegrado={({ contratoId }) => { if (!enderecoFinal()) router.replace(`/admin/contratos?contratoId=${encodeURIComponent(contratoId)}`, { scroll: false }); }} />}
 
     <section className={styles.card} aria-labelledby="importado-evento">
       <h2 id="importado-evento">Evento</h2>

@@ -44,7 +44,7 @@ export async function atenderOperacao(pedido: PedidoGateway, deps: DependenciasO
     } catch (error) {
       pedidoInvalido(error);
     }
-    if (!deps.acoes) throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Kidmais ainda não estão disponíveis neste ambiente.", 503);
+    if (!deps.acoes) throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Copiloto ainda não estão disponíveis neste ambiente.", 503);
     const modulo = deps.acoes;
     const resultado = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
       rastreio.empresaId = tenant.empresaComprovada;

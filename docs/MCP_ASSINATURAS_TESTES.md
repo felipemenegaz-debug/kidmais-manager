@@ -1084,3 +1084,30 @@ Verificação local na candidata final, Node 22.23.2:
 - Mutantes na cópia isolada (`mutantes-mcp-exp-r21.cjs`): 75/75 MORTOS, todos por falha efetiva; 0 inconclusivos e 0 não aplicados. Os 13 com oráculo declarado morreram por ele. O r14 agora morre pelos dois testes do prazo; os 5 cancelamentos que sobram ficam registrados como não efetivos.
 
 Não exercidos: banco real, sessão real, ChatGPT e Claude reais, código expirado de verdade, SQL da métrica e homologação. A seleção da PR continua com 30 arquivos.
+
+### Fusão com staging afeef387: troca de endereço (F2a) × espera da troca de empresa (10/11/2026)
+
+A candidata aprovada na 19ª revisão (commit a924a75d, base 308dba9b) conflitou com `origin/staging` afeef387. O commit 00bc84ee (F2a, troca de endereço do iA.Fest) reescreveu `lib/http/admin-fetch.ts` e tocou `ConsentimentoAssistente.tsx`. Foram 7 blocos no adminFetch e 2 no consentimento. A fusão mantém os dois desenhos.
+
+Regras da resolução em `lib/http/admin-fetch.ts`:
+- Falha da leitura da sessão ganha `status` (HTTP, do F2a) e `local`. É local a falha decidida no próprio adminFetch: troca desta página pendente, prazo da espera da troca, releitura que cruzou outra troca, e cancelamento pelo sinal. Falha local não chama `decidirFalhaSessao`, então não consulta `/api/endereco-atual` nem conta no prazo da troca de host. Falha HTTP ou de rede de verdade continua consultando; 401 nunca consulta (`falhaDoServidor`).
+- O estado final do endereço vale antes de qualquer ramo: `pararAntesDoEnvio` logo depois da confirmação prévia e `pararSeEnderecoFinal` logo depois da posterior, antes do 401, da sessão encerrada e do descarte.
+- A reserva da ordem dos envios (`reservarEnvio`, `novoEnvio`) vem depois das conferências sem await antes do fetch. Assim um pedido barrado pela troca de empresa ou pelo cancelamento não ocupa posição.
+- O descarte usa `origemDoResultado` do F2a, e a troca desta página pendente continua sem navegar (`descartarPagina`). Leitura confirmada e cancelada não é entregue; a escrita entregue passa por `protegerResposta` com o aviso da última escrita.
+
+Na tela, o consentimento e a lista de conexões leem o corpo com `lerCorpoOuNulo` e mostram `mensagemDoEndereco` no lugar do aviso genérico. Na abertura do pedido, essa mensagem não é recuperável, porque é preciso atualizar a página. `conexoes-leitura.ts` recebe as duas funções injetadas (padrão: corpo ilegível vira nulo, sem mensagem), para continuar testável sem o adminFetch.
+
+Testes novos:
+- `lib/http/admin-fetch-endereco-troca.test.ts`, 5 testes com os módulos reais (`admin-fetch`, `contexto-empresa-cliente`, `enderecos/cliente`) e a aba armada. O controle mostra que 403 de verdade consulta. Prazo da troca depois do POST, troca pendente na prévia e cancelamento na prévia e na posterior não consultam, não navegam e não enviam além do esperado. O relógio anda 31 s depois de armar, porque uma consulta mais nova que 30 s é reaproveitada e o oráculo "não consultou" ficaria vazio.
+- `conexoes-leitura.test.ts`: a mensagem do endereço vale na leitura e ao desconectar; sem ela injetada, o aviso genérico continua.
+- `consentimento-mcp-ui.test.ts`: o pedido aberto durante a troca de host devolve a mensagem do endereço, não recuperável. A resposta falsa dos quatro testes da troca durante a leitura do corpo ganhou `headers` e os leitores que o adminFetch do F2a envolve. Nenhum oráculo mudou.
+
+Controles negativos, em cópia isolada: (1) `falhaDoServidor` ignorando `local` derruba os testes do prazo e da troca pendente na prévia; (2) sem os lançamentos do cancelamento e com o catch não local, caem os dois testes do cancelamento. No mutante 1, os dois testes do cancelamento continuam passando, porque o cancelamento é tratado antes; o `local` ali é defesa em profundidade.
+
+Verificação local na fusão, Node 22.23.2:
+
+- Testes sem PostgreSQL (75 arquivos, incluindo os de `lib/enderecos`, `components/desenvolvedor` e `components/festas`, que vieram de staging): 872/872 com `--test-concurrency=1` e 872/872 em paralelo, 0 cancelados.
+- `tsc` e `git diff --check` (rastreados e novos): sem erros. ESLint nos TS/TSX alterados: 0 erros e 1 aviso, que já existia em staging (`contrato-tela-interacao.test.ts`, #235).
+- `next build` com código 0, `next-env.d.ts` restaurado. Chrome com APIs simuladas sobre o build (`prova-merge-consentimento.cjs`, mesmos cenários da r20): 28/28, desktop e celular de 375 px.
+
+Não exercidos: banco real, sessão real, troca de host real, ChatGPT e Claude reais, homologação.

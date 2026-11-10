@@ -5,7 +5,7 @@ import workspace from '@/components/admin/workspace.module.css';
 import estilos from '@/components/admin/conexoes-assistentes.module.css';
 import { EXEMPLOS_POR_ESCOPO, GUIAS, GUIA_CONFERIDO_EM, LISTA_ASSISTENTES, ORDEM_ESCOPOS, ORIENTACOES, PERGUNTA_PRIMEIRA_CONSULTA, ROTULO_ESCOPO } from '@/components/admin/conexoes-assistentes-guia';
 import { avisosDaVista, criarControladorDeConexoes, vistaInicial, type ControladorDeConexoes, type VistaConexoes } from '@/components/admin/conexoes-leitura';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, lerCorpoOuNulo, mensagemDoEndereco } from '@/lib/http/admin-fetch';
 import { assistenteDoCliente, conexaoDoCartao, explicarFalha, formatarDataHora, SITUACAO_NAO_CONFIRMADA, situacaoDaConexao, type AssistenteId, type ConexaoComEvidencias, type Situacao } from '@/lib/integracoes/oauth/situacao-conexao';
 
 /**
@@ -318,7 +318,7 @@ export default function ConexoesAssistentes() {
     // Leitura e Desconectar ficam em conexoes-leitura.ts: uma leitura por vez, com prazo, cancelada ao sair da tela.
     const controlador = useRef<ControladorDeConexoes | null>(null);
     useEffect(() => {
-        const c = criarControladorDeConexoes<Estado>({ buscar: adminFetch, publicar: setVista });
+        const c = criarControladorDeConexoes<Estado>({ buscar: adminFetch, publicar: setVista, lerCorpo: lerCorpoOuNulo, mensagemDoEndereco });
         controlador.current = c;
         c.iniciar();
         // Quem volta da aba do assistente vê a situação atual sem precisar clicar. Só relê o que já está registrado.

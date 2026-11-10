@@ -79,12 +79,13 @@ test('leitura mais longa que o intervalo: voltar à janela ainda não sobrepõe'
 type E = { conexoes: string[] };
 const lista = (...conexoes: string[]) => Response.json({ ok: true, data: { conexoes } });
 const espera = (ms = 0) => new Promise((r) => setTimeout(r, ms));
-function controlador(respostas: Array<() => Promise<Response> | Response>, prazoMs = 1000, esperaRevogacaoMs = 1000) {
+function controlador(respostas: Array<() => Promise<Response> | Response>, prazoMs = 1000, esperaRevogacaoMs = 1000, mensagemDoEndereco?: (e: unknown) => string | null) {
     const pedidos: Array<{ metodo: string; signal: AbortSignal | null }> = [];
     const publicadas: Array<VistaConexoes<E>> = [];
     const c = criarControladorDeConexoes<E>({
         prazoMs,
         esperaRevogacaoMs,
+        mensagemDoEndereco,
         publicar: (v) => { publicadas.push(v); },
         buscar: async (_url, init = {}) => {
             pedidos.push({ metodo: init.method ?? 'GET', signal: init.signal ?? null });
@@ -330,4 +331,28 @@ test('outro pedido entrar em espera não apaga o erro já mostrado', async () =>
     assert.deepEqual(t.ultima().emEspera, ['b']);
     assert.equal(t.ultima().erroRevogacao, 'Recusado.');
     t.c.encerrar();
+});
+
+const ENDERECO = Object.assign(new Error('O iA.Fest mudou de endereço. Atualize a página.'), { tipo: 'ENDERECO_EM_VERIFICACAO' });
+const doEndereco = (e: unknown) => e === ENDERECO ? ENDERECO.message : null;
+
+test('troca de host (F2a): a mensagem do endereço vale no lugar do aviso de rede na leitura', async () => {
+    const t = controlador([() => { throw ENDERECO; }], 1000, 1000, doEndereco);
+    t.c.iniciar();
+    await espera();
+    assert.equal(t.ultima().erroLeitura, ENDERECO.message);
+});
+
+test('troca de host (F2a): a mensagem do endereço vale no lugar de "Resultado incerto" ao desconectar', async () => {
+    const t = controlador([() => { throw ENDERECO; }, () => lista('c1')], 1000, 1000, doEndereco);
+    await t.c.revogar('c1');
+    await espera();
+    assert.equal(t.ultima().erroRevogacao, ENDERECO.message);
+});
+
+test('sem a mensagem do endereço injetada, falha de rede continua com o aviso genérico', async () => {
+    const t = controlador([() => { throw ENDERECO; }, () => lista('c1')]);
+    await t.c.revogar('c1');
+    await espera();
+    assert.match(t.ultima().erroRevogacao, /Resultado incerto/);
 });

@@ -17,6 +17,7 @@
  * Resend reentrega depois. Com o aviso em REVISAO, a próxima execução do processador suspende a geração em vez de
  * aumentar o preço. Nenhum e-mail, destinatário ou corpo do evento é gravado ou registrado em log.
  */
+import { cobrancaDestravada } from './trava-cobranca.ts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { CorpoInvalido, lerCorpoLimitado } from './webhook-asaas.ts';
@@ -150,8 +151,12 @@ export async function receberWebhookResend(request: Request, deps: DepsWebhookRe
     const idExterno = evento.data?.email_id;
     if (typeof idExterno !== 'string' || !/^[A-Za-z0-9._:-]{1,120}$/.test(idExterno))
         return resposta(400);
-    const resultado = await deps.withTransaction((tx) => registrarFalhaEntrega(tx, { idExterno, motivo, eventoId: cabecalhos.id! }));
-    if (resultado === 'OCUPADO')
+    const resultado = await deps.withTransaction(async (tx) => {
+        if (!await cobrancaDestravada(tx, 'webhook Resend', deps.env))
+            return 'TRAVADA' as const;
+        return registrarFalhaEntrega(tx, { idExterno, motivo, eventoId: cabecalhos.id! });
+    });
+    if (resultado === 'OCUPADO' || resultado === 'TRAVADA')
         return resposta(503);
     if (resultado === 'ESTADO_NAO_ELEGIVEL' || resultado === 'AMBIGUO' || resultado === 'AVISO_NAO_ELEGIVEL')
         console.warn(`[Resend webhook] falha de entrega de aviso não aplicada: ${resultado}.`);

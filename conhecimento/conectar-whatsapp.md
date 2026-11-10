@@ -10,7 +10,7 @@ Se você não vê essa opção no menu, peça a quem tem acesso de Gestão na em
 
 - Um número que já use o **WhatsApp Business App** no celular.
 - O login da Meta (Facebook) da pessoa que administra o WhatsApp Business da empresa.
-- A sua senha do Kidmais, para confirmar que é você.
+- A sua senha do iA.Fest, para confirmar que é você.
 
 O número continua funcionando normalmente no WhatsApp Business App depois da conexão.
 
@@ -23,17 +23,17 @@ O número continua funcionando normalmente no WhatsApp Business App depois da co
 5. Se o celular pedir, confirme no WhatsApp Business App.
 6. Aguarde a mensagem de validação. Ao final, a tela mostra o nome verificado e o número conectado.
 
-Depois de conectar, a tela avisa que a conta e o número foram conferidos e que o envio e o recebimento de mensagens pelo Kidmais serão ativados numa próxima etapa.
+Depois de conectar, a tela avisa que a conta e o número foram conferidos e que o envio e o recebimento de mensagens pelo iA.Fest serão ativados numa próxima etapa.
 
 ## Problemas comuns
 
-- **A janela da Meta não abriu:** o navegador pode ter bloqueado o pop-up. Libere pop-ups para o Kidmais e tente de novo.
+- **A janela da Meta não abriu:** o navegador pode ter bloqueado o pop-up. Libere pop-ups para o iA.Fest e tente de novo.
 - **A preparação expirou:** confirme a senha e clique em **Preparar conexão** outra vez.
 - **A autorização não foi concluída na Meta:** a janela foi fechada antes do fim. Recomece pelo passo 1.
 - **A conta tem mais de um número do WhatsApp Business App:** a Meta não deixa claro qual conectar. Deixe só o número desejado nessa conta e tente de novo.
 - **A Meta não respondeu a tempo:** espere alguns instantes e repita.
 - **A autorização não concedeu os acessos necessários:** refaça a conexão e aceite todas as permissões pedidas pela Meta.
-- **A conexão com a Meta ainda não está disponível:** o botão fica desativado. Use o link **Fale com o suporte da Kidmais** na própria tela, ou a [Ajuda](/admin/ajuda).
+- **A conexão com a Meta ainda não está disponível:** o botão fica desativado. Use o link **Fale com o suporte do iA.Fest** na própria tela, ou a [Ajuda](/admin/ajuda).
 
 ## Como desconectar
 
@@ -41,4 +41,4 @@ Depois de conectar, a tela avisa que a conta e o número foram conferidos e que 
 2. Digite sua senha em **Confirme sua senha**.
 3. Clique em **Desconectar**.
 
-O Kidmais deixa de usar o número, mas o WhatsApp Business App continua funcionando. Depois você pode conectar outro número.
+O iA.Fest deixa de usar o número, mas o WhatsApp Business App continua funcionando. Depois você pode conectar outro número.
