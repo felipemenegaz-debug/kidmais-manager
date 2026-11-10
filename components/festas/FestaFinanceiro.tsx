@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { escolherParcelaAberta, reaisDe } from '@/lib/financeiro/calculos';
+import { escolherParcelaAberta, hojeBrasilia, reaisDe } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import styles from './festa.module.css';
 import { PixParcela } from '@/components/admin/PixParcela';
@@ -13,6 +13,7 @@ type Resumo = {
   /** false quando o plano não inclui contas a pagar: sem despesas, custos, margem nem caixa. Ausente = incluído. */
   despesasIncluidas?: boolean;
   custosCentavos: number | null;
+  custosLancados?: boolean | null;
   margemEstimadaCentavos: number | null;
   resultadoCaixaCentavos: number | null;
   recebimentos: Array<{ id: string; parcela: number; vencimento: string; valorCentavos: number; status: string }>;
@@ -92,10 +93,10 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
 
   async function despesa(form: FormData) {
     const envio = confirmarAcao(acaoRef.current);
-    if (!envio) return;
+    if (!envio?.chave) return;
     aplicar(envio);
     try {
-      const corpo = await (await adminFetch(`/api/admin/festas/${festaId}/financeiro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ descricao: String(form.get('descricao')), categoriaId: String(form.get('categoriaId')), valor: Number(form.get('valor')), vencimento: String(form.get('vencimento')), favorecido: String(form.get('favorecido') || '') }) })).json();
+      const corpo = await (await adminFetch(`/api/admin/festas/${festaId}/financeiro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chave: envio.chave, descricao: String(form.get('descricao')), categoriaId: String(form.get('categoriaId')), valor: Number(form.get('valor')), vencimento: String(form.get('vencimento')), favorecido: String(form.get('favorecido') || '') }) })).json();
       if (!corpo.ok) { setAviso(corpo.erro || 'Não foi possível adicionar a despesa.'); aplicar(finalizarAcao(acaoRef.current, 'erro')); return; }
       aplicar(finalizarAcao(acaoRef.current, 'sucesso'));
       setAberto(null);
@@ -115,6 +116,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     <p>A receber {reaisDe(dados.aReceberCentavos)}</p>
     {dados.custosCentavos !== null && <p>Custos {reaisDe(dados.custosCentavos)}</p>}
     {dados.margemEstimadaCentavos !== null && <p>Margem estimada {reaisDe(dados.margemEstimadaCentavos)}</p>}
+    {dados.margemEstimadaCentavos === null && dados.custosLancados === false && <p>Margem estimada: custos não lançados</p>}
     {dados.resultadoCaixaCentavos !== null && <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>}
     <h3>Recebimentos</h3>
     {dados.recebimentos.length === 0 && <p>Nenhuma parcela nesta festa.</p>}
@@ -132,7 +134,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     {aberto === 'receber' && <form aria-busy={enviando} onSubmit={(evento) => { evento.preventDefault(); void receber(new FormData(evento.currentTarget)); }}>
       <label>Parcela<select name="parcelaId" required aria-label="Parcela" value={parcelaId} onChange={(evento) => setParcelaId(evento.target.value)}>{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').length !== 1 && <option value="">Escolha a parcela</option>}{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').map((item) => <option key={item.id} value={item.id}>Parcela {item.parcela} · {reaisDe(item.valorCentavos)}</option>)}</select></label>
       <label>Valor<input name="valor" type="number" min="0.01" step="0.01" required aria-label="Valor recebido" /></label>
-      <label>Data<input name="data" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} aria-label="Data" /></label>
+      <label>Data<input name="data" type="date" required defaultValue={hojeBrasilia()} aria-label="Data" /></label>
       <label>Forma<select name="forma" aria-label="Forma de pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="TRANSFERENCIA">Transferência</option></select></label>
       {aviso && <p role="alert">{aviso}</p>}
       <button className={styles.cta} type="submit" disabled={enviando}>{enviando ? 'Processando…' : 'Confirmar'}</button>

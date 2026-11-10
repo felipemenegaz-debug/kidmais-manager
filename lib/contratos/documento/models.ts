@@ -1,4 +1,5 @@
 import type { ContratoSnapshot } from "../repositories";
+import type { MarcaContrato } from "../marca-contrato.ts";
 
 export const CONTRATO_DOCUMENTO_TEMPLATE_ATUAL = 1 as const;
 
@@ -16,6 +17,8 @@ export type ContratoDocumentoRenderizado = {
   homologadoParaProducao: boolean;
   titulo: string;
   linhas: ContratoDocumentoLinha[];
+  /** Buffet do documento. Ausente = identidade histórica da Kidmais; quem gera para um contrato sempre informa. */
+  marca?: MarcaContrato;
 };
 
 export type GerarDocumentoContratoInput = {
@@ -23,4 +26,5 @@ export type GerarDocumentoContratoInput = {
   numeroVersao: number;
   snapshotHash: string;
   templateVersao?: ContratoDocumentoTemplateVersao;
+  marca?: MarcaContrato;
 };

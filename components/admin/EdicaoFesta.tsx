@@ -24,6 +24,8 @@ type Contexto = {
     resumo: ResumoComercial | null;
     erroPreco: string | null;
     incluidos: string[];
+    /** Correção antes da assinatura: aceita horário fora das opções do período (intervalo exato conferido no servidor). */
+    horarioPersonalizado?: boolean;
 };
 export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, serverError }: {
     versaoId: string;
@@ -33,6 +35,8 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
     onClose: () => void;
 }) {
     const [ctx, setCtx] = useState<Contexto | null>(null), [form, setForm] = useState<EdicaoFestaInput | null>(null), [erro, setErro] = useState(''), [busy, setBusy] = useState(false), [calculando, setCalculando] = useState(false);
+    /** null = decidir pelo horário gravado (fora das opções do período ⇒ personalizado). */
+    const [foraPadrao, setForaPadrao] = useState<boolean | null>(null);
     const [descontoGravado, setDescontoGravado] = useState<{ forma: string; percentual?: number } | null>(null);
     const [comercial, setComercial] = useState(false), [forma, setForma] = useState<'PIX_AVISTA' | 'PIX_PARCELADO' | 'CARTAO_CIELO'>('CARTAO_CIELO'), [base, setBase] = useState(''), [entrada, setEntrada] = useState(''), [parcela, setParcela] = useState(''), [quantidade, setQuantidade] = useState('');
     const url = `/api/admin/contratos/versoes/${versaoId}/edicao`;
@@ -77,6 +81,10 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
     const vinculos=form.vinculos??{clienteId:ctx.fonte.fechamento.clienteId??'',aniversarianteId:ctx.fonte.fechamento.aniversarianteId??'',responsavelAdicionalId:ctx.fonte.fechamento.responsavelAdicionalId};
     const pacote = ctx.pacotes.find(p => p.pacote.id === form.pacoteId)?.pacote;
     const periodo = ctx.disponibilidade.periodos.find(p => p.configuracaoId === form.configuracaoAgendaId);
+    const noPeriodo = periodo?.horarios.some(h => h.inicio === form.horarioInicio && h.fim === form.horarioFim) === true;
+    const personalizado = ctx.horarioPersonalizado === true && (foraPadrao ?? !noPeriodo);
+    const fimAntesDoInicio = personalizado && !(form.horarioFim > form.horarioInicio);
+    const faixaPadrao = periodo?.horarios.length ? `${periodo.horarios[0].inicio}–${periodo.horarios[periodo.horarios.length - 1].fim}` : '';
     const duplicados = form.adicionais.filter(a => ctx.incluidos.includes(a.codigo));
     const preservarHistorico = preservarPrecoHistorico(ctx.fonte.fechamento, form, ctx.fonte.adicionais, form.adicionais, comercial);
     const preco = preservarHistorico ? ctx.fonte.fechamento.valorTabela : ctx.resumo?.valorTotalTabela;
@@ -88,7 +96,8 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
                 return;
             setBusy(true);
             try {
-                const body = { ...form, ...(comercial ? { comercial: { confirmarAprovacao: true, forma, baseNegociada: base || null, condicaoPix: forma === 'PIX_PARCELADO' ? { entrada: entrada || null, valorParcela: parcela || null, quantidadeParcelas: quantidade ? Number(quantidade) : null } : null } } : {}) };
+                if (fimAntesDoInicio) { setErro('O fim do horário precisa ser depois do início.'); return; }
+                const body = { ...form, horarioPersonalizado: personalizado ? true : undefined, ...(comercial ? { comercial: { confirmarAprovacao: true, forma, baseNegociada: base || null, condicaoPix: forma === 'PIX_PARCELADO' ? { entrada: entrada || null, valorParcela: parcela || null, quantidadeParcelas: quantidade ? Number(quantidade) : null } : null } } : {}) };
                 if (await onSave(body))
                     onClose();
             }
@@ -106,7 +115,9 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
   <label>Tema<input value={form.temaFesta} onChange={e => patch({ temaFesta: e.target.value })}/></label>
   <label>Data da festa<input required type="date" value={form.dataEvento} onChange={e => patch({ dataEvento: e.target.value })}/></label>
   <label>Período<select aria-label="Período" value={form.configuracaoAgendaId} onChange={e => patch({ configuracaoAgendaId: e.target.value })}>{!ctx.disponibilidade.periodos.some(p => p.configuracaoId === form.configuracaoAgendaId) && <option value={form.configuracaoAgendaId}>Horário atual da festa (não oferecido agora)</option>}{ctx.disponibilidade.periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId}>{p.nome}</option>)}</select></label>
-  <label>Horário<select aria-label="Horário" value={form.horarioInicio + '|' + form.horarioFim} onChange={e => { const [horarioInicio, horarioFim] = e.target.value.split('|'); patch({ horarioInicio, horarioFim }); }}><option value={form.horarioInicio + '|' + form.horarioFim}>{form.horarioInicio}–{form.horarioFim} (selecionado)</option>{periodo?.horarios.map(h => <option disabled={h.status !== 'DISPONIVEL'} key={h.inicio} value={h.inicio + '|' + h.fim}>{h.inicio}–{h.fim} · {h.status}</option>)}</select></label></div><p>Disponibilidade será conferida novamente ao salvar. Consulte a situação da reserva e da proteção provisória no painel da revisão.</p></fieldset></details>
+  <label>Horário<select aria-label="Horário" value={personalizado ? 'outro' : form.horarioInicio + '|' + form.horarioFim} onChange={e => { if (e.target.value === 'outro') { setForaPadrao(true); return; } setForaPadrao(false); const [horarioInicio, horarioFim] = e.target.value.split('|'); patch({ horarioInicio, horarioFim }); }}>{!personalizado && <option value={form.horarioInicio + '|' + form.horarioFim}>{form.horarioInicio}–{form.horarioFim} (selecionado)</option>}{periodo?.horarios.map(h => <option disabled={h.status !== 'DISPONIVEL'} key={h.inicio} value={h.inicio + '|' + h.fim}>{h.inicio}–{h.fim} · {h.status}</option>)}{ctx.horarioPersonalizado && <option value="outro">Outro horário (fora do padrão)…</option>}</select></label>
+  {personalizado && <><label>Início<input aria-label="Início" required type="time" value={form.horarioInicio} onChange={e => patch({ horarioInicio: e.target.value })}/></label><label>Fim<input aria-label="Fim" required type="time" aria-invalid={fimAntesDoInicio} value={form.horarioFim} onChange={e => patch({ horarioFim: e.target.value })}/></label></>}</div>
+  {personalizado && <p role="note" className={styles.avisoHorario}>Fora do horário padrão do pacote{faixaPadrao ? ` (${faixaPadrao})` : ''}. Ao salvar, a agenda confere se bate com outra festa ou bloqueio; o contrato sai com {form.horarioInicio}–{form.horarioFim}. Informe o motivo da alteração.{fimAntesDoInicio ? ' O fim precisa ser depois do início.' : ''}</p>}<p>Disponibilidade será conferida novamente ao salvar. Consulte a situação da reserva e da proteção provisória no painel da revisão.</p></fieldset></details>
   <details open><summary>Pacote e convidados</summary><fieldset disabled={busy}><div className={styles.grid}><label>Pacote<select aria-label="Pacote" value={form.pacoteId} onChange={e => patch({ pacoteId: e.target.value, buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '', buffetDoces: '', buffetBolo: '', buffetOutros: '', buffetLembrancinha: '', buffetEmpratado: '', buffetBombom: '' })}>{!ctx.pacotes.some(p => p.pacote.id === form.pacoteId) && <option value={form.pacoteId}>Pacote do contrato importado</option>}{ctx.pacotes.map(p => <option key={p.pacote.id} value={p.pacote.id} disabled={p.elegibilidade !== 'DISPONIVEL'}>{p.pacote.nome} · {p.elegibilidade}</option>)}</select></label>
   <label>Convidados pagantes<input required type="number" min={preservarHistorico ? 1 : pacote?.convidadosMinimos ?? 1} max={preservarHistorico ? 5000 : pacote?.convidadosMaximos ?? 150} step="1" value={form.convidados} onChange={e => patch({ convidados: Number(e.target.value) })}/></label></div><div className={styles.actions}>{atalhosConvidados(pacote?.convidadosMinimos ?? 1, pacote?.convidadosMaximos ?? 150).map(n => <button type="button" key={n} onClick={() => patch({ convidados: n })}>{n}</button>)}</div><p>Você também pode digitar a quantidade manualmente.</p></fieldset></details>
   <details><summary>Adicionais</summary>{!ctx.catalogo && <p>Catálogo de adicionais indisponível para esta data. Os adicionais contratados serão preservados: {form.adicionais.length ? form.adicionais.map(a => `${a.codigo} (${a.quantidade})`).join(", ") : "nenhum"}.</p>}<fieldset disabled={busy}><p>Informe somente quantidades extras. A Festa Premium já inclui 4 bombons, que não devem ser cobrados novamente.</p><div className={styles.grid}>{(ctx.catalogo?.itens ?? []).map(a => { const selecionado = form.adicionais.find(x => x.codigo === a.codigo), incluido = ctx.incluidos.includes(a.codigo); return <div key={a.codigo}><label><input type="checkbox" checked={!!selecionado} disabled={incluido && !selecionado} onChange={e => patch({ adicionais: e.target.checked ? [...form.adicionais, { codigo: a.codigo, quantidade: 1 }] : form.adicionais.filter(x => x.codigo !== a.codigo) })}/>{a.nome}{incluido ? ' · contém item incluído' : ''}</label>{selecionado && <label>Quantidade de {a.nome}<input type="number" min={a.unidadeCobranca === "UNIDADE" ? 1 : 0.01} step={a.unidadeCobranca === "UNIDADE" ? 1 : 0.01} value={selecionado.quantidade} onChange={e => patch({ adicionais: form.adicionais.map(x => x.codigo === a.codigo ? { ...x, quantidade: Number(e.target.value) } : x) })}/></label>}</div>; })}</div>{duplicados.length > 0 && <p role="alert">Remova os adicionais já incluídos no pacote antes de salvar.</p>}</fieldset></details>

@@ -1,3 +1,4 @@
+import { exigirCobrancaDestravada } from '../assinatura/trava-cobranca.ts';
 import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -148,6 +149,7 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
     const input = operacaoSchema.parse(raw);
     const notificacao = { withTransaction: deps.withTransaction as never, env: process.env, enviarEmail: deps.enviarEmail === undefined ? criarEnviarEmail() : deps.enviarEmail };
     return comPosCommit(deps.withTransaction, async (tx, depois) => {
+        await exigirCobrancaDestravada(tx, 'operarComercial');
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         const empresa = (await tx.query<{ status: string; codigo: string }>('SELECT status, codigo FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
         if (!empresa)

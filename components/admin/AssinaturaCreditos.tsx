@@ -34,12 +34,12 @@ type RespostaPedido = { protocolo: string; estado: string; urlPagamento: string 
 const FORMA: Record<Forma, string> = { PIX: 'Pix', CARTAO: 'Cartão (na página segura do Asaas)', BOLETO: 'Boleto' };
 const ESTADO: Record<string, string> = {
     CRIACAO_EM_CURSO: 'Gerando cobrança', CRIACAO_INCERTA: 'Confirmando a cobrança com o Asaas', FALHOU_CRIACAO: 'Cobrança não criada (nada cobrado)',
-    AGUARDANDO_PAGAMENTO: 'Pagamento em confirmação', VENCIDO: 'Prazo de pagamento terminou', CREDITADO: 'Créditos liberados', REVISAO: 'Em conferência pela equipe Kidmais',
+    AGUARDANDO_PAGAMENTO: 'Pagamento em confirmação', VENCIDO: 'Prazo de pagamento terminou', CREDITADO: 'Créditos liberados', REVISAO: 'Em conferência pela equipe iA.Fest',
     ENCERRADO: 'Encerrado sem cobrança',
 };
 const DEVOLUCAO: Record<string, string> = {
-    AGUARDANDO_MANUAL: 'registrada: em processamento pela equipe Kidmais', EM_CURSO: 'em andamento', SOLICITADO: 'enviada ao Asaas',
-    SEM_CONFIRMACAO: 'em conferência pela equipe Kidmais', RECUSADO: 'em processamento pela equipe Kidmais', CONCLUIDO: 'concluída',
+    AGUARDANDO_MANUAL: 'registrada: em processamento pela equipe iA.Fest', EM_CURSO: 'em andamento', SOLICITADO: 'enviada ao Asaas',
+    SEM_CONFIRMACAO: 'em conferência pela equipe iA.Fest', RECUSADO: 'em processamento pela equipe iA.Fest', CONCLUIDO: 'concluída',
 };
 const ORIGEM: Record<string, string> = { FRANQUIA: 'Franquia do mês', COMPRA: 'Pacote comprado', CORTESIA: 'Cortesia', LEGADO: 'Saldo do mês (modelo anterior)' };
 const TIPO_EXTRATO: Record<string, string> = { CREDITO: 'Entrada', RESERVA: 'Reservado', LIBERACAO: 'Devolvido ao saldo', CONSUMO: 'Usado', BLOQUEIO: 'Bloqueado',
@@ -183,7 +183,7 @@ export function CreditosIA({ recurso, children }: { recurso: Recurso; children?:
         </div>}
         {devolucaoFeita && <div role="status" data-devolucao-resultado data-protocolo={devolucaoFeita.protocolo} style={{ border: '1px solid currentColor', borderRadius: 12, padding: 12 }}>
             <p style={{ marginTop: 0 }}><strong>Devolução registrada.</strong> Protocolo: <strong>{devolucaoFeita.protocolo}</strong>. Valor: {reais(devolucaoFeita.valorCentavos)}.</p>
-            <p>{devolucaoFeita.estado === 'AGUARDANDO_MANUAL' ? `A equipe Kidmais faz a restituição até ${dataIso(devolucaoFeita.prazo)}${devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? ', sem desconto de taxas' : ''}.`
+            <p>{devolucaoFeita.estado === 'AGUARDANDO_MANUAL' ? `A equipe iA.Fest faz a restituição até ${dataIso(devolucaoFeita.prazo)}${devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? ', sem desconto de taxas' : ''}.`
                 : devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'A restituição foi enviada ao Asaas, sem desconto de taxas.' : `O processamento começa até ${dataIso(devolucaoFeita.prazo)}.`} O crédito depende do meio de pagamento. Situação: {DEVOLUCAO[devolucaoFeita.estado] ?? devolucaoFeita.estado}.</p>
         </div>}
 

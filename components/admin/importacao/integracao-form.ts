@@ -50,6 +50,8 @@ export type ParcelaForm = { chave: string; valor: string; vencimento: string; re
 export type FormIntegracao = {
   cadastro: CadastroContratual;
   aniversariante: string;
+  /** Cadastro escolhido na revisão quando o cliente tem mais de um aniversariante com nome equivalente. */
+  aniversarianteId: string;
   formaPagamento: "" | "PIX_AVISTA" | "PIX_PARCELADO" | "CARTAO_CIELO";
   situacaoContrato: keyof typeof SITUACAO_CONTRATO_ROTULO | '';
   estabelecimentoId: string;
@@ -98,6 +100,7 @@ export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ i
   return {
     cadastro: formularioCadastro(o.cliente?.cadastro),
     aniversariante: o.documento?.aniversariante ?? '',
+    aniversarianteId: '',
     formaPagamento: '',
     situacaoContrato: '',
     estabelecimentoId: o.estabelecimentos.length === 1 ? o.estabelecimentos[0].id : '',
@@ -244,6 +247,8 @@ export function decisoesDoForm(f: FormIntegracao, s: Sugestao) {
   return {
     cadastro,
     aniversariante: f.aniversariante,
+    // Ausente sem escolha: o payload e o hash continuam os de antes.
+    ...(f.aniversarianteId ? { aniversarianteId: f.aniversarianteId } : {}),
     formaPagamento: f.formaPagamento || null,
     situacaoContrato: f.situacaoContrato,
     estabelecimentoId: f.estabelecimentoId || null,

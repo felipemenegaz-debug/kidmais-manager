@@ -6,7 +6,7 @@ import { hashPayload } from "./hash.ts";
 import type { RepositorioOperacoes } from "./tipos.ts";
 
 /**
- * Revisão OFICIAL da contratação preparada pelo Kidmais (IA operacional, marco C).
+ * Revisão OFICIAL da contratação preparada pelo Copiloto (IA operacional, marco C).
  *
  * - Abrir a revisão (`lerPreparacao`) só LÊ: dono, empresa, cliente, estado, versão e prazo revalidados; nenhuma escrita.
  * - Concluir o formulário oficial com a referência (`criarVinculo`) passa pela MESMA criação do Fechamento administrativo,
@@ -49,13 +49,13 @@ const integra = (d: HumanGateDraft) => hashPayload({ capacidade: d.capacidade, f
 
 /** Leitura para ABRIR a revisão preenchida. Sem escrita; qualquer divergência ⇒ formulário vazio com o motivo. */
 export async function lerPreparacao(repositorio: RepositorioOperacoes, tx: DbExecutor, operacaoId: string, escopo: Escopo): Promise<PreparacaoRevisao> {
-  if (!await repositorio.disponivel(tx)) return { disponivel: false, motivo: "Preparações do Kidmais indisponíveis neste ambiente." };
+  if (!await repositorio.disponivel(tx)) return { disponivel: false, motivo: "Preparações do Copiloto indisponíveis neste ambiente." };
   const conferido = conferir(await repositorio.buscar(tx, { operacaoId, empresaId: escopo.empresaId, usuarioId: escopo.usuarioId }, false), escopo);
   if (typeof conferido === "string") return { disponivel: false, motivo: conferido };
   const { draft, payload } = conferido;
   if (draft.estado === "EXECUTADA") return { disponivel: false, motivo: "Esta preparação já virou um Fechamento. Confira a contratação no CRM." };
-  if (draft.estado !== "AGUARDANDO_CONFIRMACAO") return { disponivel: false, motivo: "Esta preparação foi encerrada ou ainda está incompleta no Kidmais." };
-  if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) return { disponivel: false, motivo: "Esta preparação expirou. Peça de novo ao Kidmais ou preencha o formulário." };
+  if (draft.estado !== "AGUARDANDO_CONFIRMACAO") return { disponivel: false, motivo: "Esta preparação foi encerrada ou ainda está incompleta no Copiloto." };
+  if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) return { disponivel: false, motivo: "Esta preparação expirou. Peça de novo ao Copiloto ou preencha o formulário." };
   if (!integra(draft)) return { disponivel: false, motivo: "Preparação não encontrada." };
   return {
     disponivel: true,
@@ -119,8 +119,8 @@ export function criarVinculo(
       if (draft.versao !== ref.versao || draft.payloadHash !== ref.payloadHash || !integra(draft)) {
         throw new InteligenciaError("PREPARACAO_DESATUALIZADA", "A preparação mudou depois que esta revisão foi aberta. Recarregue a revisão.", 409);
       }
-      if (draft.estado !== "AGUARDANDO_CONFIRMACAO") throw new InteligenciaError("PREPARACAO_ENCERRADA", "Esta preparação foi encerrada. Envie sem ela ou peça uma nova ao Kidmais.", 409);
-      if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) throw new InteligenciaError("PREPARACAO_EXPIRADA", "A preparação expirou. Envie sem ela ou peça uma nova ao Kidmais.", 409);
+      if (draft.estado !== "AGUARDANDO_CONFIRMACAO") throw new InteligenciaError("PREPARACAO_ENCERRADA", "Esta preparação foi encerrada. Envie sem ela ou peça uma nova ao Copiloto.", 409);
+      if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) throw new InteligenciaError("PREPARACAO_EXPIRADA", "A preparação expirou. Envie sem ela ou peça uma nova ao Copiloto.", 409);
       const mesmosDados = ctx.input.pacote === payload.pacote && ctx.input.convidadosPagantes === payload.convidados && ctx.input.dataFesta === payload.data;
       // O horário do envio é o da preparação: o mesmo almoço/noite ou o mesmo horário resolvido pela agenda da empresa.
       const agenda = mesmosDados ? await porta.horarios(tx, ctx.empresaId, payload.data, payload.turno, codigoBancoDoPacote(payload.pacote) ?? undefined) : null;
@@ -131,7 +131,7 @@ export function criarVinculo(
         const pacote = await porta.pacote(tx, ctx.empresaId, codigoBancoDoPacote(payload.pacote) ?? "");
         const atual = pacote && agenda ? await porta.precoTabela(tx, ctx.empresaId, { data: payload.data, configuracaoAgendaId: agenda.configuracaoId, pacoteId: pacote.id, convidados: payload.convidados }) : null;
         if (atual !== payload.precoTabelaCentavos) {
-          throw new InteligenciaError("PREPARACAO_PRECO_ALTERADO", "O valor de tabela mudou desde a preparação. Confira o valor e envie sem a preparação, ou peça uma nova ao Kidmais.", 409);
+          throw new InteligenciaError("PREPARACAO_PRECO_ALTERADO", "O valor de tabela mudou desde a preparação. Confira o valor e envie sem a preparação, ou peça uma nova ao Copiloto.", 409);
         }
       }
       travado = draft;

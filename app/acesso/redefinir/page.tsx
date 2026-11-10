@@ -14,7 +14,7 @@ export default function RedefinirSenha() {
     const [pronto, setPronto] = useState(false);
     const tamanho = [...nova].length;
     return <main className={`${admin.page} ${admin.login}`}>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Definir nova senha</h2>
         {token === undefined && <p aria-live="polite">Carregando…</p>}
         {token === null && <><p role="alert">Este link é inválido. Abra o link completo do e-mail ou peça uma nova recuperação.</p><p><Link href="/acesso/recuperar">Pedir nova recuperação</Link></p></>}

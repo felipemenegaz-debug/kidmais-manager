@@ -24,7 +24,7 @@ export async function cpfDisponivel(tx: DbExecutor, env: Ambiente = process.env)
     return cpfContratacaoLigado(env) && await schemaCpfInstalado(tx);
 }
 
-export const MENSAGEM_CPF_INDISPONIVEL = 'O cadastro com CPF ainda não está disponível. Use o CNPJ do buffet ou fale com a Kidmais.';
+export const MENSAGEM_CPF_INDISPONIVEL = 'O cadastro com CPF ainda não está disponível. Use o CNPJ do buffet ou fale com a equipe iA.Fest.';
 
 /** Documento válido e aceito para teste/contratação neste ambiente; lança erro de domínio com o campo. */
 export async function exigirDocumentoContratante(tx: DbExecutor, valor: string | null | undefined, env: Ambiente = process.env,

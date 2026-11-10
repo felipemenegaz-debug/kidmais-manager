@@ -1,3 +1,15 @@
+# BLOQUEIO EM PRODUCTION (B-27, 09/11/2026). Este manifesto não é roteiro a executar. No ramo G-VAZIO, a D-VZ-6 exige
+# suspender os avisos de production (crn-dbkt25m7bikc73fqhlh0) no início da barreira, antes do P1: não criar
+# substituto, não aplicar como Blueprint, não sair de `aguardando`, não ligar ASSINATURA_AVISOS_EMAIL, não instalar
+# as chaves `sync: false` e não usar "Trigger run". Notas completas: docs/AVISOS_ASSINATURA_EMAIL_20261020.md e
+# docs/RECORTE_COBRANCA_PRODUCTION_20261102.md.
+# Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não.
+# Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS
+# imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9,
+# E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação
+# contida (RC, §9.2.5 do plano de promoção). Este aviso não autoriza nada, prevalece sobre os comentários e valores
+# abaixo em production e não trata de staging nem de sandbox.
+#
 # Definição REVISÁVEL do cron dos avisos por e-mail da assinatura (087) em PRODUÇÃO (recorte de 02/11/2026). NÃO é
 # aplicada automaticamente. Não conectar como Blueprint nem criar o serviço sem autorização explícita de Felipe
 # (docs/OPERACAO_AGENTES.md). Roteiro e ordem: docs/RECORTE_COBRANCA_PRODUCTION_20261102.md; comportamento do job:

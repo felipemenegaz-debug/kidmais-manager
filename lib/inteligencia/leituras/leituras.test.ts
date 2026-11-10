@@ -260,6 +260,13 @@ test("analisar_pagamentos: compara o mesmo intervalo; sem base não calcula perc
   const semBase = montarAnalisePagamentos({ atualCentavos: 150000, anteriorCentavos: 0, anteriorCheioCentavos: 10 }, p, contexto());
   assert.ok(semBase.fatos.some((f) => f.natureza === "AUSENCIA"));
   assert.doesNotMatch(semBase.resumo, /%/);
+  // Base negativa (estornos e devoluções): sem percentual, e o sentido não se inverte.
+  const negativa = montarAnalisePagamentos({ atualCentavos: 20000, anteriorCentavos: -10000, anteriorCheioCentavos: -10000 }, p, contexto());
+  assert.doesNotMatch(negativa.resumo, /%/);
+  assert.match(negativa.resumo, /acima/);
+  assert.ok(negativa.fatos.some((f) => f.natureza === "AUSENCIA"));
+  const piora = montarAnalisePagamentos({ atualCentavos: -30000, anteriorCentavos: -10000, anteriorCheioCentavos: -10000 }, p, contexto());
+  assert.match(piora.resumo, /abaixo/);
 });
 
 test("o caminho de leitura nunca escreve", async () => {

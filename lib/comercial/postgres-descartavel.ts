@@ -1,5 +1,6 @@
 import pg from "pg";
 import { instrumentarTimeout, PRAZO_DIAGNOSTICO_MS } from "./diagnostico-timeout.ts";
+import { encerrarRegistrando } from "./encerramento-descartavel.ts";
 import { exigirAmbienteSemConexaoHerdada, exigirOptInDescartavel, PAPEL_DESCARTAVEL, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
@@ -62,20 +63,12 @@ export async function conectarDescartavel(opcoes?: { travar?: boolean; database?
   return client;
 }
 
+/**
+ * Limpeza da conexão: ROLLBACK, unlock e fechamento. Uma falha do ROLLBACK ou do unlock (por exemplo, 57014) é registrada
+ * com fase e SQLSTATE, sem relançar, e o fechamento sempre acontece (lib/comercial/encerramento-descartavel.ts).
+ */
 export async function encerrarDescartavel(client: pg.Client, travou = true) {
-  try {
-    await client.query("ROLLBACK");
-  } catch {
-    /* sem transação aberta */
-  }
-  if (travou) {
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [TRAVA_TESTE]);
-    } catch {
-      /* a sessão encerra a trava */
-    }
-  }
-  await client.end();
+  await encerrarRegistrando(client, travou ? TRAVA_TESTE : null);
 }
 
 /**

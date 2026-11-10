@@ -15,8 +15,8 @@ const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assin
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 const {sqlPreservacao, processoVivo, erroFinal, projecaoAgenda, cpfSintetico} = require('./homologacao-planos-cotacao-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
-const URL_WEBHOOK = BASE + '/api/integracoes/asaas/webhook';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
+const URL_WEBHOOK = require('./alvo-staging.cjs').ORIGEM_WEBHOOK_STAGING + '/api/integracoes/asaas/webhook';
 const ASAAS = 'https://api-sandbox.asaas.com/v3';
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const ARQUIVO = DIR + '/pagamento-renovacao-rodada-3.json';
@@ -531,7 +531,7 @@ async function main() {
         const pedir = async (caminho, method = 'GET', body, extras = {}) => {
             assert.ok(caminho.startsWith('/api/admin/'));
             const res = await fetch(BASE + caminho, {method, redirect:'error', signal:AbortSignal.timeout(60000),
-                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
+                headers:{Cookie:[...jar].map(([k, v]) => k + '=' + v).join(';'), 'Content-Type':'application/json', 'x-kidmais-financeiro-versao':'2', ...extras}, ...(body ? {body:JSON.stringify(body)} : {})});
             cookies(res.headers, jar); const j = await res.json().catch(() => ({})); return {status:res.status, j};
         };
         const post = async (caminho, body) => { const s = (await pedir('/api/admin/autenticacao')).j.data ?? {};

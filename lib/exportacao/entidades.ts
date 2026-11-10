@@ -83,11 +83,13 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // 089 (devolução): a chave de repetição da tela é técnica; a situação do aviso interno é controle da operação da
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
-    assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
+    assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe iA.Fest)' },
     // 095 (créditos de IA): saem saldo, lotes (origem, quantidade, preço, vencimento), extrato, reservas, pedidos (oferta, valor,
     // termos, protocolo), cobranças, devoluções, cortesias e o corte do legado. Ficam fora chaves técnicas de repetição e
     // deduplicação, a URL da fatura (contém token de acesso), a conta do provedor, controles internos de risco e a
     // identidade/motivo do operador da plataforma.
+    // 118 (cota de leitura): saem o marco da migração e as leituras contadas; fica fora o token de posse da reserva.
+    ia_importacao_usos: { operacao_id: 'identificador técnico de posse da reserva' },
     ia_credito_lotes: { chave_origem: 'identificador técnico de deduplicação da concessão' },
     ia_credito_lancamentos: { operacao: 'identificador técnico de deduplicação do lançamento' },
     ia_credito_reservas: { operacao_id: 'identificador técnico da operação (geração/chamada)' },
@@ -102,7 +104,7 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // 097 (arrependimento): protocolo, datas, situação da assinatura no registro, informativos, comunicação ao
     // intermediador, conclusão (referência ou justificativa) e valor restituído saem, com a situação do e-mail de
     // confirmação. Ficam fora a chave de repetição, o aviso interno e quem do atendimento da plataforma concluiu.
-    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe Kidmais)',
+    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe iA.Fest)',
         concluido_por: 'pessoa do atendimento da plataforma (não é da empresa)' },
 };
 
@@ -118,7 +120,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/representacoes', tabela: 'empresa_representacoes', grupo: 'Empresa', descricao: 'Representações da empresa.', onde: EMP },
     { arquivo: 'empresa/estabelecimentos', tabela: 'estabelecimentos', grupo: 'Empresa', descricao: 'Estabelecimentos (unidades) da empresa.', onde: EMP },
     { arquivo: 'empresa/aceites_documentos_legais', tabela: 'aceites_documentos_legais', grupo: 'Empresa', descricao: 'Aceites dos Termos e do Aviso pelas pessoas da empresa.', onde: EMP },
-    { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do Kidmais Manager (situação e ciclo).', onde: EMP },
+    { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do iA.Fest (situação e ciclo).', onde: EMP },
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
     // 087 (recorte de production, 02/11/2026): avisos por e-mail da assinatura enviados à Gestão da própria empresa; mensagem e id do
@@ -308,6 +310,8 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'ia/extracoes', tabela: 'ia_extracoes', grupo: 'Importações', descricao: 'Extrações dos documentos.', onde: EMP },
     { arquivo: 'ia/evidencias', tabela: 'ia_evidencias', grupo: 'Importações', descricao: 'Evidências das extrações.', onde: EMP },
     { arquivo: 'ia/importacoes', tabela: 'ia_importacoes', grupo: 'Importações', descricao: 'Importações a partir das extrações.', onde: EMP },
+    { arquivo: 'ia/cota_importacao', tabela: 'ia_importacao_cotas', grupo: 'Importações', descricao: 'Cota de leitura de documentos da empresa (início da janela de migração).', onde: EMP, migracao: '118' },
+    { arquivo: 'ia/cota_importacao_leituras', tabela: 'ia_importacao_usos', grupo: 'Importações', descricao: 'Leituras contadas na cota (documento, SHA-256, período e situação).', onde: EMP, migracao: '118' },
     { arquivo: 'ia/skills', tabela: 'ia_skills', grupo: 'Importações', descricao: 'Instruções (skills) da empresa.', onde: EMP },
 ];
 

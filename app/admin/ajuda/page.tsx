@@ -39,14 +39,14 @@ export default async function Ajuda({ searchParams }: { searchParams?: Promise<R
                 : <ul className={ajuda.lista} data-lista>{artigos.map((a) => <li key={a.id}><Link href={rotaDoArtigo(a.id)}>{a.titulo}</Link></li>)}</ul>}
         </section>}
         <section className={workspace.card} aria-labelledby="t-falar" data-canais={canais.configurado ? 'configurados' : 'ausentes'}>
-            <h2 id="t-falar">Fale com a equipe Kidmais</h2>
+            <h2 id="t-falar">Fale com a equipe iA.Fest</h2>
             {canais.configurado ? <>
                 <ul>
                     {canais.whatsappHref && <li>WhatsApp: <CodigoSuporte numero={canais.whatsapp!} rotulo={canais.whatsapp!} hrefSemCodigo={canais.whatsappHref} /></li>}
                     {canais.emailHref && <li>E-mail: <a href={canais.emailHref} data-canal="email">{canais.email}</a></li>}
                 </ul>
                 {canais.horario && <p className={workspace.muted} data-canal="horario">Horário de atendimento: {canais.horario}</p>}
-            </> : <p>Os canais de atendimento ainda não foram publicados neste ambiente. Fale com a pessoa da Kidmais que acompanha a implantação da sua empresa.</p>}
+            </> : <p>Os canais de atendimento ainda não foram publicados neste ambiente. Fale com a pessoa da equipe iA.Fest que acompanha a implantação da sua empresa.</p>}
             <CodigoSuporte mostrarCodigo />
         </section>
         <section className={workspace.card} aria-labelledby="t-antes">
@@ -57,7 +57,7 @@ export default async function Ajuda({ searchParams }: { searchParams?: Promise<R
                 <li>Conte o que tentou fazer e o que apareceu.</li>
                 <li>Se a mensagem de erro mostrar um código de referência, informe o código.</li>
             </ul>
-            <p className={workspace.muted}>A equipe Kidmais nunca pede a sua senha.</p>
+            <p className={workspace.muted}>A equipe iA.Fest nunca pede a sua senha.</p>
         </section>
         <section className={workspace.card} aria-labelledby="t-atalhos">
             <h2 id="t-atalhos">Atalhos</h2>

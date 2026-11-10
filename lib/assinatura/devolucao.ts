@@ -17,6 +17,7 @@
  * (docs/CANCELAMENTO_DEVOLUCAO_20261021.md). A sincronização ignora a cobrança devolvida (sincronizacao.ts), então nem o
  * webhook nem a reconciliação reabrem o período ou alarmam por causa dela.
  */
+import { exigirCobrancaDestravada } from './trava-cobranca.ts';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import type { TenantComprovado } from '../saas/provar-tenant.ts';
@@ -195,6 +196,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
 
     // A. leitura curta; repetição da mesma chave devolve o pedido já registrado, sem nenhum efeito novo.
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'solicitarEncerramento', env);
         exigirGestao(tenant);
         if (!await encerramentosInstalados(tx)) throw naoInstalado();
         const anterior = await pedidoPorChave(tx, tenant.empresaComprovada, chave);
@@ -279,7 +281,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
             let situacao: Extract<SituacaoEstorno, 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO'>;
             let status: string | null = null;
             try {
-                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `Kidmais Manager - devolucao ${pedido.protocolo}`)).status;
+                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `iA.Fest - devolucao ${pedido.protocolo}`)).status;
                 situacao = 'SOLICITADO';
             }
             catch (error) {

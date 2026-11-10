@@ -15,6 +15,7 @@ const CHAVE = '6f1c2a34-1b2c-4d5e-8f90-123456789abc';
 function deps(instalado: boolean, papel = 'REPRESENTANTE_AUTORIZADO'): DepsArrependimento & { consultas: string[] } {
     const consultas: string[] = [];
     const tx = { query: async (sql: string) => {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         consultas.push(sql);
         if (sql.includes("to_regclass('public.assinatura_arrependimentos')")) return { rows: [{ ok: instalado }], rowCount: 1 };
         throw new Error('consulta inesperada: ' + sql.slice(0, 40));
@@ -33,7 +34,7 @@ test('protocolo KA-: formato próprio, distinto do KM- da devolução', () => {
 test('confirmação à Gestão: protocolo, hora de Brasília, registro ≠ deferimento e canal; HTML escapado', () => {
     const m = mensagemConfirmacaoArrependimento('gestao@exemplo.test', 'Buffet <Alegria>', M);
     assert.equal(m.para, 'gestao@exemplo.test');
-    assert.equal(m.assunto, 'Kidmais Manager — arrependimento registrado, protocolo KA-20261023-ABCDEFGH');
+    assert.equal(m.assunto, 'iA.Fest — arrependimento registrado, protocolo KA-20261023-ABCDEFGH');
     assert.match(m.texto, /Registrado em 23\/10\/2026,? 10:05 \(horário de Brasília\)/);
     // Revisão 8da88ba (P2-C2): confirma o REGISTRO; análise e restituição só quando cabível, sem prometer deferimento.
     assert.match(m.texto, /Este e-mail confirma o registro do pedido/);
@@ -48,7 +49,7 @@ test('aviso interno: [AÇÃO HOJE], prazo imediato, informativos; sem nome, e-ma
     for (const [dentro, provedor, esperado] of [[true, true, /dentro de 7 dias.*provedor configurado/], [false, false, /mais de 7 dias.*provedor indisponível/],
         [null, true, /sem data de contratação confirmada/]] as const) {
         const m = mensagemAvisoArrependimento('plataforma@exemplo.test', { ...M, dentroDe7Dias: dentro, provedorDisponivel: provedor });
-        assert.match(m.assunto, /^\[AÇÃO HOJE\] Kidmais Manager — arrependimento KA-20261023-ABCDEFGH$/);
+        assert.match(m.assunto, /^\[AÇÃO HOJE\] iA.Fest — arrependimento KA-20261023-ABCDEFGH$/);
         assert.match(m.texto, esperado); assert.match(m.texto, /Prazo: IMEDIATO/); assert.match(m.texto, /Informativo \(não decide\)/);
         assert.doesNotMatch(m.texto, /@|Buffet|\d{11,14}/);
         assert.equal(m.idempotencia, 'arrependimento-interno:KA-20261023-ABCDEFGH');
@@ -84,7 +85,7 @@ test('atendimento sem a 097 ou sem valor na restituição: recusa antes de escre
 test('e-mail de conclusão: restituição com valor, sem referência interna; não se aplica com a justificativa', async () => {
     const { mensagemConclusaoArrependimento } = await import('./arrependimento.ts');
     const r = mensagemConclusaoArrependimento('gestao@exemplo.test', 'Buffet', { protocolo: M.protocolo, situacao: 'RESTITUIDO', valorRestituidoCentavos: 19_700, justificativa: 'nota interna' });
-    assert.equal(r.assunto, 'Kidmais Manager — resultado do pedido de arrependimento, protocolo KA-20261023-ABCDEFGH');
+    assert.equal(r.assunto, 'iA.Fest — resultado do pedido de arrependimento, protocolo KA-20261023-ABCDEFGH');
     assert.match(r.texto, /restituição de R\$\s?197,00 foi solicitada ao intermediador/);
     assert.doesNotMatch(r.texto, /nota interna/);
     assert.equal(r.idempotencia, 'arrependimento-conclusao:KA-20261023-ABCDEFGH');

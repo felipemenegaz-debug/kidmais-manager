@@ -105,7 +105,7 @@ async function principal() {
       return depois;
     }
     async function api(metodo, rota, s) {
-      const headers = { origin: base, 'x-csrf-token': s.data.csrf, 'x-kidmais-sessao': s.data.sessaoId, 'content-type': 'application/json' };
+      const headers = { origin: base, 'x-csrf-token': s.data.csrf, 'x-kidmais-sessao': s.data.sessaoId, 'content-type': 'application/json', 'x-kidmais-financeiro-versao': '2' };
       const r = await contexto.request.fetch(`${base}${rota}`, { method: metodo, headers, data: metodo === 'GET' ? undefined : '{}' });
       return { status: r.status(), corpo: await r.json().catch(() => null) };
     }

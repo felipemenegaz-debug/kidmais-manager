@@ -34,6 +34,12 @@ function banco(opcoes: { disponivel?: boolean } = {}) {
     assert.match(sql, /i\.empresa_id = \$\d::uuid/, 'toda consulta filtra a empresa comprovada');
     assert.match(sql, /i\.status = 'IMPORTADA'/, 'só importações confirmadas');
     assert.doesNotMatch(sql, /SELECT \*|i\.dados|cpf|telefone|whatsapp|email/i, 'nunca expõe extração, CPF ou contatos');
+    if (sql.includes('ia_documento_originais')) {
+      // O original é o que a extração da importação leu, nunca "a última versão do documento".
+      assert.match(sql, /JOIN ia_extracoes x ON x\.id = i\.extracao_id AND x\.empresa_id = i\.empresa_id AND x\.documento_id = i\.documento_id/);
+      assert.match(sql, /JOIN ia_documento_originais o ON o\.id = x\.original_id AND o\.empresa_id = x\.empresa_id AND o\.documento_id = x\.documento_id/);
+      assert.doesNotMatch(sql, /versao DESC|LATERAL/);
+    }
     // Consultas por id recebem (id, empresa); as demais, (empresa, ...).
     const empresa = /i\.id = \$1::uuid AND i\.empresa_id = \$2::uuid/.test(sql) ? values[1] : values[0];
     const daEmpresa = (l: Linha) => l.empresa === empresa && l.status === 'IMPORTADA';

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { hojeBrasilia } from "./calculos.ts";
+import { CABECALHO_VERSAO_FINANCEIRO, MENSAGEM_RECARREGAR_FINANCEIRO, hojeBrasilia, versaoFinanceiraRecusada } from "./calculos.ts";
 import { exigirApiAdminCrmDisponivel } from "../http/admin-crm-api.ts";
 import { apiErrorResponse, jsonNoStore } from "../http/api-response.ts";
 import type { DbExecutor } from "../db/contracts.ts";
@@ -34,6 +34,10 @@ export async function consultarFinanceiro<T>(
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), async (tx, tenant) => {
       if (recurso) await exigirRecursoPlano(tx, tenant.empresaComprovada, recurso);
+      // Depois de sessão, tenant e plano: 401, 402 e 403 continuam como antes. Só então a versão da tela.
+      if (versaoFinanceiraRecusada(request.nextUrl.pathname, request.headers.get(CABECALHO_VERSAO_FINANCEIRO))) {
+        throw new PacoteAdminError("VERSAO_INCOMPATIVEL", MENSAGEM_RECARREGAR_FINANCEIRO, 409);
+      }
       return work(tx, tenant);
     });
     return jsonNoStore({ ok: true, data });

@@ -57,27 +57,27 @@
       "arquivo": "assinatura-e-plano.md",
       "id": "assinatura-e-plano",
       "titulo": "Assinatura e plano",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "cedfe7469304da2772067a4372db33ba083ff18a081870c5a24bcd89eb063e99"
+      "sha256": "f6400d6da30c0ecf466b38db591c14d32d26a6b11e3428f8c367851e255ed047"
     },
     {
       "arquivo": "atendimento-whatsapp.md",
       "id": "atendimento-whatsapp",
       "titulo": "Atendimento WhatsApp",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "509f39cea24d401abdf70353d1585ca4eaf7e4fc35fd9999cf627a3e04e529f6"
+      "sha256": "25787ce3018d192c333cbb9680a0b0ae26a87cf10b6ef8aea27b98965ea7d193"
     },
     {
       "arquivo": "clientes.md",
@@ -96,14 +96,14 @@
       "arquivo": "conectar-whatsapp.md",
       "id": "conectar-whatsapp",
       "titulo": "Conectar o WhatsApp da empresa",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "78bedd0f002557ec271d82351463e5f03cb077c84cf986c1f1be572c30a39c15"
+      "sha256": "e429c240934432806184b18d80f411036c0bfd48ada15be07cb632b80c70c0b3"
     },
     {
       "arquivo": "contas-a-pagar-e-caixa.md",
@@ -200,14 +200,14 @@
       "arquivo": "importar-documentos.md",
       "id": "importar-documentos",
       "titulo": "Importar documentos em PDF",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "f7a1bd1e4e54407fc60698e838fa1c26f08ec1d5a71f38da30562efae2aec29b"
+      "sha256": "4592a58b91da57a600c5acdb50fc979e47fe3ba14016eda29b6e776298f2fffe"
     },
     {
       "arquivo": "marketing.md",
@@ -239,27 +239,27 @@
       "arquivo": "perfil-e-senha.md",
       "id": "perfil-e-senha",
       "titulo": "Meu perfil e senha",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "c247e2c74d5cb93ac13961269e20d44b7e54100b0984d081188c41429a996b0c"
+      "sha256": "e1711f27fd0a91d9b4833589978a153f01c2f45b3cde30a815b9b35c0ec31639"
     },
     {
       "arquivo": "primeiros-passos.md",
       "id": "primeiros-passos",
       "titulo": "Primeiros passos",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "748b0f229189ff2f15bb6ef36349d3ca81072f7e923993d289e9918686867806"
+      "sha256": "34996b03a309e504e698eb04c70a62c0bbe9764880b47cb2dfc5d099d6e8a2e6"
     },
     {
       "arquivo": "privacidade-e-exportacao.md",
@@ -278,27 +278,27 @@
       "arquivo": "usuarios-e-acessos.md",
       "id": "usuarios-e-acessos",
       "titulo": "Usuários e acessos",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650"
+      "sha256": "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852"
     },
     {
       "arquivo": "contratos.md",
       "id": "contratos",
       "titulo": "Contratos",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 2,
+      "vigenteDesde": "2026-11-07",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "a09b2415e0336dc14672f89fa4ba519ce09f706084be12322b2a2bd26aff44d7"
+      "sha256": "d18daca33b9796d143d0dab971bbb1bd5a7f3e1c014e64669401016acfebca03"
     },
     {
       "arquivo": "saloes-pacotes-e-itens.md",

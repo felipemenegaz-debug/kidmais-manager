@@ -110,6 +110,12 @@ async function regrasDaKidmais(empresaId: string | null | undefined, customDb?: 
   return (await empresaDonaDaConfigLegada(customDb ?? db())) === empresaId;
 }
 
+/** Nome no texto: só com a prova do código. A dona da agenda legada pode ser outro buffet; legado sem vínculo fica neutro. */
+async function empresaEhKidmais(empresaId: string | null | undefined, customDb?: DbExecutor) {
+  if (!empresaId) return false;
+  return (await (customDb ?? db()).query<{ codigo: string }>("SELECT codigo FROM public.empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo === "kidmais";
+}
+
 async function tabelaParaContratacao(data: string, empresaId: string | null | undefined, customDb?: DbExecutor) {
   if (!empresaId) return buscarTabelaPrecoVigente(data, customDb);
   const tabelas = await listarTabelasPrecoDaEmpresa(empresaId, data, customDb);
@@ -337,7 +343,7 @@ export async function precificarPacote(
   if (elegibilidade.estado === "SOB_CONSULTA") {
     throw new PricingServiceError(
       "PACOTE_SOB_CONSULTA",
-      "Este pacote exige consulta e aprovação da Kidmais antes de continuar.",
+      `Este pacote exige consulta e aprovação ${await empresaEhKidmais(pacote.empresaId, customDb) ? "da Kidmais" : "do buffet"} antes de continuar.`,
       409,
       {
         pacoteId: pacote.id,

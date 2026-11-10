@@ -172,9 +172,11 @@ test('blocos do pacote pacote-email-producao-20261020 (árvore 7494087) continua
   // Mudar o executor ou o gerador muda estes sha: exige nova geração, nova revisão e novo pacote (docs/EMAIL_PRODUCAO_20261020.md §10).
   // Revalidação de 23/10/2026 (só o hash fixado de lib/acessos/erros.ts no executor; mudança só de tipo): pacote anterior
   // CONFERIR 8f77a397… (9612), ENVIAR 7cdbb59c… (9743), LIMPEZA 9e9967a0… (2285). Ver docs/EMAIL_PRODUCAO_20261020.md.
-  const pacote = {CONFERIR: ['dd8ebb2fb2a75e3cf5f1a3f851088eb6fde274d81b38d34ab0bed61640e63c97', 9985],
-    ENVIAR: ['85218447e5fc14fb674896ac8de598faf44e67fcb265435c6a68ec4744503ecb', 10116],
-    LIMPEZA: ['03bcae5b5b9ba4553dc1f62afd639d413b2c9690d5de8836cb63fa654468af5c', 2285]};
+  // Revalidação de 08/11/2026 (hash fixado de lib/acessos/email.ts; só o texto das mensagens com iA.Fest): pacote anterior
+  // CONFERIR dd8ebb2f… (9985), ENVIAR 85218447… (10116), LIMPEZA 03bcae5b… (2285).
+  const pacote = {CONFERIR: ['85033ef143b21eb95e66129ceec44b9d11375fab9c102911274fe924007bf933', 10107],
+    ENVIAR: ['7c2ecc5519a3157edfb2f88305c224936019a618c1c732550738313e3e08fa37', 10238],
+    LIMPEZA: ['c916d19104e2711cf5b803dc6303162175eabb5a32edac730795a745568ec4db', 2285]};
   for (const [modo, [h, bytes]] of Object.entries(pacote)) {
     const x = b.gerar({modo, rotulo: '7494087'});
     assert.equal(sha(x), h, modo); assert.equal(Buffer.byteLength(x), bytes, modo);

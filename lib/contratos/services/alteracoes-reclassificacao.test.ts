@@ -46,6 +46,6 @@ test('tela do contrato: explica a reclassificação junto das diferenças, sem e
   const tela = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
   assert.match(tela, /analise\.reclassificacaoHistorica&&<p data-reclassificacao>Reclassificação do contrato histórico: R\$ \{/);
   assert.match(tela, /de adicionais sem itens passam a compor o pacote\. O valor do contrato não muda\./);
-  assert.match(tela, /Esta revisão exige nova assinatura da Kidmais e do cliente/);
+  assert.match(tela, /Esta revisão exige nova assinatura do buffet e do cliente/);
   assert.match(tela, /analise\.impactoFinanceiro&&<p>Há impacto financeiro\./);
 });

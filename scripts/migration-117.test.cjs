@@ -184,6 +184,34 @@ test('situação do COMMIT: 40003 e classes 08/57/58/XX ou sem SQLSTATE = INDETE
   }
 });
 
+/**
+ * Inventário conservador das variáveis de ambiente lidas por pg/lib/connection-parameters.js (parecer r1 da 116/117, P3).
+ * Classifica: `process.env.NOME`, `process.env['NOME']` e os dois acessos dinâmicos do helper `val` (`'PG' + key` e
+ * `envVar`, cujos nomes vêm das chamadas `val(...)`). Qualquer outra menção a `process`/`env` como acesso ao ambiente
+ * (colchete dinâmico, `process[...]`, desestruturação, `require(process)`, enumeração) lança AMBIENTE_NAO_CLASSIFICADO.
+ */
+function inventarioAmbientePg(fonte) {
+  const lidas = new Set();
+  const DINAMICOS = ["process.env['PG' + key.toUpperCase()]", 'process.env[envVar]'];
+  let resto = fonte; // fonte cru, sem remover comentários: menção em comentário reprova (fail-closed)
+  for (const d of DINAMICOS) {
+    const n = resto.split(d).length - 1;
+    assert.ok(n <= 1, 'AMBIENTE_NAO_CLASSIFICADO acesso dinâmico repetido: ' + d);
+    resto = resto.split(d).join(' ');
+  }
+  resto = resto.replace(/\bprocess\s*\.\s*env\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\2\s*\])/g, (_, a, __, b) => {
+    lidas.add(a ?? b); return ' ';
+  });
+  const sobra = resto.match(/\bprocess\b|\benv\b/);
+  assert.ok(!sobra, 'AMBIENTE_NAO_CLASSIFICADO ' + (sobra ? resto.slice(Math.max(0, sobra.index - 30), sobra.index + 40) : ''));
+  for (const [, chave, terceiro] of fonte.matchAll(/val\('([a-z_]+)', config(?:, ([^)]+))?\)/g)) {
+    if (terceiro === undefined) lidas.add('PG' + chave.toUpperCase());
+    else if (/^'[A-Z_]+'$/.test(terceiro.trim())) lidas.add(terceiro.trim().slice(1, -1));
+    else assert.equal(terceiro.trim(), 'false', 'val com terceiro argumento desconhecido: ' + terceiro);
+  }
+  return lidas;
+}
+
 test('trava de alvo de staging e identidade: serviço, ambiente, host, banco, porta, URL sem query; mensagem sem segredos', async () => {
   assert.equal(stg.alvo(ENV_STG).application_name, 'kidmais-migration-117-staging');
   assert.equal(stg.alvo({...ENV_STG, DATABASE_SSL: 'true'}).ssl.rejectUnauthorized, true);
@@ -192,8 +220,76 @@ test('trava de alvo de staging e identidade: serviço, ambiente, host, banco, po
     [{DATABASE_URL: URL_STG.replace('dpg-daidko3m8hqs73ce4jt0-a', 'dpg-outro.render.com')}, /HOST_RECUSADO/], [{DATABASE_URL: URL_STG.replace('kidmais_staging_1z91', 'kidmais_manager')}, /BANCO_RECUSADO/],
     [{DATABASE_URL: URL_STG.replace(':5432', ':5433')}, /PORTA_RECUSADA/], [{DATABASE_URL: URL_STG + '?sslmode=disable'}, /CONNECTION_QUERY_REJECTED/],
     [{DATABASE_SSL: 'talvez'}, /TLS_CONFIGURACAO_RECUSADA/], [{DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'}, /TLS_CONFIGURACAO_RECUSADA/],
-    [{DATABASE_URL: 'nao-e-url'}, /URL_RECUSADA/]]) {
+    [{DATABASE_URL: 'nao-e-url'}, /URL_RECUSADA/], [{DATABASE_URL: URL_STG.replace('postgresql:', 'http:')}, /URL_RECUSADA/],
+    [{DATABASE_URL: URL_STG + '#x'}, /CONNECTION_QUERY_REJECTED/], [{DATABASE_URL: URL_STG + '?'}, /CONNECTION_QUERY_REJECTED/],
+    [{DATABASE_URL: URL_STG + '#'}, /CONNECTION_QUERY_REJECTED/], [{DATABASE_URL: URL_STG.replace('/kidmais', '?/kidmais')}, /CONNECTION_QUERY_REJECTED/],
+    [{DATABASE_URL: undefined}, /CONNECTION_QUERY_REJECTED|URL_RECUSADA/], [{DATABASE_URL: URL_STG.replace('usuario:SENHA_FALSA@', '')}, /CREDENCIAL_AUSENTE_NA_URL/],
+    [{DATABASE_URL: URL_STG.replace(':SENHA_FALSA@', '@')}, /CREDENCIAL_AUSENTE_NA_URL/],
+    ...stg.PG_HERDADAS_RECUSADAS.map(n => [{[n]: '-c search_path=outro'}, new RegExp('AMBIENTE_PG_RECUSADO ' + n)])]) {
     assert.throws(() => stg.alvo({...ENV_STG, ...mudanca}), (e) => erro.test(e.message) && !e.message.includes('SENHA_FALSA'), JSON.stringify(mudanca));
+  }
+  assert.deepEqual(stg.PG_HERDADAS_RECUSADAS, ['PGOPTIONS', 'PGREPLICATION', 'PGBINARY', 'PGSSLNEGOTIATION', 'PGCLIENT_ENCODING', 'PGCLIENTENCODING']);
+  // Parecer r2 da 118, P3: a lista é conferida contra o FONTE do pg instalado. Toda variável que connection-parameters.js lê do
+  // ambiente é anulada pela configuração explícita (abaixo, com valor hostil) ou está na lista de recusa.
+  const fonte = fs.readFileSync(require.resolve('pg/lib/connection-parameters'), 'utf8');
+  // Parecer r1 da 116/117, P3: toda leitura de ambiente no fonte precisa ser classificada; acesso não reconhecido reprova.
+  const lidas = inventarioAmbientePg(fonte);
+  assert.ok(lidas.has('PGCLIENT_ENCODING') && lidas.has('PGOPTIONS') && lidas.has('PGSSLMODE'), 'leitura do fonte: ' + [...lidas]);
+  // O inventário pega leitura nova por ponto ou por colchete com nome literal e reprova acesso dinâmico ou indireto.
+  for (const [injecao, nome] of [["process.env['PGFUTURE_OPTIONS']", 'PGFUTURE_OPTIONS'], ['process.env["PGFUTURO"]', 'PGFUTURO'],
+    ['process.env.PGFUTURO_PONTO', 'PGFUTURO_PONTO'], ['process . env [ \'PGESPACOS\' ]', 'PGESPACOS'],
+    ['globalThis.process.env.PGGLOBAL', 'PGGLOBAL']]) {
+    const alterado = fonte.split('  switch (process.env.PGSSLMODE) {').join('  void ' + injecao + '\n  switch (process.env.PGSSLMODE) {');
+    assert.notEqual(alterado, fonte, 'âncora da injeção');
+    assert.ok(inventarioAmbientePg(alterado).has(nome), 'injeção não detectada: ' + injecao);
+  }
+  for (const injecao of ['process.env[outra]', "process.env['PG' + x]", "process['env'].PGX", 'const {env} = process', "require('node:process')",
+    'Object.keys(process.env)', 'env.PGSOLTO', 'process.env[envVar]']) {
+    const alterado = fonte.split('  switch (process.env.PGSSLMODE) {').join('  void ' + injecao + '\n  switch (process.env.PGSSLMODE) {');
+    assert.throws(() => inventarioAmbientePg(alterado), /AMBIENTE_NAO_CLASSIFICADO/, injecao);
+  }
+  const ANULADAS = ['PGUSER', 'PGDATABASE', 'PGPORT', 'PGHOST', 'PGPASSWORD', 'PGSSLMODE', 'PGAPPNAME', 'PGCONNECT_TIMEOUT'];
+  for (const nome of lidas) assert.ok(ANULADAS.includes(nome) || stg.PG_HERDADAS_RECUSADAS.includes(nome), 'variável do pg sem tratamento: ' + nome);
+  // NUL e controles no usuário ou na senha (parecer r2 da 118, P2): recusa ANTES de instanciar o cliente.
+  const sujas = [['usuario%00options%00-c%20synchronous_commit%3Doff', 'SENHA_FALSA'], ['usuario', 'SENHA%00FALSA'], ['usu%0Aario', 'SENHA_FALSA'],
+    ['usuario', 'SENHA%7FFALSA'], ['usu%1Fario', 'SENHA_FALSA']];
+  for (const [usuario, senha] of sujas) {
+    const envSujo = {...ENV_STG, DATABASE_URL: URL_STG.replace('usuario:SENHA_FALSA@', usuario + ':' + senha + '@')};
+    assert.throws(() => stg.alvo(envSujo), (e) => /^CREDENCIAL_COM_CONTROLE$/.test(e.message), usuario + ':' + senha);
+    let criados = 0;
+    const Espia = class { constructor() { criados++; } on() {} async connect() {} async query() { return {rows: []}; } async end() {} };
+    await assert.rejects(stg.conferir({env: envSujo, Client: Espia}), /CREDENCIAL_COM_CONTROLE/);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'r117-nul-'));
+    try {
+      await assert.rejects(stg.executar({env: envSujo, backup: 'PITR teste', dir, Client: Espia, disco: () => {}}), /CREDENCIAL_COM_CONTROLE/);
+      assert.deepEqual(fs.readdirSync(dir), [], 'nada no disco');
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+    assert.equal(criados, 0, 'cliente nunca instanciado: ' + usuario);
+  }
+  // Configuração EFETIVA do pg (ConnectionParameters, o que o Client usa) com variáveis libpq hostis herdadas (parecer r1 da 118, P1):
+  // URL sem porta + PGPORT=6543, PGHOST/PGDATABASE/PGUSER/PGPASSWORD trocados, PGSSLMODE=require com DATABASE_SSL=false.
+  const ConnectionParameters = require('pg/lib/connection-parameters');
+  const hostis = {PGPORT: '6543', PGHOST: 'dpg-outro', PGDATABASE: 'kidmais_manager', PGUSER: 'outro', PGPASSWORD: 'OUTRA', PGSSLMODE: 'require', PGAPPNAME: 'outro',
+    PGCONNECT_TIMEOUT: '999'};
+  assert.deepEqual(Object.keys(hostis).sort(), [...ANULADAS].sort(), 'toda variável anulada é exercitada com valor hostil');
+  const guardado = Object.fromEntries(Object.keys(hostis).map(k => [k, process.env[k]]));
+  Object.assign(process.env, hostis);
+  try {
+    for (const [ssl, esperado] of [['false', false], ['true', {rejectUnauthorized: true, minVersion: 'TLSv1.2'}]]) {
+      const envUrl = {...ENV_STG, ...hostis, DATABASE_SSL: ssl, DATABASE_URL: URL_STG.replace(':5432', '')};
+      const opts = stg.alvo(envUrl);
+      assert.ok(!('connectionString' in opts), 'sem connectionString');
+      assert.ok(!JSON.stringify(opts).includes('SENHA_FALSA'), 'senha fora da serialização');
+      const p = new ConnectionParameters(opts);
+      assert.deepEqual({host: p.host, port: p.port, database: p.database, user: p.user, password: p.password, ssl: p.ssl, app: p.application_name},
+        {host: 'dpg-daidko3m8hqs73ce4jt0-a', port: 5432, database: 'kidmais_staging_1z91', user: 'usuario', password: 'SENHA_FALSA', ssl: esperado,
+          app: 'kidmais-migration-117-staging'}, 'DATABASE_SSL=' + ssl);
+      assert.equal(p.options, undefined); assert.ok(!p.replication); assert.ok(!p.binary); assert.equal(p.connect_timeout, 10);
+    }
+    const enc = new ConnectionParameters(stg.alvo({...ENV_STG, DATABASE_URL: 'postgres://us%40r:S%3AF@dpg-daidko3m8hqs73ce4jt0-a/kidmais_staging_1z91'}));
+    assert.deepEqual([enc.user, enc.password, enc.port], ['us@r', 'S:F', 5432]);
+  } finally {
+    for (const [k, v] of Object.entries(guardado)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
   const outro = await stg.conferir({env: ENV_STG, Client: clienteFalso({identidade: {...ID_STG, db: 'outro_banco'}})});
   assert.equal(outro.resultado, 'FALHA'); assert.match(outro.mensagem, /IDENTIDADE_RECUSADA/); assert.ok(!JSON.stringify(outro).includes('SENHA_FALSA'));

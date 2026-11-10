@@ -50,6 +50,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
       return slots[i];
     },
     useEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
+    useLayoutEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
     // Como no React: a mesma função enquanto as dependências não mudam (efeitos que dependem dela não rodam de novo).
     useCallback: (fn: unknown, dependencias?: readonly unknown[]) => {
       const i = cursor++; const antes = slots[i] as { fn: unknown; deps?: readonly unknown[] } | undefined;
@@ -67,7 +68,8 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
   const js = ts.transpileModule(readFileSync(arquivo, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
-  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, ...deps };
+  // Aba fora da troca de host, salvo se o teste disser outra coisa.
+  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, ...deps };
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 
   return {
@@ -77,6 +79,8 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
       pendentes = [];
       return (modulo[componente] as (p: object) => unknown)(props);
     },
+    /** Valores guardados nos hooks (estado e refs), para conferir o que a tela ainda retém. */
+    estado: () => [...slots],
     /** Executa os efeitos do último render cujas dependências mudaram. */
     efeitos() {
       for (const efeito of pendentes) {

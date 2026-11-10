@@ -1,5 +1,13 @@
 # Piloto gratuito com buffets reais em produção (22/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Não usar este roteiro em production: piloto, teste e conversão são caminhos bloqueados. `iniciar-teste` no painel não lê flag: na base `bb65640a` ele não existe; num artefato que o tenha sem a L2, o controle é não executar; com a L2, ela o recusa. Na continuidade, `ASSINATURA_CONTINUIDADE_ATIVA` deve seguir desligada, e `registrar-continuidade` e `concluir-continuidade` são entradas bloqueadas.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Roteiro operacional para o Felipe criar de 3 a 5 buffets pelo painel do desenvolvedor, acompanhá-los e depois encerrar o
 piloto ou convertê-lo em assinatura. Durante o piloto não há cobrança nem Asaas. Este documento **não autoriza** deploy,
 alteração de env nem SQL em produção. Cada uma dessas ações continua exigindo autorização própria
@@ -65,6 +73,8 @@ Validação local:
 
 ### 3.1 Antes do primeiro buffet
 
+> **Bloqueio em production (B-27, 07/11/2026).** Criar por SQL a franquia em `convite_carteiras` para o piloto (item 3) está bloqueado em production. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 1. Parecer da Astra e termo do piloto assinado por buffet (vault).
 2. Confirmar que a conta do Felipe tem concessão de desenvolvedor em produção. A concessão é dada só pelo CLI
    `scripts/admin-provision.cjs`.
@@ -74,6 +84,8 @@ Validação local:
 4. Exigir o **CNPJ** do buffet. Sem CNPJ não há conversão pela tela nem Fundador.
 
 ### 3.2 Criar cada empresa (cerca de 3 minutos cada)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Criar empresa como piloto e o item 6 (**Iniciar teste grátis**) estão bloqueados em production. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 1. Entrar em `/desenvolvedor/empresas/provisionar`.
 2. Preencher os dados:
@@ -118,6 +130,8 @@ Validação local:
 
 ### 3.5 Encerrar sem conversão
 
+> **Bloqueio em production (B-27, 07/11/2026).** A opção de iniciar teste curto está bloqueada em production. Suspender pela ficha é a opção sem teste; tem as próprias autorizações. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 - **Com o código do §2 em produção e o CNPJ no cadastro** (recomendado, porque segue a regra L2 do termo):
   - iniciar um teste curto (1 dia) ou deixar o teste vencer;
   - a empresa passa a somente leitura por 60 dias, com exportação, e depois é bloqueada;
@@ -128,6 +142,8 @@ Validação local:
     ao buffet que exporte os CSVs e os PDFs **antes** de suspender.
 
 ### 3.6 Converter em assinatura (quando o CNPJ novo e o Asaas de produção saírem)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Toda esta seção está bloqueada em production: a saída do CNPJ e do Asaas de produção não libera as variáveis "ligadas juntas", o teste nem o pagamento. A publicação do código, sozinha, não é conversão e tem autorização própria. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 Pré-requisitos, cada um com autorização própria:
 

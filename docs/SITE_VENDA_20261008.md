@@ -86,6 +86,12 @@ Nenhuma variável foi criada ou alterada em ambiente remoto; não foi criado `.e
 
 **Não publicar production com os campos legais/de atendimento vazios.** Preencher e revisar esses dados, os textos legais definitivos e a origem de canonical/OG antes de autorizar publicação. Os documentos atuais continuam identificados como minutas; seus conteúdos e hashes não foram reescritos. A âncora de cancelamento aponta à seção existente “Contato”; D4 inclui a redação definitiva das condições.
 
+> **Bloqueio em production (B-27, 07/11/2026).** Preencher esses dados e publicar a vitrine não abre venda: cadastro público, contratação e checkout seguem bloqueados em production, seja qual for o valor de `SITE_PRECOS_PUBLICADOS`.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 ## Validação
 
 | Comando / verificação | Resultado |

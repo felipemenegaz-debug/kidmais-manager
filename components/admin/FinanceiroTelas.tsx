@@ -2,18 +2,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import Link from 'next/link';
-import { FORMAS, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira } from '@/lib/financeiro/calculos';
+import { FORMAS, VERSAO_RESUMO_FINANCEIRO, cabecalhoVersaoFinanceira, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira, somarDias } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
 import { PixParcela } from './PixParcela';
 
-type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number; pagoMesCentavos: number };
+type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; aPagar30DiasCentavos: number; emAtrasoReceberCentavos: number; emAtrasoPagarCentavos: number; movimentoPeriodoCentavos: number | null; pagoMesCentavos: number; versao?: number };
 type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; clienteId?: string | null; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
 type Conta = { id: string; descricao: string; favorecido: string | null; categoria: string; categoriaId: string; vencimento: string; valorCentavos: number; saldoCentavos: number; pagoCentavos: number; status: string; forma: string | null };
 type Categoria = { id: string; nome: string };
-type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
+type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; recebimentosSemTaxa?: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
 type Relatorio = {
+  versao?: number;
   inicio?: string;
   fim?: string;
   faturamentoCentavos: number;
@@ -27,7 +28,8 @@ type Relatorio = {
   pacotes: Array<{ pacote: string; centavos: number }>;
   formas?: Array<{ forma: string; centavos: number }>;
   taxasCentavos?: number;
-  margens?: Array<{ festaId: string; cliente: string; margemEstimadaCentavos: number; resultadoCaixaCentavos: number }>;
+  recebimentosSemTaxa?: number;
+  margens?: Array<{ festaId: string; cliente: string; margemEstimadaCentavos: number | null; resultadoCaixaCentavos: number; custosLancados?: boolean; noEscopo?: boolean }>;
 };
 
 export type TelaFinanceira = 'visao' | 'receber' | 'pagar' | 'fluxo' | 'relatorios';
@@ -91,7 +93,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       relatorios: `/api/admin/financeiro/relatorios?${consulta}`,
     };
     try {
-      const corpo = await (await adminFetch(rotas[tela])).json();
+      const corpo = await (await adminFetch(rotas[tela], { headers: cabecalhoVersaoFinanceira() })).json();
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); return; }
       const data = corpo.data;
       if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); setFinanceiroCompleto(data.financeiroCompleto !== false); }
@@ -118,7 +120,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       fluxo: `/api/admin/financeiro/fluxo-caixa?${consulta}`,
       relatorios: `/api/admin/financeiro/relatorios?${consulta}`,
     };
-    adminFetch(rotas[tela]).then((resposta) => resposta.json()).then((corpo) => {
+    adminFetch(rotas[tela], { headers: cabecalhoVersaoFinanceira() }).then((resposta) => resposta.json()).then((corpo) => {
       if (!ativo) return;
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); setCarregando(false); return; }
       const data = corpo.data;
@@ -178,13 +180,20 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
 
   if (carregando) return <main className={styles.pagina} aria-busy="true"><p>Carregando…</p></main>;
   if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button type="button" onClick={() => void carregar()}>Tentar novamente</button></main>;
+  // Tela e servidor de versões diferentes: não mostra número de outro contrato.
+  if ((resumo && resumo.versao !== VERSAO_RESUMO_FINANCEIRO) || (tela === 'relatorios' && relatorio && relatorio.versao !== VERSAO_RESUMO_FINANCEIRO)) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
 
   return <main className={styles.pagina}>
     {tela === 'visao' && <>
       <header className={styles.topo}><div><h1>Financeiro</h1><p>Posição atual das entradas, saídas e próximos compromissos.</p></div></header>
-      <Kpis itens={[['Recebido no mês', resumo?.recebidoMesCentavos], ['A receber total', resumo?.aReceberCentavos], ...(financeiroCompleto ? [['A pagar total', resumo?.aPagarCentavos] as [string, number | undefined]] : []), ['Em atraso', resumo?.emAtrasoCentavos], ['Saldo previsto', resumo?.saldoPrevistoCentavos]]} />
+      <Kpis itens={[['A receber total', resumo?.aReceberCentavos], ['A receber em atraso', resumo?.emAtrasoReceberCentavos], ...(financeiroCompleto ? [['A pagar em 30 dias', resumo?.aPagar30DiasCentavos], ['A pagar vencido', resumo?.emAtrasoPagarCentavos]] as Array<[string, number | undefined]> : [])]} />
       <div className={styles.grade}>
-        <section className={styles.cartao}><h2>Movimento do mês</h2><Grafico linhas={[{ saldo: resumo?.recebidoMesCentavos ?? 0 }, { saldo: (resumo?.saldoPrevistoCentavos ?? 0) }]} /></section>
+        <section className={styles.cartao}><h2>Movimento do mês</h2>
+          <div className={styles.linha}><p>Entrou no mês</p><strong>{reaisDe(resumo?.recebidoMesCentavos ?? 0)}</strong></div>
+          {financeiroCompleto && <div className={styles.linha}><p>Saiu no mês</p><strong>{reaisDe(resumo?.pagoMesCentavos ?? 0)}</strong></div>}
+          {financeiroCompleto && resumo?.movimentoPeriodoCentavos != null && <div className={styles.linha}><p>Entradas menos saídas</p><strong>{reaisDe(resumo.movimentoPeriodoCentavos)}</strong></div>}
+          <p className={styles.vazio}>Entradas líquidas das taxas informadas, já sem estornos e devoluções.{financeiroCompleto ? <> Total a pagar em aberto, com as próximas parcelas de série: {reaisDe(resumo?.aPagarCentavos ?? 0)}.</> : null}</p>
+        </section>
         <section className={styles.cartao}><h2>Alertas</h2>{alertas.length === 0 && <p className={styles.vazio}>Tudo em dia.</p>}{alertas.map((item) => <p key={item}>{item}</p>)}</section>
       </div>
       <div className={styles.meio}>
@@ -194,7 +203,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     </>}
     {tela === 'receber' && <>
       <header className={styles.topo}><div><h1>Contas a receber</h1><p>Parcelas de contrato e entradas avulsas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('entrada')}>+ Nova entrada</AdminPrimaryButton></header>
-      <Kpis itens={[['Total a receber', resumo?.aReceberCentavos], ['Vencido', resumo?.emAtrasoCentavos], ['Recebido no mês', resumo?.recebidoMesCentavos]]} />
+      <Kpis itens={[['Total a receber', resumo?.aReceberCentavos], ['Vencido', resumo?.emAtrasoReceberCentavos], ['Recebido no mês', resumo?.recebidoMesCentavos]]} />
       <Filtros opcoes={['Todos', 'A receber', 'Vencidos', 'Pagos']} valor={filtro} aoMudar={setFiltro} />
       <input className={styles.busca} aria-label="Buscar cliente ou festa" placeholder="Buscar cliente ou festa" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
       {listaReceber.length === 0 && <p className={styles.vazio}>{filtro === 'Vencidos' ? 'Tudo em dia. Nenhum recebimento vencido.' : 'Nenhum recebimento neste filtro.'}</p>}
@@ -209,7 +218,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     </>}
     {tela === 'pagar' && <>
       <header className={styles.topo}><div><h1>Contas a pagar</h1><p>Saídas previstas e pagas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('nova')}>+ Nova conta</AdminPrimaryButton></header>
-      <Kpis itens={[['A pagar', contas.filter((item) => item.status === 'A pagar' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
+      <Kpis itens={[['A pagar em 30 dias', contas.filter((item) => item.status === 'A pagar' && item.vencimento <= somarDias(hojeBrasilia(), 30)).reduce((t, item) => t + item.saldoCentavos, 0)], ['Total em aberto', contas.filter((item) => item.status === 'A pagar' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
       {contas.length === 0 && <p className={styles.vazio}>Você ainda não tem contas a pagar.</p>}
       <Tabela colunas={['Descrição', 'Favorecido', 'Categoria', 'Vencimento', 'Valor', 'Status', '']} linhas={contas.map((item) => ({
         id: item.id,
@@ -222,6 +231,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <header className={styles.topo}><div><h1>Fluxo de caixa</h1><p>Previsto e realizado no período.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <Kpis itens={[['Saldo inicial', fluxo.saldoInicialCentavos], ['Entradas', fluxo.entradasCentavos], ['Saídas', fluxo.saidasCentavos], ['Saldo final', fluxo.saldoFinalCentavos]]} />
+      <AvisoTaxas semTaxa={fluxo.recebimentosSemTaxa} />
       <section className={styles.cartao}><h2>Saldo ao longo do período</h2><Grafico linhas={fluxo.linhas} /></section>
       {fluxo.linhas.length === 0 && <p className={styles.vazio}>Nenhuma movimentação neste período.</p>}
       <Tabela colunas={['Data', 'Descrição', 'Entrada', 'Saída', 'Saldo', '']} linhas={fluxo.linhas.map((item, indice) => ({ id: String(indice), celulas: [item.data, `${item.descricao} (${item.tipo})`, item.entrada ? reaisDe(item.entrada) : '—', item.saida ? reaisDe(item.saida) : '—', item.saldo == null ? '—' : reaisDe(item.saldo)], status: item.tipo }))} />
@@ -230,14 +240,15 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <header className={styles.topo}><div><h1>Relatórios</h1><p>Leitura do período para decidir o que fazer.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <div className={styles.kpis}>
-        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={`${styles.kpi} ${styles.acento} ${tomKpi(String(rotulo), Number(valor))}`} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
+        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas informadas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={`${styles.kpi} ${styles.acento} ${tomKpi(String(rotulo), Number(valor))}`} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
       </div>
+      <AvisoTaxas semTaxa={relatorio.recebimentosSemTaxa} />
       <p className={styles.vazio}>Pacote mais vendido: {relatorio.pacoteMaisVendido || '—'}</p>
       <div className={styles.meio}>
         <section className={styles.cartao}><h2>Despesas por categoria</h2>{relatorio.despesas.length === 0 && <p className={styles.vazio}>Nenhuma despesa paga no período.</p>}{relatorio.despesas.map((item) => <div className={styles.linha} key={item.categoria}><p>{item.categoria}</p><strong>{reaisDe(item.centavos)}</strong></div>)}</section>
         <section className={styles.cartao}><h2>Receita por pacote</h2>{relatorio.pacotes.length === 0 && <p className={styles.vazio}>Nenhuma festa contratada no período.</p>}{relatorio.pacotes.map((item) => <div className={styles.linha} key={item.pacote}><p>{item.pacote}</p><strong>{reaisDe(item.centavos)}</strong></div>)}</section>
         <section className={styles.cartao}><h2>Formas de pagamento</h2>{(relatorio.formas ?? []).length === 0 && <p className={styles.vazio}>Nenhum recebimento no período.</p>}{(relatorio.formas ?? []).map((item) => <div className={styles.linha} key={item.forma}><p>{item.forma}</p><strong>{reaisDe(item.centavos)}</strong></div>)}</section>
-        <section className={styles.cartao}><h2>Margem por festa</h2>{(relatorio.margens ?? []).length === 0 && <p className={styles.vazio}>Nenhuma festa no período.</p>}{(relatorio.margens ?? []).map((item) => <div className={styles.linha} key={item.festaId}><div><p>{item.cliente}</p><small>Resultado de caixa {reaisDe(item.resultadoCaixaCentavos)}</small></div><strong>{reaisDe(item.margemEstimadaCentavos)}</strong></div>)}</section>
+        <section className={styles.cartao}><h2>Margem por festa</h2>{(relatorio.margens ?? []).length === 0 && <p className={styles.vazio}>Nenhuma festa no período.</p>}{(relatorio.margens ?? []).map((item) => <div className={styles.linha} key={item.festaId}><div><p>{item.cliente}</p><small>Resultado de caixa {reaisDe(item.resultadoCaixaCentavos)}</small></div><strong>{textoMargem(item)}</strong></div>)}</section>
       </div>
     </>}
     {dialogo === 'entrada' && acao.chave && <NovaEntrada aviso={aviso} ocupado={acao.fase === 'submitting'} festas={[...new Map(recebiveis.filter((item) => item.festaId).map((item) => [item.festaId, item.pacote])).entries()].map(([id, nome]) => ({ id: id ?? '', nome }))} aoFechar={fecharDialogo} aoEnviar={(form) => {
@@ -261,14 +272,14 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     }} />}
     {dialogo === 'receber' && alvo && 'cliente' in alvo && acao.chave && <Dialogo titulo="Registrar recebimento" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-receber', { parcelaId: alvo.id, valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), taxa: Number(form.get('taxa') || 0), observacao: String(form.get('observacao') || ''), chave: acao.chave })}>
       <Campo nome="valor" rotulo="Valor recebido" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} />
-      <Campo nome="data" rotulo="Data" tipo="date" padrao={new Date().toISOString().slice(0, 10)} />
+      <Campo nome="data" rotulo="Data" tipo="date" padrao={hojeBrasilia()} />
       <Forma />
       <Campo nome="taxa" rotulo="Taxa (opcional)" tipo="number" />
       <Campo nome="observacao" rotulo="Observação (opcional)" />
     </Dialogo>}
     {dialogo === 'pagar' && alvo && 'descricao' in alvo && acao.chave && <Dialogo titulo="Registrar pagamento" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-pagar', { acao: 'pagar', contaId: alvo.id, valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), observacao: String(form.get('observacao') || ''), chave: acao.chave })}>
       <Campo nome="valor" rotulo="Valor" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} />
-      <Campo nome="data" rotulo="Data" tipo="date" padrao={new Date().toISOString().slice(0, 10)} />
+      <Campo nome="data" rotulo="Data" tipo="date" padrao={hojeBrasilia()} />
       <Forma />
       <Campo nome="observacao" rotulo="Observação (opcional)" />
     </Dialogo>}
@@ -287,6 +298,14 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   </main>;
 }
 
+function textoMargem(item: { margemEstimadaCentavos: number | null; noEscopo?: boolean }) {
+  if (item.margemEstimadaCentavos != null) return reaisDe(item.margemEstimadaCentavos);
+  return item.noEscopo === false ? '—' : 'custos não lançados';
+}
+function AvisoTaxas({ semTaxa }: { semTaxa?: number }) {
+  const n = semTaxa ?? 0;
+  return <p className={styles.vazio}>Valores líquidos das taxas informadas.{n > 0 ? ` ${n === 1 ? '1 recebimento de cartão ou boleto está' : `${n} recebimentos de cartão ou boleto estão`} sem taxa informada.` : ''}</p>;
+}
 function Kpis({ itens }: { itens: Array<[string, number | undefined]> }) {
   const acento = itens.length <= 5;
   return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;

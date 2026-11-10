@@ -143,7 +143,9 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
         const pagina = await p.listarParaRevisao(tx, tenant.empresaComprovada, { limite: 50, cursor });
         return { itens: pagina.linhas.map(itemParaRevisao), proximo: codificarCursor(pagina.proximo) };
       }
-      const resposta = async (i: ImportacaoLida) => ({ importacao: publico(i), plano: i.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(i))) : null });
+      // L2: a linha da cota vem daqui, lida ao abrir e ao reler, para valer igual no envio único, no lote e na lista.
+      const cotaDaRevisao = async (i: ImportacaoLida) => i.status === "EM_REVISAO" && p.resumoCota ? { cota: await p.resumoCota(tx, tenant.empresaComprovada) } : {};
+      const resposta = async (i: ImportacaoLida) => ({ importacao: publico(i), plano: i.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(i))) : null, ...await cotaDaRevisao(i) });
       /**
        * Abertura com a trava do documento (R5-1), mantida até o commit: `abrir` (com ou sem aberturaId) e `retomar`
        * se serializam por ela. Documento de outra empresa ou inexistente: mesma resposta, antes de qualquer escrita.
@@ -230,9 +232,7 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
       }
       const atual = await p.lerImportacao(tx, tenant.empresaComprovada, entrada.importacaoId, entrada.acao !== "ler");
       if (!atual) throw new InteligenciaError("NAO_ENCONTRADO", "Importação não encontrada.", 404);
-      if (entrada.acao === "ler") {
-        return { importacao: publico(atual), plano: atual.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(atual))) : null };
-      }
+      if (entrada.acao === "ler") return resposta(atual);
       if (atual.status !== "EM_REVISAO") throw new InteligenciaError("IMPORTACAO_ENCERRADA", "Esta importação já foi encerrada.", 409);
       if (atual.versao !== entrada.versao) throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
       const dados = dadosDaImportacao(atual);

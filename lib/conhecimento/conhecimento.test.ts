@@ -174,14 +174,15 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
 type Aprovacao = { versao: number; sha256: string; em: string };
 const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   // 02/11/2026: os 3 primeiros artigos do MCP e os 21 da central de ajuda (S3).
+  // 07/11/2026: Felipe aprovou a v2 de 7 artigos, com iA.Fest no lugar de Kidmais como nome do produto.
   "assistentes-externos": { versao: 2, sha256: "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6", em: "2026-11-06" },
   "agenda-do-dia": { versao: 1, sha256: "8781baaf336afca70fb79d4c421707a1abfb9a5eb590020e329ad0406fd92c24", em: "2026-11-02" },
   "contas-a-receber": { versao: 1, sha256: "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0", em: "2026-11-02" },
   "agenda-e-horarios": { versao: 1, sha256: "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4", em: "2026-11-02" },
-  "assinatura-e-plano": { versao: 1, sha256: "cedfe7469304da2772067a4372db33ba083ff18a081870c5a24bcd89eb063e99", em: "2026-11-02" },
-  "atendimento-whatsapp": { versao: 1, sha256: "509f39cea24d401abdf70353d1585ca4eaf7e4fc35fd9999cf627a3e04e529f6", em: "2026-11-02" },
+  "assinatura-e-plano": { versao: 2, sha256: "f6400d6da30c0ecf466b38db591c14d32d26a6b11e3428f8c367851e255ed047", em: "2026-11-07" },
+  "atendimento-whatsapp": { versao: 2, sha256: "25787ce3018d192c333cbb9680a0b0ae26a87cf10b6ef8aea27b98965ea7d193", em: "2026-11-07" },
   clientes: { versao: 1, sha256: "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a", em: "2026-11-02" },
-  "conectar-whatsapp": { versao: 1, sha256: "78bedd0f002557ec271d82351463e5f03cb077c84cf986c1f1be572c30a39c15", em: "2026-11-02" },
+  "conectar-whatsapp": { versao: 2, sha256: "e429c240934432806184b18d80f411036c0bfd48ada15be07cb632b80c70c0b3", em: "2026-11-07" },
   "contas-a-pagar-e-caixa": { versao: 1, sha256: "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f", em: "2026-11-02" },
   convites: { versao: 1, sha256: "b67f5d6eaa5445f9b48df2745815956c5334e9f1a0401b02f96435a9b5580008", em: "2026-11-02" },
   "creditos-de-ia": { versao: 1, sha256: "39a0fd9c10dd74e7d28da156dee574fdb2fa75c001b3821a1b8928850199aae6", em: "2026-11-02" },
@@ -189,14 +190,15 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   "fechamento-de-festa": { versao: 1, sha256: "8466add17a8ab0a6b7c5af11d2a8fd1ca473b52f4b9f9cd644358119cab1e1f9", em: "2026-11-02" },
   festas: { versao: 1, sha256: "3dcaa0d2ceece4295dcf282eeafcd92a3444ac45ad0baa37d3800453bdca369e", em: "2026-11-02" },
   "financeiro-recebimentos": { versao: 1, sha256: "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58", em: "2026-11-02" },
-  "importar-documentos": { versao: 1, sha256: "f7a1bd1e4e54407fc60698e838fa1c26f08ec1d5a71f38da30562efae2aec29b", em: "2026-11-02" },
+  "importar-documentos": { versao: 2, sha256: "4592a58b91da57a600c5acdb50fc979e47fe3ba14016eda29b6e776298f2fffe", em: "2026-11-07" },
   marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
   "perfil-da-empresa": { versao: 1, sha256: "1a60c7737afcb854fa25bdf4db0ff41db05476572104ee3fd6ca138badb6a8d2", em: "2026-11-02" },
-  "perfil-e-senha": { versao: 1, sha256: "c247e2c74d5cb93ac13961269e20d44b7e54100b0984d081188c41429a996b0c", em: "2026-11-02" },
-  "primeiros-passos": { versao: 1, sha256: "748b0f229189ff2f15bb6ef36349d3ca81072f7e923993d289e9918686867806", em: "2026-11-02" },
+  "perfil-e-senha": { versao: 2, sha256: "e1711f27fd0a91d9b4833589978a153f01c2f45b3cde30a815b9b35c0ec31639", em: "2026-11-07" },
+  "primeiros-passos": { versao: 2, sha256: "34996b03a309e504e698eb04c70a62c0bbe9764880b47cb2dfc5d099d6e8a2e6", em: "2026-11-07" },
   "privacidade-e-exportacao": { versao: 1, sha256: "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c", em: "2026-11-02" },
-  "usuarios-e-acessos": { versao: 1, sha256: "7fc8c75b57309790b4a7c1472636854035f1390f164ca39e55d9b91643d94650", em: "2026-11-02" },
-  contratos: { versao: 1, sha256: "a09b2415e0336dc14672f89fa4ba519ce09f706084be12322b2a2bd26aff44d7", em: "2026-11-02" },
+  "usuarios-e-acessos": { versao: 2, sha256: "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852", em: "2026-11-07" },
+  // 07/11/2026: rótulo do botão "Aprovar e assinar pelo buffet"; Felipe: "pode fazer todos."
+  contratos: { versao: 2, sha256: "d18daca33b9796d143d0dab971bbb1bd5a7f3e1c014e64669401016acfebca03", em: "2026-11-07" },
   "saloes-pacotes-e-itens": { versao: 1, sha256: "5b727b2aa6b81a533adb326ff425f2daf13b062b54ab19fba0ce059617a71797", em: "2026-11-02" },
 };
 
@@ -215,9 +217,9 @@ test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO 
     const texto = readFileSync(join(import.meta.dirname, "..", "..", "conhecimento", arquivo), "utf8");
     assert.equal(createHash("sha256").update(texto, "utf8").digest("hex"), aprovacao.sha256, `${d.id} v${d.versao}: texto diferente do aprovado`);
   }
-  assert.equal(buscar(real, leitorA, "2026-11-06", "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
+  assert.equal(buscar(real, leitorA, "2026-11-07", "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
   // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
-  const depois = "2026-11-06";
+  const depois = "2026-11-07";
   for (const d of real.documentos) {
     for (const situacao of ["PENDENTE_APROVACAO", "SUSPENSO", "REVOGADO"] as const) {
       const corpus: Corpus = { documentos: real.documentos.map((x) => (x === d ? { ...x, situacao } : x)) };

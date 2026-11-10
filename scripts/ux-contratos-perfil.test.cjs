@@ -170,7 +170,7 @@ async function main() {
             estadoPerfil = '403'; await abrir('perfil'); await page.getByRole('heading', { name: 'Acesso negado' }).waitFor(); assert(!/Sem concessão/.test(await page.locator('main').innerText())); await foto(`perfil-acesso-${viewport}`);
             estadoPerfil = 'erro'; await abrir('perfil'); await page.getByRole('alert').waitFor(); await foto(`perfil-erro-${viewport}`); assert.equal(await page.getByRole('heading', { name: 'Acesso negado' }).count(), 0);
             estadoPerfil = 'carregando'; await abrir('perfil'); await page.getByText('Carregando perfil.', { exact: true }).waitFor(); await foto(`perfil-carregando-${viewport}`); estadoPerfil = 'ok';
-            await abrir('contratos'); await page.getByRole('heading', { name: 'Aniversário de Catarina Exemplo · 1 ano', exact: true }).waitFor(); if (viewport === 'celular') await page.getByRole('button', { name: 'Abrir menu' }).click(); await page.getByRole('button', { name: 'Perguntar ao Kidmais' }).click(); await page.getByRole('dialog', { name: 'Assistente Kidmais' }).waitFor(); await foto(`ia-vazia-${viewport}`);
+            await abrir('contratos'); await page.getByRole('heading', { name: 'Aniversário de Catarina Exemplo · 1 ano', exact: true }).waitFor(); if (viewport === 'celular') await page.getByRole('button', { name: 'Abrir menu' }).click(); await page.getByRole('button', { name: 'Perguntar ao Copiloto' }).click(); await page.getByRole('dialog', { name: 'Assistente Kidmais' }).waitFor(); await foto(`ia-vazia-${viewport}`);
             const pergunta = 'Faça um contrato do Felipe, Premium, 70 convidados, 31/09 às 17h, Catarina 1 ano, tema unicórnio.';
             estadoIA = 'carregando'; await page.getByRole('textbox', { name: 'Sua pergunta' }).fill(pergunta); await page.getByRole('button', { name: 'Enviar', exact: true }).click(); await page.getByText('Preparando resposta…', { exact: true }).waitFor(); await foto(`ia-carregando-${viewport}`); await page.getByText(/^Criar contrato pela conversa/).waitFor(); await foto(`ia-${viewport}`); assert.equal(posts.at(-1).body.texto, pergunta);
             estadoIA = 'erro'; await page.getByRole('textbox', { name: 'Sua pergunta' }).fill('Consultar operação'); await page.getByRole('button', { name: 'Enviar', exact: true }).click(); await page.getByRole('alert').waitFor(); await foto(`ia-erro-${viewport}`); await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 0);
@@ -183,7 +183,7 @@ async function main() {
         page.on('dialog', dialog => dialog.accept());
         await page.getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();
         await page.getByLabel('Confirme sua senha').fill('senha-sintetica-sem-credencial-real');
-        await page.getByRole('button', { name: 'Aprovar e assinar pela Kidmais', exact: true }).click();
+        await page.getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();
         await page.getByRole('button', { name: 'Liberar para o cliente', exact: true }).click();
         const publico = page.getByRole('link', { name: /^Abrir página do cliente/ });
         await publico.waitFor(); assert.equal(await publico.count(),1);

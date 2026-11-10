@@ -41,4 +41,4 @@ Em [Privacidade](/admin/atendimento/privacidade), quem tem acesso de Gestão pod
 - Definir um prazo para excluir automaticamente conversas paradas.
 - Revogar, trocar o link ou definir validade dos arquivos da biblioteca.
 
-O que é apagado sai do Kidmais, mas não alcança cópias que o WhatsApp ou o cliente já guardaram. Se um contato pediu para não receber mensagens, novos envios ficam bloqueados.
+O que é apagado sai do iA.Fest, mas não alcança cópias que o WhatsApp ou o cliente já guardaram. Se um contato pediu para não receber mensagens, novos envios ficam bloqueados.

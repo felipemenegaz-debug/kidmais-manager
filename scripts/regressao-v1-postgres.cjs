@@ -52,12 +52,17 @@ try {
  * um salão (rev. 6–7): o preload da guarda dinâmica entra por NODE_OPTIONS (também nos subprocessos) e grava o registro
  * da suíte em `registro`.
  */
-function ambiente(estado, porta, banco, registro) {
+function ambiente(estado, porta, banco, registro, registroLimpeza) {
   // Barras normais: no NODE_OPTIONS a barra invertida é tratada como escape (o caminho tem espaços e vai entre aspas).
   const preload = path.join(__dirname, "guarda-salao-preload.cjs").replace(/\\/g, "/");
   const base = ambienteDaSuite(process.env, estado, porta, banco);
-  return { ...base, NODE_OPTIONS: `${base.NODE_OPTIONS ?? ""} --require "${preload}"`.trim(), KIDMAIS_GUARDA_SALAO_ARQUIVO: registro };
+  return { ...base, NODE_OPTIONS: `${base.NODE_OPTIONS ?? ""} --require "${preload}"`.trim(), KIDMAIS_GUARDA_SALAO_ARQUIVO: registro,
+    KIDMAIS_LIMPEZA_REGISTRO: registroLimpeza };
 }
+
+// Falhas da limpeza das conexões (ROLLBACK/unlock em encerrarDescartavel), registradas pela suíte com fase e SQLSTATE.
+// Só aparecem no resumo: não mudam a situação da suíte, e a leitura nunca lança (lib/comercial/registro-limpeza.cjs).
+const { lerLimpeza, resumoLimpeza } = require("../lib/comercial/registro-limpeza.cjs");
 const PASTA_GUARDA = fs.mkdtempSync(path.join(os.tmpdir(), "kidmais-guarda-salao-"));
 
 async function conexoesDeTrabalho(admin, bancos) {
@@ -103,9 +108,10 @@ async function principal() {
       console.log(`\n--- ${descricao}`);
       const inicio = Date.now();
       const registro = path.join(PASTA_GUARDA, `${resultados.length}.jsonl`);
+      const registroLimpeza = path.join(PASTA_GUARDA, `${resultados.length}-limpeza.jsonl`);
       const r = spawnSync(process.execPath, ["--experimental-strip-types", "--test", arquivo], {
         cwd: raiz,
-        env: ambiente(estado, porta, trabalho, registro),
+        env: ambiente(estado, porta, trabalho, registro, registroLimpeza),
         stdio: "inherit",
         timeout: LIMITE_POR_SUITE_MS,
       });
@@ -123,7 +129,9 @@ async function principal() {
       }
       escritas.push(...eventos.filter((e) => e.tipo === "ESCRITA").map((e) => ({ suite: estado.relativo, marca: e.marca.replace(/:[0-9a-f]{32}$/, ""), tabela: e.tabela, valor: e.valor })));
       const situacao = r.error?.code === "ETIMEDOUT" ? "NÃO TERMINOU NO LIMITE" : r.error ? `ERRO ${r.error.code ?? r.error.message}` : r.status !== 0 ? "FALHOU" : abertas ? `DEIXOU ${abertas} CONEXÃO(ÕES) ABERTA(S)` : problemas.length ? `GUARDA: ${problemas.length} violação(ões)` : "OK";
-      resultados.push({ descricao, situacao, segundos: Math.round((Date.now() - inicio) / 1000) });
+      const limpeza = lerLimpeza(registroLimpeza);
+      for (const f of limpeza) console.error(`LIMPEZA ${estado.relativo}: ${f.fase} ${f.sqlstate ?? "sem SQLSTATE"} ${f.mensagem}`);
+      resultados.push({ descricao, situacao, segundos: Math.round((Date.now() - inicio) / 1000), limpeza });
     }
   } finally {
     await admin.end();
@@ -137,7 +145,9 @@ async function principal() {
   fs.writeFileSync(destino, JSON.stringify(relatorio, null, 1));
   console.log(`guarda de escritores de salão: ${escritas.length} escritas marcadas, ${ordensDeTeste.length} ordens fora do padrão em código de teste, ${ordensDeAplicador.length} de aplicador de migration anterior à 114; relatório ${destino}`);
   console.log("\n=== Resumo PostgreSQL descartável ===");
-  for (const r of resultados) console.log(`${r.situacao === "OK" ? "ok  " : "FALHA"} ${r.descricao} — ${r.situacao} (${r.segundos}s)`);
+  for (const r of resultados) console.log(`${r.situacao === "OK" ? "ok  " : "FALHA"} ${r.descricao} — ${r.situacao} (${r.segundos}s)${r.limpeza.length ? ` · limpeza: ${r.limpeza.length} falha(s) (${resumoLimpeza(r.limpeza)})` : ""}`);
+  const comLimpeza = resultados.filter((r) => r.limpeza.length);
+  console.log(`limpeza das conexões: ${comLimpeza.reduce((n, r) => n + r.limpeza.length, 0)} falha(s) em ${comLimpeza.length} arquivo(s), pelo registro; sem reprovar. Falha ao gravar o registro aparece só no stderr (LIMPEZA_DESCARTAVEL_FALHOU).`);
   const falhas = resultados.filter((r) => r.situacao !== "OK");
   if (falhas.length) {
     console.error(`\nFALHA suíte PostgreSQL descartável: ${falhas.length} de ${resultados.length} arquivos.`);

@@ -66,8 +66,8 @@ async function main() {
         await page.getByRole('button', {name:'Gerar PDF da revisão 2',exact:true}).click();
         await page.getByRole('button', {name:'Confirmar revisão deste PDF',exact:true}).click();
         await page.getByLabel('Confirme sua senha').fill(password);
-        await page.getByRole('button', {name:'APROVAR E ASSINAR PELA KIDMAIS',exact:true}).click();
-        await page.getByRole('button', {name:'LIBERAR PARA O CLIENTE',exact:true}).click();
+        await page.getByRole('button', {name:'Aprovar e assinar pelo buffet',exact:true}).click();
+        await page.getByRole('button', {name:'Liberar para o cliente',exact:true}).click();
         await page.getByRole('link', {name:'Abrir acesso público do cliente',exact:true}).waitFor();
         assert.match(await page.getByText(/Vigente:/).innerText(),/Vigente: 2/);
         await page.goto(env.ADMIN_AUTH_ORIGIN + '/clientes');

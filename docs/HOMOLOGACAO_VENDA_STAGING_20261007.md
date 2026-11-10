@@ -225,6 +225,12 @@ credencial (tarefa própria, §2.2).
 
 ## 10. Ativação futura em production e rollback (não autorizado)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Esta seção não libera a ativação em production: cobrança de produção e `CADASTRO_PUBLICO_ATIVO=true` estão bloqueados. Staging homologado e preços decididos não bastam. O restante deste documento, restrito a staging, não muda.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Pré-requisitos: §8 decidida; staging homologado (critérios abaixo); textos legais revisados (D11) com nova versão;
 código de produção do Asaas (`ASAAS_AMBIENTE=producao`, URL `https://api.asaas.com/v3`, chave `$aact_prod_`) com revisão
 própria; Resend com chave de production; webhook de production com token novo.

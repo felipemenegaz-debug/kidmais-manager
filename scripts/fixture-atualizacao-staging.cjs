@@ -12,7 +12,7 @@ const {alvo: alvoEnsaio, documento} = require('./assinatura-staging-ensaio.cjs')
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 const {PRESERVADAS: PRESERVADAS_PLANOS, sqlPreservacao} = require('./homologacao-planos-cotacao-staging.cjs');
 
-const BASE = 'https://kidmais-manager-staging.onrender.com';
+const BASE = require('./alvo-staging.cjs').origemDoStaging();
 const DIR = '/opt/render/project/src/data/atualizacao-staging-20261011';
 const ARQUIVO = 'fixtures.json';
 const FLAG_CRIAR = '--criar-fixtures-autorizado';

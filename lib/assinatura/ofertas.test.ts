@@ -31,6 +31,7 @@ class Banco implements DbExecutor {
     sql: string[] = [];
     eventos: { id: string; assinatura_provedor_id: string | null; evento_id: string; concluido: boolean }[] = [];
     async query<Row extends object>(sql: string, args: readonly unknown[] = []) {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         this.sql.push(sql);
         let rows: object[] = [];
         if (sql.includes('AS instalado074')) rows = [{ instalado074: this.instalado }];

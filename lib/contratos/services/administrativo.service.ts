@@ -1,3 +1,4 @@
+import { marcaDaEmpresa, type MarcaContrato } from '../marca-contrato';
 import { buscarRevisaoDaVersao, listarItensRevisao, salvarOperacaoPreparada } from '../../fechamentos/repositories/revisao.repository';
 import { recusarComercialPreparacao, iniciarPreparacao, snapshotPreparacao, editarPreparacao, aprovarPreparacao, revalidarAgendaRevisao, congelarPreparacao, cancelarPreparacao } from '../../fechamentos/services/revisao-operacional.service';
 import { randomUUID } from 'node:crypto';
@@ -132,11 +133,12 @@ export function comprovantePdf(input: {
     instante: string;
     pdfHash: string;
     metodo: string;
+    marca: MarcaContrato;
 }) {
-    return gerarPdfDocumentoContrato({ cabecalhoRotulo: 'COMPROVANTE DE ASSINATURA', templateVersao: 1, homologadoParaProducao: true, titulo: 'Comprovante de assinatura eletrônica', linhas: [
+    return gerarPdfDocumentoContrato({ cabecalhoRotulo: 'COMPROVANTE DE ASSINATURA', templateVersao: 1, homologadoParaProducao: true, titulo: 'Comprovante de assinatura eletrônica', marca: input.marca, linhas: [
             { texto: 'Comprovante de assinatura eletrônica', estilo: 'titulo' },
             { texto: 'Dados da assinatura', estilo: 'secao' },
-            ...[`Parte: ${input.parte}`, `Versão: ${input.versao.numeroVersao} — ${input.versao.id}`, `Nome: ${input.identidade.nome ?? ''}`, `Data/hora: ${input.instante}`, `Método: ${input.metodo}`, `SHA-256 do documento: ${input.pdfHash}`, `SHA-256 do snapshot: ${input.versao.snapshotHash}`].map(texto => ({ texto, estilo: 'corpo' as const })),
+            ...[`Parte: ${input.parte === 'KIDMAIS' && !input.marca.kidmais ? 'BUFFET' : input.parte}`, `Versão: ${input.versao.numeroVersao} — ${input.versao.id}`, `Nome: ${input.identidade.nome ?? ''}`, `Data/hora: ${input.instante}`, `Método: ${input.metodo}`, `SHA-256 do documento: ${input.pdfHash}`, `SHA-256 do snapshot: ${input.versao.snapshotHash}`].map(texto => ({ texto, estilo: 'corpo' as const })),
             { texto: `Versão documental: ${input.versao.numeroVersao}`, estilo: 'rodape' },
         ] });
 }
@@ -164,6 +166,7 @@ export async function gerarDocumentoDaVersao(tx: DbExecutor, v: ContratoVersaoRe
         conflito(MENSAGEM_SEM_TEMPLATE_OFICIAL);
     rendered.observacoes.push(e.dados_fonte.observacoesDocumentais ?? '');
     rendered.integridade.push('Assinaturas eletrônicas: consulte os comprovantes desta versão.');
+    if (modeloEmpresa) rendered.marca = await marcaDaEmpresa(tx, empresaAutorizada);
     const d = await guardarDocumento(tx, { versaoId: v.id, categoria: 'CONTRATO', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: rendered.modeloCodigo, templateVersao: rendered.templateVersao, usuarioId: s.usuario_id, pdf: gerarPdfContratoOficial(rendered, { logo: !modeloEmpresa }) });
     await evento(tx, v, s, 'CONTRATO_DOCUMENTO_GERADO', { documentoId: d.id });
     return { documentoId: d.id };
@@ -387,7 +390,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const instante = (await tx.query<{
                 t: string;
             }>('SELECT clock_timestamp()::text AS t')).rows[0].t;
-            const proof = await guardarDocumento(tx, { versaoId: v.id, categoria: 'COMPROVANTE_ASSINATURA', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: 'COMPROVANTE_INTERNO_V1', usuarioId: s.usuario_id, pdf: comprovantePdf({ versao: v, parte: 'KIDMAIS', identidade: identity, instante, pdfHash: d.pdf_hash, metodo: 'Sessão reautenticada — Kidmais Manager' }) });
+            const marcaAssinatura = await marcaDaEmpresa(tx, empresaAutorizada);
+            const proof = await guardarDocumento(tx, { versaoId: v.id, categoria: 'COMPROVANTE_ASSINATURA', revisao: e.revisao, snapshotHash: v.snapshotHash, templateCodigo: 'COMPROVANTE_INTERNO_V1', usuarioId: s.usuario_id, pdf: comprovantePdf({ versao: v, parte: 'KIDMAIS', identidade: identity, instante, pdfHash: d.pdf_hash, metodo: marcaAssinatura.kidmais ? 'Sessão reautenticada — Kidmais Manager' : 'Sessão reautenticada — iA.Fest', marca: marcaAssinatura }) });
             const id = randomUUID();
             await tx.query(`INSERT INTO contrato_assinaturas(id,contrato_versao_id,parte,documento_id,usuario_id,sessao_id,autenticacao_metodo,autenticado_em,identidade_snapshot,snapshot_hash,pdf_hash,metodo,provider,assinado_em,ip,user_agent,request_id,chave_idempotencia,comprovante_documento_id)
     VALUES($1,$2,'KIDMAIS',$3,$4,$5,'SENHA',$6,$7,$8,$9,'SESSAO_REAUTENTICADA','INTERNAL',$10,$11,$12,$13,$14,$15)`, [id, v.id, d.id, s.usuario_id, s.id, s.autenticado_em, identity, v.snapshotHash, d.pdf_hash, instante, context.ip, context.userAgent, context.requestId, input.chaveIdempotencia, proof.id]);
@@ -400,7 +404,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if (e.estado === 'AGUARDANDO_CLIENTE')
                 return { reutilizado: true };
             if (e.estado !== 'ASSINADA_KIDMAIS')
-                conflito('A assinatura Kidmais deve existir antes da liberação.');
+                conflito('A assinatura do buffet deve existir antes da liberação.');
             await tx.query("UPDATE contrato_edicoes SET estado='AGUARDANDO_CLIENTE',liberado_por_usuario_id=$2,liberado_em=clock_timestamp(),atualizado_por_usuario_id=$2 WHERE contrato_versao_id=$1", [v.id, s.usuario_id]);
             await evento(tx, v, s, 'CONTRATO_LIBERADO_CLIENTE');
             return { liberado: true };

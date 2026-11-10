@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { posicaoSimulada } from "../../financeiro/titulo-simulado.ts";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -153,8 +154,8 @@ function bancoFalso() {
       const r = (rows: object[]) => ({ rows, rowCount: rows.length }) as { rows: Row[]; rowCount: number };
       if (sql.includes("FROM pagamento_parcelas")) {
         return r(values[0] === empresaA ? [
-          { id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-01", status_gravado: "PENDENTE", cliente: "Mariana Souza 123.456.789-00", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
-          { id: "p2", pagamento_id: "pg2", numero: 2, valor: "5500.00", vencimento: "2026-10-20", status_gravado: "PENDENTE", cliente: "Mariana Souza", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
+          { id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-01", status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: "Mariana Souza 123.456.789-00", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
+          { id: "p2", pagamento_id: "pg2", numero: 2, valor: "5500.00", vencimento: "2026-10-20", status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: "Mariana Souza", festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
         ] : []);
       }
       if (sql.includes("FROM financeiro_entradas_manuais")) return r([]);

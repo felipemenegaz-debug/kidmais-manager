@@ -89,6 +89,9 @@ const APLICADORES = [
   "migration-117-comum.cjs",
   // Aplicador da 114 (trava da configuração), mesma forma do 117: as origens do wrapper -staging nascem no -comum.
   "migration-114-comum.cjs",
+  // Aplicador da 118 (cota de leitura da importação, L2; 08/11/2026), mesma forma do 117: as origens do wrapper -staging
+  // nascem no -comum (sem exceção própria).
+  "migration-118-comum.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",

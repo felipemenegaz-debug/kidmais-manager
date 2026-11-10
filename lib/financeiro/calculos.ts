@@ -4,6 +4,27 @@ export const HORIZONTE_RECORRENCIA_MESES = 12;
 /** Entrada com vencimento ou recebimento anterior a esta data é registro histórico. O valor não muda. */
 export const IMPLANTACAO_FINANCEIRO = "2026-09-27";
 
+/**
+ * Versão do contrato do resumo financeiro (KPIs do financeiro e do Dashboard). A 2 retirou "Saldo previsto" e o atraso
+ * somado. Tela e servidor de versões diferentes não mostram números: pedem para recarregar a página.
+ */
+export const VERSAO_RESUMO_FINANCEIRO = 2;
+
+/**
+ * Aba aberta antes do primeiro rollout: o JavaScript antigo não lê `versao` e mostraria número de outro contrato
+ * ("Saldo previsto" vazio, margem nula como R$ 0,00). As telas novas mandam este cabeçalho; nas rotas cujo contrato
+ * mudou, o servidor recusa o pedido sem ele com 409, e a tela antiga mostra a mensagem como erro.
+ */
+export const CABECALHO_VERSAO_FINANCEIRO = "x-kidmais-financeiro-versao";
+export const MENSAGEM_RECARREGAR_FINANCEIRO = "O financeiro foi atualizado. Recarregue a página para ver os números certos.";
+/** Toda rota que devolve o resumo, o painel ou o relatório (teste em titulos-motor.test.ts confere pelas fontes). */
+export const ROTAS_COM_VERSAO_FINANCEIRA = ["/api/admin/financeiro", "/api/admin/financeiro/contas-receber", "/api/admin/financeiro/relatorios", "/api/admin/dashboard"] as const;
+export const cabecalhoVersaoFinanceira = () => ({ [CABECALHO_VERSAO_FINANCEIRO]: String(VERSAO_RESUMO_FINANCEIRO) });
+export function versaoFinanceiraRecusada(caminho: string, cabecalho: string | null) {
+  const rota = caminho.length > 1 ? caminho.replace(/\/+$/, "") : caminho;
+  return (ROTAS_COM_VERSAO_FINANCEIRA as readonly string[]).includes(rota) && cabecalho !== String(VERSAO_RESUMO_FINANCEIRO);
+}
+
 export const CATEGORIAS_DESPESA = [
   "Buffet / insumos",
   "Pessoal",
@@ -44,12 +65,14 @@ export function statusReceber(input: {
   reembolsado: boolean;
   valorCentavos: number;
   recebidoCentavos: number;
+  /** Saldo do motor, quando a parcela não é só valor menos recebido (cronograma, posição do pagamento). */
+  saldoCentavos?: number;
   vencimento: string;
   hoje: string;
 }): StatusReceber {
   if (input.cancelado) return "Cancelado";
   if (input.reembolsado && input.recebidoCentavos <= 0) return "Reembolsado";
-  const saldo = input.valorCentavos - input.recebidoCentavos;
+  const saldo = input.saldoCentavos ?? input.valorCentavos - input.recebidoCentavos;
   if (saldo <= 0) return "Pago";
   if (input.vencimento < input.hoje) return "Vencido";
   if (input.recebidoCentavos > 0) return "Parcialmente pago";

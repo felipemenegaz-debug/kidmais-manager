@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Somente transporte do aviso sintético. Não importa pg, cliente Asaas ou executor de renovação.
 const { createHash } = require('node:crypto');
-const ORIGEM = 'https://kidmais-manager-staging.onrender.com';
+const ORIGEM = require('./alvo-staging.cjs').origemDoStaging();
 const DESTINO = 'felipemenegaz@gmail.com';
 const REMETENTE = 'Kidmais Manager — Teste <onboarding@resend.dev>';
 

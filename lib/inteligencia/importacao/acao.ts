@@ -1,3 +1,4 @@
+import type { ResumoCota } from "../../importacao-contrato/cota.ts";
 import { decisoesSchema, type DecisoesIntegracao, type ResumoIntegracao } from "../../contratos/integracao-importados/modelo.ts";
 import type { TenantComprovado } from "../../saas/provar-tenant.ts";
 import type { ContextoAcao } from "../acoes/tipos.ts";
@@ -72,6 +73,8 @@ export type PortaImportacao = {
     confirmar(tx: DbExecutor, tenant: TenantComprovado, i: ImportacaoLida, d: DecisoesIntegracao, hash: string, ctx: ContextoAcao): Promise<{ contratoId: string; destino?: string }>;
   };
   disponivel(tx: DbExecutor): Promise<boolean>;
+  /** L2: situação da cota para a linha da revisão (só exibição; null = sem linha). Ausente = resposta sem o campo. */
+  resumoCota?(tx: DbExecutor, empresaId: string): Promise<ResumoCota | null>;
   ultimaExtracao(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ExtracaoRegistrada | null>;
   abrirImportacao(tx: DbExecutor, e: { empresaId: string; documentoId: string; extracaoId: string; usuarioId: string; dados: Record<string, unknown> }): Promise<ImportacaoLida>;
   /** Lote L1 (R5-1): trava do documento no tenant comprovado; false = outra empresa ou inexistente. */

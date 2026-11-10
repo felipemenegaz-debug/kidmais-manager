@@ -13,7 +13,7 @@ type Manifestacao = { protocolo: string; solicitadoEm: string; situacao: 'RECEBI
     concluidoEm: string | null; valorRestituidoCentavos: number | null; emailConfirmacao: string; repetido?: boolean };
 type Consulta = { instalado: boolean; canalOficial: string; manifestacoes: Manifestacao[] };
 const SITUACAO: Record<Manifestacao['situacao'], string> = {
-    RECEBIDO: 'Recebido: em processamento pela equipe Kidmais',
+    RECEBIDO: 'Recebido: em processamento pela equipe iA.Fest',
     RESTITUIDO: 'Concluído com restituição',
     NAO_APLICAVEL: 'Concluído pelo atendimento: não se aplica (resultado enviado por e-mail)',
 };
@@ -62,9 +62,9 @@ export function ArrependimentoLegal({ dados }: { dados: DadosAssinatura }) {
     return <section className={workspace.card} aria-labelledby="t-arrependimento" data-arrependimento>
         <h2 id="t-arrependimento">Desistir da contratação (direito de arrependimento)</h2>
         {!consulta.instalado
-            ? <p>Para desistir da contratação, envie o pedido para <a href={`mailto:${consulta.canalOficial}?subject=${encodeURIComponent('Arrependimento — Kidmais Manager')}`}>{consulta.canalOficial}</a>. O pedido vale a partir do envio e confirmamos o recebimento.</p>
+            ? <p>Para desistir da contratação, envie o pedido para <a href={`mailto:${consulta.canalOficial}?subject=${encodeURIComponent('Arrependimento — iA.Fest')}`}>{consulta.canalOficial}</a>. O pedido vale a partir do envio e confirmamos o recebimento.</p>
             : <>
-                <p>Registre aqui o seu pedido de arrependimento. O registro vale na hora e você recebe um protocolo, mesmo que a devolução automática não esteja disponível (por exemplo, fora da garantia de 7 dias da primeira ativação ou com o provedor de pagamento indisponível). Depois, a equipe Kidmais analisa o pedido e, quando cabível, comunica o intermediador de pagamento e restitui os valores pagos, informando o resultado pelo canal oficial. Se não conseguir acessar o sistema, use {consulta.canalOficial}.</p>
+                <p>Registre aqui o seu pedido de arrependimento. O registro vale na hora e você recebe um protocolo, mesmo que a devolução automática não esteja disponível (por exemplo, fora da garantia de 7 dias da primeira ativação ou com o provedor de pagamento indisponível). Depois, a equipe iA.Fest analisa o pedido e, quando cabível, comunica o intermediador de pagamento e restitui os valores pagos, informando o resultado pelo canal oficial. Se não conseguir acessar o sistema, use {consulta.canalOficial}.</p>
                 {registro && <div role="status" data-protocolo-arrependimento={registro.protocolo} style={{ border: '1px solid currentColor', borderRadius: 12, padding: 12 }}>
                     <p style={{ marginTop: 0 }}><strong>Pedido de arrependimento registrado.</strong> Protocolo: <strong>{registro.protocolo}</strong>, em {horaBr(registro.solicitadoEm)} (horário de Brasília).</p>
                     <p style={{ marginBottom: 0 }} className={workspace.muted}>{registro.emailConfirmacao === 'ENVIADO' ? 'Enviamos a confirmação para o seu e-mail.' : 'Guarde o protocolo: a confirmação por e-mail não pôde ser enviada agora.'}</p>
@@ -72,7 +72,7 @@ export function ArrependimentoLegal({ dados }: { dados: DadosAssinatura }) {
                 {!aberto ? <p><button type="button" className="danger" disabled={ocupado} onClick={() => { setAberto(true); setChave(novaChave()); setErro(''); setRegistro(null); setConfirmado(false); }}>Registrar arrependimento…</button></p>
                     : <form onSubmit={(e) => { e.preventDefault(); if (confirmado && senha) void registrar(); }} data-form-arrependimento>
                         <label>Motivo (opcional)<input value={motivo} maxLength={500} onChange={(e) => setMotivo(e.target.value)} /></label>
-                        <label><input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} /> Quero desistir da contratação do Kidmais Manager.</label>
+                        <label><input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} /> Quero desistir da contratação do iA.Fest.</label>
                         <label>Sua senha<input type="password" autoComplete="current-password" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} required /></label>
                         <p style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                             <button type="submit" className="danger" disabled={ocupado || !confirmado || !senha}>{ocupado ? 'Registrando…' : 'Confirmar arrependimento'}</button>

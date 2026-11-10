@@ -8,7 +8,8 @@ import { paginaPublica } from "../fechamentos/rota-publica.ts";
 
 test("agenda: 'Ver tela do cliente' leva ao endereço público da empresa ativa, nunca ao da Kidmais", () => {
   const rota = readFileSync("app/api/admin/disponibilidade/route.ts", "utf8");
-  assert.match(rota, /telaDoCliente: configuracaoComercial \? "\/disponibilidade" : await telaDoClienteDaEmpresa\(tx, empresaComprovada\)/);
+  // Plano D4, H21: o endereço da dona vem da configuração validada (relativo fora de ATIVA; teste em lib/enderecos/roteamento.test.ts).
+  assert.match(rota, /telaDoCliente: configuracaoComercial \? telaDoClienteGlobal\(process\.env\) : await telaDoClienteDaEmpresa\(tx, empresaComprovada\)/);
   assert.match(rota, /SELECT codigo FROM empresas WHERE id = \$1::uuid/);
   // Só oferece o endereço que abriria: a mesma decisão da página /b/<código>, num savepoint (recusa não aborta a tx).
   const ajuda = rota.slice(rota.indexOf("async function telaDoClienteDaEmpresa"));

@@ -1,6 +1,7 @@
 import { salaoDoSnapshot, type ContratoSnapshot, type ContratoSnapshotV1 } from '../../lib/contratos/repositories/models.ts';
 import { formatarMoeda, formatarFormaPagamento, formatarCondicaoPix, formatarDataContrato, formatarHorarioContrato } from '../../lib/contratos/documento/formatters.ts';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../../lib/contratos/assinatura-papel.ts';
+import type { MarcaContrato } from '../../lib/contratos/marca-contrato.ts';
 
 export type VersaoResumo = {
   id: string; numero_versao: number; status: string; estado_edicao: string | null; aceite_metodo?: string | null;
@@ -86,7 +87,7 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   if (papel) secao('Assinatura desta versão', [['Forma', 'Assinado em papel'], ['Observação', TEXTO_ASSINADO_EM_PAPEL]]);
   else secao('Assinaturas desta versão', ['KIDMAIS', 'CLIENTE'].map(parte => {
     const assinatura = assinaturas.find(a => a.parte === parte);
-    return [parte, assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
+    return [parte === 'KIDMAIS' ? 'Buffet' : 'Cliente', assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
   }));
   // `arquivo` só nomeia o PDF baixado; o conteúdo continua vindo de `secoes`/`parcelas`.
   return { numeroVersao: v.numero_versao, classificacao, secoes, parcelas, avisoFinanceiro, arquivo: { contratante: s.contratante.nomeCompleto, dataEvento: s.evento.data } };
@@ -103,10 +104,10 @@ type Buscador = (url: string, init?: RequestInit) => Promise<Response>;
  */
 export async function carregarResumo(buscar: Buscador, contratoId: string, versaoId?: string | null) {
   const resposta = await buscar(`${ENDPOINT_RESUMO}?contratoId=${encodeURIComponent(contratoId)}`);
-  const corpo = await resposta.json() as { ok?: boolean; data?: { painel?: PainelResumo; financeiro?: FinanceiroResumo | null } };
+  const corpo = await resposta.json() as { ok?: boolean; data?: { painel?: PainelResumo; financeiro?: FinanceiroResumo | null; marca?: MarcaContrato | null } };
   if (!resposta.ok || corpo.ok !== true || !corpo.data?.painel) throw Error('Não foi possível consultar o contrato. Verifique sua sessão e tente novamente.');
   const painel = corpo.data.painel, versao = selecionarVersaoResumo(painel, versaoId);
   const vigente = versao.id === painel.fluxo?.versao_vigente_id;
   if (vigente && painel.financeiro.length && !corpo.data.financeiro) throw Error('Não foi possível consultar o Financeiro. O resumo não será impresso com dados incompletos.');
-  return montarResumo(painel, versao.id, vigente ? corpo.data.financeiro ?? null : null);
+  return { ...montarResumo(painel, versao.id, vigente ? corpo.data.financeiro ?? null : null), marca: corpo.data.marca ?? null };
 }
