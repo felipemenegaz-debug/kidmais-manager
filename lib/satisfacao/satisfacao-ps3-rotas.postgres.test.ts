@@ -260,7 +260,7 @@ test("PS-3 pelas rotas reais: matriz HTTP, atomicidade, relógio real, instalaç
       assert.equal(e.status, 200);
       assert.ok(e.corpo.data!.tarefas!.some((x) => x.id === t1));
       assert.ok(e.corpo.data!.tarefas!.every((x) => x.estabelecimentoId === U1), "Equipe só vê a unidade TRATAR");
-      assert.deepEqual((await listar(soVerSessao)).corpo.data, { gestao: false, tarefas: [], unidades: [], abertasSemUnidade: null }, "só VER: lista vazia");
+      assert.deepEqual((await listar(soVerSessao)).corpo.data, { gestao: false, tarefas: [], unidades: [], abertasSemUnidade: null, totalNoEstado: 0, proximo: null }, "só VER: lista vazia");
       erro(await listar(equipeSessao, `?unidadeId=${U2}`), 404, "NAO_ENCONTRADO", "Equipe filtrando unidade sem TRATAR");
       erro(await listar(gestao, "?unidadeId=nao-uuid"), 404, "NAO_ENCONTRADO", "unidade malformada");
       // Injeção: empresa na query é ignorada (o tenant vem da sessão); empresa/ator no corpo → 400 sem efeito.

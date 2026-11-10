@@ -1,53 +1,18 @@
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
-import type { PainelRetornos } from '@/lib/satisfacao/tarefas';
-import { dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
 import { enviarMarketing, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
 /**
- * PS-3 (plano D + D-PS3-3): cartão "Retornos de notas baixas" SÓ da Gestão, com carregamento próprio
- * (/api/admin/satisfacao/tarefas), independente da regra Pesquisa e da API de Marketing. A Equipe não tem tela na PS-3
- * (a API responde pelo escopo dela; a tela vem no menu Satisfação da PS-4). Sem a 111 ou sem acesso: nada aparece.
- * O comentário do cliente é texto (o React escapa); não se promete anonimização.
+ * PS-4 (R5): a fila "Retornos de notas baixas" saiu daqui para Satisfação › Retornos (página própria, também da Equipe
+ * com TRATAR). Na regra Pesquisa fica só o atalho; o link do Google continua aqui (D-PS4-3).
  */
-export function RetornosNotasBaixas() {
-  const [unidadeId, setUnidadeId] = useState('');
-  const { dados, recarregar } = useMarketing<PainelRetornos>(`/api/admin/satisfacao/tarefas${unidadeId ? `?unidadeId=${unidadeId}` : ''}`);
-  const [observacoes, setObservacoes] = useState<Record<string, string>>({});
-  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
-  const [ocupado, setOcupado] = useState<string | null>(null);
-  if (!dados?.gestao) return null;
-  const abertas = dados.tarefas.filter((t) => t.estado === 'ABERTA');
-  const concluidas = dados.tarefas.filter((t) => t.estado === 'CONCLUIDA');
-  async function concluir(id: string) {
-    setOcupado(id); setAviso(null);
-    try {
-      await enviarMarketing(`/api/admin/satisfacao/tarefas/${id}/concluir`, { observacao: observacoes[id]?.trim() || null });
-      setAviso({ tipo: 'ok', texto: 'Retorno registrado.' });
-      recarregar();
-    } catch (e) { setAviso({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível concluir.' }); }
-    finally { setOcupado(null); }
-  }
-  const semResponsavel = dados.unidades.filter((u) => u.semResponsavel && u.abertas > 0);
-  return <section className={styles.cartao} aria-labelledby="t-retornos" data-retornos-notas-baixas>
-    <h2 id="t-retornos">Retornos de notas baixas ({abertas.length})</h2>
-    <p className={styles.muted}>Clientes que deram nota de 0 a 6 na pesquisa de satisfação. Entre em contato e registre o retorno.</p>
-    {dados.unidades.length > 0 && <div className={styles.filtros}><label>Unidade<select value={unidadeId} onChange={(e) => setUnidadeId(e.target.value)}>
-      <option value="">Todas</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome} ({u.abertas})</option>)}</select></label>
-      {!unidadeId && (dados.abertasSemUnidade ?? 0) > 0 && <span className={styles.muted}>{dados.abertasSemUnidade} sem unidade.</span>}</div>}
-    {semResponsavel.length > 0 && <p className={styles.aviso} role="note">Sem responsável pelos retornos: {semResponsavel.map((u) => u.nome).join(', ')}. Por enquanto a Gestão trata essas unidades.</p>}
-    {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
-    {abertas.length === 0 ? <p className={styles.vazio}>Nenhum retorno pendente.</p> : <ul className={styles.historico}>{abertas.map((t) => <li key={t.id} data-tarefa={t.id}>
-      <strong>Nota {t.notaIndicacao}</strong> · {t.cliente} · festa em {dataBr(t.dataFesta)}{t.unidade ? ` · ${t.unidade}` : ''} · <Link href={`/clientes/${t.clienteId}`}>cliente</Link>
-      {t.comentario && <><br /><span style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>“{t.comentario}”</span></>}
-      <label className={styles.campo}>Como foi o retorno (opcional)
-        <textarea rows={2} maxLength={1000} value={observacoes[t.id] ?? ''} onChange={(e) => setObservacoes({ ...observacoes, [t.id]: e.target.value })} /></label>
-      <button type="button" className={styles.secundario} disabled={ocupado !== null} onClick={() => void concluir(t.id)}>{ocupado === t.id ? 'Salvando…' : 'Concluir retorno'}</button>
-    </li>)}</ul>}
-    {concluidas.length > 0 && <details><summary>Concluídos ({concluidas.length})</summary><ul className={styles.historico}>{concluidas.map((t) => <li key={t.id}>
-      Nota {t.notaIndicacao} · {t.cliente} · concluído em {t.concluidaEm ? dataHoraBr(t.concluidaEm) : '—'}{t.observacao ? ` · ${t.observacao}` : ''}</li>)}</ul></details>}
+export function AtalhoRetornos() {
+  return <section className={styles.cartao} aria-labelledby="t-retornos" data-atalho-retornos>
+    <h2 id="t-retornos">Retornos de notas baixas</h2>
+    <p className={styles.muted}>Os clientes que deram nota de 0 a 6 ficam em Satisfação › Retornos, com o registro de cada contato.</p>
+    <Link className={styles.secundario} href="/admin/satisfacao/retornos">Ver retornos em Satisfação</Link>
   </section>;
 }
 

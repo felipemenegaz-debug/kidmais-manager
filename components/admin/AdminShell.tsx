@@ -8,7 +8,7 @@ import tokens from './tokens.module.css';
 import admin from './admin.module.css';
 import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
-import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
+import { itemAtivo, itensNavegacao, type MenuSatisfacaoNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
@@ -79,7 +79,7 @@ export default function AdminShell({ children, vitrine }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true, satisfacao: menuSatisfacaoDe(b.data.recursos?.satisfacao) });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
         }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
@@ -156,7 +156,7 @@ export default function AdminShell({ children, vitrine }: {
         </div></div>;
     const semEmpresa = !vitrine && contexto !== null && contexto.empresas.length === 0;
     const itens = semEmpresa ? [] : itensNavegacao(permissoes);
-    const grupos = ['Principal', 'Operação', 'Marketing', 'Financeiro', 'Configurações'] as const;
+    const grupos = ['Principal', 'Operação', 'Marketing', 'Satisfação', 'Financeiro', 'Configurações'] as const;
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
@@ -206,7 +206,7 @@ export default function AdminShell({ children, vitrine }: {
                     const titulo = grupo === 'Configurações'
                         ? <Link className={styles.grupoLink} href="/admin/configuracoes" aria-current={path === '/admin/configuracoes' ? 'page' : undefined} onClick={() => setAberto(false)}>{grupo}</Link>
                         : grupo;
-                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
+                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}{(item.contador ?? 0) > 0 && <span className={styles.contador} aria-label={`${item.contador} abertos`}>{item.contador}</span>}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
                     <Link href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
@@ -255,7 +255,15 @@ export default function AdminShell({ children, vitrine }: {
     </PerguntarKidmaisProvider></div>;
 }
 
+/** PS-4: só aceita o formato exato do servidor; qualquer outra coisa (ausente, null, malformado) esconde o grupo. */
+function menuSatisfacaoDe(valor: unknown): MenuSatisfacaoNavegacao | null {
+    const v = valor as Partial<MenuSatisfacaoNavegacao> | null | undefined;
+    if (!v || typeof v.ver !== 'boolean' || typeof v.tratar !== 'boolean' || typeof v.retornosAbertos !== 'number') return null;
+    return { ver: v.ver, tratar: v.tratar, retornosAbertos: v.retornosAbertos };
+}
+
 function iconeDaRota(href: string): AdminIconName {
+    if (href.startsWith('/admin/satisfacao')) return href.endsWith('/retornos') ? 'contact' : 'reports';
     if (href === '/admin/marketing') return 'marketing';
     if (href.includes('/marketing/campanhas')) return 'campaign';
     if (href.includes('/marketing/origens')) return 'origin';

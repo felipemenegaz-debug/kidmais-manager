@@ -10,7 +10,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
-import { LinksAvaliacao, RetornosNotasBaixas } from './SatisfacaoRetornos';
+import { AtalhoRetornos, LinksAvaliacao } from './SatisfacaoRetornos';
 import styles from './marketing.module.css';
 import au from './automacoes.module.css';
 
@@ -80,7 +80,7 @@ export default function MarketingAutomacoes() {
           if (salva) setDados((d) => ({ ...d, regras: d.regras.map((x) => (x.tipo === salva.tipo && x.unidadeId === salva.unidadeId ? salva : x)) }));
           recarregar();
         }} aoErro={(texto) => { setRetorno(null); setAviso({ tipo: 'erro', texto }); }} />)}
-      {dados.ambiente.pesquisa?.disponivel && <RetornosNotasBaixas />}
+      {dados.ambiente.pesquisa?.disponivel && <AtalhoRetornos />}
       <section className={styles.cartao} aria-labelledby="t-tarefas">
         <h2 id="t-tarefas">Tarefas abertas ({dados.tarefas.length})</h2>
         <p className={styles.muted}>Criadas pelas regras com a ação “tarefa”. Não dependem de autorização de mensagens.</p>

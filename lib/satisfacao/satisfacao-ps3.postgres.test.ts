@@ -269,7 +269,7 @@ test("111: links, retornos, auditoria e instalação da PS-3", { timeout: 300_00
       assert.equal(e.abertasSemUnidade, null);
       await assert.rejects(emTransacao((x) => tarefas.listarTarefas(x, equipeU1, { estabelecimentoId: U2 })), erroDe("NAO_ENCONTRADO", 404));
       await assert.rejects(emTransacao((x) => tarefas.listarTarefas(x, gestaoA, { estabelecimentoId: randomUUID() })), erroDe("NAO_ENCONTRADO", 404));
-      for (const p of [soVer, semNada]) assert.deepEqual(await emTransacao((x) => tarefas.listarTarefas(x, p)), { gestao: false, tarefas: [], unidades: [], abertasSemUnidade: null });
+      for (const p of [soVer, semNada]) assert.deepEqual(await emTransacao((x) => tarefas.listarTarefas(x, p)), { gestao: false, tarefas: [], unidades: [], abertasSemUnidade: null, totalNoEstado: 0, proximo: null });
     });
 
     await t.test("conclusão: Equipe na própria unidade, auditoria no mesmo instante; 409 na segunda; 404 fora do escopo; Gestão na sem unidade", async () => {

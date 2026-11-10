@@ -663,3 +663,630 @@ partida. Alternativa sem dado nosso: acompanhar as avaliações recebidas pelo p
 ### Rollback
 
 Reverter `page.tsx` e `satisfacao.module.css` (sem commit). Nada no banco.
+
+## PS-4 — menu Satisfação, Resultados, Retornos e permissões — LOCAL, sem commit (01/11/2026)
+
+Contrato: plano PS-4 rev. 0 + rev. 1 + rev. 1.1 (vault), com as decisões D-PS4-1..6 aprovadas por Felipe em 01/11 como
+recomendado. Sobre o commit local `a7ca19e5`. **Nenhuma migration**: só leitura do que a 110 e a 111 já têm.
+
+### O que entrega
+
+| Parte | Onde |
+|---|---|
+| Grupo **Satisfação** no menu (Resultados, Retornos com contador de abertas). Aparece para quem tem VER e/ou TRATAR vigentes, ou é Gestão; some sem nenhum dos dois. O menu é relido numa instrução só junto com a autenticação (`menuSatisfacao`). | `lib/admin/navegacao.ts`, `AdminShell.tsx`, `shell.module.css`, `app/api/admin/autenticacao/route.ts` |
+| Escopos VER/TRATAR por unidade num só lugar (`ctesEscopo`, `concessaoVigente`, `MEMBRO_VIGENTE`), usados por Resultados e Retornos. TRATAR não dá VER (D-PS4-2). | `lib/satisfacao/escopo.ts` |
+| **Resultados** (`GET /api/admin/satisfacao/resultados`): população P = envios da empresa cuja **festa** cai no período (D-PS4-1), unidade no escopo VER e no filtro, envio não REVOGADO, festa não CANCELADA e com contrato ASSINADO (D-PS4-6). Cartões (pesquisas criadas, respostas, taxa, ainda no prazo, sem contato, NPS com `round` meio-longe-do-zero, grupos, histograma 0–10, aspectos com `round(avg,1)`), lista de 50 com cursor, filtros só da lista (grupo, nota, com comentário). Retornos abertos e o selo por item só em VER ∩ TRATAR (chaves ausentes fora disso). Aviso com menos de 10 respostas, sem esconder números (D-PS4-4). Sem CSV (D-PS4-5). | `lib/satisfacao/resultados.ts`, `cursor.ts`, rota, `components/admin/satisfacao/*`, `app/admin/satisfacao/page.tsx` |
+| **Retornos** em página própria (`/admin/satisfacao/retornos`), abertas e concluídas, filtro de estado no SQL antes do LIMIT, página de 50 com cursor `(ordem, id)`, `totalNoEstado`. A tela abre também para a Equipe só com TRATAR. Automações mantém o link do Google (D-PS4-3) e ganha um atalho para Retornos. | `lib/satisfacao/tarefas.ts`, `app/api/admin/satisfacao/tarefas/route.ts`, `RetornosPagina.tsx`, `app/admin/satisfacao/retornos/page.tsx`, `SatisfacaoRetornos.tsx`, `MarketingAutomacoes.tsx` |
+| Cursor: base64url de `"<instante UTC com µs>|<uuid>"`, nunca passa por `Date`; comparação por tupla estrita; cursor inválido → 400. | `lib/satisfacao/cursor.ts` |
+
+**Extensões declaradas do contrato:**
+- DTO de Resultados com `unidades` (as do escopo VER, para o seletor) e `semUnidade`;
+- oráculos da PS-3 com `totalNoEstado: 0` e `proximo: null` (extensões da R5);
+- desempate das tarefas por `x.id::uuid` (antes era texto) para casar com a comparação de tupla do cursor;
+- P entra pelas festas da empresa no período (`festas AS MATERIALIZED`, índice 062) e chega aos envios pela chave única `(empresa_id, fechamento_id)`, com `f.empresa_id = $1` explícito. Veio do ensaio de desempenho (abaixo); mesmo resultado, sem índice novo.
+
+**Correção achada pelo E2E:** `satisfacao.module.css` tinha um seletor impuro (`[data-nota-faixa="detrator"]` solto), erro de build do CSS Module que derrubava `/admin/satisfacao/retornos` no `next dev`. Virou `.linhaTopo [data-nota-faixa="detrator"]`.
+
+### Provas (todas locais; cluster descartável 127.0.0.1:55551; nenhum dado real)
+
+| Prova | Resultado |
+|---|---|
+| Unitários (`navegacao`, `satisfacao-ps4`, `satisfacao-ps3`) | **14/14** |
+| Suíte PG `satisfacao-ps4.postgres.test.ts` (9 subtestes) | **9/9 PASS** com o SQL final de P (`2026-11-01T13-01-42-054Z-check-v1-postgres.log`, junto com a PS-3) e depois da prova da 019 (`2026-11-01T13-28-16-978Z-check-v1-postgres.log`) |
+| Regressão PG completa | **257/257 arquivos PASS** (`2026-11-01T11-16-45-409Z-check-v1-postgres.log`, antes da correção de CSS e da troca do SQL de P; as suítes PS-3/PS-4 foram repetidas depois) |
+| E2E PS-4 (`ambientes-locais/satisfacao-ps4-e2e.cjs`, 1366 e 390 px) | **32/32 PASS** (`2026-11-01T12-34-12-042Z-e2e-ps4`) |
+| E2E PS-3 ajustado (atalho de Automações → Retornos) | **16/16 PASS** (`2026-11-01T12-28-55-527Z-e2e-ps3`) |
+| E2E PS-1 / PS-2 / PS-G | **36/36**, **14/14**, **34/34** PASS (01/11, depois da troca do SQL de P) |
+| Mutantes (`ambientes-locais/satisfacao-ps4-mutantes.cjs`, clone LF) | **26 mortos + 1 equivalente de 27**, 0 vivos, 0 inconclusivos (`2026-11-01T13-57-52-187Z-mutantes-ps4.txt` + P16b repetido em `2026-11-01T13-59-00-043Z-mutantes-ps4.txt`) |
+| Desempenho (`ambientes-locais/satisfacao-ps4-desempenho.ts`) | critérios 1, 2, 3 e 5 **PASS** (p95 máximo 38 ms); critério 4 **FALHA em 5 de 20 combinações** (abaixo) |
+| CI local | **49/49** (`ambientes-locais/ci-local-satisfacao-ps4-20261101.log`; `next-env.d.ts` restaurado). Antes, as 8 suítes PG da satisfação passaram com o código final (`2026-11-01T14-58-01-535Z-check-v1-postgres.log`) e o cluster foi encerrado |
+
+**O que a suíte PG cobre:**
+- oráculos de NPS e aspectos;
+- população P (REVOGADO, cancelada, sem contrato, no prazo, sem contato);
+- escopos pelas rotas (Gestão, VER, TRATAR, misto);
+- vigência (revogação, foto velha, membership futura/expirada);
+- chaves exatas do JSON; comentário com XSS guardado como texto;
+- flag desligada 503, plano ESSENCIAL 403;
+- matriz do menu e janela de troca de papel;
+- cursor (empate no mesmo µs, 1 µs, resposta nova entre páginas, inválidos, revogação);
+- filtros e período (365/366/367 datas, 29/02, invertido, atalhos);
+- retornos com 201 abertas e 5 páginas.
+
+**Fixtures declaradas:**
+- envios, respostas, tarefas e vínculos com instantes controlados são inseridos em `session_replication_role = replica` (os gatilhos da 063 não deixam mudar a vigência da membership por UPDATE direto);
+- o plano ESSENCIAL é injetado por gancho do harness;
+- a janela de troca de papel é atravessada por gancho com sonda que conta as leituras da membership.
+
+### Desempenho (gate da rev. 1.1)
+
+Ambiente: Ryzen 7 9800X3D, 31 GiB, PostgreSQL 18.6 local; `shared_buffers=128MB`, `work_mem=4MB`,
+`effective_cache_size=4GB`, `random_page_cost=4`. Massa: A, B e C com 20 mil envios cada.
+
+**Primeira medição (SQL original):**
+- o critério 3 **falhou**: `fechamentos` era lido sem condição de empresa. A empresa só era filtrada no envio, então o planner lia as festas de todas as empresas no período;
+- com B e C carregados, o planner passava a partir dos 5 mil envios da unidade em todo o histórico e fazia uma busca por pkey em `fechamentos` por envio (15 mil buffers).
+
+**Correção:** `festas AS MATERIALIZED` com `f.empresa_id = $1`, depois os envios pela chave única. Sem índice nem migration.
+
+**Medições finais (SQL corrigido), duas rodadas:**
+- `2026-11-01T12-51-02-093Z-desempenho-ps4`: 139 PASS, 6 FALHAS;
+- `2026-11-01T12-57-00-252Z-desempenho-ps4`: 140 PASS, 5 FALHAS.
+
+| Critério | Resultado |
+|---|---|
+| 1. p95 < 300 ms em cada leitura | **PASS** (máximo 38 ms) |
+| 2. sem ordenação em disco | **PASS** |
+| 3. acesso por empresa observável | **PASS** em todas as 40 medições |
+| 4. p95(A+B+C) ≤ 1,5 × p95(só A) | **FALHA em 5 de 20** combinações na 2ª rodada (6 na 1ª), todas no "1 mês" (Gestão sem unidade × 2, Equipe U1 × 2, Equipe todas página 1). Diferenças absolutas de 5 a 15 ms, por exemplo 10 → 25 ms e 9 → 14 ms. |
+| 5. buffers (informação) | `fechamentos` 367–770 → 377–494. Leituras por chave de `satisfacao_tarefas`/`respostas` sobem com B e C (até cerca de 3,3 mil buffers), porque o planner troca o Seq Scan das linhas de A por buscas por chave, uma por resposta do período. São só linhas de A, e o critério 3 confirma. |
+
+**Leitura honesta do critério 4:**
+- Não há leitura de outra empresa (critério 3).
+- A diferença vem da escolha de plano com estatísticas novas, somada à variação de medição perto de 10 ms. Só com A, o mesmo plano já variou entre 8 e 15 ms de uma página para outra.
+- O critério foi fixado antes, sem tolerância, por isso fica registrado como **FALHA**.
+- Não mexi no critério nem acrescentei índice: um índice novo viraria migration e devolveria a PS-4 ao Astra (rev. 0).
+- Decisão para a revisão: aceitar o desvio declarado ou pedir outra medida (por exemplo, critério absoluto em ms, ou mais amostras).
+
+**Ajustes do protocolo de mutantes nesta rodada:**
+- **Textos trocados pela nova forma do SQL de P:** P05, P06, P12 e P13.
+- **P02:** a asserção do cartão "sem unidade" ganhou mensagem causal.
+- **P16/P16b:** o mutante descartava o parâmetro do desempate, e o PostgreSQL acusava erro de tipo (500), um mutante mal formado. Agora mantém o parâmetro e morre na asserção causal. P16b morre na contagem de páginas ("50+50+50+50+1").
+- **P06:** equivalente. A 019 (`kidmais019_validar_contrato`) recusa festa CANCELADA com contrato ASSINADO (23514), e a suíte agora prova essa recusa. Portanto, o `EXISTS` do contrato ASSINADO já tira de P toda festa cancelada. O `f.status <> 'CANCELADO'` fica como guarda explícita da D-PS4-6.
+
+### Limites declarados
+
+- Flag desligada e plano sem o recurso são provados no PG (rotas), não no E2E.
+- O estado INCERTA/suprimida é coberto como envio ATIVO sem disparo (a PS-4 só lê).
+- O ensaio de desempenho mede uma máquina local, não escala de produção.
+- A condição `f.empresa_id` é defesa em profundidade: nenhum teste funcional a mata (o join pela chave do envio já filtra a empresa); quem a observa é o critério 3 do ensaio.
+
+### Rollback
+
+Reverter os arquivos listados (sem commit). Nada no banco: sem migration, sem dado novo.
+
+## PS-4 — rodada 2 (parecer do código: 0 P1, 2 P2, 1 P3) — LOCAL, sem commit (02/11/2026)
+
+O parecer aceitou P, os escopos, os cursores SQL, as extensões e os ajustes de mutantes. Esta rodada fecha C1, C2 e C3.
+Também corrige uma conclusão da rodada 1: o critério 3 **não tinha passado**, porque o verificador mascarava a varredura das respostas de B e C.
+
+### PS4-C1 — gerações de carregamento
+
+`useLeituraViva` passa a usar transições puras de `components/admin/satisfacao/geracao.ts`:
+- **Geração nova a cada transição:** cada transição de consulta abre uma geração com número estritamente maior. Isso vale para trocar filtro, unidade, período ou estado, para **voltar** a uma URL anterior, para "Tentar novamente" e para recarregar depois de concluir. A → B → A são três gerações.
+- **Descarte do que é antigo:** página 1, "Ver mais", erro e recusa carregam o número da geração que os pediu. Uma geração encerrada não aplica nada.
+- **Abort no fim da geração:** a requisição da página 1 e todo "Ver mais" pendente dela são abortados (antes, o "Ver mais" não recebia o sinal).
+- **Recusa vigente:** continua SUBSTITUINDO tudo, sem nenhum dado anterior na tela.
+
+### PS4-C3 — "Tentar novamente"
+
+As duas telas mostram **Tentar novamente** nas falhas recuperáveis: rede e 5xx, exceto 503. O botão abre uma geração nova na mesma URL.
+- Recusas (400/403/404) e indisponível (503) não oferecem o botão e não mostram dados anteriores.
+- "Ver mais" com falha esvazia a lista e oferece a repetição, que volta à página 1.
+
+### PS4-C2 — acesso por empresa (SQL e verificador)
+
+**SQL** (`lib/satisfacao/resultados.ts`):
+- As respostas de P e as tarefas (cartão de retornos e selo por item) passam a ser buscadas **por chave**: `CROSS/LEFT JOIN LATERAL (… WHERE envio_id/resposta_id = … AND empresa_id = $1 LIMIT 1)`.
+- O `LIMIT` impede o planner de achatar a subconsulta e trocar as buscas por Seq Scan + hash da tabela inteira. Era o plano que lia 16 mil respostas de B/C e removia por filtro.
+- As chaves são únicas (`satisfacao_respostas_envio_uk`, `satisfacao_tarefas_resposta_uk`). Sem índice nem migration.
+
+**Verificador** (`ambientes-locais/satisfacao-ps4-desempenho.ts`):
+- O teto fixo de 20.000 saiu.
+- Em cada fase, conta as linhas da empresa A em cada relação e o total da relação.
+- Um nó que lê `satisfacao_envios`, `satisfacao_respostas`, `satisfacao_tarefas` ou `fechamentos` reprova se as linhas lidas passarem das linhas de A naquela relação. Linhas lidas = devolvidas + removidas por filtro ou recheck, vezes as voltas.
+- A condição de empresa passa a ser conferida **pelo valor** (`empresa_id = '<A>'::uuid`), não pela presença do nome da coluna.
+- **Controle negativo:** a regra nova, aplicada aos planos preservados da rodada 1 (`2026-11-01T12-57-00-252Z`), reprova exatamente os 10 planos apontados no parecer (Seq Scan de respostas com 24.000 linhas lidas; A tem 8.000).
+
+**Harness:**
+- A fase "só A" tinha, em `fechamentos`, a festa-modelo de B e de C (criadas antes da medição). Contrariava "B e C vazios" da rev. 1.1.
+- Agora B e C nascem depois da fase "só A". Com isso, a regra estrita apontou um Seq Scan de `fechamentos` na fase "só A" que lia essas 2 linhas.
+- Na fase A+B+C, com B e C carregados, nenhum nó lê linha de outra empresa.
+
+### Provas da rodada 2 (cluster descartável 127.0.0.1:55551)
+
+| Prova | Resultado |
+|---|---|
+| Unitários (`navegacao`, `satisfacao-ps4` com a corrida C1, `satisfacao-ps3`) | **15/15** |
+| Suítes PG PS-3 + PS-4 com o SQL novo | **PASS** (`2026-11-02T21-55-44-001Z-check-v1-postgres.log`) |
+| Regressão PG completa | **257/257 arquivos PASS** com o código final (`2026-11-02T22-56-01-700Z-check-v1-postgres.log`) |
+| E2E PS-4, com o passo 6 novo: A → B → A com o "Ver mais" retido (sucesso real, 500 e 403 tardios) e "Tentar novamente", nas duas telas | **44/44 PASS** (`2026-11-02T22-08-38-080Z-e2e-ps4`) |
+| Controle negativo do C1: o mesmo E2E contra o clone LF ainda com o hook da rodada 1 | **FAIL causal:** "página 2 real do 'Ver mais' antigo" com 59 itens (a página antiga foi anexada), seguido de parada (`ambientes-locais/satisfacao-ps4-e2e-controle-c1-20261102.log`) |
+| E2E PS-1 / PS-2 / PS-3 / PS-G | **36/36, 14/14, 16/16, 34/34** |
+| Mutantes (bateria única, com P26–P31 novos: geração que não avança, "Ver mais" sem geração, hook da rodada 1 no navegador, sem repetição, repetição em recusa, botão ausente na tela) | **32 mortos + 1 equivalente (P06) de 33**, 0 vivos, 0 inconclusivos (`2026-11-02T22-52-33-390Z-mutantes-ps4.txt`) |
+| CI local | **49/49** (`ambientes-locais/ci-local-satisfacao-ps4-r2-20261102.log`; `next-env.d.ts` preservado); cluster encerrado no fim |
+
+### Desempenho da rodada 2: matriz original, duas execuções completas
+
+| Execução | Resultado |
+|---|---|
+| `2026-11-02T22-01-48-900Z-desempenho-ps4` | **145/145 PASS**. Critérios 1–5 todos verdes; p95 máximo 47 ms; maior razão A × (A+B+C) ×1,42. |
+| `2026-11-02T22-04-51-349Z-desempenho-ps4` | **144 PASS, 1 FALHA**. Critérios 1, 2, 3 e 5 verdes; p95 máximo 42 ms. Critério 4 falha em 1 de 20 combinações: Equipe (VER U1) × U1 × 366 datas × página 1, 19 → 30 ms (×1,58). |
+
+**Critério 3:** passa em todas as medições das duas execuções, com nenhum nó lendo linha de outra empresa. Na fase A+B+C, as respostas caem de 24.000 linhas lidas (rodada 1) para buscas por chave: 3.600 buffers, iguais nas duas fases.
+
+**Critério 4, registrado sem tolerância:**
+- A combinação que falhou na 2ª execução deu ×0,75 na 1ª (24 → 18 ms).
+- Nas duas execuções, os buffers dessa combinação são da mesma ordem nas duas fases: respostas 3.600 = 3.600; `fechamentos` 770 → 494 na 1ª e 770 → 787 na 2ª.
+- Uma execução saiu verde e a outra teve 1 falha de 20. Fica registrado como está: não repeti até passar e não atribuo a causa sem controle.
+
+### Limites declarados (rodada 2)
+
+- **Retornos:** a fila da semente do E2E não passa de 50, então o `proximo` da página 1 é **injetado pela rota** do Playwright para exercitar o "Ver mais" e a corrida. O hook e as transições são os mesmos de Resultados, onde a prova usa dados e cursor reais.
+- **Desempenho:** é a capacidade desta máquina, não de produção. O critério 4 continua sendo medido sem tolerância.
+
+## PS-4 — rodada 3 (parecer da rodada 2: 0 P1, 2 P2) — LOCAL, sem commit (03/11/2026)
+
+O parecer fechou C1 e C3, aceitou o SQL da rodada 2 e a mudança do harness B/C. Esta rodada responde aos dois P2 restantes (o gate de desempenho permanece falho, ver o protocolo abaixo):
+- C2 na instrumentação: origem da chave comprovada e teto pela população da combinação.
+- Critério 4 de desempenho, com protocolo de confirmação fixado antes de executar.
+
+### Achado da análise dos planos da rodada 2
+
+Achado físico que pode contribuir para o ×1,58; a causalidade do ×1,58 **não foi isolada** (o EXPLAIN separado não isola a razão do p95 do cliente). Nos 20 planos A+B+C da rodada 2, a CTE `festas` fazia dois acessos que mudavam com a carga de B e C (o de contratos lia linhas de todas as empresas; o das festas mudava de plano, sem aumentar a população de A):
+- **Contratos:** o `EXISTS` do contrato ASSINADO virava hash semi-join com **Seq Scan de `contratos` inteira**: 60.003 linhas, de A, B e C. Na fase só A eram 20.001.
+- **Festas de A:** na fase A+B+C, as festas eram lidas pelo índice só de empresa (`fechamentos_054_empresa_idx`), com todas as 20.001 festas de A lidas e 19.064 removidas no período de 1 mês.
+
+`contratos` não tem `empresa_id` e **não estava entre as relações verificadas**, por isso o verificador da rodada 2 não acusou essa leitura de outras empresas. A frase da rodada 2 "na fase A+B+C nenhum nó lê linha de outra empresa" estava **errada** e fica corrigida aqui. Também fica corrigida a precisão apontada no parecer: o controle da rodada 2 reprovava "exatamente 10 planos" **da fase A+B+C de `2026-11-01T12-57-00-252Z`**. No diretório inteiro, a regra estrita reprova também 10 planos só A de 366 datas, pelas 2 festas-modelo de B/C.
+
+### SQL (`lib/satisfacao/resultados.ts`), sem índice nem migration
+
+- **Festas do período:** `festas` lê uma **faixa do índice 062 `(empresa_id, estabelecimento_id, data_evento)` por unidade da empresa** (`CROSS JOIN LATERAL … OFFSET 0`, que impede o achatamento) e mais a faixa das festas sem unidade (`estabelecimento_id IS NULL`).
+  - É equivalente ao filtro anterior: a FK 062 `(empresa_id, estabelecimento_id) → estabelecimentos(empresa_id, id)` garante que toda festa com unidade aponta para uma unidade da mesma empresa.
+- **Contrato ASSINADO:** sai de `festas` e entra em P **por chave**: `CROSS JOIN LATERAL (SELECT 1 FROM contratos ct WHERE ct.fechamento_id = e.fechamento_id AND ct.status = 'ASSINADO' LIMIT 1)`.
+  - `fechamento_id` é único em `contratos`, então o `LIMIT` não muda o resultado; ele só impede o semi-join com varredura.
+  - A busca acontece depois do recorte de unidade e estado: 3.000 buscas em U1/366 datas, em vez de 11.400.
+- **Envios:** continuam pelo prefixo `empresa_id` (hash com as festas, como na rodada 2). Nenhum índice de envios tem a data da festa, e buscar envio por festa custaria 11.400 buscas no período de 366 datas (medido na sondagem 1).
+
+### Verificador do critério 3 (`ambientes-locais/satisfacao-ps4-verificador.ts`, função pura)
+
+1. **Condição de A pelo valor:** em Index Cond, Filter ou Recheck Cond, com **nenhuma** comparação de `empresa_id` com outro valor.
+2. **Chaves:** a exceção genérica por chave **saiu**. Só vale chave de **origem comprovada**, e só na lista declarada: `contratos.fechamento_id ← fechamentos.id` ou `satisfacao_envios.fechamento_id`, porque `contratos` não tem `empresa_id`.
+   - Comprovar = a Index Cond é exatamente `(fechamento_id = alias.coluna)`, com a coluna na lista.
+   - Subindo pelos ancestrais, o primeiro Nested Loop que tem o nó no lado **interno** tem, no lado **externo**, ao menos um nó com esse alias. Aliases renomeados pelo EXPLAIN (`f_1`, `f_2`) contam como `f`.
+   - **Todos** os nós com esse alias ali leem a relação de origem com a condição de A.
+3. **`contratos` passa a ser monitorado,** junto de `satisfacao_envios`, `satisfacao_respostas`, `satisfacao_tarefas` e `fechamentos`.
+4. **Teto por relação = população DECLARADA da combinação,** contada por SQL próprio (não pelo serviço) em cada fase e combinação e gravada em `tetos.json`:
+
+| Relação | Teto | Origem declarada |
+|---|---|---|
+| `fechamentos` | festas de A no período (todas as unidades e estados) | faixas do 062 |
+| `contratos` | festas de A não canceladas do período | busca por `fechamento_id` a partir da festa/envio de A |
+| `satisfacao_envios` | envios de A | prefixo `empresa_id`; nenhum índice de envios tem a data da festa |
+| `satisfacao_respostas` | P da combinação (período, estados, unidades do filtro) | busca por `envio_id` |
+| `satisfacao_tarefas` | respostas de P da combinação | busca por `resposta_id` |
+
+   Linhas lidas = (devolvidas + removidas por filtro/recheck) × voltas. Sem teto declarado = falha.
+
+**Limite declarado (do parecer):** contagem de visitas não identifica tenants, e os contadores por volta são arredondados. A regra sustenta que os acessos são condicionados a A ou a chaves de origem A, e que nenhum nó lê além da população declarada. Não sustenta "nenhum nó lê linha de outra empresa".
+
+### Controles do verificador (`ambientes-locais/satisfacao-ps4-verificador-controles.ts`, sem banco)
+
+**14/14 PASS.** Os casos sintéticos são 3 positivos e 11 negativos:
+- chave de origem desconhecida com filtro da empresa B;
+- origem que lê festas de B;
+- alias ausente;
+- origem de outra relação;
+- contrato por Seq Scan;
+- condição com A e B;
+- leitura ampla de A (937 + 19.064 removidas) que cabe no teto histórico de 20.001, mas passa do período (989);
+- contrato no lado externo;
+- envio de B como origem;
+- coluna de origem fora da lista;
+- alias renomeado com um nó sem A.
+
+A regra da rodada 2, reproduzida no mesmo script, **aceitava 8 dos 11 negativos**.
+
+**Reaplicação aos planos preservados** (com os `tetos.json` da execução 2; a massa é determinística em relação a `current_date`), em `ambientes-locais/satisfacao-ps4-r3-verificador-controles-20261103.log`:
+
+| Planos | Resultado | Motivo principal |
+|---|---|---|
+| Rodada 1 (`2026-11-01T12-57-00-252Z`) | 0/40 PASS | Seq Scan de contratos (todas as empresas) em 40; respostas, tarefas e festas além da população |
+| Rodada 2, 1ª e 2ª execuções | 0/40 PASS em cada | Seq Scan de contratos em 40; festas além do período em 10–30 |
+| Rodada 3, execução 1 | 30/40 PASS | 10 planos A+B+C de 366 datas: festas pelo índice só de empresa dentro de cada faixa |
+| Rodada 3, execuções 2 e 3 | 40/40 PASS | — |
+
+### Critério 4: protocolo fixado antes de executar
+
+Registrado no vault às 01:05Z, antes de qualquer medição da rodada 3:
+- matriz e critérios originais, sem tolerância;
+- **três execuções completas consecutivas**, todas preservadas;
+- o critério 4 só passa se **as três** tiverem 0 FAIL;
+- se falhar, sem quarta execução.
+
+Duas **sondagens de plano** (só EXPLAIN + verificador, sem tempo; `KIDMAIS_PS4_SONDA=1`) vieram antes e também estão registradas:
+- `2026-11-03T01-07-13-774Z-sonda-planos-ps4`: 40 FAIL do verificador (alias renomeado; custo das buscas de envio), que levaram aos ajustes acima;
+- `2026-11-03T01-15-02-790Z-sonda-planos-ps4`: PASS.
+
+**Resultado do protocolo: critério 4 FALHA.** As três execuções foram preservadas: `2026-11-03T01-19-45-700Z`, `01-23-52-388Z` e `01-29-06-897Z` (`-desempenho-ps4`), com resumo em `ambientes-locais/satisfacao-ps4-r3-protocolo-c4-20261103.log`. Não houve quarta execução.
+
+| Execução | Resultado | Critérios 1/2/5 | Critério 3 | Critério 4 |
+|---|---|---|---|---|
+| 1 | 15 FALHAS | PASS | **10 FAIL**: A+B+C, 366 datas, todas as combinações | **5 FAIL**: ×2,00, ×2,00, ×1,52, ×3,40, ×2,38 |
+| 2 | 2 FALHAS | PASS (p95 máx. 89 ms) | PASS | **2 FAIL**: Equipe todas as autorizadas × 1 mês × página 1, 15 → 24 ms (×1,60); × 366 datas × profunda, 32 → 50 ms (×1,56) |
+| 3 | 2 FALHAS | PASS (p95 máx. 131 ms) | PASS | **2 FAIL**: Gestão U1 × 1 mês × página 1, 13 → 20 ms (×1,54); Gestão sem unidade × 366 datas × profunda, 32 → 50 ms (×1,56) |
+
+**Análise (sem converter nada em PASS):**
+1. **Instabilidade de plano (execução 1).** O `OFFSET 0` impede o achatamento, mas não obriga o índice.
+   - Na fase A+B+C da execução 1, o planner escolheu `fechamentos_054_empresa_idx` dentro de cada faixa, com unidade e data no Filter. Leu as 20.001 festas de A 3 vezes, mais 1 vez no ramo sem unidade.
+   - São só linhas de A (Index Cond pelo valor), mas além da população declarada. O verificador novo acusou; o da rodada 2 teria aceitado.
+   - Nas execuções 2 e 3, com outra amostra do ANALYZE, o plano usou o 062.
+   - O SQL desta rodada não garante a faixa. Um índice novo também só oferece um caminho: a escolha continua com o planner, e a faixa precisa ser conferida nos planos.
+2. **Variação de medição (execuções 2 e 3).** Com verificador PASS e o mesmo tempo de servidor no EXPLAIN nas duas fases, a mesma combinação variou mais de 1,5× **dentro da mesma fase** entre execuções:
+   - Equipe todas as autorizadas × 1 mês × página 1: só A 15 ms na execução 2 e 28 ms na 3; A+B+C 24 ms e 15 ms. O EXPLAIN deu ~10,7 ms nos quatro casos.
+   - O p95 de 20 amostras medido do cliente (clock_timestamp por ida e volta) não discrimina 1,5× nessa escala, nesta máquina.
+   - Isso é registrado como observação com controle (mesmo plano, mesmo tempo de servidor), **não** como exceção.
+
+**Decisões pedidas a Felipe** (mudança explícita de contrato, separada, sem efeito retroativo):
+- **D-PS4-R3-1, critério 4:** manter como está; ou mudar o método (por exemplo, 100 amostras e comparação do tempo de execução do servidor); ou acrescentar um piso absoluto (por exemplo, a razão só reprova quando a diferença passa de 10 ms).
+- **D-PS4-R3-2, plano das festas:** propor uma migration de índice `(empresa_id, data_evento)` (proposta própria, como exige o parecer); ou aceitar a leitura das festas de A pelo prefixo da empresa como população declarada (como os envios).
+
+### Provas da rodada 3 (cluster descartável 127.0.0.1:55551)
+
+| Prova | Resultado |
+|---|---|
+| Suítes PG PS-3, PS-3 rotas e PS-4, com o SQL final da rodada | **3/3 PASS** (`2026-11-03T01-18-45-501Z-check-v1-postgres.log`) |
+| Controles do verificador (sem banco) | **14/14 PASS** + reaplicação acima |
+| Mutantes | bateria **não executada** nesta rodada: P06, P12 e P13 foram adaptados ao SQL novo e P32–P34 acrescentados (sem contrato ASSINADO, sem ramo sem unidade, sem ramo por unidade). Os 36 trechos casam exatamente uma vez (conferido sem banco) |
+| Regressão PG completa, E2E PS-1..PS-G, CI | **não executados** nesta rodada: o SQL das festas depende de D-PS4-R3-2 e pode mudar de novo. Ficam para depois da decisão, junto da bateria de mutantes |
+
+Unitários e telas não mudaram desde a rodada 2.
+
+## PS-4 — rodada 3.1 (parecer r3: 0 P1, 1 P2, 2 P3) — LOCAL, sem commit (03/11/2026)
+
+O parecer aceitou o achado dos contratos e a errata, o teto "envios de A", o registro do FAIL do protocolo, a P-114 (desenho para implementação local) e o método rev. 1.2. Esta rodada responde ao P2 e aos dois P3. **O gate de desempenho continua falho** até as três execuções da rev. 1.2 com a candidata final.
+
+### PS4-R3-C2-OR — A como restrição obrigatória (verificador)
+
+- **Defeito:** `porEmpresa` aceitava o valor de A em qualquer lugar do texto. Por isso, `(empresa_id = A) OR (status = 'CONFIRMADO')` passava, e também certificava a origem do contrato.
+- **Correção:** em `ambientes-locais/satisfacao-ps4-verificador.ts`, A só conta se um **termo da conjunção do nível de fora** de Index Cond, Filter ou Recheck Cond for exatamente `[alias.]empresa_id = '<A>'::uuid`.
+  - A separação respeita parênteses e aspas.
+  - Com OR no nível de fora, a expressão inteira vira um termo só, porque AND tem precedência maior.
+  - A dentro de OR, NOT ou outra estrutura não prova nada.
+  - Continua recusada qualquer comparação de `empresa_id` com outro valor.
+- **Controles: 20/20 PASS** (`ambientes-locais/satisfacao-ps4-r4-verificador-controles-20261103.log`). São 6 novos:
+
+| Caso | Esperado e obtido |
+|---|---|
+| A dentro de OR no acesso direto | FAIL |
+| A dentro de OR na origem do contrato (a sonda do parecer) | FAIL |
+| `A AND x OR y` | FAIL |
+| `NOT (A)` | FAIL |
+| A obrigatória com OR só nas condições adicionais | PASS |
+| A com alias junto de outros termos no Index Cond | PASS |
+
+- **Reaplicação, igual à da rodada 3 nos planos de execução:**
+  - rodada 1 e as duas execuções da rodada 2: 0/40 cada;
+  - rodada 3, execução 1: 30/40;
+  - execuções 2 e 3: 40/40 cada.
+
+  Nenhum plano real foi aceito ou recusado de forma diferente pela regra estrita: todos os nós monitorados das execuções trazem A como termo obrigatório.
+- **Sondagens:** a 1 (`01-07-13-774Z`) agora dá 40/40, porque suas falhas vinham do tratamento de aliases da versão anterior do verificador, não de leitura fora de A. A 2 dá 40/40.
+
+### Precisões P3
+
+- **PS4-R3-DOC-CAUSA:** o texto da rodada 3 passa a dizer "achado físico que pode contribuir; causalidade do ×1,58 não isolada". Ler todas as festas de A muda o plano/custo, não a população de A.
+- **PS4-R3-DOC-PLANNER:** o comentário do SQL em `lib/satisfacao/resultados.ts` e o texto da rodada 3 deixam claro que:
+  - o `OFFSET 0` só impede o achatamento;
+  - os envios são lidos pelo prefixo da empresa;
+  - um índice (inclusive a futura 114) só **oferece** o caminho; a faixa observada é conferida nos planos.
+- **Abertura da rodada 3:** passa a dizer "responde aos dois P2; gate permanece falho". O critério 4 isoladamente falhou **5/2/2** (os totais 15/2/2 incluem os 10 FAIL do critério 3 da execução 1).
+
+### Estado
+
+- Sem mudança de SQL nesta rodada (só comentário).
+- **A 114 não foi implementada.** O número continua provisório até a reconferência no GitHub e uma nova busca local de colisões em migrations, checks e down.
+- Pendentes para a candidata final: 114 + SQL simples das festas; as 3 execuções rev. 1.2; regressão PG; E2E; bateria de mutantes (P06/P12/P13 adaptados, P32–P34); CI.
+
+## PS-4 — rodada 4 (índice 115, D-PS4-R4-1/2/3) — LOCAL, sem commit (03/11/2026)
+
+A rodada implementa o índice proposto como P-114 e o SQL simples das festas. **Resultado do gate de desempenho: FAIL** (r4.3: PASS / 1 FAIL / PASS). Regressão, E2E, mutantes e CI passam.
+
+### Migration 115 (a 114 foi tomada por "liberar salões")
+
+- `database/migrations/20261103_115_fechamentos_empresa_data.sql`: `fechamentos_115_empresa_data_idx ON fechamentos (empresa_id, data_evento)`, em transação com `lock_timeout` 5 s e `statement_timeout` 60 s; guarda de definição antes de criar (homônimo divergente aborta sem alterar nada).
+- **D-PS4-R4-2 (Felipe):** a mesma transação remove `fechamentos_054_empresa_idx` **depois** de criar o 115, com guarda de que o 054 é exatamente o da 054. O down recria o 054 **antes** de remover o 115. Precheck: 115 e 054 ausentes ou conformes; postcheck: 115 conforme e 054 ausente.
+- `indkey`/`indoption` são `int2vector` com base 0: as guardas comparam elemento a elemento, nunca `= ARRAY[...]`.
+- `lib/satisfacao/migration-115.postgres.test.ts` (modelo 111): ciclo subida/down com o 054, 11 homônimos divergentes do 115 e 7 do 054 recusados, `lock_timeout` real, ordem criar→remover e recriar→remover. Inventário (`check-migrations.mjs`, `production.test.mjs`) e receita (modelo "115", PS-4 roda nele).
+
+### SQL das festas
+
+`festas AS MATERIALIZED` virou um recorte só: `f.empresa_id = $1 AND data_evento BETWEEN $3 AND $4 AND status <> 'CANCELADO'`. O índice só **oferece** a faixa; o plano é conferido pelo verificador.
+
+### Decisões de Felipe nesta rodada
+
+- **D-PS4-R4-1:** o teto de `fechamentos` no critério 3 é o prefixo da empresa (todas as festas de A), como já era o de envios. Motivo: em "só A, 366 datas" A é quase a tabela inteira e o Seq Scan é legítimo.
+- **D-PS4-R4-2:** remover o 054. Investigação: o plano alternava 115 × 054 entre execuções por causa da correlação física de `empresa_id` (carga em bloco + UUID aleatório); reproduzido com `CLUSTER` (correlação 1 → Index Scan pelo 054, 13,0 × 9,1 ms). Sem o 054: 10/10 combinações pelo 115.
+- **D-PS4-R4-3:** a r4.2 (FAIL 10/7/2) foi **anulada**: medida com a máquina carregada por outras sessões (planos e buffers iguais, nós 3–7× mais lentos). O script de desempenho ganhou a **guarda de máquina livre**: CPU ≤ 12% em 2 s e nenhum processo de teste/CI/mutante/build de outra sessão, antes de cada fase, de cada combinação e no fim; picos tolerados por 60 s, senão a execução é ANULADA (código 2), sem veredito. As três que contam são as três primeiras não anuladas, consecutivas.
+
+### Bateria da candidata (r4.3, 03/11 15:11–17:10Z, sequencial)
+
+- Regressão PG completa: **259/259 arquivos** no estado declarado.
+- E2E: PS-1 36, PS-2 14, PS-3 16, PS-4 44, PS-G 34 — todos PASS.
+- Mutantes PS-4: **35 mortos + 1 equivalente de 36**. O P34 morria no subteste certo, mas a asserção não tinha mensagem; ganhou "Gestão: respostas de U1, U2 e sem unidade" (só teste/ferramenta), e P33+P34 repetidos: 2/2.
+- CI local: 48/49; a falha (`check:v1:static`) foi `.next/dev/types/routes.d.ts` corrompido pelo `next dev` do E2E (arquivo gerado e ignorado). Removido `.next/dev/types`, `check:v1:static` sozinho: PASS.
+
+### Protocolo rev. 1.2 com guarda (r4.3, 03/11 17:10–18:45Z): FAIL
+
+Candidata congelada: `resultados.ts` bdaae3bf…, 115 7054edb5…, down fe62a12e…, desempenho 0cbd9bce…, verificador 255f775f…. Sonda PASS. Tentativa 1 ANULADA (CPU 18,4%). Execuções válidas:
+
+| Execução | Resultado |
+|---|---|
+| 1 | PASS |
+| 2 | 1 FAIL: A × (A+B+C), Equipe (VER U1), todas as autorizadas, 1 mês, profunda — servidor p95 3,04 → 4,84 ms (×1,59) |
+| 3 | PASS |
+
+Critérios 1–3 PASS nas três. Pela regra (três válidas, todas 0 FAIL, sem quarta), o gate é **FAIL**. A mesma combinação deu ×1,46 na execução 1.
+
+### Diagnóstico do ×1,59 (só sondas, candidata inalterada)
+
+- **Não é contratos:** 231 buscas por chave nas duas fases; 3 → 4 buffers por busca = um nível a mais no índice depois da carga de B/C (≈0,001 ms por busca).
+- **É `satisfacao_envios`:** P junta as festas do período com **todos os envios de A** (≈20 mil, o histórico inteiro) por Hash Join. Em só A é Seq Scan (A é a tabela inteira, 1,17 ms); em A+B+C, Bitmap Heap Scan por `satisfacao_envios_cliente_idx` (1,72 ms) e Hash Join mais lento: 3,3 → 4,1 ms no total.
+- **Envio por chave** (`LATERAL … LIMIT 1` por `satisfacao_envios_festa_uk`; `ambientes-locais/satisfacao-ps4-investigar-envios.cjs`, banco mantido A+B+C, máquina livre): resultado idêntico nas 20 combinações. 1 mês: p50 melhor em 9 de 10 (a combinação que falhou 4,61 → 2,55 ms), pior em Gestão todas profunda (5,07 → 6,46 ms). 366 datas: ≈2× pior em todas (p50 12–34 → 23–47 ms; 11.400 buscas).
+- Não há remédio único só no SQL. O custo do mês cresce com o histórico de envios da empresa, não com B/C; continua longe do critério 1 (p95 < 300 ms).
+
+### Estado
+
+- Candidata sem commit sobre a7ca19e5; nenhuma migration aplicada fora do cluster descartável (encerrado).
+- Decisão de Felipe: levar o FAIL ao Astra com este diagnóstico, sem mudar código. Qualquer ajuste do critério 4 (por exemplo, um limite absoluto junto do 1,5×) seria decidido depois do resultado e depende de aprovação explícita.
+
+## PS-4 — rodada 4.4 (parecer r4: FAIL mantido, 2 P2, 2 P3) — LOCAL, sem commit (03–04/11/2026)
+
+Parecer r4 do Astra: o FAIL da r4.3 permanece; a troca do 054 pelo 115 está aprovada como desenho LOCAL; achados P2-C1, P2-F1, P3-C2, P3-C3. Esta rodada corrige os quatro. **Nenhuma medição nova de desempenho**: o critério 4 só muda com Δ aprovado por Felipe antes de medir.
+
+### P2-C1 — revogação parcial sem saída (Resultados e Retornos)
+
+- `leitura.ts`: `recusada(f)` = 403/404. Com uma unidade escolhida e a leitura recusada, o cartão de falha mostra **"Ver todas as minhas unidades"** (`data-limpar-unidade`), que limpa o filtro e relê o escopo atual sem restaurar o conteúdo recusado. Igual em `SatisfacaoResultados.tsx` e `RetornosPagina.tsx`.
+- E2E: misto com VER Centro+Norte escolhe o Centro, o VER do Centro é revogado → "Sem acesso" sem dados, com o botão → clique → só o Norte no seletor, nada do Centro. Retornos: pessoa nova `tratar2` (TRATAR Centro+Norte), mesmo roteiro.
+
+### P3-C2 — personalizado incompleto
+
+- `aguardandoDatas` (personalizado sem as duas datas): nenhuma consulta e aviso "Escolha as duas datas para ver os resultados do período." (`data-aguardando-datas`). `useLeitura` não consulta com base vazia.
+- E2E: só o início → aviso, 0 pedidos em 1,5 s, sem cartões nem linha de período.
+
+### P2-F1 — guarda de máquina livre (ferramenta, fora do patch de produto)
+
+- `ambientes-locais/satisfacao-ps4-guarda.mjs` (novo, usado por `satisfacao-ps4-desempenho.ts` e `satisfacao-ps4-carga-agora.mjs`): inventário com erro de spawn, código ≠ 0, saída vazia ou sem o próprio PID = **indisponível = não livre** (a medição é anulada). Exclui só o próprio PID; nenhuma exclusão por nome — outro `satisfacao-ps4-desempenho.ts` independente conta como carga.
+- Alcance temporal declarado: a guarda observa **pontos de admissão** (antes de cada fase), não a medição inteira; espera até 12 observações ≈ 84 s (5 s + ≈2 s de inventário cada). A CPU agregada (12%) é só sinal de admissão.
+- Controles `satisfacao-ps4-guarda-controles.mjs`: 9 simulados + inventário real = **10/10 PASS** (`ambientes-locais/satisfacao-ps4-r4-4-guarda-controles-20261103.log`).
+
+### P3-C3 — locks documentados
+
+- Comentários da 115 (subida e down): o DROP INDEX pede ACCESS EXCLUSIVE em `fechamentos` e bloqueia também **leituras** até o COMMIT, esperando leitores abertos; `lock_timeout` vale por espera de lock e `statement_timeout` por instrução, não pela migration. Ensaio de bloqueio com leitor aberto é pré-requisito de implantação persistente (não feito aqui). Sem mudança de SQL.
+
+### Bateria (03/11 21:22Z → 04/11 00:30Z, sequencial, nunca CI junto com PG)
+
+- **E2E PS-4 49/49 PASS** na candidata; controle (clone de mutantes ainda sem as correções) com exatamente **5 FAIL** nas checagens novas (`satisfacao-ps4-r4-4-e2e-ps4-20261103.log`, `-controle-`).
+- **Mutantes 39** (P35/P36/P37 novos para C1/C2): bateria completa 36 mortos + 1 equivalente + 2 VIVOS por causa de infraestrutura — P24 `statement timeout` na montagem da base (antes de qualquer asserção) e P31 cujo erro de limpeza (`DROP DATABASE … being accessed by other users`) escondeu a falha real. Ferramenta E2E corrigida (registra a causa da interrupção antes da limpeza; repete o DROP FORCE até 6×) e **P24/P31 reexecutados isoladamente: MORTOS** pela causa esperada. Total: 38 mortos + 1 equivalente de 39, composto por duas execuções (não uma bateria única). Relatórios `2026-11-03T23-00-31-514Z-mutantes-ps4.txt` e `2026-11-04T00-29-43-262Z-mutantes-ps4.txt`.
+- **PG** migration-115 + PS-4 PASS; **CI local 49 passos, 0 falha** (`satisfacao-ps4-r4-4-ci-20261103.log`).
+
+### Estado
+
+- Candidata sem commit sobre a7ca19e5; 115 só no cluster descartável (encerrado).
+- **FAIL da r4.3 mantido.** Próximo passo depende de Felipe: aprovar um Δ para o critério 4 híbrido prospectivo (reprova só se p95_ABC > 1,5 × p95_A **e** p95_ABC − p95_A > Δ; matriz inteira, todas as páginas, 3 execuções válidas novas) ou manter o contrato atual. Nenhum valor de Δ está aprovado.
+
+### Parecer do Astra sobre a r4.4 (04/11/2026)
+
+- P2-C1, P2-F1, P3-C2 e P3-C3 **fechados** no escopo LOCAL (P3-C3 como documentação); nenhum achado novo. Composição de mutantes 38 + 1 equivalente em duas execuções aceita. ≈84 s da guarda é estimativa, não prazo garantido.
+- O FAIL da r4.3 permanece. Falta: decisão de Felipe sobre Δ do critério 4 (ou manter 1,5×) e novo protocolo conforme a decisão; antes de implantação persistente, consumidores de `fechamentos` e ensaio de lock com leitor aberto.
+
+### D-PS4-R4-4 (04/11/2026)
+
+Felipe manteve o critério 4 só como razão ≤ 1,5× (sem Δ). O aceite completo depende de novo protocolo rev. 1.2 (3 execuções válidas, 0 FAIL); a SQL das festas é a mesma da r4.3.
+
+
+### Protocolo r4.4 (04–05/11/2026): SEM VEREDITO
+
+- `ambientes-locais/satisfacao-ps4-r4-4-protocolo.sh`, log `satisfacao-ps4-r4-4-protocolo-20261104.log`. Preparado 04/11 02:17Z; máquina livre só às 09:20Z; sonda PASS; candidata congelada (resultados.ts bdaae3bf…, 115 35e971aa…, down 95445970…, desempenho.ts 6a150b53…, guarda.mjs 147946f6…).
+- **0 execuções válidas, 3 ANULADAS** (09:22Z, 09:29Z, 14:06Z): outras sessões carregaram a máquina durante a medição (mutantes-r9, barreira-b16/drenagem, CI liberar-salões, login-production). Depois, 12 h de espera sem janela livre → **parado sem veredito** 05/11 02:53Z (código 3). Cluster 55551 encerrado.
+- Não é FAIL nem PASS: nenhuma medição contou. O FAIL da r4.3 segue. Próximo: relançar o mesmo script numa janela em que Felipe pause as outras sessões (≈15–20 min com a máquina livre).
+
+### Protocolo r4.4, 2ª tentativa (05–06/11/2026): FAIL
+
+- Script `ambientes-locais/satisfacao-ps4-r4-4b-protocolo.sh`, log `satisfacao-ps4-r4-4-protocolo-20261105.log`. Mesma candidata congelada (critério 4 só 1,5×, D-PS4-R4-4). Sonda PASS 15:49Z.
+- **Execução 1 (06/11 02:00–02:14Z), válida: 1 FAIL em 40 comparações.** Equipe (VER U1) | todas as autorizadas | 1 mês | página 1: servidor 3,36 → 6,99 ms (**×2,08**, +3,63 ms). É a mesma combinação do ×1,59 da r4.3. Mais próximas sem falhar: ×1,49 (Equipe VER U1, U1, 1 mês, página 1, 3,48 → 5,17 ms) e ×1,47 (Gestão, U1, 1 mês, profunda). Demais critérios sem falha.
+- **Execução 2 não terminou:** interrompida ≈02:27Z com o encerramento da sessão, sem veredito e sem contar. Execução 3 não rodou.
+- **Resultado do protocolo: FAIL** (uma execução válida com FAIL basta; rev. 1.2 exige 0 FAIL nas 3). Relançar a mesma candidata não muda isso.
+- Limite da evidência: a guarda só observa pontos de admissão; não prova que o ×2,08 esteja livre de ruído durante a medição. Com base de ≈3 ms, poucos ms movem muito a razão; o critério 1 (p95 < 300 ms) segue folgado.
+- Cluster 55551 parado pela interrupção; ficou `postmaster.pid` órfão (PID 6100 inexistente), a tratar antes do próximo `iniciar`. Sem commit, sem publicação.
+- Pendente: decisão de Felipe entre investigar o SQL (sondas, sem mudar a candidata) e reabrir o critério 4. Qualquer novo critério é prospectivo; r4.3 e r4.4 continuam FAIL.
+
+### Investigação do critério 4 (06/11/2026): só sondas, candidata inalterada, r4.4 continua FAIL
+
+Script `ambientes-locais/satisfacao-ps4-investigar-cauda.sh` + `.cjs`; log `satisfacao-ps4-investigar-cauda-20261106.log`; amostras `satisfacao-ps4-investigar-cauda-20261106.json`. Banco A+B+C mantido no cluster 55551 (encerrado ao fim). 20 células × 4 variantes × 6 passadas × 100 amostras, blocos intercalados. Resultado das 4 variantes igual ao atual nas 20 células. `resultados.ts` (bdaae3bf…) e harness (6a150b53…) não mudaram; o `postmaster.pid` órfão foi removido depois de confirmar processo morto e porta livre.
+
+**Limite da evidência:** a medição entrou com máquina livre (13:30:50Z), mas terminou com CPU 36,7% e `mutantes-r11` de outra sessão. Não há monitor contínuo. Os números de A/A abaixo valem para máquina compartilhada, **não** para máquina quieta. Não há fase "só A" nesta medição.
+
+**1. Razão no piso × razão no p95 (logs existentes, r4.3 e r4.4 exec. 1):**
+- maior razão no mínimo: ×1,15 (três execuções da r4.3) e ×1,22 (r4.4); maior razão no p95: ×1,59 e ×2,08. Mediana da razão no p95: ×0,95–1,15.
+- dentro de uma fase, o p95 já chega a ×1,97 do mínimo.
+
+**2. A/A (mesmos dados, plano e SQL):** maior razão de p95 entre blocos ×4,25; 54 de 600 pares acima de 1,5×; 11 de 20 células com algum par acima.
+
+**3. A cauda é bimodal, com o mesmo plano.** Célula do FAIL em 6 blocos: p50 ≈ 4,4–5,2 ms em 5 blocos e 3,16 ms em 1; p10 sempre 3,13–3,25. A execução 1 da r4.4 é compatível com a fase "só A" no modo rápido (p95 3,36) e A+B+C no lento (p95 6,99). **Hipótese, não prova:** a causa do modo lento não foi identificada (outras sessões, estado de energia da CPU ou outra); falta A/A em máquina quieta.
+
+**4. Variantes (mediana dos pares na mesma passada, variante ÷ atual, p50 / p95):**
+
+| Variante | 1 mês | 366 datas | Envios |
+|---|---|---|---|
+| `random_page_cost = 1.1` (`SET LOCAL`) | ×0,69 / ×0,67 | ×1,15 / ×1,15 | mês: por chave (`festa_uk`, 937 buscas); ano: Index Scan por `cliente_idx` (19.000) |
+| envio por chave (`LATERAL`) | ×0,75 / ×0,72 | ×1,80 / ×1,72 | `festa_uk` nos dois (ano: 11.400 buscas) |
+| `enable_bitmapscan = off` | ×1,42 / ×1,47 | ×1,64 / ×1,67 | Seq Scan: lê as três empresas; refuta "forçar Seq Scan ajuda" |
+
+- `random_page_cost = 1.1` é o único caminho que melhora o mês sem o ×2 do ano: o planner escolhe por período, sem SQL adaptativo. Custo: ano ≈15% mais lento.
+- **Não está provado que passe o critério 4:** sem fase "só A", e o A/A dessa variante também passa de 1,5× (até ×2,23). Mudaria a candidata: exige nova rodada, verificador de planos, revisão do Astra e protocolo. Ajuste só na transação da leitura; não mexe em configuração do banco.
+
+**Próximo passo (decisão de Felipe):** A/A em máquina quieta (outras sessões pausadas), com monitor de CPU contínuo e comparação só A × A+B+C para `atual` e `random_page_cost = 1.1`, para separar ruído de custo real. Critério novo, se houver, continua prospectivo; r4.3 e r4.4 continuam FAIL.
+
+### Investigação por pares intercalados (08–09/11/2026): só sondas, candidata inalterada, r4.3 e r4.4 continuam FAIL
+
+Felipe não consegue pausar todas as sessões. Em vez de exigir máquina quieta, a medição passou a tolerar o ruído: banco **só A** e banco **A+B+C** lado a lado no cluster 55551, medidos em blocos alternados de 100 amostras, na mesma combinação e com segundos de distância. A ordem alterna por passada; a razão é calculada por par. São 6 passadas, 20 combinações, 2 variantes (`atual` e `SET LOCAL random_page_cost = 1.1`).
+
+- Scripts: `ambientes-locais/satisfacao-ps4-pareado.sh`, `satisfacao-ps4-pareado.cjs`, `satisfacao-ps4-pareado-montar.ts` (cópia do harness com `KIDMAIS_PS4_BANCO` e `KIDMAIS_PS4_SO_A`; o harness congelado 6a150b53 não mudou). Log `satisfacao-ps4-pareado-20261108.log`, amostras `satisfacao-ps4-pareado-20261108.json`.
+- `rpc-1.1` devolve o mesmo resultado que o atual nas 20 combinações, nos dois bancos. As duas montagens (sonda) deram PASS no verificador de planos. Ao fim, os bancos foram apagados e o cluster encerrado.
+- **Limites:** a máquina esteve **muito carregada** (CPU 28–94%, `mutantes-r13` e testes de outras sessões), bem pior que nas execuções do protocolo. Os dados de A vêm do mesmo gerador, mas em montagens separadas. São 6 pares por combinação. Não é execução do protocolo nem muda o veredito.
+
+| | `atual` | `random_page_cost = 1.1` |
+|---|---|---|
+| Combinações com mediana da razão p95 por par > 1,5× | 2/20 | 0/20 |
+| Pares > 1,5× | 18/120 | 7/120 |
+| Maior mediana por par | ×2,31 (Gestão, todas, 366 datas, profunda; faixa 0,45–2,87, ruído) | ×1,20 |
+| Combinação do FAIL (Equipe, todas, 1 mês, página 1) | p95 ×1,60 (1,08–1,88), p50 ×1,31, piso ×1,13 | p95 ×0,75, p50 ×0,78 |
+| Mês, razão do piso | ×1,12–1,15 em todas | ×0,79–0,91 |
+| Ano, razão do piso | ×0,87–1,02 | ×0,91–1,01 |
+
+Leitura:
+- O ruído explica parte do ×2,08, mas **não todo**: mesmo pareada, a combinação do FAIL segue acima de 1,5× na mediana (×1,60), em todas as rodadas desde a r4.3. O custo real de B/C no mês é pequeno no piso (+12–15%), mas aparece mais nessa combinação.
+- Com `random_page_cost = 1.1`, o planner busca os envios por chave no mês; o custo do mês deixa de crescer com o histórico de envios e de depender de B/C. Ano ≈ igual entre os lados. Na sondagem de 06/11 (máquina mais leve), o ano ficou ≈15% mais lento que o atual.
+- Critério 1 (p95 < 300 ms): tudo abaixo de 140 ms mesmo com a máquina carregada.
+
+**Próximo passo proposto (decisão de Felipe):** rodada r4.5 com `SET LOCAL random_page_cost = 1.1` só na transação da leitura dos Resultados, sem mudar a configuração do banco. Ela passa por suítes, verificador de planos e revisão do Astra. Ao Astra também iria a proposta de trocar, **daqui para frente**, o método do critério 4 por pares intercalados, mantendo o limite de 1,5×; isso permitiria rodar o protocolo sem pausar as outras sessões. r4.3 e r4.4 continuam FAIL.
+
+## PS-4 — rodada 4.5 (`random_page_cost` só na leitura dos Resultados) — LOCAL, sem commit (09/11/2026)
+
+Decisão de Felipe (09/11): preparar a r4.5 a partir da investigação por pares (seção anterior). **D-PS4-R4-5** (proposta, depende do Astra): `random_page_cost = 1.1` **só na instrução dos Resultados**, dentro da transação da rota, com o valor anterior devolvido logo depois. A configuração do banco não muda. r4.3 e r4.4 continuam FAIL; a r4.5 ainda não tem protocolo.
+
+**Código** (patch delta `ambientes-locais/satisfacao-ps4-r4-5-20261109.patch`, SHA-256 `0a9f9a547df46a3ac9ccd29bb5c9e34fef308b2e91fd89c048207ddfaabc5437`; arquivos r4.4 reconstruídos com hash conferido bdaae3bf/3072984c):
+- `lib/satisfacao/resultados.ts` (e1684e00…): `CUSTO_PAGINA_ALEATORIA = "1.1"`; antes da instrução, um único `WITH a AS MATERIALIZED (SELECT current_setting('random_page_cost')) SELECT a.v AS anterior, set_config('random_page_cost', $1, true)`; depois da instrução, sem erro, `set_config('random_page_cost', anterior, true)`. Em erro, a transação já está abortada e termina. Fora de transação o ajuste não vale, e só o plano muda, não o resultado. A rota usa `withTenantTransaction`.
+- `lib/satisfacao/satisfacao-ps4.postgres.test.ts` (c7b671e8…): gancho `espiar` no pool da suíte, que observa a mesma conexão da rota; subteste **PS4-R4.5**: 1.1 na instrução dos Resultados, em transação (`now() < statement_timestamp()`), valor anterior devolvido logo depois e nada vaza para a sessão da conexão da rota depois do COMMIT.
+- Harness `ambientes-locais/satisfacao-ps4-desempenho.ts` (6a150b53 → 439754a4; cópia da r4.4 em `satisfacao-ps4-desempenho-r4-4-congelado.ts`): a leitura roda em transação desfeita, como na rota; o ajuste é capturado com a instrução e repetido, em transação desfeita, nos EXPLAIN do critério 4 e do verificador; o relatório registra o ajuste por combinação.
+
+**Provas (cluster descartável 55551, encerrado ao fim):**
+
+| Prova | Resultado |
+|---|---|
+| Suíte PG `satisfacao-ps4.postgres.test.ts` | PASS, incluindo PS4-R4.5 (`2026-11-09T01-45-41-950Z-check-v1-postgres.log`) |
+| Mutantes P38 (sem ajuste), P39 (sem devolver), P40 (ajuste na sessão) | **3/3 MORTOS**. P38 e P39 em `2026-11-09T01-53-09-565Z-mutantes-ps4.txt`. P40 deu VIVO "por outra causa" nessa passada: morreu no subteste certo, mas com a mensagem `devolvido:1.1`, porque leituras anteriores da suíte deixaram 1.1 na sessão das conexões reaproveitadas. A causa declarada foi ampliada para as duas manifestações do mesmo vazamento, e a nova passada deu MORTO (`2026-11-09T02-04-38-008Z-mutantes-ps4.txt`). |
+| Sonda de planos com o harness r4.5 (verificador, critérios 2 e 3) | **PASS**; 40/40 combinações com `random_page_cost=1.1 (em transação)` (`2026-11-09T01-53-09-839Z-sonda-planos-ps4`) |
+| `tsc --noEmit` e ESLint nos arquivos alterados | 0 erros |
+
+**Não feito:** protocolo do critério 4 da r4.5. Depende do parecer do Astra sobre o código e sobre o método. A proposta é medir só A × A+B+C em pares intercalados, mantendo o limite de 1,5×, só daqui para frente, para não depender de pausar as outras sessões.
+
+## Revisão independente da PS-4 r4.5 (08/11/2026)
+
+Data em Brasília. Os identificadores dos artefatos usam UTC. **Ajuste da rota aprovado para validação local. Aceite completo pendente de P38 e do protocolo de desempenho.** Conferidos a branch e a base a7ca19e5, o SHA-256 do patch, os três arquivos finais e a reversão em memória para bdaae3bf, 3072984c e 6a150b53. Nenhuma reexecução em PostgreSQL ou alteração de código.
+
+- O GET executa na conexão exclusiva de withTenantTransaction. Período e guardas vêm antes do ajuste. O CTE materializado captura o valor efetivo, set_config com true aplica 1.1 na transação e a instrução seguinte à consulta restaura o valor antes de revalidar o tenant. Erro propaga para ROLLBACK. COMMIT ou ROLLBACK encerram o ajuste local. Em autocommit o ajuste expira ao fim do comando que o aplica e a consulta de Resultados usa o valor da sessão. O 1.1 é aceitável para este ensaio local e depende do ambiente e da massa.
+- O harness captura SQL, parâmetros e ajuste e os reaplica na mesma conexão, em transação desfeita. C2/C3 usam planos dessa consulta. C4 mede apenas Execution Time da instrução, com TIMING OFF. O tempo do serviço no harness inclui os dois comandos de ajuste e a transação, e exclui as guardas e o restante do GET. A sonda confirmou 40/40 configurações capturadas e planos C2/C3 aprovados. Os tempos zero na sonda são marcadores e deixam C1/C4 sem medição.
+- A suíte focal PG registrou 11/11. **P2 na prova de P38:** o mutante retira o uso de $1 da SQL e mantém um argumento, causando 08P01 e HTTP 500 antes da asserção do GUC. O regex acerta o título do próprio subteste. O MORTO registrado é inválido. Refazer o controle preservando $1, por exemplo retornando $1::text AS ajustado sem chamar set_config, e exigir HTTP 200 e divergência do valor visto antes da consulta no corpo da asserção. O oráculo deve examinar o corpo do subteste e distinguir falhas de SQL/bind. Evidência em ultimo-ps4-P38-sem-ajuste-do-planner.log.
+- **P39 e P40 aceitos, 2/3 causalmente demonstrados.** P39 perde a restauração esperada. Em P40, o false promove o ajuste à sessão após o COMMIT de leituras anteriores. A sessão reaproveitada lê 1.1 como valor anterior e registra devolvido:1.1 em vez de devolvido:4 no subteste certo. A ampliação do matcher foi posterior à primeira passada e a segunda confirmou a manifestação causal. A execução observada parou nessa asserção, antes da checagem pós-COMMIT.
+
+### Protocolo pareado prospectivo do critério 4
+
+**Desenho aprovado com as condições abaixo. Implementação e execução oficiais pendentes.** r4.3 e r4.4 seguem FAIL. A investigação usou a mediana superior (4º de 6). Nas amostras gravadas, a média dos dois centrais daria 1/20 acima de 1,5× no ajuste original e 1,44× na combinação histórica, em vez de 2/20 e 1,60×. Com 1.1, ambas as convenções dão 0/20. Os dados exploratórios ficam fora da decisão oficial.
+
+1. Congelar candidata, scripts, matriz de 20 combinações, datas, ordem e ajustes antes de medir. Gerar A uma vez e clonar a mesma base antes de adicionar B/C a um lado. Conferir massa, schema, índices, configurações, equivalência da saída de A nos dois bancos e SQL/parâmetros da r4.5 capturados em cada lado, incluindo os cursores reais. Rodar ANALYZE após montar as massas e antes das medições. Reaplicar e verificar o 1.1 capturado em ambos os lados. Os scripts exploratórios fixam SET LOCAL manualmente e a montagem usa duas sementes separadas. O executor oficial também deve propagar erros de montagem e de medição e validar matriz, amostras e ajuste.
+2. Fazer um controle A/A antes da campanha no mesmo host, com dois bancos da mesma base A, seis pares por combinação e ordem equilibrada. Os dois valores centrais de cada série de razões devem cair em [0,80, 1,25]. Controle fora da faixa indica medição INCONCLUSIVA. A faixa de controle reserva margem em relação ao limite do critério 4.
+3. Fazer 12 passadas completas, um par por combinação em cada passada. Em cada par, executar os dois blocos consecutivamente, com três aquecimentos por bloco fora das amostras e 100 tempos de execução por lado. Alternar o primeiro lado por passada, seis A→ABC e seis ABC→A por combinação. Usar a 95ª amostra ordenada em cada lado. Calcular p95(ABC)/p95(A) por par. **PASS se a mediana superior (7ª razão ordenada entre 12) for ≤ 1,5 em cada uma das 20 combinações**, com números sem arredondar. Qualquer combinação acima dá FAIL. A regra exige pelo menos 7 de 12 pares dentro do limite em cada combinação.
+4. Preservar todos os tempos, razões, ordem, horários dos blocos, planos e carga, inclusive dispersão e resumo por ordem. Carga alta é contexto, sem descarte por lentidão. Erro técnico ou campanha incompleta dá INCONCLUSIVO e exige nova campanha integral registrada. Sem completar ou substituir pares após conhecer o resultado. C1–C3 mantêm seus critérios e exigem evidência própria.
+
+### r4.5 depois do parecer (09/11/2026): P38 refeito e protocolo pareado INCONCLUSIVO
+
+Parecer do Astra sobre a r4.5 (registrado acima): ajuste aprovado para validação local; P38 com P2 (bind removido → 08P01/HTTP 500; causa casava com o título); P39/P40 aceitos; método pareado aprovado (**D-PS4-R4-6**), com A/A [0,80; 1,25] nas razões centrais, 12 passadas e 7ª menor razão ≤ 1,5×.
+
+**P38 refeito:** o mutante preserva o bind (`$1::text AS ajustado`). O subteste PS4-R4.5 ganhou asserções com o marcador `AJUSTE-R45`, que não está no título, e a rota precisa responder 200 (`ok()`). Resultado: **3/3 MORTOS** pela causa própria (`2026-11-09T02-41-49-368Z-mutantes-ps4.txt`). P38: "a instrução dos Resultados executou com random_page_cost=4 (valor da sessão: 4)", depois de HTTP 200. Suíte PG PASS (`2026-11-09T02-34-39-567Z-check-v1-postgres.log`). A cópia de mutantes foi reinstalada com `npm ci`.
+
+**Protocolo pareado** (`ambientes-locais/satisfacao-ps4-protocolo-pareado.sh` + `.cjs`, montagem `satisfacao-ps4-pareado-montar.ts`; log `satisfacao-ps4-r4-5-protocolo-pareado-20261109T0242Z.log`, amostras `…-20261109T0242Z.json`; hashes da candidata, dos scripts e da matriz no log antes de medir; capturas.json bbd7dfdc…):
+- **Montagem:** A montada uma vez; dois clones só A (`soa1`, `soa2`) feitos depois da fase só A; B/C só no banco original. Sonda dos critérios 2 e 3 **PASS**. **C1 PASS** com o serviço completo, 40/40 p95 < 300 ms, mas sob carga muito alta o maior p95 foi **254 ms** (só A, Gestão, todas, 366 datas, profunda; máx. 465 ms) e o segundo 152 ms. Nas medições anteriores, com menos carga, eram 40–60 ms.
+- **Conferências:** PASS; parâmetros e cursores iguais nas fases, saída de A idêntica nos três bancos, 1.1 efetivo nos três.
+- **Controle A/A (soa2 ÷ soa1): FAIL em 5 de 20 combinações** (Gestão U1 1 mês página 1 e profunda; Gestão sem unidade 1 mês profunda; Gestão U1 366 página 1; Equipe U1 366 página 1). Pares individuais entre bancos idênticos foram de ×0,22 a ×2,92.
+- **Resultado: INCONCLUSIVO** (regra 1). A campanha de 12 passadas não rodou, como manda a regra. Carga: CPU 24–94% nas 12 observações, 320–460 processos node, `mutantes-r13`, `mutantes-b26` e testes de outras sessões.
+- Defeito do script (sem efeito no veredito): no caminho INCONCLUSIVO, o `.cjs` não fechava as conexões e ficou parado depois de imprimir o resultado (≈03:10Z → 19:58Z). Os três bancos foram apagados à mão às ~19:57Z. As conexões caíram, o processo saiu com código 0, e o shell registrou a carga e encerrou o cluster às 19:58Z. JSON com veredito INCONCLUSIVO, 120 pares A/A e 0 de campanha. Corrigido para fechar as conexões em todas as saídas.
+
+Leitura: o controle A/A funcionou como deveria, porque com essa carga nem dois bancos idênticos ficam dentro da faixa. A r4.5 não tem veredito de desempenho: r4.3/r4.4 FAIL, r4.5 INCONCLUSIVO. A próxima campanha precisa ser integral (montagem, A/A e 12 passadas), numa janela com carga menor. Não precisa ser máquina livre, mas precisa dar para passar no A/A.
+
+### r4.5 — campanha pareada com espera de carga (09/11/2026): **PASS**
+
+Decisão de Felipe (09/11): rodar a campanha integral com **espera de carga**, fixada antes de medir (`ambientes-locais/satisfacao-ps4-espera-carga.mjs` 2af7e620…, `satisfacao-ps4-protocolo-pareado-com-espera.sh` 7f3c9c10…):
+- **Quando começa:** sem lote pesado de outra sessão (mutantes, suíte PG, Playwright, vitest, build) e CPU ≤ 30% em 3 observações seguidas, 60 s entre elas. Não é a guarda de máquina livre.
+- **Repetição:** campanha INCONCLUSIVA leva a nova campanha integral, no máximo 3; para no primeiro PASS ou FAIL.
+- O script do protocolo já fecha as conexões em todas as saídas (f851de29…).
+
+Resultado (log `satisfacao-ps4-r4-5-campanhas-20261109T2004Z.log`; protocolo `satisfacao-ps4-r4-5-protocolo-pareado-20261109T2302Z.log` + `.json`; montagem `satisfacao-ps4-r4-5-montagem-20261109T2302Z.log`):
+- Espera de 20:04Z a 23:02Z; admitida com CPU 21,3%, 24,4% e 20,8%. **1ª campanha, sem repetição.**
+- Congelados antes de medir: resultados.ts e1684e00…, 115 35e971aa…, down 95445970…, harness 439754a4…, montagem 86f0af63…, protocolo f851de29… + bce2dbba…, verificador 255f775f…, guarda 147946f6…; matriz (capturas.json) ef7c672d….
+- **Montagem:** C2/C3 PASS (sonda) e **C1 PASS**, com maior p95 do serviço completo de 49 ms.
+- **Conferências:** 121/121 PASS.
+- **Controle A/A:** **20/20 PASS**; razões centrais entre ×0,886 e ×1,136.
+- **Campanha (12 passadas, 6+6 por ordem):** **PASS em 20 de 20**. A maior 7ª menor razão foi ×1,139 (Gestão, todas, 366 datas, profunda). No mês todas ficaram < 1 (×0,80–0,93), e A+B+C ficou mais rápido que só A, porque com 1.1 o mês busca por chave. A combinação do FAIL histórico (Equipe, todas, 1 mês, página 1) ficou em ×0,834.
+- Carga durante a campanha: CPU 14–41%, nenhum mutante alheio nas observações. As 24 observações passaram do limite da guarda antiga (12%), e isso está registrado no JSON.
+- Bancos apagados e cluster 55551 encerrado pelo próprio script às 23:26Z.
+
+**Estado:** a r4.5 tem critério 4 PASS pelo método pareado (D-PS4-R4-6) e C1–C3 PASS; r4.3 e r4.4 continuam FAIL. O aceite completo depende do Astra conferir esta campanha e o P38 refeito. Sem commit, sem publicação, migration só no cluster descartável.
+
+### Parecer do Astra sobre a campanha (10/11/2026) e correção do executor — LOCAL, sem PostgreSQL
+
+**Parecer (resumo):** P38 fechado; campanha de 23:02Z conferida pelas amostras brutas e mantida **PASS** (20/20, pior 7ª razão 1,138777612452787; combinação histórica 0,8339658444022771; A/A 20/20; conferências 121/121; C1–C3 PASS). Espera de carga e regra de repetição **aceitas**. Teste PG atual `74bc6c83…` equivale a `c7b671e8…` salvo mensagens/asserções. Aceite integral da r4.5 **retido** por um P2 no executor: `satisfacao-ps4-protocolo-pareado.sh` capturava a saída da montagem sem usá-la (montagem reprovada com `capturas.json` seguia para C4 e podia anunciar PASS) e não propagava a saída do `.cjs`; o shell externo ignorava o retorno e lia o log mais recente da pasta. Lacuna de rastreabilidade: o JSON não tinha horários por bloco nem resumo por ordem. r4.3 e r4.4 continuam FAIL.
+
+**Correção (10/11/2026):**
+- `satisfacao-ps4-protocolo-pareado.sh` (bce2dbba… → `440b8e7f…`): ID por tentativa (`KIDMAIS_PS4_ID`), recusa ID já usado (saída 9); montagem saída 1 com `RESULTADO: N FALHA(S)` → **FAIL** sem rodar o protocolo; outra saída ou linha ausente → INCONCLUSIVO técnico; saída do `.cjs` cruzada com a linha RESULTADO (0+PASS, 1+FAIL, 2/3+INCONCLUSIVO; o resto → INCONCLUSIVO técnico); última linha `VEREDITO:` e saída 0/1/2/3, 8 se o encerramento falhar.
+- `satisfacao-ps4-protocolo-pareado-com-espera.sh` (7f3c9c10… → `ad7af2e9…`): ID `<início>-c<n>` por campanha, lê o log **dessa** tentativa e cruza saída × VEREDITO; repete só INCONCLUSIVO (2/3); para em PASS (0) e FAIL (1); 8, 9, saída incoerente ou log ausente → erro do executor, para sem nova campanha (5).
+- `satisfacao-ps4-protocolo-pareado.cjs` (f851de29… → `9d54aa71…`): início e fim de cada bloco no JSON (`blocos`), resumo por ordem no JSON e no log (`satisfacao-ps4-resumo-por-ordem.cjs` `ae30b3df…`), dublês de pg/guarda só por variável `KIDMAIS_PS4_CONTROLE_*`, com registro marcado `controle`.
+- Versões usadas na campanha congeladas: `satisfacao-ps4-protocolo-pareado-20261109T2302Z-congelado.sh` (bce2dbba…), `…-com-espera-20261109T2004Z-congelado.sh` (7f3c9c10…) e `…-20261109T2302Z-congelado.cjs` (reconstruída desfazendo as edições, f851de29… conferido).
+
+**Controles** (`satisfacao-ps4-controles-executor.sh` `11f9c869…`, dublês em `satisfacao-ps4-controles-dubles/`; nenhum PostgreSQL, trava se o cluster 55551 estiver ligado): relatório `satisfacao-ps4-controles-executor-20261110T034559Z.log` — **148 PASS, 0 FAIL**. Cobre 14 caminhos do shell interno (PASS; montagem reprovada **com** capturas → FAIL sem protocolo; anulada; sem linha; quebra; capturas ausentes; protocolo FAIL/A/A/técnico/incoerente/quebra; encerramento falhou → 8; cluster não iniciou; ID usado → 9), 9 do externo (PASS direto; INCONCLUSIVO→PASS; técnico→FAIL; 3 INCONCLUSIVOS → 4; montagem reprovada → FAIL; anulada→PASS; encerramento falhou → 5; sem janela → 3; **isca** PASS mais recente na pasta ignorada) e 5 cenários do `.cjs` com dublê de pg (saídas 0/1/2/2/3, horários de 360 blocos coerentes com a ordem, resumo 20×3+3 e 20×6+6). A 1ª execução (`…-20261110T033740Z.log`, 13 FAIL) foi defeito do dublê (registrava só o último caminho da linha de comando, então não contava a chamada ao `.cjs`); corrigido e repetido. Prova de que o controle pega o defeito: o shell antigo, com montagem reprovada e capturas presentes, rodou o protocolo e saiu 0 com PASS (`satisfacao-ps4-controles-executor-shell-antigo-20261110.log`).
+
+**Rastreabilidade da campanha de 23:02Z:** resumo por ordem recalculado do JSON (`satisfacao-ps4-r4-5-resumo-por-ordem-20261109T2302Z.log`); os horários individuais dos blocos não são recuperáveis e ficam registrados como lacuna dessa campanha.
+
+**Estado:** executor corrigido e controlado LOCAL; campanha de 23:02Z segue PASS; aceite integral da r4.5 aguarda o Astra (inclusive se exige nova campanha com o executor corrigido). Sem commit, sem publicação.
+
+#### Resposta do Astra ao executor — 10/11/2026
+
+**P2 de propagação de erros: FECHADO nos hashes 440b8e7f / ad7af2e9 / 9d54aa71. Aceite integral da r4.5: ainda PENDENTE; exige nova campanha integral com o executor corrigido e a rastreabilidade completa.** A campanha de 23:02Z permanece PASS quanto a C1–C4 e aos cálculos auditáveis. r4.3 e r4.4 continuam FAIL. Este parecer sucede o estado de “aguarda Astra” acima.
+
+- A montagem só prossegue com saída 0 + DESEMPENHO PASS. Saída 1 + N FALHA(S), mesmo com capturas presentes, dá FAIL e zero chamadas ao protocolo; ausência/incoerência/quebra dá INCONCLUSIVO técnico. O protocolo cruza código e RESULTADO; o externo cruza código e VEREDITO do ID exato, para no primeiro PASS/FAIL e só repete INCONCLUSIVO 2/3. Encerramento 8 e ID usado 9 caem na parada 5 do externo. Os ramos de log ausente e código incompatível estão presentes; nem todo ramo externo tem cenário próprio na bateria de 148 asserções. O controle do shell antigo demonstra a sensibilidade ao defeito original. Não se usa a execução inicial com 13 FAIL como validação da candidata.
+- Hashes atuais, versões congeladas e dublês conferidos contra os registros. O delta do .cjs preserva SQL, ajuste, aquecimentos, amostras, alternância e regra decisória; acrescenta instrumentação, resumo e injeção explícita dos controles. Os controles simulados comprovam o executor, sem substituir medição em PostgreSQL.
+- Releitura independente do JSON histórico: 121/121 conferências, 120 pares A/A e 240 de campanha; 100 amostras finitas positivas por lado, razões recalculadas sem divergência, passadas únicas e ordens equilibradas 3+3 e 6+6. A/A 20/20 e C4 20/20 PASS; pior 7ª razão 1,138777612452787. Resumo por ordem recalculado idêntico ao log após seu cabeçalho. Evidência: ambientes-locais/satisfacao-ps4-revisao-astra-executor-20261110.log.
+
+**Por que não há aceite integral com a campanha antiga:** o item 4 de D-PS4-R4-6, fixado antes de medir, exige preservar os horários dos blocos. O JSON de 23:02Z registra apenas o instante ao fim de cada par: nenhum dos 360 pares contém início/fim dos dois blocos. São **720 blocos**, não 360; “360 blocos” no texto do controle significa 360 pares verificados. O resumo por ordem é recuperável; os intervalos dos blocos não são. Corrigir o executor e provar seus ramos não produz essa evidência retroativa. Esta é uma pendência de completude do protocolo, sem novo defeito funcional demonstrado na candidata e sem reclassificar o PASS numérico como FAIL.
+
+**Próximo passo, fora desta rodada:** quando houver autorização específica para PostgreSQL, congelar novamente candidata, executores e matriz; executar montagem/C1–C3, A/A e as 12 passadas completas com horários de cada bloco, resumo por ordem, amostras e carga preservados. Manter a espera e a regra de repetição já aprovadas; não completar apenas os horários nem reaproveitar pares antigos. Não é necessário refazer as suítes PG/P38 somente por esta correção do executor, se a candidata e as provas aceitas permanecerem idênticas. Nenhuma nova campanha, PostgreSQL, alteração de código, commit ou publicação nesta revisão. Sem servidores, clusters, dependências ou cópias auxiliares criados; evidências preservadas.
+
+**Validação independente concluída:** reexecução integral dos controles com os dublês inspecionados e hashes idênticos: **148 PASS, 0 FAIL, saída 0** (satisfacao-ps4-controles-executor-20261110T035654Z.log). A isca de outra tentativa foi ignorada. Os cinco cenários do .cjs produziram 0/1/2/2/3 e registros marcados como controle. Pasta temporária própria removida pelo executor e ausência de postmaster.pid conferida; nenhum PostgreSQL iniciado ou acessado.
+
+### r4.5 — nova campanha integral com o executor corrigido (10/11/2026): **PASS**
+
+Autorizada por Felipe em 10/11 depois do parecer que exigiu nova campanha (horários por bloco). Executor e protocolo com os hashes aprovados: `satisfacao-ps4-protocolo-pareado.sh` 440b8e7f…, `…-com-espera.sh` ad7af2e9…, `.cjs` 9d54aa71…, resumo ae30b3df…, espera 2af7e620…; candidata `resultados.ts` e1684e00…, harness 439754a4…, montagem 86f0af63…, verificador 255f775f… (congelamento interno e reconferência dos demais hashes discriminados no parecer abaixo).
+
+- **Espera de carga:** de 04:06Z a 11:06Z (CPU até 97,5% com mutantes e regressões de outras sessões); admitida com CPU 20,1%, 16,0% e 13,2% sem lote pesado. 1ª campanha, ID `20261110T0406Z-c1`.
+- **Montagem** (`satisfacao-ps4-r4-5-montagem-20261110T0406Z-c1.log`): saída 0, `DESEMPENHO PASS`, 125 PASS e 0 FAIL (C2/C3 pela sonda); C1 maior p95 do cliente 45 ms. Clones soa1/soa2 por TEMPLATE depois da fase só A. Matriz `capturas.json` 0b46a8e6… (o log mostra `\0b46…`: o `sha256sum` prefixa `\` quando o caminho tem barra invertida; o hash é o mesmo).
+- **Protocolo** (`satisfacao-ps4-r4-5-protocolo-pareado-20261110T0406Z-c1.log` + `.json` b782f39c…): conferências 121/121; A/A 20/20 (centrais 0,8950–1,0865); **campanha PASS 20/20**, pior 7ª menor razão **0,9982** (Gestão, sem unidade, 366 datas, página 1); 1 mês 0,734–0,944; combinação histórica do FAIL 0,7956. Saída 0 + `RESULTADO: PASS` → `VEREDITO: PASS`; externo leu o próprio log (`-c1`) e saiu 0.
+- **Conferência independente** (`satisfacao-ps4-conferir-campanha.cjs` e3c0ab60…, relatório `satisfacao-ps4-r4-5-conferencia-20261110T0406Z-c1.log`): registro sem dublês; 120 + 240 pares; 100 amostras positivas e finitas por bloco; razões recalculadas pela 95ª iguais às gravadas; **720 blocos com início e fim**, coerentes com a ordem do par e sem sobreposição; 6+6 por ordem e 12 passadas por combinação; resumo por ordem no JSON.
+- **Carga na campanha:** CPU 11,7–21,6% nas 24 observações (23 acima de 12%; 24 marcadas não livres pela guarda composta antiga, registradas); testes curtos de outras sessões apareceram (`--test`), nenhum lote pesado.
+- **Encerramento:** bancos do protocolo apagados e cluster 55551 encerrado pelo script às 11:29Z.
+
+**Estado após revisão do Astra (10/11/2026): ACEITE INTEGRAL LOCAL da r4.5**, C1–C4 PASS, executor corrigido e rastreabilidade completa conferidos. r4.3 e r4.4 seguem FAIL. Sem commit, sem publicação; implantação persistente fora deste aceite.
+
+#### Aceite integral do Astra — r4.5, campanha 20261110T0406Z-c1 (10/11/2026)
+
+**ACEITE INTEGRAL LOCAL da PS-4 r4.5, nos hashes aprovados. Sem achado impeditivo nesta campanha.** A nova campanha integral satisfaz a pendência de completude de D-PS4-R4-6: os 720 blocos têm início/fim preservados, e o resumo por ordem está no JSON e no log. O P2 do executor já estava fechado; esta evidência real encerra a pendência de rastreabilidade. P38 e as demais provas anteriormente aceitas permanecem aceitos; a candidata e os componentes congelados conferem com os hashes aprovados. r4.3 e r4.4 continuam **FAIL**, sem reclassificação retroativa.
+
+- Revisão independente dos artefatos por auditor próprio, sem executar nova campanha ou acessar PostgreSQL: JSON SHA-256 b782f39ccf686df465be3d73b512ebb10b8fb89c5a4831140fbc7ac89d494893 e capturas.json 0b46a8e6f789b9a1e4b7cda8837613ce41d67bc87bbf1e8304cb6c69bea659ac conferidos. O prefixo de escape de caminho do sha256sum não faz parte do hash.
+- 121/121 conferências; 120 pares A/A + 240 pares oficiais; 72.000 amostras finitas e positivas. Razões recalculadas pela 95ª amostra ordenada sem divergência. Seis e doze passadas completas na sequência prevista, ordens 3+3 e 6+6 por combinação, sem reposição de pares. Todos os intervalos ISO válidos, coerentes com a ordem, contidos na execução e sem sobreposição. Resumo integral por ordem (contagens, razões, mediana, mínimo e máximo) recalculado idêntico ao JSON e conferido no log.
+- A/A **20/20 PASS**, centrais 0,8949579831932774–1,086476372174934. C4 **20/20 PASS**, pior 7ª razão 0,9982045830380345 (Gestão | sem unidade | 366 datas | página 1), abaixo de 1,5 sem arredondamento. Combinação histórica 0,795611125287063; mês 0,7338748208313426–0,9441575209812783.
+- C1–C3 **PASS**: montagem 125 PASS / 0 FAIL, C1 40/40 abaixo de 300 ms, máximo 45 ms. Os 40 planos brutos foram reavaliados offline com o verificador 255f775f: acesso por empresa e tetos por relação conformes, nenhuma ordenação externa/em disco. Montagem por TEMPLATE após a fase só A e ANALYZE antes das fases conferidos no executor congelado e nos artefatos.
+- Espera de carga e regra de parada aprovadas mantidas: primeira campanha admitida às 11:06Z, sem repetição; saída 0 e RESULTADO/VEREDITO PASS do próprio ID c1, sem leitura de tentativa alheia. Carga não descarta pares neste método. Precisão do registro: CPU 11,7–21,6%; **23/24** acima de 12%, mas **24/24 marcadas não livres pela guarda composta antiga** (CPU e processos alheios). Isso não altera o gate pareado nem a admissão aprovada de 30%.
+- Precisão dos hashes: o log interno anterior às medições registra candidata, harness, montagem, protocolo interno, resumo e verificador. O wrapper com-espera ad7af2e9 e a espera 2af7e620 foram reconferidos nos arquivos atuais contra os hashes previamente aprovados; seus hashes não aparecem no log de campanhas nem na lista interna de congelamento. A afirmação anterior de que todos estavam nesse log fica corrigida, sem evidência de mudança desses executores.
+- Encerramento às 11:29:43Z com saída 0, bancos apagados e cluster parado segundo o log; postmaster.pid ausente na revisão. Nenhum servidor, cluster, dependência ou cópia auxiliar criado nesta revisão.
+
+Evidência da revisão: ambientes-locais/satisfacao-ps4-r4-5-revisao-astra-20261110T0406Z-c1.log. Validação por leitura e recálculo dos artefatos; não é reexecução de suítes PG/CI. O aceite se limita à candidata local e à massa/método aprovados. Implantação persistente continua fora deste aceite, inclusive inventário dos consumidores de fechamentos e ensaio de lock com leitor aberto antes dessa etapa. **Sem commit, push, publicação ou migration fora do cluster descartável.**

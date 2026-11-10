@@ -119,6 +119,8 @@ const MODELOS = {
   "110": { banco: "kidmais_v1_modelo_110", ate: "110", sem: ["098"] },
   // Pesquisa de satisfação PS-3 (111, LOCAL, 31/10/2026): o estado da 110 com links de avaliação e auditoria.
   "111": { banco: "kidmais_v1_modelo_111", ate: "111", sem: ["098"] },
+  // PS-4 rodada 4 (115, LOCAL, 03/11/2026): o estado da 111 com o índice (empresa_id, data_evento) em fechamentos.
+  "115": { banco: "kidmais_v1_modelo_115", ate: "115", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a

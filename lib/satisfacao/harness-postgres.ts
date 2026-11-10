@@ -52,15 +52,16 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
   // Cada festa num dia próprio (a agenda recusa ocupação sobreposta no mesmo recurso).
   const dataUnica = () => new Date(Date.UTC(2026, 0, 1) + ++dia * 86_400_000).toISOString().slice(0, 10);
 
-  /** Festa nova; com `clienteId`, do MESMO cliente (outra festa, outro envio); `telefone` fixa o número do cliente novo. */
-  async function festa(opcoes: { empresaId?: string; assinado?: boolean; nome?: string; clienteId?: string; telefone?: string } = {}) {
+  /** Festa nova; com `clienteId`, do MESMO cliente (outra festa, outro envio); `telefone` fixa o número do cliente novo;
+   *  `data` (PS-4) fixa a data da festa — a suíte garante datas distintas (a agenda recusa ocupação sobreposta). */
+  async function festa(opcoes: { empresaId?: string; assinado?: boolean; nome?: string; clienteId?: string; telefone?: string; data?: string } = {}) {
     const e = opcoes.empresaId ?? A;
     const r = await emTransacao(async () => {
       const telefone = opcoes.clienteId
         ? (await um(`SELECT whatsapp FROM clientes WHERE id = $1::uuid`, [opcoes.clienteId])).whatsapp as string
         : opcoes.telefone ?? `55119888${String(70000 + ++tel).padStart(5, "0")}`;
       const cl = opcoes.clienteId ?? await cliente(c, e, opcoes.nome ?? "Mariana Souza Sintética", telefone, `${cod("c")}@pesquisa.test`);
-      const f = await fechamento(c, e, e === A ? baseA : baseB, cl, { data: dataUnica(), status: "AGUARDANDO_PAGAMENTO" });
+      const f = await fechamento(c, e, e === A ? baseA : baseB, cl, { data: opcoes.data ?? dataUnica(), status: "AGUARDANDO_PAGAMENTO" });
       return { cl, f, telefone };
     });
     // Em transação própria: a validação diferida enfileirada pelo INSERT do fechamento não pode ver o contrato.
