@@ -13,7 +13,7 @@ import { itemAtivo, itensNavegacao, type MenuSatisfacaoNavegacao, type Permissoe
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
-type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean } } };
+type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean; satisfacao?: unknown } } };
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
