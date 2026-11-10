@@ -350,14 +350,14 @@ const ESTADO_POSTGRES = {
   "lib/agenda/agenda-versao-100.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
   // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
-  "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097", semGuardaSalao: { modelos: ["097"], motivo: RETRATO_COM_GATILHOS } },
+  "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097-sem-087", semGuardaSalao: { modelos: ["097-sem-087"], motivo: RETRATO_COM_GATILHOS } },
   // Decisão de Felipe (29/10/2026, P2-1b): o código só suporta a 108; a 098 histórica é recusada. As suítes de serviço
   // com combinado saíram do modelo 098 para o 108.
   // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
   "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "108", tambem: ["114"] },
   // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
   // Plano E4 (E4-6, 29/10/2026): no modelo 108, COM_108 nos três modos (completa e parcial), sem retrato nem escrita.
-  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097", tambem: ["108"], semGuardaSalao: { modelos: ["097"], motivo: RETRATO_COM_GATILHOS } },
+  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097-sem-087", tambem: ["108"], semGuardaSalao: { modelos: ["097-sem-087"], motivo: RETRATO_COM_GATILHOS } },
   // 25/10/2026: apresentação do salão (102). Comportamento no modelo 102 (sem a 098, com 099/100/102); aplicação, reaplicação
   // e rollback neutro/com conteúdo no 097; recusa no 098.
   "lib/agenda/saloes-apresentacao-102.postgres.test.ts": { descartavel: "102", tambem: ["097", "098"] },

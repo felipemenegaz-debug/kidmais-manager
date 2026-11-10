@@ -130,10 +130,11 @@ export function Marketing() { return (<section className={cx('block')} id="marke
     <div className={cx('wrap')}>
       <div className={cx('head')} data-fundo-texto>
         <div className={cx('eyebrow')}>Marketing · Campanhas e automação</div>
+        <p className={cx('galeriaPlanos')} data-planos-marketing>Nos planos Profissional e Premium</p>
         <h2 id="t-marketing">Da campanha nas redes<br /><em>à próxima festa.</em></h2>
         <p className={cx('lead')}>Seu site, suas campanhas e o relacionamento com os clientes no mesmo módulo. Conecte a divulgação à gestão do buffet e acompanhe o caminho até o contrato.</p>
       </div>
-      <article className={cx('marketingSite')} data-fundo-proteger><div><span className={cx('marketingKicker')}>Site do buffet · dentro do Marketing</span><h3>Uma vitrine com a identidade da sua unidade.</h3><p>Monte o site com sua marca, fotos, pacotes e contatos. Edite o conteúdo, confira a prévia e escolha quando publicar.</p></div><ul className={cx('checks')}><li>Galeria de fotos e apresentação dos pacotes</li><li>Formulário para pedidos de orçamento e contato pelo WhatsApp</li><li>Título e descrição para mecanismos de busca (SEO)</li><li>Links de campanhas ligados à origem dos contatos</li></ul></article>
+      <article className={cx('marketingSite')} data-fundo-proteger><div><span className={cx('marketingKicker')}>Site do buffet · dentro do Marketing · planos Profissional e Premium</span><h3>Uma vitrine com a identidade da sua unidade.</h3><p>Monte o site com sua marca, fotos, pacotes e contatos. Edite o conteúdo, confira a prévia e escolha quando publicar.</p></div><ul className={cx('checks')}><li>Galeria de fotos e apresentação dos pacotes</li><li>Formulário para pedidos de orçamento e contato pelo WhatsApp</li><li>Título e descrição para mecanismos de busca (SEO)</li><li>Links de campanhas ligados à origem dos contatos</li></ul></article>
       <div className={cx('pain')}>
         <article data-fundo-proteger><span className={cx('marketingKicker')}>Instagram, Facebook, Google e WhatsApp</span><h3>Um link para cada campanha</h3><p>Use links rastreáveis nos seus anúncios e publicações. Quem chega ao site do buffet e pede orçamento pode ser associado à campanha de origem.</p></article>
         <article data-fundo-proteger><span className={cx('marketingKicker')}>Da origem ao contrato</span><h3>Saiba o que chega pela divulgação</h3><p>Acompanhe cliques, contatos, negociações, contratos e receitas por origem e campanha, com filtros de período.</p></article>
