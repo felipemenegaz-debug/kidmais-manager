@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { type Conteudo } from '@/lib/convites/domain';
+import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
 import type { FamiliaPublica } from '@/lib/convites/familias-domain';
 import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
 import ConviteArte from './ConviteArte';
@@ -8,7 +8,7 @@ import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
   const [conteudo, setConteudo] = useState<Conteudo | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [busy, setBusy] = useState(false), [nome, setNome] = useState(''), [presenca, setPresenca] = useState(true), [adultos, setAdultos] = useState(1), [criancas, setCriancas] = useState(0);
-  const [efeitosPausados, setEfeitosPausados] = useState(false);
+  const [efeitosPausados, setEfeitosPausados] = useState(false), [marcaKidmais, setMarcaKidmais] = useState(false);
   const [familia, setFamilia] = useState<FamiliaPublica | null>(null);
   const chave = useRef(''), acessoFamilia = useRef<string | null>(null);
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
@@ -23,7 +23,7 @@ export default function ConvitePublico({ token }: { token: string }) {
       try { const k = `convite-rsvp:${token}`; chave.current = acesso != null ? crypto.randomUUID() : localStorage.getItem(k) || crypto.randomUUID(); if (acesso == null) localStorage.setItem(k, chave.current); }
       catch { chave.current = crypto.randomUUID(); }
       void fetch(endpoint, { cache: 'no-store', signal: atual.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
-        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo);
+        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true);
         const f = j.data.familia as FamiliaPublica | null; setFamilia(f ?? null);
         if (f) { setNome(f.nome); setPresenca(f.presenca ?? true); setAdultos(f.adultos); setCriancas(f.criancas); }
       }).catch(e => { if (!atual.signal.aborted) setErro(e.message); });
@@ -43,7 +43,9 @@ export default function ConvitePublico({ token }: { token: string }) {
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
       <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} /></div>
-      <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${conteudo.local} ${conteudo.endereco}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
+      {/* D-LIB-3/5: o bloco "Local" fica visível na página mesmo quando a arte completa traz os textos na imagem. */}
+      {conteudo.blocoLocal && <p className={styles.localFixo} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local</strong> {localDoConvite(conteudo)}{enderecoDoConvite(conteudo) ? <span>{enderecoDoConvite(conteudo)}</span> : null}</p>}
+      <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${localDoConvite(conteudo)} ${enderecoDoConvite(conteudo)}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
       {conteudo.confirmarPresenca && <form id="confirmar-presenca" aria-labelledby="titulo-presenca" className={`${styles.painel} ${styles.bordaAnimada}`} onSubmit={async e => {
         e.preventDefault(); const form = e.currentTarget; setBusy(true); setErro(''); setAviso('');
         try {
@@ -55,7 +57,7 @@ export default function ConvitePublico({ token }: { token: string }) {
         {presenca && <div className={styles.campos}><label>Adultos<input required type="number" min={0} max={20} value={adultos} onChange={e => setAdultos(Number(e.target.value))} /></label><label>Crianças<input required type="number" min={0} max={20} value={criancas} onChange={e => setCriancas(Number(e.target.value))} /></label></div>}
         <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset><small>Sua resposta será vista pelo organizador e pelo buffet.</small>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
       </div>
-      <footer className={styles.rodape}>Um momento especial, organizado com KidMais.</footer>
+      <footer className={styles.rodape}>{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
     </>}
   </main>;
 }

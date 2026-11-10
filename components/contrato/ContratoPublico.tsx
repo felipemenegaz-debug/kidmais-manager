@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import type { MarcaContrato } from "@/lib/contratos/marca-contrato";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ContratoPublico.module.css";
 
 type Canal = {
@@ -50,6 +51,8 @@ type ContextoContrato = {
   };
   /** PAPEL: contrato histórico assinado em papel — sem aceite eletrônico, sem documento e sem comprovante. */
   assinatura?: { tipo: "PAPEL" | "ELETRONICA"; texto: string | null };
+  /** Só existe depois da prova de identidade. */
+  marca?: MarcaContrato;
   aceitePermitido: boolean;
 };
 
@@ -66,6 +69,32 @@ function mensagemErro(payload: unknown, fallback: string) {
   }
   return fallback;
 }
+
+/** O servidor recusou a prova ou o acesso (expirados, revogados): a tela não pode continuar mostrando o que eles liberaram. */
+class ProvaRecusada extends Error {}
+
+/** A versão exibida foi encerrada ou substituída: os documentos dela saem da tela e a leitura recomeça pela identificação. */
+class VersaoEncerrada extends Error {}
+
+/** Resposta de uma leitura já descartada (tela limpa ou outra leitura em curso): não pode tocar no estado. */
+class LeituraDescartada extends Error {}
+
+const CODIGOS_PROVA_RECUSADA = new Set(["CONTRATO_ACESSO_NAO_AUTORIZADO", "PROVA_INVALIDA_OU_EXPIRADA"]);
+
+function erroDaResposta(payload: unknown, fallback: string) {
+  const mensagem = mensagemErro(payload, fallback);
+  const codigo = payload && typeof payload === "object" ? (payload as ApiError).codigo : undefined;
+  if (codigo && CODIGOS_PROVA_RECUSADA.has(codigo)) return new ProvaRecusada(mensagem);
+  if (codigo === "VERSAO_CONTRATO_DIVERGENTE") return new VersaoEncerrada(mensagem);
+  return new Error(mensagem);
+}
+
+const AVISO_VALIDACAO_EXPIRADA = "Sua validação expirou. Confirme seus dados para abrir os documentos novamente.";
+const AVISO_ACEITE_REGISTRADO = "Seu aceite foi registrado. Para ver os documentos de novo, confirme seus dados.";
+
+/** `aceiteGravado`: o aceite desta sessão já foi confirmado pelo servidor; qualquer recusa depois disso avisa que ele valeu. */
+/** `blobs`: URLs criadas pela sessão, publicadas ou não no estado; todas são revogadas quando a sessão termina. */
+type SessaoLeitura = { id: number; controle: AbortController | null; aceiteGravado: boolean; blobs: string[] };
 
 function dataBr(value: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
@@ -102,12 +131,59 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
 
+  /**
+   * Sessão de leitura: começa ao enviar o código. Limpar a tela, trocar de contrato ou sair encerra a sessão,
+   * cancela as requisições dela e faz as respostas que ainda chegarem serem descartadas antes de tocar no estado.
+   */
+  const sessaoLeitura = useRef<SessaoLeitura>({ id: 0, controle: null, aceiteGravado: false, blobs: [] });
+
+  function encerrarSessaoLeitura(nova: boolean) {
+    const anterior = sessaoLeitura.current;
+    anterior.controle?.abort();
+    // Inclui URLs criadas que ainda não chegaram ao estado publicado (encerramento antes do commit do React).
+    for (const url of anterior.blobs.splice(0)) URL.revokeObjectURL(url);
+    sessaoLeitura.current = { id: anterior.id + 1, controle: nova ? new AbortController() : null, aceiteGravado: false, blobs: [] };
+    return sessaoLeitura.current;
+  }
+
+  function sessaoViva(sessao: SessaoLeitura) {
+    return sessao.controle !== null && sessaoLeitura.current === sessao && !sessao.controle.signal.aborted;
+  }
+
+  function exigirSessaoViva(sessao: SessaoLeitura) {
+    if (!sessaoViva(sessao)) throw new LeituraDescartada();
+  }
+
+  useEffect(() => () => { encerrarSessaoLeitura(false); }, [contratoId]);
+
   useEffect(() => {
     return () => {
       if (resumoPdfUrl) URL.revokeObjectURL(resumoPdfUrl);
       if (contratoPdfUrl) URL.revokeObjectURL(contratoPdfUrl);
     };
   }, [resumoPdfUrl, contratoPdfUrl]);
+
+  function voltarParaIdentificacao(mensagem = AVISO_VALIDACAO_EXPIRADA) {
+    // Aceite já confirmado nesta sessão: o aviso dele prevalece sobre qualquer recusa posterior (aceite, PDF ou comprovante).
+    const aviso = sessaoLeitura.current.aceiteGravado ? AVISO_ACEITE_REGISTRADO : mensagem;
+    encerrarSessaoLeitura(false); // revoga todas as URLs da sessão, publicadas ou não
+    setResumoPdfUrl(null);
+    setContratoPdfUrl(null);
+    setContexto(null);
+    setProvaToken(null);
+    setAcessoToken(null);
+    setValidacaoId(null);
+    setCodigo("");
+    setCanais([]);
+    setCanal(null);
+    setCpf("");
+    setDocumentoAtivo("RESUMO");
+    setContratoOficialVisualizado(false);
+    setAceiteMarcado(false);
+    setAssinaturaConcluida(false);
+    setCarregando(false);
+    setErro(aviso);
+  }
 
   const etapa = useMemo(() => {
     if (contexto) return 4;
@@ -123,7 +199,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       const response = await fetch(`/api/contratos/${contratoId}/acesso`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify({ documento: cpf }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível validar o acesso."));
@@ -148,7 +224,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       const response = await fetch(`/api/contratos/${contratoId}/identidade/iniciar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf, canal }),
+        body: JSON.stringify({ documento: cpf, canal }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível enviar o código."));
@@ -161,58 +237,56 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
     }
   }
 
-  async function carregarDocumento(token: string, acesso: string) {
-    const contextoResponse = await fetch(`/api/contratos/${contratoId}/contexto`, {
+  async function carregarDocumento(token: string, acesso: string, sessao: SessaoLeitura) {
+    const signal = sessao.controle?.signal;
+    const pedir = (rota: string) => fetch(`/api/contratos/${contratoId}/${rota}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provaToken: token, acessoToken: acesso }),
+      signal,
     });
-    const contextoPayload = await contextoResponse.json();
-    if (!contextoResponse.ok) {
-      throw new Error(mensagemErro(contextoPayload, "Não foi possível carregar os documentos da contratação."));
-    }
+    const falha = async (response: Response, fallback: string) => {
+      let payload: unknown = null;
+      try { payload = await response.json(); } catch {}
+      exigirSessaoViva(sessao);
+      return erroDaResposta(payload, fallback);
+    };
 
+    exigirSessaoViva(sessao);
+    const contextoResponse = await pedir("contexto");
+    exigirSessaoViva(sessao);
+    if (!contextoResponse.ok) throw await falha(contextoResponse, "Não foi possível carregar os documentos da contratação.");
+    const contextoPayload = await contextoResponse.json();
+    exigirSessaoViva(sessao);
     const contextoCarregado = contextoPayload.data as ContextoContrato;
 
-    const resumoResponse = await fetch(`/api/contratos/${contratoId}/resumo`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provaToken: token, acessoToken: acesso }),
-    });
-    if (!resumoResponse.ok) {
-      let payload: unknown = null;
-      try { payload = await resumoResponse.json(); } catch {}
-      throw new Error(mensagemErro(payload, "Não foi possível gerar o Resumo da Contratação."));
+    const resumoResponse = await pedir("resumo");
+    exigirSessaoViva(sessao);
+    if (!resumoResponse.ok) throw await falha(resumoResponse, "Não foi possível gerar o Resumo da Contratação.");
+    const resumoBlob = await resumoResponse.blob();
+    exigirSessaoViva(sessao);
+
+    let contratoBlob: Blob | null = null;
+    if (contextoCarregado.versao.contratoOficial.disponivel) {
+      const contratoResponse = await pedir("pdf");
+      exigirSessaoViva(sessao);
+      if (!contratoResponse.ok) throw await falha(contratoResponse, "Não foi possível gerar o Contrato Oficial.");
+      contratoBlob = await contratoResponse.blob();
+      exigirSessaoViva(sessao);
     }
 
-    const resumoBlob = await resumoResponse.blob();
+    // Só com tudo em mãos e a sessão ainda viva: cria os blobs e troca a tela de uma vez.
     const novaUrlResumo = URL.createObjectURL(resumoBlob);
+    const novaUrlContrato = contratoBlob ? URL.createObjectURL(contratoBlob) : null;
+    sessao.blobs.push(novaUrlResumo, ...(novaUrlContrato ? [novaUrlContrato] : []));
     setResumoPdfUrl((anterior) => {
       if (anterior) URL.revokeObjectURL(anterior);
       return novaUrlResumo;
     });
-
-    if (contextoCarregado.versao.contratoOficial.disponivel) {
-      const contratoResponse = await fetch(`/api/contratos/${contratoId}/pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provaToken: token, acessoToken: acesso }),
-      });
-      if (!contratoResponse.ok) {
-        let payload: unknown = null;
-        try { payload = await contratoResponse.json(); } catch {}
-        throw new Error(mensagemErro(payload, "Não foi possível gerar o Contrato Oficial."));
-      }
-      const contratoBlob = await contratoResponse.blob();
-      const novaUrlContrato = URL.createObjectURL(contratoBlob);
-      setContratoPdfUrl((anterior) => {
-        if (anterior) URL.revokeObjectURL(anterior);
-        return novaUrlContrato;
-      });
-    } else {
-      setContratoPdfUrl(null);
-    }
-
+    setContratoPdfUrl((anterior) => {
+      if (anterior) URL.revokeObjectURL(anterior);
+      return novaUrlContrato;
+    });
     setDocumentoAtivo("RESUMO");
     setContratoOficialVisualizado(false);
     setContexto(contextoCarregado);
@@ -222,22 +296,31 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
     if (!validacaoId) return;
     setErro(null);
     setCarregando(true);
+    // A sessão começa antes do envio: troca de contrato ou saída com o código em voo cancela a confirmação e a leitura.
+    const sessao = encerrarSessaoLeitura(true);
     try {
+      if (!acessoToken) throw new Error("Sessão de acesso ao Contrato inválida. Solicite um novo código.");
       const response = await fetch("/api/identidade/confirmar-codigo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ validacaoId, codigo }),
+        signal: sessao.controle?.signal,
       });
+      exigirSessaoViva(sessao);
       const payload = await response.json();
+      exigirSessaoViva(sessao);
       if (!response.ok) throw new Error(mensagemErro(payload, "Código inválido."));
       const token = payload.provaToken as string;
       setProvaToken(token);
-      if (!acessoToken) throw new Error("Sessão de acesso ao Contrato inválida. Solicite um novo código.");
-      await carregarDocumento(token, acessoToken);
+      await carregarDocumento(token, acessoToken, sessao);
     } catch (error) {
+      // Código errado (Error comum) mantém a etapa do código; prova ou versão recusadas limpam tudo.
+      if (error instanceof LeituraDescartada || !sessaoViva(sessao)) return;
+      if (error instanceof ProvaRecusada) return voltarParaIdentificacao();
+      if (error instanceof VersaoEncerrada) return voltarParaIdentificacao(error.message);
       setErro(error instanceof Error ? error.message : "Não foi possível confirmar o código.");
     } finally {
-      setCarregando(false);
+      if (sessaoViva(sessao)) setCarregando(false);
     }
   }
 
@@ -250,12 +333,15 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       !contratoOficialVisualizado ||
       !contexto.versao.documentoPdfHash
     ) return;
+    const sessao = sessaoLeitura.current;
+    if (!sessaoViva(sessao)) return;
     setErro(null);
     setCarregando(true);
     try {
       const response = await fetch(`/api/contratos/${contratoId}/aceite`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: sessao.controle?.signal,
         body: JSON.stringify({
           provaToken,
           acessoToken,
@@ -265,9 +351,12 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível concluir o aceite."));
+      exigirSessaoViva(sessao);
+      if (!response.ok) throw erroDaResposta(payload, "Não foi possível concluir o aceite.");
+      sessao.aceiteGravado = true;
       setAssinaturaConcluida(true);
-      await carregarDocumento(provaToken, acessoToken);
+      await carregarDocumento(provaToken, acessoToken, sessao);
+      exigirSessaoViva(sessao);
       setContexto((atual) => atual ? {
         ...atual,
         contrato: { ...atual.contrato, status: "ASSINADO" },
@@ -275,44 +364,71 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
         aceitePermitido: false,
       } : atual);
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível concluir o aceite.");
+      if (error instanceof LeituraDescartada || !sessaoViva(sessao)) return;
+      // O aceite já gravado é comunicado à parte quando a nova leitura exige outra prova.
+      if (error instanceof ProvaRecusada || error instanceof VersaoEncerrada) {
+        return voltarParaIdentificacao(error instanceof VersaoEncerrada ? error.message : AVISO_VALIDACAO_EXPIRADA);
+      }
+      const mensagem = error instanceof Error ? error.message : "Não foi possível concluir o aceite.";
+      setErro(sessao.aceiteGravado ? `Seu aceite foi registrado, mas os documentos não foram atualizados: ${mensagem}` : mensagem);
     } finally {
-      setCarregando(false);
+      if (sessaoViva(sessao)) setCarregando(false);
     }
   }
 
   async function abrirComprovante(documentoId: string) {
+    const sessao = sessaoLeitura.current;
+    if (!sessaoViva(sessao)) return;
     setErro(null);
     try {
       const response = await fetch(`/api/contratos/${contratoId}/comprovante`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provaToken, acessoToken, documentoId }),
+        signal: sessao.controle?.signal,
       });
-      if (!response.ok) throw new Error(mensagemErro(await response.json(), "Não foi possível abrir o comprovante."));
-      const url = URL.createObjectURL(await response.blob());
+      exigirSessaoViva(sessao);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        exigirSessaoViva(sessao);
+        throw erroDaResposta(payload, "Não foi possível abrir o comprovante.");
+      }
+      const blob = await response.blob();
+      exigirSessaoViva(sessao);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url; link.download = `comprovante-${documentoId}.pdf`; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (error) { setErro(error instanceof Error ? error.message : "Falha ao abrir comprovante."); }
+    } catch (error) {
+      if (error instanceof LeituraDescartada || !sessaoViva(sessao)) return;
+      if (error instanceof ProvaRecusada) return voltarParaIdentificacao();
+      if (error instanceof VersaoEncerrada) return voltarParaIdentificacao(error.message);
+      // Comprovante indisponível (COMPROVANTE_NAO_ENCONTRADO) ou falha comum: a leitura continua.
+      setErro(error instanceof Error ? error.message : "Falha ao abrir comprovante.");
+    }
   }
+
+  // Antes da prova de identidade: neutro, sem dizer se o contrato existe nem de qual buffet é.
+  const marca: MarcaContrato = contexto?.marca ?? { kidmais: false, nome: null };
 
   return (
     <main className={styles.page}>
       <div className={styles.shell}>
         <header className={styles.header}>
-          <Image
-            src="/assets/kidmais-logo-horizontal.png"
-            alt="Kidmais"
-            width={174}
-            height={75}
-            className={styles.logo}
-            priority
-          />
+          {marca.kidmais ? (
+            <Image
+              src="/assets/kidmais-logo-horizontal.png"
+              alt="Kidmais"
+              width={174}
+              height={75}
+              className={styles.logo}
+              priority
+            />
+          ) : marca.nome ? <strong className={styles.nomeBuffet}>{marca.nome}</strong> : <span aria-hidden="true" />}
           <div className={styles.secureBadge}>🔒 Validação de identidade</div>
         </header>
 
         <section className={styles.hero}>
-          <p className={styles.eyebrow}>Documentos Kidmais</p>
+          <p className={styles.eyebrow}>{marca.nome ? `Documentos de ${marca.nome}` : "Documentos do buffet"}</p>
           <h1>Confira sua contratação e o Contrato Oficial</h1>
           {contexto?.assinatura?.tipo === "PAPEL"
             ? <p>Confira o resumo da sua contratação. Este contrato foi assinado em papel; não há aceite eletrônico.</p>
@@ -330,11 +446,11 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
           <section className={styles.card}>
             {etapa === 1 && (
               <>
-                <h2>1. Confirme seu CPF</h2>
-                <p>O CPF é usado somente para localizar o Contrato correto e liberar os canais cadastrados.</p>
+                <h2>1. Confirme seu CPF ou CNPJ</h2>
+                <p>O CPF (ou o CNPJ, se o contrato está em nome de uma empresa) é usado somente para localizar o Contrato correto e liberar os canais cadastrados.</p>
                 <label className={styles.field}>
-                  <span>CPF do contratante</span>
-                  <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" autoComplete="off" />
+                  <span>CPF ou CNPJ do contratante</span>
+                  <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="CPF ou CNPJ" autoComplete="off" />
                 </label>
                 <button className={styles.primary} disabled={carregando || !cpf.trim()} onClick={consultarCpf}>
                   {carregando ? "Validando..." : "Continuar"}
@@ -443,11 +559,11 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               </div>
 
               {documentoAtivo === "RESUMO" ? (
-                resumoPdfUrl ? <iframe title="Resumo da Contratação Kidmais" src={resumoPdfUrl} className={styles.pdfFrame} /> : <div className={styles.pdfLoading}>Carregando resumo...</div>
+                resumoPdfUrl ? <iframe title="Resumo da Contratação" src={resumoPdfUrl} className={styles.pdfFrame} /> : <div className={styles.pdfLoading}>Carregando resumo...</div>
               ) : contratoPdfUrl ? (
-                <iframe title="Contrato Oficial Kidmais" src={contratoPdfUrl} className={styles.pdfFrame} />
+                <iframe title="Contrato Oficial" src={contratoPdfUrl} className={styles.pdfFrame} />
               ) : (
-                <div className={styles.pdfLoading}>{contexto.assinatura?.tipo === "PAPEL" ? "Este contrato foi assinado em papel; o original fica com a Kidmais." : "O Contrato Oficial deste pacote ainda não está cadastrado."}</div>
+                <div className={styles.pdfLoading}>{contexto.assinatura?.tipo === "PAPEL" ? "Este contrato foi assinado em papel; o original fica com o buffet." : "O Contrato Oficial deste pacote ainda não está cadastrado."}</div>
               )}
             </section>
 
@@ -455,7 +571,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               <section className={styles.successBox}>
                 <strong>Contrato assinado em papel</strong>
                 <span>{contexto.assinatura.texto}</span>
-                <span>Para obter uma cópia do documento original, solicite à Kidmais pelos canais de atendimento.</span>
+                <span>Para obter uma cópia do documento original, solicite ao buffet pelos canais de atendimento.</span>
               </section>
             ) : assinaturaConcluida ? (
               <section className={styles.successBox}>
@@ -491,14 +607,14 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
             )}
             {contexto.comprovantes?.map((item) => (
               <button key={item.id} className={styles.secondary} onClick={() => abrirComprovante(item.id)}>
-                Baixar comprovante — {item.parte === "KIDMAIS" ? "Kidmais" : "Cliente"}
+                Baixar comprovante — {item.parte === "KIDMAIS" ? "Buffet" : "Cliente"}
               </button>
             ))}
           </>
         )}
 
         <footer className={styles.footer}>
-          <span>Kidmais Manager</span>
+          <span>iA.Fest</span>
           <span>O token de identidade não é incluído no endereço da página.</span>
         </footer>
       </div>

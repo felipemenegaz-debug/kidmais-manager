@@ -1,3 +1,4 @@
+import type { ResumoCota } from "../../importacao-contrato/cota.ts";
 import { decisoesSchema, type DecisoesIntegracao, type ResumoIntegracao } from "../../contratos/integracao-importados/modelo.ts";
 import type { TenantComprovado } from "../../saas/provar-tenant.ts";
 import type { ContextoAcao } from "../acoes/tipos.ts";
@@ -7,10 +8,11 @@ import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { CampoExtraido, ExtracaoContrato } from "../../importacao-contrato/modelo.ts";
 import { classificarMatch, montarPlano, type DecisaoCliente, type PlanoImportacao } from "../../importacao-contrato/plano.ts";
-import { dadosNormalizados } from "../../importacao-contrato/rascunho.ts";
+import { completarRevisao, dadosNormalizados } from "../../importacao-contrato/rascunho.ts";
+import { buscaDoCliente } from "../../importacao-contrato/plano.ts";
 import type { AnaliseDuplicidade } from "../../importacao-contrato/plano.ts";
 import type { ExtracaoRegistrada } from "../../importacao-contrato/repositorio-documentos.ts";
-import type { ImportacaoLida } from "../../importacao-contrato/repositorio-importacao.ts";
+import type { CursorRevisao, ImportacaoLida, LinhaParaRevisao, RegistroAbertura } from "../../importacao-contrato/repositorio-importacao.ts";
 import { jsonCanonico } from "../acoes/hash.ts";
 import { ErroCampo } from "../acoes/human-gate.ts";
 import type { FerramentaAcao } from "../acoes/tipos.ts";
@@ -71,8 +73,17 @@ export type PortaImportacao = {
     confirmar(tx: DbExecutor, tenant: TenantComprovado, i: ImportacaoLida, d: DecisoesIntegracao, hash: string, ctx: ContextoAcao): Promise<{ contratoId: string; destino?: string }>;
   };
   disponivel(tx: DbExecutor): Promise<boolean>;
+  /** L2: situação da cota para a linha da revisão (só exibição; null = sem linha). Ausente = resposta sem o campo. */
+  resumoCota?(tx: DbExecutor, empresaId: string): Promise<ResumoCota | null>;
   ultimaExtracao(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ExtracaoRegistrada | null>;
   abrirImportacao(tx: DbExecutor, e: { empresaId: string; documentoId: string; extracaoId: string; usuarioId: string; dados: Record<string, unknown> }): Promise<ImportacaoLida>;
+  /** Lote L1 (R5-1): trava do documento no tenant comprovado; false = outra empresa ou inexistente. */
+  travarDocumento(tx: DbExecutor, empresaId: string, documentoId: string): Promise<boolean>;
+  /** Importação do documento que registrou a identidade de abertura (inclusive encerrada). */
+  importacaoPorAbertura(tx: DbExecutor, empresaId: string, documentoId: string, aberturaId: string): Promise<ImportacaoLida | null>;
+  registrarAbertura(tx: DbExecutor, empresaId: string, importacaoId: string, aberturaId: string): Promise<RegistroAbertura>;
+  /** Somente leitura: revisões abertas e lidos sem revisão da empresa comprovada. */
+  listarParaRevisao(tx: DbExecutor, empresaId: string, opcoes: { limite: number; cursor: CursorRevisao | null }): Promise<{ linhas: LinhaParaRevisao[]; proximo: CursorRevisao | null }>;
   lerImportacao(tx: DbExecutor, empresaId: string, id: string, travar: boolean): Promise<ImportacaoLida | null>;
   /** Somente leitura: ativa do documento ou, sem ativa, a última descartada. */
   importacaoPorDocumento(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ImportacaoLida | null>;
@@ -82,24 +93,28 @@ export type PortaImportacao = {
    * (DESCARTADA, com o resultado anterior preservado em dados). true = substituída; false = nada mudou.
    */
   substituirImportacaoCancelada?(tx: DbExecutor, empresaId: string, i: ImportacaoLida, usuarioId: string): Promise<boolean>;
-  analisarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null }): Promise<AnaliseDuplicidade>;
+  analisarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; cnpj?: string | null; telefone: string | null; whatsapp: string | null; email: string | null }): Promise<AnaliseDuplicidade>;
+  /** Entrega B: a 112 está aplicada (conferida na transação, sem cache). Ausente = PJ recusada. */
+  pessoaJuridicaDisponivel?(tx: DbExecutor): Promise<boolean>;
   executar(tx: DbExecutor, entrada: { empresaId: string; usuarioId: string; requestId: string; importacao: ImportacaoLida; plano: PlanoImportacao; agora: string }): Promise<{ clienteId: string; clienteAcao: "VINCULAR" | "CRIAR"; pendencias: string[] }>;
 };
 
 export function dadosDaImportacao(i: ImportacaoLida): DadosImportacao {
   const dados = i.dados as Partial<DadosImportacao>;
   if (!dados.extracao || !Array.isArray(dados.revisados)) throw new InteligenciaError("IMPORTACAO_INVALIDA", "Rascunho de importação inválido.", 409);
-  return { extracao: dados.extracao, revisados: dados.revisados, decisaoCliente: dados.decisaoCliente ?? null };
+  // v1 (gravada antes da leitura de endereço/CNPJ): ganha os campos novos vazios, sem reler o documento.
+  return { extracao: completarRevisao(dados.extracao), revisados: dados.revisados, decisaoCliente: dados.decisaoCliente ?? null };
 }
 
 /** Busca de cliente no tenant + plano. Usada no preview da tela, no preview do gate e de novo no clique. */
 export async function planejar(tx: DbExecutor, empresaId: string, porta: PortaImportacao, dados: DadosImportacao): Promise<PlanoImportacao> {
   const normal = dadosNormalizados(dados.extracao.secoes.flatMap((s) => s.campos));
-  const c = normal.contratante;
-  const analise = c.nome && c.nome.trim().length >= 3
-    ? await porta.analisarCliente(tx, empresaId, { nomeCompleto: c.nome, cpf: c.cpf, telefone: c.telefone, whatsapp: c.whatsapp, email: c.email })
-    : null;
-  return montarPlano(dados.extracao, dados.revisados, classificarMatch(normal, analise), dados.decisaoCliente);
+  // Entrega B (R2-1/R2-5): na PJ a chave é o CNPJ (só com a 112, conferida na transação); o CPF não é procurado.
+  const previa = buscaDoCliente(dados.extracao, false);
+  const pessoaJuridica = previa.tipoPessoa === "PJ" && (await porta.pessoaJuridicaDisponivel?.(tx)) === true;
+  const { tipoPessoa, busca } = pessoaJuridica ? buscaDoCliente(dados.extracao, true) : previa;
+  const analise = busca ? await porta.analisarCliente(tx, empresaId, busca) : null;
+  return montarPlano(dados.extracao, dados.revisados, classificarMatch(normal, analise, tipoPessoa), dados.decisaoCliente, { pessoaJuridica });
 }
 
 export function hashPlano(plano: PlanoImportacao) {
@@ -138,6 +153,8 @@ async function planoAtual(tx: DbExecutor, empresaId: string, porta: PortaImporta
   if (importacao.status !== "EM_REVISAO" || importacao.versao !== payload.versaoImportacao) throw new ErroCampo([], "A revisão mudou depois do preview.");
   const dados = dadosDaImportacao(importacao);
   const plano = await planejar(tx, empresaId, porta, { ...dados, decisaoCliente: payload.decisaoCliente });
+  // R21-2: cliente pessoa jurídica recusado antes de qualquer cadastro ou vínculo, nas duas confirmações.
+  if (plano.recusa) throw new InteligenciaError(plano.recusa.codigo, plano.recusa.mensagem, 409, plano.recusa.motivo);
   if (!plano.pronto) throw new InteligenciaError("IMPORTACAO_BLOQUEADA", plano.bloqueios[0] ?? "A importação ainda tem pendências.", 409);
   return { importacao, dados, plano };
 }

@@ -63,6 +63,12 @@ a empresa `TESTE S3` (em teste, depois somente leitura), duas contas `+s3a/+s3b`
 
 ## Bloco 3 — virada de produção (depois do Bloco 2 PASS e dos dados da seção final)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Este bloco não é o roteiro vigente da promoção. P5 a P8 estão bloqueados em production: variáveis de venda e do Asaas, cron novo, `CADASTRO_PUBLICO_ATIVO=true` e primeira venda. Homologação, health e aprovação de um passo não bastam. O comando salvo em `docs/evidencias/cutover-production-comando-20261013.txt` é registro desta rodada, não comando a colar.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 | # | Quem | Passo | Esperado / parada |
 |---|---|---|---|
 | P1 | F | Backup do dia: painel Recovery (anotar hora PITR) + Shell de produção com [o comando do backup](evidencias/backup-production-comando-codex-20261011.txt) | `BACKUP_CUSTOM_CONFERIDO_SEM_RESTORE` + caminho do registro |
@@ -79,6 +85,8 @@ frente); P2 interrompido → marcadores impedem repetição, conferir por leitur
 
 ## Dados que só Felipe pode fornecer (bloqueiam o Bloco 3)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Estes dados não destravam o Bloco 3 em production: digitar a chave `$aact_prod_` e o token no Render está bloqueado. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 1. **Asaas de produção:** conta do CNPJ vendedor ativa; chave `$aact_prod_…` e token de webhook novos, digitados por você no
    Render; **configuração fiscal da NFS-e no Asaas** (código de serviço, regime, alíquota — não inferidos) e a **razão social fiscal
    exata** (o site usa “Kidmais Festas”).
@@ -91,5 +99,7 @@ frente); P2 interrompido → marcadores impedem repetição, conferir por leitur
    (canal aprovado), sem nomear encarregado. O WhatsApp também liga os botões “Falar com a equipe” e “Quero ser fundador”.
 
 ## Autorizações, em ordem
+
+> **Bloqueio em production (B-27, 07/11/2026).** Esta ordem é da rodada de 13/10. P5 a P8 estão bloqueados em production e não podem ser autorizados por esta lista. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 Bloco 1 (push + deploy em staging) → Bloco 2 (janela W0–W8) → P1 → P2 → P3–P4 → P5 (por etapa) → P6 → P7 → P8.

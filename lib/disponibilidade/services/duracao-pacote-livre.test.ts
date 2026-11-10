@@ -155,7 +155,7 @@ test('Wall-e: com pacote de 4 h e só 15h–18h livre, não há horário; o paco
   const dia = [bloqueio('00:00', '15:00'), bloqueio('18:00', '23:59')];
   const longo = servico('LIVRE', 240, dia, 180);
   const curto = servico('LIVRE', 180, dia, 180);
-  const livres = async (s: ReturnType<typeof servico>) => {
+  const livres = async (s: ReturnType<typeof servico>, combinados = false) => {
     const opcoes: unknown[] = [];
     const fontes = transpilar('lib/whatsapp/atendimento/walle/fontes-postgres.ts', {
       '../../../disponibilidade/services/availability.service.ts': {
@@ -166,6 +166,8 @@ test('Wall-e: com pacote de 4 h e só 15h–18h livre, não há horário; o paco
         },
       },
       '../../../disponibilidade/escopo.ts': { agendaPorEscopoInstalada: async () => false, unidadesDaEmpresa: async () => [] },
+      // E2b: o helper sempre dublado (o Proxy não estrito devolveria [] — verdadeiro).
+      '../../../agenda/combinados-publicos.ts': { combinadosPublicos: async () => combinados },
     }, false) as { fontesPostgres: (ex: unknown, alvo: object) => { disponibilidade: (d: string, u: string | null, p?: string | null) => Promise<{ periodos: Array<{ disponivel: boolean }> }>; alternativas: (d: string, u: string | null, t: string | null, q: number, p?: string | null) => Promise<unknown[]> } };
     const f = fontes.fontesPostgres(s.tx, { empresaId: EMPRESA, ambiente: 'teste', hoje: '2026-11-01', linkContratoProprio: async () => null });
     const r = await f.disponibilidade('2026-11-20', null, 'PREMIUM');
@@ -176,6 +178,8 @@ test('Wall-e: com pacote de 4 h e só 15h–18h livre, não há horário; o paco
   assert.equal(quatro.livre, false, 'pacote de 4 h: nenhum horário cabe em 15h–18h');
   assert.deepEqual(quatro.opcoes, [{ duracaoMinutos: 240 }, { duracaoMinutos: 240 }], 'agenda e alternativas com a duração do pacote');
   assert.equal((await livres(curto)).livre, true);
+  // E2b (D-E2b-5): com combinadosPublicos, agenda e alternativas levam incluirCombinados.
+  assert.deepEqual((await livres(longo, true)).opcoes, [{ duracaoMinutos: 240, incluirCombinados: true }, { duracaoMinutos: 240, incluirCombinados: true }]);
 });
 
 test('gravações centrais de pacote recusam duração fora do limite antes de escrever (duplicação, edição, revisão, criação)', async () => {

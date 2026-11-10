@@ -1,4 +1,4 @@
-import { cadastroPayloadSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import { cadastroPayloadPjSchema, cadastroPayloadSchema, contratantePjSnapshot, contratanteSnapshot, formularioCadastro, type CadastroContratual, type DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -45,9 +45,12 @@ export const financeiroSchema = z.discriminatedUnion('situacao', [
 
 export const decisoesSchema = z.object({
   // Payload sem o telefone fixo (a tela não o envia); a regra de contato é aplicada ao cadastro mesclado com o CRM, em preparar().
-  cadastro: cadastroPayloadSchema.optional(),
+  // Entrega B: PJ envia CPF e RG vazios; qual das duas vale é decidido em preparar(), pelo tipo do cliente.
+  cadastro: z.union([cadastroPayloadSchema, cadastroPayloadPjSchema]).optional(),
   formaPagamento: z.enum(["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"]).nullable().optional(),
   aniversariante: z.string().trim().min(2).max(200).optional(),
+  /** Cadastro escolhido pelo operador quando há mais de um aniversariante equivalente no cliente. Ausente não muda o hash. */
+  aniversarianteId: z.string().uuid().optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
   estabelecimentoId: z.string().uuid().nullable(),
   /**
@@ -75,6 +78,24 @@ export const decisoesSchema = z.object({
 }).strict();
 
 export type DecisoesIntegracao = z.infer<typeof decisoesSchema>;
+export type AniversarianteEquivalente = { id: string; nome: string };
+
+/**
+ * Qual cadastro a festa usará. Um equivalente: é ele. Vários: só a escolha do operador decide, nunca a grafia ou a data.
+ * Escolha fora da lista é recusada. id, nome e opções entram no resumo e, portanto, no hash da revisão: se o cadastro mudar
+ * entre simular e confirmar, a confirmação é recusada. NOVO sem escolha não ganha chaves: o hash desse caso continua o mesmo.
+ */
+export function resolverAniversariante(candidatos: AniversarianteEquivalente[], escolhidoId: string | undefined) {
+  const opcoes = candidatos.length > 1 ? { aniversarianteOpcoes: candidatos } : {};
+  const escolhido = escolhidoId ? candidatos.find((c) => c.id === escolhidoId) : undefined;
+  if (escolhidoId && !escolhido) {
+    return { id: null, festa: { aniversarianteCadastro: candidatos.length ? 'EXISTENTE' as const : 'NOVO' as const, aniversarianteOpcoes: candidatos }, bloqueio: 'O cadastro de aniversariante escolhido não está mais disponível. Confira a escolha.' };
+  }
+  const definido = escolhido ?? (candidatos.length === 1 ? candidatos[0] : undefined);
+  if (definido) return { id: definido.id, festa: { aniversarianteCadastro: 'EXISTENTE' as const, aniversarianteCadastroId: definido.id, aniversarianteCadastroNome: definido.nome, ...opcoes }, bloqueio: null };
+  if (candidatos.length) return { id: null, festa: { aniversarianteCadastro: 'EXISTENTE' as const, ...opcoes }, bloqueio: 'Este cliente tem mais de um aniversariante com nome equivalente. Escolha qual cadastro é o desta festa.' };
+  return { id: null, festa: { aniversarianteCadastro: 'NOVO' as const }, bloqueio: null };
+}
 export type DecisoesFinanceiras = z.infer<typeof financeiroSchema>;
 export type ParcelaDecidida = z.infer<typeof parcelaSchema>;
 
@@ -112,7 +133,7 @@ export type ResumoIntegracao = {
   cadastroFonteHash?: string;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   /** `aniversarianteCadastro`: o aniversariante do documento será vinculado ao cadastro existente do cliente ou criado nele. */
-  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
+  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null; aniversarianteCadastroId?: string; aniversarianteCadastroNome?: string; aniversarianteOpcoes?: AniversarianteEquivalente[] };
   /** salao: só no caso V3 (unidade POR_SALAO, festa futura); nome lido do banco e incluído no hash da revisão. */
   agenda: { ocupa: boolean; descricao: string; salao?: { id: string; nome: string } };
   financeiro: ResumoFinanceiro;
@@ -305,7 +326,7 @@ export function montarSnapshotVersao(e: {
   nativo?: Record<string, unknown>;
   importacaoId: string; documento: { id: string; sha256: string };
   fechamentoId: string; snapshot: SnapshotHistorico; decisoes: DecisoesIntegracao; resumo: ResumoIntegracao;
-  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>>;
+  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>> & DadosPjCliente;
   aniversarianteId: string | null;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null };
   unidade: { id: string; nome: string } | null;
@@ -321,7 +342,7 @@ export function montarSnapshotVersao(e: {
     schemaVersao: v3 ? 3 : 1,
     origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: e.importacaoId, documentoOriginalId: e.documento.id, documentoSha256: e.documento.sha256, aceite: 'CONTRATO_ASSINADO_EM_PAPEL' },
     fechamento: { id: e.fechamentoId, status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
-    contratante: contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }),
+    contratante: { ...contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }), ...contratantePjSnapshot(e.cliente) },
     responsavelAdicional: null,
     aniversariante: { id: e.aniversarianteId, nome: d.aniversariante ?? s.evento?.aniversariante ?? null, dataNascimento: null, idadeNoEvento: s.evento?.idade ?? null, temaFesta: s.evento?.tema ?? null },
     evento: {

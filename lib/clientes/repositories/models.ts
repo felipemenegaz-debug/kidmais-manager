@@ -1,10 +1,22 @@
 export type ClienteStatus = "ATIVO" | "INATIVO" | "MESCLADO";
 
+/** 112: pessoa física (padrão, CPF) ou jurídica (CNPJ). Sem a 112 todo cliente é PF. */
+export type TipoPessoa = "PF" | "PJ";
+
 export type ClienteRecord = {
   id: string;
   empresaId: string | null;
+  /** PF: nome da pessoa. PJ: razão social (a busca e as telas seguem por este campo). */
   nomeCompleto: string;
+  tipoPessoa: TipoPessoa;
   cpf: string | null;
+  /** 112, só PJ: CNPJ canônico (14, numérico ou alfanumérico). */
+  cnpj: string | null;
+  razaoSocial: string | null;
+  nomeFantasia: string | null;
+  /** Representante legal da PJ: texto contratual, nunca chave de identidade nem de duplicidade. */
+  representanteNome: string | null;
+  representanteCpf: string | null;
   rg: string | null;
   telefone: string | null;
   whatsapp: string | null;
@@ -29,7 +41,13 @@ export type ClienteRecord = {
 export type CreateClienteInput = {
   empresaId: string | null;
   nomeCompleto: string;
+  /** Ausente = PF. PJ exige a 112 aplicada (o serviço recusa antes, com PJ_INDISPONIVEL). */
+  tipoPessoa?: TipoPessoa;
   cpf?: string | null;
+  cnpj?: string | null;
+  nomeFantasia?: string | null;
+  representanteNome?: string | null;
+  representanteCpf?: string | null;
   rg?: string | null;
   telefone?: string | null;
   whatsapp?: string | null;

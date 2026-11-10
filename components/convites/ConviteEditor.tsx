@@ -4,12 +4,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { temas, type Conteudo } from '@/lib/convites/domain';
+import { localDoConvite, temas, type Conteudo } from '@/lib/convites/domain';
 import { baseNeutra, modeloBiblioteca, modeloComFoto, modelosBiblioteca } from '@/lib/convites/modelos';
-import ConviteArte, { baixarConvite } from './ConviteArte';
+import ConviteArte, { baixarConvite, dataBonita } from './ConviteArte';
 import PromptComCorretor from './PromptComCorretor';
 import ConviteVisual from './ConviteVisual';
 import ConvitePresencas from './ConvitePresencas';
+import { avisoSemGeracao, comUnidade, creditosDisponiveisDaEmpresa, geracaoDoConviteEmCurso, textoReserva } from './creditos-texto';
 import ConviteFamilias, { type ResultadoFamilia } from './ConviteFamilias';
 import ConviteAutorizacaoIA, { ConfirmacaoImagensIA, type AutorizacaoIATela } from './ConviteAutorizacaoIA';
 import type { ComandoFamilia, Familia } from '@/lib/convites/familias-domain';
@@ -17,7 +18,9 @@ import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
-import { aplicarModoArteLocal, selecionarArte } from './arte-local';
+import { aplicarModoArteLocal, selecionarArte, semArte } from './arte-local';
+import SeletorComposicao from './SeletorComposicao';
+import { opcoesComposicao } from './composicao';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 import VincularFesta from './VincularFesta';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
@@ -27,11 +30,11 @@ const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não prec
 const ROTULOS_HISTORICO: Record<string, string> = { IA_RESERVADA: 'geração de arte solicitada', IA_CONCLUIDA: 'arte gerada', IA_EM_VERIFICACAO: 'geração em verificação',
   IA_NAO_INICIADA: 'geração não iniciada; crédito devolvido', IA_VERIFICACAO_CONCLUIDA: 'verificação da geração concluída',
   AUTORIZACAO_IA_REGISTRADA: 'autorização de IA do responsável registrada', AUTORIZACAO_IA_REVOGADA: 'autorização de IA revogada' };
-const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'Kidmais' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
+const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'iA.Fest' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
 function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }
-type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
+type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; avisoLocal?: string | null; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
   disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; autorizacaoIA?: AutorizacaoIATela | null; geracaoIncerta?: boolean; geracaoEmAndamento?: string | null; id?: string; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   creditos?: { motor: 'LEGADO' } | { motor: 'CREDITOS'; disponivel: number; reservado: number; consumoAtivo: boolean } | null;
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
@@ -126,6 +129,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const imagensSelecionadas = !!foto || (!completoAtivo && referencias.length > 0);
   const fotoLiberada = autorizacaoFoto;
   const faltaAutorizacao = !!autorizacaoIA && !autorizacaoIA.vigente;
+  const avisoGeracao = dados ? avisoSemGeracao({ disponiveis: dados.disponiveis, creditos: dados.creditos, laboratorio: !!dados.laboratorioLocal, geracaoEmCurso: geracaoDoConviteEmCurso({ busy, acompanhando, geracaoIncerta: dados.geracaoIncerta, geracaoEmAndamento: dados.geracaoEmAndamento }) }) : null;
   const imagensSemAutorizacao = !dados?.laboratorioLocal && imagensSelecionadas && !autorizacaoFoto;
   const confirmacaoImagens = !dados?.laboratorioLocal && autorizacaoIA && imagensSelecionadas && autorizacaoFoto
     ? { autorizacaoImagens: { versao: autorizacaoIA.versao, textoHash: autorizacaoIA.hashes.imagens } } : {};
@@ -169,7 +173,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     if (file.size > 5_000_000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { setErro('Envie PNG, JPEG ou WebP de até 5 MB.'); return; }
     try {
       const imagem = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file); });
-      const r = await executar({ acao: 'upload', imagem }, 'Arte enviada. Salve ou publique para aplicar.', true);
+      const dica = !dados?.laboratorioLocal && conteudo && !modeloComFoto(conteudo.tema) ? ' Sua imagem já tem os dados da festa? Escolha “Convite pronto”.' : '';
+      const r = await executar({ acao: 'upload', imagem }, `Arte enviada. Salve ou publique para aplicar.${dica}`, true);
       if (r?.arteId) setConteudo(c => c ? selecionarArte(c, r.arteId, false) : c);
     } catch { setErro('Não foi possível ler o arquivo.'); }
   }
@@ -317,12 +322,18 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     const id = arteExcluir.id;
     const r = await executar({ acao: 'excluir_arte', arteId: id, revisao: dados.revisao }, 'Imagem excluída da galeria. As demais alterações no editor foram preservadas.', true);
     if (r) {
-      setConteudo(c => c?.arteId === id ? { ...c, arteId: null } : c);
+      setConteudo(c => c?.arteId === id ? semArte(c) : c);
       setReferencias(refs => refs.filter(ref => ref !== id));
       setArteExcluir(null);
     }
   }
   const arte = dados?.artes.find(a => a.id === conteudo?.arteId)?.url;
+  const arteCompletaIA = dados?.artes.find(a => a.id === conteudo?.arteId)?.completo === true;
+  const opcoesPosicao = conteudo ? opcoesComposicao({ temArte: !!arte, comFoto: modeloComFoto(conteudo.tema), arteCompletaIA, laboratorio: !!dados?.laboratorioLocal }) : [];
+  const conviteProprioPronto = !!arte && !arteCompletaIA && conteudo?.visual?.modo === 'completa';
+  const quando = conteudo ? [conteudo.data ? dataBonita(conteudo.data) : '', conteudo.horario ? `às ${conteudo.horario}` : ''].filter(Boolean).join(' ') : '';
+  // Salão contratado (blocoLocal) + complemento, a mesma linha da arte e da página pública.
+  const dadosConferencia = [quando, conteudo ? localDoConvite(conteudo) : ''].filter(Boolean).join(', ');
   const modelosFiltrados = modelosBiblioteca.filter(id => (dados?.laboratorioLocal || !(modelosAcervo as readonly string[]).includes(id)) && (categoriaModelo === 'todos' || (categoriaModelo === 'abertos' ? (modelosAcervo as readonly string[]).includes(id) : categoriaModelo === 'fotos' ? modeloComFoto(id) : categoriaModelo === 'neutros' ? baseNeutra(id) : !baseNeutra(id) && !modeloComFoto(id))));
   const totalPaginas = Math.max(1, Math.ceil(modelosFiltrados.length / 9));
   const paginaAtual = Math.min(paginaModelo, totalPaginas);
@@ -333,7 +344,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const paginaArteAtual = Math.min(paginaArte, paginasArte);
   const inicioArte = (paginaArteAtual - 1) * tamanhoPaginaArte;
   const artesVisiveis = dados?.artes.slice(inicioArte, inicioArte + tamanhoPaginaArte);
-  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
+  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { setConteudo(c => c ? semArte(c) : c); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
   const conteudoGeracao = dados && conteudo ? (<><h3>Como você imagina a arte?</h3><p id="orientacao-arte">Diga o tema, as cores e o que gostaria de ver na cena.</p><p><small>Tema · Cores · Estilo · Elementos da cena</small></p><PromptComCorretor habilitado corrigir={texto => { setPrompt(texto); setConflitoPrompt(false); }} lang="pt-BR" spellCheck autoCorrect="on" autoCapitalize="sentences" title="Clique com o botão direito sobre uma palavra para ver sugestões de escrita." aria-label="Descreva a arte do convite" aria-describedby="orientacao-arte" rows={4} maxLength={3000} value={prompt} onChange={e => { setPrompt(e.target.value); setConflitoPrompt(false); }} placeholder="Uma aventura espacial em cartoon 3D, com uma pequena astronauta, planetas e estrelas. Cores azul, lilás e dourado. Cena alegre e delicada." disabled={busy} />
           {completoAtivo && <>
             <details className={ui.fotoReferencia}><summary>Foto do aniversariante · opcional</summary>
@@ -367,16 +378,19 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           </>}
           {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => { setAutorizacaoFoto(false); setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id]); }}><img src={a.url} alt="Referência" /></button>)}</div></>}
           {faltaAutorizacao && !autorizacaoIA?.indisponivel && <p role="status"><small>Registre a autorização do responsável legal para gerar com IA, ou use uma arte própria.</small></p>}
+          {avisoGeracao && <p role="status"><small>{avisoGeracao}</small></p>}
           {!faltaAutorizacao && imagensSemAutorizacao && <p role="status"><small>Confirme o envio da fotografia e das imagens da galeria selecionadas, ou remova-as, para gerar.</small></p>}
           <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : dados.geracaoIncerta ? MENSAGEM_VERIFICANDO : acompanhando ? MENSAGEM_GERANDO : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
         </>) : null;
   const painelGeracao = <section ref={painelIA} className={ui.painel} aria-labelledby="titulo-criar-arte"><h2 id="titulo-criar-arte">Crie uma arte com IA</h2>{conteudoGeracao}</section>;
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
-    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'KIDMAIS · CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
+    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
     {erro && <p className={ui.erro} role="alert">{erro}</p>}{aviso && <p className={ui.aviso} role="status">{aviso}</p>}
     {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
-      <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : <><strong>{dados.disponiveis}</strong> créditos de imagem disponíveis</>}</span></div>
+      <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
+        ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>
+        : <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'crédito de imagem disponível', 'créditos de imagem disponíveis')}</>}</span></div>
       {dados.desatualizado && <p className={ui.erro}>A contratação foi atualizada e o link público está suspenso. Confira data, horário e local e publique novamente.</p>}
       <div className={`${ui.colunas} ${ui.colunaUnica}`}><div className={ui.configuracao}>
         {MOLDURAS_NO_EDITOR && <fieldset disabled={busy} className={ui.painel}><legend>{dados.laboratorioLocal ? 'Biblioteca de molduras e imagens' : '01 · Escolha o visual'}</legend><details open={!dados.laboratorioLocal || undefined}><summary>Escolher moldura ou imagem</summary>
@@ -389,14 +403,16 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           {modeloComFoto(conteudo.tema) && <small>{arte ? 'A foto aparece inteira. Você pode trocá-la ou removê-la abaixo.' : 'Envie uma foto ou escolha uma imagem da festa para completar o modelo.'}</small>}
           </>}
           {galeriaArtes}
-          {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} mostrarPosicao={!dados.laboratorioLocal} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />}</details>
+          {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} opcoesPosicao={dados.laboratorioLocal ? [] : opcoesPosicao} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />}</details>
         </fieldset>}
         <fieldset disabled={busy} className={`${ui.painel} ${ui.dadosCompactos}`} aria-label="Dados da festa">
           <h2 className={ui.tituloEtapa}>Dados da festa</h2>
+          {/* D-LIB-3/5: bloco "Local" do contrato, somente leitura; o servidor o recalcula ao publicar. */}
+          {conteudo.blocoLocal && <p className={ui.blocoLocal} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local (do contrato)</strong> {conteudo.blocoLocal.nome}{conteudo.blocoLocal.endereco ? ` — ${conteudo.blocoLocal.endereco}` : ''}{dados.avisoLocal ? <small>{dados.avisoLocal}</small> : null}</p>}
           <div className={ui.campos}>
             {campos.map(([k, label]) => (
               <label key={k}>
-                {label}
+                {k === 'local' && conteudo.blocoLocal ? 'Complemento do local (opcional)' : label}
                 <input
                   type={k === 'data' ? 'date' : k === 'horario' ? 'time' : 'text'}
                   value={conteudo[k]}
@@ -414,10 +430,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             <input type="checkbox" checked={conteudo.confirmarPresenca} onChange={e => campo('confirmarPresenca', e.target.checked)} />
             Receber confirmações de presença
           </label>
-          <small>{conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
+          <small>{conviteProprioPronto ? 'Sua imagem aparece como está. Os dados abaixo continuam valendo para a página do convite e a confirmação de presença.' : conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
         </fieldset>
       </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} />
-        {arte && conteudo.visual?.modo !== 'completa' && !modeloComFoto(conteudo.tema) && <div className={ui.posicaoImagem}><div className={ui.seletorCriacao} role="group" aria-label="Posição da imagem">{(['fundo', 'topo'] as const).map(posicao => <button key={posicao} type="button" disabled={busy} aria-pressed={(conteudo.visual?.posicao ?? 'fundo') === posicao} onClick={() => campo('visual', { ...visualPadrao, ...conteudo.visual, modo: 'modelo', posicao })}>{posicao === 'fundo' ? 'Imagem como fundo' : 'Imagem no topo'}</button>)}</div></div>}
+        {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
+          {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
         <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
         {painelGeracao}<div className={ui.acoes}><button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button>{!dados.laboratorioLocal && <button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar!')}>Publicar convite</button>}</div>
         {dados.publicado && <div className={ui.painel}><a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite publicado ↗</a><div className={ui.acoes}><button onClick={() => void copiar(dados.linkPublico)}>Copiar link público</button><button onClick={() => { const url = new URL(dados.linkPublico, window.location.origin).href; window.open(`https://wa.me/?text=${encodeURIComponent(`Você está convidado! ${url}`)}`, '_blank', 'noopener,noreferrer'); }}>Compartilhar no WhatsApp</button><button disabled={busy} onClick={() => void executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true)}>Despublicar</button></div></div>}
@@ -427,7 +444,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
         {admin && <details className={ui.painel}><summary>Acesso do cliente e limites</summary><p>{dados.festaId === null ? 'Vincule uma festa para liberar o editor à família. O link público para os convidados continua disponível ao publicar.' : dados.clienteHabilitado ? 'O cliente já pode criar o convite.' : 'Libere um link exclusivo para o cliente criar o convite.'}</p><button disabled={busy || dados.festaId === null} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: true }, 'Novo acesso criado. O link anterior foi revogado.', true); if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href); }}>Gerar novo link do cliente</button>{dados.clienteHabilitado && <button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true); if (r) setLinkCliente(''); }}>Revogar acesso</button>}
           {linkCliente && <label>Link exclusivo de edição<input readOnly value={linkCliente} onFocus={e => e.target.select()} /><button onClick={() => void copiar(linkCliente)}>Copiar link do cliente</button></label>}
           {dados.creditos?.motor === 'CREDITOS'
-            ? <p data-creditos-empresa>Créditos da empresa: {dados.creditos.disponivel} disponíveis{dados.creditos.reservado > 0 ? ` (${dados.creditos.reservado} reservados em geração)` : ''}{dados.creditos.consumoAtivo ? '' : ' · geração com créditos em manutenção'}. <Link href="/admin/configuracoes/creditos">Ver créditos</Link>. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>
+            ? <p data-creditos-empresa>Créditos da empresa: {dados.creditos.disponivel} {comUnidade(dados.creditos.disponivel, 'disponível', 'disponíveis')}{textoReserva(dados.creditos.reservado)}{dados.creditos.consumoAtivo ? '' : ' · geração com créditos em manutenção'}. <Link href="/admin/configuracoes/creditos">Ver créditos</Link>. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>
             : <p>Franquia mensal: {dados.cotas.empresaUsado ?? 0} de {dados.cotas.empresa ?? 0} usados. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>}
           <div className={ui.campos}><label>{dados.festaId === null ? "Limite deste convite" : "Limite total da festa"}<input type="number" min={dados.cotas.festaUsado} max={100} value={cotaFesta} onChange={e => setCotaFesta(Number(e.target.value))} /></label><label>Limite do cliente<input type="number" min={dados.cotas.clienteUsado} max={cotaFesta} value={cotaCliente} onChange={e => setCotaCliente(Number(e.target.value))} /></label></div><button disabled={busy} onClick={() => void executar({ acao: 'cotas', festa: cotaFesta, cliente: cotaCliente }, 'Limites atualizados.', true)}>Aplicar limites</button><small>Os limites da festa são compartilhados. Somente a gestão pode aumentá-los. O saldo mensal da empresa continua sendo o teto.</small>
         </details>}

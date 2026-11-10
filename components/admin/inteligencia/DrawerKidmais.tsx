@@ -75,11 +75,11 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
   const sugestoes = contexto && contexto.tela !== 'dashboard' ? sugestoesPara(contexto.tela) : [...CAPACIDADES_DISPONIVEIS.map((c) => c.pergunta), ...sugestoesPara(null)];
 
   return <div className={styles.camada}>
-    <button type="button" className={styles.cortina} aria-label="Fechar Perguntar ao Kidmais" tabIndex={-1} onClick={onFechar} />
+    <button type="button" className={styles.cortina} aria-label="Fechar Perguntar ao Copiloto" tabIndex={-1} onClick={onFechar} />
     <aside ref={painelRef} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="kidmais-drawer-titulo">
       <header className={styles.drawerTopo}>
         <div>
-          <h2 id="kidmais-drawer-titulo">Assistente Kidmais</h2>
+          <h2 id="kidmais-drawer-titulo">Copiloto</h2>
           <p>Consulte a operação ou prepare um cadastro para revisar.</p>
         </div>
         <button type="button" className={styles.fechar} aria-label="Fechar" onClick={onFechar}>×</button>
@@ -124,10 +124,10 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
           </div>}
           {mensagem.fase === 'desativada' && <div className={styles.indisponivel}>
             <p role="status">O assistente está desligado para esta empresa neste ambiente.</p>
-            <p>Peça a um administrador do Kidmais para ativá-lo. O resto do sistema funciona normalmente.</p>
+            <p>Peça a um administrador do iA.Fest para ativá-lo. O resto do sistema funciona normalmente.</p>
           </div>}
           {mensagem.fase === 'indisponivel' && <div className={styles.indisponivel}>
-            <p>Essa análise ainda não está disponível no Kidmais.</p>
+            <p>Essa análise ainda não está disponível no Copiloto.</p>
             <p>Por enquanto, consigo responder:</p>
             {CAPACIDADES_DISPONIVEIS.map((item) => <button key={item.capacidade} type="button" className={styles.sugestaoCurta} onClick={() => enviar(item.pergunta)}>{item.pergunta}</button>)}
           </div>}

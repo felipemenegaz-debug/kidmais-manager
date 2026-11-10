@@ -5,6 +5,7 @@ import type {
   ProximoEventoCliente,
   StatusFechamento,
 } from "@/components/clientes/types";
+import { formatarCnpj } from "@/lib/contratos/documento/contratante-pj";
 
 const camposCompletosSemContato: (keyof Cliente)[] = [
   "nomeCompleto",
@@ -132,6 +133,28 @@ export function formatCpf(valor: string | null, mascarado = false) {
   const formatado = `${numeros.slice(0, 3)}.${numeros.slice(3, 6)}.${numeros.slice(6, 9)}-${numeros.slice(9)}`;
   if (!mascarado) return formatado;
   return `***.${numeros.slice(3, 6)}.${numeros.slice(6, 9)}-**`;
+}
+
+type ClienteExibicao = {
+  tipoPessoa?: "PF" | "PJ";
+  nomeCompleto: string;
+  cpf: string | null;
+  cnpj?: string | null;
+  razaoSocial?: string | null;
+  nomeFantasia?: string | null;
+};
+
+/** Entrega B (R2-5): PJ com nome fantasia aparece como "Nome fantasia (Razão social)"; PF e PJ sem fantasia, o nome como está. */
+export function nomeExibicaoCliente(cliente: ClienteExibicao) {
+  if (cliente.tipoPessoa !== "PJ" || !cliente.nomeFantasia?.trim()) return cliente.nomeCompleto;
+  return `${cliente.nomeFantasia.trim()} (${cliente.razaoSocial?.trim() || cliente.nomeCompleto})`;
+}
+
+/** Documento do cliente para exibição: CNPJ na PJ (dado da empresa, sem máscara), CPF na PF como antes. */
+export function documentoExibicaoCliente(cliente: ClienteExibicao, cpfMascarado = false) {
+  return cliente.tipoPessoa === "PJ"
+    ? { rotulo: "CNPJ", valor: formatarCnpj(cliente.cnpj) }
+    : { rotulo: "CPF", valor: formatCpf(cliente.cpf, cpfMascarado) };
 }
 
 export function formatData(valor: string) {

@@ -27,6 +27,7 @@ import {
 } from "@/lib/disponibilidade/services";
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
 import { paginaPublica } from "@/lib/fechamentos/rota-publica";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
@@ -38,6 +39,7 @@ import {
   resolverEDesativarBloqueioLegado,
 } from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { telaDoClienteGlobal } from "@/lib/enderecos/roteamento";
 import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
 import {
   contextoCrmDaRequest,
@@ -192,7 +194,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     regrasPacotes,
     pacotes,
     // "Ver tela do cliente": a dona continua no endereço atual; as demais, no endereço público delas (/b/<código>).
-    telaDoCliente: configuracaoComercial ? "/disponibilidade" : await telaDoClienteDaEmpresa(tx, empresaComprovada),
+    telaDoCliente: configuracaoComercial ? telaDoClienteGlobal(process.env) : await telaDoClienteDaEmpresa(tx, empresaComprovada),
     bloqueios,
   };
 }
@@ -270,6 +272,8 @@ export async function POST(request: NextRequest) {
     const contexto = contextoCrmDaRequest(request);
     return await withTenantTransaction(sessao, alvo.success ? alvo.data.empresaId : null, async (tx, tenant) => {
       const escopo = await escopoDoPedido(tx, tenant.empresaComprovada, alvo.success ? alvo.data.unidadeId : null);
+      // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+      await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
       const comEscopo = { empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId };
 
       if (op.tipo === "agenda") {

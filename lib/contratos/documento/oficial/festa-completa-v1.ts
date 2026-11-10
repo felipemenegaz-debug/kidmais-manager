@@ -8,6 +8,7 @@ import {
   formatarMoeda,
   textoOuNaoInformado,
 } from "../formatters.ts";
+import { contratantePj, formatarCnpj, identificacaoPj } from "../contratante-pj.ts";
 import type {
   ContratoOficialClausula,
   ContratoOficialRenderizado,
@@ -110,7 +111,9 @@ export function renderizarContratoOficialFestaCompletaV1(
   ];
 
   const contratante = [
-    `CONTRATANTE: ${s.contratante.nomeCompleto}, CPF ${formatarCpf(s.contratante.cpf)}, RG ${textoOuNaoInformado(s.contratante.rg)}, telefone ${telefoneContratante(s)}, e-mail ${textoOuNaoInformado(s.contratante.email)}, endereço ${enderecoContratante(s)}.`,
+    contratantePj(s)
+      ? `CONTRATANTE: ${identificacaoPj(s)}, telefone ${telefoneContratante(s)}, e-mail ${textoOuNaoInformado(s.contratante.email)}, endereço ${enderecoContratante(s)}.`
+      : `CONTRATANTE: ${s.contratante.nomeCompleto}, CPF ${formatarCpf(s.contratante.cpf)}, RG ${textoOuNaoInformado(s.contratante.rg)}, telefone ${telefoneContratante(s)}, e-mail ${textoOuNaoInformado(s.contratante.email)}, endereço ${enderecoContratante(s)}.`,
     responsavelAdicional(s),
     `Aniversariante: ${s.aniversariante.nome}, ${idadeAniversariante(s)}. Tema: ${textoOuNaoInformado(s.aniversariante.temaFesta)}.`,
   ];
@@ -154,7 +157,9 @@ export function renderizarContratoOficialFestaCompletaV1(
 
   const assinatura = [
     `Brasília, ${geradoEm}.`,
-    `CONTRATANTE: ${s.contratante.nomeCompleto} - CPF ${formatarCpf(s.contratante.cpf)}`,
+    contratantePj(s)
+      ? `CONTRATANTE: ${s.contratante.nomeCompleto} - CNPJ ${formatarCnpj(s.contratante.cnpj)}`
+      : `CONTRATANTE: ${s.contratante.nomeCompleto} - CPF ${formatarCpf(s.contratante.cpf)}`,
     `CONTRATADA: ${CONTRATADA} - CNPJ ${CNPJ_KIDMAIS}`,
     "TESTEMUNHA 1 - Nome: ______________________________  CPF: ______________________________",
     "TESTEMUNHA 2 - Nome: ______________________________  CPF: ______________________________",

@@ -4,7 +4,7 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { regraNaCondicao } from '../../comercial/regras-pagamento';
 
-import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
 import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
 import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
@@ -13,6 +13,15 @@ import { FechamentoServiceError } from './errors';
 import { edicaoFestaSchema, type EdicaoFestaInput } from './edicao-administrativa-schema';
 import { fotografarEstadoFechamento } from './pacote-snapshot';
 import { listarCodigosInclusos } from '../../comercial/composicao';
+/**
+ * Horário fora do padrão (correção de contrato): período configurado na data, fim depois do início e o intervalo EXATO sem
+ * conflito com reservas e bloqueios do recurso da contratação (excluída ela mesma).
+ */
+export async function horarioPersonalizadoLivre(tx: DbExecutor, fechamentoId: string, d: { dataEvento: string; horarioInicio: string; horarioFim: string; configuracaoAgendaId?: string | null }, periodoConfigurado: boolean) {
+    const inicio = d.horarioInicio.slice(0, 5), fim = d.horarioFim.slice(0, 5);
+    if (!periodoConfigurado || !(fim > inicio)) return false;
+    return intervaloSemConflito(d.dataEvento, inicio, fim, tx, fechamentoId, d.configuracaoAgendaId);
+}
 function recusar(mensagem: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', mensagem, 409); }
 export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFestaInput, usuarioId: string, requestId: string, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
@@ -27,7 +36,7 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     const anteriorAdicionais = await listarAdicionaisDoFechamento(id, tx);
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
     if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
-    await persistirEdicaoFechamento(tx, novo, resumo);
+    await persistirEdicaoFechamento(tx, novo, resumo, { caminho: 'EDICAO_LIMPA_SALAO', origem: 'EQUIPE' });
     const fotografia = await fotografarEstadoFechamento(tx, id, { motivo: input.motivo, atorUsuarioId: usuarioId });
     await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null } }, tx);
     return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
@@ -55,7 +64,14 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
         const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx, undefined, { fechamentoId: f.id },
             { duracaoMinutos: duracaoDoIntervalo(input.horarioInicio, input.horarioFim), incluirCombinados: true });
         const periodo = disponivel.periodos.find(p => p.configuracaoId === input.configuracaoAgendaId);
-        if (!periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === input.horarioInicio.slice(0, 5) && h.fim === input.horarioFim.slice(0, 5)))
+        const oficial = periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === input.horarioInicio.slice(0, 5) && h.fim === input.horarioFim.slice(0, 5)) === true;
+        if (!oficial && input.horarioPersonalizado) {
+            if (!periodo) recusar('Período da agenda não configurado nesta data.');
+            if (!(input.horarioFim.slice(0, 5) > input.horarioInicio.slice(0, 5))) recusar('O fim do horário precisa ser depois do início.');
+            if (!(await horarioPersonalizadoLivre(tx, f.id, input, true)))
+                recusar('Este horário bate com outra festa ou bloqueio da agenda. Escolha outro intervalo.');
+        }
+        else if (!oficial)
             recusar('Data/horário indisponível ou fora das opções oficiais.');
     }
     const pacoteMudou = f.pacoteId !== input.pacoteId;

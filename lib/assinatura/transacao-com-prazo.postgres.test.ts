@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { conexaoDeClientePg, conexaoDescartavelDoPoolPg, transacaoComPrazo } from '../db/transacao-com-prazo.ts';
 import { iniciarTeste } from './servico.ts';
 import { processarEvento } from './sincronizacao.ts';
-import { registrarPendencia, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
+import { PRAZO_TRANSACAO_INDEPENDENTE_MS, registrarPendencia, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 
 /**
  * D1 com REDE PARADA de verdade: o pool da transação independente fala com o PostgreSQL descartável por um proxy TCP local
@@ -19,6 +19,12 @@ import { registrarPendencia, type TransacaoIndependente } from './reconciliacao-
 const M067 = 'database/migrations/20261006_067_modelo_comercial_empresa.sql';
 const M068 = 'database/migrations/20261007_068_cobranca_assinatura.sql';
 const PRAZO = 1500;
+/**
+ * Prazo das transações que DEVEM terminar (rede normal): o da aplicação (15 s), finito. O PRAZO curto fica só onde a rede
+ * para de verdade. Com ele no caminho feliz, sob build concorrente o COMMIT do marcador (flush do WAL, fsync=on) chegou a
+ * 1,2–1,5 s e a recuperação estourava o prazo por disco, não por rede (31/10/2026: 3 de 40; conexão nova em 24–272 ms).
+ */
+const PRAZO_SEM_FALHA = PRAZO_TRANSACAO_INDEPENDENTE_MS;
 const APLICACAO = 'kidmais-teste-prazo-d1';
 
 let principal: Client;
@@ -111,6 +117,23 @@ let proxy: ReturnType<typeof proxyTcp>;
 let portaProxy = 0;
 let pool: pg.Pool;
 let independenteComPrazo: TransacaoIndependente;
+/** Mesmo pool e mesma transacaoComPrazo; muda só o prazo. Conexão descartada antes não pode atrapalhar a próxima. */
+let independenteSemFalha: TransacaoIndependente;
+/**
+ * Um prazo por chamada, em ordem (a última se repete): marcador sem falha e, depois, a gravação do resultado com a rede parada.
+ * `duracoes` guarda o tempo de cada chamada, para medir à parte a etapa com a rede parada.
+ */
+const independentePorChamada = (...prazos: number[]) => {
+    let i = 0;
+    const duracoes: number[] = [];
+    const independente: TransacaoIndependente = async (trabalho) => {
+        const prazo = prazos[Math.min(i++, prazos.length - 1)];
+        const t0 = Date.now();
+        try { return await transacaoComPrazo(() => conexaoDescartavelDoPoolPg(pool as never), prazo)(trabalho as never) as never; }
+        finally { duracoes.push(Date.now() - t0); }
+    };
+    return { independente, duracoes };
+};
 test.before(async () => {
     principal = await conectarDescartavel();
     // Estado `atual` (até a 057): instala 067/068; estado `075`: já instaladas pela receita.
@@ -123,6 +146,7 @@ test.before(async () => {
         max: 2, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000, application_name: APLICACAO });
     pool.on('error', () => undefined);
     independenteComPrazo = transacaoComPrazo(() => conexaoDescartavelDoPoolPg(pool as never), PRAZO);
+    independenteSemFalha = transacaoComPrazo(() => conexaoDescartavelDoPoolPg(pool as never), PRAZO_SEM_FALHA);
 });
 test.after(async () => {
     await pool?.end().catch(() => undefined);
@@ -141,9 +165,9 @@ test('D1: rede para antes do COMMIT do marcador → ADIADA no prazo, nenhum DELE
     assert.ok(await ate(async () => pool.totalCount === 0), `conexão descartada não volta ao pool (total ${pool.totalCount})`);
     assert.ok(await ate(async () => (await backends()) === 0), 'o servidor encerrou a sessão da conexão descartada');
     assert.deepEqual(await marcadores(empresa), [], 'o INSERT nunca chegou; nada gravado');
-    // Rede de volta: a mesma transação com prazo grava o marcador e exclui normalmente.
+    // Rede de volta: o mesmo pool, pela mesma transação com prazo (o da aplicação), grava o marcador e exclui normalmente.
     proxy.regras.engolirAoEnviar = null;
-    const depois = await processar(pend, provedor, independenteComPrazo);
+    const depois = await processar(pend, provedor, independenteSemFalha);
     assert.deepEqual([depois.r.situacao, depois.r.motivo, provedor.removerChamadas], ['PROCESSADO', 'CONCILIADA', 1]);
     assert.deepEqual(await auditorias(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 'RESPOSTA_DO_PROVEDOR']]);
 });
@@ -166,13 +190,19 @@ test('D1: COMMIT do marcador aplicado SEM resposta → resultado desconhecido: n
 test('D1 + D2: DELETE confirmado e a gravação do resultado sem resposta → marcador continua REMOCAO_EM_CURSO; a releitura grava só a AUSÊNCIA (ação neutra), sem DELETE repetido e sem "duplicata removida"', async () => {
     const { empresa, pend, provedor } = await cenario();
     proxy.regras.engolirAoEnviar = "UPDATE cobranca_eventos SET situacao = 'PROCESSADO'";
-    const { r, ms } = await processar(pend, provedor, independenteComPrazo);
+    const etapas = independentePorChamada(PRAZO_SEM_FALHA, PRAZO);
+    const { r, ms } = await processar(pend, provedor, etapas.independente);
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
-    assert.ok(ms < 2 * PRAZO + 4000, `prazo finito: ${ms} ms`);
+    assert.equal(etapas.duracoes.length, 2, 'marcador e, depois, a gravação do resultado');
+    const [marcadorMs, resultadoMs] = etapas.duracoes;
+    // O limite curto vale para a etapa com a rede parada; o total acomoda o prazo (finito) do marcador sem falha.
+    assert.ok(resultadoMs >= PRAZO - 50 && resultadoMs < PRAZO + 4000, `prazo finito na gravação do resultado: ${resultadoMs} ms`);
+    assert.ok(marcadorMs < PRAZO_SEM_FALHA, `marcador dentro do prazo da aplicação: ${marcadorMs} ms`);
+    assert.ok(ms < PRAZO_SEM_FALHA + PRAZO + 4000, `prazo finito: ${ms} ms`);
     assert.equal(provedor.removerChamadas, 1);
     assert.deepEqual([await marcadores(empresa), await auditorias(empresa)], [[['PENDENTE', 'REMOCAO_EM_CURSO']], []]);
     proxy.regras.engolirAoEnviar = null;
-    const depois = await processar(pend, provedor, independenteComPrazo);
+    const depois = await processar(pend, provedor, independenteSemFalha);
     assert.deepEqual([depois.r.situacao, depois.r.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.equal(provedor.removerChamadas, 1, 'nenhum DELETE repetido');
     assert.deepEqual(await marcadores(empresa), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']]);
@@ -189,7 +219,8 @@ test('D1, abertura do SCRIPT pelo proxy (pg.Client real): SELECT current_databas
         abrirConexaoDoMarcador: (Client: unknown, alvo: unknown, adaptar: unknown, registrar?: unknown) => Promise<unknown>;
     };
     const alvo = { connectionString: `postgresql://kidmais_descartavel@127.0.0.1:${portaProxy}/kidmais_pacotes_v1_descartavel`, local: true, database: 'kidmais_pacotes_v1_descartavel' };
-    const independente = script.transacaoIndependenteDaExecucao(true, null, (registrar: unknown) => script.abrirConexaoDoMarcador(pg.Client, alvo, conexaoDeClientePg, registrar), transacaoComPrazo, PRAZO);
+    const abrir = (registrar: unknown) => script.abrirConexaoDoMarcador(pg.Client, alvo, conexaoDeClientePg, registrar);
+    const independente = script.transacaoIndependenteDaExecucao(true, null, abrir, transacaoComPrazo, PRAZO);
     proxy.regras.engolirAoEnviar = 'current_database';
     const { r, ms } = await processar(pend, provedor, independente);
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
@@ -197,7 +228,7 @@ test('D1, abertura do SCRIPT pelo proxy (pg.Client real): SELECT current_databas
     assert.deepEqual([provedor.removerChamadas, await marcadores(empresa)], [0, []], 'nenhuma escrita de negócio, nenhum DELETE');
     assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'o soquete foi destruído: o servidor encerrou a sessão aberta na conferência');
     proxy.regras.engolirAoEnviar = null;
-    const depois = await processar(pend, provedor, independente);
+    const depois = await processar(pend, provedor, script.transacaoIndependenteDaExecucao(true, null, abrir, transacaoComPrazo, PRAZO_SEM_FALHA));
     assert.deepEqual([depois.r.situacao, depois.r.motivo, provedor.removerChamadas], ['PROCESSADO', 'CONCILIADA', 1]);
     assert.deepEqual(await auditorias(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 'RESPOSTA_DO_PROVEDOR']]);
     assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'conexões do marcador encerradas ao fim de cada transação');
@@ -220,10 +251,10 @@ test('TLS do marcador (pg.Client real): alvo remoto exige TLS verificado; servid
 
 test('D2: resposta confirmada ao nosso DELETE grava "duplicata removida" uma vez; reprocessar não grava ausência por cima (sem auditoria duplicada)', async () => {
     const { empresa, pend, provedor } = await cenario();
-    const r = await processar(pend, provedor, independenteComPrazo);
+    const r = await processar(pend, provedor, independenteSemFalha);
     assert.deepEqual([r.r.situacao, r.r.motivo], ['PROCESSADO', 'CONCILIADA']);
     const outra = await emTx(principal, (tx) => registrarPendencia(tx, { empresaId: empresa, assinaturaId: null, motivo: 'COMMIT_INCERTO' }));
-    await processar(outra, provedor, independenteComPrazo);
+    await processar(outra, provedor, independenteSemFalha);
     assert.deepEqual(await auditorias(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 'RESPOSTA_DO_PROVEDOR']]);
     assert.deepEqual([await marcadores(empresa), provedor.removerChamadas], [[['PROCESSADO', 'REMOCAO_CONFIRMADA']], 1]);
 });

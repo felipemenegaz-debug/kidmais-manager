@@ -107,9 +107,15 @@ export function divergenciasDeMarcadores(declaradas: readonly string[], presente
 
 /**
  * B-23 (plano de promoção, rodada 18): bases ANTIGAS aceitas = commits de production anteriores à candidata, em lista
- * fechada e por SHA completo (antes: prefixo `00d3019a`). Cada entrada nova exige a prova de que o diff desde `00d3019a`
- * não toca `lib/`, `app/api/`, migrations, `scripts/assinatura-*` nem a entrada do cron — o comportamento de cobrança
- * do código antigo continua o homologado (a prova do cron antigo, artefato `7ce0916f`, não muda). Promoção seletiva
+ * fechada e por SHA completo (antes: prefixo `00d3019a`). B-23b (D-B23-1 = (a), 01/11/2026): cada entrada nova exige a
+ * prova FUNCIONAL `scripts/b23-prova-base.cjs --de=00d3019a… --ate=<base>` = PROVA_PASS — o diff não toca as raízes de
+ * cobrança e recuperação (`lib/assinatura`, `lib/creditos`, `lib/desenvolvedor/cobranca.ts`, `scripts/assinatura-*`,
+ * `scripts/recuperacao-*`, as rotas de assinatura, créditos, cobrança/renovações do desenvolvedor e webhook do Asaas), nem
+ * arquivo alcançável por elas (imports transitivos) ou que as chama (salvo revisão do delta fixada aos blobs), nem os globais de build
+ * e `proxy.ts`, e as migrations do diff (versão antiga e nova) não atingem o fecho SQL transitivo (tabelas/funções do
+ * fecho, marcadores do B-14, gatilhos e funções chamadas) —, com a saída guardada em `docs/evidencias/b23-bases-antigas/`
+ * (o teste exige a evidência de cada entrada, desta versão do analisador; o job `b23-bases` do CI a reexecuta). O comportamento de
+ * cobrança do código antigo continua o homologado (a prova do cron antigo, artefato `7ce0916f`, não muda). Promoção seletiva
  * para production depois de congelar a candidata = entrada nova revisada. Esta lista faz parte da árvore entregue: a
  * entrada nova muda a candidata, que é recongelada, e os blocos e manifestos da candidata anterior deixam de valer
  * (sequência em docs/RECUPERACAO_PAGAMENTOS_B14_IMPLEMENTACAO.md, seção B-23). A lista não é trava de deploy.
@@ -117,6 +123,22 @@ export function divergenciasDeMarcadores(declaradas: readonly string[], presente
 export const CODIGOS_ANTIGOS = Object.freeze([
     '00d3019ade199ce609eab296050e07f4b379e87b', // #232 (25/10/2026): a base da homologação do B-14
     '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61', // #274 (30/10/2026): só o painel (8 arquivos de UI e roteiros de teste de UI)
+    '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1', // #290 (31/10/2026): Convites avulsos (#285 logo, #288 aplicador e 099, #290 telas); B-23b, prova funcional
+    // B-23c (D-B23c-1 = (A), exceção nominal de 03/11/2026): entram por revisão do delta fixada aos blobs, aceita pelo Astra.
+    '7329cbfe1bd78fbf817fc418785b7f62910a9b01', // #295 (01/11/2026): planos do site; alvo do rollback da #299 (D-B23c-3)
+    '5e4340db485520eabc84f67f090907de7fddac06', // #299 (03/11/2026): avisos por e-mail da cobrança (087); exige a trava
+    //   ASSINATURA_AVISOS_EMAIL desligada (D-B23c-2), que scripts/recuperacao-pagamentos-producao.cjs confere (AVISOS_EMAIL_LIGADOS)
+    // B-23d (D-B23d-1 = (A) e D-B23d-2 = (A), 04/11/2026): base LIVE e alvo de rollback, pela mesma revisão nominal fixada aos blobs.
+    'd67d10e63e43c4f066f06456e72d0df55bfd1949', // #316 (04/11/2026): recortes #302–#316 (ajuda, avisos com log seguro, cancelamento
+    //   sem 089, recorte 1, Convite pronto, vídeos); alvo do rollback da #321. A trava continua exigida (D-B23c-2)
+    '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a', // #321 (04/11/2026): site iA.Fest (recorte 2); deixou de ser LIVE com a #323
+    // B-23e (D-B23e-1 = (A), 04/11/2026): promovidas depois do B-23d; PROVA_PASS sem revisão nova (delta só Convites e importação
+    //   de contrato, 10 arquivos, sem migration nem lib/assinatura). A trava continua exigida (D-B23c-2).
+    '0de9aea27715b64bea73cbefb20bfc87bc96deec', // #323 (04/11/2026): Convite pronto E-CP2; alvo do rollback da #325
+    '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735', // #325 (04/11/2026): leitor de PDF pelo /Length (recorte 3); alvo do rollback da #332
+    // B-23f (05/11/2026): Recorte 4 publicado por decisão de Felipe; 8 REVISOES homologadas pelo B-23d (árvore a72555ab). A trava
+    //   continua exigida (D-B23c-2).
+    'cc4bab508dd617dbdbc402f049113a8e99b2239a', // #332 (05/11/2026): login com limite por origem real e pool (recorte 4); base de production
 ] as const);
 export type CodigoNoAr = 'CANDIDATA' | 'ANTIGO';
 /** Commit do web (RENDER_GIT_COMMIT) × candidata informada: só a candidata ou uma base antiga da lista; outro commit recusa. */

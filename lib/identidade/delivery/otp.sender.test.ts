@@ -75,10 +75,35 @@ test("envia template OTP pela API oficial sem expor metadados internos", async (
           type: "body",
           parameters: [{ type: "text", text: "123456" }],
         },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
+          parameters: [{ type: "text", text: "123456" }],
+        },
       ],
     },
   });
   assert.equal(JSON.stringify(body).includes(delivery.validacaoId), false);
+});
+
+test("código com zeros à esquerda segue como texto igual no corpo e no botão", async () => {
+  let requestInit: RequestInit | undefined;
+  const fetchMock: typeof fetch = async (_input, init) => {
+    requestInit = init;
+    return new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await criarWhatsappCloudSender(config, fetchMock)({ ...delivery, codigo: "000123" });
+
+  const componentes = JSON.parse(String(requestInit?.body)).template.components;
+  assert.deepEqual(componentes, [
+    { type: "body", parameters: [{ type: "text", text: "000123" }] },
+    { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "000123" }] },
+  ]);
 });
 
 test("recusa SMS antes de chamar o provedor externo", async () => {
@@ -121,6 +146,98 @@ test("erro do provedor não replica corpo, token ou telefone", async () => {
       return true;
     },
   );
+});
+
+test("falha da Cloud API fica no log só com campos validados", async (t) => {
+  const erros = t.mock.method(console, "error", () => {});
+  const responder = (status: number, corpo: unknown): typeof fetch => async () =>
+    new Response(JSON.stringify(corpo), { status, headers: { "Content-Type": "application/json" } });
+  // O Node imprime os próprios avisos por console.error; eles entram na checagem de segredos, mas não contam como linha do envio.
+  process.emitWarning("aviso alheio ao envio");
+  const impressos = () => erros.mock.calls.map((chamada) => String(chamada.arguments[0]));
+  const linhasDoEnvio = () => impressos().filter((texto) => texto.startsWith('{"provider":"whatsapp_cloud"'));
+  const linha = (indice: number) => linhasDoEnvio()[indice];
+
+  await assert.rejects(
+    criarWhatsappCloudSender(config, responder(400, {
+      error: {
+        code: 100,
+        error_subcode: 33,
+        fbtrace_id: "A0XiTqVz_w-B",
+        message: `do-not-expose ${config.accessToken} ${delivery.destino} ${delivery.codigo}`,
+      },
+    }))(delivery),
+  );
+  assert.deepEqual(JSON.parse(linha(0)), {
+    provider: "whatsapp_cloud",
+    status: "failed",
+    causa: "recusado",
+    http: 400,
+    codigo: 100,
+    subcodigo: 33,
+    fbtrace: "A0XiTqVz_w-B",
+  });
+
+  // Campos fora do formato não passam para o log, nem quando trazem dado pessoal ou quebra de linha.
+  await assert.rejects(
+    criarWhatsappCloudSender(config, responder(400, {
+      error: { code: `131000 ${delivery.destino}`, error_subcode: 1.5, fbtrace_id: "x\ny" },
+    }))(delivery),
+  );
+  assert.deepEqual(JSON.parse(linha(1)), {
+    provider: "whatsapp_cloud",
+    status: "failed",
+    causa: "recusado",
+    http: 400,
+    codigo: null,
+    subcodigo: null,
+    fbtrace: null,
+  });
+
+  // HTTP 200 sem id de mensagem também é falha.
+  await assert.rejects(criarWhatsappCloudSender(config, responder(200, {}))(delivery));
+  assert.equal(JSON.parse(linha(2)).causa, "recusado");
+  assert.equal(JSON.parse(linha(2)).http, 200);
+
+  // Falha de rede: a mensagem da exceção pode trazer a URL ou dados, e não vai para o log.
+  await assert.rejects(
+    criarWhatsappCloudSender(config, async () => {
+      throw new Error(`do-not-expose ${config.accessToken}`);
+    })(delivery),
+    /do-not-expose/,
+  );
+  assert.equal(JSON.parse(linha(3)).causa, "rede");
+
+  await assert.rejects(
+    criarWhatsappCloudSender({ ...config, timeoutMs: 5 }, (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const erro = new Error("abortado");
+          erro.name = "AbortError";
+          reject(erro);
+        });
+      }),
+    )(delivery),
+    /tempo limite/,
+  );
+  assert.equal(JSON.parse(linha(4)).causa, "tempo_limite");
+
+  // Uma linha por falha, e nenhuma com token, destino ou código.
+  assert.equal(linhasDoEnvio().length, 5);
+  for (const texto of impressos()) {
+    for (const segredo of [config.accessToken, delivery.destino, "5511999998888", delivery.codigo, "do-not-expose"]) {
+      assert.equal(texto.includes(segredo), false, segredo);
+    }
+  }
+});
+
+test("envio aceito pela Cloud API não registra falha", async (t) => {
+  const erros = t.mock.method(console, "error", () => {});
+  await criarWhatsappCloudSender(config, async () =>
+    new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), { status: 200 }),
+  )(delivery);
+  const doEnvio = erros.mock.calls.filter((chamada) => String(chamada.arguments[0]).startsWith('{"provider":"whatsapp_cloud"'));
+  assert.equal(doEnvio.length, 0);
 });
 
 test("rotas públicas da V1 aceitam somente WHATSAPP", () => {

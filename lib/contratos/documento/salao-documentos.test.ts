@@ -148,7 +148,7 @@ test("modelo da empresa (072): {{festa.salao}} na lista fechada, opcional, preen
 test("modelo da empresa (R-E5): bloco fixo \"Local da festa\" só com salão e sem o campo no texto; sem salão, bytes de antes", () => {
   for (const [nome, antes] of Object.entries(ANTES_EMPRESA)) {
     const d = empresa(SNAPS[nome]);
-    assert.equal(`${sha(JSON.stringify(d))} ${hashPdfContratoOficial(gerarPdfContratoOficial(d, { logo: false }))}`, antes, nome);
+    assert.equal(`${sha(JSON.stringify(d))} ${hashPdfContratoOficial(gerarPdfContratoOficial({ ...d, marca: { kidmais: true, nome: "Kidmais" } }, { logo: false }))}`, antes, nome);
   }
   const semCampo = empresa(SNAP_V3_COM_SALAO);
   const base = empresa(SNAP_V3_SEM_SALAO);

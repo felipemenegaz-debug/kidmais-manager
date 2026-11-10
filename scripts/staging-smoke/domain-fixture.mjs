@@ -17,6 +17,8 @@ export function fixture(root, env, smokeId) {
     edition: { estado: 'AGUARDANDO_CLIENTE', documento_revisado_id: 'doc', revisao: 1, dados_fonte: {} },
     flow: { versao_em_preparacao_id: 'version', versao_vigente_id: null }, closing: { id: 'closing', status: 'AGUARDANDO_CONTRATO' } };
   let failAudit = false;
+  // Trava da configuração da agenda: vale só dentro da transação (pg_advisory_xact_lock_shared), fora do estado persistido.
+  let agendaConfigLocked = false;
   const tx = { query: async (sql, values = []) => {
     const q = sql.replace(/\s+/g, ' ').trim(); let rows = [];
     if (q.startsWith('SELECT * FROM contrato_fluxos') || q.startsWith('SELECT versao_vigente_id FROM contrato_fluxos')) rows = [{ ...state.flow }];
@@ -26,11 +28,21 @@ export function fixture(root, env, smokeId) {
     else if (q.startsWith('UPDATE contrato_fluxos')) state.flow = { versao_vigente_id: values[1], versao_em_preparacao_id: null };
     else if (q.startsWith('UPDATE contratos')) state.contract.status = 'ASSINADO';
     else if (q.startsWith('SELECT public.kidmais019_formalizacao')) { state.calls.push('formalization-validation'); rows = [{ valida: state.signatures.length === 2 && state.version.status === 'ASSINADA' }]; }
+    else if (q.startsWith('SELECT f.empresa_id::text AS e FROM public.contratos')) rows = [];
     else if (q.startsWith('SELECT id,invalidada_em FROM public.festas')) rows = state.parties;
     else if (q.startsWith('SELECT public.kidmais019_bloquear_contrato') || q.startsWith('SELECT public.kidmais019_validar_destino')) rows = [];
     // 094 (salão da festa na formalização): a festa do contrato e a função da 094 ausente (schema do smoke = antes da 094).
     else if (q.startsWith('SELECT fechamento_id::text AS fechamento_id FROM contratos')) rows = [{ fechamento_id: 'fechamento' }];
+    // Liberar agenda com mais de um salão: empresa do contrato → trava compartilhada da configuração da agenda, antes do resto.
+    else if (q.startsWith('SELECT f.empresa_id::text AS e FROM contratos c JOIN fechamentos f')) rows = [{ e: 'empresa' }];
+    else if (q.startsWith('SELECT pg_advisory_xact_lock_shared(')) { state.calls.push('agenda-config-lock'); agendaConfigLocked = true; rows = []; }
+    else if (q.startsWith('SELECT 1 FROM empresas WHERE id = $1::uuid FOR KEY SHARE') || q.startsWith("SELECT set_config('kidmais.agenda_config_empresa'")) rows = [];
+    // Guarda da trava (exigirTravaConfiguracao): só passa se a trava compartilhada já foi tomada nesta transação.
+    else if (q.startsWith("WITH alvo AS (SELECT coalesce($1::text, nullif(current_setting('kidmais.agenda_config_empresa'")) rows = [{ empresa: 'empresa', ok: agendaConfigLocked }];
     else if (q.startsWith("SELECT to_regprocedure('public.kidmais094_conflito_ocupacao")) rows = [{ ok: false }];
+    // Leitor do caminho (D-LIB-4): fechamento da versão e escopo; sem a 094 o escopo não é "por salão" e nada mais é lido.
+    else if (q.startsWith('SELECT c.fechamento_id::text AS f FROM contrato_versoes v JOIN contratos c')) rows = [{ f: 'fechamento' }];
+    else if (q.startsWith('SELECT empresa_id::text AS empresa, estabelecimento_id::text AS unidade FROM fechamentos')) rows = [{ empresa: 'empresa', unidade: null }];
     // S-E (salão exigido pela versão): o snapshot do smoke é V1, sem salão fixado; formalização como antes.
     else if (q.startsWith('SELECT v.snapshot, b.snapshot AS base FROM contrato_versoes v')) rows = [{ snapshot: state.version.snapshot, base: null }];
     else if (q.startsWith('SELECT id,parte FROM public.contrato_assinaturas')) rows = state.signatures;
@@ -44,7 +56,7 @@ export function fixture(root, env, smokeId) {
   const replacements = new Map();
   const set = (file, value) => replacements.set(resolve(root, file), value);
   const saveAudit = async input => { if (failAudit && input.acao === auditAction) throw new Error('synthetic audit failure'); state.audits.push(structuredClone(input)); };
-  set('lib/db/postgres.ts', { db: () => tx, withTransaction: async work => work(tx) });
+  set('lib/db/postgres.ts', { db: () => tx, withTransaction: async work => { agendaConfigLocked = false; return work(tx); } });
   set('lib/clientes/repositories/index.ts', {
     buscarClienteCanonicoPorCpfParaIdentidade: async cpf => cpf === customer.cpf ? customer : null,
     buscarClienteCanonicoPorId: async cid => cid === customer.id ? customer : null,

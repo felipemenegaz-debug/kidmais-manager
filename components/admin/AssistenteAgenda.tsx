@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AgendaEscopo, CapacidadeTipo, EscopoConfiguravel, HorarioAgenda, Modo } from '@/lib/agenda/configuracao-unidade';
-import { AGENDA_MAIS_DE_UM_SALAO_LIBERADA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE } from '@/lib/agenda/saloes-liberacao';
+import { AVISO_IDA_SEM_VOLTA, AVISO_MAIS_DE_UM_SALAO_EM_BREVE } from '@/lib/agenda/saloes-liberacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import css from './agenda-configuracao.module.css';
@@ -249,8 +249,9 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois, onReco
 
   function escolherSaloes(tipo: CapacidadeTipo) {
     setErro('');
-    setMaisDeUmEmBreve(tipo === 'POR_SALAO' && !AGENDA_MAIS_DE_UM_SALAO_LIBERADA);
-    if (tipo === 'POR_SALAO' && !AGENDA_MAIS_DE_UM_SALAO_LIBERADA) { setForm({ ...form, capacidadeTipo: 'POR_HORARIO' }); return; }
+    // D-LIB-1: a liberação vem do servidor (env por ambiente), na própria leitura da agenda.
+    setMaisDeUmEmBreve(tipo === 'POR_SALAO' && !agenda.maisDeUmSalaoLiberado);
+    if (tipo === 'POR_SALAO' && !agenda.maisDeUmSalaoLiberado) { setForm({ ...form, capacidadeTipo: 'POR_HORARIO' }); return; }
     if (tipo === 'POR_SALAO' && form.saloes.length === 0) {
       setForm({ ...form, capacidadeTipo: tipo, saloes: [{ chave: 'novo-1', nome: 'Salão 1', capacidade: '' }, { chave: 'novo-2', nome: 'Salão 2', capacidade: '' }] });
     } else setForm({ ...form, capacidadeTipo: tipo });
@@ -325,6 +326,8 @@ export function AssistenteAgenda({ escopo, agenda, onConcluido, onDepois, onReco
         <button type="button" className={css.opcao} aria-pressed={form.capacidadeTipo === 'POR_SALAO' || maisDeUmEmBreve} onClick={() => escolherSaloes('POR_SALAO')}><strong>Sim, mais de um salão</strong></button>
       </div>
       {maisDeUmEmBreve && <p className={css.fraco} role="status" data-mais-de-um-salao-em-breve>{AVISO_MAIS_DE_UM_SALAO_EM_BREVE}</p>}
+      {/* D-LIB-2: aviso antes da ida, também no assistente. */}
+      {form.capacidadeTipo === 'POR_SALAO' && <p className={css.fraco} role="status" data-aviso-ida-sem-volta>{AVISO_IDA_SEM_VOLTA}</p>}
       {form.capacidadeTipo === 'POR_SALAO' && <EditorSaloes form={form} onChange={setForm} />}
     </>;
   } else if (passo === 3) {

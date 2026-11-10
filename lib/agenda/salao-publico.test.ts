@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { OcupacaoConfirmadaRecord, RegraCapacidadeAgenda } from "../disponibilidade/repositories/models.ts";
 import { motivoEstrutural, salaoComporta, situacaoPorSalao } from "../disponibilidade/services/availability.service.ts";
-import { dtoPublico, motivoRecomendado, recomendado, saloesPublicosLigados } from "./salao-publico.ts";
+import { convivenciaDoCombinado, dtoPublico, motivoRecomendado, papeisDosSaloes, recomendado, saloesPublicosLigados } from "./salao-publico.ts";
+import { combinadosPublicosLigados } from "./combinados-publicos.ts";
+import { menorPreco, precoMinimo, precosPublicosDeHoje } from "../comercial/oferta-publica.ts";
 
 // S-D (R-D4/R3-D3/R3-E5): situação por salão, comporta nos dois sentidos, recomendado e DTO público por lista branca.
 const tarde = { inicioMinutos: 15 * 60, fimMinutos: 19 * 60 };
@@ -51,6 +53,67 @@ test("S-D: recomendado — só livres, menor capacidade, nula por último, desem
   assert.equal(motivoRecomendado(80, null), "indicado para 80");
 });
 
+test("E2b: papéis — simples livre recomendado; simples ocupado → combinado alternativa; nenhum simples comporta → combinado recomendado", () => {
+  type Sit = "livre" | "ocupado" | "nao_comporta" | "abaixo_do_minimo";
+  const s = (id: string, capacidade: number | null, situacao: Sit, combinado = false, ordem = 1) => ({ id, capacidade, situacao, ordem, combinado });
+  // Caso 1: há simples livre → o menor simples livre; o combinado livre é opção comum (sem selo).
+  const c1 = papeisDosSaloes([s("A", 60, "livre"), s("C", 90, "livre"), s("AB", 120, "livre", true)]);
+  assert.deepEqual([c1.recomendado, [...c1.alternativas]], ["A", []]);
+  // Caso 2 (P3-R2-1): C fora de AB comporta e está ocupado; A e B não comportam; AB livre → AB alternativa, sem recomendado.
+  const c2 = papeisDosSaloes([s("A", 40, "nao_comporta"), s("B", 40, "nao_comporta"), s("C", 120, "ocupado"), s("AB", 100, "livre", true)]);
+  assert.deepEqual([c2.recomendado, [...c2.alternativas]], [null, ["AB"]]);
+  // A ocupado ⇒ AB ocupado (conflito da 108): nada livre, nada recomendado, nenhuma alternativa.
+  const a = papeisDosSaloes([s("A", 60, "ocupado"), s("B", 40, "nao_comporta"), s("AB", 100, "ocupado", true)]);
+  assert.deepEqual([a.recomendado, [...a.alternativas]], [null, []]);
+  // Caso 3: nenhum simples comporta → o menor combinado livre recomendado (desempate como antes).
+  const c3 = papeisDosSaloes([s("A", 40, "nao_comporta"), s("B", 30, "abaixo_do_minimo"), s("BC", 150, "livre", true), s("AB", 100, "livre", true)]);
+  assert.deepEqual([c3.recomendado, [...c3.alternativas]], ["AB", []]);
+  // Caso 3 por vínculo: nenhum simples candidato no horário/pacote → o combinado livre recomendado.
+  assert.equal(papeisDosSaloes([s("AB", 100, "livre", true)]).recomendado, "AB");
+  // Combinado ocupado com simples ocupado: sem recomendado nem alternativa.
+  assert.deepEqual([...papeisDosSaloes([s("C", 120, "ocupado"), s("AB", 100, "ocupado", true)]).alternativas], []);
+});
+
+test("E2b: sem combinados, papeisDosSaloes = recomendado (paridade com a E2a)", () => {
+  type Sit = "livre" | "ocupado" | "nao_comporta" | "abaixo_do_minimo";
+  const casos: Array<Array<[string, number | null, Sit, number]>> = [
+    [["a", 120, "livre", 1], ["b", 90, "livre", 1], ["c", 60, "nao_comporta", 1]],
+    [["a", null, "livre", 1], ["b", 200, "livre", 1]],
+    [["b", 100, "livre", 1], ["a", 100, "livre", 2]],
+    [["a", 60, "ocupado", 1], ["b", 50, "nao_comporta", 1]],
+    [["a", 60, "abaixo_do_minimo", 1]],
+  ];
+  for (const caso of casos) {
+    const lista = caso.map(([id, capacidade, situacao, ordem]) => ({ id, capacidade, situacao, ordem }));
+    const papeis = papeisDosSaloes(lista.map((x) => ({ ...x, combinado: false })));
+    assert.equal(papeis.recomendado, recomendado(lista));
+    assert.equal(papeis.alternativas.size, 0);
+  }
+});
+
+test("E2b: convivência do combinado — só simples ativos fora dos membros; sem externos, nenhuma frase; nunca exclusividade", () => {
+  const ativos = [
+    { id: "A", nome: "Salão 1", combinado: false }, { id: "B", nome: "Salão 2", combinado: false },
+    { id: "C", nome: "Salão 3", combinado: false }, { id: "D", nome: "Salão 4", combinado: false },
+    { id: "AB", nome: "Salões 1 + 2", combinado: true }, { id: "BC", nome: "Salões 2 + 3", combinado: true },
+  ];
+  assert.equal(convivenciaDoCombinado(["A", "B"], ativos), "Salão 3 e Salão 4 podem receber outra festa no mesmo horário.");
+  assert.equal(convivenciaDoCombinado(["A", "B", "C"], ativos), "Salão 4 pode receber outra festa no mesmo horário.");
+  assert.equal(convivenciaDoCombinado(["A", "B", "C", "D"], ativos), null, "sem simples externos");
+  for (const frase of [convivenciaDoCombinado(["A", "B"], ativos), convivenciaDoCombinado(["A", "B", "C"], ativos)]) {
+    assert.doesNotMatch(frase ?? "", /só a sua|exclusiv|nenhuma outra festa|Salões 2 \+ 3/i);
+  }
+});
+
+test("E2b: combinadosPublicosLigados exige as DUAS flags (a instalação NOVA é conferida no banco)", () => {
+  assert.equal(combinadosPublicosLigados({}), false);
+  assert.equal(combinadosPublicosLigados({ SALOES_PUBLICOS: "true" }), false);
+  assert.equal(combinadosPublicosLigados({ SALOES_COMBINADOS_PUBLICOS: "true" }), false);
+  assert.equal(combinadosPublicosLigados({ SALOES_PUBLICOS: "true", SALOES_COMBINADOS_PUBLICOS: "false" }), false);
+  assert.equal(combinadosPublicosLigados({ SALOES_PUBLICOS: "false", SALOES_COMBINADOS_PUBLICOS: "true" }), false);
+  assert.equal(combinadosPublicosLigados({ SALOES_PUBLICOS: " true ", SALOES_COMBINADOS_PUBLICOS: " true " }), true);
+});
+
 test("S-D: flag SALOES_PUBLICOS desligada por padrão", () => {
   assert.equal(saloesPublicosLigados({}), false);
   assert.equal(saloesPublicosLigados({ SALOES_PUBLICOS: "false" }), false);
@@ -62,7 +125,7 @@ test("S-D: DTO público só com a lista branca (nada de declaração, versão, a
   const linha = {
     id: "s1", nome: "Grande", ordem: 1, capacidade_convidados: 120, convidados_minimo: 60, convidados_sentados: 80, area_m2: 150,
     idade_min: null, idade_max: null, frase: "Amplo", outra_festa_simultanea: true, exclusivos: ["ENTRADA", "INVENTADO"], fotos_referencia: "2026-09-01",
-    fotos: 6, conteudo_versao: 7, declaracao_versao: 7, ativo: true,
+    fotos: 6, conteudo_versao: 7, declaracao_versao: 7, ativo: true, combinado: false, membros: null,
   };
   const dto = dtoPublico(linha, [
     { grupo: "BRINCADEIRAS", nome: "Piscina de bolinhas", destaque: true, idadeMin: 2, idadeMax: 6, catalogo: true },
@@ -90,4 +153,19 @@ test("S-D: 106 — checks e rollback gerados com os corpos exatos da migration",
   assert.match(mig, /LANGUAGE plpgsql VOLATILE SET search_path = public, pg_catalog AS \$\$\nDECLARE s record;/);
   assert.match(mig, /FOR SHARE;/, "a preferência lê o salão FOR SHARE");
   assert.match(readFileSync("database/rollback/20261027_106_salao_preferido_down.sql", "utf8"), /WHERE salao_preferido_id IS NOT NULL\) THEN\s+RAISE EXCEPTION '106 rollback: há festa/);
+});
+
+test("E2b: \"a partir de\" do combinado = o MENOR preço do universo (nunca a soma); sem preço = null", () => {
+  assert.equal(menorPreco(["4990.00", "3990.00", "5200.00"]), "3990.00");
+  assert.equal(menorPreco(["3990.00"]), "3990.00");
+  assert.equal(menorPreco(["990.00", "1000.00"]), "990.00", "compara por número, não por texto");
+  assert.equal(menorPreco([]), null);
+});
+
+test("E2b: preço por linha — fixo pela faixa; por convidado × mínimo da faixa; tabela ilegível/ambígua some sem derrubar a lista", async () => {
+  assert.equal(precoMinimo([{ porConvidado: false, min: 1, valor: 4990 }, { porConvidado: false, min: 101, valor: 5990 }]), "4990.00");
+  assert.equal(precoMinimo([{ porConvidado: true, min: 50, valor: 80 }, { porConvidado: false, min: 1, valor: 4500 }]), "4000.00", "80 × 50");
+  assert.equal(precoMinimo([]), null);
+  const quebrado = { query: async () => { throw new Error("tabela ambígua"); } } as unknown as Parameters<typeof precosPublicosDeHoje>[0];
+  assert.deepEqual(await precosPublicosDeHoje(quebrado, "e1"), [], "sem preço: a faixa diz \"valores na escolha do pacote\"");
 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { camposDocumentoPublico, documentoInformado, MENSAGEM_SEM_DOCUMENTO, temDocumento } from "@/lib/identidade/documento-rota";
 import { iniciarDesafioContrato } from "@/lib/contratos/services";
 import { enviarOtpComAmbiente } from "@/lib/identidade/delivery";
 import {
@@ -13,9 +14,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  cpf: z.string().trim().min(1).max(32),
+  ...camposDocumentoPublico,
   canal: z.literal("WHATSAPP"),
-}).strict();
+}).strict().refine(temDocumento, MENSAGEM_SEM_DOCUMENTO);
 
 export async function POST(request: NextRequest, context: ContratoRouteContext) {
   try {
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, context: ContratoRouteContext) 
     }
     const body = schema.parse(json);
     const data = await iniciarDesafioContrato(
-      { contratoId, cpf: body.cpf, canal: body.canal },
+      { contratoId, cpf: documentoInformado(body), canal: body.canal },
       enviarOtpComAmbiente,
     );
     return noStoreContrato(NextResponse.json({ ok: true, data }, { status: 201 }));

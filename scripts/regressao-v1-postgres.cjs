@@ -9,8 +9,11 @@
  *      isolada e, ao terminar, não pode deixar conexão aberta; suíte que não termina no limite falha.
  * DATABASE_URL e PG* nunca participam; a porta segue a mesma autorização literal das suítes.
  */
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const guardaSalao = require("./guarda-salao-harness.cjs");
 const {
   listarTestesPostgres,
   exigirOptInDescartavel,
@@ -44,10 +47,23 @@ try {
   recusar(erro);
 }
 
-/** Ambiente da suíte: explícito (ambienteDaSuite); o alvo da 054 só para a suíte que o declara. */
-function ambiente(estado, porta, banco) {
-  return ambienteDaSuite(process.env, estado, porta, banco);
+/**
+ * Ambiente da suíte: explícito (ambienteDaSuite); o alvo da 054 só para a suíte que o declara. Liberar agenda com mais de
+ * um salão (rev. 6–7): o preload da guarda dinâmica entra por NODE_OPTIONS (também nos subprocessos) e grava o registro
+ * da suíte em `registro`.
+ */
+function ambiente(estado, porta, banco, registro, registroLimpeza) {
+  // Barras normais: no NODE_OPTIONS a barra invertida é tratada como escape (o caminho tem espaços e vai entre aspas).
+  const preload = path.join(__dirname, "guarda-salao-preload.cjs").replace(/\\/g, "/");
+  const base = ambienteDaSuite(process.env, estado, porta, banco);
+  return { ...base, NODE_OPTIONS: `${base.NODE_OPTIONS ?? ""} --require "${preload}"`.trim(), KIDMAIS_GUARDA_SALAO_ARQUIVO: registro,
+    KIDMAIS_LIMPEZA_REGISTRO: registroLimpeza };
 }
+
+// Falhas da limpeza das conexões (ROLLBACK/unlock em encerrarDescartavel), registradas pela suíte com fase e SQLSTATE.
+// Só aparecem no resumo: não mudam a situação da suíte, e a leitura nunca lança (lib/comercial/registro-limpeza.cjs).
+const { lerLimpeza, resumoLimpeza } = require("../lib/comercial/registro-limpeza.cjs");
+const PASTA_GUARDA = fs.mkdtempSync(path.join(os.tmpdir(), "kidmais-guarda-salao-"));
 
 async function conexoesDeTrabalho(admin, bancos) {
   for (let tentativa = 0; tentativa < 40; tentativa++) {
@@ -64,34 +80,74 @@ async function principal() {
   console.log(`\n=== PostgreSQL descartável (${planos.length} arquivos) ===`);
   const { porta, admin } = await receita.conectarAdmin(process.env);
   const resultados = [];
+  const ordensDeTeste = [];
+  const ordensDeAplicador = [];
+  const escritas = [];
+  const ordensOk = new Map();
+  const semGuardaAplicada = [];
   try {
     const modelos = [...new Set(planos.flatMap((p) => [p.estado.descartavel, p.estado.rollback].filter(Boolean)))];
-    for (const modelo of modelos) {
-      await receita.construirModelo(admin, porta, modelo);
-      console.log(`receita: modelo ${modelo} recriado do schema vazio`);
-    }
+    for (const modelo of modelos) await receita.construirModelo(admin, porta, modelo);
     for (const { arquivo, estado } of planos) {
       for (const banco of receita.TRABALHO) await receita.removerBanco(admin, banco);
       await receita.restaurar(admin, trabalho, estado.descartavel);
       if (estado.rollback) await receita.restaurar(admin, "kidmais_pacotes_v1_rollback", estado.rollback);
+      // Guarda dinâmica (só no cluster descartável): gatilhos kidmais_teste_* nos bancos de trabalho desta suíte, não no
+      // modelo, para que `semGuardaSalao` (suítes que comparam o retrato do catálogo com o staging) valha só para ela.
+      const semGuarda = estado.semGuardaSalao?.modelos.includes(estado.descartavel) ? estado.semGuardaSalao.motivo : null;
+      if (semGuarda) {
+        console.log(`guarda de escritores de salão NÃO instalada nesta suíte: ${semGuarda}`);
+        semGuardaAplicada.push({ suite: estado.relativo, modelo: estado.descartavel, motivo: semGuarda });
+      } else {
+        for (const banco of [trabalho, ...(estado.rollback ? ["kidmais_pacotes_v1_rollback"] : [])]) {
+          const cliente = await receita.conectar(porta, banco);
+          try { await guardaSalao.instalar(cliente); } finally { await cliente.end(); }
+        }
+      }
       const descricao = `${estado.relativo} [${estado.descartavel}${estado.rollback ? ` + ${estado.rollback}` : ""}]`;
       console.log(`\n--- ${descricao}`);
       const inicio = Date.now();
+      const registro = path.join(PASTA_GUARDA, `${resultados.length}.jsonl`);
+      const registroLimpeza = path.join(PASTA_GUARDA, `${resultados.length}-limpeza.jsonl`);
       const r = spawnSync(process.execPath, ["--experimental-strip-types", "--test", arquivo], {
         cwd: raiz,
-        env: ambiente(estado, porta, trabalho),
+        env: ambiente(estado, porta, trabalho, registro, registroLimpeza),
         stdio: "inherit",
         timeout: LIMITE_POR_SUITE_MS,
       });
       const abertas = await conexoesDeTrabalho(admin, receita.TRABALHO);
-      const situacao = r.error?.code === "ETIMEDOUT" ? "NÃO TERMINOU NO LIMITE" : r.error ? `ERRO ${r.error.code ?? r.error.message}` : r.status !== 0 ? "FALHOU" : abertas ? `DEIXOU ${abertas} CONEXÃO(ÕES) ABERTA(S)` : "OK";
-      resultados.push({ descricao, situacao, segundos: Math.round((Date.now() - inicio) / 1000) });
+      const eventos = guardaSalao.lerRegistro(registro);
+      const problemas = eventos.some((e) => e.tipo === "PRELOAD") ? guardaSalao.avaliar(eventos) : ["registro da guarda ausente (preload não carregou)"];
+      for (const p of problemas) console.error(`GUARDA ${estado.relativo}: ${p}`);
+      // Rodada 3: ordens de aplicador de migration anterior à 114 (auditadas no preload) ficam numa lista à parte.
+      ordensDeTeste.push(...eventos.filter((e) => e.tipo === "ORDEM" && !e.producao && e.emissor !== "APLICADOR_MIGRACAO").map((e) => ({ suite: estado.relativo, ...e })));
+      ordensDeAplicador.push(...eventos.filter((e) => e.tipo === "ORDEM" && e.emissor === "APLICADOR_MIGRACAO").map((e) => ({ suite: estado.relativo, ...e })));
+      for (const e of eventos.filter((x) => x.tipo === "ORDEM_OK")) {
+        const k = e.quadros.join(" < ") || "(sem quadro de produção)";
+        const atual = ordensOk.get(k) ?? { n: 0, suites: new Set() };
+        atual.n += 1; atual.suites.add(estado.relativo); ordensOk.set(k, atual);
+      }
+      escritas.push(...eventos.filter((e) => e.tipo === "ESCRITA").map((e) => ({ suite: estado.relativo, marca: e.marca.replace(/:[0-9a-f]{32}$/, ""), tabela: e.tabela, valor: e.valor })));
+      const situacao = r.error?.code === "ETIMEDOUT" ? "NÃO TERMINOU NO LIMITE" : r.error ? `ERRO ${r.error.code ?? r.error.message}` : r.status !== 0 ? "FALHOU" : abertas ? `DEIXOU ${abertas} CONEXÃO(ÕES) ABERTA(S)` : problemas.length ? `GUARDA: ${problemas.length} violação(ões)` : "OK";
+      const limpeza = lerLimpeza(registroLimpeza);
+      for (const f of limpeza) console.error(`LIMPEZA ${estado.relativo}: ${f.fase} ${f.sqlstate ?? "sem SQLSTATE"} ${f.mensagem}`);
+      resultados.push({ descricao, situacao, segundos: Math.round((Date.now() - inicio) / 1000), limpeza });
     }
   } finally {
     await admin.end();
   }
+  // Fase 0: o que a guarda viu (escritas por marca; ordens fora do padrão originadas no próprio teste), para o pacote.
+  const contagem = new Map();
+  for (const e of escritas) { const k = `${e.marca} → ${e.tabela} (${e.valor})`; contagem.set(k, (contagem.get(k) ?? 0) + 1); }
+  const relatorio = { escritas: Object.fromEntries([...contagem].sort()), ordensDeTeste, ordensDeAplicador, semGuardaSalao: semGuardaAplicada,
+    ordensOk: Object.fromEntries([...ordensOk].sort().map(([k, v]) => [k, { n: v.n, suites: [...v.suites].sort() }])) };
+  const destino = process.env.KIDMAIS_GUARDA_RELATORIO ?? path.join(PASTA_GUARDA, "relatorio.json");
+  fs.writeFileSync(destino, JSON.stringify(relatorio, null, 1));
+  console.log(`guarda de escritores de salão: ${escritas.length} escritas marcadas, ${ordensDeTeste.length} ordens fora do padrão em código de teste, ${ordensDeAplicador.length} de aplicador de migration anterior à 114; relatório ${destino}`);
   console.log("\n=== Resumo PostgreSQL descartável ===");
-  for (const r of resultados) console.log(`${r.situacao === "OK" ? "ok  " : "FALHA"} ${r.descricao} — ${r.situacao} (${r.segundos}s)`);
+  for (const r of resultados) console.log(`${r.situacao === "OK" ? "ok  " : "FALHA"} ${r.descricao} — ${r.situacao} (${r.segundos}s)${r.limpeza.length ? ` · limpeza: ${r.limpeza.length} falha(s) (${resumoLimpeza(r.limpeza)})` : ""}`);
+  const comLimpeza = resultados.filter((r) => r.limpeza.length);
+  console.log(`limpeza das conexões: ${comLimpeza.reduce((n, r) => n + r.limpeza.length, 0)} falha(s) em ${comLimpeza.length} arquivo(s), pelo registro; sem reprovar. Falha ao gravar o registro aparece só no stderr (LIMPEZA_DESCARTAVEL_FALHOU).`);
   const falhas = resultados.filter((r) => r.situacao !== "OK");
   if (falhas.length) {
     console.error(`\nFALHA suíte PostgreSQL descartável: ${falhas.length} de ${resultados.length} arquivos.`);

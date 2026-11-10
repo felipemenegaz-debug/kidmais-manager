@@ -6,12 +6,16 @@ import { lerPosicaoFinanceira, serializarFinanceiro, type PosicaoFinanceira } fr
 import { centavosInteiros, posicaoEconomica, reaisCentavos, recusarFinanceiro, validarCronogramaConsolidado } from './alteracao-financeira-core';
 import type { ContextoFinanceiro, PedidoResolucao } from './alteracao-financeira.models';
 import { gravarCronograma } from './cronograma.service';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 import { naTransacao } from './transacao';
 
 export async function consultarFinanceiro(contratoId:string,executor?:DbExecutor){return naTransacao(executor,async tx=>serializarFinanceiro(await lerPosicaoFinanceira(tx,contratoId)));}
 export async function bloquearFinanceiro(tx:DbExecutor,contratoId:string,context:ContextoFinanceiro){
-  const c=(await tx.query<{fechamento_id:string}>('SELECT fechamento_id FROM contratos WHERE id=$1',[contratoId])).rows[0];
+  const c=(await tx.query<{fechamento_id:string;empresa_id:string|null}>('SELECT c.fechamento_id,f.empresa_id::text empresa_id FROM contratos c JOIN fechamentos f ON f.id=c.fechamento_id WHERE c.id=$1',[contratoId])).rows[0];
   if(!c)recusarFinanceiro('RECURSO_NAO_ENCONTRADO','Contrato não encontrado.',404);
+  // Liberar agenda com mais de um salão (rodada 2): empresa → configuração COMPARTILHADA antes das travas de linha; com a
+  // 114, devolução/cronograma que alteram contrato ou fechamento precisam dela (KD114).
+  if(c.empresa_id)await travarConfiguracaoAgenda(tx,c.empresa_id,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
   await tx.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE',[c.fechamento_id]);
   await tx.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE',[contratoId]);
   await tx.query('SELECT contrato_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE',[contratoId]);

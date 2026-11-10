@@ -110,6 +110,8 @@ function rota(empresas: Record<string, string>, pacotes: Record<string, string>,
     "lib/comercial/pacote-precos": { lerPrecosCorrentes: async () => ({ pacotes: [] }) },
     "lib/comercial/regras-pagamento": { lerRegrasPagamento: async () => null },
   };
+  // E2b: o catálogo efetivo do endereço vem de lib/comercial/oferta-publica, que importa o repositório pelo arquivo.
+  Object.assign(dubles, { "lib/comercial/repositories/comercial.repository": dubles["lib/comercial/repositories"] });
   const { GET } = carregarModulo("app/api/fechamentos/pacotes/route.ts", dubles, new Map()) as { GET: (r: unknown) => Promise<{ body: { pacotes: Array<Record<string, unknown>> } }> };
   const chamar = (consulta: string) => GET({ nextUrl: new URL(`http://localhost/api/fechamentos/pacotes${consulta}`) });
   return { chamar, pedidosDeRegra, pacotesPedidos, listasPedidas };

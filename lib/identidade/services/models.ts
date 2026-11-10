@@ -24,6 +24,7 @@ export type ConsultaCpfPublicaResult =
     };
 
 export type IniciarDesafioIdentidadeInput = {
+  /** Documento informado: CPF ou, com a 112, CNPJ (classificado pelo formato; R2-1). Nome mantido por compatibilidade. */
   cpf: string;
   canal: ValidacaoIdentidadeCanal;
   /** Mantém FECHAMENTO_PUBLICO como padrão para compatibilidade. */

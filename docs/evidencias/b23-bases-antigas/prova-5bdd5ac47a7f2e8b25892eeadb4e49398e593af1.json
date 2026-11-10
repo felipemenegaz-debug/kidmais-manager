@@ -1,0 +1,76 @@
+{
+ "de": "00d3019ade199ce609eab296050e07f4b379e87b",
+ "ate": "5bdd5ac47a7f2e8b25892eeadb4e49398e593af1",
+ "analisador": "fb74bc4003f471d642b89d456299f236dda901ee444c18dffb43d9ea0c5bcf19",
+ "marcadoresSha": "29e1167ebdaaaa409fa15cded3538dbc4a8ac2a8976b177ec493bad999f6b7e2",
+ "alterados": 52,
+ "marcadores": [
+  "assinatura_encerramentos",
+  "assinatura_campanhas",
+  "empresa_documento_continuidades",
+  "agenda_saloes",
+  "kidmais094_salao_fechamento",
+  "ia_credito_carteiras",
+  "assinatura_comprovantes",
+  "assinatura_arrependimentos"
+ ],
+ "resultado": "PROVA_PASS",
+ "violacoes": [],
+ "objetos": [
+  {
+   "migration": "database/migrations/20261024_099_convites_avulsos.sql",
+   "tabelas": [
+    "convite_ia_autorizacoes",
+    "convites"
+   ],
+   "funcoes": [
+    "convite_ia_autorizacao_validar",
+    "convite_validar_vinculo"
+   ]
+  }
+ ],
+ "revisados": [
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/convites/biblioteca.ts",
+   "importa": "lib/assinatura/estado.ts",
+   "arvore": "ate",
+   "de": null,
+   "ate": "a83603cd11088d454e84bb0a579930b7472c4eff",
+   "autoria": "Revisão por agente: Claude (implementador, r3, 01/11/2026); aceite independente por agente: Astra (r3, 02/11/2026), no escopo da prova B-23b.",
+   "analise": "Arquivo novo (120 linhas): listagem e miniatura (só SELECT em convites/convite_artes/festas/contratos/contrato_versoes/membership_estabelecimentos), criar avulso (INSERT em convites e convite_eventos; não reserva créditos) e vincular (contrato() → festas FOR UPDATE → convites FOR UPDATE; leitura de convite_geracoes; revogarAutorizacao em convite_ia_autorizacoes; UPDATE de convites; INSERT em convite_eventos). Da cobrança só lê lerEstadoComercial e recusa com 402 (mesma guarda do editor); nenhum SQL em tabela de assinatura, crédito, pagamento ou marcador do B-14."
+  },
+  {
+   "regra": "CHAMADOR",
+   "arquivo": "lib/convites/service.ts",
+   "importa": "lib/assinatura/estado.ts",
+   "arvore": "de",
+   "de": "5d70a0ac5ebf2d3dbbb2592661ec405829d738a0",
+   "ate": "a77cf5f311ca2cdf4e9f486a36734c36baf14cf1",
+   "autoria": "Revisão por agente: Claude (implementador, r3, 01/11/2026); aceite independente por agente: Astra (r3, 02/11/2026), no escopo da prova B-23b.",
+   "analise": "Delta completo (+37/−17) só de Convites avulsos: Acesso por conviteId, festa_id/cliente_id/versao_contrato_id anuláveis, ramo do convite sem festa em comConvite (SELECT/FOR UPDATE em convites da empresa), guarda que exige festa para liberar o editor do cliente, publico() com LEFT JOIN para avulso e confirmar() travando festas só quando há festa (o FOR UPDATE de convites passou para antes de publico()). Escritas: só as já existentes em convites/convite_eventos. Cobrança: o import de lerEstadoComercial e a guarda 402 são os mesmos de 00d3019a; nenhum SQL em tabela de assinatura, crédito, pagamento ou marcador do B-14; nenhuma chamada nova a raiz."
+  },
+  {
+   "regra": "FECHO",
+   "arquivo": "scripts/production/check-migrations.mjs",
+   "de": "0ebac5771a06ca5e70eb277e011838f31ec48db1",
+   "ate": "06d817620e89c00e4ace0a8fd70afabdc12a81b9",
+   "autoria": "Revisão por agente: Claude (implementador, r2); aceite independente por agente: Astra (r2, 01/11/2026).",
+   "analise": "Inventário do go/no-go de migrations: só acrescenta a 099 a approvedFiles, requiresExplicitAuthorization e pending. Não é carregado pelo app nem pelos crons; entra no fecho só pelo import calculado de scripts/assinatura-schema-completo.cjs (ensaio offline), que corta approvedFiles na 075 — a entrada nova fica fora."
+  }
+ ],
+ "fecho": {
+  "de": 149,
+  "ate": 149,
+  "sqlTabelas": 107,
+  "sqlFuncoes": 130
+ },
+ "limites": {
+  "importsCalculados": [
+   "scripts/assinatura-interface-completa.cjs",
+   "scripts/assinatura-schema-completo.cjs"
+  ],
+  "sqlDinamico": [],
+  "funcoesSemCorpo": []
+ }
+}

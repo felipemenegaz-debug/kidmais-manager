@@ -217,7 +217,7 @@ export class Gravador {
 }
 
 const LEIA_ME = (m: Pick<Manifesto, 'empresa' | 'geradoEm'>) => [
-    'Kidmais Manager — exportação dos dados da empresa',
+    'iA.Fest — exportação dos dados da empresa',
     '',
     `Empresa: ${m.empresa.nome} (${m.empresa.codigo})`,
     `Gerado em (UTC): ${m.geradoEm}`,

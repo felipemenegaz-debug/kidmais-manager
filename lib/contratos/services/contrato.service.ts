@@ -1,4 +1,6 @@
-import { contratanteSnapshot, formularioCadastro } from '../../clientes/cadastro-contratual';
+import { contratantePjSnapshot, contratanteSnapshot, formularioCadastro } from '../../clientes/cadastro-contratual';
+import { modeloContratoAtivo } from '../modelo-empresa/servico';
+import { MENSAGEM_MODELO_INCOMPATIVEL_PJ, trechosIncompativeisPj } from '../modelo-empresa/compatibilidade-pj';
 import {
   buscarAniversariantePorId,
   buscarClienteCanonicoPorId,
@@ -13,6 +15,8 @@ import { camposFaltantesParaContrato } from "../../clientes/services";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
 import { escolherSalaoParaEmissao } from "../../agenda/salao-festa.ts";
+import { recusarEstadoDocumental } from "../../agenda/estado-documental.ts";
+import { referenciaParaCaminho } from "./salao-contrato.ts";
 import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
 import {
   buscarFechamentoPorIdParaAtualizacao,
@@ -45,6 +49,7 @@ import type {
 
 import { hashSnapshotContrato, valorFinalContrato } from "./snapshot-core";
 import { calcularCondicaoComercial } from "../../comercial/condicao-pagamento";
+import { empresaDoFechamento, travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export function montarSnapshotContratoV1(input: {
   fechamento: FechamentoRecord;
@@ -65,7 +70,9 @@ export function montarSnapshotContratoV1(input: {
     throw new ContratoServiceError("DADOS_CONTRATUAIS_INCONSISTENTES", "A condição comercial deve ser aprovada antes do Contrato.", 409);
   }
 
-  if (exigirCadastroCompleto && (!cliente.cpf || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf)) {
+  // PJ: o documento obrigatório é o CNPJ (o CPF da PJ é sempre vazio).
+  const documento = cliente.tipoPessoa === "PJ" ? cliente.cnpj : cliente.cpf;
+  if (exigirCadastroCompleto && (!documento || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf)) {
     throw new ContratoServiceError(
       "CADASTRO_CONTRATUAL_INCOMPLETO",
       "O cadastro do Cliente ainda não possui todos os dados obrigatórios para o Contrato.",
@@ -80,7 +87,7 @@ export function montarSnapshotContratoV1(input: {
       status: fechamento.status,
       origem: fechamento.origemFechamento,
     },
-    contratante: contratanteSnapshot({ ...formularioCadastro(cliente), id: cliente.id }),
+    contratante: { ...contratanteSnapshot({ ...formularioCadastro(cliente), id: cliente.id }), ...contratantePjSnapshot(cliente) },
     responsavelAdicional: responsavelAdicional
       ? {
           id: responsavelAdicional.id,
@@ -311,6 +318,9 @@ export async function salaoDaEmissao(tx: DbExecutor, fechamento: FechamentoRecor
   await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
   const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, documentoAtual ? salaoDoSnapshot(documentoAtual)?.id ?? null : null);
   if (!escolha.porSalao) return undefined;
+  // D-LIB-4 (entrada 1, só leitura): em POR_SALAO, nenhuma emissão decide sobre um estado documental inconsistente.
+  const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id }, "EMISSAO");
+  if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, "EMISSAO");
   if (escolha.salao) return escolha.salao;
   throw new ContratoServiceError(
     "SALAO_INDISPONIVEL",
@@ -330,6 +340,9 @@ export async function gerarContrato(
 ): Promise<GerarContratoResult> {
   const emTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => (context.executor ? trabalho(context.executor) : withTransaction(trabalho));
   return emTransacao(async (tx) => {
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    const empresa = await empresaDoFechamento(tx, input.fechamentoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const fechamento = await buscarFechamentoPorIdParaAtualizacao(
       input.fechamentoId,
       tx,
@@ -354,6 +367,7 @@ export async function gerarContrato(
 
     const salao = await salaoDaEmissao(tx, fechamento);
     const { snapshot, cliente } = await carregarSnapshot(fechamento, tx, undefined, { salao });
+    await exigirModeloCompativelComContratante(tx, cliente.empresaId, snapshot);
     const snapshotHash = hashSnapshotContrato(snapshot);
 
     let contrato = await buscarContratoPorFechamentoId(
@@ -527,4 +541,16 @@ export async function obterContratoPorFechamento(fechamentoId: string, tx?: DbEx
   }
 
   return { contrato, versao };
+}
+
+/**
+ * R2-2: contratante PJ com o modelo ativo da empresa que o qualifica como pessoa física ({{contratante.cpf}} ou literais
+ * de PF) → MODELO_INCOMPATIVEL_PJ, antes de gravar a versão. A geração do PDF confere de novo. PF e modelo oficial: nada.
+ */
+export async function exigirModeloCompativelComContratante(tx: DbExecutor, empresaId: string | null, snapshot: ContratoSnapshot) {
+  if (snapshot.contratante.tipoPessoa !== "PJ" || !empresaId) return;
+  const modelo = await modeloContratoAtivo(tx, empresaId);
+  if (!modelo) return;
+  const trechos = trechosIncompativeisPj(modelo.conteudo);
+  if (trechos.length) throw new ContratoServiceError("MODELO_INCOMPATIVEL_PJ", MENSAGEM_MODELO_INCOMPATIVEL_PJ, 409, { trechos });
 }

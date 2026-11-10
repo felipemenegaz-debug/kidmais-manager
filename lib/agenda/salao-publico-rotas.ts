@@ -42,7 +42,9 @@ export async function respostaListaSaloes(pedido: Pedido) {
   const escopo = await escopoPublico(pedido);
   if (!escopo) return NAO_ENCONTRADO();
   try {
-    const r = await listarSaloesPublicos(db(), escopo, { ...consulta, convidados: consulta.convidados });
+    // E2b (P2-E2b-2): o catálogo efetivo do endereço decide se o combinado tem pacote (o mesmo da etapa de pacotes).
+    const enderecoDaEmpresa = codigoEmpresaDoPedido(pedido.nextUrl) !== null;
+    const r = await listarSaloesPublicos(db(), escopo, { ...consulta, convidados: consulta.convidados }, undefined, { enderecoDaEmpresa });
     return NextResponse.json({ ok: true, data: r }, { headers: { "Cache-Control": "no-store" } });
   } catch (erro) {
     if (erro instanceof SalaoPublicoIndisponivel) return NAO_ENCONTRADO();

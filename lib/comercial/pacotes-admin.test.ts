@@ -78,6 +78,10 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
   const revisao: DbExecutor = {
     async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       chamadas.push(text);
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return { rows: [{ ok: true, empresa: values?.[0] ?? ctx.empresaId } as Row], rowCount: 1 };
+      // Rev. 3: os pacotes tomam a trava da configuração (linha da empresa, advisory e variável da transação).
+      if (text.includes("FOR KEY SHARE") || text.includes("pg_advisory_xact_lock") || text.includes("set_config('kidmais.agenda_config_empresa'")) return { rows: [{} as Row], rowCount: 1 };
       if (text.includes("AS utilizado")) {
         leituras += 1;
         const nova = leituras > 1;
@@ -139,6 +143,10 @@ test("composição de pacote utilizado cria revisão e não reescreve a anterior
       if (text.includes("AS esquerda")) {
         return { rows: [{ esquerda: ctx.empresaId, direita: ctx.empresaId } as Row], rowCount: 1 };
       }
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return { rows: [{ ok: true, empresa: values?.[0] ?? ctx.empresaId } as Row], rowCount: 1 };
+      // Rev. 3: os pacotes tomam a trava da configuração (linha da empresa, advisory e variável da transação).
+      if (text.includes("FOR KEY SHARE") || text.includes("pg_advisory_xact_lock") || text.includes("set_config('kidmais.agenda_config_empresa'")) return { rows: [{} as Row], rowCount: 1 };
       if (text.includes("AS utilizado")) {
         leituras += 1;
         const nova = leituras > 2;

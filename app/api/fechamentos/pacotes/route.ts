@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
-import { buscarPacoteVigenteDaEmpresaPorCodigo, listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories";
-import { PACOTES_CONTRATAVEIS_V1 } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
-import { lerPrecosCorrentes } from "@/lib/comercial/pacote-precos";
+import { pacotesDaOfertaPublica, precoMinimo, precosPublicosDeHoje } from "@/lib/comercial/oferta-publica";
 import { lerRegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import { lerRegrasDisponibilidadePacote } from "@/lib/comercial/disponibilidade-pacote-publica";
 import { convidadosDaConsulta, pacoteComporta } from "@/lib/fechamentos/convidados-consulta";
@@ -13,11 +11,6 @@ import { pacotesElegiveisDoSalao } from "@/lib/agenda/salao-pacotes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function precoMinimo(linhas: Array<{ porConvidado: boolean; min: number; valor: number }>) {
-  if (!linhas.length) return null;
-  return Math.min(...linhas.map((l) => (l.porConvidado ? l.valor * l.min : l.valor))).toFixed(2);
-}
 
 export async function GET(request: NextRequest) {
   const limite = await limitarPublico(request, "LEITURA");
@@ -39,21 +32,16 @@ export async function GET(request: NextRequest) {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const doSalao = salao ? new Set(await pacotesElegiveisDoSalao(db(), escopo.empresaId, salao.toLowerCase())) : null;
     const enderecoDaEmpresa = codigoEmpresaDoPedido(request.nextUrl) !== null;
-    // "A partir de": menor valor do pacote na tabela publicada HOJE (fixo pela faixa; por convidado × mínimo).
-    // Tabela ambígua ou ilegível não derruba a lista: o preço só some (a cotação da etapa seguinte explica).
-    const precos = await lerPrecosCorrentes(db(), escopo.empresaId).catch(() => ({ pacotes: [] as Array<{ pacoteId: string; porConvidado: boolean; min: number; valor: number }> }));
+    // "A partir de" e catálogo efetivo do endereço (endereço atual: os sete V1; /b/<código>: todos os contratáveis da
+    // empresa): os mesmos da faixa do salão combinado (E2b, lib/comercial/oferta-publica).
+    const precos = await precosPublicosDeHoje(db(), escopo.empresaId);
     const pacotes = [];
-    // Endereço atual (dona): os sete, na ordem do catálogo. /b/<código>: todos os pacotes ativos da empresa, na ordem da
-    // tela de Pacotes — inclusive os criados por "Novo pacote" (P_…).
-    const daEmpresa = [];
-    if (enderecoDaEmpresa) daEmpresa.push(...await listarPacotesContrataveisDaEmpresa(escopo.empresaId, db()));
-    else for (const { codigo } of PACOTES_CONTRATAVEIS_V1) daEmpresa.push(await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigo, db()));
-    for (const pacote of daEmpresa) {
-      if (pacote) pacotes.push({
+    for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa)) {
+      pacotes.push({
         codigo: pacote.codigo, nome: pacote.nome, descricao: pacote.descricao,
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
         convidadosMaximos: pacote.convidadosMaximos,
-        precoMinimo: precoMinimo(precos.pacotes.filter((p) => p.pacoteId === pacote.id)),
+        precoMinimo: precoMinimo(precos.filter((p) => p.pacoteId === pacote.id)),
         ...(convidados ? { comporta: pacoteComporta(pacote, convidados) } : {}),
         ...(doSalao ? { noSalao: doSalao.has(pacote.id) } : {}),
         // Endereço da empresa (/b/<código>): dias e períodos configurados por ela para o pacote, para a tela não

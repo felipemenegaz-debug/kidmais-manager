@@ -1,10 +1,18 @@
 # B-14 — Procedimento operacional da recuperação de pagamentos
 
+> **Escopo do B-14 (B-27, 07/11/2026).** Na promoção pelo ramo G-VAZIO ([§9.2.7](PLANO_PROMOCAO_PRODUCTION_20261025.md#927-efeito-sobre-o-backlog)), o B-14, sua entrega em production e H8/H9 ficam fora do caminho executado, por escopo: nesse caminho não há entrega nem execução dele em production, e ele **não é capacidade de recuperação pronta**. Os defeitos conhecidos continuam pendentes, sem aceite retroativo. Uma homologação do B-14 em staging, com H8 e H9, continua sujeita ao próprio roteiro e às próprias autorizações. O encaixe no E0 descrito na §6 de `docs/PLANO_RECUPERACAO_PAGAMENTOS_B14_20261027.md` (plano local) está superado nesse ramo.
+>
+> Antes de qualquer ativação de cobrança em production, a D-COBRANCA-LIVE exige procedimento implementado, revisado, ensaiado e entregue para o código, o schema e o runtime daquele momento, que pode ser o B-14 adaptado ou alternativa equivalente, além dos demais critérios: fechamento formal da dívida, entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe. No ramo COM-DADOS não existe caminho pronto: entrar nele antes de escrever cancela a promoção até a dívida fechar (F-A); depois de escrever, segue o F-B. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada e, nas etapas da promoção G-VAZIO, prevalece sobre o texto abaixo.
+
 Rev. 2, 28/10/2026, LOCAL. A rev. 1 foi REPROVADA pelo Astra: ordem do RESTORE, garantia do código 1 e fila do painel. Plano: `docs/PLANO_RECUPERACAO_PAGAMENTOS_B14_20261027.md` (rev. 8.1); implementação: `docs/RECUPERACAO_PAGAMENTOS_B14_IMPLEMENTACAO.md`.
 
 **Este documento não autoriza nada.** Cada passo cita a autorização de que precisa (§10 do plano). Uma aprovação histórica, de revisão ou de um passo anterior, não vale para o seguinte.
 
 ## 1. Quando usar
+
+> **Bloqueio em production (B-27, 07/11/2026).** Na promoção G-VAZIO nenhum modo abaixo é executado em production. Reativar a fila do webhook no painel é configuração do Asaas, bloqueada enquanto a dívida estiver aberta. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 | Situação | Modo | Autorização |
 | --- | --- | --- |
@@ -67,6 +75,8 @@ Fonte: `modoAdmitido` em `lib/assinatura/recuperacao-execucao.ts`. Cada linha é
 - no RESTORE, nunca repetir o APLICAR-CASO: rodar o CONFERIR-CASO com a `--execucao` da aplicação (APLICADO, NAO_APLICADO ou DIVERGENTE).
 
 ## 5. RESTORE, passo a passo (§5 do plano)
+
+> **Bloqueio em production (B-27, 07/11/2026).** "Retomar os consumidores e crons pausados" não alcança os crons suspensos pela D-VZ-6 nem o E8c adiado pela D-VZ-7. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 **A barreira e a drenagem vêm ANTES de restaurar ou inventariar,** e a barreira dura até a liberação. A tabela da §6 do plano resume a sequência sem a drenagem; vale a §5.
 

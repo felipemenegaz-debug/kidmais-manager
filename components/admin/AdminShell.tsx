@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
-import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { conferirLeituraDaSessao, enderecoFinal } from '@/lib/enderecos/cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
@@ -12,6 +13,7 @@ import { itemAtivo, itensNavegacao, type MenuSatisfacaoNavegacao, type Permissoe
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
+type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean } } };
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
@@ -20,6 +22,9 @@ import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
 import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
+import { artigoDaRota, rotaDaAjuda, type ArtigoPublicado } from '@/lib/suporte/ajuda-da-tela';
+import { hojeBrasilia } from '@/lib/financeiro/calculos';
+import { EmpresaSuporteContext } from './ajuda/CodigoSuporte';
 import { CONSENTIMENTO_MCP, loginDestaPagina } from '@/lib/http/retorno-login';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
@@ -33,9 +38,11 @@ const DEMORA_VERIFICACAO_MS = 8000;
 /** Depois de pedir a navegação da troca: se a página ainda existir (navegação cancelada), o seletor volta a funcionar. */
 const ESPERA_NAVEGACAO_DA_TROCA_MS = 4000;
 
-export default function AdminShell({ children, vitrine }: {
+export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
     children: React.ReactNode;
     vitrine?: { nome: string; caminho: string };
+    /** Artigos da central aprovados e públicos (lidos no layout do servidor): só eles viram "Ajuda desta tela". */
+    artigosAjuda?: readonly ArtigoPublicado[];
 }) {
     const pathReal = usePathname();
     const path = vitrine?.caminho ?? pathReal;
@@ -57,6 +64,8 @@ export default function AdminShell({ children, vitrine }: {
     const contaRef = useRef<HTMLElement>(null);
     const contaBotaoRef = useRef<HTMLButtonElement>(null);
     const router = useRouter();
+    // Sem tela carregada não há o que preservar na troca de host: a falha segue o caminho de hoje (plano D4, H23).
+    const telaCarregada = useRef(false);
     // Lida só com a sessão confirmada (como quando o menu montava o LogoEmpresa); a vitrine fica sem logo.
     const logo = useLogoEmpresa(Boolean(name) && !vitrine && path !== '/admin/login');
     useEffect(() => {
@@ -64,7 +73,11 @@ export default function AdminShell({ children, vitrine }: {
             return;
         let alive = true;
         // Resposta de leitura que saiu antes de uma troca de empresa desta página é da sessão anterior: ignorada.
-        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+        const ctxDe = (marca: ReturnType<typeof marcaDaSessao>) => ({ telaCarregada: () => telaCarregada.current, vivo: () => alive, aindaValida: () => !sessaoObsoletaDesde(marca) && !saidaDaSessaoEmAndamento() });
+        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => conferirLeituraDaSessao<LeituraSessaoShell>({ resposta: r }, ctxDe(marca)), erro => conferirLeituraDaSessao<LeituraSessaoShell>({ erro }, ctxDe(marca))).then(b => {
+            // Null: endereço mudou ou em verificação; a tela fica como está, sem login nem descarte.
+            if (b === null)
+                return;
             if (sessaoObsoletaDesde(marca))
                 return;
             if (!b.ok || !b.data.usuarioId) {
@@ -75,6 +88,7 @@ export default function AdminShell({ children, vitrine }: {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
                 lembrarCsrf(b.data.csrf);
                 if (!registrarContextoEmpresa(b.data.sessaoId, c?.empresaAtual?.id ?? null)) return;
+                telaCarregada.current = true;
                 setName(b.data.nome);
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
@@ -84,8 +98,10 @@ export default function AdminShell({ children, vitrine }: {
             }
         }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
         void carregar();
-        const timer = window.setInterval(carregar, 15000);
-        const foco = () => { void carregar(); };
+        // Estado final da troca de host: para o ciclo de sessão e o foco. A faixa do aviso continua à vista.
+        const ciclo = () => { if (!enderecoFinal()) void carregar(); };
+        const timer = window.setInterval(ciclo, 15000);
+        const foco = ciclo;
         const outraAba = (e: StorageEvent) => { if (e.key === 'kidmais-contexto-alterado') reiniciarContextoEmpresa('A empresa ativa foi trocada em outra aba. Os dados desta tela foram descartados.'); };
         window.addEventListener('focus', foco);
         window.addEventListener('storage', outraAba);
@@ -184,6 +200,7 @@ export default function AdminShell({ children, vitrine }: {
     }
     // Sem empresa com acesso ativo (ex.: só concessão de desenvolvedor, ou vínculos suspensos): nada de negócio é
     // oferecido; a pessoa ainda acessa o perfil, o painel do desenvolvedor (se tiver a concessão) e sai.
+    const ajudaDaTela = vitrine ? null : artigoDaRota(path, artigosAjuda, hojeBrasilia());
     const semEmpresaConteudo = <main className={admin.page}><section aria-labelledby="t-sem-empresa"><h1 id="t-sem-empresa">Sem empresa ativa</h1>
         <p>Sua conta não tem acesso ativo a nenhuma empresa no momento. Se isso for inesperado, fale com a Gestão da empresa ou com quem administra a plataforma.</p>
         {cadastroAberto && <p data-retomar-cadastro>Começou o cadastro e não terminou? <Link href="/cadastro/empresa">Cadastrar sua empresa</Link></p>}
@@ -209,10 +226,10 @@ export default function AdminShell({ children, vitrine }: {
                     return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}{(item.contador ?? 0) > 0 && <span className={styles.contador} aria-label={`${item.contador} abertos`}>{item.contador}</span>}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
-                    <Link href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
+                    <Link href={ROTA_AJUDA} aria-current={rotaDaAjuda(path) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
             </nav>
-            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>}
+            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Copiloto</BotaoPerguntarKidmais>}
             {/* Conta compacta: uma linha no rodapé; o clique abre, acima dela, a troca de empresa, os links da conta e o Sair. */}
             <footer className={styles.contaCompacta} ref={contaRef} onKeyDown={(evento) => {
                 // Esc fecha só o menu da conta (a gaveta do celular continua aberta). O React escuta no próprio document,
@@ -231,7 +248,7 @@ export default function AdminShell({ children, vitrine }: {
                     {cadastroAberto && <Link className={styles.menuContaItem} href="/cadastro/empresa">Cadastrar empresa</Link>}
                     <Link className={styles.menuContaItem} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Meu perfil e senha</Link>
                     {comercial?.cobrado && <Link className={styles.menuContaItem} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Assinatura</Link>}
-                    {!semEmpresa && <Link className={styles.menuContaItem} href={ROTA_AJUDA} aria-current={path === ROTA_AJUDA ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Ajuda e suporte</Link>}
+                    {!semEmpresa && <Link className={styles.menuContaItem} href={ROTA_AJUDA} aria-current={rotaDaAjuda(path) ? 'page' : undefined} onClick={() => { setAberto(false); setContaAberta(false); }}>Ajuda e suporte</Link>}
                     <button type="button" className={styles.menuContaSair} disabled={saindo} onClick={sair}><AdminIcon name="logout" size={14} /> {saindo ? 'Saindo…' : 'Sair'}</button>
                 </div>}
                 <button ref={contaBotaoRef} type="button" className={styles.contaBotao} aria-expanded={contaAberta} aria-controls="menu-conta" aria-label={`Conta de ${name}: ${contaAberta ? 'fechar' : 'abrir'} menu`} onClick={() => setContaAberta((valor) => !valor)}>
@@ -243,15 +260,15 @@ export default function AdminShell({ children, vitrine }: {
                 </button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário). */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && path !== CONSENTIMENTO_MCP && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path)
+        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário); nunca por cima da ajuda, que é onde a pessoa vai entender a agenda. */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && path !== CONSENTIMENTO_MCP && !rotaDaAjuda(path) && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path) && !rotaDaAjuda(path)
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section><ExportacaoEmpresasSuspensas /></main>)
-            : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
+            : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path) && !rotaDaAjuda(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>
                     <p>Os dados de {contexto?.empresaAtual?.nome ?? 'sua empresa'} continuam guardados. Nada foi apagado.</p>
                     <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href={ROTA_AJUDA}>Falar com o suporte</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
                         {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
                         <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
-                : <LogoEmpresaContext.Provider value={logo}><PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider></LogoEmpresaContext.Provider>}</div>
+                : <EmpresaSuporteContext.Provider value={vitrine ? null : contexto?.empresaAtual?.id ?? null}><LogoEmpresaContext.Provider value={logo}>{ajudaDaTela && <Link className={styles.ajudaDaTela} href={`${ROTA_AJUDA}/${ajudaDaTela}`} data-ajuda-da-tela={ajudaDaTela}><span aria-hidden="true">?</span> Ajuda desta tela</Link>}<PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider></LogoEmpresaContext.Provider></EmpresaSuporteContext.Provider>}</div>
     </PerguntarKidmaisProvider></div>;
 }
 

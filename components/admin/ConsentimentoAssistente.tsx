@@ -4,7 +4,7 @@ import admin from '@/components/admin/admin.module.css';
 import { AdminPrimaryButton } from '@/components/admin/AdminPrimaryButton';
 import workspace from '@/components/admin/workspace.module.css';
 import { ROTULO_ESCOPO } from '@/components/admin/ConexoesAssistentes';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, lerCorpoOuNulo, mensagemDoEndereco } from '@/lib/http/admin-fetch';
 
 /**
  * Consentimento OAuth do canal MCP na sessão autenticada do KidMais. Mostra quem pede (aplicativo e endereço de
@@ -126,12 +126,12 @@ export default function ConsentimentoAssistente({ pedidoId }: { pedidoId: string
             const res = await adminFetch(`/api/admin/mcp/consentimento?empresaId=${encodeURIComponent(empresa.id)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedido: pedidoId, escopos, decisao }),
             });
-            const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string; data?: { destino?: string } } | null;
+            const corpo = await lerCorpoOuNulo<{ ok?: boolean; erro?: string; data?: { destino?: string } }>(res);
             const destino = corpo?.data?.destino;
             if (!res.ok || !corpo?.ok || !destino || !/^https:\/\//.test(destino)) { setErro(corpo?.erro ?? 'Não foi possível concluir a conexão.'); return; }
             window.location.assign(destino);
-        } catch {
-            setErro('Resultado incerto. Volte ao aplicativo e confira se a conexão foi criada; nada é reenviado automaticamente.');
+        } catch (falha) {
+            setErro(mensagemDoEndereco(falha) ?? 'Resultado incerto. Volte ao aplicativo e confira se a conexão foi criada; nada é reenviado automaticamente.');
         } finally {
             setOcupado(false);
         }

@@ -24,10 +24,14 @@ test("plano: bloqueia com revisão pendente; cria ou vincula; festa fica pendent
   const novo = classificarMatch(dados, { cpfExistente: null, possiveisDuplicidades: [] });
   const bloqueado = montarPlano(revisao, [], novo, null);
   assert.equal(bloqueado.pronto, false);
-  assert.match(bloqueado.bloqueios[0], /Revise 1 campo/);
+  // Idade sem trecho e o WhatsApp sugerido a partir do celular (v2): os dois pedem confirmação.
+  assert.match(bloqueado.bloqueios[0], /Revise 2 campos/);
   // A lista gravada não basta: a confirmação precisa estar no campo, amarrada ao valor visto.
   assert.equal(montarPlano(revisao, ["evento.idade"], novo, null).pronto, false, "revisados forjados não liberam o plano");
-  const revisado = aplicarRevisao(revisao, [], { campoId: "evento.idade" });
+  const idade = aplicarRevisao(revisao, [], { campoId: "evento.idade" });
+  assert.ok(!("erro" in idade));
+  if ("erro" in idade) return;
+  const revisado = aplicarRevisao(idade.extracao, idade.revisados, { campoId: "contratante.whatsapp" });
   assert.ok(!("erro" in revisado));
   if ("erro" in revisado) return;
   const plano = montarPlano(revisado.extracao, revisado.revisados, novo, null);

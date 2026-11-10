@@ -3,10 +3,12 @@ import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix,
   type PretensaoPixInput, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
-import { registrarAuditoria, registrarEventoHistorico } from "../../clientes/repositories";
+import { buscarClientePorId, registrarAuditoria, registrarEventoHistorico } from "../../clientes/repositories";
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava,
   listarAprovacoesDoFechamento, registrarDecisaoNoFechamento } from "../repositories/fechamento.repository";
 import { FechamentoServiceError } from "./errors";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
+import { exigirModeloCompativelNoFechamento } from "./modelo-pj";
 
 /**
  * `empresaId` é o tenant comprovado pela rota. Fechamento de outra empresa, legado sem empresa ou
@@ -50,6 +52,10 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
   const executar = async (tx: DbExecutor) => {
     // Autorização sem lock; só então trava e revalida a empresa da linha travada.
     await exigirFechamentoDoTenant(id, empresaId, tx);
+    // Liberar agenda com mais de um salão (rodada 3, P1 do Astra): posse provada → configuração da agenda antes do
+    // primeiro FOR UPDATE; a decisão grava em fechamentos e a 114 recusaria sem ela (KD114). KEY_SHARE cobre a chamada
+    // sem customDb; sob o tenant, a empresa já está em FOR UPDATE.
+    await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const f = await buscarFechamentoPorIdParaAtualizacao(id, tx);
     if (!f || await empresaDoFechamentoComTrava(id, tx) !== empresaId) {
       throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);
@@ -82,6 +88,11 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
     if (aprovada && f.valorNegociado !== null && baseInformada === null) {
       throw new FechamentoServiceError("DADOS_INVALIDOS", "Confirme explicitamente a base comercial aprovada.");
     }
+    // R2-2: aprovar leva ao contrato; contratante PJ com modelo que o qualifica como PF é recusado aqui.
+    if (aprovada && f.clienteId) {
+      const cliente = await buscarClientePorId(f.clienteId, tx);
+      if (cliente) await exigirModeloCompativelNoFechamento(tx, cliente);
+    }
     const base = baseInformada ?? f.valorTabela;
     if (aprovada && f.valorNegociado === null && base !== f.valorTabela) {
       throw new FechamentoServiceError("DADOS_INVALIDOS", "Esta revisão é de condição; não há negociação de valor registrada.");
@@ -105,7 +116,7 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
       dadosDepois: { status: fechamento.status, decisaoId: decisao.id, condicaoPagamento: condicao } }, tx);
     if (f.clienteId) await registrarEventoHistorico({ clienteId: f.clienteId, clienteOrigemId: f.clienteId,
       tipoEvento: "REVISAO_COMERCIAL_REGISTRADA", origem: context.origem, entidadeTipo: "FECHAMENTO", entidadeId: id,
-      detalhe: aprovada ? "Condição comercial aprovada pela Kidmais." : "Condição comercial recusada pela Kidmais.",
+      detalhe: aprovada ? "Condição comercial aprovada pelo buffet." : "Condição comercial recusada pelo buffet.",
       metadata: { decisaoId: decisao.id } }, tx);
     return { fechamento, decisao, reutilizada: false };
   };

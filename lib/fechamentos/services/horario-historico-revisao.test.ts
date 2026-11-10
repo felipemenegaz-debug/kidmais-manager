@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 
 /**
  * Revisão de contrato histórico no horário original fora dos turnos atuais (decisão de 04/10/2026): o mesmo destino
@@ -24,13 +25,17 @@ function carregar(f: Record<string, unknown>, candidatos: Array<{ inicio: string
     '../../clientes/repositories': { registrarAuditoria: async (registro: Chamadas['auditorias'][number]) => { chamadas.auditorias.push(registro); } },
     // 094: sem capacidade por salão neste cenário, o destino não exige salão.
     '../../agenda/salao-festa.ts': { escolherSalaoDestinoRevisao: async () => ({ exigido: false, salao: null }) },
+    // Rev. 3: guarda real da configuração da agenda (pg_locks respondido pelo tx simulado).
+    '../../agenda/trava-configuracao.ts': travaConfiguracao,
     './errors': { FechamentoServiceError: class extends Error { code: string; constructor(code: string, message: string) { super(message); this.code = code; } } },
   };
   const exports: Record<string, (...args: never[]) => unknown> = {};
   const code = ts.transpileModule(readFileSync('lib/fechamentos/services/revisao-operacional.service.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   new Function('require', 'exports', code)((name: string) => (name in mocks ? mocks[name] : name === 'node:crypto' ? nativeRequire(name) : {}), exports);
   const tx = {
-    query: async (sql: string) => {
+    query: async (sql: string, params: unknown[] = []) => {
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (sql.includes('pg_locks')) return { rows: [{ ok: true, empresa: params[0] ?? 'empresa' }] };
       if (sql.includes('kidmais019_ocupa')) return { rows: [{ ocupa: true }] };
       if (sql.startsWith('UPDATE fechamento_revisoes SET hold_destino_adquirido_em')) chamadas.holds++;
       return { rows: [] };

@@ -16,7 +16,7 @@ export type CampoConferido = { campo: string; rotulo: string; documento: string 
 export type ResumoIntegracao = {
   cadastro?: CadastroContratual;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
-  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
+  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null; aniversarianteCadastroId?: string; aniversarianteCadastroNome?: string; aniversarianteOpcoes?: Array<{ id: string; nome: string }> };
   /** salao: caso V3 (unidade POR_SALAO, festa futura), conferido pelo operador nesta revisão e incluído no hash. */
   agenda: { ocupa: boolean; descricao: string; salao?: { id: string; nome: string } };
   financeiro: ResumoFinanceiro;
@@ -26,7 +26,7 @@ export type OpcoesIntegracao = {
   disponivel: boolean;
   hoje: string;
   integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number; contratoCancelado?: boolean } | null;
-  cliente: { id: string | null; nome: string; ativo: boolean; cadastro?: CadastroContratual } | null;
+  cliente: { id: string | null; nome: string; ativo: boolean; cadastro?: CadastroContratual; /** Entrega B: só na PJ (CNPJ formatado; não editável aqui). */ pessoaJuridica?: { cnpj: string; nomeFantasia: string | null; representante: string | null } } | null;
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;
   estabelecimentos: Array<{ id: string; nome: string }>;

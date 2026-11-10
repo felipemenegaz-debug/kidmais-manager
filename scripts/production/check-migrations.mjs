@@ -118,9 +118,13 @@ const approvedFiles = [
   '20261018_085_marketing_base.sql',
   // 086: automações de Marketing (mesmo goal local; exige a 085).
   '20261018_086_marketing_automacoes.sql',
+  // 087: fila de avisos por e-mail da assinatura (recorte de production de 02/11/2026; implementada localmente em
+  // 20/10/2026). Aditiva; precheck e postcheck externos (padrão); aplicador manual scripts/migration-087-production.cjs.
+  // Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  '20261019_087_assinatura_avisos.sql',
   // 088: autorização do responsável legal para Convites com IA (parecer da Astra de 21/10/2026). Aditiva; precheck e
-  // postcheck externos (padrão). A 087 é de outro trabalho local (avisos de assinatura por e-mail), ainda não integrado:
-  // número livre numa leitura não é reserva. Validada primeiro em PostgreSQL descartável local. Aplicação em staging
+  // postcheck externos (padrão). A 087 (avisos de assinatura por e-mail) foi integrada em 03/11/2026 (recorte de
+  // production). Validada primeiro em PostgreSQL descartável local. Aplicação em staging
   // registrada pela #200, não confirmada aqui; em produção os registros divergem (só leitura própria e datada decide).
   '20261021_088_convite_ia_autorizacoes.sql',
   // 089–097. Este inventário só reconhece arquivos e nunca lê o banco (appliedState = unknown). Aplicação em staging
@@ -151,7 +155,7 @@ const approvedFiles = [
   '20261022_094_agenda_capacidade.sql',
   // 095: créditos de IA (Convites e Wall-e: carteiras, lotes, extrato imutável, compra avulsa, devolução e corte do
   // legado), implementação local de 22/10/2026. Aditiva; precheck e postcheck externos (padrão). Validada primeiro em
-  // PostgreSQL descartável local (a 087 continua reservada aos avisos de cobrança, fora deste repositório).
+  // PostgreSQL descartável local (a 087 é a dos avisos de cobrança, integrada em 03/11/2026).
   '20261022_095_ia_creditos.sql',
   // 096: comprovante da contratação e arquivo das versões dos documentos legais (grupo B do parecer de apoio, 22/10/2026).
   // Só cria tabelas novas; não altera linhas. Validada primeiro em PostgreSQL descartável local.
@@ -197,6 +201,26 @@ const approvedFiles = [
   // (índice parcial), sucessor obrigatório por gatilho diferido. Quebra o código anterior: código compatível antes (§3).
   // Postcheck GERADO do contrato lib/assinatura/renovacao-schema.ts. 109 conferida livre em 29/10 (clones, vault).
   '20261029_109_renovacao_substituta.sql',
+  // 114: D-LIB-6 do plano "liberar agenda com mais de um salão" (rev. 3; aprovado pelo Astra na rev. 7; Felipe 31/10/2026):
+  // os gatilhos da 019 (lock_ocupacao e agenda da revisão) VERIFICAM a trava da configuração da agenda da empresa antes das
+  // datas (kidmais114_exigir_configuracao, KD114). Corpos recriados do pg_get_functiondef atual (cadeia 109); pré e
+  // pós-check inline por hash do prosrc. Só depois do código que trava as entradas. 110/111 reservadas pela satisfação; 112 é a PJ (staging, ordem por
+  // nome de arquivo: 114 antes da 112); 114 conferida livre em 31/10 (clones, vault).
+  '20261031_114_trava_configuracao_gatilhos.sql',
+  // 112: cliente pessoa jurídica (Entrega B do plano "importação de contrato com dados completos", rev. 2.1 aprovado pelo
+  // Astra): tipo_pessoa, cnpj com DV no banco, razão social, nome fantasia e representante; CNPJ único por empresa (molde da
+  // 076). Aditiva; rollback recusa qualquer dado de PJ. Código compatível antes (sem a 112 recusa PJ). 110/111 reservadas pela
+  // satisfação (só locais); 112 conferida livre em 01/11 (clones, vault).
+  '20261101_112_clientes_pessoa_juridica.sql',
+  '20261103_116_franquias_ciclo.sql',
+  // 117: Atendimento WhatsApp multiempresa (E-ME1; plano "Plano Atendimento WhatsApp multiempresa 20261104" r6.1, aprovado
+  // pelo Astra; D-ME-1..5 de Felipe, 04/11/2026): rodízio do worker e marca de colisão de status. Aditiva; código compatível
+  // antes (sem a 117 o modo efetivo é PILOTO). 117 conferida livre em 04/11 (clones, vault).
+  '20261104_117_atendimento_multiempresa.sql',
+  // 118: cota de leitura de documentos da importação de contratos (L2 do plano "Importação de contratos em lote 20261031",
+  // rev. 5.1 + delta D-LOTE-8 rev. 6.1 aprovados pelo Astra). Aditiva e isolada. 113–115 e 117 tomadas por trabalho local;
+  // 118 conferida livre em 04/11 (clones locais).
+  '20261104_118_importacao_cotas.sql',
   // 110: pesquisa de satisfação pós-festa (PS-1 LOCAL; plano rev. 6 APROVADO pelo Astra, D-PS1..D-PS8 de Felipe, 30/10/2026):
   // ação PESQUISA_SATISFACAO no POS_FESTA, estado PESQUISA_CRIADA (086), envios/respostas/tarefas/entregas, saídas,
   // capacidades por unidade, agregados e expurgos (sem escritor até a PS-6). 110 conferida livre em 30/10 (origin, clones).
@@ -208,12 +232,12 @@ const approvedFiles = [
   // 115: índice (empresa_id, data_evento) em fechamentos para os resultados da pesquisa de satisfação (PS-4 rodada 4
   // LOCAL; P-114 aprovada como desenho pelo Astra, D-PS4-R3-2 de Felipe, 03/11/2026). Só caminho de acesso; remove o 054
   // (empresa_id), redundante com o prefixo do 115 (decisão de Felipe 03/11, investigação 115 × 054). 112–114 tomadas
-  // por outros trabalhos locais; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
+  // por outros trabalhos locais; depois da sincronização com staging (10/11/2026), 110/111/115 vêm depois da 118; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
   '20261103_115_fechamentos_empresa_data.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
-// - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
+// - 049–051 and 114 carry their prechecks (and 114 its postcheck) inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
 // - 055a–d, 058, 059, 060, 065, 080, 081 and 082 (WhatsApp atendimento: 065 kept, reserved by staging; the original
@@ -225,7 +249,7 @@ const approvedFiles = [
 //   a number being free in one reading is never a reservation across sessions)
 //   carry the precheck inline and have an external postcheck.
 const checkFiles = {
-  '049': [], '050': [], '051': [],
+  '049': [], '050': [], '051': [], '114': [],
   '052': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
   '054': ['20260928_054_precheck.sql', '20260928_054_backfill_imediato.sql', '20260928_054_postcheck.sql'],
   '055a': ['20260928_055a_postcheck.sql'], '055b': ['20260928_055b_postcheck.sql'],
@@ -238,7 +262,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '110', '111', '115'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '110', '111', '115'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -286,7 +310,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '110', '111', '115']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

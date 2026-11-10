@@ -41,6 +41,7 @@ export const PACOTES = [
 ];
 const periodos = () => CATALOGOS.turnos.map((t) => ({ codigo: t.codigo, nome: t.nome, inicio: t.inicio, fim: t.fim, disponivel: true }));
 export const FONTES = {
+  async contratoDaEmpresa() { return 'OFICIAL_KIDMAIS'; },
   async prontasAutorizadas(f) { return PRONTAS[f] ?? []; },
   async pacotes() { return PACOTES; },
   async composicao() { return { categorias: [{ nome: 'Salgados', escolhasMin: 0, escolhasMax: 4, itens: ['Coxinha', 'Kibe'] }], inclusos: [], extras: [] }; },

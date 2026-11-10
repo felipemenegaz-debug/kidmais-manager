@@ -17,9 +17,11 @@ import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
 import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
+import { exigirModeloCompativelNoFechamento } from './modelo-pj';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import type { ContratoVersaoRecord } from '../../contratos/repositories';
+import { exigirTravaConfiguracao } from '../../agenda/trava-configuracao.ts';
 type Contexto = {
     usuarioId: string | null;
     validacaoIdentidadeId?: string;
@@ -31,7 +33,7 @@ type Contexto = {
 };
 function recusar(message: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', message, 409); }
 async function auditar(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, acao: string, antes: unknown, depois: unknown) { await registrarAuditoria({ atorTipo: c.usuarioId ? 'USUARIO' : c.validacaoIdentidadeId ? 'CLIENTE' : 'SISTEMA', usuarioId: c.usuarioId, clienteId: r.operacao.clienteId, entidadeTipo: 'FECHAMENTO_REVISAO', entidadeId: r.id, origem: 'FECHAMENTO_ADMIN', acao, requestId: c.requestId ?? null, ip: c.ip ?? null, userAgent: c.userAgent ?? null, dadosAntes: antes === null ? null : { estado: antes }, dadosDepois: { resultado: depois, validacaoIdentidadeId: c.validacaoIdentidadeId ?? null } }, tx); }
-export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
+export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { await exigirTravaConfiguracao(tx); const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
 /**
  * Horário histórico preservado: contrato integrado da importação (origem IMPORTACAO_HISTORICA) cuja revisão mantém
  * EXATAMENTE o destino da reserva vigente — mesma data, início, fim (logo, mesma duração) e turno. Empresa e unidade
@@ -73,7 +75,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
         && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id, op.configuracaoAgendaId);
     // Parecer do Astra (P1): com capacidade por salão, o destino precisa de salão elegível livre (horário × pacote ×
     // salão ativo); o salão da festa só fica se servir no destino.
-    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id) : null;
+    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id, 'PREPARACAO_REVISAO', 'EQUIPE') : null;
     const livre = (candidatoOficial || historicoPreservado) && !(salaoDestino?.exigido && !salaoDestino.salao);
     const revisao = salaoDestino?.gravou ? (await buscarRevisaoDaVersao(r.contrato_versao_id, tx))! : r;
     if (!livre) {
@@ -149,6 +151,12 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
     if (r.revisao_comercial_aprovada === r.revisao)
         return null;
     const f = r.operacao;
+    // R2-2 (Entrega B): aprovar a preparação leva à nova versão do contrato; contratante PJ com modelo ativo que o
+    // qualifica como PF é recusado aqui, antes de qualquer escrita, como na revisão comercial do fechamento.
+    if (f.clienteId) {
+        const cliente = await buscarClientePorId(f.clienteId, tx);
+        if (cliente) await exigirModeloCompativelNoFechamento(tx, cliente);
+    }
     const a = (await tx.query<{
         id: string;
     }>(`INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,valor_aprovado,status,motivo,aprovado_por_usuario_id,condicao_pagamento,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao)
@@ -160,6 +168,9 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
 export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, input: EdicaoFestaInput, c: Contexto) {
     if (r.estado !== 'EM_ELABORACAO' || !c.usuarioId)
         recusar('Preparação congelada ou usuário inválido.');
+    // Horário fora do padrão vale só na correção antes da assinatura; a remarcação de contrato assinado segue os horários oficiais.
+    if (input.horarioPersonalizado)
+        recusar('Horário fora do padrão não vale para alteração de contrato assinado. Escolha um horário do período.');
     // Qualquer edição (data, pacote, comercial, cadastro, vínculo): tenant comprovado pelo
     // chamador = empresa do fechamento da revisão, antes de ler ou alterar qualquer campo. Não
     // depende do payload. Fechamento legado sem empresa falha fechado.
@@ -188,6 +199,11 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         f.clienteId = cliente.id;
         f.aniversarianteId = child.id;
         f.responsavelAdicionalId = input.vinculos.responsavelAdicionalId;
+    }
+    // R2-2: alteração comercial aprova a preparação no fim; o modelo incompatível com PJ recusa antes da primeira escrita.
+    if (input.comercial && f.clienteId) {
+        const contratante = await buscarClientePorId(f.clienteId, tx);
+        if (contratante) await exigirModeloCompativelNoFechamento(tx, contratante);
     }
     await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [f.clienteId]);
     await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [f.aniversarianteId]);

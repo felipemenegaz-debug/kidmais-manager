@@ -8,6 +8,9 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
 import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/saloes-combinados-098.postgres.test.ts";
 
 /**
  * 098 (fase 1 dos salões: salão combinado) no PostgreSQL DESCARTÁVEL, modelo 094 com a 098 aplicada aqui:
@@ -63,7 +66,7 @@ const combinado = (db: Client, c: Cenario, nome: string, membros: string[], unid
 
 /** Festa gravada e confirmada (sem contrato) na conexão dada; o chamador controla a transação. */
 async function festa(db: Client, c: Cenario, cfg: string, data: string, salao: string | null, ini = "15:00", fim = "19:00", unidade: string | null = null) {
-  const f = await id(db, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  const f = await idSalaoFixture(db, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, estabelecimento_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, $8::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid LIMIT 1 RETURNING fechamentos.id`,

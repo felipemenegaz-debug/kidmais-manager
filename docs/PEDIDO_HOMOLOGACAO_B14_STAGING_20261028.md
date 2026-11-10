@@ -1,5 +1,11 @@
 # Pedido de homologação do B-14 em staging/sandbox (28/10/2026, rev. 13 — PREPARAÇÃO, nada autorizado)
 
+> **Escopo do B-14 (B-27, 07/11/2026).** Na promoção pelo ramo G-VAZIO ([§9.2.7](PLANO_PROMOCAO_PRODUCTION_20261025.md#927-efeito-sobre-o-backlog)), o B-14, sua entrega em production e H8/H9 ficam fora do caminho executado, por escopo: nesse caminho não há entrega nem execução dele em production, e ele **não é capacidade de recuperação pronta**. Os defeitos conhecidos continuam pendentes, sem aceite retroativo. Uma homologação do B-14 em staging, com H8 e H9, continua sujeita ao próprio roteiro e às próprias autorizações. O encaixe no E0 descrito na §6 de `docs/PLANO_RECUPERACAO_PAGAMENTOS_B14_20261027.md` (plano local) está superado nesse ramo.
+>
+> Antes de qualquer ativação de cobrança em production, a D-COBRANCA-LIVE exige procedimento implementado, revisado, ensaiado e entregue para o código, o schema e o runtime daquele momento, que pode ser o B-14 adaptado ou alternativa equivalente, além dos demais critérios: fechamento formal da dívida, entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe. No ramo COM-DADOS não existe caminho pronto: entrar nele antes de escrever cancela a promoção até a dívida fechar (F-A); depois de escrever, segue o F-B.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada e, nas etapas da promoção G-VAZIO, prevalece sobre o texto abaixo.
+
 Documento local. Nada aqui foi executado em staging, production, GitHub (além de leitura) ou Asaas. Ele prepara a
 homologação do item 5 da §11 do plano (`docs/PLANO_RECUPERACAO_PAGAMENTOS_B14_20261027.md`, rev. 8.1) e lista o que
 falta ANTES de pedir as autorizações.

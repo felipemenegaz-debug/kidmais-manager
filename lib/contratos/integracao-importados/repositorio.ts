@@ -1,7 +1,8 @@
-import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import type { CadastroContratual, DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { buscarCategoriaHorarioAplicavel } from '../../comercial/repositories/comercial.repository.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
+import { exigirTravaConfiguracao } from '../../agenda/trava-configuracao.ts';
 
 /**
  * Persistência da integração de contratos importados (migration 061). Toda leitura filtra a empresa comprovada
@@ -30,24 +31,42 @@ export async function lerImportacao(tx: DbExecutor, empresaId: string, importaca
   return { id: l.id, clienteId: l.cliente_id, documentoId: l.documento_id, status: l.status, recebimentosDocumento: l.recebimentos_documento, snapshot: l.snapshot && typeof l.snapshot === 'object' ? l.snapshot : null };
 }
 
-export async function documentoOriginal(tx: DbExecutor, empresaId: string, documentoId: string) {
+/**
+ * Original que a extração da importação leu: importação → extração → original, pela cadeia imutável (055c/055d), com
+ * empresa e documento em cada junção. Nunca "a última versão do documento": outra versão do mesmo documento não é o
+ * arquivo conferido nesta importação.
+ */
+export async function documentoOriginal(tx: DbExecutor, empresaId: string, importacaoId: string) {
   const r = await tx.query<{ id: string; sha256: string }>(
-    `SELECT id::text, sha256 FROM ia_documento_originais WHERE documento_id = $1::uuid AND empresa_id = $2::uuid ORDER BY versao DESC LIMIT 1`,
-    [documentoId, empresaId],
+    `SELECT o.id::text, o.sha256
+       FROM ia_importacoes i
+       JOIN ia_extracoes x ON x.id = i.extracao_id AND x.empresa_id = i.empresa_id AND x.documento_id = i.documento_id
+       JOIN ia_documento_originais o ON o.id = x.original_id AND o.empresa_id = x.empresa_id AND o.documento_id = x.documento_id
+      WHERE i.id = $1::uuid AND i.empresa_id = $2::uuid`,
+    [importacaoId, empresaId],
   );
   return r.rows[0] ?? null;
 }
 
-export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>;
+export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>> & DadosPjCliente;
 
 export async function clienteDaEmpresa(tx: DbExecutor, empresaId: string, clienteId: string, travar: boolean): Promise<ClienteIntegracao | null> {
-  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>>(
-    `SELECT id::text, nome_completo, cpf, rg, telefone, whatsapp, email, cep, logradouro, numero, complemento, bairro, cidade, uf, status FROM clientes
-      WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
+  type Pj = { tipo_pessoa: string | null; cnpj: string | null; razao_social: string | null; nome_fantasia: string | null; representante_nome: string | null; representante_cpf: string | null };
+  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>> & Pj>(
+    // Entrega B: campos de PJ por to_jsonb (nulos sem a 112), sem citar coluna que pode não existir.
+    `SELECT c.id::text, c.nome_completo, c.cpf, c.rg, c.telefone, c.whatsapp, c.email, c.cep, c.logradouro, c.numero, c.complemento, c.bairro, c.cidade, c.uf, c.status,
+            to_jsonb(c) ->> 'tipo_pessoa' AS tipo_pessoa, to_jsonb(c) ->> 'cnpj' AS cnpj, to_jsonb(c) ->> 'razao_social' AS razao_social,
+            to_jsonb(c) ->> 'nome_fantasia' AS nome_fantasia, to_jsonb(c) ->> 'representante_nome' AS representante_nome, to_jsonb(c) ->> 'representante_cpf' AS representante_cpf
+       FROM clientes c
+      WHERE c.id = $1::uuid AND c.empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
     [clienteId, empresaId],
   );
   const l = r.rows[0];
-  return l ? { ...l, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
+  if (!l) return null;
+  const { tipo_pessoa, cnpj, razao_social, nome_fantasia, representante_nome, representante_cpf, ...base } = l;
+  // PF não ganha chave nova: o cliente (e tudo que é derivado dele) fica igual ao de antes da 112.
+  const pj = tipo_pessoa === 'PJ' ? { tipoPessoa: 'PJ', cnpj, razaoSocial: razao_social, nomeFantasia: nome_fantasia, representanteNome: representante_nome, representanteCpf: representante_cpf } : {};
+  return { ...base, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status, ...pj };
 }
 
 /** Unidades elegíveis para agenda (regra única da 062: kidmais062_unidade_agendavel; D6). A integração exige a 062. */
@@ -158,6 +177,7 @@ export async function travarDuplicidade(tx: DbExecutor, empresaId: string) {
 
 /** Lock da data no mesmo namespace do Core (kidmais:agenda:YYYY-MM-DD). Segura até o fim da transação. */
 export async function travarData(tx: DbExecutor, data: string) {
+  await exigirTravaConfiguracao(tx);
   await tx.query('SELECT public.kidmais_lock_datas_revisao(ARRAY[$1::date])', [data]);
 }
 
@@ -185,8 +205,14 @@ export type AlcanceDuplicidade = 'MESMO_DIA' | 'OUTRA_DATA';
 /** Datas próximas (em dias) para a busca complementar com sinais combinados; a festa do ano seguinte fica fora. */
 export const JANELA_DATA_PROXIMA_DIAS = 90;
 
-/** Nome comparável no SQL: sem acento, minúsculo, espaços simples. */
-const NOME_SQL = (expr: string) => `lower(translate(regexp_replace(btrim(${expr}), '\\s+', ' ', 'g'), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ', 'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn'))`;
+/**
+ * Nome comparável no SQL. Política: forma canônica NFD (não a de compatibilidade), sem o bloco inteiro de marcas combinantes
+ * U+0300–U+036F, minúsculo, espaços simples. Composto e decomposto dão sempre o mesmo resultado, em qualquer letra aceita.
+ * Letras sem decomposição canônica (ø, ß, ł) não viram outras, mas a caixa delas é ignorada: lower() usa a collation Unicode
+ * pg_c_utf8, igual em qualquer locale do banco (Ø = ø mesmo em locale C). Remove as marcas desse bloco, não todas as marcas
+ * Unicode. Exige PostgreSQL 17 ou mais novo e banco UTF8: normalize() e pg_c_utf8 não existem fora disso.
+ */
+const NOME_SQL = (expr: string) => `lower(regexp_replace(regexp_replace(normalize(btrim(${expr}), NFD), '[\u0300-\u036f]', '', 'g'), '\\s+', ' ', 'g') COLLATE "pg_c_utf8")`;
 /** Só os dígitos (CPF e telefone comparáveis no SQL). */
 const DIGITOS_SQL = (expr: string) => `regexp_replace(coalesce(${expr}, ''), '\\D', '', 'g')`;
 
@@ -349,13 +375,19 @@ export async function chaveUsadaEmOutra(tx: DbExecutor, chave: string, importaca
   return r.rows[0]?.outra === true;
 }
 
-/** Aniversariante ativo do cliente com o mesmo nome (o CRM já impede dois ativos com o mesmo nome no cliente). */
-export async function aniversarianteDoCliente(tx: DbExecutor, clienteId: string, nome: string) {
-  const r = await tx.query<{ id: string }>(
-    `SELECT id::text FROM aniversariantes WHERE cliente_id = $1::uuid AND ativo AND lower(btrim(nome)) = lower(btrim($2)) ORDER BY criado_em LIMIT 1`,
+/**
+ * Aniversariantes ativos do cliente com nome equivalente, ignorando acento, caixa e espaços: o documento costuma vir sem
+ * acento e não pode criar um segundo cadastro da mesma criança. Mais de um resultado é ambiguidade, resolvida pelo operador
+ * (resolverAniversariante): grafia e antiguidade nunca escolhem sozinhas.
+ */
+export async function aniversariantesDoCliente(tx: DbExecutor, clienteId: string, nome: string) {
+  const r = await tx.query<{ id: string; nome: string }>(
+    `SELECT id::text, nome FROM aniversariantes
+      WHERE cliente_id = $1::uuid AND ativo AND ${NOME_SQL('nome')} = ${NOME_SQL('$2::text')}
+      ORDER BY criado_em, id`,
     [clienteId, nome],
   );
-  return r.rows[0]?.id ?? null;
+  return r.rows;
 }
 
 /** Resultado já gravado de uma integração (repetição após timeout devolve o mesmo, sem escrever nada). */

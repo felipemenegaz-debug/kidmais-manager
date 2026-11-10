@@ -32,21 +32,38 @@ const enderecoCompleto = (c: Endereco) => CAMPOS_ENDERECO_EXIGIDOS.every(k => !!
  * payload: a tela não o envia, e o servidor valida o cadastro já mesclado com o CRM. O fechamento nativo continua
  * exigindo o cadastro completo (camposFaltantesParaContrato), fora deste schema.
  */
-export const cadastroPayloadSchema = z.object({
+const objetoCadastro = z.object({
   nomeCompleto: texto.min(3, 'Informe o nome completo.'), cpf: texto.transform(digitos).refine(t => t.length === 11 && cpfValidoServico(t), 'Informe um CPF válido.'),
   rg: texto, telefone: telefone.optional(), whatsapp: telefone,
   email: texto.toLowerCase().refine(t => !t || z.email().safeParse(t).success, 'E-mail inválido.'),
   cep: texto.transform(digitos).refine(t => !t || t.length === 8, 'Informe um CEP válido.'),
   logradouro: texto, numero: texto, complemento: texto, bairro: texto, cidade: texto,
   uf: texto.toUpperCase().refine(t => !t || /^[A-Z]{2}$/.test(t), 'Informe a UF com 2 letras.'),
+}).strict();
+const mensagemEndereco = { message: 'Complete o endereço (logradouro, número, bairro, cidade e UF) ou deixe-o em branco.', path: ['logradouro'] };
+export const cadastroPayloadSchema = objetoCadastro
+  .refine(c => !enderecoInformado(c) || enderecoCompleto(c), mensagemEndereco);
+/**
+ * Entrega B (112): cadastro da conferência para cliente PJ. O nome é a razão social; CPF e RG ficam vazios (PJ não tem
+ * CPF próprio; o do representante fica no cadastro do cliente). CNPJ e representante não são editados na conferência
+ * (R2-5): vêm do cadastro do cliente.
+ */
+export const cadastroPayloadPjSchema = objetoCadastro.extend({
+  nomeCompleto: texto.min(3, 'Informe a razão social.'),
+  cpf: texto.refine(t => t === '', 'Pessoa jurídica não tem CPF próprio: deixe em branco.'),
+  rg: texto.refine(t => t === '', 'Pessoa jurídica não tem RG: deixe em branco.'),
 }).strict()
-  .refine(c => !enderecoInformado(c) || enderecoCompleto(c), { message: 'Complete o endereço (logradouro, número, bairro, cidade e UF) ou deixe-o em branco.', path: ['logradouro'] });
+  .refine(c => !enderecoInformado(c) || enderecoCompleto(c), mensagemEndereco);
 /**
  * Regra de contato aplicada ao cadastro COMPLETO (tela: formulário com o telefone do CRM; servidor: CRM mesclado com o
  * payload). Não vale para o payload isolado, que não traz o telefone.
  */
 export const cadastroContratualSchema = cadastroPayloadSchema
   .refine(c => !!(c.telefone || c.whatsapp), { message: 'Informe o WhatsApp.', path: ['whatsapp'] });
+export const cadastroContratualPjSchema = cadastroPayloadPjSchema
+  .refine(c => !!(c.telefone || c.whatsapp), { message: 'Informe o WhatsApp.', path: ['whatsapp'] });
+/** Schema da conferência pelo tipo de pessoa do cliente (o tipo vem do cadastro, nunca do payload). */
+export const cadastroContratualDoTipo = (tipoPessoa: string | null | undefined) => tipoPessoa === 'PJ' ? cadastroContratualPjSchema : cadastroContratualSchema;
 /** Cadastro como chega da conferência: igual a CadastroContratual, com `telefone` opcional (a tela não o envia). */
 export type CadastroConferido = z.infer<typeof cadastroPayloadSchema>;
 
@@ -55,6 +72,24 @@ export type EnderecoContratante = { cep: string | null; logradouro: string; nume
 export function enderecoDoCadastro(c: Endereco): EnderecoContratante | null {
   if (!enderecoInformado(c)) return null;
   return { cep: c.cep || null, logradouro: c.logradouro, numero: c.numero, complemento: c.complemento || null, bairro: c.bairro, cidade: c.cidade, uf: c.uf };
+}
+
+/** Dados da PJ no cliente (112). Ausentes no cliente PF e em todo cliente antes da 112. */
+export type DadosPjCliente = {
+  tipoPessoa?: string | null; cnpj?: string | null; razaoSocial?: string | null; nomeFantasia?: string | null;
+  representanteNome?: string | null; representanteCpf?: string | null;
+};
+
+/**
+ * Campos de PJ do snapshot do contratante (Entrega B, R2-2). PF devolve {}: nenhuma chave nova, e o snapshot PF (e o
+ * hash dele) fica byte a byte igual ao de antes da 112.
+ */
+export function contratantePjSnapshot(c: DadosPjCliente) {
+  if (c.tipoPessoa !== 'PJ') return {};
+  return {
+    tipoPessoa: 'PJ' as const, cnpj: c.cnpj ?? '', razaoSocial: c.razaoSocial ?? null, nomeFantasia: c.nomeFantasia || null,
+    representante: c.representanteNome ? { nome: c.representanteNome, cpf: c.representanteCpf || null } : null,
+  };
 }
 
 export function contratanteSnapshot(c: CadastroContratual & { id: string }) {

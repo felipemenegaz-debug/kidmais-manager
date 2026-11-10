@@ -7,14 +7,15 @@ import { atualizarAniversarianteApi, cadastrarAniversarianteApi, obterClienteApi
 import ContratosImportadosDoCliente from "./ContratosImportadosDoCliente";
 import {
   calcularIdade,
-  formatCpf,
+  documentoExibicaoCliente,
   formatData,
   formatTelefone,
+  nomeExibicaoCliente,
 } from "@/lib/clientes/utils";
 import ClienteLixeira from "./ClienteLixeira";
 import Contratacoes from "@/components/festas/Contratacoes";
 import OrigemPainel from "@/components/admin/marketing/OrigemPainel";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import ProdutoBrand from "@/components/layout/ProdutoBrand";
 import styles from "./Clientes.module.css";
 
 type Tab = "resumo" | "aniversariantes" | "eventos" | "responsaveis";
@@ -131,6 +132,8 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
   }
 
   const { cliente, aniversariantes, responsaveis, cadastro } = detalhe;
+  const documentoCabecalho = documentoExibicaoCliente(cliente, true);
+  const documentoContratante = documentoExibicaoCliente(cliente);
   const completo = cadastro.completoParaContrato;
   const camposFaltantes = cadastro.camposFaltantes;
 
@@ -140,16 +143,16 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
       <div className={styles.decoracaoDois} />
       <div className={styles.shell}>
         <header className={styles.topbar}>
-          <KidmaisBrand compact context="manager" href="/clientes" />
+          <ProdutoBrand href="/clientes" />
           <Link className={styles.backLink} href="/clientes">← Clientes</Link>
         </header>
 
         <section className={styles.profileHeader}>
           <div>
             <p className={styles.eyebrow}>Perfil do cliente</p>
-            <h1>{cliente.nomeCompleto}</h1>
+            <h1>{nomeExibicaoCliente(cliente)}</h1>
             <div className={styles.profileMeta}>
-              <span>CPF: {formatCpf(cliente.cpf, true)}</span>
+              <span>{documentoCabecalho.rotulo}: {documentoCabecalho.valor}</span>
               <span>WhatsApp: {formatTelefone(cliente.whatsapp)}</span>
               {completo ? (
                 <b className={styles.completeBadge}>Cadastro completo ✓</b>
@@ -319,8 +322,9 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
 
             <article className={styles.responsiblePrimary}>
               <div className={styles.cardLabel}>Contratante principal</div>
-              <h3>{cliente.nomeCompleto}</h3>
-              <p>CPF: {formatCpf(cliente.cpf)}</p>
+              <h3>{nomeExibicaoCliente(cliente)}</h3>
+              <p>{documentoContratante.rotulo}: {documentoContratante.valor}</p>
+              {cliente.tipoPessoa === "PJ" && <p>Representante: {cliente.representanteNome ?? "Não informado"}</p>}
               <p>WhatsApp: {formatTelefone(cliente.whatsapp)}</p>
               <p>E-mail: {cliente.email ?? "Não informado"}</p>
             </article>

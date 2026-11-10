@@ -58,7 +58,7 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
         {!dados && !erro && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {dados && !dados.cobrado && <section className={workspace.card} aria-labelledby="t-sem-cobranca" style={{ maxWidth: 720 }}>
             <h2 id="t-sem-cobranca">Sem cobrança</h2>
-            <p className={workspace.muted}>Esta empresa não tem assinatura registrada no Kidmais Manager. O acesso é completo.</p>
+            <p className={workspace.muted}>Esta empresa não tem assinatura registrada no iA.Fest. O acesso é completo.</p>
         </section>}
         {dados && a && <section className={workspace.card} aria-labelledby="t-situacao" style={{ maxWidth: 720 }}>
             <h2 id="t-situacao">{SITUACAO[a.situacao] ?? a.situacao}</h2>
@@ -94,7 +94,7 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
             {dados.precos && (dados.precos.MENSAL || dados.precos.ANUAL)
                 ? <p>{[dados.precos.MENSAL ? `${reais(dados.precos.MENSAL)} por mês` : null, dados.precos.ANUAL ? `${reais(dados.precos.ANUAL)} por ano` : null].filter(Boolean).join(' · ')}</p>
                 : <p className={workspace.muted}>Os planos ainda não estão publicados neste ambiente.</p>}
-            <p className={workspace.muted}>A contratação on-line ainda não está disponível. <Link href={ROTA_AJUDA}>Fale com a Kidmais</Link> para assinar.</p>
+            <p className={workspace.muted}>A contratação on-line ainda não está disponível. <Link href={ROTA_AJUDA}>Fale com a equipe iA.Fest</Link> para assinar.</p>
         </section>)}
     </main>;
 }

@@ -37,7 +37,7 @@ import { TELAS_NAVEGACAO, destinoSeguro, type TelaNavegacao } from "./rotas-nave
 import { anotarOrquestracao, anotarSkill, anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
- * Orquestrador do drawer "Perguntar ao Kidmais".
+ * Orquestrador do drawer "Perguntar ao Copiloto".
  *
  * texto → intenção (regras; modelo só como fallback) → capacidade registrada → política →
  *   READ: mesma execução do gateway;
@@ -259,7 +259,7 @@ type Execucao = {
 async function responderLeitura(capacidade: string, parametros: Record<string, unknown>, origem: OrigemChamada, e: Execucao): Promise<AIResponse> {
   e.rastreio.intencao = origem;
   const ferramenta = ferramentaRegistrada(capacidade);
-  if (!ferramenta) return naoSuportado("Essa análise ainda não está disponível no Kidmais.");
+  if (!ferramenta) return naoSuportado("Essa análise ainda não está disponível no Copiloto.");
   // IA operacional: os parâmetros que o operador ESCREVEU entram só no cálculo (schema estrito da ferramenta valida).
   if (capacidade === "calcular_consumo" && e.consumo) {
     const categoria = parametros.categoria as CategoriaConsumo | undefined;
@@ -307,7 +307,7 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
   let resposta: AIResponse;
   // Ação sem manifesto no Tool Registry não é oferecida (fail-closed), mesmo que o módulo a tenha registrado.
   if (!acoes || !acao || !manifestoAcao(acao)) {
-    resposta = naoSuportado("Essa ação ainda não está disponível no Kidmais.");
+    resposta = naoSuportado("Essa ação ainda não está disponível no Copiloto.");
   } else if (acao.origem === "TELA") {
     resposta = naoSuportado("Essa ação começa pela tela própria (por exemplo, Contratos › Importar contrato antigo).");
   } else if (acao.classe === "DENY") {
@@ -321,13 +321,13 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
       const alvo = acaoCap && recursoCap && !doTexto.recurso ? { ...doTexto, acao: acaoCap, recurso: recursoCap } : doTexto;
       resposta = { ...naoSuportado(mensagemIndisponivel(alvo, acao.mensagemNegada ?? null)), entendimento: "CAPACIDADE_INDISPONIVEL" };
     } else if (pedeAutonomia(normalizar(e.texto))) {
-      resposta = { ...naoSuportado("Nada é confirmado sozinho: toda ação do Kidmais passa pela sua confirmação na tela."), entendimento: "NEGADO_POLITICA" };
+      resposta = { ...naoSuportado("Nada é confirmado sozinho: toda ação do Copiloto passa pela sua confirmação na tela."), entendimento: "NEGADO_POLITICA" };
     } else {
-      resposta = { ...naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Kidmais."), entendimento: "NEGADO_POLITICA" };
+      resposta = { ...naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Copiloto."), entendimento: "NEGADO_POLITICA" };
     }
   } else if (!grupoAtivo(deps.env, acao.grupo)) {
     rastreio.politica = "NEGADO_FLAG";
-    resposta = naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado. Use a tela correspondente.");
+    resposta = naoSuportado("Criar e alterar cadastros pelo Copiloto ainda não está liberado. Use a tela correspondente.");
   } else {
     rastreio.ferramenta = acao.ferramenta;
     rastreio.ferramentasSolicitadas = [...rastreio.ferramentasSolicitadas, acao.ferramenta];
@@ -335,7 +335,7 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
       rastreio.empresaId = tenant.empresaComprovada;
       rastreio.politica = avaliarPolitica({ papel: papelParaPolitica(e.sessao, tenant) }, acao, "HUMAN_GATE");
       if (!grupoAtivoParaEmpresa(deps.env, acao.grupo, tenant.empresaComprovada)) {
-        return naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado para esta empresa.");
+        return naoSuportado("Criar e alterar cadastros pelo Copiloto ainda não está liberado para esta empresa.");
       }
       return (await acoes.iniciar(acao.capacidade, e.texto, e.contextoExtensao(tx, tenant), doModelo)).resposta;
     });
@@ -982,11 +982,11 @@ async function responderIntencao(intencao: Intencao, contexto: ContextoTela | nu
   const { rastreio } = e;
   if (intencao.tipo === "revisao_humana") {
     rastreio.estado = "revisao_humana";
-    return naoSuportado("Esse pedido precisa de uma pessoa da equipe. Encaminhe pelo atendimento; o Kidmais não responde nem age sozinho neste caso.");
+    return naoSuportado("Esse pedido precisa de uma pessoa da equipe. Encaminhe pelo atendimento; o Copiloto não responde nem age sozinho neste caso.");
   }
   if (intencao.tipo === "nenhuma") {
     rastreio.estado = "nao_suportado";
-    return naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:");
+    return naoSuportado("Ainda não sei responder isso pelo Copiloto. Veja o que consigo fazer agora:");
   }
   if (intencao.tipo === "precisa_contexto") {
     rastreio.capacidade = intencao.capacidade;
@@ -1221,7 +1221,7 @@ async function coordenar(e: Execucao, acoes: ModuloAcoes, operacaoId: string): P
       const alvo = acoes.descrever(decisao.capacidade);
       // Novo objetivo indisponível (sem ação, DENY, flag): diz o que entendeu e preserva o rascunho atual.
       if (!alvo || alvo.classe !== "CONFIRM" || alvo.origem === "TELA" || !grupoAtivo(deps.env, alvo.grupo) || !acoes.substituir) {
-        return { resposta: { ...naoSuportado(`Entendi que você quer ${decisao.capacidade === "preparar_contratacao" ? "preparar a contratação de uma festa" : "outro cadastro"}, mas isso ainda não está disponível pelo Kidmais. O rascunho “${situacao.titulo}” continua aberto.`), entendimento: "CAPACIDADE_INDISPONIVEL" } };
+        return { resposta: { ...naoSuportado(`Entendi que você quer ${decisao.capacidade === "preparar_contratacao" ? "preparar a contratação de uma festa" : "outro cadastro"}, mas isso ainda não está disponível pelo Copiloto. O rascunho “${situacao.titulo}” continua aberto.`), entendimento: "CAPACIDADE_INDISPONIVEL" } };
       }
       const r = await noTenant((ctx) => acoes.substituir!(operacaoId, decisao.capacidade, e.texto, ctx));
       anotarRascunho(rastreio, r);
@@ -1548,7 +1548,7 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
         return pausa({ tipo: "nao_suportado", mensagem: ent.esclarecimento ?? ambigua?.mensagem ?? "Pode me dizer um pouco mais do que você quer fazer?", sugestoes: ambigua?.sugestoes ?? [], entendimento: "AMBIGUO" });
       }
       case "FORA_DO_ESCOPO":
-        return pausa({ ...naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"), entendimento: "CAPACIDADE_INDISPONIVEL" });
+        return pausa({ ...naoSuportado("Ainda não sei responder isso pelo Copiloto. Veja o que consigo fazer agora:"), entendimento: "CAPACIDADE_INDISPONIVEL" });
     }
   }
 
@@ -1720,7 +1720,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     // Tenant Context / Policy / entidade de outra empresa: recusa fail-closed, registrada como tal.
     rastreio.entendimento = falha.status === 401 || falha.status === 403 || falha.status === 404 ? "NEGADO_POLITICA" : null;
     rastreio.objetivo ??= objetivoDaCapacidade(rastreio.capacidade) ?? (rastreio.navegacao?.recurso ? `ABRIR:${rastreio.navegacao.recurso}` : null);
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try {

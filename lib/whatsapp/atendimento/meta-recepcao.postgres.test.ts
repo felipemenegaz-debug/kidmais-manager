@@ -6,6 +6,7 @@ import { carregarComponente } from "../../../components/admin/teste-componente.t
 import * as credencial from "../credencial.ts";
 import * as core from "./core.ts";
 import * as configuracaoReal from "./configuracao.ts";
+import * as multiempresa from "./multiempresa.ts";
 import { carregarAtendimento, cod, db, transporteSemRede, withTransaction } from "./harness-postgres.ts";
 import { receberWebhookMeta } from "../../integracoes/meta/webhook.ts";
 
@@ -66,7 +67,7 @@ test("Meta: webhook → empresa dona do número → recepção, status e envio",
     const { servico } = carregarAtendimento(A);
     const configuracao = { ...configuracaoReal, ambienteAtendimento: () => "staging", empresaPiloto: () => A };
     const meta = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
-      "../../db/postgres.ts": { db, withTransaction }, "../credencial.ts": credencial, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede,
+      "../../db/postgres.ts": { db, withTransaction }, "../credencial.ts": credencial, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,
     }).modulo as typeof import("./meta.ts");
 
     const env = { META_APP_SECRET: SEGREDO_APP, KIDMAIS_DEPLOY_ENV: "staging" };

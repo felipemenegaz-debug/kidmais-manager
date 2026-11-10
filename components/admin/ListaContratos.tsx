@@ -37,8 +37,8 @@ function Pagamento({ f }: { f: FinanceiroLista }) {
 }
 
 /**
- * `filtroInicial`/`buscaInicial` vêm da URL; `onFiltro` grava a troca na URL, para voltar à lista como estava. Se a URL
- * mudar com a lista montada (ex.: item "Contratos" do menu), filtro e busca da URL são reaplicados durante o render.
+ * `filtroInicial` vem da URL e `buscaInicial` da memória de `ContratoAdmin`; `onFiltro` avisa a troca, para voltar à lista
+ * como estava. Se esses valores mudarem com a lista montada (ex.: item "Contratos" do menu), são reaplicados durante o render.
  */
 export default function ListaContratos({ onAbrir, filtroInicial = 'proximas', buscaInicial = '', onFiltro }: { onAbrir(selecao: string): void; filtroInicial?: Aba; buscaInicial?: string; onFiltro?(aba: Aba, busca: string): void }) {
   const [aba, setAba] = useState<Aba>(filtroInicial), [texto, setTexto] = useState(buscaInicial), [busca, setBusca] = useState(buscaInicial);

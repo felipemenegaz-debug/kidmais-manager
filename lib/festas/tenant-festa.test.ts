@@ -124,6 +124,8 @@ function ambiente(o: Opcoes = {}) {
       contrato: async (_t: unknown, id: string, lock: boolean) => { log.push(`contrato(${id},${lock})`); return { id, versao_id: VERSAO, status: "ASSINADO", snapshot: { evento: { convidados: 10 } } }; },
     },
     "../contratos/services/cancelamento.service": { cancelarContratacaoDaFesta: async () => undefined },
+    // Rev. 3: trava de entrada da configuração da agenda (só cancelar_contratacao a toma).
+    "../agenda/trava-configuracao": { travarConfiguracaoAgenda: async (_t: unknown, empresa: string, o: { modo: string; linha: string }) => { log.push(`travarConfiguracaoAgenda(${empresa},${o.modo},${o.linha})`); } },
     "../clientes/repositories/auditoria.repository": { registrarAuditoria: async () => { escritas.push("auditoria"); } },
     "../pagamentos/services/financeiro-consulta.service": {},
     "../autenticacao/service": { consultarSessao: async (_t: unknown, _x: unknown, lock: boolean) => { log.push(`sessao(${lock})`); return sessao; } },

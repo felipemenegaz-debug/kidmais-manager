@@ -10,8 +10,31 @@ import { estruturaFesta019Sql } from "../festas/estrutura-019.ts";
 import { cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
 import { consultarDisponibilidadeData } from "../disponibilidade/services/availability.service.ts";
 import { verificarConflitoAgendaParaConfirmacao } from "../disponibilidade/repositories/disponibilidade.repository.ts";
-import { escolherSalao, escolherSalaoDaFesta } from "./salao-festa.ts";
+import { escolherSalao } from "./salao-festa.ts";
+import { empresaDoFechamento, travarConfiguracaoAgenda } from "./trava-configuracao.ts";
+
+/** Transação própria (como a confirmação por pagamento): trava a configuração da empresa da festa antes da agenda. */
+async function naEntrada<T>(fechamentoId: string, corpo: () => Promise<T>) {
+  await a.query("BEGIN");
+  try {
+    // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+    await travarConfiguracaoAgenda(tx, (await empresaDoFechamento(tx, fechamentoId))!, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+    const r = await corpo();
+    await a.query("COMMIT");
+    return r;
+  } catch (error) {
+    await a.query("ROLLBACK");
+    throw error;
+  }
+}
+
+// D-LIB-4 (entrada 12): antigo escolherSalaoDaFesta, agora só no teste; festa sem contrato = escolha automática (B2).
+const escolherSalaoDaFesta = async (tx: Parameters<typeof escolherSalao>[0], fechamentoId: string) =>
+  (await naEntrada(fechamentoId, () => escolherSalao(tx, fechamentoId, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true }))).salao;
 import { revalidarHorarioSelecionado } from "../disponibilidade/services/availability.service.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/capacidade-094.postgres.test.ts";
 
 /**
  * 094 no PostgreSQL DESCARTÁVEL (modelo 093 + 094 aplicada aqui): a regra de conflito do banco (gatilhos da 019/062
@@ -43,7 +66,7 @@ async function configurar(c: Cenario, tipo: "POR_HORARIO" | "POR_SALAO", limite:
 async function confirmada(c: Cenario, cfg: string, inicio: string, fim: string, salao: string | null = null) {
   await a.query("BEGIN");
   try {
-    const f = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    const f = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
         SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid RETURNING fechamentos.id`,
@@ -145,7 +168,7 @@ test("parecer do Astra P1: horário só S1 × pacote só S2 — sem salão poss�
       SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO' FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid RETURNING fechamentos.id`,
     [D, cfg, c.empresa, c.pacote]);
-  assert.deepEqual(await escolherSalao(tx, f), { exigido: true, salao: null }, "exigido e sem salão: quem confirma recusa");
+  assert.deepEqual(await naEntrada(f, () => escolherSalao(tx, f, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true })), { exigido: true, salao: null }, "exigido e sem salão: quem confirma recusa");
 });
 
 test("parecer do Astra P2: o destino de uma remarcação não conta a mesma festa duas vezes (contagem por fechamento)", async () => {

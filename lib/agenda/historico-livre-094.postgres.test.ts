@@ -7,6 +7,9 @@ import {
   ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, cenario, completarCliente, congelarEAssinarKidmais, cpfValido, decisoes, dia, executor, id,
   importacao, integrarLegadoV1, PARCIAL, poolNaTransacao, validarAgora, type Cenario, type Servico,
 } from "../../scripts/integracao-importados-test-support.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/historico-livre-094.postgres.test.ts";
 
 /**
  * Correções da validação no navegador (22–23/10/2026), no PostgreSQL DESCARTÁVEL com o inventário até a 094: festa
@@ -55,7 +58,7 @@ const salao = (c: Cenario, nome: string, ordem: number) =>
 
 /** Outra festa confirmada (sem contrato) num salão, no horário livre. */
 async function ocupante(c: Cenario, cfg: string, data: string, inicio: string, fim: string, salaoId: string) {
-  const f = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+  const f = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, $2::time, $3::time, $4::uuid, $5::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $7::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $6::uuid LIMIT 1 RETURNING fechamentos.id`,

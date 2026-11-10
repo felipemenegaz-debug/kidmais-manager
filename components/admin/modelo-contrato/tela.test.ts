@@ -5,6 +5,7 @@ import * as conteudoMod from '../../../lib/contratos/modelo-empresa/conteudo.ts'
 import * as contratadaMod from '../../../lib/contratos/modelo-empresa/contratada.ts';
 import * as edicaoMod from '../../../lib/contratos/modelo-empresa/edicao.ts';
 import * as fixosMod from '../../../lib/contratos/modelo-empresa/valores-fixos.ts';
+import * as compatibilidadePjMod from '../../../lib/contratos/modelo-empresa/compatibilidade-pj.ts';
 import { CAMPOS_CONTRATO, CAMPOS_IDENTIFICACAO } from '../../../lib/contratos/modelo-empresa/campos.ts';
 import type { ConteudoModelo } from '../../../lib/contratos/modelo-empresa/conteudo.ts';
 import * as controleMod from './controleSalvamento.ts';
@@ -58,6 +59,8 @@ function montar() {
     'next/navigation': { useRouter: () => ({ push() {} }) },
     '@/lib/http/admin-fetch': { adminFetch },
     '@/lib/contratos/modelo-empresa/conteudo': conteudoMod, '@/lib/contratos/modelo-empresa/contratada': contratadaMod,
+    // Entrega B: aviso "Não serve para cliente pessoa jurídica" (função pura, módulo real).
+    '@/lib/contratos/modelo-empresa/compatibilidade-pj': compatibilidadePjMod,
     '@/lib/contratos/modelo-empresa/edicao': edicaoMod, '@/lib/contratos/modelo-empresa/valores-fixos': fixosMod,
     './modelo-contrato/controleSalvamento': controleMod, './modelo-contrato/protegerSaida': protegerMod, './modelo-contrato/partes': Partes,
     './workspace.module.css': cssFalso, './importacao-tabela.module.css': cssFalso, './modelo-contrato.module.css': cssFalso,

@@ -133,7 +133,7 @@ async function accessibility(page, scenario) {
         await capture(page,'390-planos-fechados-sem-precos');
         await page.goto(live+'/planos'); assert.equal(await page.locator('main a[href="/cadastro"]').count(),3);
         results.checks.push('/planos cadastro aberto/fechado; preços e WhatsApp condicionais');
-        await page.goto(closed+'/cadastro'); await page.getByText('O cadastro de novas empresas ainda não está aberto. Fale com a Kidmais para começar.').waitFor();
+        await page.goto(closed+'/cadastro'); await page.getByText('O cadastro de novas empresas ainda não está aberto. Fale com a equipe iA.Fest para começar.').waitFor();
         await page.goto(live+'/cadastro'); await page.getByLabel('Seu nome',{exact:true}).waitFor();
         results.checks.push('/cadastro mantém formulário aberto e mensagem de cadastro fechado; nenhum POST realizado');
         await page.goto(live+'/termos#cancelamento'); assert.equal(await page.locator('#cancelamento').count(),1);

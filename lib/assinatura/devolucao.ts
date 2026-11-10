@@ -17,6 +17,7 @@
  * (docs/CANCELAMENTO_DEVOLUCAO_20261021.md). A sincronização ignora a cobrança devolvida (sincronizacao.ts), então nem o
  * webhook nem a reconciliação reabrem o período ou alarmam por causa dela.
  */
+import { exigirCobrancaDestravada } from './trava-cobranca.ts';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import type { TenantComprovado } from '../saas/provar-tenant.ts';
@@ -117,6 +118,19 @@ function calcular(local: Local, cobrancas: readonly CobrancaProvedor[] | null, a
     return { opcoes, base };
 }
 
+/**
+ * D1 — grava o resultado da remoção no pedido e, removida/ausente, marca a assinatura. Empresa ANTES da assinatura (F1 r3):
+ * o UPDATE de empresa_assinaturas dispara o gatilho 068, que pede a empresa FOR UPDATE; sem a trava antes, a ordem era
+ * assinatura → empresa, o inverso da sincronização e da manutenção dos créditos (ciclo possível com as duas).
+ */
+export async function gravarResultadoCancelamento(tx: DbExecutor, empresaId: string, pedidoId: string, resultado: CancelamentoProvedor, assinaturaId: string) {
+    if (resultado === 'CONFIRMADO' || resultado === 'AUSENTE') await travarEmpresaComercial(tx, empresaId);
+    await atualizarCancelamentoProvedor(tx, empresaId, pedidoId, resultado);
+    if (resultado === 'CONFIRMADO' || resultado === 'AUSENTE')
+        await tx.query(`UPDATE empresa_assinaturas SET provedor_situacao = 'DELETED', sincronizado_em = clock_timestamp()
+            WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2`, [empresaId, assinaturaId]);
+}
+
 async function cobrancasDoProvedor(provedor: ProvedorDevolucao, assinaturaId: string) {
     try {
         return await provedor.listarCobrancasDaAssinatura(assinaturaId);
@@ -182,6 +196,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
 
     // A. leitura curta; repetição da mesma chave devolve o pedido já registrado, sem nenhum efeito novo.
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        await exigirCobrancaDestravada(tx, 'solicitarEncerramento', env);
         exigirGestao(tenant);
         if (!await encerramentosInstalados(tx)) throw naoInstalado();
         const anterior = await pedidoPorChave(tx, tenant.empresaComprovada, chave);
@@ -254,12 +269,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
     if (pedido.cancelamentoProvedor === 'PENDENTE') {
         const r = await removerComResultado(provedor, n.local.assinaturaId!);
         const resultado: CancelamentoProvedor = r.resultado === 'CONFIRMADA' ? 'CONFIRMADO' : r.resultado === 'AUSENTE' ? 'AUSENTE' : r.resultado === 'RECUSADA' ? 'RECUSADO' : 'SEM_CONFIRMACAO';
-        if (await gravar(async (tx) => {
-            await atualizarCancelamentoProvedor(tx, empresaId, pedido.id, resultado);
-            if (resultado === 'CONFIRMADO' || resultado === 'AUSENTE')
-                await tx.query(`UPDATE empresa_assinaturas SET provedor_situacao = 'DELETED', sincronizado_em = clock_timestamp()
-                    WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2`, [empresaId, n.local.assinaturaId]);
-        }, 'resultado do cancelamento'))
+        if (await gravar((tx) => gravarResultadoCancelamento(tx, empresaId, pedido.id, resultado, n.local.assinaturaId!), 'resultado do cancelamento'))
             pedido = { ...pedido, cancelamentoProvedor: resultado };
     }
 
@@ -271,7 +281,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
             let situacao: Extract<SituacaoEstorno, 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO'>;
             let status: string | null = null;
             try {
-                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `Kidmais Manager - devolucao ${pedido.protocolo}`)).status;
+                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `iA.Fest - devolucao ${pedido.protocolo}`)).status;
                 situacao = 'SOLICITADO';
             }
             catch (error) {

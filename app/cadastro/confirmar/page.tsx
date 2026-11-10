@@ -24,7 +24,7 @@ export default function ConfirmarCadastro() {
     }, [token]);
     const invalido = token === null;
     return <main className={`${admin.page} ${admin.login}`}>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Confirmação do e-mail</h2>
         {invalido ? <p role="alert">Este link é inválido. Confira se abriu o link completo do e-mail.</p>
             : estado === 'confirmando' ? <p aria-live="polite">Confirmando…</p>

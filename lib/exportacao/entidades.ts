@@ -83,11 +83,13 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // 089 (devolução): a chave de repetição da tela é técnica; a situação do aviso interno é controle da operação da
     // plataforma (se a equipe Kidmais foi avisada), não dado do pedido. Protocolo, valores, prazos, situação do
     // cancelamento e do estorno e o e-mail de confirmação da própria empresa saem.
-    assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe Kidmais)' },
+    assinatura_encerramentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno_situacao: 'controle interno da plataforma (aviso à equipe iA.Fest)' },
     // 095 (créditos de IA): saem saldo, lotes (origem, quantidade, preço, vencimento), extrato, reservas, pedidos (oferta, valor,
     // termos, protocolo), cobranças, devoluções, cortesias e o corte do legado. Ficam fora chaves técnicas de repetição e
     // deduplicação, a URL da fatura (contém token de acesso), a conta do provedor, controles internos de risco e a
     // identidade/motivo do operador da plataforma.
+    // 118 (cota de leitura): saem o marco da migração e as leituras contadas; fica fora o token de posse da reserva.
+    ia_importacao_usos: { operacao_id: 'identificador técnico de posse da reserva' },
     ia_credito_lotes: { chave_origem: 'identificador técnico de deduplicação da concessão' },
     ia_credito_lancamentos: { operacao: 'identificador técnico de deduplicação do lançamento' },
     ia_credito_reservas: { operacao_id: 'identificador técnico da operação (geração/chamada)' },
@@ -102,7 +104,7 @@ const EXCLUSOES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     // 097 (arrependimento): protocolo, datas, situação da assinatura no registro, informativos, comunicação ao
     // intermediador, conclusão (referência ou justificativa) e valor restituído saem, com a situação do e-mail de
     // confirmação. Ficam fora a chave de repetição, o aviso interno e quem do atendimento da plataforma concluiu.
-    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe Kidmais)',
+    assinatura_arrependimentos: { chave_idempotencia: 'identificador técnico de repetição da tela', aviso_interno: 'controle interno da plataforma (aviso à equipe iA.Fest)',
         concluido_por: 'pessoa do atendimento da plataforma (não é da empresa)' },
 };
 
@@ -118,9 +120,12 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'empresa/representacoes', tabela: 'empresa_representacoes', grupo: 'Empresa', descricao: 'Representações da empresa.', onde: EMP },
     { arquivo: 'empresa/estabelecimentos', tabela: 'estabelecimentos', grupo: 'Empresa', descricao: 'Estabelecimentos (unidades) da empresa.', onde: EMP },
     { arquivo: 'empresa/aceites_documentos_legais', tabela: 'aceites_documentos_legais', grupo: 'Empresa', descricao: 'Aceites dos Termos e do Aviso pelas pessoas da empresa.', onde: EMP },
-    { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do Kidmais Manager (situação e ciclo).', onde: EMP },
+    { arquivo: 'empresa/assinatura', tabela: 'empresa_assinaturas', grupo: 'Empresa', descricao: 'Assinatura do iA.Fest (situação e ciclo).', onde: EMP },
     { arquivo: 'empresa/assinatura_contratacoes', tabela: 'assinatura_contratacoes', grupo: 'Empresa', descricao: 'Contratações da assinatura.', onde: EMP },
     { arquivo: 'empresa/assinatura_renovacoes', tabela: 'assinatura_renovacoes', grupo: 'Empresa', descricao: 'Avisos de renovação da assinatura.', onde: EMP },
+    // 087 (recorte de production, 02/11/2026): avisos por e-mail da assinatura enviados à Gestão da própria empresa; mensagem e id do
+    // provedor saem como em assinatura_renovacoes (nenhum segredo: a chave de idempotência é derivada do id).
+    { arquivo: 'empresa/assinatura_avisos', tabela: 'assinatura_avisos', grupo: 'Empresa', descricao: 'Avisos por e-mail da assinatura (fim do teste, pagamento, leitura, suspensão, cancelamento).', onde: EMP },
     { arquivo: 'empresa/assinatura_encerramentos', tabela: 'assinatura_encerramentos', grupo: 'Empresa', descricao: 'Pedidos de cancelamento e devolução da assinatura (protocolo).', onde: EMP },
     { arquivo: 'empresa/assinatura_arrependimentos', tabela: 'assinatura_arrependimentos', grupo: 'Empresa', descricao: 'Manifestações do direito de arrependimento (protocolo, comunicação ao intermediador e conclusão).', onde: EMP, migracao: '097' },
     {
@@ -266,6 +271,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'creditos/devolucoes', tabela: 'ia_credito_devolucoes', grupo: 'Créditos de IA', descricao: 'Devoluções de pacotes (cálculo, valor, prazo e resultado).', onde: EMP },
     { arquivo: 'creditos/cortesias', tabela: 'ia_credito_cortesias', grupo: 'Créditos de IA', descricao: 'Cortesias recebidas (quantidade, campanha e protocolo).', onde: EMP },
     { arquivo: 'creditos/corte_legado', tabela: 'ia_credito_cortes', grupo: 'Créditos de IA', descricao: 'Conversão do saldo do modelo anterior (mês, limite, usado e lote criado).', onde: EMP },
+    { arquivo: 'creditos/franquias', tabela: 'ia_credito_franquias_ciclo', grupo: 'Créditos de IA', descricao: 'Franquia mensal reconhecida pelo plano (mês, lote, quantidade e cálculo).', onde: EMP, migracao: '116' },
 
     // Marketing
     { arquivo: 'marketing/sites', tabela: 'marketing_sites', grupo: 'Marketing', descricao: 'Sites.', onde: EMP },
@@ -320,6 +326,8 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'ia/extracoes', tabela: 'ia_extracoes', grupo: 'Importações', descricao: 'Extrações dos documentos.', onde: EMP },
     { arquivo: 'ia/evidencias', tabela: 'ia_evidencias', grupo: 'Importações', descricao: 'Evidências das extrações.', onde: EMP },
     { arquivo: 'ia/importacoes', tabela: 'ia_importacoes', grupo: 'Importações', descricao: 'Importações a partir das extrações.', onde: EMP },
+    { arquivo: 'ia/cota_importacao', tabela: 'ia_importacao_cotas', grupo: 'Importações', descricao: 'Cota de leitura de documentos da empresa (início da janela de migração).', onde: EMP, migracao: '118' },
+    { arquivo: 'ia/cota_importacao_leituras', tabela: 'ia_importacao_usos', grupo: 'Importações', descricao: 'Leituras contadas na cota (documento, SHA-256, período e situação).', onde: EMP, migracao: '118' },
     { arquivo: 'ia/skills', tabela: 'ia_skills', grupo: 'Importações', descricao: 'Instruções (skills) da empresa.', onde: EMP },
 ];
 
@@ -363,6 +371,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     convite_consumos: 'Consumo de créditos de convites (controle da plataforma).',
     convite_limites_http: 'Limites de requisição dos links públicos: segurança.',
     convite_orcamento_global: 'Orçamento global de IA dos convites (todas as empresas).',
+    ia_credito_franquia_pendencias: 'Fila técnica de reconhecimento da franquia após a troca de plano (a franquia útil está em creditos/franquias).',
     ia_credito_notificacoes: 'Fila técnica de e-mails dos créditos (controle de entrega; a situação útil está no pedido e na devolução).',
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
@@ -371,6 +380,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',
     whatsapp_atendimento_retencao_execucoes: 'Execuções da rotina de retenção (todas as empresas).',
+    whatsapp_atendimento_rodizio: 'Controle técnico da vez de cada empresa na fila do atendimento (117; só um contador).',
+    whatsapp_atendimento_status_colisoes: 'Identificadores técnicos do provedor vistos em mais de uma saída (117; sem conteúdo nem empresa).',
     whatsapp_onboarding_tentativas: 'Tentativas técnicas de conexão com a Meta.',
     agenda_062_bloqueios_resolucao: 'Tabela técnica da migração da agenda (062).',
     agenda_062_fechamentos_resolucao: 'Tabela técnica da migração da agenda (062).',

@@ -39,6 +39,7 @@ type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
+    async contratoDaEmpresa() { return 'OFICIAL_KIDMAIS'; },
     async prontasAutorizadas(f) { chamadas.push(`prontas:${f}`); return PRONTAS[f] ?? []; },
     async pacotes() { chamadas.push('pacotes'); if (op.pacotesFalha) throw new Error('PACOTES_INDISPONIVEIS'); return [
       { id: 'pk-e', codigo: 'ESSENCIAL', nome: 'Essencial', descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 60 },
@@ -4264,4 +4265,83 @@ test('pacote com duração cadastrada inválida: passa para a equipe sem dizer q
   assert.match(t, /equipe conferir/);
   assert.doesNotMatch(t, /ocupad|sem horários livres|Datas próximas/);
   assert.ok(ultima.passagem);
+});
+
+test('mínimo comercial nas duas perguntas do piloto, inclusive com leitura contratual pelo modelo', async () => {
+  for (const pergunta of ['Qual o mínimo de convidados que vocês atendem?', 'Vocês fazem festas a partir de quantos convidados?']) {
+    const { r } = await viaModelo(pergunta, [intencao('CONTRATO', pergunta, 'CONVIDADOS')]);
+    assert.match(texto(r), /Essencial atende a partir de 30 convidados/);
+    assert.doesNotMatch(texto(r), /cláusula|Nossos pacotes/i);
+  }
+});
+
+test('mínimo ausente em outro pacote exige confirmação antes de afirmar o mínimo da empresa', async () => {
+  const pergunta = 'A partir de quantas pessoas?';
+  const { fontes } = fontesFake();
+  const pacotes = await fontes.pacotes();
+  pacotes[0].convidadosMinimos = null;
+  fontes.pacotes = async () => pacotes;
+  const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE }, fontes);
+  assert.match(texto(r), /Completa atende a partir de 50 convidados/);
+  assert.match(texto(r), /grupos menores/);
+  assert.ok(r.passagem);
+});
+
+test('mínimo geral pelas regras responde sem passagem e respeita singular cadastrado', async () => {
+  for (const pergunta of ['Qual o mínimo de convidados que vocês atendem?', 'Vocês fazem festas a partir de quantos convidados?']) {
+    const { fontes } = fontesFake();
+    const pacotes = await fontes.pacotes();
+    pacotes[0].convidadosMinimos = 1;
+    fontes.pacotes = async () => pacotes;
+    const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE }, fontes);
+    assert.match(texto(r), /a partir de 1 convidado\./);
+    assert.doesNotMatch(texto(r), /não tenho cadastrada|passar sua conversa/);
+    assert.ok(!r.passagem);
+  }
+});
+
+test('categoria genérica não cita sabor específico mas mantém nomes e variações explícitas', () => {
+  const itens = ['Doce de Leite Ninho', 'Coxinha com catupiry', 'Coxinha sem catupiry'];
+  assert.deepEqual(itensCitados('Quantos sabores de doces posso escolher?', itens), []);
+  assert.deepEqual(itensCitados('Tem doce de Leite Ninho?', itens), ['Doce de Leite Ninho']);
+  assert.deepEqual(itensCitados('Tem coxinhas?', itens), itens.slice(1));
+});
+
+test('limite de sabores é direto e respeita categorias e pacotes diferentes', async () => {
+  for (const [pergunta, limite, categoria] of [
+    ['Quantos sabores de salgados posso escolher no Essencial?', 4, 'salgados'],
+    ['Quantos sabores de doces posso escolher no Completa?', 3, 'doces'],
+  ] as const) {
+    const { ultima } = await conversa([pergunta]);
+    assert.match(texto(ultima), new RegExp(`${limite} sabores de ${categoria}`));
+    assert.doesNotMatch(texto(ultima), /Buffet do pacote|Coxinha|Kibe|Leite Ninho/);
+    assert.ok(!ultima.passagem);
+  }
+});
+
+test('mesma pergunta, duas empresas com prazos distintos e outra sem modelo', async () => {
+  const pergunta = 'Qual a regra de cancelamento?';
+  const entrada = { texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE };
+  for (const prazo of [7, 19]) {
+    const { fontes } = fontesFake();
+    const regra = `Pode cancelar com ${prazo} dias de antecedência.`;
+    fontes.contratoDaEmpresa = async () => ({ id: 'empresa-' + prazo, versao: prazo, clausulas: [{ titulo: 'Cancelamento', texto: regra }] });
+    const r = await resolverWallE(entrada, fontes);
+    assert.ok(texto(r).includes(regra));
+    assert.ok(r.saidas.flatMap(s => s.fontes).some(f => f.tipo === 'CONTRATO_MODELO' && f.modelo === 'empresa-' + prazo));
+  }
+  const { fontes } = fontesFake();
+  fontes.contratoDaEmpresa = async () => null;
+  assert.ok((await resolverWallE(entrada, fontes)).passagem);
+});
+
+test('explica os sete pacotes e mostra o mínimo mesmo sem teto de convidados', async () => {
+  const pergunta = 'Explique os pacotes';
+  const { fontes } = fontesFake();
+  const [base] = await fontes.pacotes();
+  const pacotes = Array.from({length: 7}, (_, i) => ({...base, id: 'p' + i, codigo: 'P' + i, nome: 'Festa ' + i, convidadosMinimos: 20 + i, convidadosMaximos: null}));
+  fontes.pacotes = async () => pacotes;
+  const catalogo = {...catalogos, pacotes};
+  const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogo), contexto: {}, config, catalogos: catalogo, agora: HOJE }, fontes);
+  for (const p of pacotes) assert.ok(texto(r).includes(p.nome + ': a partir de ' + p.convidadosMinimos + ' convidados'));
 });

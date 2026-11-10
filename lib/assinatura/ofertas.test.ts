@@ -31,6 +31,7 @@ class Banco implements DbExecutor {
     sql: string[] = [];
     eventos: { id: string; assinatura_provedor_id: string | null; evento_id: string; concluido: boolean }[] = [];
     async query<Row extends object>(sql: string, args: readonly unknown[] = []) {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         this.sql.push(sql);
         let rows: object[] = [];
         if (sql.includes('AS instalado074')) rows = [{ instalado074: this.instalado }];
@@ -79,6 +80,9 @@ class Banco implements DbExecutor {
             // Devolver cópias na leitura reproduz o snapshot recebido pelo repository.
             this.contrato = { ...this.contrato!, estado: 'CONFIRMADA', pagamento_confirmacao_id: args[2] as string };
         } else if (sql.includes('FROM assinatura_contratacoes')) rows = this.contrato ? [{ ...this.contrato }] : [];
+        // Pendência da franquia (F1): sem a 116 neste banco simulado, o SAVEPOINT abre e fecha sem gravar nada.
+        else if (/^(RELEASE |ROLLBACK TO )?SAVEPOINT kidmais_pendencia_franquia$/.test(sql)) rows = [];
+        else if (sql.includes("to_regclass('public.ia_credito_franquias_ciclo')")) rows = [{ ok: false }];
         else throw new Error(`SQL não modelado no teste: ${sql}`);
         return { rows: rows as Row[], rowCount: rows.length };
     }

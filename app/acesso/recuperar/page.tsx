@@ -11,7 +11,7 @@ export default function RecuperarSenha() {
     const [erro, setErro] = useState('');
     const [ocupado, setOcupado] = useState(false);
     return <main className={`${admin.page} ${admin.login}`}>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Recuperar acesso</h2>
         {mensagem ? <>
             <p role="status">{mensagem}</p>

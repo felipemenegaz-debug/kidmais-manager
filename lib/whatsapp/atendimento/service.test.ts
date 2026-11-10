@@ -4,6 +4,7 @@ import { carregarComponente } from '../../../components/admin/teste-componente.t
 import * as core from './core.ts';
 import * as arquivos from './arquivos.ts';
 import * as entendimento from './walle/entendimento.ts';
+import * as multiempresa from './multiempresa.ts';
 import type { Conversa } from './service.ts';
 
 // Banco simulado: nenhum PostgreSQL real, modelo ou provedor é acessado.
@@ -35,7 +36,7 @@ function carregar(op: Opcoes = {}) {
   const tenants: string[] = [];
   const modulo = carregarComponente('lib/whatsapp/atendimento/service.ts', {
     '../../db/postgres.ts': { db: () => ({ query }), withTransaction: async (fn: (tx: unknown) => unknown) => fn({ query }) },
-    '../../saas/provar-tenant.ts': { withTenantTransaction: async (_s: unknown, empresa: string, fn: (tx: unknown, t: unknown) => unknown) => { if (op.tenantRecusado) throw Object.assign(new Error('A sessão administrativa não comprova a empresa autorizada.'), { code: 'TENANT_NAO_COMPROVADO' }); tenants.push(empresa); return fn({ query }, { empresaComprovada: empresa, papelAtual: op.papel ?? 'ADMINISTRATIVO' }); } },
+    '../../saas/provar-tenant.ts': { withTenantTransaction: async (s: { empresa_ativa_id?: unknown }, empresa: string | null, fn: (tx: unknown, t: unknown) => unknown) => { if (op.tenantRecusado) throw Object.assign(new Error('A sessão administrativa não comprova a empresa autorizada.'), { code: 'TENANT_NAO_COMPROVADO' }); const comprovada = empresa ?? (typeof s?.empresa_ativa_id === 'string' && s.empresa_ativa_id ? s.empresa_ativa_id.toLowerCase() : 'e'); tenants.push(comprovada); return fn({ query }, { empresaComprovada: comprovada, papelAtual: op.papel ?? 'ADMINISTRATIVO' }); } },
     './configuracao.ts': { ambienteAtendimento: () => 'staging', empresaPiloto: () => 'e', atendimentoAtivo: () => op.ativo ?? true, contatoPermitido: () => op.permitido ?? true, recepcaoAtiva: () => true, receptorDoNumero: () => true },
     './core.ts': core,
     './arquivos.ts': arquivos,
@@ -43,6 +44,7 @@ function carregar(op: Opcoes = {}) {
     // Pesquisa de satisfação (110): sem a tabela, PARAR não suprime nada (os casos de PARAR com a 110 estão na suíte PG).
     '../../satisfacao/supressao.ts': { pesquisaInstalada: async () => false, suprimirPesquisas: async () => ({ execucoes: 0, entregas: 0 }), clientesDoNumero: async () => [] },
     '../../marketing/automacoes/preferencias.ts': { elegivelParaMensagem: async () => ({ ok: true }) },
+    './multiempresa.ts': multiempresa,
   }).modulo as typeof import('./service.ts');
   const sqls = (trecho: string) => comandos.filter(c => c.sql.includes(trecho));
   return { modulo, comandos, sqls, tenants };
@@ -121,11 +123,13 @@ test('status considera só entregue, lido e falha; ignora identificador inválid
   // Retenção roda também na recepção (processador pode estar desligado).
   assert.equal(sqls('DELETE FROM whatsapp_atendimento_status WHERE ctid IN').length, 1);
 });
-test('retenção: status sem correspondência (ex.: OTP) expira em 24 h, em lote e só da empresa/ambiente do piloto', async () => {
+// E-ME1 (§6): a retenção vale para todas as empresas do AMBIENTE (no PILOTO só a piloto tem envios).
+test('retenção: status sem correspondência (ex.: OTP) expira em 24 h, em lote e só do ambiente', async () => {
   const { modulo, sqls } = carregar();
   await modulo.limparStatusExpirados();
   const limpeza = sqls('DELETE FROM whatsapp_atendimento_status WHERE ctid IN')[0];
-  assert.deepEqual(limpeza.args, ['e', 'staging', modulo.RETENCAO_STATUS_HORAS]);
+  assert.deepEqual(limpeza.args, ['staging', modulo.RETENCAO_STATUS_HORAS]);
+  assert.doesNotMatch(limpeza.sql, /empresa_id/);
   assert.equal(modulo.RETENCAO_STATUS_HORAS, 24);
   assert.match(limpeza.sql, /LIMIT 1000/);
 });
@@ -218,10 +222,11 @@ test('nome de perfil e cadastro nunca vão ao modelo: o worker só envia mensage
   const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
   // `!`: a porta da fase B é anulável (modo regras); a chamada só acontece depois da guarda do modo.
   // D4: a entrada da fase B é montada por entradaFaseB (core.ts), que minimiza cada entrada; só mensagens e interesse.
-  const chamada = worker.match(/deps\.interpretar!?\(empresa, entradaFaseB\(([^)]*\))[^)]*\), config\)/);
+  // E-ME1 r2 (F5): a fase B recebe a configuração VIGENTE lida pelo portão completo logo antes do modelo.
+  const chamada = worker.match(/deps\.interpretar!?\(empresa, entradaFaseB\(([^)]*\))[^)]*\), vigente\)/);
   assert.ok(chamada, 'chamada ao modelo encontrada');
-  assert.match(worker, /deps\.interpretar!\(empresa, entradaFaseB\(historico\.map\(m => m\.texto\), atual, conversa\.interesse\), config\)/);
-  assert.match(worker, /if \(!comando && dadoSensivel\(atual\)\) return await encaminharSemModelo\(mensagem, 'PROCESSADA'\);/, 'D1: saúde na mensagem atual não vai ao modelo');
+  assert.match(worker, /deps\.interpretar!\(empresa, entradaFaseB\(historico\.map\(m => m\.texto\), atual, conversa\.interesse\), vigente\)/);
+  assert.match(worker, /if \(!comando && dadoSensivel\(atual\)\) return await encaminharSemModelo\(mensagem, 'PROCESSADA', opera\);/, 'D1: saúde na mensagem atual não vai ao modelo');
   assert.doesNotMatch(worker, /nome_perfil|cliente_nome|cadastro/);
 });
 test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa nem libera ações', async () => {
@@ -300,14 +305,18 @@ test('empresa ativa: sem escolha explícita e UMA única empresa ativa (a piloto
   assert.deepEqual(tenants, ['e']);
   assert.equal(sqls('FROM whatsapp_atendimento_conversas c').length, 1, 'a tela foi lida');
 });
-test('empresa ativa: outra empresa ativa é divergência — recusada antes de ler ou gravar', async () => {
-  const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
+// E-ME1 r2 (F3/F4, §2.2/§6.9 do plano r6.1): no PILOTO, a sessão com OUTRA empresa ativa lê o PRÓPRIO histórico (o tenant
+// comprovado é o dela, nunca a piloto), mas não configura nem liga: escrita recusada antes de validar o conteúdo.
+test('empresa ativa: outra empresa no PILOTO lê só o próprio histórico e não escreve configuração', async () => {
+  const { modulo, tenants, sqls } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
   const outra = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' } as never;
-  await assert.rejects(modulo.listarAtendimento(outra), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
-  await assert.rejects(modulo.controlarAtendimento(outra, { acao: 'assumir', conversaId: 'c', versao: 1 }), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
-  await assert.rejects(modulo.salvarConfiguracao(outra, { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } }), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
-  assert.deepEqual(tenants, []);
-  assert.equal(comandos.length, 0, 'nenhuma consulta ao banco');
+  const tela = await modulo.listarAtendimento(outra);
+  assert.equal(tela.automacaoDisponivel, false, 'sem automação fora da piloto no PILOTO');
+  assert.ok(sqls('FROM whatsapp_atendimento_conversas c').every(c => c.args?.[0] === 'b'), 'leitura só da empresa da sessão');
+  await assert.rejects(modulo.salvarConfiguracao(outra, { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } }), /ATENDIMENTO_RECURSO_NAO_INCLUIDO/);
+  await assert.rejects(modulo.salvarConfiguracao(outra, { ativo: false, nome: 'X', perguntas: [] }), /ATENDIMENTO_RECURSO_NAO_INCLUIDO/, 'autorização antes do conteúdo');
+  assert.equal(sqls('INSERT INTO whatsapp_atendimento_config').length, 0, 'nada gravado');
+  assert.deepEqual(tenants, ['b', 'b', 'b']);
 });
 test('falta de acesso: sem vínculo ativo na piloto (tenant não comprovado) vira ATENDIMENTO_SEM_ACESSO; papel sem acesso segue ACESSO_NEGADO', async () => {
   const semVinculo = carregar({ tenantRecusado: true });
@@ -320,7 +329,7 @@ test('configuração inválida: a recusa de acesso vem antes da validação do c
   const invalida = { ativo: false, nome: 'X', perguntas: [] };
   const casos: [Opcoes, Record<string, unknown>, RegExp][] = [
     [{ papel: 'REPRESENTANTE_AUTORIZADO', empresasAtivas: 2 }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null }, /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/],
-    [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' }, /ATENDIMENTO_EMPRESA_DIVERGENTE/],
+    [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' }, /ATENDIMENTO_RECURSO_NAO_INCLUIDO/],
     [{ tenantRecusado: true }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' }, /ATENDIMENTO_SEM_ACESSO/],
     [{ papel: 'ADMINISTRATIVO' }, { usuario_id: 'u', papel: 'ADMINISTRATIVO' }, /ATENDIMENTO_ACESSO_NEGADO/],
   ];

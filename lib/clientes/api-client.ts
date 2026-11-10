@@ -6,7 +6,13 @@ export type ClienteApiStatus = "ATIVO" | "INATIVO" | "MESCLADO";
 export type ClienteApiRecord = {
   id: string;
   nomeCompleto: string;
+  tipoPessoa?: "PF" | "PJ";
   cpf: string | null;
+  cnpj?: string | null;
+  razaoSocial?: string | null;
+  nomeFantasia?: string | null;
+  representanteNome?: string | null;
+  representanteCpf?: string | null;
   rg: string | null;
   telefone: string | null;
   whatsapp: string | null;
@@ -60,6 +66,9 @@ export type CandidatoDuplicidadeApi = {
 export type AnaliseCadastroClienteApi = {
   podeCadastrar: boolean;
   cpfExistente: { clienteId: string; nomeCompleto: string; status?: ClienteApiStatus } | null;
+  cnpjExistente?: { clienteId: string; nomeCompleto: string; status?: ClienteApiStatus } | null;
+  /** 112 aplicada nesta instalação (sem ela a tela não oferece cadastrar PJ). */
+  pessoaJuridicaDisponivel?: boolean;
   possiveisDuplicidades: CandidatoDuplicidadeApi[];
 };
 
@@ -123,7 +132,7 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
       cache: "no-store",
     });
   } catch {
-    throw new CrmApiError("Não foi possível conectar à API do Kidmais Manager.", { status: 0 });
+    throw new CrmApiError("Não foi possível conectar à API do iA.Fest.", { status: 0 });
   }
 
   let payload: ApiOk<T> | ApiFalha | null = null;
@@ -153,10 +162,23 @@ function textoOuNull(valor: string) {
   return texto ? texto : null;
 }
 
+/** PF não envia nenhum campo de PJ; PJ envia CPF nulo e os campos de PJ (a regra completa é do serviço). */
+function camposTipoPessoa(form: ClienteFormData) {
+  if (form.tipoPessoa !== "PJ") return { tipoPessoa: "PF" as const, cpf: textoOuNull(form.cpf) };
+  return {
+    tipoPessoa: "PJ" as const,
+    cpf: null,
+    cnpj: textoOuNull(form.cnpj),
+    nomeFantasia: textoOuNull(form.nomeFantasia),
+    representanteNome: textoOuNull(form.representanteNome),
+    representanteCpf: textoOuNull(form.representanteCpf),
+  };
+}
+
 export function formParaPayload(form: ClienteFormData) {
   return {
     nomeCompleto: form.nomeCompleto.trim(),
-    cpf: textoOuNull(form.cpf),
+    ...camposTipoPessoa(form),
     rg: textoOuNull(form.rg),
     whatsapp: textoOuNull(form.whatsapp),
     telefone: textoOuNull(form.telefone),
@@ -174,8 +196,13 @@ export function formParaPayload(form: ClienteFormData) {
 
 export function clienteParaForm(cliente: ClienteApiRecord): ClienteFormData {
   return {
+    tipoPessoa: cliente.tipoPessoa === "PJ" ? "PJ" : "PF",
     nomeCompleto: cliente.nomeCompleto,
     cpf: cliente.cpf ?? "",
+    cnpj: cliente.cnpj ?? "",
+    nomeFantasia: cliente.nomeFantasia ?? "",
+    representanteNome: cliente.representanteNome ?? "",
+    representanteCpf: cliente.representanteCpf ?? "",
     rg: cliente.rg ?? "",
     whatsapp: cliente.whatsapp ?? "",
     telefone: cliente.telefone ?? "",
@@ -227,14 +254,16 @@ export function atualizarAniversarianteApi(clienteId: string, aniversarianteId: 
 }
 
 export function analisarCadastroApi(
-  input: Pick<ClienteFormData, "nomeCompleto" | "cpf" | "telefone" | "whatsapp" | "email">,
+  input: Pick<ClienteFormData, "tipoPessoa" | "nomeCompleto" | "cpf" | "cnpj" | "telefone" | "whatsapp" | "email">,
   excluirClienteId?: string,
 ) {
+  const pj = input.tipoPessoa === "PJ";
   return requestJson<AnaliseCadastroClienteApi>("/api/admin/clientes/analisar-cadastro", {
     method: "POST",
     body: JSON.stringify({
       nomeCompleto: input.nomeCompleto,
-      cpf: textoOuNull(input.cpf),
+      cpf: pj ? null : textoOuNull(input.cpf),
+      cnpj: pj ? textoOuNull(input.cnpj) : null,
       email: textoOuNull(input.email),
       telefone: textoOuNull(input.telefone),
       whatsapp: textoOuNull(input.whatsapp),
@@ -252,11 +281,12 @@ export function cadastrarClienteApi(form: ClienteFormData) {
 
 export function atualizarClienteApi(clienteId: string, form: ClienteFormData) {
   const payload = formParaPayload(form);
-  // Troca de CPF/contratante exige o fluxo específico de identidade, fora deste bloco.
+  // Troca de CPF/contratante exige o fluxo específico de identidade, fora deste bloco. Na PJ o CPF vai nulo
+  // (é assim que PF→PJ remove o CPF da pessoa; numa PJ já existente ele já é nulo).
   const { cpf: _cpf, ...patchSemCpf } = payload;
   void _cpf;
   return requestJson<ClienteMutacaoApi>(`/api/admin/clientes/${encodeURIComponent(clienteId)}`, {
     method: "PATCH",
-    body: JSON.stringify(patchSemCpf),
+    body: JSON.stringify(payload.tipoPessoa === "PJ" ? payload : patchSemCpf),
   });
 }

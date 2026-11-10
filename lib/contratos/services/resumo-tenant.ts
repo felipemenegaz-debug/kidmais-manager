@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { SessaoParaTenant } from "../../saas/provar-tenant.ts";
+import type { MarcaContrato } from "../marca-contrato.ts";
 import { ResumoTenantError, executarComPosseNoTenant, type ComTenant } from "./posse-tenant.ts";
 
 export { ResumoTenantError };
@@ -36,17 +37,33 @@ export type DependenciasResumoTenant<P, F> = {
   painel(contratoId: string, tx: DbExecutor): Promise<P>;
   /** `consultarPainelFinanceiro`, no `tx` da prova. */
   financeiro(contratoId: string, tx: DbExecutor): Promise<F>;
+  /**
+   * Identidade do buffet, lida DEPOIS do commit e só com o id da empresa comprovada. Fica fora do `tx` da prova: é só
+   * apresentação (o nome público que o cliente já vê) e, falhando, não pode derrubar a leitura autorizada.
+   */
+  marca?(empresaId: string): Promise<MarcaContrato>;
 };
+
+/** Falhar ao ler a marca deixa o Resumo neutro. */
+async function marcaOpcional<P, F>(deps: DependenciasResumoTenant<P, F>, empresaId: string): Promise<MarcaContrato | null> {
+  if (!deps.marca) return null;
+  try {
+    return await deps.marca(empresaId);
+  } catch {
+    return null;
+  }
+}
 
 export async function resumoContratacaoDoTenant<P extends { financeiro?: readonly unknown[] }, F>(
   sessao: SessaoParaTenant,
   empresaSolicitada: string | null,
   contratoId: string,
   deps: DependenciasResumoTenant<P, F>,
-): Promise<{ painel: P; financeiro: F | null }> {
-  return executarComPosseNoTenant(sessao, empresaSolicitada, contratoId, contratoPertenceAoTenant, deps, async (tx) => {
-    const painel = await deps.painel(contratoId, tx);
-    const financeiro = painel.financeiro?.length ? await deps.financeiro(contratoId, tx) : null;
-    return { painel, financeiro };
+): Promise<{ painel: P; financeiro: F | null; marca: MarcaContrato | null }> {
+  const { painel, financeiro, empresaComprovada } = await executarComPosseNoTenant(sessao, empresaSolicitada, contratoId, contratoPertenceAoTenant, deps, async (tx, tenant) => {
+    const painelLido = await deps.painel(contratoId, tx);
+    const financeiroLido = painelLido.financeiro?.length ? await deps.financeiro(contratoId, tx) : null;
+    return { painel: painelLido, financeiro: financeiroLido, empresaComprovada: tenant.empresaComprovada };
   });
+  return { painel, financeiro, marca: await marcaOpcional(deps, empresaComprovada) };
 }

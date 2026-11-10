@@ -102,6 +102,8 @@ test("S-D: lista de pacotes com ?salao= ganha noSalao (sem filtrar); salão malf
     "lib/comercial/disponibilidade-pacote-publica": { lerRegrasDisponibilidadePacote: async () => [] },
     "lib/agenda/salao-pacotes": { pacotesElegiveisDoSalao: async (_db: unknown, empresa: string, salao: string) => { pedidos.push(`${empresa}:${salao}`); return ["p1"]; } },
   };
+  // E2b: o catálogo efetivo do endereço vem de lib/comercial/oferta-publica, que importa o repositório pelo arquivo.
+  Object.assign(dubles, { "lib/comercial/repositories/comercial.repository": dubles["lib/comercial/repositories"] });
   const { GET } = carregarModulo("app/api/fechamentos/pacotes/route.ts", dubles, new Map()) as { GET: (r: unknown) => Promise<{ status: number; body: { pacotes?: Array<Record<string, unknown>> } }> };
   const chamar = (q: string) => GET({ nextUrl: new URL(`http://localhost/api/fechamentos/pacotes${q}`) });
   const sem = await chamar("?empresa=buffet");

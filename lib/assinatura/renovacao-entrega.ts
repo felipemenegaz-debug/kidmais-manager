@@ -11,15 +11,19 @@
  *   4. o aviso é localizado pelo identificador externo gravado (`assinatura_renovacoes.aviso_id_externo`) e só
  *      `AVISADA → REVISAO` é feito (transição já permitida pela 075), com `ultimo_erro` = motivo. Repetição é
  *      idempotente (`JA_EM_REVISAO`); id desconhecido (convites, recuperação de senha, outros envios) é 200 sem efeito.
+ *   5. id que não é de renovação é procurado nos avisos da assinatura (087, `assinatura_avisos.id_externo`): só
+ *      ENVIADO → DEVOLVIDO, idempotente (`AVISO_JA_DEVOLVIDO`). Sem a 087, nada muda.
  * Mesma trava por empresa do processador (lib/assinatura/cobranca.ts → travaPorEmpresa): se ele está rodando, 503 e o
  * Resend reentrega depois. Com o aviso em REVISAO, a próxima execução do processador suspende a geração em vez de
  * aumentar o preço. Nenhum e-mail, destinatário ou corpo do evento é gravado ou registrado em log.
  */
+import { cobrancaDestravada } from './trava-cobranca.ts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { CorpoInvalido, lerCorpoLimitado } from './webhook-asaas.ts';
 import { auditarCobranca } from './sincronizacao-auditoria.ts';
 import { renovacaoInstalada } from './renovacao-repositorio.ts';
+import { registrarDevolucaoAviso, type ResultadoDevolucao } from './avisos-repositorio.ts';
 
 export const TOLERANCIA_ASSINATURA_S = 300;
 /** Tipo do evento do Resend → `ultimo_erro` (CHECK da 075: ^[A-Z0-9_]{1,80}$). */
@@ -29,7 +33,8 @@ export const EVENTOS_FALHA_ENTREGA: ReadonlyMap<string, string> = new Map([
     ['email.failed', 'ENTREGA_FALHOU'],
 ]);
 
-export type ResultadoFalhaEntrega = 'REVISAO_REGISTRADA' | 'JA_EM_REVISAO' | 'ESTADO_NAO_ELEGIVEL' | 'DESCONHECIDO' | 'AMBIGUO' | 'OCUPADO' | 'NAO_INSTALADA';
+export type ResultadoFalhaEntrega = 'REVISAO_REGISTRADA' | 'JA_EM_REVISAO' | 'ESTADO_NAO_ELEGIVEL' | 'DESCONHECIDO' | 'AMBIGUO' | 'OCUPADO' | 'NAO_INSTALADA'
+    | Exclude<ResultadoDevolucao, 'DESCONHECIDO'>;
 export type DepsWebhookResend = {
     env: Record<string, string | undefined>;
     withTransaction: <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
@@ -67,12 +72,17 @@ export function assinaturaResendConfere(chave: Buffer, cabecalhos: { id: string 
  * Chamado dentro de uma transação; não confia em nada do evento além do id e do tipo já validados.
  */
 export async function registrarFalhaEntrega(tx: DbExecutor, entrada: { idExterno: string; motivo: string; eventoId: string }): Promise<ResultadoFalhaEntrega> {
+    // Não é aviso de renovação: talvez seja aviso da assinatura (087). Sem achado lá, o resultado de antes.
+    const outroAviso = async (padrao: ResultadoFalhaEntrega): Promise<ResultadoFalhaEntrega> => {
+        const r = await registrarDevolucaoAviso(tx, entrada);
+        return r === 'DESCONHECIDO' ? padrao : r;
+    };
     if (!await renovacaoInstalada(tx))
-        return 'NAO_INSTALADA';
+        return outroAviso('NAO_INSTALADA');
     const achados = (await tx.query<{ id: string; empresaId: string }>(
         'SELECT id, empresa_id AS "empresaId" FROM assinatura_renovacoes WHERE aviso_id_externo = $1 LIMIT 2', [entrada.idExterno])).rows;
     if (achados.length === 0)
-        return 'DESCONHECIDO';
+        return outroAviso('DESCONHECIDO');
     if (achados.length > 1)
         return 'AMBIGUO';
     const { id, empresaId } = achados[0];
@@ -141,10 +151,14 @@ export async function receberWebhookResend(request: Request, deps: DepsWebhookRe
     const idExterno = evento.data?.email_id;
     if (typeof idExterno !== 'string' || !/^[A-Za-z0-9._:-]{1,120}$/.test(idExterno))
         return resposta(400);
-    const resultado = await deps.withTransaction((tx) => registrarFalhaEntrega(tx, { idExterno, motivo, eventoId: cabecalhos.id! }));
-    if (resultado === 'OCUPADO')
+    const resultado = await deps.withTransaction(async (tx) => {
+        if (!await cobrancaDestravada(tx, 'webhook Resend', deps.env))
+            return 'TRAVADA' as const;
+        return registrarFalhaEntrega(tx, { idExterno, motivo, eventoId: cabecalhos.id! });
+    });
+    if (resultado === 'OCUPADO' || resultado === 'TRAVADA')
         return resposta(503);
-    if (resultado === 'ESTADO_NAO_ELEGIVEL' || resultado === 'AMBIGUO')
-        console.warn(`[Resend webhook] falha de entrega de aviso de renovação não aplicada: ${resultado}.`);
+    if (resultado === 'ESTADO_NAO_ELEGIVEL' || resultado === 'AMBIGUO' || resultado === 'AVISO_NAO_ELEGIVEL')
+        console.warn(`[Resend webhook] falha de entrega de aviso não aplicada: ${resultado}.`);
     return resposta(200, { recebido: true, resultado });
 }

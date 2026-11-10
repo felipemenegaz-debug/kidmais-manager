@@ -8,7 +8,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elem
  * fictício e que o original não é exposto ao público (o acesso autorizado é o do Admin, por papel).
  */
 const CONTRATO = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const TEXTO_PAPEL = 'Contrato assinado em papel, conferido pela Kidmais na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.';
+const TEXTO_PAPEL = 'Contrato assinado em papel, conferido pelo buffet na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.';
 const contextoHistorico = {
   contrato: { id: CONTRATO, status: 'ASSINADO', assinadoEm: '2025-03-01T12:00:00Z' },
   comprovantes: [],
@@ -65,9 +65,9 @@ test('página pública histórica: "assinado em papel", sem aceite eletrônico, 
   assert.match(texto(abaContrato), /Assinado em papel/);
   // Nenhum documento eletrônico nem aceite/comprovante pedido ao servidor.
   assert.deepEqual(chamadas.filter((u) => /\/pdf$|\/aceite$|\/comprovante$/.test(u)), []);
-  // Original: nunca exposto na página pública; orientação para pedir à Kidmais.
+  // Original: nunca exposto na página pública; orientação para pedir ao buffet.
   assert.ok(!elementos(a).some((e) => e.type === 'a' && /importados|original/.test(String(e.props.href ?? ''))), 'sem link para o original');
-  assert.match(pagina, /Para obter uma cópia do documento original, solicite à Kidmais/);
+  assert.match(pagina, /Para obter uma cópia do documento original, solicite ao buffet/);
 });
 
 test('acesso ao original pelo caminho apropriado: só no Admin, rota protegida, para papel autorizado', () => {

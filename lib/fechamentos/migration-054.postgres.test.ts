@@ -294,6 +294,7 @@ function servicos(atual: { exec: any; tenant: string; usuario: string }) {
     comercial: carregar("lib/fechamentos/services/revisao-comercial.service.ts", comuns) as any,
     operacional: carregar("lib/fechamentos/services/revisao-operacional.service.ts", comuns) as any,
     repositorio: carregar("lib/fechamentos/repositories/fechamento.repository.ts", comuns) as any,
+    trava: carregar("lib/agenda/trava-configuracao.ts", comuns) as any,
     hash: (carregar("lib/contratos/services/snapshot-core.ts", {}) as any).hashSnapshotContrato as (s: unknown) => string,
   };
 }
@@ -666,6 +667,12 @@ async function locksAutorizacao(db: Client, fx: Fixtures) {
   // empresa A/B, legado → null, inexistente → undefined; a variante sem trava não emite lock.
   for (const nome of ["empresaDoFechamentoSemTrava", "empresaDoFechamentoComTrava"] as const) {
     await emTransacao(async (reg) => {
+      // Liberar agenda com mais de um salão (rodada 3, P2 do Astra): a função interna do repositório é chamada direto pelo
+      // teste, fora de uma entrada; a transação do teste toma a configuração das duas empresas antes (como toda entrada
+      // faz), pela conexão — fora do registro, que só confere o SQL do repositório.
+      if (nome === "empresaDoFechamentoComTrava") {
+        for (const e of [fx.eA, fx.eB]) await s.trava.travarConfiguracaoAgenda(db, e, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+      }
       for (const [f, fid] of Object.entries(fx.fechamentos)) assert.equal(await s.repositorio[nome](fid, reg.exec), fx.esperadoFechamento[f], `${nome}: ${f}`);
       assert.equal(await s.repositorio[nome](randomUUID(), reg.exec), undefined, `${nome}: inexistente`);
       if (nome === "empresaDoFechamentoSemTrava") semLock(reg);
@@ -730,15 +737,21 @@ async function locksAutorizacao(db: Client, fx: Fixtures) {
     });
   }
 
-  // Revisão comercial A→A: leitura sem trava, depois FOR UPDATE e revalidação com FOR SHARE.
+  // Revisão comercial A→A: leitura sem trava; depois (rodada 3 da liberação dos salões) empresa em KEY SHARE e a
+  // configuração da agenda; só então FOR UPDATE do fechamento e revalidação com FOR SHARE.
   await emTransacao(async (reg) => {
     const erro: any = await chamar(db, () => s.comercial.revisarComercial(fx.fechamentos.fA, fx.eA, { solicitacaoId: randomUUID(), decisao: "RECUSAR", motivo: "Motivo 054" }, { usuarioId: atual.usuario, origem: "CRM_INTERNO" }, reg.exec));
     assert.equal(erro?.code, "REVISAO_COMERCIAL_INVALIDA", `A→A autorizado e resultado de domínio esperado: ${erro?.code}`);
     const primeiro = reg.sql.findIndex((x) => LOCK.test(x.texto));
     assert(primeiro > 0);
     assert(reg.sql.slice(0, primeiro).some((x) => x.texto.includes("empresa_id::text AS empresa_id")));
-    assert.match(reg.sql[primeiro].texto, /FOR UPDATE/);
-    assert.match(reg.sql[primeiro + 1]?.texto ?? "", /empresa_id::text AS empresa_id[\s\S]*FOR SHARE/);
+    assert.match(reg.sql[primeiro].texto, /FROM empresas WHERE id = \$1::uuid FOR KEY SHARE/);
+    assert.deepEqual(reg.sql[primeiro].v, [fx.eA]);
+    assert.match(reg.sql[primeiro + 1]?.texto ?? "", /pg_advisory_xact_lock_shared\(hashtextextended\('kidmais:agenda-config:'/);
+    const fechamento = reg.sql.findIndex((x, i) => i > primeiro && LOCK.test(x.texto));
+    assert(fechamento > primeiro + 1, "configuração antes do primeiro lock do fechamento");
+    assert.match(reg.sql[fechamento].texto, /fechamentos[\s\S]*FOR UPDATE/);
+    assert.match(reg.sql[fechamento + 1]?.texto ?? "", /empresa_id::text AS empresa_id[\s\S]*FOR SHARE/);
   });
 }
 
@@ -766,6 +779,9 @@ async function concorrencia(db: Client, fx: Fixtures) {
     assert.equal(await s.repositorio.empresaDoFechamentoSemTrava(fB, atual.exec), fx.eB, "leitura de autorização não espera o lock de B");
     // Controle de sensibilidade: a variante com trava esperaria o lock de B (lock_timeout).
     await c2.query("SAVEPOINT controle");
+    // Rodada 3 da liberação dos salões: função interna chamada direto pelo teste → a transação toma antes a configuração
+    // da empresa B (como uma entrada faria); a espera do controle continua sendo a linha de B.
+    await s.trava.travarConfiguracaoAgenda(c2, fx.eB, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     await assert.rejects(s.repositorio.empresaDoFechamentoComTrava(fB, atual.exec), (e: any) => codigoDe(e) === "55P03");
     await c2.query("ROLLBACK TO SAVEPOINT controle");
     await c2.query("ROLLBACK");
@@ -790,7 +806,10 @@ async function concorrencia(db: Client, fx: Fixtures) {
     assert.deepEqual(emEspera.v, [fA]);
     const antesDoLock = reg2.sql.slice(0, -1);
     assert(antesDoLock.some((x) => x.texto.includes("empresa_id::text AS empresa_id") && !LOCK.test(x.texto)), "a autorização já passou, sem lock");
-    assert.deepEqual(antesDoLock.filter((x) => LOCK.test(x.texto)), [], "nenhum lock antes do lock de domínio");
+    // Rodada 3 da liberação dos salões: o único lock antes do de domínio é a linha da empresa em KEY SHARE da configuração
+    // da agenda (seguida da advisory compartilhada); nenhum lock de fechamento antes.
+    assert.deepEqual(antesDoLock.filter((x) => LOCK.test(x.texto)).map((x) => x.texto), ["SELECT 1 FROM empresas WHERE id = $1::uuid FOR KEY SHARE"], "só a empresa (configuração) antes do lock de domínio");
+    assert(antesDoLock.some((x) => /kidmais:agenda-config:/.test(x.texto)), "configuração da agenda antes do lock de domínio");
     await c1.query("COMMIT");
     const resultado = await segunda;
     // Depois do lock liberado, só o resultado de domínio esperado (solicitação inexistente no fluxo);

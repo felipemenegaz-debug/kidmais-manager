@@ -9,6 +9,7 @@ import { PagamentoServiceError } from './errors.ts';
 import * as financeiroCore from './alteracao-financeira-core.ts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core.ts';
 import { nomePapelSistema } from '../../autenticacao/papeis.ts';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 
 function carregar(file: string, deps: Record<string, unknown>) {
   const exports: Record<string, (...args: unknown[]) => unknown> = {};
@@ -42,7 +43,9 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     const s = sql.replace(/\s+/g, ' ').trim();
     if (falha && s.startsWith(falha)) throw Error('Falha injetada');
     let rows: unknown[] = [];
-    if (s.startsWith('SELECT f.* FROM festas f JOIN contratos co')) { assert.match(s, /fe\.empresa_id=\$2::uuid/); rows = params[1] === 'empresa-a' ? [structuredClone(state.festa)] : []; }
+    // Rev. 3: cancelar_contratacao trava a configuração da agenda da empresa comprovada (compartilhada, linha já travada).
+    if (s.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'") ||s.startsWith("SELECT set_config('kidmais.agenda_config_empresa'")) assert.equal(params[0], 'empresa-a');
+    else if (s.startsWith('SELECT f.* FROM festas f JOIN contratos co')) { assert.match(s, /fe\.empresa_id=\$2::uuid/); rows = params[1] === 'empresa-a' ? [structuredClone(state.festa)] : []; }
     else if (s.startsWith('SELECT * FROM festas')) rows = [structuredClone(state.festa)];
     else if (s.includes('FROM festa_membership_capacidades')) { assert.equal(params[0], 'm', 'capacidade da membership comprovada'); rows = [{ id: 'cap' }]; }
     else if (s.startsWith('SELECT * FROM festa_eventos')) rows = state.eventos.filter(e => e.chave_idempotencia === params[0]);
@@ -94,6 +97,7 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     './schema': { comandoSchema: { parse: (v: unknown) => v } },
     './repository': { contrato: async () => structuredClone(state.contrato) },
     '../contratos/services/cancelamento.service': contrato,
+    '../agenda/trava-configuracao': travaConfiguracao,
     '../clientes/repositories/auditoria.repository': audit,
     '../pagamentos/services/financeiro-consulta.service': {},
     '../autenticacao/service': { consultarSessao: async () => sessao },
@@ -153,6 +157,7 @@ test('alteração e reprogramação consolidadas não reabrem cobrança cancelad
   const service = carregar('lib/pagamentos/services/alteracao-financeira.service.ts', {
     'node:crypto': {}, '../../db/postgres': {}, '../../autenticacao/service': {}, '../../contratos/services/snapshot-core': {},
     '../repositories/alteracao-financeira.repository': {}, './cronograma.service': {}, './transacao': {},
+    '../../agenda/trava-configuracao': travaConfiguracao,
     './alteracao-financeira-core': { recusarFinanceiro: (code: string, message: string) => { throw new PagamentoServiceError(code as 'PAGAMENTO_CANCELADO', message, 409); } },
   });
   for (const reprogramacao of [false, true]) assert.throws(() => service.simularPosicao({ contrato: { status: 'CANCELADO' }, pagamento: { status: 'CANCELADO' } }, {}, reprogramacao), { code: 'PAGAMENTO_CANCELADO' });

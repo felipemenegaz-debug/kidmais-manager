@@ -18,6 +18,8 @@ const despesa = z.object({
   vencimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   favorecido: z.string().max(160).optional(),
   forma: z.enum(FORMAS).optional(),
+  // Opcional só para a aba antiga. Com chave, repetir o envio não cria outra despesa.
+  chave: z.string().min(8).max(160).optional(),
 }).strict();
 
 export async function GET(request: NextRequest, contexto: { params: Promise<{ festaId: string }> }) {

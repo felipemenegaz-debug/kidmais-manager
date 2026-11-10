@@ -6,9 +6,13 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { catalogoNativo, catalogoNoTurno, cenario, dia, id, type Cenario } from "../../scripts/integracao-importados-test-support.ts";
 import { consultarDisponibilidadeData, consultarDisponibilidadePeriodo, revalidarHorarioSelecionado } from "../disponibilidade/services/availability.service.ts";
 import { escolherSalao } from "./salao-festa.ts";
+import { travarConfiguracaoAgenda } from "./trava-configuracao.ts";
 import { carregarComBanco, executor, porTransacao } from "../marketing/harness-postgres.ts";
 import * as cotacaoPublicaReal from "../comercial/cotacao-publica.ts";
 import * as escopoReal from "../disponibilidade/escopo.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/convidados-primeiro-sc.postgres.test.ts";
 
 /**
  * S-C (convidados primeiro) no PostgreSQL DESCARTÁVEL (modelo 097: 093/094 aplicadas): dois salões (50 e 120), festa de
@@ -37,7 +41,9 @@ async function porSalao(c: Cenario) {
 async function festa(c: Cenario, data: string, cfg: string, convidados: number, salao: string | null, confirmar: boolean) {
   await a.query("BEGIN");
   try {
-    const f = await id(a, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    // Com a 114, os gatilhos de fechamentos exigem a trava da configuração: a fixture a toma como a entrada administrativa.
+    await travarConfiguracaoAgenda(executor(a), c.empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+    const f = await idSalaoFixture(a, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
           categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
         SELECT $1::date, '15:00', '19:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', $5, $5, 100, 100, 100,
                'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $6::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid RETURNING fechamentos.id`,
@@ -135,7 +141,9 @@ test("S-C: reserva prefere o salão que comporta; o atual continua vencendo; sem
     const f = await festa(c, data, s.tarde, convidados, atual, false);
     await a.query("BEGIN");
     try {
-      const r = await escolherSalao(tx, f);
+      // Liberar agenda com mais de um salão (rev. 3): a fixture trava a configuração como a entrada.
+      await travarConfiguracaoAgenda(tx, c.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+      const r = await escolherSalao(tx, f, { caminho: "CONFIRMACAO_PAGAMENTO", origem: "PAGAMENTO", automatico: true });
       await a.query("ROLLBACK");
       return r.salao;
     } catch (error) {

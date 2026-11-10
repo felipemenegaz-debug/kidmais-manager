@@ -3,6 +3,7 @@ import {
   formatarCep, formatarCondicaoPix, formatarCpf, formatarDataContrato, formatarFormaPagamento, formatarHorarioContrato,
   formatarMoeda, textoOuNaoInformado,
 } from "../documento/formatters.ts";
+import { contratantePj, documentoDoContratante, representanteDoContratante } from "../documento/contratante-pj.ts";
 
 /**
  * Campos que o modelo de contrato da empresa pode usar, como {{campo}}. Lista FECHADA: todo valor vem do snapshot
@@ -48,7 +49,14 @@ function condicao(s: ContratoSnapshot) {
 
 export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
   { chave: "contratante.nome", rotulo: "Nome do contratante", grupo: "Contratante", exemplo: "Maria da Silva", valor: (s) => s.contratante.nomeCompleto },
-  { chave: "contratante.cpf", rotulo: "CPF do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: (s) => formatarCpf(s.contratante.cpf) },
+  // R2-2: só o CPF de contratante PF. PJ com este campo é recusada antes (MODELO_INCOMPATIVEL_PJ); aqui é a última defesa.
+  { chave: "contratante.cpf", rotulo: "CPF do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: (s) => {
+    if (contratantePj(s)) throw new Error("MODELO_INCOMPATIVEL_PJ: {{contratante.cpf}} com contratante pessoa jurídica.");
+    return formatarCpf(s.contratante.cpf);
+  } },
+  { chave: "contratante.documento", rotulo: "CPF ou CNPJ do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: documentoDoContratante },
+  { chave: "contratante.tipo_documento", rotulo: "Tipo do documento (CPF ou CNPJ)", grupo: "Contratante", exemplo: "CPF", valor: (s) => (contratantePj(s) ? "CNPJ" : "CPF") },
+  { chave: "contratante.representante", rotulo: "Representante legal (só empresa)", grupo: "Contratante", exemplo: "", valor: representanteDoContratante },
   { chave: "contratante.rg", rotulo: "RG do contratante", grupo: "Contratante", exemplo: "1.234.567", valor: (s) => textoOuNaoInformado(s.contratante.rg) },
   { chave: "contratante.telefone", rotulo: "Telefone do contratante", grupo: "Contratante", exemplo: "(61) 99999-0000", valor: (s) => textoOuNaoInformado(s.contratante.whatsapp ?? s.contratante.telefone) },
   { chave: "contratante.email", rotulo: "E-mail do contratante", grupo: "Contratante", exemplo: "maria@exemplo.com", valor: (s) => textoOuNaoInformado(s.contratante.email) },

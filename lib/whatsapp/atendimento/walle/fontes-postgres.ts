@@ -1,3 +1,4 @@
+import { lerBaseDocumentoContrato } from '../../../contratos/documento/base-documento.ts';
 import type { DbExecutor } from '../../../db/contracts.ts';
 import { listarPacotesAdmin } from '../../../comercial/pacotes-admin.ts';
 import { ARQUIVO_DISPONIVEL_SQL } from '../arquivos.ts';
@@ -6,6 +7,7 @@ import { lerPrecosCorrentes } from '../../../comercial/pacote-precos.ts';
 import { agendaPorEscopoInstalada, unidadesDaEmpresa, type EscopoAgenda } from '../../../disponibilidade/escopo.ts';
 import { lerRegraCapacidadeAgenda, listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
 import { consultarDisponibilidadePeriodo, duracaoDoPacoteDaEmpresa } from '../../../disponibilidade/services/availability.service.ts';
+import { combinadosPublicos } from '../../../agenda/combinados-publicos.ts';
 import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import type { FontesWallE, PeriodoAgenda, PrecoAdicional, PrecoCalculado, ProntaAutorizada } from './resolver.ts';
@@ -108,6 +110,11 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
       };
     });
   return {
+    async contratoDaEmpresa() {
+      const { modeloEmpresa, base } = await lerBaseDocumentoContrato(ex, empresaId);
+      if (modeloEmpresa) return { id: modeloEmpresa.id, versao: modeloEmpresa.versao, clausulas: modeloEmpresa.conteudo.clausulas };
+      return base.empresaKidmais ? 'OFICIAL_KIDMAIS' : null;
+    },
     async prontasAutorizadas(finalidade: Finalidade) {
       const r = await ex.query<{ id: string; versao: string; titulo: string; tipo: ProntaAutorizada['tipo']; texto: string; link: string | null; midia_url: string | null; arquivo_id: string | null; arquivo_nome: string | null; finalidade: Finalidade; pacote_codigo: string | null; estabelecimento_id: string | null }>(
         `SELECT p.id, p.versao, p.titulo, p.tipo, p.texto, p.link, p.midia_url, p.arquivo_id, a.nome AS arquivo_nome, p.finalidade, p.pacote_codigo, p.estabelecimento_id::text AS estabelecimento_id
@@ -183,13 +190,15 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
     },
     async disponibilidade(data, unidade, pacote) {
       const { escopo: e, consultado } = await escopoDaConsulta(ex, empresaId, unidade);
-      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e, { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
+      // E2b (D-E2b-5): acompanha a disponibilidade pública — com combinadosPublicos, um horário só do combinado é vaga.
+      const [dia] = await consultarDisponibilidadePeriodo(data, data, ex, undefined, e, { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined),
+        ...((await combinadosPublicos(ex)) ? { incluirCombinados: true } : {}) });
       return { periodos: periodos(dia), escopo: consultado };
     },
     async alternativas(data, unidade, turno, quantas, pacote) {
       const inicio = data > alvo.hoje ? (somarDias(data, -7) > alvo.hoje ? somarDias(data, -7) : alvo.hoje) : alvo.hoje;
       const dias = await consultarDisponibilidadePeriodo(inicio, somarDias(data, 28), ex, undefined, await escopo(ex, empresaId, unidade),
-        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined) });
+        { duracaoMinutos: await duracaoDoPacoteDaEmpresa(ex, empresaId, pacote ?? undefined), ...((await combinadosPublicos(ex)) ? { incluirCombinados: true } : {}) });
       const distancia = (d: string) => Math.abs(Date.parse(d) - Date.parse(data));
       return dias.filter((d) => d.data !== data).map((d) => ({ data: d.data, periodos: periodos(d).filter((p) => p.disponivel && (!turno || p.codigo === turno)) }))
         .filter((d) => d.periodos.length).sort((a, b) => distancia(a.data) - distancia(b.data) || a.data.localeCompare(b.data)).slice(0, quantas)

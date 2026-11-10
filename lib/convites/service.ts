@@ -6,7 +6,8 @@ import { provarTenant, revalidarTenant } from '../saas/provar-tenant';
 import { provarEstabelecimento } from '../saas/provar-estabelecimento';
 import { contrato } from '../festas/repository';
 import { lerEstadoComercial } from '../assinatura/estado';
-import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, concluirGeracaoSchema, resolucaoGeracaoSchema, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
+import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, concluirGeracaoSchema, resolucaoGeracaoSchema, respostaSchema, validarCredito, comBlocoLocal, enderecoDoConvite, localDoConvite, type BlocoLocal, type Conteudo, type Cotas } from './domain';
+import { AVISO_CONVITE_SEM_SALAO, blocoLocalDaFesta } from './bloco-local';
 import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, modeloImagem, completoDisponivel, gerarConviteCompletoOpenAI, armazenarConviteCompleto, imagemDaResposta, processarImagemRecebida, provedorImagem, destinoDoProvedor, MODELO_COMPLETO, QUALIDADE_COMPLETO } from './imagem';
 import { AUTORIZACAO_AINDA_VIGENTE, autorizacaoVigente, conferirImagens, MENSAGEM_088_AUSENTE, registrarAutorizacao, resumoAutorizacao, revogarAutorizacao, tabelaAusente, textosParaTela } from './consentimento';
 import { ehProvedorIA, VERSAO_TEXTOS_IA, type ProvedorIA } from './consentimento-textos';
@@ -33,7 +34,7 @@ export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', '
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
 
-async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string | null, convidados: number | null, podeAdministrar: boolean) => Promise<T>): Promise<T> {
+async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string | null, convidados: number | null, podeAdministrar: boolean, bloco: BlocoLocal | null) => Promise<T>): Promise<T> {
   habilitado();
   return withTransaction(async tx => {
     let empresa: string, festa: string | null, conviteId: string | undefined;
@@ -65,7 +66,7 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
         const c = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 AND empresa_id=$2 FOR UPDATE', [conviteId, empresa])).rows[0];
         exigir(c && !c.festa_id && a.tipo === 'admin', 'O vínculo mudou. Recarregue o convite.', 409);
         if (tenant && c.estabelecimento_id) await provarEstabelecimento(tx, tenant, c.estabelecimento_id);
-        const r = await fn(tx, c, null, null, podeAdministrar);
+        const r = await fn(tx, c, null, null, podeAdministrar, null);
         if (tenant) await revalidarTenant(tx, tenant);
         return r;
       }
@@ -76,20 +77,22 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
     const co = await contrato(tx, l.contrato_id, true);
     const f = (await tx.query<{ invalidada_em: Date | null }>('SELECT invalidada_em FROM festas WHERE id=$1 FOR UPDATE', [festa])).rows[0];
     exigir(f && !f.invalidada_em && co && co.status !== 'CANCELADO', 'Esta festa não está disponível para convites.', 409);
+    // D-LIB-3/5: bloco "Local" da versão vigente (a mesma gravada em versao_contrato_id ao publicar); null fora de "por salão".
+    const bloco = await blocoLocalDaFesta(tx, { empresaId: empresa, estabelecimentoId: l.estabelecimento_id, snapshot: co.snapshot });
     let c = (await tx.query<Convite>('SELECT * FROM convites WHERE festa_id=$1 AND empresa_id=$2 FOR UPDATE', [festa, empresa])).rows[0];
     // Abertura administrativa cria só o rascunho; nunca publica nem libera o cliente automaticamente.
     if (!c && a.tipo === 'admin' && escrever) {
       // O cliente pode consumir no máximo duas gerações; a terceira fica reservada
       // para o buffet ajustar a arte final, se necessário.
       c = (await tx.query<Convite>(`INSERT INTO convites(empresa_id,festa_id,cliente_id,estabelecimento_id,publico_token,rascunho,versao_contrato_id,limite_festa,limite_cliente)
-        VALUES($1,$2,$3,$4,$5,$6,$7,3,2) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(), inicioConteudo(co.snapshot), co.versao_id])).rows[0];
+        VALUES($1,$2,$3,$4,$5,$6,$7,3,2) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(), inicioConteudo(co.snapshot, bloco), co.versao_id])).rows[0];
       await evento(tx, c, a, 'CONVITE_CRIADO');
     }
     exigir(c, 'Crie o convite para começar.', 404);
     if (conviteId) exigir(c.id === conviteId, 'O vínculo mudou. Recarregue o convite.', 409);
     if (a.tipo === 'cliente') exigir(c.editor_hash === hash(a.token) && c.editor_expira_em && c.editor_expira_em > new Date(), 'Acesso ao convite indisponível.', 404);
     const quantidade = co.snapshot?.evento?.convidados;
-    const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null, podeAdministrar);
+    const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null, podeAdministrar, bloco);
     if (tenant) await revalidarTenant(tx, tenant);
     return r;
   });
@@ -148,7 +151,7 @@ async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
   return { empresa: w?.limite ?? 0, empresaUsado: w?.usado ?? 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
 }
 export async function consultar(a: Acesso, criar = false) {
-  return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {
+  return comConvite(a, criar, async (tx, c, versao, convidadosContratados, _podeAdministrar, bloco) => {
     // Antes de ler cotas: uma geração interrompida pode ter devolvido a reserva ou concluído com a imagem guardada.
     await reconciliarNaTransacao(tx, c);
     const limite = await cotas(tx, c);
@@ -170,7 +173,7 @@ export async function consultar(a: Acesso, criar = false) {
     // Aviso e autorização (088): textos com o provedor real, hashes do texto exibido e situação, sem o nome do responsável.
     const provedor = provedorAtual();
     const autorizacaoIA = provedor ? { ...textosParaTela(provedor, operadorIA(a)), ...await resumoTolerante(tx, c, provedor) } : null;
-    return { id: c.id, festaId: c.festa_id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
+    return { id: c.id, festaId: c.festa_id, conteudo: comBlocoLocal(c.rascunho, bloco), avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
@@ -220,7 +223,7 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   // Reencoding fora da transação; só após autenticação da rota (cliente revalidado abaixo).
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
-  return comConvite(a, true, async (tx, c, versao) => {
+  return comConvite(a, true, async (tx, c, versao, _convidados, _podeAdministrar, bloco) => {
     if (i.acao === 'familia_adicionar' || i.acao === 'familia_editar' || i.acao === 'familia_link' || i.acao === 'familia_status') {
       const resultado = await operarFamilia(tx, c, i);
       if (!('repetida' in resultado && resultado.repetida)) await evento(tx, c, a, i.acao.toUpperCase(), { familiaId: i.id, ...('habilitado' in i ? { habilitado: i.habilitado } : {}), ...('ativa' in i ? { ativa: i.ativa } : {}) });
@@ -254,16 +257,21 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
         // O histórico e o consumo permanecem; só desfazemos o vínculo com o arquivo excluído.
         await tx.query('UPDATE convite_geracoes SET arte_id=NULL WHERE arte_id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
         await tx.query('DELETE FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
-        const rascunho = c.rascunho.arteId === i.arteId ? { ...c.rascunho, arteId: null } : c.rascunho;
+        // Sem imagem não há "Convite pronto" (modo 'completa'): o rascunho volta à composição com os dados da festa.
+        const rascunho = c.rascunho.arteId !== i.arteId ? c.rascunho : c.rascunho.visual?.modo === 'completa'
+          ? { ...c.rascunho, arteId: null, visual: { ...c.rascunho.visual, modo: 'modelo' as const } } : { ...c.rascunho, arteId: null };
         await tx.query('UPDATE convites SET rascunho=$2,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id, rascunho]);
         await evento(tx, c, a, 'ARTE_EXCLUIDA', { arteId: i.arteId });
         return { excluida: true };
       }
       if (i.acao === 'despublicar') await tx.query('UPDATE convites SET publicado=NULL,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id]);
       else {
-        if (i.conteudo.arteId) exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.conteudo.arteId, c.id, c.empresa_id])).rows.length, 'Arte não pertence a este convite.', 400);
+        // D-LIB-3/5: o bloco enviado pela tela é descartado; vale o recalculado da versão gravada em versao_contrato_id.
+        const conteudo = comBlocoLocal(i.conteudo, bloco);
+        if (i.acao === 'publicar') exigir(localDoConvite(conteudo), 'Informe o local da festa.', 400);
+        if (conteudo.arteId) exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows.length, 'Arte não pertence a este convite.', 400);
         await tx.query(`UPDATE convites SET rascunho=$2,publicado=CASE WHEN $3 THEN $2::jsonb ELSE publicado END,
-          versao_contrato_id=CASE WHEN $3 THEN $4::uuid ELSE versao_contrato_id END,revisao=revisao+1,atualizado_em=now() WHERE id=$1`, [c.id, i.conteudo, i.acao === 'publicar', versao]);
+          versao_contrato_id=CASE WHEN $3 THEN $4::uuid ELSE versao_contrato_id END,revisao=revisao+1,atualizado_em=now() WHERE id=$1`, [c.id, conteudo, i.acao === 'publicar', versao]);
       }
     }
     await evento(tx, c, a, i.acao.toUpperCase(), i.acao === 'cotas' ? { festa: i.festa, cliente: i.cliente } : {});
@@ -544,11 +552,11 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
   }
   // Pedido simples mantém o hash anterior; o completo inclui estilo, o hash da foto (a foto nunca é salva)
   // e os dados oficiais da festa no momento da reserva: textos alterados exigem nova chave.
-  const conteudoPayload = (c: Convite) => completo
+  const conteudoPayload = (campos: Record<string, unknown>) => completo
     ? { prompt: i.prompt, referencias: i.referencias, completo, estilo, ...(i.foto ? { foto: hash(i.foto) } : {}),
       // O padrão xhigh mantém o hash anterior: pedidos enviados antes do deploy continuam idempotentes.
       ...(qualidade !== QUALIDADE_COMPLETO ? { qualidade } : {}),
-      campos: ['nome', 'idade', 'data', 'horario', 'local', 'endereco', 'mensagem'].map(k => String((c.rascunho as Record<string, unknown>)[k] ?? '').trim()) }
+      campos: ['nome', 'idade', 'data', 'horario', 'local', 'endereco', 'mensagem'].map(k => String(campos[k] ?? '').trim()) }
     : { prompt: i.prompt, referencias: i.referencias };
   let foto: Buffer | undefined;
   if (i.foto !== undefined) {
@@ -556,9 +564,12 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     await comConvite(a, true, async () => undefined);
     foto = await normalizarImagem(i.foto);
   }
-  const reserva = await comConvite(a, true, async (tx, c) => {
+  const reserva = await comConvite(a, true, async (tx, c, _versao, _convidados, _podeAdministrar, bloco) => {
     await reconciliarNaTransacao(tx, c);
-    const payload = hash(JSON.stringify(conteudoPayload(c)));
+    // D-LIB-3/5: com o bloco, local e endereço da arte completa são os exibidos (bloco inteiro + complemento).
+    const rascunho = comBlocoLocal(c.rascunho, bloco);
+    const campos: Record<string, unknown> = bloco ? { ...rascunho, local: localDoConvite(rascunho), endereco: enderecoDoConvite(rascunho) } : c.rascunho;
+    const payload = hash(JSON.stringify(conteudoPayload(campos)));
     const anterior = (await tx.query<{ estado: string; arte_id: string | null; payload_hash: string; ator: string; convite_id: string; modelo: string }>('SELECT * FROM convite_geracoes WHERE id=$1', [i.chave])).rows[0];
     if (anterior) {
       exigir(anterior.convite_id === c.id && anterior.ator === ator(a, c) && anterior.payload_hash === payload, 'Chave de geração já utilizada.', 409);
@@ -579,7 +590,7 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     // Dados oficiais = rascunho salvo no servidor; conflito com o pedido falha antes de reservar créditos.
     let preparado: ConviteCompletoPreparado | null = null;
     if (completo) {
-      preparado = prepararConviteCompleto(i.prompt, c.rascunho, estilo);
+      preparado = prepararConviteCompleto(i.prompt, campos, estilo);
       if (foto) preparado = await adicionarReferenciaEstilo({ ...preparado, foto, promptImagem: preparado.promptImagem + orientacaoFoto(estilo) });
     }
     await limitarArtes(tx, c);
@@ -658,14 +669,14 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
 
 export async function publico(tokenPublico: string, executor: DbExecutor = db()) {
   habilitado(); exigir(/^[\w-]{43}$/.test(tokenPublico), 'Convite indisponível.', 404);
-  const c = (await executor.query<Convite>(`SELECT ci.* FROM convites ci LEFT JOIN festas f ON f.id=ci.festa_id
+  const c = (await executor.query<Convite & { empresa_codigo?: string }>(`SELECT ci.*, e.codigo AS empresa_codigo FROM convites ci LEFT JOIN festas f ON f.id=ci.festa_id
     LEFT JOIN contratos co ON co.id=f.contrato_id LEFT JOIN contrato_fluxos cf ON cf.contrato_id=co.id
     JOIN empresas e ON e.id=ci.empresa_id WHERE ci.publico_token=$1 AND ci.publicado IS NOT NULL
       AND e.status='ATIVA' AND (ci.festa_id IS NULL OR (f.invalidada_em IS NULL AND co.status<>'CANCELADO'
       AND cf.versao_vigente_id=ci.versao_contrato_id))`, [tokenPublico])).rows[0];
   exigir(c, 'Convite indisponível. Solicite o link atualizado ao organizador.', 404);
   const conteudo = conteudoSchema.parse(c.publicado);
-  return { c, conteudo };
+  return { c, conteudo, marcaKidmais: c.empresa_codigo === 'kidmais' };
 }
 export async function artePublica(tokenPublico: string) {
   const { c, conteudo } = await publico(tokenPublico);
@@ -674,8 +685,8 @@ export async function artePublica(tokenPublico: string) {
   exigir(arte, 'Arte não encontrada.', 404); return arte.imagem;
 }
 export async function consultarPublico(tokenPublico: string, tokenFamilia: string | null) {
-  const { c, conteudo } = await publico(tokenPublico);
-  return { conteudo, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+  const { c, conteudo, marcaKidmais } = await publico(tokenPublico);
+  return { conteudo, marcaKidmais, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
 }
 export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);

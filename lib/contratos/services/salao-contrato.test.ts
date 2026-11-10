@@ -45,7 +45,12 @@ test("diff (R-E4): V1 → V3 sem salão não acusa nada; salão novo e troca de 
 
 function banco(versao: { snapshot: ContratoSnapshot; base: ContratoSnapshot | null } | null, festa: Record<string, unknown> | null) {
   return executorFalso([
-    [/FROM contrato_versoes v/, () => (versao ? [versao] : [])],
+    [/FROM contrato_versoes v JOIN contratos c/, () => (versao ? [{ f: "f" }] : [])],
+    [/FROM contratos c JOIN fechamentos f/, () => [{ contrato_id: "c", status: "ASSINADO", vigente: versao?.base ? "base" : "v", preparacao: versao?.base ? "v" : null, empresa: "e" }]],
+    [/FROM fechamento_revisoes r LEFT JOIN contrato_versoes b/, () => (versao?.base ? [{ salao_id: null, versao: "v", base_id: "base", base: versao.base }] : [])],
+    [/FROM contrato_versoes WHERE id = \$1::uuid/, () => (versao ? [{ id: "v", numero: 2, status: versao.base ? "ATIVA" : "ASSINADA", schema: versao.snapshot.schemaVersao, snapshot: versao.snapshot, aceite: null, contrato: "c" }] : [])],
+    [/FROM contrato_assinaturas/, () => (versao?.base ? [] : [{ parte: "KIDMAIS" }, { parte: "CLIENTE" }])],
+    [/FROM contrato_edicoes/, () => [{ estado: "AGUARDANDO_CLIENTE" }]],
     [/FROM fechamentos WHERE id = \$1::uuid/, () => (festa ? [festa] : [])],
   ]);
 }
@@ -65,13 +70,19 @@ test("salão exigido (P2 do Astra, 27/10): a base só manda enquanto a revisão 
   // Revisão aplicada: o JOIN filtrado não traz a base; a versão (agora vigente, com a nova data) exige B contra a festa em B.
   const aplicada = banco({ snapshot: v3({ id: "s2", nome: "B" }), base: null }, festaIgual);
   assert.deepEqual(await salaoExigidoDaFesta(aplicada as unknown as DbExecutor, "v"), { situacao: "EXIGIDO", salaoId: "s2" });
-  const consulta = aplicada.executados.find((e) => /FROM contrato_versoes v/.test(e.sql))!.sql;
-  assert.match(consulta, /LEFT JOIN fechamento_revisoes r ON r\.contrato_versao_id = v\.id AND r\.estado IN \('EM_ELABORACAO', 'CONGELADA'\)/);
+  // D-LIB-4: o leitor só considera a revisão ABERTA (aplicada ou cancelada não traz a base).
+  const consulta = aplicada.executados.find((e) => /FROM fechamento_revisoes r LEFT JOIN contrato_versoes b/.test(e.sql))!.sql;
+  assert.match(consulta, /r\.estado IN \('EM_ELABORACAO', 'CONGELADA'\)/);
 });
 
 const festaPorSalao = { por_salao: true, data: "2026-12-05", inicio: "15:00:00", fim: "19:00:00", cfg: "cfg", pacote: "pac", empresa: "emp", unidade: null, convidados: 80 };
 function agenda(festa: Record<string, unknown>, servem: (somente: unknown) => Array<{ id: string; nome: string }>) {
   return executorFalso([
+    // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+    [/pg_locks/, (p) => [{ ok: true, empresa: p[0] ?? "emp" }]],
+    [/set_config\('kidmais\.escritor_salao'/, () => [{ ok: "" }]],
+    [/FROM contratos WHERE fechamento_id = \$1::uuid\) AS ok/, () => [{ ok: false }]],
+
     [/to_regprocedure\('public\.kidmais094_conflito_ocupacao/, () => [{ ok: true }]],
     [/to_regprocedure\('public\.kidmais098_salao_elegivel/, () => [{ ok: false }]],
     [/attname = 'convidados_minimo'/, () => [{ ok: true }]],
@@ -109,13 +120,13 @@ test("proposta (revisão inicial): o salão gravado só conta como escolha da eq
 
 test("salão exigido na festa: confere e grava; festa em outro salão ou exigido indisponível = sem salão; nunca substitui", async () => {
   const livre = agenda({ ...festaPorSalao, salao_id: null }, (somente) => (somente === "A" ? [{ id: "A", nome: "A" }] : [{ id: "C", nome: "C" }]));
-  assert.deepEqual(await escolherSalao(livre as unknown as DbExecutor, "f", "A"), { exigido: true, salao: "A" });
+  assert.deepEqual(await escolherSalao(livre as unknown as DbExecutor, "f", { caminho: "FORMALIZACAO_POS_ASSINATURA", origem: "ACEITE_PUBLICO", exigido: "A" }), { exigido: true, salao: "A" });
   assert.ok(livre.executados.some((e) => /UPDATE fechamentos SET salao_id/.test(e.sql)));
   const outro = agenda({ ...festaPorSalao, salao_id: "B" }, () => [{ id: "A", nome: "A" }]);
-  assert.deepEqual(await escolherSalao(outro as unknown as DbExecutor, "f", "A"), { exigido: true, salao: null });
+  assert.deepEqual(await escolherSalao(outro as unknown as DbExecutor, "f", { caminho: "FORMALIZACAO_POS_ASSINATURA", origem: "ACEITE_PUBLICO", exigido: "A" }), { exigido: true, salao: null });
   assert.ok(!outro.executados.some((e) => /^\s*UPDATE/i.test(e.sql)));
   const ocupado = agenda({ ...festaPorSalao, salao_id: null }, (somente) => (somente === "A" ? [] : [{ id: "C", nome: "C" }]));
-  assert.deepEqual(await escolherSalao(ocupado as unknown as DbExecutor, "f", "A"), { exigido: true, salao: null }, "sem substituto C");
+  assert.deepEqual(await escolherSalao(ocupado as unknown as DbExecutor, "f", { caminho: "FORMALIZACAO_POS_ASSINATURA", origem: "ACEITE_PUBLICO", exigido: "A" }), { exigido: true, salao: null }, "sem substituto C");
   assert.ok(!ocupado.executados.some((e) => /^\s*UPDATE/i.test(e.sql)));
 });
 
@@ -140,12 +151,12 @@ test("P1 (27/10): o serviço confere destino × documento DEPOIS da revalidaçã
 
 test("rodada 2: salão exigido da BASE (assinatura de revisão) não reavalia a capacidade; o da própria versão reavalia", async () => {
   const b = agenda({ ...festaPorSalao, salao_id: "A", convidados: 30 }, (somente) => (somente === "A" ? [{ id: "A", nome: "A" }] : []));
-  assert.deepEqual(await escolherSalao(b as unknown as DbExecutor, "f", "A", { capacidade: false }), { exigido: true, salao: "A" });
+  assert.deepEqual(await escolherSalao(b as unknown as DbExecutor, "f", { caminho: "FORMALIZACAO_POS_ASSINATURA", origem: "ACEITE_PUBLICO", exigido: "A", capacidade: false }), { exigido: true, salao: "A" });
   assert.equal(b.executados.find((e) => /FROM agenda_saloes s/.test(e.sql))!.params[8], null, "convidados nulos: sem filtro de capacidade");
-  await escolherSalao(b as unknown as DbExecutor, "f", "A");
+  await escolherSalao(b as unknown as DbExecutor, "f", { caminho: "FORMALIZACAO_POS_ASSINATURA", origem: "ACEITE_PUBLICO", exigido: "A" });
   assert.equal(b.executados.filter((e) => /FROM agenda_saloes s/.test(e.sql)).at(-1)!.params[8], 30, "padrão: capacidade estrita");
   const { readFileSync } = await import("node:fs");
-  assert.match(readFileSync(new URL("../../festas/formalizacao.ts", import.meta.url), "utf8"), /escolherSalaoDoContrato\(tx, contratoId, exigido\?\.salaoId, \{ capacidade: !exigido\?\.daBase \}\)/);
+  assert.match(readFileSync(new URL("../../festas/formalizacao.ts", import.meta.url), "utf8"), /escolherSalaoDoContrato\(tx, contratoId, exigido \? \{ \.\.\.marca, exigido: exigido\.salaoId, capacidade: !exigido\.daBase \} : \{ \.\.\.marca, exigido: null \}\)/);
 });
 
 test("rótulo do salão: nome que já começa com 'Salão' não duplica", async () => {

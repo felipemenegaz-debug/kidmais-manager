@@ -146,7 +146,7 @@ export async function iniciarRascunhoComPayload(acao: FerramentaAcao, payload: R
 async function abrir(acao: FerramentaAcao, payloadInicial: Record<string, unknown>, ctx: ContextoGate, deps: DependenciasHumanGate): Promise<Avanco> {
   autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
   if (!await deps.repositorio.disponivel(ctx.tx)) {
-    throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Kidmais ainda não estão disponíveis neste ambiente.", 503);
+    throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Copiloto ainda não estão disponíveis neste ambiente.", 503);
   }
   const agora = deps.agora().toISOString();
   const operacaoId = deps.novoId();
@@ -222,7 +222,7 @@ export async function confirmarOperacao(
     throw new InteligenciaError("OPERACAO_NAO_ENCONTRADA", "Rascunho não encontrado.", 404);
   }
   autorizarNoGate(ctx, acao, "CONFIRMACAO", null);
-  if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
+  if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Copiloto indisponível neste ambiente.", 503);
   // Aprovação pela revisão oficial (ex.: contratação): o clique do chat nunca executa — um só caminho de escrita.
   if (acao.revisao) throw new InteligenciaError("CONFIRMAR_NA_REVISAO", "Esta proposta é concluída na revisão oficial, não pelo chat.", 409);
   // Replay (clique duplo, retry após timeout): devolve o resultado gravado, sem executar de novo.
@@ -288,7 +288,7 @@ export async function cancelarOperacao(acao: FerramentaAcao, draft: HumanGateDra
     throw new InteligenciaError("OPERACAO_NAO_ENCONTRADA", "Rascunho não encontrado.", 404);
   }
   autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
-  if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
+  if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Copiloto indisponível neste ambiente.", 503);
   // COLETANDO ainda não tem hash ("" nos dois lados); AGUARDANDO_CONFIRMACAO e CANCELADA têm o do preview.
   if (draft.versao !== pedido.versao || draft.payloadHash !== pedido.payloadHash) {
     throw new InteligenciaError("CONFIRMACAO_DESATUALIZADA", "O rascunho mudou desde a última vez que você o viu. Atualize antes de cancelar.", 409);

@@ -21,6 +21,11 @@ export const HASHES_COMBINADOS = {
   conflito108: "06a387fe9c40ceca6a4021b1f9676b76ee92592a2cc241705f1201a40cc97537",
   contrato: "13095fc87c52c3970f9cfad1c5bcef77d3e860904f71b39948de0335b4e76c21",
   revisao: "8476ec76d2ae8af4f7fbbdba595b0fd82b8060c76be4d2d915a47451f11f9e24",
+  /**
+   * Liberar agenda com mais de um salão (D-LIB-6): a 114 recria kidmais_validar_agenda_revisao com a verificação da trava
+   * da configuração (o postcheck dela exige este corpo). Com o marcador da 114, só este corpo vale; sem ele, só o da 108.
+   */
+  revisao114: "dcbfd2b296635249273d36a2593baf15eefb27fa9628523357df4b56476638a1",
 } as const;
 
 /** As 10 funções da 108 (corpos idênticos aos da 098) e o sha256 do corpo de cada uma. */
@@ -70,6 +75,8 @@ export type CatalogoCombinados = {
   contrato: string | null;
   revisao: string | null;
   marcador108: boolean;
+  /** kidmais114_exigir_configuracao(uuid) existe (D-LIB-6). */
+  marcador114: boolean;
 };
 
 export const TOTAL_FUNCOES_COMBINADOS = Object.keys(FUNCOES_COMBINADOS).length;
@@ -79,7 +86,7 @@ export function classificarCombinados(c: CatalogoCombinados): EstadoCombinados {
   if (!algum) return "AUSENTE";
   const nucleo = c.funcoes === TOTAL_FUNCOES_COMBINADOS && c.funcoesQualquer === TOTAL_FUNCOES_COMBINADOS && c.colunaCombinado && c.colunaMembros
     && c.checkValidado && c.gatilhosOk === GATILHOS_COMBINADOS.length && c.gatilhosQualquer === GATILHOS_COMBINADOS.length
-    && c.contrato === HASHES_COMBINADOS.contrato && c.revisao === HASHES_COMBINADOS.revisao;
+    && c.contrato === HASHES_COMBINADOS.contrato && c.revisao === (c.marcador114 ? HASHES_COMBINADOS.revisao114 : HASHES_COMBINADOS.revisao);
   if (nucleo && c.marcador108 && c.conflito === HASHES_COMBINADOS.conflito108) return "NOVA";
   if (nucleo && !c.marcador108 && c.conflito === HASHES_COMBINADOS.conflito098) return "ANTIGA";
   return "PARCIAL";
@@ -111,7 +118,7 @@ export async function lerCatalogoCombinados(db: DbExecutor): Promise<CatalogoCom
   const funcoes = Object.entries(FUNCOES_COMBINADOS).map(([n, h]) => `('${n}', '${h}')`).join(", ");
   const gatilhos = GATILHOS_COMBINADOS.map(([n, t, f, tipo, dif, col]) => `('${n}', '${t}', '${f}', ${tipo}, ${dif}, ${col ? `'${col}'` : "NULL::text"})`).join(", ");
   const r = (await db.query<{ funcoes: number; funcoes_qualquer: number; combinado: boolean; membros: boolean; check_ok: boolean; gatilhos_ok: number;
-    gatilhos_qualquer: number; conflito: string | null; contrato: string | null; revisao: string | null; marcador: boolean }>(
+    gatilhos_qualquer: number; conflito: string | null; contrato: string | null; revisao: string | null; marcador: boolean; marcador114: boolean }>(
     `SELECT (SELECT count(*)::int FROM (VALUES ${funcoes}) AS e(nome, h) JOIN pg_proc p ON p.proname = e.nome AND p.pronamespace = 'public'::regnamespace
               WHERE encode(sha256(convert_to(replace(p.prosrc, E'\\r', ''), 'UTF8')), 'hex') = e.h) AS funcoes,
             (SELECT count(DISTINCT p.proname)::int FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'kidmais098\\_%') AS funcoes_qualquer,
@@ -133,12 +140,13 @@ export async function lerCatalogoCombinados(db: DbExecutor): Promise<CatalogoCom
             ${corpo("kidmais094_conflito_ocupacao(uuid,date,time without time zone,time without time zone,uuid,uuid,uuid,uuid)")} AS conflito,
             ${corpo("kidmais019_validar_contrato()")} AS contrato,
             ${corpo("kidmais_validar_agenda_revisao()")} AS revisao,
-            to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS marcador`,
+            to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS marcador,
+            to_regprocedure('public.kidmais114_exigir_configuracao(uuid)') IS NOT NULL AS marcador114`,
   )).rows[0];
   if (!r) return null;
   return { funcoes: Number(r.funcoes), funcoesQualquer: Number(r.funcoes_qualquer), colunaCombinado: r.combinado, colunaMembros: r.membros,
     checkValidado: r.check_ok, gatilhosOk: Number(r.gatilhos_ok), gatilhosQualquer: Number(r.gatilhos_qualquer), conflito: r.conflito,
-    contrato: r.contrato, revisao: r.revisao, marcador108: r.marcador };
+    contrato: r.contrato, revisao: r.revisao, marcador108: r.marcador, marcador114: r.marcador114 === true };
 }
 
 export async function estadoCombinados(db: DbExecutor): Promise<{ estado: EstadoCombinados; coluna: boolean }> {

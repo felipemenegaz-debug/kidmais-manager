@@ -41,6 +41,10 @@ export const TABELAS: Record<string, ConfigTabela> = {
         geradas: { id: 'id', criado_em: 'instante' } },
     ia_credito_devolucoes: { natural: (l) => texto(l.id), geradas: { atualizado_em: 'instante', concluida_em: 'instante' } },
     ia_credito_notificacoes: { natural: (l) => texto(l.dedupe), geradas: { id: 'id', criada_em: 'instante', proxima_em: 'instante', enviada_em: 'instante' } },
+    // 116 (franquias por plano): a sincronização grava a pendência (intenção) na mesma transação da troca de contratação;
+    // a trilha financeira entra para que qualquer escrita nela também apareça. Ausentes (sem a 116) ficam de fora.
+    ia_credito_franquia_pendencias: { natural: (l) => `${texto(l.empresa_id)}:${texto(l.contratacao_id)}`, geradas: { criada_em: 'instante', processada_em: 'instante' } },
+    ia_credito_franquias_ciclo: { natural: (l) => `${texto(l.recurso)}:${texto(l.ciclo)}:${texto(l.chave)}`, geradas: { id: 'id', criado_em: 'instante' } },
 };
 
 /** Valor do to_jsonb em forma canônica: inteiro seguro fica número; numeric fracionário vira texto; objeto/lista por JSON. */

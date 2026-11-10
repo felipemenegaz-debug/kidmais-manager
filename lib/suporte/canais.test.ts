@@ -20,7 +20,7 @@ test('canais: e-mail e WhatsApp válidos viram links', () => {
     const c = canaisSuporte({ SITE_ATENDIMENTO_EMAIL: ' suporte@exemplo.com.br ', SITE_ATENDIMENTO_WHATSAPP: '+55 61 99999-0000', SITE_ATENDIMENTO_HORARIO: 'Seg a sex, 9h às 18h' });
     assert.equal(c.configurado, true);
     assert.equal(c.email, 'suporte@exemplo.com.br');
-    assert.equal(c.emailHref, 'mailto:suporte@exemplo.com.br?subject=Suporte%20Kidmais%20Manager');
+    assert.equal(c.emailHref, 'mailto:suporte@exemplo.com.br?subject=Suporte%20iA.Fest');
     assert.match(c.whatsappHref ?? '', /^https:\/\/wa\.me\/5561999990000\?text=/);
     assert.equal(c.whatsapp, '+55 61 99999-0000');
     assert.equal(c.horario, 'Seg a sex, 9h às 18h');
@@ -95,24 +95,33 @@ function montarAjuda(env: Record<string, string>) {
         'next/link': { default: 'a' },
         '@/components/admin/admin.module.css': cssFalso,
         '@/components/admin/workspace.module.css': cssFalso,
+        '@/components/admin/ajuda/ajuda.module.css': cssFalso,
         '@/lib/suporte/canais': { canaisSuporte: () => canaisSuporte(env) },
+        // Central de ajuda (S3) fica fora deste teste: sem corpus, a seção de artigos não aparece (lib/suporte/central.test.ts).
+        '@/components/admin/ajuda/CodigoSuporte': { default: 'CodigoSuporte' },
+        '@/lib/suporte/central': { artigosDaCentral: () => [], buscarNaCentral: () => [], rotaDoArtigo: (id: string) => id, CONSULTA_MAX: 120 },
+        '@/lib/conhecimento/carregar': { carregarCorpusAprovado: () => null },
+        '@/lib/financeiro/calculos': { hojeBrasilia: () => '2026-11-01' },
     });
-    return tela.render();
+    return tela.render('default', {}) as Promise<unknown>;
 }
 
-test('página de ajuda: canais configurados viram links; sem canais, orientação sem "a definir"', () => {
-    const com = montarAjuda({ SITE_ATENDIMENTO_EMAIL: 'suporte@exemplo.com.br', SITE_ATENDIMENTO_WHATSAPP: '+55 61 99999-0000', SITE_ATENDIMENTO_HORARIO: 'Seg a sex, 9h às 18h' });
+test('página de ajuda: canais configurados viram links; sem canais, orientação sem "a definir"', async () => {
+    const com = await montarAjuda({ SITE_ATENDIMENTO_EMAIL: 'suporte@exemplo.com.br', SITE_ATENDIMENTO_WHATSAPP: '+55 61 99999-0000', SITE_ATENDIMENTO_HORARIO: 'Seg a sex, 9h às 18h' });
     const links = elementos(com).filter((e) => typeof e.props.href === 'string').map((e) => String(e.props.href));
-    assert(links.some((h) => h.startsWith('https://wa.me/5561999990000')));
-    assert(links.includes('mailto:suporte@exemplo.com.br?subject=Suporte%20Kidmais%20Manager'));
+    // WhatsApp: o link sem código vem do servidor; o componente acrescenta o código de suporte no navegador.
+    const whatsapp = elementos(com).find((e) => e.type === 'CodigoSuporte' && e.props.numero);
+    assert.match(String(whatsapp?.props.hrefSemCodigo), /^https:\/\/wa\.me\/5561999990000\?text=/);
+    assert.equal(whatsapp?.props.numero, '+55 61 99999-0000');
+    assert(links.includes('mailto:suporte@exemplo.com.br?subject=Suporte%20iA.Fest'));
     assert(links.includes('/admin/inicio') && links.includes('/admin/assinatura') && links.includes('/admin/perfil'));
     assert.match(texto(com), /Horário de atendimento: Seg a sex, 9h às 18h/);
     assert.match(texto(com), /nunca pede a sua senha/);
 
-    const sem = montarAjuda({});
+    const sem = await montarAjuda({});
     assert.equal(texto(sem).includes('a definir'), false);
     assert.match(texto(sem), /ainda não foram publicados neste ambiente/);
-    assert.equal(elementos(sem).some((e) => String(e.props.href ?? '').startsWith('mailto:') || String(e.props.href ?? '').startsWith('https://wa.me')), false);
+    assert.equal(elementos(sem).some((e) => String(e.props.href ?? '').startsWith('mailto:') || String(e.props.href ?? '').startsWith('https://wa.me') || Boolean(e.props.numero)), false);
 });
 
 test('erro do Admin: mostra o digest como referência e leva ao suporte', () => {

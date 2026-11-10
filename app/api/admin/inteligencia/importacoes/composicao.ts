@@ -5,10 +5,11 @@ import { confirmarIntegracao, opcoesIntegracaoRascunho, simularIntegracao, Integ
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from '@/lib/http/admin-crm-api';
 import type { NextRequest } from "next/server";
-import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase } from "@/lib/clientes/services";
+import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase, pessoaJuridicaDisponivel } from "@/lib/clientes/services";
 import { executarImportacao } from "@/lib/importacao-contrato/motor";
+import { resumoCotaParaTela } from "@/lib/importacao-contrato/cota";
 import { documentosDisponiveis, ultimaExtracao } from "@/lib/importacao-contrato/repositorio-documentos";
-import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorDocumento, lerImportacao, substituirImportacaoCancelada } from "@/lib/importacao-contrato/repositorio-importacao";
+import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorAbertura, importacaoPorDocumento, lerImportacao, listarParaRevisao, registrarAbertura, substituirImportacaoCancelada, travarDocumento } from "@/lib/importacao-contrato/repositorio-importacao";
 import { CHAVE_ACOES, CHAVE_HUMAN_GATE } from "@/lib/inteligencia/acoes/modulo";
 import type { RegistroExtensoes } from "@/lib/inteligencia/extensoes";
 import { criarAcaoImportacao, type PortaImportacao } from "@/lib/inteligencia/importacao/acao";
@@ -60,13 +61,19 @@ export function portaImportacaoCom(sessaoDaConfirmacao: SessaoImportacao): Porta
       },
     },
     disponivel: async (tx) => await importacaoDisponivel(tx) && await documentosDisponiveis(tx),
+    resumoCota: (tx, empresaId) => resumoCotaParaTela(tx, empresaId),
     ultimaExtracao,
     abrirImportacao,
+    travarDocumento,
+    importacaoPorAbertura,
+    registrarAbertura,
+    listarParaRevisao,
     lerImportacao,
     importacaoPorDocumento,
     atualizarImportacao,
     substituirImportacaoCancelada,
     analisarCliente: (tx, empresaId, dados) => analisarCadastroCliente(dados, empresaId, {}, tx),
+    pessoaJuridicaDisponivel: (tx) => pessoaJuridicaDisponivel(tx),
     executar: (tx, entrada) => executarImportacao(tx, entrada, {
       // Cliente novo pelo mesmo serviço do CRM: dedup no tenant, índice de CPF, histórico e auditoria.
       async cadastrarCliente(txCliente, empresaId, dados, ctx) {
@@ -81,7 +88,8 @@ export function portaImportacaoCom(sessaoDaConfirmacao: SessaoImportacao): Porta
       },
       // Vínculo só com cliente do tenant comprovado (outra empresa responde como inexistente).
       async conferirCliente(txCliente, empresaId, clienteId) {
-        await obterClienteBase(clienteId, empresaId, txCliente);
+        const { cliente } = await obterClienteBase(clienteId, empresaId, txCliente);
+        return { tipoPessoa: cliente.tipoPessoa, cnpj: cliente.cnpj };
       },
       atualizarImportacao,
     }),

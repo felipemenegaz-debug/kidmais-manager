@@ -9,7 +9,7 @@ import { lerSinais } from "./jev/v1/regras.ts";
 import { normalizar } from "./texto-pt.ts";
 
 /** AI V1.1 — PR 2: estados de entendimento, objetivo determinístico e fallback que diz o que aconteceu. */
-const naoSuportado = (mensagem = "Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"): AIResponse => ({ tipo: "nao_suportado", mensagem, sugestoes: [] });
+const naoSuportado = (mensagem = "Ainda não sei responder isso pelo Copiloto. Veja o que consigo fazer agora:"): AIResponse => ({ tipo: "nao_suportado", mensagem, sugestoes: [] });
 const sinais = (parada: string | null = null, politica: string | null = null) => ({ parada, politica });
 
 test("objetivo do texto: ação × recurso de listas fechadas; o alvo é o primeiro recurso citado", () => {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { diferencas, linhaNumeros, mesPorExtenso, organizar, selecaoInicial, seguirSemEtapa, textoSituacao, type ListaPublica } from './saloes-tela.ts';
-import { motivoForaDoSalao, situacaoDoPreferido } from '../fechamento/salao-preferido.ts';
+import { diferencas, faixaCombinado, linhaNumeros, mesPorExtenso, organizar, selecaoInicial, seguirSemEtapa, seloAlternativa, textoAvisoSalao, motivoDaRecusa, textoSituacao, type ListaPublica } from './saloes-tela.ts';
+import { candidatoDaEntrada, destinoDaRecusaDoSalao, motivoForaDoSalao, situacaoDoPreferido } from '../fechamento/salao-preferido.ts';
 import { soAMaisRecente } from '../fechamento/convidados-trava.ts';
 import type { SalaoPublico } from '../../lib/agenda/salao-publico.ts';
 
@@ -108,4 +108,98 @@ test('S-D (revisão P2-2/P2-3): assistente confere o preferido DENTRO da revalid
     assert.equal(fonte.split('situacaoDoPreferido(').length - 1, 2, 'só a entrada e a revalidação consultam o preferido (nenhuma chamada solta fora da sequência)');
     assert.match(fonte, /if \(salaoPreferido && preferido\?\.tipo !== "livre"\) \{[\s\S]*?return false;/, 'salão que não serve: revalidação recusa');
     assert.match(fonte, /if \(valido === false\) setHorarioRecusado\(ultimaRecusa\.current \?\? mensagemHorarioRecusado\(quantidade\)\);/);
+});
+
+// E2b — salões combinados para o cliente (plano técnico E2b rev. 2.1; D-R5, D-E2b-3, R2-P2-2).
+const combinado = (id: string, membros: string[], cap: number | null, preco: string | null, extra: Partial<SalaoPublico> = {}) =>
+    salao(id, membros.join(' + '), 'livre', cap, { combinado: { membros }, papel: null, precoAPartirDe: preco, ...extra });
+
+test('E2b: faixa do combinado — dois salões, capacidade e "a partir de" pelo pacote; nunca R$ 0 nem +R$', () => {
+    assert.equal(faixaCombinado(combinado('ab', ['Salão 1', 'Salão 2'], 100, '4990.00')), 'Os dois salões juntos · até 100 pessoas · a partir de R$\u00a04.990,00');
+    assert.equal(faixaCombinado(combinado('abc', ['Salão 1', 'Salão 2', 'Salão 3'], 150, '5000.00')), 'Os salões Salão 1 + Salão 2 + Salão 3 juntos · até 150 pessoas · a partir de R$\u00a05.000,00');
+    assert.equal(faixaCombinado(combinado('ab', ['Salão 1', 'Salão 2'], null, null)), 'Os dois salões juntos · valores na escolha do pacote', 'sem preço legível');
+    for (const ilegivel of ['0.00', '-10.00', 'NaN', 'abc', '']) {
+        assert.match(faixaCombinado(combinado('ab', ['Salão 1', 'Salão 2'], 100, ilegivel)) ?? '', /valores na escolha do pacote$/, ilegivel);
+    }
+    assert.equal(faixaCombinado(salao('a', 'A', 'livre', 60)), null, 'simples: sem faixa');
+    assert.equal(faixaCombinado(salao('a', 'A', 'livre', 60, { combinado: null })), null);
+    for (const s of [combinado('ab', ['1', '2'], 100, '4990.00'), combinado('ab', ['1', '2'], 100, null)]) {
+        assert.doesNotMatch(faixaCombinado(s) ?? '', /\+\s*R\$|R\$\s*0,00|NaN|exclusiv|só a sua/i);
+    }
+});
+
+test('E2b: a alternativa nunca vem selecionada, nem sendo a única livre; o recomendado único continua', () => {
+    const alt = combinado('ab', ['Salão 1', 'Salão 2'], 100, null, { papel: 'alternativa' });
+    const lista: ListaPublica = { saloes: [salao('c', 'Salão 3', 'ocupado', 120), alt], recomendado: null };
+    assert.equal(selecaoInicial(lista), null);
+    assert.deepEqual(organizar(lista).principais.map((s) => s.id), ['ab'], 'a alternativa continua escolhível');
+    assert.equal(seloAlternativa(alt), 'Alternativa: os salões Salão 1 + Salão 2 juntos, livres neste horário');
+    const rec = combinado('ab', ['Salão 1', 'Salão 2'], 100, null, { papel: 'recomendado' });
+    assert.equal(selecaoInicial({ saloes: [rec], recomendado: { id: 'ab', motivo: '' } }), 'ab');
+    assert.equal(seloAlternativa(rec), null);
+    assert.equal(seloAlternativa(salao('a', 'A', 'livre', 60)), null, 'sem papel (E2a): sem selo');
+});
+
+test('E2b (P3-R2-2): motivo da recusa sem orientar a escolha — frase do motivo ou genérica; fora da recusa, null; a tela o mostra quando a etapa sai do ar', () => {
+    assert.equal(motivoDaRecusa(new URLSearchParams('aviso=salao-recusado&motivo=INELEGIVEL')), 'Um dos salões deste conjunto não está disponível agora.');
+    assert.equal(motivoDaRecusa(new URLSearchParams('aviso=salao-recusado&motivo=%3Cscript%3E')), 'O salão escolhido não está mais disponível para esta data, horário e número de convidados.');
+    assert.equal(motivoDaRecusa(new URLSearchParams('aviso=salao')), null);
+    assert.equal(motivoDaRecusa(new URLSearchParams('')), null);
+    const tela = readFileSync(new URL('./ConhecaSaloes.tsx', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(tela.includes('const motivoSemEtapa = semEtapa && params ? motivoDaRecusa(params) : null;'), 'sem etapa, o motivo vem dos params da volta');
+    assert.ok(tela.includes('{motivoSemEtapa ? <p>{motivoSemEtapa}</p> : null} <strong>A escolha de salão'), 'o aviso sem etapa mostra o motivo');
+});
+
+test('E2b: aviso da volta — "salao" (E2a) igual a antes; "salao-recusado" com a frase do motivo ou genérica', () => {
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao')), 'O salão escolhido não está mais disponível para a sua festa. Escolha outro salão.');
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao-recusado&motivo=INELEGIVEL')), 'Um dos salões deste conjunto não está disponível agora. Escolha outro salão.');
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao-recusado&motivo=OCUPADO_OU_LIMITE')), 'Este salão não está mais livre neste horário. Escolha outro salão.');
+    const generica = 'O salão escolhido não está mais disponível para esta data, horário e número de convidados. Escolha outro salão.';
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao-recusado')), generica);
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao-recusado&motivo=SALAO_INATIVO_OU_OUTRO_ESCOPO')), generica, 'motivo de escopo nunca vira frase');
+    assert.equal(textoAvisoSalao(new URLSearchParams('aviso=salao-recusado&motivo=%3Cscript%3E')), generica);
+    assert.equal(textoAvisoSalao(new URLSearchParams('')), null);
+    assert.equal(seguirSemEtapa(new URLSearchParams('aviso=salao-recusado')), false, 'a etapa sumiu depois da recusa: a tela pergunta');
+});
+
+test('E2b: recusa do envio volta aos salões só com voltarParaSaloes (E2b), sem o salão e com o motivo; E2a = sem volta', () => {
+    // P2-C1: a URL de entrada (15–19, 80) diverge do que foi enviado (pacote de 3 h no horário livre: 15–18, 90).
+    const atuais = new URLSearchParams('origem=DISPONIBILIDADE&data=2026-11-21&configuracaoId=c1&ajuste=0&inicio=15:00&fim=19:00&convidados=80&salao=ab&aviso=salao');
+    const enviado = { data: '2026-11-21', configuracaoId: 'c1', ajuste: '0', inicio: '15:00', fim: '18:00', convidados: 90 };
+    const volta = destinoDaRecusaDoSalao('buffet-a', atuais, enviado, { codigo: 'SALAO_INDISPONIVEL', detalhes: { voltarParaSaloes: true, motivo: 'INELEGIVEL' } });
+    const url = new URL(volta!, 'http://x');
+    assert.equal(url.pathname, '/b/buffet-a/saloes');
+    assert.deepEqual(['data', 'configuracaoId', 'ajuste', 'inicio', 'fim', 'convidados', 'aviso', 'motivo'].map((k) => url.searchParams.get(k)),
+        ['2026-11-21', 'c1', '0', '15:00', '18:00', '90', 'salao-recusado', 'INELEGIVEL'], 'o destino do POST, não o da URL');
+    assert.equal(url.searchParams.get('origem'), 'DISPONIBILIDADE', 'demais parâmetros preservados');
+    assert.equal(url.searchParams.has('salao'), false, 'nada pré-selecionado');
+    // O destino enviado vence também data, horário configurado e ajuste diferentes da URL.
+    const outro = new URL(destinoDaRecusaDoSalao('buffet-a', atuais, { ...enviado, data: '2026-11-22', configuracaoId: 'c2', ajuste: '-30', inicio: '14:30' },
+        { codigo: 'SALAO_INDISPONIVEL', detalhes: { voltarParaSaloes: true } })!, 'http://x');
+    assert.deepEqual(['data', 'configuracaoId', 'ajuste', 'inicio', 'fim'].map((k) => outro.searchParams.get(k)), ['2026-11-22', 'c2', '-30', '14:30', '18:00']);
+    assert.equal(outro.searchParams.has('motivo'), false);
+    assert.equal(destinoDaRecusaDoSalao('buffet-a', atuais, enviado, { codigo: 'SALAO_INDISPONIVEL' }), null, 'E2a: sem detalhes, sem volta');
+    assert.equal(destinoDaRecusaDoSalao('buffet-a', atuais, enviado, { codigo: 'HORARIO_NAO_DISPONIVEL', detalhes: { voltarParaSaloes: true } }), null);
+    assert.equal(destinoDaRecusaDoSalao('buffet-a', atuais, enviado, null), null);
+});
+
+test('E2b (P2-C1): entrada — horário fixo exige o fim exato; horário livre casa início/ajuste e mantém o fim enviado', () => {
+    const h = (inicio: string, fim: string, ajusteMinutos = 0) => ({ inicio, fim, ajusteMinutos, status: 'DISPONIVEL' });
+    const fixo = { codigo: 'TARDE', horarios: [h('15:00', '19:00'), h('14:30', '18:30', -30)] };
+    assert.deepEqual(candidatoDaEntrada(fixo, { ajuste: 0, inicio: '15:00', fim: '19:00' }), h('15:00', '19:00'));
+    assert.equal(candidatoDaEntrada(fixo, { ajuste: 0, inicio: '15:00', fim: '18:00' }), null, 'fixo: fim diferente = recusa, como antes');
+    assert.equal(candidatoDaEntrada(fixo, { ajuste: -30, inicio: '15:00', fim: '19:00' }), null);
+    const livre = { codigo: 'HORARIO_LIVRE', horarios: [h('15:00', '19:00')] };
+    assert.deepEqual(candidatoDaEntrada(livre, { ajuste: 0, inicio: '15:00', fim: '18:00' }), h('15:00', '18:00'), 'livre: o fim da volta (duração do pacote)');
+    assert.equal(candidatoDaEntrada(livre, { ajuste: 0, inicio: '16:00', fim: '19:00' }), null);
+    assert.equal(candidatoDaEntrada(livre, { ajuste: 30, inicio: '15:00', fim: '19:00' }), null);
+    assert.equal(candidatoDaEntrada(undefined, { ajuste: 0, inicio: '15:00', fim: '19:00' }), null);
+});
+
+test('E2b (P2-C1): o assistente monta a volta com o destino do POST (mesmo objeto do corpo), nunca a URL sozinha', () => {
+    const fonte = readFileSync(new URL('../fechamento/FechamentoWizard.tsx', import.meta.url), 'utf8');
+    const sem = fonte.replace(/\s+/g, ' ');
+    assert.ok(sem.includes('destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha)'));
+    assert.ok(sem.includes('horarioInicio: enviado.inicio, horarioFim: enviado.fim,'), 'o corpo do POST usa o mesmo destino');
+    assert.ok(sem.includes('candidatoDaEntrada(periodo, { ajuste: Number(ajustePreselecionado), inicio: inicioParam, fim: fimParam })'));
 });

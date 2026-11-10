@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-/** E2E opt-in do seletor de pacote em /admin/disponibilidade, com PostgreSQL DESCARTÁVEL e dados sintéticos (modelo 089).
- * Restaura SOMENTE o banco sintético do runner a partir do modelo 089 (a receita prova cluster/porta/usuário antes de
+/** E2E opt-in do seletor de pacote em /admin/disponibilidade, com PostgreSQL DESCARTÁVEL e dados sintéticos (modelo 112).
+ * Restaura SOMENTE o banco sintético do runner a partir do modelo 112 (a receita prova cluster/porta/usuário antes de
  * escrever). Nenhum .env, banco real, e-mail, provedor ou serviço Render. Execute com os três KIDMAIS_* de autorização
  * do descartável, KIDMAIS_PLAYWRIGHT_MODULE e Chrome.
  *
@@ -13,7 +13,7 @@
  *     o envio do fechamento por HTTP gravam com esse pacote (COTACAO_PUBLICA_POR_EMPRESA=true só neste servidor local).
  *   - Fase 1c: o fechamento administrativo (wizard do painel) do buffet comum lista os pacotes dele, mostra o calendário
  *     pelas regras dele e cria o fechamento com o pacote novo.
- *   - Fase 1d: no Perguntar ao Kidmais do buffet comum, "pacote Festa Jardim UI" abre a revisão preparada com o código P_.
+ *   - Fase 1d: no Perguntar ao Copiloto do buffet comum, "pacote Festa Jardim UI" abre a revisão preparada com o código P_.
  */
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
@@ -42,6 +42,9 @@ function cpfValido() {
 }
 
 const PORTA_WEB = 3159;
+// Modelo sintético com o schema da tela atual: os preços por quantidade cheia (PrecosPorQuantidade) gravam linhas
+// PONTO em precos_pacote, aceitas só a partir da 092. O 112 é o estado mais novo da receita (cadeia do staging, sem a 098).
+const MODELO = '112';
 
 async function principal() {
   const base = `http://localhost:${PORTA_WEB}`;
@@ -62,9 +65,9 @@ async function principal() {
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
   try {
-    const existe = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [receita.MODELOS['089'].banco])).rows.length > 0;
-    if (!existe) await receita.construirModelo(admin, porta, '089');
-    await receita.restaurar(admin, receita.TRABALHO[0], '089');
+    const existe = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [receita.MODELOS[MODELO].banco])).rows.length > 0;
+    if (!existe) await receita.construirModelo(admin, porta, MODELO);
+    await receita.restaurar(admin, receita.TRABALHO[0], MODELO);
     client = await receita.conectar(porta, receita.TRABALHO[0]);
     const carregar = (f) => carregarModulo(f, { 'db/postgres': { db: () => client, withTransaction: async (w) => w(client) } }, new Map());
     const senhaMod = carregar('lib/autenticacao/senha.ts');
@@ -121,6 +124,9 @@ async function principal() {
     async function entrar(email) {
       const contexto = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
       contexto.setDefaultTimeout(90000);
+      // As empresas sintéticas não têm agenda configurada: o assistente da agenda (093) abre sozinho, depois da carga,
+      // por cima da tela e intercepta os cliques. Como em creditos-ui.cjs, o roteiro escolhe "Fazer depois" de antemão.
+      await contexto.addInitScript(() => { try { window.sessionStorage.setItem('kidmais-agenda-assistente-depois', '1'); } catch { /* sem armazenamento */ } });
       const page = await contexto.newPage();
       await page.goto(`${base}/admin/login`);
       await page.getByLabel('Email', { exact: true }).fill(email);
@@ -193,11 +199,14 @@ async function principal() {
         if (await botao.getAttribute('aria-pressed') !== 'true') await botao.click();
         await page.waitForFunction((el) => el.getAttribute('aria-pressed') === 'true', await botao.elementHandle());
       }
-      await page.getByRole('button', { name: '+ Adicionar faixa', exact: true }).click();
-      const faixa = page.locator('section').filter({ has: page.getByRole('heading', { name: '3. Preços' }) });
-      await faixa.getByLabel('De', { exact: true }).last().fill('30');
-      await faixa.getByLabel('Até', { exact: true }).last().fill('80');
-      await faixa.getByLabel('Preço', { exact: true }).last().fill('4500,00');
+      // Preços por quantidade cheia (PrecosPorQuantidade): intervalo 50 cria só as quantidades 30 (mínimo) e 80 (máximo);
+      // o mesmo preço nas duas mantém R$ 4.500 para qualquer quantidade entre elas (a cotação de 40 abaixo).
+      const precos = page.locator('section').filter({ has: page.getByRole('heading', { name: '3. Preços' }) });
+      await precos.getByLabel('Intervalo entre as quantidades', { exact: true }).fill('50');
+      await precos.getByRole('button', { name: 'Criar quantidades', exact: true }).click();
+      await precos.getByLabel('Preço de 30 convidados', { exact: true }).fill('4500,00');
+      await precos.getByLabel('Preço de 80 convidados', { exact: true }).fill('4500,00');
+      await precos.getByText('Cobre 30 a 80 convidados', { exact: true }).waitFor();
       const salvo = page.waitForResponse((r) => r.url().includes('/api/admin/configuracoes/pacotes') && r.request().method() === 'POST');
       await page.getByRole('button', { name: 'Salvar pacote', exact: true }).click();
       const resposta = await Promise.race([salvo, new Promise((_, rej) => setTimeout(() => rej(Error('NOVO_PACOTE_SEM_POST')), 15000))]).catch(async (erro) => {
@@ -329,26 +338,26 @@ async function principal() {
         resultados.push('Fechamento administrativo (wizard do painel): pacotes da empresa no seletor, calendário pelas regras dela (sábado livre, segunda fechada), criado com o pacote novo');
         console.log('E2E_FECHAMENTO_ADMIN_PACOTE_LIVRE_OK');
       }
-      // Fase 1d — IA: "crie uma festa … pacote Festa Jardim UI" no Perguntar ao Kidmais do buffet comum abre a revisão
+      // Fase 1d — IA: "crie uma festa … pacote Festa Jardim UI" no Perguntar ao Copiloto do buffet comum abre a revisão
       // preparada com o pacote DELE (código P_…), resolvido no Core pelo nome; nada é gravado até concluir o formulário.
       {
         const sabadoIa = new Date(sabadoAdmin); sabadoIa.setUTCDate(sabadoIa.getUTCDate() + 7);
         const dataIa = `${String(sabadoIa.getUTCDate()).padStart(2, '0')}/${String(sabadoIa.getUTCMonth() + 1).padStart(2, '0')}/${sabadoIa.getUTCFullYear()}`;
         const { contexto, page } = await entrar('gestao-com-ui@exemplo.test');
         await page.goto(`${base}/admin/dashboard`);
-        await page.getByRole('button', { name: 'Perguntar ao Kidmais' }).first().click();
+        await page.getByRole('button', { name: 'Perguntar ao Copiloto' }).first().click();
         const caixa = page.getByPlaceholder('Pergunte sobre sua operação…');
         await caixa.fill(`crie uma festa do cliente Cliente Sintético, pacote Festa Jardim UI 40 convidados, beatriz 6 anos, dia ${dataIa} à noite`);
         const antes = (await client.query('SELECT count(*)::int AS n FROM fechamentos WHERE empresa_id = $1', [COM])).rows[0].n;
         await page.getByRole('button', { name: 'Enviar', exact: true }).click();
         await page.waitForURL((url) => url.pathname.endsWith(`/admin/clientes/${clienteId}/fechamento`) && url.searchParams.has('rascunho'), { timeout: 90000 });
-        await page.getByLabel('Preparado pelo Kidmais').waitFor();
+        await page.getByLabel('Preparado pelo Copiloto').waitFor();
         await page.waitForFunction((codigo) => document.querySelector('select[aria-label="Pacote"]')?.value === codigo, codigoLivre);
         assert.equal(await page.getByText('O pacote da preparação não existe nesta empresa', { exact: false }).count(), 0);
         assert.equal((await client.query('SELECT count(*)::int AS n FROM fechamentos WHERE empresa_id = $1', [COM])).rows[0].n, antes, 'preparar não grava fechamento');
         await page.screenshot({ path: path.join(relatorios, 'ia-revisao-pacote-livre.png'), fullPage: true });
         await contexto.close();
-        resultados.push('IA (Perguntar ao Kidmais): "pacote Festa Jardim UI" abre a revisão preparada com o código P_ do buffet, sem gravar nada');
+        resultados.push('IA (Perguntar ao Copiloto): "pacote Festa Jardim UI" abre a revisão preparada com o código P_ do buffet, sem gravar nada');
         console.log('E2E_IA_PACOTE_LIVRE_OK');
       }
     }

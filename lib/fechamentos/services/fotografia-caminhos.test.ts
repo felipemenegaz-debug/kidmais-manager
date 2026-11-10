@@ -98,8 +98,10 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
   const aplicar = repositorio.aplicarOperacaoPreparada as (tx: DbExecutor, r: { id: string; fechamento_id: string; motivo: string }) => Promise<string | null>;
   const sqls: string[] = [];
   const tx: DbExecutor = {
-    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       sqls.push(text);
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return { rows: [{ ok: true, empresa: values?.[0] ?? "empresa-1" } as Row], rowCount: 1 };
       if (text.includes("information_schema.columns")) return { rows: [{ ok: false } as Row], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },

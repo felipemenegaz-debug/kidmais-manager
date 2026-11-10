@@ -138,6 +138,11 @@ export function normalizarDestinoWhatsapp(
   return digits;
 }
 
+/**
+ * Modelo da categoria Autenticação da Meta: o botão de código (copiar código ou preenchimento automático) é
+ * obrigatório nessa categoria e exige o mesmo código como parâmetro do botão (índice 0); sem ele a Meta recusa o
+ * envio por parâmetro ausente.
+ */
 function payloadTemplateOtp(delivery: OtpDelivery, config: WhatsappCloudConfig) {
   return {
     messaging_product: "whatsapp",
@@ -155,9 +160,38 @@ function payloadTemplateOtp(delivery: OtpDelivery, config: WhatsappCloudConfig) 
           type: "body",
           parameters: [{ type: "text", text: delivery.codigo }],
         },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
+          parameters: [{ type: "text", text: delivery.codigo }],
+        },
       ],
     },
   };
+}
+
+/**
+ * Registra por que a Cloud API não entregou: a rota só devolve a mensagem genérica, então sem esta linha a falha não
+ * deixa rastro. Só campos validados: nunca o corpo, a mensagem da Meta, o token, o destino ou o código.
+ */
+function registrarFalhaWhatsappCloud(
+  causa: "recusado" | "tempo_limite" | "rede",
+  detalhes: { http?: number; erro?: { code?: unknown; error_subcode?: unknown; fbtrace_id?: unknown } } = {},
+) {
+  const inteiro = (valor: unknown) => (Number.isInteger(valor) ? valor : null);
+  const rastreio = detalhes.erro?.fbtrace_id;
+  console.error(
+    JSON.stringify({
+      provider: "whatsapp_cloud",
+      status: "failed",
+      causa,
+      http: detalhes.http ?? null,
+      codigo: inteiro(detalhes.erro?.code),
+      subcodigo: inteiro(detalhes.erro?.error_subcode),
+      fbtrace: typeof rastreio === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(rastreio) ? rastreio : null,
+    }),
+  );
 }
 
 export function criarWhatsappCloudSender(
@@ -171,6 +205,7 @@ export function criarWhatsappCloudSender(
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+    let falhaRegistrada = false;
 
     try {
       const response = await fetchImpl(
@@ -188,19 +223,23 @@ export function criarWhatsappCloudSender(
 
       const result = (await response.json().catch(() => null)) as {
         messages?: Array<{ id?: string }>;
-        error?: { code?: number };
+        error?: { code?: number; error_subcode?: unknown; fbtrace_id?: unknown };
       } | null;
 
       if (!response.ok || !result?.messages?.[0]?.id) {
         const providerCode = result?.error?.code;
+        registrarFalhaWhatsappCloud("recusado", { http: response.status, erro: result?.error });
+        falhaRegistrada = true;
         throw new Error(
           `WhatsApp Cloud API recusou o envio (HTTP ${response.status}, código ${providerCode ?? "indisponível"}).`,
         );
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        registrarFalhaWhatsappCloud("tempo_limite");
         throw new Error("WhatsApp Cloud API excedeu o tempo limite.");
       }
+      if (!falhaRegistrada) registrarFalhaWhatsappCloud("rede");
       throw error;
     } finally {
       clearTimeout(timeout);

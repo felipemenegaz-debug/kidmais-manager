@@ -28,6 +28,7 @@ class BancoFalso {
     private snap() { return JSON.stringify({ a: [...this.assinaturas], e: this.eventos, au: this.auditoria }); }
     private restaurar(s: string) { const o = JSON.parse(s); this.assinaturas = new Map(o.a); this.eventos = o.e; this.auditoria = o.au; }
     async query(sql: string, p: readonly unknown[] = []) {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         this.sql.push(sql);
         const rows = (r: object[]) => ({ rows: r as never[], rowCount: r.length });
         const s = sql.replace(/\s+/g, ' ').trim();

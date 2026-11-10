@@ -12,7 +12,7 @@ const INVALIDOS = ["0", "1001", "abc", "8.5", "-1", ""];
 
 type Resposta = { body: Record<string, unknown>; status: number };
 
-function disponibilidade() {
+function disponibilidade(combinados = false) {
   const consultas: Array<{ tipo: string; opcoes: Record<string, unknown> }> = [];
   const resultado = { data: "2026-11-14", periodos: [{ configuracaoId: "c", codigo: "TURNO_1", nome: "Tarde", horarioInicioPadrao: "15:00", horarioFimPadrao: "19:00", status: "DISPONIVEL", horarios: [], capacidade: { opcoes: 1, motivo: "OK" } }] };
   const dubles = {
@@ -20,6 +20,7 @@ function disponibilidade() {
     "lib/db/postgres": { db: () => ({ query: async () => ({ rows: [] }) }) },
     "lib/http/limite-publico": { limitarPublico: async () => null },
     "lib/disponibilidade/escopo": { escopoPublico: async () => ({ empresaId: KIDMAIS, estabelecimentoId: null }) },
+    "lib/agenda/combinados-publicos": { combinadosPublicos: async () => combinados },
     "lib/comercial/cotacao-publica": {
       codigoEmpresaDoPedido: (url: URL) => url.searchParams.get("empresa") || null,
       escopoCotacaoPublica: async () => ({ empresaId: EMPRESA_A, estabelecimentoId: null }),
@@ -54,6 +55,16 @@ test("S-C: /api/disponibilidade — convidados ausente = de antes; válido chega
   assert.equal(r.consultas.length, total, "nenhuma consulta com parâmetro inválido");
 });
 
+test("E2b: /api/disponibilidade — com combinadosPublicos as duas consultas levam incluirCombinados; desligado, as opções de antes", async () => {
+  const ligado = disponibilidade(true);
+  await ligado.chamar("?data=2026-11-14&convidados=80");
+  await ligado.chamar("?inicio=2026-11-01&fim=2026-11-30");
+  assert.deepEqual(ligado.consultas.map((c) => [c.tipo, c.opcoes.incluirCombinados]), [["data", true], ["periodo", true]]);
+  const desligado = disponibilidade(false);
+  await desligado.chamar("?data=2026-11-14&convidados=80");
+  assert.equal("incluirCombinados" in desligado.consultas[0].opcoes, false);
+});
+
 test("S-C: a disponibilidade pública não leva ids nem nomes de salão (só contagens e motivo)", async () => {
   const fonte = (await import("node:fs")).readFileSync("lib/disponibilidade/services/availability.service.ts", "utf8");
   const tipo = (await import("node:fs")).readFileSync("lib/disponibilidade/services/models.ts", "utf8");
@@ -67,7 +78,13 @@ function pacotes() {
   const pocket = (empresaId: string) => ({ id: `p-${empresaId}`, codigo: "POCKET", nome: "Pocket", descricao: null, duracaoMinutos: 180, convidadosMinimos: 20, convidadosMaximos: 60 });
   const livre = { id: "p-livre", codigo: "P_LIVRE", nome: "Livre", descricao: null, duracaoMinutos: null, convidadosMinimos: null, convidadosMaximos: null };
   let escopos = 0;
+  const repositorios = {
+    buscarPacoteVigenteDaEmpresaPorCodigo: async (empresaId: string, codigo: string) => (codigo === "POCKET" ? pocket(empresaId) : null),
+    listarPacotesContrataveisDaEmpresa: async (empresaId: string) => [pocket(empresaId), livre],
+  };
   const dubles = {
+    // E2b: o catálogo efetivo do endereço vem de lib/comercial/oferta-publica, que importa o repositório pelo arquivo.
+    "lib/comercial/repositories/comercial.repository": repositorios,
     "next/server": { NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }) } },
     "lib/db/postgres": { db: () => ({ query: async () => ({ rows: [] }) }) },
     "lib/http/limite-publico": { limitarPublico: async () => null },
@@ -76,10 +93,7 @@ function pacotes() {
       codigoEmpresaDoPedido: (url: URL) => url.searchParams.get("empresa") || null,
       escopoCotacaoPublica: async (_db: unknown, codigo: string | null) => (escopos++, { empresaId: codigo ? EMPRESA_A : KIDMAIS }),
     },
-    "lib/comercial/repositories": {
-      buscarPacoteVigenteDaEmpresaPorCodigo: async (empresaId: string, codigo: string) => (codigo === "POCKET" ? pocket(empresaId) : null),
-      listarPacotesContrataveisDaEmpresa: async (empresaId: string) => [pocket(empresaId), livre],
-    },
+    "lib/comercial/repositories": repositorios,
     "lib/comercial/pacote-precos": { lerPrecosCorrentes: async () => ({ pacotes: [] }) },
     "lib/comercial/regras-pagamento": { lerRegrasPagamento: async () => null },
     "lib/comercial/disponibilidade-pacote-publica": { lerRegrasDisponibilidadePacote: async () => [] },

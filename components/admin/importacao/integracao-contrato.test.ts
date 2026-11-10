@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as form from './integracao-form.ts';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elemento } from '../teste-componente.ts';
+import * as errosFormulario from '../../../lib/ui/erros-formulario.ts';
+
+/** Mecanismo compartilhado de erros de formulário (N1/N2), real, com CSS falso. */
+const ErrosFormulario = carregarComponente('components/ui/ErrosFormulario.tsx', { '@/lib/ui/erros-formulario': errosFormulario, './erros-formulario.module.css': cssFalso }).modulo;
 
 const IMP = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const opcoes = {
@@ -41,6 +45,7 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
     },
     './integracao-form': form,
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
+    '@/components/ui/ErrosFormulario': ErrosFormulario, '@/lib/ui/erros-formulario': errosFormulario,
     './cliente-integracao': {
       lerOpcoes: async () => ({ ok: true, dados: { ...structuredClone(opcoes), ...(opcoesTeste.integracao ? { integracao: opcoesTeste.integracao } : {}), ...(opcoesTeste.saloes ? { saloes: opcoesTeste.saloes } : {}) } }),
       lerOpcoesRascunho: async () => { chamadas.push({ fn: 'lerOpcoesRascunho', args: [] }); return { ok: true, dados: opcoesTeste.rascunho }; },
@@ -62,7 +67,7 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
 
 const evento = (value: unknown, checked?: boolean) => ({ target: { value, checked } });
 /** Expande os subcomponentes puros do módulo (sem hooks), que o harness deixa como elementos. */
-const SUBCOMPONENTES = new Set(['Erros', 'ResumoPagamentos', 'Concluida']);
+const SUBCOMPONENTES = new Set(['Erros', 'ResumoPagamentos', 'Concluida', 'ResumoErros', 'AvisoGlobal', 'MensagemCampo']);
 function expandir(no: unknown): unknown {
   if (Array.isArray(no)) return no.map(expandir);
   if (!no || typeof no !== 'object') return no;
@@ -83,8 +88,16 @@ const ver = (tela: ReturnType<typeof montar>['tela']) => expandir(tela.render('d
 test('festa e agenda: situação começa em branco; cancelado não vira festa e não avança', async () => {
   const { tela } = montar(async () => ({ ok: true, dados: {} }));
   let a = await carregar(tela);
-  assert.equal((achar(a, 'button', 'Continuar para pagamentos').props.disabled), true);
   assert.equal(radio(a, /Vigente/).props.checked, false);
+  // N1/N2: com a situação em branco o clique não avança; a situação fica marcada (aria-invalid) com a mensagem abaixo.
+  (achar(a, 'button', 'Continuar para pagamentos').props.onClick as () => void)();
+  a = ver(tela);
+  const grupo = elementos(a).find((e) => e.props.id === 'int-situacaoContrato')!;
+  assert.equal(grupo.props['aria-invalid'], true);
+  assert.equal(grupo.props['aria-describedby'], 'int-situacaoContrato-erro');
+  assert.equal(texto(elementos(a).find((e) => e.props.id === 'int-situacaoContrato-erro')), 'Informe a situação do contrato.');
+  assert.ok(elementos(a).some((e) => e.props.id === 'int-erros-festa' && e.props.role === 'alert'));
+  assert.match(texto(a), /Festa e agenda/);
   (radio(a, /Cancelado/).props.onChange as (e: unknown) => void)(evento('on'));
   a = ver(tela);
   assert.match(texto(a), /Contrato cancelado ou não confirmado não vira festa e não ocupa agenda/);
@@ -384,6 +397,29 @@ test('V3 no Human Gate (rascunho): a mesma revisão mostra "Salão" antes de con
   const conf = chamadas.find((c) => c.fn === 'confirmarRascunho')!;
   assert.equal((conf.args[3] as { salaoId?: string }).salaoId, 's-b');
   assert.equal(conf.args[4], 'b'.repeat(64));
+});
+
+test('aniversariante ambíguo: nenhum cadastro vem escolhido; a escolha refaz a revisão e vai ao servidor', async () => {
+  const A = 'abababab-abab-4bab-8bab-abababababab', B = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { resumo: { ...resumo, festa: { ...resumo.festa, aniversarianteCadastro: 'EXISTENTE', aniversarianteOpcoes: [{ id: A, nome: 'Lia' }, { id: B, nome: 'Lía' }] } } });
+  const a = await ateRevisao(tela);
+  assert.match(texto(a), /Escolha abaixo o cadastro do aniversariante/);
+  const seletor = achar(a, 'select', 'Cadastro do aniversariante');
+  assert.equal(seletor.props.value, '', 'nada vem marcado');
+  const antes = chamadas.filter((c) => c.fn === 'simular').length;
+  assert.equal(Object.hasOwn(chamadas.filter((c) => c.fn === 'simular').at(-1)!.args[2] as object, 'aniversarianteId'), false, 'sem escolha, o payload não muda');
+  (seletor.props.onChange as (e: unknown) => void)(evento(B));
+  await tique();
+  const simulacoes = chamadas.filter((c) => c.fn === 'simular');
+  assert.equal(simulacoes.length, antes + 1);
+  assert.equal((simulacoes.at(-1)!.args[2] as { aniversarianteId?: string }).aniversarianteId, B);
+});
+
+test('aniversariante único: a revisão mostra qual cadastro será usado, sem seletor', async () => {
+  const { tela } = montar(async () => ({ ok: true, dados: {} }), { resumo: { ...resumo, festa: { ...resumo.festa, aniversarianteCadastro: 'EXISTENTE', aniversarianteCadastroId: 'abababab-abab-4bab-8bab-abababababab', aniversarianteCadastroNome: 'Lía' } } });
+  const a = await ateRevisao(tela);
+  assert.match(texto(a), /vinculado ao cadastro existente: Lía/);
+  assert.equal(elementos(a).some((e) => e.type === 'select' && e.props?.['aria-label'] === 'Cadastro do aniversariante'), false);
 });
 
 test('V1: sem unidade por salão, nem seletor nem linha "Salão"', async () => {

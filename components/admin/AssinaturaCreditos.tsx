@@ -34,12 +34,12 @@ type RespostaPedido = { protocolo: string; estado: string; urlPagamento: string 
 const FORMA: Record<Forma, string> = { PIX: 'Pix', CARTAO: 'Cartão (na página segura do Asaas)', BOLETO: 'Boleto' };
 const ESTADO: Record<string, string> = {
     CRIACAO_EM_CURSO: 'Gerando cobrança', CRIACAO_INCERTA: 'Confirmando a cobrança com o Asaas', FALHOU_CRIACAO: 'Cobrança não criada (nada cobrado)',
-    AGUARDANDO_PAGAMENTO: 'Pagamento em confirmação', VENCIDO: 'Prazo de pagamento terminou', CREDITADO: 'Créditos liberados', REVISAO: 'Em conferência pela equipe Kidmais',
+    AGUARDANDO_PAGAMENTO: 'Pagamento em confirmação', VENCIDO: 'Prazo de pagamento terminou', CREDITADO: 'Créditos liberados', REVISAO: 'Em conferência pela equipe iA.Fest',
     ENCERRADO: 'Encerrado sem cobrança',
 };
 const DEVOLUCAO: Record<string, string> = {
-    AGUARDANDO_MANUAL: 'registrada: em processamento pela equipe Kidmais', EM_CURSO: 'em andamento', SOLICITADO: 'enviada ao Asaas',
-    SEM_CONFIRMACAO: 'em conferência pela equipe Kidmais', RECUSADO: 'em processamento pela equipe Kidmais', CONCLUIDO: 'concluída',
+    AGUARDANDO_MANUAL: 'registrada: em processamento pela equipe iA.Fest', EM_CURSO: 'em andamento', SOLICITADO: 'enviada ao Asaas',
+    SEM_CONFIRMACAO: 'em conferência pela equipe iA.Fest', RECUSADO: 'em processamento pela equipe iA.Fest', CONCLUIDO: 'concluída',
 };
 const ORIGEM: Record<string, string> = { FRANQUIA: 'Franquia do mês', COMPRA: 'Pacote comprado', CORTESIA: 'Cortesia', LEGADO: 'Saldo do mês (modelo anterior)' };
 const TIPO_EXTRATO: Record<string, string> = { CREDITO: 'Entrada', RESERVA: 'Reservado', LIBERACAO: 'Devolvido ao saldo', CONSUMO: 'Usado', BLOQUEIO: 'Bloqueado',
@@ -77,7 +77,7 @@ const EXPLICACAO: Record<Recurso, string> = {
     WALLE: 'O Wall-e usa créditos conforme o tamanho de cada atendimento. Respostas da equipe não gastam créditos.',
 };
 
-export function CreditosIA({ recurso }: { recurso: Recurso }) {
+export function CreditosIA({ recurso, children }: { recurso: Recurso; children?: React.ReactNode }) {
     const [c, setC] = useState<Consulta | null>(null);
     const [erro, setErro] = useState('');
     const [ocupado, setOcupado] = useState(false);
@@ -112,7 +112,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
     }, [resultado, carregar]);
 
     const titulo = TITULO[recurso];
-    if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p></section> : null;
+    if (!c) return erro && recurso === 'CONVITES' ? <section className={workspace.card} style={{ maxWidth: 720 }} data-creditos={recurso}><h2>{titulo}</h2><p role="alert">{erro}</p>{children}</section> : children ?? null;
     // WhatsApp.AI: o bloco sempre aparece; sem o Wall-e liberado para a empresa, só o aviso (sem saldo, pacotes ou pedidos).
     // R4-P3-2: liberado e ainda sem carteira (primeira compra) = ativo com saldo zero.
     const walleInativo = recurso === 'WALLE' && !c.walleDisponivel;
@@ -169,6 +169,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
         {recurso === 'CONVITES' && c.instalado && conv.motor === 'CREDITOS' && c.consumoConvitesAtivo === false && <p role="status">A geração com créditos está em manutenção; o saldo continua guardado.</p>}
         {recurso === 'WALLE' && !walleInativo && (c.walle ? <SaldoRecurso titulo="WhatsApp.AI" w={c.walle} />
             : <p data-saldo="WALLE"><strong>WhatsApp.AI:</strong> <span data-disponivel>0</span> {UNIDADE.WALLE} disponíveis</p>)}
+        {children}
         {walleInativo && <p data-walle-inativo>O atendimento com IA (Wall-e) ainda não está ativo para a sua empresa. Os créditos do WhatsApp.AI ficam disponíveis quando ele for ativado.</p>}
         {!walleInativo && !c.instalado && <p className={workspace.muted} data-creditos-indisponivel>Pacotes de créditos ainda não estão disponíveis neste ambiente.</p>}
         {!walleInativo && !c.gestao && c.instalado && <p className={workspace.muted}>Somente a Gestão compra créditos e vê o histórico de pedidos.</p>}
@@ -182,7 +183,7 @@ export function CreditosIA({ recurso }: { recurso: Recurso }) {
         </div>}
         {devolucaoFeita && <div role="status" data-devolucao-resultado data-protocolo={devolucaoFeita.protocolo} style={{ border: '1px solid currentColor', borderRadius: 12, padding: 12 }}>
             <p style={{ marginTop: 0 }}><strong>Devolução registrada.</strong> Protocolo: <strong>{devolucaoFeita.protocolo}</strong>. Valor: {reais(devolucaoFeita.valorCentavos)}.</p>
-            <p>{devolucaoFeita.estado === 'AGUARDANDO_MANUAL' ? `A equipe Kidmais faz a restituição até ${dataIso(devolucaoFeita.prazo)}${devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? ', sem desconto de taxas' : ''}.`
+            <p>{devolucaoFeita.estado === 'AGUARDANDO_MANUAL' ? `A equipe iA.Fest faz a restituição até ${dataIso(devolucaoFeita.prazo)}${devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? ', sem desconto de taxas' : ''}.`
                 : devolucaoFeita.tipo === 'ARREPENDIMENTO_7_DIAS' ? 'A restituição foi enviada ao Asaas, sem desconto de taxas.' : `O processamento começa até ${dataIso(devolucaoFeita.prazo)}.`} O crédito depende do meio de pagamento. Situação: {DEVOLUCAO[devolucaoFeita.estado] ?? devolucaoFeita.estado}.</p>
         </div>}
 

@@ -28,6 +28,8 @@ export type ContratoOficialRenderizado = {
   observacoes: string[];
   integridade: string[];
   assinatura: string[];
+  /** Só no modelo da empresa: decide o nome do cabeçalho. O modelo oficial da Kidmais não usa este campo. */
+  marca?: { kidmais: boolean; nome: string | null };
 };
 
 export type GerarContratoOficialInput = {

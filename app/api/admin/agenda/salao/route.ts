@@ -4,6 +4,7 @@ import { lerSalaoDaFesta, trocarSalaoDaFesta } from "@/lib/agenda/troca-salao";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,16 @@ export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const input = trocar.parse(await request.json());
-    const data = await withTenantTransaction(sessao, input.empresaId, (tx, tenant) =>
-      trocarSalaoDaFesta(
+    const data = await withTenantTransaction(sessao, input.empresaId, async (tx, tenant) => {
+      // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+      await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
+      return trocarSalaoDaFesta(
         tx,
         { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, requestId: crypto.randomUUID() },
         input.fechamentoId,
         input.salaoId,
-      ));
+      );
+    });
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);

@@ -63,7 +63,10 @@ export type OpcoesDisponibilidade = {
   saloesDoPacote?: string[] | null;
   /** S-C: convidados pagantes informados pelo cliente; com capacidade por salão, só conta salão que comporta. */
   convidados?: number | null;
-  /** Retomada 098 (rev. 2.1): só o painel inclui salões combinados como candidatos; o cliente não, por padrão. */
+  /**
+   * Retomada 098 (rev. 2.1): o painel inclui salões combinados como candidatos; o cliente só com combinadosPublicos
+   * (E2b: SALOES_PUBLICOS + SALOES_COMBINADOS_PUBLICOS + instalação NOVA). Padrão: sem combinados.
+   */
   incluirCombinados?: boolean;
 };
 export const DURACAO_PADRAO_MINUTOS = 240;
@@ -150,7 +153,7 @@ export type RevalidarHorarioSelecionadoInput = {
   pacoteCodigo?: string;
   /** S-C: convidados da cotação/pedido; com capacidade por salão, exige salão livre que comporte. */
   convidados?: number | null;
-  /** Retomada 098 (rev. 2.1): só o painel inclui salões combinados; a cotação e o pedido do cliente não. */
+  /** Retomada 098 (rev. 2.1): o painel inclui salões combinados; a cotação e o pedido do cliente só com combinadosPublicos (E2b). */
   incluirCombinados?: boolean;
 };
 
@@ -388,12 +391,14 @@ export function situacaoPorSalao(
  * disponibilidade (bloqueios, ocupações confirmadas e regra da 093/094). null fora da capacidade por salão.
  */
 export async function situacaoDosSaloesNoHorario(
-  entrada: { data: string; configuracaoId: string; inicio: string; fim: string; convidados: number; saloesDoPacote?: string[] | null },
+  entrada: { data: string; configuracaoId: string; inicio: string; fim: string; convidados: number; saloesDoPacote?: string[] | null;
+    /** E2b: só com combinadosPublicos (as três condições); senão a leitura do cliente da E2a. */
+    incluirCombinados?: boolean },
   customDb: DbExecutor | undefined,
   escopo: EscopoAgenda,
 ) {
   validarPeriodo(entrada.data, entrada.data);
-  const regra = await lerRegraCapacidadeAgenda(customDb, escopo);
+  const regra = await lerRegraCapacidadeAgenda(customDb, escopo, { incluirCombinados: entrada.incluirCombinados === true });
   if (!regra || regra.capacidadeTipo !== "POR_SALAO") return null;
   const bloqueios = await listarBloqueiosAtivosPorPeriodo(entrada.data, entrada.data, customDb, escopo);
   const ocupacoes = (await listarFechamentosConfirmadosPorPeriodo(entrada.data, entrada.data, customDb, escopo)).filter((o) => o.data === entrada.data);

@@ -10,6 +10,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_JANELA_EXPIRADA: 'A janela de atendimento expirou. Aguarde nova mensagem do cliente.',
   ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR: 'Assuma a conversa antes de responder.',
   ATENDIMENTO_AUTOMACAO_DESLIGADA: 'O piloto ainda não foi ativado no servidor.',
+  ATENDIMENTO_RECURSO_NAO_INCLUIDO: 'O Atendimento WhatsApp automático não está disponível para esta empresa: confira o plano contratado e o número conectado em Configurações > WhatsApp.',
   ATENDIMENTO_ACESSO_NEGADO: 'Seu perfil não tem acesso a esta ação do atendimento.',
   ATENDIMENTO_SEM_ACESSO: 'Seu acesso não inclui o Atendimento WhatsApp desta empresa.',
   ATENDIMENTO_EMPRESA_DIVERGENTE: 'A empresa ativa não é a do Atendimento WhatsApp. Troque a empresa ativa no menu para usá-lo.',
@@ -40,7 +41,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
-const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
+const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_RECURSO_NAO_INCLUIDO', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
   'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO',
   'ATENDIMENTO_ARQUIVO_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_VENCIDO', 'ATENDIMENTO_ARQUIVO_NAO_VENCIDO', 'ATENDIMENTO_EXCLUSAO_ADIADA', 'ATENDIMENTO_GRUPO_PARCIAL'];
 // Dado informado inválido (data, prazo): 400, nunca 503.

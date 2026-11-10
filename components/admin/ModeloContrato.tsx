@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { diagnosticoModelo, opcionaisNaoUsados, problemasDoConteudo, type ConteudoModelo } from '@/lib/contratos/modelo-empresa/conteudo';
+import { trechosIncompativeisPj } from '@/lib/contratos/modelo-empresa/compatibilidade-pj';
 import { conferidaDe, type ContratadaEfetiva } from '@/lib/contratos/modelo-empresa/contratada';
 import {
   adicionarClausula, alterarTexto, comIds, destinoDoInserir, inserirCampo, moverClausula, removerClausula, semIds, trocarPorCampo,
@@ -363,6 +364,8 @@ export default function ModeloContrato() {
 
   const servidor = useMemo(() => (conteudo ? semIds(conteudo) : null), [conteudo]);
   const problemas = useMemo(() => (servidor ? problemasDoConteudo(servidor) : []), [servidor]);
+  // Entrega B (R2-2/R21-2): não impede publicar; avisa que este texto não gera contrato para cliente pessoa jurídica.
+  const trechosPj = useMemo(() => (servidor ? trechosIncompativeisPj(servidor) : []), [servidor]);
   const diagnostico = useMemo(() => (conteudo ? diagnosticoModelo(conteudo) : null), [conteudo]);
   const fixos = useMemo(() => (conteudo ? detectarValoresFixos(conteudo.clausulas) : []), [conteudo]);
   const opcionais = useMemo(() => (conteudo ? opcionaisNaoUsados(conteudo) : []), [conteudo]);
@@ -525,6 +528,11 @@ export default function ModeloContrato() {
             </div>)}
           </section>
           {problemas.length > 0 && <section className={imp.alerta} aria-live="polite"><strong>! Antes de publicar:</strong><ul>{problemas.map((p) => <li key={p}>{p}</li>)}</ul></section>}
+          {trechosPj.length > 0 && <section className={imp.card} aria-live="polite">
+            <h2>Não serve para cliente pessoa jurídica</h2>
+            <p className={imp.ajuda}>Com estes trechos, o contrato de um cliente com CNPJ não é gerado. Para PF nada muda. Para valer também para PJ, troque “CPF {'{{contratante.cpf}}'}” por “{'{{contratante.tipo_documento}} {{contratante.documento}}'}” e revise a qualificação de pessoa física.</p>
+            <ul className={imp.lista}>{trechosPj.map((t) => <li key={`${t.local}-${t.motivo}`}><strong>{t.local}:</strong> {t.trecho} — {t.motivo}</li>)}</ul>
+          </section>}
           <ListaValoresFixos valoresFixos={fixos} />
           {opcionais.length > 0 && <p className={imp.ajuda}>Opcionais não usados nas cláusulas: {opcionais.map((o) => o.rotulo).join(', ')}.</p>}
           {(rascunho.revisao?.avisos.length ?? 0) > 0 && <section className={imp.card}>

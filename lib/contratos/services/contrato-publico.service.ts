@@ -1,14 +1,18 @@
+import { MARCA_CONTRATO_NEUTRA, marcaDoContratoNaTransacao, type MarcaContrato } from '../marca-contrato';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../assinatura-papel';
+import { lerMarcaComPrazo } from '../marca-com-prazo';
 import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
 import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
+import { normalizarCnpj } from "../../cadastro/cnpj";
+import { classificarDocumentoIdentidade, documentoDoSnapshot, mesmoDocumento } from "../../identidade/documento";
 import {
   buscarClienteCanonicoPorId,
   registrarAuditoria,
   registrarEventoHistorico,
 } from "../../clientes/repositories";
 import type { DbExecutor } from "../../db/contracts";
-import { db, withTransaction } from "../../db/postgres";
+import { conexaoDescartavelDoPool, db, withTransaction } from "../../db/postgres";
 import { edicaoDaVersao } from './administrativo.service';
 import { adquirirDocumentoParaLeitura, documentoParaLeitura, materializarDocumento, versaoPublicaId, concluirFluxoCliente } from './fluxo-publico';
 import { lerDocumento } from '../storage/postgres';
@@ -47,6 +51,7 @@ import type {
   AssinarContratoPublicoInput,
   ContratoPublicoRequestContext,
 } from "./models";
+import { empresaDoContrato, travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 
 function acessoNegado(): never {
   throw new ContratoServiceError(
@@ -97,7 +102,7 @@ async function carregarContratoComVersao(
 
   if (versao.contratoId !== contrato.id) acessoNegado();
   const edicao=await edicaoDaVersao(versao.id,customDb);
-  if(edicao?.estado==='CANCELADA')throw new ContratoServiceError('VERSAO_CONTRATO_DIVERGENTE','Esta versão foi encerrada. Existe uma revisão mais recente; aguarde a liberação do novo acesso pela Kidmais.',409);
+  if(edicao?.estado==='CANCELADA')throw new ContratoServiceError('VERSAO_CONTRATO_DIVERGENTE','Esta versão foi encerrada. Existe uma revisão mais recente; aguarde a liberação do novo acesso pelo buffet.',409);
   if(edicao && !['AGUARDANDO_CLIENTE','CONCLUIDA'].includes(edicao.estado))acessoNegado();
   if (!edicao && versao.numeroVersao !== contrato.versaoAtual) {
     throw new ContratoServiceError(
@@ -133,7 +138,9 @@ async function clienteCanonicoDaVersao(
 
   if ('revisaoOperacional' in versao.snapshot &&
       (cliente.id !== versao.snapshot.contratante.clienteId ||
-       normalizarCpf(cliente.cpf) !== normalizarCpf(versao.snapshot.contratante.cpf))) {
+       normalizarCpf(cliente.cpf) !== normalizarCpf(versao.snapshot.contratante.cpf) ||
+       // PJ: o CNPJ é a identidade; PF: nenhum dos dois lados tem CNPJ.
+       (normalizarCnpj(cliente.cnpj) || null) !== (normalizarCnpj(versao.snapshot.contratante.cnpj) || null))) {
     throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES',
       'A identidade do contratante mudou. Cancele a proposta e prepare uma nova versão.', 409);
   }
@@ -201,14 +208,13 @@ export async function consultarAcessoContrato(input: {
   cpf: string;
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId);
-  const cpfInformado = normalizarCpf(input.cpf);
-  const cpfSnapshot = normalizarCpf(versao.snapshot.contratante.cpf);
+  // R2-1: documento informado == documento congelado (CPF na PF, CNPJ na PJ). O CPF do representante não abre nada.
+  const informado = classificarDocumentoIdentidade(input.cpf);
+  if (!mesmoDocumento(informado, documentoDoSnapshot(versao.snapshot.contratante))) acessoNegado();
 
-  if (!cpfInformado || !cpfSnapshot || cpfInformado !== cpfSnapshot) acessoNegado();
-
-  // Escopo = o cliente canônico do próprio contrato: o CPF nunca identifica cadastro de outra empresa.
+  // Escopo = o cliente canônico do próprio contrato: o documento nunca identifica cadastro de outra empresa.
   const clienteContrato = await clienteCanonicoDaVersao(versao);
-  const consulta = await consultarCpfPublico(cpfInformado, { clienteId: clienteContrato.id });
+  const consulta = await consultarCpfPublico(informado!.valor, { clienteId: clienteContrato.id });
   if (consulta.situacao === "NOVO_CLIENTE") acessoNegado();
 
   return {
@@ -260,7 +266,7 @@ export async function iniciarDesafioContrato(
 
 /** Contrato histórico assinado em papel: não há documento eletrônico nem aceite eletrônico a oferecer. */
 function contratoEmPapel(): never {
-  throw new ContratoServiceError('CONTRATO_ASSINADO_EM_PAPEL', 'Este contrato foi assinado em papel. Não há documento nem assinatura eletrônica; o original fica com a Kidmais.', 409);
+  throw new ContratoServiceError('CONTRATO_ASSINADO_EM_PAPEL', 'Este contrato foi assinado em papel. Não há documento nem assinatura eletrônica; o original fica com o buffet.', 409);
 }
 
 export async function obterContextoContratoPublico(input: {
@@ -271,7 +277,7 @@ export async function obterContextoContratoPublico(input: {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
   const comprovantes = (await db().query<{id:string;parte:string;nome:string;assinado_em:string}>(`SELECT a.comprovante_documento_id AS id,a.parte,a.identidade_snapshot->>'nome' AS nome,a.assinado_em::text FROM contrato_assinaturas a WHERE a.contrato_versao_id=$1 ORDER BY assinado_em`,[versao.id])).rows;
-  return montarContextoContratoPublico(contrato, versao, comprovantes);
+  return montarContextoContratoPublico(contrato, versao, comprovantes, documentoParaLeitura, await lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDoContratoNaTransacao(tx, contrato.id)));
 }
 
 /**
@@ -283,8 +289,9 @@ export async function montarContextoContratoPublico(
   versao: Awaited<ReturnType<typeof carregarContratoComVersao>>["versao"],
   comprovantes: Array<{ id: string; parte: string; nome: string; assinado_em: string }>,
   lerDocumento: typeof documentoParaLeitura = documentoParaLeitura,
+  marca: MarcaContrato = MARCA_CONTRATO_NEUTRA,
 ) {
-  const resumo = gerarResumoContratacaoPdfDaVersao(versao);
+  const resumo = gerarResumoContratacaoPdfDaVersao(versao, marca);
   // Contrato histórico assinado em papel: sem documento eletrônico, sem aceite e sem comprovante (nada fictício).
   const papel = versaoAssinadaEmPapel(versao);
   const oficial = papel ? { disponivel: false, modeloCodigo: null, templateVersao: null, homologadoParaProducao: false } : contratoOficialDisponivelParaVersao(versao);
@@ -339,6 +346,7 @@ export async function montarContextoContratoPublico(
       salao: salaoDoSnapshot(versao.snapshot)?.nome ?? null,
     },
     assinatura: papel ? { tipo: 'PAPEL' as const, texto: TEXTO_ASSINADO_EM_PAPEL } : { tipo: 'ELETRONICA' as const, texto: null },
+    marca,
     aceitePermitido:
       !papel &&
       modeloOficial.disponivel &&
@@ -363,6 +371,8 @@ export async function gerarPdfContratoPublico(input: {
   return {
     contrato,
     versao,
+    // Marca opcional (só o nome do arquivo): mesmo orçamento curto do contexto, para não segurar a abertura.
+    marca: await lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDoContratoNaTransacao(tx, contrato.id)),
     ...documento,
   };
 }
@@ -371,7 +381,9 @@ export async function lerComprovantePublico(input:{contratoId:string;provaToken:
   const {contrato,versao}=await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken,input.acessoToken,contrato,versao);
   const vinculo=await db().query('SELECT id FROM contrato_assinaturas WHERE contrato_versao_id=$1 AND comprovante_documento_id=$2',[versao.id,input.documentoId]);
-  if(!vinculo.rows[0])acessoNegado();return lerDocumento(input.documentoId);
+  // A prova já valeu: documento fora desta versão é só indisponível, sem derrubar a leitura do cliente.
+  if(!vinculo.rows[0])throw new ContratoServiceError('COMPROVANTE_NAO_ENCONTRADO','Este comprovante não está disponível para esta versão do Contrato.',404);
+  return lerDocumento(input.documentoId);
 }
 
 /**
@@ -415,17 +427,20 @@ export async function gerarResumoContratoPublico(input: {
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
-  const documento = gerarResumoContratacaoPdfDaVersao(versao);
-  return { contrato, versao, ...documento };
+  // Marca opcional: vencido o orçamento, o Resumo sai neutro em vez de segurar a tela.
+  const marca = await lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDoContratoNaTransacao(tx, contrato.id));
+  const documento = gerarResumoContratacaoPdfDaVersao(versao, marca);
+  return { contrato, versao, marca, ...documento };
 }
 
 /** D1 — Resumo em PDF no Admin: consultas no `tx` da prova; renderização depois do commit, só em memória. */
 export async function adquirirResumoContratoAdmin(fechamentoId: string, tx: DbExecutor) {
-  return contratoComVersaoDoFechamento(fechamentoId, tx);
+  const dados = await contratoComVersaoDoFechamento(fechamentoId, tx);
+  return { ...dados, marca: await marcaDoContratoNaTransacao(tx, dados.contrato.id) };
 }
 
 export function renderizarResumoContratoAdmin(dados: Awaited<ReturnType<typeof adquirirResumoContratoAdmin>>) {
-  return { ...dados, ...gerarResumoContratacaoPdfDaVersao(dados.versao) };
+  return { ...dados, ...gerarResumoContratacaoPdfDaVersao(dados.versao, dados.marca) };
 }
 
 export async function assinarContratoPublico(
@@ -436,6 +451,9 @@ export async function assinarContratoPublico(
   const identity = criarIdentityServiceComAmbiente(enviarOtp);
 
   return withTransaction(async (tx) => {
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    const empresa = await empresaDoContrato(tx, input.contratoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const { contrato, versao } = await carregarContratoComVersao(
       input.contratoId,
       tx,
@@ -558,7 +576,7 @@ export async function assinarContratoPublico(
       // A proposta inicial ainda não ocupa o fechamento. Seu destino é revalidado
       // ao aplicar os dados assinados, sob o mesmo lock da formalização 019.
       await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contrato.id]);
-    } else await bloquearAgendaFormalizacao(tx, contrato.id, versao.id);
+    } else await bloquearAgendaFormalizacao(tx, contrato.id, versao.id, { caminho: 'FORMALIZACAO_PRE_ASSINATURA', origem: 'ACEITE_PUBLICO' });
 
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,
@@ -652,6 +670,8 @@ export async function assinarContratoPublico(
           documentoPdfHash: documento.pdfHash,
           documentoTemplateVersao: documento.templateVersao,
           aceiteMetodo: "OTP",
+          // R2-1: documento usado na prova (o do snapshot, conferido no acesso).
+          aceiteTipoDocumento: versao.snapshot.contratante.tipoPessoa === "PJ" ? "CNPJ" : "CPF",
           validacaoId: prova.validacaoId,
         },
         origem: "CONTRATO_PUBLICO",

@@ -9,6 +9,9 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { cenario, dia, id } from "../../scripts/integracao-importados-test-support.ts";
 import { aplicadorDeTeste, AVARIAS_108, dadosLegitimos108, medirF2, modelo108 } from "../../scripts/aplicadores-108-test-support.ts";
+import { idSalaoFixture } from "../../scripts/guarda-salao-fixture-test-support.ts";
+/** Guarda de escritores de salão (camada C): as escritas de salão desta suíte levam a marca da fixture. */
+const ARQUIVO_FIXTURE = "lib/agenda/aplicador-092-094.postgres.test.ts";
 
 /**
  * 23/10/2026, derivado do teste do aplicador da 089 e ampliado pelo parecer do Astra (P2-1, P2-2, P3-1, b, f) — o
@@ -215,7 +218,7 @@ test("aplicador 092–094 real no modelo 089: papéis, parcial, falhas reais (de
     const cen = await cenario(c, 0);
     const cfgFesta = await id(c, "SELECT id FROM configuracao_agenda WHERE codigo = $1", [cen.agendaCodigo]);
     const salao = await id(c, "INSERT INTO agenda_saloes (empresa_id, nome) VALUES ($1::uuid, 'Salão da festa do ensaio') RETURNING id", [cen.empresa]);
-    await id(c, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+    await idSalaoFixture(c, ARQUIVO_FIXTURE, `INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status, salao_id)
       SELECT $1::date, '10:00', '22:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 10, 10, 100, 100, 100,
              'ATENDIMENTO_KIDMAIS', NULL, 'AGUARDANDO_CONTRATO', $5::uuid FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`,

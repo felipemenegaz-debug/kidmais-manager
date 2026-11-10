@@ -15,7 +15,7 @@ const ARQ = b.arquivos();
 const {partes: PARTES} = b.distribuir(root);
 const N = PARTES.length;
 const PASTA = b.NOME_DESTINO;
-const CURTOS = ['CONFERIR-B5', 'CONFERIR-B5-ESTADO'];
+const CURTOS = ['CONFERIR-B5-COM-CONTA', 'CONFERIR-B5-SEM-CONTA', 'CONFERIR-B5-ESTADO'];
 const OK = 'node -e "process.exitCode=0"';
 const RODOU = 'echo "CONFERENCIA_RODOU pwd=$PWD"';
 
@@ -61,11 +61,20 @@ function embutido(bloco) {
   return {texto: zlib.gunzipSync(Buffer.from(L.slice(i + 1, j).join(''), 'base64')).toString('utf8'), sha: /= "([0-9a-f]{64})" \]; then/.exec(bloco)[1]};
 }
 
-test('arquivos: agregador, trava do B-1, os 9 núcleos de estado (nunca a 098) e os 4 módulos da 107/108; partes; blocos ≤ 36 KB; modos e destinos inválidos', () => {
-  assert.deepEqual(ARQ, ['scripts/conferencia-b5-producao.cjs', 'scripts/migration-092-094-production.cjs', ...b5.MIGRACOES.map(m => m[1].replace('./', 'scripts/')),
-    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs', 'scripts/migration-107-definicoes.cjs']);
-  assert.equal(ARQ.length, 15); assert.ok(!ARQ.some(a => /098|staging|database\//.test(a)));
-  assert.deepEqual(PARTES.flatMap(p => p.itens.map(x => x.arquivo)), ARQ);
+test('arquivos: agregador, trava do B-1, os 9 núcleos 089–100 (nunca a 098), os 9 núcleos 102–117, os 4 módulos da 107/108 e o contrato TS da 109; partes; blocos ≤ 36 KB; modos e destinos inválidos', () => {
+  assert.deepEqual(ARQ, ['scripts/conferencia-b5-producao.cjs', 'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-production.cjs', ...b5.MIGRACOES.map(m => m[1].replace('./', 'scripts/')),
+    ...b5.AMPLIADAS.map(m => m[1].replace('./', 'scripts/')),
+    'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs', 'scripts/migration-107-definicoes.cjs',
+    'lib/assinatura/renovacao-schema.ts', 'lib/assinatura/renovacao-schema-retratos.ts', 'database/checks/20261027_105_integridade.sql']);
+  assert.equal(ARQ.length, 28); assert.ok(ARQ.includes('scripts/conferencia-b5-105.cjs')); assert.ok(!ARQ.some(a => /098|staging/.test(a)));
+  // Do database/, só a integridade de catálogo da 105 (revisão Astra r2, A), com o mesmo sha256 do aplicador.
+  assert.deepEqual(ARQ.filter(a => a.startsWith('database/')), [b5.INTEGRIDADE_105[1]]);
+  // Fechamento: o contrato da 109 conferido por sha256 vai no pacote (o resto do require é provado na pasta própria, abaixo).
+  for (const [a] of require('./migration-109-comum.cjs').CONTRATO) assert.ok(ARQ.includes(a), a);
+  // Cada arquivo em uma parte só; dentro da parte, na ordem da lista; primeiro encaixe ⇒ no máximo 14 partes.
+  assert.deepEqual(PARTES.flatMap(p => p.itens.map(x => x.arquivo)).sort(), [...ARQ].sort());
+  for (const p of PARTES) { const i = p.itens.map(x => ARQ.indexOf(x.arquivo)); assert.deepEqual(i, [...i].sort((a, z) => a - z)); }
+  assert.ok(N <= 14, 'partes: ' + N);
   assert.deepEqual(b.modos(root), [...PARTES.map((_, i) => `PARTE-${i + 1}`), ...CURTOS, 'LIMPEZA']);
   for (const modo of b.modos(root)) assert.ok(Buffer.byteLength(b.gerar({modo, rotulo: 'abcdef1'})) <= 36000, modo);
   for (const modo of ['X', `PARTE-${N + 1}`, 'APLICAR', 'APLICAR-B5', 'CONFERIR', 'CONFERIR-098']) assert.throws(() => b.gerar({modo, rotulo: 'abcdef1'}), /MODO_DESCONHECIDO/, modo);
@@ -90,9 +99,20 @@ test('carregador: guarda + carregador; corpo codificado com sha fixado, igual ao
     assert.ok(e.texto.indexOf('SHELL_ERRADO_NAO_E_PRODUCAO') < e.texto.indexOf("cd '/opt/render/project/src'"));
     assert.doesNotMatch(e.texto, /KIDMAIS_REGISTRO_BACKUP|--aplicar|data\/lancamento/);
   }
-  assert.match(b.corpo({modo: 'CONFERIR-B5'}), /^NODE_PATH='\/opt\/render\/project\/src\/node_modules' node scripts\/conferencia-b5-producao\.cjs --conferir-b5 \|\| codigo=\$\?$/m);
-  assert.match(b.corpo({modo: 'CONFERIR-B5-ESTADO'}), /^NODE_PATH='\/opt\/render\/project\/src\/node_modules' node scripts\/conferencia-b5-producao\.cjs --conferir-b5-estado \|\| codigo=\$\?$/m);
-  assert.ok(b.corpo({modo: 'CONFERIR-B5'}).indexOf("cd '.kidmais-conferencia-b5-producao'") < b.corpo({modo: 'CONFERIR-B5'}).indexOf('NODE_PATH='));
+  // E1: ASAAS_* retiradas do ambiente do node e ramo com-conta declarado; E2c sem ramo. Ambos com --experimental-strip-types (contrato da 109).
+  assert.match(b.corpo({modo: 'CONFERIR-B5-COM-CONTA'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE KIDMAIS_B5_RAMO_PROVEDOR=com-conta NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5 \|\| codigo=\$\?$/m);
+  assert.match(b.corpo({modo: 'CONFERIR-B5-ESTADO'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5-estado \|\| codigo=\$\?$/m);
+  // Revisão Astra r1, P2-D: um bloco por ramo, rotulado no cabeçalho; o gerador não escolhe o ramo.
+  assert.match(b.corpo({modo: 'CONFERIR-B5-SEM-CONTA'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE KIDMAIS_B5_RAMO_PROVEDOR=sem-conta NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5 \|\| codigo=\$\?$/m);
+  assert.deepEqual(b.RAMOS_BLOCO, {'CONFERIR-B5-COM-CONTA': 'com-conta', 'CONFERIR-B5-SEM-CONTA': 'sem-conta'});
+  for (const ramo of Object.values(b.RAMOS_BLOCO)) assert.ok(b5.RAMOS_PROVEDOR[ramo]);
+  for (const [modo, ramo] of Object.entries(b.RAMOS_BLOCO)) {
+    const g = b.gerar({modo, rotulo: 'abcdef0'});
+    assert.match(g, new RegExp('^# RAMO DO PROVEDOR DECLARADO NESTE BLOCO: ' + ramo.toUpperCase() + '\\.', 'm'));
+    assert.match(g, /registro SEPARADO da 9\.2\.2/); assert.match(g, /Nunca os dois\./);
+    assert.doesNotMatch(b.corpo({modo}), new RegExp('KIDMAIS_B5_RAMO_PROVEDOR=' + (ramo === 'com-conta' ? 'sem-conta' : 'com-conta')));
+  }
+  assert.ok(b.corpo({modo: 'CONFERIR-B5-COM-CONTA'}).indexOf("cd '.kidmais-conferencia-b5-producao'") < b.corpo({modo: 'CONFERIR-B5-COM-CONTA'}).indexOf('NODE_PATH='));
 });
 
 test('guarda: outro serviço ou sem RENDER_SERVICE_ID não executa nada; sem a linha da guarda, o corpo recusa sozinho', () => {
@@ -112,24 +132,24 @@ test('guarda: outro serviço ou sem RENDER_SERVICE_ID não executa nada; sem a l
 test('sem o pg: curtos = 4 antes de montar; montagem só com TODAS as partes, dizendo qual colar', () => {
   const d = deploy({pg: false});
   try {
-    const r0 = rodar(d, 'CONFERIR-B5', OK); assert.equal(codigo(r0.saida), 4); assert.match(r0.saida, /DEPENDENCIA_AUSENTE node_modules\/pg/);
+    const r0 = rodar(d, 'CONFERIR-B5-COM-CONTA', OK); assert.equal(codigo(r0.saida), 4); assert.match(r0.saida, /DEPENDENCIA_AUSENTE node_modules\/pg/);
   } finally { limpar(d); }
   const d2 = deploy();
   try {
     const r = rodar(d2, 'CONFERIR-B5-ESTADO', RODOU); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /^MONTAGEM_RECUSADA/m); assert.doesNotMatch(r.saida, /CONFERENCIA_RODOU/);
     sessao(d2, Array.from({length: N}, (_, i) => i === 2 ? '' : gerar(d2, `PARTE-${i + 1}`)).join(''));
-    const r1 = rodar(d2, 'CONFERIR-B5', RODOU); assert.equal(codigo(r1.saida), 4);
+    const r1 = rodar(d2, 'CONFERIR-B5-COM-CONTA', RODOU); assert.equal(codigo(r1.saida), 4);
     assert.equal(linhas(r1.saida, /^PARTE_AUSENTE_OU_DIVERGENTE .* \(colar a PARTE-3\)$/), PARTES[2].itens.length); assert.deepEqual(presentes(d2), []);
   } finally { limpar(d2); }
 });
 
-test('fluxo: partes (repetir = JA_PRESENTE) → CONFERIR-B5 monta 11 e roda da pasta própria → CONFERIR-B5-ESTADO → LIMPEZA; deploy intacto', () => {
+test('fluxo: partes (repetir = JA_PRESENTE) → CONFERIR-B5 monta 28 e roda da pasta própria → CONFERIR-B5-ESTADO → LIMPEZA; deploy intacto', () => {
   const d = deploy();
   try {
     const nada = rodar(d, 'LIMPEZA'); assert.equal(codigo(nada.saida), 0); assert.match(nada.saida, /^NADA_A_LIMPAR$/m);
     const p = sessao(d, todasAsPartes(d)); assert.deepEqual(codigos(p.saida), Array(N).fill(0), p.saida.slice(-300)); assert.equal(linhas(p.saida, /^TRANSPORTADO /), ARQ.length);
     assert.equal(codigo(rodar(d, 'PARTE-1').saida), 0);
-    const r = rodar(d, 'CONFERIR-B5', RODOU); assert.equal(codigo(r.saida), 0, r.saida.slice(-300)); assert.match(r.saida, /^ARQUIVOS_OK 15$/m);
+    const r = rodar(d, 'CONFERIR-B5-COM-CONTA', RODOU); assert.equal(codigo(r.saida), 0, r.saida.slice(-300)); assert.match(r.saida, /^ARQUIVOS_OK 28$/m);
     assert.match(r.saida, new RegExp('^CONFERENCIA_RODOU pwd=.*' + re(PASTA) + '$', 'm'));
     for (const a of ARQ) assert.equal(fs.readFileSync(path.join(d, PASTA, a), 'utf8'), lf(a), a);
     const e = rodar(d, 'CONFERIR-B5-ESTADO', 'node -e "process.exitCode=3"'); assert.equal(codigo(e.saida), 3, 'o código da conferência vira o do bloco');
@@ -138,13 +158,13 @@ test('fluxo: partes (repetir = JA_PRESENTE) → CONFERIR-B5 monta 11 e roda da p
   } finally { limpar(d); }
 });
 
-test('pacote montado completo e executável DA PASTA PRÓPRIA: os 9 núcleos carregam; plano offline real; conferências reais fora do Render = 1', () => {
+test('pacote montado completo e executável DA PASTA PRÓPRIA: os 18 núcleos carregam e o contrato da 109 confere e importa; plano offline real; conferências reais fora do Render = 1', () => {
   const d = deploy({modulosReais: true});
   try {
     sessao(d, todasAsPartes(d));
     const NP = `NODE_PATH='${posix(d)}/node_modules'`;
-    const carregar = `${NP} node -e "const b5=require('./scripts/conferencia-b5-producao.cjs'); for (const [,m] of b5.MIGRACOES) { const n=require(m.replace('./','./scripts/')); if (typeof n.SQL_ESTADO!=='string') process.exit(9); } const p=b5.plano(); if (p.resultado!=='PLANO') process.exit(8); console.log('NUCLEOS_OK')"`;
-    const r = rodar(d, 'CONFERIR-B5', carregar); assert.equal(codigo(r.saida), 0, r.saida.slice(-400)); assert.match(r.saida, /^NUCLEOS_OK$/m);
+    const carregar = `${NP} node --experimental-strip-types -e "const b5=require('./scripts/conferencia-b5-producao.cjs'); for (const [,m] of [...b5.MIGRACOES, ...b5.AMPLIADAS]) { const n=require(m.replace('./','./scripts/')); if (typeof n.SQL_ESTADO!=='string') process.exit(9); } const p=b5.plano(); if (p.resultado!=='PLANO') process.exit(8); b5.carregarContrato109().then(c => { if (typeof c.capacidadeRenovacao!=='function') process.exit(7); console.log('NUCLEOS_OK'); }, e => { console.log('CONTRATO ' + e.message); process.exit(6); })"`;
+    const r = rodar(d, 'CONFERIR-B5-COM-CONTA', carregar); assert.equal(codigo(r.saida), 0, r.saida.slice(-400)); assert.match(r.saida, /^NUCLEOS_OK$/m);
     for (const modo of CURTOS) { const x = rodar(d, modo, 'REAL'); assert.equal(codigo(x.saida), 1, modo + x.saida.slice(-300)); assert.match(x.saida, /^RECUSADO FORA_DO_RENDER$/m); }
     assert.ok(intactoDoDeploy(d));
   } finally { limpar(d); }
@@ -156,7 +176,7 @@ test('destino físico: pasta própria ou subpasta como junção = 4 LINK_RECUSAD
     try {
       const isca = path.join(d, alvo, 'scripts/conferencia-b5-producao.cjs'); fs.mkdirSync(path.dirname(isca), {recursive: true}); fs.writeFileSync(isca, lf('scripts/conferencia-b5-producao.cjs'));
       fs.symlinkSync(path.join(d, alvo), path.join(d, PASTA), 'junction');
-      for (const modo of ['PARTE-1', 'CONFERIR-B5', 'LIMPEZA']) {
+      for (const modo of ['PARTE-1', 'CONFERIR-B5-COM-CONTA', 'LIMPEZA']) {
         const r = rodar(d, modo, RODOU); assert.equal(codigo(r.saida), 4, `${alvo} ${modo}`); assert.match(r.saida, new RegExp(`^LINK_RECUSADO ${re(PASTA)}$`, 'm'));
         assert.doesNotMatch(r.saida, /CONFERENCIA_RODOU|REMOVIDO|TRANSPORTADO/);
       }
@@ -171,7 +191,7 @@ test('destino físico: pasta própria ou subpasta como junção = 4 LINK_RECUSAD
     for (const modo of ['CONFERIR-B5-ESTADO', 'LIMPEZA']) { const r = rodar(d, modo, RODOU); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /^LINK_RECUSADO \.\//m); }
     assert.deepEqual(fs.readdirSync(alvo), []); fs.unlinkSync(ponto);
     const falso = 'pwd() { if [ "${1:-}" = "-P" ] && [ "$(builtin pwd)" != "$DEPLOY_REAL" ]; then echo /montagem/outro; else builtin pwd "$@"; fi; }\nexport -f pwd\n' + `export DEPLOY_REAL='${posix(d)}'\n`;
-    const r = sessao(d, falso + gerar(d, 'CONFERIR-B5', RODOU)); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /^DESTINO_FORA_DO_LUGAR \/montagem\/outro$/m);
+    const r = sessao(d, falso + gerar(d, 'CONFERIR-B5-COM-CONTA', RODOU)); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /^DESTINO_FORA_DO_LUGAR \/montagem\/outro$/m);
   } finally { limpar(d); }
 });
 
@@ -180,16 +200,18 @@ test('integridade: divergente na pasta (com e sem as linhas livre), parte adulte
   try {
     sessao(d, todasAsPartes(d));
     const alvo = path.join(d, PASTA, 'scripts/migration-099-comum.cjs'); fs.mkdirSync(path.dirname(alvo), {recursive: true}); fs.writeFileSync(alvo, '// outro\n');
-    const r = rodar(d, 'CONFERIR-B5', RODOU); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /JA_EXISTE_DIFERENTE scripts\/migration-099-comum\.cjs/); assert.doesNotMatch(r.saida, /CONFERENCIA_RODOU/);
-    const sem = rodar(d, 'CONFERIR-B5', RODOU, {}, t => t.split('\n').filter(l => !l.startsWith('livre scripts/')).join('\n'));
+    const r = rodar(d, 'CONFERIR-B5-COM-CONTA', RODOU); assert.equal(codigo(r.saida), 4); assert.match(r.saida, /JA_EXISTE_DIFERENTE scripts\/migration-099-comum\.cjs/); assert.doesNotMatch(r.saida, /CONFERENCIA_RODOU/);
+    const sem = rodar(d, 'CONFERIR-B5-COM-CONTA', RODOU, {}, t => t.split('\n').filter(l => !l.startsWith('livre scripts/')).join('\n'));
     assert.equal(codigo(sem.saida), 4); assert.doesNotMatch(sem.saida, /CONFERENCIA_RODOU/);
     const l = rodar(d, 'LIMPEZA'); assert.match(l.saida, /DIVERGENTE_PRESERVADO scripts\/migration-099-comum\.cjs/); assert.ok(fs.existsSync(alvo));
   } finally { limpar(d); }
   const d2 = deploy();
   try {
-    const [primeiro, segundo] = PARTES[0].itens;
+    // Primeira parte com dois arquivos ou mais (o primeiro encaixe pode deixar um arquivo grande sozinho na PARTE-1).
+    const k = PARTES.findIndex(p => p.itens.length >= 2) + 1; assert.ok(k > 0);
+    const [primeiro, segundo] = PARTES[k - 1].itens;
     fs.mkdirSync(path.join(d2, PASTA, '.partes'), {recursive: true}); fs.writeFileSync(path.join(d2, PASTA, '.partes', segundo.sha), 'adulterado');
-    const r = rodar(d2, 'PARTE-1'); assert.equal(codigo(r.saida), 4); assert.match(r.saida, new RegExp('^PARTE_EXISTE_DIFERENTE ' + segundo.sha + '$', 'm'));
+    const r = rodar(d2, `PARTE-${k}`); assert.equal(codigo(r.saida), 4); assert.match(r.saida, new RegExp('^PARTE_EXISTE_DIFERENTE ' + segundo.sha + '$', 'm'));
     assert.ok(!fs.existsSync(path.join(d2, PASTA, '.partes', primeiro.sha)));
   } finally { limpar(d2); }
   const outro = zlib.gzipSync(Buffer.from('// outro conteudo valido\n'), {level: 9}).toString('base64').match(/.{1,76}/g), it = PARTES[0].itens[0];
@@ -207,7 +229,7 @@ test('perder QUALQUER linha de um curto (com arquivo divergente presente) nunca 
   try {
     sessao(d, todasAsPartes(d));
     const alvo = path.join(d, PASTA, 'scripts/migration-091-comum.cjs'); fs.mkdirSync(path.dirname(alvo), {recursive: true}); fs.writeFileSync(alvo, '// divergente\n');
-    const bloco = gerar(d, 'CONFERIR-B5', RODOU), L = bloco.split('\n');
+    const bloco = gerar(d, 'CONFERIR-B5-COM-CONTA', RODOU), L = bloco.split('\n');
     for (let i = 0; i < L.length; i++) {
       if (L[i].startsWith('#') || L[i] === '') continue;
       const s = semLinha(d, bloco, i, {});
@@ -234,7 +256,7 @@ test('colagem truncada não grava nem executa; colagem interativa: shell do oper
   try {
     sessao(d, todasAsPartes(d).replace(gerar(d, 'PARTE-2'), ''));
     const antes = partesPresentes(d);
-    for (const modo of ['PARTE-2', 'CONFERIR-B5']) {
+    for (const modo of ['PARTE-2', 'CONFERIR-B5-COM-CONTA']) {
       const x = gerar(d, modo, RODOU);
       for (const fr of [0.25, 0.5, 0.9, 0.999]) {
         const r = sessao(d, x.slice(0, Math.floor(x.length * fr)));
@@ -247,7 +269,7 @@ test('colagem truncada não grava nem executa; colagem interativa: shell do oper
     const d2 = deploy();
     try {
       const inicio = sessao(d2, 'echo "ANTES opcoes=$- umask=$(umask) pwd=$PWD"\n', {interativo: true}).saida;
-      const r = sessao(d2, 'echo "ANTES opcoes=$- umask=$(umask) pwd=$PWD"\n' + todasAsPartes(d2) + gerar(d2, 'CONFERIR-B5', `node -e "process.exitCode=${esperado}"`) + POS, {interativo: true});
+      const r = sessao(d2, 'echo "ANTES opcoes=$- umask=$(umask) pwd=$PWD"\n' + todasAsPartes(d2) + gerar(d2, 'CONFERIR-B5-COM-CONTA', `node -e "process.exitCode=${esperado}"`) + POS, {interativo: true});
       assert.deepEqual(codigos(r.saida), [...Array(N).fill(0), esperado], r.saida.slice(-300)); assert.match(r.saida, /^SHELL_DO_OPERADOR_VIVO$/m);
       const a = /^ANTES opcoes=(\S*) umask=(\d+) pwd=(.*)$/m.exec(inicio), p = /^POS_BLOCO opcoes=(\S*) umask=(\d+) pwd=(.*)$/m.exec(r.saida);
       assert.equal(p[1], a[1]); assert.equal(p[2], a[2]); assert.equal(p[3].trim(), a[3].trim()); assert.doesNotMatch(r.saida, /trap -- .*EXIT/);
@@ -264,13 +286,13 @@ test('variáveis do Shell do operador: T exportado nunca é removido; C/T soment
       const r = rodar(d, modo, OK, {env: {T: posix(isca)}}); assert.ok(fs.existsSync(path.join(isca, 'x')), modo + ': isca de T preservada'); assert.ok(codigos(r.saida).length === 1, modo);
     }
     // Defesa em profundidade: o corpo sozinho (sem o unset do carregador) também zera T antes do trap.
-    for (const modo of ['CONFERIR-B5', 'LIMPEZA']) {
+    for (const modo of ['CONFERIR-B5-COM-CONTA', 'LIMPEZA']) {
       const f = d + '-corpo.sh'; fs.writeFileSync(f, b.corpo({modo, destino: posix(d) + '/' + PASTA, deploy: posix(d), comando: OK}));
       const env = {...process.env, RENDER_SERVICE_ID: b.SERVICO, T: posix(isca), TMPDIR: posix(path.join(d, 'tmp'))};
       spawnSync('bash', [f], {encoding: 'utf8', env}); fs.rmSync(f, {force: true});
       assert.ok(fs.existsSync(path.join(isca, 'x')), modo + ': corpo sozinho preserva o T herdado');
     }
-    const ro = sessao(d, 'readonly C=/tmp/nada\n' + gerar(d, 'CONFERIR-B5', RODOU), {interativo: true});
+    const ro = sessao(d, 'readonly C=/tmp/nada\n' + gerar(d, 'CONFERIR-B5-COM-CONTA', RODOU), {interativo: true});
     assert.equal(codigo(ro.saida), 4); assert.match(ro.saida, /^VARIAVEIS_DO_CARREGADOR_NAO_LIMPAS /m); assert.doesNotMatch(ro.saida, /CONFERENCIA_RODOU/);
     const ini = path.join(d, 'injetado.sh'); fs.writeFileSync(ini, 'echo INJETADO_NO_CORPO\n');
     sessao(d, todasAsPartes(d));
@@ -285,11 +307,11 @@ test('trap: rm falso vira aviso sem mudar o código (parte e curto, inclusive si
   try { const r = sessao(d0, RM + gerar(d0, 'PARTE-1')); assert.equal(codigo(r.saida), 0); assert.equal(linhas(r.saida, /^TEMPORARIO_NAO_REMOVIDO /), 1); } finally { limpar(d0); }
   for (const [comando, esperado] of [[OK, 0], ['node -e "process.exitCode=2"', 2], ['node -e "process.exitCode=3"', 3], ["bash -c 'kill -TERM $$'", 143]]) {
     const d = deploy();
-    try { sessao(d, todasAsPartes(d)); const r = sessao(d, RM + gerar(d, 'CONFERIR-B5', comando)); assert.equal(codigo(r.saida), esperado, comando); } finally { limpar(d); }
+    try { sessao(d, todasAsPartes(d)); const r = sessao(d, RM + gerar(d, 'CONFERIR-B5-COM-CONTA', comando)); assert.equal(codigo(r.saida), esperado, comando); } finally { limpar(d); }
   }
   const d = deploy();
   try {
-    sessao(d, todasAsPartes(d)); assert.equal(codigo(rodar(d, 'CONFERIR-B5', OK).saida), 0);
+    sessao(d, todasAsPartes(d)); assert.equal(codigo(rodar(d, 'CONFERIR-B5-COM-CONTA', OK).saida), 0);
     const l = sessao(d, RM + gerar(d, 'LIMPEZA')); assert.equal(codigo(l.saida), 4); assert.match(l.saida, /^REMOCAO_FALHOU scripts\/conferencia-b5-producao\.cjs$/m);
   } finally { limpar(d); }
 });
@@ -300,7 +322,7 @@ test('hashes do corpo = conteúdo LF da árvore; CLI TODOS grava os blocos com s
   const saida = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'b5-cli-')), 'blocos');
   try {
     const r = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-conferencia-b5-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
-    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + 3);
+    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + 4);
     for (const l of L) { const [h, bytes, nome] = l.split(/\s+/); const c = fs.readFileSync(path.join(saida, nome)); assert.equal(sha(c), h); assert.equal(c.length, Number(bytes)); }
     const denovo = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-conferencia-b5-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
     assert.equal(denovo.status, 1); assert.match(denovo.stderr, /PASTA_DE_SAIDA_INVALIDA_OU_EXISTENTE/);

@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core.ts';
 
 test('corrigir cadastro de importado conserva preço e itens e cria aniversariante ausente no CRM', async () => {
@@ -24,12 +25,15 @@ test('corrigir cadastro de importado conserva preço e itens e cria aniversarian
     '../../clientes/services/aniversariante.service': { cadastrarAniversarianteInterno: async (id: string, empresa: string) => { assert.equal(id, 'cliente'); assert.equal(empresa, 'empresa'); aniversario = true; return { id: 'aniversariante' }; } },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },
     '../../disponibilidade/services': { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [] }), intervaloSemConflito: async () => true },
+    // Rev. 3: guarda real da configuração da agenda (pg_locks respondido pelo tx simulado).
+    '../../agenda/trava-configuracao.ts': travaConfiguracao,
     '../../comercial/services': { calcularResumoComercial: async () => { throw Error('Correção cadastral não pode consultar preços atuais'); } },
   };
   const exports: Record<string, unknown> = {};
   const code = ts.transpileModule(readFileSync('lib/fechamentos/services/revisao-operacional.service.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   new Function('require', 'exports', code)((id: string) => mocks[id] ?? {}, exports);
-  const tx = { query: async (sql: string) => ({ rows: sql.includes('kidmais019_ocupa') ? [{ ocupa: false }] : [] }) };
+  // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+  const tx = { query: async (sql: string, params: unknown[] = []) => ({ rows: sql.includes('pg_locks') ? [{ ok: true, empresa: params[0] ?? 'empresa' }] : sql.includes('kidmais019_ocupa') ? [{ ocupa: false }] : [] }) };
   const editar = exports.editarPreparacao as (tx: unknown, r: unknown, input: unknown, ctx: unknown) => Promise<unknown>;
   await editar(tx, r, { ...f, cliente: { email: 'cliente@example.invalid' }, aniversariante: { nome: 'Lia', dataNascimento: null },
     adicionais: [], motivo: 'Completar cadastro importado', fonteHash: hashSnapshotContrato({ revisao: 1, conteudo: 'h', cliente, aniversariante: null }) }, { usuarioId: 'u', empresaAutorizada: 'empresa' });

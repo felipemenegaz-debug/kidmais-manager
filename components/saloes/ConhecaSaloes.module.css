@@ -49,6 +49,9 @@
 .corpo { display: grid; align-content: start; gap: 10px; padding: 22px; }
 .corpo h2 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
 .numeros { margin: 0; color: #4b5675; font-weight: 750; font-size: 14px; }
+/* E2b: selo da alternativa (não é recomendação) e faixa do salão combinado. */
+.seloAlternativa { background: #1f6f78; }
+.faixa { margin: 0; padding: 8px 12px; border-radius: 10px; background: #eef0ff; color: #3f2f8f; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
 .frase { margin: 0; color: #3a4466; }
 .destaques { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .destaques li { padding: 6px 10px; border-radius: 999px; background: #eef0ff; color: #3f2f8f; font-size: 13px; font-weight: 750; }

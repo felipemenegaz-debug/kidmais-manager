@@ -8,7 +8,7 @@ import { criarVinculo, lerPreparacao, situacaoPreparacao, type ResultadoCriacao,
 import type { RepositorioOperacoes } from "./tipos.ts";
 
 /**
- * Revisão OFICIAL de uma contratação preparada pelo Kidmais (IA operacional, marco C): abrir (somente leitura) e
+ * Revisão OFICIAL de uma contratação preparada pelo Copiloto (IA operacional, marco C): abrir (somente leitura) e
  * concluir (o envio do formulário oficial, consumindo a preparação na MESMA transação da criação).
  *
  * O formulário oficial continua sendo do Core (Fechamento administrativo): sessão, CSRF, prova de tenant, papel da
@@ -41,7 +41,7 @@ export type DependenciasPreparacao = {
 
 export type RespostaPreparacao = { status: number; corpo: { ok: true; data: unknown } | { ok: false; erro: string; codigo: string } };
 
-const MENSAGEM_FALLBACK = "Não foi possível concluir com a preparação do Kidmais. Nenhuma alteração foi feita; você pode enviar sem ela.";
+const MENSAGEM_FALLBACK = "Não foi possível concluir com a preparação do Copiloto. Nenhuma alteração foi feita; você pode enviar sem ela.";
 
 export async function atenderPreparacao(lerCorpo: () => Promise<unknown>, deps: DependenciasPreparacao): Promise<RespostaPreparacao> {
   const rastreio = novoRastreio("inteligencia.operacao", deps.requestId());
@@ -51,7 +51,7 @@ export async function atenderPreparacao(lerCorpo: () => Promise<unknown>, deps: 
   const inicio = Date.now();
   try {
     if (!inteligenciaAtiva(deps.env) || !operacionalAtivo(deps.env) || !grupoAtivo(deps.env, "ADMIN_ACTIONS")) {
-      throw new InteligenciaError("PREPARACAO_INDISPONIVEL", "A preparação do Kidmais está indisponível. Envie o formulário sem ela.", 503);
+      throw new InteligenciaError("PREPARACAO_INDISPONIVEL", "A preparação do Copiloto está indisponível. Envie o formulário sem ela.", 503);
     }
     let pedido: z.infer<typeof pedidoSchema>;
     try {

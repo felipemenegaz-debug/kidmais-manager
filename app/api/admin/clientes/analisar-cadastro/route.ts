@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { migration112Aplicada } from "@/lib/clientes/repositories";
 import { analisarCadastroCliente } from "@/lib/clientes/services";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
@@ -19,7 +20,10 @@ export async function POST(request: NextRequest) {
 
     const { excluirClienteId, ...input } = parsed.data;
     const result = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), (tx, tenant) =>
-      analisarCadastroCliente(input, tenant.empresaComprovada, { excluirClienteId }, tx));
+      (async () => ({
+        ...(await analisarCadastroCliente(input, tenant.empresaComprovada, { excluirClienteId }, tx)),
+        pessoaJuridicaDisponivel: await migration112Aplicada(tx),
+      }))());
     return jsonNoStore({ ok: true, data: result });
   } catch (error) {
     return apiErrorResponse(error);

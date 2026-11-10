@@ -74,8 +74,12 @@ test('matriz ramo × código × schema (§3.8)', () => {
 test('código no ar: candidata exata ou uma base antiga da lista fechada (B-23); outro commit recusa', () => {
     const cand = 'a'.repeat(40);
     assert.equal(codigoNoAr(cand, cand), 'CANDIDATA');
-    // B-23: as duas bases de production (#232 e #274), por SHA completo; maiúsculas e espaços como o Render pode entregar.
-    assert.deepEqual([...CODIGOS_ANTIGOS], ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61']);
+    // B-23/B-23b/B-23c/B-23d/B-23e/B-23f: as bases de production (#232, #274, #290, #295, #299, #316, #321, #323, #325 e #332), por SHA completo; maiúsculas e espaços como o Render pode entregar.
+    assert.deepEqual([...CODIGOS_ANTIGOS], ['00d3019ade199ce609eab296050e07f4b379e87b', '4ef9adb6830f0816f8a2f2ae0c98e16b8357db61',
+        '5bdd5ac47a7f2e8b25892eeadb4e49398e593af1', '7329cbfe1bd78fbf817fc418785b7f62910a9b01', '5e4340db485520eabc84f67f090907de7fddac06',
+        'd67d10e63e43c4f066f06456e72d0df55bfd1949', '767fff4ac3bce2dcc03fa16d01c42dc25d7b563a',
+        '0de9aea27715b64bea73cbefb20bfc87bc96deec', '4b9ce8303ddb9b366c839eb61cfa25bad4a4b735',
+        'cc4bab508dd617dbdbc402f049113a8e99b2239a']);
     for (const antigo of CODIGOS_ANTIGOS) {
         assert.equal(codigoNoAr(antigo, cand), 'ANTIGO', antigo);
         assert.equal(codigoNoAr(` ${antigo.toUpperCase()} `, cand), 'ANTIGO', antigo);
@@ -84,6 +88,14 @@ test('código no ar: candidata exata ou uma base antiga da lista fechada (B-23);
     // Antes do B-23 bastava o prefixo `00d3019a`; agora qualquer outro SHA com o mesmo prefixo recusa.
     assert.equal(codigoNoAr(`00d3019a${'0'.repeat(32)}`, cand), null);
     assert.equal(codigoNoAr(`4ef9adb6${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`5bdd5ac4${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`7329cbfe${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`5e4340db${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`d67d10e6${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`767fff4a${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`0de9aea2${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`4b9ce830${'0'.repeat(32)}`, cand), null);
+    assert.equal(codigoNoAr(`cc4bab50${'0'.repeat(32)}`, cand), null);
     // A candidata vence quando coincide com uma base antiga (nunca deveria; a entrada declara a candidata).
     assert.equal(codigoNoAr(CODIGOS_ANTIGOS[1], CODIGOS_ANTIGOS[1]), 'CANDIDATA');
     assert.equal(codigoNoAr('b'.repeat(40), cand), null);

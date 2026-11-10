@@ -74,6 +74,11 @@ function ambiente() {
         if (sql === "SELECT id FROM empresas WHERE codigo = 'kidmais'") return { rows: state.dona ? [{ id: state.dona }] : [] };
         if (sql === "SELECT id FROM empresas WHERE status <> 'DESATIVADA' LIMIT 2") return { rows: [{ id: empresaA }, { id: empresaB }] };
         if (sql === 'SELECT id FROM empresas WHERE id = $1::uuid') return { rows: [] };
+        // Rev. 3: entrada trava a configuração da agenda da empresa comprovada (compartilhada; a linha já vem do tenant).
+        if (sql.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'") || sql.startsWith("SELECT set_config('kidmais.agenda_config_empresa'")) {
+            assert.equal(params[0], state.tenant); return { rows: [] };
+        }
+        if (sql.includes('pg_locks')) return { rows: [{ ok: true, empresa: params[0] ?? state.tenant }] };
         if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
             // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
             for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));
@@ -344,7 +349,7 @@ async function formulario() {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { sessaoId: a.state.sessao.id, usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf, contexto: { empresaAtual: { id: empresaA } } } });
         // Admin lê a agenda da empresa comprovada (062); a API pública (sem tenant) não é usada pelo wizard.
         assert(!url.startsWith('/api/disponibilidade'), 'wizard admin não usa a disponibilidade pública');
-        if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] }], unidades: [] });
+        if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }, { codigo: 'TURNO_2', configuracaoId: 'cfg-noite', nome: 'Noite', horarios: [{ inicio: '17:30', fim: '21:30', ajusteMinutos: 30, status: 'DISPONIVEL' }] }] }], unidades: [] });
         // Admin lê adicionais pela rota com Tenant Context; a pública (fechada desde a PR-A) não é usada.
         if (url.startsWith('/api/admin/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
         assert(!url.startsWith('/api/fechamentos/adicionais'), 'wizard admin não usa a rota pública de adicionais');
@@ -354,7 +359,9 @@ async function formulario() {
     const Component = a.load('components/admin/FechamentoAdminWizard.tsx').default;
     function render() { si = ri = ei = 0; const tree = Component({ clienteId }); while (effects.length) effects.shift()(); return tree; }
     function nodes(root: any): any[] { return !root || typeof root !== 'object' ? [] : Array.isArray(root) ? root.flatMap(nodes) : [root, ...nodes(root.props?.children)]; }
-    function text(root: any): string { return root === null || root === undefined ? '' : Array.isArray(root) ? root.map(text).join(' ') : typeof root === 'object' ? text(root.props?.children) : String(root); }
+    // Os componentes do mecanismo de erros de formulário (N1/N2) são puros: expandidos para o texto chegar ao teste.
+    const PUROS = new Set(['AvisoGlobal', 'ResumoErros', 'MensagemCampo']);
+    function text(root: any): string { return root === null || root === undefined ? '' : Array.isArray(root) ? root.map(text).join(' ') : typeof root === 'object' ? (typeof root.type === 'function' && PUROS.has(root.type.name) ? text(root.type(root.props)) : text(root.props?.children)) : String(root); }
     function field(label: string, value: string) {
         const l = nodes(render()).find(n => n.type === 'label' && text(n).startsWith(label)); assert(l, label);
         const input = nodes(l).find(n => ['select', 'input', 'textarea'].includes(n.type));
@@ -371,8 +378,24 @@ async function formulario() {
         await new Promise(resolve => setImmediate(resolve));
     }
     async function submit() { await nodes(render()).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); }
-    return { ...a, render, text, preencher, submit, redirects };
+    return { ...a, render, text, nodes, field, preencher, submit, redirects };
 }
+
+test('fechamento pelo perfil: período Noite consulta os horários do TURNO_2, não só os do almoço', async () => {
+    const a = await formulario();
+    const temOpcao = (valor: string) => a.nodes(a.render()).some((n: any) => n.type === 'option' && n.props.value === valor);
+    const escolherData = async () => {
+        a.nodes(a.render()).find((n: any) => n.type?.name === 'CalendarioDisponibilidade').props.onSelecionar(payload.dataFesta);
+        await new Promise(resolve => setImmediate(resolve)); a.render(); await new Promise(resolve => setImmediate(resolve));
+    };
+    await escolherData();
+    assert(temOpcao('11:00')); assert(!temOpcao('17:30'));
+    // Staging: o período vem dos horários configurados da empresa (select "Horário da festa"), não de almoço/noite fixo.
+    assert(temOpcao('cfg-noite'), 'período da noite não oferecido');
+    a.field('Horário da festa', 'cfg-noite');
+    await new Promise(resolve => setImmediate(resolve)); a.render(); await new Promise(resolve => setImmediate(resolve));
+    assert(temOpcao('17:30'), 'horário da noite não carregou'); assert(!temOpcao('11:00'));
+});
 
 test('CRM → formulário administrativo → conclusão com GET/POST e núcleo reais, sem OTP', async () => {
     const profile = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');

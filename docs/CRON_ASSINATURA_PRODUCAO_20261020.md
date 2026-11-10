@@ -1,5 +1,13 @@
 # Cron de conferência de pagamentos em produção — 20/10/2026 (V8 da abertura da venda)
 
+> **Bloqueio em production (B-27, 07/11/2026).** No ramo G-VAZIO, a D-VZ-6 exige suspender a reconciliação de production (`crn-dbbjbt0u01pc73e0a3m0`) no início da barreira, antes do P1, com a autorização A-VZ-2 e prova de que a execução ativa terminou; a retomada exige a dívida fechada e autorização. E8a e E8b ficam adiadas, e a D-OP-3 não vale nesse ramo. Durante a suspensão a reconciliação não detecta nada; depois do P8, a detecção prevista é a leitura semanal P9 de Felipe.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Status: DEFINIÇÃO PREPARADA, NADA CRIADO NO RENDER.** Nenhum metadado do Render foi lido nesta preparação; o estado abaixo
 é o informado em 20/10.
 
@@ -124,6 +132,8 @@ Todas no código já publicado e cobertas por [scripts/assinatura-cron-producao-
 | `conferir` sem `ASAAS_AMBIENTE=producao` | o plano do cron recusa o alvo de produção ("Cron recusado"); sai **1** | idem |
 | `conferir` com Asaas configurado e nenhuma assinatura | conecta (transações desfeitas); 0 eventos e 0 empresas, **nenhuma chamada ao Asaas**; confere a Kidmais; sai **0** | sim |
 
+> **Bloqueio em production (B-27, 07/11/2026).** Esta conclusão descreve o comportamento do código e não manda criar o cron nem passar a `conferir` em production: vale o veto escrito na §6. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 Conclusão: o cron deve nascer em **`aguardando`** e só passar para `conferir` depois que o web de produção tiver o Asaas de
 produção (P6 etapa 4 do [roteiro de 13/10](RODADA_FINAL_LANCAMENTO_20261013.md)) **e** depois que a regra D-C4 (§5a,
 decidida em 20/10) estiver na branch `production`.
@@ -159,6 +169,8 @@ chave diferente de `SEM_MUDANCA` também dá saída 2: `MUDOU_<antes>_PARA_<depo
 
 ### Triagem (ler o log do cron no Render; o relatório não tem dado pessoal)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Ler log e abrir painel é diagnóstico. O "reenviar" do item 3 é intervenção: ver a nota da resolução abaixo. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 0. Com a D-C4:
    - `alarme.itens` diz **por que** a execução saiu 2 (`aviso`: `NOVO`, `DIA_n`, `EMPRESA_SEM_IDADE`, `SEM_IDADE`,
      `ERRO_NESTA_EXECUCAO`, `LISTA_LIMITE_ATINGIDO`);
@@ -177,6 +189,8 @@ chave diferente de `SEM_MUDANCA` também dá saída 2: `MUDOU_<antes>_PARA_<depo
    nada automaticamente: decisão humana.
 
 ### Resolução em produção (nunca pelo cron)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Com a dívida aberta, estas ações não são remédio direto em production: reenviar webhook, **Sincronizar**, **Liberar intenção** e pacote próprio são intervenções de negócio, distintas da leitura de diagnóstico. Anomalia durante o G-VAZIO segue as regras de parada e recuperação do plano (§9.2.3 e §9.2.5). Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 - **Painel do Asaas:** reenviar o webhook com falha. O processamento normal fecha o evento.
 - **Painel do desenvolvedor → empresa → Cobrança** (`lib/desenvolvedor/cobranca.ts`), com senha confirmada há pouco:
@@ -307,6 +321,8 @@ desenvolvedor → empresa → Cobrança → Pendências, ou o painel do Asaas.
 - **Execução manual:**
   - antes das 08:00 UTC, usa a referência do dia anterior e repete o veredito de ontem (mais os itens novos);
   - no mesmo dia, repete o veredito do dia.
+> **Bloqueio em production (B-27, 07/11/2026).** Com a D-VZ-6, execução que não acontece durante a suspensão não é falha a recuperar: da barreira ao fechamento da dívida, inclusive depois do P8, "Trigger run" e execução manual estão vedados, e o prazo das 08:00 UTC abaixo não se aplica. Depois do P8, a leitura prevista é a P9 semanal de Felipe, com a perda de detecção assumida pelo plano. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 - **Execução agendada que não acontece** (falha do Render):
   - os avisos daquele dia se perdem;
   - o item continua listado e volta a alarmar no próximo marco;
@@ -334,6 +350,8 @@ fila de `docs/CANCELAMENTO_DEVOLUCAO_20261021.md` §5; o item some quando o pedi
 releitura com `deleted=true` fecha a remoção). Em staging o relatório só conta (`encerramentos`).
 
 ## 6. Roteiro proposto (cada passo com autorização própria)
+
+> **Bloqueio em production (B-27, 07/11/2026).** C1, C2 e C3 abaixo não são a sequência futura da promoção em production. No ramo G-VAZIO o cron fica suspenso: não criar substituto, não passar a `conferir`, não copiar a 7, a 11 ou a 12 para ativá-lo e não usar "Trigger run". Voltar para `aguardando` não atende a D-VZ-6, que exige suspensão. O manifesto `infra/render-assinatura-cron-production.yaml` está sob esta mesma nota. Rotação de credencial do banco: ver `ROTACAO_CREDENCIAIS_20261007.md`. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 1. **C1 — criar o cron em `aguardando`** (independe do Asaas):
    - criação **manual** no painel com os campos da seção 2;

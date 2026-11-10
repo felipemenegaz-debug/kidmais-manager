@@ -74,12 +74,13 @@ export async function repetirBaixa(tx: DbExecutor, empresaId: string, input: Ped
 export async function baixarRecebimentoNoTenant(
   tx: DbExecutor,
   tenant: TenantComprovado,
+  hoje: string,
   input: PedidoBaixa,
   context: Omit<PagamentoServiceContext, "executor" | "aoConfirmar">,
 ) {
   const repetida = await repetirBaixa(tx, tenant.empresaComprovada, input);
   if (repetida) return repetida;
-  const baixa = await prepararBaixa(tx, tenant.empresaComprovada, input);
+  const baixa = await prepararBaixa(tx, tenant.empresaComprovada, hoje, input);
   const resultado = await registrarRecebimentoPagamento({
     pagamentoId: baixa.pagamentoId,
     meioPagamento: baixa.meio,

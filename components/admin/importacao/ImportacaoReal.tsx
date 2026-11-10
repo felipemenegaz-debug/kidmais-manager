@@ -1,14 +1,21 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { enderecoFinal } from '@/lib/enderecos/cliente';
 import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/modelo';
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
-import { agirNaImportacao, enviarContrato, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { abrirDocumento, agirNaImportacao, enviarContrato, lerCota, textoCota, errosDaRevisao, listarParaRevisao, type ItemParaRevisao, ID_CLIENTE_REVISAO, ID_SECAO_ENDERECO, idCampoRevisao, tipoPessoaMarcado, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import { AvisoGlobal, MensagemCampo, ResumoErros } from '@/components/ui/ErrosFormulario';
+import { focarPrimeiroErro, idMensagemErro, mapaErros, propsCampo } from '@/lib/ui/erros-formulario';
 import IntegracaoContrato, { type PassoIntegracao } from './IntegracaoContrato';
+import FilaLote from './FilaLote';
+import ListaAguardando from './ListaAguardando';
+import { abrirDeNovo, concluirItem, continuarLote, contratoImportadoUrl, loteOcupado, MENSAGEM_LOTE_OCUPADO, novoLote, prepararArquivos, retirar, situacaoNaLista, tentarDeNovo, type ItemLote } from './fila-lote';
+import { criarArmazemLote, type Aplicar } from './executor-lote';
 import styles from './importacao.module.css';
 import real from './importacao-real.module.css';
 
@@ -21,9 +28,9 @@ import real from './importacao-real.module.css';
 type Etapa =
   | { etapa: 'upload'; erro: string | null }
   | { etapa: 'lendo'; nome: string }
-  | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
-  | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
-  | { etapa: 'operacional'; importacao: ImportacaoPublica; plano: PlanoPublico | null }
+  | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null; cota?: string | null }
+  | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null; cota?: string | null }
+  | { etapa: 'operacional'; importacao: ImportacaoPublica; plano: PlanoPublico | null; cota?: string | null }
   | { etapa: 'cancelada' }
   /** Dados do contrato e cliente registrados; segue o assistente de integração (festa, agenda, pagamentos). */
   | { etapa: 'integracao'; importacaoId: string; destino?: string; acabouDeRegistrar: boolean };
@@ -32,7 +39,7 @@ const PASSOS = ['Enviar', 'Dados do contrato e cliente', 'Festa e agenda', 'Paga
 const PASSO_INTEGRACAO: Record<PassoIntegracao, number> = { festa: 2, pagamentos: 3, revisao: 4, concluida: 5 };
 const ROTULO: Record<EstadoCampo | 'REVISADO', string> = { ENCONTRADO: 'Encontrado', PRECISA_REVISAO: 'Precisa revisão', NAO_ENCONTRADO: 'Não encontrado', REVISADO: 'Revisado' };
 const AVISOS: Readonly<Record<string, string>> = {
-  ENVIO_EXTERNO_NAO_AUTORIZADO: 'Leitura feita só no servidor do Kidmais, por regras. Confira os campos com atenção.',
+  ENVIO_EXTERNO_NAO_AUTORIZADO: 'Leitura feita só no servidor do iA.Fest, por regras. Confira os campos com atenção.',
   SEM_TEXTO_NATIVO: 'O PDF não tem texto (parece escaneado). Preencha os campos na revisão.',
   SEM_VISAO_DISPONIVEL: 'Leitura automática de imagem indisponível. Preencha os campos na revisão.',
   DOCUMENTO_JA_ENVIADO: 'Este arquivo já tinha sido enviado. Continuamos de onde parou.',
@@ -45,14 +52,14 @@ function campos(i: ImportacaoPublica) {
 export type EtapaImportacao = Etapa;
 
 /** Registro criado pela confirmação: o contrato importado, consultado em Contratos pela URL. */
-export const contratoImportadoUrl = (importacaoId: string) => `/admin/contratos?importacaoId=${importacaoId}`;
 
 /** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
 function etapaDaResposta(dados: RespostaImportacao): Etapa {
   const i = dados.importacao;
+  const cota = lerCota(dados.cota);
   if (i.status === 'IMPORTADA') return { etapa: 'integracao', importacaoId: i.id, destino: i.resultado?.destino, acabouDeRegistrar: false };
   if (i.status === 'DESCARTADA') return { etapa: 'cancelada' };
-  return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null };
+  return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null, cota: cota ? textoCota(cota) : null };
 }
 
 /** `vitrine`: estado inicial estático para /preview-ux (sem sessão e sem rede). */
@@ -64,7 +71,121 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   const [cancelando, setCancelando] = useState(false);
   const [integracaoOcupada, setIntegracaoOcupada] = useState(false);
   const [passoIntegracao, setPassoIntegracao] = useState<PassoIntegracao>('festa');
+  /** N1/N2: depois de uma tentativa de continuar com pendências, cada campo pendente fica marcado até ser resolvido. */
+  const [marcarPendencias, setMarcarPendencias] = useState(false);
   const dialogo = useRef<HTMLDialogElement>(null);
+  /**
+   * Envio em lote (L1): a fila vive no navegador. Cada arquivo segue o mesmo caminho do envio único (documento + abrir);
+   * a revisão é a de sempre, um contrato por vez. `itemEmRevisao` liga a revisão aberta ao item do lote.
+   */
+  const [versaoLista, setVersaoLista] = useState(0);
+  const [armazem] = useState(() => criarArmazemLote({ buscar: adminFetch, agora: () => Date.now(), aoParar: () => setVersaoLista((v) => v + 1) }));
+  const lote = useSyncExternalStore(armazem.assinar, armazem.ler, armazem.ler);
+  // r3 P2-3: chamadas em voo contam como ocupação mesmo depois de o item sair do lote.
+  const emVoo = useSyncExternalStore(armazem.assinar, armazem.emVoo, armazem.emVoo);
+  const filaOcupada = emVoo > 0 || loteOcupado(lote);
+  const [itemEmRevisao, setItemEmRevisao] = useState<string | null>(null);
+  useEffect(() => { armazem.montar(); return () => armazem.desmontar(); }, [armazem]);
+  const gravarLote = (aplicar: Aplicar) => armazem.aplicar(aplicar);
+  const rodar = () => armazem.rodar();
+  // Consultas marcadas para depois (outra leitura do mesmo arquivo em andamento): acorda a fila na hora prevista.
+  const proximaConsulta = lote && !lote.parada ? Math.min(...lote.itens.map((i) => i.proximaConsultaEm ?? Infinity)) : Infinity;
+  useEffect(() => {
+    if (!Number.isFinite(proximaConsulta)) return;
+    const espera = setTimeout(() => armazem.rodar(), Math.max(0, proximaConsulta - Date.now()) + 50);
+    return () => clearTimeout(espera);
+  }, [proximaConsulta, armazem]);
+
+  function iniciarLote(escolhidos: File[]) {
+    const preparo = prepararArquivos(escolhidos);
+    if (!preparo.ok) { setEstado({ etapa: 'upload', erro: preparo.mensagem }); return; }
+    const arquivos = new Map<string, File>();
+    const itens = preparo.arquivos.map((a) => {
+      const id = crypto.randomUUID();
+      arquivos.set(id, a);
+      return { id, aberturaId: crypto.randomUUID(), nome: a.name, tamanho: a.size };
+    });
+    setEstado({ etapa: 'upload', erro: preparo.ignorados.length ? `Ficaram fora do lote (não são PDF): ${preparo.ignorados.join(', ')}.` : null });
+    armazem.iniciar(novoLote(itens), arquivos);
+  }
+
+  /**
+   * Vários arquivos ⇒ lote; um só ⇒ envio único, como sempre. Seletor e arrastar passam pela mesma guarda (r2 P2-3):
+   * com o lote ocupado (estado ATUAL do armazém, não o da última renderização) nada é enviado.
+   */
+  function escolher(arquivos: FileList | null | undefined) {
+    if (armazem.ocupado()) { setEstado({ etapa: 'upload', erro: MENSAGEM_LOTE_OCUPADO }); return; }
+    const lista = arquivos ? [...arquivos] : [];
+    if (lista.length > 1) iniciarLote(lista);
+    else void enviar(lista[0]);
+  }
+
+  function encerrarLote() {
+    armazem.encerrar();
+    setItemEmRevisao(null);
+  }
+
+  /**
+   * Muda de etapa; se a revisão era de um item do lote e terminou, o item sai da fila de pendentes. `descartada`: o
+   * descarte bem-sucedido volta ao envio, como sempre, mas encerra o item do lote.
+   */
+  function irPara(proxima: Etapa, descartada = false) {
+    if (itemEmRevisao && (proxima.etapa === 'integracao' || proxima.etapa === 'cancelada' || proxima.etapa === 'upload')) {
+      if (proxima.etapa !== 'upload' || descartada) gravarLote((l) => concluirItem(l, itemEmRevisao, proxima.etapa === 'integracao' ? 'IMPORTADA' : 'DESCARTADA'));
+      setItemEmRevisao(null);
+    }
+    setEstado(proxima);
+  }
+
+  /** Revisar e "Próximo da fila" sempre leem de novo (R1-5): versão e plano atuais, preview antigo descartado. */
+  async function revisarDoLote(i: ItemLote) {
+    if (!i.importacaoId) return;
+    setEstado({ etapa: 'lendo', nome: i.nome });
+    const r = await agirNaImportacao(adminFetch, { id: i.importacaoId, versao: i.versao ?? 1 }, { acao: 'ler' });
+    if (!r.ok) { setEstado({ etapa: 'upload', erro: r.mensagem }); return; }
+    setEditando(null); setMarcarPendencias(false);
+    if (r.dados.importacao.status !== 'EM_REVISAO') {
+      // Encerrada em outra aba (R2-4): sai da fila sem reenviar o PDF.
+      gravarLote((l) => concluirItem(l, i.id, r.dados.importacao.status === 'IMPORTADA' ? 'IMPORTADA' : 'DESCARTADA'));
+      setEstado({ etapa: 'upload', erro: null });
+      return;
+    }
+    setItemEmRevisao(i.id);
+    setEstado(etapaDaResposta(r.dados));
+  }
+
+  /** Da lista: revisão aberta ⇒ `ler`; lido sem revisão ⇒ `abrir` comum (decisão explícita da pessoa). */
+  async function revisarDaLista(i: ItemParaRevisao) {
+    setEstado({ etapa: 'lendo', nome: i.arquivo });
+    const r = i.grupo === 'REVISAO' && i.importacaoId
+      ? await agirNaImportacao(adminFetch, { id: i.importacaoId, versao: i.versao ?? 1 }, { acao: 'ler' })
+      : await abrirDocumento(adminFetch, i.documentoId);
+    if (!r.ok) { setEstado({ etapa: 'upload', erro: r.mensagem }); setVersaoLista((v) => v + 1); return; }
+    setEditando(null); setMarcarPendencias(false);
+    setItemEmRevisao(lote?.itens.find((x) => x.documentoId === i.documentoId && !x.concluido)?.id ?? null);
+    setEstado(etapaDaResposta(r.dados));
+  }
+
+  /** Presença na lista comprovada pela própria lista; falha na consulta ⇒ desconhecido (R5-2). */
+  async function documentosNaLista() {
+    const ids = new Set<string>();
+    let cursor: string | null = null;
+    for (let pagina = 0; pagina < 20; pagina += 1) {
+      const r = await listarParaRevisao(adminFetch, cursor);
+      if (!r.ok) return null;
+      for (const x of r.dados.itens) ids.add(x.documentoId);
+      if (!r.dados.proximo) return ids;
+      cursor = r.dados.proximo;
+    }
+    return null;
+  }
+
+  async function retirarDoLote(i: ItemLote) {
+    const naLista = i.documentoId ? await documentosNaLista() : null;
+    gravarLote((l) => retirar(l, i.id, situacaoNaLista(i, naLista)));
+    setVersaoLista((v) => v + 1);
+    rodar();
+  }
   const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
   useEffect(() => { if (cancelando) dialogo.current?.showModal(); else dialogo.current?.close(); }, [cancelando]);
 
@@ -79,14 +200,15 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (estado.etapa !== 'revisao' && estado.etapa !== 'confirmacao') return;
     const resposta = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'descartar' });
     if (!resposta.ok) {
-      setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem });
-    } else { setEstado({ etapa: 'upload', erro: null }); setEditando(null); }
+      setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem, cota: estado.cota });
+    } else { irPara({ etapa: 'upload', erro: null }, true); setEditando(null); }
     setCancelando(false);
   }
 
   async function enviar(arquivo: File | undefined) {
     if (!arquivo) return;
     setEstado({ etapa: 'lendo', nome: arquivo.name });
+    setMarcarPendencias(false);
     const enviado = await enviarContrato(adminFetch, arquivo);
     if (!enviado.ok) { setEstado({ etapa: 'upload', erro: enviado.mensagem }); return; }
     setEditando(null);
@@ -100,14 +222,14 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (!r.ok) {
       if (r.codigo === 'IMPORTACAO_ENCERRADA') {
         const atual = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'ler' });
-        if (atual.ok) { setEditando(null); setEstado(etapaDaResposta(atual.dados)); return; }
+        if (atual.ok) { setEditando(null); irPara(etapaDaResposta(atual.dados)); return; }
       }
       setEstado({ ...estado, ocupado: false, erro: r.mensagem }); return;
     }
     setEditando(null);
-    if (acao.acao === 'descartar') { setEstado({ etapa: 'upload', erro: null }); return; }
+    if (acao.acao === 'descartar') { irPara({ etapa: 'upload', erro: null }, true); return; }
     const rascunho = r.dados.gate?.tipo === 'preview' ? r.dados.gate.rascunho : undefined;
-    if (rascunho) { setEstado({ etapa: 'confirmacao', importacao: r.dados.importacao, plano: r.dados.plano ?? null, rascunho, decidindo: false, erro: null }); return; }
+    if (rascunho) { setEstado({ etapa: 'confirmacao', importacao: r.dados.importacao, plano: r.dados.plano ?? null, rascunho, decidindo: false, erro: null, cota: estado.cota }); return; }
     setEstado({ ...estado, importacao: r.dados.importacao, plano: r.dados.plano ?? estado.plano, ocupado: false, erro: null });
   }
 
@@ -116,9 +238,9 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     setEstado({ ...estado, decidindo: true, erro: null });
     const r = await decidirOperacao(adminFetch, rascunho, decisao);
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
-    if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
+    if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null, cota: estado.cota }); return; }
     const resposta = r.resposta;
-    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
+    if (resposta.tipo === 'resultado_acao') irPara({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
@@ -128,7 +250,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     <Link className={styles.voltar} href="/admin/contratos">← Contratos</Link>
     <header className={styles.topo}>
       <div className={styles.tituloLinha}><h1>Importar contrato antigo</h1></div>
-      <p>Envie o contrato em PDF, JPG ou PNG. O Kidmais lê e sugere; você confere os dados, a festa, a agenda e os pagamentos e só então confirma.</p>
+      <p>Envie o contrato em PDF, JPG ou PNG. O iA.Fest lê e sugere; você confere os dados, a festa, a agenda e os pagamentos e só então confirma.</p>
     </header>
     <ol className={styles.passos} aria-label="Etapas da importação">
       {PASSOS.map((p, i) => <li key={p} data-estado={i < passo ? 'feito' : i === passo ? 'atual' : 'pendente'} aria-current={i === passo ? 'step' : undefined}><span aria-hidden="true">{i + 1}</span>{p}</li>)}
@@ -139,18 +261,28 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       <div className={styles.zona} data-arrastando={arrastando}
         onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
         onDragLeave={() => setArrastando(false)}
-        onDrop={(e) => { e.preventDefault(); setArrastando(false); void enviar(e.dataTransfer?.files?.[0]); }}>
+        onDrop={(e) => { e.preventDefault(); setArrastando(false); escolher(e.dataTransfer?.files); }}>
         <span className={styles.icone} aria-hidden="true">↥</span>
         <p className={styles.zonaTitulo}>Arraste o contrato para cá</p>
-        <p className={styles.zonaDica}>PDF, JPG ou PNG</p>
+        <p className={styles.zonaDica}>PDF, JPG ou PNG · para migrar vários, escolha até 20 PDFs de uma vez</p>
         <label className={styles.selecionar}>
-          Selecionar arquivo
-          <input className={styles.oculto} type="file" accept={ACEITE_ARQUIVO} onChange={(e) => { void enviar(e.target.files?.[0]); e.target.value = ''; }} />
+          Selecionar arquivos
+          <input className={styles.oculto} type="file" multiple accept={ACEITE_ARQUIVO} disabled={filaOcupada}
+            onChange={(e) => { escolher(e.target.files); e.target.value = ''; }} />
         </label>
         {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
       </div>
       <p className={styles.garantia}>O arquivo fica guardado de forma privada nesta empresa. Nenhum cadastro é criado ou alterado sem a sua confirmação.</p>
     </section>}
+    {estado.etapa === 'upload' && lote && <FilaLote lote={lote}
+      ocupado={filaOcupada}
+      onRevisar={(i) => void revisarDoLote(i)}
+      onTentar={(i) => { gravarLote((l) => tentarDeNovo(l, i.id)); rodar(); }}
+      onAbrirDeNovo={(i) => { gravarLote((l) => abrirDeNovo(l, i.id)); rodar(); }}
+      onRetirar={(i) => void retirarDoLote(i)}
+      onContinuar={() => { gravarLote(continuarLote); rodar(); }}
+      onNovoLote={encerrarLote} />}
+    {estado.etapa === 'upload' && !vitrine && <ListaAguardando atualizar={versaoLista} onRevisar={(i) => void revisarDaLista(i)} />}
 
     {estado.etapa === 'lendo' && <section className={styles.painel} aria-busy="true" aria-live="polite">
       <h2 className={styles.titulo}>Lendo o contrato</h2>
@@ -165,6 +297,21 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       const contagem = { ENCONTRADO: 0, PRECISA_REVISAO: 0, NAO_ENCONTRADO: 0 };
       for (const c of lista) contagem[c.estado] += 1;
       const match = estado.plano?.match;
+      const erros = marcarPendencias ? errosDaRevisao(estado.importacao, estado.plano) : [];
+      const porCampo = mapaErros(erros);
+      // Pendência num campo editável: a edição abre antes do foco, que vai para o próprio controle (revisão do Astra, P2-6).
+      const abrirCampo = (alvo: string) => {
+        const campo = lista.find((c) => idCampoRevisao(c.id) === alvo);
+        if (campo && campo.id !== 'contratante.tipoPessoa' && campo.id !== 'pagamentos.realizados') setEditando({ id: campo.id, valor: campo.valor ?? '' });
+      };
+      const continuar = () => {
+        if (!estado.plano?.pronto) {
+          setMarcarPendencias(true);
+          focarPrimeiroErro(errosDaRevisao(estado.importacao, estado.plano), { abrir: abrirCampo, resumoId: 'revisao-erros' });
+          return;
+        }
+        setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano, cota: estado.cota });
+      };
       return <div className={`${styles.revisao} ${real.revisao}`}>
         <div className={styles.principal}>
           <div className={styles.cabecalhoRevisao}>
@@ -174,17 +321,22 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
             </div>
           </div>
           {estado.avisos.filter((a) => AVISOS[a]).map((a) => <p key={a} className={styles.aviso}>{AVISOS[a]}</p>)}
+          {estado.cota && <p className={styles.arquivo} data-cota>{estado.cota}</p>}
           <p className={styles.contagem}>
             <span data-estado="ENCONTRADO">{contagem.ENCONTRADO} encontrados</span>
             <span data-estado="PRECISA_REVISAO">{contagem.PRECISA_REVISAO} precisam revisão</span>
             <span data-estado="NAO_ENCONTRADO">{contagem.NAO_ENCONTRADO} não encontrados</span>
           </p>
           <div className={styles.secoes}>
-            {estado.importacao.extracao.secoes.map((secao) => <section key={secao.id} className={styles.secao} aria-labelledby={`real-${secao.id}`}>
+            {estado.importacao.extracao.secoes.map((secao) => <section key={secao.id} className={styles.secao} aria-labelledby={`real-${secao.id}`}
+              {...(secao.id === 'endereco' ? { id: ID_SECAO_ENDERECO, tabIndex: -1, 'data-invalido': porCampo[ID_SECAO_ENDERECO] ? true : undefined, 'aria-describedby': porCampo[ID_SECAO_ENDERECO] ? idMensagemErro(ID_SECAO_ENDERECO) : undefined } : {})}>
               <h3 id={`real-${secao.id}`}>{secao.titulo}</h3>
               {secao.nota && <p className={styles.nota}>{secao.nota}</p>}
+              {secao.id === 'endereco' && <MensagemCampo id={ID_SECAO_ENDERECO} mensagem={porCampo[ID_SECAO_ENDERECO]} />}
+              {secao.id === 'endereco' && secao.campos.some((c) => c.valor) && <button type="button" className={styles.linkBotao} disabled={estado.ocupado}
+                onClick={() => void agir({ acao: 'revisar', campoId: 'contratante.endereco', limparEndereco: true })}>Deixar sem endereço</button>}
               <dl className={styles.campos}>
-                {secao.campos.map((campo) => <Campo key={campo.id} campo={campo} revisado={revisados.includes(campo.id)} ocupado={estado.ocupado}
+                {secao.campos.map((campo) => <Campo key={campo.id} campo={campo} revisado={revisados.includes(campo.id)} ocupado={estado.ocupado} erro={porCampo[idCampoRevisao(campo.id)]}
                   editando={editando?.id === campo.id ? editando.valor : null}
                   onEditar={(valor) => setEditando(valor === null ? null : { id: campo.id, valor })}
                   onAgir={(acao) => void agir(acao)} />)}
@@ -195,7 +347,8 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
 
         <aside className={styles.gate} aria-labelledby="gate-real">
           <h2 id="gate-real">Confirmação humana</h2>
-          {match && <div className={real.cliente}>
+          {match && <div className={real.cliente} id={ID_CLIENTE_REVISAO} tabIndex={-1} data-invalido={porCampo[ID_CLIENTE_REVISAO] ? true : undefined}
+            aria-describedby={porCampo[ID_CLIENTE_REVISAO] ? idMensagemErro(ID_CLIENTE_REVISAO) : undefined}>
             <h3>Cliente</h3>
             <p>{match.motivo}</p>
             {match.estado === 'POSSIVEL_MATCH' && <div className={real.opcoes} role="radiogroup" aria-label="Escolha do cliente">
@@ -205,24 +358,34 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
               <button type="button" role="radio" disabled={estado.ocupado} aria-checked={estado.importacao.decisaoCliente?.tipo === 'CRIAR'}
                 onClick={() => void agir({ acao: 'cliente', decisao: { tipo: 'CRIAR' } })}>Criar novo cliente</button>
             </div>}
+            <MensagemCampo id={ID_CLIENTE_REVISAO} mensagem={porCampo[ID_CLIENTE_REVISAO]} />
           </div>}
+          {estado.plano?.recusa && <p className={real.recusa} role="alert">{estado.plano.recusa.mensagem}</p>}
           {estado.plano && <div className={styles.pendencias}>
             <h3>Pendências</h3>
-            {estado.plano.bloqueios.length ? <ul>{estado.plano.bloqueios.map((b) => <li key={b}>{b}</li>)}</ul> : <p className={styles.ok}>Pronto para preparar a importação.</p>}
-            {estado.plano.avisos.length > 0 && <ul className={styles.discreto}>{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
+            {estado.plano.bloqueios.filter((b) => b !== estado.plano?.recusa?.mensagem).length
+              ? <ul className={real.bloqueios}>{estado.plano.bloqueios.filter((b) => b !== estado.plano?.recusa?.mensagem).map((b) => <li key={b}>{b}</li>)}</ul>
+              : !estado.plano.recusa && <p className={styles.ok}>Pronto para preparar a importação.</p>}
+            {estado.plano.avisos.length > 0 && <ul className={real.alertas} aria-label="Alertas">{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
           </div>}
-          {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
-          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano }); }}>{estado.ocupado ? 'Aguarde…' : 'Continuar para festa e pagamentos'}</button>
+          <ResumoErros id="revisao-erros" erros={erros} titulo="Resolva para continuar:" abrir={abrirCampo} />
+          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano} onClick={continuar}>{estado.ocupado ? 'Aguarde…' : 'Continuar para festa e pagamentos'}</button>
           <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Recebimentos só entram quando você informar data e forma de cada um.</p>
           <button type="button" className={styles.fantasma} disabled={estado.ocupado} onClick={() => setCancelando(true)}>Cancelar importação</button>
         </aside>
+        {/* Recusa do servidor: aviso fixo, visível de qualquer ponto da revisão. */}
+        <AvisoGlobal mensagem={estado.erro} onFechar={() => setEstado({ ...estado, erro: null })} />
       </div>;
     })()}
 
     {estado.etapa === 'operacional' && <>
       <IntegracaoContrato importacaoId={estado.importacao.id} versaoRascunho={estado.importacao.versao} onPasso={setPassoIntegracao} onOcupado={setIntegracaoOcupada}
-        onIntegrado={r => router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId))} />
-      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); }}>Voltar aos dados do contrato</button></div>
+        onIntegrado={r => {
+          // Lote: mantém a fila e oferece o próximo (R1-5). Envio único: segue para o contrato, como antes.
+          if (itemEmRevisao) { gravarLote((l) => concluirItem(l, itemEmRevisao, 'IMPORTADA')); setItemEmRevisao(null); setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); return; }
+          if (!enderecoFinal()) router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId));
+        }} />
+      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null, cota: estado.cota }); }}>Voltar aos dados do contrato</button></div>
     </>}
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
       <h2 id="confirmar-real" className={styles.titulo}>Registrar dados do contrato e cliente</h2>
@@ -240,22 +403,24 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       <div className={styles.acoesFinais}>
         <Link className={styles.fantasma} href={contratoImportadoUrl(estado.importacaoId)}>{passoIntegracao === 'concluida' ? 'Ver contrato' : 'Continuar depois'}</Link>
         {estado.destino && <Link className={styles.fantasma} href={estado.destino}>Abrir cliente</Link>}
-        <button type="button" className={styles.fantasma} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); }}>Importar outro contrato</button>
+        <button type="button" className={styles.fantasma} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); }}>{lote ? 'Voltar à fila do lote' : 'Importar outro contrato'}</button>
       </div>
     </>}
     {estado.etapa === 'cancelada' && <section className={styles.painel} role="status">
       <h2 className={styles.titulo}>Esta revisão foi cancelada.</h2>
-      <p className={styles.texto}>Envie o contrato novamente para iniciar uma nova revisão.</p>
-      <button type="button" className={styles.primario} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Enviar contrato novamente</button>
+      <p className={styles.texto}>{lote ? 'O contrato saiu da fila do lote.' : 'Envie o contrato novamente para iniciar uma nova revisão.'}</p>
+      <button type="button" className={styles.primario} onClick={() => setEstado({ etapa: 'upload', erro: null })}>{lote ? 'Voltar à fila do lote' : 'Enviar contrato novamente'}</button>
     </section>}
     <dialog ref={dialogo} className={`${styles.painel} ${real.cancelarDialogo}`} aria-labelledby="cancelar-importacao" onCancel={e => { e.preventDefault(); if (!decidindoCancelamento) setCancelando(false); }}><h2 id="cancelar-importacao">Descartar esta revisão?</h2><p>Nenhum cliente ou contrato será criado. O documento privado continuará sujeito à política de retenção do sistema.</p><div className={styles.acoesFinais}><button type="button" className={styles.fantasma} onClick={() => setCancelando(false)} disabled={decidindoCancelamento}>Continuar revisão</button><button type="button" className={styles.primario} onClick={() => void cancelarImportacao()} disabled={decidindoCancelamento}>Sim, cancelar importação</button></div></dialog>
   </main>;
 }
 
-function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
+function Campo({ campo, revisado, ocupado, erro, editando, onEditar, onAgir }: {
   campo: CampoExtraido;
   revisado: boolean;
   ocupado: boolean;
+  /** Pendência deste campo depois de tentar continuar (N1/N2): borda vermelha e mensagem logo abaixo. */
+  erro?: string;
   editando: string | null;
   onEditar(valor: string | null): void;
   onAgir(acao: AcaoImportacao): void;
@@ -265,16 +430,22 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
   // Valor recusado pelo validador (inválido, ambíguo, não representável) só sai corrigido ou removido.
   const recusado = campo.validacao === 'INVALIDO' || campo.validacao === 'AMBIGUO' || campo.validacao === 'NAO_REPRESENTAVEL';
   const confirmavel = campo.estado === 'PRECISA_REVISAO' && !recusado;
-  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual}>
+  const id = idCampoRevisao(campo.id);
+  if (campo.id === 'contratante.tipoPessoa') return <TipoPessoa campo={campo} revisado={revisado} ocupado={ocupado} onAgir={onAgir} id={id} erro={erro} />;
+  const confirmar = (): AcaoImportacao => (campo.conflito ? { acao: 'revisar', campoId: campo.id, confirmarDivergencia: true } : { acao: 'revisar', campoId: campo.id });
+  // O ID do erro é o do controle (o campo de edição, aberto antes do foco), não o do bloco (revisão do Astra, P2-6).
+  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual} data-invalido={erro ? true : undefined}>
     <dt>{campo.rotulo}</dt>
     <dd className={styles.valorCampo}>
       {editando !== null
         ? <form className={real.edicao} onSubmit={(e) => { e.preventDefault(); onAgir({ acao: 'revisar', campoId: campo.id, valor: editando }); }}>
-          <label className={styles.oculto} htmlFor={`editar-${campo.id}`}>{campo.rotulo}</label>
-          <input id={`editar-${campo.id}`} value={editando} maxLength={500} autoFocus disabled={ocupado} onChange={(e) => onEditar(e.target.value)} />
+          <label className={styles.oculto} htmlFor={id}>{campo.rotulo}</label>
+          <input {...propsCampo(id, erro)} value={editando} maxLength={500} autoFocus disabled={ocupado} onChange={(e) => onEditar(e.target.value)} />
           <div className={real.acoesEdicao}>
             <button type="submit" className={styles.confirmarCampo} disabled={ocupado}>Salvar</button>
             <button type="button" className={styles.linkBotao} disabled={ocupado} onClick={() => onEditar(null)}>Cancelar</button>
+            {confirmavel && !revisado && <button type="button" className={styles.linkBotao} disabled={ocupado} onClick={() => onAgir(confirmar())}>
+              {campo.conflito ? 'O contrato diz isso' : 'Manter como lido'}</button>}
           </div>
           {campo.valor && <button type="button" className={real.removerValor} disabled={ocupado} onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
         </form>
@@ -288,16 +459,43 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
       </details>}
       {campo.origem && !campo.evidencia && <small>{campo.origem}</small>}
       {!campo.evidencia && campo.bruto && campo.normalizado && campo.bruto !== campo.normalizado && <small>Lido como “{campo.bruto}”</small>}
-      {campo.motivo && !revisado && <small className={styles.motivo}>{campo.motivo}</small>}
+      {campo.motivo && !revisado && !erro && <small className={styles.motivo}>{campo.motivo}</small>}
+      <MensagemCampo id={id} mensagem={erro} />
     </dd>
     <dd className={styles.estadoCampo}>
       <span className={styles.selo} data-estado={visual}>{ROTULO[visual]}</span>
       {confirmavel && !revisado && editando === null && <button type="button" className={styles.confirmarCampo} disabled={ocupado}
         aria-label={campo.conflito ? `Confirmar que o contrato traz ${campo.rotulo} assim` : `Confirmar leitura de ${campo.rotulo}`}
-        onClick={() => onAgir(campo.conflito ? { acao: 'revisar', campoId: campo.id, confirmarDivergencia: true } : { acao: 'revisar', campoId: campo.id })}>
+        onClick={() => onAgir(confirmar())}>
         {campo.conflito ? 'O contrato diz isso' : 'Confirmar leitura'}</button>}
       {editavel && editando === null && <button type="button" className={styles.linkBotao} disabled={ocupado}
         aria-label={`Corrigir ${campo.rotulo}`} onClick={() => onEditar(campo.valor ?? '')}>Corrigir</button>}
     </dd>
+  </div>;
+}
+
+/**
+ * D-IMP-2: o operador escolhe pessoa física ou jurídica. O documento lido só sugere; escolher grava a revisão do campo
+ * (a escolha vale como confirmação humana). Pessoa jurídica fica recusada na confirmação até a Entrega B.
+ */
+function TipoPessoa({ campo, revisado, ocupado, onAgir, id, erro }: { campo: CampoExtraido; revisado: boolean; ocupado: boolean; onAgir(acao: AcaoImportacao): void; id: string; erro?: string }) {
+  const visual = revisado ? 'REVISADO' : campo.estado;
+  const atual = campo.normalizado ?? campo.valor;
+  // Marcado pelo valor gravado da escolha humana; a sugestão do documento fica só no texto (revisão do Astra, P3-7).
+  const marcado = tipoPessoaMarcado(campo, revisado);
+  const opcoes = [{ valor: 'PF', rotulo: 'Pessoa física' }, { valor: 'PJ', rotulo: 'Pessoa jurídica' }] as const;
+  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual} data-invalido={erro ? true : undefined}>
+    <dt id={`rotulo-${campo.id}`}>{campo.rotulo}</dt>
+    <dd className={styles.valorCampo}>
+      <div className={real.tipoPessoa} role="radiogroup" aria-labelledby={`rotulo-${campo.id}`} aria-required tabIndex={-1} {...propsCampo(id, erro)}>
+        {opcoes.map((o) => <button key={o.valor} type="button" role="radio" disabled={ocupado}
+          aria-checked={marcado === o.valor}
+          onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: o.valor })}>{o.rotulo}</button>)}
+      </div>
+      {!marcado && atual && <small>Sugerido pelo documento: {atual}. Escolha para confirmar.</small>}
+      {campo.motivo && !revisado && !erro && <small className={styles.motivo}>{campo.motivo}</small>}
+      <MensagemCampo id={id} mensagem={erro} />
+    </dd>
+    <dd className={styles.estadoCampo}><span className={styles.selo} data-estado={visual}>{ROTULO[visual]}</span></dd>
   </div>;
 }

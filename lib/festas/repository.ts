@@ -1,9 +1,11 @@
 import type {DbExecutor} from '../db/contracts';
+import {travarConfiguracaoAgenda} from '../agenda/trava-configuracao';
 export type Registro={id:string;[key:string]:unknown};
 export type Festa=Registro & {contrato_id:string;revisao:number;versao_contratual_criacao_id:string};
 export type Contrato={id:string;fechamento_id:string;status:string;cancelado_em:string|null;versao_id:string;estado:string;status_versao:string;numero_versao:number;snapshot:{evento:{convidados:number;data:string};[key:string]:unknown}};
 export async function contrato(tx:DbExecutor,id:string,lock=false):Promise<Contrato>{
- if(lock){const pre=(await tx.query<{fechamento_id:string}>('SELECT fechamento_id FROM contratos WHERE id=$1',[id])).rows[0];if(pre)await tx.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE',[pre.fechamento_id]);await tx.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE',[id]);await tx.query('SELECT contrato_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE',[id]);}
+ // Liberar agenda com mais de um salão (rodada 2): empresa → configuração COMPARTILHADA antes da primeira trava de linha (convites e festas).
+ if(lock){const pre=(await tx.query<{fechamento_id:string;empresa_id:string|null}>('SELECT c.fechamento_id,f.empresa_id::text empresa_id FROM contratos c JOIN fechamentos f ON f.id=c.fechamento_id WHERE c.id=$1',[id])).rows[0];if(pre?.empresa_id)await travarConfiguracaoAgenda(tx,pre.empresa_id,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});if(pre)await tx.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE',[pre.fechamento_id]);await tx.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE',[id]);await tx.query('SELECT contrato_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE',[id]);}
  return (await tx.query<Contrato>(`SELECT c.id,c.fechamento_id,c.status,c.cancelado_em::text,f.versao_vigente_id versao_id,e.estado,v.status status_versao,v.numero_versao,v.snapshot FROM contratos c JOIN contrato_fluxos f ON f.contrato_id=c.id JOIN contrato_versoes v ON v.id=f.versao_vigente_id LEFT JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE c.id=$1`,[id])).rows[0];
 }
 export async function filhos(tx:DbExecutor,id:string){
