@@ -288,50 +288,8 @@ function lerEstado118(l) {
   return n === 0 ? 'ausente' : n === OBJETOS_118 ? 'presente' : 'parcial';
 }
 
-/**
- * 110, 111 e 115 (pesquisa de satisfação; sem núcleo de leitura): só catálogo, numa instrução.
- * - 110: 9 tabelas, 7 funções kidmais110_*, 8 gatilhos (2 constraint triggers) nas tabelas dela, 3 colunas e 7 CHECKs novos
- *   em marketing_automacao_regras/execucoes (34 objetos). O kidmais086_execucao_tenant que ela recria já existia: fica fora.
- * - 111: 2 tabelas, 3 funções kidmais111_*, 4 gatilhos nas tabelas dela (9 objetos).
- * - 115: cria fechamentos_115_empresa_data_idx e remove o fechamentos_054_empresa_idx. Ausente = 115 sem índice e 054 presente
- *   (a base de production tem a 054); presente = o inverso; qualquer outra combinação = parcial.
- */
-const TABELAS_110 = Object.freeze(['satisfacao_agregados_mensais', 'satisfacao_capacidades', 'satisfacao_email_simulado', 'satisfacao_entregas',
-  'satisfacao_envios', 'satisfacao_expurgos', 'satisfacao_respostas', 'satisfacao_saidas', 'satisfacao_tarefas']);
-const TABELAS_111 = Object.freeze(['satisfacao_auditoria', 'satisfacao_links_avaliacao']);
-const OBJETOS_SATISFACAO = Object.freeze({'110': 34, '111': 9});
-const lista = a => a.map(x => `'${x}'`).join(', ');
-const SQL_ESTADO_SATISFACAO = `SELECT
-  (SELECT count(*)::int FROM unnest(ARRAY[${lista(TABELAS_110)}]) t WHERE to_regclass('public.' || t) IS NOT NULL) AS t110,
-  (SELECT count(*)::int FROM unnest(ARRAY['kidmais110_capacidade_guarda()', 'kidmais110_entrega_guarda()', 'kidmais110_envio_guarda()',
-     'kidmais110_invariante_resposta()', 'kidmais110_marco_contato()', 'kidmais110_resposta_guarda()', 'kidmais110_tarefa_guarda()']) f
-     WHERE to_regprocedure('public.' || f) IS NOT NULL) AS f110,
-  (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('satisfacao_capacidades_guarda', 'satisfacao_entregas_guarda',
-     'satisfacao_entregas_marco', 'satisfacao_envios_guarda', 'satisfacao_envios_invariante', 'satisfacao_respostas_guarda',
-     'satisfacao_respostas_invariante', 'satisfacao_tarefas_guarda')
-     AND tgrelid IN (SELECT to_regclass('public.' || t) FROM unnest(ARRAY[${lista(TABELAS_110)}]) t)) AS g110,
-  (SELECT count(*)::int FROM pg_attribute WHERE attrelid = to_regclass('public.marketing_automacao_regras') AND NOT attisdropped
-     AND attname IN ('canais', 'template_lembrete_texto', 'template_lembrete_provedor')) AS c110,
-  (SELECT count(*)::int FROM pg_constraint WHERE conrelid IN (to_regclass('public.marketing_automacao_regras'), to_regclass('public.marketing_automacao_execucoes'))
-     AND conname IN ('marketing_regras_pesquisa_pos_festa', 'marketing_regras_canais', 'marketing_regras_template_lembrete',
-       'marketing_regras_template_lembrete_provedor', 'marketing_regras_pesquisa_revisada', 'marketing_exec_pesquisa_estados',
-       'marketing_exec_pesquisa_criada')) AS r110,
-  (SELECT count(*)::int FROM unnest(ARRAY[${lista(TABELAS_111)}]) t WHERE to_regclass('public.' || t) IS NOT NULL) AS t111,
-  (SELECT count(*)::int FROM unnest(ARRAY['kidmais111_auditoria_coerencia()', 'kidmais111_auditoria_somente_insercao()', 'kidmais111_link_guarda()']) f
-     WHERE to_regprocedure('public.' || f) IS NOT NULL) AS f111,
-  (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('satisfacao_auditoria_coerencia', 'satisfacao_auditoria_imutavel',
-     'satisfacao_auditoria_truncate', 'satisfacao_links_guarda')
-     AND tgrelid IN (SELECT to_regclass('public.' || t) FROM unnest(ARRAY[${lista(TABELAS_111)}]) t)) AS g111,
-  (to_regclass('public.fechamentos_115_empresa_data_idx') IS NOT NULL) AS i115,
-  (to_regclass('public.fechamentos_054_empresa_idx') IS NOT NULL) AS i054`;
-function lerEstadoSatisfacao(l) {
-  const contagens = ['t110', 'f110', 'g110', 'c110', 'r110', 't111', 'f111', 'g111'];
-  for (const k of contagens) assert.ok(Number.isInteger(l?.[k]) && l[k] >= 0, 'ESTADO_SATISFACAO_ILEGIVEL');
-  for (const k of ['i115', 'i054']) assert.ok(typeof l?.[k] === 'boolean', 'ESTADO_SATISFACAO_ILEGIVEL');
-  const por = (n, total) => n === 0 ? 'ausente' : n === total ? 'presente' : 'parcial';
-  return {'110': por(l.t110 + l.f110 + l.g110 + l.c110 + l.r110, OBJETOS_SATISFACAO['110']), '111': por(l.t111 + l.f111 + l.g111, OBJETOS_SATISFACAO['111']),
-    '115': !l.i115 && l.i054 ? 'ausente' : l.i115 && !l.i054 ? 'presente' : 'parcial'};
-}
+/** 110, 111 e 115 (pesquisa de satisfação): leitura por objeto no módulo próprio (cabe numa parte do bloco shell). */
+const {SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO, FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao} = require('./conferencia-b5-satisfacao.cjs');
 
 /**
  * Estado de cada migration pelo núcleo do aplicador; "parcial", ilegível ou 100 "divergente" = parar.
@@ -841,7 +799,8 @@ if (require.main === module) {
 }
 module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, AMPLIADAS, SEM_MIGRATION, ESPERADO_ANTES_DO_E3, RAMOS_PROVEDOR, ENV_LIDAS,
   envLido, AVISO_DIAS, ANTECIPADO_DIAS, MARGEM_B9_DIAS, SQL_DOCUMENTOS, SQL_TOTAL_CONFIRMADAS, SQL_RENOVACAO_INSTALADA, sqlConcessoes, documentoValido091, formato091,
-  dataValida, diasAntes, diaBrasil, somenteLeitura, carregarContrato109, lerNucleo, lerLista, SQL_ESTADO_118, lerEstado118, SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, estados, presentes, inventarioDocumentos,
+  dataValida, diasAntes, diaBrasil, somenteLeitura, carregarContrato109, lerNucleo, lerLista, SQL_ESTADO_118, lerEstado118, SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO,
+  FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao, estados, presentes, inventarioDocumentos,
   CHECKS_091, TABELAS_091, SQL_COMPATIBILIDADE_091, SQL_ORIGENS_091, ORIGENS_091, inventarioOrigens, b15, MATRIZ, GRUPOS_VAZIOS, SQL_MATRIZ_CATALOGO, SQL_MATRIZ_PAPEL,
   sqlContagem, matriz, fundador, provedor, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
   MOTIVO_COMBINADOS, combinados, REVISAO_114, ESPERADO_BASE_ANTES_DO_E3, CORPOS_114_ANTES_DO_E3, CONTAGEM_EXTRA, estado114, CHECKS_BASE_091, SQL_CHECKS_091,

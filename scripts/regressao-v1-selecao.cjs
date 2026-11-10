@@ -230,6 +230,7 @@ const ESTADO_POSTGRES = {
   "lib/satisfacao/satisfacao-ps4.postgres.test.ts": { descartavel: "115" },
   // 115: subida, reaplicação neutra, homônimo divergente recusado, pré/pós-check, down e nova subida.
   "lib/satisfacao/migration-115.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/b5-catalogo-satisfacao.postgres.test.ts": { descartavel: "109", tambem: ["110", "111", "115"] },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },

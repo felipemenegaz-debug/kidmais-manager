@@ -62,10 +62,11 @@ const concessao = (extra = {}) => ({tem_contratacao: true, atual: true, registra
 const catalogoMatriz = (aj = {}) => b5.MATRIZ.map(([nome, , , estrutura]) => ({nome, presente: estrutura === 'OBRIGATORIA', tipo: estrutura === 'OBRIGATORIA' ? 'r' : '',
   rls: false, rls_forcada: false, ler: estrutura === 'OBRIGATORIA', ...(aj[nome] ?? {})}));
 const LINHA_118 = Object.freeze({tabelas: 0, funcoes: 0, gatilhos: 0});
-/** 110/111/115 ausentes (base de production: 054 presente, 115 ausente). */
-const LINHA_SATISFACAO = Object.freeze({t110: 0, f110: 0, g110: 0, c110: 0, r110: 0, t111: 0, f111: 0, g111: 0, i115: false, i054: true});
-/** 110/111/115 presentes, contadas pela migration (34 e 9 objetos; 054 removido pela 115). */
-const SATISFACAO_PRESENTE = Object.freeze({t110: 9, f110: 7, g110: 8, c110: 3, r110: 7, t111: 2, f111: 3, g111: 4, i115: true, i054: false});
+/** 110/111/115 por objeto: todos num estado, com trocas pontuais. */
+const satisfacao = (estado, trocas = {}) => ({objetos: {...Object.fromEntries(require('./conferencia-b5-producao.cjs').IDS_SATISFACAO.map(([id]) => [id, estado])), ...trocas}});
+/** Base de production: nada da 110/111/115 (CHECKs e função da 086 com a definição da 086; 054 com a forma da 054). */
+const LINHA_SATISFACAO = Object.freeze(satisfacao('ausente'));
+const SATISFACAO_PRESENTE = Object.freeze(satisfacao('conforme'));
 const COMPAT = Object.freeze({tabelas: 6, checks: 5, objetos_091: false, plataforma: true});
 /** CHECKs da base como pg_get_constraintdef os devolve (formato conferido no PostgreSQL 18 descartável). */
 const DEF = Object.freeze(Object.fromEntries(b5.CHECKS_BASE_091.map(([nome, , , definicao]) => [nome, definicao])));
@@ -281,39 +282,65 @@ test('B-5 ampliado: 102–118 fora do prefixo esperado antes do E3 = PARAR (PREF
   assert.doesNotMatch(b5.SQL_ESTADO_118, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/);
 });
 
-test('B-5 ampliado: 110/111/115 (pesquisa de satisfação) pelo catálogo; fora de "ausente" = PARAR, nos dois modos', async () => {
+test('B-5 ampliado: 110/111/115 (pesquisa de satisfação) pelo catálogo, por objeto; fora de "ausente" = PARAR, nos dois modos', async () => {
+  const L = (trocas) => satisfacao('ausente', trocas);
   for (const argv of [['--conferir-b5'], ['--conferir-b5-estado']]) {
     for (const [linhaSatisfacao, motivos] of [
       [SATISFACAO_PRESENTE, ['PREFIXO_DIVERGENTE 110:presente (esperado ausente)', 'PREFIXO_DIVERGENTE 111:presente (esperado ausente)', 'PREFIXO_DIVERGENTE 115:presente (esperado ausente)']],
-      [{...LINHA_SATISFACAO, c110: 3}, ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
-      [{...LINHA_SATISFACAO, r110: 1}, ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
-      [{...LINHA_SATISFACAO, g111: 4}, ['PREFIXO_DIVERGENTE 111:parcial (esperado ausente)']],
-      [{...LINHA_SATISFACAO, i115: true}, ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
-      [{...LINHA_SATISFACAO, i054: false}, ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
-      [{...LINHA_SATISFACAO, t110: '0'}, ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)],
-      [{...LINHA_SATISFACAO, i054: 't'}, ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)]]) {
+      // Só os objetos que a 110 redefine (CHECK ou função da 086) com a definição da 110: não é "ausente".
+      [L({'110:check:marketing_exec_estado': 'conforme'}), ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [L({'110:funcao:kidmais086_execucao_tenant()': 'conforme'}), ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [L({'110:funcao:kidmais086_execucao_tenant()': 'divergente'}), ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [L({'110:coluna:marketing_automacao_regras.canais': 'conforme'}), ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [L({'111:gatilho:satisfacao_links_guarda': 'divergente'}), ['PREFIXO_DIVERGENTE 111:parcial (esperado ausente)']],
+      // 115: índice novo (válido ou não) sem tirar o 054; 054 removido ou fora de forma.
+      [L({'115:indice:fechamentos_115_empresa_data_idx': 'conforme'}), ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      [L({'115:indice:fechamentos_115_empresa_data_idx': 'divergente'}), ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      [L({'115:sem_indice:fechamentos_054_empresa_idx': 'conforme'}), ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      [L({'115:sem_indice:fechamentos_054_empresa_idx': 'divergente'}), ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      // Ilegível: identidade faltando, sobrando, valor fora do vocabulário, sem objetos.
+      [(() => { const l = L(); delete l.objetos['110:tabela:satisfacao_saidas']; return l; })(), ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)],
+      [L({'110:tabela:satisfacao_outra': 'ausente'}), ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)],
+      [L({'111:tabela:satisfacao_auditoria': 'presente'}), ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)],
+      [{objetos: null}, ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)]]) {
       const r = await rodar(argv, {cliente: clienteFalso({linhaSatisfacao})});
       assert.equal(r.codigo, 3, JSON.stringify(linhaSatisfacao)); assert.deepEqual([...r.saida.motivos].sort(), [...motivos].sort(), JSON.stringify(linhaSatisfacao));
     }
   }
   assert.deepEqual(b5.lerEstadoSatisfacao(SATISFACAO_PRESENTE), {'110': 'presente', '111': 'presente', '115': 'presente'});
   assert.deepEqual(b5.lerEstadoSatisfacao(LINHA_SATISFACAO), {'110': 'ausente', '111': 'ausente', '115': 'ausente'});
-  assert.deepEqual(b5.lerEstadoSatisfacao({...SATISFACAO_PRESENTE, f110: 6, i054: true}), {'110': 'parcial', '111': 'presente', '115': 'parcial'});
-  // Os nomes lidos são os que as migrations criam, e as contagens batem com elas.
-  const ler = n => fs.readFileSync(path.join(__dirname, '..', 'database/migrations', n), 'utf8');
-  const m110 = ler('20261030_110_satisfacao_pesquisa.sql'), m111 = ler('20261031_111_satisfacao_links_auditoria.sql'), m115 = ler('20261103_115_fechamentos_empresa_data.sql');
-  assert.equal((m110.match(/^CREATE TABLE /gm) ?? []).length, 9); assert.equal((m110.match(/^CREATE FUNCTION kidmais110_/gm) ?? []).length, 7);
-  assert.equal((m110.match(/^CREATE (CONSTRAINT )?TRIGGER /gm) ?? []).length, 8);
-  assert.equal((m111.match(/^CREATE TABLE /gm) ?? []).length, 2); assert.equal((m111.match(/^CREATE FUNCTION kidmais111_/gm) ?? []).length, 3);
-  assert.equal((m111.match(/^CREATE (CONSTRAINT )?TRIGGER /gm) ?? []).length, 4);
-  for (const nome of (m110.match(/^CREATE (?:TABLE|FUNCTION|(?:CONSTRAINT )?TRIGGER) (\w+)/gm) ?? []).map(x => x.split(' ').pop()))
-    assert.ok(b5.SQL_ESTADO_SATISFACAO.includes(nome), nome);
-  for (const nome of (m111.match(/^CREATE (?:TABLE|FUNCTION|(?:CONSTRAINT )?TRIGGER) (\w+)/gm) ?? []).map(x => x.split(' ').pop()))
-    assert.ok(b5.SQL_ESTADO_SATISFACAO.includes(nome), nome);
-  for (const nome of ['canais', 'template_lembrete_texto', 'template_lembrete_provedor', 'marketing_regras_pesquisa_pos_festa', 'marketing_regras_canais',
-    'marketing_regras_template_lembrete', 'marketing_regras_template_lembrete_provedor', 'marketing_regras_pesquisa_revisada', 'marketing_exec_pesquisa_estados',
-    'marketing_exec_pesquisa_criada']) assert.ok(m110.includes('ADD COLUMN ' + nome) || m110.includes('ADD CONSTRAINT ' + nome + ' '), nome);
-  assert.match(m115, /CREATE INDEX IF NOT EXISTS fechamentos_115_empresa_data_idx/); assert.match(m115, /DROP INDEX IF EXISTS public\.fechamentos_054_empresa_idx/);
+  // Sem soma: um gatilho desabilitado (divergente) com todo o resto conforme não vira "presente".
+  assert.deepEqual(b5.lerEstadoSatisfacao(satisfacao('conforme', {'110:gatilho:satisfacao_envios_guarda': 'divergente', '115:sem_indice:fechamentos_054_empresa_idx': 'ausente'})),
+    {'110': 'parcial', '111': 'presente', '115': 'parcial'});
+  assert.deepEqual(b5.divergenciasSatisfacao(L({'111:gatilho:satisfacao_links_guarda': 'divergente'})), ['111:gatilho:satisfacao_links_guarda=divergente']);
+  assert.deepEqual(b5.OBJETOS_SATISFACAO, {'110': 39, '111': 9, '115': 2});
+  // Identidades = objetos das migrations; corpos (md5 de prosrc) = os dos arquivos; a 110 redefine a função da 086.
+  const crypto = require('node:crypto');
+  const ler = n => fs.readFileSync(path.join(__dirname, '..', 'database/migrations', n), 'utf8').split('\r\n').join('\n');
+  const m086 = ler('20261018_086_marketing_automacoes.sql'), m110 = ler('20261030_110_satisfacao_pesquisa.sql');
+  const m111 = ler('20261031_111_satisfacao_links_auditoria.sql'), m115 = ler('20261103_115_fechamentos_empresa_data.sql');
+  const corpos = (sql) => Object.fromEntries([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION (\w+\([^)]*\))[^$]*?AS \$\$([\s\S]*?)\$\$/g)]
+    .map(([, f, c]) => [f, crypto.createHash('md5').update(c).digest('hex')]));
+  const c086 = corpos(m086), c110 = corpos(m110), c111 = corpos(m111);
+  assert.deepEqual(Object.fromEntries(b5.FUNCOES_SATISFACAO.map(([, f, h]) => [f, h])),
+    Object.fromEntries(Object.entries({...c110, ...c111}).filter(([f]) => !f.startsWith('kidmais086_'))));
+  assert.deepEqual(b5.FUNCOES_REDEFINIDAS.map(([, f, a, d]) => [f, a, d]), [['kidmais086_execucao_tenant()', c086['kidmais086_execucao_tenant()'], c110['kidmais086_execucao_tenant()']]]);
+  const ids = new Set(b5.IDS_SATISFACAO.map(([id]) => id.split(':').slice(2).join(':')));
+  for (const [sql, m] of [[m110, '110'], [m111, '111']]) {
+    for (const [, nome] of sql.matchAll(/^CREATE TABLE (\w+)/gm)) assert.ok(b5.IDS_SATISFACAO.some(([id]) => id === `${m}:tabela:${nome}`), nome);
+    for (const [, nome] of sql.matchAll(/^CREATE (?:CONSTRAINT )?TRIGGER (\w+)/gm)) assert.ok(ids.has(nome), nome);
+  }
+  assert.equal([...m110.matchAll(/^CREATE (?:CONSTRAINT )?TRIGGER /gm)].length, 8); assert.equal([...m111.matchAll(/^CREATE (?:CONSTRAINT )?TRIGGER /gm)].length, 4);
+  // CHECKs: os 7 novos (ADD CONSTRAINT sem DROP antes) e os 4 que a 110 redefine (DROP + ADD com o nome da 086).
+  const redefinidos = [...m110.matchAll(/DROP CONSTRAINT (\w+)/g)].map(([, n]) => n).sort();
+  const novos = [...m110.matchAll(/ADD CONSTRAINT (\w+)/g)].map(([, n]) => n).filter(n => !redefinidos.includes(n)).sort();
+  assert.deepEqual(b5.CHECKS_REDEFINIDOS.map(([, , n]) => n).sort(), redefinidos);
+  assert.deepEqual(b5.CHECKS_SATISFACAO.map(([, , n]) => n).sort(), novos);
+  for (const n of redefinidos) assert.match(m086, new RegExp(`CONSTRAINT ${n} CHECK`), n);
+  for (const [, , n, a, d] of b5.CHECKS_REDEFINIDOS) assert.notEqual(a, d, n);
+  for (const [, , c] of [['', '', 'canais'], ['', '', 'template_lembrete_texto'], ['', '', 'template_lembrete_provedor']]) assert.ok(m110.includes('ADD COLUMN ' + c + ' '), c);
+  assert.match(m115, /CREATE INDEX IF NOT EXISTS fechamentos_115_empresa_data_idx ON public\.fechamentos \(empresa_id, data_evento\);/);
+  assert.match(m115, /DROP INDEX IF EXISTS public\.fechamentos_054_empresa_idx/);
   assert.doesNotMatch(b5.SQL_ESTADO_SATISFACAO, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/);
 });
 
