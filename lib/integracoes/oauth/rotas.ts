@@ -153,7 +153,7 @@ function json(status: number, corpo: unknown, extra: Record<string, string> = {}
 }
 
 function pagina(status: number, mensagem: string, extra: Record<string, string> = {}) {
-  return new Response(`<!doctype html><meta charset="utf-8"><title>KidMais</title><p>${mensagem.replace(/[<>&"]/g, "")}</p>`, {
+  return new Response(`<!doctype html><meta charset="utf-8"><title>iA.Fest</title><p>${mensagem.replace(/[<>&"]/g, "")}</p>`, {
     status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'", ...extra },
   });
 }

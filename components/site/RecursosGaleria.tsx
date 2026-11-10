@@ -3,6 +3,7 @@ import Image from 'next/image';
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { galeria } from '@/lib/site/galeria';
 import { cx } from './estilos';
+import { Recurso } from './elementos';
 
 export default function RecursosGaleria() {
     const [ativo, setAtivo] = useState(0);
@@ -26,10 +27,10 @@ export default function RecursosGaleria() {
     return <section className={cx('block')} id="recursos" aria-labelledby="t-recursos"><div className={cx('wrap')}>
         <div className={cx('head')}><div className={cx('eyebrow')}>Recursos</div><h2 id="t-recursos">Tudo para cuidar do seu buffet.</h2><p>Da primeira conversa ao fechamento da festa.</p></div>
         <div className={cx('galeriaTabs')} role="tablist" aria-label="Recursos do iA.Fest">
-            {galeria.map((item, indice) => <button type="button" role="tab" id={`recurso-tab-${item.id}`} aria-controls="recurso-painel" aria-selected={indice === ativo} tabIndex={indice === ativo ? 0 : -1} key={item.id} ref={el => { botoes.current[indice] = el; }} onClick={() => selecionar(indice)} onKeyDown={event => navegar(event, indice)}>{item.nome}</button>)}
+            {galeria.map((item, indice) => <button type="button" role="tab" id={`recurso-tab-${item.id}`} aria-controls="recurso-painel" aria-selected={indice === ativo} tabIndex={indice === ativo ? 0 : -1} key={item.id} ref={el => { botoes.current[indice] = el; }} onClick={() => selecionar(indice)} onKeyDown={event => navegar(event, indice)}><Recurso ids={item.recursos}>{item.nome}</Recurso></button>)}
         </div>
         <div className={cx('galeriaPainel', ampliada ? 'galeriaAmpliada' : '')} role="tabpanel" id="recurso-painel" aria-labelledby={`recurso-tab-${recurso.id}`} tabIndex={0}>
-            <div className={cx('galeriaTexto')}><div className={cx('eyebrow')}>{recurso.nome}</div><h3>{recurso.titulo}</h3><p>{recurso.texto}</p><ul>{recurso.itens.map(item => <li key={item}>{item}</li>)}</ul>
+            <div className={cx('galeriaTexto')}><div className={cx('eyebrow')}><Recurso ids={recurso.recursos}>{recurso.nome}</Recurso></div>{recurso.planos && <p className={cx('galeriaPlanos')} data-planos-galeria>Nos planos {recurso.planos}</p>}<h3>{recurso.titulo}</h3><p>{recurso.texto}</p><ul>{recurso.itens.map(item => <li key={item}>{item}</li>)}</ul>
                 {recurso.id === 'marketing' && <p className={cx('galeriaExemplo')}>Exemplo de mensagem: “Olá, Marina! Obrigado por celebrar a festa da Sofia com a gente. Como foi a experiência? Sua avaliação nos ajuda a melhorar.”</p>}
                 {recurso.id === 'copiloto' && <p className={cx('galeriaExemplo')}>Exemplo de pedido: “Crie o pacote Jardim para no mínimo 30 convidados, com duração de 4 horas.” O cadastro é revisado e confirmado por você.</p>}
             </div>
