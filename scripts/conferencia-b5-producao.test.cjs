@@ -62,6 +62,10 @@ const concessao = (extra = {}) => ({tem_contratacao: true, atual: true, registra
 const catalogoMatriz = (aj = {}) => b5.MATRIZ.map(([nome, , , estrutura]) => ({nome, presente: estrutura === 'OBRIGATORIA', tipo: estrutura === 'OBRIGATORIA' ? 'r' : '',
   rls: false, rls_forcada: false, ler: estrutura === 'OBRIGATORIA', ...(aj[nome] ?? {})}));
 const LINHA_118 = Object.freeze({tabelas: 0, funcoes: 0, gatilhos: 0});
+/** 110/111/115 ausentes (base de production: 054 presente, 115 ausente). */
+const LINHA_SATISFACAO = Object.freeze({t110: 0, f110: 0, g110: 0, c110: 0, r110: 0, t111: 0, f111: 0, g111: 0, i115: false, i054: true});
+/** 110/111/115 presentes, contadas pela migration (34 e 9 objetos; 054 removido pela 115). */
+const SATISFACAO_PRESENTE = Object.freeze({t110: 9, f110: 7, g110: 8, c110: 3, r110: 7, t111: 2, f111: 3, g111: 4, i115: true, i054: false});
 const COMPAT = Object.freeze({tabelas: 6, checks: 5, objetos_091: false, plataforma: true});
 /** CHECKs da base como pg_get_constraintdef os devolve (formato conferido no PostgreSQL 18 descartável). */
 const DEF = Object.freeze(Object.fromEntries(b5.CHECKS_BASE_091.map(([nome, , , definicao]) => [nome, definicao])));
@@ -77,7 +81,7 @@ const SQL_INT105 = b5.sqlIntegridade105();
 const PAR_114 = Object.freeze({hash_lock: b5.CORPOS_114_ANTES_DO_E3.lock, hash_revisao: b5.CORPOS_114_ANTES_DO_E3.revisao});
 
 function clienteFalso({identidade = ID, docs = [], origens = [], concessoes = [], total, instalada = true, falharEm, combinados = [LINHA_AUSENTE],
-  linha114 = {}, linha118 = LINHA_118, categoria103 = {m103: 'ausente'}, catalogo = catalogoMatriz(), papel = {superusuario: false, ignora_rls: false},
+  linha114 = {}, linha118 = LINHA_118, linhaSatisfacao = LINHA_SATISFACAO, categoria103 = {m103: 'ausente'}, catalogo = catalogoMatriz(), papel = {superusuario: false, ignora_rls: false},
   contagens = {}, compat = COMPAT, checks091 = checksBase(), origensCat = origensCatalogo(), visib = {}, integra105 = true, estrutura105 = {}, relacao105 = b5.RELACAO_105, versaoPg = 180006} = {}) {
   const log = []; let ro = false, iso = null;
   const C = class {
@@ -93,6 +97,7 @@ function clienteFalso({identidade = ID, docs = [], origens = [], concessoes = []
       if (sql.startsWith('ESTADO ')) return {rows: [{rotulo: sql.slice(7)}]};
       if (sql === 'CATEGORIA 103') return {rows: [categoria103]};
       if (sql === b5.SQL_ESTADO_118) return {rows: [linha118]};
+      if (sql === b5.SQL_ESTADO_SATISFACAO) return {rows: [linhaSatisfacao]};
       if (sql === b5.SQL_COMBINADOS) return {rows: combinados};
       if (sql === b5.SQL_MATRIZ_CATALOGO) { assert.deepEqual(params, [b5.MATRIZ.map(m => m[0])]); return {rows: catalogo}; }
       if (sql === b5.SQL_MATRIZ_PAPEL) return {rows: [papel]};
@@ -191,7 +196,9 @@ test('E1 completo: todas as consultas em READ ONLY; núcleos 089–100 e 102–1
   assert.deepEqual(Object.keys(r.saida.estados).sort(), ['089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100']);
   assert.deepEqual(Object.keys(r.saida.ampliados).sort(), ['102', '103', '104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '114', '115', '116', '117', '118',
     'nucleo108'].sort());
-  for (const k of ['110', '111', '113', '115']) assert.equal(r.saida.ampliados[k], 'SEM_MIGRATION_NA_ARVORE');
+  assert.equal(r.saida.ampliados['113'], 'SEM_MIGRATION_NA_ARVORE');
+  for (const k of ['110', '111', '115']) assert.equal(r.saida.ampliados[k], 'ausente', k);
+  assert.equal(r.log.filter(x => x.sql === b5.SQL_ESTADO_SATISFACAO && x.ro).length, 1);
   assert.equal(r.saida.ampliados['105'], 'completa'); assert.equal(r.saida.ampliados['118'], 'ausente');
   assert.equal(r.saida.estados['098'], 'SEM_NUCLEO_VER_COMBINADOS'); assert.deepEqual(r.saida.presentes, ['099:completa']);
   assert.equal(r.saida.estados['099'], 'completa'); assert.equal(r.saida.ampliados['114'], 'ausente');
@@ -272,6 +279,42 @@ test('B-5 ampliado: 102–118 fora do prefixo esperado antes do E3 = PARAR (PREF
   for (const nome of ['ia_importacao_cotas', 'ia_importacao_usos', 'kidmais_118_janela_migracao', 'kidmais_118_periodo_mensal', 'kidmais_118_guarda', 'ia_importacao_cotas_118_guarda', 'ia_importacao_usos_118_guarda'])
     assert.ok(b5.SQL_ESTADO_118.includes(nome) && sql118.includes(nome), nome);
   assert.doesNotMatch(b5.SQL_ESTADO_118, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/);
+});
+
+test('B-5 ampliado: 110/111/115 (pesquisa de satisfação) pelo catálogo; fora de "ausente" = PARAR, nos dois modos', async () => {
+  for (const argv of [['--conferir-b5'], ['--conferir-b5-estado']]) {
+    for (const [linhaSatisfacao, motivos] of [
+      [SATISFACAO_PRESENTE, ['PREFIXO_DIVERGENTE 110:presente (esperado ausente)', 'PREFIXO_DIVERGENTE 111:presente (esperado ausente)', 'PREFIXO_DIVERGENTE 115:presente (esperado ausente)']],
+      [{...LINHA_SATISFACAO, c110: 3}, ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [{...LINHA_SATISFACAO, r110: 1}, ['PREFIXO_DIVERGENTE 110:parcial (esperado ausente)']],
+      [{...LINHA_SATISFACAO, g111: 4}, ['PREFIXO_DIVERGENTE 111:parcial (esperado ausente)']],
+      [{...LINHA_SATISFACAO, i115: true}, ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      [{...LINHA_SATISFACAO, i054: false}, ['PREFIXO_DIVERGENTE 115:parcial (esperado ausente)']],
+      [{...LINHA_SATISFACAO, t110: '0'}, ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)],
+      [{...LINHA_SATISFACAO, i054: 't'}, ['110', '111', '115'].map(k => `PREFIXO_DIVERGENTE ${k}:ILEGIVEL (esperado ausente)`)]]) {
+      const r = await rodar(argv, {cliente: clienteFalso({linhaSatisfacao})});
+      assert.equal(r.codigo, 3, JSON.stringify(linhaSatisfacao)); assert.deepEqual([...r.saida.motivos].sort(), [...motivos].sort(), JSON.stringify(linhaSatisfacao));
+    }
+  }
+  assert.deepEqual(b5.lerEstadoSatisfacao(SATISFACAO_PRESENTE), {'110': 'presente', '111': 'presente', '115': 'presente'});
+  assert.deepEqual(b5.lerEstadoSatisfacao(LINHA_SATISFACAO), {'110': 'ausente', '111': 'ausente', '115': 'ausente'});
+  assert.deepEqual(b5.lerEstadoSatisfacao({...SATISFACAO_PRESENTE, f110: 6, i054: true}), {'110': 'parcial', '111': 'presente', '115': 'parcial'});
+  // Os nomes lidos são os que as migrations criam, e as contagens batem com elas.
+  const ler = n => fs.readFileSync(path.join(__dirname, '..', 'database/migrations', n), 'utf8');
+  const m110 = ler('20261030_110_satisfacao_pesquisa.sql'), m111 = ler('20261031_111_satisfacao_links_auditoria.sql'), m115 = ler('20261103_115_fechamentos_empresa_data.sql');
+  assert.equal((m110.match(/^CREATE TABLE /gm) ?? []).length, 9); assert.equal((m110.match(/^CREATE FUNCTION kidmais110_/gm) ?? []).length, 7);
+  assert.equal((m110.match(/^CREATE (CONSTRAINT )?TRIGGER /gm) ?? []).length, 8);
+  assert.equal((m111.match(/^CREATE TABLE /gm) ?? []).length, 2); assert.equal((m111.match(/^CREATE FUNCTION kidmais111_/gm) ?? []).length, 3);
+  assert.equal((m111.match(/^CREATE (CONSTRAINT )?TRIGGER /gm) ?? []).length, 4);
+  for (const nome of (m110.match(/^CREATE (?:TABLE|FUNCTION|(?:CONSTRAINT )?TRIGGER) (\w+)/gm) ?? []).map(x => x.split(' ').pop()))
+    assert.ok(b5.SQL_ESTADO_SATISFACAO.includes(nome), nome);
+  for (const nome of (m111.match(/^CREATE (?:TABLE|FUNCTION|(?:CONSTRAINT )?TRIGGER) (\w+)/gm) ?? []).map(x => x.split(' ').pop()))
+    assert.ok(b5.SQL_ESTADO_SATISFACAO.includes(nome), nome);
+  for (const nome of ['canais', 'template_lembrete_texto', 'template_lembrete_provedor', 'marketing_regras_pesquisa_pos_festa', 'marketing_regras_canais',
+    'marketing_regras_template_lembrete', 'marketing_regras_template_lembrete_provedor', 'marketing_regras_pesquisa_revisada', 'marketing_exec_pesquisa_estados',
+    'marketing_exec_pesquisa_criada']) assert.ok(m110.includes('ADD COLUMN ' + nome) || m110.includes('ADD CONSTRAINT ' + nome + ' '), nome);
+  assert.match(m115, /CREATE INDEX IF NOT EXISTS fechamentos_115_empresa_data_idx/); assert.match(m115, /DROP INDEX IF EXISTS public\.fechamentos_054_empresa_idx/);
+  assert.doesNotMatch(b5.SQL_ESTADO_SATISFACAO, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/);
 });
 
 test('B-5 ampliado: a 109 pelo contrato do cron (capacidade em READ ONLY com search_path); a 103 só lida com dependência e privilégio; contrato divergente = FALHA', async () => {
@@ -597,9 +640,9 @@ test('falha de consulta no meio: FALHA (código 2), ROLLBACK, mensagem sem URL; 
   assert.ok(p.nuncaExecuta.includes('leitura de ASAAS_* ou chamada ao Asaas') && p.nuncaExecuta.includes('leitura de dados da agenda (combinados: só catálogo)'));
   assert.ok(p.leituras.some(l => /combinados \(B-21\)/.test(l)) && p.paradas.some(l => /combinados \(B-21, E1 e E2c\)/.test(l)));
   assert.deepEqual(p.migracoes.map(m => m.migration), ['089', '090', '091', '092-094', '095', '096', '097', '099', '100']);
-  assert.deepEqual(p.ampliadas.map(m => m.migration), ['102-103', '104-106', '105', '107-108', '109', '112', '114', '116', '117', '118']);
+  assert.deepEqual(p.ampliadas.map(m => m.migration), ['102-103', '104-106', '105', '107-108', '109', '112', '114', '116', '117', '118', '110-111-115']);
   assert.equal(p.matriz.length, 28); assert.deepEqual(p.prefixoEsperadoAntesDoE3, {...b5.ESPERADO_BASE_ANTES_DO_E3, ...b5.ESPERADO_ANTES_DO_E3});
-  assert.equal(Object.keys(p.prefixoEsperadoAntesDoE3).length, 24); assert.equal(p.prefixoEsperadoAntesDoE3['099'], 'completa');
+  assert.equal(Object.keys(p.prefixoEsperadoAntesDoE3).length, 27); assert.equal(p.prefixoEsperadoAntesDoE3['099'], 'completa');
 });
 
 test('núcleos reais (089–100 e 102–117): cada um carrega, expõe SQL_ESTADO e lerEstado e o campo que o B-5 lê; nenhum é o da 098; faixa 102–117 coberta', () => {
@@ -615,9 +658,9 @@ test('núcleos reais (089–100 e 102–117): cada um carrega, expõe SQL_ESTADO
   }
   assert.equal(typeof require('./migration-102-103-comum.cjs').SQL_CATEGORIA_103, 'string');
   assert.deepEqual(require('./migration-114-comum.cjs').CORPOS, n114.CORPOS);
-  // Cada número de 102 a 118 tem núcleo, catálogo (118) ou está marcado sem migration — e "sem migration" é verdade na árvore.
+  // Cada número de 102 a 118 tem núcleo, catálogo (110, 111, 115 e 118) ou está marcado sem migration — e "sem migration" é verdade na árvore.
   const migracoes = fs.readdirSync(path.join(__dirname, '..', 'database/migrations')).map(a => a.split('_')[1]);
-  const cobertos = new Set([...b5.AMPLIADAS.flatMap(([, , c]) => c.map(x => x.slice(1))), '118', ...Object.keys(b5.SEM_MIGRATION)]);
+  const cobertos = new Set([...b5.AMPLIADAS.flatMap(([, , c]) => c.map(x => x.slice(1))), '118', '110', '111', '115', ...Object.keys(b5.SEM_MIGRATION)]);
   for (let i = 102; i <= 118; i++) assert.ok(cobertos.has(String(i)), String(i));
   for (const k of Object.keys(b5.SEM_MIGRATION)) assert.ok(!migracoes.includes(k), k);
   for (const k of Object.keys(b5.ESPERADO_ANTES_DO_E3)) assert.ok(migracoes.includes(k), k);
@@ -676,7 +719,7 @@ test('P3 da re-revisão: só a lista fechada de códigos sai; texto externo com 
     {DATABASE_URL: URL_PROD.replace(':5432', ':1')}, {DATABASE_URL: URL_PROD + '?a=b'}]) tentar(() => prod.alvo({...ENV, ...delta}));
   for (const delta of [{db: 'x'}, {tls: false}, {tls_versao: 'TLSv1.1'}, {servidor_privado: false}]) tentar(() => prod.identidade({...ID, ...delta}));
   tentar(() => b5.modo(['--x'])); tentar(() => b5.inventarioDocumentos([{origem: 'outra'}])); tentar(() => b5.inventarioOrigens([{origem: 'outra'}]));
-  tentar(() => b5.lerEstado118({})); tentar(() => b5.sqlContagem('A'));
+  tentar(() => b5.lerEstado118({})); tentar(() => b5.lerEstadoSatisfacao({})); tentar(() => b5.sqlContagem('A'));
   await tentarAsync(() => b5.principal(['--conferir-b5'], {...ENV, KIDMAIS_B5_RAMO_PROVEDOR: undefined}, {}));
   await tentarAsync(() => b5.carregarContrato109(path.resolve(__dirname, '..'), async () => { throw new Error('x'); }));
   await tentarAsync(() => b5.carregarContrato109(os.tmpdir()));
