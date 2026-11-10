@@ -595,7 +595,7 @@ test('falha de consulta no meio: FALHA (código 2), ROLLBACK, mensagem sem URL; 
   const p = (await b5.principal([], {})).saida;
   assert.equal(p.resultado, 'PLANO'); assert.equal(p.conecta, false); assert.deepEqual(p.excluidas, {'098': 'SEM_NUCLEO_VER_COMBINADOS'});
   assert.ok(p.nuncaExecuta.includes('leitura de ASAAS_* ou chamada ao Asaas') && p.nuncaExecuta.includes('leitura de dados da agenda (combinados: só catálogo)'));
-  assert.ok(p.leituras.some(l => /combinados \(B-21\)/.test(l)) && p.paradas.some(l => /combinados \(B-21, E1 e E2c\)/.test(l)));
+  assert.ok(p.leituras.some(l => /combinados \(B-21\)/.test(l)) && p.paradas.some(l => /combinados \(B-21, E1, E2c e E5b\)/.test(l)));
   assert.deepEqual(p.migracoes.map(m => m.migration), ['089', '090', '091', '092-094', '095', '096', '097', '099', '100']);
   assert.deepEqual(p.ampliadas.map(m => m.migration), ['102-103', '104-106', '105', '107-108', '109', '112', '114', '116', '117', '118']);
   assert.equal(p.matriz.length, 28); assert.deepEqual(p.prefixoEsperadoAntesDoE3, {...b5.ESPERADO_BASE_ANTES_DO_E3, ...b5.ESPERADO_ANTES_DO_E3});
@@ -1068,4 +1068,86 @@ test('B-21: falha na consulta dos combinados = FALHA (código 2) com ROLLBACK; s
   assert.deepEqual(Object.keys(ok.saida.combinados.catalogo).sort(), ['colunaCombinado', 'colunaMembros', 'checkValidado', 'conflito', 'contrato', 'funcoes',
     'funcoesQualquer', 'gatilhosOk', 'gatilhosQualquer', 'marcador108', 'marcador114', 'revisao'].sort());
   assert.ok(!JSON.stringify(ok.saida).includes('pg_proc'));
+});
+
+// ---------- B-29 na opção (c) de D-ESC-8 (rodada 43): E5b, E2c-RECONFERIR depois do E3 ----------
+const POS_E3 = Object.freeze({m089: 'completa', m092: 'completa', m093: 'completa'});
+test('B-29 (c): prefixo pós-E3 = antes do E3 com 089/092/093 completas; faixa 102–118 igual (118 ausente até a E6); modo e plano', () => {
+  assert.equal(b5.FLAG_ESTADO_POS_E3, '--conferir-b5-estado-pos-e3');
+  assert.equal(b5.modo(['--conferir-b5-estado-pos-e3']), 'estadoPosE3');
+  for (const argv of [['--conferir-b5-estado-pos-e3', '--conferir-b5-estado'], ['--conferir-b5-estado-pos-e3', 'x'], ['--conferir-b5-pos-e3'], ['--conferir-b5-estado-pos-e4']])
+    assert.throws(() => b5.modo(argv), /ARGUMENTOS_RECUSADOS/);
+  assert.deepEqual(b5.ESPERADO_BASE_POS_E3, {'089': 'completa', '090': 'ausente', '091': 'ausente', '092': 'completa', '093': 'completa', '094': 'ausente',
+    '095': 'ausente', '096': 'ausente', '097': 'ausente', '099': 'completa', '100': 'sem_094'});
+  assert.deepEqual(b5.ESPERADO_POS_E3, b5.ESPERADO_ANTES_DO_E3); assert.equal(b5.ESPERADO_POS_E3['118'], 'ausente'); assert.equal(b5.ESPERADO_POS_E3['114'], 'ausente');
+  // Os modos antigos continuam com o prefixo de antes do E3 (nada mudou para E1 e E2c).
+  for (const m of ['completo', 'estado']) { assert.equal(b5.PREFIXOS[m].base, b5.ESPERADO_BASE_ANTES_DO_E3); assert.equal(b5.PREFIXOS[m].ampliado, b5.ESPERADO_ANTES_DO_E3); }
+  assert.equal(b5.PREFIXOS.estadoPosE3.base, b5.ESPERADO_BASE_POS_E3);
+  const p = b5.plano();
+  assert.deepEqual(p.modos, {E1: '--conferir-b5', E2c: '--conferir-b5-estado', E5b: '--conferir-b5-estado-pos-e3'});
+  assert.deepEqual(p.prefixoEsperadoPosE3, {...b5.ESPERADO_BASE_POS_E3, ...b5.ESPERADO_ANTES_DO_E3});
+  assert.ok(p.paradas.some(t => /E5b/.test(t) && /118 ausente/.test(t)));
+});
+
+test('B-29 (c): E5b depois do E3 = CONFERIDO; READ ONLY; não lê documentos, Fundador nem provedor; o rótulo do prefixo é o pós-E3', async () => {
+  const r = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3});
+  assert.equal(r.codigo, 0, JSON.stringify(r.saida)); assert.equal(r.saida.resultado, 'CONFERIDO'); assert.equal(r.saida.modo, 'estadoPosE3');
+  assert.deepEqual(foraDeLeitura(r.log), []);
+  assert.deepEqual(r.saida.presentes, ['089:completa', '092:completa', '093:completa', '099:completa']);
+  assert.match(r.saida.prefixoEsperado, /^POS_E3 /); assert.equal(r.saida.ampliados['118'], 'ausente');
+  assert.equal(r.saida.b15, undefined); assert.equal(r.saida.fundador, undefined); assert.equal(r.saida.provedor, undefined);
+  assert.ok(!r.log.some(x => [b5.SQL_DOCUMENTOS, b5.SQL_ORIGENS_091, b5.SQL_TOTAL_CONFIRMADAS].includes(x.sql)));
+  // Não exige o ramo do provedor (como a E2c).
+  const semRamo = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, env: {...ENV, KIDMAIS_B5_RAMO_PROVEDOR: undefined}});
+  assert.equal(semRamo.codigo, 0);
+});
+
+test('B-29 (c): os modos de antes do E3 continuam parando com 089/092/093 completas; o E5b para no estado de antes do E3', async () => {
+  for (const argv of [['--conferir-b5'], ['--conferir-b5-estado']]) {
+    const r = await rodar(argv, {estados: POS_E3});
+    assert.equal(r.codigo, 3);
+    for (const id of ['089', '092', '093']) assert.ok(r.saida.motivos.includes(`PREFIXO_DIVERGENTE ${id}:completa (esperado ausente)`), argv + id);
+  }
+  const antes = await rodar(['--conferir-b5-estado-pos-e3']);
+  assert.equal(antes.codigo, 3);
+  assert.deepEqual([...antes.saida.motivos].sort(), ['089', '092', '093'].map(id => `PREFIXO_DIVERGENTE ${id}:ausente (esperado completa)`));
+});
+
+test('B-29 (c): E5b para com E3 incompleto ou com qualquer coisa além dele (091, 094, 090, 095–097, 100, 118, 102–117)', async () => {
+  const casos = [
+    [{m089: 'ausente'}, ['PREFIXO_DIVERGENTE 089:ausente (esperado completa)']],
+    [{m092: 'ausente', m093: 'ausente'}, ['PREFIXO_DIVERGENTE 092:ausente (esperado completa)', 'PREFIXO_DIVERGENTE 093:ausente (esperado completa)']],
+    [{m093: 'parcial'}, ['APLICACAO_PARCIAL 093', 'PREFIXO_DIVERGENTE 093:parcial (esperado completa)']],
+    [{m091: 'completa'}, ['PREFIXO_DIVERGENTE 091:completa (esperado ausente)', 'E2C_091_PRESENTE completa']],
+    [{m094: 'completa', m100: 'ausente'}, ['PREFIXO_DIVERGENTE 094:completa (esperado ausente)', 'E2C_094_PRESENTE completa', 'PREFIXO_DIVERGENTE 100:ausente (esperado sem_094)']],
+    [{m090: 'completa'}, ['PREFIXO_DIVERGENTE 090:completa (esperado ausente)']],
+    [{m095: 'completa'}, ['PREFIXO_DIVERGENTE 095:completa (esperado ausente)']],
+    [{m097: 'completa'}, ['PREFIXO_DIVERGENTE 097:completa (esperado ausente)']],
+    [{m099: 'ausente'}, ['PREFIXO_DIVERGENTE 099:ausente (esperado completa)']],
+    [{m100: 'substituida_108'}, ['PREFIXO_DIVERGENTE 100:substituida_108 (esperado sem_094)']],
+    [{m100: 'divergente'}, ['CORPO_DIVERGENTE 100 (098 presente ou deriva)', 'PREFIXO_DIVERGENTE 100:divergente (esperado sem_094)']],
+    [{m105: 'ausente'}, ['PREFIXO_DIVERGENTE 105:ausente (esperado completa)']],
+    [{m114: 'completa'}, ['PREFIXO_DIVERGENTE 114:completa (esperado ausente)']],
+    [{m117: 'presente'}, ['PREFIXO_DIVERGENTE 117:presente (esperado ausente)']]];
+  for (const [estados, motivos] of casos) {
+    const r = await rodar(['--conferir-b5-estado-pos-e3'], {estados: {...POS_E3, ...estados}});
+    assert.equal(r.codigo, 3, JSON.stringify(estados));
+    assert.deepEqual([...r.saida.motivos].sort(), [...motivos].sort(), JSON.stringify(estados) + JSON.stringify(r.saida.motivos));
+  }
+  // 118 antes da E6 (D-ESC-8 = (c)): presente, parcial ou ilegível = PARAR.
+  for (const [linha118, motivo] of [[{tabelas: 2, funcoes: 3, gatilhos: 2}, 'PREFIXO_DIVERGENTE 118:presente (esperado ausente)'],
+    [{tabelas: 1, funcoes: 0, gatilhos: 0}, 'PREFIXO_DIVERGENTE 118:parcial (esperado ausente)'], [{tabelas: null, funcoes: 0, gatilhos: 0}, 'PREFIXO_DIVERGENTE 118:ILEGIVEL (esperado ausente)']]) {
+    const r = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, cliente: clienteFalso({linha118})});
+    assert.equal(r.codigo, 3); assert.deepEqual(r.saida.motivos, [motivo]);
+  }
+  // Combinados e matriz param no E5b como na E2c.
+  const comb = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, cliente: clienteFalso({combinados: [LINHAS.ANTIGA]})});
+  assert.equal(comb.codigo, 3); assert.ok(comb.saida.motivos.some(m => /COMBINADOS/.test(m)), JSON.stringify(comb.saida.motivos));
+  for (const [contagens, motivo] of [[{empresa_assinaturas: {linhas: '1'}}, 'MATRIZ_VAZIA_COM_LINHAS empresa_assinaturas 1'],
+    [{assinatura_avisos: {linhas: '7'}}, 'MATRIZ_VAZIA_COM_LINHAS assinatura_avisos 7']]) {
+    const mat = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, cliente: clienteFalso({contagens})});
+    assert.equal(mat.codigo, 3, motivo); assert.equal(mat.saida.resultado, 'PARAR'); assert.deepEqual(mat.saida.motivos, [motivo]);
+  }
+  const falha = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, cliente: clienteFalso({falharEm: 'ESTADO 089'})});
+  assert.equal(falha.codigo, 2); assert.equal(falha.saida.resultado, 'FALHA'); assert.ok(!JSON.stringify(falha.saida).includes('SENHA_FALSA'));
 });

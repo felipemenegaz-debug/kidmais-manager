@@ -4,6 +4,18 @@ Estado: **implementação LOCAL**, sem commit. Clone `kidmais-manager-conferenci
 
 Origem: B-5 do plano de promoção (`PLANO_PROMOCAO_PRODUCTION_20261025.md`, §7.2, E1 e §12; rodadas 10–13: a E2c também usa o B-5 para ver a 091 no artefato antigo).
 
+## B-29 na opção (c) de D-ESC-8 (09/11/2026): modo E5b depois do E3
+
+Estado: **implementação LOCAL**, sem commit. Clone `kidmais-manager-b5-pos-e3-20261109`, branch `codex/b5-pos-e3-20261109`, sobre staging `afeef387` (#377, B-5 ampliado LIVE em staging). Fonte: plano de promoção rodada 43 (D-ESC-8 = (c), decidida por Felipe em 09/11: a 118 entra na E6, do artefato `M`, depois da 100 e antes da 091). Nenhum Shell, banco real, env ou production foi tocado.
+
+- **Lacuna.** A E5b roda a E2c-RECONFERIR com o B-5 depois do E3. Os dois modos antigos usam o prefixo de antes do E3, então, com 089, 092 e 093 aplicadas, davam sempre `PREFIXO_DIVERGENTE 089/092/093:completa (esperado ausente)`, isto é, PARAR. Confirmado no PostgreSQL descartável: era a única divergência.
+- **Modo novo `--conferir-b5-estado-pos-e3` (E5b).** Mesmo conteúdo do modo estado (identidade, estados 089–118, combinados B-21 e matriz; 091 e 094 têm de estar ausentes; não lê documentos, Fundador nem o Asaas; não exige o ramo do provedor). Só muda o prefixo esperado: `ESPERADO_BASE_POS_E3` = o de antes do E3 com **089, 092 e 093 `completa`** (091, 094–097 `ausente`, 099 `completa`, 100 `sem_094`). A faixa 102–118 é a mesma de antes do E3: na opção (c) a **118 continua `ausente`** até a E6; presente, parcial ou ilegível = PARAR. A 114 continua `ausente` com o par de corpos 019/062 (a 092/093 não regravam esses corpos; provado em PG).
+- **E1 e E2c não mudam.** O prefixo é escolhido por modo (`PREFIXOS`); `estados()` usa o de antes do E3 se nada for passado.
+- **Bloco.** `CONFERIR-B5-ESTADO-POS-E3` (etapa E5b), com o mesmo carregador e as mesmas partes dos outros curtos.
+- **Fora do escopo.** Depois da E6, a 118 `completa` é conferida pelo CONFERIR do próprio aplicador B-28, não pelo B-5. As outras opções de D-ESC-8 (a, b, d) continuam sem modo: o B-5 recusa qualquer prefixo que não seja um dos três.
+
+Validação local (09/11): agregador 43/43 (4 testes novos), blocos em Git Bash 13/13 (a rodada completa deu 12/13: a contagem de blocos do `TODOS` estava fixa em `N + 4`; passou a `N + CURTOS.length + 1` e o teste foi repetido sozinho, 1/1), ESLint; sonda PG 18 descartável (`E:/kidmais-pg-descartavel/b5-pos-e3-20261109`, porta 55791) 9 execuções, nenhuma fora de READ ONLY e nenhuma escrita: antes do E3 (E2c 0, E5b 3 só pelas três do E3), depois do E3 (E5b 0, E2c e E1 3 só pelas três), depois do E3 + 118 (E5b 3, `118:presente`), + 094 (E5b 3), + 091 (E5b 3), E3 sem a 093 (E5b 3). 16 mutantes em cópia isolada, 16 mortos. Revisão do Astra (10/11): aprovado com 1 P3, porque faltava um cenário negativo da matriz no E5b (o mutante "E5b ignora a matriz" sobrevivia). Acrescentado o caso `MATRIZ_VAZIA_COM_LINHAS` (empresa_assinaturas 1, assinatura_avisos 7) no teste do E5b. Agregador 43/43, ESLint 0, 17 mutantes (P17 novo), 17 mortos. Evidências em `ambientes-locais/b5-pos-e3-20261109/`.
+
 ## B-5 ampliado (08/11/2026) — prevalece sobre o texto abaixo
 
 Estado: **implementação LOCAL**, sem commit. Clone `kidmais-manager-b5-ampliado-20261108`, branch `codex/b5-ampliado-20261108`, sobre staging `9691392c`. Fonte: plano de promoção rodada 34, §9.2.2 (G-VAZIO), §9.2.4 (L1) e §9.2.7 (B-5 ampliado + B-15 reescopado). Nenhum Shell, banco real, Asaas, env ou production foi tocado. Onde as seções antigas deste documento falam em leitura do Asaas, valem as regras abaixo.
@@ -171,7 +183,7 @@ Os três se aplicaram sem conflito sobre `58c54518`. Staging avançou desde a ba
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `scripts/conferencia-b5-producao.cjs` | agregador somente leitura (plano, `--conferir-b5` para o E1, `--conferir-b5-estado` para a E2c) |
+| `scripts/conferencia-b5-producao.cjs` | agregador somente leitura (plano, `--conferir-b5` para o E1, `--conferir-b5-estado` para a E2c, `--conferir-b5-estado-pos-e3` para a E5b desde 09/11) |
 | `scripts/conferencia-b5-producao.test.cjs` | 11 testes com cliente e Asaas simulados |
 | `scripts/bloco-shell-conferencia-b5-producao.cjs` | gerador dos blocos de entrega (partes + carregador conferido) |
 | `scripts/bloco-shell-conferencia-b5-producao.test.cjs` | 13 testes com bash real |
