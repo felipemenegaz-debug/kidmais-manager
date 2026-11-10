@@ -7,6 +7,16 @@
  */
 const EXCECOES = [
   {
+    arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerBanco",
+    motivo: "Conferidor G-VAZIO (B-26): SELECT count, hash e situação em public.<objeto>, com objeto e colunas só das listas " +
+      "fechadas MATRIZ, COLUNAS_HASH e SITUACAO do próprio arquivo, numa transação REPEATABLE READ READ ONLY. Só leitura.",
+  },
+  {
+    arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerAncoras",
+    motivo: "Conferidor G-VAZIO (B-26): SELECT do hash de pg_get_functiondef das funções da lista fechada ANCORAS do próprio " +
+      "arquivo (sqlAncoras), na transação REPEATABLE READ READ ONLY de quem chama. Só leitura.",
+  },
+  {
     arquivo: "lib/comercial/pacotes-admin.ts", funcao: "excluirPacoteArquivadoAdmin",
     motivo: "SELECT count(*) FROM <tabela> WHERE <coluna> = $1: tabela e coluna vêm do catálogo de FKs (pg_constraint) " +
       "que referenciam o pacote, passadas por identificadorSql. Só leitura.",

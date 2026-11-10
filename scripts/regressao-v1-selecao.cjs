@@ -462,6 +462,9 @@ const ESTADO_POSTGRES = {
   "lib/inteligencia/acoes/pacotes-1d.postgres.test.ts": { descartavel: "089" },
   // Avisos por e-mail da assinatura (087, local 20/10/2026): a suíte aplica e desfaz a 087 sobre o modelo 086.
   "lib/assinatura/avisos-087.postgres.test.ts": { descartavel: "086" },
+  // B-26 r5 (R4-01): a assinatura de estrutura do conferidor mede os gatilhos de fechamentos/fechamento_revisoes como em production,
+  // sem a guarda de teste; a própria suíte instala a guarda num negativo e exige FALHA. Usa o banco _rollback como destino de pg_restore.
+  "lib/assinatura/conferidor-g-vazio.postgres.test.ts": { descartavel: "b14-P0a", semGuardaSalao: { modelos: ["b14-P0a"], motivo: "assinatura de estrutura do conferidor G-VAZIO (gatilhos de fechamentos) medida como em production, sem a guarda de teste" } },
   // Recorte de production (02/11/2026): aplicadores reais da 087 (staging e produção) no modelo 086 (087 ausente), derivados dos da 089.
   "lib/assinatura/aplicador-087.postgres.test.ts": { descartavel: "086" },
 };

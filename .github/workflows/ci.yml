@@ -112,6 +112,9 @@ jobs:
       - name: Blocos de Shell da 088 — arquivos implantados conferidos por sha, guarda de serviço, subshell, backup obrigatório, aplicador real recusando antes de conectar e colagem interativa (bash e bash -i em diretório temporário)
         run: node --test scripts/bloco-shell-088.test.cjs
 
+      - name: Conferidor G-VAZIO (B-26) — matriz fechada, prefixo efetivo, base exclusiva, resultados S, entrega por colagem conferida e erro que nunca vira zero (cliente simulado; a prova em PostgreSQL está na regressão)
+        run: node --test scripts/conferidor-g-vazio.test.cjs
+
       - name: Aplicadores manuais da 087 (avisos por e-mail da assinatura, recorte de production) — trava de alvo, identidade, hashes, plano, privilégios CREATE/REFERENCES, conferência só leitura, backup obrigatório e anti-repetição (cliente simulado)
         run: node --test scripts/migration-087.test.cjs
 
