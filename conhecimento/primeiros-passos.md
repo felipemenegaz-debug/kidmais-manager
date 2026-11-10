@@ -11,6 +11,8 @@ Para abrir:
 
 Você também encontra o atalho em [Ajuda e suporte](/admin/ajuda). Nada dessa lista é obrigatório para entrar no sistema, e você pode fazer na ordem que preferir.
 
+!video[Vídeo: primeiros passos no sistema, passo a passo](/ajuda/videos/primeiros-passos.mp4)
+
 ## Como ler cada item
 
 - Item com ✓ e "(pronto)": já está feito. O link **Ver** abre a tela para conferir.

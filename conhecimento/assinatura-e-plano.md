@@ -32,6 +32,8 @@ Só quem tem acesso de Gestão contrata, paga ou cancela. Quem é Equipe vê a s
 
 O acesso muda quando o pagamento é confirmado. Se houver pagamento pendente, use **Continuar pagamento**. O link **Ver comprovante da contratação** mostra o comprovante.
 
+Se você começou a contratar um plano e ainda não pagou, o quadro mostra o botão **Retomar**, com o nome do plano e o valor, no lugar dos botões **Assinar**. Clique nele para continuar a mesma contratação. Enquanto ela estiver em aberto, o plano e o ciclo não mudam por essa tela. Para trocar, fale com o suporte.
+
 Se a tela disser que a contratação on-line ainda não está disponível, clique em **Fale com a equipe iA.Fest**.
 
 ## Como cancelar
@@ -40,7 +42,7 @@ Se a tela disser que a contratação on-line ainda não está disponível, cliqu
 2. Leia o aviso, escreva o motivo (opcional) e digite sua senha.
 3. Clique em **Confirmar cancelamento**.
 
-Você recebe um protocolo na tela. Mais abaixo ficam os quadros **Cancelamento e devolução** e **Desistir da contratação (direito de arrependimento)**, com as opções disponíveis para a sua empresa e os pedidos já registrados. Leia com atenção o texto de cada quadro antes de confirmar.
+A tela confirma o cancelamento e mostra até quando o acesso continua. Quando o cancelamento gera um protocolo, o número aparece junto. Mais abaixo ficam os quadros **Cancelamento e devolução** e **Desistir da contratação (direito de arrependimento)**, com as opções disponíveis para a sua empresa e os pedidos já registrados. Leia com atenção o texto de cada quadro antes de confirmar.
 
 ## Créditos de IA
 
