@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { carregarComBanco, cod, executor, porTransacao, SENHA_FALSA } from "../marketing/harness-postgres.ts";
-import { baseSintetica, type CriarEnvio } from "./harness-postgres.ts";
+import { baseSintetica, travaAgendaFixture, type CriarEnvio } from "./harness-postgres.ts";
 import { assinarToken, lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -303,7 +303,7 @@ test("110: esquema, serviço público, supressões e frequência", { timeout: 30
       assert.deepEqual([(await estado(p.envio)).estado, (await estado(p.envio)).motivo_revogacao], ["REVOGADO", "FESTA_CANCELADA"]);
       assert.equal(Number((await um(`SELECT count(*) AS n FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio])).n), 0);
       const q = await envioPronto();
-      await c.query(`UPDATE contratos SET status = 'CANCELADO', cancelado_em = clock_timestamp() WHERE fechamento_id = $1::uuid`, [q.f]);
+      await emTransacao(async () => { await travaAgendaFixture(c, A); await c.query(`UPDATE contratos SET status = 'CANCELADO', cancelado_em = clock_timestamp() WHERE fechamento_id = $1::uuid`, [q.f]); });
       assert.equal((await publico.abrirPesquisa({ token: q.token }, { ip: ip() }, deps())).situacao, "ENCERRADA");
       assert.equal((await estado(q.envio)).motivo_revogacao, "CONTRATO_NAO_ASSINADO");
       assert.equal((await publico.abrirPesquisa({ token: p.token }, { ip: ip() }, deps())).situacao, "ENCERRADA", "revogado (festa cancelada)");

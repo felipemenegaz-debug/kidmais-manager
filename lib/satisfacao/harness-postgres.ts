@@ -29,6 +29,16 @@ export async function contratoAssinadoMinimo(db: Client, fechamentoId: string) {
 }
 
 /**
+ * Trava compartilhada da configuração da agenda (protocolo da 114, lib/agenda/trava-configuracao.ts) da empresa, como
+ * primeiro passo da transação de FIXTURE que grava fechamentos/contratos: com a 114 no modelo, o gatilho de ocupação
+ * exige a trava. Sem a 114, só toma uma advisory de transação (nada muda). Mesmo atalho de
+ * lib/financeiro/titulos-motor.postgres.test.ts (contratoComFesta).
+ */
+export async function travaAgendaFixture(db: Client, empresaId: string) {
+  await db.query("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:' || $1::text, 0))", [empresaId]);
+}
+
+/**
  * Empresas A e B, a gestão de A, as regras (pesquisa e Mensagem simples) e os construtores de festa/envio. A identidade
  * (usuarios_administrativos) é criada pela PRÓPRIA suíte (guarda F1: no código da aplicação, só
  * lib/autenticacao/usuarios.ts cria identidade).
@@ -57,6 +67,7 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
   async function festa(opcoes: { empresaId?: string; assinado?: boolean; nome?: string; clienteId?: string; telefone?: string; data?: string } = {}) {
     const e = opcoes.empresaId ?? A;
     const r = await emTransacao(async () => {
+      await travaAgendaFixture(c, e);
       const telefone = opcoes.clienteId
         ? (await um(`SELECT whatsapp FROM clientes WHERE id = $1::uuid`, [opcoes.clienteId])).whatsapp as string
         : opcoes.telefone ?? `55119888${String(70000 + ++tel).padStart(5, "0")}`;
@@ -69,10 +80,12 @@ export async function baseSintetica(c: Client, anel: AnelChaves, criarEnvio: Cri
     return r;
   }
   /** Fechamento a mais do mesmo cliente (sem contrato). */
-  const outraFestaDoCliente = (cl: string) => emTransacao(() => fechamento(c, A, baseA, cl, { data: dataUnica(), status: "AGUARDANDO_CONTRATO" }));
+  const outraFestaDoCliente = (cl: string) => emTransacao(async () => (await travaAgendaFixture(c, A), fechamento(c, A, baseA, cl, { data: dataUnica(), status: "AGUARDANDO_CONTRATO" })));
   /** Atalho de FIXTURE (não é o protocolo de travas): contrato e fechamento cancelados na mesma transação. As entradas
    *  reais (Festa e operarContrato) são exercitadas em satisfacao-cancelamento.postgres.test.ts. */
   const cancelarFesta = (f: string) => emTransacao(async () => {
+    const dona = (await um(`SELECT empresa_id::text AS e FROM fechamentos WHERE id = $1::uuid`, [f])).e as string;
+    await travaAgendaFixture(c, dona);
     await c.query(`UPDATE contratos SET status = 'CANCELADO', cancelado_em = clock_timestamp() WHERE fechamento_id = $1::uuid`, [f]);
     await c.query(`UPDATE fechamentos SET status = 'CANCELADO' WHERE id = $1::uuid`, [f]);
   });

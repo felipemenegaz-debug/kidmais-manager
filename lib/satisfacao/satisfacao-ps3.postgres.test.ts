@@ -7,7 +7,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 import type { DbExecutor } from "../db/contracts.ts";
 import { carregarComBanco, cod, executor, porTransacao, SENHA_FALSA, vincular } from "../marketing/harness-postgres.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
-import { baseSintetica, contratoAssinadoMinimo, type CriarEnvio } from "./harness-postgres.ts";
+import { baseSintetica, contratoAssinadoMinimo, travaAgendaFixture, type CriarEnvio } from "./harness-postgres.ts";
 import { assinarToken, lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -135,7 +135,7 @@ test("111: links, retornos, auditoria e instalação da PS-3", { timeout: 300_00
     /** Festa assinada (na unidade pedida) + envio + resposta pública com a nota; devolve a tarefa (se houver). */
     async function respondida(unidade: string | null, nota: number) {
       const { cl, f } = await festa({ assinado: false });
-      if (unidade) await emTransacao(async () => { await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid AND estabelecimento_id IS NULL`, [f, unidade]); });
+      if (unidade) await emTransacao(async () => { await travaAgendaFixture(c, A); await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid AND estabelecimento_id IS NULL`, [f, unidade]); });
       await emTransacao(() => contratoAssinadoMinimo(c, f));
       const x = await execucao(A, cl, f);
       const r = await emTransacao((t2) => envios.criarEnvio(t2, anel, { empresaId: A, execucaoId: x, canais: ["EMAIL"], agendadaPara: new Date(), maxTentativas: 3 }));

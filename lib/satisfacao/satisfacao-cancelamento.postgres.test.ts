@@ -186,7 +186,10 @@ test("110: resposta × cancelamento pelas entradas reais (Festa e operarContrato
       return { resultado: resultado as { ok: boolean; r?: unknown; e?: unknown }, cancelamento: await cancelamento, codigos };
     }
 
-    /** Ordem 2: a resposta para na barreira depois de travar os pais (FOR SHARE); a entrada espera por ela (PIDs). */
+    /**
+     * Ordem 2: a resposta para na barreira depois de travar os pais (FOR SHARE); a entrada espera por ela (PIDs). Desde a
+     * 114 a resposta segura a empresa em FOR KEY SHARE, então a entrada espera já no provarTenant (empresa FOR UPDATE).
+     */
     async function respostaPrimeiro(p: Awaited<ReturnType<typeof envioFormalizado>>, entrada: () => Promise<unknown>, trechoDaEspera: string) {
       const chegou = adiado(), seguir = adiado();
       let pais = 0;
@@ -222,7 +225,7 @@ test("110: resposta × cancelamento pelas entradas reais (Festa e operarContrato
 
     await t.test("Festa, resposta primeiro: o cancelamento ESPERA a resposta (PIDs) e confirma depois; RESPONDIDO se preserva", async () => {
       const p = await envioFormalizado();
-      const r = await respostaPrimeiro(p, () => cancelarPelaFesta(p), "FROM fechamentos WHERE id=$1 FOR UPDATE");
+      const r = await respostaPrimeiro(p, () => cancelarPelaFesta(p), "FROM empresas WHERE id = $1::uuid FOR UPDATE");
       assert.equal(r.cancelamento.ok, true, `cancelamento real: ${(r.cancelamento as { e?: Error }).e?.message ?? ""}`);
       assert.equal((await um(`SELECT status FROM contratos WHERE id = $1::uuid`, [p.contrato])).status, "CANCELADO");
       assert.equal((await estado(p.envio)).estado, "RESPONDIDO", "resposta confirmada antes do cancelamento continua valendo");
@@ -242,7 +245,7 @@ test("110: resposta × cancelamento pelas entradas reais (Festa e operarContrato
 
     await t.test("operarContrato, resposta primeiro: a entrada ESPERA a resposta (PIDs) e depois recusa o contrato assinado", async () => {
       const p = await envioFormalizado();
-      const r = await respostaPrimeiro(p, () => cancelarPeloContrato(p), "FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE");
+      const r = await respostaPrimeiro(p, () => cancelarPeloContrato(p), "FROM empresas WHERE id = $1::uuid FOR UPDATE");
       assert.equal(r.cancelamento.ok, false);
       assert.match(String((r.cancelamento as { e: Error }).e.message), /Use o fluxo de cancelamento da Festa/);
       assert.equal((await estado(p.envio)).estado, "RESPONDIDO");

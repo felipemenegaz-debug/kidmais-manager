@@ -12,7 +12,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 import { lerCsv } from "../exportacao/fixture.postgres.test-apoio.ts";
 import { lerZip } from "../exportacao/zip.ts";
 import { cod, executor, porTransacao, SENHA_FALSA, vincular } from "../marketing/harness-postgres.ts";
-import { baseSintetica, contratoAssinadoMinimo } from "./harness-postgres.ts";
+import { baseSintetica, contratoAssinadoMinimo, travaAgendaFixture } from "./harness-postgres.ts";
 import { assinarToken, lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -183,7 +183,7 @@ test("PS-3 pelas rotas reais: matriz HTTP, atomicidade, relógio real, instalaç
     /** Envio ATIVO (festa com contrato assinado, entrega inicial pendente), ainda sem resposta. */
     async function ativo(unidade: string | null) {
       const { cl, f } = await festa({ assinado: false });
-      if (unidade) await emTransacao(async () => { await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid AND estabelecimento_id IS NULL`, [f, unidade]); });
+      if (unidade) await emTransacao(async () => { await travaAgendaFixture(c, A); await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid AND estabelecimento_id IS NULL`, [f, unidade]); });
       await emTransacao(() => contratoAssinadoMinimo(c, f));
       const x = await execucao(A, cl, f);
       const r = await emTransacao((t2) => envios.criarEnvio(t2, anel, { empresaId: A, execucaoId: x, canais: ["EMAIL"], agendadaPara: new Date(), maxTentativas: 3 }));

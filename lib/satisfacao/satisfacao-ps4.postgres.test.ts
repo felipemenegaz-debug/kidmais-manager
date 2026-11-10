@@ -10,7 +10,7 @@ import type { Client } from "pg";
 import { hashToken } from "../autenticacao/senha.ts";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { cod, SENHA_FALSA, vincular } from "../marketing/harness-postgres.ts";
-import { baseSintetica, contratoAssinadoMinimo } from "./harness-postgres.ts";
+import { baseSintetica, contratoAssinadoMinimo, travaAgendaFixture } from "./harness-postgres.ts";
 import { lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -211,7 +211,7 @@ test("PS-4 pelas rotas reais: métricas, população, escopos, menu, cursor, per
     async function envio(o: Op = {}) {
       const empresa = o.empresa ?? A;
       const { cl, f } = await festa({ empresaId: empresa, assinado: false, data: o.data ?? novaData(), nome: o.nome });
-      if (o.unidade) await emTransacao(async () => { await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid`, [f, o.unidade]); });
+      if (o.unidade) await emTransacao(async () => { await travaAgendaFixture(c, empresa); await c.query(`UPDATE fechamentos SET estabelecimento_id = $2::uuid WHERE id = $1::uuid`, [f, o.unidade]); });
       if (!o.semContrato) await emTransacao(() => contratoAssinadoMinimo(c, f));
       const x = await execucao(empresa, cl, f, "PESQUISA_SATISFACAO", empresa === A ? regraA : regraB);
       const estado = o.estado ?? (o.nota === undefined ? "ATIVO" : "RESPONDIDO");
@@ -292,7 +292,7 @@ test("PS-4 pelas rotas reais: métricas, população, escopos, menu, cursor, per
       await envio({ nota: 9, semContrato: true });               // sem contrato ASSINADO: fora
       // Festa CANCELADA com o contrato ainda ASSINADO não existe: a 019 recusa (por isso o mutante P06 é equivalente).
       const soFesta = await envio({ nota: 10 });
-      await assert.rejects(um(`UPDATE fechamentos SET status = 'CANCELADO' WHERE id = $1::uuid RETURNING id`, [soFesta.f]), { code: "23514" }, "019 recusa festa cancelada com contrato ASSINADO");
+      await assert.rejects(emTransacao(async () => { await travaAgendaFixture(c, A); await c.query(`UPDATE fechamentos SET status = 'CANCELADO' WHERE id = $1::uuid`, [soFesta.f]); }), { code: "23514" }, "019 recusa festa cancelada com contrato ASSINADO");
       await cancelarFesta(soFesta.f);
       await envio({ nota: 8, criadoDiasAtras: 60, respondidoEm: await instante(`clock_timestamp() - interval '50 days'`) }); // resposta antiga, link vencido: conta
       await envio();                                             // borda final

@@ -5,7 +5,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 import { carregarComBanco, cod, executor, porTransacao, SENHA_FALSA } from "../marketing/harness-postgres.ts";
-import { baseSintetica, type CriarEnvio } from "./harness-postgres.ts";
+import { baseSintetica, travaAgendaFixture, type CriarEnvio } from "./harness-postgres.ts";
 import { lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -92,9 +92,14 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.equal(tarefas, nota <= 6 ? 1 : 0, "tarefa só da resposta gravada");
     });
 
-    /** Simulação em SQL da ordem das entradas reais de cancelamento (fechamento e contrato FOR UPDATE), para esgotar as 5 tentativas. */
+    /**
+     * Simulação em SQL da ordem das entradas reais de cancelamento (protocolo da 114: empresa FOR UPDATE pelo provarTenant →
+     * configuração compartilhada → fechamento e contrato FOR UPDATE), para esgotar as 5 tentativas.
+     */
     async function travarComoCancelamento(f: string) {
       await c3.query("BEGIN");
+      await c3.query(`SELECT 1 FROM empresas WHERE id = $1::uuid FOR UPDATE`, [A]);
+      await travaAgendaFixture(c3, A);
       await c3.query(`SELECT id FROM fechamentos WHERE id = $1::uuid FOR UPDATE`, [f]);
       await c3.query(`SELECT id FROM contratos WHERE fechamento_id = $1::uuid FOR UPDATE`, [f]);
     }
@@ -179,6 +184,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       await c1.query("BEGIN");
       const r1 = await env1.criarEnvio(executor(c1), anel, entrada(x1));
       await c2.query("BEGIN");
+      await travaAgendaFixture(c2, A);
       const troca = c2.query(`UPDATE fechamentos SET cliente_id = $2::uuid WHERE id = $1::uuid`, [f, outro.cl]).then(() => "ok", (e: { code?: string }) => e.code ?? "erro");
       await esperarBloqueio(c3, p2, p1, "UPDATE fechamentos");
       await c1.query("COMMIT");
@@ -190,6 +196,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       const g = await festa();
       const x2 = await execucao(A, g.cl, g.f);
       await c2.query("BEGIN");
+      await travaAgendaFixture(c2, A);
       await c2.query(`UPDATE fechamentos SET cliente_id = $2::uuid WHERE id = $1::uuid`, [g.f, outro.cl]);
       try {
         await assert.rejects(porTransacao(c1)((tx) => env1.criarEnvio(tx, anel, entrada(x2))), (e: { code?: string }) => e.code === "55P03");

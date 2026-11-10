@@ -7,7 +7,7 @@ import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 import { carregarComBanco, cod, executor, fechamento, porTransacao, SENHA_FALSA } from "../marketing/harness-postgres.ts";
-import { ativarRegraPesquisa, baseSintetica, contratoAssinadoMinimo, type CriarEnvio } from "./harness-postgres.ts";
+import { ativarRegraPesquisa, baseSintetica, contratoAssinadoMinimo, travaAgendaFixture, type CriarEnvio } from "./harness-postgres.ts";
 import { lerAnel, type AnelChaves } from "./token.ts";
 
 /**
@@ -142,6 +142,7 @@ test("110 PS-2: criação pelo motor e despacho das entregas", { timeout: 600_00
       const data = diasAtras(dias);
       const telefone = opcoes.telefone ?? numero();
       const r = await emTransacao(async () => {
+        await travaAgendaFixture(c3, A);
         const cl = opcoes.clienteId ?? (await c3.query(`INSERT INTO clientes (empresa_id, nome_completo, telefone, whatsapp, email) VALUES ($1::uuid, 'Paula Recente Sintética', $2, $2, $3) RETURNING id::text AS id`,
           [A, telefone, `${cod("r")}@pesquisa.test`])).rows[0].id as string;
         const f = await fechamento(c3, A, baseRecente, cl, { data, status: "AGUARDANDO_PAGAMENTO" });
