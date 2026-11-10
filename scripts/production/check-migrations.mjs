@@ -232,7 +232,7 @@ const approvedFiles = [
   // 115: índice (empresa_id, data_evento) em fechamentos para os resultados da pesquisa de satisfação (PS-4 rodada 4
   // LOCAL; P-114 aprovada como desenho pelo Astra, D-PS4-R3-2 de Felipe, 03/11/2026). Só caminho de acesso; remove o 054
   // (empresa_id), redundante com o prefixo do 115 (decisão de Felipe 03/11, investigação 115 × 054). 112–114 tomadas
-  // por outros trabalhos locais; depois da sincronização com staging (10/11/2026), 110/111/115 vêm depois da 118; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
+  // por outros trabalhos locais; na sincronização com staging (10/11/2026) o inventário segue os nomes de arquivo; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
   '20261103_115_fechamentos_empresa_data.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,

@@ -123,8 +123,8 @@ const MODELOS = {
   // Aplicador da 118 (08/11/2026): o esquema do staging ANTES da 118 — inventário até a 117 sem a 098 (114, 112, 116 e 117
   // aplicadas, na ordem do inventário). Base do ensaio do aplicador da 118 com 116 e 117 presentes.
   "117": { banco: "kidmais_v1_modelo_117", ate: "117", sem: ["098"] },
-  // Satisfação (110/111/115): depois da sincronização com staging (10/11/2026) vêm depois da 118 no inventário, então os
-  // modelos 110, 111 e 115 incluem 112, 114, 116, 117 e 118.
+  // Satisfação (110/111/115), sincronizada com staging em 10/11/2026: o inventário segue a ordem dos nomes de arquivo, então
+  // o modelo 115 inclui 114 e 112 (anteriores pelo nome) e não inclui 116–118.
   // Pesquisa de satisfação (110, PS-1 LOCAL, 30/10/2026): o estado da 109 com a 110.
   "110": { banco: "kidmais_v1_modelo_110", ate: "110", sem: ["098"] },
   // Pesquisa de satisfação PS-3 (111, LOCAL, 31/10/2026): o estado da 110 com links de avaliação e auditoria.

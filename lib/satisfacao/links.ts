@@ -13,19 +13,19 @@ import { estadoInstalacao111, exigirInstalacao111 } from "./instalacao.ts";
  * igual ao `pathname` do parser (qualquer normalização recusa: `/maps/../url` vira `/url`) → query em pares brutos, chaves
  * da lista, sem repetição, valores pela expressão da chave, e o `URLSearchParams` devolvendo as mesmas chaves.
  */
-type Formato = { caminho: RegExp; query: Record<string, RegExp> | null; obrigatorias?: string[] };
+type Formato = { caminho: RegExp; parametros: Record<string, RegExp> | null; obrigatorias?: string[] };
 
 const MAPS: Formato = {
   caminho: /^\/maps(\/[A-Za-z0-9_+,.~-]{1,120}){0,6}\/?$/,
-  query: { hl: /^[a-z]{2}(-[A-Z]{2})?$/, entry: /^[a-z]{2,10}$/, g_ep: /^[A-Za-z0-9_-]{1,300}(%3D){0,2}$/ },
+  parametros: { hl: /^[a-z]{2}(-[A-Z]{2})?$/, entry: /^[a-z]{2,10}$/, g_ep: /^[A-Za-z0-9_-]{1,300}(%3D){0,2}$/ },
 };
 export const FORMATOS_LINK: Record<string, Formato> = {
-  "search.google.com": { caminho: /^\/local\/writereview$/, query: { placeid: /^[A-Za-z0-9_-]{10,200}$/ }, obrigatorias: ["placeid"] },
+  "search.google.com": { caminho: /^\/local\/writereview$/, parametros: { placeid: /^[A-Za-z0-9_-]{10,200}$/ }, obrigatorias: ["placeid"] },
   "www.google.com": MAPS,
   "google.com": MAPS,
   "maps.google.com": MAPS,
-  "g.page": { caminho: /^\/(r\/)?[A-Za-z0-9_-]{2,100}(\/review)?$/, query: null },
-  "maps.app.goo.gl": { caminho: /^\/[A-Za-z0-9]{8,40}$/, query: null },
+  "g.page": { caminho: /^\/(r\/)?[A-Za-z0-9_-]{2,100}(\/review)?$/, parametros: null },
+  "maps.app.goo.gl": { caminho: /^\/[A-Za-z0-9]{8,40}$/, parametros: null },
 };
 
 /** Exemplos de FORMATO (sintéticos, não verificados no Google) mostrados ao usuário quando o link é recusado. */
@@ -68,13 +68,13 @@ export function validarLinkAvaliacao(bruta: unknown): LinkValidado {
     if ((formato.obrigatorias ?? []).length > 0) return recusa("QUERY_OBRIGATORIA");
     return url.search === "" ? { ok: true, url: bruta } : recusa("QUERY");
   }
-  if (formato.query === null || query === "") return recusa("QUERY");
+  if (formato.parametros === null || query === "") return recusa("QUERY");
   const vistas = new Set<string>();
   for (const par of query.split("&")) {
     const m = /^([a-z_]{1,20})=(.*)$/.exec(par);
     if (!m) return recusa("QUERY");
     const [, chave, valor] = m;
-    const regra = Object.prototype.hasOwnProperty.call(formato.query, chave) ? formato.query[chave] : null;
+    const regra = Object.prototype.hasOwnProperty.call(formato.parametros, chave) ? formato.parametros[chave] : null;
     if (!regra) return recusa("CHAVE_DESCONHECIDA");
     if (vistas.has(chave)) return recusa("CHAVE_REPETIDA");
     if (!regra.test(valor)) return recusa("VALOR");
