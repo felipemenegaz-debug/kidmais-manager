@@ -95,9 +95,13 @@ test('troca: leitura que saiu ANTES da troca e voltou "encerrada" DEPOIS → nã
     assert.equal(a.envios.length, 0, 'nada é enviado com a sessão anterior');
 });
 
+// 14º parecer, P2: a confirmação obsoleta espera a troca terminar antes de decidir. Aqui a troca é aceita logo depois
+// (o servidor passa para Beta e a resposta da troca chega), como no fluxo real.
+const aceitarTrocaLogo = (a: ReturnType<typeof ambiente>) => setTimeout(() => { a.trocarNoServidor(); a.encerrarTroca(); }, 5);
+
 test('troca: escrita executada, troca durante a resposta e confirmação "encerrada" obsoleta → aviso "concluída", painel (não login), um envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/x', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/x', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); aceitarTrocaLogo(a); } });
     const escrita = await mensagem(a.mod.adminFetch('/api/x', { method: 'POST', body: '{}' }));
     assert.match(escrita, /concluída antes da mudança/);
     assert.match(a.aviso() ?? '', /concluída antes da mudança/, 'o resultado real da escrita é avisado');
@@ -108,7 +112,7 @@ test('troca: escrita executada, troca durante a resposta e confirmação "encerr
 
 test('troca: escrita com 5xx e confirmação obsoleta → "Resultado incerto", nunca "concluída"; sem login; um envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/x', { status: 503, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/x', { status: 503, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); aceitarTrocaLogo(a); } });
     assert.match(await mensagem(a.mod.adminFetch('/api/x', { method: 'POST', body: '{}' })), /Resultado incerto/);
     assert.doesNotMatch(a.aviso() ?? '', /concluída antes da mudança/, 'sem confirmação falsa de conclusão');
     assert.equal(a.login(), 0);
@@ -237,7 +241,7 @@ test('leitura antiga depois de uma troca válida → descartada, sem login (prot
 
 test('escrita concluída com troca durante a resposta → aviso "concluída" preservado e um único envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/z', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/z', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); aceitarTrocaLogo(a); } });
     assert.match(await mensagem(a.mod.adminFetch('/api/z', { method: 'POST', body: '{}' })), /concluída antes da mudança/);
     assert.match(a.aviso() ?? '', /concluída antes da mudança/);
     assert.deepEqual(a.envios.filter((e) => e === 'POST /api/z'), ['POST /api/z']);

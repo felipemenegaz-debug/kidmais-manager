@@ -9,6 +9,7 @@ import { CanalOcupado } from "@/lib/integracoes/mcp/admissao";
 import { PrazoDaTransacaoVencido } from "@/lib/db/transacao-com-prazo";
 import { SchemaMcpAusente } from "@/lib/integracoes/oauth/postgres";
 import { ErroOAuth, concluirConsentimento, lerPedidoParaConsentimento } from "@/lib/integracoes/oauth/servico";
+import { identidadeDaSessao } from "@/lib/integracoes/oauth/identidade-sessao";
 import { dependenciasConsentimento } from "../../../mcp/dependencias";
 
 export const runtime = "nodejs";
@@ -40,7 +41,10 @@ export async function GET(request: NextRequest) {
     const contexto = await contextoDaSessao(db(), sessao);
     const dados = await lerPedidoParaConsentimento(request.nextUrl.searchParams.get("pedido") ?? "", dependenciasConsentimento(), contexto.empresaAtual?.id ?? null);
     if (!dados) return jsonNoStore({ ok: false, erro: "Pedido de conexão inválido ou expirado. Volte ao aplicativo e conecte novamente.", codigo: "PEDIDO_INVALIDO" }, { status: 404 });
-    return jsonNoStore({ ok: true, data: dados });
+    // Só identifica a própria sessão na tela. A barreira continua em concluirConsentimento, com a empresa comprovada.
+    const identidade = await identidadeDaSessao(db(), sessao, contexto);
+    // `sessao`: a tela confere que usuário e empresa mostrados vêm da mesma sessão (10º parecer, P3). Só ids da própria sessão.
+    return jsonNoStore({ ok: true, data: { ...dados, usuario: identidade.usuario, empresas: identidade.empresas, sessao: { usuarioId: sessao.usuario_id, empresaId: contexto.empresaAtual?.id ?? null } } });
   } catch (error) {
     return falha(error);
   }

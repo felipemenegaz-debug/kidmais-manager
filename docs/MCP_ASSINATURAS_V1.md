@@ -394,3 +394,186 @@ Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `Consentimen
 ### Acesso pelo painel
 
 Com o canal MCP habilitado, Configurações → IA e créditos mostra Gerenciar conexões abaixo do saldo de convites. O atalho abre a lista existente em /admin/conexoes-ia. O perfil continua oferecendo acesso à mesma lista.
+
+## 22. Experiência de conexão (IMPLEMENTAÇÃO LOCAL, 06/11/2026; sem commit, não publicada)
+
+Base: `origin/staging` `308dba9b`. Sem migration, sem novo escopo, sem ferramenta nova, sem mudar OAuth, RBAC, isolamento
+por empresa ou renovação de tokens. Nomes das ferramentas, `resource_name` e contrato de saída estrito v1 inalterados
+(contexto novo vai em `observacao`, até 300 caracteres).
+
+**Entrada.** Continua em Configurações → IA e créditos → Assistentes conectados. Cartões ChatGPT e Claude, com guia:
+escolher assistente; conferir conta e empresa; copiar endereço e abrir instruções oficiais; autorizar permissões;
+primeira consulta. O passo sugerido é só sugestão; a pessoa navega livremente. A configuração no assistente continua
+manual: nada promete conexão em um clique, e os links são só os oficiais conferidos em 06/11/2026.
+
+**Situação por evidência** (`lib/integracoes/oauth/situacao-conexao.ts`, função pura; a evidência vem de `listarConcessoes`):
+
+| Situação | Evidência |
+| --- | --- |
+| Aguardando autorização | nenhuma concessão desta pessoa + empresa + assistente (pedido pendente não tem dono antes da sessão) |
+| Autorizado, aguardando primeira consulta | concessão ativa sem `ultima_ferramenta_em`; código ainda no prazo ou credenciais vigentes |
+| Última consulta bem-sucedida + data e horário | `ultima_ferramenta_em`, marcada só em FERRAMENTA OK/SEM_DADOS |
+| Precisa reconectar (sempre com a causa) | REUSO; senha trocada ou usuário inativo; código nunca trocado e vencido; renovação vencida |
+| Desconectado | revogação pela pessoa (USUARIO) |
+| Substituída (só no histórico) | nova autorização da mesma tripla; não é problema |
+
+Inatividade não desconecta: acesso vencido com renovação válida segue conectado. `tools/list`, teste interno e saúde do
+servidor não confirmam consulta. Falha de ferramenta não muda a situação: é mostrada à parte (`ultimaFalha`, só código,
+ferramenta e horário, calculada da `mcp_auditoria` filtrada por empresa + concessão), e some depois de um sucesso.
+
+**Identidade e troca de conta.** Tela e consentimento mostram usuário e empresa. O e-mail do assistente não precisa
+coincidir com o do iA.Fest. "Entrar com outra conta" usa o logout normal e volta ao mesmo pedido pelo retorno de login já
+validado. Para outra empresa, a tela orienta usar a troca do menu da conta, que leva ao painel, e iniciar a conexão de
+novo pelo assistente, sem seletor próprio (a troca de empresa ficou para PR próprio). O link anterior só reabre o pedido
+enquanto ele estiver pendente e no prazo: Permitir ou Não permitir o consome. Ler o pedido não o consome; a concessão nasce em
+`concluirConsentimento`, com usuário e empresa daquele momento; nenhuma autorização é movida.
+
+**Permissões.** Só a ajuda começa marcada. Agenda e recebíveis ficam desmarcados, inclusive quando pedidos, e dependem da
+marcação da própria pessoa. **Efeito a validar:** um assistente que pede todos os escopos pode receber só parte deles;
+o erro de permissão é explícito, sem dados, e a recuperação é reconectar marcando todas as permissões desejadas, as que
+devem ser mantidas e as novas: na mesma pessoa, empresa e cliente OAuth, a nova concessão substitui a anterior e leva só os
+escopos escolhidos no novo consentimento.
+
+**Respostas.** Falta de permissão é erro, nunca lista vazia. Agenda e recebíveis informam data de referência e fonte; vazio
+é explicado como ausência de registros. As descrições dizem quando usar, quando não usar e o que não fazem.
+
+**Métricas sem registro novo.** Funil agregado, por período, a partir de `mcp_auditoria`, sem conteúdo de conversa, token,
+pessoa ou empresa. Consulta preparada, **não executada em nenhum banco**:
+
+```sql
+SELECT evento, resultado, codigo, COUNT(*) AS total
+FROM mcp_auditoria
+WHERE ocorrido_em >= $1 AND ocorrido_em < $2
+GROUP BY evento, resultado, codigo
+ORDER BY evento, total DESC;
+```
+
+Cobre autorização (AUTORIZACAO_CONCEDIDA/NEGADA), tokens (TOKEN_EMITIDO/RENOVADO), uso e falhas (FERRAMENTA por
+resultado/código) e REVOGACAO.
+
+**Primeiro sucesso observado por conexão** (11º a 14º pareceres, P3). `ultima_ferramenta_em` guarda a ÚLTIMA consulta e
+fica só como "última consulta bem-sucedida" no cartão. O primeiro sucesso sai do histórico da auditoria, e SOMENTE para a
+coorte de conexões autorizadas dentro da **janela de retenção garantida**, cujo início é calculado pelo **relógio do
+banco** no momento da leitura.
+
+Por que a janela (13º parecer): o expurgo (`expurgarExpirados`, em `lib/integracoes/oauth/postgres.ts`) apaga a auditoria
+com `ocorrido_em < clock_timestamp() - interval '180 days'` **em lotes, sem `ORDER BY` e com `SKIP LOCKED`**. Linhas além
+desse corte somem em qualquer ordem: uma autorização antiga pode continuar retida enquanto o primeiro sucesso dela, também
+antigo, já foi apagado. Contar essa conexão daria um sucesso antigo como primeiro. Já uma linha mais nova que o corte do
+expurgo nunca é selecionada por ele. Se a autorização está dentro da janela, todo FERRAMENTA posterior dela também está, e
+o primeiro sucesso da coorte é o real.
+
+Como o início da janela é calculado (14º parecer):
+
+- **Relógio do banco, não da aplicação.** O início é `clock_timestamp()` no momento da leitura, o mesmo relógio que o
+  expurgo usa. Ele não depende de um instante informado por quem roda a consulta.
+- **Horas absolutas e fuso fixo.** `interval '180 days'` é somado no fuso da sessão do expurgo. Na virada do horário de
+  verão, por exemplo em America/New_York, 180 "dias" podem valer uma hora a menos em tempo absoluto. A janela usa
+  `interval '4272 hours'` (178 dias de 24 h), que não depende do fuso. A margem de 2 dias cobre essa hora e um expurgo
+  que rode durante a leitura. A leitura fixa o fuso em UTC (`SET LOCAL TimeZone = 'UTC'`), e os dias do resultado são
+  dias UTC.
+- **Limite superior `$3`.** `$3` corta os eventos posteriores a um instante escolhido, que deve ser menor ou igual ao
+  relógio do banco. Ele não torna o resultado reprodutível: entre duas execuções, gravações atrasadas da auditoria e
+  novos expurgos podem mudar a contagem. Cada execução é uma fotografia; registre junto o `clock_timestamp()` da leitura.
+- Conexões autorizadas antes da janela ficam fora da métrica, em vez de aparecerem como "novas", mesmo que a linha delas
+  ainda exista.
+
+```sql
+BEGIN READ ONLY;
+SET LOCAL TimeZone = 'UTC';
+WITH corte AS (
+  SELECT clock_timestamp() - interval '4272 hours' AS inicio_da_janela, clock_timestamp() AS lido_em
+), coorte AS (
+  SELECT a.concessao_id, MIN(a.ocorrido_em) AS autorizada_em
+  FROM mcp_auditoria a
+  WHERE a.evento = 'AUTORIZACAO_CONCEDIDA' AND a.resultado = 'OK' AND a.concessao_id IS NOT NULL
+    AND a.ocorrido_em <= $3::timestamptz
+  GROUP BY a.concessao_id
+  HAVING MIN(a.ocorrido_em) >= (SELECT inicio_da_janela FROM corte)
+), primeiro AS (
+  SELECT a.concessao_id, MIN(a.ocorrido_em) AS primeiro_sucesso
+  FROM mcp_auditoria a
+  JOIN coorte c ON c.concessao_id = a.concessao_id
+  WHERE a.evento = 'FERRAMENTA' AND a.resultado IN ('OK', 'SEM_DADOS')
+    AND a.ocorrido_em <= $3::timestamptz
+  GROUP BY a.concessao_id
+)
+SELECT date_trunc('day', p.primeiro_sucesso) AS dia_utc, COUNT(*) AS conexoes_com_primeiro_sucesso_observado,
+       (SELECT lido_em FROM corte) AS lido_em
+FROM primeiro p
+WHERE p.primeiro_sucesso >= $1 AND p.primeiro_sucesso < $2
+GROUP BY 1
+ORDER BY 1;
+COMMIT;
+```
+
+O `HAVING` sobre o `MIN` exclui a concessão inteira se alguma autorização dela estiver fora da janela. Se `$3` for maior
+que `lido_em`, use `lido_em` como limite. O SQL continua **não executado em nenhum banco**.
+
+Limites declarados:
+
+- **Expurgo oportunista.** O expurgo roda só quando é chamado, em lotes e até um orçamento por execução. Linhas mais
+  antigas que o corte podem continuar existindo por um tempo, em ordem imprevisível. A janela garantida evita depender
+  delas.
+- **Gravação do FERRAMENTA.** O FERRAMENTA é gravado depois da resposta, sem `await` (`app/api/mcp/dependencias.ts`). Se a
+  gravação falha, a métrica subconta, e aparece o log `[Kidmais MCP] auditoria não gravada`.
+- **O log não mede a perda com exatidão.** O mesmo `catch` cobre também a falha de `marcarUso`, que roda depois de a
+  auditoria já ter sido gravada. A contagem do log é, portanto, um limite superior das gravações perdidas do FERRAMENTA,
+  e não a perda exata.
+- **Gravação da autorização.** `AUTORIZACAO_CONCEDIDA` é gravada com `await`, separadamente, em
+  `lib/integracoes/oauth/servico.ts`, no fim da autorização. Antes dela, o pedido já foi consumido e a concessão e o
+  código já foram gravados (`consumirPedido` e `authorize`). Se essa gravação falha, o erro sai antes de o
+  redirecionamento ser devolvido, sem o log acima: o assistente não recebe o código, e a concessão gravada fica sem
+  `AUTORIZACAO_CONCEDIDA`. Essa conexão fica fora da coorte, e a métrica subconta.
+- **Sucesso.** OK e SEM_DADOS são os mesmos resultados que o leitor de falhas exclui em `lib/integracoes/oauth/postgres.ts`.
+Lacuna: "início da configuração" não é durável (`PEDIDO_RECEBIDO` existe no enum e não é gravado; pedidos são expurgados em
+cerca de 1 h; recusas anônimas ficam só em log agregado). Gravar esse evento é proposta, não entrega.
+
+**Fora desta entrega.** Submissão a diretórios oficiais (proposta futura), Gemini (pausado por custo), n8n, operações de
+escrita, ampliação do piloto. O artigo `conhecimento/assistentes-externos.md` tem hash aprovado e cita rótulos antigos:
+**precisa de nova versão aprovada por Felipe antes da publicação desta tela**.
+
+### Rodada 2 da experiência de conexão — correções da revisão do Astra (06/11/2026, LOCAL)
+
+Revisão: REPROVADO, 3 P2 e 2 P3, sem P1. Correções:
+
+1. **Identidade sem prazo.** A rota de conexões lê a identidade por `identidadeOuNulo(transacaoDaPessoa, sessao)`. Vencido o prazo de 3 s, a conexão é descartada e a lista sai com `identidade: null`.
+2. **Varredura da auditoria.** `listarConcessoes` escolhe primeiro as 50 concessões e busca as falhas em lote, com uma varredura por empresa. **Decisão acrescentada, além do pedido:** falha com mais de 30 dias não aparece (mesmo prazo da renovação), para limitar o pior caso. O custo real segue sem medição: falta `EXPLAIN ANALYZE` em base isolada.
+3. **Identidade OAuth no guia.** Claude: "Sign in now" ou "Sign in when needed" e "Use Claude's published identity". ChatGPT: se a escolha aparecer, CIMD, sem client ID nem secret próprios. A página da OpenAI não mostra rótulo para essa escolha, por isso a instrução é condicional. Nova orientação de recuperação `cliente-oauth`.
+4. **Causa de credencial.** O texto passou a dizer "a senha ou a situação deste usuário mudou". Usuário inativo não consegue abrir esta tela, então a orientação de reconectar vale para quem a lê.
+5. **Consulta não registrada.** O guia diz que a ausência de nova consulta registrada não prova a causa.
+
+A memória de teste agora reproduz a ordem, o limite de 50, a última falha por horário, a janela de 30 dias e a data de senha nula.
+
+### Rodada 3 da experiência de conexão — P2 restante da revisão do Astra (06/11/2026, LOCAL)
+
+Revisão da rodada 2: REPROVADO, 1 P2. A consulta em lote limitou a saída, mas não o trabalho: uma concessão antiga abre toda a janela de 30 dias da empresa, e, se a consulta vencesse o prazo, a listagem inteira falhava. **Correção da rodada 2:** "uma varredura por empresa" não está provada, porque depende do plano de execução.
+
+- **Lista essencial sem auditoria.** `listarConcessoes` não lê mais `mcp_auditoria`. A situação de cada conexão e o botão Desconectar não dependem dela.
+- **Falhas à parte.** `lerUltimasFalhas(usuarioId)` roda depois da lista, com prazo de 1,5 s, `statement_timeout` de 1,2 s, `lock_timeout` de 0,5 s e uma vaga própria (`VAGAS_BANCO_FALHAS`), que não tira as 2 vagas de ver e desconectar. Sem conexão ativa, a leitura nem é feita.
+- **Degradação explícita.** Se a leitura falhar ou vencer o prazo, a resposta traz `falhasDisponiveis: false`, a tela avisa que pode não mostrar uma falha recente, e o log registra só o nome do erro. Falha ausente só significa "nenhuma falha" quando `falhasDisponiveis` é verdadeiro.
+- **Custo não resolvido.** Em empresa de muito volume, as falhas podem ficar sempre indisponíveis, com a lista preservada. O orçamento de leitura da rota passa a ser de cerca de 3 s + 1,5 s + 3 s.
+
+**Proposta, não implementada (exige migration e autorização):** índice parcial em `mcp_auditoria (empresa_id, concessao_id, ocorrido_em DESC, id DESC) WHERE evento = 'FERRAMENTA' AND resultado NOT IN ('OK', 'SEM_DADOS')`, com busca da última falha por concessão. Decidir depois do `EXPLAIN ANALYZE` em base isolada.
+
+### Parecer da rodada 3 e P3 tratados (06/11/2026, LOCAL)
+
+Astra: **APROVADO COM RESSALVAS** para a implementação local da rodada 3, sem P1 nem P2. Os 2 P3 foram tratados depois do parecer:
+
+- **Releituras ao focar a janela.** `components/admin/conexoes-leitura.ts`: uma leitura por vez; pedido explícito durante a leitura vira uma nova leitura ao final; foco é ignorado com leitura em curso ou iniciada há menos de 15 s.
+- **Categoria do log.** `categoriaDaFalhaDeLeitura`: lista fechada, sem mensagem, SQL ou parâmetro. `CONSULTA_CANCELADA` (57014) inclui `statement_timeout`; `TRAVA_INDISPONIVEL` (55P03) inclui `lock_timeout`.
+
+Ressalvas que permanecem:
+
+- **Desconectar e auditoria.** A revogação grava `mcp_auditoria` na mesma transação (já era assim na base). Se essa gravação falhar ou bloquear até o prazo, Desconectar sofre rollback e a tela informa a falha. A independência corrigida é a da leitura de diagnóstico, não de qualquer problema na tabela.
+- **Custo compartilhado.** Destruir o soquete não confirma o fim imediato da consulta no servidor, então uma vaga não garante um único backend trabalhando nem isola CPU e I/O. O limite independente é o `statement_timeout`. Sem `EXPLAIN ANALYZE`, o custo segue sem medição.
+
+### Medição PostgreSQL da experiência (07/11/2026)
+
+Os SQLs novos rodaram pela primeira vez em PostgreSQL descartável: suíte OAuth 11/11 no estado 105. Pontos medidos, tabela completa e limites em `docs/MCP_ASSINATURAS_TESTES.md`.
+
+- `listarConcessoes`, SQL isolado: mediana de 1,5 a 2,5 ms. Não é a latência da tela, pois o GET espera o diagnóstico de falhas.
+- `lerUltimasFalhas`, entre as execuções concluídas: em 500 mil eventos, mediana de 102 ms e 0/7 canceladas no pior caso. Em 2 milhões, 7/7 canceladas no pior caso e 3/7 com sucesso recente, sem plano capturado. Em 5 milhões, varredura sequencial observada nos perfis testados, inclusive empresa pequena.
+- O estado do cache não foi controlado.
+
+**Índice parcial.** Parecer do Astra (07/11): é razoável deixar a migration fora desta entrega em staging de baixo volume e acesso restrito. Antes de ampliar o piloto, é exigido o índice parcial ou uma alternativa validada sob carga. 500 mil linhas é **alerta conservador para reavaliar, não limite seguro**. A reavaliação também considera a taxa de cancelamentos sobre o total de tentativas, a latência da rota e o efeito sobre listar e revogar sob concorrência; `CONSULTA_CANCELADA` e `PRAZO_DA_APLICACAO` no log são os sinais disponíveis. O número da migration é conferido na hora de criá-la.
