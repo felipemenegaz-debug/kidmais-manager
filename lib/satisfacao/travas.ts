@@ -10,8 +10,11 @@ import type { DbExecutor } from "../db/contracts.ts";
  *                     (a conclusão e a recuperação de posse seguem a mesma ordem, sem os pais)
  *   cadastro        : cliente FOR UPDATE / UPDATE → entregas (revogação, descadastro, edição): espera o despacho ou é esperado
  *   resposta        : envio FOR UPDATE → pais NOWAIT → resposta e entregas (sem a trava por cliente)
- *   saída           : envio FOR UPDATE → INSERT da saída (a FK pede KEY SHARE no cliente, compatível com o FOR SHARE do
- *                     despacho) → supressões; sem os pais e sem a trava por cliente
+ *   saída           : empresa FOR KEY SHARE (com espera; nada seguro ainda) → envio FOR UPDATE → INSERT da saída (as
+ *                     FKs pedem KEY SHARE no cliente, compatível com o FOR SHARE do despacho, e na empresa, já seguro)
+ *                     → supressões; sem os pais e sem a trava por cliente. Pedir a empresa só no INSERT, com o envio
+ *                     seguro, fechava o ciclo com o despacho (cliente → envio) e a alteração administrativa
+ *                     (empresa FOR UPDATE → cliente) — parecer do Astra, 10/11
  * As duas entradas de cancelamento (operarContrato e o fluxo da Festa) travam fechamento → contrato com espera; como a
  * pesquisa não espera nos pais, não há ciclo.
  *

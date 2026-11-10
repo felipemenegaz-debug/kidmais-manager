@@ -193,14 +193,23 @@ export async function responderPesquisa(raw: unknown, ctx: ContextoPublico, deps
 /**
  * Saída das pesquisas (só POST; GET não grava): vale para os dois canais das PESQUISAS desta empresa e não toca no
  * Marketing (descadastro geral é outra coisa). Aceita link de envio já encerrado — sair precisa sempre funcionar.
+ *
+ * Ordem (parecer do Astra, PR → staging): a linha da empresa em FOR KEY SHARE vem ANTES do envio. A FK de
+ * satisfacao_saidas pede esse modo; pedi-lo só no INSERT, já com o envio FOR UPDATE, fechava o ciclo
+ * alteração administrativa (empresa FOR UPDATE → cliente) × despacho (cliente FOR SHARE → envio) × saída (envio → empresa).
+ * Aqui a saída ainda não segura nada, então pode esperar; a identidade do token é revalidada com o envio travado.
  */
 export async function sairDasPesquisas(raw: unknown, ctx: ContextoPublico, deps: DepsPublico = depsPublicoPadrao()) {
   const corpo = esquemaSaida.safeParse(raw);
   const { v } = await verificarEConsumir(deps, corpo.success ? corpo.data.token : null, REGRAS.sair, ctx);
   if (!corpo.success) linkIndisponivel();
   const r = await repetir(deps, async (tx) => {
+    const empresa = (await tx.query<{ e: string }>(`/* satisfacao:empresa-do-envio */ SELECT empresa_id::text AS e FROM satisfacao_envios WHERE id = $1::uuid`,
+      [v.envioId])).rows[0]?.e;
+    if (!empresa) return false;
+    await tx.query(`/* satisfacao:travar-empresa */ SELECT 1 FROM empresas WHERE id = $1::uuid FOR KEY SHARE`, [empresa]);
     const e = await travarEnvio(tx, v);
-    if (!e) return false;
+    if (!e || e.empresa_id !== empresa) return false;
     await tx.query(`INSERT INTO satisfacao_saidas (empresa_id, cliente_id, origem) VALUES ($1::uuid, $2::uuid, $3) ON CONFLICT (empresa_id, cliente_id) DO NOTHING`,
       [e.empresa_id, e.cliente_id, corpo.data.origem]);
     await suprimirPesquisas(tx, e.empresa_id, e.cliente_id, { canal: "TODOS", motivo: "SAIDA_PESQUISAS" });

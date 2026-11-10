@@ -28,7 +28,7 @@ process.env.ADMIN_AUTH_SECRET = `segredo-sintetico-de-teste-${"x".repeat(24)}`;
 const anel = lerAnel({ SATISFACAO_LINK_CHAVES: `1:${randomBytes(32).toString("base64")},2:${randomBytes(32).toString("base64")}`, SATISFACAO_LINK_CHAVE_ATUAL: "1" }) as AnelChaves;
 const soChave2 = lerAnel({ SATISFACAO_LINK_CHAVES: `2:${anel.chaves.get(2)!.toString("base64")}`, SATISFACAO_LINK_CHAVE_ATUAL: "2" }) as AnelChaves;
 
-type Publico = Record<"abrirPesquisa" | "responderPesquisa", (corpo: unknown, ctx: { ip: string | null }, deps: unknown) => Promise<Record<string, unknown>>>;
+type Publico = Record<"abrirPesquisa" | "responderPesquisa" | "sairDasPesquisas", (corpo: unknown, ctx: { ip: string | null }, deps: unknown) => Promise<Record<string, unknown>>>;
 type Envios = { criarEnvio: CriarEnvio; linkDoEnvio(tx: unknown, anel: AnelChaves, envioId: string): Promise<{ token: string; geracao: number; regenerado: boolean } | null> };
 type Pref = {
   alterarPreferencia(tx: unknown, e: string, u: string, i: unknown): Promise<unknown>;
@@ -63,6 +63,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
   const c1 = await conectarDescartavel();
   const c2 = await conectarDescartavel({ travar: false });
   const c3 = await conectarDescartavel({ travar: false });
+  const c4 = await conectarDescartavel({ travar: false });
   try {
     const carregar = <T>(c: Client, f: string) => carregarComBanco(f, c, () => null, {}, new Map()) as unknown as T;
     const pub1 = carregar<Publico>(c1, "lib/satisfacao/publico.ts"), pub2 = carregar<Publico>(c2, "lib/satisfacao/publico.ts");
@@ -125,6 +126,42 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_entregas WHERE envio_id = $1::uuid AND estado = 'PENDENTE'`, [p.envio]), 2);
     });
 
+    await t.test("P3: empresa compatível e advisory da configuração EXCLUSIVA ocupada → 55P03 em todas as tentativas, nada gravado; liberada, a repetição grava", async () => {
+      const p = await envioPronto();
+      const travasDeC1 = async () => Number((await c1.query(`SELECT count(*)::int AS n FROM pg_locks WHERE pid = pg_backend_pid() AND locktype IN ('advisory', 'tuple', 'transactionid') AND granted`)).rows[0].n);
+      const base = await travasDeC1(); // a trava de sessão do harness (advisory) permanece
+      // Mudança de configuração da agenda (114): só a advisory exclusiva, sem trava na linha da empresa (KEY SHARE segue compatível).
+      await c3.query("BEGIN");
+      await c3.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [A]);
+      const repeticoes: string[] = [];
+      try {
+        await assert.rejects(pub1.responderPesquisa({ token: p.token, notaIndicacao: 2 }, { ip: ip() }, deps(c1, { repeticao: { esperar: async () => {}, aoRepetir: (_n: number, cod: string) => repeticoes.push(cod) } })),
+          erroDe("TENTE_NOVAMENTE", 503));
+        // Rollback integral: c1 fora de transação e sem nenhuma trava além da de sessão do harness depois da recusa.
+        assert.equal(await travasDeC1(), base);
+        assert.equal((await c1.query(`SELECT pg_current_xact_id_if_assigned() IS NULL AS livre`)).rows[0].livre, true);
+      } finally {
+        await c3.query("ROLLBACK");
+      }
+      assert.deepEqual(repeticoes, ["55P03", "55P03", "55P03", "55P03"], "4 repetições = 5 tentativas, todas pela configuração ocupada");
+      assert.equal((await um(`SELECT estado FROM satisfacao_envios WHERE id = $1::uuid`, [p.envio])).estado, "ATIVO");
+      assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio]), 0);
+      assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_entregas WHERE envio_id = $1::uuid AND estado = 'PENDENTE'`, [p.envio]), 2);
+      // Liberada no meio das tentativas: a seguinte grava.
+      await c3.query("BEGIN");
+      await c3.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:agenda-config:' || $1::text, 0))`, [A]);
+      const codigos: string[] = [];
+      let liberou = false;
+      const esperar = async () => { if (!liberou) { liberou = true; await c3.query("COMMIT"); } };
+      try {
+        assert.deepEqual(await pub1.responderPesquisa({ token: p.token, notaIndicacao: 2 }, { ip: ip() }, deps(c1, { repeticao: { esperar, aoRepetir: (_n: number, cod: string) => codigos.push(cod) } })),
+          { gravada: true, linkAvaliacao: null });
+      } finally { if (!liberou) await c3.query("ROLLBACK"); }
+      assert.deepEqual(codigos, ["55P03"]);
+      assert.equal((await um(`SELECT estado FROM satisfacao_envios WHERE id = $1::uuid`, [p.envio])).estado, "RESPONDIDO");
+      assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_respostas WHERE envio_id = $1::uuid`, [p.envio]), 1);
+    });
+
     await t.test("resposta × cancelamento que confirma no meio das tentativas: a próxima tentativa revoga (FESTA_CANCELADA)", async () => {
       const p = await envioPronto();
       await travarComoCancelamento(p.f);
@@ -159,6 +196,68 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.equal((await um(`SELECT status FROM fechamentos WHERE id = $1::uuid`, [p.f])).status, "CANCELADO");
       assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_tarefas WHERE envio_id = $1::uuid`, [p.envio]), 1);
       assert.equal((await pub1.abrirPesquisa({ token: p.token }, { ip: ip() }, deps(c1))).situacao, "ENCERRADA", "PS-3 (G'): abre como ENCERRADA depois do cancelamento; o estado RESPONDIDO segue no banco");
+    });
+
+    /*
+     * Saída × despacho × alteração administrativa (parecer do Astra, P2): três transações da mesma empresa/cliente/envio.
+     * Administrativa = provarTenant (empresa FOR UPDATE) → alterarPreferencia (cliente FOR UPDATE); despacho = trava por
+     * cliente → cliente FOR SHARE → envio FOR UPDATE (as duas simuladas em SQL, na ordem real); c4 só observa.
+     */
+    const admin = (cl: string) => c3.query(`SELECT status FROM empresas WHERE id = $1::uuid FOR UPDATE`, [A])
+      .then(() => c3.query(`SELECT id FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`, [cl, A]));
+    async function despachoAteOEnvio(cl: string, envio: string) {
+      await c2.query("BEGIN");
+      await c2.query(`SELECT pg_advisory_xact_lock(hashtext('marketing:' || $1 || ':' || $2))`, [A, cl]);
+      await c2.query(`SELECT 1 FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid FOR SHARE`, [cl, A]);
+      return c2.query(`SELECT 1 FROM satisfacao_envios WHERE id = $1::uuid FOR UPDATE`, [envio]);
+    }
+    const codigo = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code ?? "erro");
+
+    await t.test("saída na ordem antiga (envio FOR UPDATE → INSERT da saída): o ciclo com despacho e administrativa existe (40P01)", async () => {
+      const p = await envioPronto();
+      await c1.query("BEGIN");
+      await c1.query(`SELECT 1 FROM satisfacao_envios WHERE id = $1::uuid FOR UPDATE`, [p.envio]);
+      const desp = codigo(despachoAteOEnvio(p.cl, p.envio));
+      await esperarBloqueio(c4, p2, p1, "satisfacao_envios");
+      await c3.query("BEGIN");
+      const adm = codigo(admin(p.cl));
+      await esperarBloqueio(c4, p3, p2, "FROM clientes");
+      const saida = codigo(c1.query(`INSERT INTO satisfacao_saidas (empresa_id, cliente_id, origem) VALUES ($1::uuid, $2::uuid, 'PAGINA')`, [A, p.cl]));
+      // O detector de deadlock aborta uma das três; as outras seguem ou esperam. Desfaz tudo e confere que houve 40P01.
+      await Promise.race([saida, desp, adm]);
+      await Promise.all([c1, c2, c3].map((c) => c.query("ROLLBACK")));
+      const todos = await Promise.all([saida, desp, adm]);
+      assert.equal(todos.filter((x) => x === "40P01").length, 1, `esperado um deadlock entre as três: ${todos.join("/")}`);
+      assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_saidas WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid`, [A, p.cl]), 0);
+    });
+
+    await t.test("saída pelo serviço (empresa KEY SHARE antes do envio) × despacho × administrativa: todos esperam em fila, sem deadlock", async () => {
+      const p = await envioPronto();
+      const chegou = { p: null as unknown as Promise<void>, ok: () => {} }, seguir = { p: null as unknown as Promise<void>, ok: () => {} };
+      chegou.p = new Promise<void>((r) => { chegou.ok = r; }); seguir.p = new Promise<void>((r) => { seguir.ok = r; });
+      const comBarreira = (base: DbExecutor): DbExecutor => ({
+        async query(sql: string, v?: unknown[]) {
+          const r = await base.query(sql, v);
+          if (sql.includes("satisfacao:travar-envio")) { chegou.ok(); await seguir.p; }
+          return r;
+        },
+      } as DbExecutor);
+      const saida = pub1.sairDasPesquisas({ token: p.token, origem: "PAGINA" }, { ip: ip() }, deps(c1, {
+        withTransaction: <T>(work: (tx: DbExecutor) => Promise<T>) => porTransacao(c1)((tx) => work(comBarreira(tx))) }));
+      await chegou.p;                                   // a saída segura a empresa (KEY SHARE) e o envio (FOR UPDATE)
+      const desp = codigo(despachoAteOEnvio(p.cl, p.envio));
+      await esperarBloqueio(c4, p2, p1, "satisfacao_envios");
+      await c3.query("BEGIN");
+      const adm = codigo(admin(p.cl));
+      await esperarBloqueio(c4, p3, p1, "FROM empresas");  // a administrativa espera a saída já na empresa
+      seguir.ok();
+      assert.deepEqual(await saida, { saiu: true });
+      assert.equal(await desp, "ok");
+      await esperarBloqueio(c4, p3, p2, "FROM clientes"); // depois da saída, a administrativa espera o despacho
+      await c2.query("COMMIT");
+      assert.equal(await adm, "ok");
+      await c3.query("ROLLBACK");
+      assert.equal(await contar(`SELECT count(*) AS n FROM satisfacao_saidas WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid`, [A, p.cl]), 1);
     });
 
     await t.test("criação: duas execuções da mesma festa em transações concorrentes → um envio (a trava por cliente serializa)", async () => {
@@ -286,6 +385,7 @@ test("110: concorrência da pesquisa (três conexões)", { timeout: 300_000 }, a
       assert.deepEqual(await porTransacao(c1)((tx) => pref1.elegivelParaMensagem(tx, A, cl)), { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" }, "depois: bloqueado");
     });
   } finally {
+    await encerrarDescartavel(c4, false);
     await encerrarDescartavel(c3, false);
     await encerrarDescartavel(c2, false);
     await encerrarDescartavel(c1);
