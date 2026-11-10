@@ -4,6 +4,7 @@ import { FORMAS } from "@/lib/financeiro/calculos";
 import { consultarFinanceiro, hojeIso } from "@/lib/financeiro/http";
 import { cancelarConta, criarContaPagar, editarContaPagar, listarContasPagar, pagarConta, pagoNoPeriodo } from "@/lib/financeiro/servico";
 import { periodoSelecionado } from "@/lib/financeiro/calculos";
+import { operacoesP2 } from "@/lib/financeiro/escritor-p2";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
   return consultarFinanceiro(request, async (tx, tenant) => ({
     contas: await listarContasPagar(tx, tenant.empresaComprovada, hoje),
     pagoMesCentavos: await pagoNoPeriodo(tx, tenant.empresaComprovada, mes.inicio, mes.fim),
+    operacoes: operacoesP2(),
     categorias: (await tx.query<{ id: string; nome: string }>(
       `SELECT id::text AS id, nome FROM financeiro_categorias WHERE empresa_id = $1::uuid AND ativo ORDER BY nome`,
       [tenant.empresaComprovada],
