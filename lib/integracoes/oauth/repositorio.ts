@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { EscopoMcp } from "../mcp/config.ts";
 import type { PrincipalMcp } from "../mcp/ferramentas.ts";
+import type { EvidenciasConexao, FalhaRegistrada } from "./situacao-conexao.ts";
 
 /**
  * Persistência das delegações OAuth do canal MCP (migration 105). Metadados de SEGURANÇA, não escrita de negócio.
@@ -102,6 +103,8 @@ export type ConcessaoResumo = {
   ultimoUsoEm: string | null;
   ultimaFerramentaEm: string | null;
   revogadaEm: string | null;
+  /** Só leitura dos registros de segurança, para a tela dizer a situação com base em fatos (situacao-conexao.ts). */
+  evidencias: Omit<EvidenciasConexao, "ultimaFalha">;
 };
 
 export const EVENTOS_SEGURANCA = [
@@ -151,6 +154,11 @@ export interface RepositorioOAuth {
   revogarConcessao(concessaoId: string, motivo: "USUARIO" | "REUSO" | "SUBSTITUIDA", porUsuarioId: string | null): Promise<boolean>;
   verificarAcesso(hash: string): Promise<AcessoVerificado | null>;
   listarConcessoes(usuarioId: string): Promise<readonly ConcessaoResumo[]>;
+  /**
+   * Última falha de ferramenta de cada concessão ativa da pessoa, à parte da lista: a varredura da auditoria pode ser cara, e a
+   * lista dá acesso a Desconectar. Só a própria pessoa; mesma seleção das 50 concessões de listarConcessoes.
+   */
+  lerUltimasFalhas(usuarioId: string): Promise<ReadonlyMap<string, FalhaRegistrada>>;
   marcarUso(concessaoId: string, ferramentaObservada: boolean): Promise<void>;
   auditar(evento: EventoSeguranca): Promise<void>;
   /**

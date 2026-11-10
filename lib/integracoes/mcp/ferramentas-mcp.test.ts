@@ -4,7 +4,7 @@ import { reaisDe } from "../../financeiro/calculos.ts";
 import { SEM_PORTAS, type ContextoFerramenta } from "../../inteligencia/ferramentas.ts";
 import { montarAgenda } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { montarAnaliseRecebiveis } from "../../inteligencia/leituras/analisar-recebiveis.ts";
-import { ErroCanalMcp, ITENS_AUDITORIA_MAX, dtoRecebiveis, executarFerramentaMcp, type DependenciasFerramentasMcp, type EventoFerramenta, type PrincipalMcp } from "./ferramentas.ts";
+import { ErroCanalMcp, ITENS_AUDITORIA_MAX, consultaLiberadaNoAmbiente, dtoRecebiveis, executarFerramentaMcp, type DependenciasFerramentasMcp, type EventoFerramenta, type PrincipalMcp } from "./ferramentas.ts";
 import { A, AGORA, B, ENV_OK, FESTAS, HOJE, RECEBIVEIS, UA, UB, deps, mundo, principalA, rec, type Mundo } from "./apoio-mcp.test.ts";
 
 /** A3, A4, A6, A10 no núcleo (sem HTTP): isolamento, recusas sem retorno parcial, minimização, paridade e auditoria. */
@@ -191,4 +191,76 @@ test("achado 7: DTO em uma passada é igual à versão por listas e não estoura
   const d = deps(mundo(), ENV_OK, eventos, { async contarRecebiveis() { return 10; }, async recebiveis() { return lista; } });
   await executarFerramentaMcp("kidmais_consultar_recebiveis_resumo", {}, principalA, d);
   assert.equal(eventos.at(-1)?.itens, ITENS_AUDITORIA_MAX, "contagem auditada limitada ao CHECK (itens ≤ 10000)");
+});
+
+// ---------------------------------------------------------------- contexto da resposta: período, fonte, ausência × permissão
+
+test("agenda sem festas: resposta válida com data, fonte e ausência distinta de falta de permissão", async () => {
+  const r = await executarFerramentaMcp("kidmais_consultar_agenda", { dia: "hoje" }, principalA, deps(mundo(), ENV_OK, [], { async agenda() { return []; } }));
+  assert.equal(r.totalFestas, 0);
+  assert.match(r.observacao, new RegExp(r.data));
+  assert.match(r.observacao, /Fonte: agenda registrada no iA\.Fest/);
+  assert.match(r.observacao, /ausência de registros, não falta de permissão/);
+  assert.match(r.observacao, /Não indica disponibilidade/);
+});
+
+test("agenda com festas e truncada mantêm período e fonte", async () => {
+  const comFestas = await executarFerramentaMcp("kidmais_consultar_agenda", {}, principalA, deps(mundo()));
+  assert.match(comFestas.observacao, new RegExp(`Fonte: .* em ${comFestas.data}`));
+  assert.doesNotMatch(comFestas.observacao, /ausência/);
+  const muitas = Array.from({ length: 51 }, (_, i) => ({ ...FESTAS[A][0], festaId: `f-${i}` }));
+  const truncada = await executarFerramentaMcp("kidmais_consultar_agenda", {}, principalA, deps(mundo(), ENV_OK, [], { async agenda() { return muitas; } }));
+  assert.match(truncada.observacao, /Lista limitada às primeiras 50/);
+  assert.match(truncada.observacao, new RegExp(truncada.data));
+});
+
+test("recebíveis zerados: ausência de lançamentos, com data de referência; com valores, sem falar em ausência", async () => {
+  const vazio = await executarFerramentaMcp("kidmais_consultar_recebiveis_resumo", {}, principalA, deps(mundo(), ENV_OK, [], { async recebiveis() { return []; }, async contarRecebiveis() { return 0; } }));
+  assert.match(vazio.observacao, new RegExp(vazio.dataReferencia));
+  assert.match(vazio.observacao, /ausência de lançamentos abertos, não falta de permissão/);
+  const cheio = await executarFerramentaMcp("kidmais_consultar_recebiveis_resumo", {}, principalA, deps(mundo()));
+  assert.match(cheio.observacao, /Fonte: contas a receber registradas no iA\.Fest/);
+  assert.doesNotMatch(cheio.observacao, /ausência/);
+});
+
+test("permissão faltando é erro, nunca lista vazia: nada lido da fonte", async () => {
+  const m = mundo();
+  await assert.rejects(
+    executarFerramentaMcp("kidmais_consultar_agenda", {}, { ...principalA, escopos: ["conhecimento:read"] }, deps(m)),
+    (e: ErroCanalMcp) => e.codigo === "ESCOPO_INSUFICIENTE" && /falta de permissão, não ausência de dados/.test(e.message) && /deseja manter e as que deseja adicionar: a nova autorização substitui a anterior/.test(e.message),
+  );
+  assert.deepEqual(m.leituras, []);
+});
+
+test("busca sem correspondência: falta de evidência, distinta de falta de permissão", async () => {
+  const r = await executarFerramentaMcp("kidmais_buscar_conhecimento", { consulta: "zzzz inexistente qqqq" }, principalA, deps(mundo()));
+  assert.equal(r.semEvidencia, true);
+  assert.match(r.observacao, /falta evidência documental, não permissão/);
+});
+
+// 11º parecer, P2: a tela usa consultaLiberadaNoAmbiente para não oferecer a pergunta pronta que seria recusada. Ela
+// precisa dizer "não" em todas as recusas de AMBIENTE da execução, e "sim" quando a execução passa.
+test("consultaLiberadaNoAmbiente acompanha as recusas de ambiente da execução", async () => {
+  assert.equal(consultaLiberadaNoAmbiente(ENV_OK, "kidmais_buscar_conhecimento", A), true);
+  const ambiente = CASOS.filter((c) => c.codigo === "CANAL_DESATIVADO");
+  assert.ok(ambiente.length >= 6);
+  for (const caso of ambiente) {
+    const env = caso.ajustar(mundo()).env;
+    assert.ok(env, caso.nome);
+    assert.equal(consultaLiberadaNoAmbiente(env as typeof ENV_OK, "kidmais_buscar_conhecimento", A), false, caso.nome);
+  }
+});
+
+// 12º parecer, P2: o segredo das referências é porta de ambiente da busca; sem ele a tela não oferece a pergunta e a
+// execução responde INDISPONIVEL. Controle positivo: com o segredo, as duas liberam.
+test("sem MCP_REF_SECRET (ou curto), a liberação da busca e a execução concordam: fechadas", async () => {
+  for (const segredo of [undefined, "curto"]) {
+    const env = { ...ENV_OK, MCP_REF_SECRET: segredo };
+    assert.equal(consultaLiberadaNoAmbiente(env, "kidmais_buscar_conhecimento", A), false);
+    assert.equal(consultaLiberadaNoAmbiente(env, "kidmais_obter_trecho", A), false);
+    assert.equal(consultaLiberadaNoAmbiente(env, "kidmais_consultar_agenda", A), true, "a agenda não usa o segredo");
+    await assert.rejects(executarFerramentaMcp("kidmais_buscar_conhecimento", { consulta: "onde vejo contas a receber" }, principalA, deps(mundo(), env)), (e: ErroCanalMcp) => e.codigo === "INDISPONIVEL");
+  }
+  assert.equal(consultaLiberadaNoAmbiente(ENV_OK, "kidmais_buscar_conhecimento", A), true);
+  await executarFerramentaMcp("kidmais_buscar_conhecimento", { consulta: "onde vejo contas a receber" }, principalA, deps(mundo()));
 });

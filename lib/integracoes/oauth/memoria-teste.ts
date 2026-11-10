@@ -6,6 +6,7 @@ import {
   type AcessoVerificado, type AtualizacaoGuardada, type ClienteOAuth, type CodigoGuardado, type ConcessaoResumo, type EventoSeguranca, type NovaConcessao,
   type PedidoAutorizacao, type RepositorioOAuth, type ResultadoExpurgo,
 } from "./repositorio.ts";
+import type { EvidenciasConexao, FalhaRegistrada } from "./situacao-conexao.ts";
 
 /**
  * SOMENTE TESTE. Implementação em memória do RepositorioOAuth para os testes offline e de protocolo em loopback.
@@ -150,10 +151,44 @@ export class RepositorioOAuthMemoria implements RepositorioOAuth {
     return { ...principal, recurso: c.recurso, expiraEm: t.expiraEm };
   }
   async listarConcessoes(usuarioId: string): Promise<readonly ConcessaoResumo[]> {
-    return [...this.concessoes.values()].filter((c) => c.usuarioId === usuarioId).map((c) => ({
+    return this.selecao(usuarioId).map((c) => ({
       id: c.id, clientId: c.clientId, clienteNome: c.clienteNome, empresaId: c.empresaId, empresaNome: this.empresas.get(c.empresaId) ?? c.empresaId, escopos: c.escopos, criadaEm: c.criadaEm.toISOString(),
       ultimoUsoEm: c.ultimoUsoEm?.toISOString() ?? null, ultimaFerramentaEm: c.ultimaFerramentaEm?.toISOString() ?? null, revogadaEm: c.revogadaEm?.toISOString() ?? null,
+      evidencias: this.evidencias(c),
     }));
+  }
+  private selecao(usuarioId: string) {
+    const ordem = (c: Concessao) => [c.revogadaEm ? 1 : 0, -c.criadaEm.getTime()];
+    return [...this.concessoes.values()].filter((c) => c.usuarioId === usuarioId)
+      .sort((a, b) => ordem(a)[0] - ordem(b)[0] || ordem(a)[1] - ordem(b)[1]).slice(0, 50);
+  }
+  /** Mesmas regras de lerUltimasFalhas do PostgreSQL. */
+  async lerUltimasFalhas(usuarioId: string): Promise<ReadonlyMap<string, FalhaRegistrada>> {
+    const agora = this.agora();
+    const saida = new Map<string, FalhaRegistrada>();
+    for (const c of this.selecao(usuarioId)) {
+      if (c.revogadaEm) continue;
+      const piso = Math.max((c.ultimaFerramentaEm ?? c.criadaEm).getTime(), agora.getTime() - 30 * 86_400_000);
+      const falhas = this.auditoria.filter((a) => a.evento === "FERRAMENTA" && a.concessaoId === c.id && a.empresaId === c.empresaId
+        && a.resultado !== "OK" && a.resultado !== "SEM_DADOS" && a.ocorridoEm !== undefined && a.ocorridoEm.getTime() > piso);
+      // Última pelo horário, como no SQL; no empate, a gravada depois (a.id DESC).
+      const falha = falhas.reduce<(typeof falhas)[number] | undefined>((ult, a) => (!ult || a.ocorridoEm! >= ult.ocorridoEm! ? a : ult), undefined);
+      if (falha) saida.set(c.id, { codigo: falha.codigo, capacidade: falha.capacidade ?? null, em: falha.ocorridoEm!.toISOString() });
+    }
+    return saida;
+  }
+  /** Mesmas regras da consulta do PostgreSQL (postgres.ts, listarConcessoes). */
+  private evidencias(c: Concessao): Omit<EvidenciasConexao, "ultimaFalha"> {
+    const agora = this.agora();
+    const codigos = [...this.codigos.values()].filter((k) => k.concessaoId === c.id);
+    const u = this.usuarios.get(c.usuarioId);
+    return {
+      motivoRevogacao: c.motivo as EvidenciasConexao["motivoRevogacao"],
+      credencialInvalida: u ? !u.ativo || u.senhaAlteradaEm == null || u.senhaAlteradaEm > c.criadaEm : false,
+      codigoUsado: codigos.some((k) => k.usado),
+      codigoPendente: codigos.some((k) => !k.usado && k.expiraEm > agora),
+      tokenVigente: [...this.tokens.values()].some((t) => t.concessaoId === c.id && t.revogadoEm === null && t.expiraEm > agora),
+    };
   }
   async marcarUso(id: string, ferramenta: boolean) {
     const c = this.concessoes.get(id);
