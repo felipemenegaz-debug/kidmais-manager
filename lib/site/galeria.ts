@@ -1,7 +1,17 @@
+import type { RecursoId } from './catalogo';
+
 // Capturas aprovadas; dados ilustrativos, sem consultas ao sistema.
-export const galeria = [
+// recursos: ids do catálogo; o selo "Em breve" sai do status de cada um (mesma regra dos planos).
+// planos: planos que incluem o recurso, conforme a barreira do servidor (lib/assinatura/recursos-plano.ts).
+export type ItemGaleria = {
+  id: string; recursos: RecursoId[]; planos?: string; nome: string; titulo: string; texto: string; itens: string[];
+  tela: string; legenda: string; nota: string;
+  imagens: { src: string; label: string; alt: string; width: number; height: number; crop: boolean }[];
+};
+export const galeria: ItemGaleria[] = [
   {
     "id": "agenda",
+    "recursos": ["agenda"],
     "nome": "Agenda",
     "titulo": "Cada salão, com sua agenda.",
     "texto": "Organize mais de um salão na mesma unidade e acompanhe a ocupação de cada espaço.",
@@ -26,6 +36,8 @@ export const galeria = [
   },
   {
     "id": "orcamento",
+    "recursos": ["orcamento"],
+    "planos": "Profissional e Premium",
     "nome": "Orçamento online",
     "titulo": "Seu cliente monta a festa.",
     "texto": "Uma jornada para consultar datas, escolher o pacote e conferir o orçamento com os preços do buffet.",
@@ -66,6 +78,7 @@ export const galeria = [
   },
   {
     "id": "contratos",
+    "recursos": ["contratos"],
     "nome": "Contratos",
     "titulo": "Seu modelo. Os dados da festa.",
     "texto": "Prepare o contrato com cliente, pacote, adicionais e valores. O documento acompanha a operação.",
@@ -90,6 +103,7 @@ export const galeria = [
   },
   {
     "id": "financeiro",
+    "recursos": ["financeiro","pix"],
     "nome": "Financeiro",
     "titulo": "Saiba o que entra e o que sai.",
     "texto": "Acompanhe parcelas, atrasos e recebimentos. No financeiro completo, reúna também despesas, caixa e relatórios.",
@@ -114,6 +128,7 @@ export const galeria = [
   },
   {
     "id": "festas",
+    "recursos": ["festas"],
     "nome": "Gestão de festas",
     "titulo": "Cada detalhe da festa, no mesmo lugar.",
     "texto": "Organize buffet, tarefas, convidados e pendências. Sua equipe acompanha o que falta até o fechamento.",
@@ -138,6 +153,7 @@ export const galeria = [
   },
   {
     "id": "convites",
+    "recursos": ["convite"],
     "nome": "Convites",
     "titulo": "Seu convite começa com uma ideia.",
     "texto": "Diga o tema e as cores em um simples comando de texto. A IA cria a arte do convite; se quiser, descreva também estilo, personagens e detalhes da cena.",
@@ -171,6 +187,7 @@ export const galeria = [
   },
   {
     "id": "clientes",
+    "recursos": ["clientes"],
     "nome": "Clientes",
     "titulo": "Conheça a família, guarde a história.",
     "texto": "Centralize os dados do contratante e dos aniversariantes, com acesso às festas e aos contratos do cliente.",
@@ -195,6 +212,7 @@ export const galeria = [
   },
   {
     "id": "pacotes",
+    "recursos": ["festas","horarios"],
     "nome": "Pacotes e cardápio",
     "titulo": "Seu cardápio. Suas regras de preço.",
     "texto": "Organize a composição dos pacotes, faixas de convidados e adicionais com os preços da sua empresa.",
@@ -219,6 +237,8 @@ export const galeria = [
   },
   {
     "id": "site",
+    "recursos": [],
+    "planos": "Profissional e Premium",
     "nome": "Site do buffet",
     "titulo": "Uma vitrine com a sua identidade.",
     "texto": "Apresente a unidade com sua marca, fotos, pacotes e contatos. Confira a prévia antes de publicar.",
@@ -243,6 +263,8 @@ export const galeria = [
   },
   {
     "id": "marketing",
+    "recursos": [],
+    "planos": "Profissional e Premium",
     "nome": "Marketing e automação",
     "titulo": "O relacionamento continua depois da festa.",
     "texto": "Acompanhe a origem dos contatos e transforme campanhas em relacionamento: retome propostas, agradeça pela festa e convide a família para a próxima comemoração.",
@@ -268,6 +290,7 @@ export const galeria = [
   },
   {
     "id": "ia",
+    "recursos": ["importacao_contratos","importacao_precos"],
     "nome": "Importação por IA",
     "titulo": "Sua história não começa do zero.",
     "texto": "Traga documentos e confira os dados extraídos antes de aplicá-los ao sistema.",
@@ -292,6 +315,7 @@ export const galeria = [
   },
   {
     "id": "copiloto",
+    "recursos": ["copiloto"],
     "nome": "Copiloto",
     "titulo": "Peça uma tarefa. Revise. Confirme.",
     "texto": "O Copiloto também executa ações no sistema, respeitando as permissões da equipe e pedindo sua confirmação antes de salvar.",

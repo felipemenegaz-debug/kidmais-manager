@@ -1,5 +1,7 @@
 # Festas
 
+!video[Vídeo: como acompanhar as festas, passo a passo](/ajuda/videos/acompanhar-festas.mp4)
+
 ## Como uma festa é criada
 
 A festa entra em [Festas](/admin/festas) sozinha, depois que o contrato é assinado pelo buffet e pelo cliente. Contratos antigos assinados em papel entram quando são importados e integrados. Para começar uma festa nova, faça o fechamento:

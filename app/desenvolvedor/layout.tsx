@@ -5,7 +5,7 @@ import DesenvolvedorShell from '@/components/desenvolvedor/DesenvolvedorShell';
 import { exigirDesenvolvedorNaPagina } from '@/lib/desenvolvedor/pagina';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Painel do desenvolvedor — Kidmais Manager', robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: 'Painel do desenvolvedor — iA.Fest', robots: { index: false, follow: false } };
 
 /** Área separada da administração das empresas. Cada page.tsx repete a guarda (o layout não roda na navegação do cliente). */
 export default async function DesenvolvedorLayout({ children }: { children: React.ReactNode }) {

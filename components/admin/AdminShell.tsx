@@ -29,9 +29,9 @@ import { CONSENTIMENTO_MCP, loginDestaPagina } from '@/lib/http/retorno-login';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
 // Créditos de IA: saldo e devolução de pacote pago continuam acessíveis com a empresa bloqueada (a compra recusa no servidor).
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/configuracoes/creditos', '/admin/inicio', ROTA_AJUDA];
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/conexoes-ia', '/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/configuracoes/creditos', '/admin/inicio', ROTA_AJUDA];
 /** Telas abertas sem empresa ativa: conta e ajuda (nenhum dado de negócio). */
-const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/perfil', ROTA_AJUDA];
+const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/conexoes-ia', '/admin/perfil', ROTA_AJUDA];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
