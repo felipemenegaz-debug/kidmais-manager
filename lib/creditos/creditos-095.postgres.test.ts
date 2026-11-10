@@ -1172,6 +1172,121 @@ test("095 (P2 da revisão): pago após cancelamento → revisão; saídas do ope
   }
 });
 
+test("095 (janela sandbox 09/11, R3–R5): removida grava DELETED; pedido devolvido/revertido não aparece liberado; operador conclui a devolução manual", { timeout: 180_000 }, async (t) => {
+  if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const c = await conectarDescartavel();
+  try {
+    const duble = asaasDuble();
+    const ctx = { provedor: duble.cliente, ambiente: "sandbox" as const, conta: "padrao" };
+    await c.query("BEGIN");
+    const R = await empresa(c, "Créditos R (R3–R5)"), uR = await gestao(c, R);
+    await assinaturaPaga(c, R, "cus_R");
+    await legado(c, R, 0, 0);
+    // Operador da plataforma: concessão de desenvolvedor sintética (o painel trava a concessão na transação).
+    const op = await id(c, `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Operador R3', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`,
+      [`${cod()}@example.test`, SENHA_FALSA]);
+    await c.query("INSERT INTO plataforma_desenvolvedores (usuario_id, concedido_por, motivo) VALUES ($1, 'Teste R3', 'Concessão sintética da prova R3')", [op]);
+    await c.query("COMMIT");
+    await emTx(c)((t2) => aplicarCorte(t2, R, "TESTE R3-R5 09/11"));
+    const tenant = (async <T>(_s: unknown, _e: unknown, w: (t2: DbExecutor, t: object) => Promise<T>) =>
+      emTx(c)((t2) => w(t2, { empresaComprovada: R, papelAtual: "REPRESENTANTE_AUTORIZADO", membershipId: "m", usuarioId: uR }))) as unknown as DepsCreditos["withTenantTransaction"];
+    const deps: DepsCreditos = { withTenantTransaction: tenant, withTransaction: emTx(c), provedor: () => ({ cliente: duble.cliente, ambiente: "sandbox" }), consumirLimite: async () => true, env: ENV };
+    const comprar = async () => {
+      const r = await criarPedido(sessao(uR), null, { oferta: "CONVITES_10", forma: "PIX", chave: randomUUID(), confirmar: true, precoEsperadoCentavos: 5900, termosVersao: "creditos-ia-20261022.demo" }, deps);
+      const p = (await c.query("SELECT p.id, c.id AS cobranca_id, c.pagamento_id FROM ia_credito_pedidos p JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica WHERE p.protocolo = $1", [r.protocolo])).rows[0];
+      return { protocolo: r.protocolo, id: p.id as string, cobranca: p.cobranca_id as string, pagamento: p.pagamento_id as string };
+    };
+    const cobranca = async (cobrancaId: string) => (await c.query<{ situacao_provedor: string; x: string }>("SELECT situacao_provedor, xmin::text AS x FROM ia_credito_cobrancas WHERE id = $1::uuid", [cobrancaId])).rows[0];
+    type Linha = { protocolo: string; estado: string; saldoCancelado: boolean; devolucao: { protocolo: string; estado: string } | null };
+    const tela = async (protocolo: string) => {
+      const r = await consultarCreditos(sessao(uR), null, { withTenantTransaction: tenant, env: ENV }) as unknown as { pedidos: Linha[] };
+      return r.pedidos.find((p) => p.protocolo === protocolo)!;
+    };
+
+    // R5: cobrança removida no Asaas → ENCERRADO com situacao_provedor DELETED (antes ficava PENDING); a releitura não escreve.
+    const removida = await comprar();
+    assert.equal((await cobranca(removida.cobranca)).situacao_provedor, "PENDING");
+    duble.pagar(removida.pagamento, "PENDING", { deleted: true });
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, removida.id, ctx))).resultado, "ENCERRADO");
+    const r1 = await cobranca(removida.cobranca);
+    assert.equal(r1.situacao_provedor, "DELETED");
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, removida.id, ctx)), { resultado: "JA_CONCLUIDO" });
+    assert.equal((await cobranca(removida.cobranca)).x, r1.x, "segunda leitura sem escrita na cobrança");
+    // ENCERRADO anterior à correção (PENDING gravado): converge na próxima reconciliação, uma vez.
+    await c.query("UPDATE ia_credito_cobrancas SET situacao_provedor = 'PENDING' WHERE id = $1::uuid", [removida.cobranca]);
+    assert.ok((await emTx(c)((t2) => pedidosParaReconciliar(t2))).includes(removida.id), "o encerrado recente é revisitado");
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, removida.id, ctx)), { resultado: "JA_CONCLUIDO" });
+    const r2 = await cobranca(removida.cobranca);
+    assert.equal(r2.situacao_provedor, "DELETED");
+    assert.deepEqual(await emTx(c)((t2) => processarPedido(t2, removida.id, ctx)), { resultado: "JA_CONCLUIDO" });
+    assert.equal((await cobranca(removida.cobranca)).x, r2.x, "convergido, a leitura seguinte não escreve");
+    assert.equal((await c.query("SELECT estado FROM ia_credito_pedidos WHERE id = $1::uuid", [removida.id])).rows[0].estado, "ENCERRADO");
+
+    // R4: pago e depois estornado no Asaas (sem devolução nossa): continua CREDITADO, mas a tela recebe saldoCancelado.
+    const revertido = await comprar();
+    duble.pagar(revertido.pagamento, "RECEIVED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, revertido.id, ctx))).resultado, "CREDITADO");
+    const antes = await tela(revertido.protocolo);
+    assert.deepEqual([antes.estado, antes.saldoCancelado], ["CREDITADO", false]);
+    duble.pagar(revertido.pagamento, "REFUNDED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, revertido.id, ctx))).resultado, "ESTORNO");
+    const vr = await tela(revertido.protocolo);
+    assert.deepEqual([vr.estado, vr.saldoCancelado, vr.devolucao], ["CREDITADO", true, null]);
+
+    // R4 + R3: devolução pela Gestão (flag de estorno desligada → AGUARDANDO_MANUAL); a tela mostra a devolução.
+    const devolvido = await comprar();
+    duble.pagar(devolvido.pagamento, "RECEIVED");
+    assert.equal((await emTx(c)((t2) => processarPedido(t2, devolvido.id, ctx))).resultado, "CREDITADO");
+    const dev = await emTx(c)((t2) => registrarDevolucao(t2, { empresaId: R, protocoloPedido: devolvido.protocolo, tipo: "ARREPENDIMENTO_7_DIAS", valorEsperado: 5900, chave: randomUUID(),
+      solicitadoPor: uR, origem: "GESTAO" }));
+    assert.equal(dev.estado, "AGUARDANDO_MANUAL");
+    assert.equal((await tela(devolvido.protocolo)).devolucao?.estado, "AGUARDANDO_MANUAL");
+    // Outra devolução com estorno automático em curso: aparece na fila, mas o operador não conclui à mão (409).
+    const emCurso = await comprar();
+    duble.pagar(emCurso.pagamento, "RECEIVED");
+    await emTx(c)((t2) => processarPedido(t2, emCurso.id, ctx));
+    const devCurso = await emTx(c)((t2) => registrarDevolucao(t2, { empresaId: R, protocoloPedido: emCurso.protocolo, tipo: "ARREPENDIMENTO_7_DIAS", valorEsperado: 5900, chave: randomUUID(),
+      solicitadoPor: uR, origem: "ATENDIMENTO" }));
+    await c.query("UPDATE ia_credito_devolucoes SET estado = 'EM_CURSO', modo = 'AUTOMATICO' WHERE protocolo = $1", [devCurso.protocolo]);
+
+    // R3: painel do desenvolvedor (mesmo módulo da rota /api/desenvolvedor/creditos), banco dublado pela conexão descartável.
+    const auditorias: { acao: string; entidadeId: string; usuarioId: string }[] = [];
+    const painel = carregarModulo("lib/desenvolvedor/creditos.ts", { "db/postgres": { db: () => c, withTransaction: emTx(c) } }) as unknown as {
+      filaCreditos: (s: SessaoAdmin, d: unknown) => Promise<{ instalado: boolean; devolucoes: Record<string, unknown>[] }>;
+      operarCreditos: (s: SessaoAdmin, raw: unknown, ctx: unknown, d: unknown) => Promise<{ estado: string; repetida: boolean }> };
+    const depsPainel = { withTransaction: emTx(c), registrarAuditoria: async (a: { acao: string; entidadeId: string; usuarioId: string }, tx?: unknown) => { assert.ok(tx, "auditoria na mesma transação"); auditorias.push({ acao: a.acao, entidadeId: a.entidadeId, usuarioId: a.usuarioId }); } };
+    const ctxPainel = { requestId: randomUUID(), ip: null, userAgent: "teste R3" };
+    const fila = await painel.filaCreditos(sessao(op), depsPainel);
+    assert.equal(fila.instalado, true);
+    const linha = fila.devolucoes.find((d) => d.protocolo === dev.protocolo)!;
+    assert.deepEqual([linha.pedido_protocolo, linha.empresa_nome, linha.origem, linha.estado, linha.tipo, Number(linha.valor_centavos)],
+      [devolvido.protocolo, "Créditos R (R3–R5)", "GESTAO", "AGUARDANDO_MANUAL", "ARREPENDIMENTO_7_DIAS", 5900]);
+    assert.equal(fila.devolucoes.find((d) => d.protocolo === devCurso.protocolo)?.estado, "EM_CURSO");
+    // Sem a concessão de desenvolvedor: recusa (a Gestão do buffet nunca conclui devolução).
+    await assert.rejects(painel.filaCreditos(sessao(uR), depsPainel));
+    await assert.rejects(painel.operarCreditos(sessao(uR), { acao: "concluir_devolucao", protocolo: dev.protocolo, referencia: "pix-estorno-123" }, ctxPainel, depsPainel));
+    await assert.rejects(painel.operarCreditos(sessao(op), { acao: "concluir_devolucao", protocolo: dev.protocolo, referencia: " a " }, ctxPainel, depsPainel), "referência curta recusada no schema");
+    await assert.rejects(painel.operarCreditos(sessao(op), { acao: "concluir_devolucao", protocolo: devCurso.protocolo, referencia: "pix-estorno-999" }, ctxPainel, depsPainel),
+      (e: { code?: string; httpStatus?: number }) => e.code === "CONFLITO" && e.httpStatus === 409);
+    assert.equal((await c.query("SELECT estado FROM ia_credito_devolucoes WHERE protocolo = $1", [devCurso.protocolo])).rows[0].estado, "EM_CURSO");
+    assert.deepEqual(auditorias, [], "recusas sem auditoria de sucesso");
+    // Conclusão: uma vez, com referência e auditoria; repetir devolve "repetida" sem nova auditoria.
+    assert.deepEqual(await painel.operarCreditos(sessao(op), { acao: "concluir_devolucao", protocolo: dev.protocolo, referencia: "  pix-estorno-123  " }, ctxPainel, depsPainel),
+      { estado: "CONCLUIDO", repetida: false });
+    assert.deepEqual(await painel.operarCreditos(sessao(op), { acao: "concluir_devolucao", protocolo: dev.protocolo, referencia: "outra-ref" }, ctxPainel, depsPainel),
+      { estado: "CONCLUIDO", repetida: true });
+    assert.deepEqual(auditorias, [{ acao: "CREDITOS_DEVOLUCAO_CONCLUIDA", entidadeId: R, usuarioId: op }]);
+    const fechada = (await c.query("SELECT estado, referencia, concluido_em IS NOT NULL AS concluida FROM ia_credito_devolucoes WHERE protocolo = $1", [dev.protocolo])).rows[0];
+    assert.deepEqual(fechada, { estado: "CONCLUIDO", referencia: "pix-estorno-123", concluida: true });
+    assert.equal((await painel.filaCreditos(sessao(op), depsPainel)).devolucoes.some((d) => d.protocolo === dev.protocolo), false, "concluída sai da fila");
+    const vd = await tela(devolvido.protocolo);
+    assert.deepEqual([vd.estado, vd.devolucao?.estado], ["CREDITADO", "CONCLUIDO"]);
+    assert.equal(await fotografia(c, S.B), S.fotoB, "B intacta");
+  } finally {
+    await encerrarDescartavel(c);
+  }
+});
+
 test("095: exportação com os créditos (colunas excluídas, filtro por empresa) e rollback recusado com dados", { timeout: 120_000 }, async (t) => {
   if (!opt()) { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
