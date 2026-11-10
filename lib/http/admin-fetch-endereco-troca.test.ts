@@ -18,6 +18,7 @@ function ambiente(roteiro: { sessoes: Sessao[]; aoLer?: (n: number, ctx: Ctx) =>
     const armazenado = new Map<string, string>();
     const chamadas: string[] = [];
     let leitura = 0;
+    let retida: Promise<Response> | null = null;
     const g = globalThis as unknown as Record<string, unknown>;
     g.window = { addEventListener() {}, removeEventListener() {}, location: { pathname: '/admin/configuracoes', search: '', replace: (u: string) => navegacoes.push(`replace:${u}`), assign: (u: string) => navegacoes.push(`assign:${u}`) } };
     g.sessionStorage = { getItem: (k: string) => armazenado.get(k) ?? null, setItem: (k: string, v: string) => armazenado.set(k, v), removeItem: (k: string) => armazenado.delete(k) };
@@ -27,7 +28,7 @@ function ambiente(roteiro: { sessoes: Sessao[]; aoLer?: (n: number, ctx: Ctx) =>
     const cli = carregarModulo('lib/enderecos/cliente.ts', {}, cache) as unknown as { iniciarAcompanhamento: () => () => void; enderecoFinal: () => boolean };
     g.fetch = async (input: string, init: RequestInit = {}) => {
         chamadas.push(String(input));
-        if (input === '/api/endereco-atual') return new Response(JSON.stringify(ARMAR));
+        if (input === '/api/endereco-atual') return retida ?? new Response(JSON.stringify(ARMAR));
         if (input === '/api/admin/autenticacao') {
             const n = leitura;
             leitura += 1;
@@ -49,8 +50,14 @@ function ambiente(roteiro: { sessoes: Sessao[]; aoLer?: (n: number, ctx: Ctx) =>
         const base = agoraReal();
         Date.now = () => base + 31_000;
     };
+    // Retém a próxima consulta do endereço até soltar(corpo).
+    const reter = () => {
+        let soltar!: (corpo: unknown) => void;
+        retida = new Promise<Response>((r) => { soltar = (corpo) => r(new Response(JSON.stringify(corpo))); });
+        return (corpo: unknown) => { retida = null; soltar(corpo); };
+    };
     return {
-        mod, ctx, cli, armar, navegacoes,
+        mod, ctx, cli, armar, reter, navegacoes,
         consultas: () => chamadas.filter((c) => c === '/api/endereco-atual').length,
         envios: () => chamadas.filter((c) => c === '/api/x').length,
     };
@@ -122,4 +129,34 @@ test('aba armada, leitura cancelada pelo sinal na confirmação posterior: termi
     assert.equal(a.consultas(), antes);
     assert.deepEqual(a.navegacoes, []);
     assert.equal(a.ctx.lerAvisoDeContexto(), null);
+});
+
+test('20º parecer, P2: leitura cancelada durante a decisão do endereço (403 na posterior): termina com o motivo, sem descartar nem navegar', async () => {
+    const controle = new AbortController();
+    const a = ambiente({ sessoes: [S1, 'http403'] });
+    await a.armar();
+    const soltar = a.reter();
+    const p = erroDe(a.mod.adminFetch('/api/x', { signal: controle.signal }));
+    // Espera a consulta do endereço começar (a decisão fica retida nela).
+    for (let i = 0; i < 50 && a.consultas() < 2; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(a.consultas(), 2, 'a falha real consultou o endereço');
+    controle.abort();
+    // Diagnóstico que leva a COMO_HOJE: sem ele a decisão descartaria a página.
+    soltar({ modoEfetivo: 'DESLIGADO', painelNesteHost: null, toleranciaAtiva: true });
+    const e = await p;
+    assert.equal(e, controle.signal.reason);
+    assert.deepEqual(a.navegacoes, [], 'cancelada, a leitura não descarta a página');
+    assert.equal(a.ctx.lerAvisoDeContexto(), null);
+});
+
+test('controle do 20º parecer: sem cancelamento, o mesmo diagnóstico descarta a página (COMO_HOJE)', async () => {
+    const a = ambiente({ sessoes: [S1, 'http403'] });
+    await a.armar();
+    const soltar = a.reter();
+    const p = erroDe(a.mod.adminFetch('/api/x'));
+    for (let i = 0; i < 50 && a.consultas() < 2; i++) await new Promise((r) => setImmediate(r));
+    soltar({ modoEfetivo: 'DESLIGADO', painelNesteHost: null, toleranciaAtiva: true });
+    const e = await p;
+    assert.equal(e.tipo, 'SESSAO_NAO_CONFIRMADA');
+    assert.ok(a.navegacoes.length > 0, 'sem cancelamento o descarte acontece: o oráculo do teste anterior não é vazio');
 });

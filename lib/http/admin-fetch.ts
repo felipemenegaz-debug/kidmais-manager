@@ -420,6 +420,9 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         if (falhaDoServidor(depois)) {
             const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(depois.status), telaCarregada: true, aindaValida });
             pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
+            // 20º parecer, P2: leitura cancelada durante a decisão do endereço termina com o motivo, sem descartar a página.
+            // Depois do estado final (que tem precedência); a escrita já enviada não é cancelável.
+            if (!escrita) init.signal?.throwIfAborted();
             if (decisao !== 'COMO_HOJE') {
                 // Tela mantida, leitura não entregue, escrita não repetida: sem reiniciar o contexto.
                 envio?.anotar(avisoEmVerificacao(natureza, situacao, AVISO_ULTIMA_ESCRITA_CONCLUIDA));

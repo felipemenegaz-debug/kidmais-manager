@@ -1111,3 +1111,19 @@ Verificação local na fusão, Node 22.23.2:
 - `next build` com código 0, `next-env.d.ts` restaurado. Chrome com APIs simuladas sobre o build (`prova-merge-consentimento.cjs`, mesmos cenários da r20): 28/28, desktop e celular de 375 px.
 
 Não exercidos: banco real, sessão real, troca de host real, ChatGPT e Claude reais, homologação.
+
+### Fusão com staging: 20º parecer do Astra, P2 do cancelamento na decisão do endereço (10/11/2026)
+
+Parecer sobre a fusão b8f722f0: **REPROVADO**, com 0 P1, 1 P2 e 0 P3. Nos demais pontos, nenhuma regressão.
+
+**P2: leitura cancelada durante a decisão do endereço descartava a página.** Na confirmação posterior, o sinal só era conferido antes de `await decidirFalhaSessao(...)`, uma espera nova que veio do F2a. Uma leitura cancelada durante essa espera, com a decisão `COMO_HOJE`, seguia até `descartarPagina` e navegava ao painel sem evidência de sessão encerrada ou de contexto diferente. Na confirmação prévia a decisão é `void`, sem espera, então o caso não se repete lá.
+
+Correção: logo depois do `pararSeEnderecoFinal` que segue a decisão, `if (!escrita) init.signal?.throwIfAborted()`. O estado final do endereço continua com precedência, e a escrita já enviada continua sem cancelamento.
+
+Testes em `lib/http/admin-fetch-endereco-troca.test.ts`, com a consulta do endereço retida (`reter`):
+- 403 na posterior, cancelamento durante a decisão e diagnóstico `DESLIGADO` com `toleranciaAtiva` (que leva a `COMO_HOJE`): termina com `signal.reason`, sem navegar e sem aviso guardado;
+- controle: sem cancelamento, o mesmo diagnóstico descarta a página. Isso mostra que o oráculo do teste anterior não é vazio.
+
+Controle negativo em cópia isolada: sem a conferência nova, o teste do cancelamento cai por falha de asserção (`testCodeFailure`) e o controle continua passando.
+
+Verificação local: 874/874 em série e em paralelo (75 arquivos, 0 cancelados), tsc e diff-check verdes, ESLint 0 erros (1 aviso que já existia em staging, #235); build e Chrome não repetidos (mudança de uma linha só de leitura, mais testes).
