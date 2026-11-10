@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
 import AvisoContexto from '@/components/admin/AvisoContexto';
 import { destinoAposLogin } from '@/lib/http/retorno-login';
+import { esquecerBuscasDaAba } from '@/lib/http/contexto-empresa-cliente';
 /** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor (e o consentimento MCP). */
 function destinoSeguro() {
     return destinoAposLogin(new URLSearchParams(window.location.search).get('voltar') ?? '');
@@ -12,6 +13,8 @@ export default function LoginAdmin() {
     const router = useRouter();
     const [mostrarSenha, setMostrarSenha] = useState(false);
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+    // Sessão expirada, revogada ou encerrada termina aqui: buscas guardadas na aba (lib/http/busca-na-aba.ts) saem antes do login.
+    useEffect(() => { esquecerBuscasDaAba(); }, []);
     return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form method="post" onSubmit={async (event) => {
             event.preventDefault();
