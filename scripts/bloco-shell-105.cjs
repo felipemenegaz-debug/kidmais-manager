@@ -13,7 +13,10 @@
 //     comprovado (registro de quando e de onde restaurar, anterior à aplicação). Em produção (plano MCP produção, P1), no
 //     formato "PITR <AAAA-MM-DDTHH:MMZ> <referencia>": Felipe conferiu no painel do Render que o ponto de restauração
 //     cobre o instante da aplicação (o aplicador recusa conferência com mais de 120 min) e o marcador guarda a referência;
-//   - produção: 5 SQL (os 4 de staging + definições), núcleo de produção, e o código 5 do aplicador (FALHA com o marcador
+//   - staging: desde 10/11/2026 também confere pela definição (CONFERIR e guarda de reaplicação): os mesmos 5 SQL de produção e
+//     os módulos de definições, relações e conferencia-b5-105 entram na lista de arquivos conferidos por sha256;
+//   - produção: 5 SQL (os mesmos de staging), núcleo de produção, relações das seis tabelas pela definição
+//     (scripts/migration-105-relacoes.cjs + scripts/conferencia-b5-105.cjs, 09/11/2026), e o código 5 do aplicador (FALHA com o marcador
 //     desatualizado: a saída é o único registro do COMMIT).
 // O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
 //   node scripts/bloco-shell-105.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>
@@ -21,20 +24,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {ETAPAS} = require('./migration-105-comum.cjs');
+const {ARQUIVOS} = require('./migration-105-comum.cjs');
 const {ETAPAS: ETAPAS_PRODUCAO} = require('./migration-105-production-nucleo.cjs');
-/** Os 4 SQL de staging são os mesmos (mesmos hashes) em produção, que acrescenta o de definições. */
+/** Os 5 SQL de staging (4 etapas + definições, conferência pela definição desde 10/11/2026) são os mesmos (mesmos hashes) em produção. */
 const REVISADOS = ETAPAS_PRODUCAO;
 
 const DESTINO = '/opt/render/project/src';
 const LIMITE = 32 * 1024;
 const AMBIENTES = Object.freeze({
   staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-105-staging.cjs',
-    dependencias: Object.freeze(['scripts/migration-105-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/mcp-105-staging', rotulo: 'STAGING',
-    sqls: ETAPAS, codigos: '0/1/2/3 aplicador, 4 bloco', backup: '^[A-Za-z0-9:._/ -]{6,120}$', faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP antes de colar', ferramentas: 'sha256sum cut node', linhaUnica: false}),
+    dependencias: Object.freeze(['scripts/migration-105-comum.cjs', 'scripts/migration-105-definicoes.cjs', 'scripts/migration-105-relacoes.cjs',
+      'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs']), registro: 'data/mcp-105-staging', rotulo: 'STAGING',
+    sqls: ARQUIVOS, codigos: '0/1/2/3 aplicador, 4 bloco', backup: '^[A-Za-z0-9:._/ -]{6,120}$', faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP antes de colar', ferramentas: 'sha256sum cut node', linhaUnica: false}),
   production: Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', nome: 'kidmais-manager-production', aplicador: 'scripts/migration-105-production.cjs',
-    dependencias: Object.freeze(['scripts/migration-105-production-nucleo.cjs', 'scripts/migration-105-definicoes.cjs', 'scripts/migration-105-comum.cjs',
-      'scripts/migration-092-094-comum.cjs']), registro: 'data/mcp-105-producao', rotulo: 'PRODUCTION',
+    dependencias: Object.freeze(['scripts/migration-105-production-nucleo.cjs', 'scripts/migration-105-definicoes.cjs',
+      'scripts/migration-105-relacoes.cjs', 'scripts/conferencia-b5-105.cjs', 'scripts/migration-105-comum.cjs', 'scripts/migration-092-094-comum.cjs']), registro: 'data/mcp-105-producao', rotulo: 'PRODUCTION',
     sqls: ETAPAS_PRODUCAO, codigos: '0/1/2/3/5 aplicador, 4 bloco', backup: '^PITR [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z [A-Za-z0-9:._/ -]{3,80}$',
     faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP no formato PITR AAAA-MM-DDTHH:MMZ referencia (conferido no painel) antes de colar',
     // Revisão do Astra (rodada 1, P3): o grep aceita UMA linha válida dentro de um valor multilinha; em produção o valor
@@ -53,13 +57,14 @@ const TITULOS_STAGING = Object.freeze({
 });
 const TITULOS_PRODUCAO = Object.freeze({
   CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, dos nucleos e dos 5 SQL da 105 IMPLANTADOS e roda --conferir-105',
-    '(identidade e papel, estado, dependencias, privilegios, precheck ou integridade + DEFINICOES, READ ONLY). Nada e gravado.',
+    '(identidade e papel, estado, dependencias, privilegios, precheck ou integridade + DEFINICOES + RELACOES das 6 tabelas,',
+    'REPEATABLE READ READ ONLY). Nada e gravado.',
     'Resultado: PRONTA_PARA_APLICAR / JA_APLICADA_INTEGRIDADE_PASS (0); DIVERGENTE / PARCIAL / FALHA_DE_CONFERENCIA (3) = parar.'],
   APLICAR: ['ESCRITA (DDL) EM PRODUCAO - somente com a autorizacao especifica da 105 em producao, na janela do MCP. Antes de',
     'colar, Felipe confere no painel do Render que o PITR cobre este instante e, no mesmo shell:',
     'export KIDMAIS_REGISTRO_BACKUP="PITR <AAAA-MM-DDTHH:MMZ> <referencia>" (horario UTC da conferencia; vale 120 min).',
     'Roda --aplicar-105-autorizado UMA vez (UMA transacao: precheck, 6 tabelas mcp_*, indices, funcao e gatilho, postcheck,',
-    'integridade e definicoes antes do COMMIT). NAO liga o canal. Se algo parar, NAO repetir: copiar a saida e revisar.',
+    'integridade, definicoes e relacoes antes do COMMIT). NAO liga o canal. Se algo parar, NAO repetir: copiar a saida e revisar.',
     'Codigo 5 = COMMIT com marcador desatualizado: a SAIDA e o unico registro do COMMIT; copiar antes de tudo; rodar o CONFERIR.'],
 });
 const TITULOS = Object.freeze({staging: TITULOS_STAGING, production: TITULOS_PRODUCAO});
