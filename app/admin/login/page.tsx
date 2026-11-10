@@ -15,7 +15,7 @@ export default function LoginAdmin() {
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
     // Sessão expirada, revogada ou encerrada termina aqui: buscas guardadas na aba (lib/http/busca-na-aba.ts) saem antes do login.
     useEffect(() => { esquecerBuscasDaAba(); }, []);
-    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
+    return <main className={`${styles.page} ${styles.login}`}><h1>iA.Fest</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form method="post" onSubmit={async (event) => {
             event.preventDefault();
             setBusy(true);

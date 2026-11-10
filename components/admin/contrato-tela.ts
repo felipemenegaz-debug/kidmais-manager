@@ -78,7 +78,7 @@ export function predicados<V extends VersaoTela>(data: PainelTela<V>, v: V | nul
 
 /** Próximo passo (mesmo texto da tela anterior). */
 export function proximoPasso(v: VersaoTela | null, docs: Array<{ categoria: string; revisao: number }>) {
-  if (v?.estado_edicao === 'EM_ELABORACAO') return v.documento_revisado_id ? 'Assinar pela Kidmais' : docs.some(d => d.categoria === 'CONTRATO' && d.revisao === v.revisao) ? 'Revisar o PDF' : 'Preparar o documento';
+  if (v?.estado_edicao === 'EM_ELABORACAO') return v.documento_revisado_id ? 'Assinar pelo buffet' : docs.some(d => d.categoria === 'CONTRATO' && d.revisao === v.revisao) ? 'Revisar o PDF' : 'Preparar o documento';
   if (v?.estado_edicao === 'ASSINADA_KIDMAIS') return 'Liberar para o cliente';
   if (v?.estado_edicao === 'AGUARDANDO_CLIENTE') return 'Acompanhar assinatura do cliente';
   return 'Conferir documentos e assinaturas';

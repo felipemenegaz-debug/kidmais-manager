@@ -281,7 +281,7 @@ export async function solicitarEncerramento(sessao: SessaoAdmin, empresaSolicita
             let situacao: Extract<SituacaoEstorno, 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO'>;
             let status: string | null = null;
             try {
-                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `Kidmais Manager - devolucao ${pedido.protocolo}`)).status;
+                status = (await provedor.estornarCobranca(n.cobrancaId, n.valor, `iA.Fest - devolucao ${pedido.protocolo}`)).status;
                 situacao = 'SOLICITADO';
             }
             catch (error) {

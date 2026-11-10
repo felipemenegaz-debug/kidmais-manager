@@ -221,7 +221,7 @@ test("rota: envioId só dentro de revisao (UUID, opcional); fora ou inválido �
   assert.match(rota, /corpoPatchModeloSchema\.parse\(await request\.json\(\)\)/);
   assert.match(rota, /acaoModeloSchema\.parse\(await request\.json\(\)\)/);
   assert.match(rota, /if \(!comGestao\(tenant\) \|\| !data\.revisao \|\| data\.situacao !== "RASCUNHO"\) return null;/, "sem Gestão: contratadaEfetiva null");
-  assert.match(rota, /if \(!comGestao\(tenant\)\) return \{ conteudo: pedido\.conteudo, conferida: null \};/, "prévia sem Gestão: bloco do modelo");
+  assert.match(rota, /if \(!comGestao\(tenant\)\) return \{ conteudo: pedido\.conteudo, conferida: null, marca \};/, "prévia sem Gestão: bloco do modelo");
   assert.match(rota, /semPerfil: !previa\.conferida/);
   const painel = readFileSync("app/api/admin/configuracoes/modelo-contrato/route.ts", "utf8");
   assert.match(painel, /const atual = gestao && dados\.ativo \?/, "perfilVersaoAtual só para Gestão");

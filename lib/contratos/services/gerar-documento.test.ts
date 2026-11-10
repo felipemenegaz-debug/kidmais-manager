@@ -31,7 +31,9 @@ function cenario(opcoes: { aplicada072: boolean; modelo: boolean; codigo: string
       }
       if (sql.includes("to_regclass('public.modelos_contrato_empresa')")) return r([{ ok: opcoes.aplicada072 }]);
       if (sql.includes('FROM modelos_contrato_empresa')) return r(opcoes.modelo ? [{ id: '22222222-2222-4222-8222-222222222222', versao: 3, conteudo: CONTEUDO_MODELO, aprovado_em: new Date(0) }] : []);
-      if (sql.includes('SELECT codigo FROM empresas')) return r([{ codigo: opcoes.codigo }]);
+      if (sql.includes('SELECT codigo FROM empresas') || sql.includes('SELECT codigo FROM public.empresas')) return r([{ codigo: opcoes.codigo }]);
+      if (sql.includes("to_regclass('public.perfil_empresas')")) return r([{ empresas: null, concessoes: null }]);
+      if (sql.includes('SELECT nome FROM public.empresas')) return r([{ nome: 'Buffet Estrela Encantada' }]);
       throw new Error('consulta inesperada: ' + sql.slice(0, 80));
     },
   };
@@ -83,4 +85,21 @@ test('gerar_pdf: empresa nova sem modelo próprio (mesmo com pacote fixo) → re
   const t = cenario({ aplicada072: true, modelo: false, codigo: 'buffet-novo' });
   await assert.rejects(gerar(t, 'COMPLETA'), (e: unknown) => (e as Error).message === MENSAGEM_SEM_MODELO_EMPRESA);
   assert.deepEqual(t.escritas, [], 'nem documento, nem auditoria, nem histórico');
+});
+
+const textoBruto = (pdf: Buffer) => pdf.toString('latin1');
+
+test('gerar_pdf com modelo próprio: outra empresa leva o próprio nome e iA.Fest; a Kidmais segue como antes', async () => {
+  const outra = cenario({ aplicada072: true, modelo: true, codigo: 'estrela' });
+  await gerar(outra, 'QUALQUER');
+  const pdfOutra = textoBruto(pdfDe(outra));
+  assert.ok(pdfOutra.includes('Buffet Estrela Encantada'));
+  assert.ok(pdfOutra.includes('iA.Fest'));
+  assert.doesNotMatch(pdfOutra, /kidmais/i);
+
+  const kidmais = cenario({ aplicada072: true, modelo: true, codigo: 'kidmais' });
+  await gerar(kidmais, 'QUALQUER');
+  const pdfKidmais = textoBruto(pdfDe(kidmais));
+  assert.ok(pdfKidmais.includes('(KIDMAIS)'));
+  assert.ok(pdfKidmais.includes('Kidmais Manager'));
 });

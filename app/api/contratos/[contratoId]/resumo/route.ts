@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, context: ContratoRouteContext) 
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="resumo-contratacao-kidmais-v${data.versao.numeroVersao}.pdf"`,
+        "Content-Disposition": `inline; filename="resumo-contratacao-${data.marca.kidmais ? "kidmais-" : ""}v${data.versao.numeroVersao}.pdf"`,
         "Cache-Control": "no-store",
         "X-Resumo-Pdf-Sha256": data.pdfHash,
         "X-Resumo-Template-Versao": String(data.templateVersao),

@@ -154,7 +154,7 @@ export async function enviarCopiaComprovante(deps: { withTransaction: <T>(t: (tx
         try {
             const linhas = linhasComprovante(dados.c);
             const esc = (t: string) => t.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]!);
-            await deps.enviarEmail({ para: dados.para, assunto: 'Comprovante da sua contratação — Kidmais Manager', texto: linhas.join('\n\n'),
+            await deps.enviarEmail({ para: dados.para, assunto: 'Comprovante da sua contratação — iA.Fest', texto: linhas.join('\n\n'),
                 html: linhas.map((l) => `<p>${esc(l)}</p>`).join(''), idempotencia: `comprovante:${input.contratacaoId}` });
         }
         catch { ok = false; }

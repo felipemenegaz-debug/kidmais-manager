@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { posicaoSimulada } from "../financeiro/titulo-simulado.ts";
 import test from "node:test";
 import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
@@ -30,7 +31,7 @@ const sessao = {
 
 function linhaReceber(id: string, valor: string, vencimento: string, cliente: string) {
   return {
-    id, pagamento_id: `pag-${id}`, numero: 1, valor, vencimento, status_gravado: "PENDENTE",
+    id, pagamento_id: `pag-${id}`, numero: 1, valor, vencimento, status_gravado: "PENDENTE", ...posicaoSimulada(),
     cliente, festa_id: null, pacote: "Pacote Premium", data_evento: "2026-10-10", recebido: "0", forma: "PIX",
   };
 }

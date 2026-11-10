@@ -21,7 +21,7 @@ O papel escolhido também define o acesso inicial às Festas. Depois, dá para m
 4. Escolha o **Papel no sistema**: Equipe ou Gestão.
 5. Clique em **Enviar convite**.
 
-O convite vale por 7 dias. A pessoa aceita pelo link do e-mail e define a própria senha. Quem já usa o Kidmais confirma com a senha que já tem.
+O convite vale por 7 dias. A pessoa aceita pelo link do e-mail e define a própria senha. Quem já usa o iA.Fest confirma com a senha que já tem.
 
 Os convites aparecem em **Convites pendentes**. Ali você pode clicar em **Reenviar** (gera um link novo e o anterior deixa de valer) ou **Cancelar convite**.
 

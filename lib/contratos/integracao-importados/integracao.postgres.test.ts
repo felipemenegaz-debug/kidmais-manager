@@ -312,6 +312,26 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       await a.query("ROLLBACK");
     });
 
+    await t.test("[R2b] sinal MESMO_ANIVERSARIANTE segue a mesma política do nome: ignora acento e caixa, sem trocar a letra", async () => {
+      await a.query("BEGIN");
+      const c = await cenario(a);
+      const ev = { data: dia(221), inicio: "14:00", fim: "18:00" };
+      const comNome = { ...decisoes(c, ev, { situacao: "NAO_CONFERIDO" }), aniversariante: "Bjørn Åsa" };
+      const original = await integrar(s, coreNativo, a, c, (await importacao(a, c, ev)).id, comNome);
+      if (original.reutilizado) throw new Error("inesperado");
+      const reescaneado = await importacao(a, c, ev);
+      const motivos = { horarioInicio: "Segunda festa do dia, outro horário", horarioFim: "Segunda festa do dia, outro horário" };
+      const sinal = async (aniversariante: string) => {
+        const sim = await s.simularIntegracao(executor(a), c.tenant as never, reescaneado.id, { ...decisoes(c, { ...ev, inicio: "19:00", fim: "21:00" }, { situacao: "NAO_CONFERIDO" }, null, null), motivos, aniversariante }, dia(0));
+        if (sim.integrada) throw new Error("inesperado");
+        const candidato = sim.possiveisVinculos.find((v: { contratoId: string | null }) => v.contratoId === original.contratoId) as { sinais: string[] } | undefined;
+        return candidato?.sinais.includes("MESMO_ANIVERSARIANTE") ?? false;
+      };
+      for (const grafia of ["Bjørn Åsa", "BJØRN ASA", "Bjørn Åsa".normalize("NFD"), "bjørn   asa"]) assert.equal(await sinal(grafia), true, grafia);
+      assert.equal(await sinal("Bjorn Asa"), false, "ø não vira o");
+      await a.query("ROLLBACK");
+    });
+
     await t.test("[R2] reescaneamento: o mesmo papel em OUTRO cliente aparece como possível duplicidade; sem decisão auditada não integra", async () => {
       await a.query("BEGIN");
       const c = await cenario(a);
@@ -446,7 +466,7 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       assert.equal(versao.aceiteMetodo, "CONFERENCIA_PAPEL");
       // Cliente sem endereço: o snapshot grava `endereco: null` (nunca objeto vazio nem parcial) e `email: null`.
       assert.equal((versao.snapshot.contratante as unknown as Record<string, unknown>).endereco, null, "snapshot persistido sem endereço (como a importação grava)");
-      const gerado = documento.gerarResumoContratacaoPdfDaVersao(versao);
+      const gerado = documento.gerarResumoContratacaoPdfDaVersao(versao, { kidmais: true, nome: "Kidmais" });
       assert.equal(Buffer.from(gerado.pdf).subarray(0, 5).toString(), "%PDF-");
       const linhas = gerado.documento.linhas.map((l) => l.texto).join("\n");
       assert.match(linhas, /Endereço: Não informado/);

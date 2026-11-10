@@ -11,8 +11,8 @@ const out = process.env.SAIDA || path.resolve('.local-convites-qa', 'autorizacao
 const token = 'a'.repeat(43);
 const conteudo = { tema: 'celebrar', nome: 'Alice', idade: '5 anos', mensagem: 'Venha comemorar!', data: '2099-12-20', horario: '16:00', local: 'Jardim', endereco: 'Rua Sintética, 1', arteId: null, confirmarPresenca: true };
 const textos = {
-  versao: 'convites-ia-20261021.2', provedor: 'openai', provedorNome: 'OpenAI', operador: 'CLIENTE',
-  aviso: 'Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no Kidmais e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.',
+  versao: 'convites-ia-20261107.1', provedor: 'openai', provedorNome: 'OpenAI', operador: 'CLIENTE',
+  aviso: 'Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no iA.Fest e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.',
   consentimento: 'Declaro ser responsável legal pela criança e autorizo especificamente o uso dos dados selecionados para gerar este convite por IA, nas condições informadas. Sei que posso escolher uma alternativa sem IA e revogar esta autorização para usos futuros.',
   foto: 'Autorizo também o envio desta fotografia e das imagens da galeria selecionadas ao provedor indicado (OpenAI) para gerar esta arte.',
   imagens: 'Esta confirmação vale só para esta geração e para as imagens selecionadas agora. Sem ela, nenhuma foto nem imagem da galeria é enviada ao provedor.',

@@ -149,7 +149,7 @@ export async function salvarRevisaoContrato(tx: DbExecutor, ctx: Contexto, id: s
  * PDF de prévia com dados fictícios, no mesmo gerador do contrato real. Não grava nada. Quem chama já compôs a
  * contratada (Gestão) ou usa o bloco do modelo (sem Gestão: aviso "sem os dados do perfil").
  */
-export function previaModeloContrato(conteudo: ConteudoModelo, opcoes: { semPerfil?: boolean } = {}) {
+export function previaModeloContrato(conteudo: ConteudoModelo, opcoes: { semPerfil?: boolean; marca?: { kidmais: boolean; nome: string | null } } = {}) {
   const valido = conteudoModeloSchema.parse(conteudo);
   const problemas = problemasDoConteudo(valido);
   if (problemas.some((p) => p.includes("não existe"))) recusar("CAMPO_DESCONHECIDO", problemas.join(" "), 409);
@@ -160,6 +160,7 @@ export function previaModeloContrato(conteudo: ConteudoModelo, opcoes: { semPerf
   documento.avisoHomologacao = opcoes.semPerfil
     ? "PRÉVIA COM DADOS FICTÍCIOS E SEM OS DADOS DO PERFIL — sem valor contratual."
     : "PRÉVIA COM DADOS FICTÍCIOS — sem valor contratual.";
+  documento.marca = opcoes.marca;
   return gerarPdfContratoOficial(documento, { logo: false });
 }
 

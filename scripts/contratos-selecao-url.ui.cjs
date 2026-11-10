@@ -33,7 +33,7 @@ const itemLista = (contratoId, status) => ({ id: contratoId, fechamento_id: id(0
 const festaDash = (festaId, contratoId, versaoId, cliente) => ({ id: festaId, contratoId, versaoId, data: hoje, cliente, pacote: 'Premium', convidados: 50, status: 'ASSINADO', hora: '17:00:00' });
 const dashboard = {
   empresa: 'Empresa de Exemplo', hoje,
-  numeros: { recebidoMesCentavos: 0, aReceberCentavos: 0, aPagarCentavos: 0, emAtrasoCentavos: 0, saldoPrevistoCentavos: 0 },
+  numeros: { recebidoMesCentavos: 0, aReceberCentavos: 0, aPagarCentavos: 0, aPagar30DiasCentavos: 0, emAtrasoReceberCentavos: 0, emAtrasoPagarCentavos: 0, movimentoPeriodoCentavos: 0, versao: 2 },
   agenda: [festaDash(F1, B, VB, 'Festa Agenda Um'), festaDash(F2, C, VC, 'Festa Agenda Dois')],
   proximas: [festaDash(F1, B, VB, 'Festa Agenda Um'), festaDash(F2, C, VC, 'Festa Agenda Dois')],
   atencao: [

@@ -1,3 +1,4 @@
+import { nomeNoEspacoPdf } from "../nome-empresa-pdf.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -142,14 +143,22 @@ function carregarLogo() {
   }
 }
 
-function cabecalho(pageNumber: number, totalPages: number, documento: ContratoOficialRenderizado, hasLogo: boolean) {
+/** Modelo da empresa (`logo: false`) sem prova de ser a Kidmais: nome do buffet, se houver, e o produto no rodapé. */
+function marcaNeutra(documento: ContratoOficialRenderizado, comLogoPedido: boolean) {
+  return !comLogoPedido && !documento.marca?.kidmais;
+}
+
+function cabecalho(pageNumber: number, totalPages: number, documento: ContratoOficialRenderizado, hasLogo: boolean, neutra: boolean) {
   let command = "";
   if (hasLogo) {
     const width = 92;
     const height = width * (LOGO_PIXEL_HEIGHT / LOGO_PIXEL_WIDTH);
     command += `q ${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${MARGIN_X.toFixed(2)} 781 cm /Logo Do Q\n`;
-  } else {
+  } else if (!neutra) {
     command += texto("KIDMAIS", MARGIN_X, 805, 13, "F2", COLORS.navy);
+  } else if (documento.marca?.nome) {
+    const nome = nomeNoEspacoPdf(documento.marca.nome, 13, 384 - MARGIN_X - 12);
+    if (nome) command += texto(nome, MARGIN_X, 805, 13, "F2", COLORS.navy);
   }
   command += texto("CONTRATO OFICIAL", 384, 808, 7.4, "F2", COLORS.purple);
   command += texto(documento.subtitulo, 384, 796, 8.8, "F2", COLORS.navy);
@@ -158,11 +167,11 @@ function cabecalho(pageNumber: number, totalPages: number, documento: ContratoOf
   return command;
 }
 
-function rodape(pageNumber: number, totalPages: number, documento: ContratoOficialRenderizado) {
+function rodape(pageNumber: number, totalPages: number, documento: ContratoOficialRenderizado, neutra: boolean) {
   const hashLine = documento.integridade.find((item) => item.includes("SHA-256")) ?? "";
   const hash = /([0-9a-f]{64})/i.exec(hashLine)?.[1] ?? "";
   let command = line(MARGIN_X, A4_WIDTH - MARGIN_X, 53, COLORS.line, 0.55);
-  command += texto(`Kidmais Manager · ${documento.modeloCodigo} · Template V${documento.templateVersao}`, MARGIN_X, 38, 6.8, "F1", COLORS.muted);
+  command += texto(`${neutra ? "iA.Fest" : "Kidmais Manager"} · ${documento.modeloCodigo} · Template V${documento.templateVersao}`, MARGIN_X, 38, 6.8, "F1", COLORS.muted);
   command += texto(`Integridade ${hash ? hash.slice(0, 16) : "-"}… · ${pageNumber}/${totalPages}`, 377, 38, 6.8, "F3", COLORS.muted);
   return command;
 }
@@ -314,10 +323,14 @@ function latin1(value: string) {
   return Buffer.from(value, "latin1");
 }
 
-/** `logo: false`: contrato no padrão de outra empresa (072) não leva a logo da Kidmais. */
+/**
+ * `logo: false`: contrato no padrão de uma empresa (072), sem a logo da Kidmais. O PDF oficial da Kidmais (padrão) é
+ * regenerado e conferido com o hash da versão assinada: esse caminho precisa continuar idêntico, byte a byte.
+ */
 export function gerarPdfContratoOficial(documento: ContratoOficialRenderizado, opcoes: { logo?: boolean } = {}): Buffer {
   const bodies = buildBodies(documento);
   const logo = opcoes.logo === false ? null : carregarLogo();
+  const neutra = marcaNeutra(documento, opcoes.logo !== false);
   const regularId = 3;
   const boldId = 4;
   const monoId = 5;
@@ -325,7 +338,7 @@ export function gerarPdfContratoOficial(documento: ContratoOficialRenderizado, o
   const firstPageId = logo ? 7 : 6;
 
   const streams = bodies.map((body, index) =>
-    `${cabecalho(index + 1, bodies.length, documento, Boolean(logo))}${body}${rodape(index + 1, bodies.length, documento)}`,
+    `${cabecalho(index + 1, bodies.length, documento, Boolean(logo), neutra)}${body}${rodape(index + 1, bodies.length, documento, neutra)}`,
   );
   const refs = streams.map((_, i) => `${firstPageId + i * 2} 0 R`).join(" ");
   const objects: Array<{ id: number; bytes: Buffer }> = [];

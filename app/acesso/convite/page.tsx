@@ -34,13 +34,13 @@ export default function AceitarConvite() {
     }, [token]);
     const consulta: Consulta | null = token === null ? { situacao: 'INVALIDO' } : consultaServidor;
     return <main className={`${admin.page} ${admin.login}`}>
-        <h1>Kidmais Manager</h1>
+        <h1>iA.Fest</h1>
         <h2>Convite de acesso</h2>
         {!consulta && !erro && <p aria-live="polite">Conferindo o convite…</p>}
         {erro && !consulta && <p role="alert">{erro}</p>}
         {aceito ? <>
             <p role="status">Pronto! Seu acesso a <b>{aceito.empresa}</b> está ativo{aceito.contaNova ? ' e sua conta foi criada' : ''}.</p>
-            <p><Link href="/admin/login">Entrar no Kidmais Manager</Link></p>
+            <p><Link href="/admin/login">Entrar no iA.Fest</Link></p>
         </> : consulta && consulta.situacao !== 'PENDENTE' ? <>
             <p role="alert">{MENSAGEM[consulta.situacao]}</p>
             <p><Link href="/admin/login">Ir para o login</Link></p>
@@ -58,7 +58,7 @@ export default function AceitarConvite() {
             <p>Você foi convidado para acessar <b>{consulta.empresa}</b> como <b>{consulta.nivel}</b>.</p>
             <p>E-mail do convite: <b>{consulta.email}</b></p>
             {consulta.contaExistente ? <>
-                <p>Este e-mail já tem uma conta no Kidmais Manager. Confirme com a sua senha atual para aceitar.</p>
+                <p>Este e-mail já tem uma conta no iA.Fest. Confirme com a sua senha atual para aceitar.</p>
                 <label>Senha atual<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} required maxLength={512} /></label>
                 <p><Link href="/acesso/recuperar">Esqueci minha senha</Link></p>
             </> : <>

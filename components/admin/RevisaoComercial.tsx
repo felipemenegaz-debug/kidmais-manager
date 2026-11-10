@@ -91,7 +91,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
         {previa && <p>Base comercial {formatarMoeda(previa.valorBaseComercial)} · desconto {previa.descontoFormaPagamentoPercentual}% · <strong>Contrato {formatarMoeda(previa.valorFinalContrato)}</strong></p>}
       </section>
       {condicao?.revisaoStatus === "PENDENTE" && f.status === "AGUARDANDO_APROVACAO" && <section className={styles.card}>
-        <h2>Decisão da Kidmais</h2>
+        <h2>Decisão do buffet</h2>
         {f.valorNegociado !== null && <label>Base comercial aprovada, antes do desconto (R$)<input inputMode="decimal" value={base} onChange={(e) => setBase(e.target.value)} /></label>}
         {condicao.forma === "PIX_PARCELADO" && <fieldset>
           <legend>Condição aprovada</legend>
@@ -110,7 +110,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
         </div>
       </section>}
       {condicao?.revisaoStatus === "APROVADA" && <section className={styles.card}>
-        <h2>Condição aprovada pela Kidmais</h2><p>{formatarCondicaoPix(condicao.aprovada)}</p>
+        <h2>Condição aprovada pelo buffet</h2><p>{formatarCondicaoPix(condicao.aprovada)}</p>
       </section>}
       {condicao && f.status === "AGUARDANDO_CONTRATO" && <button disabled={ocupado} onClick={gerarContrato}>Gerar contrato</button>}
       {!condicao && <p>Registro anterior ao novo fluxo. Esta revisão não altera condições legadas.</p>}

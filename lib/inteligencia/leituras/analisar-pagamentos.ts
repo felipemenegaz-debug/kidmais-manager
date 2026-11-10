@@ -6,7 +6,7 @@ import { PAPEIS_ADMIN, ausencia, calculo, evidencia, fato, montarResposta, semPa
 
 /**
  * `analisar_pagamentos`: recebido líquido no mês até hoje × mesmo intervalo do mês anterior.
- * Fonte: `recebidoNoPeriodo` (tenant comprovado; recebimentos confirmados + entradas manuais recebidas).
+ * Fonte: `recebidoNoPeriodo` (tenant comprovado; recebimentos confirmados + entradas manuais recebidas − estornos e devoluções efetivos).
  * A comparação usa o mesmo número de dias para não comparar mês parcial com mês cheio.
  */
 const FONTE = "financeiro.recebimentos";
@@ -50,6 +50,12 @@ export function montarAnalisePagamentos(
   if (anteriorCentavos === 0) {
     fatos.push(ausencia("Sem base de comparação no mesmo intervalo do mês anterior; a variação percentual não é calculada.", FONTE));
     resumo = `Recebido neste mês até hoje: ${reaisDe(atualCentavos)}.`;
+  } else if (anteriorCentavos < 0) {
+    // Estornos e devoluções podem deixar a base negativa; percentual sobre base negativa inverte o sentido.
+    const diferenca = atualCentavos - anteriorCentavos;
+    fatos.push(ausencia("O mesmo intervalo do mês anterior ficou negativo, com estornos e devoluções acima das entradas; a variação percentual não é calculada.", FONTE));
+    fatos.push(calculo(`Diferença sobre o mesmo intervalo do mês anterior: ${reaisDe(diferenca)}.`, FONTE));
+    resumo = `Recebido neste mês até hoje: ${reaisDe(atualCentavos)}, ${reaisDe(Math.abs(diferenca))} ${diferenca >= 0 ? "acima" : "abaixo"} do mesmo período do mês anterior, que ficou negativo.`;
   } else {
     const variacao = Math.round(((atualCentavos - anteriorCentavos) / anteriorCentavos) * 1000) / 10;
     const sentido = variacao > 0 ? "acima" : variacao < 0 ? "abaixo" : "igual ao";
