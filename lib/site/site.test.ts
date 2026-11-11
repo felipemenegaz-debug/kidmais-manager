@@ -212,3 +212,35 @@ test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine'
     assert.match(footer, /alt="iA\.Fest"/);
     assert.match(footer, /site\/iafest\/logotipo\.png/);
 });
+
+test('selos e planos de production (04/11) preservados em staging (Recongelar C r3.1): galeria e Marketing sinalizam Em breve e plano', () => {
+    const { galeria } = carregarModulo('lib/site/galeria.ts', dubles, new Map()) as { galeria: { id: string; nome: string; recursos: RecursoId[]; planos?: string }[] };
+    const comImagem = { ...dubles, 'next/image': { __esModule: true, default: (props: Record<string, unknown>) => createElement('img', { src: props.src, alt: props.alt }) } };
+    const Galeria = carregarModulo('components/site/RecursosGaleria.tsx', comImagem, new Map()).default as ComponentType;
+    const html = renderToStaticMarkup(createElement(Galeria));
+    // P2-1: cada aba usa os recursos do catálogo; o selo aparece exatamente nas que têm recurso Em breve.
+    const abas = [...html.matchAll(/role="tab"[^>]*>([\s\S]*?)<\/button>/g)].map(m => m[1]);
+    assert.equal(abas.length, galeria.length);
+    galeria.forEach((item, i) => {
+        for (const id of item.recursos) assert.ok(id in recursos, `${item.id}: recurso ${id} no catálogo`);
+        assert.equal(abas[i].includes('Em breve'), statusDosRecursos(item.recursos) === 'em_breve', `selo da aba ${item.id}`);
+    });
+    assert.deepEqual(galeria.filter(item => statusDosRecursos(item.recursos) === 'em_breve').map(item => item.id), ['orcamento', 'convites', 'ia', 'copiloto']);
+    // P2-2: planos da galeria e da seção Marketing seguem a barreira do servidor (lida como texto, sem importar lib/assinatura).
+    const barreira = readFileSync('lib/assinatura/recursos-plano.ts', 'utf8');
+    for (const chave of ['ORCAMENTO_ONLINE', 'MARKETING']) assert.match(barreira, new RegExp(`${chave}: \['profissional', 'premium'\]`));
+    assert.deepEqual(galeria.filter(item => item.planos).map(item => [item.id, item.planos]), [['orcamento', 'Profissional e Premium'], ['site', 'Profissional e Premium'], ['marketing', 'Profissional e Premium']]);
+    assert.doesNotMatch(html, /data-planos-galeria/, 'Agenda (primeira aba) não tem barreira de plano');
+    for (const item of galeria) {
+        // Cada item como painel ativo: selo no título do painel e linha de planos só onde há barreira.
+        const painel = renderToStaticMarkup(createElement(carregarModulo('components/site/RecursosGaleria.tsx', { ...comImagem, 'lib/site/galeria': { galeria: [item] } }, new Map()).default as ComponentType));
+        const eyebrow = /<div class="galeriaTexto"><div class="eyebrow">([\s\S]*?)<\/div>/.exec(painel)![1];
+        assert.equal(eyebrow.includes('Em breve'), statusDosRecursos(item.recursos) === 'em_breve', `selo do painel ${item.id}`);
+        if (item.planos) assert.match(painel, /data-planos-galeria="true">Nos planos Profissional e Premium</, item.id);
+        else assert.doesNotMatch(painel, /data-planos-galeria/, item.id);
+    }
+    const secao = (nome: string) => renderToStaticMarkup(createElement(componente('components/site/secoes.tsx', nome)));
+    const marketing = secao('Marketing');
+    assert.match(marketing, /data-planos-marketing="true">Nos planos Profissional e Premium/);
+    assert.match(marketing, /Site do buffet · dentro do Marketing · planos Profissional e Premium/);
+});

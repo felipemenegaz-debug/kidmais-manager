@@ -193,7 +193,10 @@ test('T2: validarAlvo recusa por padrão para todos os chamadores; só a renova�
     const fontes = fs.readdirSync(path.join(raiz, 'scripts')).filter((a) => /\.cjs$/.test(a) && !/\.test\.cjs$/.test(a))
         .map((a) => [a, fs.readFileSync(path.join(raiz, 'scripts', a), 'utf8')]);
     // Fora da reconciliar (que só repassa a política recebida, com padrão 'recusar'), só a renovação passa política.
-    assert.deepEqual(fontes.filter(([a, s]) => a !== 'assinatura-reconciliar.cjs' && /(?<!function )validarAlvo\([^()]*,/.test(s)).map(([a]) => a),
+    // Um script que declara a própria `function validarAlvo` (ex.: conferidor-g-vazio.cjs, B-26) chama a sua, não a da
+    // reconciliar: no mesmo escopo ele não pode importar outro vínculo com esse nome.
+    assert.deepEqual(fontes.filter(([a, s]) => a !== 'assinatura-reconciliar.cjs' && !/\bfunction validarAlvo\(/.test(s)
+        && /(?<!function )validarAlvo\([^()]*,/.test(s)).map(([a]) => a),
         ['assinatura-renovacao-cron.cjs'], 'só a renovação passa uma política à validarAlvo');
     assert.deepEqual(fontes.filter(([, s]) => /(?<!function )opcoesConexao\([^()]*,[^()]*,[^()]*,/.test(s)).map(([a]) => a),
         ['assinatura-renovacao-cron.cjs'], 'só a renovação passa política de credencial à opcoesConexao');

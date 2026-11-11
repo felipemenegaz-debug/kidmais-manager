@@ -53,6 +53,11 @@ function ambiente() {
         encerrarTroca: () => { ctx.encerrarTrocaDeEmpresa?.(); },
         trocarNoServidor: () => { vigente = SESSAO_B; },
         encerrarNoServidor: () => { vigente = null; },
+        /**
+         * A troca termina logo depois, concluída na sessão Beta, como a troca real termina quando o POST responde. Desde a
+         * rodada 12 de "Guardar na aba", a confirmação antiga espera o resultado da troca antes de decidir.
+         */
+        concluirTrocaEmSeguida: () => { setTimeout(() => { vigente = SESSAO_B; ctx.encerrarTrocaDeEmpresa?.(); }, 5); },
         /** A próxima leitura GET da sessão fica presa até `liberar` e responde com a sessão vigente ao ser liberada. */
         prenderLeitura: (comSessaoAnterior = false) => { const s = segurarProximaLeitura(); leituraPresa = s.p; presaComSessaoAnterior = comSessaoAnterior; return s.abrir; },
         /**
@@ -97,7 +102,7 @@ test('troca: leitura que saiu ANTES da troca e voltou "encerrada" DEPOIS → nã
 
 test('troca: escrita executada, troca durante a resposta e confirmação "encerrada" obsoleta → aviso "concluída", painel (não login), um envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/x', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/x', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); a.concluirTrocaEmSeguida(); } });
     const escrita = await mensagem(a.mod.adminFetch('/api/x', { method: 'POST', body: '{}' }));
     assert.match(escrita, /concluída antes da mudança/);
     assert.match(a.aviso() ?? '', /concluída antes da mudança/, 'o resultado real da escrita é avisado');
@@ -108,7 +113,7 @@ test('troca: escrita executada, troca durante a resposta e confirmação "encerr
 
 test('troca: escrita com 5xx e confirmação obsoleta → "Resultado incerto", nunca "concluída"; sem login; um envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/x', { status: 503, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/x', { status: 503, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); a.concluirTrocaEmSeguida(); } });
     assert.match(await mensagem(a.mod.adminFetch('/api/x', { method: 'POST', body: '{}' })), /Resultado incerto/);
     assert.doesNotMatch(a.aviso() ?? '', /concluída antes da mudança/, 'sem confirmação falsa de conclusão');
     assert.equal(a.login(), 0);
@@ -173,7 +178,8 @@ test('AdminShell: leituras do shell que saíram antes ou durante a troca ignoram
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /const carregar = \(\) => \{ const marca = marcaDaSessao\(\); return fetch\('\/api\/admin\/autenticacao'[\s\S]*?if \(sessaoObsoletaDesde\(marca\)\)\s*return;\s*if \(!b\.ok \|\| !b\.data\.usuarioId\) \{/);
     // Revisão do Astra (28/10/2026, P2-2): o login guarda o retorno ao consentimento MCP (loginDestaPagina); a guarda continua.
-    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) router\.replace\(loginDestaPagina\(\)\); \}\);/);
+    // A busca guardada na aba sai junto com a ida ao login (rodada 10 de "Guardar na aba"); resposta obsoleta não faz nenhum dos dois.
+    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) \{ encerrarBuscasDaAba\(\); router\.replace\(loginDestaPagina\(\)\); \} \}\);/);
 });
 
 // ---------------------------------------------------------------- B1, B2 e aviso perdido (parecer de 11/10/2026)
@@ -237,7 +243,7 @@ test('leitura antiga depois de uma troca válida → descartada, sem login (prot
 
 test('escrita concluída com troca durante a resposta → aviso "concluída" preservado e um único envio', async () => {
     const a = ambiente();
-    a.respostas.set('/api/z', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    a.respostas.set('/api/z', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); a.concluirTrocaEmSeguida(); } });
     assert.match(await mensagem(a.mod.adminFetch('/api/z', { method: 'POST', body: '{}' })), /concluída antes da mudança/);
     assert.match(a.aviso() ?? '', /concluída antes da mudança/);
     assert.deepEqual(a.envios.filter((e) => e === 'POST /api/z'), ['POST /api/z']);
