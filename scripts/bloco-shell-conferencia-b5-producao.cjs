@@ -13,10 +13,12 @@
 //     (revisão Astra r1, P2-D): cola-se só o do ramo que o registro SEPARADO da §9.2.2 confirmar (conta Asaas Demerzel existe
 //     = COM-CONTA, a referência). Nenhum dos dois consulta o provedor; as ASAAS_* são retiradas do ambiente do node;
 //   - CONFERIR-B5-ESTADO (E2c): idem com `--conferir-b5-estado` (identidade, estados, combinados e matriz; 091/094 ausentes);
+//   - CONFERIR-B5-ESTADO-POS-E3 (E5b, E2c-RECONFERIR; B-29 na opção (c) de D-ESC-8): idem com `--conferir-b5-estado-pos-e3`
+//     (prefixo depois do E3: 089/092/093 completas; 091/094 e 118 ausentes);
 //   - LIMPEZA: remove só arquivos e partes cujo sha confere; nunca o deploy nem data/.
 // Fim esperado: CODIGO_SAIDA_BLOCO=<n> (0 CONFERIDO, 1 recusa antes de conectar, 2 FALHA, 3 PARAR; 4 bloco). Outro código ou
 // ausência da linha = parar e ler; prompt `>` depois de colar = Ctrl-C e colar o MESMO bloco.
-//   node scripts/bloco-shell-conferencia-b5-producao.cjs <PARTE-k|CONFERIR-B5-COM-CONTA|CONFERIR-B5-SEM-CONTA|CONFERIR-B5-ESTADO|LIMPEZA> <rotulo-da-arvore>
+//   node scripts/bloco-shell-conferencia-b5-producao.cjs <PARTE-k|CONFERIR-B5-COM-CONTA|CONFERIR-B5-SEM-CONTA|CONFERIR-B5-ESTADO|CONFERIR-B5-ESTADO-POS-E3|LIMPEZA> <rotulo-da-arvore>
 //   node scripts/bloco-shell-conferencia-b5-producao.cjs TODOS <rotulo-da-arvore> <pasta-de-saida>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -42,6 +44,7 @@ const RAMOS_BLOCO = Object.freeze({'CONFERIR-B5-COM-CONTA': 'com-conta', 'CONFER
 const EXECUCOES = Object.freeze({
   ...Object.fromEntries(Object.entries(RAMOS_BLOCO).map(([modo, ramo]) => [modo, {args: b5.FLAG_COMPLETO, etapa: 'E1', ramo}])),
   'CONFERIR-B5-ESTADO': {args: b5.FLAG_ESTADO, etapa: 'E2c'},
+  'CONFERIR-B5-ESTADO-POS-E3': {args: b5.FLAG_ESTADO_POS_E3, etapa: 'E5b'},
 });
 /** As ASAAS_* saem do ambiente do node (defesa em profundidade: o agregador nem as lê, §9.2.4 L1). */
 const SEM_ASAAS = 'env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE';
@@ -119,10 +122,13 @@ function cabecalho(modo, n, rotulo) {
     'CONFERIR-B5-ESTADO': ['SOMENTE LEITURA - E2c (autorizacao A2c). ' + exige,
       'Roda --conferir-b5-estado: identidade, estados 089-118, combinados 098/108 (B-21) e matriz; 091 e 094 tem de estar ausentes.',
       'Nao le documentos, Fundador nem o Asaas.'],
+    'CONFERIR-B5-ESTADO-POS-E3': ['SOMENTE LEITURA - E5b, E2c-RECONFERIR depois do E3 (B-29, D-ESC-8 = (c)). ' + exige,
+      'Roda --conferir-b5-estado-pos-e3: identidade, estados 089-118 com o prefixo DEPOIS do E3 (089, 092 e 093 completas;',
+      '091 e 094 ausentes; 100 sem_094; 118 AUSENTE ate a E6), combinados 098/108 (B-21) e matriz. Nao le documentos, Fundador nem o Asaas.'],
     LIMPEZA: ['Remove da pasta propria so arquivos e partes cujo sha256 confere, e as pastas vazias; nunca arquivos do deploy nem',
       'o disco persistente. Nao conecta ao banco. Opcional: a pasta propria some no proximo deploy.'],
   }[modo] ?? [`TRANSPORTE ${modo}-DE-${n}: grava parte da conferencia B-5 em .partes/ (sha256 conferido). Nao conecta ao banco.`,
-    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-B5-COM-CONTA ou -SEM-CONTA (E1) ou CONFERIR-B5-ESTADO (E2c).'];
+    'Repetir e seguro (JA_PRESENTE). Depois de todas as partes: CONFERIR-B5-COM-CONTA ou -SEM-CONTA (E1), CONFERIR-B5-ESTADO (E2c) ou CONFERIR-B5-ESTADO-POS-E3 (E5b).'];
   return ['#!/usr/bin/env bash',
     `# BLOCO-SHELL-CONFERENCIA-B5-PRODUCAO-${nome} - Web Shell do ${SERVICO} (kidmais-manager-production). Colar inteiro, uma vez, e Enter.`,
     ...titulo.map(t => '# ' + t),

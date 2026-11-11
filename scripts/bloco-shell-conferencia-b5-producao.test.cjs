@@ -15,7 +15,7 @@ const ARQ = b.arquivos();
 const {partes: PARTES} = b.distribuir(root);
 const N = PARTES.length;
 const PASTA = b.NOME_DESTINO;
-const CURTOS = ['CONFERIR-B5-COM-CONTA', 'CONFERIR-B5-SEM-CONTA', 'CONFERIR-B5-ESTADO'];
+const CURTOS = ['CONFERIR-B5-COM-CONTA', 'CONFERIR-B5-SEM-CONTA', 'CONFERIR-B5-ESTADO', 'CONFERIR-B5-ESTADO-POS-E3'];
 const OK = 'node -e "process.exitCode=0"';
 const RODOU = 'echo "CONFERENCIA_RODOU pwd=$PWD"';
 
@@ -103,6 +103,9 @@ test('carregador: guarda + carregador; corpo codificado com sha fixado, igual ao
   // E1: ASAAS_* retiradas do ambiente do node e ramo com-conta declarado; E2c sem ramo. Ambos com --experimental-strip-types (contrato da 109).
   assert.match(b.corpo({modo: 'CONFERIR-B5-COM-CONTA'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE KIDMAIS_B5_RAMO_PROVEDOR=com-conta NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5 \|\| codigo=\$\?$/m);
   assert.match(b.corpo({modo: 'CONFERIR-B5-ESTADO'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5-estado \|\| codigo=\$\?$/m);
+  // B-29 (c), E5b: E2c-RECONFERIR depois do E3, sem ramo, com a flag própria.
+  assert.match(b.corpo({modo: 'CONFERIR-B5-ESTADO-POS-E3'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5-estado-pos-e3 \|\| codigo=\$\?$/m);
+  assert.deepEqual(b.EXECUCOES['CONFERIR-B5-ESTADO-POS-E3'], {args: b5.FLAG_ESTADO_POS_E3, etapa: 'E5b'});
   // Revisão Astra r1, P2-D: um bloco por ramo, rotulado no cabeçalho; o gerador não escolhe o ramo.
   assert.match(b.corpo({modo: 'CONFERIR-B5-SEM-CONTA'}), /^env -u ASAAS_API_KEY -u ASAAS_WEBHOOK_TOKEN -u ASAAS_AMBIENTE KIDMAIS_B5_RAMO_PROVEDOR=sem-conta NODE_PATH='\/opt\/render\/project\/src\/node_modules' node --experimental-strip-types scripts\/conferencia-b5-producao\.cjs --conferir-b5 \|\| codigo=\$\?$/m);
   assert.deepEqual(b.RAMOS_BLOCO, {'CONFERIR-B5-COM-CONTA': 'com-conta', 'CONFERIR-B5-SEM-CONTA': 'sem-conta'});
@@ -323,7 +326,7 @@ test('hashes do corpo = conteúdo LF da árvore; CLI TODOS grava os blocos com s
   const saida = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'b5-cli-')), 'blocos');
   try {
     const r = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-conferencia-b5-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
-    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + 4);
+    assert.equal(r.status, 0, r.stderr); const L = r.stdout.trim().split('\n'); assert.equal(L.length, N + CURTOS.length + 1);
     for (const l of L) { const [h, bytes, nome] = l.split(/\s+/); const c = fs.readFileSync(path.join(saida, nome)); assert.equal(sha(c), h); assert.equal(c.length, Number(bytes)); }
     const denovo = spawnSync(process.execPath, [path.join(__dirname, 'bloco-shell-conferencia-b5-producao.cjs'), 'TODOS', 'abcdef1', saida], {encoding: 'utf8'});
     assert.equal(denovo.status, 1); assert.match(denovo.stderr, /PASTA_DE_SAIDA_INVALIDA_OU_EXISTENTE/);

@@ -31,6 +31,8 @@
 //   node scripts/conferencia-b5-producao.cjs                       → plano, sem conexão
 //   node --experimental-strip-types scripts/conferencia-b5-producao.cjs --conferir-b5         → E1
 //   node --experimental-strip-types scripts/conferencia-b5-producao.cjs --conferir-b5-estado  → E2c (091/094 ausentes)
+//   node --experimental-strip-types scripts/conferencia-b5-producao.cjs --conferir-b5-estado-pos-e3 → E5b (E2c-RECONFERIR:
+//     prefixo depois do E3, 089/092/093 completas; 091/094 e 118 ausentes; B-29 na opção (c) de D-ESC-8)
 // Códigos: 0 CONFERIDO; 1 recusa antes de conectar; 2 FALHA (conexão, identidade, consulta); 3 PARAR (motivos nomeados).
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -40,6 +42,8 @@ const ret108 = require('./migration-108-retrato.cjs');
 
 const FLAG_COMPLETO = '--conferir-b5';
 const FLAG_ESTADO = '--conferir-b5-estado';
+/** E5b (E2c-RECONFERIR, B-29 na opção (c) de D-ESC-8, rodada 43): o mesmo modo estado, com o prefixo DEPOIS do E3. */
+const FLAG_ESTADO_POS_E3 = '--conferir-b5-estado-pos-e3';
 /** [rótulo, núcleo, campos de estado]. Ordem da numeração; a 098 nunca entra. */
 const MIGRACOES = Object.freeze([
   ['089', './migration-089-comum.cjs', ['m089']], ['090', './migration-090-comum.cjs', ['m090']], ['091', './migration-091-comum.cjs', ['m091']],
@@ -77,6 +81,19 @@ const CORPOS_114_ANTES_DO_E3 = Object.freeze({lock: 'eb5f187f7ef5e7a499413d71cc1
   revisao: '830dd6a376f1dceadab9f20ad606665ec7b4692bfd531881c3da42f1e3d0b2ad'});
 const ESPERADO_ANTES_DO_E3 = Object.freeze({'102': 'ausente', '103': 'ausente', '104': 'ausente', '105': 'completa', '106': 'ausente', '107': 'ausente',
   '108': 'AUSENTE', '109': 'ausente', '112': 'ausente', '114': 'ausente', '116': 'ausente', '117': 'ausente', '118': 'ausente'});
+/**
+ * Prefixo DEPOIS do E3 (B-29, D-ESC-8 = (c), rodada 43 do plano): o E3 aplica 089, 092 e 093; o resto da base fica como
+ * antes (091 e 094 ausentes, 100 em "sem_094"). Faixa 102–118 igual à de antes do E3: na opção (c) a 118 só entra na E6
+ * (A7), então ela continua AUSENTE no E5b; presente aqui = PARAR (alguém aplicou fora da janela).
+ */
+const ESPERADO_BASE_POS_E3 = Object.freeze({...ESPERADO_BASE_ANTES_DO_E3, '089': 'completa', '092': 'completa', '093': 'completa'});
+const ESPERADO_POS_E3 = ESPERADO_ANTES_DO_E3;
+/** Prefixo por modo: E1 e E2c antes do E3; E5b depois do E3. */
+const PREFIXOS = Object.freeze({
+  completo: {base: ESPERADO_BASE_ANTES_DO_E3, ampliado: ESPERADO_ANTES_DO_E3, rotulo: 'ANTES_DO_E3 (§9.2.2: alem da base, so 099 e 105)'},
+  estado: {base: ESPERADO_BASE_ANTES_DO_E3, ampliado: ESPERADO_ANTES_DO_E3, rotulo: 'ANTES_DO_E3 (§9.2.2: alem da base, so 099 e 105)'},
+  estadoPosE3: {base: ESPERADO_BASE_POS_E3, ampliado: ESPERADO_POS_E3,
+    rotulo: 'POS_E3 (B-29, D-ESC-8 = (c): 089, 092 e 093 completas; 091 e 094 ausentes; 118 ausente ate a E6)'}});
 const RAMOS_PROVEDOR = Object.freeze({'sem-conta': 'SEM_CONTA', 'com-conta': 'COM_CONTA'});
 /**
  * Únicas variáveis de ambiente lidas (alvo do B-1, previsão do papel trocado, ramo do provedor). Nenhuma ASAAS_*: o
@@ -310,10 +327,11 @@ async function estados(db, carregar = m => require(m), env = {}, ctx = {contrato
   if (base.r['100'] === 'divergente') motivos.push('CORPO_DIVERGENTE 100 (098 presente ou deriva)');
   try { amp.r['118'] = lerEstado118((await somenteLeitura(db, SQL_ESTADO_118)).rows[0]); }
   catch (e) { if (String(e?.message) !== 'ESTADO_118_ILEGIVEL') throw e; amp.r['118'] = 'ILEGIVEL'; }
-  for (const [id, esperado] of Object.entries(ESPERADO_BASE_ANTES_DO_E3)) {
+  const prefixo = ctx.prefixo ?? PREFIXOS.completo;
+  for (const [id, esperado] of Object.entries(prefixo.base)) {
     if (base.r[id] !== esperado) motivos.push(`PREFIXO_DIVERGENTE ${id}:${base.r[id]} (esperado ${esperado})`);
   }
-  for (const [id, esperado] of Object.entries(ESPERADO_ANTES_DO_E3)) {
+  for (const [id, esperado] of Object.entries(prefixo.ampliado)) {
     if (amp.r[id] !== esperado) motivos.push(`PREFIXO_DIVERGENTE ${id}:${amp.r[id]} (esperado ${esperado})`);
   }
   const papeis = new Set([...base.papeis, ...amp.papeis]);
@@ -722,20 +740,23 @@ function modo(argv) {
   if (argv.length === 0) return 'plano';
   if (argv.length === 1 && argv[0] === FLAG_COMPLETO) return 'completo';
   if (argv.length === 1 && argv[0] === FLAG_ESTADO) return 'estado';
+  if (argv.length === 1 && argv[0] === FLAG_ESTADO_POS_E3) return 'estadoPosE3';
   assert.fail('ARGUMENTOS_RECUSADOS');
 }
 function plano() {
-  return {resultado: 'PLANO', conecta: false, alvo: prod.ALVO, modos: {E1: FLAG_COMPLETO, E2c: FLAG_ESTADO},
+  return {resultado: 'PLANO', conecta: false, alvo: prod.ALVO, modos: {E1: FLAG_COMPLETO, E2c: FLAG_ESTADO, E5b: FLAG_ESTADO_POS_E3},
     migracoes: MIGRACOES.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), excluidas: EXCLUIDAS,
     ampliadas: [...AMPLIADAS.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), {migration: '118', nucleo: 'catalogo (SQL_ESTADO_118)'}],
-    semMigration: SEM_MIGRATION, prefixoEsperadoAntesDoE3: {...ESPERADO_BASE_ANTES_DO_E3, ...ESPERADO_ANTES_DO_E3}, matriz: MATRIZ.map(([o, m, g, e]) => ({objeto: o, migracao: m, grupo: g, estrutura: e})),
+    semMigration: SEM_MIGRATION, prefixoEsperadoAntesDoE3: {...ESPERADO_BASE_ANTES_DO_E3, ...ESPERADO_ANTES_DO_E3},
+    prefixoEsperadoPosE3: {...ESPERADO_BASE_POS_E3, ...ESPERADO_POS_E3}, matriz: MATRIZ.map(([o, m, g, e]) => ({objeto: o, migracao: m, grupo: g, estrutura: e})),
     ambiente: {lidas: ENV_LIDAS, E1: 'KIDMAIS_B5_RAMO_PROVEDOR=sem-conta|com-conta obrigatoria; nenhuma ASAAS_* e lida'},
     leituras: ['banco: BEGIN TRANSACTION READ ONLY (lock_timeout 5s, statement_timeout 30s; documentos 60s)', 'matriz: uma fotografia REPEATABLE READ READ ONLY',
       'combinados (B-21): só catálogo, o mesmo SQL de lib/agenda/estado-combinados.ts', '109: contrato do cron (lib/assinatura/renovacao-schema.ts, conferido por sha256)',
       'provedor: nenhuma leitura (conferencia separada, §9.2.2)'],
     saida: 'estados, contagens e datas agregadas; nenhum id, documento, e-mail ou valor',
     paradas: ['estado parcial ou ilegível; 100 divergente', 'prefixo de 089-118 diferente do esperado antes do E3 (além da base, só 099 e 105; 114 só com o par de corpos comprovado)',
-      'combinados (B-21, E1 e E2c): qualquer estado diferente de AUSENTE (ANTIGA, PARCIAL, NOVA) ou ilegível', 'E2c: 091 ou 094 fora de "ausente"',
+      'E5b (E2c-RECONFERIR, D-ESC-8 = (c)): prefixo diferente do esperado depois do E3 (089, 092 e 093 completas; o resto como antes do E3, 118 ausente)',
+      'combinados (B-21, E1, E2c e E5b): qualquer estado diferente de AUSENTE (ANTIGA, PARCIAL, NOVA) ou ilegível', 'E2c e E5b: 091 ou 094 fora de "ausente"',
       'matriz: objeto obrigatório ausente, fora do escopo presente, linha em objeto VAZIA (lotes de crédito com a origem aberta), RLS que pode induzir zero, sem privilégio, exceção vigente de tipo revogável, continuidade não concluída, histórico de cadastro com linha (erro de consulta = FALHA 2; tipo, privilégio e RLS detectados = PARAR 3)',
       '105 completa sem a integridade de catálogo do aplicador (índice único parcial válido, gatilho na relação certa)', 'B-15: precheck estrutural da 091 falharia; CHECK da base divergente na sua relação (definição integral, PG 18) ou sem referência na versão do servidor; legado sem visibilidade; documento fora do formato dos CHECKs novos; origens ausentes, sem privilégio ou com RLS',
       'Fundador: relações sem visibilidade completa; qualquer concessão confirmada (ramo COM-DADOS), cobertura incompleta, prazo do B-9 vencido ou janela de aviso perdida',
@@ -750,14 +771,15 @@ async function conferir({modo: m, env, Client = require('pg').Client, agora = ne
     await db.connect();
     r.conexao = prod.identidade((await somenteLeitura(db, prod.SQL_IDENTIDADE)).rows[0]);
     const comb = await combinados(db);
-    const e = await estados(db, carregar, env, {contrato109: contrato109 ?? (() => carregarContrato109()), combinados108: comb.combinados.estado});
+    const e = await estados(db, carregar, env, {contrato109: contrato109 ?? (() => carregarContrato109()), combinados108: comb.combinados.estado,
+      prefixo: PREFIXOS[m]});
     r.estados = e.estados; r.ampliados = e.ampliados; r.papelTrocado = e.papelTrocado; r.presentes = presentes(e.estados);
-    r.prefixoEsperado = 'ANTES_DO_E3 (§9.2.2: alem da base, so 099 e 105)';
+    r.prefixoEsperado = PREFIXOS[m].rotulo;
     r.combinados = comb.combinados;
     const mat = await matriz(db);
     r.matriz = mat.matriz;
     const motivos = [...e.motivos, ...comb.motivos, ...mat.motivos];
-    if (m === 'estado') {
+    if (m === 'estado' || m === 'estadoPosE3') {
       for (const k of ['091', '094']) if (r.estados[k] !== 'ausente') motivos.push(`E2C_${k}_PRESENTE ${r.estados[k]}`);
     } else {
       const b = await b15(db, r.estados['091'], mat.motivos.length > 0);
@@ -797,4 +819,4 @@ module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES
   sqlContagem, matriz, fundador, provedor, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
   MOTIVO_COMBINADOS, combinados, REVISAO_114, ESPERADO_BASE_ANTES_DO_E3, CORPOS_114_ANTES_DO_E3, CONTAGEM_EXTRA, estado114, CHECKS_BASE_091, SQL_CHECKS_091,
   checksPorRelacao, SQL_ORIGENS_CATALOGO, INTEGRIDADE_105, SQL_ESTRUTURA_105, INDICE_105_DEF, GATILHO_105_DEF, CORPO_105, NAO_NULAS_105, COLUNAS_105, SQL_RELACAO_105, RELACAO_105, sqlIntegridade105, integridade105, VERSAO_MAIOR_REFERENCIA_091, SQL_VERSAO_PG,
-  LEGADO_091, TABELAS_FUNDADOR, visibilidade};
+  LEGADO_091, TABELAS_FUNDADOR, visibilidade, FLAG_ESTADO_POS_E3, ESPERADO_BASE_POS_E3, ESPERADO_POS_E3, PREFIXOS};
