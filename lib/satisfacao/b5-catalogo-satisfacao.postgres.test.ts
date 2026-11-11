@@ -39,8 +39,14 @@ async function ler(c: Client) {
 /** md5 das definições atuais dos CHECKs lidos (diagnóstico nas mensagens de falha). */
 async function definicoes(c: Client) {
   const nomes = [...b5.CHECKS_SATISFACAO.map((x) => x[2]), ...b5.CHECKS_REDEFINIDOS.map((x) => x[2])];
-  return (await c.query(`SELECT conname, md5(pg_get_constraintdef(oid)) AS h FROM pg_constraint WHERE conname = ANY ($1::text[]) ORDER BY conname`, [nomes])).rows
+  const checks = (await c.query(`SELECT conname, md5(pg_get_constraintdef(oid)) AS h FROM pg_constraint WHERE conname = ANY ($1::text[]) ORDER BY conname`, [nomes])).rows
     .map((r) => `${r.conname}=${r.h}`).join(" ");
+  const quando = (await c.query(`SELECT tgname, md5(substring(pg_get_triggerdef(oid) from ' WHEN \\((.*)\\) EXECUTE ')) AS h FROM pg_trigger WHERE tgqual IS NOT NULL AND tgname LIKE 'satisfacao%' ORDER BY tgname`)).rows
+    .map((r) => `${r.tgname}=${r.h}`).join(" ");
+  const perfis = (await c.query(`SELECT DISTINCT concat_ws('|', l.lanname, p.prokind, p.prosecdef, p.proleakproof, p.proisstrict, p.proretset, p.provolatile, p.proparallel,
+      p.prorettype::regtype, COALESCE(array_to_string(p.proconfig, ';'), '')) AS perfil FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+     WHERE p.proname LIKE 'kidmais110%' OR p.proname LIKE 'kidmais111%' OR p.proname = 'kidmais086_execucao_tenant'`)).rows.map((r) => r.perfil).join(" ; ");
+  return `CHECKs: ${checks} | WHEN: ${quando} | perfis: ${perfis}`;
 }
 /** Uma mutação numa transação desfeita: devolve o estado lido dentro dela. */
 async function comMutacao(c: Client, sql: string[]) {
@@ -64,7 +70,7 @@ test("B-5: 110/111/115 pelo catálogo com identidade por objeto (PostgreSQL desc
       const { estado, objetos } = await ler(c);
       const fora = b5.IDS_SATISFACAO.filter(([id, m]) => objetos[id] !== (esperado[m as keyof Estado] === "presente" ? "conforme" : "ausente"))
         .map(([id]) => `${id}=${objetos[id]}`);
-      assert.deepEqual(fora, [], `objetos fora do esperado; CHECKs: ${await definicoes(c)}`);
+      assert.deepEqual(fora, [], `objetos fora do esperado; ${await definicoes(c)}`);
       assert.deepEqual(estado, esperado);
     });
 
@@ -82,6 +88,19 @@ test("B-5: 110/111/115 pelo catálogo com identidade por objeto (PostgreSQL desc
         ["índice 115 removido (054 já fora)", ["DROP INDEX fechamentos_115_empresa_data_idx"], "115:indice:fechamentos_115_empresa_data_idx", { "115": "parcial" }],
         ["índice 115 com outra forma", ["DROP INDEX fechamentos_115_empresa_data_idx", "CREATE INDEX fechamentos_115_empresa_data_idx ON fechamentos (data_evento, empresa_id)"],
           "115:indice:fechamentos_115_empresa_data_idx", { "115": "parcial" }],
+        ["índice 115 com empresa_id DESC", ["DROP INDEX fechamentos_115_empresa_data_idx", "CREATE INDEX fechamentos_115_empresa_data_idx ON fechamentos (empresa_id DESC, data_evento)"],
+          "115:indice:fechamentos_115_empresa_data_idx", { "115": "parcial" }],
+        ["nome do índice 115 ocupado por visão", ["DROP INDEX fechamentos_115_empresa_data_idx", "CREATE VIEW fechamentos_115_empresa_data_idx AS SELECT 1 AS x"],
+          "115:indice:fechamentos_115_empresa_data_idx", { "115": "parcial" }],
+        ["nome do 054 ocupado por visão", ["CREATE VIEW fechamentos_054_empresa_idx AS SELECT 1 AS x"], "115:sem_indice:fechamentos_054_empresa_idx", { "115": "parcial" }],
+        ["gatilho do marco com WHEN (false)", ["DROP TRIGGER satisfacao_entregas_marco ON satisfacao_entregas",
+          "CREATE TRIGGER satisfacao_entregas_marco AFTER UPDATE OF estado ON satisfacao_entregas FOR EACH ROW WHEN (false) EXECUTE FUNCTION kidmais110_marco_contato()"],
+          "110:gatilho:satisfacao_entregas_marco", { "110": "parcial" }],
+        ["função da 110 com SECURITY DEFINER", ["ALTER FUNCTION kidmais110_envio_guarda() SECURITY DEFINER"], "110:funcao:kidmais110_envio_guarda()", { "110": "parcial" }],
+        ["função da 111 com outro search_path", ["ALTER FUNCTION kidmais111_link_guarda() SET search_path = pg_catalog, public"], "111:funcao:kidmais111_link_guarda()", { "111": "parcial" }],
+        ["função da 111 sem search_path", ["ALTER FUNCTION kidmais111_link_guarda() RESET search_path"], "111:funcao:kidmais111_link_guarda()", { "111": "parcial" }],
+        ["função redefinida (110) com SECURITY DEFINER", ["ALTER FUNCTION kidmais086_execucao_tenant() SECURITY DEFINER"], "110:funcao:kidmais086_execucao_tenant()", { "110": "parcial" }],
+        ["função da 110 STRICT", ["ALTER FUNCTION kidmais110_tarefa_guarda() STRICT"], "110:funcao:kidmais110_tarefa_guarda()", { "110": "parcial" }],
       ];
       for (const [nome, sql, id, parcial] of casos) {
         await t.test(`modelo 115: ${nome} → objeto fora de "conforme", migration parcial`, async () => {
@@ -96,6 +115,12 @@ test("B-5: 110/111/115 pelo catálogo com identidade por objeto (PostgreSQL desc
         ["índice 115 criado antes (054 ainda presente)", ["CREATE INDEX fechamentos_115_empresa_data_idx ON fechamentos (empresa_id, data_evento)"], { "115": "parcial" }],
         ["054 removido sem o 115", ["DROP INDEX fechamentos_054_empresa_idx"], { "115": "parcial" }],
         ["054 com outra forma", ["DROP INDEX fechamentos_054_empresa_idx", "CREATE INDEX fechamentos_054_empresa_idx ON fechamentos (empresa_id)"], { "115": "parcial" }],
+        ["054 com empresa_id DESC", ["DROP INDEX fechamentos_054_empresa_idx", "CREATE INDEX fechamentos_054_empresa_idx ON fechamentos (empresa_id DESC) WHERE empresa_id IS NOT NULL"], { "115": "parcial" }],
+        ["054 com NULLS FIRST", ["DROP INDEX fechamentos_054_empresa_idx", "CREATE INDEX fechamentos_054_empresa_idx ON fechamentos (empresa_id NULLS FIRST) WHERE empresa_id IS NOT NULL"], { "115": "parcial" }],
+        ["nome do índice 115 ocupado por visão (054 íntegro)", ["CREATE VIEW fechamentos_115_empresa_data_idx AS SELECT 1 AS x"], { "115": "parcial" }],
+        ["nome do índice 115 ocupado por tabela (054 íntegro)", ["CREATE TABLE fechamentos_115_empresa_data_idx (x int)"], { "115": "parcial" }],
+        ["função da 086 com SECURITY DEFINER", ["ALTER FUNCTION kidmais086_execucao_tenant() SECURITY DEFINER"], { "110": "parcial" }],
+        ["função da 086 com outro search_path", ["ALTER FUNCTION kidmais086_execucao_tenant() SET search_path = pg_catalog, public"], { "110": "parcial" }],
         ["homônimo de tabela da 110 que é visão", ["CREATE VIEW satisfacao_saidas AS SELECT 1 AS x"], { "110": "parcial" }],
         ["CHECK da 086 já com a definição da 110", ["ALTER TABLE marketing_automacao_execucoes DROP CONSTRAINT marketing_exec_acao, ADD CONSTRAINT marketing_exec_acao CHECK (acao IN ('TAREFA_INTERNA', 'MENSAGEM_WHATSAPP', 'PESQUISA_SATISFACAO'))"], { "110": "parcial" }],
       ];

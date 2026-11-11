@@ -325,6 +325,24 @@ test('B-5 ampliado: 110/111/115 (pesquisa de satisfação) pelo catálogo, por o
   assert.deepEqual(Object.fromEntries(b5.FUNCOES_SATISFACAO.map(([, f, h]) => [f, h])),
     Object.fromEntries(Object.entries({...c110, ...c111}).filter(([f]) => !f.startsWith('kidmais086_'))));
   assert.deepEqual(b5.FUNCOES_REDEFINIDAS.map(([, f, a, d]) => [f, a, d]), [['kidmais086_execucao_tenant()', c086['kidmais086_execucao_tenant()'], c110['kidmais086_execucao_tenant()']]]);
+  // Atributos de execução (parecer r2 do Astra): toda função lida é declarada igual nas migrations, sem SECURITY DEFINER,
+  // STRICT, LEAKPROOF, volatilidade ou PARALLEL explícitos; o perfil esperado do módulo é essa declaração.
+  const satisfacaoMod = require('./conferencia-b5-satisfacao.cjs');
+  const DECLARACAO = 'RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$';
+  const declaracoes = (sql) => Object.fromEntries([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION (\w+\([^)]*\)) ([^$]*?AS \$\$)/g)].map(([, f, d]) => [f, d]));
+  const d086 = declaracoes(m086), d110 = declaracoes(m110), d111 = declaracoes(m111);
+  for (const [, f] of [...b5.FUNCOES_SATISFACAO, ...b5.FUNCOES_REDEFINIDAS]) assert.equal({...d110, ...d111}[f], DECLARACAO, f);
+  assert.equal(d086['kidmais086_execucao_tenant()'], DECLARACAO);
+  assert.equal(satisfacaoMod.PERFIL_FUNCAO, 'plpgsql|f|f|f|f|f|v|u|trigger|search_path=public, pg_catalog, pg_temp');
+  assert.doesNotMatch([m110, m111].join('\n'), /SECURITY DEFINER\b(?![^\n]*PS-6)|LEAKPROOF|\bSTRICT\b|PARALLEL|IMMUTABLE|\bSTABLE\b/);
+  // WHEN: só o gatilho do marco tem WHEN na 110/111; os demais esperam '' e o do marco, um md5 (conferido no PG descartável).
+  const comWhen = [...[m110, m111].join('\n').matchAll(/^CREATE (?:CONSTRAINT )?TRIGGER (\w+)[^;]*?\bWHEN \(/gm)].map(([, n]) => n);
+  assert.deepEqual(comWhen, ['satisfacao_entregas_marco']);
+  for (const [, g, , , , , , quando] of b5.GATILHOS_SATISFACAO) assert.ok(comWhen.includes(g) ? /^[0-9a-f]{32}$/.test(quando) : quando === '', g);
+  // Índices: mesmos critérios do precheck da 115 (nome ocupado por outra relação, ordem, opclass, namespace).
+  for (const trecho of ["n.nspname = 'public'", "c.relkind = 'i'", 'i.indoption[0] = 0', 'i.indoption[1] = 0', 'o.opcdefault', "am.amname = 'btree'",
+    "WHEN to_regclass('public.fechamentos_115_empresa_data_idx') IS NULL THEN 'ausente'", "WHEN to_regclass('public.fechamentos_054_empresa_idx') IS NULL THEN 'conforme'"])
+    assert.ok(b5.SQL_ESTADO_SATISFACAO.includes(trecho), trecho);
   const ids = new Set(b5.IDS_SATISFACAO.map(([id]) => id.split(':').slice(2).join(':')));
   for (const [sql, m] of [[m110, '110'], [m111, '111']]) {
     for (const [, nome] of sql.matchAll(/^CREATE TABLE (\w+)/gm)) assert.ok(b5.IDS_SATISFACAO.some(([id]) => id === `${m}:tabela:${nome}`), nome);

@@ -8,15 +8,19 @@ const assert = require('node:assert/strict');
  * 110, 111 e 115 (pesquisa de satisfação; sem núcleo de leitura): só catálogo, numa instrução, com IDENTIDADE POR OBJETO
  * (parecer do Astra, 10/11): cada objeto sai como ausente, conforme ou divergente, e a migration só é "ausente" com todos
  * ausentes e "presente" com todos conformes. Nada de soma: um objeto a mais não compensa outro faltando.
- * - Funções: md5 do corpo (prosrc) igual ao da migration. kidmais086_execucao_tenant() é REDEFINIDA pela 110: corpo da 086
- *   = ausente, corpo da 110 = conforme, qualquer outro (ou função sumida) = divergente.
+ * - Funções: md5 do corpo (prosrc) igual ao da migration E os atributos de execução (PERFIL_FUNCAO: linguagem, SECURITY
+ *   DEFINER, STRICT, LEAKPROOF, volatilidade, PARALLEL, retorno e search_path; parecer r2 do Astra). kidmais086_execucao_tenant()
+ *   é REDEFINIDA pela 110: corpo da 086 = ausente, corpo da 110 = conforme, qualquer outro corpo, outro perfil (em qualquer
+ *   dos dois corpos) ou função sumida = divergente.
  * - CHECKs: md5 de pg_get_constraintdef e validado. Os 4 que a 110 redefine com o nome da 086 seguem a mesma regra da
  *   função (definição da 086 = ausente). Os 7 novos: ausentes ou conformes.
  * - Gatilhos: um só com o nome, na tabela certa, chamando a função certa, com o tgtype (momento/eventos/linha), colunas
- *   de UPDATE OF, WHEN, DEFERRABLE INITIALLY DEFERRED e HABILITADO (tgenabled 'O'). Desabilitado = divergente.
+ *   de UPDATE OF, a EXPRESSÃO do WHEN (md5), DEFERRABLE INITIALLY DEFERRED e HABILITADO (tgenabled 'O').
  * - Colunas: tipo e NOT NULL. Tabelas: relkind 'r'.
- * - 115: índice novo válido/pronto/vivo, btree, (empresa_id, data_evento), sem predicado; o 054 removido. Ausente = 115
- *   sem índice e o 054 COM a forma da 054 ((empresa_id) WHERE empresa_id IS NOT NULL, válido); outra forma = divergente.
+ * - 115, com os critérios de forma do precheck da 115: nome livre (to_regclass NULL) é ausente para o índice novo e
+ *   conforme para o 054; nome ocupado por qualquer relação sem a forma exata (visão, tabela, outra ordem, DESC, NULLS FIRST,
+ *   opclass, predicado) é divergente. Índice novo: btree (empresa_id, data_evento) sem predicado; 054 ausente da 115 =
+ *   presente com a forma da 054 ((empresa_id) WHERE empresa_id IS NOT NULL). Ambos válidos/prontos/vivos.
  * As definições esperadas são conferidas em PostgreSQL descartável nos modelos 109, 110, 111 e 115
  * (lib/satisfacao/b5-catalogo-satisfacao.postgres.test.ts) e os corpos, contra os arquivos das migrations (teste unitário).
  */
@@ -33,20 +37,20 @@ const FUNCOES_SATISFACAO = Object.freeze([
   ['111', 'kidmais111_link_guarda()', '405461b6e4dc4790de5ae76428eea67c']].map(Object.freeze));
 /** [migration, assinatura, md5 do corpo da 086 (= ausente), md5 do corpo da 110 (= conforme)]. */
 const FUNCOES_REDEFINIDAS = Object.freeze([['110', 'kidmais086_execucao_tenant()', '6ce72e15a353b6f65214866384a12cc2', '3f6beec01861e5968ad2baf97e34ebab']].map(Object.freeze));
-/** [migration, nome, tabela, função, tgtype, constraint trigger (DEFERRABLE INITIALLY DEFERRED), colunas de UPDATE OF, tem WHEN]. */
+/** [migration, nome, tabela, função, tgtype, constraint trigger (DEFERRABLE INITIALLY DEFERRED), colunas de UPDATE OF, md5 da expressão do WHEN ('' sem WHEN)]. */
 const GATILHOS_SATISFACAO = Object.freeze([
-  ['110', 'satisfacao_capacidades_guarda', 'satisfacao_capacidades', 'kidmais110_capacidade_guarda()', 31, false, '', false],
-  ['110', 'satisfacao_entregas_guarda', 'satisfacao_entregas', 'kidmais110_entrega_guarda()', 31, false, '', false],
-  ['110', 'satisfacao_entregas_marco', 'satisfacao_entregas', 'kidmais110_marco_contato()', 17, false, 'estado', true],
-  ['110', 'satisfacao_envios_guarda', 'satisfacao_envios', 'kidmais110_envio_guarda()', 31, false, '', false],
-  ['110', 'satisfacao_envios_invariante', 'satisfacao_envios', 'kidmais110_invariante_resposta()', 21, true, '', false],
-  ['110', 'satisfacao_respostas_guarda', 'satisfacao_respostas', 'kidmais110_resposta_guarda()', 31, false, '', false],
-  ['110', 'satisfacao_respostas_invariante', 'satisfacao_respostas', 'kidmais110_invariante_resposta()', 5, true, '', false],
-  ['110', 'satisfacao_tarefas_guarda', 'satisfacao_tarefas', 'kidmais110_tarefa_guarda()', 31, false, '', false],
-  ['111', 'satisfacao_auditoria_coerencia', 'satisfacao_auditoria', 'kidmais111_auditoria_coerencia()', 7, false, '', false],
-  ['111', 'satisfacao_auditoria_imutavel', 'satisfacao_auditoria', 'kidmais111_auditoria_somente_insercao()', 27, false, '', false],
-  ['111', 'satisfacao_auditoria_truncate', 'satisfacao_auditoria', 'kidmais111_auditoria_somente_insercao()', 34, false, '', false],
-  ['111', 'satisfacao_links_guarda', 'satisfacao_links_avaliacao', 'kidmais111_link_guarda()', 19, false, '', false]].map(Object.freeze));
+  ['110', 'satisfacao_capacidades_guarda', 'satisfacao_capacidades', 'kidmais110_capacidade_guarda()', 31, false, '', ''],
+  ['110', 'satisfacao_entregas_guarda', 'satisfacao_entregas', 'kidmais110_entrega_guarda()', 31, false, '', ''],
+  ['110', 'satisfacao_entregas_marco', 'satisfacao_entregas', 'kidmais110_marco_contato()', 17, false, 'estado', '2f20840b8b3eb6af11c32bc1f5b5f554'],
+  ['110', 'satisfacao_envios_guarda', 'satisfacao_envios', 'kidmais110_envio_guarda()', 31, false, '', ''],
+  ['110', 'satisfacao_envios_invariante', 'satisfacao_envios', 'kidmais110_invariante_resposta()', 21, true, '', ''],
+  ['110', 'satisfacao_respostas_guarda', 'satisfacao_respostas', 'kidmais110_resposta_guarda()', 31, false, '', ''],
+  ['110', 'satisfacao_respostas_invariante', 'satisfacao_respostas', 'kidmais110_invariante_resposta()', 5, true, '', ''],
+  ['110', 'satisfacao_tarefas_guarda', 'satisfacao_tarefas', 'kidmais110_tarefa_guarda()', 31, false, '', ''],
+  ['111', 'satisfacao_auditoria_coerencia', 'satisfacao_auditoria', 'kidmais111_auditoria_coerencia()', 7, false, '', ''],
+  ['111', 'satisfacao_auditoria_imutavel', 'satisfacao_auditoria', 'kidmais111_auditoria_somente_insercao()', 27, false, '', ''],
+  ['111', 'satisfacao_auditoria_truncate', 'satisfacao_auditoria', 'kidmais111_auditoria_somente_insercao()', 34, false, '', ''],
+  ['111', 'satisfacao_links_guarda', 'satisfacao_links_avaliacao', 'kidmais111_link_guarda()', 19, false, '', '']].map(Object.freeze));
 /** [migration, tabela, coluna, tipo, NOT NULL]. */
 const COLUNAS_SATISFACAO = Object.freeze([
   ['110', 'marketing_automacao_regras', 'canais', 'text[]', true], ['110', 'marketing_automacao_regras', 'template_lembrete_texto', 'text', false],
@@ -76,11 +80,30 @@ const IDS_SATISFACAO = Object.freeze([
 const OBJETOS_SATISFACAO = Object.freeze(Object.fromEntries(['110', '111', '115'].map(m => [m, IDS_SATISFACAO.filter(([, x]) => x === m).length])));
 const literal = v => typeof v === 'string' ? `'${v.split("'").join("''")}'` : typeof v === 'boolean' ? String(v) : String(Number(v));
 const valores = (linhas, f) => linhas.map(l => `(${f(l).map(literal).join(', ')})`).join(',\n    ');
-/** Colunas (por nome) de um índice, na ordem; e o método. */
-const COLUNAS_INDICE = `(SELECT string_agg(a.attname, ',' ORDER BY k.n) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum, n)
-          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum)`;
-const BTREE = `(SELECT m.amname FROM pg_class r JOIN pg_am m ON m.oid = r.relam WHERE r.oid = i.indexrelid) = 'btree'`;
-const INDICE_SAO = `i.indrelid = to_regclass('public.fechamentos') AND i.indisvalid AND i.indisready AND i.indislive AND NOT i.indisunique AND i.indexprs IS NULL`;
+/**
+ * Atributos de execução de uma função (p = pg_proc), além do corpo: linguagem, tipo, SECURITY DEFINER, LEAKPROOF, STRICT,
+ * SETOF, volatilidade, PARALLEL, retorno e SET (search_path). Toda função lida aqui é criada igual nas migrations
+ * (`RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp`), conferido no teste unitário.
+ */
+const PERFIL_FUNCAO = 'plpgsql|f|f|f|f|f|v|u|trigger|search_path=public, pg_catalog, pg_temp';
+const PERFIL_SQL = `concat_ws('|', (SELECT l.lanname FROM pg_language l WHERE l.oid = p.prolang), p.prokind, p.prosecdef, p.proleakproof, p.proisstrict,
+      p.proretset, p.provolatile, p.proparallel, p.prorettype::regtype, COALESCE(array_to_string(p.proconfig, ';'), ''))`;
+/** md5 da expressão do WHEN de um gatilho (tg = pg_trigger) como pg_get_triggerdef a escreve; '' sem WHEN; NULL se ilegível. */
+const QUANDO_SQL = `CASE WHEN tg.tgqual IS NULL THEN '' ELSE md5(substring(pg_get_triggerdef(tg.oid) from ' WHEN \\((.*)\\) EXECUTE ')) END`;
+/**
+ * Forma de um índice de fechamentos, com os MESMOS critérios do precheck da 115 (database/checks/20261103_115_precheck.sql):
+ * relação de tipo índice no esquema public, sobre public.fechamentos, btree, não única, sem expressões, colunas por attnum e
+ * na ordem, todas ASC NULLS LAST (indoption 0) e com a opclass padrão, e o predicado dado. Exige ainda válido/pronto/vivo.
+ */
+const formaIndice = (nome, colunas, predicado) => `EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_am am ON am.oid = c.relam
+       WHERE c.oid = to_regclass('public.${nome}') AND n.nspname = 'public' AND c.relkind = 'i'
+         AND i.indrelid = to_regclass('public.fechamentos') AND am.amname = 'btree' AND NOT i.indisunique
+         AND i.indisvalid AND i.indisready AND i.indislive AND i.indnatts = ${colunas.length} AND i.indnkeyatts = ${colunas.length}
+         AND i.indexprs IS NULL AND ${predicado === null ? 'i.indpred IS NULL' : `pg_get_expr(i.indpred, i.indrelid) = ${literal(predicado)}`}
+         ${colunas.map((col, k) => `AND i.indkey[${k}] = (SELECT attnum FROM pg_attribute WHERE attrelid = i.indrelid AND attname = ${literal(col)} AND NOT attisdropped)
+         AND i.indoption[${k}] = 0`).join('\n         ')}
+         AND NOT EXISTS (SELECT 1 FROM unnest(i.indclass::oid[]) k(opc) JOIN pg_opclass o ON o.oid = k.opc WHERE NOT o.opcdefault))`;
 const SQL_ESTADO_SATISFACAO = `WITH
   tab(id, nome) AS (VALUES ${valores([...TABELAS_110.map(t => ['110', t]), ...TABELAS_111.map(t => ['111', t])], ([m, t]) => [`${m}:tabela:${t}`, t])}),
   fun(id, assin, corpo) AS (VALUES ${valores(FUNCOES_SATISFACAO, ([m, f, h]) => [`${m}:funcao:${f}`, f, h])}),
@@ -93,16 +116,17 @@ SELECT jsonb_object_agg(id, estado) AS objetos FROM (
   SELECT t.id, CASE WHEN c.oid IS NULL THEN 'ausente' WHEN c.relkind = 'r' THEN 'conforme' ELSE 'divergente' END AS estado
     FROM tab t LEFT JOIN pg_class c ON c.oid = to_regclass('public.' || t.nome)
   UNION ALL
-  SELECT f.id, CASE WHEN p.oid IS NULL THEN 'ausente' WHEN md5(p.prosrc) = f.corpo AND p.prorettype = 'trigger'::regtype THEN 'conforme' ELSE 'divergente' END
+  SELECT f.id, CASE WHEN p.oid IS NULL THEN 'ausente' WHEN md5(p.prosrc) = f.corpo AND ${PERFIL_SQL} = ${literal(PERFIL_FUNCAO)} THEN 'conforme' ELSE 'divergente' END
     FROM fun f LEFT JOIN pg_proc p ON p.oid = to_regprocedure('public.' || f.assin)
   UNION ALL
-  SELECT f.id, CASE WHEN p.oid IS NULL THEN 'divergente' WHEN md5(p.prosrc) = f.depois THEN 'conforme' WHEN md5(p.prosrc) = f.antes THEN 'ausente' ELSE 'divergente' END
+  SELECT f.id, CASE WHEN p.oid IS NULL OR ${PERFIL_SQL} IS DISTINCT FROM ${literal(PERFIL_FUNCAO)} THEN 'divergente'
+      WHEN md5(p.prosrc) = f.depois THEN 'conforme' WHEN md5(p.prosrc) = f.antes THEN 'ausente' ELSE 'divergente' END
     FROM fre f LEFT JOIN pg_proc p ON p.oid = to_regprocedure('public.' || f.assin)
   UNION ALL
   SELECT g.id, CASE WHEN count(tg.oid) = 0 THEN 'ausente'
       WHEN count(tg.oid) = 1 AND bool_and(tg.tgrelid = to_regclass('public.' || g.tabela) AND tg.tgfoid = to_regprocedure('public.' || g.funcao)
         AND tg.tgtype = g.tipo AND tg.tgenabled = 'O' AND (tg.tgconstraint <> 0) = g.restricao AND tg.tgdeferrable = g.restricao
-        AND tg.tginitdeferred = g.restricao AND (tg.tgqual IS NOT NULL) = g.quando
+        AND tg.tginitdeferred = g.restricao AND ${QUANDO_SQL} = g.quando
         AND COALESCE((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
                         WHERE a.attrelid = tg.tgrelid AND a.attnum = ANY (tg.tgattr::int2[])), '') = g.colunas)
       THEN 'conforme' ELSE 'divergente' END
@@ -118,15 +142,13 @@ SELECT jsonb_object_agg(id, estado) AS objetos FROM (
       WHEN md5(pg_get_constraintdef(k.oid)) = c.antes THEN 'ausente' ELSE 'divergente' END
     FROM chr c LEFT JOIN pg_constraint k ON k.conrelid = to_regclass('public.' || c.tabela) AND k.conname = c.nome
   UNION ALL
-  SELECT '115:indice:fechamentos_115_empresa_data_idx', CASE WHEN i.indexrelid IS NULL THEN 'ausente'
-      WHEN ${INDICE_SAO} AND i.indpred IS NULL AND ${BTREE}
-        AND ${COLUNAS_INDICE} = 'empresa_id,data_evento' THEN 'conforme' ELSE 'divergente' END
-    FROM (SELECT 1) u LEFT JOIN pg_index i ON i.indexrelid = to_regclass('public.fechamentos_115_empresa_data_idx')
+  -- Nome livre (to_regclass NULL) é diferente de nome ocupado: qualquer relação com o nome (visão, tabela, índice de outra
+  -- forma) que não tenha a forma exata do precheck é divergente.
+  SELECT '115:indice:fechamentos_115_empresa_data_idx', CASE WHEN to_regclass('public.fechamentos_115_empresa_data_idx') IS NULL THEN 'ausente'
+      WHEN ${formaIndice('fechamentos_115_empresa_data_idx', ['empresa_id', 'data_evento'], null)} THEN 'conforme' ELSE 'divergente' END
   UNION ALL
-  SELECT '115:sem_indice:fechamentos_054_empresa_idx', CASE WHEN i.indexrelid IS NULL THEN 'conforme'
-      WHEN ${INDICE_SAO} AND pg_get_expr(i.indpred, i.indrelid) = '(empresa_id IS NOT NULL)' AND ${BTREE}
-        AND ${COLUNAS_INDICE} = 'empresa_id' THEN 'ausente' ELSE 'divergente' END
-    FROM (SELECT 1) u LEFT JOIN pg_index i ON i.indexrelid = to_regclass('public.fechamentos_054_empresa_idx')
+  SELECT '115:sem_indice:fechamentos_054_empresa_idx', CASE WHEN to_regclass('public.fechamentos_054_empresa_idx') IS NULL THEN 'conforme'
+      WHEN ${formaIndice('fechamentos_054_empresa_idx', ['empresa_id'], '(empresa_id IS NOT NULL)')} THEN 'ausente' ELSE 'divergente' END
 ) o`;
 const ESTADOS_OBJETO = Object.freeze(['ausente', 'conforme', 'divergente']);
 /** Estado por objeto, conferido contra a lista completa de identidades (faltando, sobrando ou fora do vocabulário = ilegível). */
@@ -149,4 +171,4 @@ function divergenciasSatisfacao(l) {
   return IDS_SATISFACAO.map(([id]) => id).filter(id => o[id] !== 'ausente').map(id => `${id}=${o[id]}`);
 }
 
-module.exports = {SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO, FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao, objetosSatisfacao};
+module.exports = {SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO, FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, PERFIL_FUNCAO, divergenciasSatisfacao, objetosSatisfacao};
