@@ -126,6 +126,9 @@ const MODELOS = {
   // Aplicador da 118 (08/11/2026): o esquema do staging ANTES da 118 — inventário até a 117 sem a 098 (114, 112, 116 e 117
   // aplicadas, na ordem do inventário). Base do ensaio do aplicador da 118 com 116 e 117 presentes.
   "117": { banco: "kidmais_v1_modelo_117", ate: "117", sem: ["098"] },
+  // Financeiro P2 (09/11/2026): o estado do staging (inventário até a 118 sem a 098) com 120 e 121. Os modelos sem a 121
+  // provam o leitor sem abertura (saldo null); os oráculos de saldo absoluto rodam aqui.
+  "121": { banco: "kidmais_v1_modelo_121", ate: "121", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a

@@ -51,7 +51,8 @@ const canalMcp = [
 const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "zod": ["ZodError", "z"],
   "node:crypto": ["createHash"],
-  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo"],
+  // pendenciasDoCaixa (P2): só leitura da abertura vigente e das pendências da conferência, para o atencao_hoje.
+  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo", "pendenciasDoCaixa"],
   "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia", "periodoSelecionado", "HORIZONTE_RECORRENCIA_MESES"],
   "lib/saas/provar-tenant": ["SessaoParaTenant", "TenantComprovado"],
   "lib/clientes/services/errors": ["ClienteServiceError"],
