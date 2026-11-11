@@ -44,14 +44,14 @@
       "arquivo": "clientes.md",
       "id": "clientes",
       "titulo": "Clientes",
-      "versao": 1,
+      "versao": 2,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a"
+      "sha256": "0a47f8e84d84104980cec6339e23c10d2b1983ac8928a53db86e447862332137"
     },
     {
       "arquivo": "conectar-whatsapp.md",
@@ -109,14 +109,14 @@
       "arquivo": "fechamento-de-festa.md",
       "id": "fechamento-de-festa",
       "titulo": "Fechamento de festa",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "6ba50ba935fe282c2ac704764785a30e9a7460826acfafedb5bd7ca0ac23e24a"
+      "sha256": "1384529ba7656eb653f6d02b53883dc434647f88b01baa6f9766e59044d02fd1"
     },
     {
       "arquivo": "festas.md",
@@ -174,14 +174,14 @@
       "arquivo": "perfil-da-empresa.md",
       "id": "perfil-da-empresa",
       "titulo": "Perfil da empresa",
-      "versao": 2,
+      "versao": 3,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "1fd29c600b8e212837a817eec764589c18254be6f63f21c98f79c5dfee9d7e32"
+      "sha256": "97b8b0d67c5dbafbae679d3078b800fed60bfa935612297bb7c4c21d263e92bb"
     },
     {
       "arquivo": "perfil-e-senha.md",

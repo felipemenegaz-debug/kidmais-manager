@@ -1,5 +1,7 @@
 # Fechamento de festa
 
+!video[Vídeo: como fazer o fechamento de uma festa, passo a passo](/ajuda/videos/fazer-fechamento.mp4)
+
 ## O que é o fechamento
 
 O fechamento é o passo que transforma uma negociação em contratação. Nele você registra o pacote, a data, o horário, os convidados e a forma de pagamento combinada. Depois vêm a revisão comercial, o contrato e as assinaturas. A festa entra na agenda quando o contrato é assinado pelo buffet e pelo cliente.
@@ -7,8 +9,8 @@ O fechamento é o passo que transforma uma negociação em contratação. Nele v
 ## Como fazer o fechamento de um cliente
 
 1. No menu Operação, abra **Clientes** e clique em **Fechamento**.
-2. Busque e selecione a família. Se ela ainda não existe, use **+ Novo cliente**.
-3. Na tela **Preparar contratação**, escolha o **Pacote** e, se houver mais de uma, a **Unidade**.
+2. Busque e selecione a família. Se ela ainda não existe, use **+ Novo cliente**. O cadastro precisa estar completo (CPF, e-mail e endereço); se faltar algo, a tela avisa e você completa em Clientes.
+3. Na tela **Preparar contratação**, escolha o **Pacote**, a **Unidade** (se houver mais de uma) e o **Período**: almoço ou noite.
 4. Escolha a data no calendário e o **Horário disponível**.
 5. Informe **Convidados pagantes** e escolha o **Aniversariante** (ele precisa estar cadastrado no cliente).
 6. Se quiser, preencha tema, buffet, adicionais e observações.

@@ -177,7 +177,7 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   "assistentes-externos": { versao: 2, sha256: "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6", em: "2026-11-06" },
   // 02/11/2026: artigos da central (S3) aprovados em staging. Recorte de production: os 7 que valem iguais em production
   // ficam na versão 1 (mesmo hash de staging); os de recurso ausente (MCP, créditos de IA, atendimento piloto) ficam fora.
-  clientes: { versao: 1, sha256: "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a", em: "2026-11-02" },
+  clientes: { versao: 2, sha256: "0a47f8e84d84104980cec6339e23c10d2b1983ac8928a53db86e447862332137", em: "2026-11-09" },
   "contas-a-pagar-e-caixa": { versao: 1, sha256: "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f", em: "2026-11-02" },
   dashboard: { versao: 1, sha256: "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb", em: "2026-11-02" },
   marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
@@ -188,8 +188,8 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   // 03/11/2026 (Felipe: "aprovo"): v3 cita o botão Retomar <plano> da contratação em aberto.
   contratos: { versao: 2, sha256: "c41dbf099bcae2d691e4f683572c3bf39ab4d2571c34ddd8cbe962448feae073", em: "2026-11-03" },
   convites: { versao: 2, sha256: "2dd29015b47a372690375c5e88b300410520b057674415348c6ecc36a6ce397c", em: "2026-11-03" },
-  "fechamento-de-festa": { versao: 2, sha256: "6ba50ba935fe282c2ac704764785a30e9a7460826acfafedb5bd7ca0ac23e24a", em: "2026-11-03" },
-  "perfil-da-empresa": { versao: 2, sha256: "1fd29c600b8e212837a817eec764589c18254be6f63f21c98f79c5dfee9d7e32", em: "2026-11-03" },
+  "fechamento-de-festa": { versao: 3, sha256: "1384529ba7656eb653f6d02b53883dc434647f88b01baa6f9766e59044d02fd1", em: "2026-11-09" },
+  "perfil-da-empresa": { versao: 3, sha256: "97b8b0d67c5dbafbae679d3078b800fed60bfa935612297bb7c4c21d263e92bb", em: "2026-11-09" },
   "saloes-pacotes-e-itens": { versao: 2, sha256: "7c9d57c600ff2107290553e56d19ff78c0efaf2ca9f128639e8e18c46fdf2a15", em: "2026-11-03" },
   // 03/11/2026 (Felipe: "Aprovo, preparar"): vídeos de ajuda de production (pilotos) nos artigos; primeiros-passos v3 também
   // corrige o caminho (o item do cartão da conta só existe com assinatura + Gestão): cartão › Ajuda e suporte › Atalhos.
