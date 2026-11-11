@@ -546,3 +546,4 @@
   .site .galeriaTabs button{font-size:13px;padding:9px 12px}
   .site .galeriaRodape{flex-wrap:wrap}
 }
+.site .galeriaPlanos{display:inline-flex;margin:12px 0 0;padding:3px 12px;border:1px solid #80f5c455;border-radius:999px;color:var(--mint);font-size:13px;font-weight:600}

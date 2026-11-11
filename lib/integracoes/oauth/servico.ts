@@ -63,7 +63,7 @@ export function metadadosRecurso(env: AmbienteMcp) {
     authorization_servers: [urls.emissor],
     scopes_supported: [...ESCOPOS_MCP],
     bearer_methods_supported: ["header"],
-    resource_name: "KidMais Manager",
+    resource_name: "iA.Fest",
   };
 }
 
@@ -269,7 +269,7 @@ export async function iniciarAutorizacao(query: URLSearchParams, deps: Dependenc
     if (!(error instanceof CimdRecusado)) throw error;
     contar(`CIMD_${error.motivo}`);
     if (error.transitorio) return { tipo: "ERRO", status: 503, mensagem: "Não foi possível conferir o aplicativo agora. Tente de novo em instantes." };
-    return { tipo: "ERRO", status: 400, mensagem: "Este aplicativo não está habilitado para conectar ao KidMais." };
+    return { tipo: "ERRO", status: 400, mensagem: "Este aplicativo não está habilitado para conectar ao iA.Fest." };
   }
   // Sem redirect conferido, nunca redirecionar (open redirect).
   if (!cliente.redirectUris.includes(redirectUri)) {

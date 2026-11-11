@@ -21,6 +21,40 @@ function aguardandoRenovacao(empresaId: string | null) {
     return renovacaoEmCurso !== null && sessaoDe(contexto) === renovacaoEmCurso.anterior && empresaDe(contexto) === (empresaId ?? '');
 }
 
+/** Sessão e empresa confirmadas para esta página (`sessao:empresa`); null antes da primeira confirmação. */
+export function contextoDaPagina() {
+    return contexto;
+}
+
+/**
+ * Prefixo das buscas guardadas na aba (lib/http/busca-na-aba.ts). Elas são apagadas e BLOQUEADAS (nada lido nem gravado
+ * até a página ser trocada) no início da saída, em todo descarte de contexto (troca de empresa, sessão diferente, outra
+ * aba) e na confirmação do fim da sessão (expirada, revogada ou recusada); a tela de login apaga de novo ao abrir.
+ * O bloqueio fecha a janela em que a tela continua interativa enquanto a saída ou a navegação não termina.
+ */
+export const PREFIXO_BUSCA_NA_ABA = 'kidmais-busca:';
+let buscasBloqueadas = false;
+
+export function buscasDaAbaBloqueadas() {
+    return buscasBloqueadas;
+}
+
+/** Fim da sessão confirmado, saída iniciada ou contexto descartado: bloqueia e apaga as buscas desta aba. */
+export function encerrarBuscasDaAba() {
+    buscasBloqueadas = true;
+    esquecerBuscasDaAba();
+}
+
+export function esquecerBuscasDaAba() {
+    try {
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k?.startsWith(PREFIXO_BUSCA_NA_ABA)) sessionStorage.removeItem(k);
+        }
+    }
+    catch { /* sem armazenamento: nada guardado */ }
+}
+
 /** true quando a sessão/empresa informadas diferem das desta página (sem efeitos colaterais). */
 export function contextoMudou(sessaoId: string, empresaId: string | null) {
     return contexto !== null && contexto !== chave(sessaoId, empresaId) && !aguardandoRenovacao(empresaId);
@@ -111,6 +145,7 @@ let saidaDaSessao = false;
 /** Saída da sessão iniciada nesta página (components/admin/sair.ts): ela mesma navega ao login no prazo. */
 export function marcarSaidaDaSessao() {
     saidaDaSessao = true;
+    encerrarBuscasDaAba();
 }
 
 /** true depois de a saída começar: respostas tardias não navegam nem deixam aviso por cima do resultado da saída. */
@@ -120,6 +155,9 @@ export function saidaDaSessaoEmAndamento() {
 
 export function reiniciarContextoEmpresa(aviso?: string, destino?: string, origem: OrigemAviso = 'descarte') {
     if (saidaDaSessao) return;
+    // A saída já bloqueou e apagou (marcarSaidaDaSessao). Daqui em diante, a busca guardada é da sessão/empresa que está
+    // saindo, mesmo com a tela preservada pela troca de host.
+    encerrarBuscasDaAba();
     // Ponto único do descarte: com a aba no estado final da troca de host, nenhum caminho, nem o sinal de outra aba, tira a
     // tela preservada. O resultado de uma escrita continua registrado.
     if (enderecoFinal()) {

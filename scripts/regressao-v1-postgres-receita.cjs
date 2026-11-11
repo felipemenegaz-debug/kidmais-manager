@@ -97,7 +97,10 @@ const MODELOS = {
   // Salões fase 1 (23/10/2026): inventário inteiro ANTES da 098 (inclui 090, 091 e 095–097), base da suíte da 098.
   "097": { banco: "kidmais_v1_modelo_097", ate: "097", sem: [] },
   // Salão combinado (fase 1 dos salões, 23/10/2026): inventário inteiro até a 098.
-  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [] },
+  // r7 (receita qualificada): a 087 entrou no inventário depois do retrato da 098; o staging recebeu a 098 ANTES da 087.
+  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [], depois: ["087"] },
+  // r7: o staging ANTES da 098 (o retrato da 098): inventário até a 097 sem a 087. Base das suítes que aplicam a 098.
+  "097-sem-087": { banco: "kidmais_v1_modelo_097_sem_087", ate: "097", sem: ["087"] },
   // Apresentação do salão (102, 25/10/2026): inventário SEM a 098 (incompatível com a 100 e recusada pela 102), com 099,
   // 100 e 102 — o estado suportado pela 102 (staging de hoje + 100 + 102).
   "102": { banco: "kidmais_v1_modelo_102", ate: "102", sem: ["098"] },
@@ -273,6 +276,11 @@ async function construirModelo(admin, porta, nome, log = () => {}) {
       // As da promoção vão por último, na ordem do runbook; as anteriores (até a 088) mantêm a ordem do inventário.
       const ordem = modelo.runbook === "producao" ? ORDEM_PRODUCAO_E3 : modelo.runbook === "producao-e6-118" ? ORDEM_PRODUCAO_E6_118 : ORDEM_RUNBOOK;
       const pos = (a) => ordem.indexOf(a.split("_")[1]);
+      lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
+    }
+    if (modelo.depois) {
+      // r7: migrations do conjunto movidas para o fim, na ordem dada (ordem real do staging).
+      const pos = (a) => modelo.depois.indexOf(a.split("_")[1]);
       lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
     }
     for (const arquivo of lista) {

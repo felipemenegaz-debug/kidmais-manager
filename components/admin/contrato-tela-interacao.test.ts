@@ -23,7 +23,7 @@ const dados = () => ({
 function Filho() { return null; }
 function Lista() { return null; }
 
-function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>, navegacoes: string[] = []) {
+function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>, navegacoes: string[] = [], extra: Record<string, unknown> = {}) {
   const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
     'next/navigation': { useSearchParams: () => new URLSearchParams(url.q), usePathname: () => '/admin/contratos', useRouter: () => ({ push(u: string) { navegacoes.push(`push ${u}`); }, replace(u: string) { navegacoes.push(`replace ${u}`); } }) },
     'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
@@ -41,6 +41,7 @@ function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) 
     './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
     './contrato-tela': contratoTela, '@/lib/contratos/versao-referencia': versaoReferencia,
     './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
+    ...extra,
   });
   const ciclo = async () => { tela.render(); tela.efeitos(); for (let i = 0; i < 6; i++) await tique(); tela.render(); tela.efeitos(); return tela.render(); };
   return { tela, ciclo, render: () => tela.render() };
@@ -186,7 +187,7 @@ test('fase 2: sem contrato na URL a tela mostra a lista; com contrato, o caminho
   assert.match(texto(r), /O link do contrato é inválido/); assert.ok(elementos(r).find(e => e.type === Lista));
 }));
 
-test('O-1 e O-3: só o filtro vai à URL; a busca fica em memória e volta com "← Contratos"; outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
+test('O-1 e O-3: só o filtro vai à URL; a busca volta com "← Contratos" relida da aba (vencida, a lista volta limpa); outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
   const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const ouvintes: Record<string, Array<() => void>> = {};
   const navegacoes: string[] = [];
@@ -195,7 +196,9 @@ test('O-1 e O-3: só o filtro vai à URL; a busca fica em memória e volta com "
   Object.defineProperty(globalThis, 'window', { configurable: true, value: janela });
   try {
     const url = { q: 'filtro=todas' };
-    const m = montar(url, async () => Response.json({ ok: true, data: dados() }), navegacoes);
+    // Aba em memória: o que a tela grava é o que ela relê; `guardada = ''` simula o prazo vencido ou a trava da saída.
+    const abaFalsa = { guardada: '', leituras: 0, lerBuscaDaAba() { abaFalsa.leituras++; return abaFalsa.guardada; }, guardarBuscaNaAba(_t: string, termo: string) { abaFalsa.guardada = termo; } };
+    const m = montar(url, async () => Response.json({ ok: true, data: dados() }), navegacoes, { '@/lib/http/busca-na-aba': abaFalsa });
     let r = await m.ciclo();
     const lista = () => elementos(m.render()).find(e => e.type === Lista)!;
     assert.equal(lista().props.filtroInicial, 'todas'); assert.equal(lista().props.buscaInicial, '');
@@ -218,8 +221,18 @@ test('O-1 e O-3: só o filtro vai à URL; a busca fica em memória e volta com "
     clicar(m.render(), '← Contratos');
     assert.deepEqual(navegacoes.splice(0), ['push /admin/contratos?filtro=todas']);
     assert.equal(abaAtiva(), 'aba-geral', 'a aba volta ao Resumo ao sair do contrato');
+    const leiturasAntes = abaFalsa.leituras;
     url.q = 'filtro=todas'; await m.ciclo();
     assert.equal(lista().props.buscaInicial, 'lucas', 'a lista reabre com a busca');
+    assert.equal(abaFalsa.leituras, leiturasAntes + 1, 'relida da aba no retorno, não só da memória');
+    // Prazo vencido (ou saída iniciada) com a mesma instância: o retorno à lista não reaplica o termo da memória.
+    (lista().props.onAbrir as (s: string) => void)(ID); navegacoes.length = 0;
+    url.q = `filtro=todas&contratoId=${ID}`; await m.ciclo();
+    abaFalsa.guardada = '';
+    clicar(m.render(), '← Contratos'); navegacoes.length = 0;
+    url.q = 'filtro=todas'; await m.ciclo();
+    assert.equal(lista().props.buscaInicial, '', 'vencida na aba, a lista volta limpa');
+    (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'lucas'); navegacoes.length = 0;
     // Item "Contratos" do menu: URL sem filtro abre a lista limpa, mesmo com um termo na memória.
     url.q = ''; await m.ciclo();
     assert.equal(lista().props.filtroInicial, 'proximas'); assert.equal(lista().props.buscaInicial, '');
@@ -230,6 +243,43 @@ test('O-1 e O-3: só o filtro vai à URL; a busca fica em memória e volta com "
     assert.notEqual(lista().props.buscaInicial, 'theo', 'o termo do link antigo não é aplicado');
   } finally { if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window'); }
 });
+
+test('F5 (decisão de 08/11): a busca guardada na aba volta ao montar e a cada retorno à lista; cada busca e o "Limpar" regravam; o menu não apaga', () => comJanela(async () => {
+  const leituras: string[] = [], gravacoes: Array<[string, string]> = [], navegacoes: string[] = [];
+  let naAba = 'Helena';
+  const aba = { lerBuscaDaAba: (tela: string) => { leituras.push(tela); return naAba; }, guardarBuscaNaAba: (tela: string, termo: string) => { gravacoes.push([tela, termo]); } };
+  const url = { q: 'filtro=todas' };
+  const m = montar(url, async () => Response.json({ ok: true, data: [] }), navegacoes, { '@/lib/http/busca-na-aba': aba });
+  await m.ciclo();
+  const lista = () => elementos(m.render()).find(e => e.type === Lista)!;
+  assert.equal(lista().props.buscaInicial, 'Helena', 'depois do F5 a lista abre com a busca da aba');
+  assert.deepEqual([...new Set(leituras)], ['contratos']);
+  const lidas = leituras.length; await m.ciclo();
+  assert.equal(leituras.length, lidas, 'lida ao montar e nos retornos, não a cada render');
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'Theo');
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', '');
+  assert.deepEqual(gravacoes.splice(0), [['contratos', 'Theo'], ['contratos', '']]);
+  assert.ok(navegacoes.every(n => !/Theo|Helena/.test(n)), 'nada do termo vai à URL');
+  // Menu "Contratos": lista limpa na tela, sem apagar nem regravar a aba (menu→Voltar segue como antes).
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'Theo'); gravacoes.splice(0);
+  url.q = ''; await m.ciclo();
+  assert.equal(lista().props.buscaInicial, '');
+  assert.deepEqual(gravacoes, []);
+  // Menu → Voltar: a lista em uso volta relendo a aba (prazo e trava conferidos lá), nunca da memória.
+  const antes = leituras.length;
+  url.q = 'filtro=todas'; await m.ciclo();
+  assert.equal(leituras.length, antes + 1); assert.equal(lista().props.buscaInicial, 'Helena');
+  url.q = ''; await m.ciclo(); naAba = '';
+  url.q = 'filtro=todas'; await m.ciclo();
+  assert.equal(lista().props.buscaInicial, '', 'vencida (31 min) ou bloqueada: menu → Voltar abre a lista limpa');
+  // Primeira busca a partir da lista limpa: `filtro` entra na URL pela própria busca, que não relê a aba (sem armazenamento,
+  // o termo digitado segue valendo enquanto a lista está aberta).
+  url.q = ''; await m.ciclo();
+  const semReler = leituras.length;
+  (lista().props.onFiltro as (a: string, b: string) => void)('proximas', 'Theo');
+  url.q = 'filtro=proximas'; await m.ciclo();
+  assert.equal(leituras.length, semReler); assert.equal(lista().props.buscaInicial, 'Theo');
+}));
 
 test('O-1: com a limpeza do link antigo ainda pendente, "Fechar consulta" não repropaga o termo', () => comJanela(async () => {
   const url = { q: `contratoId=${ID}&versaoId=${V2}&busca=theo` }, navegacoes: string[] = [];
