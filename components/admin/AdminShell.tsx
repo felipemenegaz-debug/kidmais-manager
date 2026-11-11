@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
-import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { encerrarBuscasDaAba, marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import { conferirLeituraDaSessao, enderecoFinal } from '@/lib/enderecos/cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
@@ -81,6 +81,8 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
             if (sessaoObsoletaDesde(marca))
                 return;
             if (!b.ok || !b.data.usuarioId) {
+                // Fim da sessão confirmado (expirada, revogada ou recusada): a busca guardada na aba sai antes da navegação.
+                encerrarBuscasDaAba();
                 setName(null);
                 window.location.replace(loginDestaPagina());
             }
@@ -96,7 +98,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) { encerrarBuscasDaAba(); router.replace(loginDestaPagina()); } }); };
         void carregar();
         // Estado final da troca de host: para o ciclo de sessão e o foco. A faixa do aviso continua à vista.
         const ciclo = () => { if (!enderecoFinal()) void carregar(); };
