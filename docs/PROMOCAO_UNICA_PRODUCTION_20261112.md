@@ -130,7 +130,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - CONFERIR: `node scripts/migration-102-103-production.cjs --conferir-102-103`
 - APLICAR: `node scripts/migration-102-103-production.cjs --aplicar-102-103-autorizado --backup "<registro-do-backup>"`
 - CONFERIR de novo: `node scripts/migration-102-103-production.cjs --conferir-102-103`
-- Bloco de Shell: gerador de production a cargo do outro lote
+- Bloco de Shell: `node scripts/bloco-shell-102-103-production.cjs <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
 ### 11. 104-106 — versão do hash da revisão operacional (104) e salão de preferência do cliente (106); a 105 não entra
@@ -139,16 +139,16 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - CONFERIR: `node scripts/migration-104-106-production.cjs --conferir-104-106`
 - APLICAR: `node scripts/migration-104-106-production.cjs --aplicar-104-106-autorizado --backup "<registro-do-backup>"`
 - CONFERIR de novo: `node scripts/migration-104-106-production.cjs --conferir-104-106`
-- Bloco de Shell: gerador de production a cargo do outro lote
+- Bloco de Shell: `node scripts/bloco-shell-104-106-production.cjs <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
 ### 12. 107-108 — reparo da deriva da agenda (107) e salões combinados rebaseados (108); a 108 recusa a 098
 
 - Aplicador: `scripts/migration-107-108-production.cjs` — **do outro lote; conferir as flags contra o adaptador entregue**
 - CONFERIR: `node scripts/migration-107-108-production.cjs --conferir-107-108`
-- APLICAR: `node scripts/migration-107-108-production.cjs --aplicar-107-108-autorizado --backup "<registro-do-backup>"`
+- APLICAR: `node scripts/migration-107-108-production.cjs --aplicar-107-108-autorizado --backup "<registro-do-backup>" --drenagem "<registro-da-drenagem>"`
 - CONFERIR de novo: `node scripts/migration-107-108-production.cjs --conferir-107-108`
-- Bloco de Shell: gerador de production a cargo do outro lote
+- Bloco de Shell: `node scripts/bloco-shell-107-108-production.cjs <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
 ### 13. 109 — renovação substituta do B-9; quebra o código anterior: código compatível antes
@@ -157,7 +157,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - CONFERIR: `node scripts/migration-109-production.cjs --conferir-109`
 - APLICAR: `node scripts/migration-109-production.cjs --aplicar-109-autorizado --backup "<registro-do-backup>"`
 - CONFERIR de novo: `node scripts/migration-109-production.cjs --conferir-109`
-- Bloco de Shell: gerador de production a cargo do outro lote
+- Bloco de Shell: `node scripts/bloco-shell-109-production.cjs <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
 ### 14. 114 — trava da configuração da agenda nos gatilhos da 019 (KD114); sem checks externos, a prova é do núcleo

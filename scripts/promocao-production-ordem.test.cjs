@@ -69,9 +69,10 @@ test('as flags declaradas são as que o aplicador de produção reconhece: sem R
     await assert.rejects(aplicador.principal(p.conferir.split(' '), {}, {Client: Proibido}), /FORA_DO_RENDER/, `${p.id} conferir`);
     // 118: o registro do backup tem formato próprio (PITR com horário recente), conferido antes do alvo.
     const backup = p.id === '118' ? `PITR ${new Date(Date.now() - 60000).toISOString().slice(0, 16)}Z ensaio` : 'dump 2026-11-12T03:00Z PITR';
-    await assert.rejects(aplicador.principal([...p.aplicar.split(' '), '--backup', backup], {}, {Client: Proibido}), /FORA_DO_RENDER/, `${p.id} aplicar`);
+    const extra = p.aposBackup ? ['--drenagem', 'web em manutencao 2026-11-12T03:00Z cron suspenso'] : [];
+    await assert.rejects(aplicador.principal([...p.aplicar.split(' '), '--backup', backup, ...extra], {}, {Client: Proibido}), /FORA_DO_RENDER/, `${p.id} aplicar`);
     assert.equal(o.comando(p, 'CONFERIR'), `node ${arquivoDe(p)} ${p.conferir}`); assert.equal(o.comando(p, 'CONFERIR_DEPOIS'), o.comando(p, 'CONFERIR'));
-    assert.equal(o.comando(p, 'APLICAR'), `node ${arquivoDe(p)} ${p.aplicar} --backup "<registro-do-backup>"`);
+    assert.equal(o.comando(p, 'APLICAR'), `node ${arquivoDe(p)} ${p.aplicar} --backup "<registro-do-backup>"${p.aposBackup ? ' ' + p.aposBackup : ''}`);
   }
   assert.throws(() => o.comando(o.PASSOS[0], 'DOWN'), /FASE_DESCONHECIDA/);
 });

@@ -27,7 +27,7 @@ const FASES = Object.freeze(['CONFERIR', 'APLICAR', 'CONFERIR_DEPOIS']);
 const proprio = (id, escopo, extra = {}) => ({id, situacao: 'APLICAR', migrations: [id], aplicador: `scripts/migration-${id}-production.cjs`,
   conferir: `--conferir-${id}`, aplicar: `--aplicar-${id}-autorizado`, bloco: `node scripts/bloco-shell-${id}.cjs production <CONFERIR|APLICAR> <rotulo>`, escopo, ...extra});
 const doMeuLote = (id, escopo) => proprio(id, escopo, {bloco: `node scripts/bloco-shell-promocao-production.cjs ${id} <CONFERIR|APLICAR> <rotulo>`});
-const grupo = (id, migrations, escopo) => proprio(id, escopo, {migrations, bloco: null, outroLote: true});
+const grupo = (id, migrations, escopo, extra = {}) => proprio(id, escopo, {migrations, bloco: 'node scripts/bloco-shell-' + id + '-production.cjs <CONFERIR|APLICAR> <rotulo>', outroLote: true, ...extra});
 const generico = (id, escopo) => ({id, situacao: 'APLICAR', migrations: [id], aplicador: 'generico', arquivo: GENERICO, conferir: `--conferir ${id}`, aplicar: `--aplicar-autorizado ${id}`,
   bloco: `node scripts/bloco-shell-promocao-production.cjs ${id} <CONFERIR|APLICAR> <rotulo>`, escopo});
 const fora = (id, situacao, escopo) => ({id, situacao, migrations: [id], aplicador: null, escopo});
@@ -51,7 +51,7 @@ const ORDEM = Object.freeze([
   grupo('102-103', ['102', '103'], 'apresentação do salão (102) e categoria Serviços nos adicionais (103); a 102 recusa a 098'),
   fora('105', 'JA_APLICADA', 'canal MCP por assinatura: já está em production; fica fora do aplicador da 104–106'),
   grupo('104-106', ['104', '106'], 'versão do hash da revisão operacional (104) e salão de preferência do cliente (106); a 105 não entra'),
-  grupo('107-108', ['107', '108'], 'reparo da deriva da agenda (107) e salões combinados rebaseados (108); a 108 recusa a 098'),
+  grupo('107-108', ['107', '108'], 'reparo da deriva da agenda (107) e salões combinados rebaseados (108); a 108 recusa a 098', {aposBackup: '--drenagem "<registro-da-drenagem>"'}),
   grupo('109', ['109'], 'renovação substituta do B-9; quebra o código anterior: código compatível antes'),
   doMeuLote('114', 'trava da configuração da agenda nos gatilhos da 019 (KD114); sem checks externos, a prova é do núcleo'),
   doMeuLote('112', 'cliente pessoa jurídica; trava clientes pelo tempo da transação'),
@@ -72,7 +72,7 @@ const arquivoDe = p => (p.aplicador === 'generico' ? p.arquivo : p.aplicador);
 /** Linha de comando de um passo numa fase (o registro do backup entra só no APLICAR). */
 function comando(p, fase) {
   assert.ok(FASES.includes(fase), 'FASE_DESCONHECIDA');
-  return `node ${arquivoDe(p)} ${fase === 'APLICAR' ? `${p.aplicar} --backup "<registro-do-backup>"` : p.conferir}`;
+  return `node ${arquivoDe(p)} ${fase === 'APLICAR' ? `${p.aplicar} --backup "<registro-do-backup>"${p.aposBackup ? ' ' + p.aposBackup : ''}` : p.conferir}`;
 }
 /** Regra de volta do passo: 'DEPLOY_ANTERIOR' antes da 094; a partir dela, 'RESTAURAR_BACKUP_OU_CORRIGIR_PARA_A_FRENTE'. */
 function volta(id) {
