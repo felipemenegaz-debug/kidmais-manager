@@ -47,6 +47,15 @@ env -u DATABASE_URL "$BIN/pg_restore.exe" -h 127.0.0.1 -p $PORTA -U kidmais_desc
   --no-owner --no-privileges --exit-on-error "$D/<arquivo>.dump" > "$D/restore.log" 2>&1; echo "pg_restore=$?"
 ```
 
+Export do Render (`.dir.tar.gz`, formato diretório do `pg_dump`; é o que a página Recovery → Create export entrega, segundo o roteiro da promoção — este caminho **não foi ensaiado** aqui, só o formato custom): extrair dentro da pasta do ensaio e passar o **diretório** extraído ao mesmo `pg_restore`, no lugar do arquivo `.dump`:
+
+```bash
+mkdir "$D/export" && tar -xzf "$D/<arquivo>.dir.tar.gz" -C "$D/export"
+ls "$D/export"                      # o diretório que contém toc.dat é o que vai para o pg_restore
+env -u DATABASE_URL "$BIN/pg_restore.exe" -h 127.0.0.1 -p $PORTA -U kidmais_descartavel -d kidmais_ensaio_base \
+  --no-owner --no-privileges --exit-on-error "$D/export/<diretorio-com-toc.dat>" > "$D/restore.log" 2>&1; echo "pg_restore=$?"
+```
+
 Export em SQL (texto):
 
 ```bash
