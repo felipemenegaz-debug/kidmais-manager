@@ -67,6 +67,13 @@ export const vencimentoPagamento = (instante: number, dias: number) => somarDias
 export const STATUS_LIBERA = new Set(['CONFIRMED', 'RECEIVED']);
 export const STATUS_ESTORNO = new Set(['REFUNDED', 'REFUND_REQUESTED', 'REFUND_IN_PROGRESS']);
 export const STATUS_DISPUTA = new Set(['CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE', 'AWAITING_CHARGEBACK_REVERSAL']);
+/**
+ * R5 (janela sandbox de 09/11/2026): cobrança removida no Asaas continua com o `status` de antes (PENDING) e `deleted=true`.
+ * A situação gravada em `ia_credito_cobrancas.situacao_provedor` registra a remoção como DELETED, para a tela e a
+ * reconciliação não lerem "aguardando pagamento" numa cobrança que não existe mais.
+ */
+export const SITUACAO_REMOVIDA = 'DELETED';
+export const situacaoDaLeitura = (lido: { status: string; deleted: boolean }) => lido.deleted ? SITUACAO_REMOVIDA : lido.status;
 
 export type LidoNoProvedor = { id: string; status: string; valorCentavos: number | null; clienteId: string | null; externalReference: string | null;
     billingType: string | null; deleted: boolean };

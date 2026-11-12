@@ -57,14 +57,14 @@
       "arquivo": "assinatura-e-plano.md",
       "id": "assinatura-e-plano",
       "titulo": "Assinatura e plano",
-      "versao": 2,
-      "vigenteDesde": "2026-11-07",
+      "versao": 5,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "f6400d6da30c0ecf466b38db591c14d32d26a6b11e3428f8c367851e255ed047"
+      "sha256": "da89cba2c671cc216731c1a111ad45652a73d83216a3f91b07b9d639c46de649"
     },
     {
       "arquivo": "atendimento-whatsapp.md",
@@ -174,27 +174,27 @@
       "arquivo": "festas.md",
       "id": "festas",
       "titulo": "Festas",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 4,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "3dcaa0d2ceece4295dcf282eeafcd92a3444ac45ad0baa37d3800453bdca369e"
+      "sha256": "14a96be857a47b179723a3c256e4d07478ce136511560bced41162c197674ee3"
     },
     {
       "arquivo": "financeiro-recebimentos.md",
       "id": "financeiro-recebimentos",
       "titulo": "Recebimentos e parcelas",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 3,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58"
+      "sha256": "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72"
     },
     {
       "arquivo": "importar-documentos.md",
@@ -252,14 +252,14 @@
       "arquivo": "primeiros-passos.md",
       "id": "primeiros-passos",
       "titulo": "Primeiros passos",
-      "versao": 2,
-      "vigenteDesde": "2026-11-07",
+      "versao": 5,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "34996b03a309e504e698eb04c70a62c0bbe9764880b47cb2dfc5d099d6e8a2e6"
+      "sha256": "1f556d22f3bb1ac4a36049baa67d4c05d93651b05f318d3488e08d10ed56fac9"
     },
     {
       "arquivo": "privacidade-e-exportacao.md",

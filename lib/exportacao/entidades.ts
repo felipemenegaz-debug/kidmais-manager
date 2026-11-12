@@ -208,6 +208,10 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'financeiro/saidas', tabela: 'financeiro_saidas', grupo: 'Financeiro', descricao: 'Pagamentos das contas (saídas).', onde: EMP },
     { arquivo: 'financeiro/recorrencias', tabela: 'financeiro_recorrencias', grupo: 'Financeiro', descricao: 'Recorrências do contas a pagar.', onde: EMP },
     { arquivo: 'financeiro/entradas_manuais', tabela: 'financeiro_entradas_manuais', grupo: 'Financeiro', descricao: 'Entradas manuais.', onde: EMP },
+    { arquivo: 'financeiro/entradas_liquidacoes', tabela: 'financeiro_entradas_liquidacoes', grupo: 'Financeiro', descricao: 'Recebimentos parciais ou totais das entradas manuais.', onde: EMP, migracao: '120' },
+    { arquivo: 'financeiro/saidas_reversoes', tabela: 'financeiro_saidas_reversoes', grupo: 'Financeiro', descricao: 'Reversões de pagamentos de contas (valor, data e motivo).', onde: EMP, migracao: '120' },
+    { arquivo: 'financeiro/aberturas', tabela: 'financeiro_aberturas', grupo: 'Financeiro', descricao: 'Abertura de saldo: todas as revisões (data-base, saldo, justificativa e autoria).', onde: EMP, migracao: '121' },
+    { arquivo: 'financeiro/abertura_conferencias', tabela: 'financeiro_abertura_conferencias', grupo: 'Financeiro', descricao: 'Movimentos conferidos em cada revisão da abertura.', onde: EMP, migracao: '121' },
     { arquivo: 'financeiro/auditoria_financeira', tabela: 'financeiro_auditoria', grupo: 'Financeiro', descricao: 'Auditoria do financeiro da empresa.', onde: EMP },
 
     // Agenda

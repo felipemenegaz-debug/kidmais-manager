@@ -221,6 +221,10 @@ const approvedFiles = [
   // rev. 5.1 + delta D-LOTE-8 rev. 6.1 aprovados pelo Astra). Aditiva e isolada. 113–115 e 117 tomadas por trabalho local;
   // 118 conferida livre em 04/11 (clones locais).
   '20261104_118_importacao_cotas.sql',
+  // 120 e 121: financeiro P2 (plano de execução FINANCEIRO_P2_PLANO_20261109, sobre o plano rev. 3.2). Aditivas.
+  // 119 está reservada pela troca de empresa (vault); 120 e 121 conferidas livres em 09/11 (branches remotas e clones).
+  '20261109_120_financeiro_movimentos.sql',
+  '20261109_121_financeiro_abertura.sql',
   // 110: pesquisa de satisfação pós-festa (PS-1 LOCAL; plano rev. 6 APROVADO pelo Astra, D-PS1..D-PS8 de Felipe, 30/10/2026):
   // ação PESQUISA_SATISFACAO no POS_FESTA, estado PESQUISA_CRIADA (086), envios/respostas/tarefas/entregas, saídas,
   // capacidades por unidade, agregados e expurgos (sem escritor até a PS-6). 110 conferida livre em 30/10 (origin, clones).
@@ -232,8 +236,8 @@ const approvedFiles = [
   // 115: índice (empresa_id, data_evento) em fechamentos para os resultados da pesquisa de satisfação (PS-4 rodada 4
   // LOCAL; P-114 aprovada como desenho pelo Astra, D-PS4-R3-2 de Felipe, 03/11/2026). Só caminho de acesso; remove o 054
   // (empresa_id), redundante com o prefixo do 115 (decisão de Felipe 03/11, investigação 115 × 054). 112–114 tomadas
-  // por outros trabalhos locais; na sincronização com staging (10/11/2026) 110/111/115 entram no fim do inventário aprovado, depois da 118 (a lista ordenada
-  // por nome, `files`, continua com a 118 como última); 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
+  // por outros trabalhos locais; na sincronização com staging (12/11/2026) 110/111/115 entram no fim do inventário aprovado, depois da 120 e da 121
+  // (que staging já havia publicado depois da 118); a lista ordenada por nome, `files`, continua com a 121 como última; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
   '20261103_115_fechamentos_empresa_data.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
@@ -263,7 +267,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '110', '111', '115'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];

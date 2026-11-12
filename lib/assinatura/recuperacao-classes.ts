@@ -182,7 +182,9 @@ export function coerenciaDoPedido(e: EntradaClasse, contexto: { ambiente: string
     if (c.ambiente !== contexto.ambiente || c.conta !== contexto.conta) return 'CONTA_OU_AMBIENTE_DIVERGENTE';
     const remoto = cobrancasLidas(e.leituras).find((p) => p.id === c.pagamento_id);
     if (!remoto) return 'COBRANCA_NAO_LIDA';
-    if (c.situacao_provedor !== remoto.status) return 'STATUS_LOCAL_DIVERGENTE';
+    // R5 (créditos): cobrança removida é gravada como DELETED (lib/creditos/dominio.ts → situacaoDaLeitura); o status
+    // anterior à correção (o `status` lido, ex.: PENDING) continua aceito para os encerrados gravados antes dela.
+    if (c.situacao_provedor !== remoto.status && !(remoto.deleted && c.situacao_provedor === 'DELETED')) return 'STATUS_LOCAL_DIVERGENTE';
     if (n(c.estornado_centavos) > 0 || (c.disputa ?? 'NENHUMA') !== 'NENHUMA' || (remoto.estornos?.length ?? 0) > 0 || ESTORNO_REMOTO.has(remoto.status))
         return 'ESTORNO_OU_DISPUTA';
     if (linhas(e.antes, 'ia_credito_devolucoes').some((d) => d.pedido_id === e.id)) return 'DEVOLUCAO';

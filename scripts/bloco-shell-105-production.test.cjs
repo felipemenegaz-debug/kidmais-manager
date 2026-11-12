@@ -34,13 +34,14 @@ function sessao(d, conteudo, opcoes = {}) {
 const gerar = (d, modo, comando) => b.gerar({ambiente: 'production', modo, rotulo: '18c976d4', destino: posix(d), comando});
 const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 
-test('arquivos de produção: aplicador, núcleo de produção, definições, núcleo de staging (leitura), 092–094 e os 5 SQL; sem conexao-staging', () => {
-  assert.deepEqual(b.arquivos('production'), ['scripts/migration-105-production.cjs', 'scripts/migration-105-production-nucleo.cjs', 'scripts/migration-105-definicoes.cjs',
+test('arquivos de produção: aplicador, núcleo de produção, definições, relações (com a conferência do B-5), núcleo de staging (leitura), 092–094 e os 5 SQL; sem conexao-staging', () => {
+  assert.deepEqual(b.arquivos('production'), ['scripts/migration-105-production.cjs', 'scripts/migration-105-production-nucleo.cjs', 'scripts/migration-105-definicoes.cjs', 'scripts/migration-105-relacoes.cjs', 'scripts/conferencia-b5-105.cjs',
     'scripts/migration-105-comum.cjs', 'scripts/migration-092-094-comum.cjs', ...ETAPAS.map(e => e[1])]);
   assert.equal(ETAPAS.length, 5); for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.AMBIENTES.production.servico, SERVICO); assert.equal(b.AMBIENTES.production.registro, 'data/mcp-105-producao');
   assert.ok(!b.arquivos('production').includes('scripts/conexao-staging.cjs'));
-  assert.ok(!b.arquivos('staging').some(a => /production|definicoes/.test(a)), 'staging continua com os 4 SQL e o próprio núcleo');
+  assert.ok(!b.arquivos('staging').some(a => /production/.test(a)), 'staging usa o próprio núcleo, nunca o de produção');
+  for (const [, a] of ETAPAS) assert.ok(b.arquivos('staging').includes(a), 'staging confere pela definição com os mesmos 5 SQL: ' + a);
 });
 
 test('blocos oficiais de produção: ASCII, ≤ 32 KB, bind e guarda antes de tudo, subshell, comando de produção, PITR no formato, código 5 explicado', () => {

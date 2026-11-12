@@ -97,7 +97,10 @@ const MODELOS = {
   // Salões fase 1 (23/10/2026): inventário inteiro ANTES da 098 (inclui 090, 091 e 095–097), base da suíte da 098.
   "097": { banco: "kidmais_v1_modelo_097", ate: "097", sem: [] },
   // Salão combinado (fase 1 dos salões, 23/10/2026): inventário inteiro até a 098.
-  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [] },
+  // r7 (receita qualificada): a 087 entrou no inventário depois do retrato da 098; o staging recebeu a 098 ANTES da 087.
+  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [], depois: ["087"] },
+  // r7: o staging ANTES da 098 (o retrato da 098): inventário até a 097 sem a 087. Base das suítes que aplicam a 098.
+  "097-sem-087": { banco: "kidmais_v1_modelo_097_sem_087", ate: "097", sem: ["087"] },
   // Apresentação do salão (102, 25/10/2026): inventário SEM a 098 (incompatível com a 100 e recusada pela 102), com 099,
   // 100 e 102 — o estado suportado pela 102 (staging de hoje + 100 + 102).
   "102": { banco: "kidmais_v1_modelo_102", ate: "102", sem: ["098"] },
@@ -123,8 +126,12 @@ const MODELOS = {
   // Aplicador da 118 (08/11/2026): o esquema do staging ANTES da 118 — inventário até a 117 sem a 098 (114, 112, 116 e 117
   // aplicadas, na ordem do inventário). Base do ensaio do aplicador da 118 com 116 e 117 presentes.
   "117": { banco: "kidmais_v1_modelo_117", ate: "117", sem: ["098"] },
-  // Satisfação (110/111/115), sincronizada com staging em 10/11/2026: no inventário aprovado elas vêm DEPOIS da 118 (ordem
-  // em que staging as aplicaria), então os modelos 110/111/115 incluem 112, 114 e 116–118 (inclusive a trava da 114).
+  // Financeiro P2 (09/11/2026): o estado do staging (inventário até a 118 sem a 098) com 120 e 121. Os modelos sem a 121
+  // provam o leitor sem abertura (saldo null); os oráculos de saldo absoluto rodam aqui.
+  "121": { banco: "kidmais_v1_modelo_121", ate: "121", sem: ["098"] },
+  // Satisfação (110/111/115), sincronizada com staging em 12/11/2026: no inventário aprovado elas vêm DEPOIS da 118, da 120 e da 121
+  // (ordem em que staging as aplicaria), então os modelos 110/111/115 incluem 112, 114, 116–118, 120 e 121 (inclusive a trava da
+  // 114) e o modelo "121" NÃO inclui 110/111/115.
   // Pesquisa de satisfação (110, PS-1 LOCAL, 30/10/2026): o estado da 109 com a 110.
   "110": { banco: "kidmais_v1_modelo_110", ate: "110", sem: ["098"] },
   // Pesquisa de satisfação PS-3 (111, LOCAL, 31/10/2026): o estado da 110 com links de avaliação e auditoria.
@@ -281,6 +288,11 @@ async function construirModelo(admin, porta, nome, log = () => {}) {
       // As da promoção vão por último, na ordem do runbook; as anteriores (até a 088) mantêm a ordem do inventário.
       const ordem = modelo.runbook === "producao" ? ORDEM_PRODUCAO_E3 : modelo.runbook === "producao-e6-118" ? ORDEM_PRODUCAO_E6_118 : ORDEM_RUNBOOK;
       const pos = (a) => ordem.indexOf(a.split("_")[1]);
+      lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
+    }
+    if (modelo.depois) {
+      // r7: migrations do conjunto movidas para o fim, na ordem dada (ordem real do staging).
+      const pos = (a) => modelo.depois.indexOf(a.split("_")[1]);
       lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
     }
     for (const arquivo of lista) {

@@ -53,8 +53,12 @@ export async function filaCreditos(sessao: SessaoAdmin, deps: PainelDeps = paine
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         if (!await creditosInstalados(tx)) return { instalado: false, campanhas: CAMPANHAS };
         const pedidos = await pedidosDaFila(tx);
-        const devolucoes = (await tx.query(`SELECT d.protocolo, d.tipo, d.estado, d.valor_centavos, d.forma, d.prazo, d.solicitado_em, e.nome AS empresa_nome
-            FROM ia_credito_devolucoes d JOIN empresas e ON e.id = d.empresa_id WHERE d.estado <> 'CONCLUIDO' ORDER BY d.prazo, d.solicitado_em LIMIT 100`)).rows;
+        // R3 (janela sandbox de 09/11/2026): a tela /desenvolvedor/creditos conclui daqui a devolução manual; mostra também
+        // o pedido, a origem, o modo e a última situação do estorno no provedor (para conferir no Asaas antes de concluir).
+        const devolucoes = (await tx.query(`SELECT d.protocolo, p.protocolo AS pedido_protocolo, d.tipo, d.origem, d.estado, d.modo, d.status_provedor, d.valor_centavos,
+                d.forma, to_char(d.prazo, 'YYYY-MM-DD') AS prazo, d.solicitado_em, e.nome AS empresa_nome
+            FROM ia_credito_devolucoes d JOIN empresas e ON e.id = d.empresa_id JOIN ia_credito_pedidos p ON p.id = d.pedido_id AND p.empresa_id = d.empresa_id
+            WHERE d.estado <> 'CONCLUIDO' ORDER BY d.prazo, d.solicitado_em LIMIT 100`)).rows;
         const cobrancas = (await tx.query(`SELECT c.pagamento_id, c.situacao_provedor, c.disputa, c.exposicao_centavos, c.revisao_motivo, c.retencao_motivo, p.protocolo, e.nome AS empresa_nome
             FROM ia_credito_cobrancas c JOIN ia_credito_pedidos p ON p.id = c.pedido_id JOIN empresas e ON e.id = c.empresa_id
             WHERE c.disputa = 'ABERTA' OR c.revisao_motivo IS NOT NULL OR c.retencao_motivo IS NOT NULL ORDER BY c.atualizada_em LIMIT 100`)).rows;

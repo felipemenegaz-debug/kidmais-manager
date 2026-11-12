@@ -74,6 +74,7 @@ function carregarRota() {
     '@/lib/financeiro/calculos': calculos,
     '@/lib/financeiro/http': { consultarFinanceiro: async () => new Response(), hojeIso: () => calculos.hojeBrasilia() },
     '@/lib/financeiro/baixa': { baixarRecebimentoNoTenant: async (...args: unknown[]) => { chamadas.push(args); return { reutilizado: false, liquidoCentavos: 1000 }; } },
+    '@/lib/financeiro/escritor-p2': { operacoesP2: () => ({ liquidacao: false, reversao: false, abertura: false }) },
     '@/lib/financeiro/servico': { criarEntradaManual: async () => ({}), listarRecebiveis: async () => [], resumo: () => ({}), recebidoNoMes: async () => 0 },
     '@/lib/http/api-response': {
       apiErrorResponse: () => new Response(JSON.stringify({ ok: false }), { status: 400 }),
@@ -151,6 +152,7 @@ function carregarCadeiaReal() {
     '@/lib/financeiro/calculos': calculos,
     '@/lib/financeiro/http': http,
     '@/lib/financeiro/baixa': baixa,
+    '@/lib/financeiro/escritor-p2': { operacoesP2: () => ({ liquidacao: false, reversao: false, abertura: false }) },
     '@/lib/financeiro/servico': servico,
     '@/lib/http/api-response': apiResponse,
     '@/lib/http/admin-crm-api': { ...sessao, contextoCrmDaRequest: () => ({}), tokenAdmin: () => 't' },

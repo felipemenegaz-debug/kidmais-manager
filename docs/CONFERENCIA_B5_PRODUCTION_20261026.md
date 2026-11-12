@@ -325,3 +325,9 @@ Amplia o agregador sem bloco novo: os mesmos `CONFERIR-B5` (E1) e `CONFERIR-B5-E
 - Mutantes em cópia isolada (controle 18/18), todos derrubados: fórmula antiga (−44), margem zero, −46, `>=` no lugar de `>` e janela antecipada de 2 dias.
 - Isso fecha a pendência "B-5 reportar −47" da rodada 14 do plano. A observação "−44 × −47" da re-revisão fica resolvida pela D-COM-5.
 - Suítes depois do ajuste: blocos 13/13; aplicadores compostos 178/178; ESLint e `git diff --check` limpos; `npm run check:v1:static` código 0 (3654 + 103 testes; 2 avisos preexistentes; build compilado). Mudaram os blocos que carregam a conferência (PARTE-1, CONFERIR-B5, CONFERIR-B5-ESTADO, LIMPEZA).
+
+## Pacote com os módulos de definições e relações da 105 (10/11/2026)
+
+- Desde a rodada staging-r1 do aplicador da 105, `scripts/migration-105-comum.cjs` carrega no `require` `scripts/migration-105-definicoes.cjs` e `scripts/migration-105-relacoes.cjs`. O pacote do B-5 não os levava, e o núcleo da 105 falhava com `MODULE_NOT_FOUND` na pasta própria (CI da PR #384, passo do B-5).
+- O pacote passa a ter **30 arquivos** (os 28 de antes mais esses 2 módulos). O teste fixa a lista e `ARQUIVOS_OK 30`.
+- Suítes: `bloco-shell-conferencia-b5-producao.test.cjs` 13/13 e `conferencia-b5-producao.test.cjs` 39/39. Mudam os blocos que carregam a conferência; regenerar quando a candidata for congelada.

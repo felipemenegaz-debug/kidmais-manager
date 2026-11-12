@@ -188,6 +188,21 @@
     "atualizado_em",
     "substitui_id"
   ],
+  "assinatura_avisos": [
+    "id",
+    "empresa_id",
+    "tipo",
+    "marco",
+    "destinatario_id",
+    "mensagem",
+    "estado",
+    "tentado_em",
+    "enviado_em",
+    "id_externo",
+    "ultimo_erro",
+    "criado_em",
+    "atualizado_em"
+  ],
   "assinatura_encerramentos": [
     "id",
     "protocolo",

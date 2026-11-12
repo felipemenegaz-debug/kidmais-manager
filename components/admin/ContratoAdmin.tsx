@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import { enderecoFinal } from '@/lib/enderecos/cliente';
+import { guardarBuscaNaAba, lerBuscaDaAba } from '@/lib/http/busca-na-aba';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
 import styles from './contratos-ux.module.css';
 import Link from 'next/link';
@@ -102,13 +103,18 @@ function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodi
   return null;
 }
 
+const TELA_BUSCA = 'contratos';
+
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
     const [retorno,setRetorno]=useState<string|null>(null),[destino,setDestino]=useState(''),[financeiroPronto,setFinanceiroPronto]=useState('');
-    // Termo da busca da lista: só em memória, nunca na URL nem no armazenamento do navegador (ver contrato-url.ts). O filtro
-    // vai à URL pela API nativa de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos"
-    // do menu sempre encontra a URL já atualizada, mesmo logo depois da primeira busca.
-    const [buscaLista,setBuscaLista]=useState('');
+    // Termo da busca da lista: nunca na URL nem no histórico (ver contrato-url.ts). Fica em memória e, para voltar no F5 e no
+    // Voltar depois de sair da tela, também na aba, preso à sessão e à empresa e com prazo (lib/http/busca-na-aba.ts). Esta tela
+    // só monta depois de o painel confirmar a sessão, então o contexto já existe na leitura. Cada retorno à lista em uso relê
+    // a aba (abaixo): a memória sozinha não restaura, então o prazo e a trava da saída valem também nesta instância. O filtro vai à URL pela API nativa
+    // de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos" do menu sempre encontra
+    // a URL já atualizada, mesmo logo depois da primeira busca.
+    const [buscaLista,setBuscaLista]=useState(()=>lerBuscaDaAba(TELA_BUSCA));
     const posicionado=useRef('');
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
@@ -136,6 +142,15 @@ export default function ContratoAdmin() {
     const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
     // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
     const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
+    // Retorno à lista em uso ("← Contratos", Voltar depois do menu ou de um contrato): a busca vem da aba, já com prazo,
+    // contexto e trava conferidos; vencida, bloqueada ou sem armazenamento, a lista volta limpa. A transição causada pela
+    // própria busca (primeira busca grava `filtro` na URL) não relê: o termo acabou de ser digitado.
+    const listaComBusca = !urlContrato && !urlImportacao && lista.emUso;
+    const [listaComBuscaAplicada, setListaComBuscaAplicada] = useState(listaComBusca), [usoProprio, setUsoProprio] = useState(false);
+    if (listaComBuscaAplicada !== listaComBusca) {
+        setListaComBuscaAplicada(listaComBusca); setUsoProprio(false);
+        if (listaComBusca && !usoProprio) setBuscaLista(lerBuscaDaAba(TELA_BUSCA));
+    }
     const sequencia = useRef(criarSequenciador());
     // Só a resposta do último pedido é aplicada: um contrato clicado antes não substitui o atual quando responde atrasado.
     const load = useCallback(async (id: string): Promise<boolean> => { const pedido = sequencia.current.iniciar(); let res: Response, b: { ok: boolean; data?: unknown; erro?: string };
@@ -312,7 +327,7 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
+ {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); setUsoProprio(true); guardarBuscaNaAba(TELA_BUSCA, busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
  <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>
