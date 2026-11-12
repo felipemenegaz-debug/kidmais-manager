@@ -258,6 +258,22 @@ jobs:
       - name: Blocos de Shell da 118 (staging)
         run: node --test scripts/bloco-shell-118.test.cjs
 
+      # Promoção única de production (12/11/2026): adaptadores de production sobre os núcleos já existentes, aplicador genérico
+      # para as migrations sem aplicador próprio, blocos de Shell e a ordem da cadeia. Cliente simulado e bash real em destino
+      # temporário; nada toca banco, rede nem /opt/render.
+      - name: Promoção de production — adaptadores da 102/103, 104/106, 107/108 e 109
+        run: node --test scripts/migration-102-103-production.test.cjs scripts/migration-104-106-production.test.cjs scripts/migration-107-108-production.test.cjs scripts/migration-109-production.test.cjs
+      - name: Promoção de production — blocos de Shell da 102/103, 104/106, 107/108 e 109
+        run: node --test scripts/bloco-shell-102-103-production.test.cjs scripts/bloco-shell-104-106-production.test.cjs scripts/bloco-shell-107-108-production.test.cjs scripts/bloco-shell-109-production.test.cjs
+      - name: Promoção de production — adaptadores da 112, 114, 116, 117 e 118
+        run: node --test scripts/migration-promocao-production.test.cjs scripts/migration-118-production.test.cjs scripts/migration-118-production-tls.test.cjs
+      - name: Promoção de production — aplicador genérico (120, 121, 110, 111, 115)
+        run: node --test scripts/migration-generico-production.test.cjs
+      - name: Promoção de production — blocos de Shell da 112 a 118 e do genérico
+        run: node --test scripts/bloco-shell-promocao-production.test.cjs scripts/bloco-shell-118-production.test.cjs
+      - name: Promoção de production — ordem da cadeia
+        run: node --test scripts/promocao-production-ordem.test.cjs
+
       # Aplicador da 114 (trava da configuração nos gatilhos da 019, staging): cliente simulado, sem banco nem rede.
       - name: Aplicador da 114 (staging) — cliente simulado
         run: node --test scripts/migration-114.test.cjs
