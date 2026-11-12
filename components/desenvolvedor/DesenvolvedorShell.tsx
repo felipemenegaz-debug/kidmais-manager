@@ -14,6 +14,7 @@ const ITENS = [
     { href: '/desenvolvedor/empresas', rotulo: 'Contratantes', icone: 'users' as const },
     { href: '/desenvolvedor/atividade', rotulo: 'Atividade', icone: 'history' as const },
     { href: '/desenvolvedor/convites', rotulo: 'Gerações de convites', icone: 'palette' as const },
+    { href: '/desenvolvedor/creditos', rotulo: 'Créditos de IA', icone: 'wallet' as const },
 ];
 
 type AcessosDaConta = { empresasAtivas: number; carregado: boolean };

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { alocar, avisoSaldo, decidirPagamento, exibir, fimDoMesBrasilia, lerReferenciaExterna, opcaoDevolucao, ordenarParaConsumo, proporcionalCentavos, referenciaExterna,
+import { alocar, avisoSaldo, decidirPagamento, situacaoDaLeitura, SITUACAO_REMOVIDA, exibir, fimDoMesBrasilia, lerReferenciaExterna, opcaoDevolucao, ordenarParaConsumo, proporcionalCentavos, referenciaExterna,
     vencimentoEmDias, type LidoNoProvedor } from './dominio.ts';
 import { CATALOGO_DEMO, fotografiaOferta, termosSha256, validarCatalogo, type Catalogo } from './catalogo.ts';
 import { catalogoVisivel, contaProvedor, flagsCreditos, vendaAberta, walleDisponivel } from './config.ts';
@@ -84,6 +84,15 @@ test('pagamento lido no provedor: só CONFIRMED/RECEIVED com vínculo, valor e f
     assert.deepEqual(decidirPagamento(lido({ status: 'CHARGEBACK_REQUESTED' }), esperado), { acao: 'DISPUTA' });
     assert.deepEqual(decidirPagamento(lido({ status: 'PENDING', deleted: true }), esperado), { acao: 'CANCELADO' });
     assert.deepEqual(decidirPagamento(null, esperado), { acao: 'REVISAO', motivo: 'COBRANCA_NAO_ENCONTRADA' });
+});
+
+test('R5: cobrança removida no Asaas é gravada como DELETED (não fica PENDING); as demais guardam o status lido', () => {
+    assert.equal(SITUACAO_REMOVIDA, 'DELETED');
+    assert.match(SITUACAO_REMOVIDA, /^[A-Z_]{1,40}$/, 'cabe no CHECK de ia_credito_cobrancas.situacao_provedor');
+    assert.equal(situacaoDaLeitura({ status: 'PENDING', deleted: true }), 'DELETED');
+    assert.equal(situacaoDaLeitura({ status: 'OVERDUE', deleted: true }), 'DELETED');
+    assert.equal(situacaoDaLeitura({ status: 'PENDING', deleted: false }), 'PENDING');
+    assert.equal(situacaoDaLeitura({ status: 'RECEIVED', deleted: false }), 'RECEIVED');
 });
 
 test('referência externa: correlação sem dado pessoal; leitura estrita', () => {
