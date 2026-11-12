@@ -1,7 +1,7 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
 import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
-import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
+import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, suprimirPesquisasDoContato, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
@@ -275,6 +275,8 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
         }
         const resposta = responder(vigente, plano, interesse, hoje);
         await tx.query('UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3,nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA',resposta.encerrada]);
+        // PARAR entendido pelo modelo: mesmo alcance da recepção nas pesquisas (só o WhatsApp), na mesma transação.
+        if (resposta.encerrada) await suprimirPesquisasDoContato(tx, empresa, atual.contato);
         await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
         if (resposta.texto) await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING`, [conversa.id, empresa, ambiente, mensagem.id, resposta.texto, atual.versao]);
       });
@@ -401,7 +403,7 @@ async function cancelarSaidasNaFila(tx: DbExecutor, conversaId: string, empresa:
  * tempo: o pedido do cliente é respeitado sempre. Nada depois desfaz o bloqueio: a recepção não reabre conversa com
  * nao_contatar, o worker não processa entradas dela e a equipe não envia (ATENDIMENTO_CONTATO_BLOQUEADO).
  */
-async function bloquearPorPedido(mensagem: Mensagem, registro: Passagem | null = null) {
+async function bloquearPorPedido(mensagem: Mensagem, contato: string, registro: Passagem | null = null) {
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;
   await withTransaction(async tx => {
     // Rodada 18: reclamação junto do pedido de parar fica na fila da equipe (AGUARDANDO_HUMANO + passagem), com o mesmo
@@ -410,6 +412,8 @@ async function bloquearPorPedido(mensagem: Mensagem, registro: Passagem | null =
     else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2", [mensagem.conversa_id, empresa]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await cancelarSaidasNaFila(tx, mensagem.conversa_id, empresa, ambiente);
+    // Pesquisa de satisfação (110): mesmo alcance do PARAR da recepção (só o WhatsApp), na mesma transação.
+    await suprimirPesquisasDoContato(tx, empresa, contato);
   });
   return 'PROCESSADA' as const;
 }
@@ -551,7 +555,7 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     resultado = await porta.responder({ empresa, ambiente, contato: conversa.contato, texto, historico, contexto: conversa.contexto ?? {}, config, hoje, agora: new Date().toISOString() });
   } catch { return await encaminharSemModelo(mensagem, 'FALHOU', opera); }
   // Pedido de parar entendido pelo Wall-e (paráfrase que a recepção não bloqueou, com o trecho validado sem modelo).
-  if (resultado.parar) return await bloquearPorPedido(mensagem, resultado.passagem);
+  if (resultado.parar) return await bloquearPorPedido(mensagem, conversa.contato, resultado.passagem);
   if (resultado.silencio && resultado.passagem) return await passarEmSilencio(mensagem, resultado.passagem, 'WALLE');
   if (!resultado.saidas.length) return await encaminharSemModelo(mensagem, 'FALHOU', opera);
   await withTransaction(async tx => {

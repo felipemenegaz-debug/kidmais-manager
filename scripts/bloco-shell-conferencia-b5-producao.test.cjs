@@ -62,12 +62,12 @@ function embutido(bloco) {
 }
 
 test('arquivos: agregador, trava do B-1, os 9 núcleos 089–100 (nunca a 098), os 9 núcleos 102–117, os 4 módulos da 107/108 e o contrato TS da 109; partes; blocos ≤ 36 KB; modos e destinos inválidos', () => {
-  assert.deepEqual(ARQ, ['scripts/conferencia-b5-producao.cjs', 'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-production.cjs', ...b5.MIGRACOES.map(m => m[1].replace('./', 'scripts/')),
+  assert.deepEqual(ARQ, ['scripts/conferencia-b5-producao.cjs', 'scripts/conferencia-b5-105.cjs', 'scripts/conferencia-b5-satisfacao.cjs', 'scripts/migration-092-094-production.cjs', ...b5.MIGRACOES.map(m => m[1].replace('./', 'scripts/')),
     ...b5.AMPLIADAS.map(m => m[1].replace('./', 'scripts/')),
     'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-108-inventario.cjs', 'scripts/migration-107-definicoes.cjs',
     'lib/assinatura/renovacao-schema.ts', 'lib/assinatura/renovacao-schema-retratos.ts', 'database/checks/20261027_105_integridade.sql',
     'scripts/migration-105-definicoes.cjs', 'scripts/migration-105-relacoes.cjs']);
-  assert.equal(ARQ.length, 30); assert.ok(ARQ.includes('scripts/migration-105-definicoes.cjs') && ARQ.includes('scripts/migration-105-relacoes.cjs')); assert.ok(ARQ.includes('scripts/conferencia-b5-105.cjs')); assert.ok(!ARQ.some(a => /098|staging/.test(a)));
+  assert.equal(ARQ.length, 31); assert.ok(ARQ.includes('scripts/migration-105-definicoes.cjs') && ARQ.includes('scripts/migration-105-relacoes.cjs')); assert.ok(ARQ.includes('scripts/conferencia-b5-105.cjs') && ARQ.includes('scripts/conferencia-b5-satisfacao.cjs')); assert.ok(!ARQ.some(a => /098|staging/.test(a)));
   // Do database/, só a integridade de catálogo da 105 (revisão Astra r2, A), com o mesmo sha256 do aplicador.
   assert.deepEqual(ARQ.filter(a => a.startsWith('database/')), [b5.INTEGRIDADE_105[1]]);
   // Fechamento: o contrato da 109 conferido por sha256 vai no pacote (o resto do require é provado na pasta própria, abaixo).
@@ -144,13 +144,13 @@ test('sem o pg: curtos = 4 antes de montar; montagem só com TODAS as partes, di
   } finally { limpar(d2); }
 });
 
-test('fluxo: partes (repetir = JA_PRESENTE) → CONFERIR-B5 monta 30 e roda da pasta própria → CONFERIR-B5-ESTADO → LIMPEZA; deploy intacto', () => {
+test('fluxo: partes (repetir = JA_PRESENTE) → CONFERIR-B5 monta 31 e roda da pasta própria → CONFERIR-B5-ESTADO → LIMPEZA; deploy intacto', () => {
   const d = deploy();
   try {
     const nada = rodar(d, 'LIMPEZA'); assert.equal(codigo(nada.saida), 0); assert.match(nada.saida, /^NADA_A_LIMPAR$/m);
     const p = sessao(d, todasAsPartes(d)); assert.deepEqual(codigos(p.saida), Array(N).fill(0), p.saida.slice(-300)); assert.equal(linhas(p.saida, /^TRANSPORTADO /), ARQ.length);
     assert.equal(codigo(rodar(d, 'PARTE-1').saida), 0);
-    const r = rodar(d, 'CONFERIR-B5-COM-CONTA', RODOU); assert.equal(codigo(r.saida), 0, r.saida.slice(-300)); assert.match(r.saida, /^ARQUIVOS_OK 30$/m);
+    const r = rodar(d, 'CONFERIR-B5-COM-CONTA', RODOU); assert.equal(codigo(r.saida), 0, r.saida.slice(-300)); assert.match(r.saida, /^ARQUIVOS_OK 31$/m);
     assert.match(r.saida, new RegExp('^CONFERENCIA_RODOU pwd=.*' + re(PASTA) + '$', 'm'));
     for (const a of ARQ) assert.equal(fs.readFileSync(path.join(d, PASTA, a), 'utf8'), lf(a), a);
     const e = rodar(d, 'CONFERIR-B5-ESTADO', 'node -e "process.exitCode=3"'); assert.equal(codigo(e.saida), 3, 'o código da conferência vira o do bloco');

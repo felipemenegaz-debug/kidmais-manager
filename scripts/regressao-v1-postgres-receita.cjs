@@ -129,6 +129,16 @@ const MODELOS = {
   // Financeiro P2 (09/11/2026): o estado do staging (inventário até a 118 sem a 098) com 120 e 121. Os modelos sem a 121
   // provam o leitor sem abertura (saldo null); os oráculos de saldo absoluto rodam aqui.
   "121": { banco: "kidmais_v1_modelo_121", ate: "121", sem: ["098"] },
+  // Satisfação (110/111/115): no inventário aprovado vêm DEPOIS da 118, da 120 e da 121. Os modelos tiram a 120 e a 121
+  // (financeiro P2; 110/111/115 não dependem delas) para manter o estado de antes da sincronização com staging (12/11/2026):
+  // inventário até a respectiva migration, sem a 098 e sem o financeiro P2. Assim as suítes de exportação (retratos
+  // colunas-esperadas-110/111) e da satisfação seguem provando o mesmo schema. O modelo "121" continua sem 110/111/115.
+  // Pesquisa de satisfação (110, PS-1 LOCAL, 30/10/2026): o estado da 109 com a 110 (mais 112, 114 e 116–118 do inventário).
+  "110": { banco: "kidmais_v1_modelo_110", ate: "110", sem: ["098", "120", "121"] },
+  // Pesquisa de satisfação PS-3 (111, LOCAL, 31/10/2026): o estado da 110 com links de avaliação e auditoria.
+  "111": { banco: "kidmais_v1_modelo_111", ate: "111", sem: ["098", "120", "121"] },
+  // PS-4 rodada 4 (115, LOCAL, 03/11/2026): o estado da 111 com o índice (empresa_id, data_evento) em fechamentos.
+  "115": { banco: "kidmais_v1_modelo_115", ate: "115", sem: ["098", "120", "121"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a

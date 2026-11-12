@@ -14,6 +14,7 @@ import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
 import { recursoIncluido } from '@/lib/assinatura/recursos-plano';
 import { menuMarketingVisivel } from '@/lib/marketing/capacidades';
+import { menuSatisfacao } from '@/lib/satisfacao/escopo';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
@@ -58,6 +59,8 @@ export async function GET(request: NextRequest) {
                 ? {
                     financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false),
                     marketing: await menuMarketingVisivel(db(), contexto.empresaAtual.id, session.usuario_id, contexto.gestaoNaEmpresa, recursoIncluido),
+                    // PS-4: menu Satisfação relido numa instrução (membership, vigência, papel e concessões); erro → null (oculto).
+                    satisfacao: await menuSatisfacao(db(), contexto.empresaAtual.id, session.usuario_id),
                 }
                 : null;
             return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, recursos, cadastroAberto: situacaoCadastro().ativo } });

@@ -216,6 +216,23 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 30/10/2026: primeira negociação sem origem própria conta pela origem do cliente (painel e API), sem gravar nada.
   "lib/marketing/origem-negociacao.postgres.test.ts": { descartavel: "086" },
+  // Pesquisa de satisfação (110, PS-1, 30/10/2026): esquema, serviço público, supressões, frequência e bloqueio do
+  // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).
+  "lib/satisfacao/satisfacao.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-concorrencia.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-parar.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-cancelamento.postgres.test.ts": { descartavel: "110" },
+  // PS-2 (30/10/2026): criação pelo motor e despacho por entrega (dois workers, posse vencida, prazos, consentimento).
+  "lib/satisfacao/satisfacao-despacho.postgres.test.ts": { descartavel: "110" },
+  // PS-3 (31/10/2026): links de avaliação, retornos das notas baixas, auditoria e instalação da 111 (inclui o ciclo down/111).
+  "lib/satisfacao/satisfacao-ps3.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts": { descartavel: "111" },
+  // PS-4 (01/11/2026): resultados, menu e retornos pelas rotas reais (métricas, população, escopos, cursor, período).
+  // PS-4 rodada 4 (03/11/2026): sobre o modelo 115 (índice das festas por período), como a medição de desempenho.
+  "lib/satisfacao/satisfacao-ps4.postgres.test.ts": { descartavel: "115" },
+  // 115: subida, reaplicação neutra, homônimo divergente recusado, pré/pós-check, down e nova subida.
+  "lib/satisfacao/migration-115.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/b5-catalogo-satisfacao.postgres.test.ts": { descartavel: "109", tambem: ["110", "111", "115"] },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
@@ -327,7 +344,7 @@ const ESTADO_POSTGRES = {
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
   // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
   // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "114"] },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "114", "110", "111", "115"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },

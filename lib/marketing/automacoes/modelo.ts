@@ -18,13 +18,28 @@ export function validarModelo(texto: string): string[] {
   return problemas;
 }
 
+/**
+ * Texto da pesquisa de satisfação (inicial e lembrete): os três marcadores e `{{link_pesquisa}}`, que é obrigatório.
+ * Com WhatsApp entre os canais, o texto também precisa dizer como parar (PARAR), como toda mensagem.
+ */
+export function validarModeloPesquisa(texto: string, opcoes: { whatsapp: boolean }): string[] {
+  const links = (texto.match(/\{\{\s*link_pesquisa\s*\}\}/g) ?? []).length;
+  const problemas = validarModelo(texto.replace(/\{\{\s*link_pesquisa\s*\}\}/g, " "))
+    .filter((p) => opcoes.whatsapp || !p.startsWith("Inclua como deixar de receber"));
+  if (links === 0) problemas.push("Inclua {{link_pesquisa}} no texto da pesquisa.");
+  if (links > 1) problemas.push("Use {{link_pesquisa}} uma vez só.");
+  return problemas;
+}
+
 export function primeiroNome(nomeCompleto: string) {
   return nomeCompleto.trim().split(/\s+/)[0] ?? "";
 }
 
-export function renderizarModelo(texto: string, valores: { nome: string; buffet: string; dataFesta: string | null }) {
+export function renderizarModelo(texto: string, valores: { nome: string; buffet: string; dataFesta: string | null; linkPesquisa?: string }) {
   const data = valores.dataFesta ? valores.dataFesta.split("-").reverse().join("/") : "sua festa";
   return texto
+    // Pesquisa: o link (ou o marcador gravado no lugar dele) é inserido por função, como os outros valores.
+    .replace(/\{\{\s*link_pesquisa\s*\}\}/g, () => valores.linkPesquisa ?? "")
     // Substituição por função: nome ou buffet com "$'"/"$&" não podem virar padrões de String.replace.
     .replace(/\{\{\s*nome\s*\}\}/g, () => primeiroNome(valores.nome))
     .replace(/\{\{\s*buffet\s*\}\}/g, () => valores.buffet)

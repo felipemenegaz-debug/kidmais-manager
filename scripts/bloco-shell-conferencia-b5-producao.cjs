@@ -6,7 +6,7 @@
 // sha256 (só o corpo conferido imprime CODIGO_SAIDA_BLOCO=0), destino físico sem links, partes ≤ 40 KB, T zerado antes do
 // trap, `builtin unset -v C T` na abertura, trap ERR com o motivo. Unificar os dois geradores depois do aceite do B-4 é
 // pendência registrada. Diferenças: só leitura — sem APLICAR, sem backup, sem registro em disco persistente.
-//   - PARTE-k-DE-N: transporta os 30 arquivos (gzip+base64, sha256 conferido) para
+//   - PARTE-k-DE-N: transporta os 31 arquivos (gzip+base64, sha256 conferido) para
 //     /opt/render/project/src/.kidmais-conferencia-b5-producao/.partes/<sha256>. Não conecta ao banco;
 //   - CONFERIR-B5-COM-CONTA e CONFERIR-B5-SEM-CONTA (E1): montam a pasta própria e rodam `--conferir-b5` (estados 089–118,
 //     combinados, matriz, B-15 reescopado e Fundador SEM provedor, §9.2.7) com o ramo do provedor rotulado no próprio bloco
@@ -66,7 +66,7 @@ const MODULOS_108 = Object.freeze(['scripts/migration-108-evidencias.cjs', 'scri
 const MODULOS_105 = Object.freeze(['scripts/migration-105-definicoes.cjs', 'scripts/migration-105-relacoes.cjs']);
 function arquivos() {
   const nucleos = [...b5.MIGRACOES, ...b5.AMPLIADAS].map(([, m]) => m.replace('./', 'scripts/'));
-  return [...new Set([AGREGADOR, 'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-production.cjs', ...nucleos, ...MODULOS_108, ...CONTRATO_109, INTEGRIDADE_105, ...MODULOS_105])];
+  return [...new Set([AGREGADOR, 'scripts/conferencia-b5-105.cjs', 'scripts/conferencia-b5-satisfacao.cjs', 'scripts/migration-092-094-production.cjs', ...nucleos, ...MODULOS_108, ...CONTRATO_109, INTEGRIDADE_105, ...MODULOS_105])];
 }
 const sha = b => createHash('sha256').update(b).digest('hex');
 function ler(raiz, arquivo) {
@@ -78,7 +78,7 @@ const seguro = s => { assert.match(s, /^[A-Za-z0-9_./-]+$/, 'CAMINHO_INSEGURO');
 const b64 = buf => zlib.gzipSync(buf, {level: 9}).toString('base64').match(/.{1,76}/g);
 function distribuir(raiz = path.resolve(__dirname, '..')) {
   const lista = arquivos().map(a => { const b = ler(raiz, a); return {arquivo: seguro(a), sha: sha(b), b64: b64(b)}; });
-  // Primeiro encaixe, do maior para o menor (determinístico; empate pela ordem da lista): menos partes para colar com 30 arquivos.
+  // Primeiro encaixe, do maior para o menor (determinístico; empate pela ordem da lista): menos partes para colar com 31 arquivos.
   const partes = [];
   const ordem = lista.map((x, i) => ({x, i, tam: x.b64.join('\n').length + SOBRA_POR_ARQUIVO})).sort((a, b) => b.tam - a.tam || a.i - b.i);
   for (const {x, tam} of ordem) {

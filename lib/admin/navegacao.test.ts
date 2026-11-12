@@ -126,3 +126,20 @@ test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configur
     assert.match(shell, /href\.includes\('importar-documentos'\)\) return 'pdf'/);
     assert.doesNotMatch(shell, /contratos\/importar/);
 });
+
+test('PS-4: grupo Satisfação só com recursos.satisfacao do servidor; Resultados por VER, Retornos por TRATAR com o número', () => {
+    const base = { gestaoEmpresa: true, plataforma: false };
+    const satisfacao = (p: Parameters<typeof itensNavegacao>[0]) => itensNavegacao(p).filter((i) => i.grupo === 'Satisfação').map((i) => [i.href, i.contador ?? null]);
+    assert.deepEqual(satisfacao(base), [], 'ausente: grupo oculto (falha fechada)');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: null }), [], 'null: grupo oculto');
+    assert.deepEqual(satisfacao(false), [], 'chamada antiga (boolean): grupo oculto');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: false, retornosAbertos: 0 } }), [['/admin/satisfacao', null]], 'só VER');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: false, tratar: true, retornosAbertos: 3 } }), [['/admin/satisfacao/retornos', 3]], 'só TRATAR');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 2 } }), [['/admin/satisfacao', null], ['/admin/satisfacao/retornos', 2]], 'as duas');
+    const itens = itensNavegacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 0 } });
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao/retornos', itens), true);
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao', itens), false, 'Retornos não acende Resultados');
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /'Marketing', 'Satisfação', 'Financeiro'/, 'o shell renderiza o grupo');
+    assert.match(shell, /satisfacao: menuSatisfacaoDe\(b\.data\.recursos\?\.satisfacao\)/, 'o shell lê recursos.satisfacao com validação de formato');
+});
