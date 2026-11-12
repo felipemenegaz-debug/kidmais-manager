@@ -447,3 +447,173 @@ test('saída crua: uma linha por ocorrência, com passo e fase, sem quebra de li
   assert.ok(!/process\.(?:stdout|stderr)|aoTerminal/.test(fonte));
   assert.match(e.DIAGNOSTICO_GENERICO, /^MENSAGEM_NAO_RECONHECIDA \(detalhe em saida-crua\.log, na pasta do ensaio; não copiar para fora dela\)$/);
 });
+
+// ---- --retrato-da-copia (D-ENS-1): retrato da 107-108 medido em bancos gêmeos; sem banco, com cliente e núcleo simulados ----
+const GEMEO = BANCO + e.SUFIXO_GEMEO;
+const HASH = Object.freeze({F0: 'a'.repeat(64), F1: 'b'.repeat(64), F2: 'c'.repeat(64)});
+const p107 = ordem.PASSOS.find(p => p.id === '107-108');
+const ordemSo107 = {PASSOS: [p107], FASES: ordem.FASES, proximoPasso: res => (res.length && res.at(-1).codigo !== 0 ? {acao: 'PARAR', motivo: 'CODIGO_DIFERENTE_DE_ZERO'}
+  : res.length >= ordem.FASES.length ? {acao: 'CONCLUIDA'} : {acao: 'EXECUTAR', id: p107.id, fase: ordem.FASES[res.length]})};
+const ARQUIVO_ESPERADOS = Object.freeze({versao_pg_maior: 18, trecho_sha256: 't'.repeat(64), F0: {canonico: HASH.F0}, F1: {canonico: 'd'.repeat(64)}, F2: {canonico: 'e'.repeat(64)}});
+
+/** Cliente simulado do cluster: identidade pelo banco da conexão, catálogo de bancos, CREATE/DROP DATABASE registrados e retratos por fase. */
+function mundoDosGemeos({gemeoExiste = false, falhaDrop = false, tudoCanonico = false, quebrarNoGemeo = false} = {}) {
+  const w = {bancos: new Set([BANCO, ...(gemeoExiste ? [GEMEO] : [])]), ddl: [], chamadas: [], conexoes: []};
+  class Cliente {
+    constructor(opts) { this.opts = opts; w.conexoes.push(opts.database); }
+    on() {}
+    async connect() {}
+    async end() {}
+    async query(sql, params) {
+      if (/^(BEGIN|ROLLBACK|COMMIT|SET LOCAL)/.test(sql)) return {rows: []};
+      if (sql === e.SQL_IDENTIDADE) return {rows: [{...IDENTIDADE, db: this.opts.database}]};
+      if (sql === e.SQL_CONTAGENS) return {rows: [{tabelas: 3, linhas: {empresas: '2'}}]};
+      if (/FROM pg_catalog\.pg_database/.test(sql)) return {rows: w.bancos.has(params[0]) ? [{x: 1}] : []};
+      let m;
+      if ((m = /^CREATE DATABASE "([^"]+)" TEMPLATE "([^"]+)"$/.exec(sql))) { w.ddl.push(['CREATE', m[1], m[2]]); w.bancos.add(m[1]); return {rows: []}; }
+      if ((m = /^DROP DATABASE IF EXISTS "([^"]+)" WITH \(FORCE\)$/.exec(sql))) {
+        w.ddl.push(['DROP', m[1]]);
+        if (falhaDrop) throw new Error('drop falhou');
+        w.bancos.delete(m[1]); return {rows: []};
+      }
+      if ((m = /^RETRATO (F[012])$/.exec(sql))) return {rows: [{hash_108: HASH[m[1]]}]};
+      if (/ARRAY\['RETRATO_F2'\]/.test(sql)) return {rows: [{integra: false}]};
+      throw new Error('consulta inesperada: ' + String(sql).slice(0, 60));
+    }
+  }
+  const casa = (esp, f, h) => Object.values(esp[f]).includes(h);
+  const comum = {ENV_RETRATOS_TESTE: 'KIDMAIS_RETRATOS_108_TESTE', criarAplicador: amb => ({async principal(argv, env, deps) {
+    const esp = JSON.parse(env.KIDMAIS_RETRATOS_108_TESTE), conferir = argv[0] === p107.conferir.split(' ')[0];
+    w.chamadas.push({banco: amb.ALVO.database, aceita: amb.aceitaRetratosTeste, esp, conferir, env});
+    const db = new deps.Client(amb.alvo()); await db.connect();
+    try {
+      const falha = (c, mensagem) => ({codigo: c, saida: c === 3 ? {resultado: 'RECUSARIA', motivo: mensagem} : {resultado: 'FALHA', falha: {etapa: '107', mensagem}}});
+      const medir = async f => (await db.query('RETRATO ' + f)).rows[0].hash_108;
+      if (quebrarNoGemeo && !conferir && amb.ALVO.database === GEMEO) throw new Error('servidor caiu para Maria da Silva');
+      const h0 = await medir('F0');
+      if (!casa(esp, 'F0', h0)) return falha(conferir ? 3 : 2, 'RETRATO_F0_DIVERGENTE ' + h0);
+      if ((Object.keys(esp.F0)[0] === 'canonico') !== tudoCanonico) return falha(conferir ? 3 : 2, 'RETRATO_F0_INCOERENTE variante X');
+      if (conferir) return {codigo: 0, saida: {resultado: 'PRONTA_PARA_APLICAR', retrato: {fase: 'F0', hash: h0, variante: Object.keys(esp.F0)[0], secoes: null}}};
+      const h1 = await medir('F1');
+      if (!casa(esp, 'F1', h1)) return falha(2, 'RETRATO_F1_DIVERGENTE ' + h1 + ' (nenhum esperado da fase)');
+      await db.query("SELECT ARRAY['RETRATO_F2'] AS motivos");
+      if (!casa(esp, 'F2', HASH.F2)) return falha(2, 'INTEGRIDADE_108 RETRATO_F2');
+      return {codigo: 0, saida: {resultado: 'APLICADA_POSTCHECK_PASS', commits: {107: 'CONFIRMADO', 108: 'CONFIRMADO'}}};
+    } finally { await db.end(); }
+  }})};
+  const retrato = {carregarEsperados: () => ARQUIVO_ESPERADOS, sqlRetrato108: () => 'RETRATO F2'};
+  const carregar = f => (f === './migration-107-108-comum.cjs' ? comum : f === './migration-108-retrato.cjs' ? retrato : require(f));
+  return {w, Cliente, carregar};
+}
+const argvCopia = ['--porta', PORTA, '--banco', BANCO, '--retrato-da-copia'];
+const rodarCopia = (m, argv = argvCopia) => e.principal(argv, ENV, {Client: m.Cliente, carregar: m.carregar, raiz: '.', ordem: ordemSo107, pasta: novaPasta()});
+
+test('--retrato-da-copia: flag opcional; sem ela nada muda; com --so-conferir recusa antes de conectar', async () => {
+  assert.equal(e.lerArgumentos(['--porta', PORTA, '--banco', BANCO, '--retrato-da-copia']).retratoDaCopia, true);
+  assert.ok(!Object.hasOwn(e.lerArgumentos(['--porta', PORTA, '--banco', BANCO]), 'retratoDaCopia'));
+  recusa(() => e.lerArgumentos([...argvCopia, '--so-conferir']), /^RETRATO_DA_COPIA_EXIGE_CADEIA/);
+  recusa(() => e.lerArgumentos(['--so-conferir', ...argvCopia]), /^RETRATO_DA_COPIA_EXIGE_CADEIA/);
+  recusa(() => e.lerArgumentos([...argvCopia, '--retrato-da-copia']), /ARGUMENTO_REPETIDO/);
+  const m = mundoDosGemeos();
+  await assert.rejects(() => rodarCopia(m, [...argvCopia, '--so-conferir']), /RETRATO_DA_COPIA_EXIGE_CADEIA/);
+  assert.deepEqual(m.w.conexoes, [], 'nenhum cliente criado');
+  assert.ok(e.plano(ordem).uso.some(u => /--retrato-da-copia/.test(u)));
+});
+
+test('sem a flag: nenhum gêmeo, aceitaRetratosTeste nunca ligado, sem env de retratos e relatório sem o bloco da cópia', async () => {
+  const m = mundoDosGemeos();
+  assert.equal(e.NUCLEOS['107-108'].aceitaRetratosTeste, false);
+  const r = await rodarCopia(m, ['--porta', PORTA, '--banco', BANCO]);
+  // o núcleo simulado exige KIDMAIS_RETRATOS_108_TESTE; sem a flag ele não é injetado, então o passo falha cedo e a cadeia para
+  assert.equal(r.saida.situacao, 'PARADA');
+  assert.deepEqual(m.w.ddl, []);
+  assert.ok(!m.w.conexoes.includes('postgres'), 'nenhuma conexão administrativa');
+  assert.ok(!Object.hasOwn(r.saida, 'retratoDaCopia'));
+  assert.deepEqual(r.saida.valoresDeEnsaio, e.VALORES_DE_ENSAIO);
+  assert.deepEqual(r.saida.naoExercido, e.NAO_EXERCIDO);
+  assert.ok(!/MEDIDO NA CÓPIA/.test(r.texto));
+  // principalDoPasso direto: ambiente do núcleo sem a permissão e env sem os retratos
+  const vistos = [];
+  const falso = {ENV_RETRATOS_TESTE: 'X', criarAplicador: amb => ({principal: async (a, env) => { vistos.push({aceita: amb.aceitaRetratosTeste, env}); return {codigo: 0, saida: {}}; }})};
+  const carregar = f => (f === './migration-107-108-comum.cjs' ? falso : require(f));
+  await e.principalDoPasso(p107, {alvo: ALVO, pasta: novaPasta(), raiz: '.', Client: class {}, carregar})(['--conferir-107-108']);
+  assert.deepEqual(vistos.map(v => v.aceita), [false]);
+  assert.deepEqual(Object.keys(vistos[0].env), Object.keys(e.ENV_DOS_NUCLEOS));
+  const fonte = fs.readFileSync(path.join(__dirname, 'ensaio-promocao-local.cjs'), 'utf8');
+  assert.equal((fonte.match(/aceitaRetratosTeste: true}/g) ?? []).length, 2, 'só o gêmeo e o passo 107-108 do modo');
+});
+
+test('com a flag: 3 gêmeos (rótulo copia) criados do banco do ensaio e apagados; passo real com os 3 hashes e aceitaRetratosTeste só nele', async () => {
+  const m = mundoDosGemeos({tudoCanonico: false});
+  const r = await rodarCopia(m);
+  assert.equal(r.codigo, 0); assert.equal(r.saida.situacao, 'CONCLUIDA');
+  const criados = m.w.ddl.filter(d => d[0] === 'CREATE'), apagados = m.w.ddl.filter(d => d[0] === 'DROP');
+  assert.equal(criados.length, 3);
+  assert.ok(criados.every(c => c[1] === GEMEO && c[2] === BANCO), 'nome fixo, só a partir do banco autorizado');
+  assert.equal(apagados.length, 3); assert.deepEqual(m.w.bancos, new Set([BANCO]));
+  const reais = m.w.chamadas.filter(c => c.banco === BANCO), gemeos = m.w.chamadas.filter(c => c.banco === GEMEO);
+  assert.equal(gemeos.length, 3); assert.ok(gemeos.every(c => c.aceita === true));
+  assert.equal(reais.length, 3, 'CONFERIR, APLICAR e CONFERIR_DEPOIS no banco do ensaio');
+  assert.ok(reais.every(c => c.aceita === true && c.esp.F0.copia === HASH.F0 && c.esp.F1.copia === HASH.F1 && c.esp.F2.copia === HASH.F2));
+  assert.ok(reais.every(c => c.esp.trecho_sha256 === ARQUIVO_ESPERADOS.trecho_sha256 && c.esp.versao_pg_maior === 18));
+  const rc = r.saida.retratoDaCopia;
+  assert.deepEqual([rc.origem, rc.variante, rc.confereProduction, rc.medido, rc.hashes], ['MEDIDO_NA_COPIA', 'copia', false, true, HASH]);
+  assert.deepEqual(rc.casouComArquivo, {F0: 'canonico', F1: null, F2: null}, 'F0 igual ao canônico do arquivo; os outros não');
+  const l = r.saida.passos[0];
+  assert.deepEqual([l.retrato.variante, l.retrato.origem, l.retrato.hash], ['copia', 'MEDIDO_NA_COPIA', HASH.F0]);
+  assert.match(r.texto, /ATENÇÃO — RETRATO DA 107–108 MEDIDO NA CÓPIA \(--retrato-da-copia\): NÃO confere production/);
+  assert.ok(r.texto.includes(`F0 ${HASH.F0} · F1 ${HASH.F1} · F2 ${HASH.F2}`));
+  assert.match(r.texto, /casou com variante do arquivo de esperados: F0 canonico · F1 nenhuma · F2 nenhuma/);
+  assert.ok(r.saida.valoresDeEnsaio.at(-1).includes('MEDIDOS NA PRÓPRIA CÓPIA') && !r.saida.valoresDeEnsaio.some(v => /só as variantes do arquivo/.test(v)));
+  assert.ok(r.saida.naoExercido.some(v => /verificação independente do retrato/.test(v)));
+  assert.deepEqual(fs.readdirSync(path.join(r.pasta, 'gemeos')).sort(), ['1-conferir', '2-aplicar', '3-aplicar']);
+});
+
+test('com a flag e avaliação toda canônica: o rótulo copia é incoerente para o núcleo, entra como canonico (4º gêmeo) e o relatório segue dizendo copia', async () => {
+  const m = mundoDosGemeos({tudoCanonico: true});
+  const r = await rodarCopia(m);
+  assert.equal(r.saida.situacao, 'CONCLUIDA');
+  assert.equal(m.w.ddl.filter(d => d[0] === 'CREATE').length, 4); assert.equal(m.w.ddl.filter(d => d[0] === 'DROP').length, 4);
+  const l = r.saida.passos[0];
+  assert.deepEqual([l.retrato.variante, l.retrato.varianteNucleo], ['copia', 'canonico']);
+  assert.match(r.texto, /\[MEDIDO NA CÓPIA; rótulo interno do núcleo: canonico\]/);
+  assert.ok(m.w.chamadas.filter(c => c.banco === BANCO).every(c => c.esp.F0.canonico === HASH.F0 && c.aceita === true));
+});
+
+test('com a flag: falha na medição apaga o gêmeo, para a cadeia e o passo real nunca roda; texto livre do servidor só no saida-crua.log', async () => {
+  const m = mundoDosGemeos({quebrarNoGemeo: true});
+  const r = await rodarCopia(m);
+  assert.equal(r.codigo, 2); assert.equal(r.saida.situacao, 'PARADA');
+  assert.equal(m.w.ddl.filter(d => d[0] === 'CREATE').length, 2, 'F0 e o gêmeo que falhou');
+  assert.equal(m.w.ddl.filter(d => d[0] === 'DROP').length, 2);
+  assert.deepEqual(m.w.bancos, new Set([BANCO]), 'nenhum gêmeo sobra');
+  assert.ok(m.w.chamadas.every(c => c.banco === GEMEO), 'nada rodou no banco do ensaio');
+  assert.ok(!r.texto.includes('Maria') && !fs.readFileSync(path.join(r.pasta, 'relatorio.json'), 'utf8').includes('Maria'));
+  assert.equal(r.saida.retratoDaCopia.medido, false);
+  assert.match(r.texto, /o passo 107-108 não foi alcançado: nada foi medido nem aceito/);
+  assert.match(fs.readFileSync(path.join(r.pasta, e.ARQUIVO_CRU), 'utf8'), /Maria da Silva/);
+});
+
+test('gêmeo pré-existente: recusa (GEMEO_JA_EXISTE) sem criar nem apagar nada; falha ao apagar vira GEMEO_NAO_APAGADO', async () => {
+  const m = mundoDosGemeos({gemeoExiste: true});
+  const r = await rodarCopia(m);
+  assert.equal(r.saida.situacao, 'PARADA');
+  assert.deepEqual(m.w.ddl, [], 'o gêmeo alheio não é tocado');
+  assert.equal(r.saida.passos[0].mensagem, `GEMEO_JA_EXISTE ${GEMEO}`);
+  assert.ok(m.w.bancos.has(GEMEO));
+  const n = mundoDosGemeos({falhaDrop: true});
+  const x = await rodarCopia(n);
+  assert.equal(x.saida.situacao, 'PARADA');
+  assert.equal(x.saida.passos[0].mensagem, `GEMEO_NAO_APAGADO ${GEMEO}`);
+  assert.ok(n.w.chamadas.every(c => c.banco === GEMEO));
+});
+
+test('gêmeo: mesmas travas do alvo (loopback, porta, nome); só deriva do banco autorizado e o nome não passa de 63 caracteres', () => {
+  assert.deepEqual(e.alvoDoGemeo(ALVO, ENV), {host: '127.0.0.1', porta: Number(PORTA), banco: GEMEO});
+  const longo = 'b'.repeat(63 - e.SUFIXO_GEMEO.length + 1);
+  recusa(() => e.alvoDoGemeo({...ALVO, banco: longo}, ENV), /^BANCO_RECUSADO$/);
+  recusa(() => e.alvoDoGemeo({...ALVO, host: '10.0.0.5'}, ENV), /^HOST_RECUSADO$/);
+  recusa(() => e.alvoDoGemeo({...ALVO, porta: 5433}, ENV), /^PORTA_RECUSADA$/);
+  recusa(() => e.alvoDoGemeo(ALVO, {...ENV, DATABASE_URL: 'x'}), /^AMBIENTE_RECUSADO DATABASE_URL$/);
+  recusa(() => e.alvoDoGemeo(ALVO, {...ENV, KIDMAIS_POSTGRES_DESCARTAVEL: 'nao'}), /^AUTORIZACAO_AUSENTE/);
+});

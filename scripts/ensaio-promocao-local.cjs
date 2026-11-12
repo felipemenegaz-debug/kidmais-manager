@@ -24,6 +24,11 @@
 //   node scripts/ensaio-promocao-local.cjs                                              → plano, sem conexão
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b> --so-conferir
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b>   → a cadeia inteira
+//   ... --porta <p> --banco <b> --retrato-da-copia   → a cadeia inteira, com o retrato da 107-108 MEDIDO NA PRÓPRIA CÓPIA (D-ENS-1)
+//     Só para a cópia restaurada por pg_dump/pg_restore: a restauração lógica muda o texto de pg_get_constraintdef/pg_get_indexdef e o retrato
+//     F0 nunca casa com as variantes do arquivo. No passo 107-108 os esperados F0, F1 e F2 são medidos em bancos GÊMEOS (CREATE DATABASE ... TEMPLATE
+//     <banco>, cópia física no mesmo cluster local), apagados no fim; o passo real roda com os três hashes e aceitaRetratosTeste: true (só ali, só
+//     neste modo). O retrato deixa de ser verificação independente: NÃO confere production. Recusado com --so-conferir.
 // (--experimental-strip-types: o núcleo da 109 importa o contrato TypeScript do cron.) Roteiro: docs/ENSAIO_PROMOCAO_LOCAL_20261112.md.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -61,6 +66,16 @@ const NAO_EXERCIDO = Object.freeze([
   '118: a regra do adaptador de production para o registro "PITR <AAAA-MM-DDTHH:MMZ> <referencia>" (janela de 2 h) e a exceção de TLS',
   'IMPORTACAO_COTA_DISPENSADA e RENDER_GIT_COMMIT: ausentes no env entregue aos núcleos (118 informa AUSENTE; 114 informa commit nulo)',
 ]);
+/** Gêmeo do banco do ensaio no modo --retrato-da-copia: nome previsível (<banco> + sufixo fixo); existente = recusa. */
+const SUFIXO_GEMEO = '_gemeo_retrato';
+/** Hash fictício (64 hex) injetado nas fases ainda não medidas: o núcleo grava o hash real ANTES de comparar. */
+const HASH_FICTICIO = 'f'.repeat(64);
+const PASSO_DO_RETRATO = '107-108';
+const VALOR_RETRATO_DA_COPIA = 'retratos da 107-108: MEDIDOS NA PRÓPRIA CÓPIA (--retrato-da-copia), em bancos gêmeos físicos apagados no fim; aceitaRetratosTeste: true só no passo 107-108 e só neste modo; o arquivo de esperados NÃO é usado. NÃO confere production e o retrato deixa de ser verificação independente (a janela real continua com as variantes do arquivo)';
+const NAO_EXERCIDO_RETRATO_DA_COPIA = 'verificação independente do retrato da 107-108 contra as variantes do arquivo de esperados (canonico, deriva_conhecida, staging_20261030): só o --conferir-107-108 de production na janela real';
+/** Valores de ensaio e o que não é exercido, conforme o modo. */
+const valoresDeEnsaio = copia => (copia ? [...VALORES_DE_ENSAIO.slice(0, -1), VALOR_RETRATO_DA_COPIA] : VALORES_DE_ENSAIO);
+const naoExercido = copia => (copia ? [...NAO_EXERCIDO, NAO_EXERCIDO_RETRATO_DA_COPIA] : NAO_EXERCIDO);
 /** Núcleos aceitos (lista fechada): passo cujo aplicador não esteja aqui PARA antes de rodar. Extras = os do adaptador de production. */
 const NUCLEOS = Object.freeze({'089': {}, '090': {}, '091': {}, '092-094': {escopos: ['092-093', '094']}, '095': {}, '096': {}, '097': {}, '100': {},
   '102-103': {}, '104-106': {}, '107-108': {aceitaRetratosTeste: false}, '109': {}, '112': {}, '114': {}, '116': {}, '117': {}, '118': {}});
@@ -132,7 +147,7 @@ function mensagemSegura(texto) {
 /** Rótulo curto do núcleo (resultado, estado, variante, etapa): só letras ASCII, dígitos, sublinhado, hífen, `+` e espaço simples. */
 const rotulo = (v, reserva = null) => (typeof v === 'string' && /^[A-Za-z0-9_+-]+(?: [A-Za-z0-9_+-]+){0,9}$/.test(v) && v.length <= 80 ? v : reserva);
 
-/** Argumentos estritos: nenhum (plano) ou --porta e --banco, com --host, --pasta e --so-conferir opcionais. Nada repetido. */
+/** Argumentos estritos: nenhum (plano) ou --porta e --banco, com --host, --pasta, --so-conferir e --retrato-da-copia opcionais (os dois últimos não combinam). Nada repetido. */
 function lerArgumentos(argv) {
   if (argv.length === 0) return {modo: 'plano'};
   const r = {modo: 'ensaio', host: HOST, porta: null, banco: null, pasta: null};
@@ -142,12 +157,14 @@ function lerArgumentos(argv) {
     assert.ok(!vistos.has(a), 'ARGUMENTO_REPETIDO ' + a);
     vistos.add(a);
     if (a === '--so-conferir') { r.modo = 'so-conferir'; continue; }
+    if (a === '--retrato-da-copia') { r.retratoDaCopia = true; continue; }
     assert.ok(['--host', '--porta', '--banco', '--pasta'].includes(a), 'ARGUMENTOS_RECUSADOS');
     const v = lista.shift();
     assert.ok(typeof v === 'string' && v !== '' && !v.startsWith('--'), 'ARGUMENTO_SEM_VALOR ' + a);
     r[a.slice(2)] = v;
   }
   assert.ok(r.porta !== null && r.banco !== null, 'PORTA_E_BANCO_OBRIGATORIOS');
+  assert.ok(!(r.retratoDaCopia && r.modo === 'so-conferir'), 'RETRATO_DA_COPIA_EXIGE_CADEIA (--so-conferir não aplica nada: não há retrato a medir nem a aceitar)');
   return r;
 }
 
@@ -267,14 +284,22 @@ function principalGenerico(gen, {amb, raiz, Client}) {
 }
 
 /** `principal(argv)` do passo: o do núcleo, com o adaptador de ensaio; ou o envelope do genérico. */
-function principalDoPasso(p, {alvo, pasta, raiz, Client, carregar = require}) {
+function principalDoPasso(p, {alvo, pasta, raiz, Client, carregar = require, retratosCopia = null}) {
   if (p.aplicador === 'generico') {
     const gen = carregar('./' + path.basename(p.arquivo));
     return principalGenerico(gen, {amb: ambienteDeEnsaio(alvo, p.id, pasta), raiz, Client});
   }
   const m = /^scripts\/migration-([0-9]{3}(?:-[0-9]{3})?)-production\.cjs$/.exec(String(p.aplicador));
   assert.ok(m && Object.hasOwn(NUCLEOS, m[1]), 'PASSO_SEM_NUCLEO_DE_ENSAIO ' + p.id);
-  const {criarAplicador} = carregar(`./migration-${m[1]}-comum.cjs`);
+  const {criarAplicador, ENV_RETRATOS_TESTE} = carregar(`./migration-${m[1]}-comum.cjs`);
+  if (retratosCopia && p.id === PASSO_DO_RETRATO) {
+    // ÚNICO lugar com aceitaRetratosTeste: true: o passo real, com os esperados medidos nos gêmeos (nunca o arquivo).
+    return async argv => {
+      const medido = await retratosCopia.obter(p);
+      const real = criarAplicador(ambienteDeEnsaio(alvo, p.id, pasta, {...NUCLEOS[m[1]], aceitaRetratosTeste: true}));
+      return real.principal(argv, {...ENV_DOS_NUCLEOS, [ENV_RETRATOS_TESTE]: JSON.stringify(medido.esperados)}, {raiz, Client});
+    };
+  }
   const aplicador = criarAplicador(ambienteDeEnsaio(alvo, p.id, pasta, NUCLEOS[m[1]]));
   return argv => aplicador.principal(argv, ENV_DOS_NUCLEOS, {raiz, Client});
 }
@@ -388,6 +413,116 @@ async function soConferir(ordem, rodar) {
   return {situacao: 'SO_CONFERIR', linhas};
 }
 
+/**
+ * --retrato-da-copia: medição dos esperados F0, F1 e F2 da 107-108 em bancos GÊMEOS do banco do ensaio.
+ * Gêmeo = `CREATE DATABASE <banco><SUFIXO_GEMEO> TEMPLATE <banco>`: cópia física no mesmo cluster local, que preserva o texto do catálogo
+ * (a restauração lógica é que o muda). Passa pelas mesmas travas do alvo (loopback, porta, nome fora de BANCOS_RECUSADOS e identidade provada
+ * no servidor), deriva só do banco já autorizado, recusa se já existir e é apagado SEMPRE (finally). Em cada gêmeo roda o núcleo REAL da 107-108
+ * com aceitaRetratosTeste: true e esperados em que as fases ainda não medidas levam um hash fictício: o núcleo mede o retrato ANTES de comparar,
+ * e um cliente embrulhado (clienteCapturando) guarda o hash medido (F0 no CONFERIR; F1 depois da 107 confirmada; F2 dentro da transação da 108,
+ * antes da prova, que a seguir recusa e desfaz — no gêmeo). Nada do que o gêmeo faz toca o banco do ensaio.
+ */
+function alvoDoGemeo(alvo, env) {
+  const banco = alvo.banco + SUFIXO_GEMEO;
+  // Mesmas travas do alvo; a autorização do gêmeo é derivada da do banco já autorizado (o gêmeo só existe a partir dele).
+  exigirAlvo({host: alvo.host, porta: String(alvo.porta), banco}, {...env, KIDMAIS_DESCARTAVEL_AUTORIZACAO: `${HOST}:${alvo.porta}/${banco}`});
+  return Object.freeze({host: alvo.host, porta: alvo.porta, banco});
+}
+/** Conexão administrativa (banco `postgres`, só para CREATE/DROP DATABASE), com a identidade provada no servidor. */
+async function comAdmin(alvo, Client, trabalho) {
+  const adm = {...alvo, banco: 'postgres'};
+  const db = new Client(opcoesCliente(adm, 'kidmais-ensaio-gemeo')); db.on?.('error', () => undefined);
+  await db.connect();
+  try {
+    identidade((await db.query(SQL_IDENTIDADE)).rows[0], adm);
+    return await trabalho(db);
+  } finally { await db.end().catch(() => {}); }
+}
+async function comGemeo(alvo, env, Client, trabalho) {
+  const g = alvoDoGemeo(alvo, env);
+  await comAdmin(alvo, Client, async db => {
+    assert.ok((await db.query('SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1', [g.banco])).rows.length === 0, 'GEMEO_JA_EXISTE ' + g.banco);
+  });
+  let erro = null, valor, apagar = null;
+  try {
+    await comAdmin(alvo, Client, async db => { await db.query(`CREATE DATABASE "${g.banco}" TEMPLATE "${alvo.banco}"`); });
+    valor = await trabalho(g);
+  } catch (e) { erro = e; }
+  try { await comAdmin(alvo, Client, async db => { await db.query(`DROP DATABASE IF EXISTS "${g.banco}" WITH (FORCE)`); }); } catch (e) { apagar = e; }
+  if (apagar) throw new Error('GEMEO_NAO_APAGADO ' + g.banco);
+  if (erro) throw erro;
+  return valor;
+}
+/** Cliente que guarda o hash de todo retrato medido pelo núcleo e mede o de F2 antes da prova "108 íntegra" (a mesma sessão, a mesma transação). */
+function clienteCapturando(Client, capturas, sqlRetrato) {
+  return class extends Client {
+    async query(...a) {
+      const sql = typeof a[0] === 'string' ? a[0] : a[0]?.text;
+      if (typeof sql === 'string' && sql.includes("ARRAY['RETRATO_F2']")) {
+        const h = (await super.query(sqlRetrato)).rows?.[0]?.hash_108;
+        if (HEX64.test(String(h))) capturas.push({fase: 'F2', hash: h});
+      }
+      const r = await super.query(...a);
+      const h = r?.rows?.[0]?.hash_108;
+      if (HEX64.test(String(h))) capturas.push({fase: null, hash: h});
+      return r;
+    }
+  };
+}
+const mensagemDoNucleo = r => String(r?.saida?.motivo ?? r?.saida?.mensagem ?? r?.saida?.falha?.mensagem ?? '').split(/\r?\n|\r/)[0];
+async function medirRetratosDaCopia({p, alvo, env, Client, raiz, pasta, carregar = require}) {
+  const comum = carregar('./migration-107-108-comum.cjs'), ret = carregar('./migration-108-retrato.cjs');
+  const arquivo = ret.carregarEsperados(raiz);
+  const sqlRetrato = ret.sqlRetrato108({raiz});
+  const molde = (F0, F1, F2) => ({versao_pg_maior: arquivo.versao_pg_maior, trecho_sha256: arquivo.trecho_sha256, F0, F1, F2});
+  const fic = {copia: HASH_FICTICIO};
+  let n = 0;
+  const noGemeo = (fase, esperados) => comGemeo(alvo, env, Client, async g => {
+    const dir = path.join(pasta, 'gemeos', `${++n}-${fase.toLowerCase()}`);
+    fs.mkdirSync(path.join(dir, 'marcadores'), {recursive: true});
+    const capturas = [];
+    const aplicador = comum.criarAplicador(ambienteDeEnsaio(g, p.id, dir, {aceitaRetratosTeste: true}));
+    const r = await aplicador.principal(argumentos(p, fase), {...ENV_DOS_NUCLEOS, [comum.ENV_RETRATOS_TESTE]: JSON.stringify(esperados)},
+      {raiz, Client: clienteCapturando(Client, capturas, sqlRetrato)});
+    return {...r, capturas};
+  });
+  const nao = (fase, r) => new Error(`RETRATO_COPIA_NAO_MEDIDO ${fase} ${mensagemDoNucleo(r) || 'SEM_MENSAGEM_DO_NUCLEO'}`);
+  // F0: CONFERIR com tudo fictício; o núcleo recusa RETRATO_F0_DIVERGENTE depois de gravar o hash real.
+  const a = await noGemeo('CONFERIR', molde(fic, fic, fic));
+  const h0 = a.capturas.at(-1)?.hash;
+  if (!(a.codigo === 3 && /RETRATO_F0_DIVERGENTE/.test(mensagemDoNucleo(a)) && h0)) throw nao('F0', a);
+  // F1: APLICAR com F0 real; a 107 confirma (no gêmeo) e o F1 fictício recusa depois de medir. O rótulo de F0 'copia' só serve se a avaliação
+  // da 107 NÃO for toda canônica (o núcleo exige variante 'canonico' <=> tudo canônico): senão o mesmo hash entra como 'canonico'.
+  let nomeF0 = null, h1 = null;
+  for (const nome of ['copia', 'canonico']) {
+    const b = await noGemeo('APLICAR', molde({[nome]: h0}, fic, fic));
+    if (nome === 'copia' && /RETRATO_F0_INCOERENTE/.test(mensagemDoNucleo(b))) continue;
+    h1 = b.capturas.at(-1)?.hash;
+    if (!(b.codigo === 2 && /RETRATO_F1_DIVERGENTE/.test(mensagemDoNucleo(b)) && h1 && mensagemDoNucleo(b).includes(h1))) throw nao('F1', b);
+    nomeF0 = nome; break;
+  }
+  if (!nomeF0) throw nao('F1', {saida: {mensagem: 'RETRATO_F0_INCOERENTE nos dois rótulos'}});
+  // F2: APLICAR com F0 e F1 reais; a 108 mede o F2 dentro da transação e a prova recusa (RETRATO_F2) e desfaz — no gêmeo.
+  const c = await noGemeo('APLICAR', molde({[nomeF0]: h0}, {copia: h1}, fic));
+  const h2 = c.capturas.filter(x => x.fase === 'F2').at(-1)?.hash;
+  if (!(c.codigo === 2 && h2 && /RETRATO_F2/.test(String(c.saida?.falha?.mensagem ?? '')) && c.capturas.filter(x => !x.fase).every(x => x.hash === h0 || x.hash === h1))) throw nao('F2', c);
+  const hashes = {F0: h0, F1: h1, F2: h2};
+  return {esperados: molde({[nomeF0]: h0}, {copia: h1}, {copia: h2}), hashes, rotuloF0DoNucleo: nomeF0,
+    casouComArquivo: Object.fromEntries(Object.entries(hashes).map(([f, h]) => [f, Object.entries(arquivo[f] ?? {}).find(([, v]) => v === h)?.[0] ?? null]))};
+}
+/** Medição preguiçosa e única: acontece ao chegar no passo 107-108 (o estado do banco é o de então). */
+function criarMedidorDeRetratos(base) {
+  let promessa = null, medido = null;
+  return {obter: p => (promessa ??= medirRetratosDaCopia({...base, p}).then(m => (medido = m))), medido: () => medido};
+}
+/** No modo, o retrato da linha do passo é rotulado como medido na cópia (o rótulo do núcleo, quando difere, fica em varianteNucleo). */
+function rotularLinhaDaCopia(l) {
+  if (l.passo !== PASSO_DO_RETRATO || !l.retrato) return l;
+  const r = {...l.retrato, origem: 'MEDIDO_NA_COPIA'};
+  if (r.variante) { r.varianteNucleo = r.variante; r.variante = 'copia'; }
+  return {...l, retrato: r};
+}
+
 /** Conexão própria do executor (identidade e contagens): aberta e fechada FORA das fases, para não contar como sessão. */
 async function comCliente(alvo, Client, nome, trabalho) {
   const db = new Client(opcoesCliente(alvo, nome)); db.on?.('error', () => undefined);
@@ -420,8 +555,15 @@ function relatorioTexto(r) {
     'passo | fase | código | resultado | COMMIT | duração | estado', '---|---|---|---|---|---|---'];
   for (const l of r.passos) {
     L.push(`${l.passo} | ${l.fase} | ${l.codigo} | ${l.resultado} | ${textoDe(l.commit)} | ${segundos(l.duracaoMs)} | ${textoDe(l.estado)}`
-      + (l.retrato ? ` | retrato ${l.retrato.fase} ${l.retrato.variante ?? 'SEM_VARIANTE'} ${l.retrato.hash ?? ''}` : ''));
+      + (l.retrato ? ` | retrato ${l.retrato.fase} ${l.retrato.variante ?? 'SEM_VARIANTE'} ${l.retrato.hash ?? ''}${l.retrato.origem ? ` [MEDIDO NA CÓPIA${l.retrato.varianteNucleo && l.retrato.varianteNucleo !== l.retrato.variante ? '; rótulo interno do núcleo: ' + l.retrato.varianteNucleo : ''}]` : ''}` : ''));
     if (l.mensagem) L.push(`    ↳ ${l.etapa ? l.etapa + ': ' : ''}${l.mensagem}`);
+  }
+  if (r.retratoDaCopia) {
+    const x = r.retratoDaCopia;
+    L.push('', 'ATENÇÃO — RETRATO DA 107–108 MEDIDO NA CÓPIA (--retrato-da-copia): NÃO confere production e não é verificação independente.', x.medido
+      ? `  variante: ${x.variante} · F0 ${x.hashes.F0} · F1 ${x.hashes.F1} · F2 ${x.hashes.F2}`
+      : '  o passo 107-108 não foi alcançado: nada foi medido nem aceito.');
+    if (x.medido) L.push(`  casou com variante do arquivo de esperados: F0 ${x.casouComArquivo.F0 ?? 'nenhuma'} · F1 ${x.casouComArquivo.F1 ?? 'nenhuma'} · F2 ${x.casouComArquivo.F2 ?? 'nenhuma'}`);
   }
   if (r.parada) L.push('', `PAROU: passo ${r.parada.passo}, fase ${r.parada.fase}, código ${r.parada.codigo} (${r.parada.motivo}${r.parada.significado ? ': ' + r.parada.significado : ''})`,
     `mensagem do núcleo: ${r.parada.mensagem ?? '-'}`);
@@ -446,7 +588,8 @@ function prepararPasta(pasta) {
 function plano(ordem) {
   return {resultado: 'PLANO', conecta: false, ambiente: 'ensaio-local',
     uso: ['node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <porta> --banco <banco> --so-conferir',
-      'node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <porta> --banco <banco> [--pasta <pasta-nova>]'],
+      'node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <porta> --banco <banco> [--pasta <pasta-nova>]',
+      'node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <porta> --banco <banco> --retrato-da-copia [--pasta <pasta-nova>]   (cópia restaurada por pg_restore; retrato da 107-108 medido na cópia; não combina com --so-conferir)'],
     autorizacao: ['KIDMAIS_POSTGRES_DESCARTAVEL=kidmais_pacotes_v1_descartavel', 'KIDMAIS_DESCARTAVEL_PORTA=<porta>', `KIDMAIS_DESCARTAVEL_AUTORIZACAO=${HOST}:<porta>/<banco>`],
     recusas: ['host fora de 127.0.0.1/localhost', 'banco ' + BANCOS_RECUSADOS.join(', '), 'porta ' + PORTAS_RECUSADAS.join(', '), 'RENDER*, *DATABASE_URL ou PG* no ambiente',
       `servidor sem cluster_name ${CLUSTER}, papel ${PAPEL} ou com banco real no cluster`],
@@ -474,10 +617,15 @@ async function principal(argv, env, deps = {}) {
   const pasta = prepararPasta(deps.pasta ?? args.pasta);
   fs.mkdirSync(path.join(pasta, 'marcadores'), {recursive: true});
   const cru = registroCru(pasta);
+  const copia = args.retratoDaCopia === true;
+  const retratosCopia = copia ? criarMedidorDeRetratos({alvo, env, Client, raiz, pasta, carregar: deps.carregar}) : null;
   let antes, feito, depois;
   try {
     antes = await contar(alvo, Client);
-    const rodar = (p, fase) => rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar, cru});
+    const rodar = async (p, fase) => {
+      const l = await rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar, cru, retratosCopia});
+      return copia ? rotularLinhaDaCopia(l) : l;
+    };
     feito = args.modo === 'so-conferir' ? await soConferir(ordem, rodar) : await percorrer(ordem, rodar);
     depois = await contar(alvo, Client);
   } catch (e) {
@@ -487,7 +635,9 @@ async function principal(argv, env, deps = {}) {
   }
   const relatorio = {ferramenta: 'ensaio-promocao-local', modo: args.modo, situacao: feito.situacao, alvo, versaoPg: id.versaoPg, inicio, fim: new Date().toISOString(),
     passos: feito.linhas, ...(feito.parada ? {parada: feito.parada} : {}), contagens: {antes, depois},
-    ...(cru.ocorrencias ? {saidaCrua: {arquivo: ARQUIVO_CRU, ocorrencias: cru.ocorrencias}} : {}), valoresDeEnsaio: VALORES_DE_ENSAIO, naoExercido: NAO_EXERCIDO};
+    ...(copia ? {retratoDaCopia: {origem: 'MEDIDO_NA_COPIA', variante: 'copia', confereProduction: false, medido: retratosCopia.medido() !== null,
+      ...(retratosCopia.medido() ? {hashes: retratosCopia.medido().hashes, casouComArquivo: retratosCopia.medido().casouComArquivo} : {})}} : {}),
+    ...(cru.ocorrencias ? {saidaCrua: {arquivo: ARQUIVO_CRU, ocorrencias: cru.ocorrencias}} : {}), valoresDeEnsaio: valoresDeEnsaio(copia), naoExercido: naoExercido(copia)};
   const texto = relatorioTexto(relatorio);
   fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify(relatorio, null, 2));
   fs.writeFileSync(path.join(pasta, 'relatorio.txt'), texto);
@@ -506,4 +656,5 @@ if (require.main === module) cli();
 module.exports = {HOST, PAPEL, CLUSTER, BANCOS_RECUSADOS, PORTAS_RECUSADAS, REGISTRO_BACKUP, REGISTRO_DRENAGEM, ENV_DOS_NUCLEOS, VALORES_DE_ENSAIO, NAO_EXERCIDO, NUCLEOS,
   TABELAS_PRINCIPAIS, SQL_IDENTIDADE, SQL_CONTAGENS, ARQUIVO_CRU, DIAGNOSTICO_GENERICO, FALHA_ANTES_DO_ENSAIO, FALTA_NAO_RECONHECIDA, textoCru, registroCru, mensagemSegura, faltaSegura, termoSeguro, lerArgumentos, exigirAmbiente, exigirAutorizacao, exigirAlvo, opcoesCliente, identidade,
   ambienteDeEnsaio, principalGenerico, principalDoPasso, argumentos, commitDe, estadoDe, linhaDoRelatorio, rodarFase, percorrer, soConferir, contar, relatorioTexto,
-  prepararPasta, plano, principal, cli};
+  prepararPasta, plano, principal, cli, SUFIXO_GEMEO, HASH_FICTICIO, PASSO_DO_RETRATO, valoresDeEnsaio, naoExercido, alvoDoGemeo, comGemeo, clienteCapturando,
+  medirRetratosDaCopia, criarMedidorDeRetratos, rotularLinhaDaCopia};
