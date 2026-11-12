@@ -77,6 +77,9 @@
 .editor .upload { margin-top: 24px; padding: 18px; border: 1px dashed var(--lilac-accent); border-radius: 16px; background: var(--input-bg); color: var(--main-text); }
 .upload input { border: 0; padding: 0; background: transparent; font-size: 12px; }
 .upload input::file-selector-button { margin-right: 12px; padding: 10px 12px; border: 1px solid var(--input-border); border-radius: 10px; background: var(--km-card-2); color: var(--main-text); cursor: pointer; }
+.blocoLocal { margin: 0 0 16px; padding: 12px 14px; border: 1px solid rgba(180, 155, 245, .3); border-radius: 12px; background: rgba(150, 120, 230, .08); color: var(--main-text); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.blocoLocal strong { display: block; color: #cbb8f5; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.blocoLocal small { display: block; margin-top: 6px; color: #fdba74; }
 .campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .campos label:last-child { grid-column: 1 / -1; }
 .editor .check { display: flex; align-items: center; gap: 10px; }

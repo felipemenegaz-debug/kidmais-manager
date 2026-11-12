@@ -93,9 +93,14 @@ test('toda rota /api/admin passa por exigirApiAdminCrmDisponivel (onde o paywall
         assert.match(readFileSync(`app/api/admin/inteligencia/${c}/composicao.ts`, 'utf8'), /import \{ dependenciasGateway[^}]*\} from "\.\.\/dependencias"/, c);
 });
 
-test('assinatura bloqueada permite listar e revogar a própria conexão, sem liberar novo consentimento', () => {
-    assert.equal(decidirPaywall(bloqueado, 'GET', '/api/admin/mcp/conexoes').permitido, true);
-    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/mcp/conexoes').permitido, true);
-    assert.equal(decidirPaywall(bloqueado, 'DELETE', '/api/admin/mcp/conexoes').permitido, false);
-    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/mcp/consentimento').permitido, false);
+test('R4-P2-4: pacote já pago — saldo, pedido e devolução abertos com a empresa bloqueada ou em leitura; compra continua recusada', () => {
+    for (const nivel of [bloqueado, leitura]) {
+        assert.equal(decidirPaywall(nivel, 'GET', '/api/admin/creditos').permitido, true, `saldo ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'GET', '/api/admin/creditos/pedido').permitido, true, `pedido ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'POST', '/api/admin/creditos/devolucao').permitido, true, `devolução ${nivel.nivel}`);
+        assert.equal(decidirPaywall(nivel, 'POST', '/api/admin/creditos').permitido, false, `compra ${nivel.nivel}`);
+    }
+    assert.equal(decidirPaywall(bloqueado, 'DELETE', '/api/admin/creditos/devolucao').permitido, false, 'só o método previsto');
+    assert.equal(decidirPaywall(bloqueado, 'POST', '/api/admin/creditos/devolucao/outra').permitido, false, 'só o caminho exato');
+    assert.equal(rotaSemprePermitida('/api/admin/creditos'), false, 'não vira rota sempre permitida');
 });

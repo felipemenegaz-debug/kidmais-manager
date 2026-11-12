@@ -6,11 +6,13 @@ import {
   bloquearNomeAniversariante,
   buscarAniversarianteAtivoPorNome,
   buscarAniversariantePorId,
+  buscarClienteCanonicoPorCnpj,
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
   buscarResponsavelAtivoPorNome,
   cpfBloqueadoPorOutraEmpresa,
   INDICES_CPF_CANONICO,
+  INDICE_CNPJ_CANONICO,
   criarAniversariante,
   criarCliente,
   criarResponsavel,
@@ -26,21 +28,39 @@ import {
 import {
   analisarCadastroCliente,
   camposFaltantesParaContrato,
+  pessoaJuridicaDisponivel,
   validarCadastroBasicoCliente,
 } from "../../clientes/services";
+import { normalizarCnpj } from "../../cadastro/cnpj";
+import { exigirModeloCompativelNoFechamento } from "./modelo-pj";
 import { criarIdentityServiceComAmbiente } from "../../identidade/services";
 import { buscarPacoteAtivoPorId } from "../../comercial/repositories";
 import { criarFechamentoComercial } from "./fechamento.service";
 import { resolverEscolhasBuffet, gravarEscolhasBuffet } from "./escolhas-buffet.service";
 import { FechamentoServiceError } from "./errors";
+import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
+import { preferidoInstalado, salaoServeNoDestino } from "../../agenda/salao-festa";
+import { saloesProntosPublicos, SalaoPublicoIndisponivel } from "../../agenda/salao-publico";
+import { combinadosPublicos } from "../../agenda/combinados-publicos";
+import { decidirPreferencia } from "../../agenda/preferencia-salao";
+import { TEXTO_MOTIVO_PREFERENCIA, type MotivoPreferencia } from "../../agenda/preferencia-salao-textos";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
 } from "./models";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export type DadosClienteFechamentoPublico = {
+  /** PJ: razão social. */
   nomeCompleto: string;
+  /** PF: obrigatório. PJ: vazio (o CPF do representante não é a identidade do contratante). */
   cpf: string;
+  /** Entrega B (112): contratante PJ. Cadastro existente comprovado pelo CNPJ, ou empresa nova. */
+  cnpj?: string | null;
+  /** Só na PJ nova (opcionais, como no CRM); na PJ existente o cadastro não muda por aqui. */
+  nomeFantasia?: string | null;
+  representanteNome?: string | null;
+  representanteCpf?: string | null;
   rg?: string | null;
   telefone?: string | null;
   whatsapp?: string | null;
@@ -90,6 +110,12 @@ export type CriarFechamentoPublicoInput = Omit<
   userAgent?: string | null;
   /** Empresa do endereço público: o pacote precisa ser dela (segunda barreira; a rota já buscou o pacote nela). */
   empresaEsperada?: string;
+  /**
+   * S-D (D5/R-D1): salão de preferência escolhido na tela "Conheça os salões". Conferido de novo sob a trava da data,
+   * antes do INSERT: pronto e publicado, do escopo, do pacote, permitido no horário, comporta e LIVRE. Qualquer falha =
+   * 409 SALAO_INDISPONIVEL sem gravar nada e sem trocar por outro. Não ocupa a agenda.
+   */
+  salaoPreferido?: string | null;
   /**
    * Endereço público de uma empresa (/b/<código>): CPF usado em cadastro de OUTRA empresa não é revelado nem
    * bloqueia; enquanto o índice global existir (antes da 076), o cliente novo nasce sem CPF, com nota interna neutra.
@@ -147,11 +173,19 @@ function diffCliente(before: ClienteRecord, after: ClienteRecord) {
   };
 }
 
+const ehPj = (dados: DadosClienteFechamentoPublico) => Boolean(dados.cnpj?.trim());
+
 function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
+  const pj = ehPj(dados);
   validarCadastroBasicoCliente({
     empresaId: null,
     nomeCompleto: dados.nomeCompleto,
+    tipoPessoa: pj ? "PJ" : "PF",
     cpf: dados.cpf,
+    cnpj: pj ? dados.cnpj : null,
+    nomeFantasia: pj ? dados.nomeFantasia : null,
+    representanteNome: pj ? dados.representanteNome : null,
+    representanteCpf: pj ? dados.representanteCpf : null,
     telefone: dados.telefone,
     whatsapp: dados.whatsapp,
     email: dados.email,
@@ -178,7 +212,7 @@ function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
     .filter(([, valor]) => !valor?.trim())
     .map(([campo]) => campo);
 
-  if (!normalizarCpf(dados.cpf) || faltantes.length > 0) {
+  if ((!pj && !normalizarCpf(dados.cpf)) || faltantes.length > 0) {
     throw new FechamentoServiceError(
       "CADASTRO_INCOMPLETO",
       "Preencha os dados cadastrais obrigatórios antes de continuar.",
@@ -210,6 +244,7 @@ async function registrarDuplicidadesNovoCliente(
     {
       nomeCompleto: dados.nomeCompleto,
       cpf: dados.cpf,
+      cnpj: dados.cnpj ?? null,
       telefone: dados.telefone,
       whatsapp: dados.whatsapp,
     },
@@ -243,6 +278,8 @@ export async function criarNovoCliente(
   empresaId: string,
   tx: DbExecutor,
 ) {
+  if (ehPj(dados)) return criarNovoClientePj(dados, input, empresaId, tx);
+  // PF: nome fantasia e representante, se vierem, são ignorados (não entram no cadastro da pessoa física).
   const cpf = normalizarCpf(dados.cpf);
   // CPF desta empresa: fluxo normal (validar a identidade, que é por empresa). Endereço por empresa: CPF de OUTRA
   // empresa não muda a resposta nem é revelado; antes da 076 (índice global) o cadastro nasce sem CPF.
@@ -331,20 +368,115 @@ export async function criarNovoCliente(
   return cliente;
 }
 
+const CNPJ_EXISTENTE = () => new FechamentoServiceError(
+  "CNPJ_EXISTENTE_REQUER_VALIDACAO",
+  "Este CNPJ já possui cadastro. Confirme a identidade para usar o cadastro existente.",
+  409,
+);
+
+/**
+ * Entrega B (decisão de Felipe, 01/11): o fechamento público também cadastra empresa (PJ) nova, só com a 112. O CNPJ é
+ * único por empresa (112): CNPJ já cadastrado nesta empresa pede a validação de identidade, como o CPF; de outra empresa
+ * não conflita nem é revelado. Razão social = nome; sem CPF e sem RG; representante opcional, como no CRM.
+ */
+async function criarNovoClientePj(
+  dados: DadosClienteFechamentoPublico,
+  input: CriarFechamentoPublicoInput,
+  empresaId: string,
+  tx: DbExecutor,
+) {
+  if (await buscarClienteCanonicoPorCnpj(dados.cnpj ?? "", empresaId, tx)) throw CNPJ_EXISTENTE();
+  let cliente: ClienteRecord;
+  try {
+    cliente = await criarCliente(
+      {
+        empresaId,
+        tipoPessoa: "PJ",
+        nomeCompleto: dados.nomeCompleto,
+        cpf: null,
+        cnpj: dados.cnpj,
+        nomeFantasia: dados.nomeFantasia,
+        representanteNome: dados.representanteNome,
+        representanteCpf: dados.representanteCpf,
+        telefone: dados.telefone,
+        whatsapp: dados.whatsapp,
+        email: dados.email,
+        cep: dados.cep,
+        logradouro: dados.logradouro,
+        numero: dados.numero,
+        complemento: dados.complemento,
+        bairro: dados.bairro,
+        cidade: dados.cidade,
+        uf: dados.uf,
+        usuarioId: null,
+      },
+      tx,
+    );
+  } catch (error) {
+    if (isUniqueViolation(error, INDICE_CNPJ_CANONICO)) throw CNPJ_EXISTENTE();
+    throw error;
+  }
+
+  await registrarDuplicidadesNovoCliente(cliente.id, empresaId, dados, tx);
+  await registrarEventoHistorico(
+    {
+      clienteId: cliente.id,
+      clienteOrigemId: cliente.id,
+      tipoEvento: "CADASTRO_CRIADO",
+      origem: "FECHAMENTO_PUBLICO",
+      entidadeTipo: "CLIENTE",
+      entidadeId: cliente.id,
+      detalhe: "Cadastro de pessoa jurídica criado durante Fechamento público.",
+      metadata: { fluxo: "FECHAMENTO_PUBLICO", tipoPessoa: "PJ" },
+    },
+    tx,
+  );
+  await registrarAuditoria(
+    {
+      clienteId: cliente.id,
+      atorTipo: "CLIENTE",
+      acao: "CLIENTE_CRIADO",
+      entidadeTipo: "CLIENTE",
+      entidadeId: cliente.id,
+      dadosDepois: { ...snapshotCliente(cliente), tipoPessoa: "PJ", cnpj: cliente.cnpj, nomeFantasia: cliente.nomeFantasia,
+        representanteNome: cliente.representanteNome, representanteCpf: cliente.representanteCpf },
+      origem: "FECHAMENTO_PUBLICO",
+      requestId: input.requestId ?? null,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+    },
+    tx,
+  );
+  return cliente;
+}
+
 async function atualizarClienteConfirmado(
   cliente: ClienteRecord,
   dados: DadosClienteFechamentoPublico,
   input: CriarFechamentoPublicoInput,
   tx: DbExecutor,
 ) {
-  const cpfRecebido = normalizarCpf(dados.cpf);
-  const cpfAtual = normalizarCpf(cliente.cpf);
-  if (!cpfAtual || cpfRecebido !== cpfAtual) {
-    throw new FechamentoServiceError(
-      "CPF_DIVERGENTE_DA_IDENTIDADE",
-      "O CPF informado não corresponde à identidade validada.",
-      409,
-    );
+  // Documento do contratante: CPF para PF, CNPJ para PJ. O tipo vem do cadastro comprovado, nunca do formulário.
+  const pj = cliente.tipoPessoa === "PJ";
+  if (pj || ehPj(dados)) {
+    const confere = pj && Boolean(cliente.cnpj) && !normalizarCpf(dados.cpf) && normalizarCnpj(dados.cnpj) === cliente.cnpj;
+    if (!confere) {
+      throw new FechamentoServiceError(
+        "DOCUMENTO_DIVERGENTE_DA_IDENTIDADE",
+        "O documento informado não corresponde à identidade validada.",
+        409,
+      );
+    }
+  } else {
+    const cpfRecebido = normalizarCpf(dados.cpf);
+    const cpfAtual = normalizarCpf(cliente.cpf);
+    if (!cpfAtual || cpfRecebido !== cpfAtual) {
+      throw new FechamentoServiceError(
+        "CPF_DIVERGENTE_DA_IDENTIDADE",
+        "O CPF informado não corresponde à identidade validada.",
+        409,
+      );
+    }
   }
 
   if (
@@ -360,7 +492,8 @@ async function atualizarClienteConfirmado(
     { tipo: "IDENTIDADE", clienteIdComprovado: cliente.id },
     {
       nomeCompleto: dados.nomeCompleto,
-      rg: dados.rg,
+      // PJ não tem RG: o campo do formulário é ignorado.
+      ...(pj ? {} : { rg: dados.rg }),
       telefone: dados.telefone,
       whatsapp: dados.whatsapp,
       email: dados.email,
@@ -546,6 +679,56 @@ async function resolverResponsavelAdicional(
   return criado;
 }
 
+const salaoIndisponivel = () => new FechamentoServiceError(
+  "SALAO_INDISPONIVEL",
+  "O salão escolhido não está mais disponível para esta data, horário e número de convidados. Volte e escolha outro salão.",
+  409,
+);
+
+/**
+ * E2b (R2-P2-2): recusa da preferência com combinadosPublicos — o mesmo código SALAO_INDISPONIVEL; `detalhes.motivo` só
+ * na recusa com motivo (com a frase dele) e `detalhes.voltarParaSaloes`, que só a E2b manda: o assistente volta à escolha
+ * de salões sem pré-selecionar nada. Na E2a (desligado), a resposta continua a de antes, sem detalhes.
+ */
+export const salaoIndisponivelE2b = (motivo?: MotivoPreferencia) => new FechamentoServiceError(
+  "SALAO_INDISPONIVEL",
+  motivo ? `${TEXTO_MOTIVO_PREFERENCIA[motivo]} Volte e escolha outro salão.` : salaoIndisponivel().message,
+  409,
+  motivo ? { motivo, voltarParaSaloes: true } : { voltarParaSaloes: true },
+);
+
+/**
+ * S-D (R-D1): trava da data → mesma conferência da tela pública (portões) → salão serve ao destino (regra da emissão).
+ * E2b: com combinadosPublicos, a decisão é decidirPreferencia (trava compartilhada da configuração → data; recusa
+ * genérica ou com motivo; nunca troca de salão). Desligado, o ramo da E2a abaixo, sem a trava compartilhada.
+ */
+async function conferirSalaoPreferido(tx: DbExecutor, input: CriarFechamentoPublicoInput, empresaId: string) {
+  if (!(await preferidoInstalado(tx))) throw salaoIndisponivel();
+  if (await combinadosPublicos(tx)) {
+    const decisao = await decidirPreferencia(tx, {
+      data: input.dataEvento, inicio: input.horarioInicio, fim: input.horarioFim, configuracaoId: input.configuracaoAgendaId,
+      pacoteId: input.pacoteId, empresaId, estabelecimentoId: input.estabelecimentoId ?? null, convidados: input.convidados,
+    }, input.salaoPreferido!);
+    if (decisao.resultado === "RECUSA_COM_MOTIVO") throw salaoIndisponivelE2b(decisao.motivo);
+    if (decisao.resultado !== "ACEITA") throw salaoIndisponivelE2b();
+    return;
+  }
+  await adquirirLockConfirmacaoAgenda(input.dataEvento, tx);
+  const escopo = { empresaId, estabelecimentoId: input.estabelecimentoId ?? null };
+  try {
+    const prontos = await saloesProntosPublicos(tx, escopo);
+    if (!prontos.some((s) => s.id === input.salaoPreferido)) throw salaoIndisponivel();
+  } catch (erro) {
+    if (erro instanceof SalaoPublicoIndisponivel) throw salaoIndisponivel();
+    throw erro;
+  }
+  const serve = await salaoServeNoDestino(tx, {
+    data: input.dataEvento, inicio: input.horarioInicio, fim: input.horarioFim, configuracaoId: input.configuracaoAgendaId,
+    pacoteId: input.pacoteId, empresaId, estabelecimentoId: input.estabelecimentoId ?? null, convidados: input.convidados,
+  }, input.salaoPreferido!);
+  if (!serve) throw salaoIndisponivel();
+}
+
 export async function criarFechamentoPublicoComIdentidade(
   input: CriarFechamentoPublicoInput,
   customDb?: DbExecutor,
@@ -572,6 +755,13 @@ export async function criarFechamentoPublicoComIdentidade(
         "O pacote selecionado ainda não está disponível para fechamento online.",
         409,
       );
+    }
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    await travarConfiguracaoAgenda(tx, empresaDoPacote, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+
+    // Entrega B: PJ (cadastro existente ou empresa nova) só com a 112.
+    if (ehPj(input.cliente) && !(await pessoaJuridicaDisponivel(tx))) {
+      throw new FechamentoServiceError("PJ_INDISPONIVEL", "Pessoa jurídica ainda não está disponível nesta instalação.", 409, { motivo: "MIGRACAO_PENDENTE" });
     }
 
     let cliente: ClienteRecord;
@@ -624,6 +814,7 @@ export async function criarFechamentoPublicoComIdentidade(
       cliente = await criarNovoCliente(input.cliente, input, empresaDoPacote, tx);
       clienteNovo = true;
     }
+    await exigirModeloCompativelNoFechamento(tx, cliente);
 
     const aniversariante = await resolverAniversariante(
       cliente,
@@ -639,6 +830,7 @@ export async function criarFechamentoPublicoComIdentidade(
     );
 
     const escolhasResolvidas = await resolverEscolhasBuffet(tx, input.pacoteId, input.escolhasBuffet, input.buffetStatus);
+    if (input.salaoPreferido) await conferirSalaoPreferido(tx, input, empresaDoPacote);
     const fechamento = await criarFechamentoComercial(
       {
         dataEvento: input.dataEvento,
@@ -681,6 +873,10 @@ export async function criarFechamentoPublicoComIdentidade(
     );
 
     if (escolhasResolvidas) await gravarEscolhasBuffet(tx, fechamento.fechamento.id, escolhasResolvidas);
+    if (input.salaoPreferido) {
+      // A trava da data segue com esta transação: nada ocupa o salão entre a conferência e o COMMIT pelo caminho do app.
+      await tx.query(`UPDATE fechamentos SET salao_preferido_id = $2::uuid WHERE id = $1::uuid`, [fechamento.fechamento.id, input.salaoPreferido]);
+    }
 
     if (provaToken && identityService) {
       await identityService.consumirProvaParaFechamento(

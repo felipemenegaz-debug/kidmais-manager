@@ -1,4 +1,5 @@
 import type { FechamentoAdministrativoInput } from '../../lib/fechamentos/administrativo-schema.ts';
+import { codigoDoPacoteDaTela } from '../../lib/comercial/pacotes-v1.ts';
 
 /**
  * Revisão preenchida a partir de uma preparação do Kidmais (IA operacional). O formulário continua sendo o oficial:
@@ -18,7 +19,8 @@ export type PreparacaoRecebida =
     | { disponivel: false; motivo: string };
 export type PreparacaoAplicada = { form: FechamentoAdministrativoInput; referencia: ReferenciaPreparacao; pendencias: string[]; horarioDesejado: string | null };
 
-const PACOTES = new Set(['pocket', 'mini', 'compacta', 'essencial', 'completa', 'premium', 'pizza_party_scienza']);
+/** Pacote da preparação: id V1 (dona da agenda pública) ou código do pacote da empresa (POCKET, P_…), já conferido no Core. */
+const pacoteValido = (v: unknown) => typeof v === 'string' && codigoDoPacoteDaTela(v, true) !== null;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const texto = (v: unknown) => typeof v === 'string';
 
@@ -29,7 +31,7 @@ export function preparacaoValida(bruto: unknown): PreparacaoRecebida | null {
     if (p.disponivel === false) return texto(p.motivo) ? { disponivel: false, motivo: String(p.motivo).slice(0, 300) } : null;
     const r = p.referencia, c = p.campos;
     if (p.disponivel !== true || !r || !c || !texto(r.operacaoId) || !UUID.test(r.operacaoId!) || typeof r.versao !== 'number' || !texto(r.payloadHash) || !/^[0-9a-f]{64}$/.test(r.payloadHash!)) return null;
-    if (!PACOTES.has(String(c.pacote)) || typeof c.convidadosPagantes !== 'number' || !texto(c.dataFesta) || (c.horarioBase !== 'almoco' && c.horarioBase !== 'noite')) return null;
+    if (!pacoteValido(c.pacote) || typeof c.convidadosPagantes !== 'number' || !texto(c.dataFesta) || (c.horarioBase !== 'almoco' && c.horarioBase !== 'noite')) return null;
     return {
         disponivel: true,
         referencia: { operacaoId: r.operacaoId!, versao: r.versao, payloadHash: r.payloadHash! },

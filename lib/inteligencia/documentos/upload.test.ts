@@ -115,7 +115,7 @@ test("documento não grava dado de negócio: só registros técnicos da própria
   const a = ambiente();
   await a.enviar(pdf(LINHAS));
   // A porta só tem documento, extração e leitura: não há caminho para cliente, contrato ou pagamento.
-  assert.deepEqual(Object.keys(a.documentos.porta).sort(), ["disponivel", "registrarDocumento", "registrarExtracao", "ultimaExtracao"]);
+  assert.deepEqual(Object.keys(a.documentos.porta).sort(), ["cota", "disponivel", "registrarDocumento", "registrarExtracao", "ultimaExtracao"]);
 });
 
 test("A1: cancelamento do pedido real chega ao leitor de PDF isolado (Worker) e nada é inventado", async () => {

@@ -2,8 +2,10 @@
 import { adminFetch } from "@/lib/http/admin-fetch";
 
 import { useEffect, useMemo, useState } from "react";
+import { SaloesDoDia } from "./SaloesDoDia";
 import { PACOTES } from "@/components/fechamento/data";
 import { HorarioBase, PacoteId } from "@/components/fechamento/types";
+import { horarioLegadoDoCodigo, rotuloPeriodo } from "@/components/fechamento/periodos";
 import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
@@ -66,16 +68,18 @@ type AdminPayload = DisponibilidadeConfig & {
   regrasPacotes?: Record<string, RegraPacoteEmpresa[]> | null;
   /** Pacotes que a empresa ativa realmente tem (empresa nova = []); null/ausente = dona da agenda pública (catálogo legado). */
   pacotes?: Array<{ id: string; nome: string }> | null;
+  /** Endereço público da empresa ativa ("Ver tela do cliente"); null = sem endereço público. */
+  telaDoCliente?: string | null;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
-  /** "Ver tela do cliente" (D4, H21): relativo fora de ATIVA; em ATIVA, a origem antiga. */
-  telaDoCliente?: string;
 };
 
 export default function AdminDisponibilidade() {
   const hoje = new Date();
+  const hojeIso = iso(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   const [pacote, setPacote] = useState<PacoteId>("pocket");
-  const [horario, setHorario] = useState<HorarioBase>("almoco");
+  // Horário configurado em foco (configuracao_agenda.id); "" = o primeiro horário da agenda carregada.
+  const [configuracaoId, setConfiguracaoId] = useState("");
   const [mes, setMes] = useState(hoje.getMonth());
   const [ano, setAno] = useState(hoje.getFullYear());
   const [config, setConfig] = useState<DisponibilidadeConfig>(CONFIG_VAZIA);
@@ -90,26 +94,45 @@ export default function AdminDisponibilidade() {
   const [mensagem, setMensagem] = useState("");
   const [descontoPercentual, setDescontoPercentual] = useState("");
   const [descontoTitulo, setDescontoTitulo] = useState("");
-  const [escopoBloqueio, setEscopoBloqueio] = useState<
-    "dia_inteiro" | "turno_1" | "turno_2" | "personalizado"
-  >("turno_1");
+  // "dia_inteiro", "personalizado" ou o configuracaoId de um horário da data; "" = o horário em foco.
+  const [escopoBloqueio, setEscopoBloqueio] = useState("");
   const [inicioBloqueio, setInicioBloqueio] = useState("15:00");
   const [fimBloqueio, setFimBloqueio] = useState("16:00");
   const [motivoBloqueio, setMotivoBloqueio] = useState("");
   const [observacoesBloqueio, setObservacoesBloqueio] = useState("");
+  // O formulário de bloqueio físico fica recolhido até a pessoa pedir ("Bloquear esta data").
+  const [bloqueioAberto, setBloqueioAberto] = useState(false);
   // Agenda por empresa/unidade (062): a unidade escolhida é o recurso consultado; "" = a única ou a empresa inteira.
   const [unidadeId, setUnidadeId] = useState("");
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
   const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
-  const [telaDoCliente, setTelaDoCliente] = useState("/disponibilidade");
   const [regrasPacotes, setRegrasPacotes] = useState<Record<string, RegraPacoteEmpresa[]> | null>(null);
   const [pacotesEmpresa, setPacotesEmpresa] = useState<Array<{ id: string; nome: string }> | null>(null);
+  // Só depois da carga: antes dela o link não aponta para o endereço de outra empresa (nem para o da Kidmais).
+  const [telaDoCliente, setTelaDoCliente] = useState<string | null>(null);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
   const [mensagemUnidade, setMensagemUnidade] = useState("");
+
+  // Horários configurados que aparecem na agenda carregada (qualquer quantidade), sem repetir.
+  const periodosDoMes = useMemo(() => {
+    const vistos = new Map<string, PeriodoDisponibilidadePublica>();
+    for (const dia of Object.values(operacionalPorData)) {
+      for (const periodo of dia.periodos) {
+        if (!vistos.has(periodo.configuracaoId)) vistos.set(periodo.configuracaoId, periodo);
+      }
+    }
+    return [...vistos.values()];
+  }, [operacionalPorData]);
+  const idHorario = periodosDoMes.some((p) => p.configuracaoId === configuracaoId)
+    ? configuracaoId
+    : (periodosDoMes[0]?.configuracaoId ?? "");
+  const periodoEmFoco = periodosDoMes.find((p) => p.configuracaoId === idHorario);
+  // Legado almoco/noite (regras manuais e descontos por data em JSON): só TURNO_1/TURNO_2; "" nos demais horários.
+  const horario: HorarioBase | "" = horarioLegadoDoCodigo(periodoEmFoco?.codigo);
 
   async function carregarGestaoUnidades() {
     const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
@@ -168,9 +191,9 @@ export default function AdminDisponibilidade() {
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
       configuracaoComercial: admin.configuracaoComercial !== false,
-      telaDoCliente: admin.telaDoCliente ?? "/disponibilidade",
       regrasPacotes: admin.regrasPacotes ?? null,
       pacotes: admin.regrasPacotes ? (admin.pacotes ?? []) : null,
+      telaDoCliente: admin.telaDoCliente ?? null,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -187,7 +210,7 @@ export default function AdminDisponibilidade() {
     configAlvo: DisponibilidadeConfig,
     pacoteAlvo: PacoteId,
     dataAlvo: string,
-    horarioAlvo: HorarioBase,
+    horarioAlvo: HorarioBase | "",
   ) {
     if (!dataAlvo) {
       setDescontoPercentual("");
@@ -224,9 +247,9 @@ export default function AdminDisponibilidade() {
       setAgendaPorEscopo(dados.agendaPorEscopo);
       setPodeResolverLegado(dados.podeResolverLegado);
       setConfiguracaoComercial(dados.configuracaoComercial);
-      setTelaDoCliente(dados.telaDoCliente);
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
+      setTelaDoCliente(dados.telaDoCliente);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -257,9 +280,9 @@ export default function AdminDisponibilidade() {
         setAgendaPorEscopo(dados.agendaPorEscopo);
         setPodeResolverLegado(dados.podeResolverLegado);
         setConfiguracaoComercial(dados.configuracaoComercial);
-        setTelaDoCliente(dados.telaDoCliente);
         setRegrasPacotes(dados.regrasPacotes);
         aplicarPacotesEmpresa(dados.pacotes);
+        setTelaDoCliente(dados.telaDoCliente);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -295,22 +318,21 @@ export default function AdminDisponibilidade() {
 
   function periodoOperacional(
     data: string,
-    periodo: HorarioBase,
+    id: string = idHorario,
   ): PeriodoDisponibilidadePublica | undefined {
-    const codigo = periodo === "almoco" ? "TURNO_1" : "TURNO_2";
     return operacionalPorData[data]?.periodos.find(
-      (item) => item.codigo === codigo,
+      (item) => item.configuracaoId === id,
     );
   }
 
-  function horarioPadraoOperacional(data: string, periodo: HorarioBase) {
-    return periodoOperacional(data, periodo)?.horarios.find(
+  function horarioPadraoOperacional(data: string) {
+    return periodoOperacional(data)?.horarios.find(
       (item) => item.ajusteMinutos === 0,
     );
   }
 
-  function bloqueiosDoTurno(data: string, periodo: HorarioBase) {
-    const turno = periodoOperacional(data, periodo);
+  function bloqueiosDoTurno(data: string) {
+    const turno = periodoOperacional(data);
     if (!turno) return [];
 
     return bloqueios.filter((bloqueio) => {
@@ -367,7 +389,7 @@ export default function AdminDisponibilidade() {
       return;
     }
 
-    if (escopoBloqueio === "personalizado") {
+    if (escopoBloqueioEfetivo === "personalizado") {
       if (!inicioBloqueio || !fimBloqueio) {
         setMensagem("Informe o horário inicial e final do bloqueio.");
         return;
@@ -379,12 +401,15 @@ export default function AdminDisponibilidade() {
       }
     }
 
+    // Um horário configurado vai como escopo "horario" + configuracaoId (qualquer código, não só TURNO_1/TURNO_2).
+    const porHorario = escopoBloqueioEfetivo !== "dia_inteiro" && escopoBloqueioEfetivo !== "personalizado";
     const salvo = await enviar({
       tipo: "criar_bloqueio",
       data: selecionada,
-      escopo: escopoBloqueio,
-      horarioInicio: escopoBloqueio === "personalizado" ? inicioBloqueio : undefined,
-      horarioFim: escopoBloqueio === "personalizado" ? fimBloqueio : undefined,
+      escopo: porHorario ? "horario" : escopoBloqueioEfetivo,
+      configuracaoId: porHorario ? escopoBloqueioEfetivo : undefined,
+      horarioInicio: escopoBloqueioEfetivo === "personalizado" ? inicioBloqueio : undefined,
+      horarioFim: escopoBloqueioEfetivo === "personalizado" ? fimBloqueio : undefined,
       motivo: motivoLimpo,
       observacoes: observacoesBloqueio.trim() || undefined,
     });
@@ -392,6 +417,7 @@ export default function AdminDisponibilidade() {
     if (salvo) {
       setMotivoBloqueio("");
       setObservacoesBloqueio("");
+      setBloqueioAberto(false);
     }
   }
 
@@ -402,19 +428,19 @@ export default function AdminDisponibilidade() {
   // Buffet novo, sem pacote criado: nada comercial para mostrar; o calendário fica só com a ocupação física.
   const semPacotes = opcoesPacote.length === 0;
   const infoComercialSelecionada = selecionada && !semPacotes
-    ? statusDataPacote(config, pacote, selecionada, horario, regrasDoPacote)
+    ? statusDataPacote(config, pacote, selecionada, horario, regrasDoPacote, idHorario)
     : null;
 
   const turnoSelecionado = selecionada
-    ? periodoOperacional(selecionada, horario)
+    ? periodoOperacional(selecionada)
     : undefined;
 
   const horarioPadraoSelecionado = selecionada
-    ? horarioPadraoOperacional(selecionada, horario)
+    ? horarioPadraoOperacional(selecionada)
     : undefined;
 
   const bloqueiosSelecionados = selecionada
-    ? bloqueiosDoTurno(selecionada, horario)
+    ? bloqueiosDoTurno(selecionada)
     : [];
 
   const descontoSelecionado = selecionada && !semPacotes
@@ -430,12 +456,11 @@ export default function AdminDisponibilidade() {
       )
     : null;
 
-  const turno1DaData = selecionada
-    ? periodoOperacional(selecionada, "almoco")
-    : undefined;
-  const turno2DaData = selecionada
-    ? periodoOperacional(selecionada, "noite")
-    : undefined;
+  // Horários configurados da data selecionada (ou, sem data, os da agenda carregada).
+  const periodosDaData = selecionada && operacionalPorData[selecionada]
+    ? operacionalPorData[selecionada].periodos
+    : periodosDoMes;
+  const escopoBloqueioEfetivo = escopoBloqueio || idHorario || "dia_inteiro";
 
   return (
     <main className={styles.page}>
@@ -448,16 +473,8 @@ export default function AdminDisponibilidade() {
               as regras comerciais de cada pacote.
             </span>
           </div>
+          {telaDoCliente ? <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div> : null}
         </header>
-
-        <div className={styles.securityNotice}>
-          <strong>Configuração da agenda</strong>
-          <span>
-            O acesso administrativo é protegido. Bloqueios físicos usam PostgreSQL;
-            regras e descontos desta tela usam o arquivo data/disponibilidade.json,
-            que precisa de volume persistente e backup na implantação.
-          </span>
-        </div>
 
         <section className={styles.filters}>
           <label>
@@ -480,15 +497,19 @@ export default function AdminDisponibilidade() {
           <label>
             <span>Horário padrão</span>
             <select
-              value={horario}
+              value={idHorario}
+              disabled={periodosDaData.length === 0}
               onChange={(e) => {
-                const novoHorario = e.target.value as HorarioBase;
-                setHorario(novoHorario);
-                sincronizarDescontoFormulario(config, pacote, selecionada, novoHorario);
+                const novo = periodosDoMes.find((p) => p.configuracaoId === e.target.value);
+                setConfiguracaoId(e.target.value);
+                setEscopoBloqueio("");
+                sincronizarDescontoFormulario(config, pacote, selecionada, horarioLegadoDoCodigo(novo?.codigo));
               }}
             >
-              <option value="almoco">11h às 15h</option>
-              <option value="noite">17h às 21h</option>
+              {periodosDaData.length === 0 && <option value="">Nenhum horário configurado</option>}
+              {periodosDaData.map((p) => (
+                <option value={p.configuracaoId} key={p.configuracaoId}>{rotuloPeriodo(p)}</option>
+              ))}
             </select>
           </label>
 
@@ -545,7 +566,12 @@ export default function AdminDisponibilidade() {
           </p>
         )}
 
-        <div className={styles.contentActions}><a className={styles.clientView} href={telaDoCliente}>Ver tela do cliente →</a></div>
+        {!telaDoCliente && !carregando && (
+            <p className={styles.helpText}>
+              A tela do cliente desta empresa ainda não está disponível. Ela abre quando o orçamento online estiver ativo
+              para a empresa.
+            </p>
+          )}
 
         <section className={styles.layout}>
           <div className={styles.calendarPanel}>
@@ -561,10 +587,10 @@ export default function AdminDisponibilidade() {
             </div>
 
             <div className={styles.legend}>
-              <span className={styles.green}>✓ Disponível</span>
-              <span className={styles.blue}>? Consulta</span>
-              <span className={styles.purple}>! Exceção</span>
-              <span className={styles.red}>× Indisponível</span>
+              <span><i className={`${styles.ponto} ${styles.pontoDisponivel}`} />Disponível</span>
+              <span><i className={`${styles.ponto} ${styles.pontoConsulta}`} />Consulta</span>
+              <span><i className={`${styles.ponto} ${styles.pontoExcecao}`} />Exceção</span>
+              <span><i className={`${styles.ponto} ${styles.pontoIndisponivel}`} />Indisponível</span>
               {!semPacotes && pacoteTemDescontoDiaUtil(pacote) && (
                 <span className={styles.orange}>-15% Dia útil</span>
               )}
@@ -580,18 +606,26 @@ export default function AdminDisponibilidade() {
               ))}
               {Array.from({ length: diasMes.total }).map((_, i) => {
                 const data = iso(ano, mes, i + 1);
-                const padrao = horarioPadraoOperacional(data, horario);
-                const semDados = !padrao;
+                const passado = data < hojeIso;
+                const padrao = horarioPadraoOperacional(data);
+                // Sem dados = dia não carregado; horário que não acontece neste dia aparece como indisponível.
+                const semDados = !operacionalPorData[data] || !idHorario;
                 const comercial = semPacotes
                   ? { status: "disponivel" as const, origem: "agenda" as const }
-                  : statusDataPacote(config, pacote, data, horario, regrasDoPacote);
-                const info = padrao?.status === "INDISPONIVEL"
+                  : statusDataPacote(config, pacote, data, horario, regrasDoPacote, idHorario);
+                const info = !padrao
                   ? {
                       status: "indisponivel" as const,
                       origem: "agenda" as const,
-                      motivo: "O horário padrão está fisicamente indisponível.",
+                      motivo: "Este horário não acontece neste dia.",
                     }
-                  : comercial;
+                  : padrao.status === "INDISPONIVEL"
+                    ? {
+                        status: "indisponivel" as const,
+                        origem: "agenda" as const,
+                        motivo: "O horário padrão está fisicamente indisponível.",
+                      }
+                    : comercial;
 
                 const desconto =
                   !semDados && !semPacotes && info.status !== "indisponivel"
@@ -605,6 +639,8 @@ export default function AdminDisponibilidade() {
 
                 const cls = semDados
                   ? styles.loadingDay
+                  : passado
+                  ? styles.pastDay
                   : info.status === "disponivel"
                     ? styles.available
                     : info.status === "consulta"
@@ -624,6 +660,7 @@ export default function AdminDisponibilidade() {
                       setSelecionada(data);
                       sincronizarDescontoFormulario(config, pacote, data, horario);
                       setMensagem("");
+                      setBloqueioAberto(false);
                     }}
                     disabled={semDados}
                   >
@@ -633,17 +670,21 @@ export default function AdminDisponibilidade() {
                         <em>-{Math.round(desconto.percentual * 100)}%</em>
                       )}
                     </div>
-                    <small>
-                      {semDados
-                        ? "…"
-                        : info.status === "disponivel"
-                          ? "✓"
-                          : info.status === "consulta"
-                            ? "?"
-                            : info.status === "excecao"
-                              ? "!"
-                              : "×"}
-                    </small>
+                    {semDados
+                      ? <small>…</small>
+                      : !passado && (
+                        <small className={styles.statusDia}>
+                          <i className={`${styles.ponto} ${
+                            info.status === "disponivel"
+                              ? styles.pontoDisponivel
+                              : info.status === "consulta"
+                                ? styles.pontoConsulta
+                                : info.status === "excecao"
+                                  ? styles.pontoExcecao
+                                  : styles.pontoIndisponivel}`} aria-hidden="true" />
+                          <span className={styles.leitor}>{statusLabel(info.status, regrasDoPacote === null)}</span>
+                        </small>
+                      )}
                   </button>
                 );
               })}
@@ -678,11 +719,13 @@ export default function AdminDisponibilidade() {
                     <small>
                       Horário padrão: {horarioPadraoSelecionado
                         ? `${horarioPadraoSelecionado.inicio}–${horarioPadraoSelecionado.fim}`
-                        : horario === "almoco" ? "11:00–15:00" : "17:00–21:00"}
+                        : periodoEmFoco
+                          ? `${periodoEmFoco.horarioInicioPadrao}–${periodoEmFoco.horarioFimPadrao} (não acontece neste dia)`
+                          : "-"}
                     </small>
                   </div>
 
-                  {turnoSelecionado && (
+                  {turnoSelecionado && turnoSelecionado.horarios.length > 1 && (
                     <div className={styles.candidatePanel}>
                       <h3>Alternativas deste período</h3>
                       <div className={styles.candidateList}>
@@ -700,6 +743,11 @@ export default function AdminDisponibilidade() {
                       </div>
                     </div>
                   )}
+
+                  <SaloesDoDia data={selecionada} unidadeId={unidadeId} classes={{
+                    painel: styles.candidatePanel, lista: styles.candidateList,
+                    livre: styles.candidateAvailable, ocupado: styles.candidateUnavailable,
+                  }} />
 
                   {bloqueiosSelecionados.length > 0 && (
                     <div className={styles.blockList}>
@@ -759,6 +807,11 @@ export default function AdminDisponibilidade() {
                   )}
                 </section>
 
+                {!bloqueioAberto ? (
+                  <button type="button" className={styles.blockOpen} onClick={() => setBloqueioAberto(true)}>
+                    ⊘ Bloquear esta data
+                  </button>
+                ) : (
                 <div className={`${styles.actionGroup} ${styles.physicalBlockForm}`}>
                   <h3>Criar bloqueio físico</h3>
                   <p className={styles.helpText}>
@@ -773,35 +826,18 @@ export default function AdminDisponibilidade() {
                   <label className={styles.blockField}>
                     <span>Tipo de bloqueio</span>
                     <select
-                      value={escopoBloqueio}
-                      onChange={(e) =>
-                        setEscopoBloqueio(
-                          e.target.value as
-                            | "dia_inteiro"
-                            | "turno_1"
-                            | "turno_2"
-                            | "personalizado",
-                        )
-                      }
+                      value={escopoBloqueioEfetivo}
+                      onChange={(e) => setEscopoBloqueio(e.target.value)}
                     >
                       <option value="dia_inteiro">Dia inteiro</option>
-                      <option value="turno_1">
-                        Primeiro período
-                        {turno1DaData
-                          ? ` (${turno1DaData.horarioInicioPadrao}–${turno1DaData.horarioFimPadrao})`
-                          : ""}
-                      </option>
-                      <option value="turno_2">
-                        Segundo período
-                        {turno2DaData
-                          ? ` (${turno2DaData.horarioInicioPadrao}–${turno2DaData.horarioFimPadrao})`
-                          : ""}
-                      </option>
+                      {periodosDaData.map((p) => (
+                        <option value={p.configuracaoId} key={p.configuracaoId}>{rotuloPeriodo(p)}</option>
+                      ))}
                       <option value="personalizado">Intervalo personalizado</option>
                     </select>
                   </label>
 
-                  {escopoBloqueio === "personalizado" && (
+                  {escopoBloqueioEfetivo === "personalizado" && (
                     <div className={styles.blockTimeGrid}>
                       <label className={styles.blockField}>
                         <span>Início</span>
@@ -850,7 +886,11 @@ export default function AdminDisponibilidade() {
                   >
                     Criar bloqueio físico
                   </button>
+                  <button type="button" className={styles.ghost} disabled={salvando} onClick={() => setBloqueioAberto(false)}>
+                    Cancelar
+                  </button>
                 </div>
+                )}
 
                 {descontoSelecionado?.ativo && (
                   <div className={styles.discountAdminNotice}>
@@ -880,6 +920,12 @@ export default function AdminDisponibilidade() {
                 </div>)}
 
                 {configuracaoComercial ? (<>
+                {!horario ? (
+                  <p className={styles.helpText}>
+                    Regras comerciais e descontos manuais por data existem só para o primeiro e o segundo
+                    horário (legado). Para este horário, use os dias e horários configurados no pacote.
+                  </p>
+                ) : (<>
                 <label className={styles.motivo}>
                   <span>Observação interna opcional</span>
                   <input
@@ -936,7 +982,7 @@ export default function AdminDisponibilidade() {
                     <input
                       value={descontoTitulo}
                       onChange={(e) => setDescontoTitulo(e.target.value)}
-                      placeholder="Ex.: Sexta especial Kidmais"
+                      placeholder="Ex.: Sexta especial"
                     />
                   </label>
 
@@ -984,6 +1030,7 @@ export default function AdminDisponibilidade() {
                     a regra automática volta a valer.
                   </p>
                 </div>
+                </>)}
 
                 </>) : (
                   <p className={styles.helpText}>

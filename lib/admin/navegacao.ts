@@ -1,7 +1,9 @@
 export type ItemNavegacao = {
     href: string;
     rotulo: string;
-    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Financeiro' | 'Configurações';
+    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Satisfação' | 'Financeiro' | 'Configurações';
+    /** Número ao lado do item (ex.: retornos abertos); ausente ou 0 = sem número. */
+    contador?: number;
 };
 
 const PRINCIPAL: ItemNavegacao[] = [
@@ -29,6 +31,19 @@ const MARKETING: ItemNavegacao[] = [
     { href: '/admin/marketing/automacoes', rotulo: 'Automações', grupo: 'Marketing' },
 ];
 
+/**
+ * Satisfação (PS-4): cada item pela própria permissão devolvida pelo servidor (`recursos.satisfacao`): Resultados por VER,
+ * Retornos por TRATAR, com o número de retornos abertos do escopo TRATAR. Ausente ou null = grupo oculto (falha fechada,
+ * diferente do Marketing). A barreira está nas APIs; o menu só acompanha.
+ */
+function itensSatisfacao(s: MenuSatisfacaoNavegacao | null | undefined): ItemNavegacao[] {
+    if (!s) return [];
+    return [
+        ...(s.ver ? [{ href: '/admin/satisfacao', rotulo: 'Resultados', grupo: 'Satisfação' as const }] : []),
+        ...(s.tratar ? [{ href: '/admin/satisfacao/retornos', rotulo: 'Retornos', grupo: 'Satisfação' as const, contador: s.retornosAbertos }] : []),
+    ];
+}
+
 const FINANCEIRO: ItemNavegacao[] = [
     { href: '/admin/financeiro', rotulo: 'Visão geral', grupo: 'Financeiro' },
     { href: '/admin/financeiro/contas-receber', rotulo: 'Contas a receber', grupo: 'Financeiro' },
@@ -45,18 +60,29 @@ const FINANCEIRO: ItemNavegacao[] = [
  */
 const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma' }> = [
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações', autoridade: 'empresa' },
+    // 093: a agenda da unidade. O assistente da primeira entrada é de qualquer usuário; a tela, de Gestão.
+    { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
+    // 102: apresentação dos salões ao cliente (fotos, itens, declaração). Ler: membership; gravar: Gestão (sem exceção).
+    { href: '/admin/configuracoes/saloes', rotulo: 'Salões', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações', autoridade: 'empresa' },
+    // Importar documentos (tabela de preços, modelo de contrato, contrato de festa; pedido de Felipe, 23/10/2026): no menu
+    // de Configurações, como os demais itens da empresa, só para Gestão. É só visibilidade do atalho: quem decide são as
+    // APIs de cada documento — enviar e ler o PDF pede sessão admin no Tenant Context; revisar e publicar a tabela ou
+    // aprovar o modelo de contrato já exige Gestão; o contrato de festa segue a regra da importação de contratos.
+    { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
     // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
     { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
+    // 095: compra e devolução de créditos são da Gestão da empresa (lib/creditos/compra.ts exigirGestao).
     { href: '/admin/configuracoes/creditos', rotulo: 'IA e créditos', grupo: 'Configurações', autoridade: 'empresa' },
-    { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
 /** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */
 /** `marketing: false` = plano sem Marketing ou pessoa sem capacidade nesta empresa. Ausente = mostrado (compatibilidade). */
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean };
+export type MenuSatisfacaoNavegacao = { ver: boolean; tratar: boolean; retornosAbertos: number };
+/** `satisfacao`: permissões do menu Satisfação devolvidas pelo servidor; ausente ou null = grupo oculto. */
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean; satisfacao?: MenuSatisfacaoNavegacao | null };
 
 /** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
 export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
@@ -67,7 +93,7 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
     const financeiro = p.financeiroCompleto === false
         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
         : FINANCEIRO;
-    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...financeiro];
+    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...itensSatisfacao(p.satisfacao), ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

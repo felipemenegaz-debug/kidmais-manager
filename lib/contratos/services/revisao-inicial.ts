@@ -10,8 +10,12 @@ import { buscarFechamentoPorId, listarAdicionaisDoFechamento, type FechamentoAdi
 import { buscarResponsavelPorId, registrarAuditoria } from '../../clientes/repositories';
 import { validarCadastroBasicoCliente } from '../../clientes/services/validators';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
-import { consultarDisponibilidadeData } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo } from '../../disponibilidade/services';
 import { montarSnapshotContratoV1 } from './contrato.service';
+import { escolherSalao, escolherSalaoParaEmissao } from '../../agenda/salao-festa.ts';
+import { recusarEstadoDocumental } from '../../agenda/estado-documental.ts';
+import { referenciaParaCaminho } from './salao-contrato.ts';
+import { salaoDoSnapshot, type ContratoSnapshot } from '../repositories/models';
 import { hashSnapshotContrato } from './snapshot-core';
 import { ContratoServiceError } from './errors';
 
@@ -61,10 +65,29 @@ export async function prepararEdicaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal,
         observacoes: v.snapshot.contratacao.adicionais.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord));
     const pacote = resumo.pacote.pacote, tabela = resumo.pacote.tabelaPreco;
-    const snapshot = montarSnapshotContratoV1({ fechamento, cliente, aniversariante, adicionais,
+    const base = montarSnapshotContratoV1({ fechamento, cliente, aniversariante, adicionais,
         responsavelAdicional: fechamento.responsavelAdicionalId ? await buscarResponsavelPorId(fechamento.responsavelAdicionalId, tx) : null,
         referencias: { pacoteId: pacote.id, pacoteCodigo: pacote.codigo, pacoteNome: pacote.nome, pacoteDuracaoMinutos: pacote.duracaoMinutos,
             tabelaPrecoId: tabela.id, tabelaPrecoCodigo: tabela.codigo, tabelaPrecoNome: tabela.nome } });
+    // S-E (R3-E2 a): em POR_SALAO a proposta fixa o salão do DESTINO proposto, pela mesma ordem da emissão, só leitura.
+    await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+    const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, salaoDoSnapshot(v.snapshot)?.id ?? null, {
+        data: fechamento.dataEvento, inicio: fechamento.horarioInicio, fim: fechamento.horarioFim, configuracaoId: fechamento.configuracaoAgendaId,
+        pacoteId: pacote.id, convidados: fechamento.convidados });
+    // D-LIB-4 (entrada 2, só leitura): a proposta inicial não é preparada sobre um estado documental inconsistente.
+    if (escolha.porSalao) {
+        const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id }, 'EMISSAO');
+        if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, 'EMISSAO');
+    }
+    if (escolha.porSalao && !escolha.salao)
+        throw new ContratoServiceError('SALAO_INDISPONIVEL', escolha.motivo === 'ESCOLHIDO_NAO_SERVE'
+            ? 'O salão escolhido para a festa não serve no destino proposto. Escolha outro salão antes de salvar.'
+            : escolha.motivo === 'PREFERIDO_NAO_SERVE'
+                ? 'O salão escolhido pelo cliente não serve no destino proposto. Escolha outro salão antes de salvar.'
+                : 'Nenhum salão livre comporta a festa no destino proposto.', 409, { motivo: escolha.motivo });
+    const snapshot: ContratoSnapshot = escolha.porSalao
+        ? { ...base, schemaVersao: 3, evento: { ...base.evento, configuracaoAgendaId: fechamento.configuracaoAgendaId, salao: escolha.salao } }
+        : base;
     const baseHash = e.dados_fonte.revisaoInicial?.baseHash ?? hashSnapshotContrato({
         fechamento: await buscarFechamentoPorId(fechamento.id, tx), adicionais: await listarAdicionaisDoFechamento(fechamento.id, tx) });
     const proposta: RevisaoInicial = { fechamento, cliente, aniversariante, resumo, baseHash, motivo: input.motivo, ...(input.horarioPersonalizado ? { horarioPersonalizado: true } : {}) };
@@ -86,12 +109,25 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         recusar('O fechamento mudou durante a preparação. Revise a proposta antes de formalizar.');
     for (const dia of [...new Set([atual.dataEvento, proposta.fechamento.dataEvento])].sort()) await adquirirLockConfirmacaoAgenda(dia, tx);
     const f = proposta.fechamento;
-    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id });
+    // Horário livre: duração do próprio intervalo da proposta (parecer do Astra, P2).
+    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id },
+        { duracaoMinutos: duracaoDoIntervalo(f.horarioInicio, f.horarioFim), incluirCombinados: true });
     const periodo = disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId);
     const oficial = periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)) === true;
     if (!oficial && !(proposta.horarioPersonalizado && await horarioPersonalizadoLivre(tx, f.id, f, Boolean(periodo))))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');
-    await persistirEdicaoFechamento(tx, f, proposta.resumo);
+    // D-LIB-4 (entrada 3): estado documental exigido antes de qualquer escrita (dupla prova nativa, sem vigente).
+    const referencia = await referenciaParaCaminho(tx, { fechamentoId: f.id, versaoId: v.id }, 'APLICACAO_REVISAO_INICIAL');
+    if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, 'APLICACAO_REVISAO_INICIAL');
+    // Entrada 14: a edição solta o salão (B6) quando muda data, horário ou configuração; depois, B1 se houver salão.
+    await persistirEdicaoFechamento(tx, f, proposta.resumo, { caminho: 'EDICAO_LIMPA_SALAO', origem: 'ACEITE_PUBLICO' });
+    // S-E (R3-E2 a): o salão fixado na proposta assinada é EXIGIDO no destino, depois das travas das datas (em ordem, acima),
+    // e gravado na festa na mesma transação; indisponível = recusa e rollback da assinatura, da prova e da versão.
+    // D-LIB-4: a origem é o snapshot da PRÓPRIA versão candidata (não fechamento_revisoes). Proposta sem salão (preparada
+    // antes da ida): não grava; a festa fica nula e o curinga vale (validação acima e kidmais019_validar_destino).
+    const salao = v.snapshot.schemaVersao === 3 ? salaoDoSnapshot(v.snapshot) : null;
+    if (salao && !(await escolherSalao(tx, f.id, { caminho: 'APLICACAO_REVISAO_INICIAL', origem: 'ACEITE_PUBLICO', exigido: salao.id })).salao)
+        recusar('O salão deste contrato não está mais disponível; o buffet vai enviar uma nova versão.');
     const fotografia = await fotografarEstadoFechamento(tx, f.id, { motivo: proposta.motivo, atorUsuarioId: null });
     await registrarAuditoria({ clienteId: f.clienteId, atorTipo: 'SISTEMA', acao: 'CONTRATO_REVISAO_INICIAL_APLICADA',
         entidadeTipo: 'CONTRATO_VERSAO', entidadeId: v.id, origem: 'CONTRATO_PUBLICO', dadosAntes: atual,

@@ -23,6 +23,8 @@ export type Mensagem = { id: number; pergunta: string } & (
   /** Navegação interna já validada: o drawer navega sozinho e deixa o link como registro. */
   | { fase: 'navegacao'; destino: string; rotulo: string }
   | { fase: 'indisponivel' }
+  /** O servidor recusou por flag (IA desligada no ambiente ou fora da lista de empresas): não é falta de capacidade. */
+  | { fase: 'desativada' }
   /** `reenviavel`: perguntar de novo é seguro (leitura ou pergunta nova; nunca resposta a rascunho nem confirmação). */
   | { fase: 'erro'; mensagem: string; reenviavel: boolean }
   | { fase: 'cancelada' }
@@ -43,6 +45,7 @@ export function categoriaDa(m: Mensagem): Categoria | null {
     case 'precisa_contexto':
     case 'navegacao':
     case 'indisponivel':
+    case 'desativada':
     case 'resultado':
       return 'informacao';
     case 'agente': return m.sugestao ? 'sugestao' : 'informacao';
@@ -73,7 +76,7 @@ export function registrarResultado(historico: readonly Mensagem[], id: number, r
 
 /** Converte a resposta do servidor na mensagem exibida. `reenviavel` diz se um erro pode ser repetido com segurança. */
 export function mensagemDaConversa(id: number, pergunta: string, resultado: ResultadoConversa, reenviavel = true): Mensagem {
-  if (resultado.tipo === 'desativada') return { id, pergunta, fase: 'indisponivel' };
+  if (resultado.tipo === 'desativada') return { id, pergunta, fase: 'desativada' };
   if (resultado.tipo === 'erro') {
     return resultado.codigo === CODIGO_CANCELADA ? { id, pergunta, fase: 'cancelada' } : { id, pergunta, fase: 'erro', mensagem: resultado.mensagem, reenviavel };
   }
@@ -186,7 +189,7 @@ function textoMostrado(m: Mensagem): string {
  * Só contexto: o servidor relê rascunho, tenant e fatos; nada disto é autoridade.
  */
 export function historicoParaServidor(historico: readonly Mensagem[], limite = 4): Array<{ pergunta: string; resposta: string }> {
-  return historico.filter((m) => m.fase !== 'carregando' && m.fase !== 'cancelada' && m.fase !== 'indisponivel')
+  return historico.filter((m) => m.fase !== 'carregando' && m.fase !== 'cancelada' && m.fase !== 'indisponivel' && m.fase !== 'desativada')
     .slice(-limite)
     .map((m) => ({ pergunta: m.pergunta.slice(0, 300), resposta: textoMostrado(m).slice(0, 300) }));
 }

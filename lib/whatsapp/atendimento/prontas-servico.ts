@@ -4,7 +4,7 @@ import type { SessaoParaTenant } from '../../saas/provar-tenant.ts';
 import { buscarClientesPorContatoExato } from '../../clientes/repositories/cliente.repository.ts';
 import { listarContratacoes } from '../../fechamentos/contratacoes.ts';
 import { ambienteAtendimento } from './configuracao.ts';
-import { acessoAtendimento, tem082, temMidia } from './service.ts';
+import { acessoAtendimento, exigirEscritaAtendimento, tem082, temMidia } from './service.ts';
 import { ATALHOS_081, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos082, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
@@ -45,6 +45,8 @@ async function comBiblioteca<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor,
   catch (erro) { throw traduzir(erro); }
 }
 const representante = (papel: string) => { if (papel !== 'REPRESENTANTE_AUTORIZADO') throw new Error('ATENDIMENTO_ACESSO_NEGADO'); };
+/** F4 (revisão da E-ME1): toda escrita na biblioteca exige o modo efetivo da empresa (a piloto como antes). Ler não. */
+const escrita = (tx: DbExecutor, empresa: string) => exigirEscritaAtendimento(tx, empresa);
 
 /**
  * `gerenciar`: tela da biblioteca (todos os estados, arquivadas no fim, mais unidades e pacotes vigentes para os
@@ -72,6 +74,7 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
   const midiaUrl = ehMidia(p.tipo) && !p.arquivoId ? midiaSegura(p.tipo as TipoMidia, p.midiaUrl ?? '') : null;
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
+    await escrita(tx, empresa);
     const midia = await temMidia(tx), r082 = await tem082(tx);
     // Sem a 081/082 o banco recusaria; a mensagem diz o que falta em vez de um erro genérico.
     if (!midia && (ehMidia(p.tipo) || (p.atalho && ATALHOS_081.includes(p.atalho)))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
@@ -107,6 +110,7 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
 export async function publicarPronta(sessao: SessaoParaTenant, pedido: { id: string; versao: number; publicar: boolean }) {
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
+    await escrita(tx, empresa);
     if (!(await tem082(tx))) throw new Error('ATENDIMENTO_RECURSO_082_INDISPONIVEL');
     const r = await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET estado=$5,atualizada_por=$6,versao=versao+1,atualizada_em=clock_timestamp()
       WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND versao=$4 AND ativa RETURNING id`, [pedido.id, empresa, ambiente, pedido.versao, pedido.publicar ? 'PUBLICADA' : 'RASCUNHO', sessao.usuario_id]);
@@ -117,6 +121,7 @@ export async function publicarPronta(sessao: SessaoParaTenant, pedido: { id: str
 export async function arquivarPronta(sessao: SessaoParaTenant, pedido: { id: string; versao: number }) {
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
+    await escrita(tx, empresa);
     // Remoção lógica: conversas e histórico não dependem desta linha; favoritas deixam de aparecer; novos usos (pela
     // equipe e pelo Wall-e) param; o que já foi enviado continua no histórico.
     const r = await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET ativa=false,atalho=NULL,${(await tem082(tx)) ? "estado='ARQUIVADA'," : ''}atualizada_por=$5,versao=versao+1,atualizada_em=clock_timestamp()
@@ -127,6 +132,7 @@ export async function arquivarPronta(sessao: SessaoParaTenant, pedido: { id: str
 
 export async function favoritarPronta(sessao: SessaoParaTenant, pedido: { id: string; favorita: boolean }) {
   return comBiblioteca(sessao, async (tx, empresa, _papel, ambiente) => {
+    await escrita(tx, empresa);
     if (!pedido.favorita) {
       await tx.query('DELETE FROM whatsapp_atendimento_mensagens_prontas_favoritas WHERE usuario_id=$1 AND mensagem_pronta_id=$2 AND empresa_id=$3 AND ambiente=$4', [sessao.usuario_id, pedido.id, empresa, ambiente]);
       return;
@@ -149,6 +155,7 @@ export async function salvarArquivo(sessao: SessaoParaTenant, entrada: { nome: s
   const arquivo = validarArquivo(entrada.nome, entrada.bytes, entrada.tipoEsperado);
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
+    await escrita(tx, empresa);
     if (!(await tem082(tx))) throw new Error('ATENDIMENTO_RECURSO_082_INDISPONIVEL');
     const conteudo = Buffer.from(entrada.bytes.buffer, entrada.bytes.byteOffset, entrada.bytes.byteLength);
     const token = randomBytes(32).toString('base64url');

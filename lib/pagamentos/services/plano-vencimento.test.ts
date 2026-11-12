@@ -37,6 +37,8 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
     // C2: mesma semântica do helper real — usa o executor recebido; sem ele, a transação própria.
     './transacao': { naTransacao: async (executor: unknown, fn: (tx: unknown) => unknown) => fn(executor ?? tx) },
     '../../fechamentos/services/revisao-operacional.service': { revisaoAbertaDoFechamento: async () => null },
+    // Rev. 3: bloquearPagamento trava a configuração da agenda da empresa do pagamento (sem SQL neste teste).
+    '../../agenda/trava-configuracao': { empresaDoPagamento: async () => 'empresa', empresaDoFechamento: async () => 'empresa', travarConfiguracaoAgenda: async () => undefined },
     '../../contratos/repositories': {
       buscarContratoPorFechamentoId: async () => contrato, buscarContratoPorId: async () => contrato,
       buscarVersaoCorrente: async () => versao, buscarVersaoPorId: async () => versao,

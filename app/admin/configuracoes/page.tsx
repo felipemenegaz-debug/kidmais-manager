@@ -3,14 +3,14 @@ import styles from '@/components/admin/workspace.module.css';
 
 const cards: CartaoConfiguracao[] = [
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
+  { route:'agenda', title:'Agenda', text:'Horários de festa, salões, quantas festas por dia e o intervalo entre elas, por unidade.', icon:'calendar' },
+  { route:'saloes', title:'Salões', text:'Como cada salão aparece para o cliente: fotos, capacidade, o que tem e o que é só da festa.', icon:'calendar' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
-  { route:'importar-tabela', title:'Importar tabela de preços', text:'Envie o PDF da tabela: pacotes, preços e adicionais são lidos para você revisar antes de publicar.', icon:'pdf' },
-  { route:'modelo-contrato', title:'Modelo de contrato', text:'Envie o contrato da loja em PDF: os contratos passam a sair no padrão da empresa, com os dados de cada festa.', icon:'pdf' },
+  { route:'importar-documentos', title:'Importar documentos', text:'Envie em PDF a tabela de preços, o contrato da loja ou o contrato antigo de uma festa: o iA.Fest lê e você revisa.', icon:'pdf' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
+  { route:'creditos', title:'IA e créditos', text:'Créditos de convite e do WhatsApp.AI: saldo, pacotes, pedidos, devoluções e extrato.', icon:'wallet' },
   { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao iA.Fest pelo fluxo oficial da Meta.', icon:'contact' },
-  { route:'creditos', title:'IA e créditos', text:'Consulte a franquia de convites e gerencie suas conexões com assistentes.', icon:'wallet' },
-  { route:'tabela-pacotes', title:'PDF de Pacotes', text:'Revise e publique o documento consultado pelos clientes. Sua publicação é independente dos preços.', icon:'pdf' },
 ];
 
 export default function Page() {

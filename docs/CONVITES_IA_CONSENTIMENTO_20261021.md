@@ -68,7 +68,7 @@ Auditoria (`convite_eventos`): `AUTORIZACAO_IA_REGISTRADA {autorizacao, provedor
 {autorizacao}` e `IA_RESERVADA {geracao, autorizacao, provedor, imagens?}`. Nenhum evento, log ou resposta de consulta
 leva o nome do responsável, o prompt ou a imagem (só o sha-256 das imagens enviadas).
 
-## 3. Textos — versão `convites-ia-20261021.2`
+## 3. Textos — versão `convites-ia-20261107.1` (07/11/2026: iA.Fest no lugar de Kidmais, decisão de Felipe; antes `convites-ia-20261021.2`)
 
 Fonte única: `lib/convites/consentimento-textos.ts`. Hash da autorização geral = sha-256 de
 `JSON.stringify([versao, operador, provedor, aviso, consentimento])`; hash da confirmação das imagens = sha-256 de
@@ -78,7 +78,7 @@ nova autorização ("precisaRenovar").
 
 **Aviso (texto da Astra; só o provedor varia):**
 
-> Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no Kidmais e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.
+> Para criar este convite com IA, enviaremos à OpenAI os dados selecionados da festa, que podem incluir nome e idade da criança e informações do evento. A fotografia só será enviada se você autorizar separadamente. A imagem gerada será armazenada no iA.Fest e poderá conter esses dados. Consulte as condições de tratamento e retenção antes de continuar.
 
 Com Gemini: "enviaremos ao Google (Gemini) …".
 

@@ -42,7 +42,11 @@ async function main() {
         const db = await pool.query('SELECT current_database() AS db');
         if (db.rows[0].db !== alvo.database) throw new Error('Banco conectado diverge do alvo confirmado.');
         const provedor = criarClienteAsaas(config.config);
-        const deps = { repositorio: repositorioRenovacao(transacao), provedor,
+        // B-9 production (plano rev. 5 §2.6): mesma capacidade do cron; schema incompatível recusa antes de processar.
+        const { capacidadeRenovacao } = await import('../lib/assinatura/renovacao-schema.ts');
+        const cap = await transacao(capacidadeRenovacao);
+        if (cap.capacidade === 'INCOMPATIVEL') throw new Error('SCHEMA_RENOVACAO_INCOMPATIVEL');
+        const deps = { repositorio: repositorioRenovacao(transacao, { capacidade: cap.capacidade }), provedor,
             enviar: aplicar ? criarEnviarEmail(process.env) : async () => { throw new Error('Envio proibido na simulação.'); },
             origem: origemPublica(), agora: () => new Date(), simular: !aplicar, travar: travaPorEmpresa(transacao) };
         const resultados = {};

@@ -98,12 +98,141 @@ export async function lerImportacao(tx: DbExecutor, empresaId: string, id: strin
   return r.rows[0] ? mapear(r.rows[0]) : null;
 }
 
-/** Compare-and-set pela versão. */
+/**
+ * Compare-and-set pela versão. Lote L1 (plano rev. 5, R5-1): `dados.aberturas` vem SEMPRE do valor atual do banco, no
+ * próprio UPDATE; o objeto novo nunca apaga nem substitui a lista (revisar, cliente, preparar, descartar, Import Engine).
+ */
 export async function atualizarImportacao(tx: DbExecutor, empresaId: string, i: ImportacaoLida, versaoEsperada: number) {
   const r = await tx.query(
-    `UPDATE ia_importacoes SET status = $4, versao = $5, dados = $6::jsonb, cliente_id = $7::uuid, resultado = $8::jsonb, atualizado_em = now()
+    `UPDATE ia_importacoes SET status = $4, versao = $5, cliente_id = $7::uuid, resultado = $8::jsonb, atualizado_em = now(),
+            dados = ($6::jsonb - 'aberturas') || CASE WHEN dados ? 'aberturas' THEN jsonb_build_object('aberturas', dados->'aberturas') ELSE '{}'::jsonb END
       WHERE id = $1::uuid AND empresa_id = $2::uuid AND versao = $3 RETURNING id`,
     [i.id, empresaId, versaoEsperada, i.status, i.versao, JSON.stringify(i.dados), i.clienteId, i.resultado ? JSON.stringify(i.resultado) : null],
   );
   return r.rowCount === 1;
+}
+
+/** Teto de identidades de abertura por importação (R5-1). Atingido, identidade nova é recusada; nenhuma é esquecida. */
+export const LIMITE_ABERTURAS = 200;
+
+/**
+ * Trava do documento (R5-1): `abrir` e `retomar` começam por ela e a mantêm até o commit. Filtra a empresa comprovada;
+ * documento de outra empresa ou inexistente ⇒ false, sem escrita.
+ */
+export async function travarDocumento(tx: DbExecutor, empresaId: string, documentoId: string) {
+  const r = await tx.query(`SELECT id FROM ia_documentos WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`, [documentoId, empresaId]);
+  return r.rowCount === 1;
+}
+
+/** Importação do documento (ativa, importada ou descartada) que registrou esta abertura; a ativa primeiro. */
+export async function importacaoPorAbertura(tx: DbExecutor, empresaId: string, documentoId: string, aberturaId: string) {
+  const r = await tx.query<LinhaImportacao>(
+    `SELECT ${COLUNAS} FROM ia_importacoes
+      WHERE documento_id = $1::uuid AND empresa_id = $2::uuid AND coalesce(dados->'aberturas', '[]'::jsonb) ? $3
+      ORDER BY (status <> 'DESCARTADA') DESC, criado_em DESC, id DESC LIMIT 1`,
+    [documentoId, empresaId, aberturaId],
+  );
+  return r.rows[0] ? mapear(r.rows[0]) : null;
+}
+
+export type RegistroAbertura =
+  | { tipo: "REGISTRADA"; importacao: ImportacaoLida }
+  | { tipo: "JA_REGISTRADA" }
+  | { tipo: "LIMITE" }
+  /** Importação encerrada (IMPORTADA/DESCARTADA): a guarda da 055d não deixa mudar; nada é gravado. */
+  | { tipo: "ENCERRADA" };
+
+/**
+ * Registra a identidade sobre o valor ATUAL de `dados` (jsonb_set no próprio UPDATE). A guarda da 055d exige versão
+ * crescente em toda alteração, então registrar avança a versão. Repetir a mesma identidade não grava nada.
+ */
+export async function registrarAbertura(tx: DbExecutor, empresaId: string, importacaoId: string, aberturaId: string): Promise<RegistroAbertura> {
+  const r = await tx.query<LinhaImportacao>(
+    `UPDATE ia_importacoes SET versao = versao + 1, atualizado_em = now(),
+            dados = jsonb_set(dados, '{aberturas}', coalesce(dados->'aberturas', '[]'::jsonb) || to_jsonb($3::text))
+      WHERE id = $1::uuid AND empresa_id = $2::uuid AND status = 'EM_REVISAO'
+        AND NOT (coalesce(dados->'aberturas', '[]'::jsonb) ? $3)
+        AND jsonb_array_length(coalesce(dados->'aberturas', '[]'::jsonb)) < $4
+      RETURNING ${COLUNAS}`,
+    [importacaoId, empresaId, aberturaId, LIMITE_ABERTURAS],
+  );
+  if (r.rows[0]) return { tipo: "REGISTRADA", importacao: mapear(r.rows[0]) };
+  const atual = await tx.query<{ status: StatusImportacao; tem: boolean }>(
+    `SELECT status, coalesce(dados->'aberturas', '[]'::jsonb) ? $3 AS tem FROM ia_importacoes WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    [importacaoId, empresaId, aberturaId],
+  );
+  const l = atual.rows[0];
+  if (!l) throw new Error("IMPORTACAO_CONFLITO");
+  if (l.tem) return { tipo: "JA_REGISTRADA" };
+  return l.status === "EM_REVISAO" ? { tipo: "LIMITE" } : { tipo: "ENCERRADA" };
+}
+
+/** Lista "Contratos aguardando revisão" (R1-3/R1-4): linha bruta, antes da sanitização do DTO. */
+export type LinhaParaRevisao = {
+  grupo: "REVISAO" | "LIDO";
+  documentoId: string;
+  importacaoId: string | null;
+  versao: number | null;
+  arquivo: string;
+  enviadoEm: string;
+  contratante: string | null;
+  dataFesta: string | null;
+};
+export type CursorRevisao = { k: string; t: string; id: string };
+
+/** Chave da data da festa: só a data normalizada (ISO) entra; ausente ou inválida ordena por último ("~" > dígitos em "C"). */
+export const SEM_DATA_FESTA = "~";
+const campoDaExtracao = (x: string, id: string, chave: string) =>
+  `(jsonb_path_query_first(${x}, '$.secoes[*].campos[*] ? (@.id == "${id}").${chave}') #>> '{}')`;
+const DATA_FESTA = `CASE WHEN ${campoDaExtracao("b.x", "evento.data", "normalizado")} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ${campoDaExtracao("b.x", "evento.data", "normalizado")} END`;
+
+/**
+ * Somente leitura. Dois grupos, ambos filtrados pela empresa comprovada em todas as tabelas:
+ *  - REVISAO: importações EM_REVISAO;
+ *  - LIDO: documentos cuja última extração tem dados e que não têm nenhuma importação (nem descartada).
+ * Ordem estável: data da festa válida ascendente (ausente por último), envio, documento. Cursor sobre a mesma chave.
+ */
+export async function listarParaRevisao(tx: DbExecutor, empresaId: string, opcoes: { limite: number; cursor: CursorRevisao | null }): Promise<{ linhas: LinhaParaRevisao[]; proximo: CursorRevisao | null }> {
+  const limite = Math.max(1, Math.min(50, Math.trunc(opcoes.limite)));
+  const r = await tx.query<{ grupo: "REVISAO" | "LIDO"; documento_id: string; importacao_id: string | null; versao: number | null; arquivo: string; enviado_em: string; contratante: string | null; data_festa: string | null; chave: string }>(
+    `WITH base AS (
+        SELECT 'REVISAO'::text AS grupo, i.documento_id, i.id AS importacao_id, i.versao, i.dados->'extracao' AS x
+          FROM ia_importacoes i
+         WHERE i.empresa_id = $1::uuid AND i.status = 'EM_REVISAO'
+        UNION ALL
+        SELECT 'LIDO'::text, d.id, NULL::uuid, NULL::integer, e.resultado
+          FROM ia_documentos d
+          JOIN LATERAL (SELECT ex.resultado FROM ia_extracoes ex
+                         WHERE ex.documento_id = d.id AND ex.empresa_id = $1::uuid
+                         ORDER BY ex.concluido_em DESC, ex.id DESC LIMIT 1) e ON true
+         WHERE d.empresa_id = $1::uuid AND d.tipo = 'CONTRATO_HISTORICO'
+           AND NOT EXISTS (SELECT 1 FROM ia_importacoes i WHERE i.documento_id = d.id AND i.empresa_id = $1::uuid)
+           AND jsonb_typeof(e.resultado->'secoes') = 'array'
+           AND jsonb_path_exists(e.resultado, '$.secoes[*].campos[*].valor ? (@.type() == "string" && @ like_regex "[^[:space:]]")')
+      ), linhas AS (
+        SELECT b.grupo, b.documento_id, b.importacao_id, b.versao, o.nome_original AS arquivo, d.enviado_em,
+               ${campoDaExtracao("b.x", "contratante.nome", "valor")} AS contratante,
+               ${DATA_FESTA} AS data_festa
+          FROM base b
+          JOIN ia_documentos d ON d.id = b.documento_id AND d.empresa_id = $1::uuid
+          JOIN LATERAL (SELECT og.nome_original FROM ia_documento_originais og
+                         WHERE og.documento_id = d.id AND og.empresa_id = $1::uuid
+                         ORDER BY og.versao DESC LIMIT 1) o ON true
+      )
+      SELECT grupo, documento_id::text, importacao_id::text, versao, arquivo,
+             to_char(enviado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS enviado_em,
+             contratante, data_festa, coalesce(data_festa, '${SEM_DATA_FESTA}') AS chave
+        FROM linhas
+       WHERE $2::text IS NULL
+          OR (coalesce(data_festa, '${SEM_DATA_FESTA}') COLLATE "C", enviado_em, documento_id) > ($2::text COLLATE "C", $3::timestamptz, $4::uuid)
+       ORDER BY coalesce(linhas.data_festa, '${SEM_DATA_FESTA}') COLLATE "C", linhas.enviado_em, linhas.documento_id
+       LIMIT $5`,
+    [empresaId, opcoes.cursor?.k ?? null, opcoes.cursor?.t ?? null, opcoes.cursor?.id ?? null, limite + 1],
+  );
+  const linhas = r.rows.slice(0, limite).map((l): LinhaParaRevisao => ({
+    grupo: l.grupo, documentoId: l.documento_id, importacaoId: l.importacao_id, versao: l.versao == null ? null : Number(l.versao),
+    arquivo: l.arquivo, enviadoEm: l.enviado_em, contratante: l.contratante, dataFesta: l.data_festa,
+  }));
+  const ultima = r.rows.length > limite ? r.rows[limite - 1] : null;
+  return { linhas, proximo: ultima ? { k: ultima.chave, t: ultima.enviado_em, id: ultima.documento_id } : null };
 }

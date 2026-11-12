@@ -35,6 +35,8 @@ const token = 'p'.repeat(43);
         let data;
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
+        // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
+        else if (url.pathname === '/api/admin/configuracoes/agenda' && url.searchParams.get('pendentes') === '1') data = { instalada: true, pendentes: [] };
         else if (url.pathname === `/api/convites/publico/${token}`) {
           if (!publicado) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, erro: 'Convite indisponível.' }) });
           if (url.searchParams.get('arte') === '1') return route.fulfill({ contentType: 'image/webp', body: montada });
@@ -146,6 +148,18 @@ const token = 'p'.repeat(43);
       await page.reload(); await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
       assert.equal(dados.conteudo.arteId, null); assert.equal(dados.conteudo.visual.modo, 'modelo');
       assert.equal(await grupo.count(), 0); assert.equal(await previa.getByRole('img', { name: 'Arte escolhida para o convite' }).count(), 0);
+
+      // 8. Salão contratado (bloco "Local" do contrato): o aviso de conferência mostra o salão, sem e com complemento,
+      // na mesma linha da arte e da página pública (localDoConvite).
+      dados.conteudo = { ...dados.conteudo, local: '', blocoLocal: { origem: 'SALAO', nome: 'Salão Jardim', endereco: 'Quadra 1 · Brasília' } };
+      await page.reload(); await page.getByLabel('Complemento do local (opcional)', { exact: true }).waitFor();
+      await page.getByLabel('Usar uma arte própria').first().setInputFiles(upload);
+      await grupo.waitFor(); await botao('Convite pronto').click();
+      assert.deepEqual(await marcado(), ['Convite pronto']);
+      assert.equal((await aviso.textContent()).trim(), 'Confira se a sua imagem tem os mesmos dados da festa: 3 de março às 17:00, Salão Jardim.');
+      await page.getByLabel('Complemento do local (opcional)', { exact: true }).fill('Portão 2');
+      assert.equal((await aviso.textContent()).trim(), 'Confira se a sua imagem tem os mesmos dados da festa: 3 de março às 17:00, Salão Jardim · Portão 2.');
+      await previa.screenshot({ path: path.join(out, `${quem}-8-salao-contratado.png`) });
 
       assert(!comandos.some(c => c.acao === 'gerar'), 'nenhuma geração');
       assert.deepEqual(erros, []);

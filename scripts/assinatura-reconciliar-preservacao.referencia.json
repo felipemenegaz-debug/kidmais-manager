@@ -1,0 +1,288 @@
+{
+ "false": {
+  "log": [
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processarEvento",
+    "ev1",
+    "atualizarValorAssinatura,atualizarValorCobranca,obterCobranca,removerAssinatura,suspenderGeracao"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processarEvento",
+    "ev2",
+    "atualizarValorAssinatura,atualizarValorCobranca,obterCobranca,removerAssinatura,suspenderGeracao"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e1"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e2"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e3"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "marcar",
+    "p1"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processar",
+    "p1"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "marcar",
+    "p2"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processar",
+    "p2"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ]
+  ],
+  "relatorio": {
+   "modo": "SIMULACAO",
+   "banco": "sintetico",
+   "eventos": {
+    "PROCESSADO": 1,
+    "ERRO_FUNDADOR_OFERTA_EXPIRADA": 1
+   },
+   "empresas": {
+    "MUDOU_EM_ATRASO_PARA_ATIVA": 1,
+    "SEM_MUDANCA": 1,
+    "RECUSADA": 1
+   },
+   "removeriaNoProvedor": 1,
+   "encerramentos": {
+    "DEVOLUCAO_PENDENTE_AGUARDANDO_MANUAL": 1
+   },
+   "creditos": {
+    "PEDIDO_CREDITOS_PAGO_SEM_CREDITO": 1
+   },
+   "creditosPedidos": {
+    "CREDITADO": 1,
+    "AGUARDANDO": 1
+   },
+   "incompleto": true,
+   "divergente": true
+  },
+  "codigo": 2
+ },
+ "true": {
+  "log": [
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processarEvento",
+    "ev1",
+    "obterCobranca,removerAssinatura"
+   ],
+   [
+    "provedor",
+    "removerAssinatura",
+    "sub_x"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processarEvento",
+    "ev2",
+    "obterCobranca,removerAssinatura"
+   ],
+   [
+    "sql",
+    "ROLLBACK"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e1"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e2"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "sincronizarEmpresa",
+    "e3"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "marcar",
+    "p1"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processar",
+    "p1"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "marcar",
+    "p2"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ],
+   [
+    "sql",
+    "BEGIN"
+   ],
+   [
+    "processar",
+    "p2"
+   ],
+   [
+    "sql",
+    "COMMIT"
+   ]
+  ],
+  "relatorio": {
+   "modo": "APLICAR",
+   "banco": "sintetico",
+   "eventos": {
+    "PROCESSADO": 1,
+    "ERRO_FUNDADOR_OFERTA_EXPIRADA": 1
+   },
+   "empresas": {
+    "MUDOU_EM_ATRASO_PARA_ATIVA": 1,
+    "SEM_MUDANCA": 1,
+    "RECUSADA": 1
+   },
+   "encerramentos": {
+    "DEVOLUCAO_PENDENTE_AGUARDANDO_MANUAL": 1
+   },
+   "creditos": {
+    "PEDIDO_CREDITOS_PAGO_SEM_CREDITO": 1
+   },
+   "creditosPedidos": {
+    "CREDITADO": 1,
+    "AGUARDANDO": 1
+   },
+   "incompleto": true,
+   "divergente": true
+  },
+  "codigo": 2
+ }
+}

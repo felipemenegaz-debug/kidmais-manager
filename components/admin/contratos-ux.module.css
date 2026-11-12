@@ -6,11 +6,12 @@
 .page.page button:not([data-km-primario]) { font:500 14px/1.5 var(--admin-font); min-height:44px; }
 .page.page p { overflow-wrap:anywhere; }
 .page.page a { color:var(--main-text); text-underline-offset:4px; }
-.page.page button,.page.page select,.page.page input,.page.page textarea { font:inherit; }
-.page.page button,.page.page select,.page.page input:not([type=checkbox]):not([type=radio]),.page.page textarea { border:1px solid var(--input-border); border-radius:8px; padding:10px 13px; background:var(--input-bg); color:var(--main-text); max-width:100%; min-height:44px; }
+.page.page button:not([data-km-primario]),.page.page select,.page.page input,.page.page textarea { font:inherit; }
+/* Ação primária (data-km-primario + classePrimaria) fica fora dos estilos genéricos: o visual é o de .primario (visual.module.css). */
+.page.page button:not([data-km-primario]),.page.page select,.page.page input:not([type=checkbox]):not([type=radio]),.page.page textarea { border:1px solid var(--input-border); border-radius:8px; padding:10px 13px; background:var(--input-bg); color:var(--main-text); max-width:100%; min-height:44px; }
 .page.page select,.page.page textarea { width:100%; }
-.page.page button { cursor:pointer; }
-.page.page button:disabled { opacity:.5; cursor:not-allowed; }
+.page.page button:not([data-km-primario]) { cursor:pointer; }
+.page.page button:not([data-km-primario]):disabled { opacity:.5; cursor:not-allowed; }
 .page.page :focus-visible { outline:2px solid var(--emerald-accent); outline-offset:3px; }
 .page.page details { border:0; border-top:1px solid var(--input-border); border-radius:0; }
 .page.page summary { background:none; color:var(--secondary-text); font-weight:500; padding:12px 0; border-radius:0; min-height:44px; }
@@ -52,7 +53,7 @@
 .documentDetails { composes: glass secao from './visual.module.css'; }
 .page.page .documentDetails { border:1px solid var(--input-border); border-radius:10px; padding:0 20px 14px; margin:16px 0; }
 .page.page .documentDetails:not([open]) { padding-bottom:0; }
-.page.page button:not([role=tab]):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 20%,transparent); }
+.page.page button:not([role=tab]):not([data-km-primario]):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 20%,transparent); }
 @media(max-width:800px) { .page.page { padding-top:80px; } .tabs { gap:8px 16px; } .page.page input,.page.page select,.page.page textarea { font-size:16px; } .overview { padding:18px; } }
 /* Contrato importado (etapa 1, somente leitura): cards do snapshot, documento, cliente e pagamentos previstos. */
 .contratoImportado { display:grid; gap:0; }

@@ -13,8 +13,8 @@ export async function encerramentosInstalados(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 
-/** Cobranças com pedido de devolução (089): nunca sustentam período pago na sincronização. Sem a 089: nenhuma. */
-export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string> };
+/** Cobranças com pedido de devolução (089) ou arrependimento restituído (097): nunca sustentam período pago na sincronização. */
+export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, string>; pagosAte?: Map<string, string> };
 /**
  * Cobranças com pedido de devolução (089) e, por assinatura do provedor, o vencimento da cobrança devolvida mais recente
  * (`inicio_ciclo`). P2-1 da revisão de 21/10/2026: na assinatura que teve devolução, nenhuma cobrança com vencimento
@@ -22,19 +22,40 @@ export type CobrancasDevolvidas = { ids: Set<string>; limites: Map<string, strin
  * só um pagamento com vencimento posterior, ou de outra assinatura (recontratação), reativa. Sem a 089: nada.
  */
 export async function cobrancasDevolvidas(tx: DbExecutor, empresaId: string): Promise<CobrancasDevolvidas> {
-    if (!await encerramentosInstalados(tx)) return { ids: new Set(), limites: new Map() };
-    const linhas = (await tx.query<{ id: string; assinatura: string; inicio: string }>(
-        `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
-           FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows;
+    const linhas: { id: string | null; assinatura: string; inicio: string }[] = [];
+    if (await encerramentosInstalados(tx))
+        linhas.push(...(await tx.query<{ id: string; assinatura: string; inicio: string }>(
+            `SELECT cobranca_provedor_id AS id, provedor_assinatura_id AS assinatura, to_char(inicio_ciclo, 'YYYY-MM-DD') AS inicio
+               FROM assinatura_encerramentos WHERE empresa_id = $1::uuid AND cobranca_provedor_id IS NOT NULL`, [empresaId])).rows);
     const limites = new Map<string, string>();
-    for (const l of linhas)
-        if (!limites.has(l.assinatura) || limites.get(l.assinatura)! < l.inicio) limites.set(l.assinatura, l.inicio);
-    return { ids: new Set(linhas.map((l) => l.id)), limites };
+    const maior = (mapa: Map<string, string>, chave: string, valor: string) => { if (!mapa.has(chave) || mapa.get(chave)! < valor) mapa.set(chave, valor); };
+    for (const l of linhas) maior(limites, l.assinatura, l.inicio);
+    const ids = new Set(linhas.flatMap((l) => (l.id ? [l.id] : [])));
+    // 097 (revisões 8da88ba P2-C1 e d72d8b8 P2-N1/P2-N2): arrependimento concluído com restituição.
+    //  - as cobranças declaradas restituídas nunca sustentam período, com ou sem assinatura no registro;
+    //  - na assinatura restituída (a do registro ou a informada pelo atendimento), nenhuma cobrança com vencimento OU
+    //    pagamento até a data da conclusão sustenta período: a cobrança antecipada (paga antes, vencimento futuro) não
+    //    reabre. Só pagamento feito depois da conclusão, ou de outra assinatura (recontratação), reativa.
+    const pagosAte = new Map<string, string>();
+    if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        for (const r of (await tx.query<{ ids: string[] | null; assinatura: string | null; limite: string }>(
+            `SELECT restituicao_cobranca_ids AS ids, coalesce(provedor_assinatura_id, restituicao_assinatura_id) AS assinatura, to_char(restituicao_limite, 'YYYY-MM-DD') AS limite
+               FROM assinatura_arrependimentos WHERE empresa_id = $1::uuid AND situacao = 'RESTITUIDO'`, [empresaId])).rows) {
+            for (const id of r.ids ?? []) ids.add(id);
+            if (r.assinatura) { maior(limites, r.assinatura, r.limite); maior(pagosAte, r.assinatura, r.limite); }
+        }
+    return { ids, limites, pagosAte };
 }
 /** Cobrança que não sustenta período na sincronização (ver cobrancasDevolvidas). */
-export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string, c: { id: string; dueDate: string }) => {
+export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId: string,
+    c: { id: string; dueDate: string; paymentDate?: string | null; confirmedDate?: string | null; clientPaymentDate?: string | null }) => {
     const limite = d.limites.get(assinaturaId);
-    return d.ids.has(c.id) || (limite !== undefined && c.dueDate <= limite);
+    if (d.ids.has(c.id) || (limite !== undefined && c.dueDate <= limite)) return true;
+    // 097: pago (em qualquer das datas que o provedor informa) até o limite = pagamento anterior à restituição.
+    const pagoAte = d.pagosAte?.get(assinaturaId);
+    if (pagoAte === undefined) return false;
+    const pagamento = [c.clientPaymentDate, c.confirmedDate, c.paymentDate].filter((x): x is string => typeof x === 'string' && x.length >= 10).map((x) => x.slice(0, 10)).sort()[0];
+    return pagamento !== undefined && pagamento <= pagoAte;
 };
 
 /**
@@ -44,6 +65,7 @@ export const cobrancaDevolvidaOuAnterior = (d: CobrancasDevolvidas, assinaturaId
  */
 export async function registrarAusenciaNoProvedor(tx: DbExecutor, empresaId: string, assinaturaId: string) {
     if (!await encerramentosInstalados(tx)) return 0;
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     return (await tx.query(`UPDATE assinatura_encerramentos SET cancelamento_provedor = 'AUSENTE'
         WHERE empresa_id = $1::uuid AND provedor_assinatura_id = $2 AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')`,
     [empresaId, assinaturaId])).rowCount ?? 0;
@@ -119,23 +141,27 @@ export async function registrarPedido(tx: DbExecutor, p: NovoPedido): Promise<Pe
 }
 
 export async function atualizarCancelamentoProvedor(tx: DbExecutor, empresaId: string, id: string, resultado: CancelamentoProvedor) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET cancelamento_provedor = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO') AND cancelamento_provedor <> $3`, [id, empresaId, resultado]);
 }
 
 /** Registro prévio da chamada automática: só a partir de AGUARDANDO_MANUAL; false = outro processo já tentou. */
 export async function marcarEstornoEmCurso(tx: DbExecutor, empresaId: string, id: string) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     return ((await tx.query(`UPDATE assinatura_encerramentos SET estorno_situacao = 'EM_CURSO', estorno_modo = 'AUTOMATICO'
         WHERE id = $1::uuid AND empresa_id = $2::uuid AND estorno_situacao = 'AGUARDANDO_MANUAL'`, [id, empresaId])).rowCount ?? 0) === 1;
 }
 
 export async function registrarResultadoEstorno(tx: DbExecutor, empresaId: string, id: string, situacao: 'SOLICITADO' | 'SEM_CONFIRMACAO' | 'RECUSADO', statusProvedor: string | null) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET estorno_situacao = $3, estorno_status_provedor = $4
         WHERE id = $1::uuid AND empresa_id = $2::uuid AND estorno_situacao = 'EM_CURSO'`,
     [id, empresaId, situacao, statusProvedor && /^[A-Z_]{1,40}$/.test(statusProvedor) ? statusProvedor : null]);
 }
 
 export async function registrarEmail(tx: DbExecutor, empresaId: string, id: string, situacao: Exclude<SituacaoEmail, 'PENDENTE'>) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET email_situacao = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND email_situacao IN ('PENDENTE', 'FALHOU', 'NAO_CONFIGURADO') AND email_situacao <> $3`, [id, empresaId, situacao]);
 }
@@ -232,6 +258,7 @@ export function mensagemAvisoInterno(input: { para: string; pedido: PedidoResumo
 }
 
 export async function registrarAvisoInterno(tx: DbExecutor, empresaId: string, id: string, situacao: Exclude<SituacaoEmail, 'PENDENTE'>) {
+    // B14: transição — o WHERE só aceita o estado de origem, então nunca regrava o mesmo valor.
     await tx.query(`UPDATE assinatura_encerramentos SET aviso_interno_situacao = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid
         AND aviso_interno_situacao IN ('PENDENTE', 'FALHOU', 'NAO_CONFIGURADO') AND aviso_interno_situacao <> $3`, [id, empresaId, situacao]);
 }

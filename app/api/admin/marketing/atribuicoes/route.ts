@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { MarketingError } from "@/lib/marketing/erros";
 import { lerCorpo, parametroUuid, rotaMarketing } from "@/lib/marketing/http";
-import { ALVOS, esquemaOrigemManual, exigirAlvoDaEmpresa, historicoAtribuicao, registrarOrigemManual, type AlvoAtribuicao } from "@/lib/marketing/atribuicao";
+import { ALVOS, esquemaOrigemManual, exigirAlvoDaEmpresa, historicoAtribuicao, origemHerdadaDoCliente, registrarOrigemManual, type AlvoAtribuicao } from "@/lib/marketing/atribuicao";
 import { lerOrigens } from "@/lib/marketing/origens";
 import { exigirCapacidadeMarketing } from "@/lib/marketing/capacidades";
 import { exigirRecursoPlano } from "@/lib/assinatura/recursos-plano";
@@ -34,7 +34,10 @@ export async function GET(request: NextRequest) {
     const historico = await historicoAtribuicao(tx, empresaId, alvoTipo as AlvoAtribuicao, alvoId);
     const campanhas = (await tx.query<{ id: string; nome: string }>(
       "SELECT id::text, nome FROM marketing_campanhas WHERE empresa_id = $1::uuid AND status <> 'ARQUIVADA' ORDER BY nome", [empresaId])).rows;
-    return { vigente: historico.find((a) => a.vigente) ?? null, historico, origens: await lerOrigens(tx, empresaId), campanhas };
+    const vigente = historico.find((a) => a.vigente) ?? null;
+    // Sem origem própria, a primeira negociação do cliente conta no painel pela origem do cliente: a tela mostra isso.
+    const herdadaDoCliente = alvoTipo === "FECHAMENTO" && !vigente ? await origemHerdadaDoCliente(tx, empresaId, alvoId) : null;
+    return { vigente, herdadaDoCliente, historico, origens: await lerOrigens(tx, empresaId), campanhas };
   });
 }
 

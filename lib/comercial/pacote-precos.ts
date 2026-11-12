@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
-import { faixasContiguas, validarFaixas, type FaixaFixa } from "./modelo-preco.ts";
+import { faixasContiguas, pontosDeFaixas, validarFaixas, validarPontos, type FaixaFixa, type PontoPreco } from "./modelo-preco.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 
 type Contexto = { empresaId: string; usuarioId: string; requestId: string; motivo?: string };
@@ -9,6 +9,12 @@ type Contexto = { empresaId: string; usuarioId: string; requestId: string; motiv
 export type LeituraFaixas = {
   editavel: boolean;
   faixas: FaixaFixa[];
+  /** Preço por quantidades cheias (092). Vazio enquanto o pacote usa faixas. */
+  pontos: PontoPreco[];
+  /** Faixas antigas editáveis: o pacote cobra por elas até o buffet confirmar a conversão para quantidades cheias. */
+  aConfirmar: boolean;
+  /** Proposta de conversão, quando aConfirmar e os limites do pacote são conhecidos. */
+  proposta?: PontoPreco[];
   aviso: string | null;
   /** Quando não editável: as grades como estão na tabela (promocional, nobre, por convidado), só para mostrar. */
   grades?: Array<{ categoria: string; porConvidado: boolean; faixas: FaixaFixa[] }>;
@@ -19,6 +25,30 @@ const AVISO_POR_CONVIDADO = "Este pacote cobra por convidado. A tela de faixas n
 const PRECO_BLOQUEADO = "Não consegui aplicar o preço novo sem mudar o que já foi contratado. Nada foi salvo.";
 const PRECO_NAO_SALVO = "Não foi possível guardar os preços. Nada foi salvo.";
 const PRECO_NAO_PRESERVADO = "Não foi possível preservar o preço atual deste pacote. Nenhuma alteração foi salva.";
+
+/** Pontos (092) ou faixas fixas (modelo anterior, ainda gravado pela ação de pacotes da IA). */
+export type PrecosInformados = FaixaFixa[] | { pontos: PontoPreco[]; conversao?: boolean };
+
+function pontosIguais(atuais: PontoPreco[], anteriores: PontoPreco[]) {
+  return atuais.length === anteriores.length
+    && atuais.every((ponto, indice) => ponto.convidados === anteriores[indice]?.convidados && ponto.valor === anteriores[indice]?.valor);
+}
+
+type Prontos = { tipo: "FAIXAS"; faixas: FaixaFixa[] } | { tipo: "PONTOS"; pontos: PontoPreco[]; conversao: boolean };
+
+function prontosDe(precos: PrecosInformados, limites: { minimo: number; maximo: number }): Prontos {
+  if (Array.isArray(precos)) return { tipo: "FAIXAS", faixas: validarFaixas(precos, limites) };
+  return { tipo: "PONTOS", pontos: validarPontos(precos.pontos, limites), conversao: Boolean(precos.conversao) };
+}
+
+function vazio(prontos: Prontos) {
+  return prontos.tipo === "FAIXAS" ? prontos.faixas.length === 0 : prontos.pontos.length === 0;
+}
+
+function iguais(prontos: Prontos, leitura: LeituraFaixas) {
+  if (prontos.tipo === "FAIXAS") return leitura.pontos.length === 0 && faixasIguais(prontos.faixas, leitura.faixas);
+  return leitura.faixas.length === 0 && pontosIguais(prontos.pontos, leitura.pontos);
+}
 
 function faixasIguais(atuais: FaixaFixa[], anteriores: FaixaFixa[]) {
   if (atuais.length !== anteriores.length) return false;
@@ -71,14 +101,21 @@ function gradesDe(linhas: LinhaPreco[]): NonNullable<LeituraFaixas["grades"]> {
   return grades;
 }
 
+function naoEditavel(aviso: string, linhas: LinhaPreco[]): LeituraFaixas {
+  return { editavel: false, faixas: [], pontos: [], aConfirmar: false, aviso, grades: gradesDe(linhas) };
+}
+
 function classificar(linhas: LinhaPreco[]): LeituraFaixas {
-  if (linhas.length === 0) return { editavel: true, faixas: [], aviso: null };
-  if (linhas.some((linha) => linha.tipo_calculo === "POR_CONVIDADO")) {
-    return { editavel: false, faixas: [], aviso: AVISO_POR_CONVIDADO, grades: gradesDe(linhas) };
+  if (linhas.length === 0) return { editavel: true, faixas: [], pontos: [], aConfirmar: false, aviso: null };
+  if (linhas.some((linha) => linha.tipo_calculo === "POR_CONVIDADO")) return naoEditavel(AVISO_POR_CONVIDADO, linhas);
+  if (linhas.every((linha) => linha.tipo_calculo === "PONTO")) {
+    if (new Set(linhas.map((linha) => linha.categoria_horario)).size > 1) return naoEditavel(AVISO_HORARIO, linhas);
+    const pontos = linhas
+      .map((linha) => ({ convidados: Number(linha.convidados_min), valor: Number(linha.valor).toFixed(2) }))
+      .sort((a, b) => a.convidados - b.convidados);
+    return { editavel: true, faixas: [], pontos, aConfirmar: false, aviso: null };
   }
-  if (linhas.some((linha) => linha.tipo_calculo !== "FIXO")) {
-    return { editavel: false, faixas: [], aviso: AVISO_HORARIO, grades: gradesDe(linhas) };
-  }
+  if (linhas.some((linha) => linha.tipo_calculo !== "FIXO")) return naoEditavel(AVISO_HORARIO, linhas);
   const grupos = new Map<string, string>();
   for (const linha of linhas) {
     const chave = `${linha.convidados_min}:${linha.convidados_max ?? ""}:${linha.valor}`;
@@ -86,7 +123,7 @@ function classificar(linhas: LinhaPreco[]): LeituraFaixas {
     grupos.set(linha.categoria_horario, `${grupo}|${chave}`);
   }
   const assinaturas = [...grupos.values()];
-  if (new Set(assinaturas).size > 1) return { editavel: false, faixas: [], aviso: AVISO_HORARIO, grades: gradesDe(linhas) };
+  if (new Set(assinaturas).size > 1) return naoEditavel(AVISO_HORARIO, linhas);
   const categoria = linhas[0]?.categoria_horario;
   const faixas = linhas
     .filter((linha) => linha.categoria_horario === categoria)
@@ -95,7 +132,7 @@ function classificar(linhas: LinhaPreco[]): LeituraFaixas {
       convidadosMax: linha.convidados_max == null ? null : Number(linha.convidados_max),
       valor: Number(linha.valor).toFixed(2),
     }));
-  return { editavel: true, faixas, aviso: null };
+  return { editavel: true, faixas, pontos: [], aConfirmar: true, aviso: null };
 }
 
 const CORRENTE = `
@@ -117,10 +154,38 @@ async function tabelaDeHoje(tx: DbExecutor, empresaId: string) {
   return tabelas.rows[0] ?? null;
 }
 
-export async function lerFaixasPacote(tx: DbExecutor, empresaId: string, pacoteId: string): Promise<LeituraFaixas> {
+export async function lerFaixasPacote(
+  tx: DbExecutor,
+  empresaId: string,
+  pacoteId: string,
+  limites?: { minimo: number; maximo: number },
+): Promise<LeituraFaixas> {
   const tabela = await tabelaDeHoje(tx, empresaId);
-  if (!tabela) return { editavel: true, faixas: [], aviso: null };
-  return classificar(await linhasDaTabela(tx, empresaId, pacoteId, tabela.id));
+  if (!tabela) return { editavel: true, faixas: [], pontos: [], aConfirmar: false, aviso: null };
+  const leitura = classificar(await linhasDaTabela(tx, empresaId, pacoteId, tabela.id));
+  if (leitura.aConfirmar && limites) leitura.proposta = pontosDeFaixas(leitura.faixas, limites);
+  return leitura;
+}
+
+/** Pacotes da empresa cujo preço corrente ainda é por faixas editáveis (a conversão espera a confirmação do buffet). */
+export async function pacotesComPrecoAConfirmar(tx: DbExecutor, empresaId: string): Promise<Set<string>> {
+  const tabela = await tabelaDeHoje(tx, empresaId);
+  if (!tabela) return new Set();
+  const linhas = await tx.query<{ pacote_id: string }>(
+    `SELECT pp.pacote_id::text AS pacote_id
+       FROM precos_pacote pp
+      WHERE pp.tabela_preco_id = $1::uuid
+        AND pp.ativo
+      GROUP BY pp.pacote_id
+     HAVING bool_and(pp.tipo_calculo = 'FIXO')`,
+    [tabela.id],
+  );
+  const ids = new Set<string>();
+  for (const linha of linhas.rows) {
+    const leitura = classificar(await linhasDaTabela(tx, empresaId, linha.pacote_id, tabela.id));
+    if (leitura.aConfirmar) ids.add(linha.pacote_id);
+  }
+  return ids;
 }
 
 function codigoTabela() {
@@ -263,12 +328,108 @@ async function substituirFaixas(
   }
 }
 
+async function substituirPontos(tx: DbExecutor, tabelaId: string, pacoteId: string, prontos: PontoPreco[]) {
+  await tx.query(
+    `DELETE FROM tabela_preco_escopo_faixas f
+      USING tabela_preco_escopos e
+      WHERE f.escopo_id = e.id
+        AND e.tabela_preco_id = $1::uuid
+        AND e.pacote_id = $2::uuid`,
+    [tabelaId, pacoteId],
+  );
+  await tx.query(
+    `DELETE FROM tabela_preco_escopos WHERE tabela_preco_id = $1::uuid AND pacote_id = $2::uuid`,
+    [tabelaId, pacoteId],
+  );
+  await tx.query(
+    `DELETE FROM precos_pacote WHERE tabela_preco_id = $1::uuid AND pacote_id = $2::uuid`,
+    [tabelaId, pacoteId],
+  );
+  if (prontos.length === 0) return;
+  for (const ponto of prontos) {
+    await tx.query(
+      `INSERT INTO precos_pacote (
+         tabela_preco_id, pacote_id, convidados_min, convidados_max, tipo_calculo, valor, categoria_horario
+       ) VALUES ($1::uuid, $2::uuid, $3, $3, 'PONTO', $4, 'GERAL')`,
+      [tabelaId, pacoteId, ponto.convidados, ponto.valor],
+    );
+  }
+  // Os pontos não são faixas contínuas: o escopo declara cada ponto, e o cálculo preenche o meio.
+  const escopo = await tx.query<{ id: string }>(
+    `INSERT INTO tabela_preco_escopos (
+       tabela_preco_id, pacote_id, categoria_horario, cobertura_continua,
+       limite_convidados_min, limite_convidados_max
+     ) VALUES ($1::uuid, $2::uuid, 'GERAL', false, NULL, NULL)
+     RETURNING id`,
+    [tabelaId, pacoteId],
+  );
+  const escopoId = escopo.rows[0]?.id ?? recusar("DADOS_INVALIDOS", PRECO_NAO_SALVO, 500);
+  for (const ponto of prontos) {
+    await tx.query(
+      `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max)
+       VALUES ($1::uuid, $2, $2)`,
+      [escopoId, ponto.convidados],
+    );
+  }
+}
+
+async function substituirPrecos(
+  tx: DbExecutor,
+  tabelaId: string,
+  pacoteId: string,
+  prontos: Prontos,
+  limites: { minimo: number; maximo: number },
+) {
+  if (prontos.tipo === "PONTOS") await substituirPontos(tx, tabelaId, pacoteId, prontos.pontos);
+  else await substituirFaixas(tx, tabelaId, pacoteId, prontos.faixas, limites);
+}
+
+function depoisDe(prontos: Prontos) {
+  return prontos.tipo === "PONTOS" ? { pontos: prontos.pontos } : { faixas: prontos.faixas };
+}
+
+function acaoDe(prontos: Prontos) {
+  return prontos.tipo === "PONTOS" && prontos.conversao ? "PRECO_PACOTE_CONVERTIDO" : "PRECO_PACOTE_INCLUIDO";
+}
+
+/** Motivo legível de cada lacuna da tabela (047/092), para a pessoa saber o que corrigir. */
+const MOTIVO_LACUNA: Record<string, string> = {
+  ESCOPO_AUSENTE: "falta a cobertura de convidados declarada",
+  COMBINACAO_SEM_FAIXA: "há uma categoria de horário sem preço",
+  FAIXA_INVALIDA: "há uma faixa de convidados inválida",
+  FAIXA_SOBREPOSTA: "há faixas de convidados sobrepostas",
+  FAIXA_FORA_DO_LIMITE: "há preço fora do mínimo e do máximo de convidados do pacote",
+  FAIXA_COM_BURACO: "há quantidades de convidados sem preço",
+  FAIXA_SEM_PRECO: "há uma faixa sem preço",
+  PRECO_FORA_DO_ESCOPO: "há preço fora da cobertura declarada",
+  PONTO_MISTURADO: "o pacote mistura quantidades cheias com faixas",
+  PONTO_SEM_EXTREMOS: "faltam os preços do mínimo ou do máximo de convidados",
+  PONTO_DECRESCENTE: "um preço é menor que o da quantidade anterior",
+};
+
+/** Mensagem da recusa por lacuna: o pacote (nome) e o motivo, quando conhecidos; senão a genérica. */
+export function mensagemLacuna(codigo: string, nomePacote: string | null) {
+  const motivo = MOTIVO_LACUNA[codigo];
+  return nomePacote && motivo
+    ? `Não foi possível guardar os preços: no pacote ${nomePacote}, ${motivo}. Corrija esse pacote e tente de novo. Nada foi salvo.`
+    : PRECO_NAO_SALVO;
+}
+
 async function validarCompleta(tx: DbExecutor, tabelaId: string) {
-  const lacuna = await tx.query<{ codigo: string }>(
-    `SELECT codigo FROM kidmais_047_lacunas_escopo($1::uuid) LIMIT 1`,
+  const lacuna = await tx.query<{ codigo: string; detalhe: string | null }>(
+    `SELECT codigo, detalhe FROM kidmais_047_lacunas_escopo($1::uuid) LIMIT 1`,
     [tabelaId],
   );
-  if (lacuna.rows[0]) recusar("PRECO_INCOMPLETO", PRECO_NAO_SALVO, 409);
+  const l = lacuna.rows[0];
+  if (!l) return;
+  // Navegador de 22/10 (P3): dizer qual pacote (pelo nome, quando houver) e o motivo, não só "nada foi salvo".
+  const codigoPacote = l.detalhe?.split(" · ")[0] ?? null;
+  const nome = codigoPacote ? (await tx.query<{ nome: string }>(
+    `SELECT p.nome FROM pacotes p JOIN tabelas_preco t ON t.empresa_id = p.empresa_id
+      WHERE t.id = $1::uuid AND p.codigo = $2 AND p.vigente LIMIT 1`,
+    [tabelaId, codigoPacote],
+  )).rows[0]?.nome ?? codigoPacote : null;
+  recusar("PRECO_INCOMPLETO", mensagemLacuna(l.codigo, nome), 409);
 }
 
 async function ligarSupersessao(tx: DbExecutor, empresaId: string, anteriorId: string, sucessoraId: string) {
@@ -341,24 +502,26 @@ export async function gravarFaixasPacote(
   tx: DbExecutor,
   empresaId: string,
   pacoteId: string,
-  faixas: FaixaFixa[] | null,
+  precos: PrecosInformados | null,
   limites: { minimo: number; maximo: number },
   ctx: Contexto,
 ) {
-  if (faixas == null) return { aplicado: true, aviso: null as string | null };
+  if (precos == null) return { aplicado: true, aviso: null as string | null };
   const leitura = await lerFaixasPacote(tx, empresaId, pacoteId);
   if (!leitura.editavel) recusar("PRECO_NAO_EDITAVEL", leitura.aviso ?? PRECO_BLOQUEADO, 409);
-  const prontas = validarFaixas(faixas, limites);
-  if (faixasIguais(prontas, leitura.faixas)) return { aplicado: true, aviso: null };
+  const prontos = prontosDe(precos, limites);
+  if (iguais(prontos, leitura) || (vazio(prontos) && leitura.faixas.length === 0 && leitura.pontos.length === 0)) {
+    return { aplicado: true, aviso: null };
+  }
   await travarEmpresa(tx, empresaId);
   const origemId = await travarCorrente(tx, empresaId);
   const tabelaId = await criarNaoPublicada(tx, empresaId, origemId);
   if (origemId) await copiarAgregado(tx, empresaId, origemId, tabelaId);
-  await substituirFaixas(tx, tabelaId, pacoteId, prontas, limites);
+  await substituirPrecos(tx, tabelaId, pacoteId, prontos, limites);
   await concluirTabela(tx, empresaId, origemId, tabelaId, ctx, {
-    antes: { faixas: leitura.faixas, tabelaCorrenteId: origemId },
-    depois: { pacoteId, faixas: prontas, sucessoraDe: origemId },
-  });
+    antes: { faixas: leitura.faixas, pontos: leitura.pontos, tabelaCorrenteId: origemId },
+    depois: { pacoteId, ...depoisDe(prontos), sucessoraDe: origemId },
+  }, acaoDe(prontos));
   return { aplicado: true, aviso: null as string | null };
 }
 
@@ -408,14 +571,14 @@ export async function aplicarPrecoDaRevisao(
   empresaId: string,
   origemPacoteId: string,
   destinoPacoteId: string,
-  faixas: FaixaFixa[] | null,
+  precos: PrecosInformados | null,
   limites: { minimo: number; maximo: number },
   ctx: Contexto,
 ) {
   await travarEmpresa(tx, empresaId);
   const origemTabelaId = await travarCorrente(tx, empresaId);
   const linhas = origemTabelaId ? await linhasDaTabela(tx, empresaId, origemPacoteId, origemTabelaId) : [];
-  if (faixas == null) {
+  if (precos == null) {
     if (!origemTabelaId || linhas.length === 0) recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
     const tabelaId = await criarNaoPublicada(tx, empresaId, origemTabelaId);
     await copiarAgregado(tx, empresaId, origemTabelaId, tabelaId);
@@ -426,28 +589,28 @@ export async function aplicarPrecoDaRevisao(
     });
     return { aplicado: true, aviso: null as string | null };
   }
-  const prontas = validarFaixas(faixas, limites);
-  if (prontas.length === 0) recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
+  const prontos = prontosDe(precos, limites);
+  if (vazio(prontos)) recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
   if (!origemTabelaId) {
     const tabelaId = await criarNaoPublicada(tx, empresaId, null);
-    await substituirFaixas(tx, tabelaId, destinoPacoteId, prontas, limites);
+    await substituirPrecos(tx, tabelaId, destinoPacoteId, prontos, limites);
     await concluirTabela(tx, empresaId, null, tabelaId, ctx, {
       antes: null,
-      depois: { pacoteId: destinoPacoteId, faixas: prontas },
-    });
+      depois: { pacoteId: destinoPacoteId, ...depoisDe(prontos) },
+    }, acaoDe(prontos));
     return { aplicado: true, aviso: null as string | null };
   }
   const leitura = classificar(linhas);
-  const manter = leitura.editavel && faixasIguais(prontas, leitura.faixas);
+  const manter = leitura.editavel && iguais(prontos, leitura);
   if (!manter && !leitura.editavel) recusar("PRECO_NAO_EDITAVEL", leitura.aviso ?? PRECO_BLOQUEADO, 409);
   const tabelaId = await criarNaoPublicada(tx, empresaId, origemTabelaId);
   await copiarAgregado(tx, empresaId, origemTabelaId, tabelaId);
   await copiarPacoteNaTabela(tx, origemTabelaId, origemPacoteId, tabelaId, destinoPacoteId);
-  if (!manter) await substituirFaixas(tx, tabelaId, destinoPacoteId, prontas, limites);
+  if (!manter) await substituirPrecos(tx, tabelaId, destinoPacoteId, prontos, limites);
   await concluirTabela(tx, empresaId, origemTabelaId, tabelaId, ctx, {
-    antes: { pacoteOrigemId: origemPacoteId, tabelaCorrenteId: origemTabelaId, faixas: leitura.faixas },
-    depois: { pacoteId: destinoPacoteId, faixas: manter ? leitura.faixas : prontas, sucessoraDe: origemTabelaId },
-  });
+    antes: { pacoteOrigemId: origemPacoteId, tabelaCorrenteId: origemTabelaId, faixas: leitura.faixas, pontos: leitura.pontos },
+    depois: { pacoteId: destinoPacoteId, ...(manter ? { faixas: leitura.faixas, pontos: leitura.pontos } : depoisDe(prontos)), sucessoraDe: origemTabelaId },
+  }, manter ? undefined : acaoDe(prontos));
   return { aplicado: true, aviso: null as string | null };
 }
 

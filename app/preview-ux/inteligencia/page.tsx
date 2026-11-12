@@ -5,7 +5,7 @@ import { fonteAdmin } from "@/components/admin/fonte";
 import PreviewInteligencia from "@/components/admin/inteligencia/PreviewInteligencia";
 import { painelVitrine } from "@/lib/financeiro/vitrine";
 
-/** Vitrine do drawer "Perguntar ao Kidmais" (leitura, rascunho, Human Gate). Só com KIDMAIS_PREVIEW_UX=1. */
+/** Vitrine do drawer "Perguntar ao Copiloto" (leitura, rascunho, Human Gate). Só com KIDMAIS_PREVIEW_UX=1. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ estado?: string }> }) {
   if (process.env.KIDMAIS_PREVIEW_UX !== "1") notFound();
   const { estado } = await searchParams;

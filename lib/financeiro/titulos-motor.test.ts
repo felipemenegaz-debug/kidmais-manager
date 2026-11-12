@@ -308,12 +308,12 @@ test("o resumo declara a versão do contrato, para a tela pedir recarga quando d
 
 test("aba antiga sem o cabeçalho de versão recebe pedido de recarregar só nas rotas cujo contrato mudou", async () => {
   const { versaoFinanceiraRecusada, cabecalhoVersaoFinanceira, CABECALHO_VERSAO_FINANCEIRO, VERSAO_RESUMO_FINANCEIRO } = await import("./calculos.ts");
-  for (const rota of ["/api/admin/financeiro", "/api/admin/financeiro/", "/api/admin/financeiro/contas-receber", "/api/admin/financeiro/relatorios", "/api/admin/dashboard"]) {
+  for (const rota of ["/api/admin/financeiro", "/api/admin/financeiro/", "/api/admin/financeiro/contas-receber", "/api/admin/financeiro/relatorios", "/api/admin/dashboard", "/api/admin/financeiro/fluxo-caixa", "/api/admin/financeiro/contas-pagar"]) {
     assert.equal(versaoFinanceiraRecusada(rota, null), true, rota);
     assert.equal(versaoFinanceiraRecusada(rota, "1"), true, rota);
     assert.equal(versaoFinanceiraRecusada(rota, String(VERSAO_RESUMO_FINANCEIRO)), false, rota);
   }
-  for (const rota of ["/api/admin/financeiro/contas-receber/x/pix", "/api/admin/financeiro/contas-pagar", "/api/admin/financeiro/fluxo-caixa", "/api/admin/festas/x/financeiro"])
+  for (const rota of ["/api/admin/financeiro/contas-receber/x/pix", "/api/admin/festas/x/financeiro"])
     assert.equal(versaoFinanceiraRecusada(rota, null), false, rota);
   assert.deepEqual(cabecalhoVersaoFinanceira(), { [CABECALHO_VERSAO_FINANCEIRO]: String(VERSAO_RESUMO_FINANCEIRO) });
   const { readFileSync } = await import("node:fs");
@@ -325,7 +325,8 @@ test("aba antiga sem o cabeçalho de versão recebe pedido de recarregar só nas
   const { ROTAS_COM_VERSAO_FINANCEIRA } = await import("./calculos.ts");
   const raizApp = new URL("../../app/", import.meta.url);
   const arquivos = (dir: URL): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? arquivos(new URL(`${e.name}/`, dir)) : e.name === "route.ts" ? [new URL(e.name, dir).pathname] : []);
-  const contratoVersionado = /\b(resumo|painelGeral|relatorio)\(/;
+  // P2: o caixa realizado (saldo null sem abertura) e as contas (status "Parcialmente paga") também mudaram de contrato.
+  const contratoVersionado = /\b(resumo|painelGeral|relatorio|fluxoCaixa|listarContasPagar)\(/;
   const exigidas = arquivos(raizApp)
     .filter((caminho) => /export async function GET/.test(readFileSync(new URL(`file://${caminho}`), "utf8")) && contratoVersionado.test(readFileSync(new URL(`file://${caminho}`), "utf8")))
     .map((caminho) => decodeURIComponent(caminho).replace(/^.*\/app(\/api\/.*)\/route\.ts$/, "$1"))
@@ -340,5 +341,36 @@ test("relatório leva a versão e a tela nova recusa relatório de servidor sem 
   const servico = fonte("lib/financeiro/servico.ts");
   const corpo = servico.slice(servico.indexOf("export async function relatorio("));
   assert.match(corpo.slice(0, corpo.indexOf("\n}\n")), /return \{\s*\/\/[^\n]*\n\s*versao: VERSAO_RESUMO_FINANCEIRO,/);
-  assert.match(fonte("components/admin/FinanceiroTelas.tsx"), /tela === 'relatorios' && relatorio && relatorio\.versao !== VERSAO_RESUMO_FINANCEIRO/);
+  assert.match(fonte("components/admin/FinanceiroTelas.tsx"), /respostaFinanceiraDesatualizada\(resumo, tela === 'relatorios' \? relatorio : null, tela === 'fluxo' \? fluxo : null\)\) return/);
+});
+
+test("P2: a tela nova recusa fluxo de caixa de servidor antigo, que não traz versão e manda saldo absoluto", async () => {
+  const { respostaFinanceiraDesatualizada, VERSAO_RESUMO_FINANCEIRO } = await import("./calculos.ts");
+  // Resposta do servidor anterior à P2: saldo inicial 0 e final numérico, sem versão nem motivo.
+  const fluxoAntigo = { saldoInicialCentavos: 0, entradasCentavos: 6_240_000, saidasCentavos: 1_890_000, saldoFinalCentavos: 4_350_000, linhas: [] };
+  assert.equal(respostaFinanceiraDesatualizada(fluxoAntigo), true);
+  assert.equal(respostaFinanceiraDesatualizada({ ...fluxoAntigo, versao: 2 }), true);
+  assert.equal(respostaFinanceiraDesatualizada({ ...fluxoAntigo, saldoInicialCentavos: null, saldoFinalCentavos: null, versao: VERSAO_RESUMO_FINANCEIRO }), false);
+  assert.equal(respostaFinanceiraDesatualizada(null, undefined), false, "ainda não carregou");
+  assert.equal(respostaFinanceiraDesatualizada({ versao: VERSAO_RESUMO_FINANCEIRO }, fluxoAntigo), true, "qualquer resposta desatualizada basta");
+  const { readFileSync } = await import("node:fs");
+  const servico = readFileSync(new URL("./servico.ts", import.meta.url), "utf8");
+  const corpo = servico.slice(servico.indexOf("export async function fluxoCaixa("));
+  assert.match(corpo.slice(0, corpo.search(/\r?\n\}\r?\n/)), /return \{\s*versao: VERSAO_RESUMO_FINANCEIRO,/);
+});
+
+test("P2: as amostras do /preview-ux seguem o contrato atual (versão e abertura), senão a tela pede para recarregar", async () => {
+  const { VERSAO_RESUMO_FINANCEIRO, respostaFinanceiraDesatualizada } = await import("./calculos.ts");
+  const { painelVitrine, financeiroVitrine } = await import("./vitrine.ts");
+  assert.equal(painelVitrine.numeros.versao, VERSAO_RESUMO_FINANCEIRO);
+  assert.equal(respostaFinanceiraDesatualizada(financeiroVitrine.resumo, financeiroVitrine.relatorio, financeiroVitrine.fluxo), false);
+  const fluxo = financeiroVitrine.fluxo!;
+  // Período começando em D0: inicial = saldo de abertura; final = inicial + entradas − saídas; previsto sem saldo.
+  assert.equal(fluxo.abertura?.dataBase, "2026-03-01");
+  assert.equal(fluxo.motivoSaldo, null);
+  assert.equal(fluxo.saldoInicialCentavos, fluxo.abertura?.saldoCentavos);
+  assert.equal(fluxo.saldoFinalCentavos, fluxo.saldoInicialCentavos! + fluxo.entradasCentavos - fluxo.saidasCentavos);
+  assert.equal(fluxo.movimentoPeriodoCentavos, fluxo.entradasCentavos - fluxo.saidasCentavos);
+  assert.ok(fluxo.linhas.every((linha) => (linha.tipo === "previsto") === (linha.saldo === null)));
+  assert.equal(painelVitrine.caixa?.saldoCentavos, fluxo.saldoFinalCentavos);
 });

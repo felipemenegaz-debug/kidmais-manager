@@ -1,5 +1,8 @@
+import { limparNomePdf } from "./nome-empresa-pdf.ts";
 import type { ContratoDocumentoLinha, GerarDocumentoContratoInput } from "./models.ts";
 import type { ContratoSnapshot } from "../repositories";
+import { salaoDoSnapshot } from "../repositories/models.ts";
+import { contratantePj, formatarCnpj, representanteDoContratante } from "./contratante-pj.ts";
 import {
   formatarCep,
   formatarCpf,
@@ -92,8 +95,12 @@ export function renderizarContratoTemplateV1(
 ) {
   const s = input.snapshot;
   const historico = versaoHistorica(s);
+  // S-E (plano S-E/S-D rev. 4.1): linha do salão só com salão fixado (V3); sem ele, as linhas são as de antes.
+  const salao = salaoDoSnapshot(s);
+  // Sem `marca` (documento histórico e a própria Kidmais): textos atuais, idênticos.
+  const outraEmpresa = Boolean(input.marca && !input.marca.kidmais);
   const linhas: ContratoDocumentoLinha[] = [
-    linha("KIDMAIS FESTAS", "subtitulo", 3),
+    ...(outraEmpresa ? (limparNomePdf(input.marca?.nome ?? "") ? [linha(limparNomePdf(input.marca?.nome ?? ""), "subtitulo", 3)] : []) : [linha("KIDMAIS FESTAS", "subtitulo", 3)]),
     linha("RESUMO DA CONTRATAÇÃO", "titulo", 8),
     linha(
       "DOCUMENTO INFORMATIVO - As condições jurídicas completas constam do Contrato Oficial correspondente ao pacote contratado.",
@@ -102,9 +109,18 @@ export function renderizarContratoTemplateV1(
     ),
 
     linha("1. IDENTIFICAÇÃO DO CONTRATANTE", "secao", 5),
-    linha(`Nome: ${s.contratante.nomeCompleto}`),
-    linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
-    linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
+    ...(contratantePj(s)
+      ? [
+          linha(`Razão social: ${s.contratante.nomeCompleto}`),
+          linha(`CNPJ: ${formatarCnpj(s.contratante.cnpj)}`),
+          ...(s.contratante.nomeFantasia ? [linha(`Nome fantasia: ${s.contratante.nomeFantasia}`)] : []),
+          linha(`Representante: ${representanteDoContratante(s)}`),
+        ]
+      : [
+          linha(`Nome: ${s.contratante.nomeCompleto}`),
+          linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
+          linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
+        ]),
     linha(`E-mail: ${textoOuNaoInformado(s.contratante.email)}`),
     linha(`Endereço: ${historico ? enderecoHistorico(s) : endereco(s)}`, "corpo", 10),
 
@@ -115,6 +131,7 @@ export function renderizarContratoTemplateV1(
     linha(
       `Horário: ${formatarHorarioContrato(s.evento.horarioInicio)} às ${formatarHorarioContrato(s.evento.horarioFim)}`,
     ),
+    ...(salao ? [linha(`Salão: ${salao.nome}`)] : []),
     linha(`Pacote: ${s.evento.pacote.nome}`),
     linha(
       `Convidados informados: ${s.evento.convidados} | Convidados faturados: ${s.evento.convidadosFaturados}`,
@@ -149,7 +166,7 @@ export function renderizarContratoTemplateV1(
       linha(`Desconto da forma de pagamento: ${s.comercial.descontoFormaPagamentoPercentual}% (${formatarMoeda(s.comercial.valorDescontoFormaPagamento!)})`),
       ...(s.comercial.condicaoPagamento.forma === "PIX_PARCELADO" ? [
         linha(`Condição pretendida pelo cliente: ${formatarCondicaoPix(s.comercial.condicaoPagamento.pretendida)}`),
-        linha(`Condição aprovada pela Kidmais: ${formatarCondicaoPix(s.comercial.condicaoPagamento.aprovada)}`),
+        linha(`Condição aprovada ${outraEmpresa ? "pelo buffet" : "pela Kidmais"}: ${formatarCondicaoPix(s.comercial.condicaoPagamento.aprovada)}`),
         linha("A proposta e a aprovação comercial não representam pagamento realizado. O plano financeiro será registrado após a assinatura."),
       ] : []),
     ] : []),
@@ -172,7 +189,7 @@ export function renderizarContratoTemplateV1(
     linha(
       // Versão histórica (061): o contrato foi assinado em papel; o texto nativo (aceite eletrônico) fica idêntico.
       (s as { origem?: { tipo?: unknown } }).origem?.tipo === "IMPORTACAO_HISTORICA"
-        ? "Contrato assinado em papel, conferido pela Kidmais na importação. Não há aceite nem comprovante eletrônico: a prova é o documento original."
+        ? `Contrato assinado em papel, conferido ${outraEmpresa ? "pelo buffet" : "pela Kidmais"} na importação. Não há aceite nem comprovante eletrônico: a prova é o documento original.`
         : "Este Resumo não substitui o Contrato Oficial. O aceite eletrônico é realizado sobre o Contrato Oficial correspondente ao pacote contratado.",
       "corpo",
       12,
@@ -187,7 +204,8 @@ export function renderizarContratoTemplateV1(
   return {
     templateVersao: 1 as const,
     homologadoParaProducao: true,
-    titulo: "Resumo da Contratação Kidmais",
+    titulo: outraEmpresa ? "Resumo da Contratação" : "Resumo da Contratação Kidmais",
     linhas,
+    marca: input.marca,
   };
 }

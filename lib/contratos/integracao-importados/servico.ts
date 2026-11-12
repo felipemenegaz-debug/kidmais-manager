@@ -1,4 +1,10 @@
-import { cadastroContratualSchema, formularioCadastro, type CadastroConferido } from '../../clientes/cadastro-contratual.ts';
+import { cadastroContratualDoTipo, formularioCadastro, type CadastroConferido, type DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
+import { formatarCnpj } from '../documento/contratante-pj.ts';
+import {
+  diagnosticarSalaoNoDestino, escolherSalaoDoContrato, escopoPorSalao, salaoAtivoDoEscopo, salaoServeNoDestino, saloesDoEscopoImportacao,
+  TEXTO_MOTIVO_SALAO, type MotivoSalaoNaoServe,
+} from '../../agenda/salao-festa.ts';
+import { referenciaParaCaminho } from '../services/salao-contrato.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -7,10 +13,11 @@ import { validarPlanoPagamento } from '../../pagamentos/services/financeiro-core
 import { reautenticacaoPerfilRecente } from '../../perfil/reautenticacao.ts';
 import { hashSnapshotContrato } from '../services/snapshot-core.ts';
 import {
-  avaliarFinanceiro, avaliarIntegracao, centavosParaReais, DECLARACAO_CONFERENCIA, decisoesSchema, financeiroSchema, hashCanonico, hashResumo,
+  resolverAniversariante, agendaComSalao, avaliarFinanceiro, avaliarIntegracao, centavosParaReais, DECLARACAO_CONFERENCIA, decisoesSchema, financeiroSchema, hashCanonico, hashResumo,
   montarSnapshotVersao, reais, sugestaoInicial, type DecisoesFinanceiras, type DecisoesIntegracao, type Referencias, type ResumoFinanceiro,
 } from './modelo.ts';
 import * as repo from './repositorio.ts';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao.ts';
 
 /**
  * Integração do contrato importado ao Core, na transação do tenant comprovado (`withTenantTransaction`).
@@ -46,7 +53,8 @@ type Auditoria = { clienteId?: string | null; atorTipo: 'USUARIO'; usuarioId: st
 type Historico = { clienteId: string; tipoEvento: string; origem: string; entidadeTipo?: string | null; entidadeId?: string | null; usuarioId?: string | null; detalhe?: string | null; metadata?: Record<string, unknown>; critico?: boolean };
 
 export type Core = {
-  snapshotFechamento(tx: DbExecutor, fechamentoId: string): Promise<Record<string, unknown>>;
+  /** opcoes.salao (S-E restante): snapshot nativo V3 com o salão; omitida = V1 de sempre (nunca passar salao: null). */
+  snapshotFechamento(tx: DbExecutor, fechamentoId: string, opcoes?: { salao: { id: string; nome: string } }): Promise<Record<string, unknown>>;
   /** Patch do CRM: sem a chave `telefone` (a tela não a envia), o telefone já gravado é preservado. */
   atualizarCliente(tx: DbExecutor, clienteId: string, empresaId: string, cadastro: CadastroConferido, ctx: ContextoIntegracao): Promise<void>;
   criarFechamento(tx: DbExecutor, input: Record<string, unknown>): Promise<{ id: string }>;
@@ -120,6 +128,39 @@ export function instanteDoRecebimento(data: string, agora = new Date()) {
 
 type Preparo = Awaited<ReturnType<typeof preparar>>;
 
+/**
+ * S-E restante (P2-5): o salão escolhido deixou de servir depois da revisão (revalidação depois da trava da data, ou
+ * recusa da escolha estrita depois do contrato). Erro de domínio: a tela re-simula; a transação é desfeita.
+ */
+export function salaoIndisponivel(salaoId: string | null, motivo: MotivoSalaoNaoServe | null) {
+  return new IntegracaoImportadoError('SALAO_INDISPONIVEL', 'O salão escolhido não está mais disponível para esta festa. Confira e escolha de novo. Nada foi gravado.', 409, { salaoId, motivo });
+}
+
+type SalaoDoPedido = { porSalao: boolean; salao: { id: string; nome: string } | null; bloqueio: string | null };
+
+/**
+ * Caso V3 = festa que ocupa a agenda numa unidade POR_SALAO (094). Nele o salão é escolhido pelo operador (D1: nada
+ * automático) e lido do banco (ativo, no escopo, com o nome que entra no hash). Fora dele o salão precisa vir vazio.
+ */
+async function salaoDoPedido(tx: DbExecutor, empresaId: string, d: DecisoesIntegracao, ocupa: boolean): Promise<SalaoDoPedido> {
+  const porSalao = ocupa && await escopoPorSalao(tx, empresaId, d.estabelecimentoId);
+  if (!porSalao) {
+    const bloqueio = !d.salaoId ? null : ocupa ? 'Esta agenda não usa salão: deixe o salão em branco.' : 'Festa passada não ocupa salão: deixe o salão em branco.';
+    return { porSalao: false, salao: null, bloqueio };
+  }
+  if (!d.salaoId) return { porSalao: true, salao: null, bloqueio: 'Escolha o salão da festa.' };
+  const salao = await salaoAtivoDoEscopo(tx, empresaId, d.estabelecimentoId, d.salaoId);
+  return { porSalao: true, salao, bloqueio: salao ? null : 'O salão escolhido não está ativo nesta unidade. Escolha outro salão.' };
+}
+
+/**
+ * Entrega B: identificação da PJ só para exibir na conferência (não editável aqui; R2-5). PF não ganha chave nova.
+ */
+function dadosPjDaTela(c: DadosPjCliente) {
+  if (c.tipoPessoa !== 'PJ') return {};
+  return { pessoaJuridica: { cnpj: formatarCnpj(c.cnpj ?? ''), nomeFantasia: c.nomeFantasia || null, representante: c.representanteNome || null } };
+}
+
 /** Fonte interna para o preview anterior ao cadastro. Nunca é aceita de um corpo HTTP. */
 export type FonteIntegracaoRascunho = {
   importacao: repo.ImportacaoParaIntegrar & { snapshot: NonNullable<repo.ImportacaoParaIntegrar['snapshot']> };
@@ -149,8 +190,9 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   const clienteAtual = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
   if (!clienteAtual) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
   const cliente = { ...clienteAtual, ...decisoes.cadastro };
-  const cadastro = cadastroContratualSchema.safeParse(formularioCadastro(cliente));
-  const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
+  const pj = clienteAtual.tipoPessoa === 'PJ';
+  const cadastro = cadastroContratualDoTipo(clienteAtual.tipoPessoa).safeParse(formularioCadastro(cliente));
+  const documento = await repo.documentoOriginal(tx, empresaId, importacao.id);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   const pacote = decisoes.pacoteReferenciaId ? await repo.pacoteDaEmpresa(tx, empresaId, decisoes.pacoteReferenciaId) : null;
@@ -170,14 +212,25 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   avaliacao.resumo.cadastro = formularioCadastro(cliente);
   // O cadastro lido também integra a revisão: não sobrescrever uma edição concorrente do CRM.
   avaliacao.resumo.cadastroFonteHash = hashCanonico(formularioCadastro(clienteAtual));
-  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
+  if (!cadastro.success) avaliacao.bloqueios.push(pj
+    ? 'Complete os dados do contratante: razão social e WhatsApp (ou telefone já cadastrado) são obrigatórios; CPF e RG ficam em branco na pessoa jurídica; e-mail é opcional e o endereço, se informado, precisa estar completo.'
+    : 'Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
   if (clienteAtual.cpf && decisoes.cadastro && clienteAtual.cpf.replace(/\D/g, '') !== decisoes.cadastro.cpf) avaliacao.bloqueios.push('O CPF do cliente vinculado não pode ser substituído. Confira o vínculo na etapa do cliente.');
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
   const nomeAniversariante = decisoes.aniversariante ?? (importacao.snapshot.evento?.aniversariante?.trim() || null);
   avaliacao.resumo.festa.aniversariante = nomeAniversariante;
-  const aniversarianteExistente = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
-  avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
+  const lerAniversariante = async () => {
+    const candidatos = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversariantesDoCliente(tx, cliente.id, nomeAniversariante) : [];
+    return resolverAniversariante(candidatos, decisoes.aniversarianteId);
+  };
+  const resolucaoAniversariante = await lerAniversariante();
+  const aniversarianteExistente = resolucaoAniversariante.id;
+  if (!nomeAniversariante || nomeAniversariante.length < 2) avaliacao.resumo.festa.aniversarianteCadastro = null;
+  else {
+    avaliacao.resumo.festa = { ...avaliacao.resumo.festa, ...resolucaoAniversariante.festa };
+    if (resolucaoAniversariante.bloqueio) avaliacao.bloqueios.push(resolucaoAniversariante.bloqueio);
+  }
   const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
   if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
   if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.bloqueios.push('Informe o nome do aniversariante para criar o cadastro e vinculá-lo à festa.');
@@ -190,15 +243,38 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   if (vinculos.length && !(decisoes.outroContratoConfirmado && decisoes.motivoOutroContrato.length >= 5)) {
     avaliacao.bloqueios.push(mensagemDuplicidade(vinculos));
   }
-  return { empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, criterio, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente };
+  // S-E restante (importação V3): o salão não depende do cliente, então o cliente virtual e o real dão o mesmo hash.
+  const agendaSemSalao = avaliacao.resumo.agenda;
+  const salaoDaFesta = await salaoDoPedido(tx, empresaId, decisoes, agendaSemSalao.ocupa);
+  if (salaoDaFesta.bloqueio) avaliacao.bloqueios.push(salaoDaFesta.bloqueio);
+  if (salaoDaFesta.salao) avaliacao.resumo.agenda = agendaComSalao(agendaSemSalao, salaoDaFesta.salao);
+  return { agendaSemSalao, salaoDaFesta, empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, criterio, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente, lerAniversariante };
 }
 
-async function conflito(tx: DbExecutor, p: Preparo, d: DecisoesIntegracao) {
+type Conflito = { codigo: 'CONFLITO_AGENDA'; mensagem: string } | { codigo: 'SALAO_INDISPONIVEL'; mensagem: string; motivo: MotivoSalaoNaoServe | null };
+
+/**
+ * Conflito de agenda. Fora do caso V3: ocupação por recurso (062) e bloqueios, como sempre. No caso V3 (P1-1): bloqueios
+ * da agenda + a regra ESTRITA do salão escolhido (salaoServeNoDestino: ocupação daquele salão, intervalo e limite do dia,
+ * horário, pacote, elegibilidade e comporta) — festa em OUTRO salão no mesmo horário não recusa. O diagnóstico só explica.
+ */
+async function conflito(tx: DbExecutor, p: Preparo, d: DecisoesIntegracao): Promise<Conflito | null> {
   if (!p.avaliacao.resumo.agenda.ocupa) return null;
   const c = await repo.conflitoAgenda(tx, d.evento.data, d.evento.horarioInicio, d.evento.horarioFim, p.empresaId, d.estabelecimentoId);
-  if (c.bloqueado) return 'O horário está bloqueado na agenda. Escolha outro horário ou libere o bloqueio antes de integrar.';
-  if (c.ocupado) return 'O horário já está ocupado por outra festa. Confira data e horário (correção de leitura) antes de integrar.';
-  return null;
+  if (c.bloqueado) return { codigo: 'CONFLITO_AGENDA', mensagem: 'O horário está bloqueado na agenda. Escolha outro horário ou libere o bloqueio antes de integrar.' };
+  if (!p.salaoDaFesta.porSalao) {
+    return c.ocupado ? { codigo: 'CONFLITO_AGENDA', mensagem: 'O horário já está ocupado por outra festa. Confira data e horário (correção de leitura) antes de integrar.' } : null;
+  }
+  const salao = p.salaoDaFesta.salao;
+  // Sem salão, turno ou pacote, os bloqueios de preparar() já recusam.
+  if (!salao || !p.configuracaoAgendaId || !p.pacote) return null;
+  const destino = {
+    fechamentoId: null, data: d.evento.data, inicio: d.evento.horarioInicio, fim: d.evento.horarioFim, configuracaoId: p.configuracaoAgendaId,
+    pacoteId: p.pacote.id, empresaId: p.empresaId, estabelecimentoId: d.estabelecimentoId, convidados: d.evento.convidados,
+  };
+  if (await salaoServeNoDestino(tx, destino, salao.id)) return null;
+  const motivo = await diagnosticarSalaoNoDestino(tx, destino, salao.id);
+  return { codigo: 'SALAO_INDISPONIVEL', motivo, mensagem: `${salao.nome} não serve para esta festa: ${motivo ? TEXTO_MOTIVO_SALAO[motivo] : 'ele não está disponível'}. Escolha outro salão ou confira data, horário, pacote e convidados.` };
 }
 
 /** Dados para montar o assistente: sugestão do documento (sem presumir recebimento), unidades, pacotes e formas. */
@@ -209,6 +285,7 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
   const importacao = await importacaoConfirmada(tx, empresaId, importacaoId, false);
   const vinculo = disponivel ? await repo.vinculoDaImportacao(tx, empresaId, importacaoId) : null;
   const cliente = await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, false);
+  const estabelecimentos = disponivel ? await repo.estabelecimentosAtivos(tx, empresaId) : [];
   return {
     disponivel,
     hoje,
@@ -218,14 +295,15 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
       return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos, contratoCancelado: vinculo.contratoCancelado };
     })() : null,
-    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente) } : null,
+    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente), ...dadosPjDaTela(cliente) } : null,
     documento: {
       pacote: importacao.snapshot.pacote?.nome ?? null,
       aniversariante: importacao.snapshot.evento?.aniversariante ?? null,
       tema: importacao.snapshot.evento?.tema ?? null,
     },
     sugestao: { ...sugestaoInicial(importacao.snapshot), recebimentosDocumento: leituraRecebimentosGuardada(importacao.recebimentosDocumento) },
-    estabelecimentos: disponivel ? await repo.estabelecimentosAtivos(tx, empresaId) : [],
+    estabelecimentos,
+    saloes: disponivel ? await saloesDoEscopoImportacao(tx, empresaId, estabelecimentos) : [],
     pacotes: disponivel ? await repo.pacotesDaEmpresa(tx, empresaId) : [],
     formas: FORMAS,
     declaracao: DECLARACAO_CONFERENCIA,
@@ -240,7 +318,7 @@ export async function simularIntegracao(tx: DbExecutor, tenant: TenantComprovado
   if (vinculo) return { integrada: true as const, contratoId: vinculo.contratoId };
   const p = await preparar(tx, tenant, importacaoId, decisoes, hoje, false, fonte);
   const motivoConflito = await conflito(tx, p, decisoes);
-  if (motivoConflito) p.avaliacao.bloqueios.push(motivoConflito);
+  if (motivoConflito) p.avaliacao.bloqueios.push(motivoConflito.mensagem);
   if (!decisoes.conferenciaDeclarada) p.avaliacao.avisos.push('Para confirmar, declare a conferência do documento original.');
   return {
     integrada: false as const,
@@ -257,12 +335,14 @@ export async function opcoesIntegracaoRascunho(tx: DbExecutor, tenant: TenantCom
   exigirPapel(tenant);
   await exigirDisponivel(tx);
   const empresaId = tenant.empresaComprovada, snapshot = fonte.importacao.snapshot;
+  const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   return {
     disponivel: true, hoje, integracao: null,
-    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente) },
+    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente), ...dadosPjDaTela(fonte.cliente) },
     documento: { pacote: snapshot.pacote?.nome ?? null, aniversariante: snapshot.evento?.aniversariante ?? null, tema: snapshot.evento?.tema ?? null },
     sugestao: { ...sugestaoInicial(snapshot), recebimentosDocumento: leituraRecebimentosGuardada(fonte.importacao.recebimentosDocumento) },
-    estabelecimentos: await repo.estabelecimentosAtivos(tx, empresaId), pacotes: await repo.pacotesDaEmpresa(tx, empresaId),
+    // Mesma origem das opções da tela comum (P2-4).
+    estabelecimentos, saloes: await saloesDoEscopoImportacao(tx, empresaId, estabelecimentos), pacotes: await repo.pacotesDaEmpresa(tx, empresaId),
     formas: FORMAS, declaracao: DECLARACAO_CONFERENCIA,
   };
 }
@@ -375,6 +455,8 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   await exigirDisponivel(tx);
   const decisoes = decisoesSchema.parse(pedido.decisoes);
   const empresaId = tenant.empresaComprovada;
+  // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+  await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   // Lock da importação primeiro: duas confirmações da mesma importação se enfileiram aqui.
   await importacaoConfirmada(tx, empresaId, importacaoId, true);
   const existente = await repo.vinculoDaImportacao(tx, empresaId, importacaoId);
@@ -408,17 +490,45 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
       { resumo: p.avaliacao.resumo, possiveisVinculos: vinculosAgora });
   }
   p.vinculos = vinculosAgora;
+  // Cadastro do aniversariante relido dentro da mesma serialização por empresa: se outra confirmação criou um equivalente,
+  // ou o cadastro mudou depois da leitura acima, a revisão conferida não vale mais.
+  if (p.avaliacao.resumo.festa.aniversarianteCadastro) {
+    const relidoAniversariante = await p.lerAniversariante();
+    const festaRelida = { ...p.avaliacao.resumo.festa };
+    delete festaRelida.aniversarianteCadastroId; delete festaRelida.aniversarianteCadastroNome; delete festaRelida.aniversarianteOpcoes;
+    const resumoAniversariante = { ...p.avaliacao.resumo, festa: { ...festaRelida, ...relidoAniversariante.festa } };
+    if (relidoAniversariante.bloqueio || hashDaRevisao(importacaoId, decisoes, resumoAniversariante, p.vinculos) !== resumoHash) {
+      throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'O cadastro do aniversariante mudou desde a revisão. Confira o resumo atualizado e confirme de novo.', 409, { resumo: resumoAniversariante });
+    }
+  }
   if (ocupa) {
     // Lock da data no namespace do Core e revalidação depois dele (READ COMMITTED vê o último vencedor).
     await repo.travarData(tx, decisoes.evento.data);
+    // S-E restante (P1-2): depois da trava da data e ANTES de qualquer escrita da integração, o salão é relido e o resumo
+    // recomposto; nome ou escopo mudados => RESUMO_DESATUALIZADO; salão que não serve mais => SALAO_INDISPONIVEL.
+    if (p.salaoDaFesta.porSalao || decisoes.salaoId) {
+      const relido = await salaoDoPedido(tx, empresaId, decisoes, true);
+      if (relido.porSalao && decisoes.salaoId && !relido.salao) throw salaoIndisponivel(decisoes.salaoId, 'SALAO_INATIVO_OU_OUTRO_ESCOPO');
+      const resumoRelido = { ...p.avaliacao.resumo, agenda: relido.salao ? agendaComSalao(p.agendaSemSalao, relido.salao) : p.agendaSemSalao };
+      const hashRelido = hashDaRevisao(importacaoId, decisoes, resumoRelido, p.vinculos);
+      if (relido.bloqueio || hashRelido !== resumoHash) {
+        throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'O salão ou a agenda mudaram desde a revisão. Confira o resumo atualizado e confirme de novo.', 409, { resumo: resumoRelido, resumoHash: hashRelido });
+      }
+      p.salaoDaFesta = relido;
+    }
     const motivo = await conflito(tx, p, decisoes);
-    if (motivo) throw new IntegracaoImportadoError('CONFLITO_AGENDA', motivo, 409);
+    if (motivo?.codigo === 'SALAO_INDISPONIVEL') throw salaoIndisponivel(p.salaoDaFesta.salao?.id ?? null, motivo.motivo);
+    if (motivo) throw new IntegracaoImportadoError('CONFLITO_AGENDA', motivo.mensagem, 409);
+    // D-LIB-4 (entrada 8): em "por salão", contrato que ocupa a agenda precisa do salão no documento (V3). Guarda de
+    // serviço (a tela já exige), ANTES do primeiro DML da integração (atualização cadastral logo abaixo).
+    if (p.salaoDaFesta.porSalao && !p.salaoDaFesta.salao) {
+      throw new IntegracaoImportadoError('SALAO_EXIGIDO_NA_IMPORTACAO', 'Esta unidade usa salões: escolha o salão da festa antes de confirmar.', 409);
+    }
   }
 
   if (decisoes.cadastro) await core.atualizarCliente(tx, p.cliente.id, empresaId, decisoes.cadastro, ctx);
   const { snapshot } = p.importacao;
   const totais = p.avaliacao.resumo.contrato.valorContratadoCentavos;
-  const adicionais = snapshot.valores?.adicionais != null && snapshot.valores.adicionais < totais ? snapshot.valores.adicionais : 0;
   const idade = snapshot.evento?.idade;
   const aniversarianteId = p.avaliacao.resumo.festa.aniversarianteCadastro === 'EXISTENTE' ? p.aniversarianteExistente
     : p.avaliacao.resumo.festa.aniversarianteCadastro === 'NOVO'
@@ -431,8 +541,11 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     regraDescontoPacoteId: null, categoriaHorario: p.referencias.categoriaHorario!, categoriaPrecoAplicada: p.precoReferencia!.categoria,
     convidados: decisoes.evento.convidados, convidadosFaturados: decisoes.evento.convidados,
     // Valores do documento (não do catálogo): a linha de preço é só âncora exigida pelo Core.
-    valorPacoteBase: centavosParaReais(totais - adicionais), descontoPercentual: 0, valorDescontoPacote: 0,
-    valorPacoteAplicado: centavosParaReais(totais - adicionais), valorAdicionais: centavosParaReais(adicionais), valorTabela: centavosParaReais(totais),
+    // D1 (28/10/2026): "Adicionais" do documento não têm itens no sistema; o fechamento operacional leva o valor inteiro como
+    // pacote (adicionais 0), senão a primeira revisão é recusada pela guarda da 014 (valor_adicionais = soma dos itens). A
+    // divisão pacote/adicionais do documento fica no snapshot da versão conferida (montarSnapshotVersao).
+    valorPacoteBase: centavosParaReais(totais), descontoPercentual: 0, valorDescontoPacote: 0,
+    valorPacoteAplicado: centavosParaReais(totais), valorAdicionais: 0, valorTabela: centavosParaReais(totais),
     valorNegociado: null, valorAprovado: null, motivoNegociacao: null, observacoesNegociacao: null,
     status: 'CONFIRMADO', origemFechamento: 'IMPORTACAO_HISTORICA', iniciadoPorUsuarioId: ctx.usuarioId, usuarioResponsavelId: ctx.usuarioId,
     responsavelAdicionalId: null, idadeAniversarianteEvento: typeof idade === 'number' && idade >= 0 && idade <= 120 ? idade : null,
@@ -444,13 +557,15 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   });
 
   const unidade = decisoes.estabelecimentoId ? p.referencias.estabelecimentos.find((x) => x.id === decisoes.estabelecimentoId) ?? null : null;
+  // V3 só com o salão escolhido; no V1 a opção é OMITIDA (salao: null produziria V3).
+  const salaoV3 = ocupa ? p.salaoDaFesta.salao : null;
   const snap = montarSnapshotVersao({
-    nativo: await core.snapshotFechamento(tx, fechamento.id),
+    nativo: salaoV3 ? await core.snapshotFechamento(tx, fechamento.id, { salao: salaoV3 }) : await core.snapshotFechamento(tx, fechamento.id),
     importacaoId, documento: p.documento, fechamentoId: fechamento.id, snapshot, decisoes, resumo: p.avaliacao.resumo,
     cliente: p.cliente, aniversarianteId, pacote: p.pacote!, unidade, conferente: { usuarioId: ctx.usuarioId, papel: tenant.papelAtual! },
   });
   const contratoId = await repo.inserirContrato(tx, { fechamentoId: fechamento.id, usuarioId: ctx.usuarioId });
-  const versaoId = await repo.inserirVersaoConferida(tx, { contratoId, snapshot: snap, snapshotHash: hashSnapshotContrato(snap), documentoSha256: p.documento.sha256, usuarioId: ctx.usuarioId });
+  const versaoId = await repo.inserirVersaoConferida(tx, { contratoId, snapshot: snap, snapshotHash: hashSnapshotContrato(snap), schemaVersao: snap.schemaVersao, documentoSha256: p.documento.sha256, usuarioId: ctx.usuarioId });
   const correcoes = p.avaliacao.resumo.campos.filter((c) => c.origem !== 'DOCUMENTO');
   await repo.inserirEdicaoConcluida(tx, { contratoId, versaoId, usuarioId: ctx.usuarioId, dadosFonte: { origem: ORIGEM_INTEGRACAO, importacaoId, documentoSha256: p.documento.sha256 }, alteracoes: { correcoes } });
   await repo.inserirFluxoVigente(tx, contratoId, versaoId);
@@ -463,6 +578,20 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
 
   // Festa nasce da conferência (autoria do operador). Evento futuro revalida o destino com o lock do contrato.
   await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contratoId]);
+  // Parecer do Astra (P1): contrato futuro importado também precisa de salão elegível livre (capacidade por salão).
+  // S-E restante: no V3 a escolha é ESTRITA (o salão do documento, sem substituto); a recusa vira erro de domínio.
+  const marcaImportacao = { caminho: 'INTEGRACAO_IMPORTADO' as const, origem: 'IMPORTACAO' as const };
+  if (salaoV3) {
+    // D-LIB-4 (entrada 7): vigente com a prova da conferência em papel (versão 1 + vínculo da integração), já gravados acima.
+    const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id, versaoId }, 'INTEGRACAO_IMPORTADO');
+    if (referencia.recusa) throw new IntegracaoImportadoError('DADOS_INCONSISTENTES', 'O contrato importado ficou em estado inconsistente. Nada foi gravado; tente de novo.', 409, { motivo: referencia.recusa });
+    try {
+      await escolherSalaoDoContrato(tx, contratoId, { ...marcaImportacao, exigido: salaoV3.id });
+    } catch (e) {
+      if (e && typeof e === 'object' && (e as { salaoExigido?: unknown }).salaoExigido === true) throw salaoIndisponivel(salaoV3.id, null);
+      throw e;
+    }
+  } else if (ocupa) await escolherSalaoDoContrato(tx, contratoId, { ...marcaImportacao, exigido: null });
   if (ocupa) await tx.query('SELECT public.kidmais019_validar_destino($1::uuid)', [contratoId]);
   const causa = { origem: ORIGEM_INTEGRACAO, ator: 'USUARIO', importacaoId, contratoId, versaoId, requestId: ctx.requestId };
   const festaId = await repo.inserirFesta(tx, {
@@ -543,6 +672,8 @@ export async function simularFinanceiro(tx: DbExecutor, tenant: TenantComprovado
 export async function conferirFinanceiro(tx: DbExecutor, tenant: TenantComprovado, ctx: ContextoIntegracao, importacaoId: string, pedido: { financeiro: unknown; resumoHash: string; chave: string }, hoje: string, core: Core) {
   exigirPapel(tenant);
   await exigirDisponivel(tx);
+  // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+  await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   const p = await prepararFinanceiro(tx, tenant, importacaoId, pedido.financeiro, hoje, true);
   if (p.vinculo.financeiro) {
     if (repeticao(p.vinculo.financeiro, pedido)) {

@@ -13,6 +13,7 @@ export const ARTIGO_DA_ROTA: Readonly<Record<string, string>> = {
     '/admin/contratos': 'contratos',
     '/admin/disponibilidade': 'agenda-e-horarios',
     '/admin/convites': 'convites',
+    '/admin/atendimento': 'atendimento-whatsapp',
     '/admin/fechamentos': 'fechamento-de-festa',
     '/admin/clientes': 'clientes',
     '/clientes': 'clientes',
@@ -22,13 +23,17 @@ export const ARTIGO_DA_ROTA: Readonly<Record<string, string>> = {
     '/admin/financeiro/contas-pagar': 'contas-a-pagar-e-caixa',
     '/admin/financeiro/fluxo-caixa': 'contas-a-pagar-e-caixa',
     '/admin/financeiro/relatorios': 'contas-a-pagar-e-caixa',
+    '/admin/conexoes-ia': 'assistentes-externos',
     '/admin/configuracoes/perfil-empresa': 'perfil-da-empresa',
+    '/admin/configuracoes/agenda': 'agenda-e-horarios',
+    '/admin/configuracoes/saloes': 'saloes-pacotes-e-itens',
     '/admin/configuracoes/pacotes': 'saloes-pacotes-e-itens',
     '/admin/configuracoes/catalogo': 'saloes-pacotes-e-itens',
     '/admin/configuracoes/modelo-contrato': 'contratos',
-    '/admin/configuracoes/importar-tabela': 'importar-documentos',
+    '/admin/configuracoes/importar-documentos': 'importar-documentos',
     '/admin/configuracoes/acessos': 'usuarios-e-acessos',
     '/admin/configuracoes/whatsapp': 'conectar-whatsapp',
+    '/admin/configuracoes/creditos': 'creditos-de-ia',
 };
 
 /** Artigo publicado quando o layout foi montado; `ate` é o último dia de vigência (null = sem fim). */

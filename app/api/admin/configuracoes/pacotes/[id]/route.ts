@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { DURACAO_MAXIMA_MINUTOS, DURACAO_MINIMA_MINUTOS } from "@/lib/disponibilidade/services/horario.utils";
 import { motivoDaSituacao, motivoOu, MOTIVOS_PACOTE } from "@/lib/comercial/motivos-pacote";
 import { painelPacoteAdmin } from "@/lib/comercial/pacote-comercial";
 import { alterarSituacaoPacoteAdmin, criarRevisaoPacoteAdmin, editarPacoteNaoUtilizado, excluirPacoteArquivadoAdmin } from "@/lib/comercial/pacotes-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +15,8 @@ export const dynamic = "force-dynamic";
 const uuid = z.string().uuid();
 const nome = z.string().trim().min(1).max(160);
 const texto = z.string().trim().max(2000).nullable();
-const duracao = z.number().int().positive().max(1440).nullable();
+// Limite único de duração (parecer do Astra, P2-2): o mesmo da agenda — 5 min a 23h59.
+const duracao = z.number().int().min(DURACAO_MINIMA_MINUTOS).max(DURACAO_MAXIMA_MINUTOS).nullable();
 const motivo = z.string().trim().min(3).max(500).optional();
 const capacidade = {
   convidadosMinimos: z.number().int().positive().max(10000).nullable().optional(),
@@ -49,6 +52,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
       exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar pacotes.");
+      // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+      await travarConfiguracaoAgenda(tx, tenant.empresaComprovada, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,

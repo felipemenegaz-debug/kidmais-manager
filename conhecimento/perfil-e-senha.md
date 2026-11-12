@@ -30,8 +30,6 @@ Se você não lembra a senha atual:
 
 O link vale por 30 minutos e só pode ser usado uma vez. Depois de definir a nova senha, todas as sessões abertas da conta são encerradas.
 
-Se a tela disser que a recuperação de senha está temporariamente indisponível, fale com o suporte do iA.Fest.
-
 A equipe iA.Fest nunca pede a sua senha.
 
 ## Como sair
@@ -49,3 +47,7 @@ Se você tem acesso a mais de uma empresa:
 Cada empresa aparece com o seu papel nela (Gestão ou Equipe). Ao trocar, os dados da tela anterior são descartados e o sistema abre a empresa escolhida. Se você trocar de empresa em outra aba, esta aba também é atualizada.
 
 Se você tem só uma empresa, o campo **Empresa ativa** não aparece. Se aparecer o aviso "Selecione uma empresa para continuar", escolha a empresa no mesmo campo.
+
+## Assistentes conectados
+
+Em alguns casos, a tela também mostra o link **Assistentes conectados (ChatGPT, Claude)**. Esse recurso depende de liberação e pode não aparecer para todos.

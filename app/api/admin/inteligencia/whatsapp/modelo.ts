@@ -29,12 +29,25 @@ export function portasDeModeloAtendimento(env: NodeJS.ProcessEnv = process.env) 
   return { interpretar: comModelo ? interpretarMensagem : null, entender: comModelo ? entenderComModelo : null };
 }
 
+/**
+ * D-ME-4 (04/11/2026): com WHATSAPP_ATENDIMENTO_MULTIEMPRESA ligada, o modelo do atendimento só é chamado com um teto
+ * POR EMPRESA positivo em AI_BUDGET_JSON (porEmpresa): o teto só da capacidade seria dividido entre todas as empresas.
+ * Sem ele, a chamada é recusada antes do roteador e o worker segue o caminho fixo (encaminhamento à equipe).
+ */
+export function exigirTetoPorEmpresa(orcamento: Exclude<ReturnType<typeof orcamentoDoAmbiente>, string>, env: NodeJS.ProcessEnv) {
+  // Mesma regra de chaveMultiempresa (lib/whatsapp/atendimento/multiempresa.ts): só exatamente "true" liga. Lida aqui, sem
+  // importar o módulo do Core (a composition root da IA só importa a lista fechada de lib/inteligencia/arquitetura.test.ts).
+  if (env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA !== 'true') return;
+  if (!Object.values(orcamento.porEmpresa ?? {}).some((v) => typeof v === 'number' && v > 0)) throw new Error('ATENDIMENTO_ORCAMENTO_SEM_TETO_EMPRESA');
+}
+
 /** Composition root do canal: o domínio recebe portas, sem depender dos modelos da IA. */
 export async function processarFilaAtendimento() {
   // Revisão final (M3): chave global desligada não deixa a fila esperando a IA voltar. Entradas pendentes vão para a
   // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
   const portas = portasDeModeloAtendimento(process.env);
-  return processarLote({interpretar:portas.interpretar,enviar:enviarPelaEmpresa,wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev })},
+  // E-ME1: o envio recebe a empresa dona da saída (não piloto: só a conexão Meta dela).
+  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev })},
     { semAutomacao: !inteligenciaAtiva(process.env) });
 }
 
@@ -65,6 +78,7 @@ export function entenderPeloRoteador(registro: RegistroUso, env: NodeJS.ProcessE
     if (!env.AI_BUDGET_JSON) throw new Error('ATENDIMENTO_ORCAMENTO_AUSENTE');
     const orcamento = orcamentoDoAmbiente(env);
     if (typeof orcamento === 'string') throw new Error('ATENDIMENTO_ORCAMENTO_INVALIDO');
+    exigirTetoPorEmpresa(orcamento, env);
     const politica = politicaDoAmbiente(env);
     const roteador = new RoteadorModelos({ politica: { ...politica, timeoutMs: Math.min(politica.timeoutMs, 15000), tentativasExtras: 0, fallback: { ...politica.fallback, INTERPRETAR_CONVERSA: false } }, adaptadores: criarAdaptadores(env, fetch), precos: tabelaDoAmbiente(env), orcamento, registro, circuito: circuitoGlobal, agora: () => new Date(), relogio: () => performance.now(), novoId: randomUUID });
     const resultado = await roteador.executar(pedidoEntendimentoWallE(texto, contexto, catalogos),
@@ -90,6 +104,7 @@ export async function interpretarMensagem(empresaId: string, texto: string, conf
   if (!process.env.AI_BUDGET_JSON) throw new Error('ATENDIMENTO_ORCAMENTO_AUSENTE');
   const orcamento = orcamentoDoAmbiente(process.env);
   if (typeof orcamento === 'string') throw new Error('ATENDIMENTO_ORCAMENTO_INVALIDO');
+  exigirTetoPorEmpresa(orcamento, process.env);
   const politica = politicaDoAmbiente(process.env);
   // Uma tentativa curta; não transfere a conversa para outro provedor automaticamente.
   const roteador = new RoteadorModelos({ politica: { ...politica, timeoutMs: Math.min(politica.timeoutMs,15000), tentativasExtras: 0, fallback: { ...politica.fallback, FAQ: false } }, adaptadores: criarAdaptadores(process.env, fetch), precos: tabelaDoAmbiente(process.env), orcamento, registro: criarRegistroUsoPostgres({ executor: db, transacao: withTransaction }), circuito: circuitoGlobal, agora: () => new Date(), relogio: () => performance.now(), novoId: randomUUID });

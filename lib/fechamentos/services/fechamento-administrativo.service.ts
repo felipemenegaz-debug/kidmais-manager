@@ -14,8 +14,11 @@ import { FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } fr
 import { erroConvidadosEmpresa, erroConvidadosFechamento } from '../convidados';
 import { ehDonaDaConfigLegada } from '../../disponibilidade/config-legada';
 import { fechamentoAdministrativoSchema } from '../administrativo-schema';
+import { periodoDoPedido } from '../comercial-schema';
 import { criarFechamentoComercial } from './fechamento.service';
 import { FechamentoServiceError } from './errors';
+import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
+import { exigirModeloCompativelNoFechamento, trechosIncompativeisDoContratante } from './modelo-pj';
 
 type Contexto = { token: string; requestId: string; userAgent: string | null; empresaSolicitada?: string | null };
 export function exigirPapelFechamento(papel: string) {
@@ -47,7 +50,9 @@ async function carregarCliente(id: string, empresaId: string, tx: DbExecutor, es
     if (faltantes.length) throw new FechamentoServiceError('CADASTRO_INCOMPLETO', 'Complete o cadastro no CRM antes de iniciar o Fechamento.', 409, { campos: faltantes });
     const aniversariantes = (await listarAniversariantesDoCliente(cliente.id, {}, tx)).filter(a => a.ativo);
     const responsaveis = (await listarResponsaveisDoCliente(cliente.id, {}, tx)).filter(r => r.ativo);
-    return { cliente, aniversariantes, responsaveis, redirecionadoDe: cliente.id !== seletor ? seletor : null };
+    // R2-2: na revisão a tela mostra o bloqueio (PJ × modelo que qualifica PF); no envio, o servidor recusa.
+    const modeloIncompativelPj = await trechosIncompativeisDoContratante(tx, cliente);
+    return { cliente, aniversariantes, responsaveis, modeloIncompativelPj, redirecionadoDe: cliente.id !== seletor ? seletor : null };
 }
 
 /**
@@ -87,7 +92,7 @@ export type ResultadoFechamentoAdministrativo = { fechamentoId: string; status: 
  * (qualquer falha desfaz tudo). `repetido` ⇒ a preparação já virou este Fechamento: devolve-o, sem criar outro.
  */
 export type VinculoPreparacaoFechamento = {
-    validar(tx: DbExecutor, ctx: EscopoPreparacao & { input: { pacote: string; convidadosPagantes: number; dataFesta: string; horarioBase: string } }): Promise<{ repetido: ResultadoFechamentoAdministrativo | null }>;
+    validar(tx: DbExecutor, ctx: EscopoPreparacao & { input: { pacote: string; convidadosPagantes: number; dataFesta: string; horarioBase: string; configuracaoId?: string } }): Promise<{ repetido: ResultadoFechamentoAdministrativo | null }>;
     concluir(tx: DbExecutor, resultado: ResultadoFechamentoAdministrativo): Promise<void>;
 };
 
@@ -116,11 +121,14 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
 
 async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessao: SessaoAdmin, empresaId: string, tx: DbExecutor, vinculo?: VinculoPreparacaoFechamento): Promise<ResultadoFechamentoAdministrativo> {
         const input = fechamentoAdministrativoSchema.parse(raw);
+        // Liberar agenda com mais de um salão (rev. 3): empresa (FOR UPDATE do tenant) → configuração → resto como hoje.
+        await travarConfiguracaoAgenda(tx, empresaId, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
         const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, empresaId, tx, true);
+        await exigirModeloCompativelNoFechamento(tx, cliente);
         // Preparação vinculada (Kidmais): conferida e travada AQUI; reenvio da mesma preparação devolve o já criado.
         if (vinculo) {
             const conferido = await vinculo.validar(tx, { empresaId, usuarioId: sessao.usuario_id, clienteId: cliente.id,
-                input: { pacote: input.pacote, convidadosPagantes: input.convidadosPagantes, dataFesta: input.dataFesta, horarioBase: input.horarioBase } });
+                input: { pacote: input.pacote, convidadosPagantes: input.convidadosPagantes, dataFesta: input.dataFesta, horarioBase: input.horarioBase ?? '', configuracaoId: input.configuracaoId } });
             if (conferido.repetido) return conferido.repetido;
         }
         // Evita alteração concorrente dos vínculos entre a conferência e a gravação.
@@ -158,8 +166,8 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
         // Recurso de agenda (062): unidade da empresa comprovada; com mais de uma, a escolha é obrigatória.
         const escopo = await escopoDaEmpresa(tx, empresaId, input.estabelecimentoId, { exigirUnidade: true });
         const horario = await revalidarHorarioSelecionado({ data: input.dataFesta,
-            codigoPeriodo: input.horarioBase === 'almoco' ? 'TURNO_1' : 'TURNO_2',
-            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx, escopo);
+            ...periodoDoPedido(input), pacoteCodigo: codigoPacote,
+            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario), incluirCombinados: true }, tx, escopo);
         const valorProposto = moedaParaNumeroServidor(input.valorCombinado);
         if (valorProposto === null) throw new FechamentoServiceError('VALOR_PROPOSTO_INVALIDO', 'Informe um valor combinado válido.');
         const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades, input.adicionaisEscolhas);

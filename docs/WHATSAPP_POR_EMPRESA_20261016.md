@@ -114,6 +114,8 @@ Depois do primeiro onboarding de qualquer empresa, mesmo um que falhou, o rollba
 
 **Agora** (`lib/whatsapp/meta-client.ts`): **autorização** e **pertencimento** são provas diferentes.
 
+> **Substituído em 03/11/2026:** a análise do app recusou `business_management`. A prova de pertencimento passou a ser `owner_business_info` da WABA. Ver [Dono da WABA sem business_management](#dono-da-waba-sem-business_management-03112026). Os itens 1 e 2 abaixo ficam como histórico.
+
 **Mantido:**
 - a troca do código;
 - o `debug_token` (válido, mesmo `app_id`, escopos `whatsapp_business_management` e `whatsapp_business_messaging`);
@@ -205,7 +207,38 @@ Depois do primeiro onboarding de qualquer empresa, mesmo um que falhou, o rollba
 - se o token real lê a aresta de posse (H-B1);
 - se `business_management.target_ids` vem explícito (D1).
 
-## Alinhamento da configuração de coexistência (proposta, 17/10/2026)
+## Dono da WABA sem business_management (03/11/2026)
+
+**Motivo:** a análise do app (solicitação 1653893059508687) aprovou `whatsapp_business_messaging`, `whatsapp_business_management` e `public_profile` e recusou `business_management`. Sem acesso avançado, o token de um cliente de outro negócio não traz o escopo. Assim, as provas por `business_management.target_ids` e por `owned_whatsapp_business_accounts` param a conexão.
+
+**Prova P-DONO-WABA** (03/11/2026, token de usuário do app de staging com `public_profile`, `whatsapp_business_management` e `whatsapp_business_messaging`, sem `business_management`, sobre os ativos de teste da Kidmais):
+
+| Leitura | Resultado |
+|---|---|
+| `GET /{waba}?fields=id,owner_business_info` | 200, `owner_business_info.id` = negócio dono |
+| `GET /{waba}?fields=on_behalf_of_business_info,ownership_type` | 200, mesmo negócio, `ownership_type` SELF |
+| `GET /{business}/owned_whatsapp_business_accounts` | **403** (OAuthException code 200) |
+
+O item "não há caminho pela WABA" da tabela acima fica superado na prática. Mesmo assim, `owner_business_info` **não consta** da referência oficial da WABA.
+
+**Contrato atual** (`meta-client.ts`):
+- **Mantido:**
+  - troca do código;
+  - `debug_token` (válido, mesmo `app_id`, escopos `whatsapp_business_management` e `whatsapp_business_messaging`);
+  - `whatsapp_business_management.target_ids` contém a WABA, senão `META_WABA_DIVERGENTE`; sem `granular_scopes`, `META_AUTORIZACAO_INCOMPLETA`.
+- **Negócio** (`negocioDonoDaWaba`): `GET /{waba}?fields=id,owner_business_info` com o token do cliente, depois da autorização da WABA.
+  - **Aceite:** 200, `id` do corpo igual à WABA e `owner_business_info.id` numérico.
+  - **5xx:** `META_API_RECUSOU`.
+  - **Todo o resto:** `META_RELACAO_NAO_CONFIRMADA`. Isso inclui 4xx (campo inexistente, permissão), `error` no corpo, corpo de outra WABA, campo ausente ou nulo e id não numérico.
+- **Negócio no evento:** só é conferido. Se diferir do dono lido, a resposta é `META_WABA_DIVERGENTE` e a validação para antes dos números.
+- **`business_management` não é exigido nem usado.** Se ainda vier no token (configuração antiga), não decide nada.
+- **`wabaPertenceAoNegocio`** (aresta `owned_*`) fica só para a demonstração de ativos de teste, que usa o usuário do sistema com `business_management`.
+- **Inalterado:** gravação (conexão, tentativa, credencial AAD, auditoria) com os ids devolvidos pela validação. Não há migration.
+
+**Riscos e limites:**
+- **H-DONO-1:** o token do cliente no Embedded Signup (usuário do sistema de integração) e WABAs `CLIENT_OWNED` / `ON_BEHALF_OF` podem responder diferente da prova, que foi feita com WABA SELF e token de usuário. Se a Meta não devolver o campo, a conexão para em `META_RELACAO_NAO_CONFIRMADA`, sem gravar o negócio do navegador. A confirmação é a primeira conexão real em staging.
+- **Campo não documentado:** a Meta pode removê-lo sem aviso, e o efeito é o mesmo bloqueio seguro. O plano B é a migration que torna `business_id` opcional (decisão C-B1 (b)).
+- **Configuração do Embedded Signup:** se a configuração do painel Meta ainda pedir `business_management` (a `2195372597859430` pedia), retirar o escopo dela é uma operação na Meta, fora deste código. (proposta, 17/10/2026)
 
 **Como o código combina as opções:**
 - `configuracao.ts` (`opcoesPublicas`) lê `META_EMBEDDED_SIGNUP_OPTIONS_JSON`.
@@ -305,3 +338,19 @@ Isso vale também para os status de entrega de mensagens enviadas pela Meta. Com
 | Testes | `lib/whatsapp/atendimento/meta.test.ts`, `lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts` (R8) |
 
 **Variáveis reais:** nenhuma é criada por esta mudança. Ausentes, as chaves mantêm envio pelo Gupshup e recepção Meta desligada.
+
+## Troca do código sem `redirect_uri` e registro seguro da recusa (03/11/2026)
+
+**O que aconteceu:** na tentativa real em staging de 03/11 às 23:27Z, a janela da Meta concluiu. A anterior, às 22:56Z, não chegou ao servidor. O evento foi `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`, com business, WABA e número, e o código chegou à tela. Mesmo assim, `concluir` respondeu 502 `META_API_RECUSOU` em ~200 ms. O servidor não registrava qual etapa falhou.
+
+**Causa provável** (não comprovada, porque a etapa não era registrada): a troca do código enviava `redirect_uri` = `META_OAUTH_REDIRECT_URI`. O código do Embedded Signup vem do `FB.login` do SDK, e a troca documentada (Tech Provider, "Exchange the token code for a business token") usa só `client_id`, `client_secret` e `code`, com validade de 30 s.
+
+**Mudança** (`lib/whatsapp/meta-client.ts`):
+- A troca não envia mais `redirect_uri`. `META_OAUTH_REDIRECT_URI` continua exigida na configuração; a limpeza fica para depois.
+- `registroRecusaMeta` / `console.warn` grava uma linha `{"whatsappMetaRecusa":{etapa,http,corpo,codigo,subcodigo,tipo}}` quando a Meta recusa nas etapas `troca_codigo`, `debug_token`, `dono_waba` ou `numeros`.
+  - Só entram inteiros (0 a 999.999.999) e valores de lista fechada: etapa; `corpo` (`com_erro`, `sem_erro`, `ilegivel` ou `nao_lido`); `type` (`OAuthException`, `GraphMethodException`, `FacebookApiException` ou `GraphBatchException`, senão `outro`).
+  - Nenhum texto vindo da Meta é copiado: nem `error.message` nem `fbtrace_id`. URL, código, token e segredo também nunca entram.
+  - Dono 5xx: a recusa sai pelo status, sem ler o corpo (`nao_lido`), como antes. Uma leitura que nunca termina não segura a resposta.
+- A inscrição (`subscribed_apps`) não mudou.
+
+**Limite:** a troca sem `redirect_uri` segue a documentação, mas só a próxima tentativa real em staging confirma. Se falhar de novo, o log passa a mostrar a etapa e o código do erro da Meta.

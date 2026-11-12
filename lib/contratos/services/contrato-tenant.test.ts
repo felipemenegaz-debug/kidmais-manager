@@ -5,6 +5,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../../saas/provar-tenant.ts";
 import { contratoNoTenant, executarComPosseNoTenant, fechamentoNoTenant, listarContratosDoTenant, type ProvaDePosse } from "./contrato-tenant.ts";
 import { ResumoTenantError } from "./resumo-tenant.ts";
+import { lerBaseDocumentoContrato } from "../documento/base-documento.ts";
 
 /** B2: rotas administrativas de contrato (painel, detalhe, financeiro, contrato por fechamento). */
 const A = "11111111-1111-4111-8111-111111111111";
@@ -160,4 +161,26 @@ test("D1 serviços: detalhe do painel e contrato por fechamento consultam só pe
   const obter = corpo("lib/contratos/services/contrato.service.ts", "export async function obterContratoPorFechamento(fechamentoId: string, tx?: DbExecutor)");
   assert.match(obter, /buscarContratoPorFechamentoId\(fechamentoId, tx\)/);
   assert.match(obter, /buscarVersaoCorrente\(contrato\.id, tx\)/);
+});
+
+test("Frente C UX: a base do documento é lida no tx da posse, com a empresa comprovada (sem Gestão), e não é lida se a posse falha", async () => {
+  const a = ambiente(); // papel ADMINISTRATIVO: quem lê o painel sem Gestão também recebe a base
+  const original = a.tx.query.bind(a.tx);
+  const base: Array<{ sql: string; values: readonly unknown[]; tx: DbExecutor }> = [];
+  const alvo = a.tx;
+  a.tx.query = async function <Row extends object>(this: DbExecutor, sql: string, values: readonly unknown[] = []) {
+    const r = (rows: object[]) => ({ rows: rows as Row[], rowCount: rows.length });
+    if (sql.includes("to_regclass('public.modelos_contrato_empresa')")) { base.push({ sql, values, tx: alvo }); return r([{ ok: true }]); }
+    if (sql.includes("FROM modelos_contrato_empresa")) { base.push({ sql, values, tx: alvo }); return r([]); }
+    if (sql.includes("SELECT codigo FROM empresas")) { base.push({ sql, values, tx: alvo }); return r([{ codigo: "empresa-a" }]); }
+    return original<Row>(sql, values);
+  } as DbExecutor["query"];
+  const lido = await executarComPosseNoTenant(a.sessao, null, DE_A, contratoNoTenant, a.deps, async (tx, t) => ({ mesmoTx: tx === a.tx, ...(await lerBaseDocumentoContrato(tx, t.empresaComprovada)) }));
+  assert.equal(lido.mesmoTx, true);
+  assert.deepEqual(lido.base, { migration072: true, modeloEmpresaAtivo: false, empresaKidmais: false });
+  assert.ok(base.length >= 3);
+  for (const c of base) if (c.values.length) assert.deepEqual(c.values, [A], "empresa comprovada");
+  base.length = 0;
+  await assert.rejects(executarComPosseNoTenant(a.sessao, null, DE_B, contratoNoTenant, a.deps, (tx, t) => lerBaseDocumentoContrato(tx, t.empresaComprovada)), recusa404);
+  assert.equal(base.length, 0, "posse recusada: nenhuma consulta de modelo nem de empresa");
 });

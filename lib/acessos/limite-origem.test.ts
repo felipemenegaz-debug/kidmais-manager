@@ -154,16 +154,8 @@ test('cadastro sem origem: 10 pedidos de A não bloqueiam B; teto global alto; c
     await assert.rejects(confirmar({ token: token('H') }, semOrigem, depsTx()), (e: { httpStatus?: number }) => e.httpStatus === 410, 'outro link não recebe 429');
 });
 
-// Recorte 4 para production (D-R4-3, opção A): o webhook do Asaas (lib/assinatura/, RAIZ de cobrança) ficou fora deste
-// recorte e ainda usa a chave única ORIGEM_NAO_VERIFICADA quando o IP é nulo. A mudança dele vai junto com a promoção da
-// cobrança; até lá, este teste cobre os cinco fluxos abaixo e o seguinte registra a exceção.
-test('os cinco fluxos públicos do recorte (convites, recuperação, cadastro, limite público, contato de marketing) não usam mais a chave ORIGEM_NAO_VERIFICADA', async () => {
+test('nenhum fluxo público usa mais a chave ORIGEM_NAO_VERIFICADA', async () => {
     const { readFileSync } = await import('node:fs');
-    for (const arquivo of ['lib/acessos/convites.ts', 'lib/acessos/recuperacao.ts', 'lib/cadastro/publico.ts', 'lib/http/limite-publico.ts', 'app/api/publico/marketing/[slug]/contato/route.ts'])
+    for (const arquivo of ['lib/acessos/convites.ts', 'lib/acessos/recuperacao.ts', 'lib/cadastro/publico.ts', 'lib/assinatura/webhook-asaas.ts', 'lib/http/limite-publico.ts', 'app/api/publico/marketing/[slug]/contato/route.ts'])
         assert.doesNotMatch(readFileSync(arquivo, 'utf8'), /ORIGEM_NAO_VERIFICADA/, arquivo);
-});
-
-test('exceção registrada: o webhook do Asaas mantém a chave única até a promoção da cobrança', async () => {
-    const { readFileSync } = await import('node:fs');
-    assert.match(readFileSync('lib/assinatura/webhook-asaas.ts', 'utf8'), /ORIGEM_NAO_VERIFICADA/, 'quando o webhook mudar, retirar esta exceção e devolvê-lo à lista acima');
 });

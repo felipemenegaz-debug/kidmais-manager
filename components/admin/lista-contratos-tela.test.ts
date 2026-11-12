@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 import * as contratoTela from './contrato-tela.ts';
 import * as contratoUrl from './contrato-url.ts';
@@ -90,4 +91,112 @@ test('lista: busca vai ao servidor, 400 vira orientação, filtro trocado descar
   (achar(m.render(), 'button', /^Próximas festas/).props.onClick as () => void)(); await m.ciclo();
   liberar!(); await m.ciclo(); await m.ciclo();
   assert.doesNotMatch(texto(m.render()), /Atrasado/); assert.match(texto(m.render()), /Cliente 1/);
+});
+
+test('O-1: a lista abre com o filtro da URL e a busca da memória e avisa cada troca para gravá-las', async () => {
+  const urls: string[] = [], trocas: Array<[string, string]> = [];
+  const tela = carregarComponente('components/admin/ListaContratos.tsx', {
+    'next/link': { default: Link }, './contratos-ux.module.css': cssFalso, './contrato-tela': contratoTela, './contrato-url': contratoUrl,
+    '@/lib/http/admin-fetch': { adminFetch: async (u: string) => { urls.push(u); return ok({ itens: [item(1)], proximoCursor: null, contagens, importados: [] }); } },
+  });
+  const render = () => tela.render('default', { onAbrir() {}, filtroInicial: 'todas', buscaInicial: 'lucas', onFiltro: (a: string, b: string) => trocas.push([a, b]) });
+  render(); tela.efeitos(); for (let i = 0; i < 4; i++) await tique();
+  let r = render();
+  assert.equal(urls[0], '/api/admin/contratos/lista?filtro=todas&busca=lucas');
+  assert.equal(achar(r, 'input', '').props.value, 'lucas', 'o campo mostra a busca restaurada');
+  assert.equal(elementos(r).find(e => e.type === 'button' && /^Todas/.test(texto(e)))!.props['aria-pressed'], true);
+  (elementos(r).find(e => e.type === 'button' && /^Canceladas/.test(texto(e)))!.props.onClick as () => void)();
+  r = render(); (achar(r, 'button', 'Limpar').props.onClick as () => void)();
+  assert.deepEqual(trocas, [['canceladas', 'lucas'], ['canceladas', '']]);
+});
+
+test('O-2: contrato cancelado aparece como "Cancelado", mesmo sem versão de referência válida; o valor continua oculto', async () => {
+  const sem = { referencia: { origem: 'SEM_VERSAO_VALIDA', diagnostico: true } };
+  const m = montar(async () => ok({ itens: [item(1, { ...sem, cancelado: true, status: 'CANCELADO' }), item(2, sem)], proximoCursor: null, contagens, importados: [] }));
+  const r = await m.ciclo();
+  const linhas = elementos(r).filter(e => e.type === 'button' && /Cliente \d/.test(texto(e))).map(texto);
+  assert.match(linhas[0], /Cancelado/); assert.doesNotMatch(linhas[0], /Conferir/);
+  assert.match(linhas[1], /Conferir/, 'sem versão válida e ativo continua "Conferir"');
+  const valores = elementos(r).filter(e => e.type === 'strong' && e.props.className === 'valorLinha').map(texto);
+  assert.deepEqual(valores, ['—', '—']);
+});
+
+test('O-1 (revisão): a URL que muda com a lista montada (ex.: menu "Contratos") reaplica filtro e busca, sem laço nem leitura dupla', async () => {
+  const urls: string[] = [], trocas: Array<[string, string]> = [];
+  const tela = carregarComponente('components/admin/ListaContratos.tsx', {
+    'next/link': { default: Link }, './contratos-ux.module.css': cssFalso, './contrato-tela': contratoTela, './contrato-url': contratoUrl,
+    '@/lib/http/admin-fetch': { adminFetch: async (u: string) => { urls.push(u); return ok({ itens: [item(1)], proximoCursor: null, contagens, importados: [] }); } },
+  });
+  let props = { filtroInicial: 'todas', buscaInicial: 'Helena' };
+  // Como o ContratoAdmin: cada onFiltro grava na URL e volta como props no render seguinte.
+  const onFiltro = (a: string, b: string) => { trocas.push([a, b]); props = { filtroInicial: a, buscaInicial: b }; };
+  const ciclo = async () => { tela.render('default', { onAbrir() {}, onFiltro, ...props }); tela.efeitos(); for (let i = 0; i < 4; i++) await tique(); tela.render('default', { onAbrir() {}, onFiltro, ...props }); tela.efeitos(); for (let i = 0; i < 4; i++) await tique(); return tela.render('default', { onAbrir() {}, onFiltro, ...props }); };
+  let r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=todas&busca=Helena']);
+  // Mudança externa da URL, sem desmontar: aplica, lê uma vez, não devolve onFiltro (sem laço com o router).
+  props = { filtroInicial: 'canceladas', buscaInicial: 'Theo' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=canceladas&busca=Theo']);
+  assert.equal(achar(r, 'input', '').props.value, 'Theo');
+  assert.equal(elementos(r).find(e => e.type === 'button' && /^Canceladas/.test(texto(e)))!.props['aria-pressed'], true);
+  // Menu "Contratos" (URL sem parâmetros): volta ao padrão.
+  props = { filtroInicial: 'proximas', buscaInicial: '' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=proximas']);
+  assert.equal(achar(r, 'input', '').props.value, '');
+  assert.deepEqual(trocas, [], 'mudança externa não regrava a URL');
+  // Troca feita pela própria lista: grava a URL e lê uma única vez (as props que voltam iguais não releem).
+  (elementos(r).find(e => e.type === 'button' && /^Todas/.test(texto(e)))!.props.onClick as () => void)();
+  r = await ciclo();
+  assert.deepEqual(trocas, [['todas', '']]); assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=todas']);
+});
+
+test('O-1: a primeira busca na lista padrão não se perde enquanto a URL muda, não relê e o menu limpa', async () => {
+  const urls: string[] = [], trocas: Array<[string, string]> = [];
+  const tela = carregarComponente('components/admin/ListaContratos.tsx', {
+    'next/link': { default: Link }, './contratos-ux.module.css': cssFalso, './contrato-tela': contratoTela, './contrato-url': contratoUrl,
+    '@/lib/http/admin-fetch': { adminFetch: async (u: string) => { urls.push(u); return ok({ itens: [item(1)], proximoCursor: null, contagens, importados: [] }); } },
+  });
+  let props = { filtroInicial: 'proximas', buscaInicial: '' };
+  const onFiltro = (a: string, b: string) => { trocas.push([a, b]); };
+  const render = () => tela.render('default', { onAbrir() {}, onFiltro, ...props });
+  const ciclo = async () => { for (let v = 0; v < 2; v++) { render(); tela.efeitos(); for (let i = 0; i < 4; i++) await tique(); } return render(); };
+  let r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=proximas']);
+  (achar(r, 'input', '').props.onChange as (e: { target: { value: string } }) => void)({ target: { value: ' lucas ' } });
+  r = tela.render('default', { onAbrir() {}, onFiltro, ...props });
+  (elementos(r).find(e => e.type === 'form')!.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault() {} });
+  // URL ainda sem `filtro`: a prop segue vazia, e a busca feita continua valendo.
+  r = await ciclo();
+  assert.deepEqual(trocas, [['proximas', 'lucas']]);
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=proximas&busca=lucas']);
+  assert.equal(achar(r, 'input', '').props.value, ' lucas ');
+  // A URL chega (`filtro=proximas`) e a memória vira prop: nada muda e nada é relido.
+  props = { filtroInicial: 'proximas', buscaInicial: 'lucas' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), []);
+  // Menu "Contratos": sem `filtro`, a prop volta vazia e a lista limpa.
+  props = { filtroInicial: 'proximas', buscaInicial: '' }; r = await ciclo();
+  assert.deepEqual(urls.splice(0), ['/api/admin/contratos/lista?filtro=proximas']);
+  assert.equal(achar(r, 'input', '').props.value, '');
+  assert.equal(trocas.length, 1, 'mudança externa não regrava a URL');
+});
+
+test('O-1: o termo da busca não vai para a URL da página nem para o histórico; na aba, só pelo módulo com sessão e prazo', () => {
+  for (const arquivo of ['components/admin/ListaContratos.tsx', 'components/admin/ContratoAdmin.tsx', 'components/admin/contrato-url.ts']) {
+    const fonte = readFileSync(arquivo, 'utf8');
+    // Acesso direto ao armazenamento fica proibido aqui: a aba é usada só por lib/http/busca-na-aba.ts (decisão de 08/11/2026).
+    assert.doesNotMatch(fonte, /sessionStorage|localStorage|indexedDB/, arquivo);
+    assert.equal(fonte.includes("params.set('busca'"), false, arquivo);
+  }
+  const contrato = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
+  assert.match(contrato, /useState\(\(\)=>lerBuscaDaAba\(TELA_BUSCA\)\)/, 'lido ao montar a tela');
+  assert.match(contrato, /if \(listaComBusca && !usoProprio\) setBuscaLista\(lerBuscaDaAba\(TELA_BUSCA\)\);/, 'relido a cada retorno à lista em uso');
+  assert.equal((contrato.match(/lerBuscaDaAba\(/g) ?? []).length, 2, 'só esses dois pontos de leitura');
+  assert.match(contrato, /setBuscaLista\(busca\); setUsoProprio\(true\); guardarBuscaNaAba\(TELA_BUSCA, busca\); window\.history\.replaceState\(null, /, 'gravado junto com a memória; o estado do histórico fica nulo');
+  assert.equal((contrato.match(/guardarBuscaNaAba\(/g) ?? []).length, 1, 'um único ponto de gravação');
+});
+
+test('O-1: a recarga do bfcache fica só na tela de contratos', () => {
+  const contrato = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
+  assert.match(contrato, /if \(e\.persisted\) window\.location\.reload\(\);/);
+  assert.match(contrato, /window\.removeEventListener\('pageshow', restaurada\)/, 'ao sair da tela de contratos, a recarga deixa de valer');
+  assert.doesNotMatch(readFileSync('components/admin/AdminShell.tsx', 'utf8'), /pageshow/, 'o painel inteiro não recarrega');
 });

@@ -206,8 +206,8 @@ export async function detalheContratoImportado(tx: DbExecutor, empresaId: string
        FROM ia_importacoes i
        JOIN clientes c ON c.id = i.cliente_id AND c.empresa_id = i.empresa_id
        LEFT JOIN usuarios_administrativos u ON u.id::text = i.resultado->>'importadoPor'
-       LEFT JOIN LATERAL (SELECT d.id, d.nome_original, d.content_type, d.tamanho_bytes FROM ia_documento_originais d
-                           WHERE d.documento_id = i.documento_id AND d.empresa_id = i.empresa_id ORDER BY d.versao DESC LIMIT 1) o ON true
+       LEFT JOIN ia_extracoes x ON x.id = i.extracao_id AND x.empresa_id = i.empresa_id AND x.documento_id = i.documento_id
+       LEFT JOIN ia_documento_originais o ON o.id = x.original_id AND o.empresa_id = x.empresa_id AND o.documento_id = x.documento_id
       WHERE i.id = $1::uuid AND i.empresa_id = $2::uuid AND i.status = 'IMPORTADA'`,
     [importacaoId, empresaId],
   );
@@ -229,14 +229,18 @@ export async function detalheContratoImportado(tx: DbExecutor, empresaId: string
 
 export type OriginalImportado = { conteudo: Buffer; contentType: string; nome: string };
 
-/** Bytes do original da importação confirmada, no tenant comprovado. A autorização por papel é da rota. */
+/**
+ * Bytes do original que a extração da importação confirmada leu (importação → extração → original), no tenant
+ * comprovado. A autorização por papel é da rota.
+ */
 export async function originalDoContratoImportado(tx: DbExecutor, empresaId: string, importacaoId: string): Promise<OriginalImportado | null> {
   if (!await disponivel(tx)) return null;
   const r = await tx.query<{ conteudo: Buffer; content_type: string; nome_original: string }>(
     `SELECT o.conteudo, o.content_type, o.nome_original
-       FROM ia_importacoes i JOIN ia_documento_originais o ON o.documento_id = i.documento_id AND o.empresa_id = i.empresa_id
-      WHERE i.id = $1::uuid AND i.empresa_id = $2::uuid AND i.status = 'IMPORTADA'
-      ORDER BY o.versao DESC LIMIT 1`,
+       FROM ia_importacoes i
+       JOIN ia_extracoes x ON x.id = i.extracao_id AND x.empresa_id = i.empresa_id AND x.documento_id = i.documento_id
+       JOIN ia_documento_originais o ON o.id = x.original_id AND o.empresa_id = x.empresa_id AND o.documento_id = x.documento_id
+      WHERE i.id = $1::uuid AND i.empresa_id = $2::uuid AND i.status = 'IMPORTADA'`,
     [importacaoId, empresaId],
   );
   const l = r.rows[0];

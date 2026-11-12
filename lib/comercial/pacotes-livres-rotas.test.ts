@@ -25,6 +25,7 @@ function ambiente() {
   const envios: Array<Record<string, unknown>> = [];
   const adicionaisPedidos: Array<Record<string, unknown>> = [];
   const operacoes: string[] = [];
+  const revalidacoes: Array<Record<string, unknown>> = [];
   const pacotes: Record<string, Record<string, string>> = { [EMPRESA_A]: { [LIVRE]: PACOTE_LIVRE }, [KIDMAIS]: { POCKET: POCKET_K } };
   const banco = { async query() { return { rows: [], rowCount: 0 }; } };
   const dubles = {
@@ -48,8 +49,14 @@ function ambiente() {
     },
     "lib/disponibilidade/escopo": { escopoDaEmpresa: async () => (operacoes.push("unidade"), { estabelecimentoId: "unidade-1" }) },
     "lib/disponibilidade/services": {
-      isAvailabilityServiceError: () => false,
-      revalidarHorarioSelecionado: async () => (operacoes.push("horario"), { periodo: { configuracaoId: "turno-1" }, candidato: { inicio: "12:00", fim: "16:00" } }),
+      isAvailabilityServiceError: (error: unknown) => error instanceof ErroHttp,
+      // S-C: acima de 100 convidados o dublê recusa como o serviço real quando nenhum salão livre comporta.
+      revalidarHorarioSelecionado: async (entrada: Record<string, unknown>) => {
+        operacoes.push("horario");
+        revalidacoes.push(entrada);
+        if (Number(entrada.convidados) > 100) throw new ErroHttp("SEM_SALAO_PARA_CONVIDADOS", "Nenhum salão livre neste horário comporta.", 409);
+        return { periodo: { configuracaoId: "turno-1" }, candidato: { inicio: "12:00", fim: "16:00" } };
+      },
     },
     "lib/comercial/services": {
       isPricingServiceError: () => false,
@@ -83,7 +90,7 @@ function ambiente() {
   type Rota = { GET?: (r: unknown) => Promise<{ body: Record<string, unknown>; status: number }>; POST?: (r: unknown) => Promise<{ body: Record<string, unknown>; status: number }> };
   const carregar = (arquivo: string) => carregarModulo(arquivo, dubles, cache) as Rota;
   return {
-    buscas, calculos, envios, adicionaisPedidos, operacoes,
+    buscas, calculos, envios, adicionaisPedidos, operacoes, revalidacoes,
     cotacao: carregar("app/api/fechamentos/cotacao/route.ts"),
     adicionais: carregar("app/api/fechamentos/adicionais/route.ts"),
     catalogo: carregar("app/api/fechamentos/catalogo/route.ts"),
@@ -178,4 +185,25 @@ test("envio do fechamento: /b grava com o pacote P_ da empresa; recusas (endere�
   assert.equal(deOutra.status, 404);
   assert.equal(deOutra.body.codigo, "PACOTE_NAO_ENCONTRADO");
   assert.equal(a.envios.length, 1, "nenhum outro envio chegou ao serviço");
+});
+
+test("S-C: cotação e envio revalidam o horário com os convidados; sem salão que comporte = 409 antes do preço e da gravação", async () => {
+  const a = ambiente();
+  const cotacao = await a.cotacao.POST!(pedido("/api/fechamentos/cotacao?empresa=buffet-a", { ...COTACAO, pacote: LIVRE, convidados: 80 }));
+  assert.equal(cotacao.status, 200);
+  assert.equal(a.revalidacoes.at(-1)!.convidados, 80, "a cotação passa os convidados à revalidação");
+  const envio = await a.envio.POST!(pedido("/api/fechamentos?empresa=buffet-a", { ...FECHAMENTO, pacote: LIVRE, convidadosPagantes: 80 }));
+  assert.equal(envio.status, 201, JSON.stringify(envio.body));
+  assert.equal(a.revalidacoes.at(-1)!.convidados, 80, "o envio passa os convidados pagantes à revalidação");
+
+  const calculosAntes = a.calculos.length;
+  const enviosAntes = a.envios.length;
+  const semSalao = await a.cotacao.POST!(pedido("/api/fechamentos/cotacao?empresa=buffet-a", { ...COTACAO, pacote: LIVRE, convidados: 120 }));
+  assert.equal(semSalao.status, 409);
+  assert.equal(semSalao.body.codigo, "SEM_SALAO_PARA_CONVIDADOS");
+  assert.equal(a.calculos.length, calculosAntes, "a recusa vem antes do preço");
+  const envioSemSalao = await a.envio.POST!(pedido("/api/fechamentos?empresa=buffet-a", { ...FECHAMENTO, pacote: LIVRE, convidadosPagantes: 120 }));
+  assert.equal(envioSemSalao.status, 409);
+  assert.equal(envioSemSalao.body.codigo, "SEM_SALAO_PARA_CONVIDADOS");
+  assert.equal(a.envios.length, enviosAntes, "nada chegou ao serviço que grava");
 });

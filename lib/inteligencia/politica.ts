@@ -4,11 +4,14 @@ import type { ClasseAcao, ResultadoPolitica } from "./contratos.ts";
 export class InteligenciaError extends Error {
   readonly code: string;
   readonly httpStatus: number;
-  constructor(code: string, message: string, httpStatus: number) {
+  /** Subcódigo estável para a tela (ex.: PJ_INDISPONIVEL com ENTREGA_A ou MIGRACAO_PENDENTE). */
+  readonly motivo?: string;
+  constructor(code: string, message: string, httpStatus: number, motivo?: string) {
     super(message);
     this.name = "InteligenciaError";
     this.code = code;
     this.httpStatus = httpStatus;
+    if (motivo) this.motivo = motivo;
   }
 }
 

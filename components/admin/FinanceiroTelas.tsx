@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import Link from 'next/link';
-import { FORMAS, VERSAO_RESUMO_FINANCEIRO, cabecalhoVersaoFinanceira, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira, somarDias } from '@/lib/financeiro/calculos';
-import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
+import { FORMAS, cabecalhoVersaoFinanceira, respostaFinanceiraDesatualizada, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira, somarDias } from '@/lib/financeiro/calculos';
+import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, recusarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
 import { PixParcela } from './PixParcela';
@@ -12,7 +12,12 @@ type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCen
 type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; clienteId?: string | null; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
 type Conta = { id: string; descricao: string; favorecido: string | null; categoria: string; categoriaId: string; vencimento: string; valorCentavos: number; saldoCentavos: number; pagoCentavos: number; status: string; forma: string | null };
 type Categoria = { id: string; nome: string };
-type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; recebimentosSemTaxa?: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
+/** P2 fase B: cada operação só aparece com a flag ligada no servidor (que também barra). */
+type Operacoes = { liquidacao: boolean; reversao: boolean; abertura: boolean };
+type Saida = { id: string; data: string; forma: string; valorCentavos: number; revertidoCentavos: number; restanteCentavos: number };
+const DESLIGADAS: Operacoes = { liquidacao: false, reversao: false, abertura: false };
+type MotivoSaldo = 'SEM_ABERTURA' | 'ANTERIOR_A_ABERTURA' | 'ATRAVESSA_ABERTURA';
+type Fluxo = { versao?: number; saldoInicialCentavos: number | null; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number | null; movimentoPeriodoCentavos?: number; motivoSaldo?: MotivoSaldo | null; abertura?: { versao: number; dataBase: string; saldoCentavos: number } | null; pendencias?: { quantidade: number; centavos: number }; recebimentosSemTaxa?: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
 type Relatorio = {
   versao?: number;
   inicio?: string;
@@ -54,6 +59,8 @@ export type AmostraFinanceira = {
   alertas: string[];
   fluxo: Fluxo;
   relatorio: Relatorio;
+  /** Só para amostra e teste: as flags reais vêm do GET. */
+  operacoes?: Operacoes;
 };
 
 export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceira; amostra?: AmostraFinanceira }) {
@@ -75,7 +82,9 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   const [financeiroCompleto, setFinanceiroCompleto] = useState(true);
   const acaoRef = useRef<AcaoFinanceira>(acaoInicial());
   const [acao, setAcao] = useState<AcaoFinanceira>(acaoInicial);
-  const [dialogo, setDialogo] = useState<'receber' | 'pagar' | 'nova' | 'entrada' | null>(null);
+  const [dialogo, setDialogo] = useState<'receber' | 'pagar' | 'nova' | 'entrada' | 'liquidar' | 'reverter' | null>(null);
+  const [operacoes, setOperacoes] = useState<Operacoes>(amostra?.operacoes ?? DESLIGADAS);
+  const [saidas, setSaidas] = useState<Saida[] | null>(null);
   const [alvo, setAlvo] = useState<Recebivel | Conta | null>(null);
   const [aviso, setAviso] = useState('');
 
@@ -97,8 +106,8 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); return; }
       const data = corpo.data;
       if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); setFinanceiroCompleto(data.financeiroCompleto !== false); }
-      if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); }
-      if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); }
+      if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); setOperacoes({ ...DESLIGADAS, ...data.operacoes }); }
+      if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); setOperacoes({ ...DESLIGADAS, ...data.operacoes }); }
       if (tela === 'fluxo') setFluxo(data);
       if (tela === 'relatorios') setRelatorio(data);
     } catch {
@@ -125,8 +134,8 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); setCarregando(false); return; }
       const data = corpo.data;
       if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); setFinanceiroCompleto(data.financeiroCompleto !== false); }
-      if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); }
-      if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); }
+      if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); setOperacoes({ ...DESLIGADAS, ...data.operacoes }); }
+      if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); setOperacoes({ ...DESLIGADAS, ...data.operacoes }); }
       if (tela === 'fluxo') setFluxo(data);
       if (tela === 'relatorios') setRelatorio(data);
       setCarregando(false);
@@ -148,11 +157,26 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     setAcao(proxima);
   }
 
-  function abrirDialogo(tipo: 'receber' | 'pagar' | 'nova' | 'entrada', item?: Recebivel | Conta) {
+  function abrirDialogo(tipo: 'receber' | 'pagar' | 'nova' | 'entrada' | 'liquidar' | 'reverter', item?: Recebivel | Conta) {
     if (acaoRef.current.fase === 'submitting') return;
     aplicar(abrirAcao(acaoRef.current, () => crypto.randomUUID()));
     if (item) setAlvo(item);
     setDialogo(tipo);
+  }
+
+  async function abrirReversao(conta: Conta) {
+    if (acaoRef.current.fase === 'submitting') return;
+    setSaidas(null);
+    setAviso('');
+    abrirDialogo('reverter', conta);
+    try {
+      const corpo = await (await adminFetch(`/api/admin/financeiro/contas-pagar/${conta.id}/saidas`, { headers: cabecalhoVersaoFinanceira() })).json();
+      if (!corpo.ok) { setAviso(corpo.erro || 'Não foi possível carregar os pagamentos.'); setSaidas([]); return; }
+      setSaidas(corpo.data);
+    } catch {
+      setAviso('Não foi possível carregar os pagamentos.');
+      setSaidas([]);
+    }
   }
 
   function fecharDialogo() {
@@ -161,14 +185,30 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     setDialogo(null);
   }
 
-  async function enviar(url: string, body: unknown) {
+  /**
+   * renovarNaRecusa (escritas da P2 fase B): se o servidor respondeu recusando, a próxima tentativa usa chave nova;
+   * só a falha de transporte (sem resposta) reaproveita a chave. As ações da fase A/P1 seguem como estavam.
+   */
+  async function enviar(url: string, body: unknown, opcoes: { renovarNaRecusa?: boolean } = {}) {
     const envio = confirmarAcao(acaoRef.current);
     if (!envio?.chave) return;
     aplicar(envio);
     setAviso('');
+    let corpo: { ok?: boolean; erro?: string };
     try {
-      const corpo = await (await adminFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-      if (!corpo.ok) { setAviso(corpo.erro || 'Não foi possível concluir.'); aplicar(finalizarAcao(acaoRef.current, 'erro')); return; }
+      corpo = await (await adminFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    } catch {
+      // Sem resposta legível: o pedido pode ter sido gravado; a mesma chave fica para o retry.
+      setAviso('Não foi possível concluir.');
+      aplicar(finalizarAcao(acaoRef.current, 'erro'));
+      return;
+    }
+    try {
+      if (!corpo.ok) {
+        setAviso(corpo.erro || 'Não foi possível concluir.');
+        aplicar(opcoes.renovarNaRecusa ? recusarAcao(acaoRef.current, () => crypto.randomUUID()) : finalizarAcao(acaoRef.current, 'erro'));
+        return;
+      }
       aplicar(finalizarAcao(acaoRef.current, 'sucesso'));
       setDialogo(null);
       await carregar();
@@ -181,7 +221,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   if (carregando) return <main className={styles.pagina} aria-busy="true"><p>Carregando…</p></main>;
   if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button type="button" onClick={() => void carregar()}>Tentar novamente</button></main>;
   // Tela e servidor de versões diferentes: não mostra número de outro contrato.
-  if ((resumo && resumo.versao !== VERSAO_RESUMO_FINANCEIRO) || (tela === 'relatorios' && relatorio && relatorio.versao !== VERSAO_RESUMO_FINANCEIRO)) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
+  if (respostaFinanceiraDesatualizada(resumo, tela === 'relatorios' ? relatorio : null, tela === 'fluxo' ? fluxo : null)) return <main className={styles.pagina}><p className={styles.erro} role="alert">O financeiro foi atualizado. Recarregue a página para ver os números certos.</p><button type="button" onClick={() => window.location.reload()}>Recarregar</button></main>;
 
   return <main className={styles.pagina}>
     {tela === 'visao' && <>
@@ -211,28 +251,34 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
         id: item.id,
         celulas: [item.clienteId ? <Link href={`/clientes/${item.clienteId}`} onClick={(evento) => evento.stopPropagation()}>{item.cliente}</Link> : item.cliente, item.pacote, item.vencimento, reaisDe(item.valorCentavos), reaisDe(item.saldoCentavos), item.status],
         status: item.status,
-        acao: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item) : undefined,
+        acao: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item)
+          // P2 fase B: baixa parcial ou total de entrada avulsa, só com a flag de liquidação ligada.
+          : item.origem === 'ENTRADA_MANUAL' && operacoes.liquidacao && item.saldoCentavos > 0 && !['Cancelado', 'Pago'].includes(item.status) ? () => abrirDialogo('liquidar', item)
+          : undefined,
         // 066: Pix copia e cola / QR com a chave da própria empresa, no valor do saldo.
         pix: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && !['Cancelado', 'Reembolsado', 'Pago'].includes(item.status) ? () => setPixParcela(item.id) : undefined,
       }))} />
     </>}
     {tela === 'pagar' && <>
       <header className={styles.topo}><div><h1>Contas a pagar</h1><p>Saídas previstas e pagas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('nova')}>+ Nova conta</AdminPrimaryButton></header>
-      <Kpis itens={[['A pagar em 30 dias', contas.filter((item) => item.status === 'A pagar' && item.vencimento <= somarDias(hojeBrasilia(), 30)).reduce((t, item) => t + item.saldoCentavos, 0)], ['Total em aberto', contas.filter((item) => item.status === 'A pagar' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
+      <Kpis itens={[['A pagar em 30 dias', contas.filter((item) => (item.status === 'A pagar' || item.status === 'Parcialmente paga') && item.vencimento <= somarDias(hojeBrasilia(), 30)).reduce((t, item) => t + item.saldoCentavos, 0)], ['Total em aberto', contas.filter((item) => item.status === 'A pagar' || item.status === 'Parcialmente paga' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
       {contas.length === 0 && <p className={styles.vazio}>Você ainda não tem contas a pagar.</p>}
       <Tabela colunas={['Descrição', 'Favorecido', 'Categoria', 'Vencimento', 'Valor', 'Status', '']} linhas={contas.map((item) => ({
         id: item.id,
         celulas: [item.descricao, item.favorecido || '—', item.categoria, item.vencimento, reaisDe(item.valorCentavos), item.status],
         status: item.status,
         acao: item.status !== 'Pago' && item.status !== 'Cancelado' ? () => abrirDialogo('pagar', item) : undefined,
+        extra: operacoes.reversao && item.pagoCentavos > 0 ? { rotulo: 'Reverter', aoClicar: () => void abrirReversao(item) } : undefined,
       }))} />
     </>}
     {tela === 'fluxo' && fluxo && <>
       <header className={styles.topo}><div><h1>Fluxo de caixa</h1><p>Previsto e realizado no período.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <Kpis itens={[['Saldo inicial', fluxo.saldoInicialCentavos], ['Entradas', fluxo.entradasCentavos], ['Saídas', fluxo.saidasCentavos], ['Saldo final', fluxo.saldoFinalCentavos]]} />
+      <AvisoSaldo fluxo={fluxo} />
       <AvisoTaxas semTaxa={fluxo.recebimentosSemTaxa} />
-      <section className={styles.cartao}><h2>Saldo ao longo do período</h2><Grafico linhas={fluxo.linhas} /></section>
+      {!amostra && <PainelAbertura aoMudar={carregar} />}
+      {fluxo.saldoFinalCentavos != null && <section className={styles.cartao}><h2>Saldo ao longo do período</h2><Grafico linhas={fluxo.linhas} /></section>}
       {fluxo.linhas.length === 0 && <p className={styles.vazio}>Nenhuma movimentação neste período.</p>}
       <Tabela colunas={['Data', 'Descrição', 'Entrada', 'Saída', 'Saldo', '']} linhas={fluxo.linhas.map((item, indice) => ({ id: String(indice), celulas: [item.data, `${item.descricao} (${item.tipo})`, item.entrada ? reaisDe(item.entrada) : '—', item.saida ? reaisDe(item.saida) : '—', item.saldo == null ? '—' : reaisDe(item.saldo)], status: item.tipo }))} />
     </>}
@@ -283,6 +329,17 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <Forma />
       <Campo nome="observacao" rotulo="Observação (opcional)" />
     </Dialogo>}
+    {dialogo === 'liquidar' && alvo && 'cliente' in alvo && acao.chave && <Dialogo titulo="Registrar recebimento da entrada" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar(`/api/admin/financeiro/contas-receber/${alvo.id}/liquidacoes`, { valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), taxa: Number(form.get('taxa') || 0), observacao: String(form.get('observacao') || '') || undefined, chave: acao.chave }, { renovarNaRecusa: true })}>
+      <p className={styles.vazio}>Saldo em aberto: {reaisDe(alvo.saldoCentavos)}. Pode ser parcial.</p>
+      <Campo nome="valor" rotulo="Valor recebido" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} obrigatorio />
+      <Campo nome="data" rotulo="Data" tipo="date" padrao={hojeBrasilia()} obrigatorio />
+      <Forma />
+      <Campo nome="taxa" rotulo="Taxa (opcional)" tipo="number" />
+      <Campo nome="observacao" rotulo="Observação (opcional)" />
+    </Dialogo>}
+    {dialogo === 'reverter' && alvo && 'descricao' in alvo && acao.chave && <Dialogo titulo="Reverter pagamento" confirmar="Reverter" aviso={aviso} ocupado={acao.fase === 'submitting' || saidas === null} aoFechar={fecharDialogo} aoEnviar={(form) => enviar(`/api/admin/financeiro/contas-pagar/${alvo.id}/saidas/${String(form.get('saidaId'))}/reversoes`, { valor: Number(form.get('valor')), data: String(form.get('data')), motivo: String(form.get('motivo') || ''), chave: acao.chave }, { renovarNaRecusa: true })}>
+      {saidas === null ? <p className={styles.vazio}>Carregando pagamentos…</p> : <ReversaoCampos saidas={saidas} />}
+    </Dialogo>}
     {dialogo === 'nova' && acao.chave && <Dialogo titulo="Nova conta" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-pagar', { acao: 'criar', descricao: String(form.get('descricao')), favorecido: String(form.get('favorecido') || ''), categoriaId: String(form.get('categoriaId')), valor: Number(form.get('valor')), vencimento: String(form.get('vencimento')), competencia: String(form.get('competencia') || '') || undefined, forma: String(form.get('forma')), observacao: String(form.get('observacao') || ''), recorrente: form.get('recorrente') === 'on', chave: acao.chave })}>
       <Campo nome="descricao" rotulo="Descrição" obrigatorio />
       <Campo nome="favorecido" rotulo="Favorecido / fornecedor" />
@@ -302,15 +359,28 @@ function textoMargem(item: { margemEstimadaCentavos: number | null; noEscopo?: b
   if (item.margemEstimadaCentavos != null) return reaisDe(item.margemEstimadaCentavos);
   return item.noEscopo === false ? '—' : 'custos não lançados';
 }
+function AvisoSaldo({ fluxo }: { fluxo: Fluxo }) {
+  const pend = fluxo.pendencias;
+  const dataBase = fluxo.abertura?.dataBase;
+  const motivo = fluxo.motivoSaldo === 'SEM_ABERTURA' ? 'O saldo aparece depois que o saldo de abertura for informado. Até lá, mostramos só as entradas e saídas do período.'
+    : fluxo.motivoSaldo === 'ANTERIOR_A_ABERTURA' ? `Este período é anterior ao saldo de abertura (${dataBase}). Mostramos só as entradas e saídas.`
+    : fluxo.motivoSaldo === 'ATRAVESSA_ABERTURA' ? `O saldo começa em ${dataBase}, data do saldo de abertura.`
+    : '';
+  return <>
+    {motivo && <p className={styles.vazio}>{motivo}{fluxo.movimentoPeriodoCentavos != null ? ` Entradas menos saídas no período: ${reaisDe(fluxo.movimentoPeriodoCentavos)}.` : ''}</p>}
+    {pend && pend.quantidade > 0 && <p className={styles.erro} role="status">A conferir: {pend.quantidade === 1 ? '1 movimento' : `${pend.quantidade} movimentos`} desde a abertura, somando {reaisDe(pend.centavos)}. O saldo considera o que está lançado hoje.</p>}
+  </>;
+}
 function AvisoTaxas({ semTaxa }: { semTaxa?: number }) {
   const n = semTaxa ?? 0;
   return <p className={styles.vazio}>Valores líquidos das taxas informadas.{n > 0 ? ` ${n === 1 ? '1 recebimento de cartão ou boleto está' : `${n} recebimentos de cartão ou boleto estão`} sem taxa informada.` : ''}</p>;
 }
-function Kpis({ itens }: { itens: Array<[string, number | undefined]> }) {
+function Kpis({ itens }: { itens: Array<[string, number | null | undefined]> }) {
   const acento = itens.length <= 5;
-  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
+  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{valor === null ? '—' : reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
 }
-function tomKpi(rotulo: string, valor?: number) {
+function tomKpi(rotulo: string, valor?: number | null) {
+  if (valor === null) return '';
   const nome = rotulo.toLowerCase();
   if (nome.includes('atraso') || nome.includes('vencido') || nome.includes('inadimpl')) return styles.alerta;
   if (nome.includes('saída') || nome.includes('saida')) return styles.saida;
@@ -326,15 +396,16 @@ function Filtros({ opcoes, valor, aoMudar }: { opcoes: string[]; valor: string; 
 function Lista({ titulo, vazio, itens }: { titulo: string; vazio: string; itens: Array<{ id: string; titulo: string; detalhe: string; valor: number }> }) {
   return <section className={styles.cartao}><h2>{titulo}</h2>{itens.length === 0 && <p className={styles.vazio}>{vazio}</p>}{itens.map((item) => <div className={styles.linha} key={item.id}><div><p>{item.titulo}</p><small>{item.detalhe}</small></div><strong>{reaisDe(item.valor)}</strong></div>)}</section>;
 }
-function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: ReactNode[]; status: string; acao?: () => void; pix?: () => void }> }) {
+type AcaoExtra = { rotulo: string; aoClicar: () => void };
+function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: ReactNode[]; status: string; acao?: () => void; pix?: () => void; extra?: AcaoExtra }> }) {
   return <>
     <div className={styles.painel}>
       <table className={styles.tabela}>
         <thead><tr>{colunas.filter(Boolean).map((coluna) => <th key={coluna}>{coluna}</th>)}<th><span className={styles.srOnly}>Ações</span></th></tr></thead>
-        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.pix ? <button className={styles.acao} type="button" aria-label="Pix da parcela" onClick={(evento) => { evento.stopPropagation(); linha.pix?.(); }}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
+        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "Parcialmente paga", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.pix ? <button className={styles.acao} type="button" aria-label="Pix da parcela" onClick={(evento) => { evento.stopPropagation(); linha.pix?.(); }}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}{linha.extra ? <button className={styles.acao} type="button" onClick={(evento) => { evento.stopPropagation(); linha.extra?.aoClicar(); }}>{linha.extra.rotulo}</button> : null}</td></tr>)}</tbody>
       </table>
     </div>
-    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.pix ? <button className={styles.acao} type="button" onClick={linha.pix}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>
+    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.pix ? <button className={styles.acao} type="button" onClick={linha.pix}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}{linha.extra ? <button className={styles.acao} type="button" onClick={linha.extra.aoClicar}>{linha.extra.rotulo}</button> : null}</article>)}</div>
   </>;
 }
 function intervalo(periodo: string) {
@@ -375,4 +446,175 @@ function NovaEntrada({ aviso, ocupado, festas, aoFechar, aoEnviar }: { aviso: st
     </>}
     <Campo nome="observacao" rotulo="Observação" />
   </Dialogo>;
+}
+function ReversaoCampos({ saidas }: { saidas: Saida[] }) {
+  const abertas = saidas.filter((item) => item.restanteCentavos > 0);
+  const [saidaId, setSaidaId] = useState(abertas[0]?.id ?? '');
+  const escolhida = abertas.find((item) => item.id === saidaId);
+  if (abertas.length === 0) return <p className={styles.vazio}>Nenhum pagamento desta conta pode ser revertido.</p>;
+  return <>
+    <label>Pagamento<select name="saidaId" aria-label="Pagamento a reverter" value={saidaId} onChange={(evento) => setSaidaId(evento.target.value)} required>
+      {abertas.map((item) => <option key={item.id} value={item.id}>{item.data} · {ROTULOS[item.forma as FormaFinanceira] ?? item.forma} · {reaisDe(item.valorCentavos)}{item.revertidoCentavos > 0 ? ` (já revertido ${reaisDe(item.revertidoCentavos)})` : ''}</option>)}
+    </select></label>
+    <Campo key={saidaId} nome="valor" rotulo="Valor a reverter" tipo="number" padrao={((escolhida?.restanteCentavos ?? 0) / 100).toFixed(2)} obrigatorio />
+    <Campo nome="data" rotulo="Data da reversão" tipo="date" padrao={hojeBrasilia()} obrigatorio />
+    <Campo nome="motivo" rotulo="Motivo" obrigatorio />
+    <p className={styles.vazio}>O pagamento original fica no histórico. A reversão devolve o valor ao saldo da conta.</p>
+  </>;
+}
+
+type MovimentoVisto = { tipo: string; origemId: string; data: string; centavos: number; descricao: string; atributosHash: string };
+type LeituraAbertura = {
+  disponivel: boolean;
+  podeGerir: boolean;
+  hoje: string;
+  vigente: { versao: number; dataBase: string; saldoCentavos: number; confirmadaEm: string } | null;
+  pendencias: { quantidade: number; centavos: number; itens: MovimentoVisto[] };
+  previa: { dataBase: string; janela: { de: string; ate: string } | null; movimentos: MovimentoVisto[]; conjuntoHash: string; movimentoDesdeD0Centavos: number };
+};
+const LIMITE_CONFERENCIA = 200;
+const chaveMovimento = (item: MovimentoVisto) => `${item.tipo}:${item.origemId}`;
+
+/**
+ * P2 fase B: confirmar ou corrigir a abertura e conferir pendências. Só aparece com a flag de abertura ligada.
+ * A Equipe vê; só a Gestão envia (o servidor recusa a Equipe de qualquer forma).
+ * Cada envio usa uma chave nova depois de resposta do servidor; numa falha de rede a mesma chave é reaproveitada.
+ */
+export function PainelAbertura({ aoMudar }: { aoMudar: () => Promise<void> | void }) {
+  const [leitura, setLeitura] = useState<LeituraAbertura | null>(null);
+  const [dataBase, setDataBase] = useState('');
+  const [aviso, setAviso] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [marcados, setMarcados] = useState<string[]>([]);
+  const chaveRef = useRef<string | null>(null);
+  // Cada leitura tem um número; só a mais recente é aplicada. Resposta antiga (de outra data) é descartada.
+  const leituraRef = useRef(0);
+  const [lendo, setLendo] = useState(false);
+
+  async function ler(d0?: string) {
+    const numero = ++leituraRef.current;
+    setLendo(true);
+    try {
+      const consulta = d0 ? `?dataBase=${encodeURIComponent(d0)}` : '';
+      const corpo = await (await adminFetch(`/api/admin/financeiro/abertura${consulta}`, { headers: cabecalhoVersaoFinanceira() })).json();
+      if (numero !== leituraRef.current) return;
+      if (!corpo.ok) { setAviso(corpo.erro || 'Não foi possível carregar a abertura.'); return; }
+      setLeitura(corpo.data);
+      setDataBase(corpo.data.previa.dataBase);
+      setMarcados([]);
+    } catch {
+      if (numero === leituraRef.current) setAviso('Não foi possível carregar a abertura.');
+    } finally {
+      if (numero === leituraRef.current) setLendo(false);
+    }
+  }
+
+  // Toda troca do campo invalida a leitura pendente, inclusive apagar a data: senão a resposta repõe a data abandonada.
+  function escolherData(valor: string) {
+    setDataBase(valor);
+    if (valor) { void ler(valor); return; }
+    leituraRef.current += 1;
+    setLendo(false);
+  }
+
+  useEffect(() => {
+    let ativo = true;
+    const numero = ++leituraRef.current;
+    adminFetch('/api/admin/financeiro/abertura', { headers: cabecalhoVersaoFinanceira() }).then((resposta) => resposta.json()).then((corpo) => {
+      if (!ativo || numero !== leituraRef.current || !corpo.ok) return;
+      setLeitura(corpo.data);
+      setDataBase(corpo.data.previa.dataBase);
+    }).catch(() => undefined);
+    return () => { ativo = false; };
+  }, []);
+
+  async function postar(url: string, corpoPedido: Record<string, unknown>) {
+    if (ocupado) return false;
+    chaveRef.current ??= crypto.randomUUID();
+    setOcupado(true);
+    setAviso('');
+    try {
+      const resposta = await adminFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corpoPedido, chave: chaveRef.current }) });
+      const corpo = await resposta.json();
+      chaveRef.current = null;
+      if (!corpo.ok) {
+        // 409: outra pessoa mudou a abertura ou os movimentos. Mostra a leitura nova para revisar antes de reenviar.
+        setAviso(resposta.status === 409 ? `${corpo.erro || 'A abertura mudou.'} Revise a prévia atualizada e confirme de novo.` : (corpo.erro || 'Não foi possível concluir.'));
+        if (resposta.status === 409) await ler(dataBase || undefined);
+        return false;
+      }
+      await ler();
+      await aoMudar();
+      return true;
+    } catch {
+      setAviso('Não foi possível concluir. Tente de novo: o mesmo pedido não é gravado duas vezes.');
+      return false;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  if (!leitura?.disponivel) return null;
+  const { vigente, pendencias, previa, podeGerir } = leitura;
+  const marcadosItens = pendencias.itens.filter((item) => marcados.includes(chaveMovimento(item)));
+  const mostrarFormulario = podeGerir && (!vigente || editando);
+  // Só confirma quando a prévia na tela é a da data escolhida: senão iria a data e o hash anteriores.
+  const previaDaData = !lendo && dataBase !== '' && previa.dataBase === dataBase;
+
+  return <section className={styles.cartao} aria-label="Saldo de abertura">
+    <h2>Saldo de abertura</h2>
+    {vigente
+      ? <div className={styles.linha}><p>Saldo em {vigente.dataBase} (revisão {vigente.versao})</p><strong>{reaisDe(vigente.saldoCentavos)}</strong></div>
+      : <p className={styles.vazio}>Informe o saldo do caixa numa data para o fluxo mostrar saldo.</p>}
+    {!podeGerir && <p className={styles.vazio}>Só a gestão da empresa confirma a abertura e confere movimentos.</p>}
+    {podeGerir && vigente && !editando && <button className={styles.acao} type="button" onClick={() => { setEditando(true); setAviso(''); }}>Corrigir abertura</button>}
+    {mostrarFormulario && <form aria-label="Confirmar saldo de abertura" aria-busy={ocupado} onSubmit={async (evento) => {
+      evento.preventDefault();
+      if (ocupado || !previaDaData) return;
+      const form = new FormData(evento.currentTarget);
+      const ok = await postar('/api/admin/financeiro/abertura', {
+        dataBase: previa.dataBase,
+        saldo: Number(form.get('saldo')),
+        justificativa: String(form.get('justificativa') || ''),
+        versaoEsperada: vigente?.versao ?? 0,
+        conjuntoHash: previa.conjuntoHash,
+      });
+      if (ok) setEditando(false);
+    }}>
+      <label>Data do saldo<input name="dataBase" type="date" aria-label="Data do saldo" value={dataBase} max={leitura.hoje} required disabled={ocupado} onChange={(evento) => escolherData(evento.target.value)} /></label>
+      <label>Saldo no início do dia<input name="saldo" type="number" step="0.01" aria-label="Saldo no início do dia" defaultValue={vigente && vigente.dataBase === previa.dataBase ? (vigente.saldoCentavos / 100).toFixed(2) : undefined} required disabled={ocupado} /></label>
+      <label>Justificativa<input name="justificativa" aria-label="Justificativa" minLength={3} maxLength={1000} required disabled={ocupado} /></label>
+      <p className={styles.vazio}>
+        {previa.janela ? `De ${previa.janela.de} a ${previa.janela.ate}: ${previa.movimentos.length === 1 ? '1 movimento lançado' : `${previa.movimentos.length} movimentos lançados`}, que ficam como já conferidos ao confirmar.` : 'Sem movimentos anteriores a hoje nesta data.'}
+        {' '}Movimento de {previa.dataBase} até hoje: {reaisDe(previa.movimentoDesdeD0Centavos)}, somado ao saldo informado.
+      </p>
+      {!previaDaData && <p className={styles.vazio} role="status">{lendo ? 'Carregando a prévia da data escolhida…' : 'A prévia mostrada não é da data escolhida. Escolha a data de novo para recarregar.'}</p>}
+      {previa.movimentos.length > 0 && <details><summary>Ver movimentos da prévia</summary>{previa.movimentos.map((item) => <div className={styles.linha} key={chaveMovimento(item)}><p>{item.data} · {item.descricao}</p><strong>{reaisDe(item.centavos)}</strong></div>)}</details>}
+      {aviso && <p className={styles.erro} role="alert">{aviso}</p>}
+      <div className={styles.acoes}>
+        {vigente && <button className={styles.voltar} type="button" disabled={ocupado} onClick={() => { setEditando(false); setAviso(''); }}>Voltar</button>}
+        <AdminPrimaryButton type="submit" disabled={ocupado || !previaDaData}>{ocupado ? 'Processando…' : vigente ? 'Salvar correção' : 'Confirmar abertura'}</AdminPrimaryButton>
+      </div>
+    </form>}
+    {vigente && pendencias.quantidade > 0 && <div aria-label="Movimentos a conferir">
+      <h3>A conferir desde a abertura</h3>
+      <p className={styles.vazio}>{pendencias.quantidade === 1 ? '1 movimento' : `${pendencias.quantidade} movimentos`}, somando {reaisDe(pendencias.centavos)}. Marque os que conferem com o extrato.</p>
+      {pendencias.itens.map((item) => {
+        const id = chaveMovimento(item);
+        return <label className={styles.linha} key={id}>
+          {podeGerir && <input type="checkbox" aria-label={`Conferido: ${item.descricao}`} checked={marcados.includes(id)} disabled={ocupado || (!marcados.includes(id) && marcados.length >= LIMITE_CONFERENCIA)} onChange={(evento) => setMarcados((atual) => evento.target.checked ? [...atual, id] : atual.filter((x) => x !== id))} />}
+          <p>{item.data} · {item.descricao}</p><strong>{reaisDe(item.centavos)}</strong>
+        </label>;
+      })}
+      {podeGerir && <div className={styles.acoes}>
+        <button className={styles.voltar} type="button" disabled={ocupado} onClick={() => setMarcados(pendencias.itens.slice(0, LIMITE_CONFERENCIA).map(chaveMovimento))}>Marcar {Math.min(pendencias.itens.length, LIMITE_CONFERENCIA)}</button>
+        <AdminPrimaryButton type="button" disabled={ocupado || marcadosItens.length === 0} onClick={() => void postar('/api/admin/financeiro/abertura/conferencias', {
+          versaoAbertura: vigente.versao,
+          itens: marcadosItens.map((item) => ({ tipo: item.tipo, origemId: item.origemId, atributosHash: item.atributosHash })),
+        })}>{ocupado ? 'Processando…' : `Conferir ${marcadosItens.length}`}</AdminPrimaryButton>
+      </div>}
+    </div>}
+    {!mostrarFormulario && aviso && <p className={styles.erro} role="alert">{aviso}</p>}
+  </section>;
 }

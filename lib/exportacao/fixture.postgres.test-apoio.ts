@@ -6,6 +6,7 @@ import type { DbExecutor } from "../db/contracts";
 import { hashSnapshotContrato } from "../contratos/services/snapshot-core.ts";
 import type { Transacao } from "./servico.ts";
 import { lerZip } from "./zip.ts";
+import { travarConfiguracaoAgenda } from "../agenda/trava-configuracao.ts";
 import type { Manifesto } from "./pacote.ts";
 
 /**
@@ -20,6 +21,19 @@ export const id = async (db: Client, sql: string, v: unknown[]) => (await db.que
 export const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 export const SENHA_FALSA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 export const RETRATO = "lib/exportacao/colunas-esperadas.json";
+/** Retrato do schema com a 102/103 e sem a 098 (modelo 103): comparação completa também nesse estado (parecer do Astra, 25/10/2026). */
+export const RETRATO_102 = "lib/exportacao/colunas-esperadas-102.json";
+/**
+ * Retrato do modelo 108 (cadeia inteira até a 106 + 107 + 108, sem a 098 histórica): o do 103 mais as colunas que a
+ * exportação inclui da 104 (fechamento_revisoes.hash_versao), da 106 (fechamentos.salao_preferido_id) e da 108
+ * (agenda_saloes.combinado e membros, no fim: ordinal depois das colunas da 102). 105 e 107 só criam tabelas fora do escopo.
+ */
+export const RETRATO_108 = "lib/exportacao/colunas-esperadas-108.json";
+// B-9 production (29/10/2026): a 109 acrescenta assinatura_renovacoes.substitui_id (cadeia da renovação substituta).
+export const RETRATO_109 = "lib/exportacao/colunas-esperadas-109.json";
+// Pesquisa de satisfação (30/10/2026): a 110 cria as tabelas satisfacao_* (modelo 110 = cadeia da 109 + 110).
+export const RETRATO_110 = "lib/exportacao/colunas-esperadas-110.json";
+export const RETRATO_111 = "lib/exportacao/colunas-esperadas-111.json";
 
 export function transacaoDo(c: Client): Transacao {
   return async (work) => {
@@ -83,6 +97,9 @@ export async function montarEmpresaCom(db: Client, letra: string, criarIdentidad
   const marca = `MARCA-${letra}-${randomBytes(4).toString("hex")}`;
   const empresa = await id(db, `INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod(), `Buffet ${marca}`]);
   await db.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [empresa]);
+  // Com a 114, os gatilhos de fechamentos/contratos exigem a trava da configuração da empresa; a suíte monta dentro de
+  // uma transação, então a compartilhada vale até o fim dela (como a entrada administrativa).
+  await travarConfiguracaoAgenda(db as unknown as DbExecutor, empresa, { modo: "COMPARTILHADA", linha: "JA_TRAVADA" });
   const pessoa = async (papel: string, nome: string) => {
     const u = await criarIdentidade(db, `${cod()}@example.test`, `${nome} ${marca}`);
     const m = await id(db, `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', now(), $3) RETURNING id`, [empresa, u, papel]);

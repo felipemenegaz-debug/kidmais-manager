@@ -10,6 +10,7 @@ import {
   type ContratoDocumentoTemplateVersao,
 } from "../documento";
 import type { ContratoVersaoRecord } from "../repositories";
+import type { MarcaContrato } from "../marca-contrato";
 import { ContratoServiceError } from "./errors";
 
 function templateResumoDaVersao(versao: ContratoVersaoRecord): ContratoDocumentoTemplateVersao {
@@ -19,13 +20,15 @@ function templateResumoDaVersao(versao: ContratoVersaoRecord): ContratoDocumento
   return CONTRATO_DOCUMENTO_TEMPLATE_ATUAL;
 }
 
-export function gerarResumoContratacaoPdfDaVersao(versao: ContratoVersaoRecord) {
+/** `marca` é obrigatória: o resumo é refeito a cada leitura (não tem hash guardado) e leva a identidade do buffet. */
+export function gerarResumoContratacaoPdfDaVersao(versao: ContratoVersaoRecord, marca: MarcaContrato) {
   const templateVersao = templateResumoDaVersao(versao);
   const documento = renderizarDocumentoContrato({
     snapshot: versao.snapshot,
     numeroVersao: versao.numeroVersao,
     snapshotHash: versao.snapshotHash,
     templateVersao,
+    marca,
   });
   const pdf = gerarPdfDocumentoContrato(documento);
   const pdfHash = hashPdfContrato(pdf);

@@ -5,11 +5,12 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { listarContratacoes } from '../fechamentos/contratacoes.ts';
 import type { DbExecutor } from '../db/contracts';
+import * as cnpj from '../cadastro/cnpj.ts';
 const req=createRequire(import.meta.url);
 function carregar(path:string,mocks:Record<string,unknown>){
     const exports:Record<string,unknown>={};
     const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-    new Function('require','exports',code)((n:string)=>n in mocks?mocks[n]:n==='zod'?req(n):{},exports);
+    new Function('require','exports',code)((n:string)=>n in mocks?mocks[n]:n==='zod'?req(n):n==='../../cadastro/cnpj.ts'?cnpj:{},exports);
     return exports;
 }
 class Falha extends Error {constructor(_code:string,message:string){super(message);}}

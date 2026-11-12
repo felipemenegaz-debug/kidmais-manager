@@ -31,9 +31,21 @@
  * (somente leitura, sem ids nem dados pessoais) e cada pedido VENCIDO vira um item da mesma regra por idade:
  *   - DEVOLUCAO_PENDENTE: estorno AGUARDANDO_MANUAL/EM_CURSO/SEM_CONFIRMACAO/RECUSADO depois do prazo (arrependimento:
  *     1 h após o pedido; proporcional: fim do dia de prazo_processamento, Brasília);
+ *   - ARREPENDIMENTO_PENDENTE: manifestação de arrependimento (097) ainda RECEBIDA depois de 1 h, sem comunicação ao
+ *     intermediador (SEM_COMUNICACAO) ou sem conclusão (SEM_CONCLUSAO); o prazo legal é imediato;
  *   - RENOVACAO_NAO_REMOVIDA: remoção da assinatura PENDENTE/SEM_CONFIRMACAO/RECUSADO há mais de 1 h (a renovação pode
  *     continuar gerando cobrança no Asaas).
  * A idade conta do vencimento do prazo (dia 0 = NOVO; 1, 3, 7 e semanais). Em staging o relatório só conta (`encerramentos`).
+ *
+ * CRÉDITOS DE IA (095, implementação local de 22/10/2026): com a 095 instalada, o ciclo também (a) processa os eventos de
+ * cobrança avulsa pelo MESMO serviço do webhook (lib/creditos/pagamento.ts, via processarEvento com a conta/ambiente do
+ * serviço), (b) revisita os pedidos abertos/incertos/em revisão e as disputas pelo mesmo serviço (simulação = ROLLBACK por
+ * item; produção só conferência) e (c) lê a fila (somente leitura) em itens D-C4: PEDIDO_CREDITOS (criação incerta, revisão,
+ * pagamento duplicado), DEVOLUCAO_CREDITOS (vencida), RESERVA_CREDITOS (aberta há > 24 h), DISPUTA_CREDITOS e
+ * DIVERGENCIA_CARTEIRA (recomputação extrato × lotes × carteira). Decidido por Felipe em 22/10/2026 (D4 de
+ * docs/DECISOES_CREDITOS_IA_20261022.md): dinheiro pago sem crédito, pagamento duplicado, arrependimento vencido e divergência
+ * de carteira são CRÍTICOS e alarmam em toda conferência até a resolução (aviso CRITICO), em vez dos dias 0/1/3/7/semanais.
+ * NFS-e (DOCUMENTO_FISCAL) não existe nesta versão.
  */
 /** Máximo de eventos PENDENTE/FALHOU lidos por ciclo (os mais antigos primeiro, `eventosPendentes`). */
 const LIMITE_EVENTOS = 500;
@@ -53,9 +65,15 @@ function hostLocal(host) {
     return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
 }
 
-/** Valida o alvo sem conectar. Lança Error com mensagem sem a URL. */
-function validarAlvo(env) {
-    if (env.DATABASE_URL && env.KIDMAIS_RECONCILIAR_DATABASE_URL === env.DATABASE_URL)
+/**
+ * Valida o alvo sem conectar. Lança Error com mensagem sem a URL.
+ * `credencialDoServico`: 'recusar' (padrão de TODOS os chamadores) recusa a URL igual à DATABASE_URL do serviço; 'aceitar' só
+ * pode ser pedido por quem já decidiu uma exceção explícita (T2 da renovação B-9) e devolve `credencialDoServico: true` no alvo.
+ */
+function validarAlvo(env, { credencialDoServico = 'recusar' } = {}) {
+    if (credencialDoServico !== 'recusar' && credencialDoServico !== 'aceitar') throw new Error('CREDENCIAL_DO_SERVICO_POLITICA_INVALIDA');
+    const igualAoServico = !!env.DATABASE_URL && env.KIDMAIS_RECONCILIAR_DATABASE_URL === env.DATABASE_URL;
+    if (igualAoServico && credencialDoServico === 'recusar')
         throw new Error('Alvo recusado: use uma conexão própria em KIDMAIS_RECONCILIAR_DATABASE_URL, não a DATABASE_URL do serviço.');
     const bruto = env.KIDMAIS_RECONCILIAR_DATABASE_URL;
     if (!bruto)
@@ -80,14 +98,24 @@ function validarAlvo(env) {
     if (env.KIDMAIS_RECONCILIAR_ALVO !== esperado)
         throw new Error(`Confirme o alvo: defina KIDMAIS_RECONCILIAR_ALVO="${esperado}" (literal).`);
     const alvo = { connectionString: bruto, database, host, port, local: hostLocal(host) };
-    return { ...alvo, producao: alvoDeProducao(alvo, env) };
+    return { ...alvo, producao: alvoDeProducao(alvo, env), credencialDoServico: igualAoServico };
 }
 
 /**
  * Na SIMULAÇÃO o banco volta atrás (ROLLBACK), mas uma chamada ao provedor não volta: a remoção de duplicatas (compensação
  * das pendências de contratação) é só contada, nunca executada. Leituras continuam reais para o relatório ser fiel.
  */
-function opcoesConexao(alvo, env = {}) {
+/**
+ * Serviços aceitos pela exceção TLS `render-interno-criptografado` na RECONCILIAÇÃO: só o cron dela. Outras entradas passam a
+ * própria lista fechada (T1 do B-9, 26/10/2026); o padrão não muda.
+ */
+const SERVICOS_TLS_RECONCILIACAO = Object.freeze(['crn-db493i142hec73ahmoe0']);
+
+/**
+ * `credencialDoServico`: a mesma política da validarAlvo, repassada à revalidação do alvo na exceção TLS. Padrão 'recusar'
+ * para todas as entradas; só a renovação (T2 do B-9) repassa a política que ela mesma decidiu.
+ */
+function opcoesConexao(alvo, env = {}, servicosTlsInterno = SERVICOS_TLS_RECONCILIACAO, { credencialDoServico = 'recusar' } = {}) {
     const url = new URL(alvo.connectionString);
     const modo = url.searchParams.get('sslmode');
     if (!alvo.local && modo && !['require', 'verify-full', 'verify-ca'].includes(modo)) throw Error('TLS_MODO_RECUSADO');
@@ -101,9 +129,9 @@ function opcoesConexao(alvo, env = {}) {
     if (!['verificado', 'render-interno-criptografado'].includes(politica)) throw Error('TLS_POLITICA_RECUSADA');
     if (politica === 'render-interno-criptografado') {
         // Opt-in operacional: Render não fornece verify-full para seu Postgres interno.
-        // Limitado ao cron e banco exatos, dentro da rede privada. Nenhuma configuração global.
-        const confirmado = validarAlvo(env);
-        if (env.RENDER !== 'true' || env.RENDER_SERVICE_ID !== 'crn-db493i142hec73ahmoe0'
+        // Limitado aos serviços da lista fechada de quem chama e ao banco exato, dentro da rede privada. Nenhuma configuração global.
+        const confirmado = validarAlvo(env, { credencialDoServico });
+        if (env.RENDER !== 'true' || !servicosTlsInterno.includes(env.RENDER_SERVICE_ID)
             || env.KIDMAIS_DEPLOY_ENV !== 'staging' || env.ASAAS_AMBIENTE !== 'sandbox'
             || confirmado.host !== 'dpg-daidko3m8hqs73ce4jt0-a' || confirmado.port !== 5432
             || confirmado.database !== 'kidmais_staging_1z91' || alvo.connectionString !== confirmado.connectionString) {
@@ -190,32 +218,65 @@ function argumentos(argv) {
 }
 
 /**
+ * Parada do ciclo pedida pela recuperação de pagamentos (B-14): trava perdida, SIGTERM, prazo estourado ou COMMIT sem
+ * resposta. O item corrente já fez ROLLBACK (ou ficou indeterminado); o ciclo não continua. O cron nunca a recebe.
+ */
+class ParadaCiclo extends Error {
+    constructor(motivo) {
+        super(`Ciclo interrompido: ${motivo}`);
+        this.name = 'ParadaCiclo';
+        this.motivo = motivo;
+    }
+}
+
+/**
  * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
  * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
+ * Opções da recuperação de pagamentos (B-14, plano rev. 8.1 §3.1), ausentes no cron (comportamento idêntico ao anterior):
+ *   provedorEfetivo  usado TAL COMO RECEBIDO nos dois modos (lista fechada somente leitura), sem `provedorDaExecucao`;
+ *   antesDoCommit    () => motivo | null, chamado ao fim de cada item, antes de COMMIT/ROLLBACK: com motivo, o item faz
+ *                    ROLLBACK e o ciclo para com ParadaCiclo; COMMIT sem resposta também para (COMMIT_INDETERMINADO).
  */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento }) {
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente, idadesDosEventos, pendenciasEncerramento, creditos, provedorEfetivo, antesDoCommit }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
         try {
             const r = await trabalho();
+            const parada = antesDoCommit ? await antesDoCommit() : null;
+            if (parada) {
+                await client.query('ROLLBACK');
+                throw new ParadaCiclo(parada);
+            }
+            if (antesDoCommit && aplicar) {
+                try {
+                    await client.query('COMMIT');
+                }
+                catch {
+                    throw new ParadaCiclo('COMMIT_INDETERMINADO');
+                }
+                return r;
+            }
             await client.query(aplicar ? 'COMMIT' : 'ROLLBACK');
             return r;
         }
         catch (error) {
+            if (error instanceof ParadaCiclo) throw error;
             await client.query('ROLLBACK');
-            return { erro: error instanceof Error ? error.name : 'Erro' };
+            // Recusa de domínio vira ERRO_<código> (ex.: ERRO_FUNDADOR_OFERTA_EXPIRADA): continua alarmando e o atendimento vê a causa.
+            const codigo = error instanceof Error && error.name === 'AcessoServiceError' && /^[A-Z0-9_]{1,80}$/.test(String(error.code)) ? String(error.code) : null;
+            return { erro: codigo ?? (error instanceof Error ? error.name : 'Erro') };
         }
     };
     const relatorio = { modo, banco, eventos: {}, empresas: {} };
-    const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
+    const provedorUsado = provedorEfetivo ?? provedorDaExecucao(provedor, aplicar, relatorio);
     const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
     // D-C4 (só quando a conferência de produção passa `idadesDosEventos`): um item por evento e por empresa divergente.
     const itens = [];
     const ids = await sinc.eventosPendentes(client, LIMITE_EVENTOS);
     const idades = idadesDosEventos ? await idadesDosEventos(client, ids) : null;
     for (const eventoId of ids) {
-        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente }));
+        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente, ...(creditos?.contexto ? { creditos: creditos.contexto } : {}) }));
         const chave = r.erro ? `ERRO_${r.erro}` : r.situacao;
         conta(relatorio.eventos, chave);
         const idade = idades?.eventos?.get(String(eventoId));
@@ -227,7 +288,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
         conta(relatorio.empresas, chave);
         if (chave !== 'SEM_MUDANCA') itens.push({ item: 'EMPRESA', resultado: chave, motivo: r.motivo, recebidoMs: null });
     }
-    // 089: pedidos de cancelamento/devolução vencidos (fora das transações por item; só leitura).
+    // 089/097: pedidos de cancelamento/devolução e manifestações de arrependimento vencidos (fora das transações por item; só leitura).
     if (pendenciasEncerramento) {
         relatorio.encerramentos = {};
         for (const p of await pendenciasEncerramento(client)) {
@@ -235,11 +296,37 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
             itens.push({ item: p.item, resultado: p.resultado, motivo: p.motivo, recebidoMs: p.recebidoMs });
         }
     }
+    // 095: pedidos de créditos pelo mesmo serviço do webhook (um item por pedido) e a fila em itens D-C4 (só leitura).
+    if (creditos && await creditos.instalados(client)) {
+        relatorio.creditos = {};
+        relatorio.creditosPedidos = {};
+        const selecao = creditos.contexto ? await creditos.pedidos(client) : { ids: [], truncado: false };
+        if (!creditos.contexto) conta(relatorio.creditos, 'CONFIG_CONTA_INVALIDA');
+        if (selecao.truncado) conta(relatorio.creditos, 'RECONCILIACAO_TRUNCADA');
+        for (const pedidoId of selecao.ids) {
+            // R5-P2-1: a tentativa vai para o fim da fila mesmo se o processamento falhar (simulação não grava nada).
+            await item(() => creditos.marcar(client, pedidoId));
+            const r = await item(() => creditos.processar(client, pedidoId, provedorUsado));
+            const chave = r.erro ? `ERRO_${r.erro}` : r.resultado;
+            conta(relatorio.creditosPedidos, chave);
+            // Pago sem crédito (a leitura creditaria) ou falha da leitura: item da conferência.
+            if (r.erro || r.resultado === 'CREDITADO') {
+                const pendencia = { item: 'PEDIDO_CREDITOS', resultado: r.erro ? `ERRO_${r.erro}` : 'PAGO_SEM_CREDITO', motivo: r.motivo ?? null, recebidoMs: null, critico: !r.erro };
+                conta(relatorio.creditos, `${pendencia.item}_${pendencia.resultado}`);
+                itens.push(pendencia);
+            }
+        }
+        for (const p of [...await creditos.pendencias(client), ...await creditos.divergencias(client)]) {
+            conta(relatorio.creditos, `${p.item}_${p.resultado}`);
+            itens.push(p);
+        }
+    }
     // P2-2: a lista traz só os LIMITE_EVENTOS mais antigos; no limite, um evento novo pode ter ficado de fora → alarma.
     if (idades) Object.assign(relatorio, classificarConferencia(itens, idades.agoraMs, { listaNoLimite: ids.length >= LIMITE_EVENTOS }));
 
     relatorio.incompleto = Object.entries(relatorio.eventos).some(([k, n]) => n > 0 && (k === 'FALHOU' || k.startsWith('ERRO_')))
-        || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')));
+        || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k === 'SEM_CONFIRMACAO' || k.startsWith('ERRO_')))
+        || Object.keys(relatorio.creditosPedidos ?? {}).some((k) => k.startsWith('ERRO_'));
     // Conferência: evento de pagamento ainda não concluído ou empresa cujo estado mudaria = banco diverge do provedor.
     relatorio.divergente = Object.values(relatorio.eventos).some((n) => n > 0)
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && k !== 'SEM_MUDANCA');
@@ -257,10 +344,54 @@ const SQL_PENDENCIAS_ENCERRAMENTO = `SELECT item, resultado, motivo, (extract(ep
     SELECT 'RENOVACAO_NAO_REMOVIDA', cancelamento_provedor, tipo, solicitado_em + interval '1 hour'
       FROM assinatura_encerramentos WHERE cancelamento_provedor IN ('PENDENTE', 'SEM_CONFIRMACAO', 'RECUSADO')
   ) x WHERE limite <= coalesce($1::timestamptz, clock_timestamp()) ORDER BY limite`;
+// 097: manifestações de arrependimento ainda RECEBIDAS depois de 1 h (o prazo é imediato) — somente leitura.
+const SQL_PENDENCIAS_ARREPENDIMENTO = `SELECT 'ARREPENDIMENTO_PENDENTE' AS item,
+    CASE WHEN intermediador_comunicado_em IS NULL THEN 'SEM_COMUNICACAO' ELSE 'SEM_CONCLUSAO' END AS resultado, canal AS motivo,
+    (extract(epoch FROM solicitado_em + interval '1 hour') * 1000)::float8 AS limite_ms
+  FROM assinatura_arrependimentos WHERE situacao = 'RECEBIDO' AND solicitado_em + interval '1 hour' <= coalesce($1::timestamptz, clock_timestamp())
+  ORDER BY solicitado_em`;
 async function lerPendenciasEncerramento(client, instanteMs = null) {
-    if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
-    return (await client.query(SQL_PENDENCIAS_ENCERRAMENTO, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
-        .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) }));
+    const instante = [instanteMs === null ? null : new Date(instanteMs).toISOString()];
+    const linhas = [];
+    if ((await client.query("SELECT to_regclass('public.assinatura_encerramentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        linhas.push(...(await client.query(SQL_PENDENCIAS_ENCERRAMENTO, instante)).rows);
+    if ((await client.query("SELECT to_regclass('public.assinatura_arrependimentos') IS NOT NULL AS ok")).rows[0]?.ok === true)
+        linhas.push(...(await client.query(SQL_PENDENCIAS_ARREPENDIMENTO, instante)).rows);
+    return linhas.map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms) })).sort((a, b) => a.recebidoMs - b.recebidoMs);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Créditos de IA (095): fila somente leitura, sem ids nem dados pessoais. `$1` fixa o instante (testes).
+const SQL_PENDENCIAS_CREDITOS = `SELECT item, resultado, motivo, critico, (extract(epoch FROM limite) * 1000)::float8 AS limite_ms FROM (
+    SELECT 'PEDIDO_CREDITOS' AS item, p.estado AS resultado, coalesce(p.revisao_motivo, p.recurso) AS motivo,
+           -- P2-2/P2-3: revisão com dinheiro já recebido é CRÍTICA (D4: pagamento confirmado sem crédito). P3-6 (revisão do
+           -- delta): cliente/referência divergentes só são críticos com a cobrança canônica confirmada/recebida.
+           (coalesce(p.revisao_motivo, '') IN ('PAGO_APOS_CANCELAMENTO', 'VALOR_DIVERGENTE', 'FORMA_DIVERGENTE', 'RECEBIDO_FORA_DO_PROVEDOR')
+             OR (coalesce(p.revisao_motivo, '') IN ('CLIENTE_DIVERGENTE', 'REFERENCIA_DIVERGENTE')
+                 AND EXISTS (SELECT 1 FROM ia_credito_cobrancas c WHERE c.pedido_id = p.id AND c.canonica AND c.situacao_provedor IN ('CONFIRMED', 'RECEIVED')))) AS critico,
+           CASE WHEN p.estado = 'CRIACAO_EM_CURSO' THEN p.criado_em + interval '10 minutes' ELSE p.criado_em END AS limite
+      FROM ia_credito_pedidos p WHERE p.estado IN ('CRIACAO_EM_CURSO', 'CRIACAO_INCERTA', 'REVISAO')
+    UNION ALL
+    SELECT 'PEDIDO_CREDITOS', 'PAGAMENTO_DUPLICADO', c.situacao_provedor, true, c.atualizada_em
+      FROM ia_credito_cobrancas c WHERE c.revisao_motivo = 'PAGAMENTO_DUPLICADO'
+    UNION ALL
+    -- R7-P3-1: o motivo do item traz o diagnóstico que coexiste com a retenção (ex.: VALOR_DIVERGENTE), senão o status lido.
+    SELECT 'PEDIDO_CREDITOS', 'ESTORNO_EXTERNO_PARCIAL', coalesce(c.revisao_motivo, c.situacao_provedor), true, c.atualizada_em
+      FROM ia_credito_cobrancas c WHERE c.retencao_motivo = 'ESTORNO_EXTERNO_PARCIAL'
+    UNION ALL
+    SELECT 'DEVOLUCAO_CREDITOS', estado, tipo, tipo = 'ARREPENDIMENTO_7_DIAS',
+           CASE WHEN tipo = 'ARREPENDIMENTO_7_DIAS' THEN solicitado_em + interval '1 hour'
+                ELSE ((prazo + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo') END
+      FROM ia_credito_devolucoes WHERE estado <> 'CONCLUIDO'
+    UNION ALL
+    SELECT 'RESERVA_CREDITOS', 'ABERTA', recurso, false, criada_em + interval '24 hours' FROM ia_credito_reservas WHERE estado = 'ABERTA'
+    UNION ALL
+    SELECT 'DISPUTA_CREDITOS', disputa, situacao_provedor, false, atualizada_em FROM ia_credito_cobrancas WHERE disputa = 'ABERTA'
+  ) x WHERE limite <= coalesce($1::timestamptz, clock_timestamp()) ORDER BY limite`;
+async function lerPendenciasCreditos(client, instanteMs = null) {
+    if ((await client.query("SELECT to_regclass('public.ia_credito_lancamentos') IS NOT NULL AS ok")).rows[0]?.ok !== true) return [];
+    return (await client.query(SQL_PENDENCIAS_CREDITOS, [instanteMs === null ? null : new Date(instanteMs).toISOString()])).rows
+        .map((l) => ({ item: l.item, resultado: l.resultado, motivo: l.motivo, recebidoMs: Number(l.limite_ms), critico: l.critico === true }));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -339,6 +470,8 @@ function classificarConferencia(itens, agoraMs, { listaNoLimite = false } = {}) 
     for (const i of itens) {
         const base = { item: i.item, resultado: i.resultado, motivo: motivoSeguro(i.motivo) };
         if (erroDaExecucao(i)) { alarmes.push({ ...base, aviso: 'ERRO_NESTA_EXECUCAO' }); continue; }
+        // 095 (D4, 22/10/2026): item crítico dos créditos alarma em toda conferência até ser resolvido.
+        if (i.critico === true) { alarmes.push({ ...base, aviso: 'CRITICO' }); continue; }
         if (i.item === 'EMPRESA') { alarmes.push({ ...base, aviso: 'EMPRESA_SEM_IDADE' }); continue; }
         const dia = diaDoItem(i.recebidoMs, referenciaMs);
         if (dia === null) { alarmes.push({ ...base, aviso: 'SEM_IDADE' }); continue; }
@@ -401,7 +534,7 @@ function codigoDeSaida(relatorio, producao) {
     if (relatorio.kidmais?.violada) return 2;
     if (producao && Array.isArray(relatorio.alarme?.itens) && Array.isArray(relatorio.pendentesConhecidos)) {
         const soma = (grupo, filtro = () => true) => Object.entries(grupo ?? {}).reduce((t, [k, n]) => t + (filtro(k) ? n : 0), 0);
-        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA') + soma(relatorio.encerramentos);
+        const total = soma(relatorio.eventos) + soma(relatorio.empresas, (k) => k !== 'SEM_MUDANCA') + soma(relatorio.encerramentos) + soma(relatorio.creditos);
         const classificados = relatorio.alarme.itens.filter((i) => i.item !== ITEM_LISTA).length + relatorio.pendentesConhecidos.length;
         if (classificados !== total) return 2;
         return relatorio.alarme.itens.length > 0 ? 2 : 0;
@@ -444,7 +577,7 @@ async function main() {
         // D-C4: só a conferência de produção classifica por idade; staging (simular/aplicar) segue sem classificação.
         const idadesDosEventos = alvo.producao ? lerIdadesDosEventos : undefined;
         const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente, idadesDosEventos,
-            pendenciasEncerramento: lerPendenciasEncerramento });
+            pendenciasEncerramento: lerPendenciasEncerramento, creditos: await creditosDaExecucao(estado.config, process.env) });
         relatorio.kidmais = await conferirKidmais(client);
         // Staging: saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147) ou gratuidade violada.
         // Produção: gratuidade violada ou item em alarme pela regra D-C4 (codigoDeSaida).
@@ -458,6 +591,32 @@ async function main() {
     }
 }
 
+/** Dependências dos créditos (095) no ciclo: o mesmo serviço do webhook e a recomputação das carteiras (só leitura). */
+async function creditosDaExecucao(config, env) {
+    const pagamento = await import('../lib/creditos/pagamento.ts');
+    const ledger = await import('../lib/creditos/ledger.ts');
+    const { contaProvedor, contaValida } = await import('../lib/creditos/config.ts');
+    // R4-P2-2: conta inválida desliga só o processamento de créditos (eventos de créditos ficam FALHOU, item no relatório);
+    // o ciclo das assinaturas segue normalmente.
+    const contexto = contaValida(env) ? { ambiente: config.ambiente, conta: contaProvedor(env) } : null;
+    if (!contexto) console.error('[creditos] CREDITOS_ASAAS_CONTA inválida: créditos não processados nesta execução.');
+    return {
+        contexto,
+        instalados: (c) => ledger.creditosInstalados(c),
+        pedidos: (c) => pagamento.selecionarParaReconciliar(c, 200, config.ambiente),
+        marcar: (c, pedidoId) => pagamento.marcarTentativa(c, pedidoId),
+        processar: (c, pedidoId, provedor) => pagamento.processarPedido(c, pedidoId, { provedor, ...contexto }),
+        pendencias: (c) => lerPendenciasCreditos(c),
+        divergencias: async (c) => {
+            const itens = [];
+            for (const w of (await c.query('SELECT empresa_id, recurso FROM ia_credito_carteiras ORDER BY empresa_id, recurso')).rows)
+                for (const d of await ledger.conferirCarteira(c, w.empresa_id, w.recurso))
+                    itens.push({ item: 'DIVERGENCIA_CARTEIRA', resultado: d.tipo, motivo: d.recurso, recebidoMs: null, critico: true });
+            return itens;
+        },
+    };
+}
+
 if (require.main === module) {
     main().catch((error) => {
         console.error(`Reconciliação recusada/interrompida: ${error instanceof Error ? error.message : 'erro'}`);
@@ -465,6 +624,6 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
+module.exports = { ParadaCiclo, validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, SERVICOS_TLS_RECONCILIACAO, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador,
     HORA_CRON_UTC, LIMITE_EVENTOS, referenciaDoDia, diaDoItem, diaDeAviso, classificarConferencia, lerIdadesDosEventos, SQL_IDADES_EVENTOS,
-    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO };
+    lerPendenciasEncerramento, SQL_PENDENCIAS_ENCERRAMENTO, SQL_PENDENCIAS_ARREPENDIMENTO, motivoSeguro, lerPendenciasCreditos, SQL_PENDENCIAS_CREDITOS, creditosDaExecucao };

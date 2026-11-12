@@ -98,8 +98,10 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
   const aplicar = repositorio.aplicarOperacaoPreparada as (tx: DbExecutor, r: { id: string; fechamento_id: string; motivo: string }) => Promise<string | null>;
   const sqls: string[] = [];
   const tx: DbExecutor = {
-    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       sqls.push(text);
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return { rows: [{ ok: true, empresa: values?.[0] ?? "empresa-1" } as Row], rowCount: 1 };
       if (text.includes("information_schema.columns")) return { rows: [{ ok: false } as Row], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -118,7 +120,7 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
     "lib/clientes/repositories/index.ts": { registrarAuditoria: async (evento: { dadosDepois: { pacoteSnapshotId: string; empresaId: string } }) => { fotos.push(evento.dadosDepois.pacoteSnapshotId + ":" + evento.dadosDepois.empresaId); }, buscarResponsavelPorId: async () => null },
     "lib/clientes/services/validators.ts": {},
     "lib/disponibilidade/repositories/index.ts": { adquirirLockConfirmacaoAgenda: async () => {} },
-    "lib/disponibilidade/services/index.ts": { consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: "agenda-1", horarios: [{ status: "DISPONIVEL", inicio: "14:00", fim: "18:00" }] }] }) },
+    "lib/disponibilidade/services/index.ts": { duracaoDoIntervalo: () => 240, consultarDisponibilidadeData: async () => ({ periodos: [{ configuracaoId: "agenda-1", horarios: [{ status: "DISPONIVEL", inicio: "14:00", fim: "18:00" }] }] }) },
     "lib/contratos/services/contrato.service.ts": {},
     "lib/contratos/services/snapshot-core.ts": { hashSnapshotContrato: () => "hash-base" },
   });

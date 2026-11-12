@@ -8,6 +8,10 @@ export type ConfiguracaoAgendaRecord = {
   passoInicioMinutos: number;
   ordemExibicao: number;
   ativo: boolean;
+  /** 093: dias ISO (1 = segunda) em que o horário existe; null = todos. */
+  diasSemana?: number[] | null;
+  /** 093: a partir desta data (inclusive) o horário não é mais oferecido. */
+  desativadoAPartirDe?: string | null;
 };
 
 export type BloqueioAgendaRecord = {
@@ -45,9 +49,32 @@ export type CriarBloqueioAgendaInput = {
 };
 
 
+/** 094: regra de capacidade do escopo (093). null = regra de antes (qualquer sobreposição é conflito). */
+export type RegraCapacidadeAgenda = {
+  /** 093/2c-2: no modo livre, o horário técnico substitui os horários fixos no cálculo. */
+  modo?: "FIXO" | "LIVRE";
+  horarioLivre?: ConfiguracaoAgendaRecord | null;
+  capacidadeTipo: "POR_HORARIO" | "POR_SALAO";
+  limiteFestasDia: number | null;
+  intervaloMinimoMinutos: number;
+  capacidadePorHorario: Record<string, number>;
+  saloesPorHorario: Record<string, string[]>;
+  /** Salões candidatos do escopo: com a 098, só os elegíveis (ativos e, se combinados, com todos os membros ativos). */
+  saloesDoEscopo: string[];
+  /** 098: conjunto de salões simples de cada salão do escopo (combinado = membros). Ausente = cada salão é ele mesmo. */
+  conjuntos?: Record<string, string[]>;
+  /** S-C: convidados que cada salão comporta (093); null = sem limite. Ausente = regra sem capacidade por salão. */
+  capacidadePorSalao?: Record<string, number | null>;
+  /** S-D (R3-E5): mínimo de convidados de cada salão (102); null = sem mínimo. Ausente = antes da 102. */
+  minimoPorSalao?: Record<string, number | null>;
+};
+
 export type OcupacaoConfirmadaRecord = {
   fechamentoId: string;
   data: string;
   horarioInicio: string;
   horarioFim: string;
+  /** 094: horário e salão da ocupação. */
+  configuracaoAgendaId?: string | null;
+  salaoId?: string | null;
 };

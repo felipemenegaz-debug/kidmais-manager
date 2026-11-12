@@ -1,6 +1,7 @@
-import type { ContratoSnapshotV1 } from '../../lib/contratos/repositories/models';
+import { salaoDoSnapshot, type ContratoSnapshot, type ContratoSnapshotV1 } from '../../lib/contratos/repositories/models.ts';
 import { formatarMoeda, formatarFormaPagamento, formatarCondicaoPix, formatarDataContrato, formatarHorarioContrato } from '../../lib/contratos/documento/formatters.ts';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../../lib/contratos/assinatura-papel.ts';
+import type { MarcaContrato } from '../../lib/contratos/marca-contrato.ts';
 
 export type VersaoResumo = {
   id: string; numero_versao: number; status: string; estado_edicao: string | null; aceite_metodo?: string | null;
@@ -43,7 +44,10 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   const secao = (titulo: string, linhas: SecaoResumo['linhas']) => secoes.push({ titulo, linhas });
   secao('Contratação', [['Fechamento', p.contrato.fechamento_id], ['Contrato', p.contrato.id], ['Versão', `V${v.numero_versao} · ${classificacao}`], ['Status atual do contrato', papel && p.contrato.status === 'ASSINADO' ? 'ASSINADO (em papel)' : p.contrato.status], ['Estado desta versão', papel ? 'Conferência do contrato assinado em papel' : v.estado_edicao ?? v.status]]);
   secao('Contratante e aniversariante', [['Contratante', s.contratante.nomeCompleto], ['Aniversariante', s.aniversariante.nome], ['Idade no evento', texto(s.aniversariante.idadeNoEvento)], ['Tema', texto(s.aniversariante.temaFesta)], ...(s.responsavelAdicional ? [['Responsável adicional', s.responsavelAdicional.nome] as [string, string]] : [])]);
-  secao('Festa', [['Data', formatarDataContrato(s.evento.data)], ['Horário', `${formatarHorarioContrato(s.evento.horarioInicio)}–${formatarHorarioContrato(s.evento.horarioFim)}`], ['Pacote', s.evento.pacote.nome], ['Convidados', texto(s.evento.convidados)], ['Convidados faturados', texto(s.evento.convidadosFaturados)]]);
+  // Plano "liberar mais de um salão" (P2-1): o salão vem do snapshot DA VERSÃO SELECIONADA (V3 com salão), nunca do
+  // cadastro atual; V1/V2 e V3 sem salão não têm a linha, como no resumo público. O PDF herda esta seção.
+  const salao = salaoDoSnapshot(s as unknown as ContratoSnapshot);
+  secao('Festa', [['Data', formatarDataContrato(s.evento.data)], ['Horário', `${formatarHorarioContrato(s.evento.horarioInicio)}–${formatarHorarioContrato(s.evento.horarioFim)}`], ...(salao ? [['Salão', salao.nome] as [string, string]] : []), ['Pacote', s.evento.pacote.nome], ['Convidados', texto(s.evento.convidados)], ['Convidados faturados', texto(s.evento.convidadosFaturados)]]);
   const buffet = s.contratacao.buffet;
   secao('Buffet', [['Situação', buffet.status === 'DEFINIDO' ? 'Definido' : 'Pendente'], ...([
     ['Salgados', buffet.salgados], ['Bebidas', buffet.bebidas], ['Doces', buffet.doces], ['Bolo', buffet.bolo], ['Outros', buffet.outros], ['Lembrancinha', buffet.lembrancinha], ['Empratado', buffet.empratado], ['Bombom', buffet.bombom],
@@ -83,7 +87,7 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   if (papel) secao('Assinatura desta versão', [['Forma', 'Assinado em papel'], ['Observação', TEXTO_ASSINADO_EM_PAPEL]]);
   else secao('Assinaturas desta versão', ['KIDMAIS', 'CLIENTE'].map(parte => {
     const assinatura = assinaturas.find(a => a.parte === parte);
-    return [parte, assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
+    return [parte === 'KIDMAIS' ? 'Buffet' : 'Cliente', assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
   }));
   // `arquivo` só nomeia o PDF baixado; o conteúdo continua vindo de `secoes`/`parcelas`.
   return { numeroVersao: v.numero_versao, classificacao, secoes, parcelas, avisoFinanceiro, arquivo: { contratante: s.contratante.nomeCompleto, dataEvento: s.evento.data } };
@@ -100,10 +104,10 @@ type Buscador = (url: string, init?: RequestInit) => Promise<Response>;
  */
 export async function carregarResumo(buscar: Buscador, contratoId: string, versaoId?: string | null) {
   const resposta = await buscar(`${ENDPOINT_RESUMO}?contratoId=${encodeURIComponent(contratoId)}`);
-  const corpo = await resposta.json() as { ok?: boolean; data?: { painel?: PainelResumo; financeiro?: FinanceiroResumo | null } };
+  const corpo = await resposta.json() as { ok?: boolean; data?: { painel?: PainelResumo; financeiro?: FinanceiroResumo | null; marca?: MarcaContrato | null } };
   if (!resposta.ok || corpo.ok !== true || !corpo.data?.painel) throw Error('Não foi possível consultar o contrato. Verifique sua sessão e tente novamente.');
   const painel = corpo.data.painel, versao = selecionarVersaoResumo(painel, versaoId);
   const vigente = versao.id === painel.fluxo?.versao_vigente_id;
   if (vigente && painel.financeiro.length && !corpo.data.financeiro) throw Error('Não foi possível consultar o Financeiro. O resumo não será impresso com dados incompletos.');
-  return montarResumo(painel, versao.id, vigente ? corpo.data.financeiro ?? null : null);
+  return { ...montarResumo(painel, versao.id, vigente ? corpo.data.financeiro ?? null : null), marca: corpo.data.marca ?? null };
 }

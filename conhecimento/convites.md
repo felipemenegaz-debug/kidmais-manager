@@ -26,7 +26,7 @@ Alterar os textos não usa créditos.
 5. Clique no botão de gerar. Cada geração usa 1 crédito, sem repetição automática.
 6. Confira a escrita de todos os textos antes de publicar.
 
-Prefere não usar IA? Clique em **Usar arte própria, sem IA** ou envie uma imagem em **Usar uma arte própria** (PNG, JPEG ou WebP, até 5 MB). Isso não usa créditos. O saldo aparece no topo do convite, em **créditos de imagem disponíveis**, e o uso do mês fica em **Acesso do cliente e limites**.
+Prefere não usar IA? Clique em **Usar arte própria, sem IA** ou envie uma imagem em **Usar uma arte própria** (PNG, JPEG ou WebP, até 5 MB). Isso não usa créditos. O saldo aparece em [Créditos de IA](/admin/configuracoes/creditos).
 
 ## Publicar e compartilhar
 

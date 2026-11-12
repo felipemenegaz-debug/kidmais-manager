@@ -44,7 +44,7 @@ A logo aparece no rodapé do menu e no Dashboard, num quadrado pequeno. Prefira 
 
 No topo da tela aparece a **Unidade atual**. Em **Local da festa**, marque **Mesmo endereço da sede** se a festa acontece no endereço da sede. Se não, informe o endereço do evento. Em **Detalhes da unidade e referência de chegada**, preencha o **Nome da unidade**, que é exigido para aplicar mesmo no endereço da sede, e, se quiser, uma referência para quem chega.
 
-Para incluir uma nova unidade na empresa, fale com o suporte em [Ajuda e suporte](/admin/ajuda).
+A configuração de horários e salões de cada unidade fica em [Agenda](/admin/configuracoes/agenda). Para incluir uma nova unidade na empresa, fale com o suporte em [Ajuda e suporte](/admin/ajuda).
 
 ## Chave Pix
 

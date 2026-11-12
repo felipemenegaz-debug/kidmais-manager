@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { carregarModulo } from './teste-carregador.ts';
 
-test('envio configurado não libera recuperação nem redefinição sem ativação explícita', async () => {
+test('envio configurado não libera o pedido público sem ativação explícita', async () => {
     const anterior = process.env.RECUPERACAO_SENHA_ATIVA;
     delete process.env.RECUPERACAO_SENHA_ATIVA;
     try {
-        for (const caminho of ['recuperacao', 'redefinir']) {
+        for (const caminho of ['recuperacao']) {
             let agendados = 0;
             const route = carregarModulo(`app/api/acesso/${caminho}/route.ts`, {
                 'next/server': {
@@ -25,6 +25,30 @@ test('envio configurado não libera recuperação nem redefinição sem ativaç�
             const response = await (route.POST as (request: Request) => Promise<Response>)(req);
             assert.equal(response.status, 503);
             assert.equal(agendados, 0);
+        }
+    }
+    finally {
+        if (anterior === undefined) delete process.env.RECUPERACAO_SENHA_ATIVA;
+        else process.env.RECUPERACAO_SENHA_ATIVA = anterior;
+    }
+});
+
+test('redefinição: a rota repassa aceitarOrigemPublica = recuperação pública ligada (flag E e-mail); link do painel decide no serviço', async () => {
+    const anterior = process.env.RECUPERACAO_SENHA_ATIVA;
+    try {
+        for (const [flag, configurado, esperado] of [[undefined, true, false], ['false', true, false], ['true', false, false], ['TRUE', true, false], ['true', true, true]] as const) {
+            if (flag === undefined) delete process.env.RECUPERACAO_SENHA_ATIVA; else process.env.RECUPERACAO_SENHA_ATIVA = flag;
+            const chamadas: unknown[] = [];
+            const route = carregarModulo('app/api/acesso/redefinir/route.ts', {
+                'next/server': { NextResponse: { json: (body: unknown, init?: ResponseInit) => new Response(JSON.stringify(body), init) } },
+                'lib/http/admin-crm-api': { verificarOrigem: () => undefined },
+                'lib/acessos/email': { situacaoEmail: () => ({ configurado }) },
+                'lib/acessos/recuperacao': { redefinirSenhaComToken: async (_raw: unknown, _ctx: unknown, deps: unknown, opcoes: unknown) => { chamadas.push([deps, opcoes]); return { redefinida: true, sessoesEncerradas: 0 }; } },
+            });
+            const req = new Request('https://admin.exemplo.test/api/acesso/redefinir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const response = await (route.POST as (request: Request) => Promise<Response>)(req);
+            assert.equal(response.status, 200, String(flag));
+            assert.deepEqual(chamadas, [[undefined, { aceitarOrigemPublica: esperado }]], `flag ${flag} e-mail ${configurado}`);
         }
     }
     finally {

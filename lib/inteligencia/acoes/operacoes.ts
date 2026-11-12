@@ -44,7 +44,7 @@ export async function atenderOperacao(pedido: PedidoGateway, deps: DependenciasO
     } catch (error) {
       pedidoInvalido(error);
     }
-    if (!deps.acoes) throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Kidmais ainda não estão disponíveis neste ambiente.", 503);
+    if (!deps.acoes) throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Copiloto ainda não estão disponíveis neste ambiente.", 503);
     const modulo = deps.acoes;
     const resultado = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
       rastreio.empresaId = tenant.empresaComprovada;
@@ -84,7 +84,7 @@ export async function atenderOperacao(pedido: PedidoGateway, deps: DependenciasO
     if (rastreio.humanGate === null || rastreio.humanGate === "CONFIRMADO") rastreio.humanGate = "RECUSADO";
     rastreio.ferramentasExecutadas = [];
     rastreio.fallback = falha.fallback;
-    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
+    return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo, ...(falha.motivo ? { motivo: falha.motivo } : {}) } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
     try {

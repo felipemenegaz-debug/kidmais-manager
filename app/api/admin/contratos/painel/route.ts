@@ -5,6 +5,7 @@ import { detalheAdministrativo } from '@/lib/contratos/services/administrativo.s
 import { contratoNoTenant, executarComPosseNoTenant, listarContratosDoTenant } from '@/lib/contratos/services/contrato-tenant';
 import { contratoIntegradoDaImportacao, detalheContratoImportado, listarContratosImportados, origemHistoricaDoContrato } from '@/lib/contratos/importados';
 import { leiturasDaTela } from '@/lib/contratos/services/leituras-tela';
+import { lerBaseDocumentoContrato } from '@/lib/contratos/documento/base-documento';
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { apiErrorResponse } from '@/lib/http/api-response';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
@@ -28,7 +29,9 @@ export async function GET(request: NextRequest) {
                     [id, tenant.empresaComprovada],
                 )).rows[0]?.id ?? null,
                 // Tela simplificada (fase 1): só leituras (salão e estado da festa), presas à empresa comprovada.
-                tela: await leiturasDaTela(tx, id, tenant.empresaComprovada),
+                // baseDocumento: o que decide a fonte do PDF (três booleanos, sem conteúdo nem versão do modelo); a tela
+                // aplica fonteDoDocumentoContrato ao pacote do alvo de ação para avisar antes do "Preparar documento".
+                tela: { ...await leiturasDaTela(tx, id, tenant.empresaComprovada), baseDocumento: (await lerBaseDocumentoContrato(tx, tenant.empresaComprovada)).base },
             }));
         }
         else if (importacaoId) {

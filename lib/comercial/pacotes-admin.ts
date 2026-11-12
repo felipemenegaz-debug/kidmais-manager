@@ -4,6 +4,9 @@ import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
 import { catalogoBuffetPorEmpresa } from "./catalogo-buffet-estrutura.ts";
+import { duracaoAceita } from "../disponibilidade/services/horario.utils.ts";
+import { pacoteSemSalaoNaAgendaPorSalao } from "../agenda/salao-do-pacote.ts";
+import { AVISO_SALAO_DO_PACOTE_ORIGEM } from "../agenda/saloes-liberacao.ts";
 
 export class PacoteAdminError extends Error {
   readonly code: string;
@@ -71,6 +74,26 @@ function registrarMutacao(
 
 function recusar(code: string, message: string, status: number): never {
   throw new PacoteAdminError(code, message, status);
+}
+
+/**
+ * Pareceres do Astra (25/10/2026, P2): na agenda por salão, nenhum caminho deixa um pacote "em todos os salões" —
+ * editar, revisar (a sucessora herda os salões antes desta conferência), ativar e duplicar passam por aqui, venham da
+ * tela, da IA, da importação ou das categorias. Desativar e arquivar não exigem. A recusa desfaz a transação.
+ */
+async function exigirSalaoNaAgendaPorSalao(tx: DbExecutor, empresaId: string, pacoteId: string) {
+  if (await pacoteSemSalaoNaAgendaPorSalao(tx, empresaId, pacoteId)) recusar("DADOS_INVALIDOS", AVISO_SALAO_DO_PACOTE_ORIGEM, 409);
+}
+
+/**
+ * Parecer do Astra (P2): limite único de duração (5 min a 23h59) em toda gravação de pacote — criação, duplicação,
+ * edição, revisão e importação passam por aqui. Ausente continua permitido. Fotografias históricas não são tocadas.
+ */
+function exigirDuracaoValida(duracaoMinutos: number | null | undefined) {
+  if (duracaoMinutos == null) return;
+  if (duracaoAceita(duracaoMinutos) === null) {
+    recusar("DURACAO_INVALIDA", `A duração do pacote (${duracaoMinutos} min) está fora do limite aceito (5 min a 23h59). Corrija a duração antes de salvar.`, 409);
+  }
 }
 
 function map(row: Record<string, unknown>): PacoteAdmin {
@@ -165,6 +188,7 @@ export async function criarPacoteAdmin(
   ctx: Contexto,
 ) {
   if (input.empresaId !== ctx.empresaId) recusar("EMPRESA_DIVERGENTE", "O pacote não pode ser criado em outra empresa.", 403);
+  exigirDuracaoValida(input.duracaoMinutos);
   await empresaExiste(tx, ctx.empresaId);
   // Código técnico só nasce aqui. Revisões continuam usando o código original.
   // O índice (empresa_id, codigo) WHERE vigente garante a unicidade no banco.
@@ -198,6 +222,7 @@ export async function duplicarPacoteAdmin(tx: DbExecutor, origemId: string, codi
     convidadosMaximos: origem.convidadosMaximos,
   }, ctx);
   await clonarAgregadoPacote(tx, origem.id, criado.id);
+  await exigirSalaoNaAgendaPorSalao(tx, ctx.empresaId, criado.id);
   return (await buscar(tx, ctx.empresaId, criado.id))!;
 }
 
@@ -223,6 +248,7 @@ export async function editarPacoteNaoUtilizado(
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (atual.utilizado) recusar("REVISAO_UTILIZADA", "Pacote utilizado. A mudança futura cria uma revisão.", 409);
+  exigirDuracaoValida(input.duracaoMinutos);
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não é editado por esta ação.", 409);
   const convidadosMinimos = input.convidadosMinimos === undefined ? atual.convidadosMinimos : input.convidadosMinimos;
   const convidadosMaximos = input.convidadosMaximos === undefined ? atual.convidadosMaximos : input.convidadosMaximos;
@@ -234,10 +260,16 @@ export async function editarPacoteNaoUtilizado(
     [id, ctx.empresaId, input.nome, input.descricao, input.duracaoMinutos, convidadosMinimos, convidadosMaximos],
   );
   if (result.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a edição.", 409);
+  await exigirSalaoNaAgendaPorSalao(tx, ctx.empresaId, id);
   await registrarMutacao(tx, ctx, "PACOTE_EDITADO", id, atual, input, ctx.motivo ?? "Edição administrativa");
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
+/**
+ * Passo interno da revisão, SEM a guarda do salão (agenda com um salão, 25/10/2026): quem chamar precisa conferir o
+ * salão da sucessora antes do COMMIT — criarRevisaoPacoteAdmin confere antes de promover; salvarPacoteComercial confere
+ * em definirSaloesPacote. Consumidor novo: use criarRevisaoPacoteAdmin.
+ */
 export async function inserirRevisaoPacoteAdmin(
   tx: DbExecutor,
   id: string,
@@ -252,6 +284,7 @@ export async function inserirRevisaoPacoteAdmin(
   opcoes?: { preservarSituacao?: boolean },
 ) {
   if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A nova revisão exige um motivo.", 409);
+  exigirDuracaoValida(input.duracaoMinutos);
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (!atual.vigente) recusar("CONFLITO", "A revisão informada não é a vigente.", 409);
@@ -285,6 +318,7 @@ export async function inserirRevisaoPacoteAdmin(
   return { origem: atual, novaId };
 }
 
+/** Passo interno da revisão, SEM a guarda do salão: mesmo contrato de inserirRevisaoPacoteAdmin (conferir antes do COMMIT). */
 export async function promoverRevisaoPacoteAdmin(
   tx: DbExecutor,
   id: string,
@@ -299,6 +333,7 @@ export async function promoverRevisaoPacoteAdmin(
   ctx: Contexto,
   opcoes?: { silenciarAuditoria?: boolean; origem?: PacoteAdmin },
 ) {
+  exigirDuracaoValida(input.duracaoMinutos);
   const atual = opcoes?.origem ?? await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   const retirada = await tx.query(
@@ -338,6 +373,7 @@ export async function criarRevisaoPacoteAdmin(
 ) {
   const criada = await inserirRevisaoPacoteAdmin(tx, id, input, ctx, { preservarSituacao: opcoes?.preservarSituacao });
   await preservarPrecosDaRevisao(tx, ctx, id, criada.novaId);
+  await exigirSalaoNaAgendaPorSalao(tx, ctx.empresaId, criada.novaId);
   return promoverRevisaoPacoteAdmin(tx, id, criada.novaId, input, ctx, { ...opcoes, origem: criada.origem });
 }
 
@@ -401,6 +437,14 @@ async function clonarAgregadoPacote(tx: DbExecutor, origemId: string, novaId: st
     await tx.query(
       `INSERT INTO pacote_itens_especificos (pacote_id, item_id)
        SELECT $1::uuid, item_id FROM pacote_itens_especificos WHERE pacote_id = $2::uuid`,
+      [novaId, origemId],
+    );
+  }
+  // Parecer do Astra (25/10/2026, P2): duplicar ou revisar não pode soltar o pacote do salão (vazio = todos os salões).
+  const saloes = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.pacote_saloes') IS NOT NULL AS ok`);
+  if (saloes.rows[0]?.ok) {
+    await tx.query(
+      `INSERT INTO pacote_saloes (pacote_id, salao_id) SELECT $1::uuid, salao_id FROM pacote_saloes WHERE pacote_id = $2::uuid`,
       [novaId, origemId],
     );
   }
@@ -547,6 +591,7 @@ export async function alterarSituacaoPacoteAdmin(
   if (atual.arquivadoEm && situacao !== "arquivar") {
     recusar("ARQUIVADO", "A restauração de um pacote arquivado não está disponível.", 409);
   }
+  if (situacao === "ativar") await exigirSalaoNaAgendaPorSalao(tx, ctx.empresaId, id);
   const result = await tx.query(
     `UPDATE pacotes
         SET ativo = $3,

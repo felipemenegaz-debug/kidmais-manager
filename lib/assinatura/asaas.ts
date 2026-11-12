@@ -18,6 +18,8 @@
  *   estorno (21/10/2026)  https://docs.asaas.com/reference/estornar-cobranca · https://docs.asaas.com/reference/estornar-boleto
  *                         https://docs.asaas.com/docs/estornos · https://docs.asaas.com/docs/webhook-para-cobrancas
  *   webhooks              https://docs.asaas.com/docs/sobre-os-webhooks
+ *   avulsa (22/10/2026)   https://docs.asaas.com/reference/criar-nova-cobranca · https://docs.asaas.com/reference/listar-cobrancas
+ *                         (créditos de IA, lib/creditos: contrato PLANEJADO, exercitado só com dublê; sandbox NÃO executado)
  */
 import type { Ciclo } from './configuracao.ts';
 
@@ -102,11 +104,18 @@ export class AsaasFalhou extends Error {
     }
 }
 
-export type ClienteProvedor = { id: string; externalReference: string | null };
+export type ClienteProvedor = { id: string; externalReference: string | null; /** Só dígitos/letras, quando o provedor informa. */ cpfCnpj?: string | null };
 export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
 export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null;
     /** `confirmedDate` (cartão confirmado antes de `paymentDate`). */
-    confirmedDate?: string | null };
+    confirmedDate?: string | null;
+    /** Correlação gravada por nós na criação (créditos: km:<ambiente>:creditos:<pedido>); nunca prova idempotência. */
+    externalReference?: string | null;
+    /** `refunds[]` da cobrança, quando o provedor devolve (créditos, P2-5: estornos parciais concluídos = status DONE). */
+    estornos?: EstornoProvedor[];
+
+    /** `clientPaymentDate`: dia em que o cliente pagou (boleto compensa depois; `paymentDate` é a compensação). */
+    clientPaymentDate?: string | null };
 
 /** Situação de cada devolução da cobrança (`refunds[]`): só `DONE` conta como devolvida (docs.asaas.com/docs/estornos). */
 export type EstornoProvedor = { status: string; valorCentavos: number | null; descricao: string | null };
@@ -119,6 +128,18 @@ export type ProvedorEstorno = {
     obterCobranca(id: string): Promise<CobrancaProvedor | null>;
     estornarCobranca(id: string, valorCentavos: number, descricao: string): Promise<ResultadoEstorno>;
 };
+
+/**
+ * Cobrança AVULSA dos pacotes de créditos (POST /v3/payments, sem `subscription`): nunca ativa nem renova assinatura.
+ * `externalReference` é só correlação; timeout depois do POST é resultado INCERTO (quem chama não repete o POST e
+ * procura pela referência). Cartão: só a fatura hospedada do provedor (nenhum dado de cartão passa por aqui).
+ */
+export type ProvedorCreditos = {
+    obterCobranca(id: string): Promise<CobrancaProvedor | null>;
+    criarCobrancaAvulsa(input: { cliente: string; forma: 'PIX' | 'CREDIT_CARD' | 'BOLETO'; valorCentavos: number; vencimento: string; descricao: string; referencia: string }): Promise<CobrancaProvedor>;
+    /** Todas as páginas (até o limite conferido); lista maior → AsaasFalhou LISTA_INCOMPLETA (nunca "não existe"). */
+    listarCobrancasPorReferencia(referencia: string): Promise<CobrancaProvedor[]>;
+} & Partial<Pick<ProvedorEstorno, 'estornarCobranca'>>;
 
 export type ProvedorRenovacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarCobrancasDaAssinatura'> & {
     obterCobranca(id: string): Promise<CobrancaProvedor | null>;
@@ -139,6 +160,18 @@ export type ClienteAsaas = {
      * existe mais, mas nada prova que ESTE pedido a removeu. `removida: false` = sem confirmação.
      */
     removerAssinatura(id: string): Promise<{ removida: boolean; ausente?: boolean }>;
+};
+
+/** Filtro de data do inventário do B-14 (§3.5): `dateCreated[ge]`, `paymentDate[ge]` ou `estimatedCreditDate[ge]`. */
+export type FiltroCobrancas = { campo: 'dateCreated' | 'paymentDate' | 'estimatedCreditDate'; desde: string };
+/** Leitura completa: `totalCount` igual em todas as páginas e igual à quantidade de ids únicos lidos. */
+export type ListaComprovada<T> = { itens: T[]; totalCount: number };
+/** Configuração de webhook sem token, e-mail ou nome (só o que a conferência da fila usa). */
+export type WebhookProvedor = { id: string; url: string | null; enabled: boolean; interrupted: boolean; sendType: string | null; events: string[] };
+/** Só leituras, para a recuperação de pagamentos (B-14): inventário por data e estado da fila do webhook. */
+export type ProvedorRecuperacao = {
+    listarCobrancas(filtro: FiltroCobrancas): Promise<ListaComprovada<CobrancaProvedor>>;
+    listarWebhooks(): Promise<ListaComprovada<WebhookProvedor>>;
 };
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -187,6 +220,9 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
         ...(o.customer !== undefined ? { clienteId: texto(o.customer, 100) } : {}),
         ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
         ...(o.confirmedDate !== undefined ? { confirmedDate: texto(o.confirmedDate, 10) && DATA.test(String(o.confirmedDate)) ? String(o.confirmedDate) : null } : {}),
+        ...(o.externalReference !== undefined ? { externalReference: texto(o.externalReference) } : {}),
+        ...(o.refunds !== undefined ? { estornos: estornos(o.refunds) } : {}),
+        ...(o.clientPaymentDate !== undefined ? { clientPaymentDate: texto(o.clientPaymentDate, 10) && DATA.test(String(o.clientPaymentDate)) ? String(o.clientPaymentDate) : null } : {}),
     };
 }
 
@@ -212,7 +248,14 @@ export function cicloDoProvedor(cycle: string | null): Ciclo | null {
     return cycle === 'MONTHLY' ? 'MENSAL' : cycle === 'YEARLY' ? 'ANUAL' : null;
 }
 
-export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao & ProvedorEstorno {
+function webhook(o: Record<string, unknown>, operacao: string): WebhookProvedor {
+    return {
+        id: idValido(o.id, operacao), url: texto(o.url, 500), enabled: o.enabled === true, interrupted: o.interrupted === true,
+        sendType: texto(o.sendType, 40), events: Array.isArray(o.events) ? o.events.filter((e): e is string => typeof e === 'string' && /^[A-Z_]{1,80}$/.test(e)) : [],
+    };
+}
+
+export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao & ProvedorEstorno & ProvedorCreditos & ProvedorRecuperacao {
     const esperado = (AMBIENTES as Record<string, { baseUrl: string; prefixo: string } | undefined>)[config.ambiente];
     if (!esperado || config.baseUrl !== esperado.baseUrl || !config.apiKey.startsWith(esperado.prefixo))
         throw new Error('Cliente Asaas recusado: ambiente, URL e chave precisam ser do mesmo ambiente.');
@@ -271,6 +314,38 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         // ou cobrança a corrigir, e nunca prova ausência (retomada, liberação, renovação). Falha fechada.
         throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
     }
+    /**
+     * B-14 (§3.6 a): leitura que prova a completude da enumeração de UMA passada. Cada página precisa trazer o mesmo
+     * `totalCount`; ao fim, a quantidade de ids únicos é igual a ele e não há id repetido. `hasMore` falso antes do total,
+     * total mudando entre páginas ou teto de páginas atingido → LISTA_INCOMPLETA. A dupla leitura fica com quem chama.
+     */
+    async function listarComprovado<T extends { id: string }>(operacao: string, caminho: string, mapear: (o: Record<string, unknown>) => T, paginas: number): Promise<ListaComprovada<T>> {
+        const itens: T[] = [];
+        const ids = new Set<string>();
+        let total: number | null = null;
+        for (let pagina = 0; pagina < paginas; pagina += 1) {
+            const sep = caminho.includes('?') ? '&' : '?';
+            const r = await chamar(operacao, 'GET', `${caminho}${sep}offset=${pagina * 100}&limit=100`);
+            const data = r?.data;
+            const totalPagina = r?.totalCount;
+            if (!Array.isArray(data) || typeof totalPagina !== 'number' || !Number.isSafeInteger(totalPagina) || totalPagina < 0)
+                throw new AsaasFalhou(operacao, null, 'RESPOSTA_INVALIDA');
+            if (total !== null && totalPagina !== total) throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
+            total = totalPagina;
+            for (const item of data) {
+                if (!item || typeof item !== 'object') throw new AsaasFalhou(operacao, null, 'RESPOSTA_INVALIDA');
+                const m = mapear(item as Record<string, unknown>);
+                if (ids.has(m.id)) throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
+                ids.add(m.id);
+                itens.push(m);
+            }
+            if (r?.hasMore !== true) {
+                if (ids.size !== total) throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
+                return { itens, totalCount: total };
+            }
+        }
+        throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
+    }
     const ref = (v: string) => encodeURIComponent(v);
     const idPath = (v: string, operacao: string) => encodeURIComponent(idValido(v, operacao));
 
@@ -290,6 +365,40 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
                 { value: valorCentavos / 100, description: descricao.slice(0, 500) });
             if (!r || r.id !== id) throw new AsaasFalhou('estornar cobrança', 200, 'RESPOSTA_INVALIDA');
             return { status: texto(r.status, 40) ?? 'DESCONHECIDO', estornos: estornos(r.refunds) };
+        },
+        // POST /v3/payments (avulsa) — https://docs.asaas.com/reference/criar-nova-cobranca (lida em 22/10/2026): customer,
+        // billingType, value, dueDate, description, externalReference. Sem subscription nem parcelamento. A resposta é
+        // conferida (id, referência e valor); divergência = RESPOSTA_INVALIDA, tratada como resultado incerto por quem chama.
+        async criarCobrancaAvulsa(input) {
+            if (!Number.isSafeInteger(input.valorCentavos) || input.valorCentavos <= 0 || !DATA.test(input.vencimento)
+                || !['PIX', 'CREDIT_CARD', 'BOLETO'].includes(input.forma) || !/^km:(sandbox|producao):creditos:[0-9a-f-]{36}$/.test(input.referencia))
+                throw new Error('Cobrança avulsa inválida.');
+            const r = await chamar('criar cobrança avulsa', 'POST', '/payments', {
+                customer: idValido(input.cliente, 'criar cobrança avulsa'), billingType: input.forma, value: input.valorCentavos / 100,
+                dueDate: input.vencimento, description: input.descricao.slice(0, 500), externalReference: input.referencia,
+            });
+            const c = cobranca(r ?? {}, 'criar cobrança avulsa');
+            if (c.externalReference !== input.referencia || c.valorCentavos !== input.valorCentavos || c.assinaturaId)
+                throw new AsaasFalhou('criar cobrança avulsa', 200, 'RESPOSTA_INVALIDA');
+            return c;
+        },
+        // GET /v3/payments?externalReference= — https://docs.asaas.com/reference/listar-cobrancas (paginado; 5 páginas de 100).
+        async listarCobrancasPorReferencia(referencia) {
+            return (await listar('listar cobranças avulsas', `/payments?externalReference=${ref(referencia)}`, (o) => cobranca(o, 'listar cobranças avulsas')))
+                .filter((c) => c.externalReference === referencia);
+        },
+        // GET /v3/payments?<campo>[ge]=AAAA-MM-DD — https://docs.asaas.com/reference/listar-cobrancas (lida em 27/10/2026):
+        // dateCreated/paymentDate/estimatedCreditDate[ge|le], limit até 100, offset, hasMore, totalCount. O formato efetivo do
+        // filtro é fixado na homologação (B-14, §11): HTTP 200 sozinho não prova que o filtro foi aplicado. Até 50 páginas.
+        async listarCobrancas(filtro) {
+            if (!['dateCreated', 'paymentDate', 'estimatedCreditDate'].includes(filtro.campo) || !DATA.test(filtro.desde))
+                throw new Error('Filtro de cobranças inválido.');
+            return listarComprovado('listar cobranças por data', `/payments?${filtro.campo}%5Bge%5D=${filtro.desde}`, (o) => cobranca(o, 'listar cobranças por data'), 50);
+        },
+        // GET /v3/webhooks — https://docs.asaas.com/docs/criar-novo-webhook-pela-api (lida em 27/10/2026): enabled,
+        // interrupted, sendType, events. Token, e-mail e nome nunca são lidos para fora daqui.
+        async listarWebhooks() {
+            return listarComprovado('listar webhooks', '/webhooks', (o) => webhook(o, 'listar webhooks'), 2);
         },
         // Só próximas parcelas; nunca reprifica mensalidades antigas ainda pendentes.
         async atualizarValorAssinatura(id, valorCentavos) {
@@ -317,7 +426,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (!data)
                 throw new AsaasFalhou('listar clientes', null, 'RESPOSTA_INVALIDA');
             const c = data.find((d) => d && d.deleted !== true && d.externalReference === referencia);
-            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia } : null;
+            return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia, cpfCnpj: typeof c.cpfCnpj === 'string' ? c.cpfCnpj.replace(/[^0-9A-Za-z]/g, '').toUpperCase() || null : null } : null;
         },
         // POST /v3/customers — https://docs.asaas.com/reference/criar-novo-cliente
         // notificationDisabled: true — em qualquer ambiente o provedor não envia e-mail/SMS ao cliente: a fatura e os avisos
@@ -377,7 +486,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
 }
 
 /** Cliente do ambiente atual, ou null com o motivo quando a cobrança está desligada. */
-export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas & ProvedorEstorno; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
+export function clienteAsaasDoAmbiente(env: Ambiente = process.env, opcoes: OpcoesCliente = {}): { cliente: ClienteAsaas & ProvedorEstorno & ProvedorCreditos; config: ConfiguracaoAsaas } | { cliente: null; motivo: MotivoDesligado } {
     const estado = configuracaoAsaas(env);
     if (!estado.ligado)
         return { cliente: null, motivo: estado.motivo };

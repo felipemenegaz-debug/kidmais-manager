@@ -6,6 +6,7 @@ import type { fontesEdicao } from '@/lib/contratos/services/administrativo.servi
 import type { CatalogoAdicionais, PacoteComercialResumo, ResumoComercial } from '@/lib/comercial/services/models';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import { atalhosConvidados } from '@/lib/fechamentos/convidados';
+import { duracaoDoIntervalo } from '@/lib/disponibilidade/services/horario.utils';
 import { calcularCondicaoComercial } from '@/lib/comercial/condicao-pagamento';
 import { percentualDaForma, type RegrasPagamento } from '@/lib/comercial/regras-pagamento';
 import { formatarMoeda } from '@/lib/contratos/documento/formatters';
@@ -63,7 +64,9 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
         }).catch(e => setErro(e.message));
         return () => { alive = false; };
     }, [url, revisao]);
-    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais) }).toString() : '';
+    // Horário livre: as opções de horário preservam a duração atual do formulário (parecer do Astra, P2).
+    const duracao = form ? duracaoDoIntervalo(form.horarioInicio, form.horarioFim) : null;
+    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais), ...(duracao ? { duracao: String(duracao) } : {}) }).toString() : '';
     useEffect(() => { if (!consulta)
         return; let alive = true; const timer = setTimeout(() => { setCalculando(true); adminFetch(url + '?' + consulta).then(r => r.json()).then(b => { if (!b.ok)
         throw Error(b.erro); if (alive) {
@@ -111,7 +114,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
   <label>Idade no evento<input type="number" min="0" max="120" value={form.idadeAniversarianteEvento ?? ''} onChange={e => patch({ idadeAniversarianteEvento: e.target.value === '' ? null : Number(e.target.value) })}/></label>
   <label>Tema<input value={form.temaFesta} onChange={e => patch({ temaFesta: e.target.value })}/></label>
   <label>Data da festa<input required type="date" value={form.dataEvento} onChange={e => patch({ dataEvento: e.target.value })}/></label>
-  <label>Período<select aria-label="Período" value={form.configuracaoAgendaId} onChange={e => patch({ configuracaoAgendaId: e.target.value })}>{ctx.disponibilidade.periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId}>{p.nome}</option>)}</select></label>
+  <label>Período<select aria-label="Período" value={form.configuracaoAgendaId} onChange={e => patch({ configuracaoAgendaId: e.target.value })}>{!ctx.disponibilidade.periodos.some(p => p.configuracaoId === form.configuracaoAgendaId) && <option value={form.configuracaoAgendaId}>Horário atual da festa (não oferecido agora)</option>}{ctx.disponibilidade.periodos.map(p => <option key={p.configuracaoId} value={p.configuracaoId}>{p.nome}</option>)}</select></label>
   <label>Horário<select aria-label="Horário" value={personalizado ? 'outro' : form.horarioInicio + '|' + form.horarioFim} onChange={e => { if (e.target.value === 'outro') { setForaPadrao(true); return; } setForaPadrao(false); const [horarioInicio, horarioFim] = e.target.value.split('|'); patch({ horarioInicio, horarioFim }); }}>{!personalizado && <option value={form.horarioInicio + '|' + form.horarioFim}>{form.horarioInicio}–{form.horarioFim} (selecionado)</option>}{periodo?.horarios.map(h => <option disabled={h.status !== 'DISPONIVEL'} key={h.inicio} value={h.inicio + '|' + h.fim}>{h.inicio}–{h.fim} · {h.status}</option>)}{ctx.horarioPersonalizado && <option value="outro">Outro horário (fora do padrão)…</option>}</select></label>
   {personalizado && <><label>Início<input aria-label="Início" required type="time" value={form.horarioInicio} onChange={e => patch({ horarioInicio: e.target.value })}/></label><label>Fim<input aria-label="Fim" required type="time" aria-invalid={fimAntesDoInicio} value={form.horarioFim} onChange={e => patch({ horarioFim: e.target.value })}/></label></>}</div>
   {personalizado && <p role="note" className={styles.avisoHorario}>Fora do horário padrão do pacote{faixaPadrao ? ` (${faixaPadrao})` : ''}. Ao salvar, a agenda confere se bate com outra festa ou bloqueio; o contrato sai com {form.horarioInicio}–{form.horarioFim}. Informe o motivo da alteração.{fimAntesDoInicio ? ' O fim precisa ser depois do início.' : ''}</p>}<p>Disponibilidade será conferida novamente ao salvar. Consulte a situação da reserva e da proteção provisória no painel da revisão.</p></fieldset></details>

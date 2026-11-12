@@ -9,6 +9,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { gerarPdfContratoOficial } from "../documento/oficial/pdf.ts";
 import type { ConteudoModelo } from "./conteudo.ts";
+import { conferidaDe, contratadaEfetiva } from "./contratada.ts";
 import { SNAPSHOT_EXEMPLO } from "./exemplo.ts";
 import { renderizarModeloEmpresa } from "./renderizar.ts";
 import {
@@ -35,12 +36,17 @@ const MODELO: ConteudoModelo = {
   contratada: { nome: "Buffet Alegria Ltda", documento: "12.345.678/0001-90", endereco: "Goiânia/GO", representante: "João Souza" },
   preambulo: [],
   clausulas: [
-    { titulo: "Objeto", texto: "Festa em {{festa.data}} para {{contratante.nome}}, CPF {{contratante.cpf}}." },
-    { titulo: "Valor", texto: "Total de {{valor.total}}." },
+    { titulo: "Objeto", texto: "Festa {{festa.pacote}} em {{festa.data}}, das {{festa.inicio}} às {{festa.fim}}, {{festa.convidados}} convidados, para {{contratante.nome}}, CPF {{contratante.cpf}}." },
+    { titulo: "Valor", texto: "Total de {{valor.total}}, {{pagamento.condicao}}." },
   ],
   observacoes: [],
   cidadeAssinatura: "Goiânia/GO",
 };
+
+/** A contratada que a pessoa "viu" (plano v3): a mesma composição do GET, lida agora. */
+async function conferida(conteudo: ConteudoModelo) {
+  return conferidaDe(await emTransacao(() => contratadaEfetiva(tx, empresa, conteudo)))!;
+}
 
 async function emTransacao<T>(trabalho: () => Promise<T>): Promise<T> {
   await client.query("BEGIN");
@@ -79,8 +85,9 @@ test("rascunho lido → revisão com versão → publicação v1 com aprovação
   await assert.rejects(emTransacao(() => lerImportacaoContrato(tx, outra, r.id)), /não encontrada/);
   const salvo = await emTransacao(() => salvarRevisaoContrato(tx, ctx(), r.id, r.versao, { conteudo: { ...MODELO, titulo: "Contrato de Festa Infantil" }, avisos: [] }));
   await assert.rejects(emTransacao(() => salvarRevisaoContrato(tx, ctx(), r.id, r.versao, { conteudo: MODELO, avisos: [] })), /outra tela/);
-  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), r.id, r.versao, { revisadoPorPessoa: true })), /mudou/);
-  const pub = await emTransacao(() => publicarModeloContrato(tx, ctx(), r.id, salvo.versao, { revisadoPorPessoa: true }));
+  const vista = await conferida(MODELO);
+  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), r.id, r.versao, { revisadoPorPessoa: true }, vista)), /mudou/);
+  const pub = await emTransacao(() => publicarModeloContrato(tx, ctx(), r.id, salvo.versao, { revisadoPorPessoa: true }, vista));
   assert.equal(pub.versao, 1);
   const ativo = await modeloContratoAtivo(tx, empresa);
   assert.equal(ativo?.versao, 1);
@@ -95,15 +102,16 @@ test("rascunho lido → revisão com versão → publicação v1 com aprovação
 
 test("v2 substitui v1; publicado é imutável e não se apaga; incompleto não publica", async () => {
   const r2 = await rascunho({ ...MODELO, titulo: "Contrato v2" });
-  const pub2 = await emTransacao(() => publicarModeloContrato(tx, ctx(), r2.id, r2.versao, { revisadoPorPessoa: true }));
+  const vista = await conferida(MODELO);
+  const pub2 = await emTransacao(() => publicarModeloContrato(tx, ctx(), r2.id, r2.versao, { revisadoPorPessoa: true }, vista));
   assert.equal(pub2.versao, 2);
   const versoes = await client.query<{ versao: number; situacao: string }>(`SELECT versao, situacao FROM modelos_contrato_empresa WHERE empresa_id = $1::uuid ORDER BY versao`, [empresa]);
   assert.deepEqual(versoes.rows.map((v) => `${v.versao}:${v.situacao}`), ["1:SUBSTITUIDO", "2:ATIVO"]);
   await assert.rejects(client.query(`UPDATE modelos_contrato_empresa SET conteudo = '{}'::jsonb WHERE id = $1::uuid`, [pub2.modeloId]), /imutável/);
   await assert.rejects(client.query(`DELETE FROM modelos_contrato_empresa WHERE id = $1::uuid`, [pub2.modeloId]), /não é apagado/);
-  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), r2.id, r2.versao + 1, { revisadoPorPessoa: true })), /publicada ou descartada/);
+  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), r2.id, r2.versao + 1, { revisadoPorPessoa: true }, vista)), /publicada ou descartada/);
   const incompleto = await rascunho({ ...MODELO, clausulas: [{ titulo: null, texto: "Sem dados da festa." }] });
-  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), incompleto.id, incompleto.versao, { revisadoPorPessoa: true })), /precisa usar \{\{contratante\.nome\}\}/);
+  await assert.rejects(emTransacao(() => publicarModeloContrato(tx, ctx(), incompleto.id, incompleto.versao, { revisadoPorPessoa: true }, vista)), /Falta nas cláusulas: Data da festa/);
   const painel = await painelModeloContrato(tx, empresa);
   assert.equal(painel.ativo?.versao, 2);
   assert.equal(painel.rascunhos.length, 1);

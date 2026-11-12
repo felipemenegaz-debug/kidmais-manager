@@ -79,7 +79,7 @@ test("lista de contratos: paridade da versão de referência, números iguais à
       const empresa = randomUUID(), casos = { nanRec: randomUUID(), nanEst: randomUUID(), valido: randomUUID() };
       for (const [nome, contrato] of Object.entries(casos)) {
         const fech = randomUUID(), versao = randomUUID(), pag = randomUUID(), rec = randomUUID();
-        await a.query("INSERT INTO fechamentos VALUES ($1, $2)", [fech, empresa]);
+        await a.query("INSERT INTO fechamentos (id, empresa_id) VALUES ($1, $2)", [fech, empresa]);
         await a.query("INSERT INTO contratos VALUES ($1, $2)", [contrato, fech]);
         await a.query("INSERT INTO contrato_versoes VALUES ($1, $2)", [versao, contrato]);
         await a.query("INSERT INTO pagamentos VALUES ($1, $2, 6000.00, 'PARCIAL')", [pag, versao]);

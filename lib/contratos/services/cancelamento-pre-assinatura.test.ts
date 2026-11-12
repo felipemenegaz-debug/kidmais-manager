@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { hashSnapshotContrato } from './snapshot-core.ts';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 
 const require = createRequire(import.meta.url);
 function carregar(mocks: Record<string, unknown>) {
@@ -33,6 +34,8 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
     } };
     const operar = carregar({
         '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },
+        // Rev. 3: trava real da configuração da agenda (lock e set_config caem na resposta vazia).
+        '../../agenda/trava-configuracao': travaConfiguracao,
         '../../autenticacao/service': { consultarSessao: async () => ({ usuario_id: 'usuario', nome: 'Gestor', papel: 'REPRESENTANTE_AUTORIZADO' }), authError: (message: string) => new Error(message) },
         '../../fechamentos/services/edicao-administrativa-schema': { edicaoFestaSchema: require('zod').z.object({ acao: require('zod').z.literal('editar_festa') }) },
         './snapshot-core': { hashSnapshotContrato },

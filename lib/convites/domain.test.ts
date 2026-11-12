@@ -43,3 +43,19 @@ test('presença exige alguém e protege limites de contagem', () => {
   assert.equal(respostaSchema.safeParse({ ...r, adultos: 1 }).success, true);
   assert.equal(respostaSchema.safeParse({ ...r, adultos: 200 }).success, false);
 });
+test('S-E: salão fixado no contrato (V3) preenche o local do convite; sem salão, local vazio; endereço sempre vazio', () => {
+  const base = { aniversariante: { nome: 'Ana', idadeNoEvento: 5 }, evento: { data: '2026-12-20', horarioInicio: '18:00:00' } };
+  const v3 = (salao: unknown) => ({ ...base, schemaVersao: 3, evento: { ...base.evento, configuracaoAgendaId: 'cfg', salao } });
+  const com = inicioConteudo(v3({ id: 'salao-1', nome: 'Jardim' }));
+  assert.equal(com.local, 'Salão Jardim');
+  assert.equal(com.endereco, '');
+  assert.equal(JSON.stringify(com).includes('salao-1') || JSON.stringify(com).includes('cfg'), false, 'sem id do salão nem da configuração');
+  assert.equal(rascunhoSchema.safeParse(com).success, true);
+  for (const sem of [base, { ...base, schemaVersao: 1 }, v3(null), { ...base, schemaVersao: 2, evento: { ...base.evento, salao: { id: 'x', nome: 'Jardim' } } }, null]) {
+    assert.equal(inicioConteudo(sem).local, '');
+  }
+  const longo = inicioConteudo(v3({ id: 'salao-2', nome: 'X'.repeat(200) })).local;
+  assert.equal(longo.length, 120);
+  assert.equal(rascunhoSchema.safeParse({ ...com, local: longo }).success, true);
+  assert.equal(conteudoSchema.safeParse({ ...com, local: longo, endereco: 'Rua Exemplo, 10' }).success, true);
+});

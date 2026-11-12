@@ -4,12 +4,15 @@ import path from "path";
 import {
   consultarDisponibilidadeData,
   consultarDisponibilidadePeriodo,
+  duracaoAceita,
   isAvailabilityServiceError,
 } from "@/lib/disponibilidade/services";
 import { escopoPublico } from "@/lib/disponibilidade/escopo";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { db } from "@/lib/db/postgres";
 import { limitarPublico } from "@/lib/http/limite-publico";
+import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
+import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,6 +74,20 @@ export async function GET(request: NextRequest) {
     const data = searchParams.get("data")?.trim();
     const inicio = searchParams.get("inicio")?.trim();
     const fim = searchParams.get("fim")?.trim();
+    // S-C: convidados opcionais (1..1000); ausente = resposta de antes; inválido = 400.
+    const convidados = convidadosDaConsulta(searchParams.get("convidados"));
+    if (convidados === null) {
+      return NextResponse.json(
+        { ok: false, erro: "Informe a quantidade de convidados com um número inteiro de 1 a 1000.", codigo: "PARAMETROS_INVALIDOS" },
+        { status: 400 },
+      );
+    }
+    // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas.
+    // E2b: o combinado conta como opção só com combinadosPublicos; desligado, as opções de antes (sem o campo).
+    const opcoes = {
+      duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados } : {}),
+      ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
+    };
     // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
     const codigo = codigoEmpresaDoPedido(request.nextUrl);
     const escopo = codigo === null
@@ -79,9 +96,9 @@ export async function GET(request: NextRequest) {
 
     const [resultado, comercial] = await Promise.all([
       data
-        ? consultarDisponibilidadeData(data, undefined, undefined, escopo)
+        ? consultarDisponibilidadeData(data, undefined, undefined, escopo, opcoes)
         : inicio && fim
-          ? consultarDisponibilidadePeriodo(inicio, fim, undefined, undefined, escopo)
+          ? consultarDisponibilidadePeriodo(inicio, fim, undefined, undefined, escopo, opcoes)
           : Promise.reject(
               new Error(
                 "Informe data=YYYY-MM-DD ou inicio=YYYY-MM-DD&fim=YYYY-MM-DD.",

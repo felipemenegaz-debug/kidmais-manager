@@ -12,6 +12,10 @@ type Registro = { id: string; nome: string; ativo: boolean; categoria_id?: strin
 type Catalogo = { categorias: Registro[]; itens: Registro[] };
 type Formulario = { id?: string; nome: string; ativo: boolean; categoriaId: string };
 type Secao = 'categorias' | 'itens' | 'outros';
+type ResultadoServicoComum = { codigo: string; nome: string; situacao: 'CRIADO' | 'JA_EXISTIA' | 'INATIVO' | 'CONFLITO'; texto: string };
+const URL_SERVICOS_COMUNS = '/api/admin/configuracoes/adicionais/servicos-comuns';
+/** A ação só aparece com a categoria global Serviços instalada (103) e os adicionais disponíveis (070). */
+const servicosDisponiveis = (a: AdicionaisAdmin | null) => Boolean(a && !a.migracaoPendente && a.categorias.some((c) => c.codigo === 'SERVICOS'));
 
 const pagina = 12;
 
@@ -31,6 +35,9 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
   const [excluindo, setExcluindo] = useState<Registro | null>(null);
   const [excluindoAdicional, setExcluindoAdicional] = useState<{ id: string; nome: string; pacotes: number } | null>(null);
   const [excluindoEmCurso, setExcluindoEmCurso] = useState(false);
+  // S-A2 (103): "Adicionar serviços comuns" — cria só na empresa da sessão, sem preço, idempotente; o servidor exige Gestão.
+  const [criandoServicos, setCriandoServicos] = useState(false);
+  const [resultadoServicos, setResultadoServicos] = useState<ResultadoServicoComum[] | null>(null);
 
   async function carregar() {
     const resposta = await adminFetch('/api/admin/configuracoes/catalogo');
@@ -44,6 +51,31 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
     const body = await resposta.json();
     if (!resposta.ok || body.ok === false) throw Error(body.erro || 'Falha ao carregar os adicionais.');
     setAdicionais(body.data);
+  }
+
+  async function adicionarServicosComuns() {
+    if (criandoServicos) return;
+    setErro('');
+    setAviso('');
+    setResultadoServicos(null);
+    setCriandoServicos(true);
+    try {
+      // Sem empresaId no corpo: a empresa é a da sessão (comprovada no servidor).
+      const resposta = await adminFetch(URL_SERVICOS_COMUNS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const body = await resposta.json();
+      if (!resposta.ok || body.ok === false) { setErro(body.erro || 'Não foi possível adicionar os serviços comuns.'); return; }
+      const resultado = body.data as ResultadoServicoComum[];
+      setResultadoServicos(resultado);
+      const criados = resultado.filter((r) => r.situacao === 'CRIADO').length;
+      setAviso(criados > 0
+        ? `${criados} serviço(s) adicionado(s) sem preço. Marque em cada pacote se o serviço está incluso ou é extra.`
+        : 'Nenhum serviço novo: veja a situação de cada um abaixo.');
+      await carregarAdicionais();
+    } catch {
+      setErro('Não foi possível adicionar os serviços comuns.');
+    } finally {
+      setCriandoServicos(false);
+    }
   }
 
   useEffect(() => {
@@ -251,6 +283,14 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
         {adicionais?.migracaoPendente && <p className={editor.aviso}>Adicionais do buffet aguardam a atualização do banco (070).</p>}
         {adicionais && !adicionais.migracaoPendente && !adicionais.tabelaCorrente && <p className={editor.aviso}>Não há tabela de preços publicada: publique os preços dos pacotes para dar valor aos adicionais.</p>}
         {adicionais?.aviso && <p className={editor.aviso}>{adicionais.aviso}</p>}
+        {secao === 'outros' && servicosDisponiveis(adicionais) && <div className={editor.servicosComuns} data-servicos-comuns>
+          <button type="button" disabled={criandoServicos} aria-busy={criandoServicos || undefined}
+            onClick={() => void adicionarServicosComuns()}>{criandoServicos ? 'Adicionando…' : 'Adicionar serviços comuns'}</button>
+          <span> Monitores, recreação, animação e gerente de festa, sem preço. Já existentes não são alterados nem reativados.</span>
+          {resultadoServicos && <ul aria-label="Resultado dos serviços comuns">
+            {resultadoServicos.map((r) => <li key={r.codigo}>{r.nome}: {r.texto}</li>)}
+          </ul>}
+        </div>}
       </div>
       <div className={editor.lista}>
         <table className={editor.tabela}>

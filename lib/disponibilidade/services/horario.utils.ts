@@ -35,6 +35,28 @@ export function horaParaMinutos(hora: string) {
   return h * 60 + m;
 }
 
+const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+
+/**
+ * Duração (minutos) de um intervalo HH:MM[:SS] no mesmo dia; null quando algum horário é inválido ou o fim não é
+ * posterior ao início (parecer do Astra, P3: nunca lança). Sem dependência de servidor: a tela de edição também usa.
+ */
+export function duracaoDoIntervalo(inicio: string, fim: string): number | null {
+  if (!HORA_RE.test(inicio) || !HORA_RE.test(fim)) return null;
+  const minutos = horaParaMinutos(fim.slice(0, 5)) - horaParaMinutos(inicio.slice(0, 5));
+  return minutos > 0 ? minutos : null;
+}
+
+/** Limite único de duração (minutos) aceito pelas rotas e pelo pacote: cabe no mesmo dia. */
+export const DURACAO_MINIMA_MINUTOS = 5;
+export const DURACAO_MAXIMA_MINUTOS = 24 * 60 - 1;
+
+/** A duração informada quando é um inteiro dentro do limite único; null caso contrário (inclusive texto, NaN, vazio). */
+export function duracaoAceita(minutos: unknown): number | null {
+  const n = typeof minutos === "string" && minutos.trim() !== "" ? Number(minutos) : minutos;
+  return typeof n === "number" && Number.isInteger(n) && n >= DURACAO_MINIMA_MINUTOS && n <= DURACAO_MAXIMA_MINUTOS ? n : null;
+}
+
 export function minutosParaHora(total: number) {
   if (!Number.isInteger(total) || total < 0 || total >= 24 * 60) {
     throw new Error(`Minutos fora do mesmo dia: ${total}`);

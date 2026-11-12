@@ -32,12 +32,14 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
         'Perfil da empresa',
+        'Agenda',
+        'Salões',
         'Pacotes',
         'Itens do Buffet',
+        'Importar documentos',
         'Usuários e acessos',
         'WhatsApp',
         'IA e créditos',
-        'PDF de Pacotes',
     ]);
     assert.equal(configuracao.indexOf('Itens do Buffet'), configuracao.indexOf('Pacotes') + 1);
     // O grupo continua; só o item clicável redundante saiu. A rota segue acessível diretamente.
@@ -74,21 +76,26 @@ test('hub de Configurações: cartões da plataforma só para a plataforma; da e
     const empresaSemPlataforma = { gestaoEmpresa: true, plataforma: false };
     // 083: o WhatsApp é da empresa — a Gestão de uma contratante vê e conecta o próprio número.
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', empresaSemPlataforma), true, 'Gestão da contratante vê o WhatsApp da empresa');
-    assert.equal(configuracaoVisivel('/admin/configuracoes/tabela-pacotes', empresaSemPlataforma), false);
+    // 23/10/2026: o PDF de Pacotes saiu do hub e do menu (sem autoridade registrada, a regra genérica vale); Importar documentos é de Gestão.
+    assert.equal(configuracaoVisivel('/admin/configuracoes/importar-documentos', empresaSemPlataforma), true);
     assert.equal(configuracaoVisivel('/admin/configuracoes/perfil-empresa', empresaSemPlataforma), true);
     const equipe = { gestaoEmpresa: false, plataforma: false };
     assert.equal(configuracaoVisivel('/admin/configuracoes/acessos', equipe), false);
+    // 093: a tela da agenda é de Gestão (o assistente da primeira entrada é de qualquer usuário, fora do hub).
+    assert.equal(configuracaoVisivel('/admin/configuracoes/agenda', equipe), false);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/agenda', empresaSemPlataforma), true);
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', equipe), false, 'Equipe não configura o WhatsApp');
     const plataforma = { gestaoEmpresa: false, plataforma: true };
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', plataforma), false, 'a plataforma sem Gestão na empresa não configura o WhatsApp dela');
-    assert.equal(configuracaoVisivel('/admin/configuracoes/tabela-pacotes', plataforma), true);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/importar-documentos', plataforma), false, 'a plataforma sem Gestão na empresa não importa documentos dela pelo menu');
+    assert.equal(configuracaoVisivel('/admin/configuracoes/importar-documentos', equipe), false);
     // Rota sem autoridade registrada continua visível; sem as permissões do shell, nada muda.
     assert.equal(configuracaoVisivel('/admin/configuracoes/importar-tabela', equipe), true);
     assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', null), true);
     // Para toda rota do menu, o cartão segue exatamente o item do menu.
     for (const p of [empresaSemPlataforma, equipe, plataforma, { gestaoEmpresa: true, plataforma: true }]) {
         const menu = new Set(itensNavegacao(p).map((i) => i.href));
-        for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes'])
+        for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/importar-documentos'])
             assert.equal(configuracaoVisivel(href, p), menu.has(href), href);
     }
 });
@@ -103,4 +110,36 @@ test('o hub filtra os cartões pelas permissões do shell, e a tela do WhatsApp 
     const whatsapp = readFileSync('components/admin/WhatsappConfiguracao.tsx', 'utf8');
     assert.ok(!whatsapp.includes("catch { if (ativo) setErro('Não foi possível carregar"), 'não esconde a mensagem do servidor');
     assert.ok(whatsapp.includes('falhaCarga ? null : <p>Carregando…</p>'), 'sem "Carregando…" depois da falha');
+});
+
+test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configurações; sem Importar contratos em Operação; sem PDF de Pacotes', () => {
+    const gestao = itensNavegacao({ gestaoEmpresa: true, plataforma: true });
+    assert.equal(gestao.some((item) => item.href === '/admin/contratos/importar'), false, 'o atalho de importar contratos fica em Contratos, Festas e Importar documentos');
+    assert.equal(gestao.some((item) => item.href.includes('tabela-pacotes')), false);
+    const documentos = gestao.find((item) => item.href === '/admin/configuracoes/importar-documentos');
+    assert.deepEqual(documentos, { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações' });
+    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'IA e créditos']);
+    const hub = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
+    assert.doesNotMatch(hub, /tabela-pacotes|PDF de Pacotes/);
+    assert.match(hub, /route:'importar-documentos'/);
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /href\.includes\('importar-documentos'\)\) return 'pdf'/);
+    assert.doesNotMatch(shell, /contratos\/importar/);
+});
+
+test('PS-4: grupo Satisfação só com recursos.satisfacao do servidor; Resultados por VER, Retornos por TRATAR com o número', () => {
+    const base = { gestaoEmpresa: true, plataforma: false };
+    const satisfacao = (p: Parameters<typeof itensNavegacao>[0]) => itensNavegacao(p).filter((i) => i.grupo === 'Satisfação').map((i) => [i.href, i.contador ?? null]);
+    assert.deepEqual(satisfacao(base), [], 'ausente: grupo oculto (falha fechada)');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: null }), [], 'null: grupo oculto');
+    assert.deepEqual(satisfacao(false), [], 'chamada antiga (boolean): grupo oculto');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: false, retornosAbertos: 0 } }), [['/admin/satisfacao', null]], 'só VER');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: false, tratar: true, retornosAbertos: 3 } }), [['/admin/satisfacao/retornos', 3]], 'só TRATAR');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 2 } }), [['/admin/satisfacao', null], ['/admin/satisfacao/retornos', 2]], 'as duas');
+    const itens = itensNavegacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 0 } });
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao/retornos', itens), true);
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao', itens), false, 'Retornos não acende Resultados');
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /'Marketing', 'Satisfação', 'Financeiro'/, 'o shell renderiza o grupo');
+    assert.match(shell, /satisfacao: menuSatisfacaoDe\(b\.data\.recursos\?\.satisfacao\)/, 'o shell lê recursos.satisfacao com validação de formato');
 });

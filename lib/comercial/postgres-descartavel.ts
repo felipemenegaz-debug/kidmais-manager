@@ -1,7 +1,12 @@
 import pg from "pg";
+import { instrumentarTimeout, PRAZO_DIAGNOSTICO_MS } from "./diagnostico-timeout.ts";
+import { encerrarRegistrando } from "./encerramento-descartavel.ts";
 import { exigirAmbienteSemConexaoHerdada, exigirOptInDescartavel, PAPEL_DESCARTAVEL, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
+// Liberar agenda com mais de um salão (rodada 2, C''20–22): o script de reconciliação só aceita kidmais_019_<n> local; o cenário
+// cria esse banco no próprio cluster descartável e o remove no fim. Mesma prova de identidade abaixo.
+const permitido = (db: string) => PERMITIDOS.has(db) || /^kidmais_019_\d+$/.test(db);
 const TRAVA_TESTE = 8742036;
 // Guarda da porta num módulo puro (testável sem driver); reexportada para as suítes.
 export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
@@ -13,7 +18,7 @@ export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 export async function conectarDescartavel(opcoes?: { travar?: boolean; database?: string }) {
   exigirOptInDescartavel();
   const database = opcoes?.database ?? "kidmais_pacotes_v1_descartavel";
-  if (!PERMITIDOS.has(database)) throw new Error("banco recusado");
+  if (!permitido(database)) throw new Error("banco recusado");
   exigirAmbienteSemConexaoHerdada();
   const portaAutorizada = portaDescartavel();
   // Tudo explícito; nenhuma senha é carregada (pgpass/PGPASSWORD) e nenhuma variável PG* participa.
@@ -32,29 +37,38 @@ export async function conectarDescartavel(opcoes?: { travar?: boolean; database?
   const db = ident.rows[0]?.db;
   const port = Number(ident.rows[0]?.port);
   const { addr, papel, cluster } = ident.rows[0] ?? {};
-  if (!PERMITIDOS.has(String(db)) || port !== portaAutorizada || addr !== "127.0.0.1" || papel !== PAPEL_DESCARTAVEL || cluster !== PAPEL_DESCARTAVEL) {
+  if (!permitido(String(db)) || port !== portaAutorizada || addr !== "127.0.0.1" || papel !== PAPEL_DESCARTAVEL || cluster !== PAPEL_DESCARTAVEL) {
     await client.end();
     throw new Error("destino recusado");
   }
   if (opcoes?.travar !== false) await client.query("SELECT pg_advisory_lock($1)", [TRAVA_TESTE]);
   await client.query("SET statement_timeout = '30s'");
+  if (process.env.KIDMAIS_DIAGNOSTICO_PG === "1") {
+    // B-14: diagnóstico opcional do 57014, com prazo na coleta e no encerramento (lib/comercial/diagnostico-timeout.ts).
+    instrumentarTimeout(client, () => {
+      const outra = new pg.Client({
+        host: "127.0.0.1",
+        port: portaAutorizada,
+        user: "kidmais_descartavel",
+        database,
+        password: senhaRecusada,
+        application_name: "kidmais-diagnostico",
+        connectionTimeoutMillis: PRAZO_DIAGNOSTICO_MS,
+        query_timeout: PRAZO_DIAGNOSTICO_MS,
+      });
+      const destruir = () => (outra as unknown as { connection?: { stream?: { destroy?: () => void } } }).connection?.stream?.destroy?.();
+      return { cliente: outra, destruir };
+    });
+  }
   return client;
 }
 
+/**
+ * Limpeza da conexão: ROLLBACK, unlock e fechamento. Uma falha do ROLLBACK ou do unlock (por exemplo, 57014) é registrada
+ * com fase e SQLSTATE, sem relançar, e o fechamento sempre acontece (lib/comercial/encerramento-descartavel.ts).
+ */
 export async function encerrarDescartavel(client: pg.Client, travou = true) {
-  try {
-    await client.query("ROLLBACK");
-  } catch {
-    /* sem transação aberta */
-  }
-  if (travou) {
-    try {
-      await client.query("SELECT pg_advisory_unlock($1)", [TRAVA_TESTE]);
-    } catch {
-      /* a sessão encerra a trava */
-    }
-  }
-  await client.end();
+  await encerrarRegistrando(client, travou ? TRAVA_TESTE : null);
 }
 
 /**

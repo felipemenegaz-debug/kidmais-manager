@@ -17,11 +17,11 @@ export const abas: Record<AbaId, ConteudoAba> = {
     },
     "agenda": {
         "titulo": "Saiba na hora se a data está livre.",
-        "texto": "Datas, horários e salões num só calendário. Bloqueie dias e mostre a disponibilidade sem abrir planilha.",
+        "texto": "Organize mais de um salão na mesma unidade. Acompanhe datas, horários, intervalos e ocupação de cada espaço conforme a configuração da agenda.",
         "itens": [
-            "Vários salões ou espaços na mesma agenda",
+            "Vários salões da mesma unidade, com ocupação por espaço",
             "Bloqueio e liberação de datas",
-            "Aniversariantes e histórico de cada cliente"
+            "Horários e intervalo mínimo entre festas"
         ],
         "nome": "Agenda",
         "recursos": [

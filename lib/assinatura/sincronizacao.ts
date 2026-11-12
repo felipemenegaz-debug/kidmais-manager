@@ -34,7 +34,19 @@ import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, 
     type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
 import { cobrancaDevolvidaOuAnterior, cobrancasDevolvidas, registrarAusenciaNoProvedor } from './devolucao-registro.ts';
+import type { ProvedorCreditos } from './asaas.ts';
+import { creditosInstalados } from '../creditos/ledger.ts';
+import { pedidoDoEvento, processarEventoCreditos } from '../creditos/pagamento.ts';
+
+/**
+ * Créditos de IA (095): cobrança AVULSA de pacote nunca entra na sincronização da assinatura (não ativa nem renova nada).
+ * O evento cujo pagamento está vinculado a um pedido de créditos, ou cuja referência é km:<amb>:creditos:<pedido>, vai
+ * para lib/creditos/pagamento.ts (mesmo serviço idempotente da reconciliação), com a conta e o ambiente do serviço.
+ */
+/** `baseValidade`: só a recuperação de pagamentos (B-14, RESTORE, D-B14-15) passa 'PAGAMENTO'; web e cron não mudam. */
+export type ContextoCreditos = { ambiente: 'sandbox' | 'producao'; conta: string; baseValidade?: 'PAGAMENTO' };
 import { registrarAvisosDaTransicao } from './avisos-repositorio.ts';
+import { registrarPendenciaFranquia } from '../creditos/franquias.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -100,13 +112,17 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
     const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))
         ? await confirmarOfertaPaga(tx, empresaId, assinatura, pagamentos, linha.provedor_cliente_id, alvo.situacao === 'ATIVA') : null;
-    if (alvo.mudou || oferta) {
-        await tx.query(
-            `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
-                    cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
-                    ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
-              WHERE empresa_id = $1::uuid`,
-            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])]);
+    // B-14 (§3.3.1): gravação só com mudança — os valores calculados são comparados no próprio UPDATE; sem diferença real,
+    // cai no ramo de observação (sem auditoria de sincronização repetida).
+    const gravou = (alvo.mudou || oferta) && (await tx.query(
+        `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
+                cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
+                ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
+          WHERE empresa_id = $1::uuid
+            AND (situacao, ciclo, periodo_atual_fim, em_atraso_desde, cancelada_em, encerrada_em, provedor_situacao${oferta ? ', plano, contratacao_atual_id' : ''})
+                IS DISTINCT FROM ($2, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8${oferta ? ', $9, $10::uuid' : ''})`,
+        [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])])).rowCount === 1;
+    if (gravou) {
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_SINCRONIZADA', empresaId, origem,
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
@@ -115,8 +131,11 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
         // Avisos por e-mail (087): só a intenção, na mesma transação; desligado por padrão e isolado em SAVEPOINT.
         await registrarAvisosDaTransicao(tx, empresaId,
             { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, canceladaEm: linha.cancelada_em, encerradaEm: linha.encerrada_em }, alvo);
+        // Franquias de IA (116): intenção de reconhecer a contratação nova, na mesma transação; isolada em SAVEPOINT.
+        if (oferta) await registrarPendenciaFranquia(tx, empresaId, oferta.id);
     }
     else {
+        // B14: observação — sincronizado_em/provedor_situacao (e versao/atualizado_em pela 074a) no domínio do SEM_EFEITO.
         await tx.query('UPDATE empresa_assinaturas SET provedor_situacao = $2, sincronizado_em = clock_timestamp() WHERE empresa_id = $1::uuid', [empresaId, alvo.provedorSituacao]);
         if (alvo.recusa)
             await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_SEM_TRANSICAO', empresaId, origem, depois: { situacao: linha.situacao, motivo: alvo.recusa, provedorSituacao: alvo.provedorSituacao } });
@@ -144,6 +163,8 @@ const ID_EVENTO = /^[A-Za-z0-9_.:&-]{1,200}$/;
 const ID_PROVEDOR = /^[A-Za-z0-9_-]{1,100}$/;
 const TIPO = /^[A-Z0-9_]{1,80}$/;
 const opcional = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v) ? v : null);
+/** Referência de pedido de créditos (095): km:<ambiente>:creditos:<uuid>. Guardada como veio, só para escolher o pedido. */
+const REFERENCIA_CREDITOS = /^km:(sandbox|producao):creditos:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const objeto = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
 
 /** Extrai SÓ identificadores do corpo do webhook (nada de nome, documento, e-mail ou valor). null = corpo inválido. */
@@ -162,7 +183,7 @@ export function extrairEvento(corpo: unknown): EventoRecebido | null {
         assinaturaId: opcional(pagamento?.subscription, ID_PROVEDOR) ?? opcional(assinatura?.id, ID_PROVEDOR),
         cobrancaId: opcional(pagamento?.id, ID_PROVEDOR),
         checkoutId: opcional(checkout?.id, ID_PROVEDOR),
-        referenciaExterna: referencia && UUID.test(referencia) ? referencia.toLowerCase() : null,
+        referenciaExterna: referencia && UUID.test(referencia) ? referencia.toLowerCase() : referencia && REFERENCIA_CREDITOS.test(referencia) ? referencia : null,
     };
 }
 
@@ -179,7 +200,8 @@ export async function registrarEvento(tx: DbExecutor, e: EventoRecebido) {
     return { id: existente.id, duplicado: true, pendente: existente.situacao === 'PENDENTE' || existente.situacao === 'FALHOU' };
 }
 
-type LinhaEvento = { id: string; tipo: string; situacao: string; assinatura_provedor_id: string | null; referencia_externa: string | null; empresa_id: string | null; evento_id: string };
+type LinhaEvento = { id: string; tipo: string; situacao: string; assinatura_provedor_id: string | null; referencia_externa: string | null; empresa_id: string | null; evento_id: string;
+    cobranca_provedor_id?: string | null };
 
 async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     if (ev.empresa_id)
@@ -192,7 +214,7 @@ async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     }
     // Referência externa = id da empresa (gravado por nós na criação). Só serve para escolher QUEM reconsultar: a
     // sincronização usa os ids gravados no nosso banco, nunca o conteúdo do evento.
-    if (ev.referencia_externa) {
+    if (ev.referencia_externa && UUID.test(ev.referencia_externa)) {
         const r = (await tx.query<{ empresa_id: string }>(
             "SELECT empresa_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND provedor_assinatura_id IS NOT NULL", [ev.referencia_externa])).rows[0];
         if (r)
@@ -201,11 +223,17 @@ async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     return null;
 }
 
-const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
+export const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
     ? `LISTA_INCOMPLETA: ${error.operacao} (mais registros que o limite conferido; revisão humana)`.slice(0, 500)
     : error instanceof AsaasFalhou
     ? `PROVEDOR_INDISPONIVEL: ${error.operacao}${error.status ? ` (${error.status})` : ''}`.slice(0, 500)
-    : `ERRO_INTERNO: ${error instanceof Error ? error.name : typeof error}`.slice(0, 500);
+    // Recusa de domínio (ex.: FUNDADOR_OFERTA_EXPIRADA) guarda SÓ o código, no formato que a conferência D-C4 preserva
+    // (motivoSeguro: "ERRO_INTERNO: <CÓDIGO>"); o prefixo mantém o alarme. A mensagem fica fora: pode citar dados.
+    : `ERRO_INTERNO: ${codigoDominio(error) ?? (error instanceof Error ? error.name : typeof error)}`.slice(0, 500);
+function codigoDominio(error: unknown) {
+    const codigo = error instanceof Error && error.name === 'AcessoServiceError' ? (error as { code?: unknown }).code : null;
+    return typeof codigo === 'string' && /^[A-Z][A-Z0-9_]{0,59}$/.test(codigo) ? codigo : null;
+}
 
 export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' | 'JA_CONCLUIDO'; empresaId: string | null; motivo?: string };
 
@@ -214,12 +242,14 @@ export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' |
  * a transação continua válida e o evento fica FALHOU com a tentativa contada.
  */
 /** `transacaoIndependente`: outra conexão com COMMIT próprio, para o marcador de exclusão (sem ela, nada é excluído). */
-export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>; transacaoIndependente?: TransacaoIndependente }): Promise<ResultadoEvento> {
+export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao> & Partial<ProvedorCreditos>; transacaoIndependente?: TransacaoIndependente;
+    creditos?: ContextoCreditos; origem?: OrigemSincronizacao }): Promise<ResultadoEvento> {
     const ev = (await tx.query<LinhaEvento>(
-        `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
+        `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, cobranca_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
     if (!ev || ev.situacao === 'PROCESSADO' || ev.situacao === 'IGNORADO')
         return { situacao: 'JA_CONCLUIDO', empresaId: ev?.empresa_id ?? null };
     const concluir = async (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(
             `UPDATE cobranca_eventos SET situacao = $2, empresa_id = COALESCE(empresa_id, $3::uuid), tentativas = tentativas + 1, ultimo_erro = $4, processado_em = clock_timestamp()
               WHERE id = $1::uuid`, [ev.id, situacao, empresaId, motivo]);
@@ -229,10 +259,16 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
         return processarPendencia(tx, ev, deps.provedor, concluir, deps.transacaoIndependente);
     if (!EVENTOS_SUPORTADOS.has(ev.tipo))
         return concluir('IGNORADO', null, 'TIPO_NAO_TRATADO');
+    // 095: pagamento avulso de créditos → serviço de créditos (nunca o sincronizador da assinatura).
+    if (!ev.assinatura_provedor_id && await creditosInstalados(tx)) {
+        const alvo = await pedidoDoEvento(tx, { cobrancaProvedorId: ev.cobranca_provedor_id ?? null, referenciaExterna: ev.referencia_externa });
+        if (alvo) return processarCreditos(tx, ev, alvo, deps);
+    }
     const empresaId = await resolverEmpresa(tx, ev);
     if (!empresaId)
         return concluir('IGNORADO', null, 'EMPRESA_NAO_ENCONTRADA');
     const falhar = async (motivo: string) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(
             `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
             [ev.id, empresaId, motivo]);
@@ -240,7 +276,8 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
     };
     await tx.query('SAVEPOINT kidmais_evento_cobranca');
     try {
-        const r = await sincronizarEmpresa(tx, empresaId, deps, { tipo: 'WEBHOOK', eventoId: ev.evento_id });
+        // B-14: a recuperação passa a própria origem (execução e caso); webhook e cron continuam 'WEBHOOK'.
+        const r = await sincronizarEmpresa(tx, empresaId, deps, { ...(deps.origem ?? { tipo: 'WEBHOOK' }), eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_evento_cobranca');
         if (r.resultado === 'RECUSADA')
             return concluir('IGNORADO', empresaId, r.motivo);
@@ -255,6 +292,32 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
     }
 }
 
+/** Evento de créditos: mesmo serviço da reconciliação (SAVEPOINT; provedor fora → FALHOU reprocessável). */
+async function processarCreditos(tx: DbExecutor, ev: LinhaEvento, alvo: { pedidoId: string; cobrancaId: string | null; canonica: boolean },
+    deps: { provedor: Partial<ProvedorCreditos>; creditos?: ContextoCreditos }): Promise<ResultadoEvento> {
+    const empresaId = (await tx.query<{ empresa_id: string }>('SELECT empresa_id FROM ia_credito_pedidos WHERE id = $1::uuid', [alvo.pedidoId])).rows[0]?.empresa_id ?? null;
+    const marcar = async (situacao: 'PROCESSADO' | 'FALHOU', motivo: string | null) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
+        await tx.query(situacao === 'PROCESSADO'
+            ? `UPDATE cobranca_eventos SET situacao = 'PROCESSADO', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3, processado_em = clock_timestamp() WHERE id = $1::uuid`
+            : `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
+        [ev.id, empresaId, motivo ? motivo.slice(0, 500) : null]);
+        return { situacao, empresaId, ...(motivo ? { motivo } : {}) };
+    };
+    if (!deps.creditos || !deps.provedor.obterCobranca || !deps.provedor.listarCobrancasPorReferencia) return marcar('FALHOU', 'CREDITOS_SEM_PROVEDOR');
+    const ctx = { provedor: deps.provedor as Pick<ProvedorCreditos, 'obterCobranca' | 'listarCobrancasPorReferencia'>, ...deps.creditos };
+    await tx.query('SAVEPOINT kidmais_evento_creditos');
+    try {
+        const r = await processarEventoCreditos(tx, { cobrancaProvedorId: ev.cobranca_provedor_id ?? null, referenciaExterna: ev.referencia_externa }, alvo, ctx);
+        await tx.query('RELEASE SAVEPOINT kidmais_evento_creditos');
+        return marcar('PROCESSADO', `CREDITOS_${r.resultado}${r.motivo ? `: ${r.motivo}` : ''}`);
+    }
+    catch (error) {
+        await tx.query('ROLLBACK TO SAVEPOINT kidmais_evento_creditos');
+        return marcar('FALHOU', `CREDITOS ${codigoErro(error)}`);
+    }
+}
+
 /**
  * Pendência de reconciliação da contratação (lib/assinatura/reconciliacao-contratacao.ts). Resolvida → PROCESSADO (e a
  * empresa é sincronizada se ficou vinculada). Precisa de pessoa (várias assinaturas sem vínculo, duplicata paga) ou
@@ -265,6 +328,7 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
     independente?: TransacaoIndependente): Promise<ResultadoEvento> {
     const empresaId = ev.empresa_id!;
     const falhar = async (motivo: string) => {
+        // B14: efeito — processamento de cobranca_eventos; evento pendente bloqueia a liberação.
         await tx.query(`UPDATE cobranca_eventos SET situacao = 'FALHOU', tentativas = tentativas + 1, ultimo_erro = $2 WHERE id = $1::uuid`, [ev.id, motivo.slice(0, 500)]);
         return { situacao: 'FALHOU' as const, empresaId, motivo };
     };

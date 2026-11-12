@@ -1,8 +1,9 @@
-import type { ContratoSnapshot } from "../repositories/models.ts";
+import { salaoDoSnapshot, type ContratoSnapshot } from "../repositories/models.ts";
 import {
   formatarCep, formatarCondicaoPix, formatarCpf, formatarDataContrato, formatarFormaPagamento, formatarHorarioContrato,
   formatarMoeda, textoOuNaoInformado,
 } from "../documento/formatters.ts";
+import { contratantePj, documentoDoContratante, representanteDoContratante } from "../documento/contratante-pj.ts";
 
 /**
  * Campos que o modelo de contrato da empresa pode usar, como {{campo}}. Lista FECHADA: todo valor vem do snapshot
@@ -48,7 +49,14 @@ function condicao(s: ContratoSnapshot) {
 
 export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
   { chave: "contratante.nome", rotulo: "Nome do contratante", grupo: "Contratante", exemplo: "Maria da Silva", valor: (s) => s.contratante.nomeCompleto },
-  { chave: "contratante.cpf", rotulo: "CPF do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: (s) => formatarCpf(s.contratante.cpf) },
+  // R2-2: só o CPF de contratante PF. PJ com este campo é recusada antes (MODELO_INCOMPATIVEL_PJ); aqui é a última defesa.
+  { chave: "contratante.cpf", rotulo: "CPF do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: (s) => {
+    if (contratantePj(s)) throw new Error("MODELO_INCOMPATIVEL_PJ: {{contratante.cpf}} com contratante pessoa jurídica.");
+    return formatarCpf(s.contratante.cpf);
+  } },
+  { chave: "contratante.documento", rotulo: "CPF ou CNPJ do contratante", grupo: "Contratante", exemplo: "123.456.789-09", valor: documentoDoContratante },
+  { chave: "contratante.tipo_documento", rotulo: "Tipo do documento (CPF ou CNPJ)", grupo: "Contratante", exemplo: "CPF", valor: (s) => (contratantePj(s) ? "CNPJ" : "CPF") },
+  { chave: "contratante.representante", rotulo: "Representante legal (só empresa)", grupo: "Contratante", exemplo: "", valor: representanteDoContratante },
   { chave: "contratante.rg", rotulo: "RG do contratante", grupo: "Contratante", exemplo: "1.234.567", valor: (s) => textoOuNaoInformado(s.contratante.rg) },
   { chave: "contratante.telefone", rotulo: "Telefone do contratante", grupo: "Contratante", exemplo: "(61) 99999-0000", valor: (s) => textoOuNaoInformado(s.contratante.whatsapp ?? s.contratante.telefone) },
   { chave: "contratante.email", rotulo: "E-mail do contratante", grupo: "Contratante", exemplo: "maria@exemplo.com", valor: (s) => textoOuNaoInformado(s.contratante.email) },
@@ -64,6 +72,8 @@ export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
   { chave: "festa.duracao", rotulo: "Duração do pacote", grupo: "Festa", exemplo: "4 horas", valor: duracao },
   { chave: "festa.convidados", rotulo: "Convidados contratados", grupo: "Festa", exemplo: "60", valor: (s) => String(s.evento.convidadosFaturados) },
   { chave: "festa.adicionais", rotulo: "Adicionais contratados", grupo: "Festa", exemplo: "Mesa de café (1); Bombom (20)", valor: (s) => s.contratacao.adicionais.length ? s.contratacao.adicionais.map((a) => `${a.nome} (${a.quantidade})`).join("; ") : "Nenhum" },
+  // S-E (plano S-E/S-D rev. 4.1, R-E5): opcional (fora dos obrigatórios); vazio sem salão fixado (V1/V2, V3 nulo).
+  { chave: "festa.salao", rotulo: "Salão da festa", grupo: "Festa", exemplo: "Jardim", valor: (s) => salaoDoSnapshot(s)?.nome ?? "" },
   { chave: "valor.total", rotulo: "Valor total do contrato", grupo: "Valores", exemplo: "R$ 9.990,00", valor: (s) => formatarMoeda(s.comercial.valorFinalContrato) },
   { chave: "valor.pacote", rotulo: "Valor do pacote", grupo: "Valores", exemplo: "R$ 9.190,00", valor: (s) => formatarMoeda(s.comercial.valorPacoteAplicado) },
   { chave: "valor.adicionais", rotulo: "Valor dos adicionais", grupo: "Valores", exemplo: "R$ 800,00", valor: (s) => formatarMoeda(s.comercial.valorAdicionais) },
@@ -74,8 +84,22 @@ export const CAMPOS_CONTRATO: readonly CampoContrato[] = [
 
 const PORCHAVE = new Map(CAMPOS_CONTRATO.map((c) => [c.chave, c]));
 
-/** Campos sem os quais o contrato não identifica partes, festa e valor: o modelo precisa usá-los. */
-export const CAMPOS_OBRIGATORIOS = ["contratante.nome", "contratante.cpf", "festa.data", "valor.total"] as const;
+/**
+ * Dados da festa e do valor que as CLÁUSULAS precisam usar (D1, plano modelo de contrato v3, 28/10/2026). Nome, CPF e
+ * os demais dados das partes saem do bloco fixo de identificação (renderizar.ts), por isso não entram aqui.
+ */
+export const CAMPOS_OBRIGATORIOS = ["festa.data", "festa.inicio", "festa.fim", "festa.pacote", "festa.convidados", "valor.total", "pagamento.condicao"] as const;
+export const REGRA_OBRIGATORIOS = "D1-20261028";
+
+/** O que o bloco fixo de identificação já imprime em todo contrato (só para exibir; idade, tema e RG são opcionais, D2/D3). */
+export const CAMPOS_IDENTIFICACAO = [
+  "contratante.nome", "contratante.cpf", "contratante.rg", "contratante.telefone", "contratante.email", "contratante.endereco",
+  "aniversariante.nome", "aniversariante.idade", "aniversariante.tema",
+] as const;
+
+export function rotuloDoCampo(chave: string) {
+  return PORCHAVE.get(chave)?.rotulo ?? chave;
+}
 
 const MARCA = /\{\{\s*([a-z_]+(?:\.[a-z_]+)*)\s*\}\}/g;
 

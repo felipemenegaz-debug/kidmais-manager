@@ -4,6 +4,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './
 import * as contratoUrl from './contrato-url.ts';
 import * as contratoTela from './contrato-tela.ts';
 import * as versaoReferencia from '../../lib/contratos/versao-referencia.ts';
+import * as fonteDocumento from '../../lib/contratos/documento/fonte.ts';
 
 /** Regressões da revisão do código da fase 1 (C-1 a C-4): navegação por versão, confirmação de agenda e recusa financeira. */
 const ID = '00000000-0000-4000-8000-000000000001', OUTRO = '00000000-0000-4000-8000-000000000002';
@@ -22,14 +23,15 @@ const dados = () => ({
 function Filho() { return null; }
 function Lista() { return null; }
 
-function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>) {
+function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) => Promise<Response>, navegacoes: string[] = [], extra: Record<string, unknown> = {}) {
   const tela = carregarComponente('components/admin/ContratoAdmin.tsx', {
-    'next/navigation': { useSearchParams: () => new URLSearchParams(url.q), usePathname: () => '/admin/contratos', useRouter: () => ({ push() {}, replace() {} }) },
+    'next/navigation': { useSearchParams: () => new URLSearchParams(url.q), usePathname: () => '/admin/contratos', useRouter: () => ({ push(u: string) { navegacoes.push(`push ${u}`); }, replace(u: string) { navegacoes.push(`replace ${u}`); } }) },
     'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
     '@/lib/http/admin-fetch': { adminFetch: fetchFalso, reautenticarSessao: async () => ({ ok: true }) },
     '@/lib/contratos/services/alteracoes': { analisarRevisao: (a: { evento: { pacote: { nome: string } } }, b: { evento: { pacote: { nome: string } } }) => ({ natureza: 'MATERIAL', campos: [{ campo: 'evento.pacote.nome', antes: a.evento.pacote.nome, depois: b.evento.pacote.nome }] }) },
     '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => false, TEXTO_ASSINADO_EM_PAPEL: '' },
-    '../../lib/contratos/documento/oficial/configuracao': { configuracaoModeloOficial: () => true },
+    // Aviso da fonte do PDF (plano UX achados Frente C): função real; o botão principal recebe a classe visual.
+    '../../lib/contratos/documento/fonte': fonteDocumento, './AdminPrimaryButton': { classePrimaria: 'primario' },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
     '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
     './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Filho },
@@ -39,6 +41,7 @@ function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) 
     './contrato-url': { ...contratoUrl, opcaoForaDaLista: () => null },
     './contrato-tela': contratoTela, '@/lib/contratos/versao-referencia': versaoReferencia,
     './ContratoImportado': { default: Filho }, './OrigemHistoricaContrato': { default: Filho }, './importacao/IntegracaoContrato': { default: Filho },
+    ...extra,
   });
   const ciclo = async () => { tela.render(); tela.efeitos(); for (let i = 0; i < 6; i++) await tique(); tela.render(); tela.efeitos(); return tela.render(); };
   return { tela, ciclo, render: () => tela.render() };
@@ -182,4 +185,166 @@ test('fase 2: sem contrato na URL a tela mostra a lista; com contrato, o caminho
   // Link inválido: mensagem e a lista para escolher.
   url.q = 'contratoId=nao-e-uuid'; r = await m.ciclo();
   assert.match(texto(r), /O link do contrato é inválido/); assert.ok(elementos(r).find(e => e.type === Lista));
+}));
+
+test('O-1 e O-3: só o filtro vai à URL; a busca volta com "← Contratos" relida da aba (vencida, a lista volta limpa); outro contrato abre no Resumo; voltar/avançar segue o hash', async () => {
+  const anterior = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const ouvintes: Record<string, Array<() => void>> = {};
+  const navegacoes: string[] = [];
+  const janela = { location: { hash: '#historico', search: '', pathname: '/admin/contratos' }, history: { state: null, replaceState(_d: unknown, _t: string, u: string) { navegacoes.push(`historico ${u}`); } },
+    addEventListener(t: string, f: () => void) { (ouvintes[t] ??= []).push(f); }, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: janela });
+  try {
+    const url = { q: 'filtro=todas' };
+    // Aba em memória: o que a tela grava é o que ela relê; `guardada = ''` simula o prazo vencido ou a trava da saída.
+    const abaFalsa = { guardada: '', leituras: 0, lerBuscaDaAba() { abaFalsa.leituras++; return abaFalsa.guardada; }, guardarBuscaNaAba(_t: string, termo: string) { abaFalsa.guardada = termo; } };
+    const m = montar(url, async () => Response.json({ ok: true, data: dados() }), navegacoes, { '@/lib/http/busca-na-aba': abaFalsa });
+    let r = await m.ciclo();
+    const lista = () => elementos(m.render()).find(e => e.type === Lista)!;
+    assert.equal(lista().props.filtroInicial, 'todas'); assert.equal(lista().props.buscaInicial, '');
+    // Trocar filtro ou busca grava só o filtro na URL (API nativa, sem pedido ao servidor nem nova entrada); voltar ao padrão limpa o parâmetro.
+    (lista().props.onFiltro as (a: string, b: string) => void)('canceladas', 'lucas');
+    (lista().props.onFiltro as (a: string, b: string) => void)('proximas', '');
+    (lista().props.onFiltro as (a: string, b: string) => void)('proximas', 'lucas');
+    assert.deepEqual(navegacoes.splice(0), ['historico /admin/contratos?filtro=canceladas', 'historico /admin/contratos', 'historico /admin/contratos?filtro=proximas']);
+    assert.equal(lista().props.buscaInicial, 'lucas', 'a busca em uso volta da memória');
+    // Abrir um contrato preserva o filtro na URL, sem o termo, e descarta a aba anterior (#historico ainda na janela).
+    (lista().props.onAbrir as (s: string) => void)(ID);
+    assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?filtro=todas&contratoId=${ID}`]);
+    url.q = `filtro=todas&contratoId=${ID}`; r = await m.ciclo();
+    const abaAtiva = () => elementos(m.render()).find(e => e.props?.role === 'tab' && e.props['aria-selected'] === true)?.props.id;
+    assert.equal(abaAtiva(), 'aba-geral', 'outro contrato abre no Resumo');
+    // Voltar/avançar do navegador: popstate com outro hash troca a aba visível.
+    janela.location.hash = '#financeiro'; for (const f of ouvintes.popstate ?? []) f();
+    assert.equal(abaAtiva(), 'aba-financeiro', 'popstate sincroniza a aba com o hash');
+    // "← Contratos" volta à lista com o mesmo filtro e, da memória, a mesma busca.
+    clicar(m.render(), '← Contratos');
+    assert.deepEqual(navegacoes.splice(0), ['push /admin/contratos?filtro=todas']);
+    assert.equal(abaAtiva(), 'aba-geral', 'a aba volta ao Resumo ao sair do contrato');
+    const leiturasAntes = abaFalsa.leituras;
+    url.q = 'filtro=todas'; await m.ciclo();
+    assert.equal(lista().props.buscaInicial, 'lucas', 'a lista reabre com a busca');
+    assert.equal(abaFalsa.leituras, leiturasAntes + 1, 'relida da aba no retorno, não só da memória');
+    // Prazo vencido (ou saída iniciada) com a mesma instância: o retorno à lista não reaplica o termo da memória.
+    (lista().props.onAbrir as (s: string) => void)(ID); navegacoes.length = 0;
+    url.q = `filtro=todas&contratoId=${ID}`; await m.ciclo();
+    abaFalsa.guardada = '';
+    clicar(m.render(), '← Contratos'); navegacoes.length = 0;
+    url.q = 'filtro=todas'; await m.ciclo();
+    assert.equal(lista().props.buscaInicial, '', 'vencida na aba, a lista volta limpa');
+    (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'lucas'); navegacoes.length = 0;
+    // Item "Contratos" do menu: URL sem filtro abre a lista limpa, mesmo com um termo na memória.
+    url.q = ''; await m.ciclo();
+    assert.equal(lista().props.filtroInicial, 'proximas'); assert.equal(lista().props.buscaInicial, '');
+    assert.deepEqual(navegacoes.splice(0), [], 'sem termo não há o que corrigir na URL');
+    // Link antigo com o termo: não vira busca, e o termo sai da barra de endereço.
+    url.q = 'filtro=todas&busca=theo'; await m.ciclo();
+    assert.deepEqual([...new Set(navegacoes.splice(0))], ['historico /admin/contratos?filtro=todas', 'replace /admin/contratos?filtro=todas']);
+    assert.notEqual(lista().props.buscaInicial, 'theo', 'o termo do link antigo não é aplicado');
+  } finally { if (anterior) Object.defineProperty(globalThis, 'window', anterior); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('F5 (decisão de 08/11): a busca guardada na aba volta ao montar e a cada retorno à lista; cada busca e o "Limpar" regravam; o menu não apaga', () => comJanela(async () => {
+  const leituras: string[] = [], gravacoes: Array<[string, string]> = [], navegacoes: string[] = [];
+  let naAba = 'Helena';
+  const aba = { lerBuscaDaAba: (tela: string) => { leituras.push(tela); return naAba; }, guardarBuscaNaAba: (tela: string, termo: string) => { gravacoes.push([tela, termo]); } };
+  const url = { q: 'filtro=todas' };
+  const m = montar(url, async () => Response.json({ ok: true, data: [] }), navegacoes, { '@/lib/http/busca-na-aba': aba });
+  await m.ciclo();
+  const lista = () => elementos(m.render()).find(e => e.type === Lista)!;
+  assert.equal(lista().props.buscaInicial, 'Helena', 'depois do F5 a lista abre com a busca da aba');
+  assert.deepEqual([...new Set(leituras)], ['contratos']);
+  const lidas = leituras.length; await m.ciclo();
+  assert.equal(leituras.length, lidas, 'lida ao montar e nos retornos, não a cada render');
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'Theo');
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', '');
+  assert.deepEqual(gravacoes.splice(0), [['contratos', 'Theo'], ['contratos', '']]);
+  assert.ok(navegacoes.every(n => !/Theo|Helena/.test(n)), 'nada do termo vai à URL');
+  // Menu "Contratos": lista limpa na tela, sem apagar nem regravar a aba (menu→Voltar segue como antes).
+  (lista().props.onFiltro as (a: string, b: string) => void)('todas', 'Theo'); gravacoes.splice(0);
+  url.q = ''; await m.ciclo();
+  assert.equal(lista().props.buscaInicial, '');
+  assert.deepEqual(gravacoes, []);
+  // Menu → Voltar: a lista em uso volta relendo a aba (prazo e trava conferidos lá), nunca da memória.
+  const antes = leituras.length;
+  url.q = 'filtro=todas'; await m.ciclo();
+  assert.equal(leituras.length, antes + 1); assert.equal(lista().props.buscaInicial, 'Helena');
+  url.q = ''; await m.ciclo(); naAba = '';
+  url.q = 'filtro=todas'; await m.ciclo();
+  assert.equal(lista().props.buscaInicial, '', 'vencida (31 min) ou bloqueada: menu → Voltar abre a lista limpa');
+  // Primeira busca a partir da lista limpa: `filtro` entra na URL pela própria busca, que não relê a aba (sem armazenamento,
+  // o termo digitado segue valendo enquanto a lista está aberta).
+  url.q = ''; await m.ciclo();
+  const semReler = leituras.length;
+  (lista().props.onFiltro as (a: string, b: string) => void)('proximas', 'Theo');
+  url.q = 'filtro=proximas'; await m.ciclo();
+  assert.equal(leituras.length, semReler); assert.equal(lista().props.buscaInicial, 'Theo');
+}));
+
+test('O-1: com a limpeza do link antigo ainda pendente, "Fechar consulta" não repropaga o termo', () => comJanela(async () => {
+  const url = { q: `contratoId=${ID}&versaoId=${V2}&busca=theo` }, navegacoes: string[] = [];
+  const m = montar(url, async (u: string) => Response.json({ ok: true, data: u.includes('contratoId=') ? dados() : [] }), navegacoes);
+  const r = await m.ciclo();
+  assert.equal(url.q.includes('busca=theo'), true, 'o roteador ainda não aplicou a limpeza');
+  navegacoes.length = 0;
+  clicar(r, 'Fechar consulta');
+  assert.deepEqual(navegacoes.splice(0), [`push /admin/contratos?contratoId=${ID}`]);
+}));
+
+
+// ── Plano UX achados Frente C (rev. 3): aviso da fonte do PDF pelo ALVO de ação e botões principais ──────────────────
+const V3 = '00000000-0000-4000-8000-0000000000a3', V1 = '00000000-0000-4000-8000-0000000000a1';
+type Base = { migration072: boolean; modeloEmpresaAtivo: boolean; empresaKidmais: boolean };
+/** Painel com a preparação V3 (alvo) e a vigente V1 (referência), cada uma com o seu código de pacote. */
+function dadosFonte(codigoAlvo: string, codigoReferencia: string, base: Base | undefined, semAlvo = false) {
+  const d = dados() as ReturnType<typeof dados> & { tela: Record<string, unknown> };
+  for (const v of d.versoes as Array<{ id: string; status: string; estado_edicao: string; snapshot: { evento: { pacote: { codigo: string } } } }>) {
+    if (v.id === V3) v.snapshot.evento.pacote.codigo = codigoAlvo;
+    if (v.id === V1) v.snapshot.evento.pacote.codigo = codigoReferencia;
+    if (semAlvo) { v.status = 'CANCELADA'; v.estado_edicao = 'CANCELADA'; }
+  }
+  if (semAlvo) { d.fluxo = { versao_vigente_id: null, versao_em_preparacao_id: null } as unknown as typeof d.fluxo; d.contrato = { ...d.contrato, status: 'CANCELADO' }; }
+  if (base) d.tela = { ...d.tela, baseDocumento: base };
+  return d;
+}
+async function avisos(painel: unknown) {
+  const url = { q: `contratoId=${ID}` };
+  const m = montar(url, async (u: string) => Response.json({ ok: true, data: u.includes('contratoId=') ? painel : [] }));
+  const r = await m.ciclo();
+  return { r, avisos: elementos(r).filter(e => e.type === 'p' && e.props['data-fonte-documento'] !== undefined) };
+}
+const KIDMAIS_SEM_MODELO: Base = { migration072: true, modeloEmpresaAtivo: false, empresaKidmais: true };
+
+test('Frente C UX: o aviso usa o pacote do ALVO (preparação), não o da referência', () => comJanela(async () => {
+  // Kidmais sem modelo próprio: preparação com pacote P_ (sem template) e vigente com pacote fixo → avisa (o gerar_pdf recusaria).
+  const a = await avisos(dadosFonte('P_76722EEA1485416F8F96F57BBD4C707E', 'COMPLETA', KIDMAIS_SEM_MODELO));
+  assert.ok(a.avisos.length >= 1, 'mostra o aviso');
+  assert.ok(a.avisos.every(e => e.props['data-fonte-documento'] === 'SEM_TEMPLATE_OFICIAL'));
+  assert.match(texto(a.avisos[0]), /ainda não possui modelo oficial de contrato cadastrado/);
+  // O inverso: preparação com pacote fixo e vigente P_ → nada a avisar.
+  const b = await avisos(dadosFonte('COMPLETA', 'P_76722EEA1485416F8F96F57BBD4C707E', KIDMAIS_SEM_MODELO));
+  assert.equal(b.avisos.length, 0);
+}));
+
+test('Frente C UX: modelo da empresa sem aviso; empresa nova sem modelo com o texto e o link; sem base ou sem alvo, nada', () => comJanela(async () => {
+  const comModelo = await avisos(dadosFonte('P_76722EEA1485416F8F96F57BBD4C707E', 'P_76722EEA1485416F8F96F57BBD4C707E', { migration072: true, modeloEmpresaAtivo: true, empresaKidmais: false }));
+  assert.equal(comModelo.avisos.length, 0, 'aviso falso da TESTE S3 corrigido');
+  const nova = await avisos(dadosFonte('COMPLETA', 'COMPLETA', { migration072: true, modeloEmpresaAtivo: false, empresaKidmais: false }));
+  assert.ok(nova.avisos.length >= 1, 'empresa nova sem modelo e pacote fixo: avisa (antes não avisava)');
+  for (const e of nova.avisos) {
+    assert.equal(e.props['data-fonte-documento'], 'SEM_MODELO_EMPRESA');
+    assert.ok(texto(e).startsWith(fonteDocumento.MENSAGEM_SEM_MODELO_EMPRESA), 'mesmo texto da recusa do servidor');
+    assert.ok(elementos(e).some(x => x.type === Filho && x.props.href === '/admin/configuracoes/importar-documentos?documento=contrato'), 'link para o modelo');
+  }
+  assert.equal((await avisos(dadosFonte('P_X', 'P_X', undefined))).avisos.length, 0, 'resposta sem baseDocumento: não afirma nada');
+  const semTela = dadosFonte('P_X', 'P_X', undefined) as Record<string, unknown>; delete semTela.tela;
+  assert.equal((await avisos(semTela)).avisos.length, 0, 'resposta sem tela: não afirma nada');
+  assert.equal((await avisos(dadosFonte('P_X', 'P_X', KIDMAIS_SEM_MODELO, true))).avisos.length, 0, 'sem alvo: não afirma nada');
+}));
+
+test('Frente C UX: botões principais da tela de contratos com a classe visual de botão principal', () => comJanela(async () => {
+  const { r } = await avisos(dadosFonte('COMPLETA', 'COMPLETA', KIDMAIS_SEM_MODELO));
+  const principais = elementos(r).filter(e => e.type === 'button' && e.props['data-km-primario'] !== undefined);
+  assert.ok(principais.some(e => texto(e) === 'Preparar documento'), 'preparação mostra "Preparar documento"');
+  for (const b of principais) assert.equal(b.props.className, 'primario', texto(b));
 }));

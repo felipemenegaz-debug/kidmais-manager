@@ -98,7 +98,8 @@ test('falha ao gravar o aviso NUNCA derruba a sincronização: SAVEPOINT desfeit
 
 test('sincronizarEmpresa chama o gancho só no ramo que GRAVA a transição, depois do UPDATE e da auditoria', () => {
     const fonte = readFileSync('lib/assinatura/sincronizacao.ts', 'utf8').replace(/\r\n/g, '\n');
-    const ramo = fonte.indexOf('if (alvo.mudou || oferta) {');
+    // Production: `if (alvo.mudou || oferta) {`; staging (B-14): `const gravou = (alvo.mudou || oferta) && (await tx.query(UPDATE…))` + `if (gravou) {`.
+    const ramo = Math.max(fonte.indexOf('if (alvo.mudou || oferta) {'), fonte.indexOf('const gravou = (alvo.mudou || oferta)'));
     const update = fonte.indexOf('UPDATE empresa_assinaturas SET situacao = $2', ramo);
     const auditoria = fonte.indexOf("acao: 'ASSINATURA_SINCRONIZADA'", update);
     const gancho = fonte.indexOf('await registrarAvisosDaTransicao(tx, empresaId,', auditoria);

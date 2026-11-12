@@ -1,5 +1,5 @@
 /**
- * Perguntas livres do drawer “Perguntar ao Kidmais”.
+ * Perguntas livres do drawer “Perguntar ao Copiloto”.
  *
  * O roteamento acontece no navegador e só aponta para capacidades já registradas no gateway.
  * O texto digitado nunca vai ao servidor: o gateway recebe apenas `{ capacidade }`, com schema estrito.

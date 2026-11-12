@@ -28,6 +28,7 @@ class BancoFalso {
     private snap() { return JSON.stringify({ a: [...this.assinaturas], e: this.eventos, au: this.auditoria }); }
     private restaurar(s: string) { const o = JSON.parse(s); this.assinaturas = new Map(o.a); this.eventos = o.e; this.auditoria = o.au; }
     async query(sql: string, p: readonly unknown[] = []) {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         this.sql.push(sql);
         const rows = (r: object[]) => ({ rows: r as never[], rowCount: r.length });
         const s = sql.replace(/\s+/g, ' ').trim();
@@ -63,8 +64,11 @@ class BancoFalso {
         if (s.startsWith('SELECT to_char((clock_timestamp())')) return rows([{ agora: this.agora }]);
         if (s.startsWith('UPDATE empresa_assinaturas SET situacao = $2')) {
             const a = this.assinaturas.get(String(p[0]))!;
-            Object.assign(a, { situacao: p[1], ciclo: p[2], periodo_atual_fim: p[3], em_atraso_desde: p[4], cancelada_em: p[5], encerrada_em: p[6], provedor_situacao: p[7], sincronizado_em: this.agora, versao: a.versao + 1 });
-            return rows([]);
+            // Guarda IS DISTINCT FROM do B-14: sem diferença nos valores calculados, nada é gravado (rowCount 0).
+            const novos = { situacao: p[1], ciclo: p[2], periodo_atual_fim: p[3], em_atraso_desde: p[4], cancelada_em: p[5], encerrada_em: p[6], provedor_situacao: p[7] };
+            if (Object.entries(novos).every(([k, v]) => (a as Record<string, unknown>)[k] === v)) return rows([]);
+            Object.assign(a, { ...novos, sincronizado_em: this.agora, versao: a.versao + 1 });
+            return rows([{}]);
         }
         if (s.startsWith('UPDATE empresa_assinaturas SET provedor_situacao = $2')) {
             Object.assign(this.assinaturas.get(String(p[0]))!, { provedor_situacao: p[1], sincronizado_em: this.agora });
@@ -357,4 +361,21 @@ test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do 
     const retorno = readFileSync('components/admin/AssinaturaRetorno.tsx', 'utf8');
     assert.match(retorno, /adminFetch\('\/api\/admin\/assinatura'\)/);
     assert.ok(!/method:\s*'POST'/.test(retorno), 'o retorno não envia nada ao servidor');
+});
+
+test('sem IP confiável: enxurrada com token errado não bloqueia a entrega autêntica; nenhuma chave única para todos', async () => {
+    const { banco, deps, limites } = ambiente();
+    deps.ip = null;
+    banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
+    for (let i = 0; i < 400; i += 1)
+        assert.equal((await receberWebhookAsaas(req({}, 'x'.repeat(40)), deps)).status, 401);
+    assert.equal((await receberWebhookAsaas(req(evento('evt_s', 'PAYMENT_RECEIVED', 'sub_1', EMP_A)), deps)).status, 200, 'o Asaas não recebe 429 por causa de terceiros');
+    assert.equal(banco.auditoria.length, 10, 'o registro de recusas continua limitado');
+    const chaves = [...limites.keys()];
+    assert.ok(chaves.every((k) => !k.includes('ORIGEM_NAO_VERIFICADA')), chaves.join(','));
+    assert.ok(chaves.includes('WEBHOOK_ASAAS-sem-origem|SEM_ORIGEM:TOKEN_INVALIDO') && chaves.includes('WEBHOOK_ASAAS-sem-origem|SEM_ORIGEM:TOKEN_VALIDO'));
+    // Com IP, a regra por IP continua a mesma (300/60 s por origem).
+    const comIp = ambiente();
+    for (let i = 0; i < 300; i += 1) await receberWebhookAsaas(req({}, 'x'.repeat(40)), comIp.deps);
+    assert.equal((await receberWebhookAsaas(req({}, 'x'.repeat(40)), comIp.deps)).status, 429);
 });

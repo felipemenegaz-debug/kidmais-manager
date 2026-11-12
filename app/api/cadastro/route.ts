@@ -1,14 +1,18 @@
 ﻿import { after, type NextRequest } from 'next/server';
 import { verificarOrigem } from '@/lib/http/admin-crm-api';
 import { contextoDaRequisicao, falhar, lerJson, responder } from '@/lib/acessos/http';
-import { exigirCadastroAtivo, MENSAGEM_PEDIDO_CADASTRO, processarPedidoCadastro, situacaoCadastro, validarPedidoCadastro } from '@/lib/cadastro/publico';
+import { exigirCadastroAtivo, exigirPedidoCadastroDestravado, MENSAGEM_PEDIDO_CADASTRO, processarPedidoCadastro, situacaoCadastro, validarPedidoCadastro } from '@/lib/cadastro/publico';
 import { versaoVigente } from '@/lib/cadastro/documentos-legais';
 import { duracaoTesteDias, precoDoCiclo } from '@/lib/assinatura/configuracao';
+import { cpfContratacaoLigado } from '@/lib/assinatura/documento-contratante';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Situação pública do cadastro: aberto ou não, versões vigentes dos documentos, duração do teste e preços configurados. */
+/**
+ * Situação pública do cadastro: aberto ou não, versões vigentes dos documentos, duração do teste e preços configurados.
+ * `cpf` é indicativo (chave operacional); o servidor ainda recusa CPF sem a 091 (CPF_INDISPONIVEL).
+ */
 export async function GET() {
     try {
         const s = situacaoCadastro();
@@ -21,7 +25,7 @@ export async function GET() {
         catch {
             // Configuração comercial inválida: a página mostra "a definir", nunca um valor inventado.
         }
-        return responder({ ok: true, data: { ativo: s.ativo, testeDias, precos, termos: versaoVigente('TERMOS_USO').versao, privacidade: versaoVigente('PRIVACIDADE').versao } });
+        return responder({ ok: true, data: { ativo: s.ativo, testeDias, precos, termos: versaoVigente('TERMOS_USO').versao, privacidade: versaoVigente('PRIVACIDADE').versao, acordoTratamento: versaoVigente('DPA').versao, cpf: cpfContratacaoLigado() } });
     }
     catch (error) {
         return falhar(error);
@@ -37,6 +41,7 @@ export async function POST(request: NextRequest) {
         verificarOrigem(request);
         const input = validarPedidoCadastro(await lerJson(request));
         exigirCadastroAtivo();
+        await exigirPedidoCadastroDestravado();
         const ctx = contextoDaRequisicao(request);
         after(async () => {
             try {

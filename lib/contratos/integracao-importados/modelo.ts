@@ -1,4 +1,4 @@
-import { cadastroPayloadSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import { cadastroPayloadPjSchema, cadastroPayloadSchema, contratantePjSnapshot, contratanteSnapshot, formularioCadastro, type CadastroContratual, type DadosPjCliente } from '../../clientes/cadastro-contratual.ts';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -45,11 +45,19 @@ export const financeiroSchema = z.discriminatedUnion('situacao', [
 
 export const decisoesSchema = z.object({
   // Payload sem o telefone fixo (a tela não o envia); a regra de contato é aplicada ao cadastro mesclado com o CRM, em preparar().
-  cadastro: cadastroPayloadSchema.optional(),
+  // Entrega B: PJ envia CPF e RG vazios; qual das duas vale é decidido em preparar(), pelo tipo do cliente.
+  cadastro: z.union([cadastroPayloadSchema, cadastroPayloadPjSchema]).optional(),
   formaPagamento: z.enum(["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"]).nullable().optional(),
   aniversariante: z.string().trim().min(2).max(200).optional(),
+  /** Cadastro escolhido pelo operador quando há mais de um aniversariante equivalente no cliente. Ausente não muda o hash. */
+  aniversarianteId: z.string().uuid().optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
   estabelecimentoId: z.string().uuid().nullable(),
+  /**
+   * S-E restante (importação V3, D1): salão escolhido pelo operador quando a festa ocupa a agenda numa unidade POR_SALAO.
+   * Obrigatório nesse caso (nada automático); fora dele precisa vir ausente ou nulo. Ausente não muda o hash do V1.
+   */
+  salaoId: z.string().uuid().nullable().optional(),
   pacoteReferenciaId: z.string().uuid().nullable(),
   evento: z.object({
     data: DATA,
@@ -70,6 +78,24 @@ export const decisoesSchema = z.object({
 }).strict();
 
 export type DecisoesIntegracao = z.infer<typeof decisoesSchema>;
+export type AniversarianteEquivalente = { id: string; nome: string };
+
+/**
+ * Qual cadastro a festa usará. Um equivalente: é ele. Vários: só a escolha do operador decide, nunca a grafia ou a data.
+ * Escolha fora da lista é recusada. id, nome e opções entram no resumo e, portanto, no hash da revisão: se o cadastro mudar
+ * entre simular e confirmar, a confirmação é recusada. NOVO sem escolha não ganha chaves: o hash desse caso continua o mesmo.
+ */
+export function resolverAniversariante(candidatos: AniversarianteEquivalente[], escolhidoId: string | undefined) {
+  const opcoes = candidatos.length > 1 ? { aniversarianteOpcoes: candidatos } : {};
+  const escolhido = escolhidoId ? candidatos.find((c) => c.id === escolhidoId) : undefined;
+  if (escolhidoId && !escolhido) {
+    return { id: null, festa: { aniversarianteCadastro: candidatos.length ? 'EXISTENTE' as const : 'NOVO' as const, aniversarianteOpcoes: candidatos }, bloqueio: 'O cadastro de aniversariante escolhido não está mais disponível. Confira a escolha.' };
+  }
+  const definido = escolhido ?? (candidatos.length === 1 ? candidatos[0] : undefined);
+  if (definido) return { id: definido.id, festa: { aniversarianteCadastro: 'EXISTENTE' as const, aniversarianteCadastroId: definido.id, aniversarianteCadastroNome: definido.nome, ...opcoes }, bloqueio: null };
+  if (candidatos.length) return { id: null, festa: { aniversarianteCadastro: 'EXISTENTE' as const, ...opcoes }, bloqueio: 'Este cliente tem mais de um aniversariante com nome equivalente. Escolha qual cadastro é o desta festa.' };
+  return { id: null, festa: { aniversarianteCadastro: 'NOVO' as const }, bloqueio: null };
+}
 export type DecisoesFinanceiras = z.infer<typeof financeiroSchema>;
 export type ParcelaDecidida = z.infer<typeof parcelaSchema>;
 
@@ -107,8 +133,9 @@ export type ResumoIntegracao = {
   cadastroFonteHash?: string;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   /** `aniversarianteCadastro`: o aniversariante do documento será vinculado ao cadastro existente do cliente ou criado nele. */
-  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
-  agenda: { ocupa: boolean; descricao: string };
+  festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null; aniversarianteCadastroId?: string; aniversarianteCadastroNome?: string; aniversarianteOpcoes?: AniversarianteEquivalente[] };
+  /** salao: só no caso V3 (unidade POR_SALAO, festa futura); nome lido do banco e incluído no hash da revisão. */
+  agenda: { ocupa: boolean; descricao: string; salao?: { id: string; nome: string } };
   financeiro: ResumoFinanceiro;
   campos: CampoConferido[];
 };
@@ -285,12 +312,21 @@ export const hashCanonico = (v: unknown) => createHash('sha256').update(JSON.str
 /** O que o operador confirma: decisões + resumo calculado pelo servidor. Mudou qualquer um ⇒ outra confirmação. */
 export const hashResumo = (importacaoId: string, d: DecisoesIntegracao, resumo: ResumoIntegracao) => hashCanonico({ importacaoId, decisoes: d, resumo });
 
-/** Snapshot da versão 1 (conferência em papel): forma do snapshot nativo + o contrato histórico intacto ao lado. */
+/** Caso V3: o salão escolhido entra na agenda do resumo (e no texto que o operador confere). */
+export function agendaComSalao(agenda: ResumoIntegracao['agenda'], salao: { id: string; nome: string }): ResumoIntegracao['agenda'] {
+  return { ...agenda, salao: { id: salao.id, nome: salao.nome }, descricao: `${agenda.descricao.replace(/\.$/, '')}, no ${salao.nome}.` };
+}
+
+/**
+ * Snapshot da versão 1 (conferência em papel): forma do snapshot nativo + o contrato histórico intacto ao lado.
+ * S-E restante: com o snapshot nativo V3 (carregarSnapshot com `salao`), a versão é 3 e preserva
+ * evento.configuracaoAgendaId e evento.salao; sem ele (opção omitida), é a versão 1 de sempre, byte a byte.
+ */
 export function montarSnapshotVersao(e: {
   nativo?: Record<string, unknown>;
   importacaoId: string; documento: { id: string; sha256: string };
   fechamentoId: string; snapshot: SnapshotHistorico; decisoes: DecisoesIntegracao; resumo: ResumoIntegracao;
-  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>>;
+  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>> & DadosPjCliente;
   aniversarianteId: string | null;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null };
   unidade: { id: string; nome: string } | null;
@@ -299,12 +335,14 @@ export function montarSnapshotVersao(e: {
   const { snapshot: s, decisoes: d } = e;
   const valor = centavosParaReais(d.valorContratadoCentavos);
   const adicionais = s.valores?.adicionais != null && s.valores.adicionais < d.valorContratadoCentavos ? s.valores.adicionais : 0;
+  const v3 = e.nativo?.schemaVersao === 3;
+  const eventoNativo = (e.nativo?.evento ?? {}) as { configuracaoAgendaId?: string | null; salao?: { id: string; nome: string } | null };
   return {
     ...e.nativo,
-    schemaVersao: 1,
+    schemaVersao: v3 ? 3 : 1,
     origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: e.importacaoId, documentoOriginalId: e.documento.id, documentoSha256: e.documento.sha256, aceite: 'CONTRATO_ASSINADO_EM_PAPEL' },
     fechamento: { id: e.fechamentoId, status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
-    contratante: contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }),
+    contratante: { ...contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }), ...contratantePjSnapshot(e.cliente) },
     responsavelAdicional: null,
     aniversariante: { id: e.aniversarianteId, nome: d.aniversariante ?? s.evento?.aniversariante ?? null, dataNascimento: null, idadeNoEvento: s.evento?.idade ?? null, temaFesta: s.evento?.tema ?? null },
     evento: {
@@ -312,6 +350,7 @@ export function montarSnapshotVersao(e: {
       pacote: { id: e.pacote.id, codigo: e.pacote.codigo, nome: s.pacote?.nome ?? e.pacote.nome, duracaoMinutos: s.pacote?.duracaoMinutos ?? e.pacote.duracaoMinutos, referenciaSistema: { id: e.pacote.id, codigo: e.pacote.codigo, nome: e.pacote.nome } },
       convidados: d.evento.convidados, convidadosFaturados: d.evento.convidados,
       unidade: e.unidade,
+      ...(v3 ? { configuracaoAgendaId: eventoNativo.configuracaoAgendaId ?? null, salao: eventoNativo.salao ?? null } : {}),
     },
     contratacao: {
       ...(e.nativo?.contratacao as object ?? {}),
@@ -324,6 +363,10 @@ export function montarSnapshotVersao(e: {
       ...(e.nativo?.comercial as object ?? {}),
       valorFinalContrato: valor,
       valorTabela: valor,
+      // Composição do DOCUMENTO em papel, coerente por si (P2-2 do plano dos adicionais): não herda do fechamento operacional,
+      // que leva o valor inteiro como pacote (D1). base = aplicado, sem desconto; aplicado + adicionais = total.
+      valorPacoteBase: centavosParaReais(d.valorContratadoCentavos - adicionais),
+      valorDescontoPacote: 0,
       valorPacoteAplicado: centavosParaReais(d.valorContratadoCentavos - adicionais),
       valorAdicionais: centavosParaReais(adicionais),
       formaPagamentoPretendida: d.formaPagamento ?? null,

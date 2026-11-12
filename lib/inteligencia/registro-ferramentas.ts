@@ -95,7 +95,7 @@ export const saidaAtencaoSchema = z.object({
   resumo: texto,
   referencia: z.object({ hoje: z.string().max(10), geradoEm: z.string().max(40), fonte: z.string().max(80) }).strict(),
   itens: z.array(z.object({
-    tipo: z.enum(["RECEBIVEIS_VENCIDOS", "RECEBIVEIS_VENCEM_HOJE", "A_RECEBER_EM_ABERTO"]),
+    tipo: z.enum(["RECEBIVEIS_VENCIDOS", "RECEBIVEIS_VENCEM_HOJE", "CAIXA_A_CONFERIR", "A_RECEBER_EM_ABERTO"]),
     prioridade: z.enum(["alta", "media", "baixa"]),
     titulo: texto,
     detalhe: texto,

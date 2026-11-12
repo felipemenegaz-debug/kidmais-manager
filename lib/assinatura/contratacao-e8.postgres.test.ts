@@ -81,8 +81,10 @@ class AsaasFalso implements ClienteAsaas {
     private seq = 0;
     /** Ids únicos por instância: as empresas de testes diferentes nunca compartilham ids do provedor. */
     private readonly prefixo = randomBytes(3).toString('hex');
-    async buscarClientePorReferencia(ref: string) { const id = this.clientes.get(ref); return id ? { id, externalReference: ref } : null; }
-    async criarCliente(i: { referencia: string }) { const id = `cus_${this.prefixo}_${++this.seq}`; this.clientes.set(i.referencia, id); return { id, externalReference: i.referencia }; }
+    /** Documento com que o cliente foi criado (devolvido na busca por referência, como o Asaas). */
+    readonly documentos = new Map<string, string>();
+    async buscarClientePorReferencia(ref: string) { const id = this.clientes.get(ref); return id ? { id, externalReference: ref, cpfCnpj: this.documentos.get(ref) ?? documentoDaEmpresa.get(ref) ?? null } : null; }
+    async criarCliente(i: { referencia: string; cpfCnpj?: string }) { const id = `cus_${this.prefixo}_${++this.seq}`; this.clientes.set(i.referencia, id); if (i.cpfCnpj) this.documentos.set(i.referencia, i.cpfCnpj); return { id, externalReference: i.referencia }; }
     // Como o Asaas (sonda de 10/10/2026): a assinatura removida continua legível por id, com `deleted=true` (não 404).
     async obterAssinatura(id: string) { const a = this.assinaturas.get(id); return a ? { ...a, ...(a.deleted ? { status: 'INACTIVE' } : {}) } : null; }
     async listarAssinaturasPorReferencia(ref: string) {
@@ -156,6 +158,8 @@ class AsaasFalso implements ClienteAsaas {
 
 let usuario = '';
 let dev = '';
+/** Documento do teste de cada empresa: o provedor falso o devolve na busca por referência, como o Asaas. */
+const documentoDaEmpresa = new Map<string, string>();
 async function novaEmpresa() {
     const id = (await q("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet Contratação', 'PROVISIONAMENTO') RETURNING id", [`ct${randomBytes(4).toString('hex')}`])).rows[0].id as string;
     await q("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [id]);
@@ -163,6 +167,7 @@ async function novaEmpresa() {
     const dv = (b: string) => { let s = 0, p = 2; for (let i = b.length - 1; i >= 0; i--) { s += (b.charCodeAt(i) - 48) * p; p = p === 9 ? 2 : p + 1; } const r = s % 11; return r <= 1 ? 0 : 11 - r; };
     const d1 = dv(cnpjBase), cnpj = `${cnpjBase}${d1}${dv(cnpjBase + d1)}`;
     await withTransaction((tx) => iniciarTeste(tx, { empresaId: id, documento: cnpj }));
+    documentoDaEmpresa.set(id, cnpj);
     return id;
 }
 type Opcoes = { provedor: AsaasFalso; withTenant?: DepsCobranca['withTenantTransaction']; withTx?: DepsCobranca['withTransaction']; independente?: DepsCobranca['transacaoIndependente'] };

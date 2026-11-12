@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { garantirFestaFormalizada } from '../lib/festas/formalizacao.ts';
 import { validarAmbienteFesta } from '../lib/festas/ambiente.ts';
+import { travarConfiguracaoAgenda } from '../lib/agenda/trava-configuracao.ts';
 
 const args = process.argv.slice(2);
 const value = flag => { const i = args.indexOf(flag); return i < 0 ? undefined : args[i + 1]; };
@@ -28,6 +29,9 @@ try {
   if (apply) {
     const c = (await client.query('SELECT * FROM contratos WHERE id=$1', [id])).rows[0];
     if (!c) throw Error('Contract missing');
+    const empresa = (await client.query('SELECT empresa_id::text AS e FROM fechamentos WHERE id=$1', [c.fechamento_id])).rows[0]?.e;
+    if (!empresa) throw Error('Company missing');
+    await travarConfiguracaoAgenda(client, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
     await client.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE', [c.fechamento_id]);
     await client.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE', [id]);
     const cf = (await client.query('SELECT versao_vigente_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE', [id])).rows[0];

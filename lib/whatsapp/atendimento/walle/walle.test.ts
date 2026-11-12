@@ -31,7 +31,7 @@ const PRONTAS: Record<string, ProntaAutorizada[]> = {
   CARDAPIO: [pronta({ id: 'p-cardapio-completa', titulo: 'Cardápio Completa', tipo: 'DOCUMENTO', finalidade: 'CARDAPIO', arquivoId: 'a-card', arquivoNome: 'cardapio-completa.pdf', pacoteCodigo: 'COMPLETA' })],
 };
 const periodo = (codigo: string, disponivel: boolean): PeriodoAgenda => (codigo === 'TURNO_1' ? { codigo, nome: 'Almoço', inicio: '11:00', fim: '15:00', disponivel } : { codigo, nome: 'Noite', inicio: '17:00', fim: '21:00', disponivel });
-type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado;
+type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; agendaErroCodigo?: string; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado;
   /** Teste manual de 12/10/2026: composição por pacote e preço dos adicionais na tabela vigente (ausente: sem a fonte). */
   composicoes?: (codigo: string) => Composicao | null; precos?: Record<string, (convidados: number | null) => PrecoAdicional>;
   /** Revisão de 6281e35 (M1): a lista de pacotes falha. */
@@ -39,6 +39,7 @@ type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
+    async contratoDaEmpresa() { return 'OFICIAL_KIDMAIS'; },
     async prontasAutorizadas(f) { chamadas.push(`prontas:${f}`); return PRONTAS[f] ?? []; },
     async pacotes() { chamadas.push('pacotes'); if (op.pacotesFalha) throw new Error('PACOTES_INDISPONIVEIS'); return [
       { id: 'pk-e', codigo: 'ESSENCIAL', nome: 'Essencial', descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 60 },
@@ -53,13 +54,15 @@ function fontesFake(op: OpFontes = {}) {
       if (op.precoErro) return { erro: op.precoErro, maximo: 60 };
       return { valor: codigo === 'COMPLETA' ? 7800 : 5200, convidadosFaturados: Math.max(convidados, 50), minimoAplicado: convidados < 50, desconto: null, tabela: { id: 't-2027', codigo: 'TABELA_2027', nome: 'Tabela 2027' } };
     },
-    async disponibilidade(data, unidade) {
+    async disponibilidade(data, unidade, pacote) {
       chamadas.push(`agenda:${data}:${unidade ?? '-'}`);
+      chamadas.push(`agenda-pacote:${pacote ?? '-'}`);
       if (op.agendaFalha) throw new Error('AGENDA_NAO_CONFIGURADA');
+      if (op.agendaErroCodigo) throw Object.assign(new Error('Duração cadastrada fora do limite.'), { code: op.agendaErroCodigo });
       const periodos = data === '2026-11-14' ? [periodo('TURNO_1', false), periodo('TURNO_2', false)] : data === '2026-11-28' ? [periodo('TURNO_1', true), periodo('TURNO_2', false)] : [periodo('TURNO_1', true), periodo('TURNO_2', true)];
       return { periodos, escopo: op.escopo ? op.escopo(unidade) : { tipo: 'EMPRESA' } };
     },
-    async alternativas(data, _u, turno) { chamadas.push(`alternativas:${data}:${turno}`); return [{ data: '2026-11-15', periodos: [periodo('TURNO_2', true)] }, { data: '2026-11-21', periodos: [periodo('TURNO_2', true)] }]; },
+    async alternativas(data, _u, turno, _q, pacote) { chamadas.push(`alternativas:${data}:${turno}`); chamadas.push(`alternativas-pacote:${pacote ?? '-'}`); return [{ data: '2026-11-15', periodos: [periodo('TURNO_2', true)] }, { data: '2026-11-21', periodos: [periodo('TURNO_2', true)] }]; },
     async linkContratoProprio() { chamadas.push('link-contrato'); return op.link ?? null; },
     ...(op.linkPublico !== undefined ? { linkDisponibilidade: () => { chamadas.push('link-disponibilidade'); return op.linkPublico ?? null; } } : {}),
     ...(op.precos !== undefined ? { precoAdicional: async (id: string, convidados: number | null) => { chamadas.push(`preco-adicional:${id}:${convidados}`); return op.precos![id]?.(convidados) ?? { erro: 'SEM_PRECO' as const }; } } : {}),
@@ -171,7 +174,7 @@ test('decoração: frase aprovada, pergunta o tema, registra e diz o que é adic
 test('contrato: cita a cláusula do modelo vigente com versão e hash', async () => {
   const { ultima } = await conversa(['Qual a multa se eu cancelar a festa?']);
   const t = texto(ultima);
-  assert.match(t, /Pelo modelo de contrato vigente \(versão 4\):\nCláusula 9: “No caso de desistência/);
+  assert.match(t, /Pelo modelo de contrato vigente \(versão 5\):\nCláusula 9: “No caso de desistência/);
   assert.match(t, /um contrato já assinado pode ter outra versão/);
   const fonte = ultima.saidas[0].fontes.find((f) => f.tipo === 'CONTRATO_MODELO');
   assert.ok(fonte && fonte.tipo === 'CONTRATO_MODELO' && fonte.clausula === 9 && /^[0-9a-f]{64}$/.test(fonte.sha256));
@@ -255,7 +258,7 @@ test('memória: correção registrada e vários pacotes citados não trocam o es
 
 test('modelo de contrato: mapa de temas confere com o texto da versão vigente', () => {
   const m = modeloVigente(null)!;
-  assert.equal(m.templateVersao, 4);
+  assert.equal(m.templateVersao, 5); // S-E: V5 (cláusulas citadas iguais às da V4)
   assert.match(m.clausulas.find((c) => c.numero === 9)!.texto, /desistência/);
   assert.match(m.clausulas.find((c) => c.numero === 4)!.texto, /não contarão como convidados/);
   assert.deepEqual(CLAUSULAS_POR_TEMA.SINAL, []);
@@ -4244,4 +4247,101 @@ test('opção A (5) — conversa completa: orçamento → decoração → adicio
   assert.ok(fontesDe(r4).some((f) => f.tipo === 'LINK_DISPONIBILIDADE'));
   for (const r of c.rodadas) assert.equal(r.passagem, null);
   assert.deepEqual(consultouPreco(c.chamadas), ['preco-adicional:ad-mesa2:50'], 'só a segunda mesa cadastrada foi consultada');
+});
+
+// Parecer do Astra (P2): com pacote já escolhido, a agenda e as alternativas usam a duração dele (o pacote chega à fonte);
+// sem pacote, a fonte usa a do mais curto da empresa. Duração cadastrada inválida não vira "data ocupada".
+test('agenda com pacote escolhido: a consulta e as alternativas levam o pacote; sem pacote, nenhum', async () => {
+  const com = await conversa(['Tem data livre dia 14/11 à noite?'], {}, { pacote: 'PREMIUM' });
+  assert.ok(com.chamadas.includes('agenda-pacote:PREMIUM'), com.chamadas.join(' '));
+  assert.ok(com.chamadas.includes('alternativas-pacote:PREMIUM'), com.chamadas.join(' '));
+  const sem = await conversa(['Tem data livre dia 14/11 à noite?']);
+  assert.ok(sem.chamadas.includes('agenda-pacote:-') && sem.chamadas.includes('alternativas-pacote:-'), sem.chamadas.join(' '));
+});
+
+test('pacote com duração cadastrada inválida: passa para a equipe sem dizer que a data está ocupada', async () => {
+  const { ultima } = await conversa(['tem vaga dia 21/11/2026?'], { agendaErroCodigo: 'PACOTE_DURACAO_INVALIDA' }, { pacote: 'PREMIUM' });
+  const t = texto(ultima);
+  assert.match(t, /equipe conferir/);
+  assert.doesNotMatch(t, /ocupad|sem horários livres|Datas próximas/);
+  assert.ok(ultima.passagem);
+});
+
+test('mínimo comercial nas duas perguntas do piloto, inclusive com leitura contratual pelo modelo', async () => {
+  for (const pergunta of ['Qual o mínimo de convidados que vocês atendem?', 'Vocês fazem festas a partir de quantos convidados?']) {
+    const { r } = await viaModelo(pergunta, [intencao('CONTRATO', pergunta, 'CONVIDADOS')]);
+    assert.match(texto(r), /Essencial atende a partir de 30 convidados/);
+    assert.doesNotMatch(texto(r), /cláusula|Nossos pacotes/i);
+  }
+});
+
+test('mínimo ausente em outro pacote exige confirmação antes de afirmar o mínimo da empresa', async () => {
+  const pergunta = 'A partir de quantas pessoas?';
+  const { fontes } = fontesFake();
+  const pacotes = await fontes.pacotes();
+  pacotes[0].convidadosMinimos = null;
+  fontes.pacotes = async () => pacotes;
+  const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE }, fontes);
+  assert.match(texto(r), /Completa atende a partir de 50 convidados/);
+  assert.match(texto(r), /grupos menores/);
+  assert.ok(r.passagem);
+});
+
+test('mínimo geral pelas regras responde sem passagem e respeita singular cadastrado', async () => {
+  for (const pergunta of ['Qual o mínimo de convidados que vocês atendem?', 'Vocês fazem festas a partir de quantos convidados?']) {
+    const { fontes } = fontesFake();
+    const pacotes = await fontes.pacotes();
+    pacotes[0].convidadosMinimos = 1;
+    fontes.pacotes = async () => pacotes;
+    const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE }, fontes);
+    assert.match(texto(r), /a partir de 1 convidado\./);
+    assert.doesNotMatch(texto(r), /não tenho cadastrada|passar sua conversa/);
+    assert.ok(!r.passagem);
+  }
+});
+
+test('categoria genérica não cita sabor específico mas mantém nomes e variações explícitas', () => {
+  const itens = ['Doce de Leite Ninho', 'Coxinha com catupiry', 'Coxinha sem catupiry'];
+  assert.deepEqual(itensCitados('Quantos sabores de doces posso escolher?', itens), []);
+  assert.deepEqual(itensCitados('Tem doce de Leite Ninho?', itens), ['Doce de Leite Ninho']);
+  assert.deepEqual(itensCitados('Tem coxinhas?', itens), itens.slice(1));
+});
+
+test('limite de sabores é direto e respeita categorias e pacotes diferentes', async () => {
+  for (const [pergunta, limite, categoria] of [
+    ['Quantos sabores de salgados posso escolher no Essencial?', 4, 'salgados'],
+    ['Quantos sabores de doces posso escolher no Completa?', 3, 'doces'],
+  ] as const) {
+    const { ultima } = await conversa([pergunta]);
+    assert.match(texto(ultima), new RegExp(`${limite} sabores de ${categoria}`));
+    assert.doesNotMatch(texto(ultima), /Buffet do pacote|Coxinha|Kibe|Leite Ninho/);
+    assert.ok(!ultima.passagem);
+  }
+});
+
+test('mesma pergunta, duas empresas com prazos distintos e outra sem modelo', async () => {
+  const pergunta = 'Qual a regra de cancelamento?';
+  const entrada = { texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogos), contexto: {}, config, catalogos, agora: HOJE };
+  for (const prazo of [7, 19]) {
+    const { fontes } = fontesFake();
+    const regra = `Pode cancelar com ${prazo} dias de antecedência.`;
+    fontes.contratoDaEmpresa = async () => ({ id: 'empresa-' + prazo, versao: prazo, clausulas: [{ titulo: 'Cancelamento', texto: regra }] });
+    const r = await resolverWallE(entrada, fontes);
+    assert.ok(texto(r).includes(regra));
+    assert.ok(r.saidas.flatMap(s => s.fontes).some(f => f.tipo === 'CONTRATO_MODELO' && f.modelo === 'empresa-' + prazo));
+  }
+  const { fontes } = fontesFake();
+  fontes.contratoDaEmpresa = async () => null;
+  assert.ok((await resolverWallE(entrada, fontes)).passagem);
+});
+
+test('explica os sete pacotes e mostra o mínimo mesmo sem teto de convidados', async () => {
+  const pergunta = 'Explique os pacotes';
+  const { fontes } = fontesFake();
+  const [base] = await fontes.pacotes();
+  const pacotes = Array.from({length: 7}, (_, i) => ({...base, id: 'p' + i, codigo: 'P' + i, nome: 'Festa ' + i, convidadosMinimos: 20 + i, convidadosMaximos: null}));
+  fontes.pacotes = async () => pacotes;
+  const catalogo = {...catalogos, pacotes};
+  const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogo), contexto: {}, config, catalogos: catalogo, agora: HOJE }, fontes);
+  for (const p of pacotes) assert.ok(texto(r).includes(p.nome + ': a partir de ' + p.convidadosMinimos + ' convidados'));
 });

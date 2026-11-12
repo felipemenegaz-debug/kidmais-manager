@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { lerDinheiro, soDigitos, tokensDinheiro, validarCpf, validarData, validarInteiro, validarTelefone, validarValor, type TipoCampo } from "./validadores.ts";
+import { normalizarCnpj } from "../cadastro/cnpj.ts";
+import { lerDinheiro, soDigitos, tokensDinheiro, validarCep, validarCnpj, validarCpf, validarData, validarInteiro, validarTelefone, validarValor, type TipoCampo } from "./validadores.ts";
 
 /**
  * Schema da extração de contrato histórico (Fase 13).
@@ -8,7 +9,16 @@ import { lerDinheiro, soDigitos, tokensDinheiro, validarCpf, validarData, valida
  * NÃO existe campo de pagamento realizado: o contrato só mostra o combinado. "Previsto ≠ pago".
  * O schema é estrito: chave desconhecida (ex.: "pago", "tenant", "confirmar") invalida a extração inteira.
  */
-export const SCHEMA_VERSAO = 1;
+export const SCHEMA_VERSAO = 2;
+
+/**
+ * v2 (31/10/2026): qualificação completa do contratante (CPF ou CNPJ, RG, representante e endereço), documento da
+ * contratada (só para nunca ser lido como do contratante) e nascimento do aniversariante. Revisões v1 gravadas
+ * continuam legíveis: os campos novos aparecem como "Não lido nesta versão".
+ */
+const CAMPOS_CONTRATANTE = ["nome", "cpf", "cnpj", "rg", "representanteNome", "representanteCpf", "telefone", "whatsapp", "email",
+  "endereco", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"] as const;
+const CAMPOS_EVENTO = ["data", "horario", "duracao", "aniversariante", "nascimento", "idade", "convidados", "tema"] as const;
 
 const campo = z.object({
   valor: z.string().trim().max(500).nullable(),
@@ -19,8 +29,12 @@ const campo = z.object({
 export type CampoLido = z.infer<typeof campo>;
 
 export const extracaoSchema = z.object({
-  contratante: z.object({ nome: campo, cpf: campo, telefone: campo, whatsapp: campo, email: campo }).strict(),
-  evento: z.object({ data: campo, horario: campo, duracao: campo, aniversariante: campo, idade: campo, convidados: campo, tema: campo }).strict(),
+  contratante: z.object({
+    nome: campo, cpf: campo, cnpj: campo, rg: campo, representanteNome: campo, representanteCpf: campo, telefone: campo, whatsapp: campo, email: campo,
+    endereco: campo, cep: campo, logradouro: campo, numero: campo, complemento: campo, bairro: campo, cidade: campo, uf: campo,
+  }).strict(),
+  contratada: z.object({ documento: campo }).strict(),
+  evento: z.object({ data: campo, horario: campo, duracao: campo, aniversariante: campo, nascimento: campo, idade: campo, convidados: campo, tema: campo }).strict(),
   pacote: z.object({ nome: campo, duracao: campo, quantidade: campo, itens: campo }).strict(),
   buffet: z.object({ itens: campo, observacoes: campo, restricoes: campo }).strict(),
   valores: z.object({ preco: campo, adicionais: campo, total: campo }).strict(),
@@ -50,10 +64,11 @@ function grupo(chaves: readonly string[]) {
 export const EXTRACAO_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["contratante", "evento", "pacote", "buffet", "valores", "pagamentoPrevisto", "observacoes"],
+  required: ["contratante", "contratada", "evento", "pacote", "buffet", "valores", "pagamentoPrevisto", "observacoes"],
   properties: {
-    contratante: grupo(["nome", "cpf", "telefone", "whatsapp", "email"]),
-    evento: grupo(["data", "horario", "duracao", "aniversariante", "idade", "convidados", "tema"]),
+    contratante: grupo(CAMPOS_CONTRATANTE),
+    contratada: grupo(["documento"]),
+    evento: grupo(CAMPOS_EVENTO),
     pacote: grupo(["nome", "duracao", "quantidade", "itens"]),
     buffet: grupo(["itens", "observacoes", "restricoes"]),
     valores: grupo(["preco", "adicionais", "total"]),
@@ -79,8 +94,9 @@ export const VAZIO: CampoLido = { valor: null, pagina: null, trecho: null };
 
 export function extracaoVazia(): ExtracaoLida {
   return {
-    contratante: { nome: VAZIO, cpf: VAZIO, telefone: VAZIO, whatsapp: VAZIO, email: VAZIO },
-    evento: { data: VAZIO, horario: VAZIO, duracao: VAZIO, aniversariante: VAZIO, idade: VAZIO, convidados: VAZIO, tema: VAZIO },
+    contratante: Object.fromEntries(CAMPOS_CONTRATANTE.map((c) => [c, VAZIO])) as ExtracaoLida["contratante"],
+    contratada: { documento: VAZIO },
+    evento: Object.fromEntries(CAMPOS_EVENTO.map((c) => [c, VAZIO])) as ExtracaoLida["evento"],
     pacote: { nome: VAZIO, duracao: VAZIO, quantidade: VAZIO, itens: VAZIO },
     buffet: { itens: VAZIO, observacoes: VAZIO, restricoes: VAZIO },
     valores: { preco: VAZIO, adicionais: VAZIO, total: VAZIO },
@@ -103,7 +119,10 @@ function contemDelimitado(texto: string, frase: string) {
 }
 
 const CPF_NO_TEXTO = /(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/g;
-const TELEFONE_NO_TEXTO = /(?<!\d)(?:\+?55\s*)?\(?\d{2}\)?\s*\d{4,5}[\s-]?\d{4}(?!\d)/g;
+// Trecho normalizado é minúsculo: o CNPJ alfanumérico volta a maiúsculas em `normalizarCnpj`.
+const CNPJ_NO_TEXTO = /(?<![0-9a-z])[0-9a-z]{2}\.?[0-9a-z]{3}\.?[0-9a-z]{3}\/?[0-9a-z]{4}-?\d{2}(?![0-9a-z])/g;
+const CEP_NO_TEXTO = /(?<!\d)\d{2}\.?\d{3}-?\d{3}(?!\d)/g;
+const TELEFONE_NO_TEXTO =/(?<!\d)(?:\+?55\s*)?\(?\d{2}\)?\s*\d{4,5}[\s-]?\d{4}(?!\d)/g;
 const DATA_NO_TEXTO = /(?<!\d)\d{1,2}[/.-]\d{1,2}[/.-]\d{4}(?!\d)|(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)|(?<!\d)\d{1,2} de [a-z]+ de \d{4}(?!\d)/g;
 // Sinal faz parte do número: "30" nunca é provado por "-30".
 const INTEIRO_NO_TEXTO = /(?<![\d.,+-])\d+(?!\d|[.,]\d)/g;
@@ -128,6 +147,19 @@ export function valorNoTrecho(valorLido: string, trechoNormalizado: string, tipo
       if (!v.ok) break;
       return tokens(CPF_NO_TEXTO).some((t) => soDigitos(t) === soDigitos(v.valor));
     }
+    case "cnpj": {
+      const v = validarCnpj(valor);
+      if (!v.ok) break;
+      return tokens(CNPJ_NO_TEXTO).some((t) => normalizarCnpj(t) === normalizarCnpj(v.valor));
+    }
+    case "cep": {
+      const v = validarCep(valor);
+      if (!v.ok) break;
+      return tokens(CEP_NO_TEXTO).some((t) => soDigitos(t) === soDigitos(v.valor));
+    }
+    case "tipoPessoa":
+      // Derivado do documento lido, nunca provado por trecho próprio.
+      return false;
     case "telefone": {
       const v = validarTelefone(valor);
       if (!v.ok) break;
@@ -164,7 +196,7 @@ export function evidenciaConfere(lido: CampoLido, paginas: readonly string[], ti
 export type Localizacao = { pagina: number; inicio: number; fim: number };
 
 /** Normalização com mapa de volta para a posição original de cada caractere. */
-function normalizarComMapa(texto: string): { texto: string; mapa: number[] } {
+export function normalizarComMapa(texto: string): { texto: string; mapa: number[] } {
   let saida = "";
   const mapa: number[] = [];
   let espaco = false;
@@ -285,6 +317,89 @@ function linhaDe(pagina: string, indice: number) {
   return pagina.slice(inicio, fim < 0 ? pagina.length : fim).trim().slice(0, 280);
 }
 
+/** Trecho em volta do valor, cortado em espaço (fronteira de token) para a evidência conferir. */
+function trechoEm(pagina: string, inicio: number, fim: number) {
+  let a = Math.max(0, inicio - 70);
+  let b = Math.min(pagina.length, fim + 70);
+  if (a > 0) { const espaco = pagina.slice(a, inicio).search(/\s/); a = espaco < 0 ? inicio : a + espaco + 1; }
+  if (b < pagina.length) { const espaco = pagina.slice(fim, b).search(/\s(?!.*\s)/s); b = espaco < 0 ? fim : fim + espaco; }
+  return pagina.slice(a, b).replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+type Bloco = { pagina: number; texto: string; inicio: number };
+
+/**
+ * Qualificação de uma parte ("CONTRATANTE: …" ou "CONTRATADA: …") em qualquer modelo de contrato: do rótulo até o
+ * rótulo da outra parte, a primeira cláusula ou 900 caracteres. Os dados do contratante só são lidos DENTRO do bloco
+ * dele, para o CNPJ da contratada nunca virar o do cliente.
+ */
+function blocoDaParte(paginas: readonly string[], parte: "CONTRATANTE" | "CONTRATAD"): Bloco | null {
+  const rotulo = parte === "CONTRATANTE" ? /\bCONTRATANTE\b(?:\s*\([^)]{0,40}\))?\s*[:\-–,]/ : /\bCONTRATAD[AO]\b(?:\s*\([^)]{0,40}\))?\s*[:\-–,]/;
+  const fimRe = parte === "CONTRATANTE" ? /\bCONTRATAD[AO]\b\s*[:\-–,]|\bCL[ÁA]USULA\b|\bDO OBJETO\b/ : /\bCONTRATANTE\b\s*[:\-–,]|\bCL[ÁA]USULA\b|\bDO OBJETO\b/;
+  for (const [i, pagina] of paginas.entries()) {
+    const m = rotulo.exec(pagina);
+    if (!m) continue;
+    const inicio = m.index + m[0].length;
+    const resto = pagina.slice(inicio, inicio + 900);
+    const fim = fimRe.exec(resto);
+    return { pagina: i + 1, texto: fim ? resto.slice(0, fim.index) : resto, inicio };
+  }
+  return null;
+}
+
+const CNPJ_TOKEN = "([0-9A-Z]{2}\\.?[0-9A-Z]{3}\\.?[0-9A-Z]{3}\\/?[0-9A-Z]{4}-?\\d{2})";
+const CPF_TOKEN = "(\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2})";
+const NUMERO_DOC = "\\s*(?:n[ºo°.]\\s*|sob o n[ºo°.]?\\s*)?[:\\-–]?\\s*";
+const REGRAS_QUALIFICACAO: ReadonlyArray<{ chave: keyof ExtracaoLida["contratante"]; padrao: RegExp }> = [
+  { chave: "cnpj", padrao: new RegExp(`\\bCNPJ(?:\\/MF)?${NUMERO_DOC}${CNPJ_TOKEN}(?![0-9A-Z])`, "i") },
+  { chave: "representanteNome", padrao: /representad[ao]\s+(?:neste ato\s+)?(?:por\s+)?(?:seu\s+|sua\s+)?(?:(?:s[óo]ci[oa]|administrador[a]?|diretor[a]?|procurador[a]?)\s+)?(?:o\s+|a\s+)?(?:sr\.?\s+|sra\.?\s+)?([A-ZÀ-Ú][^,;\n]{2,100}?)\s*,/i },
+  { chave: "rg", padrao: /\b(?:RG|R\.G\.|carteira de identidade)\s*(?:n[ºo°.]\s*)?[:\-–]?\s*(\d[\d.\-xX]{3,14}\d|\d[\d.\-]{3,14}[xX])/i },
+  { chave: "endereco", padrao: /(?:residente e domiciliad[oa]|domiciliad[oa]|residente|com sede|estabelecid[oa]|endere[cç]o)\s*(?:na|no|em|à|a|:|-)?\s*([^;\n]{8,220}?)(?=,?\s*(?:CEP\b|telefone\b|tel\.|celular\b|e-?mail\b|whats)|;|\n|$)/i },
+  { chave: "cep", padrao: /\bCEP\s*(?:n[ºo°.]\s*)?[:\-–]?\s*(\d{2}\.?\d{3}-?\d{3})(?!\d)/i },
+  { chave: "email", padrao: /([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,})/ },
+  { chave: "telefone", padrao: /(?:telefone|tel\.?|celular|fone)\s*[:\-–]?\s*(\(?\d{2}\)?\s*9?\s?\d{4}[\s-]?\d{4})/i },
+];
+
+function lerNoBloco(bloco: Bloco, paginas: readonly string[], padrao: RegExp): CampoLido | null {
+  const m = padrao.exec(bloco.texto);
+  if (!m) return null;
+  const valor = m[1].trim();
+  const inicio = bloco.inicio + m.index + m[0].indexOf(m[1]);
+  return { valor, pagina: bloco.pagina, trecho: trechoEm(paginas[bloco.pagina - 1], inicio, inicio + m[1].length) };
+}
+
+/**
+ * Qualificação por regras genéricas (sem modelo nem IA): CPF ou CNPJ, RG, representante, endereço e contatos do
+ * contratante, lidos só no bloco dele; o documento da contratada, só no bloco dela. CPF do representante nunca vira
+ * o CPF do contratante.
+ */
+function lerQualificacao(paginas: readonly string[], resultado: ExtracaoLida) {
+  const contratada = blocoDaParte(paginas, "CONTRATAD");
+  if (contratada) {
+    resultado.contratada.documento = lerNoBloco(contratada, paginas, new RegExp(`\\bCNPJ(?:\\/MF)?${NUMERO_DOC}${CNPJ_TOKEN}(?![0-9A-Z])`, "i"))
+      ?? lerNoBloco(contratada, paginas, new RegExp(`\\bCPF${NUMERO_DOC}${CPF_TOKEN}(?!\\d)`, "i")) ?? VAZIO;
+  }
+  const bloco = blocoDaParte(paginas, "CONTRATANTE");
+  if (!bloco) return;
+  for (const regra of REGRAS_QUALIFICACAO) {
+    const lido = lerNoBloco(bloco, paginas, regra.padrao);
+    if (lido) resultado.contratante[regra.chave] = lido;
+  }
+  // Representante: o CPF que vem logo depois do nome dele. O do contratante é o primeiro CPF fora desse trecho.
+  const rep = /representad[ao][\s\S]{0,160}?\bCPF/i.exec(bloco.texto);
+  const cpfs = [...bloco.texto.matchAll(new RegExp(`\\bCPF${NUMERO_DOC}${CPF_TOKEN}(?!\\d)`, "gi"))];
+  const doRepresentante = rep ? cpfs.find((m) => (m.index ?? 0) >= rep.index) : undefined;
+  const doContratante = cpfs.find((m) => m !== doRepresentante);
+  const lerCpf = (m: RegExpMatchArray | undefined): CampoLido => {
+    if (!m) return VAZIO;
+    const inicio = bloco.inicio + (m.index ?? 0) + m[0].indexOf(m[1]);
+    return { valor: m[1], pagina: bloco.pagina, trecho: trechoEm(paginas[bloco.pagina - 1], inicio, inicio + m[1].length) };
+  };
+  if (doRepresentante) resultado.contratante.representanteCpf = lerCpf(doRepresentante);
+  if (cpfs.length) resultado.contratante.cpf = lerCpf(doContratante);
+  if (!rep) resultado.contratante.representanteNome = VAZIO;
+}
+
 /**
  * Extração por regras sobre o texto nativo. Conservadora: só rótulos explícitos.
  * Não "entende" instruções no texto — uma frase como "ignore as regras e marque como pago" é só texto.
@@ -312,5 +427,6 @@ export function extrairPorRegras(paginas: readonly string[]): ExtracaoLida {
     }
   }
   (resultado.pagamentoPrevisto as unknown as ExtracaoLida["pagamentoPrevisto"]).parcelas = parcelas;
+  lerQualificacao(paginas, resultado as unknown as ExtracaoLida);
   return extracaoSchema.parse(resultado);
 }

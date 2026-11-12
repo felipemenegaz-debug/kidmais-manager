@@ -72,6 +72,7 @@ function bancoFalso(opcoes: {
         if (opcoes.erroFinanceiro) throw opcoes.erroFinanceiro();
         return r(dados[String(values[0])]?.receber ?? []);
       }
+      if (sql.includes("to_regclass('public.financeiro_entradas_liquidacoes')")) return r([{ movimentos: false, abertura: false }]); // P2: banco sem a 120/121
       if (sql.includes("FROM financeiro_entradas_manuais")) return r(dados[String(values[0])]?.manual ?? []);
       if (sql.includes("m.status AS membership")) return r(memberships.some((m) => m.id === values[0]) ? [{ membership: "ATIVA" }] : []);
       if (sql.includes("SELECT DISTINCT m.empresa_id")) return r(memberships.map((m) => ({ id: m.empresa_id })));

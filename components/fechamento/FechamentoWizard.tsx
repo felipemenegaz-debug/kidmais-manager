@@ -5,7 +5,11 @@ import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
-import { codigoServidorDoPacoteDaMarca, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import ConvidadosChip from './ConvidadosChip';
+import { invalidarPendentes, mensagemHorarioRecusado, soAMaisRecente, travaAposConvidados } from './convidados-trava';
+import { candidatoDaEntrada, destinoDaRecusaDoSalao, motivoForaDoSalao, situacaoDoPreferido, type DestinoEnviado, type SalaoPreferido } from './salao-preferido';
+import { codigoServidorDoPacoteDaMarca, motivoNaoComporta, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
+import { convidadosDaUrl } from '@/components/disponibilidade/convidados-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -16,6 +20,11 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
 import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
 import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
+import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
+import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
+
+/** ID estável de cada controle da identificação (N1/N2): o erro aponta para ele. */
+const idPublico = (campo: string) => `fechamento-publico-${campo}`;
 import {
   CONTATO_KIDMAIS,
   PACOTES_FECHAMENTO_V1,
@@ -23,16 +32,21 @@ import {
 import {
   calcularTotalPagamento,
   formatarMoedaDigitada,
-  horarioExibicao,
-  intervaloHorario,
   moedaParaNumero,
   numeroParaMoeda,
 } from "./calculos";
 import {
-  AjusteHorario,
   FechamentoForm,
   PacoteId,
 } from "./types";
+import {
+  candidatoPreferido,
+  candidatosDisponiveis,
+  codigoDoHorarioLegado,
+  horarioLegadoDoCodigo,
+  rotuloAjuste,
+} from "./periodos";
+import type { HorarioCandidatoPublico, PeriodoDisponibilidadePublica } from "@/lib/disponibilidade/services/models";
 import {
   aplicarDesconto,
   descontoEfetivo,
@@ -44,6 +58,8 @@ import {
   statusDataPacote,
 } from "@/lib/agenda/disponibilidade";
 import { calcularIdade, cpfValido } from "@/lib/clientes/utils";
+import { cnpjRaizPlaceholder, cnpjValido, normalizarCnpj } from "@/lib/cadastro/cnpj";
+import { formatarCnpj } from "@/lib/contratos/documento/contratante-pj";
 import { aceitaQuantidade, agruparPorCategoria, lerAdicionaisDisponiveis, mensagemFalhaAdicionais, pendenciaEscolhas, rotuloUnidade, totalDoAdicional, type AdicionalDaEtapa, type EstadoAdicionais } from "./adicionais-etapa";
 
 const ETAPAS = [
@@ -75,6 +91,9 @@ type ClienteContextoValidado = {
   cliente: {
     nomeCompleto: string;
     cpf: string | null;
+    /** Só para PJ (Entrega B); ausente = PF. */
+    tipoPessoa?: "PJ";
+    cnpj?: string | null;
     rg: string | null;
     telefone: string | null;
     whatsapp: string | null;
@@ -125,8 +144,11 @@ const OPCOES_VISIVEIS_BUFFET = 12;
 
 const FORM_INICIAL: FechamentoForm = {
   dataFesta: "",
+  configuracaoId: "",
   horarioBase: "",
   ajusteHorario: "0",
+  horarioInicio: "",
+  horarioFim: "",
   statusDisponibilidade: "",
 
   pacote: "",
@@ -189,6 +211,30 @@ function formatarCPF(valor: string) {
     .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
 }
 
+/** Identificação: CPF (só dígitos, até 11) ou CNPJ numérico/alfanumérico (14 posições), formatado enquanto digita. */
+function formatarDocumento(valor: string, tipo: TipoDocumentoIdentificacao) {
+  if (tipo === "CPF") return formatarCPF(valor);
+  return valor.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 14)
+    .replace(/^(.{2})(.)/, "$1.$2")
+    .replace(/^(.{2}\..{3})(.)/, "$1.$2")
+    .replace(/^(.{2}\..{3}\..{3})(.)/, "$1/$2")
+    .replace(/^(.{2}\..{3}\..{3}\/.{4})(.)/, "$1-$2");
+}
+
+type TipoDocumentoIdentificacao = "CPF" | "CNPJ";
+
+/** CNPJ válido digitado na identificação (normalizado), ou null (CPF ou texto inválido). */
+function cnpjDaIdentificacao(valor: string) {
+  const cnpj = normalizarCnpj(valor);
+  return /^[0-9A-Z]{12}\d{2}$/.test(cnpj) && cnpjValido(cnpj) && !cnpjRaizPlaceholder(cnpj) ? cnpj : null;
+}
+
+/** Corpo das rotas de identidade: PF continua mandando `cpf` como antes; CNPJ vai em `documento`. */
+function corpoDocumento(valor: string) {
+  const cnpj = cnpjDaIdentificacao(valor);
+  return cnpj ? { documento: cnpj } : { cpf: somenteDigitos(valor) };
+}
+
 function formatarTelefone(valor: string) {
   const digitos = somenteDigitos(valor).slice(0, 11);
   if (digitos.length <= 10) {
@@ -212,6 +258,7 @@ function clienteParaForm(clienteDetalhe: ClienteContextoValidado) {
   return {
     nomeCliente: cliente.nomeCompleto,
     cpf: formatarCPF(cliente.cpf ?? ""),
+    cnpj: cliente.tipoPessoa === "PJ" ? formatarCnpj(cliente.cnpj) : "",
     rg: cliente.rg ?? "",
     email: cliente.email ?? "",
     telefone: formatarTelefone(cliente.telefone ?? ""),
@@ -243,6 +290,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
   const [erro, setErro] = useState("");
+  /** N1/N2: pendências da identificação ligadas ao campo exato (borda vermelha, mensagem abaixo, resumo com links). */
+  const [errosCampo, setErrosCampo] = useState<ErroCampo[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
@@ -254,16 +303,26 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro';codigo?:string}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
-  const [ajustesDisponiveis, setAjustesDisponiveis] =
-    useState<AjusteHorario[]>([]);
+  // Candidatos livres do horário escolhido na data e os horários configurados do dia (qualquer quantidade).
+  const [candidatosHorario, setCandidatosHorario] =
+    useState<HorarioCandidatoPublico[]>([]);
+  const [periodosDoDia, setPeriodosDoDia] =
+    useState<PeriodoDisponibilidadePublica[]>([]);
   const [origemInterna, setOrigemInterna] = useState(false);
   const [preselecaoDisponibilidade, setPreselecaoDisponibilidade] = useState(false);
+  // S-C: convidados vieram da disponibilidade (convidados primeiro): a etapa Convidados não aparece; o número fica no chip.
+  const [convidadosDaEntrada, setConvidadosDaEntrada] = useState(false);
+  // P2-R1 (Astra): horário recusado para o número alterado no chip; trava as etapas seguintes até nova alteração válida.
+  const [horarioRecusado, setHorarioRecusado] = useState<string | null>(null);
+  // S-D: salão de preferência escolhido em "Conheça os salões" (conferido de novo pelo servidor no envio, sob a trava).
+  const [salaoPreferido, setSalaoPreferido] = useState<SalaoPreferido | null>(null);
   const [entradaResolvida, setEntradaResolvida] = useState(false);
   const [entradaPublicaInvalida, setEntradaPublicaInvalida] = useState(false);
   const [validandoDisponibilidade, setValidandoDisponibilidade] = useState(false);
   const [identificacaoStatus, setIdentificacaoStatus] =
     useState<IdentificacaoClienteStatus>("AGUARDANDO_CPF");
   const [cpfIdentificacao, setCpfIdentificacao] = useState("");
+  const [tipoDocumentoIdentificacao, setTipoDocumentoIdentificacao] = useState<TipoDocumentoIdentificacao>("CPF");
   const [clienteEncontrado, setClienteEncontrado] =
     useState<ClienteContextoValidado | null>(null);
   const [canaisIdentidade, setCanaisIdentidade] =
@@ -282,6 +341,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [consultandoCep, setConsultandoCep] = useState(false);
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
+  // P2-R3 (Astra): só a revalidação de horário mais recente muda a tela (trocas rápidas no chip sobrepõem consultas).
+  const revalidacaoSeq = useRef(0);
+  // S-D (revisão do Astra): motivo da última recusa da revalidação (horário ou salão de preferência), para a trava do chip.
+  const ultimaRecusa = useRef<string | null>(null);
 
   const [fatosPacote, setFatosPacote] = useState<FatosPacote | null>(null);
   // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
@@ -289,7 +352,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [tentativaPacotes, setTentativaPacotes] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(apiPublica("/api/fechamentos/pacotes", empresa), { signal: controller.signal, cache: "no-store" })
+    const doSalao = salaoPreferido ? `?salao=${encodeURIComponent(salaoPreferido.id)}` : "";
+    void fetch(apiPublica(`/api/fechamentos/pacotes${doSalao}`, empresa), { signal: controller.signal, cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((body) => {
         if (!Array.isArray(body?.pacotes)) { setFalhaPacotes(true); return; }
@@ -299,7 +363,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       })
       .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, [empresa, tentativaPacotes]);
+  }, [empresa, tentativaPacotes, salaoPreferido]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
   const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
@@ -372,21 +436,19 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       const origemDisponibilidade = params.get("origem") === "DISPONIBILIDADE";
       const dataPreselecionada = params.get("data") ?? "";
-      const periodoParam = params.get("periodo");
+      // Horário configurado: configuracaoId (atual); senão codigoPeriodo; senão o legado periodo=almoco|noite.
+      const configuracaoIdParam = params.get("configuracaoId") ?? "";
+      const codigoPeriodoParam =
+        params.get("codigoPeriodo") || codigoDoHorarioLegado(params.get("periodo")) || "";
       const ajusteParam = params.get("ajuste");
+      const convidadosParam = convidadosDaUrl(params.get("convidados"));
       const inicioParam = params.get("inicio");
       const fimParam = params.get("fim");
-      const horarioBasePreselecionado =
-        periodoParam === "almoco" || periodoParam === "noite"
-          ? periodoParam
-          : null;
       const ajustePreselecionado =
-        ajusteParam === "-30" || ajusteParam === "0" || ajusteParam === "30"
-          ? ajusteParam
-          : null;
+        ajusteParam && /^-?\d{1,3}$/.test(ajusteParam) ? ajusteParam : null;
       const parametrosDisponibilidadeValidos =
         /^\d{4}-\d{2}-\d{2}$/.test(dataPreselecionada) &&
-        Boolean(horarioBasePreselecionado) &&
+        Boolean(configuracaoIdParam || codigoPeriodoParam) &&
         Boolean(ajustePreselecionado) &&
         /^([01]\d|2[0-3]):[0-5]\d$/.test(inicioParam ?? "") &&
         /^([01]\d|2[0-3]):[0-5]\d$/.test(fimParam ?? "");
@@ -404,32 +466,29 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       if (
         origemDisponibilidade &&
-        horarioBasePreselecionado &&
+        (configuracaoIdParam || codigoPeriodoParam) &&
         ajustePreselecionado &&
         inicioParam &&
         fimParam
       ) {
         try {
           const resposta = await fetch(
-            apiPublica(`/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}`, empresa),
+            apiPublica(`/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}${convidadosParam ? `&convidados=${convidadosParam}` : ""}`, empresa),
             { cache: "no-store" },
           );
           if (!resposta.ok) throw new Error();
           const json = await resposta.json();
-          const codigo = horarioBasePreselecionado === "almoco" ? "TURNO_1" : "TURNO_2";
-          const periodo = json.data?.periodos?.find(
-            (item: { codigo?: string }) => item.codigo === codigo,
+          const periodos: PeriodoDisponibilidadePublica[] = json.data?.periodos ?? [];
+          const periodo = periodos.find((item) =>
+            configuracaoIdParam
+              ? item.configuracaoId === configuracaoIdParam
+              : item.codigo === codigoPeriodoParam,
           );
-          const candidato = periodo?.horarios?.find(
-            (item: { inicio?: string; fim?: string; ajusteMinutos?: number; status?: string }) =>
-              item.ajusteMinutos === Number(ajustePreselecionado) &&
-              item.inicio === inicioParam &&
-              item.fim === fimParam,
-          );
+          const candidato = candidatoDaEntrada(periodo, { ajuste: Number(ajustePreselecionado), inicio: inicioParam, fim: fimParam });
 
           if (cancelado) return;
 
-          if (!candidato || candidato.status !== "DISPONIVEL") {
+          if (!periodo || !candidato || candidato.status !== "DISPONIVEL") {
             setErro(
               "O horário escolhido não está mais disponível. Volte à disponibilidade e escolha uma nova opção.",
             );
@@ -438,27 +497,41 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             return;
           }
 
-          const ajustes = (periodo.horarios ?? [])
-            .filter((item: { status?: string }) => item.status === "DISPONIVEL")
-            .map((item: { ajusteMinutos?: number }) => String(item.ajusteMinutos))
-            .filter((item: string): item is AjusteHorario =>
-              item === "-30" || item === "0" || item === "30",
-            );
-
           setConfigDisponibilidade({
             agenda: [],
             pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
             descontos: json.comercial?.descontos ?? [],
           });
-          setAjustesDisponiveis(ajustes);
+          setCandidatosHorario(candidatosDisponiveis(periodo));
+          setPeriodosDoDia(periodos);
+          // Início e fim vêm do candidato escolhido, exatamente como a agenda devolveu.
           setForm((anterior) => ({
             ...anterior,
             dataFesta: dataPreselecionada,
-            horarioBase: horarioBasePreselecionado,
-            ajusteHorario: ajustePreselecionado,
+            configuracaoId: periodo.configuracaoId,
+            horarioBase: horarioLegadoDoCodigo(periodo.codigo),
+            ajusteHorario: String(candidato.ajusteMinutos),
+            horarioInicio: candidato.inicio,
+            horarioFim: candidato.fim,
             statusDisponibilidade: "disponivel",
+            ...(convidadosParam ? { convidadosPagantes: convidadosParam } : {}),
           }));
           setPreselecaoDisponibilidade(true);
+          setConvidadosDaEntrada(Boolean(convidadosParam));
+          const salaoParam = params.get("salao");
+          if (salaoParam && convidadosParam && empresa) {
+            const situacao = await situacaoDoPreferido(empresa, salaoParam, {
+              data: dataPreselecionada, configuracaoId: periodo.configuracaoId, inicio: candidato.inicio, fim: candidato.fim, convidados: convidadosParam,
+            });
+            if (cancelado) return;
+            if (situacao.tipo !== "livre") {
+              // R-D1: salão que deixou de servir → aviso e volta à escolha (nunca segue com outro em silêncio).
+              params.set("aviso", "salao");
+              router.replace(`${paginaPublica("/saloes", empresa)}?${params.toString()}`);
+              return;
+            }
+            setSalaoPreferido(situacao.salao);
+          }
         } catch {
           if (!cancelado) {
             setErro(
@@ -489,19 +562,19 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     };
   }, [router, empresa]);
 
-  const horario = useMemo(
-    () => horarioExibicao(form.horarioBase, form.ajusteHorario),
-    [form.horarioBase, form.ajusteHorario]
-  );
-
+  // Início e fim do candidato escolhido (a agenda é a fonte; nada é recalculado na tela).
   const intervaloSelecionado = useMemo(
-    () => intervaloHorario(form.horarioBase, form.ajusteHorario),
-    [form.horarioBase, form.ajusteHorario],
+    () => form.horarioInicio && form.horarioFim ? { inicio: form.horarioInicio, fim: form.horarioFim } : null,
+    [form.horarioInicio, form.horarioFim],
   );
+  const horario = intervaloSelecionado ? `${intervaloSelecionado.inicio} às ${intervaloSelecionado.fim}` : "";
 
   const indicesEtapasVisiveis = preselecaoDisponibilidade
-    ? [0, 2, 3, 4, 5, 6, 7, 8]
+    ? convidadosDaEntrada ? [0, 3, 4, 5, 6, 7, 8] : [0, 2, 3, 4, 5, 6, 7, 8]
     : [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  // Etapa que confere convidados e espera a cotação: a própria Convidados, ou o Pacote quando ela não aparece (S-C).
+  const etapaDosConvidados = preselecaoDisponibilidade && convidadosDaEntrada ? 0 : 2;
+  const etapaAposPacote = preselecaoDisponibilidade && convidadosDaEntrada ? 3 : 2;
   const etapasVisiveis = indicesEtapasVisiveis.map((indice) => ETAPAS[indice]);
   const etapaVisualAtual = Math.max(0, indicesEtapasVisiveis.indexOf(etapa));
   const numeroEtapaVisivel = (indiceReal: number) =>
@@ -510,8 +583,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Preço do pacote: cotação do servidor, o mesmo cálculo do envio (tabela publicada, horário, faixa e desconto).
   const inicioCotacao = intervaloSelecionado?.inicio ?? '';
   const fimCotacao = intervaloSelecionado?.fim ?? '';
-  const chaveCotacao = form.pacote && form.dataFesta && form.horarioBase && inicioCotacao && convidados >= 1
-    ? [form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
+  const chaveCotacao = form.pacote && form.dataFesta && form.configuracaoId && inicioCotacao && convidados >= 1
+    ? [form.pacote, form.dataFesta, form.configuracaoId, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
     : null;
   const [cotacao, setCotacao] = useState<{ chave: string; estado: 'ok' | 'erro'; dados?: Cotacao; erro?: string } | null>(null);
   useEffect(() => {
@@ -520,7 +593,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     const temporizador = setTimeout(() => {
       void fetch(apiPublica('/api/fechamentos/cotacao', empresa), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
-        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, horarioBase: form.horarioBase, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
+        // horarioBase (legado) só vai para TURNO_1/TURNO_2; o servidor revalida pelo configuracaoId.
+        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, configuracaoId: form.configuracaoId, horarioBase: form.horarioBase || undefined, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
       }).then(async (r) => {
         const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
         if (controller.signal.aborted) return;
@@ -529,7 +603,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined, undefined, marca.equipe) }); });
     }, 250);
     return () => { clearTimeout(temporizador); controller.abort(); };
-  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.configuracaoId, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
   // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
@@ -585,12 +659,32 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       : null;
 
   const valorInformado = moedaParaNumero(form.valorCombinado);
+  const errosPorCampo = mapaErros(errosCampo);
+  const marcar = (nome: string) => propsCampo(idPublico(nome), errosPorCampo[idPublico(nome)]);
+  const mensagemDe = (nome: string) => <MensagemCampo id={idPublico(nome)} mensagem={errosPorCampo[idPublico(nome)]} />;
 
   function atualizar<K extends keyof FechamentoForm>(
     campo: K,
     valor: FechamentoForm[K]
   ) {
     setForm((anterior) => ({ ...anterior, [campo]: valor }));
+    setErro("");
+    const resolvidos = campo === "whatsapp" || campo === "telefone" ? [idPublico("whatsapp"), idPublico("telefone")] : [idPublico(String(campo))];
+    setErrosCampo((atual) => atual.filter((e) => !resolvidos.includes(e.campo)));
+  }
+
+  /** Troca (ou limpa) o horário configurado: data e início precisam ser escolhidos de novo. */
+  function limparHorario(horarioEscolhido: Pick<FechamentoForm, "configuracaoId" | "horarioBase">) {
+    setCandidatosHorario([]);
+    setForm((anterior) => ({
+      ...anterior,
+      ...horarioEscolhido,
+      dataFesta: "",
+      statusDisponibilidade: "",
+      ajusteHorario: "0",
+      horarioInicio: "",
+      horarioFim: "",
+    }));
     setErro("");
   }
 
@@ -651,6 +745,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
     setForm((anterior) => ({ ...anterior, cep: cepFormatado }));
     setErro("");
+    setErrosCampo((atual) => atual.filter((e) => e.campo !== idPublico("cep")));
     setErroCep("");
     setConsultandoCep(false);
 
@@ -661,10 +756,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   async function buscarClientePorCpf() {
     const cpf = somenteDigitos(cpfIdentificacao);
+    const cnpj = cnpjDaIdentificacao(cpfIdentificacao);
     setErroIdentificacao("");
 
-    if (cpf.length !== 11 || !cpfValido(cpf)) {
-      setErroIdentificacao("Informe um CPF válido para continuar.");
+    if (tipoDocumentoIdentificacao === "CNPJ" ? !cnpj : cpf.length !== 11 || !cpfValido(cpf)) {
+      setErroIdentificacao(tipoDocumentoIdentificacao === "CNPJ"
+        ? "Informe um CNPJ válido para continuar."
+        : "Informe um CPF válido para continuar.");
       return;
     }
 
@@ -674,7 +772,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/consultar-cpf", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify(corpoDocumento(cpfIdentificacao)),
       });
 
       if (!resposta.ok) {
@@ -691,7 +789,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       setAniversarianteSelecionadoId("");
       setSolicitarAtualizacaoCadastro(null);
       setRecuperacaoCadastralPendente(false);
-      setForm((anterior) => ({ ...anterior, cpf: formatarCPF(cpf) }));
+      // Empresa (CNPJ): cadastro existente segue a validação; sem cadastro, a empresa é cadastrada neste fechamento.
+      setForm((anterior) => ({ ...anterior, nomeFantasia: "", representanteNome: "", representanteCpf: "",
+        ...(cnpj ? { cpf: "", rg: "", cnpj: formatarCnpj(cnpj) } : { cpf: formatarCPF(cpf), cnpj: "" }) }));
 
       if (json.situacao === "NOVO_CLIENTE") {
         setCanaisIdentidade([]);
@@ -716,7 +816,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   async function enviarCodigoValidacao() {
-    const cpf = somenteDigitos(cpfIdentificacao);
+    const documento = corpoDocumento(cpfIdentificacao);
     const canal = canalSelecionado || canaisIdentidade[0]?.canal;
     if (!canal) {
       setErroIdentificacao(
@@ -733,7 +833,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/iniciar-desafio", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf, canal }),
+        body: JSON.stringify({ ...documento, canal }),
       });
       if (!resposta.ok) {
         throw new Error(
@@ -825,7 +925,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   async function iniciarRecuperacaoCadastral() {
-    const cpf = somenteDigitos(cpfIdentificacao);
+    const documento = corpoDocumento(cpfIdentificacao);
     setProcessandoIdentidade(true);
     setErroIdentificacao("");
 
@@ -833,7 +933,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const resposta = await fetch(apiPublica("/api/identidade/solicitar-recuperacao", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpf }),
+        body: JSON.stringify(documento),
       });
       if (!resposta.ok) {
         throw new Error(
@@ -911,51 +1011,84 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     });
   }
 
-  async function revalidarHorarioAtual() {
-    if (!form.dataFesta || !form.horarioBase || !intervaloSelecionado) {
+  /** true = horário vale; false = recusado (mensagem já mostrada); null = resposta antiga descartada (P2-R3). */
+  async function revalidarHorarioAtual(convidadosInformados: number = convidados): Promise<boolean | null> {
+    if (!form.dataFesta || !form.configuracaoId || !intervaloSelecionado) {
       setErro("Escolha uma data e um horário válidos para continuar.");
       return false;
     }
 
+    ultimaRecusa.current = null;
+    const intervalo = intervaloSelecionado;
+    const acharCandidato = (periodos: PeriodoDisponibilidadePublica[]) => {
+      const periodo = periodos.find((item) => item.configuracaoId === form.configuracaoId);
+      const livre = periodo?.codigo === "HORARIO_LIVRE";
+      const candidato = periodo?.horarios?.find(
+        (item) =>
+          item.inicio === intervalo.inicio &&
+          (livre || item.fim === intervalo.fim) &&
+          item.ajusteMinutos === Number(form.ajusteHorario),
+      );
+      return { periodo, livre, candidato };
+    };
     setValidandoDisponibilidade(true);
-    try {
+    const resultado = await soAMaisRecente(revalidacaoSeq, async () => {
       const resposta = await fetch(
-        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}`, empresa),
+        // 2c-2: no horário livre, o fim vem da duração do pacote escolhido.
+        // S-C: com os convidados, só conta salão livre que comporta (o mesmo que o servidor revalida na cotação).
+        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}${fato?.duracaoMinutos ? `&duracao=${fato.duracaoMinutos}` : ""}${convidadosInformados >= 1 ? `&convidados=${convidadosInformados}` : ""}`, empresa),
         { cache: "no-store" },
       );
       if (!resposta.ok) throw new Error();
-
       const json = await resposta.json();
-      const codigo = form.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2";
-      const periodo = json.data?.periodos?.find(
-        (item: { codigo?: string }) => item.codigo === codigo,
-      );
-      const candidato = periodo?.horarios?.find(
-        (item: { inicio?: string; fim?: string; ajusteMinutos?: number; status?: string }) =>
-          item.inicio === intervaloSelecionado.inicio &&
-          item.fim === intervaloSelecionado.fim &&
-          item.ajusteMinutos === Number(form.ajusteHorario),
-      );
+      // S-D (revisão do Astra, P2): o salão de preferência é conferido NESTA mesma consulta (mesma sequência e espera:
+      // resposta antiga de qualquer das duas é descartada junto), no fim do candidato — que no horário livre já vem
+      // pela duração do pacote escolhido (trocar de pacote revalida o salão na nova duração).
+      const { candidato: c } = acharCandidato(json.data?.periodos ?? []);
+      const preferido = salaoPreferido && empresa && c && convidadosInformados >= 1
+        ? await situacaoDoPreferido(empresa, salaoPreferido.id, {
+          data: form.dataFesta, configuracaoId: form.configuracaoId, inicio: c.inicio, fim: c.fim, convidados: convidadosInformados,
+        })
+        : null;
+      return { json, preferido };
+    });
+    // Resposta de uma consulta mais antiga: descartada sem tocar em nada (a mais recente decide e encerra a espera).
+    if (!resultado.vigente) return null;
+    try {
+      if (!resultado.ok) throw new Error();
+      const { json, preferido } = resultado.valor;
+      const periodos: PeriodoDisponibilidadePublica[] = json.data?.periodos ?? [];
+      const { periodo, livre, candidato } = acharCandidato(periodos);
+      if (livre && candidato && candidato.fim !== intervaloSelecionado.fim) {
+        setForm((atual) => ({ ...atual, horarioFim: candidato.fim }));
+      }
 
-      if (!candidato || candidato.status !== "DISPONIVEL") {
+      if (candidato && candidato.status !== "DISPONIVEL" && candidato.capacidade?.motivo === "CAPACIDADE") {
+        setErro(`Nenhum salão livre neste horário comporta ${convidadosInformados} convidados. Altere a quantidade ou volte à disponibilidade.`);
+        return false;
+      }
+
+      if (!periodo || !candidato || candidato.status !== "DISPONIVEL") {
         setErro(
           "Este horário não está mais disponível. Volte à disponibilidade e escolha uma nova opção.",
         );
         return false;
       }
 
-      const ajustes = (periodo.horarios ?? [])
-        .filter((item: { status?: string }) => item.status === "DISPONIVEL")
-        .map((item: { ajusteMinutos?: number }) => String(item.ajusteMinutos))
-        .filter((item: string): item is AjusteHorario =>
-          item === "-30" || item === "0" || item === "30",
-        );
-      setAjustesDisponiveis(ajustes);
+      if (salaoPreferido && preferido?.tipo !== "livre") {
+        ultimaRecusa.current = `O ${salaoPreferido.nome} não serve para ${convidadosInformados} convidados neste horário. Troque o salão ou a quantidade.`;
+        setErro(ultimaRecusa.current);
+        return false;
+      }
+
+      setCandidatosHorario(candidatosDisponiveis(periodo));
+      setPeriodosDoDia(periodos);
       setConfigDisponibilidade({
         agenda: [],
         pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
         descontos: json.comercial?.descontos ?? [],
       });
+      setHorarioRecusado(null);
       return true;
     } catch {
       setErro(
@@ -968,10 +1101,31 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   function validarEtapaAtual() {
+    // P2-R1 (Astra): depois do Pacote, com os convidados vindos da disponibilidade, a combinação alterada no chip precisa
+    // estar confirmada (horário revalidado e cotação pronta) antes de qualquer etapa seguinte avançar ou enviar.
+    const trava = travaAposConvidados({
+      convidadosDaEntrada: preselecaoDisponibilidade && convidadosDaEntrada, etapa, etapaDosConvidados,
+      cotacao: cotacaoEstado, erroCotacao: cotacaoAtual?.erro, revalidando: validandoDisponibilidade, horarioRecusado,
+    });
+    if (trava.tipo === "aguardar") {
+      setErro(etapa === ETAPAS.length - 1 ? "Aguarde a confirmação do horário e do preço para enviar." : "");
+      if (etapa < ETAPAS.length - 1) setAvancarAposCotacao(true);
+      return false;
+    }
+    if (trava.tipo === "erro") {
+      setErro(trava.mensagem);
+      return false;
+    }
+
     // Outra empresa: só vale pacote que ela oferece (lista do servidor já carregada).
     if (etapa === 0 && (!form.pacote || (!marca.kidmais && !pacote))) {
       setErro("Escolha um pacote para continuar.");
       return false;
+    }
+
+    if (etapa === 0 && salaoPreferido && form.pacote) {
+      const fora = motivoForaDoSalao(fatosPacote, codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote) ?? form.pacote, salaoPreferido);
+      if (fora) { setErro(`${fora} Escolha um pacote deste salão ou troque o salão.`); return false; }
     }
 
     if (etapa === 0 && pacote?.sobConsulta) {
@@ -984,7 +1138,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       preselecaoDisponibilidade &&
       form.pacote &&
       form.dataFesta &&
-      form.horarioBase
+      form.configuracaoId
     ) {
       const comercial = statusDataPacote(
         configDisponibilidade,
@@ -992,6 +1146,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         form.dataFesta,
         form.horarioBase,
         regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote),
+        form.configuracaoId,
       );
       if (comercial.status === "indisponivel") {
         setErro(
@@ -1004,13 +1159,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
     if (
       etapa === 1 &&
-      (!form.dataFesta || !form.horarioBase || !form.statusDisponibilidade)
+      (!form.dataFesta || !form.configuracaoId || !intervaloSelecionado || !form.statusDisponibilidade)
     ) {
       setErro("Escolha o horário e uma data no calendário.");
       return false;
     }
 
-    if (etapa === 2) {
+    if (etapa === etapaDosConvidados) {
       const mensagem = marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
@@ -1066,21 +1221,27 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         somenteDigitos(form.whatsapp).length >= 10 ||
         somenteDigitos(form.telefone).length >= 10;
 
-      if (
-        !form.nomeCliente ||
-        somenteDigitos(form.cpf).length !== 11 ||
-        !cpfValido(form.cpf) ||
-        !form.email ||
-        !temContato ||
-        somenteDigitos(form.cep).length !== 8 ||
-        !form.logradouro ||
-        !form.numero ||
-        !form.bairro ||
-        !form.cidade ||
-        form.uf.length !== 2 ||
-        !form.nomeAniversariante
-      ) {
-        setErro("Preencha os dados obrigatórios para o fechamento.");
+      // Cada obrigatório que falta fica marcado no próprio campo, na ordem da tela; o primeiro recebe rolagem e foco.
+      const pendentes: ErroCampo[] = [];
+      const exigir = (falta: boolean, nome: string, mensagem: string) => { if (falta) pendentes.push({ campo: idPublico(nome), mensagem }); };
+      exigir(!form.nomeCliente, "nomeCliente", form.cnpj ? "Informe a razão social." : "Informe o nome completo.");
+      exigir(!form.cnpj && (somenteDigitos(form.cpf).length !== 11 || !cpfValido(form.cpf)), "cpf", "Informe um CPF válido.");
+      const cpfRepresentante = somenteDigitos(form.representanteCpf ?? "");
+      exigir(Boolean(form.cnpj) && cpfRepresentante.length > 0 && (cpfRepresentante.length !== 11 || !cpfValido(cpfRepresentante)), "representanteCpf", "Informe um CPF válido para o representante.");
+      exigir(Boolean(form.cnpj) && cpfRepresentante.length > 0 && !form.representanteNome?.trim(), "representanteNome", "Informe o nome do representante.");
+      exigir(!temContato, "whatsapp", "Informe WhatsApp ou telefone com DDD.");
+      exigir(!form.email, "email", "Informe o e-mail.");
+      exigir(somenteDigitos(form.cep).length !== 8, "cep", "Informe o CEP com 8 dígitos.");
+      exigir(!form.logradouro, "logradouro", "Informe o endereço.");
+      exigir(!form.numero, "numero", "Informe o número.");
+      exigir(!form.bairro, "bairro", "Informe o bairro.");
+      exigir(!form.cidade, "cidade", "Informe a cidade.");
+      exigir(form.uf.length !== 2, "uf", "Informe a UF com 2 letras.");
+      exigir(!form.nomeAniversariante, "nomeAniversariante", "Informe o nome do aniversariante.");
+      setErrosCampo(pendentes);
+      if (pendentes.length) {
+        setErro("");
+        focarPrimeiroErro(pendentes, { resumoId: "fechamento-publico-erros" });
         return false;
       }
 
@@ -1120,7 +1281,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     if (etapa === 0 && preselecaoDisponibilidade) {
       const aindaDisponivel = await revalidarHorarioAtual();
       if (!aindaDisponivel) return;
-      setEtapa(2);
+      setEtapa(etapaAposPacote);
     } else {
       setEtapa((atual) => Math.min(atual + 1, ETAPAS.length - 1));
     }
@@ -1130,16 +1291,54 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   const continuarAposCotacao = useEffectEvent(() => { void continuar(); });
   useEffect(() => {
-    if (!avancarAposCotacao || etapa !== 2 || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
+    // A espera vale na etapa que confere convidados e, no fluxo de convidados primeiro, nas seguintes (P2-R1).
+    const etapaQueEspera = etapa === etapaDosConvidados || (preselecaoDisponibilidade && convidadosDaEntrada && etapa > etapaDosConvidados);
+    if (!avancarAposCotacao || !etapaQueEspera || validandoDisponibilidade || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
     const t = setTimeout(continuarAposCotacao, 0);
     return () => clearTimeout(t);
-  }, [avancarAposCotacao, etapa, cotacaoEstado]);
+  }, [avancarAposCotacao, etapa, etapaDosConvidados, cotacaoEstado, validandoDisponibilidade, preselecaoDisponibilidade, convidadosDaEntrada]);
+
+  // S-C: validação do chip (sem pacote: o teto do pedido online e a forma do número).
+  const validarConvidadosDoChip = (quantidade: number) =>
+    marca.kidmais ? erroConvidadosFechamento(quantidade) : erroConvidadosEmpresa(quantidade);
+  const naoComportaNaTela = (id: string) =>
+    motivoForaDoSalao(fatosPacote, id, salaoPreferido) ?? motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, id, convidados);
+  // S-D: "trocar" o salão volta à escolha com o mesmo horário e os convidados atuais.
+  const linkTrocarSalao = () => {
+    const p = new URLSearchParams(window.location.search);
+    p.set("convidados", String(convidados));
+    p.delete("aviso");
+    return `${paginaPublica("/saloes", empresa)}?${p.toString()}`;
+  };
+
+  // S-C: novo número no chip: a cotação é refeita (a chave inclui os convidados) e o horário é revalidado; se o pacote
+  // escolhido deixa de comportar, avisa e volta ao Pacote.
+  async function alterarConvidados(quantidade: number) {
+    // P2-R3 (rodada 3): a troca invalida QUALQUER revalidação pendente (do chip ou do Continuar) antes de tudo, inclusive
+    // no retorno antecipado abaixo; sem consulta substituta, a espera termina aqui.
+    invalidarPendentes(revalidacaoSeq);
+    setValidandoDisponibilidade(false);
+    setAvancarAposCotacao(false);
+    atualizar("convidadosPagantes", quantidade);
+    const motivo = form.pacote ? motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote, quantidade) : null;
+    if (motivo) {
+      setEtapa(0);
+      setErro(`${motivo} Escolha outro pacote para ${quantidade} convidados.`);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setHorarioRecusado(null);
+    const valido = await revalidarHorarioAtual(quantidade);
+    // null = uma troca mais nova já está em andamento: esta resposta não vale mais (P2-R3).
+    // S-D: a revalidação já confere o salão de preferência (mesma sequência); a recusa dela vira a trava do chip.
+    if (valido === false) setHorarioRecusado(ultimaRecusa.current ?? mensagemHorarioRecusado(quantidade));
+  }
 
   function voltar() {
     setAvancarAposCotacao(false);
     setErro("");
     setEtapa((atual) =>
-      preselecaoDisponibilidade && atual === 2 ? 0 : Math.max(atual - 1, 0),
+      preselecaoDisponibilidade && atual === etapaAposPacote ? 0 : Math.max(atual - 1, 0),
     );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1149,16 +1348,22 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     if (!validarEtapaAtual()) return;
 
     const aindaDisponivel = await revalidarHorarioAtual();
-    if (!aindaDisponivel || !intervaloSelecionado || !form.horarioBase) return;
+    if (!aindaDisponivel || !intervaloSelecionado || !form.configuracaoId) return;
 
     setEnviando(true);
     setErro("");
+    // E2b (P2-C1): o destino que vai ao POST — a volta de uma recusa usa exatamente este, nunca a URL de entrada.
+    const enviado: DestinoEnviado = {
+      data: form.dataFesta, configuracaoId: form.configuracaoId, ajuste: form.ajusteHorario,
+      inicio: intervaloSelecionado.inicio, fim: intervaloSelecionado.fim, convidados,
+    };
 
     try {
       const resposta = await fetch(apiPublica("/api/fechamentos", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(salaoPreferido ? { salaoPreferido: salaoPreferido.id } : {}),
           identidadeTipo:
             identificacaoStatus === "VERIFICADO"
               ? "CLIENTE_EXISTENTE"
@@ -1182,8 +1387,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             valorParcela: form.pixParcela ? form.pixParcela.replace(",", ".") : null,
             quantidadeParcelas: form.pixQuantidade ? Number(form.pixQuantidade) : null,
           } : null,
-          horarioInicio: intervaloSelecionado.inicio,
-          horarioFim: intervaloSelecionado.fim,
+          // Horário configurado; horarioBase (legado) só para TURNO_1/TURNO_2.
+          configuracaoId: enviado.configuracaoId,
+          horarioBase: form.horarioBase || undefined,
+          horarioInicio: enviado.inicio,
+          horarioFim: enviado.fim,
           horarioExibicao: horario,
           referenciaTabela,
           descontoDiaUtilAtivo:
@@ -1206,6 +1414,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       if (!resposta.ok) {
         const falha = await resposta.json().catch(() => null);
+        // E2b: salão recusado no envio (genérico ou com motivo) → volta à escolha de salões, sem pré-selecionar nada.
+        const volta = destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha);
+        if (volta) {
+          router.replace(volta);
+          return;
+        }
         throw new Error(
           falha?.erro || "Não foi possível enviar o fechamento para conferência.",
         );
@@ -1288,6 +1502,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             </div>
           </div>
 
+          {salaoPreferido ? (
+            <div className={styles.infoBox}>
+              <strong>Salão de preferência: {salaoPreferido.nome} · a confirmação vem no contrato.</strong>
+              <p>Emitir o contrato não reserva o salão; a reserva acontece quando você assina.</p>
+            </div>
+          ) : null}
+
           <div className={styles.warningBox}>
             <strong>A data ainda não está reservada.</strong>
             <p>
@@ -1352,7 +1573,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           </div>
         </nav>
 
-        <form className={styles.card} onSubmit={finalizar}>
+        <form className={styles.card} onSubmit={finalizar} noValidate>
           {etapa === 0 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(0)} titulo="Escolha o pacote">
@@ -1377,10 +1598,28 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 {!empresa && <PacotesPdf />}
               </div>
 
+              {convidadosDaEntrada && convidados >= 1 ? (
+                <ConvidadosChip convidados={convidados} validar={validarConvidadosDoChip} onAlterar={(n) => { void alterarConvidados(n); }} />
+              ) : null}
+
+              {salaoPreferido ? (
+                <div className={styles.guestChip}>
+                  <span>Salão de preferência: <strong>{salaoPreferido.nome}</strong> · a confirmação vem no contrato</span>
+                  <a href={linkTrocarSalao()}>trocar</a>
+                </div>
+              ) : null}
+
+              {convidadosDaEntrada && cotacaoEstado === 'erro' && form.pacote ? (
+                <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>
+              ) : null}
+
               <EscolhaPacote
                 itens={pacotesDaEtapa}
                 falha={falhaPacotes}
                 selecionado={form.pacote}
+                convidados={convidadosDaEntrada && convidados >= 1 ? convidados : null}
+                naoComporta={naoComportaNaTela}
+                salao={salaoPreferido?.nome ?? null}
                 onTentarNovamente={() => { setFalhaPacotes(false); setTentativaPacotes((n) => n + 1); }}
                 onEscolher={(item) => {
                       const novoPacote = item.id as PacoteId;
@@ -1389,7 +1628,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       if (
                         preselecaoDisponibilidade &&
                         form.dataFesta &&
-                        form.horarioBase
+                        form.configuracaoId
                       ) {
                         const comercial = statusDataPacote(
                           configDisponibilidade,
@@ -1397,6 +1636,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           form.dataFesta,
                           form.horarioBase,
                           regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, novoPacote),
+                          form.configuracaoId,
                         );
                         atualizar(
                           "statusDisponibilidade",
@@ -1411,10 +1651,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         return;
                       }
 
-                      atualizar("dataFesta", "");
-                      atualizar("horarioBase", "");
-                      atualizar("statusDisponibilidade", "");
-                      setAjustesDisponiveis([]);
+                      limparHorario({ configuracaoId: "", horarioBase: "" });
                 }}
               />
               {!marca.kidmais && pacotesDaEtapa?.length === 0 && <ContatoEmpresa nome={marca.nome} contato={marca.contato} />}
@@ -1464,7 +1701,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   : "O horário funciona como filtro do calendário. Assim cada dia mostra um único status, sem misturar disponibilidade da manhã e da noite."}
               </StepTitle>
 
-              {preselecaoDisponibilidade && form.dataFesta && form.horarioBase ? (
+              {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
                   <strong>Data e horário selecionados antes do fechamento</strong>
                   <p>
@@ -1526,41 +1763,29 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 </small>
               </div>
 
-              <div className={styles.fieldGroup}>
-                <span className={styles.groupLabel}>1. Escolha o período</span>
-                <div className={styles.optionGridTwo}>
-                  <ChoiceCard
-                    selected={form.horarioBase === "almoco"}
-                    icon="☀"
-                    title="11h às 15h"
-                    text="Ver disponibilidade deste horário"
-                    onClick={() => {
-                      setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", "almoco");
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
-                    }}
-                  />
-                  <ChoiceCard
-                    selected={form.horarioBase === "noite"}
-                    icon="✦"
-                    title="17h às 21h"
-                    text="Ver disponibilidade deste horário"
-                    onClick={() => {
-                      setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", "noite");
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
-                    }}
-                  />
+              {periodosDoDia.length > 0 ? (
+                <div className={styles.fieldGroup}>
+                  <span className={styles.groupLabel}>1. Escolha o horário</span>
+                  {/* Horários configurados da agenda (qualquer quantidade); trocar refaz a escolha da data. */}
+                  <div className={styles.optionGridTwo}>
+                    {periodosDoDia.map((periodo) => (
+                      <ChoiceCard
+                        key={periodo.configuracaoId}
+                        selected={form.configuracaoId === periodo.configuracaoId}
+                        icon={periodo.codigo === "TURNO_1" ? "☀" : "✦"}
+                        title={periodo.nome || `${periodo.horarioInicioPadrao} às ${periodo.horarioFimPadrao}`}
+                        text={`${periodo.horarioInicioPadrao}–${periodo.horarioFimPadrao} · ver disponibilidade deste horário`}
+                        onClick={() => {
+                          setPreselecaoDisponibilidade(false);
+                          limparHorario({ configuracaoId: periodo.configuracaoId, horarioBase: horarioLegadoDoCodigo(periodo.codigo) });
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
-              {form.horarioBase ? (
+              {pacote ? (
                 <>
                   <span className={styles.calendarSectionLabel}>2. Escolha a data</span>
 
@@ -1583,28 +1808,31 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     descontoDiaUtil={pagamento.descontoDiaUtil}
                     pacote={form.pacote as PacoteId}
                     regrasPacote={regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote)}
-                    horario={form.horarioBase}
+                    duracaoMinutos={fato?.duracaoMinutos ?? null}
+                    configuracaoId={form.configuracaoId}
                     dataSelecionada={form.dataFesta}
-                    onSelecionar={(data, status, ajustes) => {
+                    onSelecionar={(data, status, candidatos, periodo, periodos) => {
                       setPreselecaoDisponibilidade(false);
-                      atualizar("dataFesta", data);
-                      atualizar("statusDisponibilidade", status);
-                      setAjustesDisponiveis(ajustes);
-
-                      if (data) {
-                        const preferido: AjusteHorario = ajustes.includes("0")
-                          ? "0"
-                          : ajustes[0] ?? "0";
-                        atualizar("ajusteHorario", preferido);
-                      }
+                      setCandidatosHorario(candidatos);
+                      if (periodos.length > 0) setPeriodosDoDia(periodos);
+                      const preferido = candidatoPreferido(candidatos);
+                      setForm((anterior) => ({
+                        ...anterior,
+                        dataFesta: data,
+                        statusDisponibilidade: status,
+                        ...(periodo ? {
+                          configuracaoId: periodo.configuracaoId,
+                          horarioBase: horarioLegadoDoCodigo(periodo.codigo),
+                        } : {}),
+                        ajusteHorario: preferido ? String(preferido.ajusteMinutos) : "0",
+                        horarioInicio: preferido?.inicio ?? "",
+                        horarioFim: preferido?.fim ?? "",
+                      }));
                     }}
-                    onTrocarHorario={(novoHorario) => {
+                    onTrocarHorario={(novoId) => {
                       setPreselecaoDisponibilidade(false);
-                      atualizar("horarioBase", novoHorario);
-                      atualizar("dataFesta", "");
-                      atualizar("statusDisponibilidade", "");
-                      atualizar("ajusteHorario", "0");
-                      setAjustesDisponiveis([]);
+                      const periodo = periodosDoDia.find((item) => item.configuracaoId === novoId);
+                      limparHorario({ configuracaoId: novoId, horarioBase: horarioLegadoDoCodigo(periodo?.codigo) });
                     }}
                     onConfigChange={setConfigDisponibilidade}
                   />
@@ -1615,7 +1843,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <div className={styles.infoBox}>
                   <strong>Escolha um horário para visualizar o calendário.</strong>
                   <p>
-                    As cores são calculadas separadamente para 11h–15h e 17h–21h.
+                    As cores são calculadas separadamente para cada horário configurado.
                   </p>
                 </div>
               )}
@@ -1623,26 +1851,32 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {form.dataFesta && (
                 <>
                   <label className={styles.field}>
-                    <span>Ajuste do início</span>
+                    <span>Início da festa</span>
                     <select
                       value={form.ajusteHorario}
-                      onChange={(e) =>
-                        atualizar(
-                          "ajusteHorario",
-                          e.target.value as "-30" | "0" | "30"
-                        )
-                      }
+                      onChange={(e) => {
+                        const escolhido = candidatosHorario.find((item) => String(item.ajusteMinutos) === e.target.value);
+                        if (!escolhido) return;
+                        setForm((anterior) => ({
+                          ...anterior,
+                          ajusteHorario: String(escolhido.ajusteMinutos),
+                          horarioInicio: escolhido.inicio,
+                          horarioFim: escolhido.fim,
+                        }));
+                      }}
                     >
-                      <option value="-30" disabled={!ajustesDisponiveis.includes("-30")}>30 minutos antes</option>
-                      <option value="0" disabled={!ajustesDisponiveis.includes("0")}>Horário-base</option>
-                      <option value="30" disabled={!ajustesDisponiveis.includes("30")}>30 minutos depois</option>
+                      {candidatosHorario.map((item) => (
+                        <option key={item.ajusteMinutos} value={String(item.ajusteMinutos)}>
+                          {item.inicio} às {item.fim} · {rotuloAjuste(item.ajusteMinutos)}
+                        </option>
+                      ))}
                     </select>
                     <small>
-                      Apenas os inícios realmente livres para esta data ficam habilitados.
+                      Apenas os inícios realmente livres para esta data aparecem.
                     </small>
                     <small>
-                      Horário desejado: {horario}. O ajuste de ±30 minutos será
-                      revalidado pela equipe antes da confirmação.
+                      Horário desejado: {horario || "-"}. O horário será
+                      revalidado antes da confirmação.
                     </small>
                   </label>
 
@@ -2080,6 +2314,16 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 responsável pela aprovação do valor final.
               </StepTitle>
 
+              {convidadosDaEntrada && convidados >= 1 ? (
+                <ConvidadosChip convidados={convidados} validar={validarConvidadosDoChip} onAlterar={(n) => { void alterarConvidados(n); }} />
+              ) : null}
+              {convidadosDaEntrada && (horarioRecusado || cotacaoEstado === 'erro') ? (
+                <div className={styles.warningBox} role="alert"><strong>{horarioRecusado ?? cotacaoAtual?.erro}</strong></div>
+              ) : null}
+              {convidadosDaEntrada && !horarioRecusado && (validandoDisponibilidade || cotacaoEstado === 'carregando') ? (
+                <p role="status">Confirmando o horário e o preço para {convidados} convidados…</p>
+              ) : null}
+
               <div className={styles.valueCards}>
                 <div>
                   <span>Pacote • referência</span>
@@ -2191,7 +2435,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               <StepTitle numero={numeroEtapaVisivel(6)} titulo="Dados para o fechamento">
                 {origemInterna
                   ? "Confira os dados do contratante antes de continuar."
-                  : "Use seu CPF para localizar um cadastro existente ou continuar com um novo cadastro."}
+                  : "Use seu CPF ou o CNPJ da empresa para localizar um cadastro existente ou continuar com um novo cadastro."}
               </StepTitle>
 
               {!origemInterna && identificacaoStatus === "AGUARDANDO_CPF" && (
@@ -2199,19 +2443,40 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <div className={styles.identificationIntro}>
                     <strong>Já fez festa com {marca.a}?</strong>
                     <p>
-                      Não precisa lembrar. Informe seu CPF e o sistema verifica
-                      automaticamente se já existe um cadastro.
+                      Não precisa lembrar. Informe seu CPF (ou o CNPJ, se a contratante for uma empresa)
+                      e o sistema verifica automaticamente se já existe um cadastro.
                     </p>
                   </div>
+                  <div className={styles.documentChoice} role="radiogroup" aria-label="Tipo de documento do contratante">
+                    {(["CPF", "CNPJ"] as const).map((tipo) => (
+                      <button
+                        key={tipo}
+                        type="button"
+                        role="radio"
+                        aria-checked={tipoDocumentoIdentificacao === tipo}
+                        className={tipoDocumentoIdentificacao === tipo ? styles.documentChoiceSelected : ""}
+                        onClick={() => {
+                          if (tipo === tipoDocumentoIdentificacao) return;
+                          setTipoDocumentoIdentificacao(tipo);
+                          setCpfIdentificacao("");
+                          setErroIdentificacao("");
+                        }}
+                      >
+                        {tipo === "CPF" ? "Pessoa física (CPF)" : "Empresa (CNPJ)"}
+                      </button>
+                    ))}
+                  </div>
                   <label className={styles.field}>
-                    <span>CPF do contratante *</span>
+                    <span>{tipoDocumentoIdentificacao === "CNPJ" ? "CNPJ da empresa contratante *" : "CPF do contratante *"}</span>
                     <input
                       type="text"
-                      inputMode="numeric"
-                      placeholder="000.000.000-00"
+                      inputMode={tipoDocumentoIdentificacao === "CNPJ" ? "text" : "numeric"}
+                      autoCapitalize={tipoDocumentoIdentificacao === "CNPJ" ? "characters" : "off"}
+                      autoComplete="off"
+                      placeholder={tipoDocumentoIdentificacao === "CNPJ" ? "00.000.000/0000-00" : "000.000.000-00"}
                       value={cpfIdentificacao}
                       onChange={(e) => {
-                        setCpfIdentificacao(formatarCPF(e.target.value));
+                        setCpfIdentificacao(formatarDocumento(e.target.value, tipoDocumentoIdentificacao));
                         setErroIdentificacao("");
                       }}
                     />
@@ -2229,7 +2494,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {!origemInterna && identificacaoStatus === "CLIENTE_ENCONTRADO" && (
                 <div className={styles.identificationPanel}>
                   <span className={styles.foundBadge}>Cadastro encontrado</span>
-                  <h3>Encontramos um cadastro para este CPF.</h3>
+                  <h3>Encontramos um cadastro para este {cnpjDaIdentificacao(cpfIdentificacao) ? "CNPJ" : "CPF"}.</h3>
                   <p className={styles.identificationText}>
                     Para proteger seus dados, nenhuma informação pessoal é exibida antes da validação.
                     O código será enviado pelo WhatsApp transacional oficial para o número cadastrado.
@@ -2336,8 +2601,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <div className={styles.infoBox}>
                   <strong>Nenhum cadastro encontrado.</strong>
                   <p>
-                    Vamos criar seu cadastro durante este fechamento. Você não
-                    precisará fazer nenhum cadastro separado.
+                    {form.cnpj
+                      ? "Vamos cadastrar a empresa durante este fechamento. Informe a razão social e, se quiser, o representante."
+                      : "Vamos criar seu cadastro durante este fechamento. Você não precisará fazer nenhum cadastro separado."}
                   </p>
                 </div>
               )}
@@ -2377,24 +2643,50 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   )}
 
                   <div className={styles.formGrid}>
-                    <Field label="Nome completo *" wide>
+                    <Field label={form.cnpj ? "Razão social *" : "Nome completo *"} wide>
                       <input
                         type="text"
-                        autoComplete="name"
+                        autoComplete={form.cnpj ? "organization" : "name"}
+                        {...marcar("nomeCliente")}
                         value={form.nomeCliente}
                         onChange={(e) => atualizar("nomeCliente", e.target.value)}
                       />
+                      {mensagemDe("nomeCliente")}
                     </Field>
 
+                    {/* Entrega B: PJ (o CNPJ vem da identificação). Sem CPF nem RG do contratante; na empresa nova, nome
+                        fantasia e representante opcionais, como no CRM. */}
+                    {form.cnpj ? (<>
+                    <Field label="CNPJ">
+                      <input type="text" value={form.cnpj} readOnly />
+                    </Field>
+                    {identificacaoStatus === "NOVO_CLIENTE" && (<>
+                    <Field label="Nome fantasia">
+                      <input type="text" value={form.nomeFantasia ?? ""} maxLength={180} onChange={(e) => atualizar("nomeFantasia", e.target.value)} />
+                    </Field>
+                    <Field label="Representante (nome)">
+                      <input type="text" autoComplete="name" {...marcar("representanteNome")} value={form.representanteNome ?? ""} maxLength={180}
+                        onChange={(e) => atualizar("representanteNome", e.target.value)} />
+                      {mensagemDe("representanteNome")}
+                    </Field>
+                    <Field label="CPF do representante">
+                      <input type="text" inputMode="numeric" placeholder="000.000.000-00" {...marcar("representanteCpf")} value={form.representanteCpf ?? ""}
+                        onChange={(e) => atualizar("representanteCpf", formatarCPF(e.target.value))} />
+                      {mensagemDe("representanteCpf")}
+                    </Field>
+                    </>)}
+                    </>) : (<>
                     <Field label="CPF *">
                       <input
                         type="text"
                         inputMode="numeric"
                         placeholder="000.000.000-00"
+                        {...marcar("cpf")}
                         value={form.cpf}
                         readOnly={identificacaoStatus === "VERIFICADO"}
                         onChange={(e) => atualizar("cpf", formatarCPF(e.target.value))}
                       />
+                      {mensagemDe("cpf")}
                     </Field>
 
                     <Field label="RG">
@@ -2404,23 +2696,27 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         onChange={(e) => atualizar("rg", e.target.value)}
                       />
                     </Field>
+                    </>)}
 
                     <Field label="WhatsApp">
                       <input
                         type="tel"
                         autoComplete="tel"
                         placeholder="(61) 99999-9999"
+                        {...marcar("whatsapp")}
                         value={form.whatsapp}
                         onChange={(e) =>
                           atualizar("whatsapp", formatarTelefone(e.target.value))
                         }
                       />
+                      {mensagemDe("whatsapp")}
                     </Field>
 
                     <Field label="Telefone">
                       <input
                         type="tel"
                         placeholder="(61) 3333-3333"
+                        {...marcar("telefone")}
                         value={form.telefone}
                         onChange={(e) =>
                           atualizar("telefone", formatarTelefone(e.target.value))
@@ -2433,9 +2729,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <input
                         type="email"
                         autoComplete="email"
+                        {...marcar("email")}
                         value={form.email}
                         onChange={(e) => atualizar("email", e.target.value)}
                       />
+                      {mensagemDe("email")}
                     </Field>
 
                     <Field label="CEP *">
@@ -2444,9 +2742,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         inputMode="numeric"
                         autoComplete="postal-code"
                         placeholder="00000-000"
+                        {...marcar("cep")}
                         value={form.cep}
                         onChange={(e) => atualizarCep(e.target.value)}
                       />
+                      {mensagemDe("cep")}
                       {consultandoCep && <small>Buscando endereço...</small>}
                       {!consultandoCep && erroCep && (
                         <small role="alert">{erroCep}</small>
@@ -2459,17 +2759,21 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <Field label="Endereço *" wide>
                       <input
                         type="text"
+                        {...marcar("logradouro")}
                         value={form.logradouro}
                         onChange={(e) => atualizar("logradouro", e.target.value)}
                       />
+                      {mensagemDe("logradouro")}
                     </Field>
 
                     <Field label="Número *">
                       <input
                         type="text"
+                        {...marcar("numero")}
                         value={form.numero}
                         onChange={(e) => atualizar("numero", e.target.value)}
                       />
+                      {mensagemDe("numero")}
                     </Field>
 
                     <Field label="Complemento">
@@ -2483,26 +2787,32 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <Field label="Bairro *">
                       <input
                         type="text"
+                        {...marcar("bairro")}
                         value={form.bairro}
                         onChange={(e) => atualizar("bairro", e.target.value)}
                       />
+                      {mensagemDe("bairro")}
                     </Field>
 
                     <Field label="Cidade *">
                       <input
                         type="text"
+                        {...marcar("cidade")}
                         value={form.cidade}
                         onChange={(e) => atualizar("cidade", e.target.value)}
                       />
+                      {mensagemDe("cidade")}
                     </Field>
 
                     <Field label="UF *">
                       <input
                         type="text"
                         maxLength={2}
+                        {...marcar("uf")}
                         value={form.uf}
                         onChange={(e) => atualizar("uf", e.target.value.toUpperCase())}
                       />
+                      {mensagemDe("uf")}
                     </Field>
 
                     <Field label="Outro responsável" wide>
@@ -2587,7 +2897,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           onClick={() => selecionarAniversariante("NOVO")}
                         >
                           <strong>+ Outro aniversariante</strong>
-                          <span>Adicionar ao mesmo cadastro da família</span>
+                          <span>{form.cnpj ? "Adicionar ao mesmo cadastro" : "Adicionar ao mesmo cadastro da família"}</span>
                         </button>
                       </div>
                     </div>
@@ -2598,6 +2908,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <Field label="Nome do aniversariante *" wide>
                         <input
                           type="text"
+                          {...marcar("nomeAniversariante")}
                           value={form.nomeAniversariante}
                           readOnly={Boolean(
                             clienteEncontrado &&
@@ -2609,6 +2920,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                             atualizar("nomeAniversariante", e.target.value)
                           }
                         />
+                        {mensagemDe("nomeAniversariante")}
                       </Field>
 
                       <Field label="Idade que vai fazer">
@@ -2672,9 +2984,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 <Summary
                   label="Origem do fechamento"
-                  value={origemInterna ? "Atendimento Kidmais" : "Cliente"}
+                  value={origemInterna ? (marca.kidmais ? "Atendimento Kidmais" : "Atendimento do buffet") : "Cliente"}
                 />
                 <Summary label="Pacote" value={pacote?.nome || "-"} />
+                {salaoPreferido ? (
+                  <Summary label="Salão de preferência" value={`${salaoPreferido.nome} · a confirmação vem no contrato`} />
+                ) : null}
                 <Summary
                   label="Convidados pagantes"
                   value={String(form.convidadosPagantes || "-")}
@@ -2894,11 +3209,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             </section>
           )}
 
-          {erro && (
-            <div className={styles.errorBox} role="alert">
-              {erro}
-            </div>
-          )}
+          <ResumoErros id="fechamento-publico-erros" erros={errosCampo} titulo="Confira os campos marcados:" />
+          {/* Erro que não é de campo: aviso fixo, visível de qualquer ponto da etapa (antes ficava só no fim da página). */}
+          <AvisoGlobal mensagem={erro} onFechar={() => setErro("")} />
 
           <footer className={styles.actions}>
             {etapa > 0 ? (

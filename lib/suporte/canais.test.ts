@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import { canaisSuporte, ROTA_AJUDA } from './canais.ts';
 import { referenciaDoErro } from '../../components/erro/referencia.ts';
 import ts from 'typescript';
-import { carregarComponente, cssFalso, elementos, texto } from '../../components/admin/teste-componente.ts';
+import { carregarComponente, cssFalso, elementos, texto, tique } from '../../components/admin/teste-componente.ts';
+import { jsx } from 'react/jsx-runtime';
+import { artigoDaRota, rotaDaAjuda } from './ajuda-da-tela.ts';
 
 test('canais: sem configuração não mostra nada nem "a definir"', () => {
     const c = canaisSuporte({});
@@ -81,6 +83,8 @@ test('Admin: ajuda aberta com acesso bloqueado e sem empresa; avisos apontam par
     const shell = readFileSync(new URL('../../components/admin/AdminShell.tsx', import.meta.url), 'utf8');
     assert.match(shell, /ROTAS_ABERTAS_BLOQUEADO = \[[^\]]*ROTA_AJUDA\]/);
     assert.match(shell, /ROTAS_ABERTAS_SEM_EMPRESA = \['\/admin\/conexoes-ia', '\/admin\/perfil', ROTA_AJUDA\]/);
+    // D-RC-10 (Recongelar C r3.1): conexões abertas também com a empresa bloqueada; nome exato, sem prefixo.
+    assert.match(shell, /ROTAS_ABERTAS_BLOQUEADO = \['\/admin\/conexoes-ia', /);
     for (const arquivo of ['WhatsappConfiguracao.tsx', 'Assinatura.tsx', 'AssinaturaAcoes.tsx', 'atendimento/PrivacidadeAtendimento.tsx']) {
         const fonte = readFileSync(new URL(`../../components/admin/${arquivo}`, import.meta.url), 'utf8');
         assert.match(fonte, /<Link href=\{ROTA_AJUDA\}>/, arquivo);
@@ -140,4 +144,80 @@ test('erro do Admin: mostra o digest como referência e leva ao suporte', () => 
     assert.equal(tentou, 1);
     const semDigest = tela.render('default', { error: new Error('x'), retry: () => {} });
     assert.equal(texto(semDigest).includes('Código de referência'), false);
+});
+
+test('D-RC-10: /admin/conexoes-ia renderiza com a empresa bloqueada e sem empresa ativa; o resto do painel segue fechado', async () => {
+    // AdminShell real com sessão sintética (Recongelar C r3.1, P2-2 do Astra). O dono de uma empresa bloqueada continua
+    // podendo ver e revogar as conexões dos assistentes; a exceção é do caminho exato, nunca por prefixo.
+    const marca = (nome: string) => Object.assign(function Marca() { return null; }, { displayName: nome });
+    const contextoFalso = () => ({ Provider: function Provider(p: { children?: unknown }) { return p.children; } });
+    let caminho = '/admin/conexoes-ia';
+    let sessao: object = {};
+    const deps = {
+        'next/navigation': { usePathname: () => caminho, useRouter: () => ({ replace() {}, push() {} }) },
+        'next/link': { default: marca('Link') },
+        '@/lib/http/admin-fetch': { trocarEmpresaAtiva: async () => ({}) },
+        '@/lib/http/contexto-empresa-cliente': { marcaDaSessao: () => 0, registrarContextoEmpresa: () => true, reiniciarContextoEmpresa() {}, saidaDaSessaoEmAndamento: () => false, sessaoObsoletaDesde: () => false },
+        '@/lib/enderecos/cliente': { conferirLeituraDaSessao: (l: { resposta: { json: () => unknown } }) => l.resposta.json(), enderecoFinal: () => false },
+        './shell.module.css': cssFalso, './tokens.module.css': cssFalso, './admin.module.css': cssFalso,
+        './AdminIcon': { AdminIcon: marca('AdminIcon') },
+        '@/lib/admin/navegacao': { itemAtivo: () => false, itensNavegacao: () => [] },
+        './sair': { lembrarCsrf() {}, sairDaSessao: async () => {} },
+        './PermissoesAdmin': { PermissoesAdminContext: contextoFalso() },
+        './inteligencia/PerguntarKidmais': { BotaoPerguntarKidmais: marca('BotaoPerguntarKidmais'), PerguntarKidmaisProvider: marca('PerguntarKidmaisProvider') },
+        './LogoEmpresa': { default: marca('LogoEmpresa'), LogoEmpresaContext: contextoFalso(), MarcaEmpresa: marca('MarcaEmpresa'), useLogoEmpresa: () => null },
+        './AvisoContexto': { default: marca('AvisoContexto') },
+        './AvisoComercial': { default: marca('AvisoComercial') },
+        './ExportacaoDados': { ExportacaoEmpresasSuspensas: marca('ExportacaoEmpresasSuspensas') },
+        '@/lib/suporte/rota': { ROTA_AJUDA: '/admin/ajuda' },
+        '@/lib/suporte/ajuda-da-tela': { artigoDaRota, rotaDaAjuda },
+        '@/lib/financeiro/calculos': { hojeBrasilia: () => '2026-11-09' },
+        './ajuda/CodigoSuporte': { EmpresaSuporteContext: contextoFalso() },
+        './AssistenteAgenda': { AssistenteAgendaPendente: marca('AssistenteAgendaPendente') },
+        '@/lib/http/retorno-login': { CONSENTIMENTO_MCP: '/admin/conexoes-ia/autorizar', loginDestaPagina: () => '/admin/login' },
+    };
+    const EMPRESAS = [{ id: '11111111-1111-4111-8111-111111111111', nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }];
+    const globais = globalThis as Record<string, unknown>;
+    const antes = { window: globais.window, fetch: globais.fetch };
+    globais.window = { setInterval: () => 0, setTimeout: () => 0, addEventListener() {}, removeEventListener() {}, location: { replace() {} } };
+    globais.fetch = async () => ({ json: async () => ({ ok: true, data: sessao }) });
+    async function montar(rota: string, opcoes: { nivel?: string; empresas?: typeof EMPRESAS } = {}) {
+        caminho = rota;
+        const empresas = opcoes.empresas ?? EMPRESAS;
+        sessao = { usuarioId: 'u1', nome: 'Ana', sessaoId: 's1', csrf: 'c', cadastroAberto: false, recursos: {}, comercial: { nivel: opcoes.nivel ?? 'ATIVO', cobrado: true },
+            contexto: { empresas, empresaAtual: empresas[0] ?? null, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false } };
+        const props = { children: jsx('section', { id: 'tela-conexoes' }), artigosAjuda: [] };
+        const shell = carregarComponente('components/admin/AdminShell.tsx', deps);
+        shell.render('default', props);
+        shell.efeitos();
+        for (let i = 0; i < 5; i++) await tique();
+        const arvore = shell.render('default', props);
+        return { tela: elementos(arvore).some((e) => e.props?.id === 'tela-conexoes'), titulo: texto(elementos(arvore).find((e) => e.type === 'h1')) };
+    }
+    try {
+        // Controle: sem bloqueio e com empresa, a tela de conexões abre.
+        assert((await montar('/admin/conexoes-ia')).tela, 'conexões com acesso normal');
+        // Empresa bloqueada: conexões abertas; tela de negócio bloqueada.
+        const bloqueada = await montar('/admin/conexoes-ia', { nivel: 'BLOQUEADO' });
+        assert(bloqueada.tela, 'conexões abertas com a empresa bloqueada');
+        assert.notEqual(bloqueada.titulo, 'Acesso suspenso até a assinatura');
+        const negocioBloqueado = await montar('/admin/contratos', { nivel: 'BLOQUEADO' });
+        assert.equal(negocioBloqueado.tela, false);
+        assert.equal(negocioBloqueado.titulo, 'Acesso suspenso até a assinatura');
+        // Sem empresa ativa: conexões abertas; tela de negócio no aviso de sem empresa.
+        const semEmpresa = await montar('/admin/conexoes-ia', { empresas: [] });
+        assert(semEmpresa.tela, 'conexões abertas sem empresa ativa');
+        assert.notEqual(semEmpresa.titulo, 'Sem empresa ativa');
+        const negocioSemEmpresa = await montar('/admin/contratos', { empresas: [] });
+        assert.equal(negocioSemEmpresa.tela, false);
+        assert.equal(negocioSemEmpresa.titulo, 'Sem empresa ativa');
+        // Sem prefixo: subcaminho inventado segue fechado nos dois estados.
+        for (const opcoes of [{ nivel: 'BLOQUEADO' }, { empresas: [] }]) {
+            assert.equal((await montar('/admin/conexoes-ia-outra', opcoes)).tela, false, JSON.stringify(opcoes));
+            assert.equal((await montar('/admin/conexoes-ia/qualquer', opcoes)).tela, false, JSON.stringify(opcoes));
+        }
+    } finally {
+        globais.window = antes.window;
+        globais.fetch = antes.fetch;
+    }
 });

@@ -1,4 +1,6 @@
 import { revisaoAbertaDoFechamento, bloquearDatasRevisao, revalidarAgendaRevisao } from '../../fechamentos/services/revisao-operacional.service';
+import { referenciaParaCaminho } from '../../contratos/services/salao-contrato';
+import { escolherSalao } from "../../agenda/salao-festa.ts";
 import type { DbExecutor } from "../../db/contracts";
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import { db, withTransaction } from "../../db/postgres";
@@ -91,6 +93,7 @@ import type {
   RegistrarRecebimentoInput,
   RegistrarRecebimentoResult,
 } from "./models";
+import { empresaDoFechamento, empresaDoPagamento, travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 function hojeBrasilia() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -259,6 +262,11 @@ export async function criarPagamentoDoFechamento(
   context: PagamentoServiceContext,
 ): Promise<PagamentoCriado | SugestaoPagamentoResult> {
   return naTransacao(context.executor, async (tx) => {
+    // Liberar agenda com mais de um salão (rodada 2, P1 do Astra): empresa → configuração da agenda antes de qualquer trava
+    // de fechamento/contrato/versão. A criação marca o fechamento (AGUARDANDO_PAGAMENTO) e, com a 114, o gatilho exige a
+    // configuração. KEY_SHARE: sob o FOR UPDATE do tenant é no-op (modo mais fraco), fora dele protege a empresa.
+    const empresa = await empresaDoFechamento(tx, input.fechamentoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     // Assinatura trava Contrato antes de Fechamento. Rejeita o contrato ainda
     // não assinado antes de segurar Fechamento, evitando disputar esses locks
     // em ordem inversa com uma assinatura em andamento. Revalida abaixo.
@@ -460,6 +468,9 @@ async function contextoDoPagamento(pagamento: PagamentoRecord, tx: DbExecutor) {
 }
 
 async function bloquearPagamento(pagamentoId: string, tx: DbExecutor) {
+  // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje. Antes de pagamento, parcela, contrato e versão.
+  const empresa = await empresaDoPagamento(tx, pagamentoId);
+  if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
   const origem = await buscarPagamentoPorId(pagamentoId, tx);
   if (!origem) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
   // Compartilha a ordem usada por criação de pagamento/contrato: Fechamento → Pagamento.
@@ -531,6 +542,20 @@ async function tentarConfirmarReserva(
   const revisaoAberta=await revisaoAbertaDoFechamento(fechamento.id,tx);
   if(revisaoAberta)await bloquearDatasRevisao(tx,revisaoAberta);
   await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+  // 094: com capacidade por salão, o sistema escolhe o salão livre antes da conferência (decisão de Felipe).
+  // S-E: se a versão vigente fixa o salão (V3), ele é exigido, sem substituto; versão que não bate com a festa ou salão
+  // indisponível = CONFLITO com o recebimento preservado (como qualquer conflito de agenda).
+  // D-LIB-4 (entrada 6): referência = a vigente. Sem contrato: escolha automática (B2). Vigente sem salão, ou contrato
+  // ainda sem vigente: curinga (a festa fica como está, sem escolha). Estado documental que não serve = conflito.
+  const vigente = (await tx.query<{ v: string | null }>("SELECT cf.versao_vigente_id::text AS v FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id = c.id WHERE c.fechamento_id = $1::uuid", [fechamento.id])).rows[0]?.v ?? null;
+  const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id, versaoId: vigente }, "CONFIRMACAO_PAGAMENTO");
+  const marcaPagamento = { caminho: "CONFIRMACAO_PAGAMENTO" as const, origem: "PAGAMENTO" as const };
+  const escolhaSalao = referencia.recusa || referencia.desatualizada
+    ? { exigido: true, salao: null }
+    : await escolherSalao(tx, fechamento.id, referencia.estado?.contrato === "SEM_CONTRATO"
+      ? { ...marcaPagamento, automatico: true }
+      : { ...marcaPagamento, exigido: referencia.salaoId });
+  const conflitoSalao = escolhaSalao.exigido && !escolhaSalao.salao;
   const conflito = await verificarConflitoAgendaParaConfirmacao(
     {
       fechamentoId: fechamento.id,
@@ -541,7 +566,7 @@ async function tentarConfirmarReserva(
     tx,
   );
 
-  if (conflito.bloqueioAgenda || conflito.fechamentoConfirmado) {
+  if (conflito.bloqueioAgenda || conflito.fechamentoConfirmado || conflitoSalao) {
     const conflitoPagamento = await marcarReservaPagamento(atual.id, "CONFLITO", tx);
     if (fechamento.clienteId) {
       await registrarEventoHistorico({

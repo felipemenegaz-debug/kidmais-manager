@@ -1,10 +1,11 @@
 import { preservarPrecoHistorico } from '../revisao-preco';
+import { escolherSalaoDestinoRevisao, salaoDoDestinoRevisao } from '../../agenda/salao-festa.ts';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava } from '../repositories';
 import type { FechamentoAdicionalRecord, FechamentoRecord } from '../repositories';
-import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
+import { adicionaisImportadoInconsistentes, buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
 import { atualizarClienteInterno } from '../../clientes/services';
 import { atualizarAniversarianteInterno, cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
@@ -14,11 +15,13 @@ import { regraNaCondicao } from '../../comercial/regras-pagamento';
 
 import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
-import { consultarDisponibilidadeData, intervaloSemConflito } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
+import { exigirModeloCompativelNoFechamento } from './modelo-pj';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import type { ContratoVersaoRecord } from '../../contratos/repositories';
+import { exigirTravaConfiguracao } from '../../agenda/trava-configuracao.ts';
 type Contexto = {
     usuarioId: string | null;
     validacaoIdentidadeId?: string;
@@ -30,39 +33,55 @@ type Contexto = {
 };
 function recusar(message: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', message, 409); }
 async function auditar(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, acao: string, antes: unknown, depois: unknown) { await registrarAuditoria({ atorTipo: c.usuarioId ? 'USUARIO' : c.validacaoIdentidadeId ? 'CLIENTE' : 'SISTEMA', usuarioId: c.usuarioId, clienteId: r.operacao.clienteId, entidadeTipo: 'FECHAMENTO_REVISAO', entidadeId: r.id, origem: 'FECHAMENTO_ADMIN', acao, requestId: c.requestId ?? null, ip: c.ip ?? null, userAgent: c.userAgent ?? null, dadosAntes: antes === null ? null : { estado: antes }, dadosDepois: { resultado: depois, validacaoIdentidadeId: c.validacaoIdentidadeId ?? null } }, tx); }
-export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
+export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { await exigirTravaConfiguracao(tx); const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
 /**
  * Horário histórico preservado: contrato integrado da importação (origem IMPORTACAO_HISTORICA) cuja revisão mantém
  * EXATAMENTE o destino da reserva vigente — mesma data, início, fim (logo, mesma duração) e turno. Empresa e unidade
  * não mudam na revisão. Nada é recalculado nem deslocado: só deixa de exigir que o horário esteja entre os candidatos
  * atuais do turno. Qualquer mudança de destino (data, início, fim ou turno) segue as validações oficiais.
+ * Parecer do Astra (23/10): também a reserva NATIVA mantida exatamente no horário configurado que a agenda deixou de
+ * oferecer (mudança para o modo livre, horário desativado) — `horarioOferecido` falso; com o horário ainda oferecido,
+ * a reserva nativa segue a regra nativa. A ocupação continua conferida (intervaloSemConflito, regra da 094).
  */
 export function horarioHistoricoPreservado(
     vigente: Pick<FechamentoRecord, 'origemFechamento' | 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
     destino: Pick<FechamentoRecord, 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
+    horarioOferecido = true,
 ) {
-    return vigente.origemFechamento === 'IMPORTACAO_HISTORICA'
+    return (vigente.origemFechamento === 'IMPORTACAO_HISTORICA' || !horarioOferecido)
         && vigente.dataEvento === destino.dataEvento
         && vigente.horarioInicio.slice(0, 5) === destino.horarioInicio.slice(0, 5)
         && vigente.horarioFim.slice(0, 5) === destino.horarioFim.slice(0, 5)
         && vigente.configuracaoAgendaId === destino.configuracaoAgendaId;
 }
+/**
+ * S-E (plano rev. 4.1, R41-2): devolve também a revisão RELIDA quando a escolha do salão do destino a alterou (hash,
+ * número e aprovações podem ter mudado, R41-1); sem escrita, a mesma. Quem segue para aprovação, snapshot ou conferência
+ * usa a devolvida, inclusive no retorno tolerante a conflito.
+ */
 export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, options: {
     naoFalharPorConflito?: boolean;
     mudouDestino?: boolean;
-} = {}) {
+} = {}): Promise<{ livre: boolean; revisao: RevisaoOperacional }> {
     const f = await bloquearDatasRevisao(tx, r), op = r.operacao;
-    const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id);
+    // Horário livre: os candidatos dependem da duração; a do destino é a do próprio intervalo (parecer do Astra, P2).
+    const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id, undefined,
+        { duracaoMinutos: duracaoDoIntervalo(op.horarioInicio, op.horarioFim), incluirCombinados: true });
     const candidatoOficial = disponibilidade.periodos.find(p => p.configuracaoId === op.configuracaoAgendaId)?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === op.horarioInicio.slice(0, 5) && h.fim === op.horarioFim.slice(0, 5)) === true;
     // Contrato histórico no próprio horário original (fora dos turnos atuais): o mesmo intervalo, sem conflito com outras
     // reservas e bloqueios do recurso. Não vale para destino novo.
-    const historicoPreservado = !candidatoOficial && horarioHistoricoPreservado(f, op)
-        && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id);
-    const livre = candidatoOficial || historicoPreservado;
+    const horarioOferecido = disponibilidade.periodos.some(p => p.configuracaoId === op.configuracaoAgendaId);
+    const historicoPreservado = !candidatoOficial && horarioHistoricoPreservado(f, op, horarioOferecido)
+        && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id, op.configuracaoAgendaId);
+    // Parecer do Astra (P1): com capacidade por salão, o destino precisa de salão elegível livre (horário × pacote ×
+    // salão ativo); o salão da festa só fica se servir no destino.
+    const salaoDestino = (candidatoOficial || historicoPreservado) ? await escolherSalaoDestinoRevisao(tx, r.id, 'PREPARACAO_REVISAO', 'EQUIPE') : null;
+    const livre = (candidatoOficial || historicoPreservado) && !(salaoDestino?.exigido && !salaoDestino.salao);
+    const revisao = salaoDestino?.gravou ? (await buscarRevisaoDaVersao(r.contrato_versao_id, tx))! : r;
     if (!livre) {
         if (options.naoFalharPorConflito) {
             await auditar(tx, r, c, 'REVISAO_DESTINO_EM_CONFLITO', null, { data: op.dataEvento, horarioInicio: op.horarioInicio, horarioFim: op.horarioFim, reservaVigente: f.status });
-            return false;
+            return { livre: false, revisao };
         }
         recusar('Destino da revisão indisponível. A reserva vigente e os recebimentos permanecem preservados.');
     }
@@ -70,7 +89,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
         await tx.query('UPDATE fechamento_revisoes SET hold_destino_adquirido_em=clock_timestamp() WHERE id=$1', [r.id]);
         await auditar(tx, r, c, options.mudouDestino ? 'RESERVA_REVISAO_MOVIDA' : 'RESERVA_REVISAO_ADQUIRIDA', { hold: r.hold_destino_adquirido_em }, { data: op.dataEvento, inicio: op.horarioInicio, fim: op.horarioFim, horarioHistoricoPreservado: historicoPreservado });
     }
-    return true;
+    return { livre: true, revisao };
 }
 export async function revisaoAbertaDoFechamento(fid: string, tx: DbExecutor, lock = false) { const row = (await tx.query<{
     contrato_versao_id: string;
@@ -78,12 +97,15 @@ export async function revisaoAbertaDoFechamento(fid: string, tx: DbExecutor, loc
 export async function iniciarPreparacao(tx: DbExecutor, base: ContratoVersaoRecord, v: ContratoVersaoRecord, motivo: string, chave: string, c: Contexto) {
     if (!c.usuarioId)
         recusar('A preparação exige usuário administrativo real.');
+    // Plano "importados com adicionais" (R2-1): caso misto ou diferença negativa num contrato histórico não é reclassificado.
+    if (await adicionaisImportadoInconsistentes(tx, base.snapshot.fechamento.id))
+        throw new FechamentoServiceError('REVISAO_IMPORTADO_INCONSISTENTE', 'Os adicionais deste contrato histórico não correspondem aos itens lançados. Corrija pelo suporte antes de abrir uma nova versão.', 409);
     await criarRevisaoOperacionalRegistro(tx, { id: randomUUID(), fechamentoId: base.snapshot.fechamento.id, contratoId: v.contratoId, versaoId: v.id, baseId: base.id, baseHash: base.snapshotHash, motivo, chave, usuarioId: c.usuarioId });
-    const r = (await buscarRevisaoDaVersao(v.id, tx))!;
+    let r = (await buscarRevisaoDaVersao(v.id, tx))!;
     // A formalização contratual também protege base/destino antes do pagamento.
     const f = (await buscarFechamentoPorId(r.fechamento_id, tx))!;
     if ((await tx.query<{ ocupa: boolean }>('SELECT public.kidmais019_ocupa($1::uuid) AS ocupa', [f.id])).rows[0].ocupa)
-        await revalidarAgendaRevisao(tx, r, c);
+        r = (await revalidarAgendaRevisao(tx, r, c)).revisao;
     await auditar(tx, r, c, 'REVISAO_OPERACIONAL_CRIADA', null, { ...r, chaveCriacao: chave });
     return r;
 }
@@ -100,7 +122,8 @@ export async function fontesPreparacao(vid: string, tx: DbExecutor = db()) {
     return { fechamento: r.operacao, cliente, aniversariante, adicionais, fonteHash: hashSnapshotContrato({ revisao: r.revisao, conteudo: r.conteudo_hash, cliente, aniversariante }), revisaoOperacional: r };
 }
 export async function snapshotPreparacao(tx: DbExecutor, r: RevisaoOperacional, v: ContratoVersaoRecord) {
-    const { snapshot } = await carregarSnapshot(r.operacao, tx, { id: r.id, adicionais: await listarItensRevisao(r.id, tx) });
+    // S-E: em POR_SALAO o documento da revisão sai V3 com o salão do destino (o que a aplicação vai gravar na festa).
+    const { snapshot } = await carregarSnapshot(r.operacao, tx, { id: r.id, adicionais: await listarItensRevisao(r.id, tx) }, { salao: await salaoDoDestinoRevisao(tx, r.id) });
     // Mudança financeira legítima não altera o conteúdo do documento em elaboração.
     snapshot.fechamento.status = v.snapshot.fechamento.status;
     return { ...snapshot, revisaoOperacional: { id: r.id, revisao: r.revisao, conteudoHash: r.conteudo_hash, versaoBaseId: r.versao_base_id }, documental: (v.snapshot as typeof snapshot & {
@@ -128,6 +151,12 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
     if (r.revisao_comercial_aprovada === r.revisao)
         return null;
     const f = r.operacao;
+    // R2-2 (Entrega B): aprovar a preparação leva à nova versão do contrato; contratante PJ com modelo ativo que o
+    // qualifica como PF é recusado aqui, antes de qualquer escrita, como na revisão comercial do fechamento.
+    if (f.clienteId) {
+        const cliente = await buscarClientePorId(f.clienteId, tx);
+        if (cliente) await exigirModeloCompativelNoFechamento(tx, cliente);
+    }
     const a = (await tx.query<{
         id: string;
     }>(`INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,valor_aprovado,status,motivo,aprovado_por_usuario_id,condicao_pagamento,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao)
@@ -170,6 +199,11 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         f.clienteId = cliente.id;
         f.aniversarianteId = child.id;
         f.responsavelAdicionalId = input.vinculos.responsavelAdicionalId;
+    }
+    // R2-2: alteração comercial aprova a preparação no fim; o modelo incompatível com PJ recusa antes da primeira escrita.
+    if (input.comercial && f.clienteId) {
+        const contratante = await buscarClientePorId(f.clienteId, tx);
+        if (contratante) await exigirModeloCompativelNoFechamento(tx, contratante);
     }
     await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [f.clienteId]);
     await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [f.aniversarianteId]);
@@ -219,8 +253,9 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     const itens = resumo ? resumo.adicionais.itens.map(a => ({ adicionalId: a.adicionalId, precoAdicionalId: a.precoRegraId, nomeAplicado: a.nome, unidadeCobrancaAplicada: a.unidadeCobranca, quantidade: a.quantidade, valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal, observacoes: previousItems.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord)) : previousItems;
     const mudouDestino = f.dataEvento !== r.operacao.dataEvento || f.horarioInicio.slice(0, 5) !== r.operacao.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== r.operacao.horarioFim.slice(0, 5);
     await bloquearDatasRevisao(tx, r, f.dataEvento);
-    const novo = (await salvarOperacaoPreparada(tx, r, f, itens, c.usuarioId, input.motivo))!;
-    await revalidarAgendaRevisao(tx, novo, c, { mudouDestino });
+    const salvo = (await salvarOperacaoPreparada(tx, r, f, itens, c.usuarioId, input.motivo))!;
+    // R41-2: aprovação e auditoria usam a revisão depois da escolha do salão do destino (hash final).
+    const novo = (await revalidarAgendaRevisao(tx, salvo, c, { mudouDestino })).revisao;
     if (input.comercial)
         await aprovarPreparacao(tx, novo, c, c.requestId ?? randomUUID());
     await auditar(tx, novo, c, 'REVISAO_OPERACIONAL_ALTERADA', { operacao: r.operacao, itens: previousItems, revisao: r.revisao }, { operacao: f, itens, revisao: novo.revisao, motivo: input.motivo });

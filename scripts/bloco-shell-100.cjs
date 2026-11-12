@@ -1,0 +1,108 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+// Blocos de Shell da 100 (agenda com um salão, staging e produção), no mesmo desenho dos blocos da 092–094 e 088/089 (P2-A colagem interativa, P3-1
+// trap/código, P3-2 bind antes da guarda). O CÓDIGO é publicado antes, já com o aplicador e os SQL na árvore implantada —
+// por isso o bloco NÃO transporta nem grava arquivos: confere o sha256 de cada arquivo implantado e roda o aplicador.
+// O operador cola no Web Shell do serviço (bash INTERATIVO):
+//   - `bind` desliga o bracketed paste ANTES da guarda e fora do subshell (vale pelo resto da sessão do operador);
+//   - guarda RENDER_SERVICE_ID ANTES de qualquer leitura de arquivo (outro serviço: nada do corpo executado);
+//   - corpo num SUBSHELL ( … ): set -euo pipefail, umask, cd e exit não alteram nem encerram o shell do operador;
+//   - no fim, CODIGO_SAIDA_BLOCO=<n>: 0/1/2/3 do aplicador (CONFERIDO-PASS / recusa antes de conectar / FALHA /
+//     RECUSARIA); 4 = recusa do PRÓPRIO bloco, com mensagem nomeada (destino, ferramenta, arquivo, backup). Qualquer
+//     outro código (127 linha perdida, 143 sinal) ou ausência da linha (Ctrl-C pode não imprimir a linha) = parar e ler;
+//   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar: em staging, a referência do export/PITR
+//     anotado; em produção, a do dump conferido + PITR (export funcional não substitui — parecer do Astra, B-3, P3).
+// O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
+//   node scripts/bloco-shell-100.cjs <staging|production> <CONFERIR|APLICAR> <rotulo-da-arvore>
+// Produção (B-3 do plano de promoção): só depois do E6 (código novo publicado e 094 aplicada); APLICAR com autorização própria.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {createHash} = require('node:crypto');
+const {ETAPAS} = require('./migration-100-comum.cjs');
+const {INTEGRIDADE_094_APOS_108} = require('./migration-092-094-comum.cjs');
+// A integridade da 094 após a 108 entra na conferência da 100 já substituída pela 108 (JA_APLICADA_SUBSTITUIDA_108).
+const REVISADOS = Object.freeze([...ETAPAS, INTEGRIDADE_094_APOS_108]);
+
+const DESTINO = '/opt/render/project/src';
+const LIMITE = 32 * 1024;
+const AMBIENTES = Object.freeze({
+  staging: Object.freeze({servico: 'srv-daif418ae00c73e8k2gg', nome: 'kidmais-manager-staging', aplicador: 'scripts/migration-100-staging.cjs',
+    dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json', 'scripts/conexao-staging.cjs']),
+    registro: 'data/agenda-um-salao-100-staging', rotulo: 'STAGING', aviso: null,
+    backup: 'id e horario do export/PITR', faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP antes de colar'}),
+  production: Object.freeze({servico: 'srv-dak77m2d0e5s73b8rkkg', nome: 'kidmais-manager-production', aplicador: 'scripts/migration-100-production.cjs',
+    // Mesmas dependências da 107/108 que staging: o núcleo da 092–094 confere a integridade da 094 com a prova da 108.
+    dependencias: Object.freeze(['scripts/migration-100-comum.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/migration-108-evidencias.cjs', 'scripts/migration-108-retrato.cjs', 'scripts/migration-107-definicoes.cjs', 'scripts/migration-108-inventario.cjs',
+      'database/checks/20261029_108_retrato.sql', 'database/checks/20261029_108_retratos_esperados.json']),
+    registro: 'data/agenda-um-salao-100-producao', rotulo: 'PRODUCTION',
+    aviso: 'PRODUCAO: somente depois do E6 (codigo novo publicado e 094 aplicada, --conferir-094 PASS).',
+    backup: 'id e horario do dump conferido e do PITR; export funcional NAO substitui',
+    faltaBackup: 'defina KIDMAIS_REGISTRO_BACKUP (dump conferido + PITR) antes de colar'}),
+});
+const COMANDOS = Object.freeze({CONFERIR: '--conferir-100', APLICAR: '--aplicar-100-autorizado --backup "$KIDMAIS_REGISTRO_BACKUP"'});
+const TITULOS = Object.freeze({
+  CONFERIR: ['SOMENTE LEITURA: confere o sha256 do aplicador, dos nucleos e dos 4 SQL da 100 IMPLANTADOS e roda --conferir-100',
+    '(identidade, corpo da regra de conflito, dono, inventario de pares no mesmo horario, precheck ou postcheck e integridade da 094 com o corpo da 100, READ ONLY). Nada e gravado.'],
+  APLICAR: ['ESCRITA (DDL) - somente com a autorizacao especifica da 100 neste ambiente. Antes de colar, no mesmo',
+    'shell: export KIDMAIS_REGISTRO_BACKUP="<<BACKUP>>". Roda --aplicar-100-autorizado UMA vez',
+    '(uma transacao: troca o corpo de kidmais094_conflito_ocupacao). Se algo parar, NAO repetir: copiar a saida e revisar',
+    '(o marcador impede a repeticao e diz se o COMMIT foi confirmado, desfeito ou ficou indeterminado; rodar o CONFERIR).'],
+});
+const sha = b => createHash('sha256').update(b).digest('hex');
+/** Conteúdo LF da árvore; os SQL precisam ter exatamente o hash revisado do aplicador. */
+function ler(raiz, arquivo) {
+  const b = Buffer.from(fs.readFileSync(path.join(raiz, arquivo), 'utf8').replace(/\r\n/g, '\n'), 'utf8');
+  const revisado = REVISADOS.find(([, a]) => a === arquivo)?.[2];
+  if (revisado) assert.equal(sha(b), revisado, 'ARQUIVO_DIVERGENTE_DO_REVISADO ' + arquivo);
+  return b;
+}
+const seguro = s => { assert.match(s, /^[A-Za-z0-9_./-]+$/, 'CAMINHO_INSEGURO'); return s; };
+function arquivos(ambiente) { const a = AMBIENTES[ambiente]; return [a.aplicador, ...a.dependencias, ...REVISADOS.map(([, arquivo]) => arquivo)]; }
+
+/**
+ * `destino` e `comando` existem para os testes locais (destino temporário; comando substituto que só devolve um código).
+ * A CLI usa sempre o destino do Render e o comando do aplicador do modo.
+ */
+function gerar({ambiente, modo, rotulo, raiz = path.resolve(__dirname, '..'), destino = DESTINO, comando}) {
+  assert.ok(Object.hasOwn(AMBIENTES, ambiente), 'AMBIENTE_DESCONHECIDO');
+  assert.ok(Object.hasOwn(COMANDOS, modo), 'MODO_DESCONHECIDO');
+  assert.match(String(rotulo), /^[0-9a-f]{7,40}$/, 'ROTULO_INVALIDO');
+  assert.match(destino, /^(?:[A-Za-z]:)?\/[A-Za-z0-9_./-]+$/, 'DESTINO_INVALIDO');
+  const a = AMBIENTES[ambiente];
+  const cmd = comando === undefined ? `NODE_PATH="$PWD/node_modules" node ${a.aplicador} ${COMANDOS[modo]}` : comando;
+  const c = ['set -euo pipefail', 'umask 077', `cd '${destino}' || { echo "DESTINO_INACESSIVEL"; exit 4; }`,
+    'for f in sha256sum cut node; do command -v "$f" >/dev/null || { echo "FERRAMENTA_AUSENTE $f"; exit 4; }; done',
+    'h() { sha256sum "$1" | cut -d" " -f1; }',
+    'arq() { [ -f "$1" ] && [ "$(h "$1")" = "$2" ] || { echo "ARQUIVO_DIVERGENTE_OU_AUSENTE $1"; exit 4; }; }'];
+  for (const arquivo of arquivos(ambiente)) c.push(`arq ${seguro(arquivo)} ${sha(ler(raiz, arquivo))}`);
+  c.push('echo ARQUIVOS_CONFERIDOS');
+  if (modo === 'APLICAR') c.push('B="${KIDMAIS_REGISTRO_BACKUP:-}"',
+    'printf "%s" "$B" | grep -Eq "^[A-Za-z0-9:._/ -]{6,120}$" || { echo "BACKUP_NAO_INFORMADO ' + a.faltaBackup + '"; exit 4; }');
+  c.push('codigo=0', `${cmd} || codigo=$?`, `echo '=== REGISTRO (${a.registro}) ==='`, `ls -1 ${a.registro} 2>/dev/null || echo SEM_REGISTRO`, 'exit "$codigo"');
+  const linhas = ['#!/usr/bin/env bash',
+    `# BLOCO-SHELL-100-${a.rotulo}-${modo} - Web Shell do ${a.servico} (${a.nome}). Colar inteiro, uma vez, e Enter.`,
+    ...TITULOS[modo].map(t => '# ' + t.replace('<BACKUP>', a.backup)), ...(a.aviso ? ['# ' + a.aviso] : []),
+    `# Gerado da arvore ${rotulo} por scripts/bloco-shell-100.cjs. Conferir sha256 e bytes antes de colar.`,
+    '# O bind abaixo roda ANTES da guarda e FORA do subshell, mesmo em outro servico: desliga o bracketed paste do readline',
+    '# pelo resto desta sessao. A guarda de RENDER_SERVICE_ID vem antes de qualquer leitura de arquivo. Corpo em subshell:',
+    '# opcoes, umask, cwd e variaveis nao vazam. No fim sai CODIGO_SAIDA_BLOCO=<n> (0/1/2/3 aplicador, 4 bloco); outro codigo',
+    '# ou ausencia da linha = parar e ler. Prompt `>` depois de colar = colagem incompleta: Ctrl-C e colar o MESMO bloco.',
+    "bind 'set enable-bracketed-paste off' 2>/dev/null",
+    `if [ "$RENDER_SERVICE_ID" != "${a.servico}" ]; then echo "SHELL_ERRADO_NAO_E_${a.rotulo} ($RENDER_SERVICE_ID): nada executado"; else`,
+    '(', ...c, ')', 'echo "CODIGO_SAIDA_BLOCO=$?"', 'fi'];
+  const bloco = linhas.join('\n') + '\n';
+  assert.match(bloco, /^[\x09\x0a\x20-\x7e]*$/, 'BLOCO_NAO_ASCII');
+  assert.ok(Buffer.byteLength(bloco, 'utf8') <= LIMITE, 'BLOCO_GRANDE_DEMAIS');
+  return bloco;
+}
+
+if (require.main === module) {
+  try {
+    const [ambiente, modo, rotulo] = process.argv.slice(2);
+    const bloco = gerar({ambiente, modo, rotulo});
+    process.stdout.write(bloco);
+    console.error(`BLOCO-SHELL-100-${AMBIENTES[ambiente].rotulo}-${modo} sha256 ${sha(Buffer.from(bloco, 'utf8'))} (${Buffer.byteLength(bloco, 'utf8')} bytes)`);
+  } catch (e) { console.error('RECUSADO ' + String(e?.message ?? e).slice(0, 160)); process.exitCode = 1; }
+}
+module.exports = {DESTINO, LIMITE, AMBIENTES, COMANDOS, arquivos, gerar};

@@ -85,9 +85,91 @@ const MODELOS = {
   // com a devolução (22/10/2026), até a 089 (assinatura_encerramentos); a 087 não existe
   // neste repositório (trabalho local de cobrança, não integrado).
   "088": { banco: "kidmais_v1_modelo_088", ate: "088", sem: [] },
-  "099": { banco: "kidmais_v1_modelo_099", ate: "099", sem: [] },
-  "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: [] },
   "089": { banco: "kidmais_v1_modelo_089", ate: "089", sem: [] },
+  // Preço por quantidades cheias (22/10/2026): inventário inteiro até a 092 (sem 087, 090 e 091, que não existem aqui).
+  "092": { banco: "kidmais_v1_modelo_092", ate: "092", sem: [] },
+  // Agenda por unidade (etapa 2a, 22/10/2026): inventário inteiro até a 093.
+  "093": { banco: "kidmais_v1_modelo_093", ate: "093", sem: [] },
+  // Capacidade da agenda (etapa 2b, 22/10/2026): inventário inteiro até a 094.
+  "094": { banco: "kidmais_v1_modelo_094", ate: "094", sem: [] },
+  // Créditos de IA (095, 22/10/2026): inventário inteiro até a 095 (inclui 092–094); exportação verificável no 095.
+  "095": { banco: "kidmais_v1_modelo_095", ate: "095", sem: [] },
+  // Salões fase 1 (23/10/2026): inventário inteiro ANTES da 098 (inclui 090, 091 e 095–097), base da suíte da 098.
+  "097": { banco: "kidmais_v1_modelo_097", ate: "097", sem: [] },
+  // Salão combinado (fase 1 dos salões, 23/10/2026): inventário inteiro até a 098.
+  // r7 (receita qualificada): a 087 entrou no inventário depois do retrato da 098; o staging recebeu a 098 ANTES da 087.
+  "098": { banco: "kidmais_v1_modelo_098", ate: "098", sem: [], depois: ["087"] },
+  // r7: o staging ANTES da 098 (o retrato da 098): inventário até a 097 sem a 087. Base das suítes que aplicam a 098.
+  "097-sem-087": { banco: "kidmais_v1_modelo_097_sem_087", ate: "097", sem: ["087"] },
+  // Apresentação do salão (102, 25/10/2026): inventário SEM a 098 (incompatível com a 100 e recusada pela 102), com 099,
+  // 100 e 102 — o estado suportado pela 102 (staging de hoje + 100 + 102).
+  "102": { banco: "kidmais_v1_modelo_102", ate: "102", sem: ["098"] },
+  // Serviços nos adicionais (103, 25/10/2026): o mesmo estado com a 103.
+  "103": { banco: "kidmais_v1_modelo_103", ate: "103", sem: ["098"] },
+  // Hash da revisão com o salão (104, fase S-E, 27/10/2026): o mesmo estado da 103 com a 104.
+  "104": { banco: "kidmais_v1_modelo_104", ate: "104", sem: ["098"] },
+  // Canal MCP por assinatura (105, 27/10/2026, LOCAL; era 104): o estado da 104 (staging) com a 105 (persistência OAuth).
+  "105": { banco: "kidmais_v1_modelo_105", ate: "105", sem: ["098"] },
+  // Salão de preferência (106, fase S-D, 27/10/2026): o estado do staging (104 e 105, sem a 098) com a 106.
+  "106": { banco: "kidmais_v1_modelo_106", ate: "106", sem: ["098"] },
+  // Retomada 098 (28/10/2026, plano rev. 2.1): 107 = reparo da deriva da agenda (no-op na cadeia recriada do zero);
+  // 108 = salões combinados rebaseados. A 098 histórica fica FORA da cadeia nova (nunca aplicada em staging/produção).
+  "107": { banco: "kidmais_v1_modelo_107", ate: "107", sem: ["098"] },
+  "108": { banco: "kidmais_v1_modelo_108", ate: "108", sem: ["098"] },
+  // B-9 production (29/10/2026, plano rev. 5): renovação substituta (109) sobre o estado da 108.
+  "109": { banco: "kidmais_v1_modelo_109", ate: "109", sem: ["098"] },
+  // Entrega B (01/11/2026): cliente pessoa jurídica (112) sobre o estado da 109. O par 109 × 112 prova o código com e sem a 112.
+  "112": { banco: "kidmais_v1_modelo_112", ate: "112", sem: ["098"] },
+  // Liberar agenda com mais de um salão (D-LIB-6, 31/10/2026): a 114 (gatilhos da 019 verificam a trava da configuração)
+  // sobre o estado da 109. a cadeia até a 114 passa pela 112 (cliente PJ, staging).
+  "114": { banco: "kidmais_v1_modelo_114", ate: "114", sem: ["098"] },
+  // Aplicador da 118 (08/11/2026): o esquema do staging ANTES da 118 — inventário até a 117 sem a 098 (114, 112, 116 e 117
+  // aplicadas, na ordem do inventário). Base do ensaio do aplicador da 118 com 116 e 117 presentes.
+  "117": { banco: "kidmais_v1_modelo_117", ate: "117", sem: ["098"] },
+  // Financeiro P2 (09/11/2026): o estado do staging (inventário até a 118 sem a 098) com 120 e 121. Os modelos sem a 121
+  // provam o leitor sem abertura (saldo null); os oráculos de saldo absoluto rodam aqui.
+  "121": { banco: "kidmais_v1_modelo_121", ate: "121", sem: ["098"] },
+  // Satisfação (110/111/115): no inventário aprovado vêm DEPOIS da 118, da 120 e da 121. Os modelos tiram a 120 e a 121
+  // (financeiro P2; 110/111/115 não dependem delas) para manter o estado de antes da sincronização com staging (12/11/2026):
+  // inventário até a respectiva migration, sem a 098 e sem o financeiro P2. Assim as suítes de exportação (retratos
+  // colunas-esperadas-110/111) e da satisfação seguem provando o mesmo schema. O modelo "121" continua sem 110/111/115.
+  // Pesquisa de satisfação (110, PS-1 LOCAL, 30/10/2026): o estado da 109 com a 110 (mais 112, 114 e 116–118 do inventário).
+  "110": { banco: "kidmais_v1_modelo_110", ate: "110", sem: ["098", "120", "121"] },
+  // Pesquisa de satisfação PS-3 (111, LOCAL, 31/10/2026): o estado da 110 com links de avaliação e auditoria.
+  "111": { banco: "kidmais_v1_modelo_111", ate: "111", sem: ["098", "120", "121"] },
+  // PS-4 rodada 4 (115, LOCAL, 03/11/2026): o estado da 111 com o índice (empresa_id, data_evento) em fechamentos.
+  "115": { banco: "kidmais_v1_modelo_115", ate: "115", sem: ["098", "120", "121"] },
+  // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
+  // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
+  // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a
+  // 104/106), na ordem em que o staging as recebeu (numérica).
+  "b14-P0a": { banco: "kidmais_v1_modelo_b14_p0a", ate: "088", sem: [], runbook: true },
+  "b14-P1": { banco: "kidmais_v1_modelo_b14_p1", ate: "089", sem: [], runbook: true },
+  "b14-P2": { banco: "kidmais_v1_modelo_b14_p2", ate: "092", sem: ["090", "091"], runbook: true },
+  "b14-P3": { banco: "kidmais_v1_modelo_b14_p3", ate: "093", sem: ["090", "091"], runbook: true },
+  "b14-P4": { banco: "kidmais_v1_modelo_b14_p4", ate: "099", sem: ["090", "091", "094", "095", "096", "097", "098"], runbook: true },
+  "b14-P5": { banco: "kidmais_v1_modelo_b14_p5", ate: "099", sem: ["091", "094", "095", "096", "097", "098"], runbook: true },
+  "b14-P6": { banco: "kidmais_v1_modelo_b14_p6", ate: "099", sem: ["091", "095", "096", "097", "098"], runbook: true },
+  "b14-P7": { banco: "kidmais_v1_modelo_b14_p7", ate: "099", sem: ["091", "096", "097", "098"], runbook: true },
+  "b14-P8": { banco: "kidmais_v1_modelo_b14_p8", ate: "099", sem: ["091", "097", "098"], runbook: true },
+  "b14-P9": { banco: "kidmais_v1_modelo_b14_p9", ate: "099", sem: ["091", "098"], runbook: true },
+  "b14-P10": { banco: "kidmais_v1_modelo_b14_p10", ate: "100", sem: ["091", "098"], runbook: true },
+  "b14-P11": { banco: "kidmais_v1_modelo_b14_p11", ate: "100", sem: ["098"], runbook: true },
+  "b14-PH-staging": { banco: "kidmais_v1_modelo_b14_ph_staging", ate: "105", sem: ["098", "104"] },
+  // B-23c §6 (03/11/2026): os mesmos prefixos SEM a 087 (production antes de 03/11; staging), para provar o B-14 com a 087
+  // presente (b14-P0a/b14-P11, que a incluem pelo inventário) e ausente.
+  "b14-P0a-sem087": { banco: "kidmais_v1_modelo_b14_p0a_sem087", ate: "088", sem: ["087"], runbook: true },
+  "b14-P11-sem087": { banco: "kidmais_v1_modelo_b14_p11_sem087", ate: "100", sem: ["087", "098"], runbook: true },
+  // B-19 ampliado (plano de promoção §9.2.7, rodada 25; ensaio LOCAL de 09/11/2026): MODELOS DE ESTADO FINAL do ramo
+  // G-VAZIO com a 105 PRESENTE (já aplicada em production) e SEM 098, 102–104, 106–109, 112, 114, 116 e 117. P12 = com a
+  // 091; P12-sem091 = sem ela (D-OP-4 adiar); ambos sem a 118 = estado final da opção (d) da D-ESC-8 (adiar).
+  // Rodada 2 (parecer r1, B19A-R4): P12-118 e P12-118-sem091 seguem a TRAJETÓRIA da opção (c) da D-ESC-8 (E6: 100 → 118 →
+  // 091; no segundo a 091 fica adiada). As opções (a) A-118 (antes da promoção) e (b) E3 (depois da 093) NÃO são ensaiadas
+  // (D-ESC-8 pendente). Receita local: não prova o schema real nem a ordem real de production.
+  "b14-P12": { banco: "kidmais_v1_modelo_b14_p12", ate: "118", sem: ["098", "102", "103", "104", "106", "107", "108", "109", "112", "114", "116", "117", "118"], runbook: "producao" },
+  "b14-P12-sem091": { banco: "kidmais_v1_modelo_b14_p12_sem091", ate: "118", sem: ["091", "098", "102", "103", "104", "106", "107", "108", "109", "112", "114", "116", "117", "118"], runbook: "producao" },
+  "b14-P12-118": { banco: "kidmais_v1_modelo_b14_p12_118", ate: "118", sem: ["098", "102", "103", "104", "106", "107", "108", "109", "112", "114", "116", "117"], runbook: "producao-e6-118" },
+  "b14-P12-118-sem091": { banco: "kidmais_v1_modelo_b14_p12_118_sem091", ate: "118", sem: ["091", "098", "102", "103", "104", "106", "107", "108", "109", "112", "114", "116", "117"], runbook: "producao-e6-118" },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {
@@ -181,6 +263,17 @@ async function removerBanco(admin, banco) {
 }
 
 /** Recria o modelo do schema vazio: nada herdado de execução anterior. */
+/** Ordem de aplicação da promoção (runbook do plano de promoção, §5): usada pelos modelos com `runbook: true`. */
+const ORDEM_RUNBOOK = ["089", "092", "093", "099", "090", "094", "095", "096", "097", "100", "091"];
+/**
+ * B-19 ampliado (`runbook: "producao"`): 099 (31/10) e 105 antes da promoção, grupo A no E3 (089, 092, 093), o resto no
+ * E6 (090, 094, 095, 096, 097, 100, 091). Modelo de ESTADO FINAL sem a 118 (opção (d) da D-ESC-8).
+ * Rodada 2 (`runbook: "producao-e6-118"`): o mesmo com a 118 no E6 depois da 100 e antes da 091 — opção (c) da D-ESC-8.
+ * Nenhuma das duas reproduz o histórico exato de production (receita local); (a) e (b) da D-ESC-8 não estão modeladas.
+ */
+const ORDEM_PRODUCAO_E3 = ["099", "105", "089", "092", "093", "090", "094", "095", "096", "097", "100", "091"];
+const ORDEM_PRODUCAO_E6_118 = ["099", "105", "089", "092", "093", "090", "094", "095", "096", "097", "100", "118", "091"];
+
 async function construirModelo(admin, porta, nome, log = () => {}) {
   const modelo = MODELOS[nome];
   if (!modelo) throw new Error(`estado desconhecido: ${nome}`);
@@ -191,12 +284,37 @@ async function construirModelo(admin, porta, nome, log = () => {}) {
   await admin.query(`CREATE DATABASE ${exigirGerenciavel(modelo.banco)} TEMPLATE template0`);
   const client = await conectar(porta, modelo.banco);
   try {
-    for (const arquivo of arquivos.slice(0, fim + 1).filter((a) => !modelo.sem.includes(a.split("_")[1]))) {
+    let lista = arquivos.slice(0, fim + 1).filter((a) => !modelo.sem.includes(a.split("_")[1]));
+    if (modelo.runbook) {
+      // As da promoção vão por último, na ordem do runbook; as anteriores (até a 088) mantêm a ordem do inventário.
+      const ordem = modelo.runbook === "producao" ? ORDEM_PRODUCAO_E3 : modelo.runbook === "producao-e6-118" ? ORDEM_PRODUCAO_E6_118 : ORDEM_RUNBOOK;
+      const pos = (a) => ordem.indexOf(a.split("_")[1]);
+      lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
+    }
+    if (modelo.depois) {
+      // r7: migrations do conjunto movidas para o fim, na ordem dada (ordem real do staging).
+      const pos = (a) => modelo.depois.indexOf(a.split("_")[1]);
+      lista = [...lista.filter((a) => pos(a) < 0), ...lista.filter((a) => pos(a) >= 0).sort((x, y) => pos(x) - pos(y))];
+    }
+    for (const arquivo of lista) {
       await aplicarMigration(client, arquivo, checks);
       log(`  ${nome}: ${arquivo}`);
     }
   } finally {
     await client.end();
+  }
+}
+
+/**
+ * B-14 (revisão do HB-3 r2): aplica migrations do inventário aprovado, na ordem dada, num banco JÁ conectado (a suíte leva
+ * um banco de trabalho de um prefixo a outro, com dados: trajetória S0 → S2 na ordem do runbook). Só números do inventário.
+ */
+async function aplicarMigracoes(client, numeros) {
+  const { arquivos, checks } = await carregarInventario();
+  for (const n of numeros) {
+    const arquivo = arquivos.find((a) => a.split("_")[1] === n);
+    if (!arquivo) throw new Error(`migration ${n} fora do inventário`);
+    await aplicarMigration(client, arquivo, checks);
   }
 }
 
@@ -234,4 +352,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { modeloE2E, MODELOS, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco };
+module.exports = { modeloE2E, MODELOS, ORDEM_RUNBOOK, TRABALHO, portaAutorizada, conectar, conectarAdmin, construirModelo, restaurar, removerBanco, aplicarMigracoes };

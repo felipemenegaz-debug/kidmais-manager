@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
+import * as textosFundador from '../../lib/assinatura/textos-fundador.ts';
+import * as comprovanteTexto from '../../lib/assinatura/comprovante-texto.ts';
 
 // O formulário de cancelar ao fim do período só promete "protocolo na hora" quando o servidor confirma o registro de
 // protocolos (089, `instalado` da consulta de devolução). Em production sem a 089 a promessa não se cumpria (03/11/2026).
@@ -17,6 +19,9 @@ function montar(resposta: () => Promise<unknown>) {
         './Assinatura': { default: function Assinatura() { return null; }, reais: (c: number) => `R$ ${c / 100}` },
         './AvisoComercial': { dataCurta: (d: string) => d.slice(0, 10) },
         './AssinaturaEncerramento': { EncerramentoComDevolucao: function EncerramentoComDevolucao() { return null; } },
+        './ArrependimentoLegal': { ArrependimentoLegal: function ArrependimentoLegal() { return null; } },
+        '@/lib/assinatura/textos-fundador': textosFundador,
+        '@/lib/assinatura/comprovante-texto': comprovanteTexto,
     });
     const dados = {
         instalado: true, cobrado: true, gestao: true, agora: '2026-11-03T12:00:00.000Z',

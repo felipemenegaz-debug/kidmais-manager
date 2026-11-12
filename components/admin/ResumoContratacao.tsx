@@ -2,21 +2,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import KidmaisBrand from '@/components/layout/KidmaisBrand';
+import type { MarcaContrato } from '@/lib/contratos/marca-contrato';
 import { carregarResumo, type montarResumo } from './resumo-contratacao';
 import { criarPdfResumo, dimensoesJpeg, nomeArquivoResumo, type LogoJpeg } from './resumo-pdf';
 import styles from './resumo-contratacao.module.css';
 
-type Resumo = ReturnType<typeof montarResumo>;
+type Resumo = ReturnType<typeof montarResumo> & { marca?: MarcaContrato | null };
 export function DocumentoResumo({ resumo }: { resumo: Resumo }) {
   return <article className={styles.sheet} aria-label="Resumo da contratação">
-    <header className={styles.heading}><KidmaisBrand context="customer" subtitle="Resumo da contratação" /><p className={styles.badge}>V{resumo.numeroVersao} · {resumo.classificacao}</p></header>
+    <header className={styles.heading}>{resumo.marca?.kidmais ? <KidmaisBrand context="customer" subtitle="Resumo da contratação" /> : <div><strong>{resumo.marca?.nome ?? 'Resumo da contratação'}</strong>{resumo.marca?.nome ? <small> · Resumo da contratação</small> : null}</div>}<p className={styles.badge}>V{resumo.numeroVersao} · {resumo.classificacao}</p></header>
     <h1>Resumo da Contratação</h1>
     <p className={styles.notice}>Documento operacional e comercial. Não substitui o contrato jurídico nem seus comprovantes de assinatura.</p>
     {resumo.secoes.map(secao => <section key={secao.titulo}><h2>{secao.titulo}</h2><dl>{secao.linhas.map(([label, value], i) => <div key={`${label}:${i}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>)}
     <section><h2>Plano e cronograma financeiro</h2><p>{resumo.avisoFinanceiro}</p>
       {resumo.parcelas.length ? <table><thead><tr><th>Parcela</th><th>Valor</th><th>Vencimento</th><th>Estado</th></tr></thead><tbody>{resumo.parcelas.map((parcela, i) => <tr key={i}><td>{parcela.rotulo}</td><td>{parcela.valor}</td><td>{parcela.vencimento}</td><td>{parcela.estado}</td></tr>)}</tbody></table> : <p>Nenhum cronograma aplicável disponível nesta consulta.</p>}
     </section>
-    <footer>Kidmais · Resumo para consulta · Condições comerciais da versão selecionada, sem recálculo.</footer>
+    <footer>Resumo para consulta · Condições comerciais da versão selecionada, sem recálculo.</footer>
   </article>;
 }
 
@@ -37,7 +38,7 @@ async function carregarLogo(): Promise<LogoJpeg | null> {
 
 /** Download direto do arquivo: não abre o diálogo de impressão nem uma nova aba. */
 async function baixarPdf(resumo: Resumo) {
-  const pdf = criarPdfResumo(resumo, await carregarLogo());
+  const pdf = criarPdfResumo(resumo, resumo.marca?.kidmais ? await carregarLogo() : null);
   const url = URL.createObjectURL(new Blob([pdf as BlobPart], { type: 'application/pdf' }));
   const link = document.createElement('a');
   link.href = url;

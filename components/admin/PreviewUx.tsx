@@ -59,6 +59,31 @@ const edicao = {
       { convidadosMin: 31, convidadosMax: 40, valor: '7390.00' },
       { convidadosMin: 41, convidadosMax: 50, valor: '8190.00' },
     ],
+    // 092: faixas antigas esperam a confirmação da conversão para quantidades cheias.
+    aConfirmar: true,
+    proposta: [
+      { convidados: 20, valor: '6490.00' },
+      { convidados: 31, valor: '7390.00' },
+      { convidados: 41, valor: '8190.00' },
+      { convidados: 50, valor: '8190.00' },
+    ],
+  },
+};
+
+/** 092: pacote já em quantidades cheias. */
+const edicaoPontos = {
+  ...edicao,
+  faixas: {
+    editavel: true,
+    aviso: null,
+    faixas: [],
+    aConfirmar: false,
+    pontos: [
+      { convidados: 20, valor: '6490.00' },
+      { convidados: 30, valor: '7390.00' },
+      { convidados: 40, valor: '8190.00' },
+      { convidados: 50, valor: '8990.00' },
+    ],
   },
 };
 
@@ -88,7 +113,8 @@ export default function PreviewUx({ tela, estado }: { tela: 'pacotes' | 'buffet'
           categorias,
           itens: buffet.itens,
           filtro,
-          edicao: estado === 'editar' ? edicao : null,
+          edicao: estado === 'editar' ? edicao : estado === 'pontos' ? edicaoPontos : null,
+          precosAConfirmar: estado === 'pontos' ? [] : [pacotes[0].id],
         }} />}
     </AdminShell>
   </div>;

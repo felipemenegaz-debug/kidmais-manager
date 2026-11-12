@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-import sharp from "sharp";
 import type { DbExecutor } from "../../db/contracts.ts";
+import { ImagemInvalidaError, normalizarWebp, WEBP_MAX_ENTRADA, WEBP_TIPOS_ENTRADA } from "../../imagens/normalizar-webp.ts";
 import { MarketingError, naoEncontrado } from "../erros.ts";
 
 /**
@@ -9,27 +8,18 @@ import { MarketingError, naoEncontrado } from "../erros.ts";
  * Publicidade: a rota pública só entrega imagem citada na VERSÃO PUBLICADA do site; rascunho e upload avulso continuam
  * privados (prévia só com sessão administrativa).
  */
-export const IMAGEM_MAX_UPLOAD = 8 * 1024 * 1024;
-export const IMAGEM_TIPOS = ["image/png", "image/jpeg", "image/webp"];
+export const IMAGEM_MAX_UPLOAD = WEBP_MAX_ENTRADA;
+export const IMAGEM_TIPOS = WEBP_TIPOS_ENTRADA;
 export const IMAGENS_POR_SITE = 40;
 
+/** Normalização compartilhada (lib/imagens/normalizar-webp.ts), com as mensagens do site. */
 export async function normalizarImagemSite(bytes: Buffer) {
-  if (bytes.length === 0 || bytes.length > IMAGEM_MAX_UPLOAD) throw new MarketingError("MARKETING_IMAGEM_INVALIDA", "Envie uma imagem de até 8 MB.", 413);
   try {
-    const imagem = sharp(bytes, { limitInputPixels: 40_000_000, animated: false, failOn: "warning" });
-    const meta = await imagem.metadata();
-    if (!["png", "jpeg", "webp"].includes(meta.format ?? "") || (meta.pages ?? 1) !== 1) throw new Error("formato");
-    for (const qualidade of [82, 74, 66]) {
-      const { data, info } = await sharp(bytes, { limitInputPixels: 40_000_000, animated: false })
-        .rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: qualidade }).toBuffer({ resolveWithObject: true });
-      if (data.length <= 1_500_000) {
-        return { conteudo: data, largura: info.width, altura: info.height, sha256: createHash("sha256").update(data).digest("hex") };
-      }
-    }
+    return await normalizarWebp(bytes);
   } catch (error) {
-    if (error instanceof MarketingError) throw error;
+    if (error instanceof ImagemInvalidaError && error.motivo === "TAMANHO") throw new MarketingError("MARKETING_IMAGEM_INVALIDA", "Envie uma imagem de até 8 MB.", 413);
+    throw new MarketingError("MARKETING_IMAGEM_INVALIDA", "Não foi possível usar esta imagem. Envie um PNG, JPEG ou WebP válido.", 400);
   }
-  throw new MarketingError("MARKETING_IMAGEM_INVALIDA", "Não foi possível usar esta imagem. Envie um PNG, JPEG ou WebP válido.", 400);
 }
 
 export async function salvarImagem(

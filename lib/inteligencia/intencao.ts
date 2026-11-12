@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ContextoTela, OrigemChamada, RecursoObjetivo, TipoEntidade } from "./contratos.ts";
 import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { pedeSalvarParametro } from "./operacional/consumo.ts";
-import { correcaoDeObjetivo, ehPergunta, objetoDeCriacao, pedeContaPagar } from "./operacional/objetivo.ts";
+import { correcaoDeObjetivo, ehPergunta, noEscopoDeNegacao, objetoDeCriacao, pedeContaPagar } from "./operacional/objetivo.ts";
 import { normalizar } from "./texto-pt.ts";
 import { TELAS_NAVEGACAO, type TelaNavegacao } from "./rotas-navegacao.ts";
 import type { RoteadorModelos, AlvoRoteamento, ResultadoRoteado } from "./modelos/roteador.ts";
@@ -47,6 +47,8 @@ function leituraComEntidade(capacidade: string, entidade: Entidade, contexto: Co
 
 /** Tema de navegação do texto (mais específico primeiro). Só temas conhecidos; o resto é null. */
 const TEMAS: ReadonlyArray<[string, RegExp]> = [
+  // Importar documentos (tabela de preços, modelo de contrato) antes de "importar contrato" (contrato antigo de festa).
+  ["importar_documentos", /\bmodelo de contrato\b|\bimportar documentos?\b|\b(import\w*|envi\w*|sub\w*|carreg\w*|mand\w*)\b.*\b(tabela de precos|documentos?)\b/],
   ["importar_contrato", /\bimport\w*\b.*\bcontrato|\bcontrato (antigo|historico)\b/],
   ["pdf_pacotes", /\bpdf\b|\btabela de (pacotes|precos)\b/],
   ["contas_pagar", /\bcontas? a pagar\b|\bdespesa\w*\b|\bsaidas?\b/],
@@ -268,7 +270,9 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
     if (tem(n, /\b(ativ\w*|reativ\w*|volt\w* a vender)\b/)) return acao("ativar_pacote");
     if (tem(n, verboEditar) || /\bpacote .+ para r\$/.test(n)) return acao("editar_pacote");
     // Pergunta ("qual o preço do pacote premium novo?") não é pedido de criação: "novo" ali é adjetivo.
-    if (tem(n, verboCriar) && !/^(qual|quais|quanto|quantos|quantas|quem|quando|onde|o que|por que)\b/.test(n)) return acao("criar_pacote");
+    // Verbo de criar negado ("não quero criar um pacote ou fechar um contrato") não cria pacote (parecer do Astra, rodada 4).
+    const criarAfirmado = [...n.matchAll(new RegExp(verboCriar.source, "g"))].some((m) => !noEscopoDeNegacao(n, m.index ?? 0, (m.index ?? 0) + m[0].length));
+    if (criarAfirmado && !/^(qual|quais|quanto|quantos|quantas|quem|quando|onde|o que|por que)\b/.test(n)) return acao("criar_pacote");
   }
   // Só formas de comando: "registrado", "enviados", "cobrado" em perguntas não são pedidos de ação.
   if (tem(n, /\b(envi(e|ar|a|em)|mand(e|ar|a|em)|dispar(e|ar|a))\b/, /\bwhats\s?app\b.*\b(para|pro|pra)\b/, /\b(cobr(e|ar|a|em)|quit(e|ar|a)|estorn(e|ar|a))\b/, /\bregistr(e|ar|a|em)\b/, /\bcancel(ar|e|a|em)\b/, /\b(gere|gerar) (o )?contrato\b/)) {

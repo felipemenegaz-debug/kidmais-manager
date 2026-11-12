@@ -30,6 +30,10 @@ function banco(ativoOrigem: boolean) {
     async query<Row extends object>(sql: string, values: readonly unknown[] = []): Promise<DbQueryResult<Row>> {
       sqls.push(sql);
       const r = (rows: object[], rowCount = rows.length) => ({ rows: rows as Row[], rowCount });
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (sql.includes("pg_locks")) return r([{ ok: true, empresa: values[0] ?? EMPRESA }]);
+      // Rev. 3: os pacotes tomam a trava da configuração (linha da empresa, advisory e variável da transação).
+      if (sql.includes("FOR KEY SHARE") || sql.includes("pg_advisory_xact_lock") || sql.includes("set_config('kidmais.agenda_config_empresa'")) return r([{}]);
       // Tenant Context.
       if (sql.includes("m.status AS membership")) return r(values[0] === MEMBERSHIP ? [{ membership: "ATIVA" }] : []);
       if (sql.includes("SELECT DISTINCT m.empresa_id")) return r([{ id: EMPRESA }]);

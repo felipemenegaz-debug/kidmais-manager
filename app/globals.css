@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Erros de formulário (N1/N2): o controle com erro fica vermelho em qualquer tela; a mensagem fica logo abaixo dele. */
+:where(input, select, textarea)[aria-invalid="true"] { border-color: #f87171 !important; box-shadow: 0 0 0 1px rgba(248, 113, 113, .55); }
+html { scroll-padding-bottom: 96px; }

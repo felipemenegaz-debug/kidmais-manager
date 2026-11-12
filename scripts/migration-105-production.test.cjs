@@ -2,7 +2,8 @@
 // Aplicador da 105 de PRODUÇÃO (plano MCP produção pré-requisitos, rev. 3, P1) com cliente simulado que só CONFIRMA no
 // COMMIT e descarta no ROLLBACK: alvo/TLS/papel/disco, PITR como gate, conferência só leitura com os cinco estados,
 // transação ÚNICA (precheck, DDL, postcheck, integridade e definições antes do COMMIT), integridade por DEFINIÇÕES com
-// mutantes que preservam nomes e contagens, situação do COMMIT (40003 = INDETERMINADO), marcador com o estado em memória
+// mutantes que preservam nomes e contagens, RELAÇÕES das 6 tabelas pela definição do catálogo (09/11: NOT NULL validado,
+// gatilhos, herança, RLS/políticas, FKs de entrada e proconfig; SQL_RELACAO_105 do B-5), situação do COMMIT (40003 = INDETERMINADO), marcador com o estado em memória
 // e falhas de disco (ENOSPC) antes, durante e depois do COMMIT. Sem rede nem banco: a forma real do deparse é provada no
 // PostgreSQL descartável autorizado (pendente).
 const test = require('node:test');
@@ -15,6 +16,9 @@ const comum = require('./migration-105-comum.cjs');
 const nucleo = require('./migration-105-production-nucleo.cjs');
 const defs = require('./migration-105-definicoes.cjs');
 const prod = require('./migration-105-production.cjs');
+const rel = require('./migration-105-relacoes.cjs');
+const {SQL_RELACAO_105, RELACAO_105} = require('./conferencia-b5-105.cjs');
+const BEGIN_RO = 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY';
 const {lerRevisado} = require('./migration-092-094-comum.cjs');
 
 const raiz = path.resolve(__dirname, '..');
@@ -71,20 +75,57 @@ const MUTANTES = Object.freeze({
   'restrição NOT VALID': muda('restricao:mcp_oauth_codigos.mcp_oauth_codigos_check', d => d.replace('validada=true', 'validada=false')),
 });
 
+/** As relações que o catálogo devolveria para a 105 íntegra (PG 18.6, uma coluna de texto por tabela). */
+const relOk = () => ({versao_pg: 180006, ...rel.REFERENCIAS});
+const LF = String.fromCharCode(10);
+const mudaRel = (tabela, f) => r => ({...r, [tabela]: f(r[tabela].split(LF)).join(LF)});
+const trocaLinha = (de, para) => ls => { assert.equal(ls.filter(l => l === de).length, 1, 'linha de origem: ' + de); return ls.map(l => (l === de ? para : l)); };
+const NN_CODIGOS = 'restricao public.mcp_oauth_codigos mcp_oauth_codigos_concessao_id_not_null n t f f t f true NOT NULL concessao_id';
+const MARCADOR = 'MARCADOR_PRIVADO_SINTETICO';
+const FK_CODIGOS = 'restricao public.mcp_oauth_codigos mcp_oauth_codigos_concessao_id_fkey f t f f t t true FOREIGN KEY (concessao_id) REFERENCES public.mcp_oauth_concessoes(id)';
+/**
+ * Mutantes de RELAÇÃO (09/11): derivas reais que a integridade antiga e o definicoes.sql deixam passar (NOT NULL NOT VALID
+ * no PG 18, FK de entrada vinda de fora da 105, FK adiável, herança, RLS forçada, política, gatilho extra, proconfig) e as
+ * que já eram pegas, agora também pela relação. Cada um troca só a linha que o catálogo devolveria.
+ */
+const MUTANTES_RELACAO = Object.freeze({
+  'NOT NULL NOT VALID (PG 18)': [mudaRel('mcp_oauth_codigos', trocaLinha(NN_CODIGOS, NN_CODIGOS.replace(' n t f f ', ' n f f f '))), 'mcp_oauth_codigos FALTA restricao'],
+  'FK de entrada vinda de fora da 105': [mudaRel('mcp_oauth_tokens', ls => [...ls,
+    'restricao public.tabela_externa tabela_externa_token_fkey f t f f t t true FOREIGN KEY (token_id) REFERENCES public.mcp_oauth_tokens(id)']), 'mcp_oauth_tokens SOBRA restricao'],
+  'FK adiável': [mudaRel('mcp_oauth_codigos', trocaLinha(FK_CODIGOS, FK_CODIGOS.replace(' f t f f t t true ', ' f t t t t t true '))), 'mcp_oauth_codigos FALTA restricao'],
+  'herança': [mudaRel('mcp_auditoria', trocaLinha('heranca 0', 'heranca 1')), 'mcp_auditoria FALTA heranca'],
+  'RLS forçada': [mudaRel('mcp_oauth_pedidos', ls => ls.map(l => (l.startsWith('classe ') ? l.replace(' rls f f ', ' rls f t ') : l))), 'mcp_oauth_pedidos FALTA classe'],
+  'política criada': [mudaRel('mcp_oauth_clientes', trocaLinha('politicas 0', 'politicas 1')), 'mcp_oauth_clientes FALTA politicas'],
+  'gatilho de usuário extra': [mudaRel('mcp_oauth_tokens', ls => [...ls,
+    'gatilho CREATE TRIGGER t_extra AFTER INSERT ON public.mcp_oauth_tokens FOR EACH ROW EXECUTE FUNCTION public.f_extra() O']), 'mcp_oauth_tokens SOBRA gatilho'],
+  'proconfig da função (search_path)': [mudaRel('mcp_oauth_concessoes', trocaLinha('funcao - f f v u f f', 'funcao {search_path=public} f f v u f f')), 'mcp_oauth_concessoes FALTA funcao'],
+  'restrição herdada (conislocal f)': [mudaRel('mcp_oauth_codigos', trocaLinha(NN_CODIGOS, NN_CODIGOS.replace(' n t f f t f ', ' n t f f f f '))), 'mcp_oauth_codigos FALTA restricao'],
+  'gatilho interno adiável': [mudaRel('mcp_oauth_codigos', ls => ls.map(l => (l.includes('"RI_FKey_check_ins"') ? l.replace(' f f O', ' t t O') : l))), 'mcp_oauth_codigos FALTA gatilho'],
+  'linha duplicada (multiconjunto)': [mudaRel('mcp_auditoria', ls => [...ls, ls[0]]), 'mcp_auditoria SOBRA classe'],
+  // Astra r1, P2-1: nome ou expressão do catálogo com LF vira uma "linha" cujo 1º token vem do banco; o rótulo é fixo.
+  'LF no nome de FK de entrada externa': [mudaRel('mcp_oauth_tokens', ls => [...ls,
+    'restricao public.externa nome_fk', MARCADOR + ' restante f t f f t t true FOREIGN KEY (id) REFERENCES public.mcp_oauth_tokens(id)']), 'mcp_oauth_tokens SOBRA ILEGIVEL'],
+  'LF no nome de outro objeto (índice)': [mudaRel('mcp_oauth_codigos', ls => [...ls,
+    'indice public.idx', MARCADOR + ' x f f f t t t t f CREATE INDEX "idx', MARCADOR + ' x" ON public.mcp_oauth_codigos USING btree (id)']), 'mcp_oauth_codigos SOBRA ILEGIVEL'],
+  'LF no texto de expressão (CHECK)': [mudaRel('mcp_auditoria', ls => [...ls,
+    'restricao public.mcp_auditoria mcp_auditoria_x_check c t f f t f true CHECK ((codigo <> \'a', MARCADOR + ' b\'::text))']), 'mcp_auditoria SOBRA ILEGIVEL'],
+});
+const MARCADOR_RE = /MARCADOR_PRIVADO_SINTETICO/;
+
 /**
  * Cliente simulado transacional: o corpo da migration deixa o efeito PENDENTE (estado completo e o inventário
  * `aplicadas`); COMMIT confirma; ROLLBACK descarta. Opções: falharEm (trecho), falharCommit ({erro} | {rollback}),
  * trava (pg_try_advisory_xact_lock), integra / integraNaTransacao, estadoNaTransacao (estado relido dentro da transação).
  */
 function clienteFalso({inicial = estado(), id = ID, inicialDefs = UUID_AUSENTE, aplicadas = linhas(), integra = true, integraNaTransacao = true,
-  falharEm, erro, falharCommit, trava = true, estadoNaTransacao, falharConnect} = {}) {
+  inicialRel = relOk(), aplicadasRel = relOk(), falharEm, erro, falharCommit, trava = true, estadoNaTransacao, falharConnect} = {}) {
   const log = []; let ro = false, tx = false, pendente = null, commits = 0;
-  const atual = {estado: {...inicial}, defs: inicialDefs, integra};
+  const atual = {estado: {...inicial}, defs: inicialDefs, integra, rel: inicialRel};
   const visivel = () => pendente ?? atual;
   const C = class {
     on() {} async connect() { if (falharConnect) throw falharConnect; } async end() {}
     async query(sql) {
-      if (sql === 'BEGIN TRANSACTION READ ONLY') { ro = true; tx = true; } else if (sql === 'BEGIN') { ro = false; tx = true; }
+      if (sql === BEGIN_RO) { ro = true; tx = true; } else if (sql === 'BEGIN') { ro = false; tx = true; }
       log.push({sql, ro, tx});
       if (falharEm && sql.includes(falharEm)) throw erro ?? erroPg('55P03', 'falha simulada');
       if (sql === 'ROLLBACK') { ro = false; tx = false; pendente = null; return {rows: [], command: 'ROLLBACK'}; }
@@ -100,10 +141,11 @@ function clienteFalso({inicial = estado(), id = ID, inicialDefs = UUID_AUSENTE, 
       if (sql.includes('pg_try_advisory_xact_lock')) return {rows: [{ok: trava}]};
       if (sql === INT) return {rows: [{integra_105: visivel().integra}]};
       if (sql === DEF) return {rows: visivel().defs};
+      if (sql === rel.SQL_RELACOES) return {rows: [visivel().rel]};
       if (sql.includes('AS concessoes_ativas')) return {rows: [{...CONTAGENS}]};
       if (sql === CORPO) {
         assert.equal(ro, false, 'DDL nunca em READ ONLY'); assert.equal(tx, true, 'DDL só dentro da transação aberta pelo aplicador');
-        pendente = {estado: {...atual.estado, ...COMPLETA}, defs: aplicadas, integra: integraNaTransacao};
+        pendente = {estado: {...atual.estado, ...COMPLETA}, defs: aplicadas, integra: integraNaTransacao, rel: aplicadasRel};
       }
       assert.notEqual(sql, M105, 'o arquivo com BEGIN/COMMIT nunca é enviado');
       return {rows: []};
@@ -117,7 +159,7 @@ const semDisco = () => {};
 const executar = (C, extra = {}) => prod.executar({env: ENV, backup: BACKUP, dir: extra.dir ?? tmp(), Client: C, disco: semDisco, agora: AGORA, ...extra});
 const conferir = C => prod.conferir({env: ENV, Client: C});
 const marcadorDe = dir => JSON.parse(fs.readFileSync(path.join(dir, 'migration-105.json'), 'utf8'));
-const escritasNoBanco = log => log.filter(x => !x.ro && x.sql !== 'ROLLBACK' && !/^(BEGIN TRANSACTION READ ONLY|SET LOCAL)/.test(x.sql));
+const escritasNoBanco = log => log.filter(x => !x.ro && x.sql !== 'ROLLBACK' && !/^(BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY|SET LOCAL)/.test(x.sql));
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 test('hashes dos 5 SQL (LF); corpo da migration sem BEGIN/COMMIT finais e com os SET LOCAL; arquivos com transação inesperada recusados', () => {
@@ -185,13 +227,75 @@ test('comparação: íntegro passa; alternativa do gen_random_uuid aceita; falta
   assert.deepEqual(defs.compararDefinicoes(outra).divergencias, [{chave: 'coluna:mcp_oauth_tokens.id', tipo: 'DIFERENTE'}]);
   assert.deepEqual(defs.compararDefinicoes(linhas().slice(1)).divergencias, [{chave: linhas()[0].chave, tipo: 'FALTA'}]);
   const extra = [...linhas(), {chave: 'indice:mcp_oauth_tokens.atalho_idx', definicao: 'CREATE INDEX x'}];
-  assert.deepEqual(defs.compararDefinicoes(extra).divergencias, [{chave: 'indice:mcp_oauth_tokens.atalho_idx', tipo: 'SOBRA'}]);
+  assert.deepEqual(defs.compararDefinicoes(extra).divergencias, [{chave: 'indice:mcp_oauth_tokens:DESCONHECIDA', tipo: 'SOBRA'}], 'chave desconhecida: só tipo e tabela de listas fechadas (r3)');
   assert.deepEqual(defs.compararDefinicoes([...linhas(), linhas()[3]]).divergencias, [{chave: linhas()[3].chave, tipo: 'REPETIDA'}]);
   assert.equal(defs.compararDefinicoes([...linhas(), {chave: 1}]).divergencias[0].tipo, 'ILEGIVEL');
   assert.equal(defs.compararDefinicoes(undefined).integra, false);
   assert.equal(defs.compararDefinicoes([]).divergencias.length, 145);
   const texto = JSON.stringify(defs.compararDefinicoes(MUTANTES['FK trocada para ON DELETE CASCADE'](linhas())));
   assert.doesNotMatch(texto, /CASCADE|REFERENCES/, 'nenhuma definição lida volta na saída');
+});
+
+/**
+ * 10/11/2026 r3 (Astra r2, P2-2): chaves DESCONHECIDAS lidas do catálogo. Cada caso: linhas a acrescentar ao inventário
+ * íntegro e as divergências esperadas. A chave lida nunca sai; só tipo e tabela de listas fechadas + DESCONHECIDA.
+ */
+const CHAVES_DESCONHECIDAS = {
+  'índice extra simples': [[{chave: 'indice:mcp_oauth_tokens.atalho_' + MARCADOR, definicao: 'CREATE INDEX x'}],
+    [{chave: 'indice:mcp_oauth_tokens:DESCONHECIDA', tipo: 'SOBRA'}]],
+  'índice com LF no nome': [[{chave: 'indice:mcp_oauth_codigos.idx\n' + MARCADOR + ' x', definicao: 'CREATE INDEX "idx\n' + MARCADOR + '"'}],
+    [{chave: 'indice:mcp_oauth_codigos:DESCONHECIDA', tipo: 'SOBRA'}]],
+  'restrição de tabela externa com LF': [[{chave: 'restricao:externa.nome_fk\n' + MARCADOR + ' restante', definicao: 'f|x'}],
+    [{chave: 'restricao:DESCONHECIDA', tipo: 'SOBRA'}]],
+  'gatilho extra em tabela da 105': [[{chave: 'gatilho:mcp_oauth_concessoes.g_' + MARCADOR, definicao: 'CREATE TRIGGER x'}],
+    [{chave: 'gatilho:mcp_oauth_concessoes:DESCONHECIDA', tipo: 'SOBRA'}]],
+  'tipo desconhecido com LF antes dos dois-pontos': [[{chave: 'gatilho\n' + MARCADOR + ':mcp_oauth_tokens.x', definicao: 'x'}],
+    [{chave: 'DESCONHECIDA', tipo: 'SOBRA'}]],
+  'tabela com o marcador': [[{chave: 'coluna:' + MARCADOR + '.x', definicao: 'x'}], [{chave: 'coluna:DESCONHECIDA', tipo: 'SOBRA'}]],
+  'índice desconhecido REPETIDO com LF': [[0, 1].map(() => ({chave: 'indice:mcp_auditoria.i\n' + MARCADOR, definicao: 'CREATE INDEX x'})),
+    [{chave: 'indice:mcp_auditoria:DESCONHECIDA', tipo: 'SOBRA'}, {chave: 'indice:mcp_auditoria:DESCONHECIDA', tipo: 'REPETIDA'}]],
+  'restrição desconhecida REPETIDA': [[0, 1].map(() => ({chave: 'restricao:mcp_oauth_pedidos.r_' + MARCADOR, definicao: 'c|x'})),
+    [{chave: 'restricao:mcp_oauth_pedidos:DESCONHECIDA', tipo: 'SOBRA'}, {chave: 'restricao:mcp_oauth_pedidos:DESCONHECIDA', tipo: 'REPETIDA'}]],
+};
+
+test('chaves desconhecidas (P2-2): comparador recusa com rótulo de listas fechadas, sem nome lido; chaves conhecidas mantêm o diagnóstico', () => {
+  for (const [nome, [extra, esperado]] of Object.entries(CHAVES_DESCONHECIDAS)) {
+    const r = defs.compararDefinicoes([...linhas(), ...extra]);
+    assert.equal(r.integra, false, nome); assert.deepEqual(r.divergencias, esperado, nome);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': nada da chave lida');
+  }
+  for (const d of Object.values(CHAVES_DESCONHECIDAS).flatMap(([, e]) => e)) {
+    const p = d.chave.split(':');
+    assert.ok(d.chave === 'DESCONHECIDA' || (p.at(-1) === 'DESCONHECIDA' && defs.PREFIXOS.includes(p[0]) && (p.length === 2 || defs.TABELAS_105.includes(p[1]))), d.chave);
+  }
+  // Conhecidas: chave completa (FALTA, DIFERENTE, REPETIDA).
+  const k = linhas()[3].chave;
+  assert.equal(defs.rotuloChave(k), k);
+  assert.deepEqual(defs.compararDefinicoes([...linhas(), linhas()[3]]).divergencias, [{chave: k, tipo: 'REPETIDA'}]);
+  // A comparação usa a chave lida: um rótulo igual ao de saída não é aceito como chave do inventário.
+  assert.equal(defs.compararDefinicoes([...linhas(), {chave: 'indice:mcp_oauth_tokens:DESCONHECIDA', definicao: 'x'}]).integra, false);
+});
+
+test('chaves desconhecidas (P2-2): CONFERIR com a 105 completa e APLICAR antes do COMMIT recusam sem o nome lido na saída nem no marcador', async () => {
+  for (const [nome, [extra, esperado]] of Object.entries(CHAVES_DESCONHECIDAS)) {
+    const C = clienteFalso({inicial: estado(COMPLETA), inicialDefs: [...linhas(), ...extra]});
+    const r = await prod.principal(['--conferir-105'], ENV, {Client: C});
+    assert.equal(r.saida.resultado, 'DIVERGENTE', nome); assert.equal(r.codigo, 3, nome);
+    assert.equal(r.saida.checks.definicoes, 'FALHOU', nome); assert.deepEqual(r.saida.checks.divergencias, esperado, nome);
+    assert.deepEqual(escritasNoBanco(C.log), [], nome + ': nada fora de READ ONLY');
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': saída do CONFERIR sem o marcador');
+
+    const dir = tmp(), A = clienteFalso({aplicadas: [...linhas(), ...extra]});
+    const e = await executar(A, {dir});
+    assert.equal(e.resultado, 'FALHA', nome); assert.equal(e.commit, 'NAO_COMMITADA', nome); assert.equal(A.commits(), 0, nome);
+    assert.match(e.falha.mensagem, /INTEGRIDADE_105_ANTES_DO_COMMIT/, nome);
+    const m = marcadorDe(dir).etapas[0].antesDoCommit;
+    assert.equal(m.definicoes, 'FALHOU', nome); assert.deepEqual(m.divergencias, esperado, nome);
+    assert.doesNotMatch(JSON.stringify(e), MARCADOR_RE, nome + ': resultado do APLICAR sem o marcador');
+    const arquivos = fs.readdirSync(dir, {withFileTypes: true}).filter(x => x.isFile()).map(x => x.name);
+    assert.ok(arquivos.includes('migration-105.json'), nome);
+    for (const a of arquivos) assert.doesNotMatch(fs.readFileSync(path.join(dir, a), 'utf8'), MARCADOR_RE, nome + ': arquivo ' + a);
+  }
 });
 
 test('mutantes de schema que preservam nomes e contagens: cada um é DIFERENTE exatamente na chave mutada', () => {
@@ -296,6 +400,10 @@ test('CONFERIR só leitura: PRONTA (precheck), JA_APLICADA (integridade + defini
   assert.deepEqual(r.checks.divergencias, [{chave: 'indice:mcp_oauth_concessoes.mcp_oauth_concessoes_ativa_uk', tipo: 'DIFERENTE'}]);
   const ordem = C.log.map(x => x.sql), iDef = ordem.indexOf(DEF);
   assert.deepEqual(ordem.slice(iDef - 2, iDef), [...defs.SET_DEPARSE], 'deparse fixado na mesma transação READ ONLY');
+  const iRel = ordem.indexOf(rel.SQL_RELACOES), iBegin = ordem.lastIndexOf(BEGIN_RO, iDef);
+  assert.ok(iBegin >= 0 && iRel > iDef && !ordem.slice(iBegin + 1, iRel).some(s => s === 'ROLLBACK' || s === 'COMMIT' || s.startsWith('BEGIN')),
+    'integridade, definições e relações na MESMA fotografia (REPEATABLE READ READ ONLY)');
+  assert.equal(r.checks.relacoes, 'PASS');
 });
 
 test('CONFERIR: cada mutante que preserva nomes e contagens dá DIVERGENTE (código 3) mesmo com a integridade antiga PASS', async () => {
@@ -315,14 +423,15 @@ test('APLICAR: UMA transação com trava, estado, precheck, DDL, postcheck, inte
   const dentro = L.slice(iBegin, iCommit + 1);
   const pos = s => dentro.indexOf(s);
   assert.ok(dentro.some(s => s.includes('pg_try_advisory_xact_lock(1052029)')));
-  const seq = [dentro.findIndex(s => s.includes('pg_try_advisory_xact_lock')), pos(comum.SQL_ESTADO), pos(PRE), pos(CORPO), pos(POS), pos(INT), pos(DEF), dentro.lastIndexOf(comum.SQL_ESTADO), dentro.length - 1];
+  const seq = [dentro.findIndex(s => s.includes('pg_try_advisory_xact_lock')), pos(comum.SQL_ESTADO), pos(PRE), pos(CORPO), pos(POS), pos(INT), pos(DEF), pos(rel.SQL_RELACOES), dentro.lastIndexOf(comum.SQL_ESTADO), dentro.length - 1];
   assert.deepEqual([...seq].sort((a, b) => a - b), seq, 'ordem dentro da transação: ' + seq);
   assert.ok(seq.every(i => i >= 0));
   assert.ok(!dentro.slice(0, -1).some(s => s === 'COMMIT' || s === 'ROLLBACK' || s.startsWith('BEGIN TRANSACTION')), 'nada fecha a transação antes do COMMIT');
-  assert.deepEqual(C.log.slice(0, iBegin).filter(x => !x.ro && !/^(ROLLBACK|BEGIN TRANSACTION READ ONLY|SET LOCAL)/.test(x.sql)), [], 'antes: só leitura');
+  assert.deepEqual(C.log.slice(0, iBegin).filter(x => !x.ro && !/^(ROLLBACK|BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY|SET LOCAL)/.test(x.sql)), [], 'antes: só leitura');
   const m = marcadorDe(dir);
   assert.equal(m.situacao, 'CONCLUIDA'); assert.equal(m.commit, 'CONFIRMADO'); assert.equal(m.backup, BACKUP); assert.equal(m.pitr.conferidoEm, '2026-11-02T03:10:00.000Z');
   assert.equal(m.etapas[0].antesDoCommit['precheck 105'], 'PASS'); assert.equal(m.etapas[0].antesDoCommit.definicoes, 'PASS');
+  assert.equal(m.etapas[0].antesDoCommit.relacoes, 'PASS');
   assert.ok(!fs.existsSync(path.join(dir, 'migration-105.json.tmp')));
   const deNovo = await prod.principal(['--aplicar-105-autorizado', '--backup', BACKUP], ENV, {Client: C, dir, disco: semDisco, agora: AGORA}).catch(e => e);
   assert.match(String(deNovo.message), /TENTATIVA_ANTERIOR_REVISAR/, 'marcador impede a repetição (recusa antes de conectar)');
@@ -359,10 +468,12 @@ test('APLICAR: mutante na transação (deparse divergente) → ROLLBACK antes do
     assert.ok(C.log.some(x => x.sql === 'ROLLBACK' && !x.ro), nome);
     assert.equal(marcadorDe(dir).etapas[0].antesDoCommit.definicoes, 'FALHOU', nome);
   }
-  for (const [opcoes, re] of [[{integraNaTransacao: false}, /INTEGRIDADE_105_ANTES_DO_COMMIT/], [{falharEm: '105 postcheck'}, /falha simulada/],
-    [{falharEm: 'CREATE TABLE public.mcp_oauth_tokens', erro: erroPg('55P03', 'lock timeout')}, /lock timeout/]]) {
+  // P2-3 (r4): erro do servidor sai como SQLSTATE, nunca com o texto ("falha simulada", "lock timeout").
+  for (const [opcoes, esperado] of [[{integraNaTransacao: false}, 'INTEGRIDADE_105_ANTES_DO_COMMIT'], [{falharEm: '105 postcheck'}, 'ERRO_SERVIDOR 55P03'],
+    [{falharEm: 'CREATE TABLE public.mcp_oauth_tokens', erro: erroPg('55P03', 'lock timeout')}, 'ERRO_SERVIDOR 55P03']]) {
     const C = clienteFalso(opcoes), r = await executar(C);
-    assert.equal(r.commit, 'NAO_COMMITADA'); assert.match(r.falha.mensagem, re); assert.equal(C.commits(), 0);
+    assert.equal(r.commit, 'NAO_COMMITADA'); assert.equal(r.falha.mensagem, esperado); assert.equal(C.commits(), 0);
+    assert.doesNotMatch(JSON.stringify(r), /falha simulada|lock timeout/);
   }
 });
 
@@ -373,6 +484,128 @@ test('conferência depois do COMMIT que não passa: FALHA (2) com o COMMIT CONFI
   assert.equal(r.resultado, 'FALHA'); assert.equal(r.commit, 'CONFIRMADO'); assert.match(r.falha.mensagem, /CONFERENCIA_DEPOIS_DO_COMMIT_105 FALHA_DE_CONFERENCIA/);
   assert.equal(C.commits(), 1); assert.equal(marcadorDe(dir).commit, 'CONFIRMADO');
   assert.equal((await executar(clienteFalso())).resultado, 'APLICADA_POSTCHECK_PASS', 'controle sem a falha');
+});
+
+/** Erro externo com o marcador em message, detail, hint, where, table e constraint (P2-3, Astra r3). */
+const erroMarcado = code => Object.assign(new Error('relation "' + MARCADOR + '" does not exist' + LF + MARCADOR),
+  code === undefined ? {} : {code}, {detail: MARCADOR, hint: MARCADOR, where: MARCADOR, table: MARCADOR, constraint: MARCADOR, schema: MARCADOR});
+/** Nenhum arquivo do diretório do marcador (inclusive .tmp) contém o marcador. */
+const semMarcadorNoDir = (dir, nome) => { for (const n of fs.readdirSync(dir)) assert.doesNotMatch(fs.readFileSync(path.join(dir, n), 'utf8'), MARCADOR_RE, nome + ': ' + n); };
+const SAIDA_FECHADA = m => nucleo.MOTIVOS_PROPRIOS.has(m) || nucleo.CODIGOS_PROPRIOS.has(m) || /^ERRO_SERVIDOR (?=[0-9A-Z]*[0-9])[0-9A-Z]{5}$/.test(m) ||
+  /^ERRO_SISTEMA E[A-Z0-9_]{2,40}$/.test(m) || m === 'ERRO_NAO_CLASSIFICADO';
+
+test('diagnóstico (P2-3): só vocabulário fechado; asserção própria pela 1ª linha; SQLSTATE e código de sistema validados; o resto não classificado', () => {
+  const pega = f => { try { f(); } catch (e) { return e; } assert.fail('não lançou'); };
+  const forjada = msg => Object.assign(new Error(msg), {code: 'ERR_ASSERTION', generatedMessage: false});
+  const casos = [
+    [pega(() => assert.equal(MARCADOR, 'completa', 'ESTADO_MUDOU_105 completa')), 'ESTADO_MUDOU_105 completa'],
+    [pega(() => assert.equal(MARCADOR, true, 'APLICACAO_CONCORRENTE_105')), 'APLICACAO_CONCORRENTE_105'],
+    [pega(() => assert.ok(false, 'SEM_PRIVILEGIO_105 CREATE GEN_RANDOM_UUID')), 'SEM_PRIVILEGIO_105 CREATE GEN_RANDOM_UUID'],
+    [pega(() => assert.ok(false, 'TENTATIVA_ANTERIOR_REVISAR /dados/' + MARCADOR + '/migration-105.json')), 'TENTATIVA_ANTERIOR_REVISAR'],
+    [pega(() => assert.ok(false, 'ESTADO_MUDOU_105 ' + MARCADOR)), 'ESTADO_MUDOU_105'],
+    [pega(() => assert.equal(MARCADOR, 'x')), 'ERRO_SISTEMA ERR_ASSERTION'],
+    [pega(() => assert.ok(false, MARCADOR + ' ESTADO_MUDOU_105 completa')), 'ERRO_SISTEMA ERR_ASSERTION'],
+    [forjada('INTEGRIDADE_105 ' + MARCADOR), 'ERRO_SISTEMA ERR_ASSERTION'],
+    [Object.assign(forjada('APLICACAO_CONCORRENTE_105'), {generatedMessage: true}), 'ERRO_SISTEMA ERR_ASSERTION'],
+    [Object.assign(new Error('APLICACAO_CONCORRENTE_105'), {code: '55P03'}), 'ERRO_SERVIDOR 55P03'],
+    [Object.assign(new Error('APLICACAO_CONCORRENTE_105'), {code: '55P03', generatedMessage: false}), 'ERRO_SERVIDOR 55P03'],
+    [new Error('INTEGRIDADE_105_ANTES_DO_COMMIT'), 'ERRO_NAO_CLASSIFICADO'],
+    [erroMarcado('42704'), 'ERRO_SERVIDOR 42704'], [erroMarcado('XX000'), 'ERRO_SERVIDOR XX000'], [erroMarcado('P0001'), 'ERRO_SERVIDOR P0001'],
+    [erroMarcado('ECONNREFUSED'), 'ERRO_SISTEMA ECONNREFUSED'], [erroMarcado('EPIPE'), 'ERRO_SISTEMA EPIPE'], [erroMarcado('ENOSPC'), 'ERRO_SISTEMA ENOSPC'],
+    [erroMarcado(undefined), 'ERRO_NAO_CLASSIFICADO'], [erroMarcado(MARCADOR), 'ERRO_NAO_CLASSIFICADO'], [erroMarcado('42p01'), 'ERRO_NAO_CLASSIFICADO'],
+    [erroMarcado('ABCDE'), 'ERRO_NAO_CLASSIFICADO'], [erroMarcado('E' + LF + 'X'), 'ERRO_NAO_CLASSIFICADO'], [erroMarcado(42704), 'ERRO_NAO_CLASSIFICADO'],
+    [MARCADOR, 'ERRO_NAO_CLASSIFICADO'], [null, 'ERRO_NAO_CLASSIFICADO'], [undefined, 'ERRO_NAO_CLASSIFICADO'], [{message: MARCADOR}, 'ERRO_NAO_CLASSIFICADO']];
+  for (const [e, esperado] of casos) {
+    const d = nucleo.diagnostico(e);
+    assert.equal(d, esperado, String(e?.message ?? e)); assert.ok(SAIDA_FECHADA(d), d); assert.doesNotMatch(d, MARCADOR_RE);
+  }
+  for (const m of nucleo.MOTIVOS_PROPRIOS) { assert.doesNotMatch(m, /[\r\n]/, m); assert.equal(nucleo.diagnostico(forjada(m)), m); }
+});
+
+test('CONFERIR (P2-3): erro com o marcador na conexão, identidade, estado, precheck, definições, relações e contagens → FALHA_DE_CONFERENCIA (3) com fase e SQLSTATE, sem o texto', async () => {
+  const completa = {inicial: estado(COMPLETA), inicialDefs: linhas()};
+  const casos = [
+    ['conexão', {falharConnect: erroMarcado('ECONNREFUSED')}, 'CONEXAO', 'ERRO_SISTEMA ECONNREFUSED'],
+    ['conexão sem código', {falharConnect: erroMarcado(undefined)}, 'CONEXAO', 'ERRO_NAO_CLASSIFICADO'],
+    ['identidade', {falharEm: prod.SQL_IDENTIDADE, erro: erroMarcado('42501')}, 'IDENTIDADE', 'ERRO_SERVIDOR 42501'],
+    ['estado (catálogo)', {falharEm: comum.SQL_ESTADO, erro: erroMarcado('42704')}, 'ESTADO', 'ERRO_SERVIDOR 42704'],
+    ['precheck (105 ausente)', {falharEm: PRE, erro: erroMarcado('P0001')}, 'PRECHECK', 'ERRO_SERVIDOR P0001'],
+    ['definições (catálogo)', {...completa, falharEm: DEF, erro: erroMarcado('42883')}, 'INTEGRIDADE', 'ERRO_SERVIDOR 42883'],
+    ['relações (catálogo)', {...completa, falharEm: rel.SQL_RELACOES, erro: erroMarcado('XX000')}, 'INTEGRIDADE', 'ERRO_SERVIDOR XX000'],
+    ['contagens', {...completa, falharEm: 'AS concessoes_ativas', erro: erroMarcado('42704')}, 'CONTAGENS', 'ERRO_SERVIDOR 42704'],
+    ['contagens sem código', {...completa, falharEm: 'AS concessoes_ativas', erro: erroMarcado(undefined)}, 'CONTAGENS', 'ERRO_NAO_CLASSIFICADO'],
+    ['asserção forjada pelo servidor', {...completa, falharEm: 'AS concessoes_ativas',
+      erro: Object.assign(erroMarcado('ERR_ASSERTION'), {message: 'ESTADO_MUDOU_105 ' + MARCADOR, generatedMessage: false})}, 'CONTAGENS', 'ESTADO_MUDOU_105']];
+  for (const [nome, opcoes, fase, motivo] of casos) {
+    const C = clienteFalso(opcoes);
+    const r = await prod.principal(['--conferir-105'], ENV, {Client: C});
+    assert.equal(r.saida.resultado, 'FALHA_DE_CONFERENCIA', nome); assert.equal(r.codigo, 3, nome);
+    assert.equal(r.saida.fase, fase, nome); assert.equal(r.saida.motivo, motivo, nome);
+    assert.ok(nucleo.FASES_CONFERENCIA.includes(r.saida.fase), nome);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': saída sem o marcador');
+    assert.deepEqual(escritasNoBanco(C.log), [], nome + ': só leitura');
+  }
+  // Integridade já divergente (política/RLS): as contagens nem são consultadas; DIVERGENTE, sem contagens e sem o marcador.
+  for (const [nome, f] of [['RLS forçada', MUTANTES_RELACAO['RLS forçada'][0]], ['política criada', MUTANTES_RELACAO['política criada'][0]]]) {
+    const C = clienteFalso({...completa, inicialRel: f(relOk()), falharEm: 'AS concessoes_ativas', erro: erroMarcado('42704')});
+    const r = await prod.principal(['--conferir-105'], ENV, {Client: C});
+    assert.equal(r.saida.resultado, 'DIVERGENTE', nome); assert.equal(r.codigo, 3, nome); assert.equal(r.saida.contagens, undefined, nome);
+    assert.equal(C.log.filter(x => x.sql.includes('AS concessoes_ativas')).length, 0, nome + ': contagem não enviada');
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome);
+  }
+  const ok = await conferir(clienteFalso(completa));
+  assert.equal(ok.resultado, 'JA_APLICADA_INTEGRIDADE_PASS'); assert.deepEqual(ok.contagens, CONTAGENS, 'controle: íntegra lê as contagens');
+});
+
+test('APLICAR (P2-3): 105 completa e nova, antes e depois do COMMIT e na gravação do marcador: mesmos estados e códigos, sem o texto do erro', async () => {
+  const completa = {inicial: estado(COMPLETA), inicialDefs: linhas()};
+  const casos = [
+    // [nome, opções, resultado, código, commit, mensagem, extra(r, marcador)]
+    ['completa: contagem falha', {...completa, falharEm: 'AS concessoes_ativas', erro: erroMarcado('42704')}, 'FALHA', 2, 'SEM_TRANSACAO',
+      'JA_APLICADA_SEM_INTEGRIDADE_105 FALHA_DE_CONFERENCIA', m => assert.deepEqual([m.conferencia.fase, m.conferencia.motivo], ['CONTAGENS', 'ERRO_SERVIDOR 42704'])],
+    ['completa: relações falham', {...completa, falharEm: rel.SQL_RELACOES, erro: erroMarcado('XX000')}, 'FALHA', 2, 'SEM_TRANSACAO',
+      'JA_APLICADA_SEM_INTEGRIDADE_105 FALHA_DE_CONFERENCIA', m => assert.deepEqual([m.conferencia.fase, m.conferencia.motivo], ['INTEGRIDADE', 'ERRO_SERVIDOR XX000'])],
+    ['completa: RLS forçada + contagem com erro', {...completa, inicialRel: MUTANTES_RELACAO['RLS forçada'][0](relOk()), falharEm: 'AS concessoes_ativas', erro: erroMarcado('42704')},
+      'FALHA', 2, 'SEM_TRANSACAO', 'JA_APLICADA_SEM_INTEGRIDADE_105 DIVERGENTE', m => assert.equal(m.conferencia.motivo, undefined)],
+    ['antes da transação: estado com erro', {falharEm: comum.SQL_ESTADO, erro: erroMarcado('42704')}, 'FALHA', 2, 'SEM_TRANSACAO', 'ERRO_SERVIDOR 42704', () => {}],
+    ['nova: definições na transação', {falharEm: DEF, erro: erroMarcado('42883')}, 'FALHA', 2, 'NAO_COMMITADA', 'ERRO_SERVIDOR 42883',
+      m => assert.equal(m.etapas[0].faseDaFalha, 'verificacao')],
+    ['nova: relações na transação', {falharEm: rel.SQL_RELACOES, erro: erroMarcado('XX000')}, 'FALHA', 2, 'NAO_COMMITADA', 'ERRO_SERVIDOR XX000',
+      m => assert.equal(m.etapas[0].faseDaFalha, 'verificacao')],
+    ['nova: DDL', {falharEm: 'CREATE TABLE public.mcp_oauth_tokens', erro: erroMarcado('55P03')}, 'FALHA', 2, 'NAO_COMMITADA', 'ERRO_SERVIDOR 55P03',
+      m => assert.equal(m.etapas[0].faseDaFalha, 'corpo')],
+    ['nova: COMMIT 08006', {falharCommit: {erro: erroMarcado('08006')}}, 'FALHA', 2, 'INDETERMINADO', 'ERRO_SERVIDOR 08006', m => assert.equal(m.etapas[0].faseDaFalha, 'commit')],
+    ['nova: COMMIT 40003', {falharCommit: {erro: erroMarcado('40003')}}, 'FALHA', 2, 'INDETERMINADO', 'ERRO_SERVIDOR 40003', () => {}],
+    ['nova: COMMIT sem código', {falharCommit: {erro: erroMarcado(undefined)}}, 'FALHA', 2, 'INDETERMINADO', 'ERRO_NAO_CLASSIFICADO', () => {}],
+    ['nova: conferência pós-COMMIT', {falharEm: 'AS concessoes_ativas', erro: erroMarcado('42704')}, 'FALHA', 2, 'CONFIRMADO',
+      'CONFERENCIA_DEPOIS_DO_COMMIT_105 FALHA_DE_CONFERENCIA', m => assert.deepEqual([m.conferenciaDepois.fase, m.conferenciaDepois.motivo], ['CONTAGENS', 'ERRO_SERVIDOR 42704'])]];
+  for (const [nome, opcoes, resultado, codigo, commit, mensagem, extra] of casos) {
+    const dir = tmp(), C = clienteFalso(opcoes);
+    const r = await prod.principal(['--aplicar-105-autorizado', '--backup', BACKUP], ENV, {Client: C, dir, disco: semDisco, agora: AGORA});
+    assert.equal(r.saida.resultado, resultado, nome); assert.equal(r.codigo, codigo, nome); assert.equal(r.saida.commit, commit, nome);
+    assert.equal(r.saida.falha.mensagem, mensagem, nome); assert.ok(SAIDA_FECHADA(mensagem), nome);
+    assert.equal(C.commits(), ['SEM_TRANSACAO', 'NAO_COMMITADA'].includes(commit) ? 0 : 1, nome);
+    const m = marcadorDe(dir);
+    assert.equal(m.situacao, 'FALHA', nome); assert.equal(m.commit, commit, nome); assert.equal(m.falha.mensagem, mensagem, nome); extra(m);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': saída'); semMarcadorNoDir(dir, nome);
+  }
+});
+
+test('APLICAR (P2-3): falha de GRAVAÇÃO do marcador com texto livre → código 5 com o estado do COMMIT, erroMarcador fechado', async () => {
+  const falhaGravar = (code, quando) => { let falhou = false; return (arquivo, dados, opcoes) => {
+    if (falhou || quando(JSON.parse(dados))) { falhou = true; throw erroMarcado(code); }
+    return fs.writeFileSync(arquivo, dados, opcoes); }; };
+  for (const [nome, code, quando, commit, erroMarcador] of [
+    ['depois do COMMIT, ENOSPC', 'ENOSPC', o => o.etapas?.[0]?.commit === 'CONFIRMADO', 'CONFIRMADO', 'ERRO_SISTEMA ENOSPC'],
+    ['depois do COMMIT, sem código', undefined, o => o.etapas?.[0]?.commit === 'CONFIRMADO', 'CONFIRMADO', 'ERRO_NAO_CLASSIFICADO'],
+    ['antes do COMMIT, EIO', 'EIO', o => o.etapas?.[0]?.antesDoCommit?.definicoes === 'PASS', 'NAO_COMMITADA', 'ERRO_SISTEMA EIO']]) {
+    const dir = tmp(), C = clienteFalso();
+    const r = await prod.principal(['--aplicar-105-autorizado', '--backup', BACKUP], ENV,
+      {Client: C, dir, disco: semDisco, agora: AGORA, escrever: falhaGravar(code, quando)});
+    assert.equal(r.codigo, 5, nome); assert.equal(r.saida.resultado, 'FALHA_MARCADOR_DESATUALIZADO', nome); assert.equal(r.saida.commit, commit, nome);
+    assert.equal(r.saida.erroMarcador, erroMarcador, nome); assert.equal(C.commits(), commit === 'CONFIRMADO' ? 1 : 0, nome);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': saída'); semMarcadorNoDir(dir, nome);
+  }
 });
 
 test('falha NO COMMIT: 40003, 08xxx, 57xxx e sem SQLSTATE = INDETERMINADO; SQLSTATE do servidor = DESFEITA; COMMIT→ROLLBACK = DESFEITA; nunca repete', async () => {
@@ -481,4 +714,99 @@ test('CLI real: fora do Render recusa com código 1; nenhuma saída traz URL ou 
   const r = spawnSync(process.execPath, [path.join(__dirname, 'migration-105-production.cjs'), '--conferir-105'],
     {encoding: 'utf8', env: {...env, ...ENV, RENDER_SERVICE_ID: 'srv-daif418ae00c73e8k2gg'}});
   assert.equal(r.status, 1); assert.match(r.stderr, /SERVICO_RECUSADO/); assert.doesNotMatch(r.stderr + r.stdout, /SENHA_FALSA|postgresql:\/\//);
+});
+
+test('relações: SQL derivado do SQL_RELACAO_105 do B-5 (7 trocas exatas), só leitura, e a referência de concessões É a RELACAO_105', () => {
+  assert.equal(rel.miolo('mcp_oauth_concessoes'), SQL_RELACAO_105.slice('SELECT '.length, -' AS relacao'.length));
+  assert.equal(rel.REFERENCIAS.mcp_oauth_concessoes, RELACAO_105);
+  assert.deepEqual(rel.TABELAS, ['mcp_oauth_clientes', 'mcp_oauth_pedidos', 'mcp_oauth_concessoes', 'mcp_oauth_codigos', 'mcp_oauth_tokens', 'mcp_auditoria']);
+  for (const t2 of rel.TABELAS) {
+    assert.ok(rel.SQL_RELACOES.includes(rel.miolo(t2) + ' AS ' + t2), t2);
+    assert.equal(rel.miolo(t2).split("to_regclass('public." + t2 + "')").length - 1, 7, t2);
+    assert.ok(!rel.miolo(t2).includes('mcp_oauth_concessoes') || t2 === 'mcp_oauth_concessoes', t2 + ': nenhuma sobra do literal de concessões');
+  }
+  assert.doesNotMatch(rel.SQL_RELACOES, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE|GRANT|COPY|DO|SET)\b/);
+  assert.equal(rel.SQL_RELACOES.split(';').length, 1, 'um único statement');
+  assert.throws(() => rel.miolo('empresas'), /TABELA_FORA_DA_105/);
+  const r = rel.compararRelacoes(relOk());
+  assert.equal(r.integra, true, JSON.stringify(r.divergencias)); assert.equal(r.versaoPg, 180006);
+  assert.deepEqual(Object.fromEntries(Object.entries(r.tabelas).map(([k, v]) => [k, v.esperadas])),
+    {mcp_oauth_clientes: 25, mcp_oauth_pedidos: 39, mcp_oauth_concessoes: 57, mcp_oauth_codigos: 28, mcp_oauth_tokens: 34, mcp_auditoria: 32});
+});
+
+test('relações: referências coerentes com o inventário de definições (colunas em ordem, NOT NULL validados, FKs de entrada e saída)', () => {
+  for (const t2 of rel.TABELAS) {
+    const ls = rel.REFERENCIAS[t2].split(LF);
+    const cols = ls.filter(l => l.startsWith('coluna '));
+    const colunasRef = cols.map(l => l.split(' ')[2]);
+    const colunasDefs = Object.keys(defs.ESPERADO).filter(k => k.startsWith('coluna:' + t2 + '.')).map(k => k.slice(('coluna:' + t2 + '.').length));
+    assert.deepEqual([...colunasRef].sort(), [...colunasDefs].sort(), t2 + ': mesmas colunas');
+    assert.deepEqual(cols.map(l => l.split(' ')[1]), cols.map((_, i) => String(i + 1).padStart(3, '0')), t2 + ': attnum contínuo');
+    const nn = ls.filter(l => l.startsWith('restricao public.' + t2 + ' ') && l.split(' ')[3] === 'n');
+    assert.ok(nn.every(l => l.includes(' n t f f t f true NOT NULL ')), t2 + ': todo NOT NULL validado, local, imediato');
+    const nnColunas = nn.map(l => l.split(' ').at(-1)).sort();
+    const nnDefs = colunasDefs.filter(c => [defs.ESPERADO['coluna:' + t2 + '.' + c]].flat()[0].includes('NOT NULL')).sort();
+    assert.deepEqual(nnColunas, nnDefs, t2 + ': NOT NULL = colunas NOT NULL das definições');
+    assert.equal(ls.filter(l => l === 'heranca 0').length, 1); assert.equal(ls.filter(l => l === 'politicas 0').length, 1);
+    assert.ok(ls.includes('funcao - f f v u f f'), t2 + ': função sem proconfig, INVOKER, VOLATILE');
+    assert.ok(ls.some(l => l.startsWith('classe r p heap rls f f ')), t2 + ': tabela comum, permanente, RLS desligada e não forçada');
+  }
+  for (const [tabela, nome] of defs.FKS) {
+    const saida = rel.REFERENCIAS[tabela].split(LF).filter(l => l.startsWith('restricao public.' + tabela + ' ' + nome + ' f '));
+    assert.equal(saida.length, 1, nome + ' na tabela de origem');
+    assert.ok(saida[0].includes(' f t f f t t true FOREIGN KEY '), nome + ': validada, imediata, local');
+    const alvo = saida[0].split(' REFERENCES public.')[1].split('(')[0];
+    if (rel.TABELAS.includes(alvo)) assert.ok(rel.REFERENCIAS[alvo].split(LF).includes(saida[0]), nome + ': também como FK de ENTRADA em ' + alvo);
+  }
+});
+
+test('relações: cada mutante dá integra=false só com categorias (sem texto do banco); versão sem referência e leitura ilegível falham fechado', () => {
+  for (const [nome, [f, esperado]] of Object.entries(MUTANTES_RELACAO)) {
+    const r = rel.compararRelacoes(f(relOk()));
+    assert.equal(r.integra, false, nome); assert.ok(r.divergencias.includes(esperado), nome + ': ' + JSON.stringify(r.divergencias));
+    assert.ok(r.divergencias.every(d => /^(mcp_[a-z_]+ (FALTA|SOBRA) (classe|heranca|politicas|restricao|indice|gatilho|coluna|funcao|ILEGIVEL)|mcp_[a-z_]+ ILEGIVEL|SEM_REFERENCIA_PG \d+|VERSAO_PG ILEGIVEL)$/.test(d)), nome + ': só categorias fixas');
+    assert.doesNotMatch(JSON.stringify(r), /tabela_externa|t_extra|search_path|NOT NULL|FOREIGN|MARCADOR_PRIVADO|restante|nome_fk|idx/, nome + ': nada do texto lido');
+  }
+  assert.deepEqual(rel.compararRelacoes({...relOk(), versao_pg: 170004}).divergencias, ['SEM_REFERENCIA_PG 17']);
+  assert.deepEqual(rel.compararRelacoes({...relOk(), versao_pg: '180006'}).divergencias, ['VERSAO_PG ILEGIVEL']);
+  assert.deepEqual(rel.compararRelacoes({...relOk(), mcp_auditoria: null}).divergencias, ['mcp_auditoria ILEGIVEL']);
+  assert.equal(rel.compararRelacoes(undefined).divergencias.length, 7);
+  // A única alternativa: DEFAULT não qualificado de gen_random_uuid() (decidido no definicoes.sql, uuid_publico).
+  const semQualificar = mudaRel('mcp_oauth_tokens', ls => ls.map(l => l.replace('DEFAULT public.gen_random_uuid()', 'DEFAULT gen_random_uuid()')));
+  assert.equal(rel.compararRelacoes(semQualificar(relOk())).integra, true);
+  const outraFuncao = mudaRel('mcp_oauth_tokens', ls => ls.map(l => l.replace('DEFAULT public.gen_random_uuid()', 'DEFAULT extensions.gen_random_uuid()')));
+  assert.deepEqual(rel.compararRelacoes(outraFuncao(relOk())).divergencias, ['mcp_oauth_tokens FALTA coluna', 'mcp_oauth_tokens SOBRA coluna']);
+});
+
+test('CONFERIR: mutante de RELAÇÃO dá DIVERGENTE (3) com integridade antiga e definições PASS; saída sem texto do banco', async () => {
+  for (const [nome, [f, esperado]] of Object.entries(MUTANTES_RELACAO)) {
+    const C = clienteFalso({inicial: estado(COMPLETA), inicialDefs: linhas(), inicialRel: f(relOk())});
+    const r = await prod.principal(['--conferir-105'], ENV, {Client: C});
+    assert.equal(r.saida.resultado, 'DIVERGENTE', nome); assert.equal(r.codigo, 3, nome);
+    assert.equal(r.saida.checks.integridade, 'PASS', nome); assert.equal(r.saida.checks.definicoes, 'PASS', nome);
+    assert.equal(r.saida.checks.relacoes, 'FALHOU', nome); assert.ok(r.saida.checks.divergenciasRelacoes.includes(esperado), nome);
+    assert.deepEqual(escritasNoBanco(C.log), [], nome + ': nada fora de READ ONLY');
+    assert.doesNotMatch(JSON.stringify(r.saida), /tabela_externa|t_extra|search_path=/, nome);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': saída do CONFERIR sem o marcador');
+  }
+  const r17 = await conferir(clienteFalso({inicial: estado(COMPLETA), inicialDefs: linhas(), inicialRel: {...relOk(), versao_pg: 170004}}));
+  assert.equal(r17.resultado, 'DIVERGENTE'); assert.deepEqual(r17.checks.divergenciasRelacoes, ['SEM_REFERENCIA_PG 17']);
+  // Antes da 105 (PRONTA_PARA_APLICAR) as relações não são exigidas: as tabelas não existem.
+  const pronta = await conferir(clienteFalso({inicialRel: {versao_pg: 180006}}));
+  assert.equal(pronta.resultado, 'PRONTA_PARA_APLICAR');
+});
+
+test('APLICAR: mutante de RELAÇÃO na transação → ROLLBACK antes do COMMIT, NAO_COMMITADA, relacoes FALHOU no marcador', async () => {
+  for (const [nome, [f]] of Object.entries(MUTANTES_RELACAO)) {
+    const dir = tmp(), C = clienteFalso({aplicadasRel: f(relOk())});
+    const r = await executar(C, {dir});
+    assert.equal(r.resultado, 'FALHA', nome); assert.equal(r.commit, 'NAO_COMMITADA', nome); assert.match(r.falha.mensagem, /INTEGRIDADE_105_ANTES_DO_COMMIT/, nome);
+    assert.equal(C.commits(), 0, nome); assert.equal(C.atual.estado.m105_tabelas, 0, nome);
+    const e = marcadorDe(dir).etapas[0].antesDoCommit;
+    assert.equal(e.definicoes, 'PASS', nome); assert.equal(e.relacoes, 'FALHOU', nome);
+    assert.doesNotMatch(JSON.stringify(r), MARCADOR_RE, nome + ': resultado do APLICAR sem o marcador');
+    const arquivos = fs.readdirSync(dir, {withFileTypes: true}).filter(x => x.isFile()).map(x => x.name);
+    assert.ok(arquivos.includes('migration-105.json'), nome + ': marcador gravado');
+    for (const f of arquivos) assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), MARCADOR_RE, nome + ': arquivo ' + f + ' sem o marcador');
+  }
 });

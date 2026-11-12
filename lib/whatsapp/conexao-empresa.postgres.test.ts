@@ -265,7 +265,7 @@ test('o mesmo número não entra em duas empresas: recusado com mensagem neutra,
 
 /**
  * B1: a validação REAL do cliente Meta (meta-client.ts, mesma instância de erros do serviço) com a Meta dublada por
- * fetch. O token autoriza os negócios 1001 e 1002 e a WABA 2002, mas a WABA 2002 é POSSUÍDA pelo 1002: o evento
+ * fetch. O token autoriza a WABA 2002, cujo dono lido no servidor (`owner_business_info`) é o 1002: o evento
  * (1001, 2002) é a combinação cruzada. Recusa e falha do provedor: tentativa FALHOU e nenhuma conexão.
  */
 test('B1: combinação WABA ↔ negócio não comprovada e falha do provedor não concluem conexão (tentativa FALHOU)', async () => {
@@ -273,12 +273,12 @@ test('B1: combinação WABA ↔ negócio não comprovada e falha do provedor nã
   const dubleMeta = (falhaPosse: 'nenhuma' | 'http500' | 'rede') => (async (input: string | URL | Request) => {
     const url = String(input);
     if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'token-sintetico-b1', token_type: 'bearer' });
-    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
-      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2002'] }, { scope: 'business_management', target_ids: ['1001', '1002'] }] } });
-    if (url.includes('/owned_whatsapp_business_accounts')) {
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2002'] }] } });
+    if (url.includes('fields=id,owner_business_info')) {
       if (falhaPosse === 'rede') throw new TypeError('fetch failed');
       if (falhaPosse === 'http500') return new Response('{}', { status: 500 });
-      return Response.json({ data: url.includes('/1002/') ? [{ id: '2002' }] : [{ id: '2099' }] });
+      return Response.json({ id: '2002', owner_business_info: { id: '1002' } });
     }
     return Response.json({ data: [{ id: '8001', display_phone_number: '+55 11 98001-0000', verified_name: 'Cruzado', is_on_biz_app: true }] });
   }) as typeof fetch;
@@ -294,17 +294,17 @@ test('B1: combinação WABA ↔ negócio não comprovada e falha do provedor nã
 
 /**
  * D2: evento do WhatsApp Business App só com waba_id. O serviço REAL com o meta-client REAL (fetch dublado) resolve o
- * negócio pela posse e o número em coexistência, e grava conexão, tentativa e auditoria com os ids COMPROVADOS.
+ * negócio pelo dono da WABA e o número em coexistência, e grava conexão, tentativa e auditoria com os ids COMPROVADOS.
  */
 test('D2: conclusão só com waba_id grava a conexão com o negócio dono e o número em coexistência resolvidos', async () => {
   const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
   const dubleMeta = (async (input: string | URL | Request) => {
     const url = String(input);
     if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'token-sintetico-d2', token_type: 'bearer' });
-    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
-      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2009'] }, { scope: 'business_management', target_ids: ['1008', '1009'] }] } });
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2009'] }] } });
     if (url.endsWith('/subscribed_apps')) return Response.json({ success: true });
-    if (url.includes('/owned_whatsapp_business_accounts')) return Response.json({ data: url.includes('/1009/') ? [{ id: '2009' }] : [{ id: '2099' }] });
+    if (url.includes('fields=id,owner_business_info')) return Response.json({ id: '2009', owner_business_info: { id: '1009' } });
     return Response.json({ data: [{ id: '9000', display_phone_number: '+55 11 99000-0000', verified_name: 'Outro', is_on_biz_app: false },
       { id: '9001', display_phone_number: '+55 11 99001-0000', verified_name: 'Coexistência', is_on_biz_app: true }] });
   }) as typeof fetch;
@@ -339,9 +339,9 @@ function dubleComInscricao(o: DubleInscricao, chamadas: string[]) {
       return Response.json(o.inscricao === 'ok' ? { success: true } : { success: false });
     }
     if (url.includes('/oauth/access_token')) return Response.json({ access_token: `token-sintetico-${o.waba}`, token_type: 'bearer' });
-    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
-      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: [o.waba] }, { scope: 'business_management', target_ids: [o.negocio] }] } });
-    if (url.includes('/owned_whatsapp_business_accounts')) return Response.json({ data: [{ id: o.waba }] });
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: [o.waba] }] } });
+    if (url.includes('fields=id,owner_business_info')) return Response.json({ id: o.waba, owner_business_info: { id: o.negocio } });
     return Response.json({ data: [{ id: o.numero, display_phone_number: `+55 11 9${o.numero.slice(-4)}-0000`, verified_name: `Buffet ${o.numero}`, is_on_biz_app: true }] });
   }) as typeof fetch;
 }

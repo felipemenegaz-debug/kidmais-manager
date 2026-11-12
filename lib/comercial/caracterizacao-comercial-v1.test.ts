@@ -49,7 +49,8 @@ test("characterização: schema 1 ainda lê o cadastro vivo; schema 2 preserva o
   assert.match(repositorio, /JOIN pacotes p ON p\.id = f\.pacote_id/);
   assert.match(repositorio, /JOIN tabelas_preco tp ON tp\.id = f\.tabela_preco_id/);
   const pdf = readFileSync("lib/contratos/documento/oficial/festas-v2.ts", "utf8");
-  assert.match(pdf, /schemaVersao === 2 \? snapshot\.pacoteAplicado\.nome/);
+  // S-E: V2 (e V3 com fotografia) pelo helper do snapshot; V1 continua sem nome congelado.
+  assert.match(pdf, /pacoteAplicadoDoSnapshot\(snapshot\)\?\.nome \?\? null/);
   assert.match(pdf, /if \(!nomeCongelado\) snapshot\.evento\.pacote\.nome = perfil\.pacoteNome/);
   assert.equal(MODELOS_OFICIAIS.COMPLETA.pacoteNome, "Festa Completa");
   assert.equal(Object.keys(MODELOS_OFICIAIS).length, 7);

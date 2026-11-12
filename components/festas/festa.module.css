@@ -32,6 +32,11 @@
 .cta { composes: primario from "../admin/visual.module.css"; }
 .financeiro { composes: secao from "../admin/visual.module.css"; }
 .page button.cta { font: 600 14px/1 var(--admin-font); }
+/* Importar contrato de festa no topo de Festas (pedido de Felipe, 23/10/2026): o mesmo lugar e o mesmo botão de Contratos. */
+.tituloFestas { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 16px; }
+.tituloFestas h1 { margin:8px 0; }
+.importarContrato { composes: primario from "../admin/visual.module.css"; }
+.page a.importarContrato { color:white; text-decoration:none; }
 .card.financeiro .actions button:last-child{border:1px solid var(--km-border);background:var(--km-card-2);color:var(--km-text);min-height:44px;border-radius:10px;padding:10px 18px;font-weight:600}
 .card.financeiro form{margin-top:12px;padding:16px;border:1px solid var(--km-border);border-radius:var(--km-radius);background:color-mix(in srgb,var(--km-card) 92%,black)}
 .card.financeiro :focus-visible{outline:2px solid var(--km-lilac);outline-offset:2px}

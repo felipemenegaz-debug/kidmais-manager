@@ -38,10 +38,19 @@ export function modoEntendimento(env: NodeJS.ProcessEnv = process.env): ModoEnte
   return { modo: 'MODELO', motivo: 'AUTORIZADO' };
 }
 export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return modoEntendimento(env).modo === 'REGRAS'; }
+/**
+ * F2 (revisão da E-ME1): recepção TÉCNICA (chave de recepção + receptor deste ambiente), sem exigir piloto. É o que basta
+ * para registrar STATUS de saídas já existentes, em qualquer modo e depois do rollback sem piloto configurada.
+ */
+export function recepcaoTecnicaAtiva(env: NodeJS.ProcessEnv = process.env) {
+  return env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED === 'true' && receptorDoNumero(env);
+}
 /** Sem empresa piloto válida a recepção fica desligada (só metadados): erro de configuração não vira 503 eterno. */
 export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
   if (env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED !== 'true' || !receptorDoNumero(env)) return false;
-  try { empresaPiloto(env); return true; } catch { return false; }
+  // E-ME1: com WHATSAPP_ATENDIMENTO_MULTIEMPRESA=true a piloto é opcional (Meta por empresa; o Gupshup sem piloto confirma
+  // sem gravar). A decisão por empresa (modo efetivo, C1, C2, C4) é tomada na transação da recepção.
+  try { empresaPiloto(env); return true; } catch { return env.WHATSAPP_ATENDIMENTO_MULTIEMPRESA === 'true'; }
 }
 export function atendimentoAtivo(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ENABLED === 'true' && receptorDoNumero(env); }
 

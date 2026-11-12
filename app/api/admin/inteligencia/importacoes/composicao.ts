@@ -5,10 +5,11 @@ import { confirmarIntegracao, opcoesIntegracaoRascunho, simularIntegracao, Integ
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from '@/lib/http/admin-crm-api';
 import type { NextRequest } from "next/server";
-import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase } from "@/lib/clientes/services";
+import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase, pessoaJuridicaDisponivel } from "@/lib/clientes/services";
 import { executarImportacao } from "@/lib/importacao-contrato/motor";
+import { resumoCotaParaTela } from "@/lib/importacao-contrato/cota";
 import { documentosDisponiveis, ultimaExtracao } from "@/lib/importacao-contrato/repositorio-documentos";
-import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorDocumento, lerImportacao, substituirImportacaoCancelada } from "@/lib/importacao-contrato/repositorio-importacao";
+import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorAbertura, importacaoPorDocumento, lerImportacao, listarParaRevisao, registrarAbertura, substituirImportacaoCancelada, travarDocumento } from "@/lib/importacao-contrato/repositorio-importacao";
 import { CHAVE_ACOES, CHAVE_HUMAN_GATE } from "@/lib/inteligencia/acoes/modulo";
 import type { RegistroExtensoes } from "@/lib/inteligencia/extensoes";
 import { criarAcaoImportacao, type PortaImportacao } from "@/lib/inteligencia/importacao/acao";
@@ -16,14 +17,32 @@ import type { DependenciasImportacao } from "@/lib/inteligencia/importacao/revis
 import { dependenciasGateway } from "../dependencias";
 import { montarExtensoes } from "../extensoes";
 
-/** Só recusas humanas conhecidas do domínio mantêm seu status. Falhas internas seguem o fallback sanitizado. */
-function traduzirRecusa(erro: unknown): never {
+/**
+ * Só recusas humanas conhecidas do domínio mantêm seu status. Falhas internas seguem o fallback sanitizado.
+ * S-E restante (P2-5): exportada para a suíte PG provar que SALAO_INDISPONIVEL chega ao Human Gate com o próprio código.
+ */
+export function traduzirRecusa(erro: unknown): never {
   if (erro instanceof IntegracaoImportadoError && erro.httpStatus >= 400 && erro.httpStatus < 500) throw new InteligenciaError(erro.code, erro.message, erro.httpStatus);
   throw erro;
 }
 
+/** Sessão da confirmação: a do request atual na rota; a suíte PostgreSQL passa a do cenário (mesma porta do produto). */
+export type SessaoImportacao = {
+  atual(): Promise<{ usuario_id: string; autenticado_em: string }>;
+  token(): string;
+  userAgent(): string | null;
+};
+
 /** Composição da feature IMPORT: rascunho de importação, match no CRM e Import Engine. */
 export function portaImportacao(request: NextRequest): PortaImportacao {
+  return portaImportacaoCom({
+    atual: () => exigirApiAdminCrmDisponivel(request),
+    token: () => tokenAdmin(request),
+    userAgent: () => request.headers.get('user-agent')?.slice(0, 1000) ?? null,
+  });
+}
+
+export function portaImportacaoCom(sessaoDaConfirmacao: SessaoImportacao): PortaImportacao {
   return {
     completa: {
       async opcoes(tx, tenant, i, p) { return opcoesIntegracaoRascunho(tx, tenant, await fonteDoRascunho(tx, tenant, i, p), hojeBrasilia()).catch(traduzirRecusa); },
@@ -34,21 +53,27 @@ export function portaImportacao(request: NextRequest): PortaImportacao {
       },
       async confirmar(tx, tenant, i, d, hash, ctx) {
         // Sessão ATUAL do request de confirmação; senha/token nunca entram no payload persistido.
-        const sessao = await exigirApiAdminCrmDisponivel(request);
+        const sessao = await sessaoDaConfirmacao.atual();
         if (sessao.usuario_id !== ctx.usuarioId || tenant.usuarioId !== ctx.usuarioId) throw new IntegracaoImportadoError('OPERACAO_NAO_AUTORIZADA', 'Sessão divergente.', 403);
-        return confirmarIntegracao(tx, tenant, { usuarioId: ctx.usuarioId, token: tokenAdmin(request), requestId: ctx.operacaoId, ip: null,
-          userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null, autenticadoEm: sessao.autenticado_em }, i.id,
+        return confirmarIntegracao(tx, tenant, { usuarioId: ctx.usuarioId, token: sessaoDaConfirmacao.token(), requestId: ctx.operacaoId, ip: null,
+          userAgent: sessaoDaConfirmacao.userAgent(), autenticadoEm: sessao.autenticado_em }, i.id,
           { decisoes: d, resumoHash: hash, chave: ctx.operacaoId }, hojeBrasilia(), coreNativo).catch(traduzirRecusa);
       },
     },
     disponivel: async (tx) => await importacaoDisponivel(tx) && await documentosDisponiveis(tx),
+    resumoCota: (tx, empresaId) => resumoCotaParaTela(tx, empresaId),
     ultimaExtracao,
     abrirImportacao,
+    travarDocumento,
+    importacaoPorAbertura,
+    registrarAbertura,
+    listarParaRevisao,
     lerImportacao,
     importacaoPorDocumento,
     atualizarImportacao,
     substituirImportacaoCancelada,
     analisarCliente: (tx, empresaId, dados) => analisarCadastroCliente(dados, empresaId, {}, tx),
+    pessoaJuridicaDisponivel: (tx) => pessoaJuridicaDisponivel(tx),
     executar: (tx, entrada) => executarImportacao(tx, entrada, {
       // Cliente novo pelo mesmo serviço do CRM: dedup no tenant, índice de CPF, histórico e auditoria.
       async cadastrarCliente(txCliente, empresaId, dados, ctx) {
@@ -57,13 +82,14 @@ export function portaImportacao(request: NextRequest): PortaImportacao {
           origem: "CRM_INTERNO",
           requestId: ctx.requestId,
           ip: null,
-          userAgent: request.headers.get("user-agent")?.slice(0, 1000) ?? null,
+          userAgent: sessaoDaConfirmacao.userAgent(),
         }, txCliente);
         return { clienteId: criado.cliente.id };
       },
       // Vínculo só com cliente do tenant comprovado (outra empresa responde como inexistente).
       async conferirCliente(txCliente, empresaId, clienteId) {
-        await obterClienteBase(clienteId, empresaId, txCliente);
+        const { cliente } = await obterClienteBase(clienteId, empresaId, txCliente);
+        return { tipoPessoa: cliente.tipoPessoa, cnpj: cliente.cnpj };
       },
       atualizarImportacao,
     }),

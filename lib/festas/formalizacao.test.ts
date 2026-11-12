@@ -13,6 +13,8 @@ function executor(options: { valida?: boolean; existentes?: object[]; falha?: st
         chamadas.push({ sql, values });
         if (options.falha && sql.includes(options.falha)) throw Error('Falha sintética');
         let rows: object[] = [];
+        // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+        if (sql.includes('pg_locks')) rows = [{ ok: true, empresa: values?.[0] ?? 'empresa' }];
         if (sql.includes(' AS valida')) rows = [{ valida: options.valida ?? true }];
         if (sql.startsWith('SELECT id,invalidada_em')) rows = options.existentes ?? [];
         if (sql.startsWith('SELECT id,parte')) rows = [{ id: 'assinatura-k', parte: 'KIDMAIS' }, { id: 'assinatura-c', parte: 'CLIENTE' }];
@@ -45,10 +47,13 @@ test('Festa invalidada não é ressuscitada nem por reconciliação', async () =
 });
 test('lock e revalidação são statements separados no mesmo executor', async () => {
     const { tx, chamadas } = executor();
-    await bloquearAgendaFormalizacao(tx, 'c');
-    assert.equal(chamadas.length, 2);
-    assert.match(chamadas[0].sql, /bloquear_contrato/);
-    assert.match(chamadas[1].sql, /validar_destino/);
+    await bloquearAgendaFormalizacao(tx, 'c', 'v', { caminho: 'FORMALIZACAO_POS_ASSINATURA', origem: 'ACEITE_PUBLICO' });
+    // Rev. 3: antes do lock, a guarda confere a configuração da agenda já travada pela entrada (pg_locks, só leitura).
+    assert.match(chamadas[0].sql, /pg_locks/);
+    // 094: entre o lock e a revalidação, a escolha do salão (só leitura quando não há fechamento/094).
+    assert.match(chamadas[1].sql, /bloquear_contrato/);
+    assert.match(chamadas.at(-1)!.sql, /validar_destino/);
+    assert.equal(chamadas.slice(2, -1).every((c) => /^s*SELECT/i.test(c.sql)), true);
 });
 test('criação automática registra sistema, duas assinaturas, request e chave comum sem sessão administrativa', async () => {
     const { tx, chamadas } = executor();

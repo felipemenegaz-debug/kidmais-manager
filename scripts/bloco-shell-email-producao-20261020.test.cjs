@@ -170,11 +170,13 @@ const MESMO_GERADOR = process.platform === 'win32' && process.versions.zlib === 
 test('blocos do pacote pacote-email-producao-20261020 (árvore 7494087) continuam byte a byte iguais',
   {skip: MESMO_GERADOR ? false : 'bytes do gzip dependem do SO/zlib; blocos do pacote gerados no Windows com zlib 1.3.2.1-motley'}, () => {
   // Mudar o executor ou o gerador muda estes sha: exige nova geração, nova revisão e novo pacote (docs/EMAIL_PRODUCAO_20261020.md §10).
-  // Revalidação de 08/11/2026 em production (hash fixado de lib/acessos/email.ts; só o texto das mensagens com iA.Fest):
-  // pacote anterior CONFERIR 8f77a397… (9612), ENVIAR 7cdbb59c… (9743), LIMPEZA 9e9967a0… (2285).
-  const pacote = {CONFERIR: ['f3308568013d30ca24df7098a1f451c25e48cbd413bdb3f3679e6a60bff858c8', 9863],
-    ENVIAR: ['83a770fde4b210bcab075965f18cad574b49c365ff9006e66d8e10fa4a0407b1', 9994],
-    LIMPEZA: ['13adc26415123929c460eb827c57d18389422b2e0a357c8dc16f04e83a0f49b4', 2285]};
+  // Revalidação de 23/10/2026 (só o hash fixado de lib/acessos/erros.ts no executor; mudança só de tipo): pacote anterior
+  // CONFERIR 8f77a397… (9612), ENVIAR 7cdbb59c… (9743), LIMPEZA 9e9967a0… (2285). Ver docs/EMAIL_PRODUCAO_20261020.md.
+  // Revalidação de 08/11/2026 (hash fixado de lib/acessos/email.ts; só o texto das mensagens com iA.Fest): pacote anterior
+  // CONFERIR dd8ebb2f… (9985), ENVIAR 85218447… (10116), LIMPEZA 03bcae5b… (2285).
+  const pacote = {CONFERIR: ['85033ef143b21eb95e66129ceec44b9d11375fab9c102911274fe924007bf933', 10107],
+    ENVIAR: ['7c2ecc5519a3157edfb2f88305c224936019a618c1c732550738313e3e08fa37', 10238],
+    LIMPEZA: ['c916d19104e2711cf5b803dc6303162175eabb5a32edac730795a745568ec4db', 2285]};
   for (const [modo, [h, bytes]] of Object.entries(pacote)) {
     const x = b.gerar({modo, rotulo: '7494087'});
     assert.equal(sha(x), h, modo); assert.equal(Buffer.byteLength(x), bytes, modo);

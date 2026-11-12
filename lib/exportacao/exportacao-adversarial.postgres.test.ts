@@ -30,7 +30,7 @@ const montarEmpresa = (db: Client, letra: string) => montarEmpresaCom(db, letra,
  *   4. cada filtro do inventário segue uma FK real do catálogo (roteiros/cadeias-fk.mts do revisor);
  *   5. tabela pública não classificada recusa a exportação (P2-3), sem pacote nem temporário;
  *   6. limite por empresa/pessoa e auditoria das recusas da guarda sem dados pessoais (P3-2, P3-5).
- * Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; modelo 089 (inclui a 089 da devolução); dados sintéticos.
+ * Só pelo check:v1:postgres com KIDMAIS_POSTGRES_DESCARTAVEL; modelo 095 (inclui a 089 da devolução e a 095 dos créditos); dados sintéticos.
  */
 
 
@@ -358,7 +358,11 @@ test("FK no catálogo: cada filtro do inventário segue uma FK real (coluna → 
     const SEM_FK_DECLARADA = new Set(["marketing_contato_preferencias_eventos"]);
     let conferidos = 0;
     const falhas: string[] = [];
+    const presentes = new Set((await c.query<{ t: string }>("SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'")).rows.map((r) => r.t));
+    let posteriores = 0;
     for (const e of ENTIDADES) {
+      // Migration posterior à 089 ausente aqui: a FK é provada na suíte da própria migration.
+      if (e.migracao && !presentes.has(e.tabela)) { posteriores++; continue; }
       if (e.onde === "t.id = $1::uuid") { conferidos++; continue; }
       if (e.onde === "t.empresa_id = $1::uuid") {
         if (tem(e.tabela, "empresa_id", "empresas") || fks.some((f) => f.t === e.tabela && f.c === "empresa_id") || SEM_FK_DECLARADA.has(e.tabela)) conferidos++;
@@ -375,7 +379,7 @@ test("FK no catálogo: cada filtro do inventário segue uma FK real (coluna → 
       }
     }
     assert.deepEqual(falhas, []);
-    assert.ok(conferidos >= ENTIDADES.length, `conferidos: ${conferidos}`);
+    assert.ok(conferidos + posteriores >= ENTIDADES.length, `conferidos: ${conferidos}, posteriores: ${posteriores}`);
   } finally {
     await encerrarDescartavel(c);
   }

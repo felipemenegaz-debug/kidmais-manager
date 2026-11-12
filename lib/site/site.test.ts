@@ -199,8 +199,6 @@ test('planos iA.Fest (01/11): IA assistiva em todos os planos; WhatsApp.IA inclu
     // D-PL-6: linhas dos planos; as descrições não prometem recurso Em breve sem selo.
     assert.deepEqual(planos.map(p => p.descricao.split('.')[0]), ['Organize', 'Venda mais', 'Atenda 24 h']);
     for (const plano of planos) assert.doesNotMatch(plano.descricao, /orçamento online|WhatsApp|copiloto|convite/i);
-    // Recorte de production (01/11): o adicional Wall-e publicitário sai da seção de planos (pausa de 23/10).
-    assert.equal(adicionais.some(a => /publicitário/i.test(a.nome)), false);
 });
 
 test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine', () => {
@@ -215,7 +213,7 @@ test('iA.Fest: identidade atual e projeto publicitário pausado fora da vitrine'
     assert.match(footer, /site\/iafest\/logotipo\.png/);
 });
 
-test('recorte 2 de production (04/11): galeria e seções novas sinalizam Em breve e plano, sem salões nem intervalo', () => {
+test('selos e planos de production (04/11) preservados em staging (Recongelar C r3.1): galeria e Marketing sinalizam Em breve e plano', () => {
     const { galeria } = carregarModulo('lib/site/galeria.ts', dubles, new Map()) as { galeria: { id: string; nome: string; recursos: RecursoId[]; planos?: string }[] };
     const comImagem = { ...dubles, 'next/image': { __esModule: true, default: (props: Record<string, unknown>) => createElement('img', { src: props.src, alt: props.alt }) } };
     const Galeria = carregarModulo('components/site/RecursosGaleria.tsx', comImagem, new Map()).default as ComponentType;
@@ -245,10 +243,4 @@ test('recorte 2 de production (04/11): galeria e seções novas sinalizam Em bre
     const marketing = secao('Marketing');
     assert.match(marketing, /data-planos-marketing="true">Nos planos Profissional e Premium/);
     assert.match(marketing, /Site do buffet · dentro do Marketing · planos Profissional e Premium/);
-    // P2-3/P3: nenhuma superfície nova ou reescrita promete salões (singular ou plural) nem intervalo entre festas.
-    const textoGaleria = JSON.stringify(galeria.map(({ ...item }) => { delete (item as Record<string, unknown>).imagens; return item; }));
-    for (const [nome, texto] of [['galeria', textoGaleria], ...['AntesDepois', 'Diferenciais', 'ImportacaoDocumentos', 'FinanceiroDetalhes', 'Marketing'].map(n => [n, secao(n)])])
-        assert.doesNotMatch(texto, /sal[ãa]o|sal[õo]es|intervalo/i, nome);
-    assert.equal('AgendaSaloes' in carregarModulo('components/site/secoes.tsx', dubles, new Map()), false);
-    assert.doesNotMatch(readFileSync('components/site/NavegacaoSite.tsx', 'utf8') + readFileSync('components/site/Site.tsx', 'utf8'), /#?saloes/);
 });

@@ -261,7 +261,7 @@ type EstadoFotografavel = {
   tabela_codigo: string;
   tabela_nome: string;
   preco_pacote_id: string;
-  tipo_calculo: "FIXO" | "POR_CONVIDADO";
+  tipo_calculo: "FIXO" | "POR_CONVIDADO" | "PONTO";
   convidados_min: number;
   convidados_max: number | null;
   categoria_preco_linha: string;

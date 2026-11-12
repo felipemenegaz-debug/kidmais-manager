@@ -61,6 +61,10 @@ test("exclusão de pacote usado falha fechada e a cópia leva o sufixo Cópia", 
   const copias: string[] = [];
   const livre: { query: (text: string, values?: readonly unknown[]) => Promise<{ rows: object[]; rowCount: number }> } = {
     async query(text: string, values?: readonly unknown[]) {
+      // Rev. 3: a guarda da configuração da agenda (pg_locks) responde como travada pela entrada.
+      if (text.includes("pg_locks")) return { rows: [{ ok: true, empresa: values?.[0] ?? empresa }], rowCount: 1 };
+      // Rev. 3: os pacotes tomam a trava da configuração (linha da empresa, advisory e variável da transação).
+      if (text.includes("FOR KEY SHARE") || text.includes("pg_advisory_xact_lock") || text.includes("set_config('kidmais.agenda_config_empresa'")) return { rows: [{}], rowCount: 1 };
       if (text.includes("AS utilizado")) return { rows: [{ ...linha, nome: "Festa", arquivado_em: null, vigente: true, utilizado: false }], rowCount: 1 };
       if (text.startsWith("SELECT id FROM empresas")) return { rows: [{ id: empresa }], rowCount: 1 };
       if (text.startsWith("INSERT INTO pacotes")) {

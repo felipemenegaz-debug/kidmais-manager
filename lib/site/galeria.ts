@@ -13,16 +13,16 @@ export const galeria: ItemGaleria[] = [
     "id": "agenda",
     "recursos": ["agenda"],
     "nome": "Agenda",
-    "titulo": "Saiba na hora se a data está livre.",
-    "texto": "Consulte a ocupação da agenda e gerencie, separadamente, as regras comerciais de cada pacote.",
+    "titulo": "Cada salão, com sua agenda.",
+    "texto": "Organize mais de um salão na mesma unidade e acompanhe a ocupação de cada espaço.",
     "itens": [
-      "Disponibilidade por data e horário",
+      "Disponibilidade por salão",
       "Bloqueios de datas e horários",
-      "Regras comerciais por pacote"
+      "Intervalo para preparar a próxima festa"
     ],
     "tela": "Agenda",
     "legenda": "Captura do sistema · ambiente de homologação",
-    "nota": "Captura da disponibilidade e das regras comerciais de cada pacote.",
+    "nota": "Captura da disponibilidade e das regras comerciais. A configuração dos espaços fica na Agenda da unidade.",
     "imagens": [
       {
         "src": "/site/recursos/agenda-1.webp",
@@ -230,7 +230,7 @@ export const galeria: ItemGaleria[] = [
         "label": "Pacotes e cardápio",
         "alt": "Pacotes e cardápio",
         "width": 880,
-        "height": 1022,
+        "height": 1100,
         "crop": false
       }
     ]

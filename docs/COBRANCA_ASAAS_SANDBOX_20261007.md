@@ -1,5 +1,13 @@
 # E8 — Cobrança da assinatura pelo Asaas (SANDBOX) (07/10/2026)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Não colocar em production chave, token ou webhook do Asaas, mesmo com a conta ativa: `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN` devem seguir ausentes, e `POST /api/integracoes/asaas/webhook` é entrada bloqueada. Criar cobrança, assinatura ou checkout no painel do provedor ou por outro integrador também é proibido enquanto a dívida estiver aberta (C2, sem recusa técnica).
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 Oitava entrega do plano de venda por assinatura ([PROPOSTA_VENDA_ASSINATURA_20261006.md](PROPOSTA_VENDA_ASSINATURA_20261006.md),
 §5 e §8 E8). Depende da 067 (#110), da 068 (#116) e da E4 (paywall). **Sem migration nova.** **Somente sandbox**:
 nenhum pagamento real, nenhuma chave de produção aceita pelo código. Nenhuma chamada ao Asaas foi feita durante o
@@ -82,6 +90,8 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
    sandbox, ou cartão de teste `4444 4444 4444 4444`) → conferir `ATIVA` na tela e o evento `PROCESSADO`.
 
 ## Falhas e recuperação
+
+> **Bloqueio em production (B-27, 07/11/2026).** Esta tabela é de sandbox. Em production, com a dívida aberta, ela não é roteiro: "Sincronizar com o provedor" aplica estado, e reentrega, reativação da fila e correção de token são intervenções, distintas da consulta. A recuperação segue a §9.2.5 do plano. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 | Falha | Efeito | Recuperação |
 |---|---|---|
@@ -178,6 +188,8 @@ NFS-e R$ 0,49/nota; notificações SMS/e-mail R$ 0,99 e WhatsApp R$ 0,55 (deslig
 Render cron: não criado (custo do plano não levantado).
 
 ## O que falta para produção (cada item com autorização própria)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Esta lista não é pendência a cumprir agora: a autorização de ativar production e a chave e o token novos dependem do fechamento da dívida. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 - Autorização explícita de Felipe para ativar produção; trocar o código para aceitar `ASAAS_AMBIENTE=producao` com a
   URL `https://api.asaas.com/v3` e a chave `$aact_prod_` (hoje recusadas de propósito).

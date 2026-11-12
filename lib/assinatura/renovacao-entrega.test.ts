@@ -20,6 +20,7 @@ function banco(linhas: Linha[], opcoes: { instalada?: boolean; ocupado?: boolean
     const auditoria: unknown[][] = [], sqls: string[] = [];
     const tx = {
         async query(sql: string, p: readonly unknown[] = []) {
+            if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
             const s = sql.replace(/\s+/g, ' ').trim(); sqls.push(s);
             const rows = (r: object[]) => ({ rows: r as never[], rowCount: r.length });
             if (s.startsWith('SELECT to_regclass')) return rows([{ instalada075: opcoes.instalada !== false }]);

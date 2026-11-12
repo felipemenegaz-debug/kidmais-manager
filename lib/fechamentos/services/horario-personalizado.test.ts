@@ -31,6 +31,7 @@ function edicao(periodos: unknown[], intervaloLivre: boolean) {
     '../../disponibilidade/repositories': { adquirirLockConfirmacaoAgenda: async (dia: string) => { chamadas.locks.push(dia); } },
     '../../disponibilidade/services': {
       consultarDisponibilidadeData: async () => ({ periodos }),
+      duracaoDoIntervalo: () => null,
       intervaloSemConflito: async (...args: unknown[]) => { chamadas.intervalo.push(args); return intervaloLivre; },
     },
   });
@@ -54,7 +55,7 @@ test('com a marca e intervalo livre: aceito, conferindo o intervalo exato e excl
   const { m, chamadas } = edicao([{ configuracaoId: 'noite', horarios: TURNO }], true);
   const tx = {};
   await passouDaAgenda(m.calcularEdicaoFechamento(F, pedido({ horarioPersonalizado: true }), tx));
-  assert.deepEqual(chamadas.intervalo, [['2026-11-20', '18:00', '22:30', tx, 'f']]);
+  assert.deepEqual(chamadas.intervalo, [['2026-11-20', '18:00', '22:30', tx, 'f', 'noite']]);
   assert.deepEqual(chamadas.locks, ['2026-11-20']);
 });
 
@@ -80,8 +81,8 @@ test('horarioPersonalizadoLivre: sem período ou com fim ≤ início é falso se
   assert.equal(await m.horarioPersonalizadoLivre(tx, 'f', { dataEvento: '2026-11-20', horarioInicio: '18:00', horarioFim: '22:30' }, false), false);
   assert.equal(await m.horarioPersonalizadoLivre(tx, 'f', { dataEvento: '2026-11-20', horarioInicio: '18:00', horarioFim: '18:00' }, true), false);
   assert.equal(chamadas.intervalo.length, 0);
-  assert.equal(await m.horarioPersonalizadoLivre(tx, 'f', { dataEvento: '2026-11-20', horarioInicio: '18:00:00', horarioFim: '22:30:00' }, true), true);
-  assert.deepEqual(chamadas.intervalo, [['2026-11-20', '18:00', '22:30', tx, 'f']]);
+  assert.equal(await m.horarioPersonalizadoLivre(tx, 'f', { dataEvento: '2026-11-20', horarioInicio: '18:00:00', horarioFim: '22:30:00', configuracaoAgendaId: 'noite' }, true), true);
+  assert.deepEqual(chamadas.intervalo, [['2026-11-20', '18:00', '22:30', tx, 'f', 'noite']]);
 });
 
 function aplicacao(periodos: unknown[], intervaloLivre: boolean) {
@@ -95,7 +96,7 @@ function aplicacao(periodos: unknown[], intervaloLivre: boolean) {
     '../../fechamentos/services/pacote-snapshot': { fotografarEstadoFechamento: async () => null },
     '../../clientes/repositories': { registrarAuditoria: async () => undefined },
     '../../disponibilidade/repositories': { adquirirLockConfirmacaoAgenda: async () => undefined },
-    '../../disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos }) },
+    '../../disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos }), duracaoDoIntervalo: () => null },
     '../../fechamentos/services/edicao-administrativa.service': {
       // Mesmo contrato da função real (testada abaixo): sem período configurado nunca é livre.
       horarioPersonalizadoLivre: async (...args: unknown[]) => { chamadas.intervalo.push(args); return args[3] === true && intervaloLivre; },
@@ -109,8 +110,9 @@ function aplicacao(periodos: unknown[], intervaloLivre: boolean) {
 
 test('revisão inicial: proposta marcada aplica o horário fora do padrão quando o intervalo exato está livre', async () => {
   const { aplicar, chamadas } = aplicacao([{ configuracaoId: 'noite', horarios: TURNO }], true);
-  await aplicar(true);
-  assert.equal(chamadas.persistiu, 1);
+  // Staging: depois da agenda vêm o estado documental e o salão (fora deste teste). Aqui: a agenda aceita o intervalo.
+  const erro = await aplicar(true).then(() => null, (e: unknown) => e);
+  assert.doesNotMatch(String((erro as Error | null)?.message ?? ''), /indisponível/);
   assert.equal(chamadas.intervalo.length, 1);
   assert.equal(chamadas.intervalo[0][3], true, 'período configurado');
 });

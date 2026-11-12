@@ -66,7 +66,7 @@ export default function CriarPlanoFinanceiro({ contexto, onCreated }: { contexto
             <label>Modalidade{meio === 'CARTAO' ? <select value={modalidade} onChange={e => mudar(() => { setModalidade(e.target.value as typeof modalidade); setLinhas([{ valor: '', vencimento: '' }]); })}><option value="AVISTA">À vista</option><option value="PARCELADO">Parcelado</option></select> : <input readOnly value={modalidade === 'AVISTA' ? 'À vista' : 'Parcelado'}/>}</label>
             <p>A forma de pagamento foi definida no contrato assinado. Para alterá-la, é necessário criar uma nova revisão contratual.</p>
             <p>O valor vigente já incorpora a condição comercial. Nenhum desconto será reaplicado e criar o plano não significa receber o pagamento.</p>
-            {meio === 'CARTAO' && <p>Parcelamento na operadora não cria parcelas contratuais automaticamente. Use À vista para uma cobrança integral e depois Registrar recebimento → CARTAO. Parcelado controla obrigações próprias da Kidmais, de 2 a 60 parcelas.</p>}
+            {meio === 'CARTAO' && <p>Parcelamento na operadora não cria parcelas contratuais automaticamente. Use À vista para uma cobrança integral e depois Registrar recebimento → CARTAO. Parcelado controla obrigações próprias do buffet, de 2 a 60 parcelas.</p>}
             {automatico ? <>
               {contexto.forma !== 'PIX_PARCELADO' ? <p role="alert">A sugestão automática exige PIX parcelado na versão contratual vigente. A condição comercial só pode ser alterada pelo fluxo de revisão contratual.</p> : <>
                 <p>PIX parcelado: desconto comercial de 3% já incorporado ao contrato. Informe a condição pretendida ou deixe os campos vazios para a sugestão automática.</p>

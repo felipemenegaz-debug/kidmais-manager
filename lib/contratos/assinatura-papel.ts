@@ -12,4 +12,4 @@ export function versaoAssinadaEmPapel(v: { aceiteMetodo?: string | null; aceite_
   return origem?.tipo === 'IMPORTACAO_HISTORICA';
 }
 
-export const TEXTO_ASSINADO_EM_PAPEL = 'Contrato assinado em papel, conferido pela Kidmais na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.';
+export const TEXTO_ASSINADO_EM_PAPEL = 'Contrato assinado em papel, conferido pelo buffet na importação. Não há assinatura eletrônica nem comprovante digital: a prova é o documento original.';

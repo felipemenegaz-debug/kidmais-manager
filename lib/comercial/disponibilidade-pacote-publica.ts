@@ -5,6 +5,7 @@ import type { DbExecutor } from "../db/contracts.ts";
 type Linha = {
   dia_semana: number;
   codigo: string;
+  configuracao_id?: string;
   estado: RegraPacoteEmpresa["estado"];
   vigencia_inicio: string;
   vigencia_fim: string | null;
@@ -12,14 +13,19 @@ type Linha = {
 
 const PERIODO: Record<string, HorarioBase> = { TURNO_1: "almoco", TURNO_2: "noite" };
 
-/** Converte as linhas; período desconhecido fica de fora (a tela trata como sem regra = indisponível). */
+/**
+ * Converte as linhas. Com o id do horário configurado, qualquer código vale (TURNO_1/TURNO_2/HORARIO_n) e a tela
+ * casa pelo `configuracaoId`; sem id, só TURNO_1/TURNO_2 (legado almoco/noite) — o resto fica de fora (sem regra =
+ * indisponível).
+ */
 export function regrasPublicasDoPacote(linhas: readonly Linha[]): RegraPacoteEmpresa[] {
   return linhas.flatMap((linha) => {
-    const horario = PERIODO[linha.codigo];
-    if (!horario) return [];
+    const horario = PERIODO[linha.codigo] ?? "";
+    if (!horario && !linha.configuracao_id) return [];
     return [{
       dia: Number(linha.dia_semana),
       horario,
+      ...(linha.configuracao_id ? { configuracaoId: linha.configuracao_id } : {}),
       estado: linha.estado,
       vigenciaInicio: linha.vigencia_inicio,
       vigenciaFim: linha.vigencia_fim,
@@ -33,7 +39,7 @@ export function regrasPublicasDoPacote(linhas: readonly Linha[]): RegraPacoteEmp
  */
 export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: string): Promise<RegraPacoteEmpresa[]> {
   const r = await tx.query<Linha>(
-    `SELECT r.dia_semana, c.codigo, r.estado, r.vigencia_inicio::text AS vigencia_inicio, r.vigencia_fim::text AS vigencia_fim
+    `SELECT r.dia_semana, c.codigo, c.id::text AS configuracao_id, r.estado, r.vigencia_inicio::text AS vigencia_inicio, r.vigencia_fim::text AS vigencia_fim
        FROM regras_disponibilidade_pacote r
        JOIN configuracao_agenda c ON c.id = r.configuracao_agenda_id
       WHERE r.pacote_id = $1::uuid

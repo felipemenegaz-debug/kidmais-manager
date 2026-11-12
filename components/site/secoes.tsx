@@ -3,6 +3,7 @@ import { Recurso, Cadastro, Contato } from './elementos';
 import { comercial, adicionais, precoExibido } from '@/lib/site/catalogo';
 import type { ConfiguracaoSite } from '@/lib/site/configuracao';
 import { dias } from '@/lib/assinatura/texto';
+import { textoFundador, type TextoFundador } from '@/lib/site/fundador';
 
 export function Hero({ aberto, config }: { aberto: boolean; config: ConfiguracaoSite }) { return (<section className={cx('hero')} aria-labelledby="t-hero">
     <div className={cx('wrap')}>
@@ -41,7 +42,7 @@ export function AntesDepois() { return (<section className={cx('block')} aria-la
     <div className={cx('wrap')}>
       <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
       <div className={cx('pain')}>
-        <article data-fundo-proteger><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e horários estão livres, sem risco de vender a mesma data duas vezes.</p></article>
+        <article data-fundo-proteger><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
         <article data-fundo-proteger><span className={cx('from')}>Contrato digitado à mão, um por um</span><h3>Contrato pronto com os dados da festa</h3><p>O contrato sai preenchido com o seu modelo, o pacote e os valores combinados. O cliente confere tudo pelo link no celular.</p></article>
         <article data-fundo-proteger><span className={cx('from')}>Orçamento na calculadora</span><h3>Orçamento com o seu preço</h3><p>Pacote, horário nobre ou promocional e adicionais somados na hora, com a sua tabela. Sem conta de cabeça.</p></article>
         <article data-fundo-proteger><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3>Parcelas com Pix copia e cola</h3><p>Cada parcela sai com o Pix da chave da sua empresa. Você sabe o que entrou, o que vence e o que atrasou.</p></article>
@@ -110,6 +111,18 @@ export function FinanceiroDetalhes() { return (<section className={cx('block')} 
         <article data-fundo-proteger><h3>Financeiro de cada festa</h3><p>Reúna parcelas, recebimentos, adicionais e despesas do evento. Confira custos e pendências para concluir o fechamento com os valores registrados.</p></article>
       </div>
       <p className={cx('marketingNota')} data-fundo-texto>Contas a pagar, fluxo de caixa, relatórios e visão de custos fazem parte do financeiro completo dos planos Profissional e Premium. O Essencial mantém contas a receber e Pix. O dinheiro das festas vai direto para a conta do buffet.</p>
+    </div>
+  </section>); }
+
+export function AgendaSaloes() { return (<section className={cx('block')} id="saloes" aria-labelledby="t-saloes">
+    <div className={cx('wrap')}>
+      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Agenda por salão</div><h2 id="t-saloes">Mais de um salão.<br /><em>A mesma unidade, organizada.</em></h2><p className={cx('lead')}>Organize os espaços do seu buffet na mesma unidade. Na configuração por salão, cada espaço recebe uma festa por vez, respeitando os horários e intervalos definidos.</p></div>
+      <div className={cx('detailGrid')}>
+        <article data-fundo-proteger><h3>Disponibilidade por espaço</h3><p>Associe cada festa ao seu salão e acompanhe a ocupação. Salões diferentes podem receber festas no mesmo horário, conforme a configuração da agenda.</p></article>
+        <article data-fundo-proteger><h3>Horários e intervalos</h3><p>Defina os períodos de funcionamento e o intervalo mínimo entre festas, considerando o tempo necessário para preparar o espaço.</p></article>
+        <article data-fundo-proteger><h3>Bloqueios e organização</h3><p>Registre bloqueios e confira conflitos antes de confirmar a data. Festas sem salão definido protegem a disponibilidade até a equipe escolher o espaço.</p></article>
+      </div>
+      <p className={cx('marketingNota')} data-fundo-texto>Vários salões na mesma unidade são espaços da mesma operação. A contratação de outra unidade é uma condição separada.</p>
     </div>
   </section>); }
 
@@ -240,7 +253,7 @@ export function Confianca() { return (<section className={cx('block')} id="confi
     </div>
   </section>); }
 
-export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas">
+export function Duvidas({ config, fundador = textoFundador({ fase: 'LEGADO' }) }: { config: ConfiguracaoSite; fundador?: TextoFundador }) { return (<section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas">
     <div className={cx('wrap')}>
       <div className={cx('head')}><div className={cx('eyebrow')}>Dúvidas</div><h2 id="t-duvidas">Perguntas de quem está decidindo.</h2></div>
       <div className={cx('faq')}>
@@ -256,7 +269,7 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
           <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp"]}>É a inteligência artificial do iA.Fest. Ele atende seus clientes no WhatsApp, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
           <details><summary>O que é o copiloto?</summary><p><Recurso ids={["copiloto"]}>É a parte da IA que trabalha dentro do sistema. Ele mostra o que precisa da sua atenção e prepara cadastros a partir de um pedido escrito. Você sempre revisa e confirma antes de gravar.</Recurso></p></details>
           <details><summary>Posso mudar de plano depois?</summary><p>As condições para mudar entre os planos estão em definição. O teste começa pelo mesmo cadastro; fale com a equipe para conhecer a oferta.</p></details>
-          <details><summary>O que é o Plano Fundador?</summary><p>Uma condição para os {comercial.fundador.vagas} primeiros buffets que assinarem: {comercial.fundador.descontoPercentual}% de desconto travado por {comercial.fundador.meses} meses, aplicado automaticamente enquanto houver vagas. Também vamos pedir a sua opinião sobre o sistema e um depoimento depois de usar.</p></details>
+          <details><summary>O que é o Plano Fundador?</summary><p>{fundador.faq}</p></details>
           <details><summary>Posso cancelar quando quiser?</summary><p>O cancelamento é solicitado pelos canais de atendimento. Consulte os termos para as condições de acesso, exportação e retenção de dados.</p></details>
           <details><summary>Tenho mais de uma unidade. Como fica?</summary><p>Cada unidade é uma empresa com CNPJ próprio. <Recurso ids={["multiunidade"]}>A contratação de unidade extra, por {precoExibido(adicionais[0].centavos, config.precosPublicados)}{config.precosPublicados ? "/mês" : ""} a mais, ainda não está aberta; fale com a equipe.</Recurso></p></details>
         </div>

@@ -6,6 +6,7 @@ import {
   CATEGORIAS_DESPESA,
   FORMAS,
   HORIZONTE_RECORRENCIA_MESES,
+  PAGAR_EM_ABERTO,
   IMPLANTACAO_FINANCEIRO,
   VERSAO_RESUMO_FINANCEIRO,
   aceitaBaixa,
@@ -25,6 +26,76 @@ import {
   type StatusReceber,
 } from "./calculos.ts";
 import { saldoItemVigente } from "../pagamentos/services/alteracao-financeira-core.ts";
+import {
+  pendenciasDaAbertura,
+  saldoDoPeriodo,
+  somaMovimentos,
+  ultimaConferencia,
+  type AberturaVigente,
+  type MovimentoCaixa,
+  type TipoOrigemMovimento,
+} from "./abertura.ts";
+
+/**
+ * Schema da P2. 120 = liquidação de entrada manual e reversão de pagamento de conta; 121 = abertura de saldo.
+ * Sem as tabelas, o leitor se comporta como antes da P2: sem liquidações, sem reversões e sem abertura (logo, sem saldo
+ * absoluto). Uma consulta ao catálogo por transação.
+ */
+export type EsquemaP2 = { movimentos: boolean; abertura: boolean };
+const esquemasP2 = new WeakMap<object, Promise<EsquemaP2>>();
+export function esquemaP2(tx: DbExecutor): Promise<EsquemaP2> {
+  let lido = esquemasP2.get(tx);
+  if (!lido) {
+    lido = tx.query<{ movimentos: boolean; abertura: boolean }>(
+      `SELECT (to_regclass('public.financeiro_entradas_liquidacoes') IS NOT NULL
+               AND to_regclass('public.financeiro_saidas_reversoes') IS NOT NULL) AS movimentos,
+              (to_regclass('public.financeiro_aberturas') IS NOT NULL
+               AND to_regclass('public.financeiro_abertura_conferencias') IS NOT NULL) AS abertura`,
+    ).then((r) => ({ movimentos: r.rows[0]?.movimentos === true, abertura: r.rows[0]?.abertura === true }));
+    esquemasP2.set(tx, lido);
+  }
+  return lido;
+}
+
+/**
+ * Recebimentos efetivos de entradas manuais, um por linha, no formato de `financeiro_entradas_manuais` (`recebido_em`,
+ * `valor` bruto, `taxa`). Entrada com `recebido_em` e sem liquidação é o registro anterior à P2: vale como uma liquidação
+ * de valor − taxa naquela data. Com liquidação, só as liquidações contam. Exige `$1` = empresa.
+ */
+export function manuaisRecebidasSql(e: EsquemaP2) {
+  const legado = `
+    SELECT entrada.id AS origem_id, 'ENTRADA_MANUAL'::text AS origem_tipo, entrada.id AS entrada_id, entrada.empresa_id,
+           entrada.festa_id, entrada.forma, entrada.descricao, entrada.recebido_em, entrada.valor, entrada.taxa
+      FROM financeiro_entradas_manuais entrada
+     WHERE entrada.empresa_id = $1::uuid AND entrada.recebido_em IS NOT NULL`;
+  if (!e.movimentos) return legado;
+  return `${legado}
+       AND NOT EXISTS (SELECT 1 FROM financeiro_entradas_liquidacoes liq WHERE liq.entrada_id = entrada.id AND liq.empresa_id = entrada.empresa_id)
+    UNION ALL
+    SELECT liq.id, 'LIQUIDACAO_MANUAL'::text, entrada.id, entrada.empresa_id,
+           entrada.festa_id, liq.forma, entrada.descricao, liq.recebido_em, liq.valor, liq.taxa
+      FROM financeiro_entradas_liquidacoes liq
+      JOIN financeiro_entradas_manuais entrada ON entrada.id = liq.entrada_id AND entrada.empresa_id = liq.empresa_id
+     WHERE liq.empresa_id = $1::uuid`;
+}
+
+/**
+ * Pagamentos de conta com sinal, no formato de `financeiro_saidas` (`valor`, `pago_em`): saída positiva, reversão negativa
+ * na data em que o dinheiro voltou. Somar `valor` dá o pago líquido. Exige `$1` = empresa.
+ */
+export function saidasLiquidasSql(e: EsquemaP2) {
+  const base = `
+    SELECT saida.id AS origem_id, 'SAIDA'::text AS origem_tipo, saida.conta_id, saida.empresa_id, saida.valor, saida.pago_em, saida.forma
+      FROM financeiro_saidas saida
+     WHERE saida.empresa_id = $1::uuid`;
+  if (!e.movimentos) return base;
+  return `${base}
+    UNION ALL
+    SELECT rev.id, 'REVERSAO_SAIDA'::text, saida.conta_id, rev.empresa_id, -rev.valor, rev.revertido_em, saida.forma
+      FROM financeiro_saidas_reversoes rev
+      JOIN financeiro_saidas saida ON saida.id = rev.saida_id AND saida.empresa_id = rev.empresa_id
+     WHERE rev.empresa_id = $1::uuid`;
+}
 
 function recusar(code: string, message: string, status: number): never {
   throw new PacoteAdminError(code, message, status);
@@ -250,10 +321,12 @@ export function consolidarTitulos(linhas: LinhaReceber[], hoje: string): Recebiv
   });
 }
 
-const MANUAL_SQL = `
+/** `recebido`: soma bruta dos recebimentos da entrada (liquidações, ou a linha anterior à P2 inteira). */
+const manualSql = (e: EsquemaP2) => `
   SELECT entrada.id::text AS id, entrada.descricao, entrada.contraparte, entrada.festa_id::text AS festa_id,
          pac.nome AS festa, entrada.valor::text AS valor, entrada.vencimento::text AS vencimento,
-         entrada.forma, entrada.recebido_em::text AS recebido_em, entrada.taxa::text AS taxa
+         entrada.forma, entrada.recebido_em::text AS recebido_em, entrada.taxa::text AS taxa,
+         COALESCE((SELECT SUM(mov.valor) FROM (${manuaisRecebidasSql(e)}) mov WHERE mov.entrada_id = entrada.id), 0)::text AS recebido
     FROM financeiro_entradas_manuais entrada
     LEFT JOIN festas festa ON festa.id = entrada.festa_id AND festa.invalidada_em IS NULL
     LEFT JOIN contratos contrato ON contrato.id = festa.contrato_id
@@ -262,7 +335,7 @@ const MANUAL_SQL = `
    WHERE entrada.empresa_id = $1::uuid
 `;
 
-function mapearManual(linha: {
+export type LinhaManual = {
   id: string;
   descricao: string;
   contraparte: string | null;
@@ -273,9 +346,15 @@ function mapearManual(linha: {
   forma: string | null;
   recebido_em: string | null;
   taxa: string;
-}, hoje: string): Recebivel {
+  /** Soma bruta recebida. Ausente só em leitura anterior à P2: aí vale 0% ou 100% pelo `recebido_em`. */
+  recebido?: string;
+};
+
+/** Recebido pela soma dos recebimentos (P2): R$ 100 de R$ 300 é parcial, com R$ 200 de saldo. */
+export function mapearManual(linha: LinhaManual, hoje: string): Recebivel {
   const valor = centavosDe(linha.valor);
-  const recebido = linha.recebido_em ? valor : 0;
+  const somado = linha.recebido != null ? centavosDe(linha.recebido) : linha.recebido_em ? valor : 0;
+  const recebido = Math.min(valor, Math.max(0, somado));
   const status = statusReceber({
     cancelado: false,
     reembolsado: false,
@@ -307,18 +386,7 @@ function mapearManual(linha: {
 
 export async function listarRecebiveis(tx: DbExecutor, empresaId: string, hoje: string) {
   const resultado = await tx.query<LinhaReceber>(RECEBER_SQL, [empresaId]);
-  const manuais = await tx.query<{
-    id: string;
-    descricao: string;
-    contraparte: string | null;
-    festa_id: string | null;
-    festa: string | null;
-    valor: string;
-    vencimento: string;
-    forma: string | null;
-    recebido_em: string | null;
-    taxa: string;
-  }>(MANUAL_SQL, [empresaId]);
+  const manuais = await tx.query<LinhaManual>(manualSql(await esquemaP2(tx)), [empresaId]);
   return [...consolidarTitulos(resultado.rows, hoje), ...manuais.rows.map((linha) => mapearManual(linha, hoje))]
     .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.cliente.localeCompare(b.cliente));
 }
@@ -399,12 +467,13 @@ function mapearPagar(linha: LinhaPagar, hoje: string): ContaPagar {
   };
 }
 
-const PAGAR_SQL = `
+/** `pago` líquido das reversões (P2). */
+const pagarSql = (e: EsquemaP2) => `
   SELECT conta.id::text AS id, conta.descricao, conta.favorecido, categoria.nome AS categoria,
          categoria.id::text AS categoria_id, conta.festa_id::text AS festa_id, conta.valor::text AS valor,
          conta.vencimento::text AS vencimento, conta.competencia::text AS competencia, conta.forma,
          conta.observacao, conta.cancelado_em::text AS cancelado_em,
-         COALESCE((SELECT SUM(saida.valor) FROM financeiro_saidas saida WHERE saida.conta_id = conta.id AND saida.empresa_id = conta.empresa_id), 0)::text AS pago
+         COALESCE((SELECT SUM(saida.valor) FROM (${saidasLiquidasSql(e)}) saida WHERE saida.conta_id = conta.id), 0)::text AS pago
     FROM financeiro_contas_pagar conta
     JOIN financeiro_categorias categoria ON categoria.id = conta.categoria_id AND categoria.empresa_id = conta.empresa_id
    WHERE conta.empresa_id = $1::uuid
@@ -413,7 +482,7 @@ const PAGAR_SQL = `
 
 export async function listarContasPagar(tx: DbExecutor, empresaId: string, hoje: string) {
   await garantirCategorias(tx, empresaId);
-  const resultado = await tx.query<LinhaPagar>(PAGAR_SQL, [empresaId]);
+  const resultado = await tx.query<LinhaPagar>(pagarSql(await esquemaP2(tx)), [empresaId]);
   return resultado.rows.map((linha) => mapearPagar(linha, hoje));
 }
 
@@ -422,11 +491,11 @@ export function resumo(recebiveis: Recebivel[], contas: ContaPagar[], recebidoMe
   const abertos = recebiveis.filter((item) => item.status === "A receber" || item.status === "Parcialmente pago" || item.status === "Vencido");
   const aReceber = abertos.reduce((total, item) => total + item.saldoCentavos, 0);
   const emAtrasoReceber = recebiveis.filter((item) => item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
-  const aPagar = contas.filter((item) => item.status === "A pagar" || item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
+  const aPagar = contas.filter((item) => PAGAR_EM_ABERTO.has(item.status)).reduce((total, item) => total + item.saldoCentavos, 0);
   const emAtrasoPagar = contas.filter((item) => item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0);
   const limite30 = somarDias(hoje, 30);
   const aPagar30 = contas
-    .filter((item) => item.status === "A pagar" && item.vencimento >= hoje && item.vencimento <= limite30)
+    .filter((item) => (item.status === "A pagar" || item.status === "Parcialmente paga") && item.vencimento >= hoje && item.vencimento <= limite30)
     .reduce((total, item) => total + item.saldoCentavos, 0);
   return {
     recebidoMesCentavos,
@@ -473,7 +542,7 @@ const RECEBIDO_EMPRESA_SQL = `
 
 const LIQUIDO_MANUAL_SQL = `(valor - LEAST(valor, taxa))`;
 
-type Abatimento = { data: string; tipo: "ESTORNO" | "DEVOLUCAO"; centavos: number; festaId: string | null; forma: string };
+type Abatimento = { data: string; tipo: "ESTORNO" | "DEVOLUCAO"; centavos: number; festaId: string | null; forma: string; origemId?: string };
 
 /**
  * Saídas de caixa do motor: estorno confirmado e devolução concluída, na data em que ocorreram. Reserva e devolução
@@ -490,11 +559,12 @@ async function abatimentosContratuais(
        JOIN fechamentos fech ON fech.id = contrato.fechamento_id
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
        LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL`;
-  const resultado = await tx.query<{ data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string }>(
-    `SELECT mov.data::text AS data, mov.tipo, mov.centavos::text AS centavos, mov.festa_id, mov.forma
+  const resultado = await tx.query<{ data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string; origem_id: string }>(
+    `SELECT mov.data::text AS data, mov.tipo, mov.centavos::text AS centavos, mov.festa_id, mov.forma, mov.origem_id
        FROM (
          SELECT ${dataBrasiliaSql("est.confirmado_em")} AS data, 'ESTORNO' AS tipo, (est.valor * 100)::bigint AS centavos,
-                festa.id::text AS festa_id, COALESCE(rec.metadata_provedor->>'forma', rec.meio_pagamento)::text AS forma
+                festa.id::text AS festa_id, COALESCE(rec.metadata_provedor->>'forma', rec.meio_pagamento)::text AS forma,
+                est.id::text AS origem_id
            FROM pagamento_estornos est
            JOIN pagamento_recebimentos rec ON rec.id = est.recebimento_id
            JOIN pagamentos pag ON pag.id = rec.pagamento_id
@@ -502,7 +572,7 @@ async function abatimentosContratuais(
           WHERE est.status = 'CONFIRMADO'
          UNION ALL
          SELECT ${dataBrasiliaSql("dev.devolvido_em")}, 'DEVOLUCAO', dev.valor_centavos,
-                festa.id::text, dev.meio_devolucao::text
+                festa.id::text, dev.meio_devolucao::text, dev.id::text
            FROM pagamento_devolucoes dev
            JOIN pagamentos pag ON pag.id = dev.pagamento_id
            ${contrato}
@@ -519,10 +589,10 @@ async function abatimentosContratuais(
 }
 
 /** A coluna `centavos` já vem em centavos inteiros (estorno × 100, devolução em centavos): não passa por centavosDe. */
-export function abatimentoDeLinha(linha: { data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string }): Abatimento {
+export function abatimentoDeLinha(linha: { data: string; tipo: Abatimento["tipo"]; centavos: string; festa_id: string | null; forma: string; origem_id?: string }): Abatimento {
   const centavos = Number(linha.centavos);
   if (!/^-?\d+$/.test(linha.centavos) || !Number.isSafeInteger(centavos)) throw new Error("abatimento sem centavos inteiros");
-  return { data: linha.data, tipo: linha.tipo, centavos, festaId: linha.festa_id, forma: linha.forma };
+  return { data: linha.data, tipo: linha.tipo, centavos, festaId: linha.festa_id, forma: linha.forma, ...(linha.origem_id ? { origemId: linha.origem_id } : {}) };
 }
 
 function somaAbatimentos(itens: Abatimento[]) {
@@ -534,6 +604,7 @@ function somaAbatimentos(itens: Abatimento[]) {
  * Dinheiro, transferência e Pix ficam de fora, para não alertar onde normalmente não há tarifa.
  */
 async function recebimentosSemTaxa(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
+  const manuais = manuaisRecebidasSql(await esquemaP2(tx));
   const resultado = await tx.query<{ n: number }>(
     `SELECT (SELECT count(*)
                ${RECEBIDO_EMPRESA_SQL}
@@ -541,9 +612,8 @@ async function recebimentosSemTaxa(tx: DbExecutor, empresaId: string, inicio: st
                AND (rec.meio_pagamento = 'CARTAO' OR rec.metadata_provedor->>'forma' IN ('CARTAO_CREDITO', 'CARTAO_DEBITO', 'BOLETO'))
                AND COALESCE((rec.metadata_provedor->>'taxaCentavos')::numeric, 0) = 0)
           + (SELECT count(*)
-               FROM financeiro_entradas_manuais entrada
-              WHERE entrada.empresa_id = $1::uuid
-                AND entrada.recebido_em BETWEEN $2::date AND $3::date
+               FROM (${manuais}) entrada
+              WHERE entrada.recebido_em BETWEEN $2::date AND $3::date
                 AND entrada.forma IN ('CARTAO_CREDITO', 'CARTAO_DEBITO', 'BOLETO')
                 AND entrada.taxa = 0) AS n`,
     [empresaId, inicio, fim],
@@ -554,10 +624,8 @@ async function recebimentosSemTaxa(tx: DbExecutor, empresaId: string, inicio: st
 async function liquidoManualNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ liquido: string }>(
     `SELECT COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
-       FROM financeiro_entradas_manuais entrada
-      WHERE entrada.empresa_id = $1::uuid
-        AND entrada.recebido_em IS NOT NULL
-        AND entrada.recebido_em BETWEEN $2::date AND $3::date`,
+       FROM (${manuaisRecebidasSql(await esquemaP2(tx))}) entrada
+      WHERE entrada.recebido_em BETWEEN $2::date AND $3::date`,
     [empresaId, inicio, fim],
   );
   return centavosDe(resultado.rows[0]?.liquido ?? "0");
@@ -600,10 +668,8 @@ export async function liquidoRecebidoPorFesta(
   const mapa = new Map(resultado.rows.map((linha) => [linha.festa_id, centavosDe(linha.liquido)]));
   const manuais = await tx.query<{ festa_id: string; liquido: string }>(
     `SELECT entrada.festa_id::text AS festa_id, COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
-       FROM financeiro_entradas_manuais entrada
-      WHERE entrada.empresa_id = $1::uuid
-        AND entrada.festa_id IS NOT NULL
-        AND entrada.recebido_em IS NOT NULL
+       FROM (${manuaisRecebidasSql(await esquemaP2(tx))}) entrada
+      WHERE entrada.festa_id IS NOT NULL
         AND ($2::uuid IS NULL OR entrada.festa_id = $2::uuid)
         AND ($3::date IS NULL OR entrada.recebido_em BETWEEN $3::date AND $4::date)
       GROUP BY entrada.festa_id`,
@@ -619,10 +685,9 @@ export async function liquidoRecebidoPorFesta(
 async function despesasPagasPorFesta(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ festa_id: string; pago: string }>(
     `SELECT conta.festa_id::text AS festa_id, COALESCE(SUM(saida.valor), 0)::text AS pago
-       FROM financeiro_saidas saida
+       FROM (${saidasLiquidasSql(await esquemaP2(tx))}) saida
        JOIN financeiro_contas_pagar conta ON conta.id = saida.conta_id AND conta.empresa_id = saida.empresa_id
-      WHERE saida.empresa_id = $1::uuid
-        AND conta.festa_id IS NOT NULL
+      WHERE conta.festa_id IS NOT NULL
         AND saida.pago_em BETWEEN $2::date AND $3::date
       GROUP BY conta.festa_id`,
     [empresaId, inicio, fim],
@@ -635,12 +700,12 @@ export async function recebidoNoMes(tx: DbExecutor, empresaId: string, hoje: str
   return recebidoNoPeriodo(tx, empresaId, inicio, fim);
 }
 
+/** Pago no período, líquido das reversões do período (P2). Pode ser negativo se só houve reversão. */
 export async function pagoNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ pago: string }>(
-    `SELECT COALESCE(SUM(valor), 0)::text AS pago
-       FROM financeiro_saidas
-      WHERE empresa_id = $1::uuid
-        AND pago_em BETWEEN $2::date AND $3::date`,
+    `SELECT COALESCE(SUM(saida.valor), 0)::text AS pago
+       FROM (${saidasLiquidasSql(await esquemaP2(tx))}) saida
+      WHERE saida.pago_em BETWEEN $2::date AND $3::date`,
     [empresaId, inicio, fim],
   );
   return centavosDe(resultado.rows[0]?.pago ?? "0");
@@ -750,7 +815,7 @@ export function leituraPeriodo(
     aReceberCentavos: recebiveis
       .filter((item) => item.status !== "Cancelado" && item.status !== "Pago" && item.status !== "Reembolsado" && noIntervalo(item.vencimento, inicio, fim))
       .reduce((total, item) => total + item.saldoCentavos, 0),
-    aPagarCentavos: contasPeriodo.filter((item) => item.status === "A pagar" || item.status === "Vencido").reduce((total, item) => total + item.saldoCentavos, 0),
+    aPagarCentavos: contasPeriodo.filter((item) => PAGAR_EM_ABERTO.has(item.status)).reduce((total, item) => total + item.saldoCentavos, 0),
     inadimplenciaCentavos: recebiveis
       .filter((item) => item.status === "Vencido" && noIntervalo(item.vencimento, inicio, fim))
       .reduce((total, item) => total + item.saldoCentavos, 0),
@@ -1042,9 +1107,10 @@ async function travarConta(tx: DbExecutor, empresaId: string, id: string) {
     [id, empresaId],
   );
   if (!conta.rowCount) recusar("NAO_ENCONTRADO", "Conta não encontrada nesta empresa.", 404);
+  // Pago líquido das reversões (P2): conta com pagamento revertido volta a aceitar pagamento até o valor.
   const pago = await tx.query<{ pago: string }>(
-    `SELECT COALESCE(SUM(valor), 0)::text AS pago FROM financeiro_saidas WHERE conta_id = $1::uuid AND empresa_id = $2::uuid`,
-    [id, empresaId],
+    `SELECT COALESCE(SUM(saida.valor), 0)::text AS pago FROM (${saidasLiquidasSql(await esquemaP2(tx))}) saida WHERE saida.conta_id = $2::uuid`,
+    [empresaId, id],
   );
   return { ...conta.rows[0], pago: pago.rows[0].pago };
 }
@@ -1256,11 +1322,14 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   const linhaMes = mesResumo.rows[0];
   // Eventos de contratos importados com data futura: só um aviso com link; nunca entram em `proximas` nem nos contadores.
   const importadosAIntegrar = await contarEventosImportadosAIntegrar(tx, empresaId, hoje);
+  // P2: saldo de caixa só com abertura (D-FIN-9); sem plano completo não há saídas, então não há caixa.
+  const caixa = financeiroCompleto ? await caixaDaEmpresa(tx, empresaId, hoje) : null;
   return {
     empresa: empresa.rows[0]?.nome ?? "Empresa",
     hoje,
     financeiroCompleto,
     numeros,
+    caixa,
     agenda: festas.rows.filter((festa) => festa.data === hoje),
     proximas: festas.rows,
     importadosAIntegrar,
@@ -1282,29 +1351,146 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   };
 }
 
+/** Abertura vigente (maior versão) da empresa. `null` sem a 121 ou sem abertura confirmada: nenhum saldo absoluto. */
+export async function aberturaVigente(tx: DbExecutor, empresaId: string): Promise<AberturaVigente | null> {
+  if (!(await esquemaP2(tx)).abertura) return null;
+  const r = await tx.query<{ id: string; versao: number; data_base: string; saldo: string; confirmada_em: string }>(
+    `SELECT id::text AS id, versao, data_base::text AS data_base, saldo::text AS saldo,
+            (criado_em AT TIME ZONE 'America/Sao_Paulo')::date::text AS confirmada_em
+       FROM financeiro_aberturas
+      WHERE empresa_id = $1::uuid
+      ORDER BY versao DESC
+      LIMIT 1`,
+    [empresaId],
+  );
+  const linha = r.rows[0];
+  if (!linha) return null;
+  return { id: linha.id, versao: Number(linha.versao), dataBase: linha.data_base, saldoCentavos: centavosDe(linha.saldo), confirmadaEm: linha.confirmada_em };
+}
+
+/** Origens conferidas na revisão: chave `TIPO:id` → hash da conferência de maior sequência da origem (histórico da 121). */
+export async function conferidosDaAbertura(tx: DbExecutor, empresaId: string, aberturaId: string) {
+  const r = await tx.query<{ origem_tipo: string; origem_id: string; atributos_hash: string; sequencia: number | string }>(
+    `SELECT origem_tipo, origem_id::text AS origem_id, atributos_hash, sequencia
+       FROM financeiro_abertura_conferencias
+      WHERE empresa_id = $1::uuid AND abertura_id = $2::uuid
+      ORDER BY origem_tipo, origem_id, sequencia`,
+    [empresaId, aberturaId],
+  );
+  return ultimaConferencia(r.rows.map((linha) => ({ origemTipo: linha.origem_tipo, origemId: linha.origem_id, atributosHash: linha.atributos_hash, sequencia: Number(linha.sequencia) })));
+}
+
+/**
+ * Movimentos efetivos de caixa com origem tipada, de `desde` a `ate` inclusive (null = sem limite). Fonte única do caixa
+ * realizado, do saldo com abertura e das pendências da conferência. Entrada positiva, saída negativa; reversão de
+ * pagamento de conta volta como saída negativa na data em que o dinheiro voltou.
+ */
+export async function movimentosCaixa(tx: DbExecutor, empresaId: string, desde: string | null, ate: string | null): Promise<MovimentoCaixa[]> {
+  const e = await esquemaP2(tx);
+  const filtro = (coluna: string) => `($2::date IS NULL OR ${coluna} >= $2::date) AND ($3::date IS NULL OR ${coluna} <= $3::date)`;
+  const parametros = [empresaId, desde, ate];
+  type Linha = { origem_tipo: TipoOrigemMovimento; origem_id: string; data: string; valor: string; taxa: string; estado: string; descricao: string; festa_id: string | null; forma: string | null };
+  const recebidos = await tx.query<Linha>(
+    `SELECT 'RECEBIMENTO' AS origem_tipo, rec.id::text AS origem_id, ${DATA_RECEBIDO_SQL}::text AS data,
+            ${LIQUIDO_RECEBIDO_SQL}::text AS valor,
+            LEAST(rec.valor_bruto, COALESCE((rec.metadata_provedor->>'taxaCentavos')::numeric, 0) / 100)::text AS taxa,
+            rec.status::text AS estado, 'Recebimento' AS descricao, festa.id::text AS festa_id,
+            COALESCE(rec.metadata_provedor->>'forma', rec.meio_pagamento)::text AS forma
+       FROM pagamento_recebimentos rec
+       JOIN pagamentos pag ON pag.id = rec.pagamento_id
+       JOIN contrato_versoes ver ON ver.id = pag.contrato_versao_id
+       JOIN contratos contrato ON contrato.id = ver.contrato_id
+       JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+       JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
+       LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
+      WHERE rec.status = 'CONFIRMADO' AND ${filtro(DATA_RECEBIDO_SQL)}`,
+    parametros,
+  );
+  const manuais = await tx.query<Linha>(
+    `SELECT entrada.origem_tipo, entrada.origem_id::text AS origem_id, entrada.recebido_em::text AS data,
+            ${LIQUIDO_MANUAL_SQL}::text AS valor, LEAST(valor, taxa)::text AS taxa, 'EFETIVO' AS estado,
+            entrada.descricao, entrada.festa_id::text AS festa_id, COALESCE(entrada.forma, 'OUTRO') AS forma
+       FROM (${manuaisRecebidasSql(e)}) entrada
+      WHERE ${filtro("entrada.recebido_em")}`,
+    parametros,
+  );
+  const saidas = await tx.query<Linha>(
+    `SELECT saida.origem_tipo, saida.origem_id::text AS origem_id, saida.pago_em::text AS data, saida.valor::text AS valor,
+            '0' AS taxa, 'EFETIVO' AS estado, conta.descricao, conta.festa_id::text AS festa_id, saida.forma
+       FROM (${saidasLiquidasSql(e)}) saida
+       JOIN financeiro_contas_pagar conta ON conta.id = saida.conta_id AND conta.empresa_id = saida.empresa_id
+      WHERE ${filtro("saida.pago_em")}`,
+    parametros,
+  );
+  const abatimentos = await abatimentosContratuais(tx, empresaId, { inicio: desde ?? undefined, fim: ate ?? undefined });
+  const lista: MovimentoCaixa[] = [
+    ...recebidos.rows.map((l) => ({ tipo: l.origem_tipo, origemId: l.origem_id, data: l.data, centavos: centavosDe(l.valor), taxaCentavos: centavosDe(l.taxa), estado: l.estado, descricao: l.descricao, festaId: l.festa_id, forma: l.forma ?? "OUTRO" })),
+    ...manuais.rows.map((l) => ({ tipo: l.origem_tipo, origemId: l.origem_id, data: l.data, centavos: centavosDe(l.valor), taxaCentavos: centavosDe(l.taxa), estado: l.estado, descricao: l.descricao, festaId: l.festa_id, forma: l.forma ?? "OUTRO" })),
+    ...saidas.rows.map((l) => ({
+      tipo: l.origem_tipo, origemId: l.origem_id, data: l.data, centavos: -centavosDe(l.valor), taxaCentavos: 0, estado: l.estado,
+      descricao: l.origem_tipo === "REVERSAO_SAIDA" ? `Pagamento revertido — ${l.descricao}` : l.descricao, festaId: l.festa_id, forma: l.forma ?? "OUTRO",
+    })),
+    ...abatimentos.map((item) => ({
+      tipo: item.tipo, origemId: item.origemId ?? "", data: item.data, centavos: -item.centavos, taxaCentavos: 0, estado: "EFETIVO",
+      descricao: item.tipo === "ESTORNO" ? "Estorno de recebimento" : "Devolução ao cliente", festaId: item.festaId, forma: item.forma,
+    })),
+  ];
+  return lista.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+const TIPOS_SAIDA: ReadonlySet<TipoOrigemMovimento> = new Set(["SAIDA", "REVERSAO_SAIDA", "ESTORNO", "DEVOLUCAO"]);
+
+/**
+ * Situação do caixa da empresa em `hoje`: saldo só com abertura (D-FIN-9), pendências da conferência (C.2.2).
+ * Mesma leitura para tela, Dashboard e Copiloto.
+ */
+export async function caixaDaEmpresa(tx: DbExecutor, empresaId: string, hoje: string) {
+  const abertura = await aberturaVigente(tx, empresaId);
+  if (!abertura) {
+    return { saldoCentavos: null, motivoSaldo: "SEM_ABERTURA" as const, abertura: null, pendencias: { quantidade: 0, centavos: 0 } };
+  }
+  const desdeD0 = abertura.dataBase <= hoje ? await movimentosCaixa(tx, empresaId, abertura.dataBase, hoje) : [];
+  const saldo = saldoDoPeriodo(abertura, hoje, hoje, (de, ate) => somaMovimentos(desdeD0, de, ate));
+  const pendencias = await pendenciasAtuais(tx, empresaId, abertura);
+  return {
+    saldoCentavos: saldo.saldoFinalCentavos,
+    motivoSaldo: saldo.motivoSaldo,
+    abertura: { versao: abertura.versao, dataBase: abertura.dataBase, saldoCentavos: abertura.saldoCentavos, confirmadaEm: abertura.confirmadaEm },
+    pendencias: { quantidade: pendencias.quantidade, centavos: pendencias.centavos },
+  };
+}
+
+/**
+ * Só as pendências da conferência da abertura vigente (C.2.2), para quem não precisa do saldo: o Copiloto
+ * (`atencao_hoje`). Somente leitura, sem passar por painelGeral. Sem abertura (ou sem a 121), null.
+ */
+export async function pendenciasDoCaixa(tx: DbExecutor, empresaId: string): Promise<{ quantidade: number; centavos: number } | null> {
+  const abertura = await aberturaVigente(tx, empresaId);
+  if (!abertura) return null;
+  const pendencias = await pendenciasAtuais(tx, empresaId, abertura);
+  return { quantidade: pendencias.quantidade, centavos: pendencias.centavos };
+}
+
+async function pendenciasAtuais(tx: DbExecutor, empresaId: string, abertura: AberturaVigente) {
+  const vespera = somarDias(abertura.confirmadaEm, -1);
+  if (vespera < abertura.dataBase) return pendenciasDaAbertura(abertura, [], new Map());
+  const janela = await movimentosCaixa(tx, empresaId, abertura.dataBase, vespera);
+  return pendenciasDaAbertura(abertura, janela, await conferidosDaAbertura(tx, empresaId, abertura.id));
+}
+
+/**
+ * Caixa realizado do período (C.2.1). Sem abertura, não há saldo inicial nem final: só o movimento do período, com o
+ * motivo. Antes de D0 a coluna de saldo das linhas fica vazia; com o período atravessando D0, a abertura aparece como linha.
+ */
 export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: string, fim: string, hoje: string) {
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
   const contas = await listarContasPagar(tx, empresaId, hoje);
-  const saldoInicialCentavos = await saldoCaixaAte(tx, empresaId, inicio);
-  const abatimentos = await abatimentosContratuais(tx, empresaId, { inicio, fim });
-  const entradas = await tx.query<{ data: string; descricao: string; valor: string }>(
-    `SELECT ${DATA_RECEBIDO_SQL}::text AS data, 'Recebimento' AS descricao, ${LIQUIDO_RECEBIDO_SQL}::text AS valor
-       ${RECEBIDO_EMPRESA_SQL}
-       AND ${DATA_RECEBIDO_SQL} BETWEEN $2::date AND $3::date
-     UNION ALL
-     SELECT entrada.recebido_em::text AS data, entrada.descricao, ${LIQUIDO_MANUAL_SQL}::text AS valor
-       FROM financeiro_entradas_manuais entrada
-      WHERE entrada.empresa_id = $1::uuid
-        AND entrada.recebido_em BETWEEN $2::date AND $3::date`,
-    [empresaId, inicio, fim],
-  );
-  const saidas = await tx.query<{ data: string; descricao: string; valor: string }>(
-    `SELECT saida.pago_em::text AS data, conta.descricao, saida.valor::text AS valor
-       FROM financeiro_saidas saida
-       JOIN financeiro_contas_pagar conta ON conta.id = saida.conta_id AND conta.empresa_id = saida.empresa_id
-      WHERE saida.empresa_id = $1::uuid AND saida.pago_em BETWEEN $2::date AND $3::date`,
-    [empresaId, inicio, fim],
-  );
+  const abertura = await aberturaVigente(tx, empresaId);
+  const doPeriodo = await movimentosCaixa(tx, empresaId, inicio, fim);
+  const desdeD0 = abertura && abertura.dataBase <= fim
+    ? (abertura.dataBase >= inicio ? doPeriodo : await movimentosCaixa(tx, empresaId, abertura.dataBase, fim))
+    : [];
+  const saldo = saldoDoPeriodo(abertura, inicio, fim, (de, ate) => somaMovimentos(desdeD0, de, ate));
   const previstos = [
     ...recebiveis.filter((item) => item.status !== "Cancelado" && item.saldoCentavos > 0 && noIntervalo(item.vencimento, inicio, fim)).map((item) => ({
       data: item.vencimento, descricao: `A receber — ${item.cliente}`, entrada: item.saldoCentavos, saida: 0, tipo: "previsto" as const,
@@ -1313,58 +1499,52 @@ export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: stri
       data: item.vencimento, descricao: item.descricao, entrada: 0, saida: item.saldoCentavos, tipo: "previsto" as const,
     })),
   ];
-  const realizados = [
-    ...entradas.rows.map((item) => ({ data: item.data, descricao: item.descricao, entrada: centavosDe(item.valor), saida: 0, tipo: "realizado" as const })),
-    ...saidas.rows.map((item) => ({ data: item.data, descricao: item.descricao, entrada: 0, saida: centavosDe(item.valor), tipo: "realizado" as const })),
-    ...abatimentos.map((item) => ({
-      data: item.data, descricao: item.tipo === "ESTORNO" ? "Estorno de recebimento" : "Devolução ao cliente", entrada: 0, saida: item.centavos, tipo: "realizado" as const,
-    })),
-  ].sort((a, b) => a.data.localeCompare(b.data));
-  let saldo = saldoInicialCentavos;
-  const linhasRealizadas = realizados.map((linha) => {
-    saldo += linha.entrada - linha.saida;
-    return { ...linha, saldo };
-  });
+  const realizados = doPeriodo.map((m) => ({
+    data: m.data,
+    descricao: m.descricao,
+    entrada: TIPOS_SAIDA.has(m.tipo) ? 0 : m.centavos,
+    saida: TIPOS_SAIDA.has(m.tipo) ? -m.centavos : 0,
+    tipo: "realizado" as string,
+  }));
+  const linhasRealizadas: Array<{ data: string; descricao: string; entrada: number; saida: number; tipo: string; saldo: number | null }> = [];
+  let corrente: number | null = saldo.saldoInicialCentavos;
+  let marcada = !(abertura && saldo.motivoSaldo === "ATRAVESSA_ABERTURA");
+  for (const linha of realizados) {
+    if (!marcada && abertura && linha.data >= abertura.dataBase) {
+      corrente = abertura.saldoCentavos;
+      linhasRealizadas.push({ data: abertura.dataBase, descricao: "Abertura de saldo", entrada: 0, saida: 0, tipo: "abertura", saldo: corrente });
+      marcada = true;
+    }
+    if (corrente != null) corrente += linha.entrada - linha.saida;
+    linhasRealizadas.push({ ...linha, saldo: corrente });
+  }
+  if (!marcada && abertura) {
+    linhasRealizadas.push({ data: abertura.dataBase, descricao: "Abertura de saldo", entrada: 0, saida: 0, tipo: "abertura", saldo: abertura.saldoCentavos });
+  }
   const linhas = [
     ...linhasRealizadas,
     ...previstos.map((linha) => ({ ...linha, saldo: null as number | null })),
   ];
   const entradasCentavos = realizados.reduce((total, linha) => total + linha.entrada, 0);
   const saidasCentavos = realizados.reduce((total, linha) => total + linha.saida, 0);
+  const pendencias = abertura ? await pendenciasAtuais(tx, empresaId, abertura) : { quantidade: 0, centavos: 0 };
   return {
-    saldoInicialCentavos,
+    versao: VERSAO_RESUMO_FINANCEIRO,
+    saldoInicialCentavos: saldo.saldoInicialCentavos,
     entradasCentavos,
     saidasCentavos,
-    saldoFinalCentavos: saldoInicialCentavos + entradasCentavos - saidasCentavos,
+    movimentoPeriodoCentavos: entradasCentavos - saidasCentavos,
+    saldoFinalCentavos: saldo.saldoFinalCentavos,
+    motivoSaldo: saldo.motivoSaldo,
+    abertura: abertura ? { versao: abertura.versao, dataBase: abertura.dataBase, saldoCentavos: abertura.saldoCentavos, confirmadaEm: abertura.confirmadaEm } : null,
+    pendencias: { quantidade: pendencias.quantidade, centavos: pendencias.centavos },
     recebimentosSemTaxa: await recebimentosSemTaxa(tx, empresaId, inicio, fim),
     linhas,
   };
 }
 
-async function saldoCaixaAte(tx: DbExecutor, empresaId: string, inicio: string) {
-  const entradas = await tx.query<{ liquido: string }>(
-    `SELECT COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido
-       ${RECEBIDO_EMPRESA_SQL}
-       AND ${DATA_RECEBIDO_SQL} < $2::date`,
-    [empresaId, inicio],
-  );
-  const manuais = await tx.query<{ liquido: string }>(
-    `SELECT COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
-       FROM financeiro_entradas_manuais
-      WHERE empresa_id = $1::uuid AND recebido_em IS NOT NULL AND recebido_em < $2::date`,
-    [empresaId, inicio],
-  );
-  const saidas = await tx.query<{ pago: string }>(
-    `SELECT COALESCE(SUM(valor), 0)::text AS pago
-       FROM financeiro_saidas
-      WHERE empresa_id = $1::uuid AND pago_em < $2::date`,
-    [empresaId, inicio],
-  );
-  return centavosDe(entradas.rows[0]?.liquido ?? "0") + centavosDe(manuais.rows[0]?.liquido ?? "0") - centavosDe(saidas.rows[0]?.pago ?? "0")
-    - somaAbatimentos(await abatimentosContratuais(tx, empresaId, { antesDe: inicio }));
-}
-
 export async function relatorio(tx: DbExecutor, empresaId: string, inicio: string, fim: string, hoje: string) {
+  const esquema = await esquemaP2(tx);
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
   const contas = await listarContasPagar(tx, empresaId, hoje);
   const recebido = await recebidoNoPeriodo(tx, empresaId, inicio, fim);
@@ -1379,11 +1559,10 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
   );
   const despesas = await tx.query<{ categoria: string; valor: string }>(
     `SELECT categoria.nome AS categoria, COALESCE(SUM(saida.valor), 0)::text AS valor
-       FROM financeiro_saidas saida
+       FROM (${saidasLiquidasSql(esquema)}) saida
        JOIN financeiro_contas_pagar conta ON conta.id = saida.conta_id AND conta.empresa_id = saida.empresa_id
        JOIN financeiro_categorias categoria ON categoria.id = conta.categoria_id AND categoria.empresa_id = conta.empresa_id
-      WHERE saida.empresa_id = $1::uuid
-        AND saida.pago_em BETWEEN $2::date AND $3::date
+      WHERE saida.pago_em BETWEEN $2::date AND $3::date
       GROUP BY categoria.nome
       ORDER BY categoria.nome`,
     [empresaId, inicio, fim],
@@ -1402,10 +1581,8 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
     `SELECT COALESCE(forma, 'OUTRO') AS forma,
             COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido,
             COALESCE(SUM(LEAST(valor, taxa)), 0)::text AS taxa
-       FROM financeiro_entradas_manuais
-      WHERE empresa_id = $1::uuid
-        AND recebido_em IS NOT NULL
-        AND recebido_em BETWEEN $2::date AND $3::date
+       FROM (${manuaisRecebidasSql(esquema)}) entrada
+      WHERE recebido_em BETWEEN $2::date AND $3::date
       GROUP BY 1`,
     [empresaId, inicio, fim],
   );
@@ -1486,4 +1663,4 @@ export async function estenderRecorrencia(tx: DbExecutor, empresaId: string, rec
   return horizonte;
 }
 
-export { RECEBER_SQL, PAGAR_SQL };
+export { RECEBER_SQL, pagarSql };

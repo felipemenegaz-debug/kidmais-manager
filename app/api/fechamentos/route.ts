@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { camposComerciaisFechamento, pacoteDaTelaPublicaSchema } from "@/lib/fechamentos/comercial-schema";
+import { camposComerciaisFechamento, mensagemPeriodoDoPedido, pacoteDaTelaPublicaSchema, periodoDoPedido, temPeriodoDoPedido } from "@/lib/fechamentos/comercial-schema";
 import { FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
 import { CondicaoPagamentoError } from "@/lib/comercial/condicao-pagamento";
 import {
@@ -9,7 +9,7 @@ import {
 } from "@/lib/disponibilidade/services";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica, type EscopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
-import { db } from "@/lib/db/postgres";
+import { db, withTransaction } from "@/lib/db/postgres";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { apiErrorResponse } from "@/lib/http/api-response";
@@ -18,10 +18,14 @@ import { isPricingServiceError } from "@/lib/comercial/services";
 import {
   criarFechamentoPublicoComIdentidade,
   isFechamentoServiceError,
+  salaoIndisponivelE2b,
 } from "@/lib/fechamentos/services";
+import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
+import { decidirPreferencia } from "@/lib/agenda/preferencia-salao";
 import { isIdentityServiceError } from "@/lib/identidade/services";
 import { isClienteServiceError } from "@/lib/clientes/services";
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
+import { travarConfiguracaoAgenda } from "@/lib/agenda/trava-configuracao";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,9 +39,17 @@ const fechamentoSchema = z.object({
   ...camposComerciaisFechamento,
   pacote: pacoteDaTelaPublicaSchema,
   escolhasBuffet: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
+  // S-D: salão de preferência escolhido em "Conheça os salões" (o serviço confere de novo sob a trava da data).
+  salaoPreferido: z.string().uuid().nullable().optional(),
 
   nomeCliente: z.string().trim().min(3),
-  cpf: z.string().min(11),
+  // PF: CPF obrigatório. PJ já cadastrada (Entrega B): CNPJ no lugar do CPF; o serviço confere o tipo no cadastro.
+  cpf: z.string().max(20).default(""),
+  cnpj: z.string().trim().max(20).optional(),
+  // PJ nova: opcionais, validados no serviço como no CRM.
+  nomeFantasia: z.string().trim().max(180).optional(),
+  representanteNome: z.string().trim().max(180).optional(),
+  representanteCpf: z.string().trim().max(20).optional(),
   rg: z.string().trim().max(30).optional(),
   email: z.string().trim().email(),
   telefone: z.string().optional(),
@@ -57,7 +69,8 @@ const fechamentoSchema = z.object({
   temaFesta: z.string().trim().max(200).optional(),
 
 
-});
+}).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido)
+  .refine((d) => Boolean(d.cnpj) || d.cpf.length >= 11, { path: ["cpf"], message: "Informe o CPF." });
 
 function requestMetadata(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -67,6 +80,32 @@ function requestMetadata(request: NextRequest) {
     ip,
     userAgent: request.headers.get("user-agent"),
   };
+}
+
+/**
+ * E2b (plano rev. 2.1, R2-P2-2): a revalidação do horário falhou e o pedido traz salão de preferência. Com
+ * combinadosPublicos, diagnostica a preferência numa transação SÓ DE LEITURA, com as mesmas travas (configuração
+ * compartilhada → data), sem gravar nada:
+ *   * recusa genérica → 409 SALAO_INDISPONIVEL sem `detalhes.motivo`;
+ *   * recusa com motivo → 409 SALAO_INDISPONIVEL com `detalhes.motivo`;
+ *   * ACEITA (o salão serviria; a falha é de outra natureza) → null: vale o erro original da revalidação.
+ * Desligado, sem configuração (pedido legado por turno) ou sem o pacote: null (a resposta da E2a).
+ */
+async function recusaDaPreferencia(d: z.infer<typeof fechamentoSchema>, escopo: EscopoCotacaoPublica, codigoPacote: string) {
+  if (!d.salaoPreferido || !d.configuracaoId || !(await combinadosPublicos(db()))) return null;
+  const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db()).catch(() => null);
+  if (!pacote) return null;
+  const decisao = await withTransaction(async (tx) => {
+    await tx.query("SET TRANSACTION READ ONLY");
+    await travarConfiguracaoAgenda(tx, escopo.empresaId, { modo: "COMPARTILHADA", linha: "SO_LEITURA" });
+    return decidirPreferencia(tx, {
+      data: d.dataFesta, inicio: d.horarioInicio, fim: d.horarioFim, configuracaoId: d.configuracaoId!, pacoteId: pacote.id,
+      empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId ?? null, convidados: d.convidadosPagantes,
+    }, d.salaoPreferido!);
+  });
+  if (decisao.resultado === "ACEITA") return null;
+  const erro = salaoIndisponivelE2b(decisao.resultado === "RECUSA_COM_MOTIVO" ? decisao.motivo : undefined);
+  return NextResponse.json({ ok: false, erro: erro.message, codigo: erro.code, detalhes: erro.details }, { status: erro.httpStatus });
 }
 
 export async function POST(request: NextRequest) {
@@ -132,21 +171,38 @@ export async function POST(request: NextRequest) {
 
   let horarioRevalidado: Awaited<ReturnType<typeof revalidarHorarioSelecionado>>;
   let escopo: EscopoCotacaoPublica;
+  // E2b: o escopo já resolvido (com a unidade) quando a revalidação falha; null se a falha foi antes dele.
+  let escopoResolvido: EscopoCotacaoPublica | null = null;
   try {
     // Cliente existente: a prova de identidade é emitida só para cliente desta empresa (escopo em /api/identidade)
     // e o serviço confere de novo que o cliente comprovado é da empresa do pacote.
     escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl), { escrita: true });
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     escopo.estabelecimentoId = unidade.estabelecimentoId;
+    escopoResolvido = escopo;
     horarioRevalidado = await revalidarHorarioSelecionado({
       data: dados.data.dataFesta,
-      codigoPeriodo: dados.data.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2",
+      ...periodoDoPedido(dados.data),
+      pacoteCodigo: codigoPacote,
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
+      // S-C: com capacidade por salão, recusa (409 SEM_SALAO_PARA_CONVIDADOS) antes de gravar qualquer coisa.
+      convidados: dados.data.convidadosPagantes,
+      // E2b: o combinado conta só com combinadosPublicos (desligado = E2a).
+      ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
     }, undefined, { empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId });
   } catch (error) {
     if (isAvailabilityServiceError(error)) {
+      // E2b (R2-P2-2): com salão de preferência, a recusa do salão sai antes do erro de disponibilidade.
+      // Falha da leitura do diagnóstico: vale o erro original (nada foi gravado).
+      const preferencia = escopoResolvido
+        ? await recusaDaPreferencia(dados.data, escopoResolvido, codigoPacote).catch((erro) => {
+          console.error("[Kidmais Fechamentos API] diagnóstico da preferência falhou", erro);
+          return null;
+        })
+        : null;
+      if (preferencia) return preferencia;
       return NextResponse.json(
         { ok: false, erro: error.message, codigo: error.code },
         { status: error.httpStatus },
@@ -217,6 +273,7 @@ export async function POST(request: NextRequest) {
       valorProposto,
       buffetStatus: dados.data.buffetDefinicao === "agora" ? "DEFINIDO" : "PENDENTE",
       escolhasBuffet: dados.data.escolhasBuffet,
+      salaoPreferido: dados.data.salaoPreferido ?? null,
       buffetSalgados: dados.data.buffetSalgados,
       buffetBebidas: dados.data.buffetBebidas,
       buffetDoces: dados.data.buffetDoces,
@@ -237,6 +294,10 @@ export async function POST(request: NextRequest) {
       cliente: {
         nomeCompleto: dados.data.nomeCliente,
         cpf: dados.data.cpf,
+        cnpj: dados.data.cnpj || null,
+        nomeFantasia: dados.data.nomeFantasia || null,
+        representanteNome: dados.data.representanteNome || null,
+        representanteCpf: dados.data.representanteCpf || null,
         rg: dados.data.rg,
         telefone: dados.data.telefone,
         whatsapp: dados.data.whatsapp,

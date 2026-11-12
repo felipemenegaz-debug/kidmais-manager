@@ -24,7 +24,7 @@ class Recusa extends Error {
 }
 
 /** Carrega a rota real da tabela PDF com dependências dubladas; devolve status e se publicou. */
-async function postTabela(papel: string) {
+async function postTabela(papel: string, daDona = true) {
   const publicados: string[] = [];
   const arquivo = 'app/api/admin/configuracoes/tabela-pacotes/route.ts';
   const code = ts.transpileModule(readFileSync(arquivo, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -37,11 +37,13 @@ async function postTabela(papel: string) {
     if (nome === '@/lib/autenticacao/service') return { authError: (m: string, s: number) => new Recusa(m, s) };
     if (nome === '@/lib/http/api-response') return { apiErrorResponse: (e: unknown) => json({ ok: false }, { status: e instanceof Recusa ? e.status : 500 }) };
     if (nome === '@/lib/autenticacao/plataforma') return { temAutoridadeDePlataforma };
+    if (nome === '@/lib/saas/provar-tenant') return { withTenantTransaction: async (_s: unknown, _e: unknown, w: (tx: unknown, t: { empresaComprovada: string }) => Promise<unknown>) => w({}, { empresaComprovada: 'e1' }) };
+    if (nome === '@/lib/disponibilidade/config-legada') return { ehDonaDaConfigLegada: async () => daDona };
     return req(nome);
   }, exports);
   const form = new FormData();
   form.set('arquivo', new File([Buffer.from('%PDF-1.4\n%%EOF')], 'tabela.pdf', { type: 'application/pdf' }));
-  const resposta = await exports.POST({ formData: async () => form });
+  const resposta = await exports.POST({ formData: async () => form, nextUrl: new URL('http://x/api') });
   return { status: resposta.status, publicados };
 }
 
@@ -61,6 +63,10 @@ test('F1 conta criada por empresa como Gestão (papel global neutro) NÃO public
   const legitima = await postTabela(PAPEL_PLATAFORMA);
   assert.equal(legitima.status, 200);
   assert.deepEqual(legitima.publicados, ['tabela.pdf']);
+  // A plataforma operando outra empresa (não a dona da agenda pública) não substitui o PDF da instalação.
+  const outraEmpresa = await postTabela(PAPEL_PLATAFORMA, false);
+  assert.equal(outraEmpresa.status, 403);
+  assert.deepEqual(outraEmpresa.publicados, []);
 });
 
 test('083 WhatsApp é da EMPRESA: só a Gestão da empresa comprovada consulta, conecta e desconecta; o papel global não decide', () => {

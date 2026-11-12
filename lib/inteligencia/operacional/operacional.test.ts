@@ -25,12 +25,65 @@ test("objeto principal: festa com pacote como atributo prepara contratação; pa
   assert.equal(objetoDeCriacao("prepare a contratação do Felipe"), "FESTA");
   assert.equal(objetoDeCriacao("nova festa da Ana"), "FESTA");
   assert.equal(objetoDeCriacao("crie um pacote para a festa de verão"), "PACOTE");
+  // Teste de Felipe em staging (23/10): "fechar/fazer um contrato" é contratação; contrato já existente não é.
+  for (const t of ["quero fechar um contrato", "Quero fechar um contrato novo", "fechar contrato", "vamos fazer um contrato", "faça um novo contrato para a Ana",
+    "quero contratar uma festa", "fechar uma festa para o Felipe"]) {
+    assert.equal(objetoDeCriacao(t), "FESTA", t);
+    assert.deepEqual(interpretarDeterministico(t, null), { tipo: "acao", capacidade: "preparar_contratacao", origem: "INTENCAO_DETERMINISTICA" }, t);
+  }
+  // Parecer do Astra (23/10, P2): verbo negado não inicia contratação; "não, quero…" (vírgula) continua pedido.
+  assert.equal(objetoDeCriacao("não, quero fechar um contrato"), "FESTA");
+  // Rodada 2: negação em qualquer ponto da oração; outra oração positiva depois continua valendo.
+  assert.equal(objetoDeCriacao("não quero criar um pacote, quero fechar um contrato"), "FESTA");
+  assert.equal(objetoDeCriacao("não sei o preço ainda, mas quero fechar um contrato"), "FESTA");
+  assert.equal(objetoDeCriacao("Não. Quero fechar um contrato para a Ana"), "FESTA");
+  for (const t of ["fechar o contrato da Ana", "quero fechar este contrato", "fazer o contrato do Felipe", "gere o contrato", "importar contrato antigo", "como faço um contrato?",
+    "não quero fechar um contrato", "não faça um contrato", "nao vamos criar uma festa agora", "não quero contratar uma festa", "eu não vou fechar contrato hoje",
+    "não quero que você faça um contrato", "não tenho intenção de fechar um contrato", "nunca mais quero fechar contrato por aqui", "nem pense em criar uma festa",
+    // Rodada 3: coordenação e inciso não encerram a negação.
+    "não quero criar um pacote ou fechar um contrato", "não quero, por enquanto, fechar um contrato", "não, não quero fechar contrato",
+    "não quero criar uma festa nem fechar um contrato", "não vou, pelo menos hoje, fazer um contrato"]) {
+    assert.notEqual(objetoDeCriacao(t), "FESTA", t);
+    assert.notEqual((interpretarDeterministico(t, null) as { capacidade?: string }).capacidade, "preparar_contratacao", t);
+  }
   // Perguntas e referências nunca viram criação.
   for (const t of ["quantos docinhos devo fazer para a próxima festa?", "quem vai montar a festa de sábado?", "como crio uma festa?", "o que precisa fazer na festa de amanhã?", "qual pacote a próxima festa usa?"]) {
     assert.equal(objetoDeCriacao(t), null, t);
     assert.notEqual((interpretarDeterministico(t, null) as { capacidade?: string }).capacidade, "preparar_contratacao", t);
     assert.notEqual((interpretarDeterministico(t, null) as { capacidade?: string }).capacidade, "criar_pacote", t);
   }
+});
+
+test("escopo da negação (Astra, rodada 3): negativas variadas nunca contratam; afirmativas com 'não' noutra oração contratam", () => {
+  const negativas = ["não quero mais fechar contrato", "não preciso que você feche um contrato", "eu não pedi para fechar um contrato", "não é para fechar um contrato",
+    "não vamos, por ora, criar uma festa", "não quero criar festa e nem fechar contrato", "jamais feche um contrato sem me avisar", "nunca crie uma festa sozinho",
+    "não, não faça um contrato", "não quero agora fechar um contrato", "nao desejo fechar contrato", "não precisa fechar um contrato", "não quero criar, nem fechar um contrato"];
+  const positivas = ["não quero pacote; quero fechar um contrato", "fechar contrato para a Ana, não um pacote", "não quero esperar, vamos fechar um contrato",
+    "crie uma festa e não um pacote", "não, pode fechar um contrato"];
+  for (const t of negativas) assert.notEqual(objetoDeCriacao(t), "FESTA", t);
+  for (const t of positivas) assert.equal(objetoDeCriacao(t), "FESTA", t);
+});
+
+test("decisão final (Astra, rodada 4): negativas nunca contratam nem trocam o objetivo, em objeto, correção, intenção e coordenador", () => {
+  const capacidade = (t: string) => (interpretarDeterministico(t, null) as { capacidade?: string }).capacidade;
+  const coordena = (t: string) => coordenarRascunho(t, situacao(), interpretarDeterministico(t, null), false).tipo;
+  for (const t of ["não quero criar uma festa e não um pacote", "não quero, então, fechar um contrato", "não quero criar um pacote ou fechar um contrato",
+    "não quero, por enquanto, fechar um contrato", "não quero fechar um contrato nem criar um pacote", "não quero, então, criar uma festa e não um pacote"]) {
+    assert.notEqual(objetoDeCriacao(t), "FESTA", t);
+    assert.notEqual(correcaoDeObjetivo(t), "FESTA", t);
+    assert.ok(!["preparar_contratacao", "criar_pacote"].includes(capacidade(t) ?? ""), `${t}: ${capacidade(t)}`);
+    assert.notEqual(coordena(t), "MUDANCA_OBJETIVO", t);
+  }
+  // Controles positivos: a mesma estrutura com o alvo afirmado continua trocando.
+  for (const [t, objetivo] of [["quero criar uma festa e não um pacote", "preparar_contratacao"], ["não é pacote, é uma festa", "preparar_contratacao"],
+    ["não quero esperar, vamos fechar um contrato", "preparar_contratacao"], ["não quero esperar, então feche um contrato", "preparar_contratacao"],
+    ["não, quero fechar um contrato", "preparar_contratacao"]] as const) {
+    assert.equal(capacidade(t), objetivo, t);
+    assert.deepEqual(coordenarRascunho(t, situacao(), interpretarDeterministico(t, null), false), { tipo: "MUDANCA_OBJETIVO", capacidade: objetivo }, t);
+  }
+  assert.equal(correcaoDeObjetivo("é um pacote, não uma festa"), "PACOTE");
+  assert.equal(correcaoDeObjetivo("não é pacote, é uma festa"), "FESTA");
+  assert.equal(capacidade("quero criar um pacote chamado Premium"), "criar_pacote");
 });
 
 const situacao = (s: Partial<SituacaoRascunho> = {}): SituacaoRascunho => ({
@@ -43,6 +96,12 @@ test("coordenador: resposta, correção, troca de objetivo, consulta, cancelar, 
   assert.equal(r("R$ 4.500", { respondeCampo: true }), "RESPOSTA_CAMPO");
   assert.equal(r("Quero criar uma festa e não um pacote"), "MUDANCA_OBJETIVO");
   assert.deepEqual(coordenarRascunho("Quero criar uma festa e não um pacote", situacao(), interpretarDeterministico("x", null), false), { tipo: "MUDANCA_OBJETIVO", capacidade: "preparar_contratacao" });
+  // Parecer do Astra (23/10, rodada 2): com rascunho de pacote aberto, negativa nunca troca o objetivo; o pedido troca.
+  for (const t of ["não quero que você faça um contrato", "não tenho intenção de fechar um contrato", "não quero fechar um contrato",
+    "não quero criar um pacote ou fechar um contrato", "não quero, por enquanto, fechar um contrato"]) {
+    assert.notEqual(r(t), "MUDANCA_OBJETIVO", t);
+  }
+  assert.deepEqual(coordenarRascunho("quero fechar um contrato", situacao(), interpretarDeterministico("quero fechar um contrato", null), false), { tipo: "MUDANCA_OBJETIVO", capacidade: "preparar_contratacao" });
   assert.equal(r("quantos docinhos devo fazer para a próxima festa?", {}, true), "NOVA_CONSULTA");
   assert.equal(r("Quantos refrigerantes a próxima festa vai precisar?", {}, true), "NOVA_CONSULTA");
   assert.equal(r("quais contratos estão pendentes?"), "NOVA_CONSULTA");
@@ -119,7 +178,8 @@ test("cálculo de refrigerante: mL inteiros, conversão exata, embalagem indivis
 
 test("contratação: extração da frase exata, ano nunca presumido, data impossível e horários conflitantes", () => {
   const p = extrairContratacao("crie uma festa do Felipe, pacote premium 50 convidados, beatriz 1 ano; tema unicórnio", null);
-  assert.deepEqual(p, { cliente: "Felipe", pacote: "premium", convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio" });
+  // pacoteTexto: o trecho até a pontuação, que o Core confronta com o catálogo da empresa (fase 1d).
+  assert.deepEqual(p, { cliente: "Felipe", pacote: "premium", pacoteTexto: "premium 50 convidados", pacoteResto: "beatriz 1 ano; tema unicórnio", pacoteRecusas: null, convidados: 50, aniversariante: "Beatriz", idade: 1, tema: "unicórnio" });
   assert.deepEqual(faltandoContratacao(p), ["data", "turno"]);
   const semAno = { ...p, ...extrairContratacao("dia 15/11", "data") };
   assert.deepEqual(faltandoContratacao(semAno), ["ano", "turno"]);

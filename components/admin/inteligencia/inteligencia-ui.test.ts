@@ -78,8 +78,8 @@ test('cliente: chama só o endpoint real com { capacidade } e trata resposta, re
   assert.equal(ok.pedidos[0].init.method, 'POST');
   assert.deepEqual(JSON.parse(String(ok.pedidos[0].init.body)), { capacidade: 'atencao_hoje' });
 
-  const desativada = buscadorFalso(async () => Response.json({ ok: false, erro: 'Kidmais Intelligence indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 }));
-  assert.deepEqual(await cliente.consultarAtencaoHoje(desativada.buscar), { tipo: 'erro', mensagem: 'Kidmais Intelligence indisponível neste ambiente.' });
+  const desativada = buscadorFalso(async () => Response.json({ ok: false, erro: 'Copiloto indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 }));
+  assert.deepEqual(await cliente.consultarAtencaoHoje(desativada.buscar), { tipo: 'erro', mensagem: 'Copiloto indisponível neste ambiente.' });
 
   const malformada = buscadorFalso(async () => Response.json({ ok: true, data: { capacidade: 'outra' } }));
   assert.deepEqual(await cliente.consultarAtencaoHoje(malformada.buscar), { tipo: 'erro', mensagem: cliente.MENSAGEM_ERRO });
@@ -195,7 +195,7 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
     const dialogo = elementos(inicial).find((e) => e.props.role === 'dialog');
     assert(dialogo);
     assert.equal(dialogo.props['aria-modal'], 'true');
-    assert.match(texto(inicial), /Assistente Kidmais/);
+    assert.match(texto(inicial), /Copiloto/);
     assert.equal(document.body.style.overflow, 'hidden');
 
     (achar(inicial, 'button', /O que precisa da minha atenção hoje\?/).props.onClick as () => void)();
@@ -210,8 +210,11 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
       { id: 2, pergunta: 'O que precisa da minha atenção hoje?', fase: 'resposta', dados },
     ];
     const comHistorico = tela.render('default', { ...props, mensagens: historico });
-    assert.match(texto(comHistorico), /Essa análise ainda não está disponível no Kidmais/);
+    assert.match(texto(comHistorico), /Essa análise ainda não está disponível no Copiloto/);
     assert.equal(achar(comHistorico, RespostaAtencao).props.dados, dados);
+    const desligada = tela.render('default', { ...props, mensagens: [{ id: 3, pergunta: 'quero fechar um contrato', fase: 'desativada' }] });
+    assert.match(texto(desligada), /O assistente está desligado para esta empresa neste ambiente/);
+    assert.doesNotMatch(texto(desligada), /Essa análise ainda não está disponível/);
 
     const aguardando = tela.render('default', { ...props, aguardando: true });
     assert.equal(achar(aguardando, 'button', 'Enviar').props.disabled, true);
@@ -229,7 +232,7 @@ test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador
   try {
     const DrawerKidmais = function DrawerKidmais() {};
     const { buscar, pedidos } = buscadorFalso(async () => (pedidos.at(-1)!.url.endsWith('/conversa')
-      ? Response.json({ ok: false, erro: 'Kidmais Intelligence indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })
+      ? Response.json({ ok: false, erro: 'Copiloto indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })
       : Response.json({ ok: true, data: dados })));
     const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
       ...NAVEGACAO_FALSA,
@@ -258,7 +261,8 @@ test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador
     assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { capacidade: 'atencao_hoje' });
 
     const mensagens = achar(provider(), DrawerKidmais).props.mensagens as conversa.Mensagem[];
-    assert.deepEqual(mensagens.map((m) => m.fase), ['indisponivel', 'resposta']);
+    // IA desligada por flag no servidor: mensagem própria (não "análise não disponível"), teste de Felipe em 23/10.
+    assert.deepEqual(mensagens.map((m) => m.fase), ['desativada', 'resposta']);
 
     (achar(provider(), DrawerKidmais).props.onFechar as () => void)();
     assert.equal(elementos(provider()).some((e) => e.type === DrawerKidmais), false);
@@ -460,7 +464,7 @@ const leituraV1: cliente.RespostaLeitura = {
 const agenteV1 = {
   tipo: 'agente', agente: { id: 'atendimento', nome: 'Atendimento' }, resumo: 'Rascunho pronto para você revisar.',
   secoes: [{ titulo: 'Contratos aguardando assinatura', dados: leituraV1 }],
-  sugestao: { titulo: 'Retomar contato', texto: 'Olá, Ana!', fonte: 'skill:atendimento_familias@1.0.0#follow_up_orcamento', aviso: 'Rascunho para você revisar e enviar pelo canal oficial. O Kidmais não envia mensagens.', pendentes: ['data da festa'] },
+  sugestao: { titulo: 'Retomar contato', texto: 'Olá, Ana!', fonte: 'skill:atendimento_familias@1.0.0#follow_up_orcamento', aviso: 'Rascunho para você revisar e enviar pelo canal oficial. O Copiloto não envia mensagens.', pendentes: ['data da festa'] },
 };
 
 test('V1 cliente: aceita agente e complemento do Copiloto válidos; formato adulterado continua recusado', async () => {
@@ -572,7 +576,7 @@ test('V1 agente e complemento: sugestão identificada, copiar sem enviar, sem ja
   assert.match(conteudo, /Atendimento/);
   assert.match(conteudo, /Olá, Ana!/);
   assert.match(conteudo, /Complete antes de usar: data da festa/);
-  assert.match(conteudo, /O Kidmais não envia mensagens/);
+  assert.match(conteudo, /O Copiloto não envia mensagens/);
   assert.doesNotMatch(conteudo, /skill:|atendimento_familias|follow_up/, 'proveniência técnica fica no trace, não na tela');
   assert.ok(achar(arvore, 'button', 'Copiar texto'));
 

@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
           cliente: {
             nomeCompleto: base.cliente.nomeCompleto,
             cpf: base.cliente.cpf,
+            // Entrega B: só a PJ ganha as chaves novas; a resposta da PF continua a mesma.
+            ...(base.cliente.tipoPessoa === "PJ" ? { tipoPessoa: "PJ" as const, cnpj: base.cliente.cnpj } : {}),
             rg: base.cliente.rg,
             telefone: base.cliente.telefone,
             whatsapp: base.cliente.whatsapp,

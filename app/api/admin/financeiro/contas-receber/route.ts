@@ -4,6 +4,7 @@ import { FORMAS } from "@/lib/financeiro/calculos";
 import { consultarFinanceiro, hojeIso } from "@/lib/financeiro/http";
 import { baixarRecebimentoNoTenant } from "@/lib/financeiro/baixa";
 import { criarEntradaManual, listarRecebiveis, resumo, recebidoNoMes } from "@/lib/financeiro/servico";
+import { operacoesP2 } from "@/lib/financeiro/escritor-p2";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { contextoCrmDaRequest, exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
   return consultarFinanceiro(request, async (tx, tenant) => {
     const recebiveis = await listarRecebiveis(tx, tenant.empresaComprovada, hoje);
     const recebido = await recebidoNoMes(tx, tenant.empresaComprovada, hoje);
-    return { recebiveis, resumo: resumo(recebiveis, [], recebido, hoje) };
+    return { recebiveis, resumo: resumo(recebiveis, [], recebido, hoje), operacoes: operacoesP2() };
   });
 }
 

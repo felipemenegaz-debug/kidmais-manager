@@ -137,7 +137,7 @@ test('ajuda da tela: prefixo mais longo vence e só artigo publicado vira link',
     const hoje = '2026-11-02';
     assert.equal(artigoDaRota('/admin/financeiro/contas-pagar', todos, hoje), 'contas-a-pagar-e-caixa');
     assert.equal(artigoDaRota('/admin/financeiro', todos, hoje), 'financeiro-recebimentos');
-    assert.equal(artigoDaRota('/admin/configuracoes/pacotes/abc', todos, hoje), 'saloes-pacotes-e-itens');
+    assert.equal(artigoDaRota('/admin/configuracoes/saloes/abc', todos, hoje), 'saloes-pacotes-e-itens');
     assert.equal(artigoDaRota('/clientes/123', todos, hoje), 'clientes');
     assert.equal(artigoDaRota('/admin/festas-x', todos, hoje), null, 'prefixo só casa no limite do segmento');
     assert.equal(artigoDaRota('/admin/configuracoes', todos, hoje), null);
@@ -244,7 +244,7 @@ test('página de ajuda: lista, busca com resultado, busca sem resultado e corpus
 
     const sem = await montarPagina('app/admin/ajuda/page.tsx', null).render('default', {});
     assert.equal(elementos(sem).some((e) => e.props['data-central'] !== undefined), false, 'sem corpus, sem seção de artigos');
-    assert.match(texto(sem), /Fale com a equipe iA\.Fest/);
+    assert.match(texto(sem), /Fale com a equipe iA.Fest/);
 });
 
 test('página do artigo: renderiza o publicado e responde 404 para pendente, de empresa, inexistente ou id inválido', async () => {
@@ -265,6 +265,8 @@ test('AdminShell: ajuda e artigos abertos sem empresa e com acesso bloqueado; li
     assert.match(shell, /!ROTAS_ABERTAS_SEM_EMPRESA\.includes\(path\) && !rotaDaAjuda\(path\)/);
     assert.match(shell, /!ROTAS_ABERTAS_BLOQUEADO\.includes\(path\) && !rotaDaAjuda\(path\)/);
     assert.match(shell, /artigoDaRota\(path, artigosAjuda, hojeBrasilia\(\)\)/);
+    // O assistente da agenda não abre por cima da ajuda (onde a pessoa vai entender a agenda).
+    assert.match(shell, /path !== CONSENTIMENTO_MCP && !rotaDaAjuda\(path\) && <AssistenteAgendaPendente/);
     assert.match(shell, /EmpresaSuporteContext\.Provider value=\{vitrine \? null : contexto\?\.empresaAtual\?\.id \?\? null\}/);
     for (const layout of ['../../app/admin/layout.tsx', '../../app/clientes/layout.tsx']) {
         assert.match(readFileSync(new URL(layout, import.meta.url), 'utf8'), /artigosAjuda=\{artigosDaCentral\(carregarCorpusAprovado\(\), hojeBrasilia\(\)\)\.map\(\(a\) => \(\{ id: a\.id, ate: a\.ate \}\)\)\}/, layout);
@@ -278,17 +280,17 @@ test('AdminShell: ajuda e artigos abertos sem empresa e com acesso bloqueado; li
 
 test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado da tela; ajuda aberta sem empresa e bloqueada', async () => {
     // O chip é verificado no componente real (sessão simulada), não no texto-fonte: comentado, inalcançável ou com o link
-    // errado, o teste reprova (achado P2 do Astra no recorte de production, 03/11/2026).
+    // errado, o teste reprova (achado P2 do Astra no recorte de production, 03/11/2026; gêmea em staging).
     const marca = (nome: string) => Object.assign(function Marca() { return null; }, { displayName: nome });
     const contextoFalso = () => ({ Provider: function Provider(p: { children?: unknown }) { return p.children; } });
     const Link = marca('Link');
     const suporte = contextoFalso();
+    const Assistente = marca('AssistenteAgendaPendente');
     let caminho = '/admin/contratos';
     let sessao: object = {};
     const deps = {
         'next/navigation': { usePathname: () => caminho, useRouter: () => ({ replace() {}, push() {} }) },
         'next/link': { default: Link },
-        '@/lib/http/retorno-login': { loginDestaPagina: () => '/admin/login' },
         '@/lib/http/admin-fetch': { trocarEmpresaAtiva: async () => ({}) },
         '@/lib/http/contexto-empresa-cliente': { marcaDaSessao: () => 0, registrarContextoEmpresa: () => true, reiniciarContextoEmpresa() {}, saidaDaSessaoEmAndamento: () => false, sessaoObsoletaDesde: () => false },
         '@/lib/enderecos/cliente': { conferirLeituraDaSessao: (l: { resposta: { json: () => unknown } }) => l.resposta.json(), enderecoFinal: () => false },
@@ -306,6 +308,8 @@ test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado d
         '@/lib/suporte/ajuda-da-tela': { artigoDaRota, rotaDaAjuda },
         '@/lib/financeiro/calculos': { hojeBrasilia: () => HOJE },
         './ajuda/CodigoSuporte': { EmpresaSuporteContext: suporte },
+        './AssistenteAgenda': { AssistenteAgendaPendente: Assistente },
+        '@/lib/http/retorno-login': { CONSENTIMENTO_MCP: '/admin/conexoes-ia/autorizar', loginDestaPagina: () => '/admin/login' },
     };
     const conteudo = jsx('section', { id: 'conteudo-da-tela' });
     const EMPRESAS = [{ id: EMPRESA, nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }];
@@ -326,7 +330,8 @@ test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado d
         const arvore = shell.render('default', props);
         const chips = elementos(arvore).filter((e) => e.type === Link && e.props['data-ajuda-da-tela']);
         const tela = elementos(arvore).some((e) => e.props?.id === 'conteudo-da-tela');
-        return { arvore, chips, tela, titulo: texto(elementos(arvore).find((e) => e.type === 'h1')) };
+        const assistente = elementos(arvore).some((e) => e.type === Assistente);
+        return { arvore, chips, tela, assistente, titulo: texto(elementos(arvore).find((e) => e.type === 'h1')) };
     }
     const publicado = (...ids: string[]) => ids.map((id) => ({ id, ate: null }));
     try {
@@ -335,11 +340,15 @@ test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado d
         assert.equal(comArtigo.chips[0].props.href, '/admin/ajuda/contratos');
         assert.match(texto(comArtigo.chips[0]), /Ajuda desta tela/);
         assert(comArtigo.tela, 'a tela continua abaixo do chip');
+        // #298: o assistente da agenda abre nas telas da empresa, nunca por cima da ajuda nem do consentimento do MCP.
+        assert(comArtigo.assistente, 'assistente da agenda nas telas da empresa');
+        assert.equal((await montar('/admin/ajuda/contratos', publicado('contratos'))).assistente, false, 'sem assistente na ajuda');
+        assert.equal((await montar('/admin/conexoes-ia/autorizar', publicado('contratos'))).assistente, false, 'sem assistente no consentimento');
         const provedor = elementos(comArtigo.arvore).find((e) => e.type === suporte.Provider);
         assert.equal(provedor?.props.value, EMPRESA, 'código de suporte da empresa ativa');
         // Prefixo mais longo e subtelas: /admin/fechamentos não é tela, mas cobre a revisão.
         assert.equal((await montar('/admin/fechamentos/abc/revisao', publicado('fechamento-de-festa'))).chips[0]?.props.href, '/admin/ajuda/fechamento-de-festa');
-        assert.equal((await montar('/admin/configuracoes/importar-tabela', publicado('importar-documentos'))).chips[0]?.props.href, '/admin/ajuda/importar-documentos');
+        assert.equal((await montar('/admin/configuracoes/importar-documentos', publicado('importar-documentos'))).chips[0]?.props.href, '/admin/ajuda/importar-documentos');
         // Sem chip: artigo não publicado, vencido, tela sem artigo e vitrine.
         for (const [rota, artigos, vitrine] of [
             ['/admin/contratos', [], false], ['/admin/contratos', [{ id: 'contratos', ate: '2026-10-31' }], false],
@@ -352,7 +361,7 @@ test('AdminShell renderizado: chip "Ajuda desta tela" só com artigo publicado d
         // Acesso bloqueado: a tela de negócio dá lugar ao aviso (sem chip); ajuda e assinatura seguem abertas.
         const bloqueada = await montar('/admin/contratos', publicado('contratos'), { nivel: 'BLOQUEADO' });
         assert.equal(bloqueada.titulo, 'Acesso suspenso até a assinatura');
-        assert.equal(bloqueada.chips.length + Number(bloqueada.tela), 0);
+        assert.equal(bloqueada.chips.length + Number(bloqueada.tela) + Number(bloqueada.assistente), 0);
         assert((await montar('/admin/ajuda/contratos', publicado('contratos'), { nivel: 'BLOQUEADO' })).tela, 'artigo aberto com acesso bloqueado');
         assert.equal((await montar('/admin/assinatura', publicado('assinatura-e-plano'), { nivel: 'BLOQUEADO' })).chips[0]?.props.href, '/admin/ajuda/assinatura-e-plano');
         // Sem empresa ativa: só conta e ajuda.
@@ -387,7 +396,7 @@ test('corpus real: endereço de mídia não acha artigo; artigo fora de APROVADO
     const textos = corpus.documentos.flatMap((d) => [d.titulo, ...d.secoes.flatMap((s) => [s.titulo, s.texto])]);
     const limpos = new Set(textos.flatMap((t) => termos(semEnderecoDeMidia(t))));
     const soNoEndereco = [...new Set(textos.flatMap((t) => termos(t)))].filter((t) => !limpos.has(t));
-    assert(soNoEndereco.includes('imagen'), `controle: ${soNoEndereco.join(' ')}`);
+    assert(soNoEndereco.includes('mp4') && soNoEndereco.includes('imagen'), `controle: ${soNoEndereco.join(' ')}`);
     for (const consulta of soNoEndereco) assert.deepEqual(buscarNaCentral(corpus, HOJE, consulta), [], consulta);
     for (const d of corpus.documentos) {
         const retirado: Corpus = { documentos: corpus.documentos.map((x) => (x === d ? { ...x, situacao: 'SUSPENSO' as const } : x)) };
@@ -422,7 +431,6 @@ test('corpus real: carrega, todo arquivo da pasta está no manifesto e toda tela
             }
             for (const m of linhaFonte.matchAll(/\]\(([^)]+)\)/g)) {
                 assert(linkInterno(m[1]), `${d.arquivo}: link ${m[1]}`);
-                // O artigo só aponta para tela que existe neste código (recorte de production, 03/11/2026).
                 const tela = new URL(`../../app${m[1].split(/[?#]/)[0]}/page.tsx`, import.meta.url);
                 assert(existsSync(tela), `${d.arquivo}: tela ${m[1]} inexistente`);
                 // Âncora só se a própria tela tiver o id (os artigos de hoje não usam; a guarda vale para os próximos).

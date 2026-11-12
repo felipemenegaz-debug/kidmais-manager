@@ -1,11 +1,23 @@
 import type { NextRequest } from "next/server";
 import { extrairTextoPdfIsolado } from "@/lib/importacao-contrato/pdf-isolado";
 import { documentosDisponiveis, registrarDocumento, registrarExtracao, ultimaExtracao } from "@/lib/importacao-contrato/repositorio-documentos";
+import { concluirCota, cotaInstalada, liberarCota, reservarCota } from "@/lib/importacao-contrato/cota";
+import { modeloContratoAtivo } from "@/lib/contratos/modelo-empresa/servico";
+import { referenciaDoModeloPublicado } from "@/lib/importacao-contrato/modelo-referencia";
 import type { DependenciasDocumento, PortaDocumentos } from "@/lib/inteligencia/documentos/upload";
 import { dependenciasGateway, roteadorDoAmbiente } from "../dependencias";
 
 /** Composição da feature DOCUMENT: repositório de documentos (ia_documentos, originais, extrações, evidências). */
-export const portaDocumentos: PortaDocumentos = { disponivel: documentosDisponiveis, registrarDocumento, registrarExtracao, ultimaExtracao };
+export const portaDocumentos: PortaDocumentos = {
+  disponivel: documentosDisponiveis, registrarDocumento, registrarExtracao, ultimaExtracao,
+  // L2 (118): cota de leitura de documentos, para o envio único e o lote.
+  cota: { instalada: cotaInstalada, reservar: reservarCota, concluir: concluirCota, liberar: liberarCota },
+  // Só o modelo ATIVO (sem 072 ⇒ null): só as cláusulas, sem dado literal, e o documento da contratada; nunca o PDF.
+  async modeloReferencia(tx, empresaId) {
+    const ativo = await modeloContratoAtivo(tx, empresaId);
+    return ativo ? referenciaDoModeloPublicado(ativo) : null;
+  },
+};
 
 export function dependenciasDocumento(request: NextRequest): DependenciasDocumento {
   // PDF lido em Worker isolado: prazo e cancelamento do pedido encerram o Worker à força.

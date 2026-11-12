@@ -30,6 +30,12 @@ PASS em 13/10). A diferença é o formato: em vez do heredoc de node do E0, a pr
 
 ## 2. Decisões desta peça
 
+> **Bloqueio em production (B-27, 07/11/2026).** A prova de e-mail fica no próprio escopo e não é vetada por esta nota. A última frase de D4 não é caminho de abertura: uma decisão de abrir a venda antes não basta, porque a abertura segue o gate da D-COBRANCA-LIVE.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 | # | Decisão | Motivo |
 |---|---|---|
 | D1 | Destinatário **fixo no código**: `contato@demerzellabs.com.br`. Nenhum parâmetro de destinatário (argumento extra = recusa). | Canal oficial; um envio a um endereço nosso não expõe terceiros. |
@@ -187,39 +193,88 @@ Validação local em 20/10/2026 (nenhum envio, rede bloqueada nos testes, nada e
   execução com bash, recusas do bloco, **colagem com `bash -i`** (executada, não pulada) e colagem truncada, LIMPEZA, fixação byte a byte dos 3 blocos no mesmo gerador).
 - `npx tsc --noEmit`: OK. ESLint dos 4 arquivos novos: OK. `npm run check:v1:static`: PASS (testes, lint, TypeScript e build).
 
-## 12. Revalidação de 08/11/2026: novo `lib/acessos/email.ts` (recorte de production)
+## 11. Revalidação de 23/10/2026: novo `lib/acessos/erros.ts` (mudança só de tipo)
 
-Pedido de Felipe (08/11): levar a production só o texto dos e-mails de acesso com o nome iA.Fest (PR #362, LIVE em
-staging em `f3ffe450`). O remetente de production já é `iA.Fest <nao-responda@notificacoes.demerzellabs.com.br>`.
-Recorte sobre production `a56fa0f2`. A §11 (novo `erros.ts`) ainda não está em production: aqui `erros.ts` continua
-`883b0944…` e o executor parte de `ba56b8ce…`, por isso os sha abaixo diferem dos de staging.
+Pedido de Felipe (23/10): revalidar o pacote para o novo `erros.ts` da integração CPF/Fundador + textos/comprovante +
+arrependimento (branch `codex/integracao-cpf-textos-arrependimento-20261023`), com justificativa e revisão do Astra.
 
-**Motivo:** o executor fixa por hash (LF) o `email.ts`; o passo 5 do CI falharia com `TRANSPORTE_DIVERGENTE EMAIL`.
+**Motivo:** o executor fixa por hash (LF) os dois arquivos do transporte. A integração muda `erros.ts`, e o passo 5 do CI
+(estes testes) falhava com `TRANSPORTE_DIVERGENTE ERROS` (8 de 20).
 
-**A mudança é só de texto:** 5 trechos em `mensagemConvite` e `mensagemRecuperacao` (assunto e parágrafos), arquivo
-idêntico ao de staging `f3ffe450`. `situacaoEmail`, `criarEnviarEmail`, `corpo`, `linkComToken` e a chamada ao Resend não
-mudaram; o executor não usa as duas funções de mensagem.
+**A mudança é só de tipo:**
+- o diff de `erros.ts` contra o staging é **uma linha**: a união `AcessoErroCodigo` ganha 10 códigos
+  (`FUNDADOR_OFERTA_EXPIRADA`, `CAMPANHA_DESLIGADA`, `CAMPANHA_REGRA_PENDENTE`, `CAMPANHA_ANTES_DA_ABERTURA`,
+  `CPF_INDISPONIVEL`, `CONTINUIDADE_PENDENTE`, `CONTINUIDADE_INDISPONIVEL`, `DOCUMENTOS_ATUALIZADOS`,
+  `ARREPENDIMENTO_INDISPONIVEL`, `DOCUMENTO_DIVERGENTE`). Nenhuma classe, função ou valor muda;
+- `typescript.transpileModule` (TypeScript 5.9.3) emite **JavaScript idêntico** para a versão antiga e a nova;
+- `stripTypeScriptTypes` do Node (o que o executor usa ao importar `email.ts`) dá saída idêntica, ignorando espaços;
+- `lib/acessos/email.ts` **não mudou** e continua com o hash fixado `0ff9c138…`;
+- o hash antigo de `erros.ts` só estava fixado no executor.
+
+**O que mudou no pacote:**
+
+| Item | Antes | Depois |
+|---|---|---|
+| `erros.ts` fixado no executor (LF) | `883b0944b061aabb0f68bb654ab647f6368c018f2dad22247e0be3e777f574d2` | `77ebaaf0791d82f38464869f57d94bbd494ad70bb19ad83e1be9d56da0ea3dd1` |
+| Executor `email-producao-20261020.cjs` (LF) | `ba56b8ce…` | `1f9ec23b6e8a0b730f72ef1a0e5649b85205e74c8e7e9ef6564619307e07b028` |
+| Bloco CONFERIR | `8f77a397…` (9612 bytes) | `dd8ebb2fb2a75e3cf5f1a3f851088eb6fde274d81b38d34ab0bed61640e63c97` (9985 bytes) |
+| Bloco ENVIAR | `7cdbb59c…` (9743 bytes) | `85218447e5fc14fb674896ac8de598faf44e67fcb265435c6a68ec4744503ecb` (10116 bytes) |
+| Bloco LIMPEZA | `9e9967a0…` (2285 bytes) | `03bcae5b5b9ba4553dc1f62afd639d413b2c9690d5de8836cb63fa654468af5c` (2285 bytes) |
+
+- O executor muda só no hash fixado e no comentário de justificativa. Os blocos mudam porque carregam o executor (CONFERIR e ENVIAR) ou o seu sha (LIMPEZA).
+- O rótulo dos blocos continua `7494087`.
+- Mesmo gerador da §10: Windows, Node 24.20.0, zlib 1.3.2.1-motley-42c2f19.
+
+**Validação:** `node --test scripts/email-producao-20261020.test.cjs scripts/bloco-shell-email-producao-20261020.test.cjs`:
+**20/20** (antes: 12/20). Nenhum envio; nada executado em Render ou produção.
+
+**Consequência operacional:**
+- O pacote anterior (`8f77a397…`/`7cdbb59c…`/`9e9967a0…`) continua sendo o que confere com o `erros.ts` da produção atual.
+- O pacote novo só confere num deploy que já tenha o novo `erros.ts`, isto é, depois que esta integração chegar ao ambiente.
+- Nos dois casos o executor recusa com `TRANSPORTE_DIVERGENTE ERROS` logo depois de validar a env, antes do disco, do replay, de carregar o transporte e de qualquer envio, e sem gravar nada (código 1).
+- O envio V6 não foi executado. Ao usá-lo, gerar os blocos a partir do commit do deploy alvo e conferir os sha acima.
+
+## 12. Revalidação de 08/11/2026: novo `lib/acessos/email.ts` (só o texto das mensagens)
+
+Pedido de Felipe (08/11): trocar o nome do produto no texto dos e-mails de acesso, de "Kidmais Manager"/"equipe Kidmais"
+para "iA.Fest", antes de levar o remetente `iA.Fest <nao-responda@notificacoes.demerzellabs.com.br>` para production.
+Branch `codex/email-texto-iafest-20261108`, base staging `35b6c7c3`.
+
+**Motivo:** o executor fixa por hash (LF) o `email.ts`; o passo 5 do CI falhava com `TRANSPORTE_DIVERGENTE EMAIL` (8 de 20).
+
+**A mudança é só de texto:**
+- o diff de `email.ts` troca 5 trechos em `mensagemConvite` e `mensagemRecuperacao` (assunto e parágrafos);
+- `situacaoEmail`, `criarEnviarEmail`, `corpo`, `linkComToken` e a chamada ao Resend não mudaram;
+- o executor não usa `mensagemConvite` nem `mensagemRecuperacao`: monta o próprio assunto e corpo;
+- `erros.ts` não mudou e continua com o hash `77ebaaf0…`.
+
+**O que mudou no pacote:**
 
 | Item | Antes | Depois |
 |---|---|---|
 | `email.ts` fixado no executor (LF) | `0ff9c1388da510f5ca4f145831ee285bdd41984e670a19107f83b1152af0363b` | `3df0a128b8951b966a6cf044f37f636d82e079d94449629dff80031de3cbd0ad` |
-| Executor `email-producao-20261020.cjs` (LF) | `ba56b8ce…` | `cae66db446b145ead75130a55fc7b0a3134f573c792b60a97df825555bc9cf47` |
-| Bloco CONFERIR | `8f77a397…` (9612 bytes) | `f3308568013d30ca24df7098a1f451c25e48cbd413bdb3f3679e6a60bff858c8` (9863 bytes) |
-| Bloco ENVIAR | `7cdbb59c…` (9743 bytes) | `83a770fde4b210bcab075965f18cad574b49c365ff9006e66d8e10fa4a0407b1` (9994 bytes) |
-| Bloco LIMPEZA | `9e9967a0…` (2285 bytes) | `13adc26415123929c460eb827c57d18389422b2e0a357c8dc16f04e83a0f49b4` (2285 bytes) |
+| Executor `email-producao-20261020.cjs` (LF) | `1f9ec23b…` | `1d4ec3d73aab26e8c199a90b238768b08a53e323f6986925f3a813db5bfaa4b6` |
+| Bloco CONFERIR | `dd8ebb2f…` (9985 bytes) | `85033ef143b21eb95e66129ceec44b9d11375fab9c102911274fe924007bf933` (10107 bytes) |
+| Bloco ENVIAR | `85218447…` (10116 bytes) | `7c2ecc5519a3157edfb2f88305c224936019a618c1c732550738313e3e08fa37` (10238 bytes) |
+| Bloco LIMPEZA | `03bcae5b…` (2285 bytes) | `c916d19104e2711cf5b803dc6303162175eabb5a32edac730795a745568ec4db` (2285 bytes) |
 
-- O executor muda só no hash fixado e no comentário. Rótulo dos blocos `7494087`; mesmo gerador da §10 (Windows, Node
-  24.20.0, zlib 1.3.2.1-motley-42c2f19), duas gerações idênticas por modo.
+- O executor muda só no hash fixado e no comentário de justificativa. O rótulo dos blocos continua `7494087`.
+- Mesmo gerador da §10: Windows, Node 24.20.0, zlib 1.3.2.1-motley-42c2f19.
 
-**Validação:** `node --test scripts/email-producao-20261020.test.cjs scripts/bloco-shell-email-producao-20261020.test.cjs`
-mais o teste novo das mensagens: **23/23**. Nenhum envio pelo executor.
+**Validação:** `node --test scripts/email-producao-20261020.test.cjs scripts/bloco-shell-email-producao-20261020.test.cjs`:
+**20/20** (antes: 12/20). Nenhum envio; nada executado em Render ou produção.
 
 **Consequência operacional:**
-- Num deploy sem este `email.ts`, se a env passar na validação, o executor recusa com `TRANSPORTE_DIVERGENTE EMAIL` (código 1),
-  antes do disco, do replay, do transporte e do envio, sem gravar nada. Com env inválida, a recusa é a da env.
-- Os blocos CONFERIR e ENVIAR gravam o executor em `.kidmais-email-producao-20261020/` antes de chamá-lo. Com o executor de
-  outro pacote na pasta, recusam com `JA_EXISTE_DIFERENTE scripts/email-producao-20261020.cjs` (código 4) sem rodar nada;
-  limpar antes com o bloco LIMPEZA do pacote que instalou o arquivo (ele preserva o divergente).
-- O executor ainda exige `EMAIL_REMETENTE` = `Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>`. Com o remetente
-  iA.Fest já em production, recusa com `EMAIL_REMETENTE_DIVERGENTE` antes de ler arquivos. Atualizar o remetente fixado é
-  outra decisão.
+- O pacote novo só confere num deploy que já tenha o novo `email.ts`. Num deploy anterior, se a env passar na validação
+  (serviço, flags, `EMAIL_PROVIDER`, `EMAIL_REMETENTE`, chave), o executor recusa com `TRANSPORTE_DIVERGENTE EMAIL`
+  (código 1). A recusa vem antes de consultar o disco persistente, checar o replay, carregar o transporte e enviar; o
+  executor não grava nada. Se a env não passar, a recusa é a da env (por exemplo `EMAIL_REMETENTE_DIVERGENTE`), antes de
+  ler qualquer arquivo.
+- Os blocos CONFERIR e ENVIAR gravam o executor em `.kidmais-email-producao-20261020/` antes de chamá-lo. Se a pasta já
+  tiver o executor de outro pacote (por exemplo `1f9ec23b…`, da §11), o bloco novo recusa com
+  `JA_EXISTE_DIFERENTE scripts/email-producao-20261020.cjs` (código 4) e não roda nada. Nesse caso, rode antes o bloco
+  LIMPEZA **do pacote que instalou o arquivo**: ele só remove o arquivo cujo sha confere e preserva o divergente
+  (`DIVERGENTE_PRESERVADO`). O LIMPEZA deste pacote não remove o executor anterior.
+- O executor continua exigindo `EMAIL_REMETENTE` = `Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>`
+  (`EMAIL_REMETENTE_DIVERGENTE`). Depois da troca do remetente em production, ele recusa por esse motivo. Atualizar o
+  remetente fixado é outra decisão, fora desta revalidação.

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { listarClientesApi, type ClienteListaApiItem } from "@/lib/clientes/api-client";
-import { formatTelefone } from "@/lib/clientes/utils";
+import { formatTelefone, nomeExibicaoCliente } from "@/lib/clientes/utils";
 import styles from "./Clientes.module.css";
 
 export default function ClientesPage({ selecionarParaFechamento = false }: { selecionarParaFechamento?: boolean }) {
@@ -103,7 +103,7 @@ export default function ClientesPage({ selecionarParaFechamento = false }: { sel
               {resultados.map(({ cliente, cadastroCompleto }) => (
                 <Link className={styles.tableRow} key={cliente.id} href={destinoCliente(cliente.id)}>
                   <span className={styles.clientCell}>
-                    <strong>{cliente.nomeCompleto}</strong>
+                    <strong>{nomeExibicaoCliente(cliente)}</strong>
                     {!cadastroCompleto && <small>Cadastro incompleto</small>}
                   </span>
                   <span>{formatTelefone(cliente.whatsapp ?? cliente.telefone)}</span>
@@ -118,7 +118,7 @@ export default function ClientesPage({ selecionarParaFechamento = false }: { sel
                 <Link className={styles.mobileCard} key={cliente.id} href={destinoCliente(cliente.id)}>
                   <div className={styles.mobileCardTop}>
                     <div>
-                      <strong>{cliente.nomeCompleto}</strong>
+                      <strong>{nomeExibicaoCliente(cliente)}</strong>
                       {!cadastroCompleto && <small>Cadastro incompleto</small>}
                     </div>
                     <span>›</span>

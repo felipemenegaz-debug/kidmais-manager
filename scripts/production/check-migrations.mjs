@@ -112,8 +112,9 @@ const approvedFiles = [
   '20261018_084_convite_geracao_pendencias.sql',
   // A 084 é de Convites (PR #176, mergeada em staging em 18/10/2026 segundo o fetch local de 05:50); por isso o
   // Marketing passou de 084/085 para 085/086 (18/10/2026).
-  // 085: Marketing (goal local de 14/10/2026). Escolha local provisória, não reserva coordenada; nunca aplicada fora de
-  // banco descartável local. Precheck e postcheck externos (forma padrão).
+  // 085: Marketing (goal local de 14/10/2026). Precheck e postcheck externos (forma padrão). 085/086: aplicação
+  // registrada fora deste inventário, não confirmada aqui (staging em 19/10/2026, H1 PASS; produção na promoção de
+  // 20/10/2026).
   '20261018_085_marketing_base.sql',
   // 086: automações de Marketing (mesmo goal local; exige a 085).
   '20261018_086_marketing_automacoes.sql',
@@ -122,20 +123,126 @@ const approvedFiles = [
   // Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
   '20261019_087_assinatura_avisos.sql',
   // 088: autorização do responsável legal para Convites com IA (parecer da Astra de 21/10/2026). Aditiva; precheck e
-  // postcheck externos (padrão). Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  // postcheck externos (padrão). A 087 (avisos de assinatura por e-mail) foi integrada em 03/11/2026 (recorte de
+  // production). Validada primeiro em PostgreSQL descartável local. Aplicação em staging
+  // registrada pela #200, não confirmada aqui; em produção os registros divergem (só leitura própria e datada decide).
   '20261021_088_convite_ia_autorizacoes.sql',
+  // 089–097. Este inventário só reconhece arquivos e nunca lê o banco (appliedState = unknown). Aplicação em staging
+  // registrada fora deste inventário, não confirmada aqui: 089 (CONFERIR de 23/10/2026, JA_APLICADA_POSTCHECK_PASS);
+  // 090, 091, 096 e 097 em 23/10/2026; 092–094 pela #215; 095 em 23/10/2026 (CONFERIR final PASS em 24/10/2026).
+  // Produção: nenhuma tem aplicação registrada (a #209, de 22/10/2026, saiu sem a 089). O estado atual de um banco só se
+  // afirma por leitura própria e datada (conferência B-5 do plano de promoção). Produção exige autorização explícita
+  // própria para cada uma.
   // 089: pedidos de cancelamento e devolução da assinatura, com protocolo (L1 do parecer da Astra, decisão de Felipe de
-  // 21/10/2026). Aditiva; precheck e postcheck externos (padrão). Validada só em PostgreSQL descartável local; nunca
-  // aplicada fora dele. Número livre numa leitura não é reserva (outro trabalho local pode disputar a 089).
+  // 21/10/2026). Aditiva; precheck e postcheck externos (padrão). Validada primeiro em PostgreSQL descartável local.
   '20261021_089_assinatura_encerramentos.sql',
-  // 099: convites avulsos (recorte de Convites para production, 31/10/2026). O schema precede o código, sem backfill;
-  // aplicador manual scripts/migration-099-production.cjs. Os números 090–098 são de outros trabalhos ainda não promovidos.
+  // 090: campanha Fundador em duas fases (janela de 30 dias + lote de 20; plano CPF/Fundador de 22/10/2026).
+  // Precheck e postcheck externos (padrão). Não cria nem ativa campanha. Validada primeiro em PostgreSQL descartável local.
+  '20261022_090_campanha_fundador.sql',
+  // 091: documento fiscal CPF/CNPJ do contratante (plano CPF/Fundador de 22/10/2026). Troca os CHECKs de formato por
+  // CHECKs validados que aceitam também 11 dígitos (sem NOT VALID) e exige o DV só no INSERT, por gatilho, em
+  // empresa_assinaturas e assinatura_fundadores; cria empresa_documento_continuidades; não atualiza linhas. Independente
+  // da 090. Validada primeiro em PostgreSQL descartável local.
+  '20261022_091_documento_fiscal_contratante.sql',
+  // 092: preço do pacote por quantidades cheias (tipo_calculo PONTO; decisão de Felipe de 22/10/2026). Aditiva; precheck
+  // e postcheck externos (padrão). Validada primeiro em PostgreSQL descartável local.
+  '20261022_092_precos_por_quantidade.sql',
+  // 093: configuração da agenda por unidade (etapa 2a; decisões de Felipe de 22/10/2026). Aditiva; precheck e postcheck
+  // externos (padrão). Validada primeiro em PostgreSQL descartável local.
+  '20261022_093_agenda_configuracao_unidade.sql',
+  // 094: capacidade, limite do dia e intervalo na regra de conflito (etapa 2b; decisões de Felipe de 22/10/2026). Troca o
+  // corpo de três funções da 062 (manifesto da Festa com o conjunto 094). Validada primeiro em PostgreSQL descartável local.
+  '20261022_094_agenda_capacidade.sql',
+  // 095: créditos de IA (Convites e Wall-e: carteiras, lotes, extrato imutável, compra avulsa, devolução e corte do
+  // legado), implementação local de 22/10/2026. Aditiva; precheck e postcheck externos (padrão). Validada primeiro em
+  // PostgreSQL descartável local (a 087 é a dos avisos de cobrança, integrada em 03/11/2026).
+  '20261022_095_ia_creditos.sql',
+  // 096: comprovante da contratação e arquivo das versões dos documentos legais (grupo B do parecer de apoio, 22/10/2026).
+  // Só cria tabelas novas; não altera linhas. Validada primeiro em PostgreSQL descartável local.
+  '20261022_096_comprovante_contratacao.sql',
+  // 097: manifestações do direito de arrependimento pela ferramenta (grupo C do parecer de apoio, 23/10/2026). Só cria
+  // uma tabela nova; não altera linhas. Validada primeiro em PostgreSQL descartável local.
+  '20261023_097_assinatura_arrependimentos.sql',
+  // 098: salão combinado ("salão inteiro"), fase 1 dos salões (proposta rev. 3 aprovada com ressalvas pelo Astra em
+  // 23/10/2026). Troca o corpo de três funções da 094 (manifesto da Festa com o conjunto 098) e protege contratos contra
+  // DELETE/TRUNCATE e troca de festa. 095–097 citadas por outros trabalhos locais; 098 conferida livre em 23/10 (clones,
+  // refs e PRs abertas), o que não é reserva. Validada só em PostgreSQL descartável local; nunca aplicada fora dele.
+  '20261023_098_saloes_combinados.sql',
+  // 099: convites avulsos; schema deve preceder o código, sem backfill nem alteração de créditos.
   '20261024_099_convites_avulsos.sql',
+  // 100: agenda com um salão — uma festa por vez no horário POR_HORARIO, qualquer que seja a capacidade gravada (decisão
+  // de Felipe e parecer do Astra, 25/10/2026). Troca só o corpo de kidmais094_conflito_ocupacao; exige o corpo da 094.
+  '20261025_100_agenda_um_salao.sql',
+  // 102: apresentação do salão (fase S-A, plano rev. 4 aprovado com ressalvas pelo Astra em 25/10/2026): campos de
+  // apresentação, catálogo imutável, itens e fotos com declaração versionada. Depende só da 093 e recusa a 098 (101 está
+  // reservada no vault para o envio do link de contrato). Validada só em PostgreSQL descartável local.
+  '20261025_102_saloes_apresentacao.sql',
+  // 103: categoria global "Serviços" nos adicionais (fase S-A2, mesmo plano): só dados; os itens são por empresa.
+  '20261025_103_adicionais_servicos.sql',
+  // 104: versão do hash da revisão operacional com o salão do destino (fase S-E, plano S-E/S-D rev. 4.1 aprovado pelo
+  // Astra em 27/10/2026). Substitui o corpo da função de hash da 016 (v1 idêntica) e acrescenta hash_versao (1/2, imutável).
+  '20261027_104_revisao_hash_salao.sql',
+  // 105: canal MCP por assinatura (27/10/2026, LOCAL; era 104, renumerada porque staging tomou a 104 na #251): só tabelas mcp_* de segurança (clientes CIMD, pedidos, concessões,
+  // códigos, tokens por hash e auditoria sanitizada); nenhuma tabela de negócio alterada. Revisada pelo Astra (5ª revisão:
+  // pronta para P4), validada só em PostgreSQL descartável local; NÃO aplicada em staging/produção.
   '20261027_105_mcp_assinaturas.sql',
+  // 106: salão de preferência do cliente (fase S-D, plano S-E/S-D rev. 4.1): fechamentos.salao_preferido_id com FK
+  // composta, dois gatilhos VOLATILE (escopo da preferência × escopo do salão) e índice parcial. Aditiva.
+  '20261027_106_salao_preferido.sql',
+  // 107: reparo da deriva conhecida da agenda (plano "Retomada 098" rev. 2.1, D-R2a): renomeia índices/CHECKs ix_/ck_ para
+  // os nomes da 005 e cria os gatilhos atualizado_em e CHECKs nao_vazio ausentes; no-op na base canônica; proveniência em
+  // kidmais107_reparos (o down desfaz só o registrado). 107 e 108 conferidas livres em 28/10 (clones, vault).
+  '20261028_107_reparo_deriva_agenda.sql',
+  // 108: salões combinados — a 098 rebaseada sobre 100/102/104/106/107 (regra da 100 + interseção; validações idênticas
+  // ao conjunto '098' do manifesto da Festa; marcador kidmais108_instalada()). A 098 histórica fica fora da cadeia nova.
+  '20261028_108_saloes_combinados.sql',
+  // 109: renovação substituta do B-9 (plano docs/PLANO_B9_PRODUCAO_PUTS_JANELA_20261029.md rev. 5, aprovado pelo Astra; D-JP-5
+  // de Felipe, 29/10/2026): estado SUBSTITUIDA, substitui_id imutável com FK composta, uma renovação vigente por contratação
+  // (índice parcial), sucessor obrigatório por gatilho diferido. Quebra o código anterior: código compatível antes (§3).
+  // Postcheck GERADO do contrato lib/assinatura/renovacao-schema.ts. 109 conferida livre em 29/10 (clones, vault).
+  '20261029_109_renovacao_substituta.sql',
+  // 114: D-LIB-6 do plano "liberar agenda com mais de um salão" (rev. 3; aprovado pelo Astra na rev. 7; Felipe 31/10/2026):
+  // os gatilhos da 019 (lock_ocupacao e agenda da revisão) VERIFICAM a trava da configuração da agenda da empresa antes das
+  // datas (kidmais114_exigir_configuracao, KD114). Corpos recriados do pg_get_functiondef atual (cadeia 109); pré e
+  // pós-check inline por hash do prosrc. Só depois do código que trava as entradas. 110/111 reservadas pela satisfação; 112 é a PJ (staging, ordem por
+  // nome de arquivo: 114 antes da 112); 114 conferida livre em 31/10 (clones, vault).
+  '20261031_114_trava_configuracao_gatilhos.sql',
+  // 112: cliente pessoa jurídica (Entrega B do plano "importação de contrato com dados completos", rev. 2.1 aprovado pelo
+  // Astra): tipo_pessoa, cnpj com DV no banco, razão social, nome fantasia e representante; CNPJ único por empresa (molde da
+  // 076). Aditiva; rollback recusa qualquer dado de PJ. Código compatível antes (sem a 112 recusa PJ). 110/111 reservadas pela
+  // satisfação (só locais); 112 conferida livre em 01/11 (clones, vault).
+  '20261101_112_clientes_pessoa_juridica.sql',
+  '20261103_116_franquias_ciclo.sql',
+  // 117: Atendimento WhatsApp multiempresa (E-ME1; plano "Plano Atendimento WhatsApp multiempresa 20261104" r6.1, aprovado
+  // pelo Astra; D-ME-1..5 de Felipe, 04/11/2026): rodízio do worker e marca de colisão de status. Aditiva; código compatível
+  // antes (sem a 117 o modo efetivo é PILOTO). 117 conferida livre em 04/11 (clones, vault).
+  '20261104_117_atendimento_multiempresa.sql',
+  // 118: cota de leitura de documentos da importação de contratos (L2 do plano "Importação de contratos em lote 20261031",
+  // rev. 5.1 + delta D-LOTE-8 rev. 6.1 aprovados pelo Astra). Aditiva e isolada. 113–115 e 117 tomadas por trabalho local;
+  // 118 conferida livre em 04/11 (clones locais).
+  '20261104_118_importacao_cotas.sql',
+  // 120 e 121: financeiro P2 (plano de execução FINANCEIRO_P2_PLANO_20261109, sobre o plano rev. 3.2). Aditivas.
+  // 119 está reservada pela troca de empresa (vault); 120 e 121 conferidas livres em 09/11 (branches remotas e clones).
+  '20261109_120_financeiro_movimentos.sql',
+  '20261109_121_financeiro_abertura.sql',
+  // 110: pesquisa de satisfação pós-festa (PS-1 LOCAL; plano rev. 6 APROVADO pelo Astra, D-PS1..D-PS8 de Felipe, 30/10/2026):
+  // ação PESQUISA_SATISFACAO no POS_FESTA, estado PESQUISA_CRIADA (086), envios/respostas/tarefas/entregas, saídas,
+  // capacidades por unidade, agregados e expurgos (sem escritor até a PS-6). 110 conferida livre em 30/10 (origin, clones).
+  '20261030_110_satisfacao_pesquisa.sql',
+  // 111: pesquisa de satisfação PS-3 LOCAL (plano rev. 2 + 2.1 LIBERADO pelo Astra, D-PS3-1..4 de Felipe, 31/10/2026): link
+  // de avaliação do Google por empresa/unidade e auditoria só de acréscimo. Exige a 110 e PostgreSQL 15+. 111 conferida
+  // livre em 31/10 (origin fetch + clones), número proposto, não reserva global.
+  '20261031_111_satisfacao_links_auditoria.sql',
+  // 115: índice (empresa_id, data_evento) em fechamentos para os resultados da pesquisa de satisfação (PS-4 rodada 4
+  // LOCAL; P-114 aprovada como desenho pelo Astra, D-PS4-R3-2 de Felipe, 03/11/2026). Só caminho de acesso; remove o 054
+  // (empresa_id), redundante com o prefixo do 115 (decisão de Felipe 03/11, investigação 115 × 054). 112–114 tomadas
+  // por outros trabalhos locais; na sincronização com staging (12/11/2026) 110/111/115 entram no fim do inventário aprovado, depois da 120 e da 121
+  // (que staging já havia publicado depois da 118); a lista ordenada por nome, `files`, continua com a 121 como última; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
+  '20261103_115_fechamentos_empresa_data.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
-// - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
+// - 049–051 and 114 carry their prechecks (and 114 its postcheck) inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
 // - 055a–d, 058, 059, 060, 065, 080, 081 and 082 (WhatsApp atendimento: 065 kept, reserved by staging; the original
@@ -147,7 +254,7 @@ const approvedFiles = [
 //   a number being free in one reading is never a reservation across sessions)
 //   carry the precheck inline and have an external postcheck.
 const checkFiles = {
-  '049': [], '050': [], '051': [],
+  '049': [], '050': [], '051': [], '114': [],
   '052': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
   '054': ['20260928_054_precheck.sql', '20260928_054_backfill_imediato.sql', '20260928_054_postcheck.sql'],
   '055a': ['20260928_055a_postcheck.sql'], '055b': ['20260928_055b_postcheck.sql'],
@@ -160,7 +267,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '099', '105'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -208,7 +315,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '099', '105']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

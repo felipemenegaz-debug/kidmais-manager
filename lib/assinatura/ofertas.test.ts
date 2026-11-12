@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { DbExecutor } from '../db/contracts';
-import { conferirCheckoutLegado, confirmarOfertaPaga, consultarOfertas, novosPlanosLigados, prepararOferta, validarPedidoOferta, type Oferta } from './ofertas.ts';
+import { conferirCheckoutLegado, confirmarOfertaPaga, consultarOfertas, dataDoPagamento, novosPlanosLigados, prepararOferta, validarPedidoOferta, type Oferta } from './ofertas.ts';
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
 import { valorDoProvedor, type AssinaturaProvedor, type CobrancaProvedor, type ClienteAsaas } from './asaas.ts';
 import { iniciarAssinatura, type DepsCobranca } from './cobranca.ts';
@@ -31,9 +31,11 @@ class Banco implements DbExecutor {
     sql: string[] = [];
     eventos: { id: string; assinatura_provedor_id: string | null; evento_id: string; concluido: boolean }[] = [];
     async query<Row extends object>(sql: string, args: readonly unknown[] = []) {
+        if (sql === 'SELECT current_database() AS banco') return { rows: [{ banco: 'kidmais_teste_local' }] as never[], rowCount: 1 };
         this.sql.push(sql);
         let rows: object[] = [];
         if (sql.includes('AS instalado074')) rows = [{ instalado074: this.instalado }];
+        else if (sql.includes('AS instalado090')) rows = [{ instalado090: false }];
         else if (sql.startsWith('SELECT to_regclass')) rows = [{ ok: sql.includes('cobranca_eventos') }];
         else if (sql.startsWith('SELECT to_char((clock_timestamp())')) rows = [{ agora: '2026-10-09T12:00:00.000Z' }];
         else if (sql.includes('AS isenta')) rows = [{ isenta: this.isenta }];
@@ -48,8 +50,13 @@ class Banco implements DbExecutor {
             for (const e of this.eventos) if (ids.includes(e.id)) e.concluido = true;
         } else if (sql.startsWith('INSERT INTO auditoria')) rows = [];
         else if (sql.startsWith('UPDATE empresa_assinaturas SET situacao')) {
-            this.linha.situacao = args[1] as string; this.linha.periodo_atual_fim = args[3] as string;
-            if (args[8]) this.linha.plano = args[8] as string;
+            // Guarda IS DISTINCT FROM do B-14: grava (rowCount 1) só quando algum valor calculado difere.
+            const difere = this.linha.situacao !== args[1] || this.linha.periodo_atual_fim !== args[3] || (args[8] !== undefined && this.linha.plano !== args[8]);
+            if (difere) {
+                this.linha.situacao = args[1] as string; this.linha.periodo_atual_fim = args[3] as string;
+                if (args[8]) this.linha.plano = args[8] as string;
+                rows = [{}];
+            }
         } else if (sql.startsWith('UPDATE empresa_assinaturas SET provedor_situacao')) rows = [];
         else if (sql.startsWith("UPDATE empresa_assinaturas SET provedor = 'ASAAS'")) {
             this.linha.provedor_cliente_id = args[1] as string;
@@ -73,6 +80,9 @@ class Banco implements DbExecutor {
             // Devolver cópias na leitura reproduz o snapshot recebido pelo repository.
             this.contrato = { ...this.contrato!, estado: 'CONFIRMADA', pagamento_confirmacao_id: args[2] as string };
         } else if (sql.includes('FROM assinatura_contratacoes')) rows = this.contrato ? [{ ...this.contrato }] : [];
+        // Pendência da franquia (F1): sem a 116 neste banco simulado, o SAVEPOINT abre e fecha sem gravar nada.
+        else if (/^(RELEASE |ROLLBACK TO )?SAVEPOINT kidmais_pendencia_franquia$/.test(sql)) rows = [];
+        else if (sql.includes("to_regclass('public.ia_credito_franquias_ciclo')")) rows = [{ ok: false }];
         else throw new Error(`SQL não modelado no teste: ${sql}`);
         return { rows: rows as Row[], rowCount: rows.length };
     }
@@ -101,12 +111,14 @@ test('reserva automática e retomada idempotente mantêm uma vaga e um snapshot'
     await assert.rejects(prepararOferta(db, E, U, { ...pedido, plano: 'premium' }), /em andamento/);
 });
 
-test('vigésima vaga disponível; 20 reservas aguardam, 20 confirmadas exigem confirmação do preço cheio', async () => {
+test('vigésima vaga disponível; 20 reservas em confirmação NÃO travam (O3, opção A): Fundador esperado reconfirma, preço cheio passa sem vaga; 20 confirmadas idem', async () => {
     const db = new Banco(); db.ocupadas = 19; db.confirmadas = 19;
     assert.equal((await prepararOferta(db, E, U, pedido)).fundador_id, 'vaga');
-    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 19;
-    await assert.rejects(prepararOferta(cheio, E, U, pedido), /em confirmação/);
-    cheio.confirmadas = 20;
+    const emConfirmacao = new Banco(); emConfirmacao.ocupadas = 20; emConfirmacao.confirmadas = 19;
+    await assert.rejects(prepararOferta(emConfirmacao, E, U, pedido), /condições disponíveis mudaram/);
+    const regular = await prepararOferta(emConfirmacao, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([regular.fundador_id, regular.valor_final_centavos], [null, 19700]);
+    const cheio = new Banco(); cheio.ocupadas = 20; cheio.confirmadas = 20;
     await assert.rejects(prepararOferta(cheio, E, U, pedido), /condições disponíveis mudaram/);
     const normal = await prepararOferta(cheio, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
     assert.equal(normal.fundador_id, null);
@@ -214,7 +226,7 @@ function checkoutSintetico(db: Banco) {
     let criacoes = 0;
     let valorFatura = 11820;
     const provedor: ClienteAsaas = {
-        buscarClientePorReferencia: async () => ({ id: 'cus_1', externalReference: E }),
+        buscarClientePorReferencia: async () => ({ id: 'cus_1', externalReference: E, cpfCnpj: '00000000000191' }),
         criarCliente: async () => { throw new Error('Cliente já existe no mock.'); },
         obterAssinatura: async () => criada,
         listarAssinaturasPorReferencia: async () => criada ? [criada] : [],
@@ -285,4 +297,29 @@ test('plano confirmado retoma cobrança sem preços legados; encerrado nunca rec
     f.deps.provedor()!.obterAssinatura = async () => null;
     await assert.rejects(iniciarAssinatura(s, null, { ciclo: 'MENSAL' }, { requestId: 'r' }, f.deps), /recontratação/);
     assert.equal(f.criacoes(), 1);
+});
+
+test('D3: data do pagamento é a mais antiga informada pelo provedor (boleto: dia pago); sem data, null (nunca o relógio)', () => {
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-11', confirmedDate: null, clientPaymentDate: '2026-11-08' }), '2026-11-08');
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-09', confirmedDate: '2026-11-07' }), '2026-11-07');
+    assert.equal(dataDoPagamento({ paymentDate: '2026-11-09' }), '2026-11-09');
+    assert.equal(dataDoPagamento({ paymentDate: null, confirmedDate: null, clientPaymentDate: null }), null);
+    assert.equal(dataDoPagamento({ paymentDate: '11/09/2026', clientPaymentDate: 'x' }), null, 'formato inválido não conta');
+});
+
+/** P2-R1 (revisão de 31c5704d): com oferta pendente, a consulta devolve a condição PERSISTIDA dela, não a disponibilidade atual. */
+test('oferta pendente: regular continua regular quando uma vaga é liberada; Fundador aceito continua Fundador com as vagas em confirmação', async () => {
+    const regular = new Banco(); regular.ocupadas = 20; regular.confirmadas = 19;
+    const r = await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 });
+    assert.deepEqual([r.fundador_id, r.valor_final_centavos], [null, 19700]);
+    regular.ocupadas = 19; // outra reserva liberada: uma oferta NOVA teria Fundador
+    const c = await consultarOfertas(regular, E, env);
+    assert.deepEqual([c?.fundador, c?.aguardandoVaga, c?.pendente?.valorCentavos], [false, false, 19700], 'tela não anuncia Fundador para oferta regular');
+    assert.deepEqual(await prepararOferta(regular, E, U, { ...pedido, valorEsperadoCentavos: 19700 }), r, 'retomada mantém o preço regular, sem concessão');
+    const fundador = new Banco(); fundador.ocupadas = 19; fundador.confirmadas = 0;
+    const f = await prepararOferta(fundador, E, U, pedido);
+    assert.equal(f.fundador_id, 'vaga');
+    fundador.ocupadas = 20; fundador.confirmadas = 19; // lote cheio em confirmação: uma oferta NOVA seria regular
+    const cf = await consultarOfertas(fundador, E, env);
+    assert.deepEqual([cf?.fundador, cf?.aguardandoVaga, cf?.pendente?.valorCentavos], [true, false, 11820], 'Fundador aceito segue anunciado');
 });

@@ -1,5 +1,13 @@
 # Recorte mínimo de production para cobrar — e-mails de cobrança (087) sobre production — 02/11/2026 (rodada 2 em 03/11)
 
+> **Bloqueio em production (B-27, 07/11/2026).** Este recorte não libera cobrança em production. Os crons citados aqui, avisos (`crn-dbkt25m7bikc73fqhlh0`) e reconciliação (`crn-dbbjbt0u01pc73e0a3m0`), entram na D-VZ-6: no ramo G-VAZIO, ela exige suspender os dois no início da barreira, antes do P1, com a autorização A-VZ-2 e prova de término da execução ativa.
+>
+> Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente, chamado de "teste" ou não; a reabertura técnica da promoção não libera este caminho. Para sair do bloqueio é preciso o fechamento formal da dívida, a entrega própria de abertura da L2, R3 PASS imediatamente antes e autorização própria de Felipe para cada ativação. Com a dívida aberta, cada deploy, env, E9, E10 ou promoção seletiva ordinários em production exige R3 PASS antes da mudança; a única exceção é a recuperação contida (RC, §9.2.5).
+>
+> As garantias não são iguais em toda entrada. L1 (configuração) só recusa nos pontos que leem a variável. L2 é a trava em código da B-25: onde o artefato a contiver, recusa nas entradas guardadas e fica fechada em production até a entrega própria de abertura. Shell, SQL, painel do provedor e gestão de serviço ou variável são controle operacional (C2), sem recusa técnica. Caminhos C3 dependem do estado do domínio e, conforme a entrada, são sustentados pela matriz da promoção e pela L1. Flag desligada não prova recusa onde ela não é lida.
+>
+> Referência: [plano de promoção, rodada 34, §9.2.6](PLANO_PROMOCAO_PRODUCTION_20261025.md#926-d-cobranca-live-gate-de-ativação); o plano é local e ainda não está versionado neste repositório. Esta nota não autoriza nada, não afirma estado atual de serviço ou variável e, nos passos de production sujeitos à dívida, prevalece sobre o texto abaixo. Não trata de staging nem de sandbox.
+
 **Status: IMPLEMENTADO SÓ LOCALMENTE, SEM COMMIT.** Rodada 1 REPROVADA pelo Astra em 02/11 (2 P2 + 2 P3, sem P1); rodada 2 trata os quatro achados (seção "Rodada 2" abaixo). Nada publicado: sem push, PR, deploy, env, migration ou envio de e-mail.
 
 Clone `kidmais-manager-recorte-cobranca-production-20261102`, branch `codex/recorte-cobranca-production-20261102`,
@@ -18,6 +26,8 @@ base **`production` `7329cbfe`** (não staging). Plano completo no vault: "Recor
 
 ### O que o plano previa e NÃO precisou de código
 
+> **Bloqueio em production (B-27, 07/11/2026).** O R-4 abaixo não é pendência a executar em production: instalar as secretas no cron `kidmais-assinatura-reconciliar-production` e o primeiro "Trigger run" estão bloqueados. Pela D-VZ-6, este cron fica suspenso no ramo G-VAZIO. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
+
 - **R-4 (alarme D-C4 do cron):** já está em production (PR #196, mergeada antes da promoção 2 de 20/10). Falta só a operação: secretas no cron `kidmais-assinatura-reconciliar-production` e o primeiro "Trigger run" (C2).
 - **Suporte mínimo (#187) e site honesto (#188):** já em production desde 20/10.
 
@@ -31,6 +41,8 @@ production é decisão funcional própria (disponibilizar cancelamento com proto
 autorização separados. A D-REC-7 foi retirada do plano.
 
 ## Ordem de publicação (cada passo com autorização própria)
+
+> **Bloqueio em production (B-27, 07/11/2026).** Os passos 1 a 3 são publicação técnica e não ativam cobrança; seguem com autorização própria e sob o roteiro vigente da promoção. Os passos 4 e 5 são ativação e estão bloqueados em production: não ligar `ASSINATURA_AVISOS_EMAIL`, não criar cron de avisos substituto, não mudar `KIDMAIS_AVISOS_MODO` e não rodar o cron. Registrar e preservar o estado da flag na barreira não permite nada disso. O manifesto `infra/render-assinatura-avisos-cron-production.yaml` está sob esta mesma nota. Vale enquanto a dívida D-COBRANCA-LIVE estiver aberta, com qualquer dado no ambiente. As condições de saída e a regra do R3 para mudanças ordinárias estão na nota completa da B-27 neste documento. Esta nota não autoriza nada, prevalece sobre o trecho abaixo em production e não trata de staging nem de sandbox.
 
 1. CI completo local → revisão independente (Astra) → PR para `production` **e** PR gêmea para `staging`.
 2. Deploy do código em production (janela de indisponibilidade pelo disco persistente). Sem a 087 e com

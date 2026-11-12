@@ -1,4 +1,6 @@
-import { contratanteSnapshot, formularioCadastro } from '../../clientes/cadastro-contratual';
+import { contratantePjSnapshot, contratanteSnapshot, formularioCadastro } from '../../clientes/cadastro-contratual';
+import { modeloContratoAtivo } from '../modelo-empresa/servico';
+import { MENSAGEM_MODELO_INCOMPATIVEL_PJ, trechosIncompativeisPj } from '../modelo-empresa/compatibilidade-pj';
 import {
   buscarAniversariantePorId,
   buscarClienteCanonicoPorId,
@@ -12,6 +14,10 @@ import {
 import { camposFaltantesParaContrato } from "../../clientes/services";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
+import { escolherSalaoParaEmissao } from "../../agenda/salao-festa.ts";
+import { recusarEstadoDocumental } from "../../agenda/estado-documental.ts";
+import { referenciaParaCaminho } from "./salao-contrato.ts";
+import { adquirirLockConfirmacaoAgenda } from "../../disponibilidade/repositories/disponibilidade.repository";
 import {
   buscarFechamentoPorIdParaAtualizacao,
   listarAdicionaisDoFechamento,
@@ -28,6 +34,8 @@ import {
   substituirVersaoAtiva,
   type ContratoSnapshot,
   type ContratoSnapshotV1,
+  type ContratoSnapshotV3,
+  salaoDoSnapshot,
   type PacoteAplicadoContrato,
   type ReferenciasComerciaisContrato,
 } from "../repositories";
@@ -41,6 +49,7 @@ import type {
 
 import { hashSnapshotContrato, valorFinalContrato } from "./snapshot-core";
 import { calcularCondicaoComercial } from "../../comercial/condicao-pagamento";
+import { empresaDoFechamento, travarConfiguracaoAgenda } from "../../agenda/trava-configuracao";
 
 export function montarSnapshotContratoV1(input: {
   fechamento: FechamentoRecord;
@@ -61,7 +70,9 @@ export function montarSnapshotContratoV1(input: {
     throw new ContratoServiceError("DADOS_CONTRATUAIS_INCONSISTENTES", "A condição comercial deve ser aprovada antes do Contrato.", 409);
   }
 
-  if (exigirCadastroCompleto && (!cliente.cpf || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf)) {
+  // PJ: o documento obrigatório é o CNPJ (o CPF da PJ é sempre vazio).
+  const documento = cliente.tipoPessoa === "PJ" ? cliente.cnpj : cliente.cpf;
+  if (exigirCadastroCompleto && (!documento || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf)) {
     throw new ContratoServiceError(
       "CADASTRO_CONTRATUAL_INCOMPLETO",
       "O cadastro do Cliente ainda não possui todos os dados obrigatórios para o Contrato.",
@@ -76,7 +87,7 @@ export function montarSnapshotContratoV1(input: {
       status: fechamento.status,
       origem: fechamento.origemFechamento,
     },
-    contratante: contratanteSnapshot({ ...formularioCadastro(cliente), id: cliente.id }),
+    contratante: { ...contratanteSnapshot({ ...formularioCadastro(cliente), id: cliente.id }), ...contratantePjSnapshot(cliente) },
     responsavelAdicional: responsavelAdicional
       ? {
           id: responsavelAdicional.id,
@@ -194,7 +205,12 @@ export async function carregarSnapshot(
   fechamento: FechamentoRecord,
   tx: DbExecutor,
   preparacao?: { id: string; adicionais: FechamentoAdicionalRecord[] },
-  opcoes: { exigirCadastroCompleto?: boolean } = {},
+  /**
+   * salao (S-E, R-E4): quem chama decide. undefined = documento sem salão (V1/V2, como antes); definido (inclusive null)
+   * = V3 com o salão e a configuração congelados. A leitura NUNCA escolhe salão: a emissão escolhe antes
+   * (escolherSalaoParaEmissao), a preparação usa o destino da revisão e as conferências usam o do snapshot gravado.
+   */
+  opcoes: { exigirCadastroCompleto?: boolean; salao?: { id: string; nome: string } | null } = {},
 ): Promise<{
   snapshot: ContratoSnapshot;
   cliente: ClienteRecord;
@@ -282,10 +298,40 @@ export async function carregarSnapshot(
     referencias,
     exigirCadastroCompleto,
   });
+  const snapshot = aplicada ? comFotografia(base, aplicada) : base;
+  if (opcoes.salao === undefined) return { cliente, snapshot };
   return {
     cliente,
-    snapshot: aplicada ? comFotografia(base, aplicada) : base,
+    snapshot: {
+      ...snapshot,
+      schemaVersao: 3,
+      evento: { ...base.evento, configuracaoAgendaId: fechamento.configuracaoAgendaId, salao: opcoes.salao ? { id: opcoes.salao.id, nome: opcoes.salao.nome } : null },
+    } as ContratoSnapshotV3,
   };
+}
+
+/**
+ * S-E (R-E2, emissão inicial): sob a trava da data (leitura coerente; nada é ocupado), o salão a fixar no V3. Fora de
+ * POR_SALAO, undefined (documento como antes). Sem salão que sirva, a emissão é recusada sem gravar nada.
+ */
+export async function salaoDaEmissao(tx: DbExecutor, fechamento: FechamentoRecord, documentoAtual: ContratoSnapshot | null = null) {
+  await adquirirLockConfirmacaoAgenda(fechamento.dataEvento, tx);
+  const escolha = await escolherSalaoParaEmissao(tx, fechamento.id, documentoAtual ? salaoDoSnapshot(documentoAtual)?.id ?? null : null);
+  if (!escolha.porSalao) return undefined;
+  // D-LIB-4 (entrada 1, só leitura): em POR_SALAO, nenhuma emissão decide sobre um estado documental inconsistente.
+  const referencia = await referenciaParaCaminho(tx, { fechamentoId: fechamento.id }, "EMISSAO");
+  if (referencia.recusa) recusarEstadoDocumental(referencia.recusa, "EMISSAO");
+  if (escolha.salao) return escolha.salao;
+  throw new ContratoServiceError(
+    "SALAO_INDISPONIVEL",
+    escolha.motivo === "ESCOLHIDO_NAO_SERVE"
+      ? "O salão escolhido para a festa não está mais disponível para esta data, horário e número de convidados. Escolha outro salão antes de gerar o contrato."
+      : escolha.motivo === "PREFERIDO_NAO_SERVE"
+        ? "O salão escolhido pelo cliente está ocupado ou não serve mais para esta festa. Escolha outro salão antes de gerar o contrato; o cliente verá o novo salão no contrato antes de assinar."
+        : "Nenhum salão livre comporta esta festa nesta data e horário.",
+    409,
+    { motivo: escolha.motivo },
+  );
 }
 
 export async function gerarContrato(
@@ -294,6 +340,9 @@ export async function gerarContrato(
 ): Promise<GerarContratoResult> {
   const emTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => (context.executor ? trabalho(context.executor) : withTransaction(trabalho));
   return emTransacao(async (tx) => {
+    // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje.
+    const empresa = await empresaDoFechamento(tx, input.fechamentoId);
+    if (empresa) await travarConfiguracaoAgenda(tx, empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
     const fechamento = await buscarFechamentoPorIdParaAtualizacao(
       input.fechamentoId,
       tx,
@@ -316,7 +365,9 @@ export async function gerarContrato(
       );
     }
 
-    const { snapshot, cliente } = await carregarSnapshot(fechamento, tx);
+    const salao = await salaoDaEmissao(tx, fechamento);
+    const { snapshot, cliente } = await carregarSnapshot(fechamento, tx, undefined, { salao });
+    await exigirModeloCompativelComContratante(tx, cliente.empresaId, snapshot);
     const snapshotHash = hashSnapshotContrato(snapshot);
 
     let contrato = await buscarContratoPorFechamentoId(
@@ -490,4 +541,16 @@ export async function obterContratoPorFechamento(fechamentoId: string, tx?: DbEx
   }
 
   return { contrato, versao };
+}
+
+/**
+ * R2-2: contratante PJ com o modelo ativo da empresa que o qualifica como pessoa física ({{contratante.cpf}} ou literais
+ * de PF) → MODELO_INCOMPATIVEL_PJ, antes de gravar a versão. A geração do PDF confere de novo. PF e modelo oficial: nada.
+ */
+export async function exigirModeloCompativelComContratante(tx: DbExecutor, empresaId: string | null, snapshot: ContratoSnapshot) {
+  if (snapshot.contratante.tipoPessoa !== "PJ" || !empresaId) return;
+  const modelo = await modeloContratoAtivo(tx, empresaId);
+  if (!modelo) return;
+  const trechos = trechosIncompativeisPj(modelo.conteudo);
+  if (trechos.length) throw new ContratoServiceError("MODELO_INCOMPATIVEL_PJ", MENSAGEM_MODELO_INCOMPATIVEL_PJ, 409, { trechos });
 }

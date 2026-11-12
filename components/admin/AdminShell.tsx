@@ -2,32 +2,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
-import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { encerrarBuscasDaAba, marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import { conferirLeituraDaSessao, enderecoFinal } from '@/lib/enderecos/cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
 import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
-import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
+import { itemAtivo, itensNavegacao, type MenuSatisfacaoNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
-type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean } } };
+type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean; satisfacao?: unknown } } };
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 import { ExportacaoEmpresasSuspensas } from './ExportacaoDados';
+import { AssistenteAgendaPendente } from './AssistenteAgenda';
 import { ROTA_AJUDA } from '@/lib/suporte/rota';
 import { artigoDaRota, rotaDaAjuda, type ArtigoPublicado } from '@/lib/suporte/ajuda-da-tela';
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
-import { loginDestaPagina } from '@/lib/http/retorno-login';
 import { EmpresaSuporteContext } from './ajuda/CodigoSuporte';
+import { CONSENTIMENTO_MCP, loginDestaPagina } from '@/lib/http/retorno-login';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/conexoes-ia', '/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio', ROTA_AJUDA];
+// Créditos de IA: saldo e devolução de pacote pago continuam acessíveis com a empresa bloqueada (a compra recusa no servidor).
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/conexoes-ia', '/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/configuracoes/creditos', '/admin/inicio', ROTA_AJUDA];
 /** Telas abertas sem empresa ativa: conta e ajuda (nenhum dado de negócio). */
 const ROTAS_ABERTAS_SEM_EMPRESA = ['/admin/conexoes-ia', '/admin/perfil', ROTA_AJUDA];
 
@@ -79,6 +81,8 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
             if (sessaoObsoletaDesde(marca))
                 return;
             if (!b.ok || !b.data.usuarioId) {
+                // Fim da sessão confirmado (expirada, revogada ou recusada): a busca guardada na aba sai antes da navegação.
+                encerrarBuscasDaAba();
                 setName(null);
                 window.location.replace(loginDestaPagina());
             }
@@ -91,10 +95,10 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true, satisfacao: menuSatisfacaoDe(b.data.recursos?.satisfacao) });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace(loginDestaPagina()); }); };
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) { encerrarBuscasDaAba(); router.replace(loginDestaPagina()); } }); };
         void carregar();
         // Estado final da troca de host: para o ciclo de sessão e o foco. A faixa do aviso continua à vista.
         const ciclo = () => { if (!enderecoFinal()) void carregar(); };
@@ -170,7 +174,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
         </div></div>;
     const semEmpresa = !vitrine && contexto !== null && contexto.empresas.length === 0;
     const itens = semEmpresa ? [] : itensNavegacao(permissoes);
-    const grupos = ['Principal', 'Operação', 'Marketing', 'Financeiro', 'Configurações'] as const;
+    const grupos = ['Principal', 'Operação', 'Marketing', 'Satisfação', 'Financeiro', 'Configurações'] as const;
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
@@ -221,13 +225,13 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                     const titulo = grupo === 'Configurações'
                         ? <Link className={styles.grupoLink} href="/admin/configuracoes" aria-current={path === '/admin/configuracoes' ? 'page' : undefined} onClick={() => setAberto(false)}>{grupo}</Link>
                         : grupo;
-                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
+                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}{(item.contador ?? 0) > 0 && <span className={styles.contador} aria-label={`${item.contador} abertos`}>{item.contador}</span>}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
                     <Link href={ROTA_AJUDA} aria-current={rotaDaAjuda(path) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="contact" /></span>Ajuda e suporte</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
             </nav>
-            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>}
+            {!semEmpresa && <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Copiloto</BotaoPerguntarKidmais>}
             {/* Conta compacta: uma linha no rodapé; o clique abre, acima dela, a troca de empresa, os links da conta e o Sair. */}
             <footer className={styles.contaCompacta} ref={contaRef} onKeyDown={(evento) => {
                 // Esc fecha só o menu da conta (a gaveta do celular continua aberta). O React escuta no próprio document,
@@ -258,7 +262,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 </button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path) && !rotaDaAjuda(path)
+        <div className={styles.conteudo}><AvisoContexto />{/* 093: assistente da agenda na primeira entrada de cada unidade (qualquer usuário); nunca por cima da ajuda, que é onde a pessoa vai entender a agenda. */}{!vitrine && contexto?.empresaAtual && comercial?.nivel !== 'BLOQUEADO' && path !== CONSENTIMENTO_MCP && !rotaDaAjuda(path) && <AssistenteAgendaPendente key={contexto.empresaAtual.id} />}{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && !ROTAS_ABERTAS_SEM_EMPRESA.includes(path) && !rotaDaAjuda(path)
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section><ExportacaoEmpresasSuspensas /></main>)
             : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path) && !rotaDaAjuda(path)
                 ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>
@@ -270,7 +274,15 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
     </PerguntarKidmaisProvider></div>;
 }
 
+/** PS-4: só aceita o formato exato do servidor; qualquer outra coisa (ausente, null, malformado) esconde o grupo. */
+function menuSatisfacaoDe(valor: unknown): MenuSatisfacaoNavegacao | null {
+    const v = valor as Partial<MenuSatisfacaoNavegacao> | null | undefined;
+    if (!v || typeof v.ver !== 'boolean' || typeof v.tratar !== 'boolean' || typeof v.retornosAbertos !== 'number') return null;
+    return { ver: v.ver, tratar: v.tratar, retornosAbertos: v.retornosAbertos };
+}
+
 function iconeDaRota(href: string): AdminIconName {
+    if (href.startsWith('/admin/satisfacao')) return href.endsWith('/retornos') ? 'contact' : 'reports';
     if (href === '/admin/marketing') return 'marketing';
     if (href.includes('/marketing/campanhas')) return 'campaign';
     if (href.includes('/marketing/origens')) return 'origin';
@@ -278,7 +290,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('/marketing/automacoes')) return 'automation';
     if (href.includes('perfil-empresa')) return 'profile';
     if (href.includes('tabelas-preco')) return 'prices';
-    if (href.includes('tabela-pacotes')) return 'pdf';
+    if (href.includes('importar-documentos')) return 'pdf';
     if (href.includes('pacotes')) return 'packages';
     if (href.includes('catalogo')) return 'buffet';
     if (href.includes('clientes') || href.includes('acessos')) return 'users';

@@ -42,7 +42,7 @@ const CAMPOS_ABERTOS = new Set(["pacote", "turno", "data", "diaMes", "horario", 
 export function preenchidosDe(payload: Readonly<Record<string, unknown>>): Record<string, string | number | null> {
   const saida: Record<string, string | number | null> = {};
   for (const [chave, valor] of Object.entries(payload)) {
-    if (/Id$|Hash$|^pendencias$/.test(chave) || valor === null || valor === undefined || Array.isArray(valor) || typeof valor === "object") continue;
+    if (/Id$|Hash$|^pendencias$|^pacoteTexto$|^pacoteResto$|^pacoteRecusas$/.test(chave) || valor === null || valor === undefined || Array.isArray(valor) || typeof valor === "object") continue;
     if (typeof valor === "number" || typeof valor === "boolean") saida[chave] = typeof valor === "boolean" ? String(valor) : valor;
     else if (typeof valor === "string") saida[chave] = CAMPOS_ABERTOS.has(chave) ? valor.slice(0, 20) : "(informado)";
   }
@@ -74,7 +74,7 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
 
   async function iniciar(capacidade: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>) {
     const acao = registro.acao(capacidade);
-    if (!acao || acao.classe !== "CONFIRM") throw new InteligenciaError("ACAO_NEGADA", "Essa ação não é feita pelo Kidmais.", 403);
+    if (!acao || acao.classe !== "CONFIRM") throw new InteligenciaError("ACAO_NEGADA", "Essa ação não é feita pelo Copiloto.", 403);
     const avanco = await iniciarRascunho(acao, texto, ctx, gate, doModelo);
     return { resposta: paraRevisao(acao, avanco.draft, avanco.resposta), capacidade: acao.capacidade, ferramenta: acao.nome, draft: avanco.draft };
   }

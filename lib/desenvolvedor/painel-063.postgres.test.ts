@@ -314,10 +314,15 @@ test('recuperação: resposta neutra sem conta; pedido aberto, intervalo mínimo
     await svc.recuperacao.processarPedidoPublico({ email: email('resp') } as never, ctx() as never, depsRec as never);
     assert.equal(await contar('SELECT count(*)::int AS n FROM recuperacoes_senha WHERE usuario_id = $1', [ids.resp]), 1, 'repetição dentro do intervalo não abre outro pedido');
     const logado = await sessaoDe(ids.resp);
-    const r = await svc.recuperacao.redefinirSenhaComToken({ token, novaSenha: 'senha-recuperada-063', confirmacao: 'senha-recuperada-063' } as never, ctx() as never, depsRec as never) as unknown as { redefinida: boolean };
+    // Pedido PÚBLICO com a recuperação pública desligada (padrão): 503, sem trocar a senha nem consumir o link.
+    assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token, novaSenha: 'publica-desligada-063', confirmacao: 'publica-desligada-063' } as never, ctx() as never, depsRec as never)), 'EMAIL_NAO_CONFIGURADO');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM recuperacoes_senha WHERE usuario_id = $1 AND usado_em IS NULL AND invalidado_em IS NULL', [ids.resp]), 1, 'link público intacto');
+    assert.equal(await sessaoValida(logado.token), true, 'sessões intactas');
+    const publicaLigada = { aceitarOrigemPublica: true };
+    const r = await svc.recuperacao.redefinirSenhaComToken({ token, novaSenha: 'senha-recuperada-063', confirmacao: 'senha-recuperada-063' } as never, ctx() as never, depsRec as never, publicaLigada as never) as unknown as { redefinida: boolean };
     assert.equal(r.redefinida, true);
     assert.equal(await sessaoValida(logado.token), false);
-    assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token, novaSenha: 'outra-senha-063', confirmacao: 'outra-senha-063' } as never, ctx() as never, depsRec as never)), 'LINK_INVALIDO');
+    assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token, novaSenha: 'outra-senha-063', confirmacao: 'outra-senha-063' } as never, ctx() as never, depsRec as never, publicaLigada as never)), 'LINK_INVALIDO');
     // Expiração: o guard não deixa recuar datas; só o teste desliga o gatilho para envelhecer um pedido sintético.
     await client.query('ALTER TABLE recuperacoes_senha DISABLE TRIGGER kidmais_063_rec_guard_trg');
     try {
@@ -340,6 +345,21 @@ test('recuperação: resposta neutra sem conta; pedido aberto, intervalo mínimo
         await client.query('ALTER TABLE recuperacoes_senha ENABLE TRIGGER kidmais_063_rec_guard_trg');
     }
     assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token: novoToken, novaSenha: 'expirada-063!', confirmacao: 'expirada-063!' } as never, ctx() as never, depsRec as never)), 'LINK_INVALIDO');
+    // Pedido do PAINEL com a recuperação pública desligada (padrão): vale (defeito da homologação do B-9, 27/10/2026).
+    await client.query('ALTER TABLE recuperacoes_senha DISABLE TRIGGER kidmais_063_rec_guard_trg');
+    try {
+        await client.query("UPDATE recuperacoes_senha SET criado_em = criado_em - interval '3 hours', expira_em = expira_em - interval '3 hours' WHERE usuario_id = $1", [ids.resp]);
+    }
+    finally {
+        await client.query('ALTER TABLE recuperacoes_senha ENABLE TRIGGER kidmais_063_rec_guard_trg');
+    }
+    assert.equal((await svc.vinculos.solicitarRecuperacaoPeloPainel(dev as never, ids.empresa as never, ids.resp as never, ctx() as never, depsRec as never) as unknown as Record<string, unknown>).enviado, true);
+    const tokenPainel = tokenDoUltimoEnvio(email('resp'));
+    const logadoPainel = await sessaoDe(ids.resp);
+    const rp = await svc.recuperacao.redefinirSenhaComToken({ token: tokenPainel, novaSenha: 'painel-sem-flag-063', confirmacao: 'painel-sem-flag-063' } as never, ctx() as never, depsRec as never) as unknown as { redefinida: boolean };
+    assert.equal(rp.redefinida, true);
+    assert.equal(await sessaoValida(logadoPainel.token), false, 'encerra as sessões');
+    assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token: tokenPainel, novaSenha: 'painel-de-novo-063', confirmacao: 'painel-de-novo-063' } as never, ctx() as never, depsRec as never)), 'LINK_INVALIDO');
 });
 
 test('envio indisponível: o convite fica registrado como não enviado, com a falha auditada', async () => {

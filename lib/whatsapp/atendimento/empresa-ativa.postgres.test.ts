@@ -101,8 +101,22 @@ test("empresa ativa × piloto (063): seleção explícita, divergência, seleç�
       assert.deepEqual(await estado(), antes, `${rotulo}: nada lido para a tela nem gravado`);
     };
 
-    // E3: outra empresa ativa (vínculo ativo nas duas).
-    await recusaTudo(await f.sessao(rep, B), /ATENDIMENTO_EMPRESA_DIVERGENTE/, "E3");
+    // E3 — MUDANÇA DECLARADA da E-ME1 r2 (F3; §2.2/§6.9 do plano r6.1): outra empresa ativa (vínculo ativo nas duas) não é
+    // mais "divergência". No PILOTO ela lê o PRÓPRIO histórico (tenant comprovado = B, nunca a piloto) e a própria biblioteca,
+    // não vê nem controla a conversa da piloto e não configura (recusa de autorização antes da validação do conteúdo).
+    {
+      const sB = await f.sessao(rep, B);
+      const antes = await estado();
+      const telaB = await servico.listarAtendimento(sB);
+      assert.deepEqual(telaB.conversas, [], "E3: B lê só o próprio histórico (vazio), nunca o da piloto");
+      assert.equal(telaB.automacaoDisponivel, false, "E3: sem automação para B no PILOTO");
+      assert.ok(Array.isArray((await biblioteca.listarProntas(sB)).prontas), "E3: B lê a própria biblioteca");
+      await assert.rejects(servico.controlarAtendimento(sB, { acao: "assumir", conversaId: conversa.id, versao: antes.versao }), "E3: B não controla a conversa da piloto");
+      await assert.rejects(servico.salvarConfiguracao(sB, { ativo: false, nome: "Configuração válida", perguntas: [] }), /ATENDIMENTO_RECURSO_NAO_INCLUIDO/, "E3: configurar (válida)");
+      await assert.rejects(servico.salvarConfiguracao(sB, { ativo: false, nome: "X", perguntas: [] }), /ATENDIMENTO_RECURSO_NAO_INCLUIDO/, "E3: configurar (inválida) — autorização antes do conteúdo");
+      assert.deepEqual(await estado(), antes, "E3: nada gravado");
+      assert.equal(await contar(c, "SELECT count(*) AS n FROM whatsapp_atendimento_config WHERE empresa_id=$1", [B]), 0, "E3: nenhuma configuração de B");
+    }
     // E4: seleção pendente — sem escolha explícita e com MAIS de uma empresa ativa (regra do painel), mesmo com vínculo
     // ativo na piloto.
     await recusaTudo(await f.sessao(rep, null), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/, "E4");

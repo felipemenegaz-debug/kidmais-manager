@@ -72,7 +72,7 @@ export default function Provisionar({ interessadaId }: { interessadaId: string |
                 <div className={estilos.formGrid}>
                     <label>Nome da empresa *<input value={campos.nome} onChange={set('nome')} required maxLength={160} /></label>
                     <label>Código (opcional; gerado do nome)<input value={campos.codigo} onChange={set('codigo')} maxLength={64} pattern="[a-z][a-z0-9-]{2,63}" placeholder="ex.: buffet-alegria" /></label>
-                    <label>Nome empresarial<input value={campos.nomeEmpresarial} onChange={set('nomeEmpresarial')} maxLength={200} /></label>
+                    <label>Nome empresarial / nome civil<input value={campos.nomeEmpresarial} onChange={set('nomeEmpresarial')} maxLength={200} /></label>
                     <label>CPF ou CNPJ<input value={campos.documentoFiscal} onChange={set('documentoFiscal')} maxLength={40} /></label>
                     <label>Responsável inicial *<input value={campos.responsavelNome} onChange={set('responsavelNome')} required maxLength={120} /></label>
                     <label>E-mail do responsável *<input type="email" value={campos.email} onChange={set('email')} required maxLength={254} /></label>

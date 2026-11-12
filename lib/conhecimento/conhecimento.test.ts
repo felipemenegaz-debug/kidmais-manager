@@ -173,36 +173,38 @@ test("revisão P2-4: sem cache — suspensão, troca de ACL e falha/recuperaçã
  */
 type Aprovacao = { versao: number; sha256: string; em: string };
 const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
-  // 06/11/2026: Felipe aprovou o artigo revisado após o piloto Claude em produção.
+  // 02/11/2026: os 3 primeiros artigos do MCP e os 21 da central de ajuda (S3).
+  // 07/11/2026: Felipe aprovou a v2 de 7 artigos, com iA.Fest no lugar de Kidmais como nome do produto.
   "assistentes-externos": { versao: 2, sha256: "c3dd39339b422dbfe8eebe4ba32810dc890eff95e5fa0f9823f3408f032cfbe6", em: "2026-11-06" },
-  // 02/11/2026: artigos da central (S3) aprovados em staging. Recorte de production: os 7 que valem iguais em production
-  // ficam na versão 1 (mesmo hash de staging); os de recurso ausente (MCP, créditos de IA, atendimento piloto) ficam fora.
+  "agenda-do-dia": { versao: 1, sha256: "8781baaf336afca70fb79d4c421707a1abfb9a5eb590020e329ad0406fd92c24", em: "2026-11-02" },
+  "contas-a-receber": { versao: 1, sha256: "2f103e22ed0937d299bb349ddc89f6bc56468bd0943a54f578d15aba174b13b0", em: "2026-11-02" },
+  "agenda-e-horarios": { versao: 1, sha256: "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4", em: "2026-11-02" },
+  "assinatura-e-plano": { versao: 5, sha256: "da89cba2c671cc216731c1a111ad45652a73d83216a3f91b07b9d639c46de649", em: "2026-11-09" },
+  "atendimento-whatsapp": { versao: 2, sha256: "25787ce3018d192c333cbb9680a0b0ae26a87cf10b6ef8aea27b98965ea7d193", em: "2026-11-07" },
+  // 09/11/2026: v2 de production (vídeo do lote 2), trazida pelo back-merge de 12/11; staging não tinha mudado o texto.
   clientes: { versao: 2, sha256: "0a47f8e84d84104980cec6339e23c10d2b1983ac8928a53db86e447862332137", em: "2026-11-09" },
+  "conectar-whatsapp": { versao: 2, sha256: "e429c240934432806184b18d80f411036c0bfd48ada15be07cb632b80c70c0b3", em: "2026-11-07" },
   "contas-a-pagar-e-caixa": { versao: 1, sha256: "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f", em: "2026-11-02" },
+  convites: { versao: 1, sha256: "b67f5d6eaa5445f9b48df2745815956c5334e9f1a0401b02f96435a9b5580008", em: "2026-11-02" },
+  "creditos-de-ia": { versao: 1, sha256: "39a0fd9c10dd74e7d28da156dee574fdb2fa75c001b3821a1b8928850199aae6", em: "2026-11-02" },
   dashboard: { versao: 1, sha256: "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb", em: "2026-11-02" },
+  // 11/11/2026 (Felipe: "Aprovo os dois"): back-merge de production — texto de staging com o vídeo novo do lote 2 no topo;
+  // o vídeo do piloto continua no meio do artigo.
+  "fechamento-de-festa": { versao: 4, sha256: "69a45c552d3c5ca0e8b1460acc43adbb99a1d55a7f10f805f7310bcf2d154231", em: "2026-11-11" },
+  festas: { versao: 4, sha256: "14a96be857a47b179723a3c256e4d07478ce136511560bced41162c197674ee3", em: "2026-11-09" },
+  "financeiro-recebimentos": { versao: 3, sha256: "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72", em: "2026-11-09" },
+  "importar-documentos": { versao: 2, sha256: "4592a58b91da57a600c5acdb50fc979e47fe3ba14016eda29b6e776298f2fffe", em: "2026-11-07" },
   marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
+  // 11/11/2026 (Felipe: "Aprovo os dois"): back-merge de production — texto de staging com o vídeo do lote 2 e os dois
+  // trechos da v3 de production (assumir a administração; telefone ou WhatsApp em Contatos).
+  "perfil-da-empresa": { versao: 4, sha256: "ab7c7829a4d0d59580c0658d9820f5872506d5d7de3024d1894aed17d189d7f9", em: "2026-11-11" },
+  "perfil-e-senha": { versao: 2, sha256: "e1711f27fd0a91d9b4833589978a153f01c2f45b3cde30a815b9b35c0ec31639", em: "2026-11-07" },
+  "primeiros-passos": { versao: 5, sha256: "1f556d22f3bb1ac4a36049baa67d4c05d93651b05f318d3488e08d10ed56fac9", em: "2026-11-09" },
   "privacidade-e-exportacao": { versao: 1, sha256: "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c", em: "2026-11-02" },
-  // 03/11/2026 (UTC): Felipe aprovou ("Approve all") as trocas dos 12 ajustados para production; o texto de cada um é o do
-  // APROVACAO-ARTIGOS-PRODUCTION.md (auditoria-central-production-20261103).
-  "agenda-e-horarios": { versao: 2, sha256: "b6a20199327abb58ab7fe8d7e3a03829fb508aed701572c02b8eef46800b4184", em: "2026-11-03" },
-  // 03/11/2026 (Felipe: "aprovo"): v3 cita o botão Retomar <plano> da contratação em aberto.
-  contratos: { versao: 2, sha256: "c41dbf099bcae2d691e4f683572c3bf39ab4d2571c34ddd8cbe962448feae073", em: "2026-11-03" },
-  convites: { versao: 2, sha256: "2dd29015b47a372690375c5e88b300410520b057674415348c6ecc36a6ce397c", em: "2026-11-03" },
-  "fechamento-de-festa": { versao: 3, sha256: "1384529ba7656eb653f6d02b53883dc434647f88b01baa6f9766e59044d02fd1", em: "2026-11-09" },
-  "perfil-da-empresa": { versao: 3, sha256: "97b8b0d67c5dbafbae679d3078b800fed60bfa935612297bb7c4c21d263e92bb", em: "2026-11-09" },
-  "saloes-pacotes-e-itens": { versao: 2, sha256: "7c9d57c600ff2107290553e56d19ff78c0efaf2ca9f128639e8e18c46fdf2a15", em: "2026-11-03" },
-  // 03/11/2026 (Felipe: "Aprovo, preparar"): vídeos de ajuda de production (pilotos) nos artigos; primeiros-passos v3 também
-  // corrige o caminho (o item do cartão da conta só existe com assinatura + Gestão): cartão › Ajuda e suporte › Atalhos.
-  festas: { versao: 3, sha256: "fd162359805c43fb7c0c08a6dc70ee79a29e3120b950943d906d96d76a8949e9", em: "2026-11-03" },
-  "financeiro-recebimentos": { versao: 2, sha256: "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72", em: "2026-11-03" },
-  // 09/11/2026 (Felipe: "pode tirar Kidmais Manager e trocar por iA.Fest ou IA.Fest onde ainda falta"): nova versão só
-  // com o nome do produto (Kidmais → iA.Fest), na redação de staging; o resto do texto é o da versão anterior aprovada.
-  "assinatura-e-plano": { versao: 4, sha256: "7754a37b145e26a56dc4be501409eb60f051f5cec7c984092bb03ce4f1789b74", em: "2026-11-09" },
-  "conectar-whatsapp": { versao: 3, sha256: "57f7b2435afc7f2b662fe8fa6cb116fa1077f56a0031347c06ce2466d0cd39e2", em: "2026-11-09" },
-  "importar-documentos": { versao: 3, sha256: "9af743323dbdbf48301d7352398fe52bf93297f6181ad48b4007b7b78d96c6e6", em: "2026-11-09" },
-  "perfil-e-senha": { versao: 3, sha256: "6bd78b8caa15d2ac01d885ff6b831e4b0b23251f10646076d31c835d1a9d01be", em: "2026-11-09" },
-  "primeiros-passos": { versao: 4, sha256: "4e1f6e70cbbe396abbb1abf48a2347b5e3668592fbb721f6e91823df831503ff", em: "2026-11-09" },
-  "usuarios-e-acessos": { versao: 2, sha256: "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852", em: "2026-11-09" },
+  "usuarios-e-acessos": { versao: 2, sha256: "959bd87ed706170f99f60a546149370ed91c6f00dc199917eb3ba59df0515852", em: "2026-11-07" },
+  // 07/11/2026: rótulo do botão "Aprovar e assinar pelo buffet"; Felipe: "pode fazer todos."
+  contratos: { versao: 2, sha256: "d18daca33b9796d143d0dab971bbb1bd5a7f3e1c014e64669401016acfebca03", em: "2026-11-07" },
+  "saloes-pacotes-e-itens": { versao: 1, sha256: "5b727b2aa6b81a533adb326ff425f2daf13b062b54ab19fba0ce059617a71797", em: "2026-11-02" },
 };
 
 test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO só com aprovação registrada", () => {
@@ -220,19 +222,16 @@ test("corpus versionado do repositório: íntegro, só da plataforma e APROVADO 
     const texto = readFileSync(join(import.meta.dirname, "..", "..", "conhecimento", arquivo), "utf8");
     assert.equal(createHash("sha256").update(texto, "utf8").digest("hex"), aprovacao.sha256, `${d.id} v${d.versao}: texto diferente do aprovado`);
   }
-  assert.equal(buscar(real, leitorA, "2026-11-03", "como baixar o pacote completo dos dados", 5)[0]?.doc.id, "privacidade-e-exportacao");
+  assert.equal(buscar(real, leitorA, "2026-11-07", "como desconectar o assistente", 5)[0]?.doc.id, "assistentes-externos");
   // Rascunho, suspensão e retirada continuam permitidos e somem da busca do MCP (a central usa o mesmo filtro).
-  const depois = "2026-11-06";
+  const depois = "2026-11-09";
   for (const d of real.documentos) {
     for (const situacao of ["PENDENTE_APROVACAO", "SUSPENSO", "REVOGADO"] as const) {
       const corpus: Corpus = { documentos: real.documentos.map((x) => (x === d ? { ...x, situacao } : x)) };
       assert.equal(buscar(corpus, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), false, `${d.id} ${situacao} apareceu`);
     }
-    // Recorte de production: os ajustados ficam PENDENTE_APROVACAO até Felipe aprovar; o controle vale para os aprovados.
-    if (d.situacao === "APROVADO") assert.ok(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), `controle: ${d.id} aprovado aparece pelo título`);
-    else assert.equal(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), false, `${d.id} ${d.situacao} apareceu`);
+    assert.ok(buscar(real, leitorA, depois, d.titulo, 50).some((r) => r.doc.id === d.id), `controle: ${d.id} aprovado aparece pelo título`);
   }
-  assert.equal(real.documentos.filter((d) => d.situacao === "APROVADO").length, 20, "controle: os 20 do recorte aprovados");
 });
 
 test("endereço da mídia não pontua na busca; a descrição pontua", () => {

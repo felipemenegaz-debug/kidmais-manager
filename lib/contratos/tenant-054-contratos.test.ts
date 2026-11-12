@@ -97,7 +97,7 @@ function contratos(estado: Estado) {
         'lib/clientes/services/index.ts': { atualizarClienteInterno: reg('atualizarClienteInterno') },
         'lib/clientes/services/aniversariante.service.ts': { atualizarAniversarianteInterno: reg('atualizarAniversarianteInterno') },
         'lib/contratos/services/snapshot-core.ts': { hashSnapshotContrato: () => HASH },
-        'lib/contratos/services/contrato.service.ts': { carregarSnapshot: async () => ({ snapshot: {} }) },
+        'lib/contratos/services/contrato.service.ts': { carregarSnapshot: async () => ({ snapshot: {} }), salaoDaEmissao: async () => undefined },
         'lib/contratos/services/revisao-inicial.ts': { exigirVersaoEditavel: () => undefined, fonteDaRevisaoInicial: async (_v: unknown, f: unknown) => f, prepararEdicaoInicial: reg('prepararEdicaoInicial') },
         'lib/contratos/services/alteracoes.ts': { diferencasContratuais: () => [] },
         'lib/contratos/documento/index.ts': {}, 'lib/contratos/storage/postgres.ts': {},
@@ -190,7 +190,14 @@ for (const [caso, payload] of payloads.slice(0, 3)) {
         await k.mod.operarContrato('v1', payload, 'token', ctxReq, empresaA);
         const primeiroLock = k.ordem.findIndex(o => o.startsWith('lock:'));
         const antes = k.ordem.slice(0, primeiroLock);
-        assert.deepEqual(antes, ['sessao', 'tenant', 'ler:contrato_versoes', 'ler:contratos', 'ler:fechamentos'], 'autorização sem lock antes do primeiro lock');
+        // Rev. 3: depois da autorização e antes do primeiro lock de linha, a configuração da agenda da empresa comprovada
+        // (advisory compartilhada + empresa da transação; sem FROM, por isso 'ler:?').
+        assert.deepEqual(antes, ['sessao', 'tenant', 'ler:contrato_versoes', 'ler:contratos', 'ler:fechamentos', 'ler:?', 'ler:?'], 'autorização sem lock antes do primeiro lock');
+        const cfg = k.sql.findIndex(s => s.texto.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:' || $1::text, 0))"));
+        assert.deepEqual(k.sql[cfg].v, [empresaA]);
+        assert.equal(k.sql[cfg + 1].texto, "SELECT set_config('kidmais.agenda_config_empresa', $1::text, true)");
+        assert.deepEqual(k.sql[cfg + 1].v, [empresaA]);
+        assert.equal(k.sql[cfg + 2], k.locks()[0], 'configuração logo antes do primeiro lock de linha');
         assert.deepEqual(k.locks().slice(0, 5).map(s => tabela(s.texto)), ['fechamentos', 'contratos', 'contrato_fluxos', 'contrato_versoes', 'fechamento_revisoes']);
         const [fechamento] = k.locks();
         assert.match(fechamento.texto, /WHERE id=\$1 AND empresa_id=\$2::uuid FOR UPDATE/); assert.deepEqual(fechamento.v, ['f1', empresaA]);
@@ -290,7 +297,7 @@ function rotaEdicao(estado: { tenant: string; empresaFechamento: string | null; 
         'lib/contratos/services/revisao-inicial.ts': { fonteDaRevisaoInicial: async () => fonte },
         'lib/comercial/services/index.ts': { calcularResumoComercial: async () => { lidos.push('resumo'); return null; },
             listarPacotesComerciais: async (i: any) => { lidos.push('pacotes:' + i.empresaId); return []; }, listarCatalogoAdicionais: async () => [] },
-        'lib/disponibilidade/services/index.ts': { consultarDisponibilidadeData: async () => ({}) },
+        'lib/disponibilidade/services/index.ts': { consultarDisponibilidadeData: async () => ({}), duracaoDoIntervalo: () => null },
         'lib/comercial/composicao.ts': { listarCodigosInclusos: async () => [] },
     }) as any;
     const get = () => rota.GET({ nextUrl: new URL('https://x.invalid/api/admin/contratos/versoes/v1/edicao') }, { params: Promise.resolve({ versaoId: uuid(7) }) });
@@ -360,9 +367,13 @@ test('F3: revisão comercial de fechamento de outra empresa ou legado responde c
 test('locks: revisão comercial A→A autoriza sem trava, depois trava e revalida a empresa da linha travada', async () => {
     const c = comercial(empresaA);
     await c.revisar().catch(() => undefined);
-    assert.deepEqual(c.ordem.slice(0, 3), ['ler:fechamentos', 'lock:fechamentos', 'lock:fechamentos']);
+    // Liberar agenda com mais de um salão (rodada 3, P1 do Astra): depois da autorização, empresa em KEY SHARE + configuração
+    // da agenda (advisory compartilhada e empresa da transação; sem FROM, por isso 'ler:?') antes do FOR UPDATE.
+    assert.deepEqual(c.ordem.slice(0, 6), ['ler:fechamentos', 'lock:empresas', 'ler:?', 'ler:?', 'lock:fechamentos', 'lock:fechamentos']);
     assert.doesNotMatch(c.sql[0].texto, LOCK);
-    assert.match(c.sql[1].texto, /FOR UPDATE/); assert.match(c.sql[2].texto, /empresa_id::text[\s\S]*FOR SHARE/);
+    assert.match(c.sql[1].texto, /FROM empresas WHERE id = \$1::uuid FOR KEY SHARE/);
+    assert.match(c.sql[2].texto, /pg_advisory_xact_lock_shared\(hashtextextended\('kidmais:agenda-config:'/);
+    assert.match(c.sql[4].texto, /FOR UPDATE/); assert.match(c.sql[5].texto, /empresa_id::text[\s\S]*FOR SHARE/);
 });
 
 // ---------------------------------------------------------------------------------------------

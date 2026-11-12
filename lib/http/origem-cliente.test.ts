@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { BORDA_CONFIRMADA, JANELA_MARCAS_MS, MARCAS_POR_JANELA, ambienteDaOrigem, causaDoErro, chaveDaOrigem, formatoDaOrigem, ipPublico, normalizarIp, origemConfiavel, registrarFormatoDaOrigem } from './origem-cliente.ts';
-import { opcoesDoPool, POOL_PADRAO } from '../db/postgres.ts';
+import { NOME_APLICACAO_WEB, opcoesDaConexaoWeb, opcoesDoPool, POOL_PADRAO } from '../db/postgres.ts';
 
 // Render com a borda provada (ORIGEM_CLIENTE_BORDA); só RENDER=true não basta (revisão de 22/10).
 const RENDER = { RENDER: 'true', ORIGEM_CLIENTE_BORDA: BORDA_CONFIRMADA };
@@ -160,6 +160,11 @@ test('pool: padrão 30 / 10 s, valor inválido cai no padrão, teto 40', () => {
     for (const ruim of ['0', '-1', 'abc', '1e3', ''])
         assert.equal(opcoesDoPool({ DATABASE_POOL_MAX: ruim }).max, 30, ruim);
     assert.equal(opcoesDoPool({ DATABASE_CONNECTION_TIMEOUT_MS: 'NaN' }).connectionTimeoutMillis, 10_000);
+});
+
+test('pool do web: identifica-se como kidmais-web (B-14, prova de drenagem) sem mudar o resto', () => {
+    assert.equal(NOME_APLICACAO_WEB, 'kidmais-web');
+    assert.deepEqual(opcoesDaConexaoWeb({ DATABASE_POOL_MAX: '12' }), { application_name: 'kidmais-web', ...opcoesDoPool({ DATABASE_POOL_MAX: '12' }) });
 });
 
 test('rota de login passa o IP confiável (não null) e o serviço não tem chave global de origem', () => {

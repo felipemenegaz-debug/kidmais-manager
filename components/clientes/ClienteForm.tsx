@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClienteFormData } from "./types";
 import {
+  CrmApiError,
   analisarCadastroApi,
   atualizarClienteApi,
   cadastrarClienteApi,
@@ -14,7 +15,10 @@ import {
   type ClienteDetalheApi,
 } from "@/lib/clientes/api-client";
 import { cpfValido } from "@/lib/clientes/utils";
+import { cnpjRaizPlaceholder, cnpjValido } from "@/lib/cadastro/cnpj";
 import ProdutoBrand from "@/components/layout/ProdutoBrand";
+import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
+import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
 import styles from "./Clientes.module.css";
 
 
@@ -46,9 +50,17 @@ async function lerErroCep(response: Response) {
   }
 }
 
+/** ID estável de cada controle do formulário (N1/N2): o erro aponta para ele. */
+const idCampo = (campo: keyof ClienteFormData) => `cliente-${campo}`;
+
 const vazio: ClienteFormData = {
+  tipoPessoa: "PF",
   nomeCompleto: "",
   cpf: "",
+  cnpj: "",
+  nomeFantasia: "",
+  representanteNome: "",
+  representanteCpf: "",
   rg: "",
   whatsapp: "",
   telefone: "",
@@ -75,6 +87,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
   const [salvoId, setSalvoId] = useState<string | null>(null);
   const [consultandoCep, setConsultandoCep] = useState(false);
   const [erroCep, setErroCep] = useState("");
+  const [errosCampo, setErrosCampo] = useState<ErroCampo[]>([]);
   const cepConsultaSeq = useRef(0);
   const cepConfirmadoRef = useRef("");
 
@@ -118,8 +131,10 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       try {
         const resultado = await analisarCadastroApi(
           {
+            tipoPessoa: form.tipoPessoa,
             nomeCompleto: form.nomeCompleto,
             cpf: form.cpf,
+            cnpj: form.cnpj,
             email: form.email,
             telefone: form.telefone,
             whatsapp: form.whatsapp,
@@ -139,21 +154,58 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       ativo = false;
       window.clearTimeout(timer);
     };
-  }, [clienteId, form.email, form.cpf, form.nomeCompleto, form.telefone, form.whatsapp, mode]);
+  }, [clienteId, form.email, form.cpf, form.cnpj, form.tipoPessoa, form.nomeCompleto, form.telefone, form.whatsapp, mode]);
 
   const contatoDuplicado = useMemo(
     () => analise?.possiveisDuplicidades.find(item => item.status === "INATIVO" && item.motivos.some(m => m.endsWith("_IGUAL"))) ?? analise?.possiveisDuplicidades.find((item) => item.motivos.some((motivo) => motivo.endsWith("_IGUAL"))) ?? null,
     [analise],
   );
+  const pj = form.tipoPessoa === "PJ";
+  const tipoOriginal = detalheInicial?.cliente.tipoPessoa === "PJ" ? "PJ" : "PF";
+  const trocandoTipo = mode === "edit" && form.tipoPessoa !== tipoOriginal;
+  // Sem a 112, PJ não é oferecida (uma PJ só existe com ela; a edição de uma PJ existente segue normal).
+  const pjIndisponivel = analise?.pessoaJuridicaDisponivel === false && tipoOriginal !== "PJ";
+  const cnpjExistente = pj ? analise?.cnpjExistente ?? null : null;
   const sugestoesNome = useMemo(
     () => (analise?.possiveisDuplicidades ?? []).filter((item) => item.motivos.includes("NOME_SEMELHANTE")).slice(0, 3),
     [analise],
   );
 
+  /** PF↔PJ: os campos do outro tipo são limpos na tela (o servidor exige o mesmo). */
+  function trocarTipo(tipo: ClienteFormData["tipoPessoa"]) {
+    setForm((atual) => tipo === "PJ"
+      ? { ...atual, tipoPessoa: tipo, cpf: "", rg: "" }
+      : { ...atual, tipoPessoa: tipo, cnpj: "", nomeFantasia: "", representanteNome: "", representanteCpf: "" });
+    setErro("");
+    setSalvoId(null);
+    setErrosCampo([]);
+  }
+
   function update(campo: keyof ClienteFormData, valor: string) {
     setForm((atual) => ({ ...atual, [campo]: valor }));
     setErro("");
     setSalvoId(null);
+    // O destaque some quando o campo é corrigido; contato vale para WhatsApp e telefone juntos.
+    const resolvidos = campo === "whatsapp" || campo === "telefone" ? [idCampo("whatsapp"), idCampo("telefone")] : [idCampo(campo)];
+    setErrosCampo((atual) => atual.filter((e) => !resolvidos.includes(e.campo)));
+  }
+
+  /** Todos os erros de uma vez, na ordem visual do formulário. */
+  function validar(): ErroCampo[] {
+    const erros: ErroCampo[] = [];
+    if (pj) {
+      if (!form.nomeCompleto.trim()) erros.push({ campo: idCampo("nomeCompleto"), mensagem: "Informe a razão social." });
+      if (!form.cnpj.trim()) erros.push({ campo: idCampo("cnpj"), mensagem: "Informe o CNPJ." });
+      else if (!cnpjValido(form.cnpj) || cnpjRaizPlaceholder(form.cnpj)) erros.push({ campo: idCampo("cnpj"), mensagem: "Informe um CNPJ válido." });
+      else if (cnpjExistente) erros.push({ campo: idCampo("cnpj"), mensagem: `Este CNPJ já pertence a ${cnpjExistente.nomeCompleto}. Use o cadastro existente.` });
+    } else if (!form.nomeCompleto.trim()) erros.push({ campo: idCampo("nomeCompleto"), mensagem: "Informe o nome completo do cliente." });
+    if (!form.whatsapp.trim() && !form.telefone.trim()) erros.push({ campo: idCampo("whatsapp"), mensagem: "Informe pelo menos WhatsApp ou telefone." });
+    if (pj) {
+      if (form.representanteCpf.trim() && !cpfValido(form.representanteCpf)) erros.push({ campo: idCampo("representanteCpf"), mensagem: "Informe um CPF válido para o representante." });
+      if (form.representanteCpf.trim() && !form.representanteNome.trim()) erros.push({ campo: idCampo("representanteNome"), mensagem: "Informe o nome do representante." });
+    } else if (form.cpf.trim() && !cpfValido(form.cpf)) erros.push({ campo: idCampo("cpf"), mensagem: "Informe um CPF válido." });
+    else if (mode === "create" && analise?.cpfExistente) erros.push({ campo: idCampo("cpf"), mensagem: `Este CPF já pertence a ${analise.cpfExistente.nomeCompleto}. Use o cadastro existente.` });
+    return erros;
   }
 
   async function buscarEnderecoPorCep(cepInformado: string, sequencia: number) {
@@ -229,20 +281,10 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
     event.preventDefault();
     setErro("");
 
-    if (!form.nomeCompleto.trim()) {
-      setErro("Informe o nome completo do cliente.");
-      return;
-    }
-    if (!form.whatsapp.trim() && !form.telefone.trim()) {
-      setErro("Informe pelo menos WhatsApp ou telefone.");
-      return;
-    }
-    if (form.cpf.trim() && !cpfValido(form.cpf)) {
-      setErro("Informe um CPF válido.");
-      return;
-    }
-    if (mode === "create" && analise?.cpfExistente) {
-      setErro(`Este CPF já pertence a ${analise.cpfExistente.nomeCompleto}. Use o cadastro existente.`);
+    const erros = validar();
+    setErrosCampo(erros);
+    if (erros.length) {
+      focarPrimeiroErro(erros, { resumoId: "cliente-erros" });
       return;
     }
 
@@ -255,14 +297,24 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       setDetalheInicial((atual) => atual ? { ...atual, cliente: resultado.cliente, cadastro: resultado.cadastro } : atual);
       if (mode === "edit") setForm(clienteParaForm(resultado.cliente));
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível salvar o Cliente.");
+      const mensagem = error instanceof Error ? error.message : "Não foi possível salvar o Cliente.";
+      // Recusa do servidor ligada a um campo (detalhes.campo) marca o campo; o resto vai para o aviso fixo.
+      const campo = error instanceof CrmApiError ? (error.details as { campo?: unknown } | null)?.campo : undefined;
+      if (typeof campo === "string" && campo in vazio) {
+        const erros = [{ campo: idCampo(campo as keyof ClienteFormData), mensagem }];
+        setErrosCampo(erros);
+        focarPrimeiroErro(erros, { resumoId: "cliente-erros" });
+      } else setErro(mensagem);
     } finally {
       setSalvando(false);
     }
   }
 
   const voltar = mode === "edit" && clienteId ? `/clientes/${clienteId}` : "/clientes";
-  const cpfExistente = mode === "create" ? analise?.cpfExistente ?? null : null;
+  const errosPorCampo = mapaErros(errosCampo);
+  const campo = (k: keyof ClienteFormData) => propsCampo(idCampo(k), errosPorCampo[idCampo(k)]);
+  const mensagem = (k: keyof ClienteFormData) => <MensagemCampo id={idCampo(k)} mensagem={errosPorCampo[idCampo(k)]} />;
+  const cpfExistente = mode === "create" && !pj ? analise?.cpfExistente ?? null : null;
 
   if (carregando) {
     return (
@@ -322,22 +374,56 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
           <p>{mode === "create" ? "Comece com nome e um contato. Os dados contratuais podem ser completados depois." : "Atualize os dados atuais sem alterar o histórico das festas já realizadas."}</p>
         </section>
 
-        <form className={styles.formCard} onSubmit={submit}>
+        <form className={styles.formCard} onSubmit={submit} noValidate>
+          <ResumoErros id="cliente-erros" erros={errosCampo} />
           <div className={styles.formSection}>
             <h2>Informações principais</h2>
             <div className={styles.formGrid}>
-              <label className={styles.spanTwo}><span>Nome completo *</span><input value={form.nomeCompleto} onChange={(e) => update("nomeCompleto", e.target.value)} /></label>
-              <label><span>WhatsApp</span><input value={form.whatsapp} onChange={(e) => update("whatsapp", e.target.value)} placeholder="(61) 99999-9999" /></label>
-              <label><span>Telefone</span><input value={form.telefone} onChange={(e) => update("telefone", e.target.value)} /></label>
-              <label>
-                <span>CPF</span>
-                <input value={form.cpf} disabled={mode === "edit"} onChange={(e) => update("cpf", e.target.value)} placeholder="000.000.000-00" />
-                {mode === "edit" && <small className={styles.fieldHelp}>Alteração de CPF será habilitada com autenticação/permissões reais.</small>}
-              </label>
-              <label><span>RG</span><input value={form.rg} onChange={(e) => update("rg", e.target.value)} placeholder="Opcional" /></label>
-              <label><span>E-mail</span><input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></label>
+              <fieldset className={styles.tipoPessoa} id={idCampo("tipoPessoa")}>
+                <legend>Tipo de cliente</legend>
+                <label><input type="radio" name="tipoPessoa" checked={!pj} onChange={() => trocarTipo("PF")} />Pessoa física</label>
+                <label><input type="radio" name="tipoPessoa" checked={pj} disabled={pjIndisponivel && !pj} onChange={() => trocarTipo("PJ")} />Pessoa jurídica (empresa, escola)</label>
+                {pjIndisponivel && <small className={styles.fieldHelp}>Pessoa jurídica ainda não está disponível nesta instalação.</small>}
+                {trocandoTipo && <small className={styles.fieldHelp}>{pj ? "O CPF sai do cadastro; se for o caso, informe-o como representante." : "CNPJ, nome fantasia e representante saem do cadastro."} A troca só é aceita se o cliente não tiver contrato nem fechamento.</small>}
+                {mensagem("tipoPessoa")}
+              </fieldset>
+              <label className={styles.spanTwo}><span>{pj ? "Razão social *" : "Nome completo *"}</span><input {...campo("nomeCompleto")} required value={form.nomeCompleto} onChange={(e) => update("nomeCompleto", e.target.value)} />{mensagem("nomeCompleto")}</label>
+              {pj && (
+                <>
+                  <label>
+                    <span>CNPJ *</span>
+                    <input {...campo("cnpj")} value={form.cnpj} disabled={mode === "edit" && tipoOriginal === "PJ"} onChange={(e) => update("cnpj", e.target.value.toUpperCase())} placeholder="00.000.000/0000-00" />
+                    {mensagem("cnpj")}
+                    {mode === "edit" && tipoOriginal === "PJ" && <small className={styles.fieldHelp}>Alteração de CNPJ será habilitada com autenticação/permissões reais.</small>}
+                  </label>
+                  <label><span>Nome fantasia</span><input {...campo("nomeFantasia")} value={form.nomeFantasia} onChange={(e) => update("nomeFantasia", e.target.value)} placeholder="Opcional" />{mensagem("nomeFantasia")}</label>
+                  <label><span>Representante legal</span><input {...campo("representanteNome")} value={form.representanteNome} onChange={(e) => update("representanteNome", e.target.value)} placeholder="Quem assina pela empresa" />{mensagem("representanteNome")}</label>
+                  <label><span>CPF do representante</span><input {...campo("representanteCpf")} value={form.representanteCpf} onChange={(e) => update("representanteCpf", e.target.value)} placeholder="Opcional" />{mensagem("representanteCpf")}</label>
+                </>
+              )}
+              <label><span>WhatsApp</span><input {...campo("whatsapp")} value={form.whatsapp} onChange={(e) => update("whatsapp", e.target.value)} placeholder="(61) 99999-9999" />{mensagem("whatsapp")}</label>
+              <label><span>Telefone</span><input {...campo("telefone")} value={form.telefone} onChange={(e) => update("telefone", e.target.value)} />{mensagem("telefone")}</label>
+              {!pj && (
+                <>
+                  <label>
+                    <span>CPF</span>
+                    <input {...campo("cpf")} value={form.cpf} disabled={mode === "edit" && !trocandoTipo} onChange={(e) => update("cpf", e.target.value)} placeholder="000.000.000-00" />
+                    {mensagem("cpf")}
+                    {mode === "edit" && !trocandoTipo && <small className={styles.fieldHelp}>Alteração de CPF será habilitada com autenticação/permissões reais.</small>}
+                  </label>
+                  <label><span>RG</span><input {...campo("rg")} value={form.rg} onChange={(e) => update("rg", e.target.value)} placeholder="Opcional" />{mensagem("rg")}</label>
+                </>
+              )}
+              <label><span>E-mail</span><input {...campo("email")} type="email" value={form.email} onChange={(e) => update("email", e.target.value)} />{mensagem("email")}</label>
             </div>
-            <small className={styles.formHint}>Informe pelo menos WhatsApp ou telefone. CPF e endereço podem ser completados posteriormente, mas serão necessários antes do contrato.</small>
+            <small className={styles.formHint}>Informe pelo menos WhatsApp ou telefone. {pj ? "Endereço pode ser completado depois, mas será necessário antes do contrato." : "CPF e endereço podem ser completados posteriormente, mas serão necessários antes do contrato."}</small>
+
+            {cnpjExistente && (
+              <div className={styles.duplicateAlert}>
+                <div><strong>CNPJ já cadastrado</strong><span>Este CNPJ pertence a {cnpjExistente.nomeCompleto}. O novo cadastro será bloqueado.</span></div>
+                <Link href={`/clientes/${cnpjExistente.clienteId}`}>{cnpjExistente.status === "INATIVO" ? "Cliente arquivado/excluído — abrir para restaurar" : "Ver cliente"}</Link>
+              </div>
+            )}
 
             {cpfExistente && (
               <div className={styles.duplicateAlert}>
@@ -346,14 +432,14 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
               </div>
             )}
 
-            {!cpfExistente && contatoDuplicado && (
+            {!cpfExistente && !cnpjExistente && contatoDuplicado && (
               <div className={styles.duplicateWarning}>
                 <div><strong>Possível cadastro existente</strong><span>O contato também aparece em {contatoDuplicado.nomeCompleto}. {contatoDuplicado.status === "INATIVO" ? "Abra o cadastro para restaurar antes de cadastrar novamente." : "Isso não bloqueia o cadastro."}</span></div>
                 <Link href={`/clientes/${contatoDuplicado.clienteId}`}>{contatoDuplicado.status === "INATIVO" ? "Cliente arquivado/excluído — abrir para restaurar" : "Conferir cliente"}</Link>
               </div>
             )}
 
-            {!cpfExistente && !contatoDuplicado && sugestoesNome.length > 0 && (
+            {!cpfExistente && !cnpjExistente && !contatoDuplicado && sugestoesNome.length > 0 && (
               <div className={styles.duplicateSuggestion}>
                 <strong>Clientes com nome semelhante</strong>
                 <div>{sugestoesNome.map((item) => <Link key={item.clienteId} href={`/clientes/${item.clienteId}`}>{item.nomeCompleto}</Link>)}</div>
@@ -369,24 +455,26 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
               <label>
                 <span>CEP</span>
                 <input
+                  {...campo("cep")}
                   value={form.cep}
                   onChange={(e) => atualizarCep(e.target.value)}
                   inputMode="numeric"
                   autoComplete="postal-code"
                   placeholder="00000-000"
                 />
+                {mensagem("cep")}
                 {consultandoCep && <small className={styles.fieldHelp}>Buscando endereço...</small>}
                 {!consultandoCep && erroCep && <small className={styles.fieldHelp} role="alert">{erroCep}</small>}
                 {!consultandoCep && !erroCep && (
                   <small className={styles.fieldHelp}>Ao informar os 8 dígitos, o endereço é preenchido automaticamente.</small>
                 )}
               </label>
-              <label><span>UF</span><input value={form.uf} onChange={(e) => update("uf", e.target.value.toUpperCase().slice(0, 2))} /></label>
-              <label className={styles.spanTwo}><span>Logradouro</span><input value={form.logradouro} onChange={(e) => update("logradouro", e.target.value)} /></label>
-              <label><span>Número</span><input value={form.numero} onChange={(e) => update("numero", e.target.value)} /></label>
-              <label><span>Complemento</span><input value={form.complemento} onChange={(e) => update("complemento", e.target.value)} /></label>
-              <label><span>Bairro</span><input value={form.bairro} onChange={(e) => update("bairro", e.target.value)} /></label>
-              <label><span>Cidade</span><input value={form.cidade} onChange={(e) => update("cidade", e.target.value)} /></label>
+              <label><span>UF</span><input {...campo("uf")} value={form.uf} onChange={(e) => update("uf", e.target.value.toUpperCase().slice(0, 2))} />{mensagem("uf")}</label>
+              <label className={styles.spanTwo}><span>Logradouro</span><input {...campo("logradouro")} value={form.logradouro} onChange={(e) => update("logradouro", e.target.value)} />{mensagem("logradouro")}</label>
+              <label><span>Número</span><input {...campo("numero")} value={form.numero} onChange={(e) => update("numero", e.target.value)} />{mensagem("numero")}</label>
+              <label><span>Complemento</span><input {...campo("complemento")} value={form.complemento} onChange={(e) => update("complemento", e.target.value)} />{mensagem("complemento")}</label>
+              <label><span>Bairro</span><input {...campo("bairro")} value={form.bairro} onChange={(e) => update("bairro", e.target.value)} />{mensagem("bairro")}</label>
+              <label><span>Cidade</span><input {...campo("cidade")} value={form.cidade} onChange={(e) => update("cidade", e.target.value)} />{mensagem("cidade")}</label>
             </div>
           </div>
 
@@ -395,11 +483,11 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
             <label className={styles.textareaField}><textarea value={form.observacoes} onChange={(e) => update("observacoes", e.target.value)} /></label>
           </div>
 
-          {erro && <div className={styles.formError}>{erro}</div>}
+          <AvisoGlobal mensagem={erro} onFechar={() => setErro("")} />
 
           <div className={styles.formActions}>
             <Link className={styles.secondaryButton} href={voltar}>Cancelar</Link>
-            <button className={styles.cta} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente) || (mode === "create" && contatoDuplicado?.status === "INATIVO")}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
+            <button className={styles.cta} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente) || Boolean(cnpjExistente) || (pj && pjIndisponivel) || (mode === "create" && contatoDuplicado?.status === "INATIVO")}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
           </div>
         </form>
       </div>

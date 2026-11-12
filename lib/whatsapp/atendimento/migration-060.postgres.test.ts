@@ -11,8 +11,12 @@ import * as core from "./core.ts";
 import { entendimentoSoRegras as modoRegrasReal } from "./configuracao.ts";
 import * as arquivos from "./arquivos.ts";
 import * as entendimento from "./walle/entendimento.ts";
+// Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
+import * as supressao from "../../satisfacao/supressao.ts";
+import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
+import * as multiempresa from "./multiempresa.ts";
 // B5 (revisão de 69dc301): o harness segue a regra de modo da produção. Esta suíte exercita a fase B com o modelo
 // SIMULADO (porta `interpretar` de teste, nenhuma rede): declara o modo modelo com uma autorização R6 sintética.
 Object.assign(process.env, { WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: "modelo", WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: "R6-teste-sintetico", WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: "5561900000000" });
@@ -79,9 +83,12 @@ function carregar(empresaPiloto: string) {
     "./core.ts": core,
     "./arquivos.ts": arquivos,
     "./walle/entendimento.ts": entendimento,
+    "../../satisfacao/supressao.ts": supressao,
+    "../../marketing/automacoes/preferencias.ts": preferencias,
+    "./multiempresa.ts": multiempresa,
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
   }).modulo as Worker;
   return { servico, worker };
 }

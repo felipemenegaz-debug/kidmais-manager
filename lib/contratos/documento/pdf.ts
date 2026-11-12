@@ -1,3 +1,4 @@
+import { larguraTextoPdf, nomeNoEspacoPdf } from "./nome-empresa-pdf.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -184,13 +185,17 @@ function campoPorLabel(itens: ContratoDocumentoLinha[], label: string) {
 }
 
 function cabecalho(pageNumber: number, totalPages: number, documento: ContratoDocumentoRenderizado, temLogo: boolean) {
+  const outraEmpresa = documento.marca && !documento.marca.kidmais;
   let command = "";
   if (temLogo) {
     const logoWidth = 151;
     const logoHeight = logoWidth * (LOGO_PIXEL_HEIGHT / LOGO_PIXEL_WIDTH);
     command += imagemLogo(MARGIN_X, 762, logoWidth, logoHeight);
-  } else {
+  } else if (!outraEmpresa) {
     command += comandoTexto("KIDMAIS FESTAS", MARGIN_X, 793, 15, "F2", COLORS.navy);
+  } else if (documento.marca?.nome) {
+    const nome = nomeNoEspacoPdf(documento.marca.nome, 15, 385 - MARGIN_X - 12);
+    if (nome) command += comandoTexto(nome, MARGIN_X, 793, 15, "F2", COLORS.navy);
   }
 
   command += comandoTexto(documento.cabecalhoRotulo ?? "RESUMO DA CONTRATAÇÃO", 385, 799, 8.2, "F2", COLORS.muted);
@@ -202,10 +207,21 @@ function cabecalho(pageNumber: number, totalPages: number, documento: ContratoDo
   return command;
 }
 
+function rodapeOutraEmpresa(nomeEmpresa: string | null) {
+  const sufixo = "Documento gerado pelo iA.Fest";
+  const separador = "  |  ";
+  // "Página X de Y" começa em 489.
+  const nome = nomeEmpresa ? nomeNoEspacoPdf(nomeEmpresa, 7.2, 489 - MARGIN_X - 12 - larguraTextoPdf(separador + sufixo, 7.2)) : null;
+  return nome ? `${nome}${separador}${sufixo}` : sufixo;
+}
+
 function rodape(pageNumber: number, totalPages: number, documento: ContratoDocumentoRenderizado) {
   const hash = extrairSnapshotHash(documento);
   let command = linhaHorizontal(MARGIN_X, A4_WIDTH - MARGIN_X, 56, COLORS.line, 0.65);
-  command += comandoTexto("Kidmais Festas  |  Documento gerado pelo Kidmais Manager", MARGIN_X, 40, 7.2, "F1", COLORS.muted);
+  const rotuloRodape = !documento.marca || documento.marca.kidmais
+    ? "Kidmais Festas  |  Documento gerado pelo Kidmais Manager"
+    : rodapeOutraEmpresa(documento.marca.nome);
+  command += comandoTexto(rotuloRodape, MARGIN_X, 40, 7.2, "F1", COLORS.muted);
   command += comandoTexto(`Página ${pageNumber} de ${totalPages}`, 489, 40, 7.2, "F1", COLORS.muted);
   if (hash) {
     command += comandoTexto(`Integridade: ${hash.slice(0, 16)}...${hash.slice(-8)}`, MARGIN_X, 27, 6.8, "F3", COLORS.muted);
@@ -313,6 +329,10 @@ function renderizarSecao2(command: string, y: number, itens: ContratoDocumentoLi
     { label: "Data", value: campoPorLabel(itens, "Data") },
     { label: "Horário", value: campoPorLabel(itens, "Horário") },
   ], { labelWidth: 48 }));
+  // S-E (plano S-E/S-D rev. 4.1): só quando o resumo traz o salão fixado; sem ele, os bytes de antes.
+  if (itens.some((item) => item.texto.startsWith("Salão:"))) {
+    ({ command, y } = renderizarLinhaCampo(command, y, [{ label: "Salão", value: campoPorLabel(itens, "Salão") }], { labelWidth: 48 }));
+  }
 
   const convidadosRaw = campoPorLabel(itens, "Convidados informados");
   const match = convidadosRaw.match(/^(.*?)\s*\|\s*Convidados faturados:\s*(.*)$/i);
@@ -449,7 +469,7 @@ function renderizarSecao7(command: string, y: number, itens: ContratoDocumentoLi
 
 function estimativaSecao(titulo: string, itens: ContratoDocumentoLinha[]) {
   if (titulo.startsWith("1.")) return 112;
-  if (titulo.startsWith("2.")) return 86;
+  if (titulo.startsWith("2.")) return itens.some((item) => item.texto.startsWith("Salão:")) ? 106 : 86;
   if (titulo.startsWith("3.")) return Math.min(130, 58 + itens.length * 17);
   if (titulo.startsWith("4.")) return 82;
   if (titulo.startsWith("5.")) return 126;
@@ -518,7 +538,8 @@ function carregarLogo() {
 
 export function gerarPdfDocumentoContrato(documento: ContratoDocumentoRenderizado): Buffer {
   const bodyStreams = montarCorpos(documento);
-  const logo = carregarLogo();
+  // A logo em arquivo é a da Kidmais: outra empresa nunca a recebe. Sem `marca`, o documento histórico segue igual.
+  const logo = documento.marca && !documento.marca.kidmais ? null : carregarLogo();
   const fontRegularId = 3;
   const fontBoldId = 4;
   const fontMonoId = 5;

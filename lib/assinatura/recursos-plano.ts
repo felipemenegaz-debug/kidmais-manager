@@ -15,11 +15,16 @@ import type { PlanoComercialId } from './planos-comerciais.ts';
  *                         Planos provisórios: os mesmos do orçamento online (escolha comercial pendente; esta linha é a
  *                         única mudança no mapa de recursos). Hipóteses de preço (R$ 99/149/249) NÃO estão aprovadas;
  *                         preços, catálogo e cobrança não mudam. Origem manual no CRM fica fora (básico).
+ *   ATENDIMENTO_WHATSAPP → Atendimento WhatsApp por empresa (E-ME1, D-ME-1 de 04/11/2026: todos os planos do catálogo).
+ *                         NÃO é conferido por recursoIncluido: o portão do atendimento (lib/whatsapp/atendimento/
+ *                         multiempresa.ts) segue a ordem própria de §2.3 (isenção, contrato, teste, legado) e nega sem
+ *                         informação. Esta linha é a matriz declarada que aquele portão lê.
  */
 export const RECURSOS_POR_PLANO = {
     FINANCEIRO_COMPLETO: ['profissional', 'premium'],
     ORCAMENTO_ONLINE: ['profissional', 'premium'],
     MARKETING: ['profissional', 'premium'],
+    ATENDIMENTO_WHATSAPP: ['essencial', 'profissional', 'premium'],
 } as const satisfies Record<string, readonly PlanoComercialId[]>;
 export type RecursoPlano = keyof typeof RECURSOS_POR_PLANO;
 
@@ -27,6 +32,7 @@ const RECUSA: Record<RecursoPlano, string> = {
     FINANCEIRO_COMPLETO: 'Contas a pagar, fluxo de caixa e relatórios não fazem parte do plano contratado.',
     ORCAMENTO_ONLINE: 'O orçamento online não faz parte do plano contratado.',
     MARKETING: 'Marketing (campanhas, site e automações) não faz parte do plano contratado.',
+    ATENDIMENTO_WHATSAPP: 'O Atendimento WhatsApp não faz parte do plano contratado.',
 };
 
 export function planoIncluiRecurso(plano: PlanoComercialId, recurso: RecursoPlano) {

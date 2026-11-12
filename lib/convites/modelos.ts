@@ -1,4 +1,4 @@
-import type { Conteudo } from './domain.ts';
+import { enderecoDoConvite, localDoConvite, type Conteudo } from './domain.ts';
 import { opacidadeFaixa, temaVisual } from './visual.ts';
 import { bordaAcervo, modelosAcervo } from './acervo.ts';
 
@@ -100,8 +100,8 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
         <path d="M390 1180 H690" stroke="${destaque}" stroke-width="2"/>
         ${texto(c.mensagem, 1205, 155, 33, true)}
         ${texto(`${data} · ${c.horario || '00:00'}`, 1390, 75, 34, false, true)}
-        ${texto(c.local || 'Local da festa', 1480, 90, 36, true, false, 660)}
-        ${texto(c.endereco || 'Endereço do evento', 1590, 85, 28, false, false, 640)}`;
+        ${texto(localDoConvite(c) || 'Local da festa', 1480, 90, 36, true, false, 660)}
+        ${texto(enderecoDoConvite(c) || 'Endereço do evento', 1590, 85, 28, false, false, 640)}`;
     } else if (fundoProprio) {
       // E-CP2: sem textos de exemplo sobre a foto; uma faixa translúcida atrás dos blocos garante o contraste.
       const horario = c.horario.trim(), quando = c.data ? (horario ? `${data} · ${horario}` : data) : horario ? `às ${horario}` : '';
@@ -111,8 +111,8 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
         [c.idade, 535, 70, 48, true],
         [c.mensagem, 665, 220, 33, true],
         [quando, 975, 75, 34, false, true],
-        [c.local, 1090, 80, 36, true, false, 660],
-        [c.endereco, 1190, 90, 28, false, false, 640],
+        [localDoConvite(c), 1090, 80, 36, true, false, 660],
+        [enderecoDoConvite(c), 1190, 90, 28, false, false, 640],
       ];
       const visiveis = blocos.filter(([valor]) => valor.trim());
       const limites = visiveis.map(([valor, y, h, size, , , width = 740]) => { const b = comporTexto(valor, width, h, size); return [y + (h - b.altura) / 2, y + (h + b.altura) / 2]; });
@@ -126,10 +126,10 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
       <path d="M330 1015 H750" stroke="${destaque}" stroke-width="2"/>
       ${texto(c.mensagem, 1060, 250, 35, true)}
       ${texto(`${data} · ${c.horario || '00:00'}`, 1340, 90, 36, false, true)}
-      ${texto(c.local || 'Local da festa', 1455, 95, 38, true, false, 660)}
-      ${texto(c.endereco || 'Endereço do evento', 1570, 95, 29, false, false, 640)}`;
+      ${texto(localDoConvite(c) || 'Local da festa', 1455, 95, 38, true, false, 660)}
+      ${texto(enderecoDoConvite(c) || 'Endereço do evento', 1570, 95, 29, false, false, 640)}`;
   }
-  const descricao = op.miniatura ? tema.nome : [`Convite de ${c.nome || 'aniversário'}`, c.idade, c.mensagem, c.data, c.horario, c.local, c.endereco].filter(Boolean).join('. ');
+  const descricao = op.miniatura ? tema.nome : [`Convite de ${c.nome || 'aniversário'}`, c.idade, c.mensagem, c.data, c.horario, localDoConvite(c), enderecoDoConvite(c)].filter(Boolean).join('. ');
   if (fundoProprio) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1440" width="1080" height="1440" role="img" aria-label="${xml(descricao)}"><rect width="1080" height="1440" fill="${fundo}"/><image href="${xml(op.arte!)}" width="1080" height="1440" preserveAspectRatio="xMidYMid slice"/>${conteudo}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1800" width="1080" height="1800" role="img" aria-label="${xml(descricao)}">${textura}<rect width="1080" height="1800" fill="${fundo}"/>${borda}<rect width="1080" height="1800" filter="url(#${id}-papel)" opacity=".065"/>${decoracao}${conteudo}</svg>`;
 }

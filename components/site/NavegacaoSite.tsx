@@ -5,7 +5,7 @@ import { cx } from './estilos';
 export default function NavegacaoSite({ children, prefixo, aberto }: { children: ReactNode; prefixo: string; aberto: boolean }) {
     const [aberta, setAberta] = useState(false);
     const menuBotao = useRef<HTMLButtonElement>(null);
-    const links = [['diferenciais', 'Diferenciais'], ['recursos', 'Recursos'], ['financeiro', 'Financeiro'], ['importacao', 'Importação'], ['marketing', 'Marketing'], ['wall-e', 'Wall-e'], ['convite', 'Convites'], ['planos', 'Planos'], ['duvidas', 'Dúvidas']];
+    const links = [['diferenciais', 'Diferenciais'], ['recursos', 'Recursos'], ['saloes', 'Agenda'], ['financeiro', 'Financeiro'], ['importacao', 'Importação'], ['marketing', 'Marketing'], ['wall-e', 'Wall-e'], ['convite', 'Convites'], ['planos', 'Planos'], ['duvidas', 'Dúvidas']];
     return <header className={cx('header', 'headerCompacto')}><div className={cx('wrap')}>
         {children}
         <button ref={menuBotao} className={cx('menuToggle')} type="button" aria-expanded={aberta} aria-controls="site-menu" onClick={() => setAberta(!aberta)}>{aberta ? 'Fechar' : 'Menu'} <span aria-hidden="true">{aberta ? '×' : '☰'}</span></button>

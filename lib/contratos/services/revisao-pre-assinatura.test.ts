@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { hashSnapshotContrato } from './snapshot-core.ts';
 import { diferencasContratuais } from './alteracoes.ts';
+import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
 const req=createRequire(import.meta.url);
 function carregar(path:string,mocks:Record<string,unknown>,extra='') {
     const exports:Record<string,unknown>={};
@@ -26,7 +27,9 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     let capacidadeAssinar=true;
     const tx={query:async(sql:string,p:unknown[]=[])=>{
         sqls.push(sql);let rows:unknown[]=[];
-        if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
+        // Rev. 3: a entrada trava a configuração da agenda da empresa comprovada (compartilhada; linha já travada pelo tenant).
+        if(sql.startsWith("SELECT pg_advisory_xact_lock_shared(hashtextextended('kidmais:agenda-config:'")||sql.startsWith("SELECT set_config('kidmais.agenda_config_empresa'"))assert.deepEqual(p,['empresa-a']);
+        else if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
         else if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
         else if(sql.startsWith('SELECT status FROM contratos'))rows=[{status:contratoStatus}];
         else if(sql.startsWith('SELECT * FROM contrato_fluxos'))rows=[{...fluxo}];
@@ -49,12 +52,13 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     }};
     const mod=carregar('lib/contratos/services/administrativo.service.ts',{
         '../../db/postgres':{withTransaction:async(fn:(tx:unknown)=>unknown)=>fn(tx)},
+        '../../agenda/trava-configuracao':travaConfiguracao,
         '../../autenticacao/service':{authError:(m:string,s:number)=>Object.assign(new Error(m),{status:s}),consultarSessao:async()=>({usuario_id:'u',papel:'REPRESENTANTE_AUTORIZADO',autenticado_em:new Date().toISOString()})},
         '../../fechamentos/services/edicao-administrativa-schema':carregar('lib/fechamentos/services/edicao-administrativa-schema.ts',{}),
         './snapshot-core':{hashSnapshotContrato},'./errors':{ContratoServiceError:Falha},
         './alteracoes':{diferencasContratuais},
         './revisao-inicial':carregar('lib/contratos/services/revisao-inicial.ts',{'./errors':{ContratoServiceError:Falha}}),
-        './contrato.service':{carregarSnapshot:async()=>({snapshot})},
+        './contrato.service':{carregarSnapshot:async()=>({snapshot}),salaoDaEmissao:async()=>undefined},
         // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
         '../../saas/provar-tenant':{provarTenant:async()=>({empresaComprovada:'empresa-a',membershipId:'m',usuarioId:'u',papelAtual:'REPRESENTANTE_AUTORIZADO'})},
         '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'}),empresaDoFechamentoSemTrava:async()=>'empresa-a'},
@@ -67,8 +71,8 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         '../../fechamentos/services/revisao-operacional.service':{
             cancelarPreparacao:async()=>{edicoes.v1='CANCELADA';original.status='CANCELADA';fluxo.versao_em_preparacao_id=null;},
             iniciarPreparacao:async(_tx:unknown,b:typeof base)=>{assert.equal(b.id,'v0');return {id:'r2'};},
-            revalidarAgendaRevisao:async()=>{copias.push('revalidado');},
-            snapshotPreparacao:async(_tx:unknown,_r:unknown,v:typeof original)=>v.snapshot,
+            revalidarAgendaRevisao:async(_tx:unknown,r:unknown)=>{copias.push('revalidado');return {livre:true,revisao:{...(r as object),relida:true}};},
+            snapshotPreparacao:async(_tx:unknown,r:{relida?:boolean},v:typeof original)=>{copias.push(r.relida?'snapshot da relida':'snapshot da antiga');return v.snapshot;},
         },
         '../../clientes/repositories':{registrarAuditoria:async(a:Record<string,unknown>)=>{auditorias.push(a);},registrarEventoHistorico:async()=>{}},
     });
@@ -90,7 +94,7 @@ for(const estado of ['ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'])test(`${estado}: s
     assert((await a.substituir()).reutilizado);assert.equal(a.versoes.length,2);
     await assert.rejects(a.substituir({motivo:'Outra intenção'}),/outro pedido/);
     await assert.rejects(a.substituir({chaveCriacao:'22222222-2222-4222-8222-222222222222'}),/preparação mudou/);
-    await assert.rejects(a.operar('v2',{acao:'liberar',revisao:1},'sintetico',{}),/assinatura Kidmais/);
+    await assert.rejects(a.operar('v2',{acao:'liberar',revisao:1},'sintetico',{}),/assinatura do buffet/);
     await assert.rejects(a.operar('v2',{acao:'assinar',revisao:1,documentoId:chave,chaveIdempotencia:chave},'sintetico',{}),/Revise e aprove o documento exato/);
     // Simula somente a assinatura externa ao cenário; a liberação executa o serviço real.
     a.edicoes.v2='ASSINADA_KIDMAIS';
@@ -110,7 +114,7 @@ test('substituir revisão congelada de contrato com vigência conserva base/Fest
     await a.substituir();
     assert.deepEqual(a.versoes[0],base);assert.equal(a.fluxo.versao_vigente_id,'v0');
     assert.equal(a.edicoes.v1,'CANCELADA');assert.equal(a.edicoes.v3,'EM_ELABORACAO');
-    assert.deepEqual(a.copias,[{op:{dataEvento:'2026-10-20',convidados:90},itens:[{adicionalId:'extra',quantidade:2}]},'revalidado']);
+    assert.deepEqual(a.copias,[{op:{dataEvento:'2026-10-20',convidados:90},itens:[{adicionalId:'extra',quantidade:2}]},'revalidado','snapshot da relida']);
     assert(!a.sqls.some(s=>/(?:UPDATE|INSERT INTO|DELETE FROM) (?:festas|fechamentos|pagamentos)\b/.test(s)));
 });
 test('motivo inválido e assinatura cliente concorrente recusam substituição antes de escrever',async()=>{

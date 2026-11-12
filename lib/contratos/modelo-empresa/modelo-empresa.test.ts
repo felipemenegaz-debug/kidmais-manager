@@ -31,11 +31,14 @@ test("campos: lista fechada preenchida pelo snapshot; desconhecido lança", () =
 });
 
 test("validação: campo fora da lista, obrigatórios ausentes e chave mal fechada", () => {
-  assert.deepEqual(problemasDoConteudo(MODELO), []);
+  // Fixture de renderização (MODELO) intacta; a regra de publicação (D1, plano v3) pede também a condição de pagamento.
+  const publicavel = { ...MODELO, clausulas: [...MODELO.clausulas, { titulo: "Pagamento", texto: "{{pagamento.condicao}}" }] };
+  assert.deepEqual(problemasDoConteudo(publicavel), []);
+  assert.deepEqual(problemasDoConteudo(MODELO), ["Falta nas cláusulas: Condição de pagamento."]);
   const ruim = { ...MODELO, clausulas: [{ titulo: null, texto: "Valor {{valor.desconto_secreto}} e {{festa.data" }] };
   const p = problemasDoConteudo(ruim);
   assert.ok(p.some((x) => x.includes("{{valor.desconto_secreto}} não existe")));
-  assert.ok(p.some((x) => x.includes("{{contratante.nome}}")));
+  assert.ok(p.some((x) => x === "Falta nas cláusulas: Data da festa."));
   assert.ok(p.some((x) => x.includes("sem fechamento")));
   assert.throws(() => conteudoModeloSchema.parse({ ...MODELO, clausulas: [] }));
 });
@@ -77,7 +80,10 @@ test("leitura: JSON Schema estrito e instrução lista todos os campos e trata o
 
 test("admin: modelo da empresa tem prioridade; sem modelo, texto oficial só para a Kidmais", () => {
   const fonte = readFileSync("lib/contratos/services/administrativo.service.ts", "utf8");
-  assert.match(fonte, /modeloContratoAtivo\(tx, empresaAutorizada\)/);
-  assert.match(fonte, /codigoEmpresa !== 'kidmais'/);
+  // A decisão saiu para a função compartilhada com a tela (plano UX achados Frente C): mesma regra, testada em
+  // lib/contratos/documento/fonte.test.ts; aqui, só a ligação do serviço a ela.
+  assert.match(fonte, /lerBaseDocumentoContrato\(tx, empresaAutorizada\)/);
+  assert.match(fonte, /fonteDoDocumentoContrato\(\{ \.\.\.base, pacoteCodigo: v\.snapshot\.evento\.pacote\.codigo \}\) === 'SEM_MODELO_EMPRESA'/);
+  assert.match(readFileSync("lib/contratos/documento/base-documento.ts", "utf8"), /empresaKidmais: codigo === 'kidmais'/);
   assert.match(fonte, /gerarPdfContratoOficial\(rendered, \{ logo: !modeloEmpresa \}\)/);
 });

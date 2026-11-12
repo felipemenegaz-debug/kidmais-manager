@@ -51,7 +51,8 @@ const canalMcp = [
 const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "zod": ["ZodError", "z"],
   "node:crypto": ["createHash"],
-  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo"],
+  // pendenciasDoCaixa (P2): só leitura da abertura vigente e das pendências da conferência, para o atencao_hoje.
+  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo", "pendenciasDoCaixa"],
   "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia", "periodoSelecionado", "HORIZONTE_RECORRENCIA_MESES"],
   "lib/saas/provar-tenant": ["SessaoParaTenant", "TenantComprovado"],
   "lib/clientes/services/errors": ["ClienteServiceError"],
@@ -66,17 +67,23 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
   "lib/importacao-contrato/arquivo": ["ArquivoValidado", "limiteConfigurado", "validarArquivoEnviado"], // @pr:DOCUMENT
   "lib/importacao-contrato/pdf-texto": ["extrairTextoPdf", "temTextoNativo", "OpcoesExtracao", "TextoPdf"], // @pr:DOCUMENT
-  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO"], // @pr:DOCUMENT
-  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO", "CampoLido"], // @pr:DOCUMENT
+  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "completarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  // Entrega A (D-IMP-4): leitura pelo modelo ATIVO da empresa (função pura; o modelo chega já lido no Tenant Context).
+  "lib/importacao-contrato/modelo-referencia": ["casarComModelo", "ModeloReferencia"],
   "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/cota": ["Posse", "ResultadoReserva", "ResumoCota"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
-  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano"], // @pr:IMPORT
+  // Entrega B (112): `buscaDoCliente` é pura (o que procurar no CRM: CPF na PF, CNPJ na PJ).
+  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano", "buscaDoCliente"], // @pr:IMPORT
   // Conclusão única: schema e tipos puros; a IA continua sem acesso ao executor do Core.
   "lib/contratos/integracao-importados/modelo": ["decisoesSchema", "DecisoesIntegracao", "ResumoIntegracao"],
-  "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["CursorRevisao", "ImportacaoLida", "LIMITE_ABERTURAS", "LinhaParaRevisao", "RegistroAbertura"], // @pr:IMPORT
   // Importação da tabela de preços (071): só o esquema puro da leitura; a escrita segue no Core.
   "lib/comercial/importacao-tabela/esquema": ["INSTRUCAO_LEITURA_TABELA", "LEITURA_JSON_SCHEMA", "leituraSchema", "LeituraTabela"],
+  // Limite único de duração (parecer do Astra, P2-2): só constantes puras; a IA segue sem acesso à agenda.
+  "lib/disponibilidade/services/horario.utils": ["DURACAO_MAXIMA_MINUTOS", "DURACAO_MINIMA_MINUTOS"],
   // Modelo de contrato da empresa (072): só o esquema puro da leitura; publicar e gerar contrato seguem no Core.
   "lib/contratos/modelo-empresa/leitura": ["INSTRUCAO_LEITURA_CONTRATO", "LEITURA_CONTRATO_JSON_SCHEMA", "leituraContratoSchema", "LeituraContrato"],
 };
@@ -101,7 +108,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1 (Establishment Context): prova da unidade no Core, dentro da transação do Tenant Context.
   "lib/saas/provar-estabelecimento": ["provarEstabelecimento"],
   "lib/db/postgres": ["db", "withTransaction"],
-  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno", "buscarClientesCrm"],
+  // Entrega B (112): `pessoaJuridicaDisponivel` só lê se a 112 está aplicada (catálogo), na transação da rota.
+  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno", "buscarClientesCrm", "pessoaJuridicaDisponivel"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres", "lerUsoAgrupado"],
   // AI V1 (Skills por empresa/unidade): leitura das camadas da 058; o catálogo revalida tudo.
@@ -112,6 +120,9 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1.1 (PR 5.5): posição financeira OFICIAL do contrato (somente leitura), após a prova de posse no tenant.
   "lib/pagamentos/repositories/alteracao-financeira.repository": ["lerPosicaoFinanceira"],
   "lib/pagamentos/services/alteracao-financeira-core": ["AlteracaoFinanceiraError"],
+  // Liberar agenda com mais de um salão, rev. 3: a trava passou ao helper travarConfiguracaoAgenda (a porta de pacotes
+  // trava a configuração na transação do tenant; a IA continua sem SQL).
+  "lib/agenda/trava-configuracao": ["travarConfiguracaoAgenda"], // @pr:ACTIONS
   "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
@@ -120,8 +131,14 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // de tabela, regra de convidados), a criação oficial do Fechamento (envio do formulário, com o vínculo) e o serviço
   // de parâmetros de consumo da 059. Nenhuma escrita própria da IA: só os serviços de domínio.
   "lib/fechamentos/services/fechamento-administrativo.service": ["clienteParaPreparacao", "criarFechamentoAdministrativo", "obterContextoFechamentoAdministrativo"],
-  "lib/fechamentos/convidados": ["erroConvidadosFechamento"],
-  "lib/disponibilidade/services": ["consultarDisponibilidadeData"],
+  "lib/fechamentos/convidados": ["erroConvidadosFechamento", "erroConvidadosEmpresa"],
+  // Pacotes com código livre (fase 1d): pacotes da empresa comprovada e a decisão "dona da agenda pública" — as mesmas
+  // leituras do Fechamento administrativo; a IA resolve o pacote informado contra elas (somente leitura).
+  "lib/comercial/repositories": ["listarPacotesContrataveisDaEmpresa"],
+  "lib/disponibilidade/config-legada": ["ehDonaDaConfigLegada"],
+  // 2c-2: almoço/noite da conversa resolvidos nos horários configurados da empresa (função pura, sem SQL).
+  // duracaoDoPacoteDaEmpresa: leitura do serviço de disponibilidade (horário livre com a duração do pacote).
+  "lib/disponibilidade/services": ["consultarDisponibilidadeData", "duracaoDoPacoteDaEmpresa", "periodoDoTurno"],
   // Agenda por empresa/unidade (062): escopo da empresa comprovada para a consulta oficial de horários.
   "lib/disponibilidade/escopo": ["escopoDaEmpresa"],
   "lib/comercial/services": ["calcularResumoComercial"],
@@ -131,23 +148,26 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
   "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/cota": ["concluirCota", "cotaInstalada", "liberarCota", "reservarCota", "resumoCotaParaTela"], // @pr:DOCUMENT
   // Composition root explícito: preview e conclusão nativa no mesmo Tenant Context/Human Gate.
   "lib/contratos/integracao-importados/rascunho": ["fonteDoRascunho"],
   "lib/contratos/integracao-importados/composicao": ["coreNativo"],
   "lib/contratos/integracao-importados/servico": ["confirmarIntegracao", "opcoesIntegracaoRascunho", "simularIntegracao", "IntegracaoImportadoError"],
   "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
-  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao", "substituirImportacaoCancelada"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorAbertura", "importacaoPorDocumento", "lerImportacao", "listarParaRevisao", "registrarAbertura", "substituirImportacaoCancelada", "travarDocumento"], // @pr:IMPORT
   // Importação da tabela de preços (071): guarda do PDF e da leitura pelos serviços do Core, no Tenant Context.
   "lib/comercial/importacao-tabela/servico": ["arquivoDaImportacao", "gravarLeitura", "registrarImportacao"],
-  "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "registrarImportacaoContrato"],
+  "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "modeloContratoAtivo", "registrarImportacaoContrato"],
+  // Entrega A (D-IMP-4): só as cláusulas do modelo publicado, sem dado literal, como referência da leitura.
+  "lib/importacao-contrato/modelo-referencia": ["referenciaDoModeloPublicado"],
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
-  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "travarConfiguracaoAgenda(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "erroConvidadosEmpresa(", "listarPacotesContrataveisDaEmpresa(", "ehDonaDaConfigLegada(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
-  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em"], // @pr:IMPORT
+  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em", "travarDocumento,", "registrarAbertura,", "importacaoPorAbertura,", "listarParaRevisao,"], // @pr:IMPORT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */
@@ -261,7 +281,8 @@ test("rotas da IA: composition root sem SQL, só POST, com guard e Tenant Contex
   }
   // Editar pacote nunca passa por salvarPacoteComercial (regrava disponibilidade/buffet): só criar.
   const acoes = join(PASTA_ROTAS, "operacoes", "composicao.ts");
-  if (existsSync(acoes)) assert.match(readFileSync(acoes, "utf8"), /criar: \(tx, dados, ctx\) => salvarPacoteComercial\(tx, \{ \.\.\.dados, disponibilidade: \[\], categorias: \[\], itens: \[\] \}, ctx\)/);
+  // Liberar agenda com mais de um salão, rev. 3: a trava passou ao helper travarConfiguracaoAgenda (a porta trava antes de criar).
+  if (existsSync(acoes)) assert.match(readFileSync(acoes, "utf8"), /criar: async \(tx, dados, ctx\) => \{ await configuracaoDoPacote\(tx, ctx\.empresaId\); return salvarPacoteComercial\(tx, \{ \.\.\.dados, disponibilidade: \[\], categorias: \[\], itens: \[\] \}, ctx\); \}/);
 });
 
 test("persistência da IA: SQL só das tabelas ia_*; da camada de IA importa apenas tipos", () => {
@@ -404,7 +425,7 @@ function camadaDe(chave: string): Camada | null {
   if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", agentes: "AGENTES", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
   if (/^app\/api\/admin\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
   if (/^lib\/importacao-contrato\/(plano|motor|repositorio-importacao)$/.test(chave)) return "IMPORT";
-  if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|multipart)$/.test(chave)) return "DOCUMENT";
+  if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|cota|multipart)$/.test(chave)) return "DOCUMENT";
   if (/^lib\/ia-persistencia\/operacoes$/.test(chave)) return "ACTIONS";
   if (/^lib\/ia-persistencia\/uso$/.test(chave)) return "CORE";
   return null;

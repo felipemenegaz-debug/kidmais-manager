@@ -1,6 +1,7 @@
 export type CategoriaHorario = "PADRAO" | "NOBRE";
 export type CategoriaPrecoPacote = "GERAL" | CategoriaHorario;
-export type TipoCalculoPrecoPacote = "FIXO" | "POR_CONVIDADO";
+/** PONTO (092): preço numa quantidade cheia; entre dois pontos o valor é calculado pela diferença até o próximo. */
+export type TipoCalculoPrecoPacote = "FIXO" | "POR_CONVIDADO" | "PONTO";
 export type EstadoElegibilidadePacote =
   | "DISPONIVEL"
   | "INDISPONIVEL"

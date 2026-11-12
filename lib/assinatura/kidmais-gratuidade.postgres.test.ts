@@ -78,18 +78,33 @@ test("controle negativo: empresa com teste vencido é restringida (a regra exist
   assert.equal(decidirPaywall(estado.acesso, "POST", "/api/admin/clientes").permitido, false);
 });
 
-test("o produto só cria assinatura no cadastro público (iniciarTeste), nunca para empresa existente", () => {
+test("o produto só cria assinatura no cadastro público e na operação explícita do piloto (iniciarTeste), nunca para a Kidmais nem para isenta", () => {
   const raiz = process.cwd();
   const arquivos: string[] = [];
   const varrer = (dir: string) => { for (const e of readdirSync(join(raiz, dir), { withFileTypes: true })) {
     const p = `${dir}/${e.name}`;
-    if (e.isDirectory()) varrer(p); else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) arquivos.push(p);
+    if (e.isDirectory()) varrer(p); else if (/\.(ts|tsx)$/.test(e.name) && !/\.test(-apoio)?\.tsx?$/.test(e.name)) arquivos.push(p);
   } };
   for (const dir of ["lib", "app"]) varrer(dir);
+  // Apoios de teste (`.test-apoio.ts`, ex.: renovacao-109-apoio da #271) ficam fora da varredura como os `.test.ts`; em troca,
+  // nenhum arquivo de produto pode citá-los, senão uma chamada a iniciarTeste escaparia por ali. Guarda TEXTUAL (como a de
+  // iniciarTeste abaixo): pega import, reexport e import dinâmico literais; caminho calculado ou alias que esconda o nome, não.
+  assert.deepEqual(arquivos.filter((f) => /test-apoio/.test(readFileSync(join(raiz, f), "utf8"))), [], "produto não importa apoio de teste");
   const insercoes = arquivos.filter((f) => /INSERT INTO empresa_assinaturas/.test(readFileSync(join(raiz, f), "utf8")));
   assert.deepEqual(insercoes, ["lib/assinatura/servico.ts"]);
   const chamadas = arquivos.filter((f) => /\biniciarTeste\(/.test(readFileSync(join(raiz, f), "utf8")) && f !== "lib/assinatura/servico.ts");
-  assert.deepEqual(chamadas, ["lib/cadastro/publico.ts"]);
+  // Piloto (3348f80, 22/10/2026): operação explícita do painel do desenvolvedor, com senha recente e auditoria. Ela recusa
+  // a Kidmais e a empresa isenta ANTES de chamar iniciarTeste (provado também em lib/desenvolvedor/comercial.postgres.test.ts).
+  assert.deepEqual(chamadas, ["lib/cadastro/publico.ts", "lib/desenvolvedor/comercial.ts"]);
+  // Revisão de 22/10/2026: as guardas precisam estar DENTRO do corpo da função que chama iniciarTeste, antes da chamada.
+  const fonte = readFileSync(join(raiz, "lib/desenvolvedor/comercial.ts"), "utf8");
+  const inicio = fonte.indexOf("async function iniciarTesteDaContratante(");
+  const chamada = fonte.indexOf("return iniciarTeste(tx", inicio);
+  assert.ok(inicio > 0 && chamada > inicio, "função do piloto e chamada localizadas");
+  assert.equal(fonte.split(/\biniciarTeste\(/).length - 1, 1, "uma única chamada a iniciarTeste no arquivo");
+  const corpo = fonte.slice(inicio, chamada);
+  for (const guarda of ["empresa.codigo === 'kidmais'", "await empresaIsenta(tx, empresa.id)", "empresa.status !== 'ATIVA'"])
+    assert.ok(corpo.includes(guarda), guarda);
 });
 
 test("conferência diária (scripts/assinatura-reconciliar.cjs): SQL real aprova a Kidmais e reprova uma assinatura criada para ela", async () => {

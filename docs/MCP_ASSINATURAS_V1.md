@@ -394,7 +394,3 @@ Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `Consentimen
 ### Acesso pelo painel
 
 Com o canal MCP habilitado, Configurações → IA e créditos mostra Gerenciar conexões abaixo do saldo de convites. O atalho abre a lista existente em /admin/conexoes-ia. O perfil continua oferecendo acesso à mesma lista.
-
-### Recorte sobre a base de produção
-
-Em Configurações → IA e créditos, a Gestão consulta a franquia mensal do motor de convites existente. Gerenciar conexões aparece quando o canal está habilitado. Este recorte utiliza a migration 105 e preserva as verificações de empresa, permissão e consentimento a cada chamada. A liberação exige conferir a integridade da 105, o ponto de restauração e as variáveis exclusivas do ambiente, inclusive a lista explícita de empresas piloto. Validar o primeiro acesso do assistente com documentação aprovada. Usar dados sintéticos para as provas de agenda e recebíveis.

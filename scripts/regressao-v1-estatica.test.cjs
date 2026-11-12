@@ -164,6 +164,8 @@ test("D3: cada suíte recebe ambiente explícito — sem DATABASE_URL/PG* herdad
     PGSYSCONFDIR: "C:/pg", PGSSLMODE: "disable", PGAPPNAME: "x", KIDMAIS_054_PG_HOST: "db.example", PATH: "mantido",
   };
   const env = ambienteDaSuite(herdado, {}, 55498, "kidmais_pacotes_v1_descartavel");
+  assert.equal(env.KIDMAIS_POSTGRES_MODELO, undefined, "sem estado declarado, sem modelo");
+  assert.equal(ambienteDaSuite(herdado, { descartavel: "b14-P4" }, 55498, "kidmais_pacotes_v1_descartavel").KIDMAIS_POSTGRES_MODELO, "b14-P4");
   assert.deepEqual(Object.keys(env).filter((k) => k === "DATABASE_URL" || /^PG/i.test(k) || k.startsWith("KIDMAIS_054_")), [], "nada herdado do driver nem alvo da 054");
   assert.equal(env.PATH, "mantido");
   assert.equal(env.KIDMAIS_DESCARTAVEL_PORTA, "55498");

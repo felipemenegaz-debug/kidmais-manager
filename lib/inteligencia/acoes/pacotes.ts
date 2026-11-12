@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { MOTIVOS_PACOTE } from "../../comercial/motivos-pacote.ts";
+import { DURACAO_MAXIMA_MINUTOS, DURACAO_MINIMA_MINUTOS } from "../../disponibilidade/services/horario.utils.ts";
 import type { CampoRascunho } from "../contratos.ts";
 import { InteligenciaError } from "../politica.ts";
 import { ErroCampo } from "./human-gate.ts";
@@ -73,7 +74,8 @@ export type PortaPacotes = {
 };
 
 const nome = z.string().trim().min(1).max(160);
-const duracao = z.number().int().min(1).max(1440);
+// Limite único de duração (parecer do Astra, P2-2): o mesmo da agenda — 5 min a 23h59.
+const duracao = z.number().int().min(DURACAO_MINIMA_MINUTOS).max(DURACAO_MAXIMA_MINUTOS);
 const convidados = z.number().int().min(1).max(10000);
 const preco = z.number().int().min(1).max(1_000_000_000);
 

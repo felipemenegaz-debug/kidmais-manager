@@ -7,6 +7,7 @@ import { marcarAtor } from '../autenticacao/usuarios.ts';
 import { nomePapelSistema } from '../autenticacao/papeis.ts';
 import { erroAcesso, isAcessoServiceError, violacaoUnica } from '../acessos/erros.ts';
 import { CODIGO_EMPRESA, emailObrigatorio, mascararEmail, nomeObrigatorio, normalizarDocumentoFiscal, normalizarTelefone, observacoes, sugerirCodigoEmpresa, textoOpcional } from '../acessos/validacao.ts';
+import { documentoVigente, documentoVinculado, exigirNomeCivil, travarDocumento } from '../assinatura/documento-contratante.ts';
 import { criarConviteNaTransacao, enviarConvite, listarConvitesDaEmpresa, type ResultadoEnvioConvite } from '../acessos/convites.ts';
 import { criarEnviarEmail, situacaoEmail, type EnviarEmail } from '../acessos/email.ts';
 import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
@@ -212,6 +213,7 @@ const provisionarSchema = z.object({
 
 function dadosProvisionamento(raw: unknown) {
     const input = provisionarSchema.parse(raw);
+    exigirNomeCivil(normalizarDocumentoFiscal(input.documentoFiscal), input.nomeEmpresarial);
     const codigo = input.codigo || sugerirCodigoEmpresa(input.nome);
     if (!CODIGO_EMPRESA.test(codigo))
         throw erroAcesso('DADOS_INVALIDOS', 'Código inválido: use letras minúsculas, números e hífen (4 a 64 caracteres, começando por letra).', 400, { campo: 'codigo' });
@@ -228,11 +230,18 @@ function dadosProvisionamento(raw: unknown) {
 }
 type DadosProvisionamento = ReturnType<typeof dadosProvisionamento>;
 
+/** 068 instalada (empresa_assinaturas.documento_teste). O painel também roda em schemas anteriores. */
+async function assinaturasInstaladas(tx: DbExecutor) {
+    return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS ok")).rows[0]?.ok === true;
+}
+
 async function conflitosProvisionamento(tx: DbExecutor, d: DadosProvisionamento) {
     const conflitos: string[] = [];
     if ((await tx.query('SELECT 1 FROM empresas WHERE codigo = $1', [d.codigo])).rows.length)
         conflitos.push('Já existe empresa com este código.');
-    if (d.documentoFiscal && (await tx.query('SELECT 1 FROM plataforma_empresas_cadastro WHERE documento_fiscal = $1', [d.documentoFiscal])).rows.length)
+    // Mesma trava e mesma conferência do cadastro público: painel × cadastro público terminam numa única contratante.
+    if (d.documentoFiscal) await travarDocumento(tx, d.documentoFiscal);
+    if (d.documentoFiscal && await documentoVinculado(tx, d.documentoFiscal))
         conflitos.push('Já existe contratante com este documento.');
     let interessada: { id: string; nome: string; status: string } | null = null;
     if (d.interessadaId) {
@@ -365,10 +374,28 @@ export async function atualizarCadastroEmpresa(sessao: SessaoAdmin, id: string, 
         nome: input.nome, nomeEmpresarial: input.nomeEmpresarial ?? null, documentoFiscal: normalizarDocumentoFiscal(input.documentoFiscal),
         responsavelNome: input.responsavelNome, email: input.email, telefone: normalizarTelefone(input.telefone), observacoes: input.observacoes ?? null,
     };
+    exigirNomeCivil(dados.documentoFiscal, dados.nomeEmpresarial);
     try {
         return await deps.withTransaction(async (tx) => {
             await exigirDesenvolvedorNaTransacao(tx, sessao);
             const atual = await empresaTravada(tx, empresaId);
+            if ((dados.documentoFiscal ?? null) !== (atual.documento_fiscal ?? null)) {
+                if (dados.documentoFiscal) {
+                    await travarDocumento(tx, dados.documentoFiscal);
+                    // Documento de outra contratante (ficha, teste, Fundador ou cadeia de continuidades): recusa (P2-2).
+                    if (await documentoVinculado(tx, dados.documentoFiscal, empresaId))
+                        throw erroAcesso('CONFLITO', 'Já existe contratante com este documento.', 409, { campo: 'documentoFiscal' });
+                }
+                // Depois do teste, a identidade fiscal é o par titular + documento VIGENTE (o do teste ou o da última
+                // continuidade assistida, 091). Trocar o documento (CPF ↔ CNPJ, CPF A → B, CNPJ A → B) ou apagá-lo na
+                // ficha é recusado (P2-2): a troca é a operação "continuidade de documento" do painel comercial (D5).
+                const teste = await assinaturasInstaladas(tx)
+                    ? (await tx.query<{ documento_teste: string | null }>('SELECT documento_teste FROM empresa_assinaturas WHERE empresa_id = $1::uuid', [empresaId])).rows[0]?.documento_teste ?? null
+                    : null;
+                const vigente = (await documentoVigente(tx, empresaId, teste)).documento;
+                if (vigente && vigente !== dados.documentoFiscal)
+                    throw erroAcesso('CONFLITO', 'O teste ou a assinatura desta empresa usa outro documento. A troca de CPF ou CNPJ da contratante é feita pelo atendimento, na continuidade de documento da situação comercial.', 409, { campo: 'documentoFiscal' });
+            }
             if ((atual.cad_revisao ?? null) !== input.revisao)
                 throw erroAcesso('REVISAO_DESATUALIZADA', 'O cadastro foi alterado por outra pessoa. Recarregue antes de salvar.', 409);
             const antes = { nome: atual.nome, nomeEmpresarial: atual.nome_empresarial, documentoFiscal: atual.documento_fiscal, responsavelNome: atual.responsavel_nome, email: atual.email, telefone: atual.telefone, observacoes: atual.observacoes };

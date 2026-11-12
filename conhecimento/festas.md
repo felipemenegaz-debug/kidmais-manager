@@ -25,6 +25,12 @@ Em Festas, use as abas **Em contratação**, **Hoje**, **Próximas**, **Pendênc
 
 Clique em **Ver detalhes** para abrir a festa. Lá estão as seções **Visão geral**, **Buffet**, **Checklist**, **Financeiro** e **Histórico**, onde a equipe registra tarefas, pendências, presentes, hora extra e itens adicionais.
 
+![Aba Próximas em Festas com a festa e o botão Ver detalhes](/ajuda/imagens/festas-proximas.jpg)
+
+## Salão da festa
+
+O quadro **Salão da festa** mostra o salão atual. Enquanto a festa estiver sem salão, ela ocupa todos os salões no horário dela. Escolha um salão livre para liberar os demais. Se o contrato assinado já fixa o salão, a troca é feita por uma nova versão do contrato.
+
 ## Como remarcar uma festa
 
 1. Abra a festa e clique em **Mais ações**.

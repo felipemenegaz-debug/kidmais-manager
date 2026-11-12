@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { camposDocumentoPublico, documentoInformado, MENSAGEM_SEM_DOCUMENTO, temDocumento } from "@/lib/identidade/documento-rota";
 import {
   consultarCpfPublico,
   isIdentityServiceError,
@@ -13,10 +14,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const consultarCpfSchema = z
-  .object({
-    cpf: z.string().trim().min(1).max(32),
-  })
-  .strict();
+  .object(camposDocumentoPublico)
+  .strict()
+  .refine(temDocumento, MENSAGEM_SEM_DOCUMENTO);
 
 function noStore(response: NextResponse) {
   response.headers.set("Cache-Control", "no-store");
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const resultado = await consultarCpfPublico(dados.data.cpf, escopo);
+    const resultado = await consultarCpfPublico(documentoInformado(dados.data), escopo);
 
     return noStore(
       NextResponse.json(

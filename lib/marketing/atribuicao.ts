@@ -76,6 +76,36 @@ export async function primeiraOrigemCliente(tx: DbExecutor, empresaId: string, c
   return atribuicaoVigente(tx, empresaId, "CLIENTE", clienteId);
 }
 
+/**
+ * Origem com que a negociação `f` conta no painel (decisão de Felipe, 30/10/2026): a PRÓPRIA vigente; sem ela, e só
+ * quando `f` é a primeira negociação do cliente (iniciado_em, id), a primeira origem do cliente — exceto DESCONHECIDA,
+ * que é ausência de evidência. Negociações seguintes sem origem própria continuam "Origem não registrada" (cliente
+ * antigo pode voltar por outra campanha). Nada é gravado: a herança é lida na hora e some quando a negociação ganha
+ * origem própria. Uso: `LEFT JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a ON true` com a negociação no alias `f`.
+ */
+export const SQL_ORIGEM_NEGOCIACAO = `SELECT x.id, x.campanha_id, x.origem_codigo, x.herdada FROM (
+    SELECT a0.id, a0.campanha_id, a0.origem_codigo, false AS herdada FROM marketing_atribuicoes a0
+     WHERE a0.empresa_id = f.empresa_id AND a0.alvo_tipo = 'FECHAMENTO' AND a0.alvo_id = f.id AND a0.vigente
+    UNION ALL
+    SELECT a1.id, a1.campanha_id, a1.origem_codigo, true FROM marketing_atribuicoes a1
+     WHERE a1.empresa_id = f.empresa_id AND a1.alvo_tipo = 'CLIENTE' AND a1.alvo_id = f.cliente_id AND a1.vigente
+       AND a1.origem_codigo <> '${ORIGEM_DESCONHECIDA}'
+       AND NOT EXISTS (SELECT 1 FROM fechamentos f0 WHERE f0.empresa_id = f.empresa_id AND f0.cliente_id = f.cliente_id
+                        AND (f0.iniciado_em, f0.id) < (f.iniciado_em, f.id))
+  ) x ORDER BY x.herdada LIMIT 1`;
+
+/** Origem do cliente que a negociação herda no painel (sem origem própria e primeira do cliente); senão `null`. */
+export async function origemHerdadaDoCliente(tx: DbExecutor, empresaId: string, fechamentoId: string) {
+  const r = await tx.query<{ id: string; herdada: boolean }>(
+    `SELECT a.id::text, a.herdada FROM fechamentos f CROSS JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a WHERE f.id = $1::uuid AND f.empresa_id = $2::uuid`,
+    [fechamentoId, empresaId],
+  );
+  const linha = r.rows[0];
+  if (!linha?.herdada) return null;
+  const todas = await tx.query<Linha>(`${SELECT} WHERE a.id = $1::uuid AND a.empresa_id = $2::uuid`, [linha.id, empresaId]);
+  return todas.rows[0] ? mapear(todas.rows[0]) : null;
+}
+
 /** Insere a primeira atribuição do alvo. Já existindo vigente: devolve `null` (quem chama decide se corrige). */
 export async function registrarSeAusente(tx: DbExecutor, empresaId: string, nova: NovaAtribuicao): Promise<Atribuicao | null> {
   const r = await tx.query<{ id: string }>(

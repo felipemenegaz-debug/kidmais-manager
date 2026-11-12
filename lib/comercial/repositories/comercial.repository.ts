@@ -1,6 +1,7 @@
 import type { DbExecutor } from "../../db/contracts.ts";
 import { db } from "../../db/postgres.ts";
 import { recusarCatalogoPublicoSemTenant } from "../autorizacao-tenant.ts";
+import { centavosPorPontos } from "../modelo-preco.ts";
 import { limitesPizzaParty } from "../pacotes-v1.ts";
 import type {
   AdicionalComPrecoRecord,
@@ -60,7 +61,7 @@ type PrecoPacoteRow = {
   pacote_id: string;
   convidados_min: number;
   convidados_max: number | null;
-  tipo_calculo: "FIXO" | "POR_CONVIDADO";
+  tipo_calculo: "FIXO" | "POR_CONVIDADO" | "PONTO";
   valor: string | number;
   categoria_horario: "GERAL" | CategoriaHorario;
   observacoes: string | null;
@@ -521,13 +522,61 @@ export async function listarPacotesAtivosComElegibilidade(
 }
 
 /**
+ * Preço por quantidades cheias (092): com pontos na categoria (exata antes de GERAL), o valor de `convidados` sai
+ * da diferença até o próximo ponto. A linha devolvida é a do ponto de baixo (âncora da fotografia), com o valor já
+ * calculado e a faixa entre os dois pontos. null quando o pacote/categoria não tem pontos.
+ */
+async function precoPorPontos(input: BuscarPrecoPacoteAplicavelInput, customDb?: DbExecutor): Promise<PrecoPacoteRecord | null | undefined> {
+  const result = await executor(customDb).query<PrecoPacoteRow>(
+    `SELECT id, tabela_preco_id, pacote_id, convidados_min, convidados_max, tipo_calculo, valor, categoria_horario, observacoes
+       FROM precos_pacote
+      WHERE ativo = true
+        AND tabela_preco_id = $1::uuid
+        AND pacote_id = $2::uuid
+        AND tipo_calculo = 'PONTO'
+        AND categoria_horario IN ($3, 'GERAL')
+      ORDER BY convidados_min`,
+    [input.tabelaPrecoId, input.pacoteId, input.categoriaHorario],
+  );
+  if (result.rows.length === 0) return undefined;
+  const exata = result.rows.filter((linha) => linha.categoria_horario === input.categoriaHorario);
+  // A categoria vem antes do tipo de cálculo (parecer do Astra, P2): com pontos só em GERAL e preço próprio na
+  // categoria exata (ex.: faixa FIXO NOBRE), vale o da categoria exata, pela consulta de faixas.
+  if (exata.length === 0) {
+    const propria = await executor(customDb).query<{ existe: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM precos_pacote WHERE ativo AND tabela_preco_id = $1::uuid AND pacote_id = $2::uuid
+                        AND categoria_horario = $3 AND tipo_calculo <> 'PONTO') AS existe`,
+      [input.tabelaPrecoId, input.pacoteId, input.categoriaHorario],
+    );
+    if (propria.rows[0]?.existe) return undefined;
+  }
+  const linhas = exata.length > 0 ? exata : result.rows.filter((linha) => linha.categoria_horario === "GERAL");
+  const calculo = centavosPorPontos(
+    linhas.map((linha) => ({ convidados: Number(linha.convidados_min), valor: Number(linha.valor).toFixed(2) })),
+    input.convidados,
+  );
+  if (!calculo) return null;
+  const ancora = linhas.find((linha) => Number(linha.convidados_min) === calculo.inferior.convidados);
+  if (!ancora) return null;
+  return {
+    ...mapPrecoPacote(ancora),
+    convidadosMin: calculo.inferior.convidados,
+    convidadosMax: calculo.superior.convidados,
+    valor: calculo.centavos / 100,
+  };
+}
+
+/**
  * Resolve a faixa de preço do pacote. A categoria exata (PADRAO/NOBRE) tem
  * prioridade; GERAL é fallback apenas para pacotes sem variação de horário.
+ * Pacotes com pontos (092) são calculados por precoPorPontos.
  */
 export async function buscarPrecoPacoteAplicavel(
   input: BuscarPrecoPacoteAplicavelInput,
   customDb?: DbExecutor,
 ): Promise<PrecoPacoteRecord | null> {
+  const porPontos = await precoPorPontos(input, customDb);
+  if (porPontos !== undefined) return porPontos;
   const result = await executor(customDb).query<PrecoPacoteRow>(
     `SELECT
        id,

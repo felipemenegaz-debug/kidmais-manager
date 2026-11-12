@@ -6,6 +6,7 @@ import { lerPrecosCorrentes, publicarTabelaSucessora, substituirPrecosAdicionalN
 import { criarRevisaoPacoteAdmin, editarPacoteNaoUtilizado, PacoteAdminError } from "../pacotes-admin.ts";
 import type { LeituraTabela } from "./esquema.ts";
 import { bloqueiosDaRevisao, normalizarLeitura, type AdicionalCadastro, type CategoriaPreco, type Faixa, type PacoteAtualPrecos, type PacoteCadastro, type RevisaoTabela } from "./normalizar.ts";
+import { travarConfiguracaoAgenda } from "../../agenda/trava-configuracao.ts";
 
 /**
  * Importação da tabela de preços em PDF (por empresa, Tenant Context sempre do chamador).
@@ -193,7 +194,12 @@ type PassoPublicacao = { passo: string; ok: boolean; erro?: string };
  * de cada pacote (revisão quando já usado); (3) inclusos. Falha no passo 1 não grava nada; nos passos 2 e 3, o que
  * veio antes fica e o resultado diz o que faltou.
  */
-export async function publicarImportacao(emTransacao: EmTransacao, ctx: Contexto, id: string, versao: number) {
+export async function publicarImportacao(emTransacaoDoTenant: EmTransacao, ctx: Contexto, id: string, versao: number) {
+  // Liberar agenda com mais de um salão (rev. 3): empresa → configuração da agenda → resto como hoje. Cada transação da publicação (KEY SHARE é no-op sob o FOR UPDATE do tenant).
+  const emTransacao: EmTransacao = (trabalho) => emTransacaoDoTenant(async (tx) => {
+    await travarConfiguracaoAgenda(tx, ctx.empresaId, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+    return trabalho(tx);
+  });
   const preparo = await emTransacao(async (tx) => {
     const imp = await lerImportacao(tx, ctx.empresaId, id);
     if (imp.situacao !== "RASCUNHO") recusar("IMPORTACAO_ENCERRADA", "Esta importação já foi publicada ou descartada.", 409);

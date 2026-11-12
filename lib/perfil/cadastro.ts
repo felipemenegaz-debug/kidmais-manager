@@ -158,7 +158,10 @@ export function validarRascunho(valor: Partial<CadastroPerfil>) {
 const CAMPOS_SEDE = ['sede.cep', 'sede.logradouro', 'sede.numero', 'sede.bairro', 'sede.cidade', 'sede.uf'];
 const CAMPOS_UNIDADE = ['unidade.cep', 'unidade.logradouro', 'unidade.numero', 'unidade.bairro', 'unidade.cidade', 'unidade.uf'];
 
-export function campoExigidoNaAplicacao(campo: string, mesmoEnderecoSede: boolean) {
+/** `pessoaFisica`: contratante com CPF (091). O CNPJ do buffet fica opcional; o CPF nunca é gravado no Perfil. */
+export function campoExigidoNaAplicacao(campo: string, mesmoEnderecoSede: boolean, pessoaFisica = false) {
+    if (campo === 'cnpj' && pessoaFisica)
+        return false;
     if (campo === 'telefone' || campo === 'whatsapp' || campo === 'emailComercial' || campo === 'site' || campo === 'instagram' || campo === 'referenciaChegada' || campo.endsWith('.complemento'))
         return false;
     if (['nomeComercial', 'razaoSocial', 'cnpj', 'unidadeNome', ...CAMPOS_SEDE].includes(campo))
@@ -170,14 +173,14 @@ export function contatoExigidoNaAplicacao() {
     return true;
 }
 
-export function validarAplicacao(valor: Partial<CadastroPerfil>) {
+export function validarAplicacao(valor: Partial<CadastroPerfil>, opcoes: { pessoaFisica?: boolean } = {}) {
     const cadastro = normalizarCadastro(valor);
     const falhas: FalhaCadastro[] = [];
     if (!cadastro.nomeComercial)
         falhas.push({ campo: 'nomeComercial', mensagem: 'Informe o nome que os clientes veem.' });
     if (!cadastro.razaoSocial)
-        falhas.push({ campo: 'razaoSocial', mensagem: 'Informe a razão social.' });
-    validarCnpj(cadastro.cnpj, true, falhas);
+        falhas.push({ campo: 'razaoSocial', mensagem: opcoes.pessoaFisica ? 'Informe o nome civil do titular.' : 'Informe a razão social.' });
+    validarCnpj(cadastro.cnpj, !opcoes.pessoaFisica, falhas);
     validarEndereco(cadastro.sede, 'sede', true, falhas);
     if (!cadastro.unidadeNome)
         falhas.push({ campo: 'unidadeNome', mensagem: 'Informe o nome da unidade.' });
