@@ -82,6 +82,11 @@ function arquivos(id) { const p = passo(id); return [p.aplicador, ...p.dependenc
  * `destino` e `comando` existem para os testes locais (destino temporário; comando substituto que só devolve um código).
  * A CLI usa sempre o destino do Render e o comando do aplicador do modo.
  */
+// Bracketed paste do operador: o valor de antes (on/off, lido de bind -v; vazio se nao houver readline) e guardado antes do
+// bind e restaurado no fim do bloco, aceito ou recusado. Sem bind ou sem shell interativo nada e guardado nem restaurado.
+const KM_SALVA = '__kmbp=$(bind -v 2>/dev/null); case "$__kmbp" in *"enable-bracketed-paste on"*) __kmbp=on;; *"enable-bracketed-paste off"*) __kmbp=off;; *) __kmbp=;; esac';
+const KM_RESTAURA = '{ [ -z "$__kmbp" ] || bind "set enable-bracketed-paste $__kmbp" 2>/dev/null; unset __kmbp; }';
+
 function gerar({id, modo, rotulo, raiz = path.resolve(__dirname, '..'), destino = DESTINO, comando}) {
   const p = passo(id);
   assert.ok(Object.hasOwn(p.comandos, modo), 'MODO_DESCONHECIDO');
@@ -114,9 +119,10 @@ function gerar({id, modo, rotulo, raiz = path.resolve(__dirname, '..'), destino 
     '# pelo resto desta sessao. A guarda de RENDER_SERVICE_ID vem antes de qualquer leitura de arquivo. Corpo em subshell:',
     '# opcoes, umask, cwd e variaveis nao vazam. No fim sai CODIGO_SAIDA_BLOCO=<n> (0/1/2/3 aplicador, 4 bloco); outro codigo',
     '# ou ausencia da linha = parar e ler. Prompt `>` depois de colar = colagem incompleta: Ctrl-C e colar o MESMO bloco.',
+    KM_SALVA,
     "bind 'set enable-bracketed-paste off' 2>/dev/null",
-    `if [ "$RENDER_SERVICE_ID" != "${SERVICO}" ]; then echo "SHELL_ERRADO_NAO_E_PRODUCAO ($RENDER_SERVICE_ID): nada executado"; else`,
-    '(', ...c, ')', 'echo "CODIGO_SAIDA_BLOCO=$?"', 'fi'];
+    `if [ "$RENDER_SERVICE_ID" != "${SERVICO}" ]; then echo "SHELL_ERRADO_NAO_E_PRODUCAO ($RENDER_SERVICE_ID): nada executado"; ${KM_RESTAURA}; else`,
+    '(', ...c, ')', 'echo "CODIGO_SAIDA_BLOCO=$?"', KM_RESTAURA, 'fi'];
   const bloco = linhas.join('\n') + '\n';
   assert.match(bloco, /^[\x09\x0a\x20-\x7e]*$/, 'BLOCO_NAO_ASCII');
   assert.ok(Buffer.byteLength(bloco, 'utf8') <= LIMITE, 'BLOCO_GRANDE_DEMAIS');

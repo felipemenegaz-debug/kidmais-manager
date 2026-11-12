@@ -54,7 +54,7 @@ test('blocos oficiais de produção: ASCII, ≤ 32 KB, bind e guarda antes de tu
     const x = b.gerar({modo, rotulo: ROTULO}), L = x.split('\n');
     assert.match(x, /^[\x09\x0a\x20-\x7e]*$/); assert.ok(Buffer.byteLength(x, 'utf8') <= 32 * 1024, `${modo} ${Buffer.byteLength(x)}`);
     const iGuarda = L.findIndex(l => l.startsWith(`if [ "$RENDER_SERVICE_ID" != "${PROD}" ]; then echo "SHELL_ERRADO_NAO_E_PRODUCTION`));
-    assert.ok(iGuarda > 0 && L.slice(0, iGuarda).every(l => l.startsWith('#') || l.startsWith('bind ')), modo + ': nada antes da guarda');
+    assert.ok(iGuarda > 0 && L.slice(0, iGuarda).every(l => l.startsWith('#') || l.startsWith('bind ') || l.startsWith('__kmbp=')), modo + ': nada antes da guarda');
     assert.equal(L[iGuarda - 1], "bind 'set enable-bracketed-paste off' 2>/dev/null", 'bind antes da guarda');
     assert.equal(L[iGuarda + 1], '('); assert.ok(L.includes(')') && L.includes('echo "CODIGO_SAIDA_BLOCO=$?"') && L.at(-2) === 'fi');
     assert.match(x, /^cd '\/opt\/render\/project\/src' \|\| \{ echo "DESTINO_INACESSIVEL"; exit 4; \}$/m);
@@ -162,4 +162,26 @@ test('colagem interativa: CONFERIR e depois APLICAR na mesma sessão — dois c�
       + gerar(d, 'APLICAR', 'node -e "process.exitCode=0"') + 'echo DUAS_COLAGENS_OK\n', {interativo: true});
     assert.equal(linhas(r.saida, /^CODIGO_SAIDA_BLOCO=0$/), 2, r.saida.slice(-400)); assert.match(r.saida, /^DUAS_COLAGENS_OK$/m);
   } finally { limpar(d); }
+});
+
+test('bracketed paste do operador volta ao valor de antes do bloco (bash -i), com o bloco aceito e com o recusado, partindo de on e de off', () => {
+  const LER = 'bind -v 2>/dev/null | grep enable-bracketed-paste';
+  for (const inicial of ['on', 'off']) {
+    for (const [rotulo, servico] of [['aceito', b.SERVICO], ['recusado (outro serviço)', 'srv-outro-servico']]) {
+      const d = destino();
+      try {
+        const r = sessao(d, `bind 'set enable-bracketed-paste ${inicial}'
+echo "PASTE_ANTES=$(${LER})"
+` + gerar(d, 'CONFERIR', 'node -e "process.exitCode=0"')
+          + `echo "PASTE_DEPOIS=$(${LER})"
+echo "KMBP_VAR=\${__kmbp-ausente}"
+`, {interativo: true, servico});
+        const esperado = `set enable-bracketed-paste ${inicial}`;
+        assert.ok(r.saida.includes('PASTE_ANTES=' + esperado), rotulo + ' ' + inicial + ': partida ' + r.saida.slice(-300));
+        assert.ok(r.saida.includes('PASTE_DEPOIS=' + esperado), rotulo + ' ' + inicial + ': restaurado ' + r.saida.slice(-300));
+        assert.match(r.saida, /^KMBP_VAR=ausente$/m, rotulo + ': variável auxiliar não vaza');
+        if (servico === b.SERVICO) assert.match(r.saida, /^CODIGO_SAIDA_BLOCO=0$/m, rotulo); else assert.match(r.saida, /nada executado/, rotulo);
+      } finally { limpar(d); }
+    }
+  }
 });

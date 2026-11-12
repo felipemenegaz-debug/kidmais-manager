@@ -79,7 +79,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 
 ### 5. 094 — capacidade, limite do dia e intervalo na regra de conflito; exige 092 e 093 completas
 
-**Antes deste passo:** deploy do código NOVO em production: o aplicador da 092–094 só aceita o escopo 094 depois dele (o código antigo não reconhece os corpos de função da 094).
+**Antes deste passo:** o código NOVO já implantado em production (regra vigente: sistema em manutenção, código novo no ar primeiro, depois a cadeia inteira na ordem; a 092–093 vêm antes da 094 e a 094 exige o código novo, que o aplicador da 092–094 não reconhece sem ele).
 
 - Aplicador: `scripts/migration-092-094-production.cjs`
 - CONFERIR: `node scripts/migration-092-094-production.cjs --conferir-094`
@@ -253,4 +253,4 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 ## Pendências conhecidas deste roteiro
 
 - Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.
-- A fronteira de deploy (código antigo no escopo 092-093, código novo a partir do 094) é regra do aplicador da 092–094; como e quando a árvore com os aplicadores chega ao web de production é decisão do plano de promoção, não deste roteiro.
+- Regra vigente de deploy: sistema em manutenção, código novo implantado primeiro e depois a cadeia inteira de migrations na ordem deste roteiro; a 092–093 vêm antes da 094 e a 094 exige o código novo já no ar (o que vale nesta ordem). Como e quando a árvore com os aplicadores chega ao web de production é decisão do plano de promoção, não deste roteiro.

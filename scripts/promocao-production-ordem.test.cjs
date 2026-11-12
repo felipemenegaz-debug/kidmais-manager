@@ -90,7 +90,7 @@ test('proximoPasso: começa no CONFERIR da 089, segue CONFERIR → APLICAR → C
   assert.deepEqual(o.proximoPasso(ok(SEQUENCIA, SEQUENCIA.length)), {acao: 'CONCLUIDA', passos: 23});
   // O 094 lembra o deploy do código novo antes do CONFERIR dele.
   const i094 = SEQUENCIA.findIndex(x => x.id === '094');
-  assert.match(o.proximoPasso(ok(SEQUENCIA, i094)).exigeAntes, /deploy do código NOVO/);
+  assert.match(o.proximoPasso(ok(SEQUENCIA, i094)).exigeAntes, /código NOVO já implantado/);
   assert.equal(o.proximoPasso(ok(SEQUENCIA, i094 - 1)).exigeAntes, undefined);
   // O genérico recebe o id como argumento.
   const i120 = SEQUENCIA.findIndex(x => x.id === '120');

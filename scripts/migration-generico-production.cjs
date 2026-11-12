@@ -21,7 +21,11 @@
 //     COMMIT = NAO_COMMITADA; falha NO COMMIT = DESFEITA_PELO_SERVIDOR (SQLSTATE de resposta fora de 08/57/58/XX e ≠ 40003)
 //     ou INDETERMINADO; COMMIT respondido como ROLLBACK = DESFEITA_PELO_SERVIDOR;
 //   - códigos: 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar; 2 FALHA registrada; 3 conferência RECUSARIA.
-// Privilégios: não há guarda prévia por migration (as 5 só criam objetos novos ou trocam índice); papel sem privilégio falha
+// Privilégios: lista declarada por id neste arquivo (privilegios: CREATE no schema public, posse das tabelas e funções existentes que
+// a migration altera ou em que cria índice/gatilho/FK, REFERENCES nas tabelas referenciadas), lida do SQL de cada migration e
+// conferida pelo teste contra o texto do SQL. Consulta só de leitura no catálogo (has_schema_privilege, has_table_privilege,
+// pg_has_role sobre relowner/proowner): CONFERIR devolve RECUSARIA (3) com o nome do que falta; APLICAR recusa ANTES do marcador
+// (conexão própria só de leitura) e de novo antes da transação. A proteção transacional continua: o que escapar da guarda falha
 // DENTRO da transação = NAO_COMMITADA, nada fica aplicado. Nunca executa o down de nenhuma delas.
 //   node scripts/migration-generico-production.cjs                                                     → plano, sem conexão
 //   node scripts/migration-generico-production.cjs --conferir <id>                                     → somente leitura
@@ -45,7 +49,9 @@ const tabela = t => [t, `to_regclass('public.${t}') IS NOT NULL`];
 const funcao = f => [f, `to_regprocedure('public.${f}') IS NOT NULL`];
 const restricao = c => [c, `EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${c}')`];
 const coluna = (t, c) => [`${t}.${c}`, `EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${t}' AND column_name = '${c}')`];
-const congelar = o => Object.freeze({...o, arquivos: Object.freeze(o.arquivos.map(a => Object.freeze(a))), criados: Object.freeze(o.criados), removidos: Object.freeze(o.removidos ?? [])});
+const congelar = o => Object.freeze({...o, arquivos: Object.freeze(o.arquivos.map(a => Object.freeze(a))), criados: Object.freeze(o.criados), removidos: Object.freeze(o.removidos ?? []),
+  privilegios: Object.freeze({criaNoSchema: o.privilegios.criaNoSchema, alteradas: Object.freeze(o.privilegios.alteradas), funcoes: Object.freeze(o.privilegios.funcoes),
+    referenciadas: Object.freeze(o.privilegios.referenciadas)})});
 /** LISTA FECHADA: [etapa, arquivo, sha256 do conteúdo com CRLF normalizado para LF]. */
 const MIGRATIONS = Object.freeze({
   '120': congelar({escopo: 'financeiro P2: liquidações de entradas e reversões de saídas (aditiva; exige a 052)',
@@ -53,30 +59,38 @@ const MIGRATIONS = Object.freeze({
       ['migration', 'database/migrations/20261109_120_financeiro_movimentos.sql', '6d2a4e54581f41bf65723ddca2bfd7f41c92cf475438c8cdb3d2ee5baf6f084c'],
       ['postcheck', 'database/checks/20261109_120_postcheck.sql', '5b5376fa562d4249d4c237d11c029dfb193c05b40f0b67726af3b4405c26a7e9']],
     criados: [tabela('financeiro_entradas_liquidacoes'), tabela('financeiro_saidas_reversoes'),
-      restricao('financeiro_entradas_manuais_empresa_uk'), restricao('financeiro_saidas_empresa_uk')]}),
+      restricao('financeiro_entradas_manuais_empresa_uk'), restricao('financeiro_saidas_empresa_uk')],
+    privilegios: {criaNoSchema: true, alteradas: ['financeiro_entradas_manuais', 'financeiro_saidas'], funcoes: [],
+      referenciadas: ['empresas', 'financeiro_entradas_manuais', 'financeiro_saidas']}}),
   '121': congelar({escopo: 'financeiro P2: abertura do financeiro e conferências, só de acréscimo (aditiva; exige empresas e a 052)',
     arquivos: [['precheck', 'database/checks/20261109_121_precheck.sql', '24e786410f669905260fa9d641c14b6bc01a4440a9b2ce6bffd713c52e1e1860'],
       ['migration', 'database/migrations/20261109_121_financeiro_abertura.sql', 'f9fd4c5e717e2c02440cc3d23e5a9298100fa8baf6d804cc6d9cf2f3c0900479'],
       ['postcheck', 'database/checks/20261109_121_postcheck.sql', '7bbd85fd52841b1bbdc2157155a8368d349de1ec7ba1d28e2f35bb35789b7423']],
-    criados: [tabela('financeiro_aberturas'), tabela('financeiro_abertura_conferencias'), funcao('kidmais_121_somente_acrescimo()')]}),
+    criados: [tabela('financeiro_aberturas'), tabela('financeiro_abertura_conferencias'), funcao('kidmais_121_somente_acrescimo()')],
+    privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas']}}),
   '110': congelar({escopo: 'pesquisa de satisfação pós-festa (PS-1; exige 043, 054 e 086)',
     arquivos: [['precheck', 'database/checks/20261030_110_precheck.sql', 'd6bee1250665f9d0b3ae0c607ba26e275c307b74927b5507a0a929d377fcd1c5'],
       ['migration', 'database/migrations/20261030_110_satisfacao_pesquisa.sql', '8e9a9a714f6ccf1139042fd8cf8b3029ea18abc3fd8ff569e85d0e9fe69c2439'],
       ['postcheck', 'database/checks/20261030_110_postcheck.sql', 'b04dccb7cd8aafd8973a06ebb1a84717fbbe1a9f16e68c51b621e8a91f063744']],
     criados: [tabela('satisfacao_envios'), tabela('satisfacao_respostas'), tabela('satisfacao_entregas'), funcao('kidmais110_envio_guarda()'),
-      coluna('marketing_automacao_regras', 'canais')]}),
+      coluna('marketing_automacao_regras', 'canais')],
+    privilegios: {criaNoSchema: true, alteradas: ['marketing_automacao_regras', 'marketing_automacao_execucoes'], funcoes: ['kidmais086_execucao_tenant()'],
+      referenciadas: ['clientes', 'empresas', 'estabelecimentos', 'fechamentos', 'marketing_automacao_execucoes', 'membership_estabelecimentos', 'memberships', 'usuarios_administrativos']}}),
   '111': congelar({escopo: 'pesquisa de satisfação: links de avaliação e auditoria só de acréscimo (PS-3; exige a 110 e PostgreSQL 15+)',
     arquivos: [['precheck', 'database/checks/20261031_111_precheck.sql', '483640b99a5a09729240dd19476b217e19ca26ce4abcc15b5b4d401bec7bb4a1'],
       ['migration', 'database/migrations/20261031_111_satisfacao_links_auditoria.sql', '030d564ff067b45fc789ca4a57f5fa99b52be234546f92494eba63b2c2e57c60'],
       ['postcheck', 'database/checks/20261031_111_postcheck.sql', 'c97fbc56872a880b705645ea3b8f83a778f5e07e90c05b2b7e895a146daf60f1']],
     criados: [tabela('satisfacao_links_avaliacao'), tabela('satisfacao_auditoria'), funcao('kidmais111_link_guarda()'),
-      funcao('kidmais111_auditoria_somente_insercao()'), funcao('kidmais111_auditoria_coerencia()')]}),
+      funcao('kidmais111_auditoria_somente_insercao()'), funcao('kidmais111_auditoria_coerencia()')],
+    privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas', 'estabelecimentos', 'satisfacao_tarefas', 'usuarios_administrativos']}}),
   '115': congelar({escopo: 'índice (empresa_id, data_evento) em fechamentos no lugar do índice da 054 (PS-4; a criação bloqueia escritas em fechamentos enquanto dura)',
     idempotente: true,
     arquivos: [['precheck', 'database/checks/20261103_115_precheck.sql', '61d6f61e69b993e68ee2564ef9a8c6618afe2b64b742a522ef792b224b485f23'],
       ['migration', 'database/migrations/20261103_115_fechamentos_empresa_data.sql', '35e971aaa4b089331324eb198309bbd7055cf4ec265263b803b6aaa3b39dc79e'],
       ['postcheck', 'database/checks/20261103_115_postcheck.sql', '112a2e3995ba02896ca071316dc8e9aa44d0eac6f5fc2e94a3d8e695a5eec201']],
-    criados: [tabela('fechamentos_115_empresa_data_idx')], removidos: [tabela('fechamentos_054_empresa_idx')]}),
+    criados: [tabela('fechamentos_115_empresa_data_idx')], removidos: [tabela('fechamentos_054_empresa_idx')],
+    // CREATE INDEX e DROP INDEX exigem ser dono da tabela; o índice nasce no schema da tabela (sem CREATE no schema public).
+    privilegios: {criaNoSchema: false, alteradas: ['fechamentos'], funcoes: [], referenciadas: []}}),
 });
 /** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115. */
 const IDS = Object.freeze(['120', '121', '110', '111', '115']);
@@ -106,6 +120,33 @@ function planoEtapas(id, s) {
   assert.ok(s.situacao === 'ausente' || d.idempotente === true, `APLICACAO_PARCIAL_${id} ${(s.divergencias ?? []).join(', ')}`);
   return ['precheck', 'migration', 'postcheck'];
 }
+
+/**
+ * Privilégios (só catálogo, READ ONLY): schema_create; sem_posse = tabelas alteradas ausentes ou de que o papel não é dono (nem membro do
+ * dono); sem_references = tabelas referenciadas que existem e em que o papel não tem REFERENCES (ausentes ficam para o precheck da
+ * migration, que confere as dependências); sem_posse_funcoes = funções substituídas ausentes ou de outro dono.
+ */
+const listaSql = l => (l.length ? `ARRAY[${l.map(x => `'${x}'`).join(', ')}]::text[]` : 'ARRAY[]::text[]');
+function sqlPrivilegios(id) {
+  const p = definicao(id).privilegios;
+  return `/* privilegios-${id} */ SELECT ${p.criaNoSchema ? "has_schema_privilege(current_user, 'public', 'CREATE')" : 'true'} AS schema_create,
+  coalesce((SELECT array_agg(t ORDER BY t) FROM unnest(${listaSql(p.alteradas)}) t WHERE to_regclass('public.' || t) IS NULL
+    OR NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.oid = to_regclass('public.' || t) AND pg_has_role(current_user, c.relowner, 'USAGE'))), ARRAY[]::text[]) AS sem_posse,
+  coalesce((SELECT array_agg(t ORDER BY t) FROM unnest(${listaSql(p.referenciadas)}) t WHERE to_regclass('public.' || t) IS NOT NULL
+    AND NOT has_table_privilege(current_user, to_regclass('public.' || t), 'REFERENCES')), ARRAY[]::text[]) AS sem_references,
+  coalesce((SELECT array_agg(f ORDER BY f) FROM unnest(${listaSql(p.funcoes)}) f WHERE to_regprocedure('public.' || f) IS NULL
+    OR NOT EXISTS (SELECT 1 FROM pg_proc q WHERE q.oid = to_regprocedure('public.' || f) AND pg_has_role(current_user, q.proowner, 'USAGE'))), ARRAY[]::text[]) AS sem_posse_funcoes`;
+}
+/** Linha da consulta → {ok, faltas}; formato inesperado = ILEGIVEL (nunca "tudo certo"). */
+function lerPrivilegios(id, linha) {
+  assert.equal(typeof linha?.schema_create, 'boolean', 'PRIVILEGIOS_ILEGIVEL ' + id);
+  for (const c of ['sem_posse', 'sem_references', 'sem_posse_funcoes']) assert.ok(Array.isArray(linha[c]) && linha[c].every(x => typeof x === 'string'), `PRIVILEGIOS_ILEGIVEL ${id} ${c}`);
+  const faltas = [...(linha.schema_create ? [] : ['CREATE no schema public']), ...linha.sem_posse.map(t => 'posse da tabela ' + t),
+    ...linha.sem_references.map(t => 'REFERENCES em ' + t), ...linha.sem_posse_funcoes.map(f => 'posse da função ' + f)];
+  return {ok: faltas.length === 0, faltas};
+}
+const privilegiosAtuais = async (db, id) => lerPrivilegios(id, (await somenteLeitura(db, sqlPrivilegios(id))).rows[0]);
+const exigirPrivilegios = p => assert.ok(p.ok, 'PRIVILEGIO_INSUFICIENTE ' + p.faltas.join('; '));
 
 /** O arquivo da migration sem a moldura: só comentários antes do único BEGIN; e o único COMMIT; é a última linha. */
 function corpoMigration(sql, nome) {
@@ -166,6 +207,10 @@ async function conferirNoCliente(db, {id, raiz, sqlIdentidade = SQL_IDENTIDADE, 
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = await estadoAtual(db, id);
   try { r.plano = planoEtapas(id, r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
+  if (r.plano.includes('migration')) {
+    r.privilegios = await privilegiosAtuais(db, id);
+    if (!r.privilegios.ok) { r.resultado = 'RECUSARIA'; r.motivo = curta('PRIVILEGIO_INSUFICIENTE ' + r.privilegios.faltas.join('; ')); return r; }
+  }
   const etapa = r.estado.situacao === 'presente' ? 'postcheck' : 'precheck';
   r.checks = {};
   try { await checkSomenteLeitura(db, corpos, etapa, id); r.checks[etapa] = 'PASS'; }
@@ -206,6 +251,13 @@ async function migrarNaTransacao(db, corpos, id, passo, registrar) {
   passo.commit = 'CONFIRMADO'; registrar();
 }
 
+/** Antes do marcador (APLICAR): identidade, estado e privilégios em READ ONLY; recusa lança e nada é gravado no disco. */
+async function preflightNoCliente(db, {id, sqlIdentidade = SQL_IDENTIDADE, identidade = prd.identidade}) {
+  identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
+  const estado = await estadoAtual(db, id);
+  if (planoEtapas(id, estado).includes('migration')) exigirPrivilegios(await privilegiosAtuais(db, id));
+}
+
 /** Aplicação: o estado é relido aqui, imediatamente antes; presente = só o postcheck (READ ONLY), nada é reaplicado. */
 async function aplicarNoCliente(db, {id, raiz, sqlIdentidade = SQL_IDENTIDADE, identidade = prd.identidade, registrar = () => {}}) {
   const corpos = carregar(raiz, id);
@@ -214,6 +266,8 @@ async function aplicarNoCliente(db, {id, raiz, sqlIdentidade = SQL_IDENTIDADE, i
   r.estadoAntes = await estadoAtual(db, id);
   r.plano = planoEtapas(id, r.estadoAntes); registrar(r);
   if (r.plano.includes('migration')) {
+    r.privilegios = await privilegiosAtuais(db, id); registrar(r);
+    exigirPrivilegios(r.privilegios);
     const passo = {nome: `transacao ${id}`, inicio: new Date().toISOString()};
     r.etapas.push(passo); registrar(r);
     await migrarNaTransacao(db, corpos, id, passo, () => registrar(r));
@@ -285,6 +339,13 @@ async function executar({env, id, backup, dir = DIR, raiz = raizPadrao, Client =
   carregar(raiz, id);
   fs.mkdirSync(dir, {recursive: true, mode: 0o700});
   const marcador = path.join(dir, marcadorDe(id));
+  if (fs.existsSync(marcador)) assert.fail('TENTATIVA_ANTERIOR_REVISAR ' + marcador);
+  {
+    const pre = new Client(opts); pre.on?.('error', () => undefined);
+    try { await pre.connect(); await preflightNoCliente(pre, {id}); }
+    catch (e) { await pre.query('ROLLBACK').catch(() => {}); throw e; }
+    finally { await pre.end().catch(() => {}); }
+  }
   const anteriores = fs.readdirSync(dir).filter(n => n.startsWith(`migration-${id}.`) && n.endsWith('.json') && n !== marcadorDe(id)).sort();
   const registro = {inicio: new Date().toISOString(), ambiente: 'production', id, backup, situacao: 'INICIADA', tentativasAnteriores: anteriores};
   try { fs.writeFileSync(marcador, JSON.stringify(registro, null, 2), {flag: 'wx', mode: 0o600}); }
@@ -324,6 +385,6 @@ function cli() {
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
 if (require.main === module) cli();
-module.exports = {ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
+module.exports = {ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, sqlPrivilegios, lerPrivilegios, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
   planoEtapas, corpoMigration, corpoCheck, carregar, exigirAprovado, conferirNoCliente, aplicarNoCliente, modo, alvo, identidade, exigirDisco, plano, conferir, executar,
   principal, cli};
