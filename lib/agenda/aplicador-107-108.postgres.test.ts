@@ -173,6 +173,7 @@ test("variante de production: F0 igual ao CONFERIR real, F1/F2 medidos, coerente
   };
   const versionados = JSON.parse(readFileSync(join(raiz, "database/checks/20261029_108_retratos_esperados.json"), "utf8")) as Record<string, Record<string, string>>;
   const inicial = await estado();
+  let falhaDoTeste: unknown = undefined;
   try {
     await normalizar();
     assert.equal(await medir(), versionados.F0?.canonico, "parte da base canônica");
@@ -202,13 +203,24 @@ test("variante de production: F0 igual ao CONFERIR real, F1/F2 medidos, coerente
     const c2 = await conferir();
     assert.equal(c2.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(c2)); assert.equal(c2.fase, "F2");
     assert.equal(await medir(), F2, "o APLICAR real chega ao F2 medido da variante");
+  } catch (erro) {
+    falhaDoTeste = erro;
+    throw erro;
   } finally {
-    await a.query("ROLLBACK").catch(() => undefined);
-    await normalizar().catch(() => undefined);
-    await a.query(defaultsUuid("gen_random_uuid()")).catch(() => undefined);
-    if (inicial.m107) await a.query(sql(M107));
-    if (inicial.m108) await a.query(sql(M108));
+    // P3 do parecer da #408: a restauração não pode falhar em silêncio, senão os testes seguintes rodam sobre a variante.
+    const errosRestauro: unknown[] = [];
+    const restaurar = async (passo: () => Promise<unknown>) => { try { await passo(); } catch (e) { errosRestauro.push(e); } };
+    await a.query("ROLLBACK").catch(() => undefined); // sem transação aberta o ROLLBACK só avisa
+    await restaurar(normalizar);
+    await restaurar(() => a.query(defaultsUuid("gen_random_uuid()")));
+    await restaurar(async () => assert.equal(await medir(), versionados.F0?.canonico, "a restauração volta à base canônica"));
+    if (inicial.m107) await restaurar(() => a.query(sql(M107)));
+    if (inicial.m108) await restaurar(() => a.query(sql(M108)));
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    if (errosRestauro.length > 0) {
+      if (falhaDoTeste === undefined) throw new AggregateError(errosRestauro, "restauração da base depois da variante de production falhou");
+      t.diagnostic("restauração também falhou (" + errosRestauro.length + " erro(s)); o erro original do teste é o relatado");
+    }
   }
 });
 
