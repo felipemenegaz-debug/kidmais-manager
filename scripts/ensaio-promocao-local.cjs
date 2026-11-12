@@ -20,7 +20,7 @@
 //     relatório. Nenhuma verificação de núcleo é desligada;
 //   - relatório (JSON e texto): passo, fase, resultado, código, situação do COMMIT, duração, estado por migration (só
 //     rótulos) e contagens agregadas (número de tabelas e linhas por tabela, ANTES e DEPOIS). NUNCA conteúdo de linha: a
-//     cópia real tem dados pessoais. A mensagem do núcleo, quando há parada, passa por `semDadosPessoais`.
+//     cópia real tem dados pessoais. A mensagem do núcleo só entra pela lista de permissão de `mensagemSegura`; a crua vai só ao stderr.
 //   node scripts/ensaio-promocao-local.cjs                                              → plano, sem conexão
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b> --so-conferir
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b>   → a cadeia inteira
@@ -82,17 +82,51 @@ const SQL_CONTAGENS = `SELECT
 
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
 /**
- * Cinto de segurança da mensagem do núcleo (que já sai sem ids nem dados): e-mail, UUID, CPF/CNPJ e sequências longas de
- * dígitos viram marcas; só a primeira linha sai (o assert do Node acrescenta um diff de valores nas seguintes). Hashes
- * hexadecimais (com letras) ficam, porque identificam retratos e corpos de função.
+ * O relatório sai da pasta do ensaio e a cópia real tem dados pessoais: da mensagem do núcleo só passa o que está numa
+ * LISTA DE PERMISSÃO — nunca texto livre (uma mensagem do servidor pode citar valor de linha). Passam:
+ *   - o identificador do núcleo no início (maiúsculas, dígitos e sublinhado: APLICACAO_PARCIAL_090, RETRATO_F0_DIVERGENTE);
+ *     sem ele, a mensagem inteira vira DIAGNOSTICO_GENERICO;
+ *   - depois dele, só termos com forma de identificador de catálogo ou de migration: números de migration (094, 092-093),
+ *     nomes com sublinhado ou ponto (ia_credito_notificacoes, fechamento_revisoes.salao_id), identificadores maiúsculos
+ *     compostos (SELECT_AGENDA_SALOES), hash hexadecimal de 8 ou 64 e palavras do VOCABULARIO fixo; pares chave=valor e
+ *     listas com barra valem se todas as partes valerem. Qualquer outro termo é OMITIDO e só a quantidade aparece;
+ *   - as faltas de privilégio do genérico, que são frases fixas seguidas de um nome de objeto (FALTAS_CONHECIDAS).
+ * Só a primeira linha é lida (o assert do Node acrescenta um diff de valores nas seguintes). A mensagem crua do núcleo vai
+ * apenas para o terminal (stderr), nunca para arquivo.
  */
-function semDadosPessoais(texto) {
-  if (texto === undefined || texto === null) return null;
-  return String(texto).split(/\r?\n/)[0].replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '<email>')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
-    .replace(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g, '<documento>')
-    .replace(/\b\d{9,}\b/g, '<numero>').slice(0, 300);
+const DIAGNOSTICO_GENERICO = 'MENSAGEM_NAO_RECONHECIDA (ver a saída do núcleo no terminal, que não é gravada)';
+const IDENTIFICADOR = /^[A-Z][A-Z0-9_]{2,79}$/;
+const HEX8 = /^(?=.*[a-f])[0-9a-f]{8}$/, HEX64 = /^[0-9a-f]{64}$/;
+const NUMERO_DE_MIGRATION = /^\d{1,4}$|^\d{3}(?:[-/]\d{3}){1,9}$/;
+const NOME_DE_CATALOGO = /^[a-z][a-z0-9]*(?:[_.][a-z0-9]+)+$/;
+const NOME_CURTO = /^[a-z]{1,3}\d{2,4}$/;
+const MAIUSCULO_COMPOSTO = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$|^[A-Z]\d{1,3}$/;
+/** Palavras soltas aceitas (sem sublinhado nem dígito não há como distinguir de texto livre): só estas. */
+const VOCABULARIO = new Set([...TABELAS_PRINCIPAIS, 'public', 'ausente', 'presente', 'completa', 'parcial', 'divergente', 'true', 'false', 'null',
+  'lock', 'revisao', 'exigir', 'atributos', 'CREATE', 'REFERENCES', 'SELECT', 'CONEXAO', 'VERIFICACAO']);
+const parteSegura = p => p === '' || (p.length <= 80 && (VOCABULARIO.has(p) || HEX8.test(p) || HEX64.test(p) || NUMERO_DE_MIGRATION.test(p)
+  || (!/\d{9,}/.test(p) && (NOME_DE_CATALOGO.test(p) || NOME_CURTO.test(p) || MAIUSCULO_COMPOSTO.test(p)))));
+/** Termo sem a pontuação das bordas; chave=valor e a/b/c valem se todas as partes valerem. Devolve o termo limpo ou null. */
+function termoSeguro(t) {
+  const limpo = t.replace(/^[([{"'`]+|[)\]}"'`,;:.]+$/g, '');
+  return limpo.split(/[=/]/).every(parteSegura) ? limpo : null;
 }
+const NOME_SQL = '[a-z_][a-z0-9_]{0,62}';
+const FALTAS_CONHECIDAS = Object.freeze([/^CREATE no schema public$/, new RegExp(`^posse da tabela ${NOME_SQL}$`), new RegExp(`^REFERENCES em ${NOME_SQL}$`),
+  new RegExp(`^posse da função ${NOME_SQL}\\([a-z0-9_ ,\\[\\]]{0,120}\\)$`)]);
+const FALTA_NAO_RECONHECIDA = 'FALTA_NAO_RECONHECIDA';
+/** Uma falta de privilégio do genérico: frase fixa + nome de objeto, ou o rótulo fixo. */
+const faltaSegura = f => (typeof f === 'string' && FALTAS_CONHECIDAS.some(r => r.test(f.trim())) ? f.trim() : FALTA_NAO_RECONHECIDA);
+function mensagemSegura(texto) {
+  if (texto === undefined || texto === null) return null;
+  const [cabeca, ...resto] = String(texto).split(/\r?\n|\r/)[0].trim().split(/\s+/);
+  if (!IDENTIFICADOR.test(cabeca)) return DIAGNOSTICO_GENERICO;
+  if (cabeca === 'PRIVILEGIO_INSUFICIENTE') return `${cabeca} ${resto.join(' ').split(';').map(faltaSegura).join('; ')}`;
+  const termos = resto.map(termoSeguro), omitidos = termos.filter(t => t === null).length;
+  return [cabeca, ...termos.filter(t => t !== null && t !== ''), ...(omitidos ? [`[${omitidos} termo(s) omitido(s)]`] : [])].join(' ');
+}
+/** Rótulo curto do núcleo (resultado, estado, variante, etapa): só letras ASCII, dígitos, sublinhado, hífen, `+` e espaço simples. */
+const rotulo = (v, reserva = null) => (typeof v === 'string' && /^[A-Za-z0-9_+-]+(?: [A-Za-z0-9_+-]+){0,9}$/.test(v) && v.length <= 80 ? v : reserva);
 
 /** Argumentos estritos: nenhum (plano) ou --porta e --banco, com --host, --pasta e --so-conferir opcionais. Nada repetido. */
 function lerArgumentos(argv) {
@@ -189,7 +223,10 @@ function principalGenerico(gen, {amb, raiz, Client}) {
       await db.connect();
       if (typeof gen.preflightNoCliente === 'function') { await gen.preflightNoCliente(db, comum(id)); return; }
       const r = await gen.conferirNoCliente(db, comum(id));
-      if (r.resultado === 'RECUSARIA' && (!r.plano || r.privilegios?.ok === false)) assert.fail(String(r.motivo ?? 'PRE_VOO_RECUSADO'));
+      if (r.resultado === 'RECUSARIA' && (!r.plano || r.privilegios?.ok === false)) {
+        // A lista inteira de faltas segue junto do erro (a mensagem do genérico corta em 300 caracteres).
+        throw Object.assign(new Error(String(r.motivo ?? 'PRE_VOO_RECUSADO')), Array.isArray(r.privilegios?.faltas) ? {faltas: r.privilegios.faltas} : {});
+      }
     } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
     finally { await db.end().catch(() => {}); }
   }
@@ -254,15 +291,22 @@ function commitDe(fase, saida) {
   if (/^JA_APLICADA/.test(String(saida?.resultado))) return 'NADA_A_COMMITAR';
   return 'NAO_INFORMADA';
 }
+/** A situação do COMMIT só com rótulos e números de migration (o que não tiver essa forma vira NAO_INFORMADA ou sai da lista). */
+function commitSeguro(c) {
+  const r = v => (IDENTIFICADOR.test(String(v)) ? v : 'NAO_INFORMADA'), id = v => /^\d{3}$/.test(String(v));
+  if (typeof c === 'string') return r(c);
+  if (Array.isArray(c?.confirmadas)) return {confirmadas: c.confirmadas.filter(id), indeterminada: id(c.indeterminada) ? c.indeterminada : null};
+  return Object.fromEntries(Object.entries(c ?? {}).filter(([k]) => id(k)).map(([k, v]) => [k, r(v)]));
+}
 /** Estado por migration, só rótulos: chaves m<nnn> dos núcleos, a situação do genérico e o estado da 107. */
 function estadoDe(saida) {
   const e = saida?.estado ?? saida?.estadoDepois ?? saida?.estadoAntes;
   const r = {};
-  for (const [k, v] of Object.entries(e ?? {})) if ((/^m[0-9]{3}[a-z]?$/.test(k) || k === 'situacao') && typeof v === 'string') r[k] = v;
-  if (typeof saida?.estado107 === 'string') r.estado107 = saida.estado107;
+  const umRotulo = v => (typeof v === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(v) ? v : null);
+  for (const [k, v] of Object.entries(e ?? {})) if ((/^m[0-9]{3}[a-z]?$/.test(k) || k === 'situacao') && umRotulo(v)) r[k] = v;
+  if (umRotulo(saida?.estado107)) r.estado107 = saida.estado107;
   return Object.keys(r).length ? r : null;
 }
-const HEX64 = /^[0-9a-f]{64}$/;
 /** Resumo do retrato por seção, como o núcleo o sanitiza: quantidade e sha256 (sem corpos nem literais). É o que permite o diff entre dois bancos. */
 function secoesDe(secoes) {
   if (!secoes || typeof secoes !== 'object') return null;
@@ -270,25 +314,33 @@ function secoesDe(secoes) {
 }
 /** Linha do relatório: só o que pode sair (nada das contagens nem dos objetos do núcleo é copiado). */
 function linhaDoRelatorio(p, fase, codigo, saida, duracaoMs) {
-  const linha = {passo: p.id, fase, codigo, resultado: typeof saida?.resultado === 'string' ? saida.resultado : 'SEM_RESULTADO', commit: commitDe(fase, saida),
+  const linha = {passo: p.id, fase, codigo, resultado: IDENTIFICADOR.test(String(saida?.resultado)) ? saida.resultado : 'SEM_RESULTADO', commit: commitSeguro(commitDe(fase, saida)),
     duracaoMs: Math.round(duracaoMs), estado: estadoDe(saida)};
   // 107-108: a fase e o retrato medido (hash do catálogo e variante reconhecida) são o que a cópia real precisa mostrar.
-  if (typeof saida?.fase === 'string') linha.faseDoNucleo = saida.fase;
-  if (saida?.retrato && typeof saida.retrato === 'object') linha.retrato = {fase: String(saida.retrato.fase ?? ''),
-    hash: HEX64.test(String(saida.retrato.hash)) ? saida.retrato.hash : null, variante: typeof saida.retrato.variante === 'string' ? saida.retrato.variante : null, secoes: secoesDe(saida.retrato.secoes)};
+  if (/^F[0-2]$/.test(String(saida?.fase))) linha.faseDoNucleo = saida.fase;
+  if (saida?.retrato && typeof saida.retrato === 'object') linha.retrato = {fase: /^F[0-2]$/.test(String(saida.retrato.fase)) ? saida.retrato.fase : '',
+    hash: HEX64.test(String(saida.retrato.hash)) ? saida.retrato.hash : null, variante: rotulo(saida.retrato.variante), secoes: secoesDe(saida.retrato.secoes)};
   if (codigo !== 0) {
-    linha.mensagem = semDadosPessoais(saida?.motivo ?? saida?.mensagem ?? saida?.falha?.mensagem ?? 'sem mensagem do núcleo');
-    if (typeof saida?.falha?.etapa === 'string') linha.etapa = saida.falha.etapa;
+    // Faltas de privilégio do genérico: a lista inteira (a mensagem dele corta em 300 caracteres), cada item pelo filtro.
+    const faltas = saida?.privilegios?.ok === false && Array.isArray(saida.privilegios.faltas) ? saida.privilegios.faltas.map(faltaSegura) : null;
+    if (faltas) linha.faltas = faltas;
+    linha.mensagem = faltas ? 'PRIVILEGIO_INSUFICIENTE ' + faltas.join('; ') : mensagemSegura(saida?.motivo ?? saida?.mensagem ?? saida?.falha?.mensagem ?? 'SEM_MENSAGEM_DO_NUCLEO');
+    const etapa = rotulo(saida?.falha?.etapa);
+    if (etapa) linha.etapa = etapa;
   }
   return linha;
 }
+/** A mensagem crua de uma fase que não deu 0: só para o terminal (`aoTerminal`, o stderr da CLI); nunca vai a arquivo. */
+const mensagemCrua = saida => String(saida?.motivo ?? saida?.mensagem ?? saida?.falha?.mensagem ?? '').slice(0, 2000);
 /** Roda uma fase de um passo. Recusa lançada antes de conectar = código 1, como na CLI dos aplicadores. */
 async function rodarFase(p, fase, ctx) {
   const inicio = performance.now();
   let codigo, saida;
   try { ({codigo, saida} = await principalDoPasso(p, ctx)(argumentos(p, fase))); }
-  catch (e) { codigo = 1; saida = {resultado: 'RECUSADO', mensagem: curta(e)}; }
-  return linhaDoRelatorio(p, fase, Number.isInteger(codigo) ? codigo : 2, saida, performance.now() - inicio);
+  catch (e) { codigo = 1; saida = {resultado: 'RECUSADO', mensagem: curta(e), ...(Array.isArray(e?.faltas) ? {privilegios: {ok: false, faltas: e.faltas}} : {})}; }
+  codigo = Number.isInteger(codigo) ? codigo : 2;
+  if (codigo !== 0) ctx.aoTerminal?.(`[saída do núcleo, não gravada] ${p.id} ${fase} código ${codigo}: ${mensagemCrua(saida)}`);
+  return linhaDoRelatorio(p, fase, codigo, saida, performance.now() - inicio);
 }
 
 /**
@@ -387,7 +439,7 @@ function plano(ordem) {
 
 /**
  * Códigos: 0 plano, --so-conferir concluído ou cadeia CONCLUIDA; 1 recusa antes de qualquer passo (lançada); 2 cadeia PARADA.
- * `deps` (testes): Client, raiz, ordem, pasta e carregar.
+ * `deps` (testes): Client, raiz, ordem, pasta, carregar e aoTerminal (a CLI passa console.error).
  */
 async function principal(argv, env, deps = {}) {
   const ordem = deps.ordem ?? require('./promocao-production-ordem.cjs');
@@ -401,7 +453,7 @@ async function principal(argv, env, deps = {}) {
   const pasta = prepararPasta(deps.pasta ?? args.pasta);
   fs.mkdirSync(path.join(pasta, 'marcadores'), {recursive: true});
   const antes = await contar(alvo, Client);
-  const rodar = (p, fase) => rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar});
+  const rodar = (p, fase) => rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar, aoTerminal: deps.aoTerminal});
   const feito = args.modo === 'so-conferir' ? await soConferir(ordem, rodar) : await percorrer(ordem, rodar);
   const depois = await contar(alvo, Client);
   const relatorio = {ferramenta: 'ensaio-promocao-local', modo: args.modo, situacao: feito.situacao, alvo, versaoPg: id.versaoPg, inicio, fim: new Date().toISOString(),
@@ -412,7 +464,7 @@ async function principal(argv, env, deps = {}) {
   return {codigo: feito.situacao === 'PARADA' ? 2 : 0, saida: relatorio, texto, pasta};
 }
 function cli() {
-  principal(process.argv.slice(2), process.env).then(({codigo, saida, texto, pasta}) => {
+  principal(process.argv.slice(2), process.env, {aoTerminal: m => console.error(m)}).then(({codigo, saida, texto, pasta}) => {
     if (texto === undefined) console.log(JSON.stringify(saida, null, 2));
     else console.log(texto + '\nrelatório: ' + path.join(pasta, 'relatorio.json') + ' e relatorio.txt (marcadores dos núcleos em ' + path.join(pasta, 'marcadores') + ')');
     process.exitCode = codigo;
@@ -421,6 +473,6 @@ function cli() {
 
 if (require.main === module) cli();
 module.exports = {HOST, PAPEL, CLUSTER, BANCOS_RECUSADOS, PORTAS_RECUSADAS, REGISTRO_BACKUP, REGISTRO_DRENAGEM, ENV_DOS_NUCLEOS, VALORES_DE_ENSAIO, NAO_EXERCIDO, NUCLEOS,
-  TABELAS_PRINCIPAIS, SQL_IDENTIDADE, SQL_CONTAGENS, semDadosPessoais, lerArgumentos, exigirAmbiente, exigirAutorizacao, exigirAlvo, opcoesCliente, identidade,
+  TABELAS_PRINCIPAIS, SQL_IDENTIDADE, SQL_CONTAGENS, DIAGNOSTICO_GENERICO, FALTA_NAO_RECONHECIDA, mensagemSegura, faltaSegura, termoSeguro, lerArgumentos, exigirAmbiente, exigirAutorizacao, exigirAlvo, opcoesCliente, identidade,
   ambienteDeEnsaio, principalGenerico, principalDoPasso, argumentos, commitDe, estadoDe, linhaDoRelatorio, rodarFase, percorrer, soConferir, contar, relatorioTexto,
   prepararPasta, plano, principal, cli};

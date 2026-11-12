@@ -132,7 +132,7 @@ test('todo passo da ordem tem núcleo de ensaio e as flags do passo são aceitas
   for (const p of ordem.PASSOS) {
     const l = await e.rodarFase(p, 'CONFERIR', ctx);
     assert.deepEqual([l.passo, l.fase, l.codigo, l.resultado, l.commit], [p.id, 'CONFERIR', 2, 'FALHA', 'NAO_SE_APLICA'], JSON.stringify(l));
-    assert.match(l.mensagem, /sem servidor no teste/);
+    assert.equal(l.mensagem, e.DIAGNOSTICO_GENERICO, 'erro de conexão é texto livre: não entra no relatório');
   }
   // APLICAR: o registro de backup de ensaio passa na validação de argumentos de todos; a 107-108 recebe também a drenagem.
   for (const p of ordem.PASSOS) {
@@ -217,20 +217,22 @@ test('parada na primeira falha: nada roda depois, e a parada diz passo, fase, c�
 });
 
 test('cliente simulado e núcleo REAL da 089: a falha do CONFERIR para a cadeia no primeiro passo, com relatório em JSON e texto', async () => {
-  const {Cliente, registro} = clienteSimulado({outra: () => { throw new Error('falha simulada do banco para fulana@exemplo.test'); }});
+  const {Cliente, registro} = clienteSimulado({outra: () => { throw new Error('falha simulada do banco para fulana Maria da Silva'); }});
+  const terminal = [];
   const pasta = path.join(novaPasta(), 'ensaio');
-  const {codigo, saida, texto} = await e.principal(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta});
+  const {codigo, saida, texto} = await e.principal(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta, aoTerminal: m => terminal.push(m)});
   assert.equal(codigo, 2); assert.equal(saida.situacao, 'PARADA');
   assert.deepEqual(saida.passos.map(l => [l.passo, l.fase, l.codigo, l.resultado]), [['089', 'CONFERIR', 2, 'FALHA']]);
   assert.deepEqual([saida.parada.passo, saida.parada.fase, saida.parada.codigo], ['089', 'CONFERIR', 2]);
-  assert.equal(saida.parada.mensagem, 'falha simulada do banco para <email>');
+  assert.equal(saida.parada.mensagem, e.DIAGNOSTICO_GENERICO);
+  assert.equal(terminal.length, 1); assert.match(terminal[0], /089 CONFERIR código 2: falha simulada do banco para fulana Maria da Silva/);
   assert.deepEqual(saida.contagens, {antes: {tabelas: 3, linhas: {empresas: 2}}, depois: {tabelas: 3, linhas: {empresas: 2}}});
   // Conexões: identidade, contagens antes, o núcleo da 089 (com o nome de ensaio) e contagens depois. Nenhuma outra.
   assert.deepEqual(registro.nomes, ['kidmais-ensaio-identidade', 'kidmais-ensaio-contagens', 'kidmais-migration-089-ensaio', 'kidmais-ensaio-contagens']);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(pasta, 'relatorio.json'), 'utf8')), JSON.parse(JSON.stringify(saida)));
   assert.equal(fs.readFileSync(path.join(pasta, 'relatorio.txt'), 'utf8'), texto);
   assert.match(texto, /PAROU: passo 089, fase CONFERIR, código 2/);
-  assert.ok(!texto.includes('fulana') && !JSON.stringify(saida).includes('fulana'));
+  for (const nome of ['fulana', 'Maria', 'Silva', 'simulada']) assert.ok(!texto.includes(nome) && !JSON.stringify(saida).includes(nome) && !fs.readFileSync(path.join(pasta, 'relatorio.json'), 'utf8').includes(nome), nome);
   // Nenhuma escrita foi enviada pelo executor nem pelo núcleo no CONFERIR.
   assert.ok(!registro.consultas.some(sql => /^\s*(BEGIN\s*;?$|COMMIT|CREATE|ALTER|DROP|INSERT|UPDATE|DELETE)/i.test(sql)));
 });
@@ -253,10 +255,7 @@ test('relatório: só passo, fase, código, resultado, COMMIT, duração, estado
     faseDoNucleo: 'F0', retrato: {fase: 'F0', hash: 'b'.repeat(64), variante: null, secoes: {tabelas: {n: 3, sha256: 'c'.repeat(64)}}}, mensagem: 'RETRATO_F0_DIVERGENTE ' + 'a'.repeat(64)});
   assert.deepEqual(Object.keys(e.linhaDoRelatorio({id: '089'}, 'APLICAR', 0, {resultado: 'APLICADA_POSTCHECK_PASS', contagensAntes: {assinaturas: 2}, estadoDepois: {m089: 'completa'}}, 1)),
     ['passo', 'fase', 'codigo', 'resultado', 'commit', 'duracaoMs', 'estado']);
-  assert.equal(e.semDadosPessoais('a@b.com cpf 123.456.789-09 cnpj 11.222.333/0001-81 tel 5511999998888 id 57618aab-a62c-4be1-9385-17308ac8dda3 hash ' + 'd'.repeat(64)),
-    '<email> cpf <documento> cnpj <documento> tel <numero> id <uuid> hash ' + 'd'.repeat(64));
-  assert.equal(e.semDadosPessoais(undefined), null);
-  assert.equal(e.semDadosPessoais("CODIGO_DO_NUCLEO\n+ actual - expected\n+ 'valor'"), 'CODIGO_DO_NUCLEO', 'só a primeira linha, sem o diff do assert');
+  assert.equal(e.mensagemSegura(undefined), null);
 });
 
 test('situação do COMMIT: a que o núcleo informou, em qualquer geração de núcleo; nunca "confirmado" inventado', () => {
@@ -295,4 +294,79 @@ test('pasta do ensaio: nova por execução; uma pasta informada com conteúdo re
   recusa(() => e.prepararPasta(path.join(p, 'nova')), /PASTA_DO_ENSAIO_NAO_VAZIA/);
   const padrao = e.prepararPasta(null); pastas.push(padrao);
   assert.ok(padrao.startsWith(os.tmpdir()) && fs.readdirSync(padrao).length === 0);
+});
+
+test('mensagem do núcleo por LISTA DE PERMISSÃO: as mensagens reais dos ensaios continuam legíveis', () => {
+  const h64 = 'a1'.repeat(32);
+  const casos = [
+    ['ESCOPO_094_EXIGE_092_093_COMPLETAS', 'ESCOPO_094_EXIGE_092_093_COMPLETAS'],
+    ['DEPENDENCIA_AUSENTE_100 094', 'DEPENDENCIA_AUSENTE_100 094'],
+    ['SEM_PRIVILEGIO_LEITURA SELECT_AGENDA_SALOES', 'SEM_PRIVILEGIO_LEITURA SELECT_AGENDA_SALOES'],
+    ['TABELA_AUSENTE ia_credito_notificacoes', 'TABELA_AUSENTE ia_credito_notificacoes'],
+    ['APLICACAO_PARCIAL_090', 'APLICACAO_PARCIAL_090'],
+    ['ESCOPO_092_093_EXIGE_094_AUSENTE', 'ESCOPO_092_093_EXIGE_094_AUSENTE'],
+    ['PASSO_SEM_NUCLEO_DE_ENSAIO 999', 'PASSO_SEM_NUCLEO_DE_ENSAIO 999'],
+    ['SEM_DEPENDENCIA_104 fechamento_revisoes.salao_id/fechamento_revisao_adicionais (094)', 'SEM_DEPENDENCIA_104 fechamento_revisoes.salao_id/fechamento_revisao_adicionais 094'],
+    ['SEM_DEPENDENCIA_108 (093/094/100/102/104/106: agenda_saloes, contratos, contrato_fluxos, fechamentos, revisões, agenda_salao_fotos, funções)',
+      'SEM_DEPENDENCIA_108 093/094/100/102/104/106 agenda_saloes contratos contrato_fluxos fechamentos agenda_salao_fotos [2 termo(s) omitido(s)]'],
+    ['CORPOS_DIVERGENTES_114 f114=false lock=eb5f187f revisao=830dd6a3 exigir=ausente atributos=', 'CORPOS_DIVERGENTES_114 f114=false lock=eb5f187f revisao=830dd6a3 exigir=ausente atributos='],
+    ['RETRATO_F0_DIVERGENTE ' + h64 + ' (nenhum esperado da fase; diff por seção em retrato.secoes)', 'RETRATO_F0_DIVERGENTE ' + h64 + ' retrato.secoes [8 termo(s) omitido(s)]'],
+    ['PRIVILEGIO_INSUFICIENTE CREATE no schema public; posse da tabela financeiro_entradas_manuais; posse da tabela financeiro_saidas; REFERENCES em empresas',
+      'PRIVILEGIO_INSUFICIENTE CREATE no schema public; posse da tabela financeiro_entradas_manuais; posse da tabela financeiro_saidas; REFERENCES em empresas'],
+    ['PRIVILEGIO_INSUFICIENTE posse da tabela marketing_automacao_regras; posse da função kidmais086_execucao_tenant()', 'PRIVILEGIO_INSUFICIENTE posse da tabela marketing_automacao_regras; posse da função kidmais086_execucao_tenant()'],
+  ];
+  for (const [entrada, saida] of casos) assert.equal(e.mensagemSegura(entrada), saida, entrada);
+});
+
+test('mensagem do núcleo: texto livre, nome próprio, dado pessoal, acento, espaço estranho e quebra de linha não vazam', () => {
+  // Sem identificador de núcleo no início: diagnóstico genérico fixo, qualquer que seja o resto.
+  for (const livre of ['falha para Maria da Silva', 'relation "public.satisfacao_tarefas" does not exist', 'duplicate key value violates unique constraint "clientes_cpf_key"',
+    'Key (cpf)=(123.456.789-09) already exists.', 'maria@exemplo.test', '', '   ', 'erro_minusculo com detalhe', 'ÉRRO_COM_ACENTO x', 'AB curto demais'])
+    assert.equal(e.mensagemSegura(livre), e.DIAGNOSTICO_GENERICO, JSON.stringify(livre));
+  // Com identificador: só ele e os termos da lista; o resto é omitido e contado.
+  assert.equal(e.mensagemSegura('PRECHECK_108 falha para Maria da Silva'), 'PRECHECK_108 [5 termo(s) omitido(s)]');
+  assert.equal(e.mensagemSegura('PRECHECK_108 maria 5511999998888 a@b.com 123.456.789-09 11.222.333/0001-81 57618aab-a62c-4be1-9385-17308ac8dda3 1990-05-12 Rua 12345678 MARIA'),
+    'PRECHECK_108 [10 termo(s) omitido(s)]');
+  assert.equal(e.mensagemSegura('TENTATIVA_ANTERIOR_REVISAR C:\\Users\\Fulano de Tal\\ensaio\\migration-089.json'), 'TENTATIVA_ANTERIOR_REVISAR [3 termo(s) omitido(s)]');
+  // Quebras de linha (inclusive só CR), tabulação e espaço não separável: só a primeira linha, espaços normalizados.
+  assert.equal(e.mensagemSegura("APLICACAO_PARCIAL_090\n+ actual - expected\n+ 'Maria'"), 'APLICACAO_PARCIAL_090');
+  assert.equal(e.mensagemSegura('APLICACAO_PARCIAL_090\rMaria da Silva'), 'APLICACAO_PARCIAL_090');
+  assert.equal(e.mensagemSegura('  TABELA_AUSENTE\t\u00a0ia_credito_notificacoes \u2003José  '), 'TABELA_AUSENTE ia_credito_notificacoes [1 termo(s) omitido(s)]');
+  assert.equal(e.mensagemSegura('CODIGO_X chave=Maria a/b/Silva função'), 'CODIGO_X [3 termo(s) omitido(s)]');
+  // Faltas de privilégio: só as frases fixas seguidas de UM nome de objeto; o resto vira rótulo fixo (inclusive a cortada em 300).
+  for (const ruim of ['posse da tabela Maria da Silva', 'posse da tabela clientes; DROP', 'REFERENCES em', 'REFERENC', 'CREATE no schema privado', 'posse da função f(); x', 'posse da tabela josé', 7, null])
+    assert.equal(e.faltaSegura(ruim), e.FALTA_NAO_RECONHECIDA, String(ruim));
+  assert.equal(e.mensagemSegura('PRIVILEGIO_INSUFICIENTE CREATE no schema public; posse da tabela Maria da Silva; REFERENC'), 'PRIVILEGIO_INSUFICIENTE CREATE no schema public; FALTA_NAO_RECONHECIDA; FALTA_NAO_RECONHECIDA');
+});
+
+test('relatório: faltas de privilégio do genérico entram INTEIRAS (não a mensagem cortada em 300), cada uma pelo filtro; rótulos fora do formato não entram', () => {
+  const faltas = ['CREATE no schema public', ...Array.from({length: 20}, (_, i) => 'REFERENCES em tabela_de_nome_bem_comprido_' + i), 'posse da função kidmais086_execucao_tenant()', 'texto livre de Maria'];
+  const motivo = ('PRIVILEGIO_INSUFICIENTE ' + faltas.join('; ')).slice(0, 300);
+  const l = e.linhaDoRelatorio({id: '110'}, 'CONFERIR', 3, {resultado: 'RECUSARIA', motivo, privilegios: {ok: false, faltas}, estado: {situacao: 'ausente'}}, 5);
+  assert.equal(l.faltas.length, 23); assert.deepEqual(l.faltas.slice(0, 2), ['CREATE no schema public', 'REFERENCES em tabela_de_nome_bem_comprido_0']);
+  assert.deepEqual(l.faltas.slice(-2), ['posse da função kidmais086_execucao_tenant()', e.FALTA_NAO_RECONHECIDA]);
+  assert.equal(l.mensagem, 'PRIVILEGIO_INSUFICIENTE ' + l.faltas.join('; ')); assert.ok(l.mensagem.length > 300 && !l.mensagem.includes('Maria'));
+  // Privilégios em ordem (ok: true) ou saída sem a lista: nada de `faltas`.
+  assert.equal(e.linhaDoRelatorio({id: '110'}, 'CONFERIR', 3, {resultado: 'RECUSARIA', motivo: 'CHECK_REPROVADO precheck 110', privilegios: {ok: true, faltas: []}}, 1).faltas, undefined);
+  // Resultado, estado, etapa, variante e COMMIT só no formato de rótulo; fora dele ficam de fora.
+  const sujo = e.linhaDoRelatorio({id: '089'}, 'APLICAR', 2, {resultado: 'Falha da Maria', commit: 'confirmado por Maria', estadoAntes: {m089: 'Maria da Silva', m090: 'ausente'}, fase: 'F9 Maria',
+    retrato: {fase: 'Maria', hash: 'x', variante: 'José'}, falha: {etapa: 'etapa da José', mensagem: 'Maria da Silva'}}, 1);
+  assert.deepEqual(sujo, {passo: '089', fase: 'APLICAR', codigo: 2, resultado: 'SEM_RESULTADO', commit: 'NAO_INFORMADA', duracaoMs: 1, estado: {m090: 'ausente'},
+    retrato: {fase: '', hash: null, variante: null, secoes: null}, mensagem: e.DIAGNOSTICO_GENERICO});
+  assert.deepEqual(e.linhaDoRelatorio({id: '107-108'}, 'APLICAR', 2, {resultado: 'FALHA', commits: {107: 'CONFIRMADO', 108: 'veja Maria', x: 'CONFIRMADO'}, falha: {etapa: 'migration 108', mensagem: 'INTEGRIDADE_108 x'}}, 1).commit,
+    {107: 'CONFIRMADO', 108: 'NAO_INFORMADA'});
+});
+
+test('pré-voo do genérico: a recusa por privilégio leva a lista inteira de faltas ao relatório', async () => {
+  const gen = require('./migration-generico-production.cjs');
+  const {Cliente} = clienteSimulado();
+  const pasta = novaPasta(); fs.mkdirSync(path.join(pasta, 'marcadores'));
+  const faltas = ['CREATE no schema public', ...Array.from({length: 20}, (_, i) => 'REFERENCES em tabela_de_nome_bem_comprido_' + i)];
+  const falso = {...gen, conferirNoCliente: async () => ({resultado: 'RECUSARIA', plano: ['precheck', 'migration', 'postcheck'], privilegios: {ok: false, faltas},
+    motivo: ('PRIVILEGIO_INSUFICIENTE ' + faltas.join('; ')).slice(0, 300)})};
+  const p = ordem.PASSOS.find(x => x.id === '120'), terminal = [];
+  const l = await e.rodarFase(p, 'APLICAR', {alvo: ALVO, pasta, raiz: path.resolve(__dirname, '..'), Client: Cliente, carregar: () => falso, aoTerminal: m => terminal.push(m)});
+  assert.deepEqual([l.codigo, l.resultado, l.faltas], [1, 'RECUSADO', faltas]);
+  assert.equal(l.mensagem, 'PRIVILEGIO_INSUFICIENTE ' + faltas.join('; '));
+  assert.deepEqual(fs.readdirSync(path.join(pasta, 'marcadores', '120')), []); assert.equal(terminal.length, 1);
 });
