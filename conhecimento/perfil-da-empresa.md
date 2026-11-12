@@ -1,5 +1,7 @@
 # Perfil da empresa
 
+!video[Vídeo: como preencher o perfil da empresa, passo a passo](/ajuda/videos/preencher-perfil-empresa.mp4)
+
 ## Para que serve
 
 O [Perfil da empresa](/admin/configuracoes/perfil-empresa) guarda o nome, a razão social, o CNPJ, os endereços, os contatos e a logo que aparecem nos contratos e documentos. Na mesma tela fica a chave Pix para receber as parcelas.
@@ -13,6 +15,8 @@ Se aparecer **Perfil ainda não criado**:
 1. Clique em **Criar perfil da empresa**.
 2. Digite a senha da sua conta e clique em **Confirmar senha e criar perfil**.
 
+Se aparecer **Assumir a administração do perfil**, o perfil já existe, mas nenhuma conta com Gestão o administra. Marque a confirmação, digite sua senha se a tela pedir e clique no botão para assumir.
+
 ## Como atualizar os dados
 
 A atualização tem três etapas: editar, salvar rascunho e aplicar.
@@ -23,7 +27,7 @@ A atualização tem três etapas: editar, salvar rascunho e aplicar.
 4. Se a tela pedir, digite sua senha.
 5. Clique em **Confirmar e aplicar**.
 
-O asterisco indica o que é exigido para aplicar, como telefone ou WhatsApp. Ao digitar o CEP, o sistema preenche rua, bairro, cidade e UF.
+O asterisco indica o que é exigido para aplicar. Em **Contatos**, informe também o telefone ou o WhatsApp: um dos dois é exigido para aplicar. Ao digitar o CEP, o sistema preenche rua, bairro, cidade e UF.
 
 Aplicar não altera contratos, PDFs nem documentos já emitidos. Só os novos usam os dados atualizados.
 
@@ -38,7 +42,7 @@ A logo aparece no rodapé do menu e no Dashboard, num quadrado pequeno. Prefira 
 
 ## Unidades
 
-No topo da tela aparece a **Unidade atual**. Em **Local da festa**, marque **Mesmo endereço da sede** se a festa acontece no endereço da sede. Se não, abra **Detalhes da unidade e referência de chegada** e informe o nome da unidade, o endereço do evento e uma referência para quem chega.
+No topo da tela aparece a **Unidade atual**. Em **Local da festa**, marque **Mesmo endereço da sede** se a festa acontece no endereço da sede. Se não, informe o endereço do evento. Em **Detalhes da unidade e referência de chegada**, preencha o **Nome da unidade**, que é exigido para aplicar mesmo no endereço da sede, e, se quiser, uma referência para quem chega.
 
 A configuração de horários e salões de cada unidade fica em [Agenda](/admin/configuracoes/agenda). Para incluir uma nova unidade na empresa, fale com o suporte em [Ajuda e suporte](/admin/ajuda).
 

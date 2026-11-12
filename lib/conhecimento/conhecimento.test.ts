@@ -181,18 +181,23 @@ const APROVADOS_POR_FELIPE: Readonly<Record<string, Aprovacao>> = {
   "agenda-e-horarios": { versao: 1, sha256: "5cfaf2463b32d7e9b34fb1a76185df8dcdccbf4d775c991d9d54f60f570a0ef4", em: "2026-11-02" },
   "assinatura-e-plano": { versao: 5, sha256: "da89cba2c671cc216731c1a111ad45652a73d83216a3f91b07b9d639c46de649", em: "2026-11-09" },
   "atendimento-whatsapp": { versao: 2, sha256: "25787ce3018d192c333cbb9680a0b0ae26a87cf10b6ef8aea27b98965ea7d193", em: "2026-11-07" },
-  clientes: { versao: 1, sha256: "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a", em: "2026-11-02" },
+  // 09/11/2026: v2 de production (vídeo do lote 2), trazida pelo back-merge de 12/11; staging não tinha mudado o texto.
+  clientes: { versao: 2, sha256: "0a47f8e84d84104980cec6339e23c10d2b1983ac8928a53db86e447862332137", em: "2026-11-09" },
   "conectar-whatsapp": { versao: 2, sha256: "e429c240934432806184b18d80f411036c0bfd48ada15be07cb632b80c70c0b3", em: "2026-11-07" },
   "contas-a-pagar-e-caixa": { versao: 1, sha256: "257f4e9a6567c48cbb39798bae4b31a9c0963289e2a8511a04322d36c954700f", em: "2026-11-02" },
   convites: { versao: 1, sha256: "b67f5d6eaa5445f9b48df2745815956c5334e9f1a0401b02f96435a9b5580008", em: "2026-11-02" },
   "creditos-de-ia": { versao: 1, sha256: "39a0fd9c10dd74e7d28da156dee574fdb2fa75c001b3821a1b8928850199aae6", em: "2026-11-02" },
   dashboard: { versao: 1, sha256: "f1d5b9ad60e45e5f54d5a62beb1b36b4824f765c223ff94c38537be1256d80cb", em: "2026-11-02" },
-  "fechamento-de-festa": { versao: 1, sha256: "8466add17a8ab0a6b7c5af11d2a8fd1ca473b52f4b9f9cd644358119cab1e1f9", em: "2026-11-02" },
+  // 11/11/2026 (Felipe: "Aprovo os dois"): back-merge de production — texto de staging com o vídeo novo do lote 2 no topo;
+  // o vídeo do piloto continua no meio do artigo.
+  "fechamento-de-festa": { versao: 4, sha256: "69a45c552d3c5ca0e8b1460acc43adbb99a1d55a7f10f805f7310bcf2d154231", em: "2026-11-11" },
   festas: { versao: 4, sha256: "14a96be857a47b179723a3c256e4d07478ce136511560bced41162c197674ee3", em: "2026-11-09" },
   "financeiro-recebimentos": { versao: 3, sha256: "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72", em: "2026-11-09" },
   "importar-documentos": { versao: 2, sha256: "4592a58b91da57a600c5acdb50fc979e47fe3ba14016eda29b6e776298f2fffe", em: "2026-11-07" },
   marketing: { versao: 1, sha256: "2e3d5885d48b805181afc4a5e7982d4eeaae6e326b6017b5361f4ad39a9eece5", em: "2026-11-02" },
-  "perfil-da-empresa": { versao: 1, sha256: "1a60c7737afcb854fa25bdf4db0ff41db05476572104ee3fd6ca138badb6a8d2", em: "2026-11-02" },
+  // 11/11/2026 (Felipe: "Aprovo os dois"): back-merge de production — texto de staging com o vídeo do lote 2 e os dois
+  // trechos da v3 de production (assumir a administração; telefone ou WhatsApp em Contatos).
+  "perfil-da-empresa": { versao: 4, sha256: "ab7c7829a4d0d59580c0658d9820f5872506d5d7de3024d1894aed17d189d7f9", em: "2026-11-11" },
   "perfil-e-senha": { versao: 2, sha256: "e1711f27fd0a91d9b4833589978a153f01c2f45b3cde30a815b9b35c0ec31639", em: "2026-11-07" },
   "primeiros-passos": { versao: 5, sha256: "1f556d22f3bb1ac4a36049baa67d4c05d93651b05f318d3488e08d10ed56fac9", em: "2026-11-09" },
   "privacidade-e-exportacao": { versao: 1, sha256: "0a830cf0c2d5695b6060e2d7d3fc81f8d634b72424ead9e9f16f3eb43ba0934c", em: "2026-11-02" },
