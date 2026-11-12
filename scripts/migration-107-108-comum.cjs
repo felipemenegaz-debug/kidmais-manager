@@ -67,6 +67,9 @@ const MARCADOR = 'migration-107-108.json';
 const marcadorEtapa = id => `migration-107-108.etapa-${id}.json`;
 const IDS = Object.freeze(['107', '108']);
 const REGISTRO_SEGURO = /^[A-Za-z0-9:._/ -]{6,120}$/;
+/** Variantes de F0 em que a avaliação da 107 é toda CANONICO (nada a reparar). production_20261112 = canônica com o DEFAULT
+ *  do id de 17 tabelas em public.gen_random_uuid() (pgcrypto), fora dos objetos que a 107 avalia (ver o arquivo de esperados). */
+const VARIANTES_F0_CANONICAS = new Set(['canonico', 'production_20261112']);
 
 /** Arquivos usados, fixados por sha256 do texto LF (o arquivo precisa terminar em linha nova). */
 const ARQUIVOS = Object.freeze([
@@ -412,7 +415,7 @@ async function verificarF0(executar, ctx, saida) {
   const variante = await retrato(executar, ctx, 'F0', saida);
   // Coerência: o retrato canônico só com tudo CANONICO; a deriva conhecida só com algum objeto a reparar.
   const tudoCanonico = v['avaliacao 107'].CANONICO === def107.DEFINICOES.length;
-  assert.ok((variante === 'canonico') === tudoCanonico, `RETRATO_F0_INCOERENTE variante ${variante} × avaliação ${JSON.stringify(v['avaliacao 107'])}`);
+  assert.ok(VARIANTES_F0_CANONICAS.has(variante) === tudoCanonico,`RETRATO_F0_INCOERENTE variante ${variante} × avaliação ${JSON.stringify(v['avaliacao 107'])}`);
   v['retrato F0'] = variante;
   return v;
 }
