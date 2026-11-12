@@ -92,6 +92,10 @@ const APLICADORES = [
   // Aplicador da 118 (cota de leitura da importação, L2; 08/11/2026), mesma forma do 117: as origens do wrapper -staging
   // nascem no -comum (sem exceção própria).
   "migration-118-comum.cjs",
+  // Promoção única de production (12/11/2026): aplicador genérico da 120, 121, 110, 111 e 115, que não têm aplicador
+  // próprio. Mesma forma dos demais: o SQL é o texto de database/*.sql (lista fechada, sha256 fixado no próprio arquivo).
+  // Os adaptadores -production novos só herdam a origem do respectivo -comum (sem exceção própria).
+  "migration-generico-production.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",
