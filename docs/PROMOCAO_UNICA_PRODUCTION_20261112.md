@@ -13,6 +13,16 @@
 - O aplicador da 092–094 de production tem dois escopos: 092-093 e 094. O 094 exige antes o deploy do código novo.
 - Os adaptadores de `scripts/migration-102-103-production.cjs`, `scripts/migration-104-106-production.cjs`, `scripts/migration-107-108-production.cjs`, `scripts/migration-109-production.cjs` são do outro lote desta promoção: os comandos deles abaixo usam as flags do núcleo e precisam ser conferidos contra o adaptador entregue.
 
+## Colagem interrompida de um bloco de Shell
+
+Os blocos de Shell de production desligam a colagem com colchetes (bracketed paste) do readline na primeira linha, guardam o valor anterior na variável `__kmbp` e o restauram na última. Se o bloco for colado pela metade (prompt `>`) e cancelado com Ctrl-C, essa última linha não roda: a colagem com colchetes fica desligada e `__kmbp` fica na sessão. O aplicador não rodou. Antes de colar de novo o MESMO bloco, inteiro, restaurar e limpar com:
+
+```bash
+[ -z "$__kmbp" ] || bind "set enable-bracketed-paste $__kmbp" 2>/dev/null; unset __kmbp
+```
+
+É o mesmo comando do fim dos blocos. Com `__kmbp` vazia (cancelado antes da primeira linha, ou bloco que não guarda o valor) ele não muda nada; para religar à mão: `bind 'set enable-bracketed-paste on'`. Na dúvida, fechar o Shell e abrir outro tem o mesmo efeito. Se a colagem chegou a imprimir alguma saída do aplicador, tratar como passo executado: ler a saída e rodar o CONFERIR do passo antes de qualquer decisão.
+
 ## O que cada resultado significa
 
 | Código | Significado | O que fazer |
