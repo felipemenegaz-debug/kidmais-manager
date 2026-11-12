@@ -37,7 +37,8 @@ const linhaEstado = (id, criados, removidos = false) => Object.fromEntries([...g
  * Opções: situacao inicial ('ausente' | 'presente' | linha explícita), falharEm (trecho → `erro`), falharCommit ({erro} ou
  * {rollback: true}), aprovado (valor da coluna `aprovado` que o check devolve), naoCompleta (o COMMIT não deixa os objetos).
  */
-function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm, erro, falharCommit, aprovado, naoCompleta} = {}) {
+const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: []});
+function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm, erro, falharCommit, aprovado, naoCompleta, privilegios = PRIV_OK} = {}) {
   const corpos = g.carregar(raiz, id);
   const log = []; let ro = false, emTransacao = false, pendente = false, commits = 0;
   const presente = () => linhaEstado(id, true, false);
@@ -59,6 +60,7 @@ function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm,
       }
       if (sql === prd.SQL_IDENTIDADE) return {rows: [identidade]};
       if (sql === g.sqlEstado(id)) return {rows: [{...atual.linha}]};
+      if (sql === g.sqlPrivilegios(id)) return {rows: [{...privilegios}]};
       if (sql === corpos.migration) { assert.ok(emTransacao && !ro, 'migration só na transação de escrita'); pendente = true; return [{rows: [], command: 'SET'}, {rows: [], command: 'CREATE'}]; }
       if (sql === corpos.precheck || sql === corpos.postcheck) {
         // 120 e 121 terminam com SELECT … true AS aprovado (consulta de várias instruções = lista de resultados).
@@ -269,10 +271,10 @@ test('já aplicada: só o postcheck em READ ONLY, nenhuma transação de escrita
   const dir2 = tmp();
   try {
     const A = clienteFalso('110', {situacao: parcial});
-    const x = await g.principal(aplicar('110'), ENV_PROD, {Client: A, dir: dir2, disco: semDisco});
-    assert.equal(x.codigo, 2); assert.match(x.saida.falha.mensagem, /APLICACAO_PARCIAL_110/); assert.deepEqual(x.saida.commits, {}); assert.deepEqual(x.saida.commitadas, []);
+    // Parcial: a recusa vem do pré-voo (READ ONLY), antes do marcador: nada no disco, nenhuma transação de escrita.
+    await assert.rejects(g.principal(aplicar('110'), ENV_PROD, {Client: A, dir: dir2, disco: semDisco}), /APLICACAO_PARCIAL_110/);
     assert.ok(!A.log.some(l => ['BEGIN', 'COMMIT', A.corpos.migration].includes(l.sql)));
-    assert.equal(marcador(dir2, '110').situacao, 'FALHA');
+    assert.ok(!fs.existsSync(path.join(dir2, g.marcadorDe('110'))), 'sem marcador');
   } finally { fs.rmSync(dir2, {recursive: true, force: true}); }
   // 115 no estado intermediário (os dois índices): aplicável; a transação roda inteira.
   const dir3 = tmp();
@@ -370,4 +372,79 @@ test('antes de conectar: backup obrigatório, disco exigido, SQL divergente e id
     await assert.rejects(g.principal(aplicar('120'), ENV_PROD, {Client: C, dir, disco: semDisco}), /TENTATIVA_ANTERIOR_REVISAR/);
     assert.equal(C.commits(), 1, 'a migration não roda de novo');
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+// ---- Privilégios (P3): lista declarada por id, conferida contra o SQL; CONFERIR recusa (3); APLICAR recusa antes do marcador ----
+const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
+test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas e CREATE no schema)', () => {
+  for (const id of g.IDS) {
+    const p = g.MIGRATIONS[id].privilegios, sql = lf(arquivo(id, 'migration')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+    const novas = new Set(nomes(sql, /^\s*CREATE (?:UNLOGGED )?TABLE (?:IF NOT EXISTS )?(?:public\.)?([a-z0-9_]+)/gim));
+    const alteradas = new Set([...nomes(sql, /^\s*ALTER TABLE (?:ONLY )?(?:public\.)?([a-z0-9_]+)/gim),
+      ...nomes(sql, /^\s*CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?[a-z0-9_.]+ ON (?:public\.)?([a-z0-9_]+)/gim),
+      ...nomes(sql, /^\s*CREATE (?:CONSTRAINT )?TRIGGER [a-z0-9_]+ [^;]*? ON (?:public\.)?([a-z0-9_]+)/gims)].filter(t => !novas.has(t)));
+    // DROP INDEX exige a posse da tabela do índice: a 115 declara a tabela do índice removido (fechamentos).
+    if (id === '115') alteradas.add('fechamentos');
+    assert.deepEqual([...p.alteradas].sort(), [...alteradas].sort(), id + ': tabelas alteradas');
+    const referenciadas = new Set(nomes(sql, /REFERENCES +(?:public\.)?([a-z0-9_]+)/gi).filter(t => !novas.has(t)));
+    assert.deepEqual([...p.referenciadas].sort(), [...referenciadas].sort(), id + ': tabelas referenciadas');
+    const funcoesSubstituidas = nomes(sql, /^\s*CREATE OR REPLACE FUNCTION ([a-z0-9_]+)\(/gim).map(f => f + '()');
+    assert.deepEqual([...p.funcoes].sort(), funcoesSubstituidas.sort(), id + ': funções substituídas');
+    assert.equal(p.criaNoSchema, novas.size > 0 || /^\s*CREATE FUNCTION /im.test(sql), id + ': CREATE no schema');
+    assert.ok(Object.isFrozen(p) && Object.isFrozen(p.alteradas) && Object.isFrozen(p.referenciadas) && Object.isFrozen(p.funcoes), id);
+    const q = g.sqlPrivilegios(id);
+    assert.doesNotMatch(q, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|GRANT)\b/); assert.match(q, new RegExp('^/\\* privilegios-' + id + ' \\*/ SELECT '));
+    assert.match(q, /has_table_privilege/); assert.match(q, /pg_has_role\(current_user, c\.relowner, 'USAGE'\)/);
+    assert.equal(/has_schema_privilege\(current_user, 'public', 'CREATE'\)/.test(q), p.criaNoSchema, id);
+  }
+});
+
+test('privilégios: lerPrivilegios aceita só o formato esperado e nomeia o que falta', () => {
+  assert.deepEqual(g.lerPrivilegios('120', PRIV_OK), {ok: true, faltas: []});
+  assert.deepEqual(g.lerPrivilegios('120', {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas'], sem_references: ['empresas'], sem_posse_funcoes: ['f()']}).faltas,
+    ['CREATE no schema public', 'posse da tabela financeiro_saidas', 'REFERENCES em empresas', 'posse da função f()']);
+  for (const ruim of [undefined, {}, {...PRIV_OK, schema_create: 'sim'}, {...PRIV_OK, sem_posse: null}, {...PRIV_OK, sem_references: [1]}])
+    assert.throws(() => g.lerPrivilegios('120', ruim), /PRIVILEGIOS_ILEGIVEL/);
+});
+
+test('privilégio completo: CONFERIR PRONTA_PARA_APLICAR e APLICAR passam, com a consulta de privilégios só em READ ONLY e antes da transação', async () => {
+  for (const id of g.IDS) {
+    const P = clienteFalso(id, {aprovado: true});
+    const c = await g.principal(conferir(id), ENV_PROD, {Client: P});
+    assert.equal(c.codigo, 0, id); assert.equal(c.saida.resultado, 'PRONTA_PARA_APLICAR'); assert.deepEqual(c.saida.privilegios, {ok: true, faltas: []});
+    const dir = tmp();
+    try {
+      const A = clienteFalso(id, {aprovado: true});
+      const x = await g.principal(aplicar(id), ENV_PROD, {Client: A, dir, disco: semDisco});
+      assert.equal(x.codigo, 0, id + JSON.stringify(x.saida));
+      const q = A.log.map(l => l.sql), i = q.indexOf('BEGIN'), k = q.indexOf(g.sqlPrivilegios(id));
+      assert.ok(k >= 0 && k < i, id + ': privilégios lidos antes da transação'); assert.ok(A.log[k].ro, id + ': leitura');
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  }
+});
+
+test('sem privilégio (falta CREATE no schema; falta posse de tabela alterada; falta REFERENCES; falta posse da função): CONFERIR RECUSARIA (3) nomeando; APLICAR recusa antes do marcador e sem BEGIN', async () => {
+  const casos = [
+    ['120', {...PRIV_OK, schema_create: false}, /PRIVILEGIO_INSUFICIENTE CREATE no schema public$/],
+    ['120', {...PRIV_OK, sem_posse: ['financeiro_saidas']}, /PRIVILEGIO_INSUFICIENTE posse da tabela financeiro_saidas$/],
+    ['110', {...PRIV_OK, sem_posse: ['marketing_automacao_execucoes'], sem_posse_funcoes: ['kidmais086_execucao_tenant()']}, /posse da tabela marketing_automacao_execucoes; posse da função kidmais086_execucao_tenant\(\)$/],
+    ['111', {...PRIV_OK, sem_references: ['usuarios_administrativos']}, /PRIVILEGIO_INSUFICIENTE REFERENCES em usuarios_administrativos$/],
+    ['115', {...PRIV_OK, sem_posse: ['fechamentos']}, /PRIVILEGIO_INSUFICIENTE posse da tabela fechamentos$/]];
+  for (const [id, privilegios, motivo] of casos) {
+    const P = clienteFalso(id, {aprovado: true, privilegios});
+    const c = await g.principal(conferir(id), ENV_PROD, {Client: P});
+    assert.equal(c.codigo, 3, id); assert.equal(c.saida.resultado, 'RECUSARIA'); assert.match(c.saida.motivo, motivo);
+    assert.ok(!P.log.some(l => l.sql === P.corpos.precheck || l.sql === P.corpos.postcheck), 'recusou antes dos checks');
+    assert.ok(P.log.every(l => l.ro || l.sql === 'ROLLBACK'), 'tudo em READ ONLY');
+    const dir = tmp();
+    try {
+      const A = clienteFalso(id, {aprovado: true, privilegios});
+      await assert.rejects(g.principal(aplicar(id), ENV_PROD, {Client: A, dir, disco: semDisco}), motivo);
+      assert.ok(!A.log.some(l => ['BEGIN', 'COMMIT', A.corpos.migration, A.corpos.precheck].includes(l.sql)), 'nenhuma transação de escrita');
+      assert.deepEqual(fs.readdirSync(dir), [], 'nenhum marcador gravado');
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  }
+  // Já aplicada: não exige privilégio de criação (só o postcheck em READ ONLY).
+  const J = clienteFalso('120', {situacao: 'presente', aprovado: true, privilegios: {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas']}});
+  assert.equal((await g.principal(conferir('120'), ENV_PROD, {Client: J})).saida.resultado, 'JA_APLICADA_POSTCHECK_PASS');
 });

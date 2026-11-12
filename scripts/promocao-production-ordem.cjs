@@ -41,7 +41,7 @@ const ORDEM = Object.freeze([
     bloco: 'node scripts/bloco-shell-092-094.cjs production <CONFERIR-092-093|APLICAR-092-093> <rotulo>', escopo: 'preço por quantidades cheias (092) e configuração da agenda por unidade (093); recusa se a 094 já estiver presente'},
   {id: '094', situacao: 'APLICAR', migrations: ['094'], aplicador: 'scripts/migration-092-094-production.cjs', conferir: '--conferir-094', aplicar: '--aplicar-094-autorizado',
     bloco: 'node scripts/bloco-shell-092-094.cjs production <CONFERIR-094|APLICAR-094> <rotulo>', escopo: 'capacidade, limite do dia e intervalo na regra de conflito; exige 092 e 093 completas',
-    exigeAntes: 'deploy do código NOVO em production: o aplicador da 092–094 só aceita o escopo 094 depois dele (o código antigo não reconhece os corpos de função da 094)'},
+    exigeAntes: 'o código NOVO já implantado em production (regra vigente: sistema em manutenção, código novo no ar primeiro, depois a cadeia inteira na ordem; a 092–093 vêm antes da 094 e a 094 exige o código novo, que o aplicador da 092–094 não reconhece sem ele)'},
   proprio('095', 'créditos de IA: carteiras, lotes, extrato, compra avulsa e devolução'),
   proprio('096', 'comprovante da contratação e arquivo das versões dos documentos legais'),
   proprio('097', 'manifestações do direito de arrependimento'),
@@ -143,7 +143,7 @@ function roteiro() {
   });
   L.push('## Pendências conhecidas deste roteiro', '',
     '- Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.',
-    '- A fronteira de deploy (código antigo no escopo 092-093, código novo a partir do 094) é regra do aplicador da 092–094; como e quando a árvore com os aplicadores chega ao web de production é decisão do plano de promoção, não deste roteiro.', '');
+    '- Regra vigente de deploy: sistema em manutenção, código novo implantado primeiro e depois a cadeia inteira de migrations na ordem deste roteiro; a 092–093 vêm antes da 094 e a 094 exige o código novo já no ar (o que vale nesta ordem). Como e quando a árvore com os aplicadores chega ao web de production é decisão do plano de promoção, não deste roteiro.', '');
   return L.join('\n');
 }
 
