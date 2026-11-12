@@ -96,6 +96,9 @@ const APLICADORES = [
   // próprio. Mesma forma dos demais: o SQL é o texto de database/*.sql (lista fechada, sha256 fixado no próprio arquivo).
   // Os adaptadores -production novos só herdam a origem do respectivo -comum (sem exceção própria).
   "migration-generico-production.cjs",
+  // Ensaio local da promoção (12/11/2026), modo --retrato-da-copia (D-ENS-1): CREATE/DROP DATABASE dos gêmeos num cluster local
+  // descartável e um cliente que só repassa as consultas dos núcleos. Mesma forma de ensaio-lancamento-local.cjs.
+  "ensaio-promocao-local.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",
