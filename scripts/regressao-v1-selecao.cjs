@@ -79,6 +79,8 @@ const ESTADO_POSTGRES = {
   "lib/fechamentos/migration-054.postgres.test.ts": { descartavel: "053", alvo054: true },
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual", tambem: ["121"] },
+  // P2 fase B: concorrência do escritor (liquidação, reversão, abertura); precisa das tabelas da 120 e da 121.
+  "lib/financeiro/escritor-p2.postgres.test.ts": { descartavel: "121" },
   // 062: menor modelo em que o aceite real da V2 roda (concluirFluxoCliente → aplicarRevisaoInicial → referenciaParaCaminho
   // lê fechamentos.estabelecimento_id, criada na 062; no "atual", até a 057, o teste 3 caía em 42703). Sem a 066, instalada
   // pela própria suíte na transação. 114: 066 presente e gatilhos da 019 com KD114.

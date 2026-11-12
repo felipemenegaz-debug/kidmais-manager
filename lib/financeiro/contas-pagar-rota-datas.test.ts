@@ -23,6 +23,7 @@ function carregar() {
     zod: { z },
     '@/lib/financeiro/calculos': calculos,
     '@/lib/financeiro/http': { consultarFinanceiro: async () => new Response(), hojeIso: () => calculos.hojeBrasilia() },
+    '@/lib/financeiro/escritor-p2': { operacoesP2: () => ({ liquidacao: false, reversao: false, abertura: false }) },
     '@/lib/financeiro/servico': {
       cancelarConta: async () => undefined, criarContaPagar: async () => 'id', editarContaPagar: async () => undefined,
       listarContasPagar: async () => [], pagoNoPeriodo: async () => 0,

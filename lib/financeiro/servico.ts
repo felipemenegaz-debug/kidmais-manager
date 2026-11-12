@@ -1369,7 +1369,7 @@ export async function aberturaVigente(tx: DbExecutor, empresaId: string): Promis
 }
 
 /** Origens conferidas na revisão: chave `TIPO:id` → hash da conferência de maior sequência da origem (histórico da 121). */
-async function conferidosDaAbertura(tx: DbExecutor, empresaId: string, aberturaId: string) {
+export async function conferidosDaAbertura(tx: DbExecutor, empresaId: string, aberturaId: string) {
   const r = await tx.query<{ origem_tipo: string; origem_id: string; atributos_hash: string; sequencia: number | string }>(
     `SELECT origem_tipo, origem_id::text AS origem_id, atributos_hash, sequencia
        FROM financeiro_abertura_conferencias

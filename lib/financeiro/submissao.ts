@@ -25,6 +25,16 @@ export function confirmarAcao(acao: AcaoFinanceira): AcaoFinanceira | null {
   return { fase: "submitting", chave: acao.chave };
 }
 
+/**
+ * submitting → error com chave nova. Para quando o servidor RESPONDEU recusando: o pedido daquela chave já foi julgado,
+ * e reenviar o formulário corrigido com a mesma chave daria IDEMPOTENCIA_CONFLITANTE. Falha de transporte usa
+ * finalizarAcao(…, "erro"), que preserva a chave (o pedido pode ter sido gravado).
+ */
+export function recusarAcao(acao: AcaoFinanceira, novaChave: () => string): AcaoFinanceira {
+  if (acao.fase !== "submitting" || !acao.chave) return acao;
+  return { fase: "error", chave: novaChave() };
+}
+
 export function finalizarAcao(acao: AcaoFinanceira, resultado: "sucesso" | "erro"): AcaoFinanceira {
   if (acao.fase !== "submitting" || !acao.chave) return acao;
   if (resultado === "sucesso") return acaoInicial();
