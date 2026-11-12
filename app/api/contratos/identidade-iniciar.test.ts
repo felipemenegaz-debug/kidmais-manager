@@ -94,7 +94,7 @@ test('erro de leitura de JSON com causa sensível não chega ao logger nem à re
 
 test('JSON válido com schema inválido mantém DADOS_INVALIDOS e não inicia OTP', async () => {
   const a = ambiente();
-  const response = await a.post(request('{"cpf":"test","canal":"EMAIL"}'), context());
+  const response = await a.post(request('{"cpf":"test","canal":"SMS"}'), context());
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { ok: false, erro: 'Dados inválidos.', codigo: 'DADOS_INVALIDOS' });
   assert.deepEqual(a.calls.service, []);
@@ -114,4 +114,13 @@ test('requisição válida preserva encaminhamento ao serviço, emissor e respos
   assert.deepEqual(a.calls.service, [[{ contratoId, ...input }, a.sender]]);
   assert.equal(a.calls.provider, 0);
   assert.deepEqual(a.logs, []);
+});
+
+test('canal EMAIL chega ao serviço, que só o aceita com a reserva ligada e cliente sem WhatsApp', async () => {
+  const a = ambiente();
+  const input = { cpf: '12345678909', canal: 'EMAIL' };
+  const response = await a.post(request(JSON.stringify(input)), context());
+  assert.equal(response.status, 201);
+  assert.deepEqual(a.calls.service, [[{ contratoId, ...input }, a.sender]]);
+  assert.equal(a.calls.provider, 0);
 });

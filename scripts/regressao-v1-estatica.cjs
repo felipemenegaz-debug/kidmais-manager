@@ -9,7 +9,8 @@ const raiz = path.resolve(__dirname, "..");
 // as variáveis do serviço. Com ASSINATURA_AVISOS_EMAIL=ligado no web, testes com banco simulado passavam a executar o
 // gancho dos avisos (SAVEPOINT não modelado) e o build falhava (03/11/2026). Os testes dos avisos passam a trava
 // explicitamente; aqui ela é sempre removida.
-const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL"]);
+// IDENTIDADE_OTP_EMAIL_RESERVA (12/11/2026): ligada no web, mudaria os canais e o health nos testes da identidade.
+const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL", "IDENTIDADE_OTP_EMAIL_RESERVA"]);
 function ambienteDosTestes(base = process.env) {
   const env = { ...base, NEXT_TELEMETRY_DISABLED: "1" };
   for (const chave of TRAVAS_FORA_DOS_TESTES) delete env[chave];

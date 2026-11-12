@@ -56,6 +56,9 @@ export type CreateDesafioIdentidadeInput = {
   codigoExpiraEm: string;
   maxTentativas?: number;
   maxEnvios?: number;
+  /** Reserva por e-mail: o desafio novo herda as tentativas e os envios já gastos no anterior. */
+  tentativas?: number;
+  envios?: number;
 };
 
 export type ConfirmarValidacaoInput = {
