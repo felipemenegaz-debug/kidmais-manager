@@ -20,7 +20,7 @@
 //     relatório. Nenhuma verificação de núcleo é desligada;
 //   - relatório (JSON e texto): passo, fase, resultado, código, situação do COMMIT, duração, estado por migration (só
 //     rótulos) e contagens agregadas (número de tabelas e linhas por tabela, ANTES e DEPOIS). NUNCA conteúdo de linha: a
-//     cópia real tem dados pessoais. A mensagem do núcleo só entra pela lista de permissão de `mensagemSegura`; a crua vai só ao stderr.
+//     cópia real tem dados pessoais. A mensagem do núcleo só entra pela lista de permissão de `mensagemSegura`; a crua vai só para <pasta>/saida-crua.log.
 //   node scripts/ensaio-promocao-local.cjs                                              → plano, sem conexão
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b> --so-conferir
 //   node --experimental-strip-types scripts/ensaio-promocao-local.cjs --porta <p> --banco <b>   → a cadeia inteira
@@ -91,10 +91,14 @@ const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, 
  *     compostos (SELECT_AGENDA_SALOES), hash hexadecimal de 8 ou 64 e palavras do VOCABULARIO fixo; pares chave=valor e
  *     listas com barra valem se todas as partes valerem. Qualquer outro termo é OMITIDO e só a quantidade aparece;
  *   - as faltas de privilégio do genérico, que são frases fixas seguidas de um nome de objeto (FALTAS_CONHECIDAS).
- * Só a primeira linha é lida (o assert do Node acrescenta um diff de valores nas seguintes). A mensagem crua do núcleo vai
- * apenas para o terminal (stderr), nunca para arquivo.
+ * Só a primeira linha é lida (o assert do Node acrescenta um diff de valores nas seguintes). A mensagem crua do núcleo ou do
+ * servidor (inclusive `detail`, que costuma trazer valor de linha) vai só para ARQUIVO_CRU, dentro da pasta do ensaio: nunca
+ * para o terminal (quem roda pode ser um agente, e a saída do terminal entra na conversa dele) nem para o relatório.
  */
-const DIAGNOSTICO_GENERICO = 'MENSAGEM_NAO_RECONHECIDA (ver a saída do núcleo no terminal, que não é gravada)';
+const ARQUIVO_CRU = 'saida-crua.log';
+const DIAGNOSTICO_GENERICO = `MENSAGEM_NAO_RECONHECIDA (detalhe em ${ARQUIVO_CRU}, na pasta do ensaio; não copiar para fora dela)`;
+/** Falha antes de existir pasta do ensaio (conexão ou identidade): sem identificador reconhecido, nada cru é mostrado nem gravado. */
+const FALHA_ANTES_DO_ENSAIO = 'FALHA_ANTES_DO_ENSAIO (conexão ou identidade do servidor; nenhum passo rodou e nada foi gravado)';
 const IDENTIFICADOR = /^[A-Z][A-Z0-9_]{2,79}$/;
 const HEX8 = /^(?=.*[a-f])[0-9a-f]{8}$/, HEX64 = /^[0-9a-f]{64}$/;
 const NUMERO_DE_MIGRATION = /^\d{1,4}$|^\d{3}(?:[-/]\d{3}){1,9}$/;
@@ -330,16 +334,29 @@ function linhaDoRelatorio(p, fase, codigo, saida, duracaoMs) {
   }
   return linha;
 }
-/** A mensagem crua de uma fase que não deu 0: só para o terminal (`aoTerminal`, o stderr da CLI); nunca vai a arquivo. */
-const mensagemCrua = saida => String(saida?.motivo ?? saida?.mensagem ?? saida?.falha?.mensagem ?? '').slice(0, 2000);
+/** Texto cru de uma falha, numa linha: a mensagem do núcleo e, de um erro do driver, também code, detail, where e hint. Só para ARQUIVO_CRU. */
+function textoCru(saida, erro) {
+  const partes = erro ? [erro.message, ...['code', 'detail', 'where', 'hint', 'constraint', 'table', 'column'].map(k => (erro[k] ? `${k}: ${erro[k]}` : null))]
+    : [saida?.motivo ?? saida?.mensagem ?? saida?.falha?.mensagem ?? '(sem mensagem)'];
+  return partes.filter(Boolean).map(String).join(' | ').replace(/\s*[\r\n]+\s*/g, ' / ').slice(0, 4000);
+}
+/** Registro da saída crua na pasta do ensaio: uma linha por ocorrência (hora, passo, fase, código, texto), arquivo só do dono. */
+function registroCru(pasta) {
+  const arquivo = path.join(pasta, ARQUIVO_CRU);
+  const r = {arquivo, ocorrencias: 0, gravar(passo, fase, codigo, texto) {
+    fs.appendFileSync(arquivo, `${new Date().toISOString()}\t${passo}\t${fase}\tcódigo ${codigo}\t${texto}\n`, {mode: 0o600});
+    r.ocorrencias++;
+  }};
+  return r;
+}
 /** Roda uma fase de um passo. Recusa lançada antes de conectar = código 1, como na CLI dos aplicadores. */
 async function rodarFase(p, fase, ctx) {
   const inicio = performance.now();
-  let codigo, saida;
+  let codigo, saida, erro = null;
   try { ({codigo, saida} = await principalDoPasso(p, ctx)(argumentos(p, fase))); }
-  catch (e) { codigo = 1; saida = {resultado: 'RECUSADO', mensagem: curta(e), ...(Array.isArray(e?.faltas) ? {privilegios: {ok: false, faltas: e.faltas}} : {})}; }
+  catch (e) { erro = e; codigo = 1; saida = {resultado: 'RECUSADO', mensagem: curta(e), ...(Array.isArray(e?.faltas) ? {privilegios: {ok: false, faltas: e.faltas}} : {})}; }
   codigo = Number.isInteger(codigo) ? codigo : 2;
-  if (codigo !== 0) ctx.aoTerminal?.(`[saída do núcleo, não gravada] ${p.id} ${fase} código ${codigo}: ${mensagemCrua(saida)}`);
+  if (codigo !== 0) ctx.cru?.gravar(p.id, fase, codigo, textoCru(saida, erro));
   return linhaDoRelatorio(p, fase, codigo, saida, performance.now() - inicio);
 }
 
@@ -408,6 +425,7 @@ function relatorioTexto(r) {
   }
   if (r.parada) L.push('', `PAROU: passo ${r.parada.passo}, fase ${r.parada.fase}, código ${r.parada.codigo} (${r.parada.motivo}${r.parada.significado ? ': ' + r.parada.significado : ''})`,
     `mensagem do núcleo: ${r.parada.mensagem ?? '-'}`);
+  if (r.saidaCrua) L.push('', `saída crua: ${r.saidaCrua.ocorrencias} ocorrência(s) em ${r.saidaCrua.arquivo}, na pasta do ensaio (tem dado de cliente: não copiar nem colar para fora da pasta)`);
   L.push('', `tabelas em public: ${r.contagens.antes.tabelas} antes, ${r.contagens.depois.tabelas} depois`, 'linhas por tabela (antes → depois):');
   const nomes = [...new Set([...Object.keys(r.contagens.antes.linhas), ...Object.keys(r.contagens.depois.linhas)])].sort();
   for (const t of nomes) L.push(`  ${t}: ${r.contagens.antes.linhas[t] ?? 'ausente'} → ${r.contagens.depois.linhas[t] ?? 'ausente'}`);
@@ -439,7 +457,8 @@ function plano(ordem) {
 
 /**
  * Códigos: 0 plano, --so-conferir concluído ou cadeia CONCLUIDA; 1 recusa antes de qualquer passo (lançada); 2 cadeia PARADA.
- * `deps` (testes): Client, raiz, ordem, pasta, carregar e aoTerminal (a CLI passa console.error).
+ * `deps` (testes): Client, raiz, ordem, pasta e carregar. Depois de conectar, nenhum erro sobe com texto do servidor: ele vai para
+ * ARQUIVO_CRU (se a pasta já existe) e o que é lançado leva só o identificador reconhecido ou um diagnóstico fixo.
  */
 async function principal(argv, env, deps = {}) {
   const ordem = deps.ordem ?? require('./promocao-production-ordem.cjs');
@@ -449,30 +468,42 @@ async function principal(argv, env, deps = {}) {
   const Client = deps.Client ?? require('pg').Client;
   const raiz = deps.raiz ?? path.resolve(__dirname, '..');
   const inicio = new Date().toISOString();
-  const id = await provarIdentidade(alvo, Client);
+  let id;
+  try { id = await provarIdentidade(alvo, Client); }
+  catch (e) { const m = mensagemSegura(curta(e)); throw new Error(m === DIAGNOSTICO_GENERICO ? FALHA_ANTES_DO_ENSAIO : m); }
   const pasta = prepararPasta(deps.pasta ?? args.pasta);
   fs.mkdirSync(path.join(pasta, 'marcadores'), {recursive: true});
-  const antes = await contar(alvo, Client);
-  const rodar = (p, fase) => rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar, aoTerminal: deps.aoTerminal});
-  const feito = args.modo === 'so-conferir' ? await soConferir(ordem, rodar) : await percorrer(ordem, rodar);
-  const depois = await contar(alvo, Client);
+  const cru = registroCru(pasta);
+  let antes, feito, depois;
+  try {
+    antes = await contar(alvo, Client);
+    const rodar = (p, fase) => rodarFase(p, fase, {alvo, pasta, raiz, Client, carregar: deps.carregar, cru});
+    feito = args.modo === 'so-conferir' ? await soConferir(ordem, rodar) : await percorrer(ordem, rodar);
+    depois = await contar(alvo, Client);
+  } catch (e) {
+    // Erro do próprio executor (contagens, ordem): o texto cru fica na pasta; para fora só o identificador ou o diagnóstico fixo.
+    cru.gravar('executor', '-', 1, textoCru(null, e));
+    throw new Error(`${mensagemSegura(curta(e))} [pasta do ensaio: ${pasta}]`);
+  }
   const relatorio = {ferramenta: 'ensaio-promocao-local', modo: args.modo, situacao: feito.situacao, alvo, versaoPg: id.versaoPg, inicio, fim: new Date().toISOString(),
-    passos: feito.linhas, ...(feito.parada ? {parada: feito.parada} : {}), contagens: {antes, depois}, valoresDeEnsaio: VALORES_DE_ENSAIO, naoExercido: NAO_EXERCIDO};
+    passos: feito.linhas, ...(feito.parada ? {parada: feito.parada} : {}), contagens: {antes, depois},
+    ...(cru.ocorrencias ? {saidaCrua: {arquivo: ARQUIVO_CRU, ocorrencias: cru.ocorrencias}} : {}), valoresDeEnsaio: VALORES_DE_ENSAIO, naoExercido: NAO_EXERCIDO};
   const texto = relatorioTexto(relatorio);
   fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify(relatorio, null, 2));
   fs.writeFileSync(path.join(pasta, 'relatorio.txt'), texto);
   return {codigo: feito.situacao === 'PARADA' ? 2 : 0, saida: relatorio, texto, pasta};
 }
-function cli() {
-  principal(process.argv.slice(2), process.env, {aoTerminal: m => console.error(m)}).then(({codigo, saida, texto, pasta}) => {
+/** CLI: no terminal sai só o relatório filtrado (ou a recusa numa linha); `deps` existe para o teste capturar a saída. */
+function cli(argv = process.argv.slice(2), env = process.env, deps = {}) {
+  return principal(argv, env, deps).then(({codigo, saida, texto, pasta}) => {
     if (texto === undefined) console.log(JSON.stringify(saida, null, 2));
     else console.log(texto + '\nrelatório: ' + path.join(pasta, 'relatorio.json') + ' e relatorio.txt (marcadores dos núcleos em ' + path.join(pasta, 'marcadores') + ')');
     process.exitCode = codigo;
-  }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
+  }).catch(e => { console.error('RECUSADO ' + curta(e).split(/\r?\n|\r/)[0]); process.exitCode = 1; });
 }
 
 if (require.main === module) cli();
 module.exports = {HOST, PAPEL, CLUSTER, BANCOS_RECUSADOS, PORTAS_RECUSADAS, REGISTRO_BACKUP, REGISTRO_DRENAGEM, ENV_DOS_NUCLEOS, VALORES_DE_ENSAIO, NAO_EXERCIDO, NUCLEOS,
-  TABELAS_PRINCIPAIS, SQL_IDENTIDADE, SQL_CONTAGENS, DIAGNOSTICO_GENERICO, FALTA_NAO_RECONHECIDA, mensagemSegura, faltaSegura, termoSeguro, lerArgumentos, exigirAmbiente, exigirAutorizacao, exigirAlvo, opcoesCliente, identidade,
+  TABELAS_PRINCIPAIS, SQL_IDENTIDADE, SQL_CONTAGENS, ARQUIVO_CRU, DIAGNOSTICO_GENERICO, FALHA_ANTES_DO_ENSAIO, FALTA_NAO_RECONHECIDA, textoCru, registroCru, mensagemSegura, faltaSegura, termoSeguro, lerArgumentos, exigirAmbiente, exigirAutorizacao, exigirAlvo, opcoesCliente, identidade,
   ambienteDeEnsaio, principalGenerico, principalDoPasso, argumentos, commitDe, estadoDe, linhaDoRelatorio, rodarFase, percorrer, soConferir, contar, relatorioTexto,
   prepararPasta, plano, principal, cli};

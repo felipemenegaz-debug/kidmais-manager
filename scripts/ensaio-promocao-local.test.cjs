@@ -218,14 +218,16 @@ test('parada na primeira falha: nada roda depois, e a parada diz passo, fase, c�
 
 test('cliente simulado e núcleo REAL da 089: a falha do CONFERIR para a cadeia no primeiro passo, com relatório em JSON e texto', async () => {
   const {Cliente, registro} = clienteSimulado({outra: () => { throw new Error('falha simulada do banco para fulana Maria da Silva'); }});
-  const terminal = [];
   const pasta = path.join(novaPasta(), 'ensaio');
-  const {codigo, saida, texto} = await e.principal(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta, aoTerminal: m => terminal.push(m)});
+  const {codigo, saida, texto} = await e.principal(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta});
   assert.equal(codigo, 2); assert.equal(saida.situacao, 'PARADA');
   assert.deepEqual(saida.passos.map(l => [l.passo, l.fase, l.codigo, l.resultado]), [['089', 'CONFERIR', 2, 'FALHA']]);
   assert.deepEqual([saida.parada.passo, saida.parada.fase, saida.parada.codigo], ['089', 'CONFERIR', 2]);
   assert.equal(saida.parada.mensagem, e.DIAGNOSTICO_GENERICO);
-  assert.equal(terminal.length, 1); assert.match(terminal[0], /089 CONFERIR código 2: falha simulada do banco para fulana Maria da Silva/);
+  assert.deepEqual(saida.saidaCrua, {arquivo: 'saida-crua.log', ocorrencias: 1});
+  const cru = fs.readFileSync(path.join(pasta, 'saida-crua.log'), 'utf8');
+  assert.match(cru, /^\S+\t089\tCONFERIR\tcódigo 2\tfalha simulada do banco para fulana Maria da Silva\n$/);
+  assert.match(texto, /saída crua: 1 ocorrência\(s\) em saida-crua\.log/);
   assert.deepEqual(saida.contagens, {antes: {tabelas: 3, linhas: {empresas: 2}}, depois: {tabelas: 3, linhas: {empresas: 2}}});
   // Conexões: identidade, contagens antes, o núcleo da 089 (com o nome de ensaio) e contagens depois. Nenhuma outra.
   assert.deepEqual(registro.nomes, ['kidmais-ensaio-identidade', 'kidmais-ensaio-contagens', 'kidmais-migration-089-ensaio', 'kidmais-ensaio-contagens']);
@@ -364,9 +366,84 @@ test('pré-voo do genérico: a recusa por privilégio leva a lista inteira de fa
   const faltas = ['CREATE no schema public', ...Array.from({length: 20}, (_, i) => 'REFERENCES em tabela_de_nome_bem_comprido_' + i)];
   const falso = {...gen, conferirNoCliente: async () => ({resultado: 'RECUSARIA', plano: ['precheck', 'migration', 'postcheck'], privilegios: {ok: false, faltas},
     motivo: ('PRIVILEGIO_INSUFICIENTE ' + faltas.join('; ')).slice(0, 300)})};
-  const p = ordem.PASSOS.find(x => x.id === '120'), terminal = [];
-  const l = await e.rodarFase(p, 'APLICAR', {alvo: ALVO, pasta, raiz: path.resolve(__dirname, '..'), Client: Cliente, carregar: () => falso, aoTerminal: m => terminal.push(m)});
+  const p = ordem.PASSOS.find(x => x.id === '120'), cru = e.registroCru(pasta);
+  const l = await e.rodarFase(p, 'APLICAR', {alvo: ALVO, pasta, raiz: path.resolve(__dirname, '..'), Client: Cliente, carregar: () => falso, cru});
   assert.deepEqual([l.codigo, l.resultado, l.faltas], [1, 'RECUSADO', faltas]);
   assert.equal(l.mensagem, 'PRIVILEGIO_INSUFICIENTE ' + faltas.join('; '));
-  assert.deepEqual(fs.readdirSync(path.join(pasta, 'marcadores', '120')), []); assert.equal(terminal.length, 1);
+  assert.deepEqual(fs.readdirSync(path.join(pasta, 'marcadores', '120')), []); assert.equal(cru.ocorrencias, 1);
+  assert.match(fs.readFileSync(cru.arquivo, 'utf8'), /\t120\tAPLICAR\tcódigo 1\tPRIVILEGIO_INSUFICIENTE CREATE no schema public; /);
+});
+
+/** Roda a CLI capturando tudo o que vai ao terminal (console e escrita direta em stdout/stderr). */
+async function capturarTerminal(rodar) {
+  const saida = [], originais = {log: console.log, error: console.error, warn: console.warn, info: console.info, out: process.stdout.write, err: process.stderr.write, codigo: process.exitCode};
+  const juntar = (...a) => { saida.push(a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')); };
+  console.log = juntar; console.error = juntar; console.warn = juntar; console.info = juntar;
+  process.stdout.write = (x, ...r) => { saida.push(String(x)); r.find(f => typeof f === 'function')?.(); return true; };
+  process.stderr.write = (x, ...r) => { saida.push(String(x)); r.find(f => typeof f === 'function')?.(); return true; };
+  let codigo;
+  try { await rodar(); codigo = process.exitCode; }
+  finally { console.log = originais.log; console.error = originais.error; console.warn = originais.warn; console.info = originais.info;
+    process.stdout.write = originais.out; process.stderr.write = originais.err; process.exitCode = originais.codigo; }
+  return {terminal: saida.join('\n'), codigo};
+}
+const erroDoDriver = () => Object.assign(new Error('duplicate key value violates unique constraint "clientes_email_key" no cadastro de Maria da Silva'),
+  {code: '23505', detail: 'Key (email)=(maria.silva@exemplo.test) already exists.', where: 'linha de Maria da Silva, CPF 123.456.789-09', hint: 'telefone 5511999998888'});
+const DADOS = ['Maria', 'Silva', 'maria.silva', 'exemplo.test', '123.456.789-09', '5511999998888', 'duplicate key', 'already exists', 'clientes_email_key'];
+
+test('terminal: falha de um núcleo com nome próprio não aparece em stdout nem stderr; o texto cru fica só em saida-crua.log, na pasta', async () => {
+  const {Cliente} = clienteSimulado({outra: () => { throw erroDoDriver(); }});
+  const pasta = path.join(novaPasta(), 'ensaio');
+  const {terminal, codigo} = await capturarTerminal(() => e.cli(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta}));
+  assert.equal(codigo, 2);
+  for (const d of DADOS) assert.ok(!terminal.includes(d), 'vazou no terminal: ' + d);
+  assert.match(terminal, /PAROU: passo 089, fase CONFERIR, código 2/);
+  assert.match(terminal, /mensagem do núcleo: MENSAGEM_NAO_RECONHECIDA \(detalhe em saida-crua\.log, na pasta do ensaio; não copiar para fora dela\)/);
+  assert.match(terminal, /saída crua: 1 ocorrência\(s\) em saida-crua\.log/);
+  const cru = fs.readFileSync(path.join(pasta, 'saida-crua.log'), 'utf8');
+  assert.match(cru, /\t089\tCONFERIR\tcódigo 2\tduplicate key value violates unique constraint "clientes_email_key" no cadastro de Maria da Silva\n$/);
+  // Relatórios gravados: também sem o texto cru (só o nome do arquivo).
+  for (const arq of ['relatorio.json', 'relatorio.txt']) for (const d of DADOS) assert.ok(!fs.readFileSync(path.join(pasta, arq), 'utf8').includes(d), `${arq}: ${d}`);
+  assert.deepEqual(fs.readdirSync(pasta).sort(), ['marcadores', 'relatorio.json', 'relatorio.txt', 'saida-crua.log']);
+});
+
+test('terminal: erro do driver no próprio executor (com detail, where e hint) vai inteiro para saida-crua.log; no terminal só o diagnóstico fixo e a pasta', async () => {
+  // Identidade passa; a consulta de contagens falha com um erro do driver que traz valores de linha em `detail`.
+  const {Cliente} = clienteSimulado();
+  class ComFalha extends Cliente { async query(sql, params) { if (sql === e.SQL_CONTAGENS) throw erroDoDriver(); return super.query(sql, params); } }
+  const pasta = path.join(novaPasta(), 'ensaio');
+  const {terminal, codigo} = await capturarTerminal(() => e.cli(['--porta', PORTA, '--banco', BANCO], ENV, {Client: ComFalha, pasta}));
+  assert.equal(codigo, 1);
+  for (const d of DADOS) assert.ok(!terminal.includes(d), 'vazou no terminal: ' + d);
+  assert.ok(terminal.startsWith('RECUSADO MENSAGEM_NAO_RECONHECIDA (detalhe em saida-crua.log, na pasta do ensaio; não copiar para fora dela) [pasta do ensaio: '), terminal);
+  assert.equal(terminal.split('\n').length, 1);
+  const cru = fs.readFileSync(path.join(pasta, 'saida-crua.log'), 'utf8');
+  for (const d of DADOS) assert.ok(cru.includes(d), 'faltou no arquivo cru: ' + d);
+  assert.match(cru, /\texecutor\t-\tcódigo 1\tduplicate key .* \| code: 23505 \| detail: Key \(email\)=\(maria\.silva@exemplo\.test\) already exists\. \| where: .* \| hint: /);
+  assert.equal(cru.trimEnd().split('\n').length, 1, 'uma linha por ocorrência');
+});
+
+test('terminal: falha ANTES de existir pasta (conexão ou identidade) não mostra texto do servidor nem grava nada', async () => {
+  const {Cliente} = clienteSimulado({conectar: async () => { throw erroDoDriver(); }});
+  const pasta = path.join(novaPasta(), 'nao-criada');
+  const {terminal, codigo} = await capturarTerminal(() => e.cli(['--porta', PORTA, '--banco', BANCO], ENV, {Client: Cliente, pasta}));
+  assert.equal(codigo, 1); assert.equal(terminal, 'RECUSADO ' + e.FALHA_ANTES_DO_ENSAIO); assert.equal(fs.existsSync(pasta), false);
+  // Recusa de identidade continua com o código próprio (é constante do executor).
+  const outro = clienteSimulado({identidade: {...IDENTIDADE, cluster: 'main'}});
+  assert.equal((await capturarTerminal(() => e.cli(['--porta', PORTA, '--banco', BANCO], ENV, {Client: outro.Cliente, pasta}))).terminal, 'RECUSADO CLUSTER_DIVERGENTE');
+});
+
+test('saída crua: uma linha por ocorrência, com passo e fase, sem quebra de linha dentro; o executor não tem outro caminho para o terminal', () => {
+  const pasta = novaPasta(), cru = e.registroCru(pasta);
+  cru.gravar('090', 'APLICAR', 2, e.textoCru({falha: {mensagem: 'linha um\nlinha dois\r\nlinha três'}}, null));
+  cru.gravar('executor', '-', 1, e.textoCru(null, erroDoDriver()));
+  const linhas = fs.readFileSync(path.join(pasta, e.ARQUIVO_CRU), 'utf8').trimEnd().split('\n');
+  assert.equal(linhas.length, 2); assert.equal(cru.ocorrencias, 2);
+  assert.match(linhas[0], /^\d{4}-\d\d-\d\dT[\d:.]+Z\t090\tAPLICAR\tcódigo 2\tlinha um \/ linha dois \/ linha três$/);
+  assert.equal(e.textoCru({}, null), '(sem mensagem)');
+  // No fonte: console só na CLI (relatório filtrado ou a recusa de uma linha) e nenhuma escrita direta em stdout/stderr.
+  const fonte = fs.readFileSync(path.join(__dirname, 'ensaio-promocao-local.cjs'), 'utf8');
+  assert.equal((fonte.match(/console\.(?:log|error|warn|info|debug|dir|trace)\(/g) ?? []).length, 3);
+  assert.ok(!/process\.(?:stdout|stderr)|aoTerminal/.test(fonte));
+  assert.match(e.DIAGNOSTICO_GENERICO, /^MENSAGEM_NAO_RECONHECIDA \(detalhe em saida-crua\.log, na pasta do ensaio; não copiar para fora dela\)$/);
 });
