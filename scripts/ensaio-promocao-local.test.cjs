@@ -140,6 +140,12 @@ test('todo passo da ordem tem núcleo de ensaio e as flags do passo são aceitas
     assert.deepEqual(argv.slice(-2 - (p.aposBackup ? 2 : 0)).slice(0, 2), ['--backup', e.REGISTRO_BACKUP]);
     assert.equal(argv.includes('--drenagem'), p.id === '107-108');
     const l = await e.rodarFase(p, 'APLICAR', ctx);
+    if (p.aplicador === 'generico') {
+      // Genérico: a conexão do pré-voo vem ANTES do marcador; sem servidor é recusa (código 1) e nenhum marcador é gravado.
+      assert.deepEqual([l.codigo, l.resultado], [1, 'RECUSADO'], `${p.id}: ${JSON.stringify(l)}`);
+      assert.deepEqual(fs.readdirSync(path.join(pasta, 'marcadores', p.id)), []);
+      continue;
+    }
     assert.deepEqual([l.codigo, l.resultado], [2, 'FALHA'], `${p.id}: ${JSON.stringify(l)}`);
     assert.equal(l.etapa, 'CONEXAO');
   }
@@ -148,6 +154,43 @@ test('todo passo da ordem tem núcleo de ensaio e as flags do passo são aceitas
   // Segunda tentativa na mesma pasta: o marcador exclusivo do núcleo recusa (código 1), como em production.
   const repetida = await e.rodarFase(ordem.PASSOS[0], 'APLICAR', ctx);
   assert.deepEqual([repetida.codigo, repetida.resultado], [1, 'RECUSADO']); assert.match(repetida.mensagem, /TENTATIVA_ANTERIOR_REVISAR/);
+});
+
+test('genérico: privilégio insuficiente e estado parcial recusam no pré-voo, ANTES do marcador; check reprovado segue para a transação', async () => {
+  const gen = require('./migration-generico-production.cjs');
+  const {Cliente} = clienteSimulado();
+  const novo = (falso, pasta = novaPasta()) => {
+    fs.mkdirSync(path.join(pasta, 'marcadores'), {recursive: true});
+    const amb = e.ambienteDeEnsaio(ALVO, '120', pasta);
+    return {amb, principal: e.principalGenerico({...gen, ...falso}, {amb, raiz: path.resolve(__dirname, '..'), Client: Cliente})};
+  };
+  const aplicar = ['--aplicar-autorizado', '120', '--backup', e.REGISTRO_BACKUP];
+  const chamadas = [];
+  const aplicarNoCliente = async () => { chamadas.push('aplicar'); return {resultado: 'APLICADA_POSTCHECK_PASS', etapas: [{nome: 'transacao 120', commit: 'CONFIRMADO'}]}; };
+  // 1. Privilégio insuficiente (o motivo é o do genérico, com o nome do que falta): recusa lançada, sem marcador, sem aplicar.
+  const sem = novo({aplicarNoCliente, conferirNoCliente: async () => ({resultado: 'RECUSARIA', plano: ['precheck', 'migration', 'postcheck'],
+    privilegios: {ok: false, faltas: ['CREATE no schema public']}, motivo: 'PRIVILEGIO_INSUFICIENTE CREATE no schema public'})});
+  await assert.rejects(sem.principal(aplicar), /^AssertionError.*PRIVILEGIO_INSUFICIENTE CREATE no schema public|PRIVILEGIO_INSUFICIENTE CREATE no schema public/);
+  assert.deepEqual(fs.readdirSync(sem.amb.DIR), []); assert.deepEqual(chamadas, []);
+  // 2. Estado parcial (sem plano): idem.
+  const parcial = novo({aplicarNoCliente, conferirNoCliente: async () => ({resultado: 'RECUSARIA', motivo: 'APLICACAO_PARCIAL_120 falta x'})});
+  await assert.rejects(parcial.principal(aplicar), /APLICACAO_PARCIAL_120/);
+  assert.deepEqual(fs.readdirSync(parcial.amb.DIR), []); assert.deepEqual(chamadas, []);
+  // 3. Check reprovado no pré-voo NÃO recusa: o marcador é gravado e a aplicação do genérico decide (em production falha na transação).
+  const check = novo({aplicarNoCliente, conferirNoCliente: async () => ({resultado: 'RECUSARIA', plano: ['precheck', 'migration', 'postcheck'], privilegios: {ok: true, faltas: []},
+    checks: {precheck: 'FALHOU'}, motivo: 'precheck reprovou'})});
+  assert.deepEqual(await check.principal(aplicar).then(r => [r.codigo, r.saida.resultado, r.saida.commits]), [0, 'APLICADA_POSTCHECK_PASS', {120: 'CONFIRMADO'}]);
+  assert.deepEqual(fs.readdirSync(check.amb.DIR), ['migration-120.json']); assert.deepEqual(chamadas, ['aplicar']);
+  // 4. Segunda tentativa na mesma pasta: o marcador recusa antes do pré-voo.
+  await assert.rejects(check.principal(aplicar), /TENTATIVA_ANTERIOR_REVISAR/); assert.deepEqual(chamadas, ['aplicar']);
+  // 5. Se o genérico exportar o pré-voo dele, é ele que roda (com a identidade do ensaio), e a recusa dele vale.
+  const vistos = [];
+  const proprio = novo({aplicarNoCliente, conferirNoCliente: async () => { throw new Error('não deveria conferir'); },
+    preflightNoCliente: async (_db, o) => { vistos.push([o.id, o.sqlIdentidade === e.SQL_IDENTIDADE, typeof o.identidade]); throw new Error('PRIVILEGIO_INSUFICIENTE posse da tabela fechamentos'); }});
+  await assert.rejects(proprio.principal(aplicar), /PRIVILEGIO_INSUFICIENTE posse da tabela fechamentos/);
+  assert.deepEqual(vistos, [['120', true, 'function']]); assert.deepEqual(fs.readdirSync(proprio.amb.DIR), []);
+  // O genérico real traz a conferência de privilégios (é ela que o ensaio exercita).
+  assert.equal(typeof gen.sqlPrivilegios, 'function'); assert.match(gen.sqlPrivilegios('120'), /has_schema_privilege/);
 });
 
 test('passo com aplicador fora da lista fechada de núcleos para a cadeia (código 1) em vez de improvisar', async () => {

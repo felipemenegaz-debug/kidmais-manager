@@ -163,7 +163,9 @@ function ambienteDeEnsaio(alvo, id, pasta, extras = {}) {
 
 /**
  * 120, 121, 110, 111 e 115: conferência e aplicação são as do genérico (conferirNoCliente e aplicarNoCliente), com a
- * identidade do ensaio. Daqui só o envelope: conexão, marcador exclusivo na pasta do ensaio e o registro da falha.
+ * identidade do ensaio — inclusive a conferência de privilégios (CREATE no schema, posse, REFERENCES), que o genérico faz
+ * no CONFERIR, no pré-voo e de novo antes da transação. Daqui só o envelope: conexões, pré-voo antes do marcador, marcador
+ * exclusivo na pasta do ensaio e o registro da falha.
  */
 function principalGenerico(gen, {amb, raiz, Client}) {
   const situacoes = (r, id) => Object.fromEntries((r?.etapas ?? []).filter(x => x.commit).map(x => [id, x.commit]));
@@ -174,11 +176,30 @@ function principalGenerico(gen, {amb, raiz, Client}) {
     catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', id, resultado: 'FALHA', mensagem: curta(e)}; }
     finally { await db.end().catch(() => {}); }
   }
+  /**
+   * Pré-voo do APLICAR, ANTES do marcador, numa conexão própria só de leitura (como o `executar` do genérico): estado
+   * parcial e privilégio insuficiente recusam (lançam) sem gravar nada. O genérico não exporta o pré-voo dele
+   * (`preflightNoCliente`); se passar a exportar, é ele que roda. Enquanto não, a mesma decisão vem do `conferirNoCliente`
+   * do próprio genérico: sem plano (estado parcial) ou com `privilegios.ok` falso = recusa com o motivo dele. Check
+   * reprovado NÃO recusa aqui: como em production, ele falha dentro da transação (NAO_COMMITADA), já com marcador.
+   */
+  async function preVoo(id, opts) {
+    const db = new Client(opts); db.on?.('error', () => undefined);
+    try {
+      await db.connect();
+      if (typeof gen.preflightNoCliente === 'function') { await gen.preflightNoCliente(db, comum(id)); return; }
+      const r = await gen.conferirNoCliente(db, comum(id));
+      if (r.resultado === 'RECUSARIA' && (!r.plano || r.privilegios?.ok === false)) assert.fail(String(r.motivo ?? 'PRE_VOO_RECUSADO'));
+    } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
+    finally { await db.end().catch(() => {}); }
+  }
   async function executar(id, backup) {
     const opts = amb.alvo(); amb.exigirDisco();
     gen.carregar(raiz, id);
     fs.mkdirSync(amb.DIR, {recursive: true, mode: 0o700});
     const marcador = path.join(amb.DIR, gen.marcadorDe(id));
+    if (fs.existsSync(marcador)) assert.fail('TENTATIVA_ANTERIOR_REVISAR ' + marcador);
+    await preVoo(id, opts);
     const registro = {inicio: new Date().toISOString(), ambiente: amb.nome, id, backup, situacao: 'INICIADA'};
     try { fs.writeFileSync(marcador, JSON.stringify(registro, null, 2), {flag: 'wx', mode: 0o600}); }
     catch (e) { if (e?.code === 'EEXIST') assert.fail('TENTATIVA_ANTERIOR_REVISAR ' + marcador); throw e; }

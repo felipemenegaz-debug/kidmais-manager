@@ -273,6 +273,10 @@ jobs:
         run: node --test scripts/bloco-shell-promocao-production.test.cjs scripts/bloco-shell-118-production.test.cjs
       - name: Promoção de production — ordem da cadeia
         run: node --test scripts/promocao-production-ordem.test.cjs
+      # Executor do ensaio local da promoção (cópia restaurada ou banco sintético em PostgreSQL descartável): recusas de alvo,
+      # ambiente e autorização, ordem, parada na primeira falha e pré-voo do genérico. Cliente simulado; sem banco nem rede.
+      - name: Promoção de production — executor do ensaio local
+        run: node --test scripts/ensaio-promocao-local.test.cjs
 
       # Aplicador da 114 (trava da configuração nos gatilhos da 019, staging): cliente simulado, sem banco nem rede.
       - name: Aplicador da 114 (staging) — cliente simulado
