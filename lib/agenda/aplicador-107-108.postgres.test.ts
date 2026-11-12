@@ -150,6 +150,68 @@ const aplicador = comum.criarAplicador({ nome: "teste-postgres", ALVO: stg.ALVO,
 test.before(async () => { a = await conectarDescartavel(); });
 test.after(async () => { if (a) await encerrarDescartavel(a); });
 
+/** Variante de production (CONFERIR real da janela de 12/11/2026, F0 6e51365d…): a base canônica com o DEFAULT do id destas 17
+ *  tabelas em public.gen_random_uuid() (pgcrypto) no lugar de gen_random_uuid() do núcleo. Nenhum objeto que a 107 avalia muda. */
+const TABELAS_UUID_PGCRYPTO = ["adicionais", "aniversariantes", "aprovacoes_negociacao", "bloqueios_agenda", "clientes", "configuracao_agenda",
+  "contrato_versoes", "contratos", "fechamento_adicionais", "fechamentos", "pacotes", "precos_adicional", "precos_pacote",
+  "regras_desconto_pacote", "responsaveis_adicionais", "tabelas_preco", "validacoes_identidade_cliente"];
+const defaultsUuid = (funcao: string) => "BEGIN;\n" + TABELAS_UUID_PGCRYPTO.map((t) => `ALTER TABLE public.${t} ALTER COLUMN id SET DEFAULT ${funcao};`).join("\n") + "\nCOMMIT;";
+const VARIANTE_PRODUCTION = defaultsUuid("public.gen_random_uuid()");
+const F0_PRODUCTION = "6e51365d12e0cf8a7d5ad61e5a6d6e044e3f1c8e715b364fd82984db1e94ac6c";
+
+test("variante de production: F0 igual ao CONFERIR real, F1/F2 medidos, coerente como canônica e APLICAR com os esperados versionados", { timeout: 900_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
+  const dirs: string[] = [];
+  const novoDir = () => { const d = mkdtempSync(join(tmpdir(), "aplicador-107-108-prod-")); dirs.push(d); return d; };
+  const estado = async () => (await a.query<{ m107: boolean; m108: boolean }>(`SELECT to_regclass('public.kidmais107_reparos') IS NOT NULL AS m107,
+    to_regprocedure('public.kidmais108_instalada()') IS NOT NULL AS m108`)).rows[0];
+  const normalizar = async () => { const e = await estado(); if (e.m108) await a.query(sql(DOWN108)); if (e.m107) await a.query(sql(DOWN107)); };
+  const medir = async () => {
+    await a.query("BEGIN TRANSACTION READ ONLY");
+    try { await a.query("SET LOCAL search_path = pg_catalog"); return (await a.query<{ hash_108: string }>(ret.sqlRetrato108({ raiz }))).rows[0].hash_108; }
+    finally { await a.query("ROLLBACK"); }
+  };
+  const versionados = JSON.parse(readFileSync(join(raiz, "database/checks/20261029_108_retratos_esperados.json"), "utf8")) as Record<string, Record<string, string>>;
+  const inicial = await estado();
+  try {
+    await normalizar();
+    assert.equal(await medir(), versionados.F0?.canonico, "parte da base canônica");
+    await a.query(VARIANTE_PRODUCTION);
+    const F0 = await medir();
+    assert.equal(F0, F0_PRODUCTION, "o modelo reproduz exatamente o retrato F0 lido em production");
+    await a.query(sql(M107)); const F1 = await medir();
+    await a.query(sql(M108)); const F2 = await medir();
+    await a.query(sql(DOWN108)); await a.query(sql(DOWN107));
+    assert.equal(await medir(), F0_PRODUCTION, "os downs voltam ao F0 de production");
+    const medidos = { F0, F1, F2 };
+    t.diagnostic("variante de production medida: " + JSON.stringify(medidos));
+    if (process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS, { recursive: true });
+      writeFileSync(join(process.env.KIDMAIS_APLICADOR_107_108_EVIDENCIAS, "retratos-variante-production.json"), JSON.stringify(medidos, null, 2) + "\n");
+    }
+    assert.deepEqual([versionados.F0?.production_20261112, versionados.F1?.production_20261112, versionados.F2?.production_20261112], [F0, F1, F2],
+      "esperados versionados = variante de production medida");
+    // Esperados VERSIONADOS (sem override): a avaliação da 107 é toda CANONICO e a variante passa na coerência do F0.
+    const conferir = () => aplicador.conferir({ env: ENV_STG, raiz, Client: clienteDescartavel() });
+    const c0 = await conferir();
+    assert.equal(c0.resultado, "PRONTA_PARA_APLICAR", JSON.stringify(c0)); assert.equal(c0.fase, "F0");
+    assert.equal(c0.retrato!.variante, "production_20261112", JSON.stringify(c0));
+    const r = await aplicador.executar({ env: ENV_STG, backup: BACKUP, drenagem: DRENAGEM, dir: novoDir(), raiz, disco: () => undefined, Client: clienteDescartavel() });
+    assert.equal(r.resultado, "APLICADA_POSTCHECK_PASS", JSON.stringify(r)); assert.deepEqual(r.commits, { 107: "CONFIRMADO", 108: "CONFIRMADO" });
+    const c2 = await conferir();
+    assert.equal(c2.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(c2)); assert.equal(c2.fase, "F2");
+    assert.equal(await medir(), F2, "o APLICAR real chega ao F2 medido da variante");
+  } finally {
+    await a.query("ROLLBACK").catch(() => undefined);
+    await normalizar().catch(() => undefined);
+    await a.query(defaultsUuid("gen_random_uuid()")).catch(() => undefined);
+    if (inicial.m107) await a.query(sql(M107));
+    if (inicial.m108) await a.query(sql(M108));
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("aplicador 107/108 real: canônico, deriva do staging, falha da 108 e retomada, parcial, 098 histórica, retrato divergente, papel mínimo", { timeout: 1_800_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const dirs: string[] = [];
@@ -494,3 +556,4 @@ test("variante do staging: F0 igual ao CONFERIR real, F1/F2 medidos e APLICAR co
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   }
 });
+

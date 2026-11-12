@@ -67,7 +67,7 @@ const SESSOES = Object.freeze({outras: 0, nao_ociosas: 0, em_transacao: 0});
  * (production ainda não medida). A avaliação da 107 acompanha: tudo CANONICO só na variante canônica.
  */
 function clienteFalso(opcoes = {}) {
-  const {m107 = 'ausente', m108 = 'AUSENTE', variante = 'canonico', retratoFora = false, extra = {}, avaria108 = false, falharEm, erro, falharCommit,
+  const {m107 = 'ausente', m108 = 'AUSENTE', variante = 'canonico', avaliacaoCanonica = ['canonico', 'production_20261112'].includes(variante), retratoFora = false, extra = {}, avaria108 = false, falharEm, erro, falharCommit,
     atividade = SEM_ATIVIDADE, identidade = ID_PROD} = opcoes;
   const log = []; let ro = false, tx = false, caminho = null, pendente = null, commits = 0;
   const atual = {m107, m108};
@@ -96,7 +96,7 @@ function clienteFalso(opcoes = {}) {
       if (sql === comum.SQL_SESSOES) return {rows: [{...SESSOES}]};
       if (sql === AV) {
         return {rows: def107.DEFINICOES.map(d => ({n: d.n, canonico: d.canonico, ja_aplicada: v.m107 !== 'ausente', pg_maior: 18,
-          estado: variante === 'canonico' ? 'CANONICO' : d.tipo === 'N' || d.tipo === 'T' ? 'AUSENTE_CRIAVEL' : 'DERIVA'}))};
+          estado: avaliacaoCanonica ? 'CANONICO' : d.tipo === 'N' || d.tipo === 'T' ? 'AUSENTE_CRIAVEL' : 'DERIVA'}))};
       }
       if (sql === IN) {
         return {rows: v.m107 === 'aplicada' ? [{ok: true, motivo: 'pg'}, {ok: true, motivo: 'base'}] : [{ok: true, motivo: 'pg'}, {ok: false, motivo: 'registro kidmais107_reparos ausente'}]};
@@ -154,7 +154,8 @@ test('sha dos arquivos e dos downs fixados no núcleo conferem com a árvore; o 
   // As variantes aceitas em produção são exatamente as do arquivo versionado (o adaptador não acrescenta nenhuma).
   assert.deepEqual(saida.retratos, Object.fromEntries(ret108.FASES.map(f => [f, Object.keys(ESP[f])])));
   assert.deepEqual(saida.retratos, (await stg.principal([], {})).saida.retratos, 'as mesmas de staging');
-  assert.ok(!Object.values(saida.retratos).flat().some(v => /prod/i.test(v)), 'nenhuma variante de produção inventada');
+  // A única variante de production é a MEDIDA na janela de 12/11/2026 e reproduzida na suíte PostgreSQL (VARIANTE_PRODUCTION).
+  assert.deepEqual(Object.values(saida.retratos).flat().filter(v => /prod/i.test(v)), ['production_20261112', 'production_20261112', 'production_20261112'], 'nenhuma variante de produção inventada');
 });
 
 test('trava de alvo de produção: serviço, ambiente, TLS obrigatório (certificado conforme o serviço), host, banco, porta, URL sem query', () => {
@@ -222,13 +223,15 @@ test('identidade provada pelo servidor: banco de produção, TLS ativo 1.2/1.3 e
   }
 });
 
-test('variantes aprovadas passam pelo adaptador como o núcleo espera: F0 canônico/deriva/staging_20261030, F1 e F2; CONFERIR só lê e nada grava', async () => {
+test('variantes aprovadas passam pelo adaptador como o núcleo espera: F0 canônico/deriva/staging_20261030/production_20261112, F1 e F2; CONFERIR só lê e nada grava', async () => {
   const gravacoes = [], orig = {w: fs.writeFileSync, m: fs.mkdirSync};
   fs.writeFileSync = (...a) => { gravacoes.push(String(a[0])); return orig.w(...a); }; fs.mkdirSync = (...a) => { gravacoes.push(String(a[0])); return orig.m(...a); };
   try {
     for (const [m, fase, resultado, retrato] of [
       [{variante: 'canonico'}, 'F0', 'PRONTA_PARA_APLICAR', 'canonico'], [{variante: 'deriva_conhecida'}, 'F0', 'PRONTA_PARA_APLICAR', 'deriva_conhecida'],
       [{variante: 'staging_20261030'}, 'F0', 'PRONTA_PARA_APLICAR', 'staging_20261030'],
+      [{variante: 'production_20261112'}, 'F0', 'PRONTA_PARA_APLICAR', 'production_20261112'],
+      [{m107: 'aplicada', variante: 'production_20261112'}, 'F1', 'PRONTA_PARA_APLICAR', 'production_20261112'],
       [{m107: 'aplicada', variante: 'canonico'}, 'F1', 'PRONTA_PARA_APLICAR', 'canonico'], [{m107: 'aplicada', variante: 'staging_20261030'}, 'F1', 'PRONTA_PARA_APLICAR', 'staging_20261030'],
       [{m107: 'aplicada', m108: 'NOVA'}, 'F2', 'JA_APLICADA_INTEGRIDADE_PASS', null]]) {
       const C = clienteFalso(m);
@@ -266,13 +269,16 @@ test('retrato de production FORA das variantes aprovadas: CONFERIR mede, mostra 
   }
 });
 
-test('produção recusa (CONFERIR 3, APLICAR 2, nada escrito): 108 parcial, 098 histórica, 108 sem a 107, PostgreSQL fora do 18, dependência, privilégio, atividade e prova da 108', async () => {
+test('produção recusa (CONFERIR 3, APLICAR 2, nada escrito): 108 parcial, 098 histórica, 108 sem a 107, PostgreSQL fora do 18, dependência, privilégio, atividade, prova da 108 e F0 incoerente', async () => {
   for (const [opcoes, motivo] of [[{m107: 'aplicada', m108: 'PARCIAL'}, /APLICACAO_PARCIAL_108/], [{m108: 'PARCIAL'}, /APLICACAO_PARCIAL_108/],
     [{m107: 'aplicada', m108: 'ANTIGA'}, /COM_098_HISTORICA/], [{m108: 'NOVA'}, /NOVA_SEM_107/],
     [{extra: {versao_pg: 170005}}, /PG_MAIOR_DIFERENTE 170005/], [{extra: {d108: false}}, /SEM_DEPENDENCIA_108/], [{extra: {base107: false}}, /SEM_BASE_107/],
     [{extra: {dono_saloes: false}}, /SEM_PRIVILEGIO_108 DONO_AGENDA_SALOES/], [{extra: {ver_atividade: false}}, /ATIVIDADE_NAO_VERIFICAVEL/],
     [{atividade: {...SEM_ATIVIDADE, locks: 1, sessoes: 1, sessoes_em_transacao: 1}}, /ATIVIDADE_NAS_TABELAS 1 sessão/],
-    [{m107: 'aplicada', m108: 'NOVA', avaria108: true}, /INTEGRIDADE_108 MARCADOR_108 RETRATO_F2/]]) {
+    [{m107: 'aplicada', m108: 'NOVA', avaria108: true}, /INTEGRIDADE_108 MARCADOR_108 RETRATO_F2/],
+    // Coerência do F0: production_20261112 conta como canônica (só com a 107 toda CANONICO); a deriva nunca com tudo CANONICO.
+    [{variante: 'production_20261112', avaliacaoCanonica: false}, /RETRATO_F0_INCOERENTE variante production_20261112/],
+    [{variante: 'deriva_conhecida', avaliacaoCanonica: true}, /RETRATO_F0_INCOERENTE variante deriva_conhecida/]]) {
     const C = clienteFalso(opcoes);
     const x = await prod.principal(CONFERIR, ENV_PROD, {Client: C});
     assert.equal(x.codigo, 3, String(motivo) + JSON.stringify(x.saida)); assert.equal(x.saida.resultado, 'RECUSARIA'); assert.match(x.saida.motivo, motivo);
