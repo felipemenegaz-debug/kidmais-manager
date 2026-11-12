@@ -188,6 +188,21 @@
     "atualizado_em",
     "substitui_id"
   ],
+  "assinatura_avisos": [
+    "id",
+    "empresa_id",
+    "tipo",
+    "marco",
+    "destinatario_id",
+    "mensagem",
+    "estado",
+    "tentado_em",
+    "enviado_em",
+    "id_externo",
+    "ultimo_erro",
+    "criado_em",
+    "atualizado_em"
+  ],
   "assinatura_encerramentos": [
     "id",
     "protocolo",
@@ -367,7 +382,13 @@
     "criado_em",
     "atualizado_em",
     "rg",
-    "empresa_id"
+    "empresa_id",
+    "tipo_pessoa",
+    "cnpj",
+    "razao_social",
+    "nome_fantasia",
+    "representante_nome",
+    "representante_cpf"
   ],
   "aniversariantes": [
     "id",
@@ -1927,6 +1948,21 @@
     "lote_id",
     "executado_em"
   ],
+  "ia_credito_franquias_ciclo": [
+    "id",
+    "empresa_id",
+    "recurso",
+    "ciclo",
+    "chave",
+    "lote_id",
+    "tipo",
+    "concedido",
+    "devido_calculado",
+    "contratacao_id",
+    "versao_tabela",
+    "historico",
+    "criado_em"
+  ],
   "marketing_sites": [
     "id",
     "empresa_id",
@@ -2543,6 +2579,22 @@
     "cliente_id",
     "resultado",
     "criado_por",
+    "criado_em",
+    "atualizado_em"
+  ],
+  "ia_importacao_cotas": [
+    "empresa_id",
+    "migracao_inicio",
+    "criado_em"
+  ],
+  "ia_importacao_usos": [
+    "id",
+    "empresa_id",
+    "sha256",
+    "documento_id",
+    "periodo",
+    "estado",
+    "expira_em",
     "criado_em",
     "atualizado_em"
   ],
