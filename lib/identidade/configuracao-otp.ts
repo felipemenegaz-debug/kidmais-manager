@@ -1,3 +1,5 @@
+import { situacaoEmail } from "../acessos/email.ts";
+
 export type ModoOtpAmbiente = "console" | "whatsapp_cloud" | "gupshup" | "disabled";
 
 const FLAG_OTP_DESABILITADO_STAGING = "SIM";
@@ -52,6 +54,18 @@ export function modoOtpAmbiente(
   );
 }
 
+/**
+ * Reserva por e-mail do código (decisão de Felipe, 12/11/2026): quando o WhatsApp falha, o código vai para o e-mail do
+ * cadastro do cliente. Desligada por padrão; só `ligado` liga. Valor desconhecido é erro de configuração (fail-closed).
+ * Ligada aqui não basta: o envio de e-mail também precisa estar configurado (ver `reservaEmailOtpDisponivel`).
+ */
+export function reservaEmailOtpLigada(env: NodeJS.ProcessEnv = process.env) {
+  const valor = (env.IDENTIDADE_OTP_EMAIL_RESERVA ?? "").trim().toLowerCase();
+  if (valor === "" || valor === "desligado") return false;
+  if (valor === "ligado") return true;
+  throw new Error("IDENTIDADE_OTP_EMAIL_RESERVA deve ser ligado ou desligado.");
+}
+
 export function otpDesabilitadoNoStaging(
   env: NodeJS.ProcessEnv = process.env,
 ) {
@@ -67,4 +81,9 @@ export function otpDesabilitadoNoStaging(
     return false;
   }
   return modoOtpAmbiente(env) === "disabled";
+}
+
+/** Reserva ligada E envio de e-mail configurado (sem expor valores). Só então o e-mail é oferecido ao cliente. */
+export function reservaEmailOtpDisponivel(env: NodeJS.ProcessEnv = process.env) {
+  return reservaEmailOtpLigada(env) && situacaoEmail(env).configurado;
 }

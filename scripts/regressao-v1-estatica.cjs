@@ -9,7 +9,8 @@ const raiz = path.resolve(__dirname, "..");
 // as variáveis do serviço. Com ASSINATURA_AVISOS_EMAIL=ligado no web, testes com banco simulado passavam a executar o
 // gancho dos avisos (SAVEPOINT não modelado) e o build falhava (03/11/2026). Os testes dos avisos passam a trava
 // explicitamente; aqui ela é sempre removida.
-const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL"]);
+// IDENTIDADE_OTP_EMAIL_RESERVA (12/11/2026): ligada no web, mudaria os canais e o health nos testes da identidade.
+const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL", "IDENTIDADE_OTP_EMAIL_RESERVA"]);
 // A identidade do deploy também fica fora dos testes. A trava de cobrança (lib/assinatura/trava-cobranca.ts) fecha
 // quando RENDER_SERVICE_ID é o web de production ou KIDMAIS_DEPLOY_ENV=production; no build de production, testes que
 // exercitam a cobrança com banco simulado recebiam COBRANCA_TRAVADA e o deploy dep-dbqtpqmtlv9c739hcr4g falhou

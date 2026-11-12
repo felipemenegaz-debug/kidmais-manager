@@ -4,6 +4,7 @@ import Image from "next/image";
 import type { MarcaContrato } from "@/lib/contratos/marca-contrato";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ContratoPublico.module.css";
+import { rotuloCanal, textoEnvioCodigo, useReservaEmailLiberada, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
 
 type Canal = {
   canal: "WHATSAPP" | "SMS" | "EMAIL";
@@ -121,6 +122,8 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
   const [codigo, setCodigo] = useState("");
   const [provaToken, setProvaToken] = useState<string | null>(null);
   const [acessoToken, setAcessoToken] = useState<string | null>(null);
+  const [envio, setEnvio] = useState<EnvioCodigoPublico | null>(null);
+  const reservaLiberada = useReservaEmailLiberada(envio?.canal === "WHATSAPP" ? envio.reservaEmail?.liberaEm : null);
   const [contexto, setContexto] = useState<ContextoContrato | null>(null);
   const [resumoPdfUrl, setResumoPdfUrl] = useState<string | null>(null);
   const [contratoPdfUrl, setContratoPdfUrl] = useState<string | null>(null);
@@ -173,6 +176,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
     setProvaToken(null);
     setAcessoToken(null);
     setValidacaoId(null);
+    setEnvio(null);
     setCodigo("");
     setCanais([]);
     setCanal(null);
@@ -230,8 +234,33 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível enviar o código."));
       setValidacaoId(payload.data.validacaoId);
       setAcessoToken(payload.data.acessoToken);
+      setEnvio(payload.data as EnvioCodigoPublico);
     } catch (error) {
       setErro(error instanceof Error ? error.message : "Não foi possível enviar o código.");
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  /** "Não recebeu? Receber por e-mail": o código do WhatsApp deixa de valer e um novo vai para o e-mail do cadastro. */
+  async function receberPorEmail() {
+    if (!acessoToken) return;
+    setErro(null);
+    setCarregando(true);
+    try {
+      const response = await fetch(`/api/contratos/${contratoId}/identidade/receber-por-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acessoToken }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(mensagemErro(payload, "Não foi possível enviar o código por e-mail."));
+      setValidacaoId(payload.data.validacaoId);
+      setAcessoToken(payload.data.acessoToken);
+      setEnvio(payload.data as EnvioCodigoPublico);
+      setCodigo("");
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : "Não foi possível enviar o código por e-mail.");
     } finally {
       setCarregando(false);
     }
@@ -461,7 +490,9 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
             {etapa === 2 && (
               <>
                 <h2>2. Receba o código</h2>
-                <p>O código será enviado pelo WhatsApp transacional oficial. O número cadastrado permanece mascarado nesta tela.</p>
+                <p>{canais.every((item) => item.canal === "EMAIL")
+                  ? "O código será enviado para o e-mail cadastrado. O endereço permanece mascarado nesta tela."
+                  : "O código será enviado pelo WhatsApp transacional oficial. O número cadastrado permanece mascarado nesta tela."}</p>
                 <div className={styles.channelGrid}>
                   {canais.map((item) => (
                     <button
@@ -469,7 +500,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
                       className={canal === item.canal ? styles.channelSelected : styles.channel}
                       onClick={() => setCanal(item.canal)}
                     >
-                      <strong>WhatsApp</strong>
+                      <strong>{rotuloCanal(item.canal)}</strong>
                       <span>{item.destinoMascarado}</span>
                     </button>
                   ))}
@@ -486,7 +517,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
             {etapa === 3 && (
               <>
                 <h2>3. Digite o código</h2>
-                <p>Informe o código de 6 dígitos enviado pelo WhatsApp.</p>
+                <p>{textoEnvioCodigo(envio)}</p>
                 <label className={styles.field}>
                   <span>Código de validação</span>
                   <input
@@ -500,6 +531,15 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
                 <button className={styles.primary} disabled={carregando || codigo.length !== 6} onClick={confirmarCodigo}>
                   {carregando ? "Confirmando..." : "Abrir documentos"}
                 </button>
+                {envio?.canal === "WHATSAPP" && envio.reservaEmail && (
+                  <div className={styles.actions}>
+                    <button className={styles.secondary} disabled={carregando || !reservaLiberada} onClick={receberPorEmail}>
+                      {reservaLiberada
+                        ? `Não recebeu? Receber por e-mail (${envio.reservaEmail.destinoMascarado})`
+                        : "Não recebeu? Em instantes você poderá receber por e-mail"}
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </section>

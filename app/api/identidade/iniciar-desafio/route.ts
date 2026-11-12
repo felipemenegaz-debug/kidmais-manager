@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 const iniciarDesafioSchema = z
   .object({
     ...camposDocumentoPublico,
-    canal: z.literal("WHATSAPP"),
+    // EMAIL só é aceito pelo serviço quando a reserva está ligada e o cliente não tem WhatsApp.
+    canal: z.enum(["WHATSAPP", "EMAIL"]),
   })
   .strict()
   .refine(temDocumento, MENSAGEM_SEM_DOCUMENTO);
@@ -86,6 +87,8 @@ export async function POST(request: NextRequest) {
           canal: desafio.canal,
           destinoMascarado: desafio.destinoMascarado,
           expiraEm: desafio.expiraEm,
+          ...(desafio.reserva ? { reserva: desafio.reserva } : {}),
+          ...(desafio.reservaEmail ? { reservaEmail: desafio.reservaEmail } : {}),
         },
         { status: 201 },
       ),

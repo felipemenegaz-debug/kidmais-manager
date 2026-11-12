@@ -19,18 +19,20 @@ import { classificarDocumentoIdentidade, pareceCpf, type DocumentoIdentidade } f
 import {
   buscarProvaConfirmadaPorTokenHash,
   buscarValidacaoPorId,
+  cancelarValidacaoPendente,
   confirmarValidacao,
   consumirProvaIdentidade,
   consumirProvaIdentidadeParaContrato,
   criarDesafioIdentidade,
   criarRecuperacaoPendente,
+  reabrirValidacaoCancelada,
   registrarEnvioOtp,
   registrarTentativaInvalida,
   type ValidacaoIdentidadeCanal,
   type ValidacaoIdentidadeFinalidade,
   type ValidacaoIdentidadeRecord,
 } from "../repositories";
-import { otpDesabilitadoNoStaging } from "../configuracao-otp.ts";
+import { otpDesabilitadoNoStaging, reservaEmailOtpDisponivel } from "../configuracao-otp.ts";
 import { IdentityServiceError } from "./errors";
 import type {
   CanalIdentidadePublico,
@@ -50,6 +52,7 @@ const DEFAULT_OTP_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_PROVA_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_TENTATIVAS = 5;
 const DEFAULT_MAX_ENVIOS = 3;
+const DEFAULT_RESERVA_EMAIL_ESPERA_MS = 60 * 1000;
 
 function adicionarMs(base: Date, milliseconds: number) {
   return new Date(base.getTime() + milliseconds);
@@ -121,19 +124,34 @@ function mascararDestino(canal: ValidacaoIdentidadeCanal, destino: string) {
     : mascararTelefoneIdentidade(destino);
 }
 
-function canaisDisponiveis(cliente: ClienteRecord): CanalIdentidadePublico[] {
+/** E-mail do cadastro do cliente usado na reserva; nunca vem do navegador. */
+function emailDeReserva(cliente: ClienteRecord, reservaEmail: boolean) {
+  const email = cliente.email?.trim();
+  return reservaEmail && email ? email : null;
+}
+
+function canaisDisponiveis(cliente: ClienteRecord, reservaEmail: boolean): CanalIdentidadePublico[] {
   const canais: CanalIdentidadePublico[] = [];
 
-  // Escopo V1: somente o canal transacional oficial do WhatsApp é liberado
-  // nos fluxos públicos. SMS e e-mail permanecem modelados para evolução futura.
+  // WhatsApp transacional é o canal principal. O e-mail do cadastro só aparece como canal quando a reserva está
+  // ligada e o cliente não tem WhatsApp; com WhatsApp, o e-mail é reserva (falha do envio ou pedido do cliente).
+  // SMS permanece modelado para evolução futura.
   if (cliente.whatsapp) {
     canais.push({
       canal: "WHATSAPP",
       destinoMascarado: mascararTelefoneIdentidade(cliente.whatsapp),
     });
+  } else {
+    const email = emailDeReserva(cliente, reservaEmail);
+    if (email) canais.push({ canal: "EMAIL", destinoMascarado: mascararEmailIdentidade(email) });
   }
 
   return canais;
+}
+
+/** Linha de operação sem destino, código, cliente ou validação: só por que a reserva entrou. */
+function registrarReservaEmail(motivo: "FALHA_WHATSAPP" | "PEDIDO_CLIENTE") {
+  console.warn(JSON.stringify({ otp: "reserva_email", motivo }));
 }
 
 function normalizarInstanteParaHash(value: string) {
@@ -200,6 +218,7 @@ function validarConfiguracao(options: IdentityServiceOptions) {
     ["provaTtlMs", options.provaTtlMs ?? DEFAULT_PROVA_TTL_MS],
     ["maxTentativas", options.maxTentativas ?? DEFAULT_MAX_TENTATIVAS],
     ["maxEnvios", options.maxEnvios ?? DEFAULT_MAX_ENVIOS],
+    ["reservaEmailEsperaMs", options.reservaEmailEsperaMs ?? DEFAULT_RESERVA_EMAIL_ESPERA_MS],
   ] as const;
 
   for (const [name, value] of numericOptions) {
@@ -247,6 +266,7 @@ export async function consultarCpfPublico(
   cpfInformado: string,
   escopo: EscopoIdentidade,
   customDb?: DbExecutor,
+  reservaEmail: boolean = reservaEmailOtpDisponivel(),
 ): Promise<ConsultaCpfPublicaResult> {
   const documento = validarDocumentoObrigatorio(cpfInformado);
   const cliente = await clienteDoDocumento(documento, exigirEscopo(escopo), customDb);
@@ -255,7 +275,7 @@ export async function consultarCpfPublico(
     return { situacao: "NOVO_CLIENTE", canais: [] };
   }
 
-  const canais = canaisDisponiveis(cliente);
+  const canais = canaisDisponiveis(cliente, reservaEmail);
   if (canais.length === 0) {
     return {
       situacao: "CLIENTE_EXISTENTE_SEM_CONTATO",
@@ -278,6 +298,9 @@ export async function consultarCpfPublico(
  * - token de prova possui alta entropia e só seu SHA-256 é persistido;
  * - cliente canônico é sempre resolvido no backend.
  */
+/** Contadores do desafio anterior que o desafio novo (troca para o e-mail) precisa respeitar. */
+type LimitesHerdados = Pick<ValidacaoIdentidadeRecord, "tentativas" | "envios" | "maxTentativas" | "maxEnvios">;
+
 export function criarIdentityService(options: IdentityServiceOptions) {
   validarConfiguracao(options);
 
@@ -288,6 +311,8 @@ export function criarIdentityService(options: IdentityServiceOptions) {
   const provaTtlMs = options.provaTtlMs ?? DEFAULT_PROVA_TTL_MS;
   const maxTentativas = options.maxTentativas ?? DEFAULT_MAX_TENTATIVAS;
   const maxEnvios = options.maxEnvios ?? DEFAULT_MAX_ENVIOS;
+  const reservaEmail = options.reservaEmail ?? false;
+  const reservaEmailEsperaMs = options.reservaEmailEsperaMs ?? DEFAULT_RESERVA_EMAIL_ESPERA_MS;
 
   async function iniciarDesafio(
     input: IniciarDesafioIdentidadeInput,
@@ -304,8 +329,12 @@ export function criarIdentityService(options: IdentityServiceOptions) {
       );
     }
 
+    const emailReserva = emailDeReserva(cliente, reservaEmail);
     const destino = destinoDoCanal(cliente, input.canal);
-    if (!destino) {
+    // E-mail como canal inicial só para quem não tem WhatsApp (com WhatsApp, o e-mail é reserva).
+    const emailNaoPermitido =
+      input.canal === "EMAIL" && (!emailReserva || Boolean(cliente.whatsapp));
+    if (!destino || emailNaoPermitido) {
       throw new IdentityServiceError(
         "CANAL_INDISPONIVEL",
         "O canal selecionado não está disponível para este cadastro.",
@@ -314,6 +343,53 @@ export function criarIdentityService(options: IdentityServiceOptions) {
       );
     }
 
+    const finalidade = input.finalidade ?? "FECHAMENTO_PUBLICO";
+    try {
+      const emitido = await emitirDesafio(cliente, finalidade, input.canal, destino, customDb);
+      return {
+        ...desafioPublico(emitido, input.canal, destino),
+        ...(input.canal === "WHATSAPP" && emailReserva
+          ? { reservaEmail: { destinoMascarado: mascararEmailIdentidade(emailReserva), liberaEm: emitido.liberaReservaEm } }
+          : {}),
+      };
+    } catch (error) {
+      // Reserva automática: só quando o próprio envio pelo WhatsApp falhou (nunca depois de enviado).
+      const falhouNoEnvio =
+        error instanceof IdentityServiceError &&
+        error.code === "FALHA_ENVIO_OTP" &&
+        error.details?.etapa === "ENVIO";
+      if (!falhouNoEnvio || input.canal !== "WHATSAPP" || !emailReserva) throw error;
+
+      registrarReservaEmail("FALHA_WHATSAPP");
+      // O desafio do WhatsApp nunca foi enviado; encerrá-lo evita dois códigos pendentes. O do e-mail herda os limites.
+      const anterior = await cancelarValidacaoPendente(String(error.details?.validacaoId), customDb);
+      const emitido = await emitirOuDescartar(cliente, finalidade, "EMAIL", emailReserva, customDb, anterior);
+      return { ...desafioPublico(emitido, "EMAIL", emailReserva), reserva: "FALHA_WHATSAPP" };
+    }
+  }
+
+  function desafioPublico(
+    emitido: { validacaoId: string; expiraEm: string },
+    canal: ValidacaoIdentidadeCanal,
+    destino: string,
+  ): DesafioIdentidadePublico {
+    return {
+      validacaoId: emitido.validacaoId,
+      canal,
+      destinoMascarado: mascararDestino(canal, destino),
+      expiraEm: emitido.expiraEm,
+    };
+  }
+
+  /** Gera o código, grava o desafio (só o HMAC), envia e registra o envio. */
+  async function emitirDesafio(
+    cliente: ClienteRecord,
+    finalidade: ValidacaoIdentidadeFinalidade,
+    canal: ValidacaoIdentidadeCanal,
+    destino: string,
+    customDb?: DbExecutor,
+    herdado?: LimitesHerdados | null,
+  ) {
     const codigo = gerarOtp();
     if (!validarFormatoOtp(codigo)) {
       throw new IdentityServiceError(
@@ -326,32 +402,38 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     const expiraEm = adicionarMs(now(), otpTtlMs).toISOString();
     const codigoHash = hashOtp(codigo, options.otpPepper, {
       clienteId: cliente.id,
-      canal: input.canal,
+      canal,
       codigoExpiraEm: expiraEm,
     });
 
     const validacao = await criarDesafioIdentidade(
       {
         clienteId: cliente.id,
-        finalidade: input.finalidade ?? "FECHAMENTO_PUBLICO",
-        canal: input.canal,
+        finalidade,
+        canal,
         codigoHash,
         codigoExpiraEm: expiraEm,
-        maxTentativas,
-        maxEnvios,
+        // P1 do Astra (12/11): trocar de canal não zera tentativas nem envios do desafio anterior.
+        maxTentativas: herdado?.maxTentativas ?? maxTentativas,
+        maxEnvios: herdado?.maxEnvios ?? maxEnvios,
+        tentativas: herdado?.tentativas ?? 0,
+        envios: herdado?.envios ?? 0,
       },
       customDb,
     );
 
+    // `etapa` separa a falha do provedor (ENVIO, elegível à reserva) da falha ao registrar um envio já feito.
+    let etapa: "ENVIO" | "REGISTRO" = "ENVIO";
     try {
       await options.enviarOtp({
         validacaoId: validacao.id,
-        canal: input.canal,
+        canal,
         destino,
         codigo,
         expiraEm,
       });
 
+      etapa = "REGISTRO";
       const envioRegistrado = await registrarEnvioOtp(
         validacao.id,
         customDb,
@@ -364,6 +446,14 @@ export function criarIdentityService(options: IdentityServiceOptions) {
           500,
         );
       }
+
+      const enviadoEm = new Date(envioRegistrado.ultimoEnvioEm ?? now().toISOString());
+      const baseReserva = Number.isFinite(enviadoEm.getTime()) ? enviadoEm : now();
+      return {
+        validacaoId: validacao.id,
+        expiraEm,
+        liberaReservaEm: adicionarMs(baseReserva, reservaEmailEsperaMs).toISOString(),
+      };
     } catch (error) {
       throw new IdentityServiceError(
         "FALHA_ENVIO_OTP",
@@ -371,17 +461,117 @@ export function criarIdentityService(options: IdentityServiceOptions) {
         503,
         {
           validacaoId: validacao.id,
+          etapa,
           causa: error instanceof Error ? error.message : "erro_desconhecido",
         },
       );
     }
+  }
 
-    return {
-      validacaoId: validacao.id,
-      canal: input.canal,
-      destinoMascarado: mascararDestino(input.canal, destino),
-      expiraEm,
-    };
+  /** Emite o desafio; se falhar, cancela o que chegou a ser criado (nunca fica um código pendente sem envio). */
+  async function emitirOuDescartar(
+    cliente: ClienteRecord,
+    finalidade: ValidacaoIdentidadeFinalidade,
+    canal: ValidacaoIdentidadeCanal,
+    destino: string,
+    customDb: DbExecutor | undefined,
+    herdado: LimitesHerdados | null,
+  ) {
+    try {
+      return await emitirDesafio(cliente, finalidade, canal, destino, customDb, herdado);
+    } catch (error) {
+      const criada = error instanceof IdentityServiceError ? error.details?.validacaoId : undefined;
+      if (typeof criada === "string") await cancelarValidacaoPendente(criada, customDb).catch(() => null);
+      throw error;
+    }
+  }
+
+  /**
+   * Botão "Não recebeu? Receber por e-mail": troca um desafio pendente do WhatsApp por um código novo no e-mail do
+   * cadastro. Exige a reserva ligada, a espera mínima desde o envio e o desafio ainda pendente e válido; o código do
+   * WhatsApp deixa de valer. Mesma finalidade, mesmo cliente, mesmos limites.
+   */
+  async function receberCodigoPorEmail(
+    validacaoId: string,
+    customDb?: DbExecutor,
+  ): Promise<DesafioIdentidadePublico> {
+    const indisponivel = () =>
+      new IdentityServiceError(
+        "RESERVA_EMAIL_INDISPONIVEL",
+        "O envio do código por e-mail não está disponível para esta validação.",
+        409,
+      );
+    if (!reservaEmail) throw indisponivel();
+
+    const validacao = await buscarValidacaoPorId(validacaoId, customDb);
+    if (!validacao) {
+      throw new IdentityServiceError(
+        "VALIDACAO_NAO_ENCONTRADA",
+        "Validação de identidade não encontrada.",
+        404,
+      );
+    }
+    assertValidacaoPendente(validacao);
+    if (validacao.canal !== "WHATSAPP") throw indisponivel();
+
+    const expiraEmMs = new Date(validacao.codigoExpiraEm ?? "").getTime();
+    if (!Number.isFinite(expiraEmMs) || expiraEmMs <= now().getTime()) {
+      throw new IdentityServiceError(
+        "CODIGO_EXPIRADO",
+        "O código de validação expirou.",
+        410,
+      );
+    }
+
+    const baseMs = new Date(validacao.ultimoEnvioEm ?? validacao.criadoEm).getTime();
+    const liberaEmMs = baseMs + reservaEmailEsperaMs;
+    if (!Number.isFinite(liberaEmMs) || now().getTime() < liberaEmMs) {
+      throw new IdentityServiceError(
+        "RESERVA_EMAIL_AGUARDE",
+        "Aguarde um pouco: o código pelo WhatsApp pode ainda estar chegando.",
+        429,
+        Number.isFinite(liberaEmMs) ? { liberaEm: new Date(liberaEmMs).toISOString() } : undefined,
+      );
+    }
+
+    const cliente = await buscarClienteCanonicoPorId(validacao.clienteId, customDb);
+    if (!cliente) {
+      throw new IdentityServiceError(
+        "CLIENTE_NAO_ENCONTRADO",
+        "Cliente canônico não encontrado.",
+        404,
+      );
+    }
+    const email = emailDeReserva(cliente, reservaEmail);
+    if (!email) throw indisponivel();
+    if (validacao.envios >= validacao.maxEnvios) {
+      throw new IdentityServiceError(
+        "LIMITE_ENVIOS_OTP",
+        "O limite de envios do código foi atingido. Comece a validação de novo.",
+        429,
+      );
+    }
+
+    // Só um pedido vence (cliques repetidos ou abas paralelas): o perdedor recebe VALIDACAO_NAO_PENDENTE.
+    const cancelada = await cancelarValidacaoPendente(validacao.id, customDb);
+    if (!cancelada) {
+      throw new IdentityServiceError(
+        "VALIDACAO_NAO_PENDENTE",
+        "Esta validação não está mais pendente.",
+        409,
+      );
+    }
+
+    registrarReservaEmail("PEDIDO_CLIENTE");
+    let emitido: Awaited<ReturnType<typeof emitirDesafio>>;
+    try {
+      emitido = await emitirOuDescartar(cliente, validacao.finalidade, "EMAIL", email, customDb, cancelada);
+    } catch (error) {
+      // P2 do Astra (12/11): se o e-mail falha, o código do WhatsApp volta a valer (mesmo id, mesmo acesso da tela).
+      await reabrirValidacaoCancelada(validacao.id, customDb).catch(() => null);
+      throw error;
+    }
+    return { ...desafioPublico(emitido, "EMAIL", email), reserva: "PEDIDO_CLIENTE" };
   }
 
   async function confirmarCodigo(
@@ -615,6 +805,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
       validacaoId: consumida.id,
       clienteId: resolvida.clienteId,
       contratoVersaoId,
+      canal: consumida.canal,
     };
   }
 
@@ -642,6 +833,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
   return {
     consultarCpfPublico,
     iniciarDesafio,
+    receberCodigoPorEmail,
     confirmarCodigo,
     resolverClientePorProva,
     consumirProvaParaFechamento,
@@ -685,9 +877,21 @@ export function criarIdentityServiceComAmbiente(
     );
   }
 
+  let reservaEmail: boolean;
+  try {
+    reservaEmail = reservaEmailOtpDisponivel();
+  } catch {
+    throw new IdentityServiceError(
+      "CONFIGURACAO_IDENTIDADE_INVALIDA",
+      "A configuração da reserva por e-mail é inválida.",
+      500,
+    );
+  }
+
   return criarIdentityService({
     otpPepper,
     enviarOtp,
+    reservaEmail,
     ...overrides,
   });
 }

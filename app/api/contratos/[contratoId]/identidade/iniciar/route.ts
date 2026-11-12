@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   ...camposDocumentoPublico,
-  canal: z.literal("WHATSAPP"),
+  // EMAIL só é aceito pelo serviço quando a reserva está ligada e o cliente não tem WhatsApp.
+  canal: z.enum(["WHATSAPP", "EMAIL"]),
 }).strict().refine(temDocumento, MENSAGEM_SEM_DOCUMENTO);
 
 export async function POST(request: NextRequest, context: ContratoRouteContext) {
