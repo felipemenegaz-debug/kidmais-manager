@@ -1,5 +1,7 @@
 # Fechamento de festa
 
+!video[Vídeo: como fazer o fechamento de uma festa, passo a passo](/ajuda/videos/fazer-fechamento.mp4)
+
 ## O que é o fechamento
 
 O fechamento é o passo que transforma uma negociação em contratação. Nele você registra o pacote, a data, o horário, os convidados e a forma de pagamento combinada. Depois vêm a revisão comercial, o contrato e as assinaturas. A festa entra na agenda quando o contrato é assinado pelo buffet e pelo cliente.
