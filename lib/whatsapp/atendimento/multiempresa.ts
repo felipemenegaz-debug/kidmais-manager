@@ -102,8 +102,8 @@ export async function lerPortao<T>(motivo: string, ler: () => Promise<T>): Promi
 }
 
 /**
- * Planos que incluem o Atendimento WhatsApp (D-ME-1, 04/11/2026). Todos os planos comerciais do catálogo, salvo
- * indicação contrária de Felipe. A franquia de IA do plano (F1) segue separada.
+ * Planos que incluem o Atendimento WhatsApp. D-OF-1 (13/11/2026): só o Premium, com uso justo (substitui o "todos os
+ * planos" da D-ME-1). Isenção e teste grátis seguem a D-ME-1. A franquia de IA do plano (F1) segue separada.
  */
 export const PLANOS_ATENDIMENTO_WHATSAPP: readonly PlanoComercialId[] = RECURSOS_POR_PLANO.ATENDIMENTO_WHATSAPP;
 

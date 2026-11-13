@@ -72,7 +72,8 @@ export const planos: Plano[] = [
         { texto: 'Importação por IA: até 30 documentos por mês', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Copiloto de IA, franquia ampla', recursos: ['copiloto'] },
         { texto: 'Convite da festa com IA, franquia ampla', recursos: ['convite'] },
-        { texto: 'Wall-e no WhatsApp com franquia incluída', recursos: ['walle_whatsapp'] },
+        // 13/11/2026 (D-OF-1): incluído com uso justo, sem número de conversas até medir.
+        { texto: 'Wall-e no WhatsApp incluído, com uso justo', recursos: ['walle_whatsapp'] },
         // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
         { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
         { texto: 'Implantação dedicada, com a conexão do seu WhatsApp', recursos: ['implantacao', 'walle_whatsapp'] },
@@ -80,7 +81,7 @@ export const planos: Plano[] = [
 ];
 export const adicionais: { nome: string; recursos: RecursoId[]; centavos: number | null; periodo: string; descricao: string }[] = [
     { nome: 'Unidade extra', recursos: ['multiunidade'], centavos: 14700, periodo: '/mês', descricao: 'Outra unidade da operação, com condições próprias. Salões na mesma unidade são organizados na agenda.' },
-    { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Para o Profissional, com franquia de conversas. Quando a franquia acaba, a conversa passa para a sua equipe; nada é cobrado por uso sem você comprar um pacote.' },
+    { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Para o Profissional, com uso justo. Quando um limite é atingido, a conversa passa para a sua equipe, sem cobrança extra.' },
     { nome: 'Créditos extras de IA', recursos: ['copiloto', 'importacao_contratos'], centavos: null, periodo: '', descricao: 'Para quem usa o copiloto e a importação além da franquia do plano. Condições a definir.' },
     { nome: 'Implantação assistida', recursos: ['implantacao', 'importacao_precos', 'importacao_contratos'], centavos: 99000, periodo: 'avulsa · grátis no plano anual', descricao: 'Nossa equipe importa sua tabela de preços e seus contratos, configura os pacotes e treina a sua equipe.' },
 ];
