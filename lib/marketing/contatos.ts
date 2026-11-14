@@ -212,6 +212,7 @@ async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId:
 }
 
 export const esquemaAcaoContato = z.discriminatedUnion("acao", [
+  z.object({ acao: z.literal("preparar-negociacao"), id: z.string().uuid() }).strict(),
   z.object({
     acao: z.literal("registrar"),
     nome: z.string().trim().min(2).max(120),
@@ -234,7 +235,11 @@ export const esquemaAcaoContato = z.discriminatedUnion("acao", [
 ]);
 export type AcaoContato = z.infer<typeof esquemaAcaoContato>;
 
-export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usuarioId: string, acao: AcaoContato) {
+export async function executarAcaoContato(
+  tx: DbExecutor, empresaId: string, usuarioId: string | null, acao: AcaoContato,
+  // Contexto interno do chamador, nunca aceito no corpo da API de ações manuais.
+  contexto: { origemVinculo?: 'CRM_INTERNO' | 'FECHAMENTO_PUBLICO' } = {},
+) {
   if (acao.acao === "registrar") {
     if (!acao.telefone && !acao.email) throw new MarketingError("MARKETING_CONTATO_SEM_MEIO", "Informe telefone ou e-mail.", 400);
     const unidade = await exigirUnidadeDaEmpresa(tx, empresaId, acao.unidadeId);
@@ -293,6 +298,18 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
     }, tx);
     return { id: acao.id };
   }
+  if (acao.acao === 'preparar-negociacao') {
+    if (contato.status === 'DESCARTADO') throw new MarketingError('MARKETING_CONTATO_DESCARTADO','Este pedido foi descartado.',409);
+    if (contato.cliente_id) return {id: acao.id, clienteId: contato.cliente_id};
+    const dados = (await tx.query<{nome:string;telefone:string|null;email:string|null}>(
+      'SELECT nome,telefone,email FROM marketing_contatos WHERE id=$1::uuid AND empresa_id=$2::uuid',[acao.id,empresaId])).rows[0];
+    const {clienteId,novo} = await clienteDoContato(tx,empresaId,dados);
+    await tx.query("UPDATE marketing_contatos SET cliente_id=$2::uuid,vinculo_cliente='MANUAL',atualizado_por=$3::uuid,atualizado_em=clock_timestamp() WHERE id=$1::uuid AND empresa_id=$4::uuid",[acao.id,clienteId,usuarioId,empresaId]);
+    const origem = await atribuicaoVigente(tx,empresaId,'CONTATO',acao.id);
+    if(novo && origem) await registrarSeAusente(tx,empresaId,{...origem,alvoTipo:'CLIENTE',alvoId:clienteId,registradoPor:usuarioId});
+    await registrarEventoHistorico({clienteId,tipoEvento:'CONTATO_MARKETING_VINCULADO',origem:'CRM_INTERNO',entidadeTipo:'MARKETING_CONTATO',entidadeId:acao.id,usuarioId},tx);
+    return {id:acao.id,clienteId};
+  }
   // vincular-negociacao: a negociação herda a origem do contato (se ainda não tiver uma). Contrato herda da negociação.
   if (contato.fechamento_id) throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
   if (!contato.cliente_id) throw new MarketingError("MARKETING_CONTATO_SEM_CLIENTE", "Vincule o contato a um cliente antes da negociação.", 409);
@@ -320,7 +337,7 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
     contatoId: acao.id, registradoPor: usuarioId,
   }) : null;
   await registrarEventoHistorico({
-    clienteId: contato.cliente_id, tipoEvento: "CONTATO_MARKETING_NEGOCIACAO", origem: "CRM_INTERNO", entidadeTipo: "FECHAMENTO", entidadeId: acao.fechamentoId,
+    clienteId: contato.cliente_id, tipoEvento: "CONTATO_MARKETING_NEGOCIACAO", origem: contexto.origemVinculo ?? "CRM_INTERNO", entidadeTipo: "FECHAMENTO", entidadeId: acao.fechamentoId,
     usuarioId, metadata: { contatoMarketingId: acao.id, origemHerdada: Boolean(herdada) },
   }, tx);
   return { id: acao.id, origemNegociacaoExistente: !herdada };

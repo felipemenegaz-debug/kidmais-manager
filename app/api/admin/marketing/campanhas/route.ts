@@ -1,3 +1,5 @@
+import { painelMarketing } from '@/lib/marketing/metricas';
+import { hojeSaoPaulo } from '@/lib/marketing/utm';
 import type { NextRequest } from "next/server";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { lerCorpo, rotaMarketing } from "@/lib/marketing/http";
@@ -14,6 +16,7 @@ export async function GET(request: NextRequest) {
     const empresaId = tenant.empresaComprovada;
     const incluirArquivadas = request.nextUrl.searchParams.get("arquivadas") === "1";
     return {
+      resultados: (await painelMarketing(tx,empresaId,{de:"1900-01-01",ate:hojeSaoPaulo(),unidadeId:null})).linhas,
       campanhas: await listarCampanhas(tx, empresaId, { incluirArquivadas }),
       origens: await lerOrigens(tx, empresaId),
       sites: await listarSites(tx, empresaId),

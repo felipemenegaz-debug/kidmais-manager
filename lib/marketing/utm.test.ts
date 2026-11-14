@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { campanhaVigente, capturarCampanha, destinoComUtm, hojeSaoPaulo, linkRastreavel, sugerirCodigoCampanha } from './utm.ts';
+import { readFileSync } from 'node:fs';
+import { capturarCampanha, destinoComUtm, hojeSaoPaulo, linkRastreavel, sugerirCodigoCampanha } from './utm.ts';
 import { linkDaCampanha } from './campanhas-ui.ts';
 import { mesclarOrigens, rotuloOrigem, codigoPersonalizado, ORIGENS_PADRAO } from './origens.ts';
 
@@ -37,13 +38,20 @@ test('links: o rastreável passa pelo clique; o destino leva UTM e kc da campanh
   assert.equal(destino.searchParams.get('utm_source'), 'instagram');
 });
 
-test('código da campanha sugerido é estável, minúsculo e válido; período vigente respeita status e datas', () => {
+test('código da campanha sugerido é estável, minúsculo e válido; hoje no fuso de São Paulo', () => {
   assert.match(sugerirCodigoCampanha('Promoção de Novembro — Centro!', '2611'), /^[a-z0-9][a-z0-9-]{2,46}[a-z0-9]$/);
   assert.equal(sugerirCodigoCampanha('Promoção', '01'), 'promocao-01');
-  assert.equal(campanhaVigente({ status: 'ATIVA', inicio: '2026-10-01', fim: '2026-10-31' }, '2026-10-14'), true);
-  assert.equal(campanhaVigente({ status: 'PAUSADA', inicio: '2026-10-01', fim: null }, '2026-10-14'), false);
-  assert.equal(campanhaVigente({ status: 'ATIVA', inicio: '2026-10-15', fim: null }, '2026-10-14'), false);
   assert.equal(hojeSaoPaulo(new Date('2026-10-15T02:30:00Z')), '2026-10-14', 'fuso de São Paulo');
+});
+
+test('período e pausa não limitam a atribuição (decisão de 30/10/2026): só arquivada fica de fora, e a tela diz isso', () => {
+  const servico = readFileSync(new URL('./campanhas.ts', import.meta.url), 'utf8');
+  const consulta = servico.slice(servico.indexOf('export async function campanhaPorCodigo'), servico.indexOf('export async function executarAcaoCampanha'));
+  assert.ok(consulta.includes("status <> 'ARQUIVADA'"));
+  assert.ok(!/\binicio\b|\bfim\b|'PAUSADA'/.test(consulta), 'a captura não filtra por período nem por pausa');
+  const tela = readFileSync(new URL('../../components/admin/marketing/MarketingCampanhas.tsx', import.meta.url), 'utf8');
+  assert.ok(tela.includes('Início e fim organizam a lista e não limitam a atribuição'));
+  assert.ok(tela.includes('só arquivar deixa de atribuir'));
 });
 
 test('origens: padrão + ajustes da empresa + personalizadas; desconhecida nunca é opção', () => {
