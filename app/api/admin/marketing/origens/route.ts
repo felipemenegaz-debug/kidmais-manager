@@ -19,6 +19,7 @@ const esquema = z.object({
 export async function GET(request: NextRequest) {
   return rotaMarketing(request, exigirApiAdminCrmDisponivel, { capacidade: null, plano: false }, async ({ tx, tenant }) => ({
     origens: await lerOrigens(tx, tenant.empresaComprovada),
+    gestao: tenant.papelAtual === "REPRESENTANTE_AUTORIZADO",
   }));
 }
 

@@ -10,7 +10,7 @@ import { sitesPublicosAtivos } from "@/lib/marketing/site/publico";
 import { origemPlataforma, urlCanonica } from "@/lib/marketing/site/seo";
 import {
   ACOES_DE_PUBLICACAO, alterarEndereco, criarSite, despublicarSite, esquemaAcaoSite, pacotesDisponiveis, publicarSite, resolverPacotesPublicados, salvarRascunho, siteDaEmpresa,
-  siteDaUnidade, versoesDoSite,
+  siteDaUnidade, versoesDoSite, listarSites,
 } from "@/lib/marketing/site/servico";
 import type { DbExecutor } from "@/lib/db/contracts";
 
@@ -50,7 +50,8 @@ function ambiente() {
 
 export async function GET(request: NextRequest) {
   return rotaMarketing(request, exigirApiAdminCrmDisponivel, { capacidade: "MARKETING_VISUALIZAR" }, async ({ tx, tenant, capacidades }) => {
-    const unidadeId = await exigirUnidadeDaEmpresa(tx, tenant.empresaComprovada, parametroUuid(request.nextUrl.searchParams.get("unidadeId")));
+    const preferido = request.nextUrl.searchParams.get("preferirExistente") === "1" ? (await listarSites(tx,tenant.empresaComprovada)).sort((a,b)=>Number(b.estado==="PUBLICADO")-Number(a.estado==="PUBLICADO")||a.slug.localeCompare(b.slug))[0] : null;
+    const unidadeId = preferido ? preferido.unidadeId : await exigirUnidadeDaEmpresa(tx, tenant.empresaComprovada, parametroUuid(request.nextUrl.searchParams.get("unidadeId")));
     return { ...(await painelSite(tx, tenant.empresaComprovada, unidadeId)), capacidades };
   });
 }

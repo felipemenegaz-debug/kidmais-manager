@@ -54,10 +54,10 @@ const buffet = [
     ['buffetOutros', 'Outras preferências'], ['buffetLembrancinha', 'Lembrancinha'], ['buffetEmpratado', 'Empratado'], ['buffetBombom', 'Bombom'],
 ] as const;
 
-export default function FechamentoAdminWizard({ clienteId, rascunho }: { clienteId: string; rascunho?: string }) {
+export default function FechamentoAdminWizard({ clienteId, rascunho, pedido }: { clienteId: string; rascunho?: string; pedido?: {data:string;convidados?:number} }) {
     const router = useRouter();
     const [contexto, setContexto] = useState<Contexto | null>(null);
-    const [form, setForm] = useState(inicial);
+    const [form, setForm] = useState({...inicial, dataFesta: pedido?.data ?? inicial.dataFesta, convidadosPagantes: pedido?.convidados ?? inicial.convidadosPagantes});
     const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
     const [falhaAdicionais,setFalhaAdicionais]=useState<string|undefined>(undefined);
     const [horarios, setHorarios] = useState<Horario[]>([]);

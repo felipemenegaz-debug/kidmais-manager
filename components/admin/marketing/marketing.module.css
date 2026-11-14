@@ -15,7 +15,7 @@
 .cartao { composes: glass secao from "../visual.module.css"; padding: 20px; min-width: 0; margin-bottom: 16px; }
 .cartao h2 { margin: 0 0 12px; font-size: 17px; }
 .cartao h3 { margin: 16px 0 8px; font-size: 15px; }
-.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .kpi { composes: glass acento from "../visual.module.css"; padding: 16px; min-width: 0; container-type: inline-size; }
 .kpi span { color: var(--km-text-2); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; display: block; }
 /* Valor monetário não quebra no meio do número: fonte pela largura do cartão; quebra só em espaço ("R$" | valor). */
@@ -94,4 +94,28 @@
   .tabelaWrap.responsiva { display: none; }
   .cards { display: block; }
   .definicoes dl { grid-template-columns: 1fr; }
+}
+
+.pagina { min-width: 0; overflow-wrap: anywhere; }
+.pagina input, .pagina select, .pagina textarea { min-width: 0; max-width: 100%; }
+.pagina details[open] > summary { margin-bottom: 16px; }
+.pagina .grade2 > label { display: grid; gap: 6px; min-width: 0; }
+.tabelaAcessos { table-layout: fixed; }
+.tabelaAcessos th { white-space: normal; }
+
+.filtros label.check { display: inline-flex; align-items: center; gap: 8px; }
+.filtros .check input { min-height: 18px; width: 18px; padding: 0; margin: 0; flex: 0 0 18px; }
+.historico .tarefa { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.tarefaTexto { min-width: 0; overflow-wrap: anywhere; }
+.tarefaAcoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.tarefaAcoes > * { flex: 0 0 auto; }
+.acoesPedido { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.acoesPedido > div { display: contents; }
+.acoesPedido button, .acoesPedido a { font-size: 12px; padding-inline: 8px; white-space: nowrap; }
+.cabecalhoCampanha { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; margin-bottom: 8px; }
+.acoesCampanha { justify-content: flex-end; flex-wrap: nowrap; }
+@media (min-width: 1200px) { .acoesPedido { flex-wrap: nowrap; } }
+@media (max-width: 800px) {
+  .historico .tarefa, .cabecalhoCampanha { grid-template-columns: minmax(0, 1fr); }
+  .tarefaAcoes, .acoesCampanha { justify-content: flex-end; }
 }

@@ -86,6 +86,7 @@ function ambiente() {
             const linhas = [state.pacote, ...state.pacotesExtras].filter((x: any) => x.empresaId === params[0] && x.codigo === params[1] && x.ativo && x.vigente !== false && !x.arquivadoEm);
             return { rows: linhas.map((x: any) => ({ id: x.id, codigo: x.codigo, nome: x.nome, descricao: null, convidados_minimos: x.convidadosMinimos, convidados_maximos: x.convidadosMaximos, duracao_minutos: 240, ordem_exibicao: 1, ativo: x.ativo, empresa_id: x.empresaId })) };
         }
+        if (/^(SAVEPOINT|RELEASE SAVEPOINT) marketing_conversao_automatica$/.test(sql)) return { rows: [], rowCount: null };
         const fotografia = responderFotografia(sql);
         if (fotografia) return fotografia;
         throw Error('SQL não permitido no mock: ' + sql);

@@ -14,6 +14,7 @@ import {
 } from "../repositories";
 import { FechamentoServiceError } from "./errors";
 import { gravarFotografiaPacoteFechamento } from "./pacote-snapshot";
+import { vincularContatoAutomaticamente } from "../../marketing/conversao";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -172,6 +173,8 @@ async function criarFechamentoComercialNaTransacao(
     },
     tx,
   );
+
+  await vincularContatoAutomaticamente(tx, fechamento.id);
 
   const adicionais: FechamentoAdicionalRecord[] = [];
   const escolhas = await observacoesDasEscolhas(tx, resumoComercial.adicionais.itens, input.adicionais ?? []);

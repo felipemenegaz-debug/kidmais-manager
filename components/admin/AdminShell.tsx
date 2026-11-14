@@ -13,7 +13,7 @@ import { itemAtivo, itensNavegacao, type MenuSatisfacaoNavegacao, type Permissoe
 import { lembrarCsrf, sairDaSessao } from './sair';
 import { PermissoesAdminContext } from './PermissoesAdmin';
 
-type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean; satisfacao?: unknown } } };
+type LeituraSessaoShell = { ok?: boolean; data: { usuarioId?: string | null; csrf: string; sessaoId: string; nome: string | null; contexto?: unknown; comercial?: unknown; cadastroAberto?: boolean; recursos?: { financeiroCompleto?: boolean; marketing?: boolean; pedidosNovos?:number; satisfacao?: unknown } } };
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa, { LogoEmpresaContext, MarcaEmpresa, useLogoEmpresa } from './LogoEmpresa';
@@ -95,7 +95,7 @@ export default function AdminShell({ children, vitrine, artigosAjuda = [] }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true, satisfacao: menuSatisfacaoDe(b.data.recursos?.satisfacao) });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true, pedidosNovos:b.data.recursos?.pedidosNovos??0, satisfacao: menuSatisfacaoDe(b.data.recursos?.satisfacao) });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
         }).catch(() => { if (!sessaoObsoletaDesde(marca)) { encerrarBuscasDaAba(); router.replace(loginDestaPagina()); } }); };
