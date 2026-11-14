@@ -260,6 +260,15 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 115 <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
+### 24. 123 — área da família F1: pessoas, links e sessões da área "Minha festa"; exige a 112
+
+- Aplicador: `scripts/migration-generico-production.cjs` (genérico, lista fechada)
+- CONFERIR: `node scripts/migration-generico-production.cjs --conferir 123`
+- APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 123 --backup "<registro-do-backup>"`
+- CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 123`
+- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 123 <CONFERIR|APLICAR> <rotulo>`
+- Volta: restaurar o backup ou corrigir para a frente
+
 ## Pendências conhecidas deste roteiro
 
 - Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.

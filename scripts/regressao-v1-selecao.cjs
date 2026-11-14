@@ -292,6 +292,8 @@ const ESTADO_POSTGRES = {
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   // 12/11/2026 (LOCAL): reserva por e-mail do código OTP contra as CHECKs da 008/010 (sem migration), corridas reais do botão.
   "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
+  // 14/11/2026 (LOCAL): área "Minha festa" F1 (123): entrada, recusas, limites, sair, painel do buffet e travas do banco.
+  "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },

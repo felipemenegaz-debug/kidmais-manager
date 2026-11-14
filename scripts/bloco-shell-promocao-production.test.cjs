@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell de PRODUÇÃO da promoção (112, 114, 116, 117 e, pelo aplicador genérico, 120, 121, 110, 111 e 115)
+// Blocos de Shell de PRODUÇÃO da promoção (112, 114, 116, 117 e, pelo aplicador genérico, 120, 121, 110, 111, 115 e 123)
 // executados DE VERDADE com bash num destino temporário (só o destino difere do Render; o comando do aplicador é o real —
 // recusando antes de conectar, sem RENDER/DATABASE_URL — ou um substituto que só devolve um código). Inclui COLAGEM
 // INTERATIVA (bash -i), como no Web Shell. Não toca banco nem /opt/render. Mesmo roteiro de scripts/bloco-shell-112.test.cjs.
@@ -11,7 +11,7 @@ const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n
 const sha = s => createHash('sha256').update(s).digest('hex');
 const posix = p => p.replace(/\\/g, '/');
 const SERVICO = 'srv-dak77m2d0e5s73b8rkkg';
-const PROPRIOS = ['114', '112', '116', '117'], GENERICOS = ['120', '121', '110', '111', '115'];
+const PROPRIOS = ['114', '112', '116', '117'], GENERICOS = ['120', '121', '110', '111', '115', '123'];
 const BACKUP = 'dump 2026-11-12T03:00Z sha 1234abcd PITR';
 
 /** Destino com os arquivos implantados (LF) e, opcionalmente, node_modules do repositório (junção) para o aplicador real. */

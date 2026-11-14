@@ -6,7 +6,7 @@
 //   - a 098 é HISTÓRICA e nunca entra (a 102 e a 108 recusam se ela existir); a 099 e a 105 já estão em production;
 //   - o aplicador da 092–094 de produção só tem dois escopos (092-093 e 094): são dois passos, e o 094 exige antes o deploy
 //     do código novo (regra do próprio aplicador, scripts/migration-092-094-production.cjs);
-//   - 120, 121, 110, 111 e 115 não têm aplicador próprio: passam pelo genérico (scripts/migration-generico-production.cjs);
+//   - 120, 121, 110, 111, 115 e 123 não têm aplicador próprio: passam pelo genérico (scripts/migration-generico-production.cjs);
 //   - os adaptadores de 102–103, 104–106, 107–108 e 109 são do OUTRO lote da promoção (PENDENTES_DO_OUTRO_LOTE): este arquivo
 //     só aponta o caminho combinado; as flags deles aqui são as do núcleo de cada um.
 // Cada passo tem 3 fases, nesta ordem: CONFERIR (só leitura) → APLICAR → CONFERIR_DEPOIS. Qualquer código de saída
@@ -64,6 +64,7 @@ const ORDEM = Object.freeze([
   generico('110', 'pesquisa de satisfação pós-festa'),
   generico('111', 'pesquisa de satisfação: links de avaliação e auditoria; exige a 110'),
   generico('115', 'índice (empresa_id, data_evento) em fechamentos no lugar do índice da 054'),
+  generico('123', 'área da família F1: pessoas, links e sessões da área "Minha festa"; exige a 112'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */
