@@ -290,6 +290,8 @@ const ESTADO_POSTGRES = {
   "lib/importacao-contrato/cota.postgres.test.ts": { descartavel: "112" },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
+  // 12/11/2026 (LOCAL): reserva por e-mail do código OTP contra as CHECKs da 008/010 (sem migration), corridas reais do botão.
+  "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },

@@ -69,7 +69,12 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   // Aba fora da troca de host e sem busca guardada na aba, salvo se o teste disser outra coisa.
-  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, ...deps };
+  // Reserva por e-mail do código (12/11/2026): módulo real, com os mesmos hooks isolados do componente.
+  const reservaEmail: Record<string, unknown> = {};
+  new Function('require', 'exports', ts.transpileModule(readFileSync('components/identidade/reserva-email.ts', 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText)((id: string) => { assert(id === 'react', `dependência não prevista: ${id}`); return hooks; }, reservaEmail);
+  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 
   return {

@@ -28,6 +28,7 @@ import {
   consultarCpfPublico,
   criarIdentityServiceComAmbiente,
   hashProvaIdentidadeToken,
+  IdentityServiceError,
   type IdentityOtpSender,
 } from "../../identidade/services";
 import {
@@ -229,7 +230,7 @@ export async function iniciarDesafioContrato(
   input: {
     contratoId: string;
     cpf: string;
-    canal: "WHATSAPP";
+    canal: "WHATSAPP" | "EMAIL";
   },
   enviarOtp: IdentityOtpSender,
 ) {
@@ -238,10 +239,17 @@ export async function iniciarDesafioContrato(
     cpf: input.cpf,
   });
 
-  if (
-    acesso.situacao !== "CLIENTE_EXISTENTE" ||
-    !acesso.canais.some((item) => item.canal === input.canal)
-  ) {
+  if (acesso.situacao !== "CLIENTE_EXISTENTE") acessoNegado();
+  if (!acesso.canais.some((item) => item.canal === input.canal)) {
+    // Reserva por e-mail (P3 do Astra, 12/11): EMAIL fora dos canais do cadastro tem a mesma recusa do fechamento.
+    if (input.canal === "EMAIL") {
+      throw new IdentityServiceError(
+        "CANAL_INDISPONIVEL",
+        "O canal selecionado não está disponível para este cadastro.",
+        400,
+        { canal: input.canal },
+      );
+    }
     acessoNegado();
   }
 
@@ -253,6 +261,32 @@ export async function iniciarDesafioContrato(
     finalidade: "CONTRATO_ACEITE",
     escopo: { clienteId: (await clienteCanonicoDaVersao(versao)).id },
   });
+
+  return {
+    ...desafio,
+    acessoToken: criarContratoAcessoToken({
+      contratoId: contrato.id,
+      versaoId: versao.id,
+      validacaoId: desafio.validacaoId,
+    }),
+  };
+}
+
+/**
+ * Botão "Não recebeu? Receber por e-mail" do contrato: o acesso do desafio do WhatsApp prova que este navegador
+ * iniciou a validação deste contrato; o código novo vai para o e-mail do cadastro e o acesso passa a apontar para ele.
+ */
+export async function receberCodigoContratoPorEmail(
+  input: { contratoId: string; acessoToken: string },
+  enviarOtp: IdentityOtpSender,
+) {
+  const { contrato, versao } = await carregarContratoComVersao(input.contratoId);
+  const acesso = validarContratoAcessoToken(input.acessoToken, {
+    contratoId: contrato.id,
+    versaoId: versao.id,
+  });
+  const identity = criarIdentityServiceComAmbiente(enviarOtp);
+  const desafio = await identity.receberCodigoPorEmail(acesso.validacaoId);
 
   return {
     ...desafio,
@@ -627,6 +661,9 @@ export async function assinarContratoPublico(
     }
 
     await garantirFestaFormalizada(tx, contrato.id, versaoAssinada.id, context);
+    // Canal do código que provou a identidade: o aceite com código pelo e-mail (reserva) fica explícito na trilha.
+    const aceiteCanal = prova.canal ?? null;
+    const reservaEmail = aceiteCanal === "EMAIL";
 
     await registrarEventoHistorico(
       {
@@ -635,7 +672,9 @@ export async function assinarContratoPublico(
         origem: "CONTRATO_PUBLICO",
         entidadeTipo: "CONTRATO",
         entidadeId: contrato.id,
-        detalhe: `Contrato V${versao.numeroVersao} aceito eletronicamente por OTP.`,
+        detalhe: reservaEmail
+          ? `Contrato V${versao.numeroVersao} aceito eletronicamente por código enviado por e-mail.`
+          : `Contrato V${versao.numeroVersao} aceito eletronicamente por OTP.`,
         metadata: {
           contratoId: contrato.id,
           contratoVersaoId: versao.id,
@@ -644,6 +683,8 @@ export async function assinarContratoPublico(
           documentoPdfHash: documento.pdfHash,
           documentoTemplateVersao: documento.templateVersao,
           metodo: "OTP",
+          aceiteCanal,
+          reservaEmail,
         },
         critico: true,
       },
@@ -673,6 +714,8 @@ export async function assinarContratoPublico(
           // R2-1: documento usado na prova (o do snapshot, conferido no acesso).
           aceiteTipoDocumento: versao.snapshot.contratante.tipoPessoa === "PJ" ? "CNPJ" : "CPF",
           validacaoId: prova.validacaoId,
+          aceiteCanal,
+          reservaEmail,
         },
         origem: "CONTRATO_PUBLICO",
         requestId: context.requestId ?? null,

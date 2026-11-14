@@ -20,6 +20,7 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
 import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
 import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
+import { rotuloCanal, textoBotaoReservaEmail, textoEnvioCodigo, useReservaEmailEspera, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
 import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
 import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
 
@@ -330,6 +331,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [canalSelecionado, setCanalSelecionado] =
     useState<CanalIdentidadePublico["canal"] | "">("");
   const [validacaoId, setValidacaoId] = useState<string | null>(null);
+  const [envioCodigo, setEnvioCodigo] = useState<EnvioCodigoPublico | null>(null);
+  const { liberada: reservaEmailLiberada, segundosRestantes: reservaEmailSegundos } = useReservaEmailEspera(
+    envioCodigo?.canal === "WHATSAPP" ? envioCodigo.reservaEmail?.liberaEm : null,
+  );
   const [provaIdentidade, setProvaIdentidade] = useState<string | null>(null);
   const [codigoValidacao, setCodigoValidacao] = useState("");
   const [erroIdentificacao, setErroIdentificacao] = useState("");
@@ -785,6 +790,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       setClienteEncontrado(null);
       setProvaIdentidade(null);
       setValidacaoId(null);
+      setEnvioCodigo(null);
       setCodigoValidacao("");
       setAniversarianteSelecionadoId("");
       setSolicitarAtualizacaoCadastro(null);
@@ -843,7 +849,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       const json = await resposta.json();
       setValidacaoId(json.validacaoId);
-      setCanalSelecionado(json.canal);
+      setEnvioCodigo(json as EnvioCodigoPublico);
+      // Reserva automática (WhatsApp falhou): o código foi para o e-mail, mas a escolha do cliente continua a mesma.
       setCanaisIdentidade((atuais) =>
         atuais.map((item) =>
           item.canal === json.canal
@@ -855,6 +862,37 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     } catch (error) {
       setErroIdentificacao(
         error instanceof Error ? error.message : "Não foi possível enviar o código agora.",
+      );
+    } finally {
+      setProcessandoIdentidade(false);
+    }
+  }
+
+  /** "Não recebeu? Receber por e-mail": o código do WhatsApp deixa de valer e um novo vai para o e-mail do cadastro. */
+  async function receberCodigoPorEmail() {
+    if (!validacaoId) return;
+    setProcessandoIdentidade(true);
+    setCodigoValidacao("");
+    setErroIdentificacao("");
+
+    try {
+      const resposta = await fetch(apiPublica("/api/identidade/receber-por-email", empresa), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ validacaoId }),
+      });
+      if (!resposta.ok) {
+        throw new Error(
+          await lerErroApi(resposta, "Não foi possível enviar o código por e-mail agora."),
+        );
+      }
+
+      const json = await resposta.json();
+      setValidacaoId(json.validacaoId);
+      setEnvioCodigo(json as EnvioCodigoPublico);
+    } catch (error) {
+      setErroIdentificacao(
+        error instanceof Error ? error.message : "Não foi possível enviar o código por e-mail agora.",
       );
     } finally {
       setProcessandoIdentidade(false);
@@ -2497,7 +2535,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <h3>Encontramos um cadastro para este {cnpjDaIdentificacao(cpfIdentificacao) ? "CNPJ" : "CPF"}.</h3>
                   <p className={styles.identificationText}>
                     Para proteger seus dados, nenhuma informação pessoal é exibida antes da validação.
-                    O código será enviado pelo WhatsApp transacional oficial para o número cadastrado.
+                    {canaisIdentidade.length > 0 && canaisIdentidade.every((item) => item.canal === "EMAIL")
+                      ? "O código será enviado para o e-mail cadastrado."
+                      : "O código será enviado pelo WhatsApp transacional oficial para o número cadastrado."}
                   </p>
 
                   {canaisIdentidade.length > 0 ? (
@@ -2512,7 +2552,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           onClick={() => setCanalSelecionado(item.canal)}
                         >
                           <strong>
-                            WhatsApp
+                            {rotuloCanal(item.canal)}
                           </strong>
                           <span>{item.destinoMascarado}</span>
                         </button>
@@ -2553,10 +2593,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <span className={styles.foundBadge}>Código enviado</span>
                   <h3>Digite o código recebido.</h3>
                   <p className={styles.identificationText}>
-                    O código foi enviado para {
+                    {envioCodigo ? textoEnvioCodigo(envioCodigo) : <>O código foi enviado para {
                       canaisIdentidade.find((item) => item.canal === canalSelecionado)?.destinoMascarado ??
                       "o contato selecionado"
-                    }.
+                    }.</>}
                   </p>
                   <label className={styles.field}>
                     <span>Código de 6 dígitos</span>
@@ -2589,6 +2629,16 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     >
                       Enviar novo código
                     </button>
+                    {envioCodigo?.canal === "WHATSAPP" && envioCodigo.reservaEmail && (
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={receberCodigoPorEmail}
+                        disabled={processandoIdentidade || !reservaEmailLiberada}
+                      >
+                        {textoBotaoReservaEmail(reservaEmailLiberada, reservaEmailSegundos, envioCodigo.reservaEmail.destinoMascarado)}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
