@@ -205,9 +205,10 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         if (hashSnapshotContrato(v.snapshot) !== v.snapshotHash)
             conflito('O snapshot da versão não corresponde ao hash preservado.');
         if(input.acao==='cancelar_contratacao') {
-            const perda=perdaSchema.parse(input.perda);
             if(statusAtual!=='AGUARDANDO_ASSINATURA'||f?.versao_vigente_id)
                 conflito('Esta contratação já foi assinada pelas duas partes. Use o fluxo de cancelamento da Festa.');
+            // Motivo da perda (Funil) só depois da recusa do contrato assinado: quem está no fluxo errado recebe a orientação certa.
+            const perda=perdaSchema.parse(input.perda);
             if(!(await tx.query("SELECT 1 FROM festa_membership_capacidades WHERE membership_id=$1 AND empresa_id=$2 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[tenant.membershipId,tenant.empresaComprovada])).rows.length)
                 throw authError('Somente a Gestão pode cancelar a contratação.',403);
             if((await tx.query("SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) AND parte='CLIENTE' LIMIT 1",[c.id])).rows.length)

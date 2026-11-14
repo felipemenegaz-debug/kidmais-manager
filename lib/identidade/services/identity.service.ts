@@ -164,7 +164,8 @@ function normalizarInstanteParaHash(value: string) {
   return new Date(milliseconds).toISOString();
 }
 
-function hashOtp(
+/** HMAC do código. Exportado para a área "Minha festa" (lib/area-familia), que usa o mesmo formato e o mesmo pepper. */
+export function hashOtp(
   codigo: string,
   pepper: string,
   validacaoContext: {
@@ -504,13 +505,15 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     if (!reservaEmail) throw indisponivel();
 
     const validacao = await buscarValidacaoPorId(validacaoId, customDb);
-    if (!validacao) {
+    // A área "Minha festa" (123) tem fluxo próprio: aqui ela é "não encontrada", igual a um id que não existe.
+    if (!validacao || validacao.finalidade === "AREA_FAMILIA") {
       throw new IdentityServiceError(
         "VALIDACAO_NAO_ENCONTRADA",
         "Validação de identidade não encontrada.",
         404,
       );
     }
+    const finalidadeGenerica: ValidacaoIdentidadeFinalidade = validacao.finalidade;
     assertValidacaoPendente(validacao);
     if (validacao.canal !== "WHATSAPP") throw indisponivel();
 
@@ -565,7 +568,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     registrarReservaEmail("PEDIDO_CLIENTE");
     let emitido: Awaited<ReturnType<typeof emitirDesafio>>;
     try {
-      emitido = await emitirOuDescartar(cliente, validacao.finalidade, "EMAIL", email, customDb, cancelada);
+      emitido = await emitirOuDescartar(cliente, finalidadeGenerica, "EMAIL", email, customDb, cancelada);
     } catch (error) {
       // P2 do Astra (12/11): se o e-mail falha, o código do WhatsApp volta a valer (mesmo id, mesmo acesso da tela).
       await reabrirValidacaoCancelada(validacao.id, customDb).catch(() => null);
@@ -581,7 +584,9 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     const codigo = input.codigo.trim();
     const validacao = await buscarValidacaoPorId(input.validacaoId, customDb);
 
-    if (!validacao) {
+    // A área "Minha festa" (123) confirma pelo fluxo próprio (código certo vira sessão no mesmo commit); aqui ela é
+    // "não encontrada", igual a um id que não existe, e nenhuma tentativa é gasta.
+    if (!validacao || validacao.finalidade === "AREA_FAMILIA") {
       throw new IdentityServiceError(
         "VALIDACAO_NAO_ENCONTRADA",
         "Validação de identidade não encontrada.",
@@ -734,7 +739,8 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     return {
       validacaoId: validacao.id,
       clienteId: cliente.id,
-      finalidade: validacao.finalidade,
+      // Igual à da linha (conferida acima); a esperada já tem o tipo das finalidades do serviço genérico.
+      finalidade: finalidadeEsperada,
       expiraEm: validacao.provaExpiraEm,
     };
   }

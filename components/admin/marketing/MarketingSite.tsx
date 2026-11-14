@@ -23,7 +23,7 @@ type Dados = {
   dominios?: Dominio[]; pacotesDisponiveis?: PacoteDisponivel[]; enderecos?: { plataforma: string; canonical: string; sitemap: string };
   previa?: { conteudo: ConteudoPublicado; avisos: string[] }; ambiente: { sitesPublicos: boolean; dominiosPersonalizados: boolean; dominioSimuladoServido: boolean }; capacidades: string[]; avisos?: string[];
 };
-const ABAS = [['identidade', 'Identidade'], ['fotos', 'Fotos'], ['conteudo', 'Conteúdo'], ['pacotes', 'Pacotes'], ['publicacao', 'Publicação e SEO']] as const;
+const ABAS = [['identidade', 'Identidade'], ['fotos', 'Fotos'], ['conteudo', 'Conteúdo'], ['pacotes', 'Pacotes'], ['publicacao', 'Publicação']] as const;
 type Aba = (typeof ABAS)[number][0];
 const urlImagemAdmin = (id: string) => `/api/admin/marketing/site/imagens/${id}`;
 
@@ -48,9 +48,17 @@ function conteudoDaPrevia(rascunho: ConteudoSite, servidor: ConteudoPublicado | 
 
 export default function MarketingSite() {
   const router = useRouter();
-  const [unidadeId, setUnidadeId] = useState('');
-  const url = `/api/admin/marketing/site${unidadeId ? `?unidadeId=${unidadeId}` : ''}`;
+  const [unidadePedida, setUnidadeId] = useState<string|null>(null);
+  const url = `/api/admin/marketing/site${unidadePedida === null ? '?preferirExistente=1' : unidadePedida ? `?unidadeId=${unidadePedida}` : ''}`;
   const { dados: carregados, dadosDe, falha, carregando, recarregar, setDados } = useMarketing<Dados>(url);
+  const unidadeId = unidadePedida ?? carregados?.site?.unidadeId ?? '';
+  useEffect(() => {
+    if (unidadePedida === null && dadosDe === url && carregados) {
+      // Fixa a escolha inicial devolvida pelo servidor. Publicar/despublicar ou trocar o endereço não escolhe outro site.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sincronização inicial com a leitura externa, antes de editar
+      setUnidadeId(carregados.site?.unidadeId ?? '');
+    }
+  }, [unidadePedida, dadosDe, url, carregados]);
   // Só os dados da unidade SELECIONADA ficam acionáveis. Enquanto a nova unidade carrega (ou se a leitura falhou),
   // o conteúdo da anterior não aparece sob o rótulo novo. A lista de unidades é da empresa e vale para qualquer resposta.
   const dados = dadosDe === url ? carregados : null;
@@ -190,7 +198,7 @@ export default function MarketingSite() {
   const bloqueadoPorOperacao = pendentes > 0;
 
   return <main className={styles.pagina}>
-    <CabecalhoMarketing titulo="Site e SEO" descricao="Monte o site de cada unidade: identidade, fotos, conteúdo e pacotes, com prévia ao lado. Salvar não publica — só o que você publicar aparece para os visitantes." />
+    <CabecalhoMarketing titulo="Site do buffet" descricao="Monte o site de cada unidade: identidade, fotos, conteúdo e pacotes, com prévia ao lado. Salvar não publica — só o que você publicar aparece para os visitantes." />
     {unidades.length > 0 && <div className={styles.filtros}><label>Editando o site da<select value={unidadeId} disabled={bloqueadoPorOperacao} aria-describedby="unidade-ajuda" onChange={(e) => trocarUnidade(e.target.value)}>
       <option value="">Empresa (sem unidade)</option>{unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
       <span id="unidade-ajuda" className={styles.muted}>{bloqueadoPorOperacao ? 'Aguarde a operação em andamento terminar para trocar de unidade.' : 'Cada unidade tem o próprio site; mudanças aqui não alteram as outras unidades.'}</span></div>}
@@ -534,7 +542,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
       <p className={styles.muted}>{site.versaoPublicada ? `Versão ${site.versaoPublicada.numero} publicada em ${dataHoraBr(site.versaoPublicada.publicadoEm)}.` : 'Ainda não publicado.'}
         {site.estado === 'DESPUBLICADO' && ` Despublicado em ${dataHoraBr(site.despublicadoEm)}.`} Salvar o rascunho nunca altera a página publicada: publique quando conferir a prévia.</p>
       {dados.enderecos && <p>Endereço: <code className={styles.link}>{dados.enderecos.plataforma}</code>{site.estado === 'PUBLICADO' && dados.ambiente.sitesPublicos && <> <a href={dados.enderecos.plataforma} target="_blank" rel="noopener">Abrir página publicada</a></>}</p>}
-      {dados.enderecos && <p className={styles.muted}>Endereço canônico (SEO): {dados.enderecos.canonical} · Sitemap: {dados.enderecos.sitemap}</p>}
+
       {!site.versaoPublicada && podeEditar && <div className={styles.filtros}>
         <label>Trocar endereço (só antes da 1ª publicação)<input value={slug} pattern="[a-z][a-z0-9-]{1,62}[a-z0-9]" onChange={(e) => setSlug(e.target.value.toLowerCase())} /></label>
         <button type="button" className={styles.secundario} disabled={ocupado || slug === site.slug} onClick={() => void acao({ acao: 'endereco', siteId: site.id, rascunhoVersao: versaoRascunho, slug }, 'Endereço alterado.')}>Salvar endereço</button>
@@ -547,7 +555,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
     </Secao>
 
     <fieldset disabled={!podeEditar} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <Secao titulo="SEO e compartilhamento">
+      <Secao titulo="Como aparece nas buscas">
         <Campo rotulo={`Título para buscadores (${conteudo.seo.titulo.length}/70)`}><input maxLength={70} value={conteudo.seo.titulo} onChange={(e) => editar((c) => ({ ...c, seo: { ...c.seo, titulo: e.target.value } }))} /></Campo>
         <Campo rotulo={`Descrição (${conteudo.seo.descricao.length}/170)`}><textarea rows={3} maxLength={170} value={conteudo.seo.descricao} onChange={(e) => editar((c) => ({ ...c, seo: { ...c.seo, descricao: e.target.value } }))} /></Campo>
         <label className={styles.check}><input type="checkbox" checked={conteudo.seo.indexavel} onChange={(e) => editar((c) => ({ ...c, seo: { ...c.seo, indexavel: e.target.checked } }))} /> Permitir buscadores (só vale para a página publicada no endereço canônico)</label>
@@ -557,7 +565,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
       </Secao>
     </fieldset>
 
-    <Dominios siteId={site.id} dominios={dados.dominios ?? []} ambiente={dados.ambiente} pode={pode('MARKETING_DOMINIO_CONFIGURAR')} rastrear={rastrear} aoMudar={(dominios) => aoMudarDominios(site.id, dominios)} />
+    <details className={styles.definicoes}><summary>Avançado</summary>{dados.enderecos && <p>Endereço canônico: {dados.enderecos.canonical} · Sitemap: {dados.enderecos.sitemap}</p>}<Dominios siteId={site.id} dominios={dados.dominios ?? []} ambiente={dados.ambiente} pode={pode('MARKETING_DOMINIO_CONFIGURAR')} rastrear={rastrear} aoMudar={(dominios) => aoMudarDominios(site.id, dominios)} /></details>
 
     {(dados.versoes ?? []).length > 0 && <Secao titulo="Versões publicadas">
       <ul className={styles.historico}>{dados.versoes!.map((v) => <li key={v.id}>Versão {v.numero} · {dataHoraBr(v.publicadoEm)}{v.publicadoPor ? ` · ${v.publicadoPor}` : ''}</li>)}</ul>

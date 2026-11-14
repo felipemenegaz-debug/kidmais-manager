@@ -10,6 +10,8 @@ const HASHES=require('./migration-122-hashes.json');
 const arquivos=['database/checks/20261114_122_precheck.sql','database/migrations/20261114_122_oportunidades.sql','database/checks/20261114_122_postcheck.sql'];
 const raiz=path.resolve(__dirname,'..');
 function corpos(){return arquivos.map((a,i)=>lerRevisado(raiz,a,HASHES[i]));}
+// [etapa, arquivo, sha256 LF]: lido pelo gerador dos blocos de produção (scripts/bloco-shell-promocao-production.cjs).
+const ETAPAS=Object.freeze(arquivos.map((a,i)=>Object.freeze([['precheck','migration','postcheck'][i],a,HASHES[i]])));
 function modo(argv){
  if(!argv.length)return 'plano';
  if(argv.length===1&&argv[0]==='--conferir-122')return 'conferir';
@@ -36,30 +38,44 @@ function criarAplicador(amb){
    const s=estado((await db.query(SQL_ESTADO)).rows[0]),sql=corpos();await db.query(corpo(s==='ausente'?sql[0]:sql[2]));await db.query('COMMIT');return s;
   }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}
  }
+ // Contrato dos núcleos da cadeia de promoção (como a 118): 0 PLANO/CONFERIDO/PASS; 1 recusa local lançada (argumentos, alvo,
+ // hash, disco, marcador anterior); 2 FALHA devolvida, com falha.etapa (CONEXAO no primeiro passo). Marcador exclusivo ANTES de conectar.
+ // Não ecoa mensagens do driver (podem conter credencial ou dado comercial): só rótulos próprios (ESTADO_PARCIAL...) e o SQLSTATE.
+ const mensagem=e=>{const t=String(e?.message??'');return /^[A-Z][A-Z0-9_]{2,79}$/.test(t)?t:'mensagem do driver omitida (ver codigoSql)';};
+ const sqlstate=e=>/^[A-Z0-9]{5}$/.test(e?.code??'')?e.code:null;
  async function principal(argv,env,deps={}){
   const m=modo(argv),sql=corpos();
   if(m==='plano')return {codigo:0,saida:{resultado:'PLANO',conecta:false,ambiente:amb.nome,arquivos:arquivos.map((arquivo,i)=>({arquivo,sha256:HASHES[i]}))}};
   const cfg=amb.alvo(env),Client=deps.Client??require('pg').Client;
-  const db=new Client(cfg);let registro=null,arquivo=null,commit='NAO_COMMITADA',etapa='CONECTAR';
-  try{await db.connect();const s=await conferirCliente(db,env);
-   if(m==='conferir')return {codigo:0,saida:{resultado:s==='presente'?'JA_APLICADA_POSTCHECK_PASS':'PRONTA_PARA_APLICAR'}};
-   assert.equal(s,'ausente','JA_PRESENTE_NAO_REAPLICAR');amb.exigirDisco();
-   fs.mkdirSync(amb.DIR,{recursive:true,mode:0o700});arquivo=path.join(amb.DIR,'migration-122.json');
-   const inicial={ambiente:amb.nome,inicio:new Date().toISOString(),backup:argv[2],etapa:'INICIADA',commit};
-   fs.writeFileSync(arquivo,JSON.stringify(inicial),{flag:'wx',mode:0o600});registro=inicial;
+  if(m==='conferir'){
+   const db=new Client(cfg);db.on?.('error',()=>undefined);let etapa='CONEXAO';
+   try{await db.connect();etapa='CONFERIR';const s=await conferirCliente(db,env);
+    return {codigo:0,saida:{resultado:s==='presente'?'JA_APLICADA_POSTCHECK_PASS':'PRONTA_PARA_APLICAR'}};
+   }catch(e){return {codigo:2,saida:{resultado:'FALHA',commit:'NAO_SE_APLICA',falha:{etapa,mensagem:mensagem(e)},codigoSql:sqlstate(e)}};}
+   finally{await db.end().catch(()=>{});}
+  }
+  amb.exigirDisco();fs.mkdirSync(amb.DIR,{recursive:true,mode:0o700});const arquivo=path.join(amb.DIR,'migration-122.json');
+  const registro={ambiente:amb.nome,inicio:new Date().toISOString(),backup:argv[2],etapa:'INICIADA',commit:'NAO_COMMITADA'};
+  try{fs.writeFileSync(arquivo,JSON.stringify(registro),{flag:'wx',mode:0o600});}
+  catch(e){if(e?.code==='EEXIST')assert.fail('TENTATIVA_ANTERIOR_REVISAR '+arquivo);throw e;}
+  const db=new Client(cfg);db.on?.('error',()=>undefined);let commit='NAO_COMMITADA',etapa='CONEXAO';
+  try{await db.connect();etapa='CONFERIR';const s=await conferirCliente(db,env);
+   assert.equal(s,'ausente','JA_PRESENTE_NAO_REAPLICAR');
    await db.query('BEGIN');await db.query("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='60s'");
    amb.identidade((await db.query(amb.SQL_IDENTIDADE)).rows[0],env);await privilegios(db);
    for(let i=0;i<sql.length;i++){etapa=['PRECHECK','MIGRATION','POSTCHECK'][i];await db.query(corpo(sql[i]));}
    etapa='COMMIT';const r=await db.query('COMMIT');assert.notEqual(r.command,'ROLLBACK','COMMIT_RESPONDEU_ROLLBACK');commit='CONFIRMADO';
-   etapa='RECONFERIR';await conferirCliente(db,env);registro={...registro,etapa:'PASS',commit};fs.writeFileSync(arquivo,JSON.stringify(registro));return {codigo:0,saida:{resultado:'APLICADA_POSTCHECK_PASS',commit}};
+   etapa='RECONFERIR';await conferirCliente(db,env);fs.writeFileSync(arquivo,JSON.stringify({...registro,etapa:'PASS',commit}));
+   return {codigo:0,saida:{resultado:'APLICADA_POSTCHECK_PASS',commit}};
   }catch(e){if(etapa==='COMMIT')commit=commitNaFalha(e);await db.query('ROLLBACK').catch(()=>{});
-   const saida={resultado:'RECUSADA_OU_FALHA',etapa,commit,codigoSql:/^[A-Z0-9]{5}$/.test(e.code??'')?e.code:null};
-   // Não ecoa mensagens do driver: podem conter credencial ou dado comercial.
-   if(registro&&arquivo)try{fs.writeFileSync(arquivo,JSON.stringify({...registro,...saida}));}catch{saida.marcadorDesatualizado=true;}
-   return {codigo:registro?2:1,saida};
+   const saida={resultado:'FALHA',commit,falha:{etapa,mensagem:mensagem(e)},codigoSql:sqlstate(e)};
+   try{fs.writeFileSync(arquivo,JSON.stringify({...registro,etapa,commit,falha:saida.falha,codigoSql:saida.codigoSql}));}catch{saida.marcadorDesatualizado=true;}
+   return {codigo:2,saida};
   }finally{await db.end().catch(()=>{});}
  }
- function cli(){principal(process.argv.slice(2),process.env).then(r=>{console.log(JSON.stringify(r.saida));process.exitCode=r.codigo;}).catch(()=>{console.error('RECUSADO_ANTES_DE_CONECTAR');process.exitCode=1;});}
+ function cli(){principal(process.argv.slice(2),process.env).then(r=>{console.log(JSON.stringify(r.saida));process.exitCode=r.codigo;}).catch(e=>{
+  // Só recusas locais chegam aqui (argumentos, ambiente, alvo, hash): falhas do driver viram saída do principal.
+  console.error('RECUSADO '+String(e?.message??e).replace(/postgres(?:ql)?:\/\/\S+/gi,'<url>').slice(0,160));process.exitCode=1;});}
  return {principal,cli,conferirCliente};
 }
-module.exports={criarAplicador,modo,corpo,SQL_ESTADO,estado,arquivos};
+module.exports={criarAplicador,modo,corpo,SQL_ESTADO,estado,arquivos,ETAPAS};

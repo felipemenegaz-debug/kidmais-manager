@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111 e 115 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115 e 123 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -14,7 +14,7 @@
 //   - APLICAR: exige o registro de backup; marcador exclusivo no disco persistente (migration-<id>.json); UMA transação:
 //     precheck → corpo da migration (sem o BEGIN e sem o COMMIT do arquivo) → postcheck → COMMIT só com tudo PASS → estado
 //     relido (presente) → postcheck de novo em READ ONLY;
-//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120 e 121
+//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121 e 123
 //     terminam com uma linha `aprovado`: se vier diferente de true, também é falha), como no precedente por manifesto
 //     (scripts/migrations-lancamento-production.cjs), que roda os checks e deixa a exceção abortar a transação;
 //   - situação do COMMIT como nos aplicadores recentes (regra da 109–118, a função é a do núcleo da 118): falha antes do
@@ -91,9 +91,18 @@ const MIGRATIONS = Object.freeze({
     criados: [tabela('fechamentos_115_empresa_data_idx')], removidos: [tabela('fechamentos_054_empresa_idx')],
     // CREATE INDEX e DROP INDEX exigem ser dono da tabela; o índice nasce no schema da tabela (sem CREATE no schema public).
     privilegios: {criaNoSchema: false, alteradas: ['fechamentos'], funcoes: [], referenciadas: []}}),
+  '123': congelar({escopo: 'área da família F1: pessoas, links e sessões da área "Minha festa" e finalidade AREA_FAMILIA nas validações de identidade (aditiva; exige 010, 016 e 112)',
+    arquivos: [['precheck', 'database/checks/20261114_123_precheck.sql', '564f948d671f3d9e07b1b3e79e9ed07fc3b6a08bdc7a52a47f0ed36e6c671436'],
+      ['migration', 'database/migrations/20261114_123_area_familia.sql', '17c4b92f088bd4032dfa1debc6b5ec7e71d4ea8176ac4ba784f4b598ee5ea752'],
+      ['postcheck', 'database/checks/20261114_123_postcheck.sql', '8a28fc4f99c1c795ce116ba7d349b44aca7d790e951e5d7bcca0461e709502d8']],
+    criados: [tabela('festa_pessoas'), tabela('festa_links_area'), tabela('area_familia_sessoes'), tabela('limites_contadores'), tabela('area_familia_eventos'),
+      coluna('validacoes_identidade_cliente', 'festa_pessoa_id'), coluna('validacoes_identidade_cliente', 'consumido_por_area_sessao_id')],
+    // Gatilhos em clientes e contratos e ALTER/índices/gatilho em validacoes_identidade_cliente exigem a posse dessas tabelas.
+    privilegios: {criaNoSchema: true, alteradas: ['clientes', 'contratos', 'validacoes_identidade_cliente'], funcoes: [],
+      referenciadas: ['clientes', 'empresas', 'festas', 'usuarios_administrativos', 'validacoes_identidade_cliente']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);

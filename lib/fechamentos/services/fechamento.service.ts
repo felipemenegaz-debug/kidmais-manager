@@ -1,5 +1,4 @@
 import { buscarClientePorId } from "../../clientes/repositories";
-import { herdarAcoesDoContato } from '../../oportunidades/conversao';
 import { calcularResumoComercial } from "../../comercial/services";
 import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
@@ -15,6 +14,7 @@ import {
 } from "../repositories";
 import { FechamentoServiceError } from "./errors";
 import { gravarFotografiaPacoteFechamento } from "./pacote-snapshot";
+import { vincularContatoAutomaticamente } from "../../marketing/conversao";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -174,6 +174,9 @@ async function criarFechamentoComercialNaTransacao(
     tx,
   );
 
+  // Vínculo do pedido, herança e próxima ação do Funil num SAVEPOINT: falha do Marketing não derruba a venda.
+  await vincularContatoAutomaticamente(tx, fechamento.id);
+
   const adicionais: FechamentoAdicionalRecord[] = [];
   const escolhas = await observacoesDasEscolhas(tx, resumoComercial.adicionais.itens, input.adicionais ?? []);
 
@@ -197,7 +200,6 @@ async function criarFechamentoComercialNaTransacao(
   }
 
   await gravarFotografiaPacoteFechamento(tx, fechamento, resumoComercial);
-  await herdarAcoesDoContato(tx,fechamento.id);
 
   const aprovacaoNegociacao = revisaoNecessaria
     ? await criarAprovacaoNegociacao(

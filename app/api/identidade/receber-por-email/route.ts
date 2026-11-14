@@ -6,6 +6,8 @@ import {
   isIdentityServiceError,
 } from "@/lib/identidade/services";
 import { limitarPublico } from "@/lib/http/limite-publico";
+import { LIMITES } from "@/lib/area-familia/limites";
+import { limitarRotaPublicaNoBanco } from "@/lib/area-familia/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +30,8 @@ function noStore(response: NextResponse) {
 export async function POST(request: NextRequest) {
   const limite = await limitarPublico(request, "IDENTIDADE");
   if (limite) return limite;
+  const limiteBanco = await limitarRotaPublicaNoBanco(request, LIMITES.RESERVA_EMAIL_ORIGEM, "identidade:reserva-email");
+  if (limiteBanco) return limiteBanco;
 
   let body: unknown;
   try {

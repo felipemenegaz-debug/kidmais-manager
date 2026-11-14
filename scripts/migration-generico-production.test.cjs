@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Aplicador genérico de PRODUÇÃO (120, 121, 110, 111 e 115) com cliente simulado que só CONFIRMA no COMMIT e descarta no
+// Aplicador genérico de PRODUÇÃO (120, 121, 110, 111, 115 e 123) com cliente simulado que só CONFIRMA no COMMIT e descarta no
 // ROLLBACK: lista fechada com os hashes dos 3 SQL de cada id, sentinelas tiradas do precheck, molduras, estado
 // (ausente/presente/parcial e a 115 idempotente), trava de alvo e identidade de produção, conferência só leitura, UMA
 // transação precheck → corpo → postcheck → COMMIT, falha de check (RAISE e linha `aprovado`), situação do COMMIT
@@ -63,7 +63,7 @@ function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm,
       if (sql === g.sqlPrivilegios(id)) return {rows: [{...privilegios}]};
       if (sql === corpos.migration) { assert.ok(emTransacao && !ro, 'migration só na transação de escrita'); pendente = true; return [{rows: [], command: 'SET'}, {rows: [], command: 'CREATE'}]; }
       if (sql === corpos.precheck || sql === corpos.postcheck) {
-        // 120 e 121 terminam com SELECT … true AS aprovado (consulta de várias instruções = lista de resultados).
+        // 120, 121 e 123 terminam com SELECT … true AS aprovado (consulta de várias instruções = lista de resultados).
         return aprovado === undefined ? [{rows: [], command: 'DO'}] : [{rows: [], command: 'DO'}, {rows: [{banco: 'kidmais_production', aprovado}], command: 'SELECT'}];
       }
       for (const [, arq] of g.MIGRATIONS[id].arquivos) assert.notEqual(sql, lf(arq), 'o arquivo com a própria moldura nunca é enviado');
@@ -79,8 +79,8 @@ const conferir = id => ['--conferir', id];
 const aplicar = id => ['--aplicar-autorizado', id, '--backup', BACKUP];
 const marcador = (dir, id) => JSON.parse(fs.readFileSync(path.join(dir, g.marcadorDe(id)), 'utf8'));
 
-test('lista fechada: só 120, 121, 110, 111 e 115, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
-  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115']);
+test('lista fechada: só 120, 121, 110, 111, 115 e 123, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
+  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123']);
   assert.deepEqual(Object.keys(g.MIGRATIONS).sort(), [...g.IDS].sort());
   for (const id of g.IDS) {
     const d = g.MIGRATIONS[id];
@@ -116,7 +116,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, false))), ['precheck', 'migration', 'postcheck']);
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, true))), ['postcheck']);
   }
-  for (const id of ['120', '121', '110', '111']) {
+  for (const id of ['120', '121', '110', '111', '123']) {
     const s = g.lerEstado(id, linhaEstado(id, i => i === 0));
     assert.equal(s.situacao, 'parcial'); assert.equal(s.divergencias.length, g.MIGRATIONS[id].criados.length - 1);
     assert.throws(() => g.planoEtapas(id, s), new RegExp(`APLICACAO_PARCIAL_${id} falta `));
@@ -124,7 +124,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
   // 115: índice novo ausente = ausente (com ou sem o da 054); novo presente e o da 054 ainda presente = intermediário
   // aplicável (a subida é idempotente e o precheck decide); novo presente sem o da 054 = presente.
   assert.equal(g.MIGRATIONS['115'].idempotente, true);
-  for (const id of ['120', '121', '110', '111']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
+  for (const id of ['120', '121', '110', '111', '123']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
   assert.equal(g.lerEstado('115', {c0: false, r0: true}).situacao, 'ausente'); assert.equal(g.lerEstado('115', {c0: false, r0: false}).situacao, 'ausente');
   const meio = g.lerEstado('115', {c0: true, r0: true});
   assert.equal(meio.situacao, 'parcial'); assert.deepEqual(meio.divergencias, ['sobra fechamentos_054_empresa_idx']);
@@ -148,9 +148,9 @@ test('molduras: migration sem o BEGIN e sem o COMMIT do arquivo; checks sem a pr
     }
     assert.deepEqual(g.carregar(raiz, id), {precheck: g.corpoCheck(lf(arquivo(id, 'precheck')), 'p'), migration: c, postcheck: g.corpoCheck(lf(arquivo(id, 'postcheck')), 'p')});
   }
-  // Postchecks sem moldura (110, 111 e 115) vão inteiros; os com moldura (120 e 121) terminam na linha `aprovado`.
+  // Postchecks sem moldura (110, 111 e 115) vão inteiros; os com moldura (120, 121 e 123) terminam na linha `aprovado`.
   for (const id of ['110', '111', '115']) assert.equal(g.corpoCheck(lf(arquivo(id, 'postcheck')), 'p'), lf(arquivo(id, 'postcheck')));
-  for (const id of ['120', '121']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
+  for (const id of ['120', '121', '123']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
   const m = lf(arquivo('120', 'migration'));
   for (const ruim of [m + 'COMMIT;\n', m.replace('BEGIN;\n', ''), m.replace('BEGIN;\n', 'BEGIN;\nBEGIN;\n'), m + '-- x\n', 'SELECT 1;\n' + m, m.replace('COMMIT;\n', 'ROLLBACK;\nCOMMIT;\n'), m.replace('BEGIN;\n', 'BEGIN;\nSAVEPOINT a;\n')])
     assert.throws(() => g.corpoMigration(ruim, 'x'), /TRANSACAO_INESPERADA/);
@@ -193,7 +193,7 @@ test('alvo e identidade de produção iguais aos do molde, com a rigidez dos ada
 });
 
 for (const id of g.IDS) {
-  const comAprovado = ['120', '121'].includes(id) ? true : undefined;
+  const comAprovado = ['120', '121', '123'].includes(id) ? true : undefined;
 
   test(`${id}: conferência só leitura, nada no disco: ausente = precheck e PRONTA_PARA_APLICAR; presente = postcheck e JA_APLICADA; identidade errada = FALHA`, async () => {
     const gravacoes = [], orig = {w: fs.writeFileSync, m: fs.mkdirSync};

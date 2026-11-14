@@ -1,0 +1,119 @@
+/* Área "Minha festa": mesmo fundo claro das páginas públicas /b/<código>, cartão único centralizado. */
+.page {
+  min-height: 100vh;
+  background: radial-gradient(ellipse at 5% 20%, #ede8fb, transparent 42%),
+    radial-gradient(ellipse at 100% 65%, #fff0e1, transparent 40%), #f7f8fc;
+  color: #111a3a;
+}
+
+.shell {
+  width: min(560px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 56px;
+}
+
+.cartao {
+  margin-top: 40px;
+  padding: 28px 24px;
+  border: 1px solid #e3e8f4;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .86);
+  box-shadow: 0 18px 48px rgba(17, 26, 58, .08);
+}
+
+.titulo {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 850;
+}
+
+.texto {
+  margin: 0 0 20px;
+  color: #4e5b78;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #34405e;
+}
+
+.campo input {
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #cfd8ea;
+  border-radius: 12px;
+  background: #fff;
+  color: #111a3a;
+  font-size: 16px;
+}
+
+.ajuda {
+  font-weight: 500;
+  color: #71809f;
+}
+
+.lembrar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  color: #34405e;
+}
+
+.botao {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: #6b4de6;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.botao:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.secundario {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  border: 1px solid #cfd8ea;
+  border-radius: 12px;
+  background: transparent;
+  color: #34405e;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.erro {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff3e8;
+  color: #9a4b0f;
+  font-size: 14px;
+}
+
+.vazio {
+  margin: 0 0 24px;
+  padding: 20px;
+  border: 1px dashed #d4dcef;
+  border-radius: 14px;
+  color: #61708f;
+  font-size: 14px;
+  text-align: center;
+}

@@ -78,7 +78,9 @@ const valoresDeEnsaio = copia => (copia ? [...VALORES_DE_ENSAIO.slice(0, -1), VA
 const naoExercido = copia => (copia ? [...NAO_EXERCIDO, NAO_EXERCIDO_RETRATO_DA_COPIA] : NAO_EXERCIDO);
 /** Núcleos aceitos (lista fechada): passo cujo aplicador não esteja aqui PARA antes de rodar. Extras = os do adaptador de production. */
 const NUCLEOS = Object.freeze({'089': {}, '090': {}, '091': {}, '092-094': {escopos: ['092-093', '094']}, '095': {}, '096': {}, '097': {}, '100': {},
-  '102-103': {}, '104-106': {}, '107-108': {aceitaRetratosTeste: false}, '109': {}, '112': {}, '114': {}, '116': {}, '117': {}, '118': {}});
+  '102-103': {}, '104-106': {}, '107-108': {aceitaRetratosTeste: false}, '109': {}, '112': {}, '114': {}, '116': {}, '117': {}, '118': {},
+  // 122 (Funil, depois da 123): aplicador próprio com o mesmo contrato de ambiente (alvo, identidade, DIR, exigirDisco).
+  '122': {}});
 /** Tabelas contadas ANTES e DEPOIS (só as que existirem; lista fixa, nomes do próprio schema). */
 const TABELAS_PRINCIPAIS = Object.freeze(['empresas', 'estabelecimentos', 'usuarios_administrativos', 'clientes', 'pacotes', 'precos_pacote', 'fechamentos',
   'fechamento_revisoes', 'contratos', 'contrato_fluxos', 'configuracao_agenda', 'bloqueios_agenda', 'agenda_saloes', 'agenda_escopo_config',

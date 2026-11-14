@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell de PRODUÇÃO da promoção de 12/11/2026 para os passos 112, 114, 116, 117 (adaptadores próprios) e 120, 121,
-// 110, 111 e 115 (aplicador genérico), no desenho dos blocos de staging dessas migrations (scripts/bloco-shell-112.cjs e
+// Blocos de Shell de PRODUÇÃO da promoção de 12/11/2026 para os passos 112, 114, 116, 117 e 122 (adaptadores próprios) e 120, 121,
+// 110, 111, 115 e 123 (aplicador genérico), no desenho dos blocos de staging dessas migrations (scripts/bloco-shell-112.cjs e
 // vizinhos, que ficam intactos) e do bloco de produção da 100: bind antes da guarda, guarda de RENDER_SERVICE_ID antes de
 // ler qualquer arquivo, corpo em subshell, sha256 de cada arquivo IMPLANTADO, CODIGO_SAIDA_BLOCO=<n> no fim (0/1/2/3 do
 // aplicador; 4 = recusa do próprio bloco). O bloco NÃO transporta nem grava arquivos: a árvore implantada já traz o
@@ -8,7 +8,7 @@
 //   - APLICAR exige KIDMAIS_REGISTRO_BACKUP definida no shell ANTES de colar, numa linha só: referência e horário do dump
 //     conferido e do PITR (export funcional não substitui).
 // O bloco gerado é ASCII puro e tem no máximo 32 KB. Este gerador só lê arquivos e escreve o bloco; não conecta.
-//   node scripts/bloco-shell-promocao-production.cjs <112|114|116|117|120|121|110|111|115> <CONFERIR|APLICAR> <rotulo-da-arvore>
+//   node scripts/bloco-shell-promocao-production.cjs <112|114|116|117|120|121|110|111|115|123|122> <CONFERIR|APLICAR> <rotulo-da-arvore>
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -62,9 +62,13 @@ const PASSOS = Object.freeze({
   '110': pelGenerico('110', 'objetos da pesquisa de satisfacao'),
   '111': pelGenerico('111', 'links de avaliacao e auditoria da pesquisa de satisfacao'),
   '115': pelGenerico('115', 'indice (empresa_id, data_evento) em fechamentos no lugar do indice da 054; bloqueia escritas em fechamentos enquanto cria'),
+  '122': proprio('122', {registro: 'data/oportunidades-122-producao', extras: ['scripts/migration-118-comum.cjs', 'scripts/migration-122-hashes.json'],
+    conferir: ['(identidade, privilegios, os 5 objetos da 122 no catalogo e, READ ONLY, o precheck ou o postcheck). Nada e gravado.'],
+    aplicar: ['(uma transacao: colunas de perda e responsavel, 3 tabelas do funil, gatilhos em fechamentos e postcheck antes do COMMIT;', 'marketing_contatos e fechamentos ficam travadas por instantes).']}),
+  '123': pelGenerico('123', 'tabelas, colunas e gatilhos da area da familia (Minha festa); trava por instantes clientes, contratos e validacoes_identidade_cliente'),
 });
 /** Na ordem da cadeia (Object.keys ordenaria as chaves numéricas). */
-const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115']);
+const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122']);
 const passo = id => { assert.ok(typeof id === 'string' && Object.hasOwn(PASSOS, id), 'PASSO_DESCONHECIDO'); return PASSOS[id]; };
 
 const sha = b => createHash('sha256').update(b).digest('hex');

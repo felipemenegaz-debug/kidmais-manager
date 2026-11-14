@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
+import { EstadoCarga, enviarMarketing, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
 type Pessoa = { membershipId: string; nome: string; email: string; gestao: boolean; concessoes: Array<{ id: string; capacidade: string; concedidoEm: string; motivo: string }> };
@@ -21,16 +21,16 @@ export default function MarketingPermissoes() {
       if (dados) setDados({ ...dados, equipe: r.equipe });
     } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
   }
-  return <main className={styles.pagina}>
-    <CabecalhoMarketing titulo="Permissões de Marketing" descricao="A Gestão tem todas as permissões. Libere para a Equipe só o necessário: ver, editar campanhas, editar ou publicar o site, domínio e automações." />
+  return <section className={styles.pagina} aria-labelledby="acessos-marketing">
+    <header className={styles.topo}><div><h2 id="acessos-marketing">Acessos de Marketing</h2><p>A Gestão tem todos os acessos. Libere para a equipe apenas o que ela precisa usar.</p></div></header>
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {erro && <p className={styles.aviso} role="alert">{erro}</p>}
-    {dados && <section className={styles.cartao}><div className={styles.tabelaWrap}><table className={styles.tabela}>
+    {dados && <section className={styles.cartao}><div className={`${styles.tabelaWrap} ${styles.responsiva}`}><table className={`${styles.tabela} ${styles.tabelaAcessos}`}>
       <thead><tr><th>Pessoa</th>{dados.capacidades.map((c) => <th key={c.codigo}>{c.rotulo}</th>)}</tr></thead>
       <tbody>{dados.equipe.map((p) => <tr key={p.membershipId}><td>{p.nome}<br /><span className={styles.muted}>{p.email}</span></td>
         {dados.capacidades.map((c) => <td key={c.codigo}>{p.gestao ? <span className={styles.seloAtivo}>Gestão</span>
           : <label className={styles.check}><input type="checkbox" checked={p.concessoes.some((x) => x.capacidade === c.codigo)} onChange={() => void alternar(p, c.codigo)} /><span className={styles.srOnly}>{c.rotulo} para {p.nome}</span></label>}</td>)}
       </tr>)}</tbody>
-    </table></div></section>}
-  </main>;
+    </table></div><div className={styles.cards}>{dados.equipe.map(p=><article className={styles.card} key={p.membershipId}><strong>{p.nome}</strong><p>{p.email}</p>{p.gestao?<p>Gestão: todos os acessos.</p>:dados.capacidades.map(c=><label className={styles.check} key={c.codigo}><input type="checkbox" checked={p.concessoes.some(x=>x.capacidade===c.codigo)} onChange={()=>void alternar(p,c.codigo)}/>{c.rotulo}</label>)}</article>)}</div></section>}
+  </section>;
 }

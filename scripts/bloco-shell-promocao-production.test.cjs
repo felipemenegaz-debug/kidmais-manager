@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Blocos de Shell de PRODUÇÃO da promoção (112, 114, 116, 117 e, pelo aplicador genérico, 120, 121, 110, 111 e 115)
+// Blocos de Shell de PRODUÇÃO da promoção (112, 114, 116, 117 e, pelo aplicador genérico, 120, 121, 110, 111, 115 e 123)
 // executados DE VERDADE com bash num destino temporário (só o destino difere do Render; o comando do aplicador é o real —
 // recusando antes de conectar, sem RENDER/DATABASE_URL — ou um substituto que só devolve um código). Inclui COLAGEM
 // INTERATIVA (bash -i), como no Web Shell. Não toca banco nem /opt/render. Mesmo roteiro de scripts/bloco-shell-112.test.cjs.
@@ -11,7 +11,11 @@ const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n
 const sha = s => createHash('sha256').update(s).digest('hex');
 const posix = p => p.replace(/\\/g, '/');
 const SERVICO = 'srv-dak77m2d0e5s73b8rkkg';
-const PROPRIOS = ['114', '112', '116', '117'], GENERICOS = ['120', '121', '110', '111', '115'];
+const PROPRIOS = ['114', '112', '116', '117', '122'], GENERICOS = ['120', '121', '110', '111', '115', '123'];
+/** Ordem da cadeia: a 122 (adaptador próprio) vem depois da 123 (genérico). */
+const ORDEM_IDS = ['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122'];
+/** Arquivos extras que o adaptador carrega além do núcleo, da 092–094 e da conexão. */
+const EXTRAS = {'114': ['lib/agenda/trava-configuracao.ts'], '122': ['scripts/migration-118-comum.cjs', 'scripts/migration-122-hashes.json']};
 const BACKUP = 'dump 2026-11-12T03:00Z sha 1234abcd PITR';
 
 /** Destino com os arquivos implantados (LF) e, opcionalmente, node_modules do repositório (junção) para o aplicador real. */
@@ -39,12 +43,12 @@ const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('passos cobertos e arquivos conferidos: adaptador de produção + núcleo + conexão de produção + SQL revisados; o genérico com os 3 SQL do id', () => {
-  assert.deepEqual([...b.IDS], [...PROPRIOS, ...GENERICOS]); assert.deepEqual(Object.keys(b.PASSOS).sort(), [...b.IDS].sort());
+  assert.deepEqual([...b.IDS], ORDEM_IDS); assert.deepEqual([...b.IDS].sort(), [...PROPRIOS, ...GENERICOS].sort()); assert.deepEqual(Object.keys(b.PASSOS).sort(), [...b.IDS].sort());
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.SERVICO, SERVICO);
   for (const id of PROPRIOS) {
     const {ETAPAS} = require(`./migration-${id}-comum.cjs`);
     assert.deepEqual(b.arquivos(id), [`scripts/migration-${id}-production.cjs`, `scripts/migration-${id}-comum.cjs`, 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-production.cjs',
-      ...(id === '114' ? ['lib/agenda/trava-configuracao.ts'] : []), ...ETAPAS.map(e => e[1])]);
+      ...(EXTRAS[id] ?? []), ...ETAPAS.map(e => e[1])]);
     for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
     // O registro listado pelo bloco é o diretório do marcador do adaptador (disco persistente do web de produção).
     assert.equal(path.posix.join(b.DESTINO, b.PASSOS[id].registro), require(`./migration-${id}-production.cjs`).DIR);

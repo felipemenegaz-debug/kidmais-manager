@@ -52,7 +52,7 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
 test('menu: Configurações de empresa (inclusive o WhatsApp, 083, e Importar documentos) só com Gestão na empresa; o PDF de Pacotes saiu do menu', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/saloes', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/origens', '/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/saloes', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
     // 23/10/2026 (pedido de Felipe): o PDF de Pacotes saiu do menu e do hub; a tela e a API continuam (só plataforma).
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), []);
 });

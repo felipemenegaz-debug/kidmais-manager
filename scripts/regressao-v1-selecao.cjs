@@ -218,6 +218,9 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 30/10/2026: primeira negociação sem origem própria conta pela origem do cliente (painel e API), sem gravar nada.
   "lib/marketing/origem-negociacao.postgres.test.ts": { descartavel: "086" },
+  // Funil (122, 14/11/2026): a conversão automática também leva a próxima ação e o responsável; sem a 122 esses casos pulam.
+  "lib/marketing/conversao.postgres.test.ts": { descartavel: "086", tambem: ["122"] },
+  "lib/marketing/pedidos-acoes.postgres.test.ts": { descartavel: "086" },
   // Pesquisa de satisfação (110, PS-1, 30/10/2026): esquema, serviço público, supressões, frequência e bloqueio do
   // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).
   "lib/satisfacao/satisfacao.postgres.test.ts": { descartavel: "110" },
@@ -294,6 +297,8 @@ const ESTADO_POSTGRES = {
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   // 12/11/2026 (LOCAL): reserva por e-mail do código OTP contra as CHECKs da 008/010 (sem migration), corridas reais do botão.
   "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
+  // 14/11/2026 (LOCAL): área "Minha festa" F1 (123): entrada, recusas, limites, sair, painel do buffet e travas do banco.
+  "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },

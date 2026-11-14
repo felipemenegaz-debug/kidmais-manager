@@ -344,6 +344,12 @@ export const ENTIDADES: readonly Entidade[] = BASE.map((e) => ({ ...e, excluir: 
 export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     auditoria: 'Auditoria geral da plataforma (segurança e prova de operações, com IP); atendida por pedido específico.',
     sessoes_administrativas: 'Sessões de login: credenciais (hashes de token) e dados de segurança.',
+    // 123 (área Minha festa, F1, 14/11/2026): acesso da família. Decisão provisória da F1, a rever com o Astra (pessoas e eventos podem entrar no pacote).
+    festa_links_area: 'Área da família: links de acesso (hash do token, prazo e revogação); credencial, não dado da festa.',
+    area_familia_sessoes: 'Área da família: sessões de login (hash do cookie, aparelho); mesmo critério das sessões administrativas.',
+    limites_contadores: 'Contadores técnicos de limite por origem (chaves HMAC, janela); não é dado da empresa.',
+    festa_pessoas: 'Área da família: quem tem acesso à festa (contratante e segundo responsável, com WhatsApp e HMAC do CPF); controle de acesso.',
+    area_familia_eventos: 'Área da família: registro de segurança das entradas, links e desconexões; atendido por pedido específico.',
     // 107 (reparo da deriva da agenda): registro técnico global da migration, sem dado de empresa.
     // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
     satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',

@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import {linkChamar} from '@/lib/marketing/acoes-ui';
 import { useState, type ReactNode } from 'react';
 import type { Regra, TipoRegra } from '@/lib/marketing/automacoes/regras';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
@@ -18,7 +19,7 @@ type Catalogo = Record<TipoRegra, { nome: string; gatilho: string; condicoes: st
 type Execucao = { id: string; regra_tipo: TipoRegra; acao: string; estado: string; agendada_para: string; tentativas: number; motivo: string | null; cliente_id: string; cliente_nome: string;
   destinatario_mascarado: string | null; conteudo: string | null; atualizado_em: string };
 type Dados = {
-  regras: Regra[]; catalogo: Catalogo; execucoes: Execucao[]; tarefas: Array<{ id: string; titulo: string; descricao: string | null; vencimento: string; cliente_id: string }>;
+  regras: Regra[]; catalogo: Catalogo; execucoes: Execucao[]; tarefas: Array<{ id: string; titulo: string; descricao: string | null; vencimento: string; cliente_id: string; cliente_nome:string; telefone:string|null }>;
   caixaSimulada: Array<{ id: string; destinatario_mascarado: string; template_provedor: string; texto: string; status: string; aceito_em: string }>;
   caixaEmail?: Array<{ id: string; para_mascarado: string; assunto: string; texto: string; aceito_em: string }>;
   datasVagas: SugestaoDatas; ambiente: { processamentoLigado: boolean; transporte: string; pesquisa?: AmbientePesquisa }; unidades: Array<{ id: string; nome: string }>; capacidades: string[];
@@ -35,7 +36,6 @@ const OPCAO_ACAO: Record<string, { titulo: string; texto: string }> = {
   PESQUISA_SATISFACAO: { titulo: 'Enviar pesquisa de satisfação', texto: 'Nota de 0 a 10, três aspectos e um comentário. Por WhatsApp autorizado e/ou e-mail do cadastro, com um lembrete. Neste ambiente o envio é simulado.' },
 };
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-const STATUS: Record<Regra['status'], string> = { NAO_CONFIGURADA: 'Não configurada', RASCUNHO: 'Rascunho', ATIVA: 'Ativa', PAUSADA: 'Pausada' };
 const seloEstado = (e: string) => (['FALHOU', 'INCERTA'].includes(e) ? styles.seloAlerta : ['ENTREGUE', 'TAREFA_CRIADA', 'PESQUISA_CRIADA', 'ACEITA'].includes(e) ? styles.seloAtivo : styles.selo);
 
 export default function MarketingAutomacoes() {
@@ -53,7 +53,37 @@ export default function MarketingAutomacoes() {
     finally { setOcupado(false); }
   }
   return <main className={styles.pagina}>
-    <CabecalhoMarketing titulo="Automações" descricao="Regras prontas de acompanhamento: quando algo acontece, depois do prazo, o sistema cria uma tarefa para a equipe ou envia uma mensagem a quem autorizou." />
+    <CabecalhoMarketing titulo="Acompanhamento" descricao="Veja os retornos para fazer e ajuste as regras de acompanhamento. As mensagens deste ambiente são simuladas; as regras dependem do processamento." />
+    {dados && !pode && <p className={styles.info}>Seu acesso permite só visualizar as automações. Editar, ativar, pausar e processar dependem da permissão “Automações” (Marketing → Permissões).</p>}
+    {dados && dados.unidades.length > 0 && <div className={styles.filtros}><label>Regras da<select value={unidadeId} onChange={(e) => { setRetorno(null); setUnidadeId(e.target.value); }}><option value="">Empresa (todas as unidades)</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
+      <span className={styles.muted}>Regras da empresa e de cada unidade são independentes.</span></div>}
+    <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
+    {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
+    {dados && <>
+      <section className={styles.cartao} aria-labelledby="t-tarefas">
+        <h2 id="t-tarefas">Para fazer hoje ({dados.tarefas.length})</h2>
+        <p className={styles.muted}>Criadas pelas regras com a ação “tarefa”. Não dependem de autorização de mensagens.</p>
+        {dados.tarefas.length === 0 ? <p className={styles.vazio}>Nenhuma tarefa aberta.</p> : <ul className={styles.historico}>{dados.tarefas.map((t) => <li key={t.id} className={styles.tarefa}>
+          <div className={styles.tarefaTexto}>
+          <strong>{t.titulo}</strong> · vence {dataBr(t.vencimento)}{t.descricao ? ` · ${t.descricao}` : ''} · <Link href={`/clientes/${t.cliente_id}`}>cliente</Link>
+          </div><div className={styles.tarefaAcoes}>
+          {linkChamar(t.telefone,t.cliente_nome,'Olá, '+t.cliente_nome+'! Gostaria de conversar sobre sua festa. '+(t.descricao??'')) && <a href={linkChamar(t.telefone,t.cliente_nome,'Olá, '+t.cliente_nome+'! Gostaria de conversar sobre sua festa. '+(t.descricao??''))!} target="_blank" rel="noopener noreferrer" className={styles.secundario}>Chamar</a>}
+          {pode && <> <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'concluir-tarefa', tarefaId: t.id }, () => 'Tarefa concluída.')}>Feito</button>
+            <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'concluir-tarefa', tarefaId: t.id, cancelar: true }, () => 'Tarefa cancelada.')}>Cancelar</button></>}
+          </div>
+        </li>)}</ul>}
+      </section>
+      {dados.regras.filter(r=>r.tipo!=='DATAS_VAGAS').map((r) => <CartaoRegra key={`${unidadeId}:${r.tipo}:${r.versao}`} regra={r} catalogo={dados.catalogo[r.tipo]} pode={pode} unidadeId={unidadeId || null}
+        pesquisa={dados.ambiente.pesquisa ?? null}
+        datasVagas={r.tipo === 'DATAS_VAGAS' ? dados.datasVagas : null} retorno={retorno?.chave === `${unidadeId}:${r.tipo}` ? retorno : null}
+        aoMudar={(ret, salva) => {
+          setAviso({ tipo: ret.tipo === 'alerta' ? 'erro' : 'ok', texto: ret.texto }); setRetorno({ ...ret, chave: `${unidadeId}:${r.tipo}` });
+          // Selo e resumo já com a regra devolvida pelo servidor (mesma unidade), sem esperar a releitura.
+          if (salva) setDados((d) => ({ ...d, regras: d.regras.map((x) => (x.tipo === salva.tipo && x.unidadeId === salva.unidadeId ? salva : x)) }));
+          recarregar();
+        }} aoErro={(texto) => { setRetorno(null); setAviso({ tipo: 'erro', texto }); }} />)}
+      {dados.ambiente.pesquisa?.disponivel && <AtalhoRetornos />}
+      <details className={styles.definicoes}><summary>Detalhes técnicos</summary>
     {dados && <div className={au.ambiente} role="note">
       <strong>Mensagens simuladas neste servidor.</strong>
       <span>Nenhuma mensagem real sai deste servidor: o transporte é <span className={styles.seloSimulado}>{dados.ambiente.transporte}</span> e tudo vai para a “Caixa de saída simulada” abaixo.</span>
@@ -65,31 +95,6 @@ export default function MarketingAutomacoes() {
         <button type="button" className={styles.perigo} disabled={ocupado} onClick={() => { if (window.confirm('Parar todas as automações desta empresa? Regras ativas são pausadas e o que estava agendado é cancelado.')) void acao({ acao: 'parar-tudo' }, (r) => `${String(r.regrasPausadas)} regra(s) pausada(s); ${String(r.canceladas)} execução(ões) cancelada(s).`); }}>Parar tudo</button>
       </div>}
     </div>}
-    {dados && !pode && <p className={styles.info}>Seu acesso permite só visualizar as automações. Editar, ativar, pausar e processar dependem da permissão “Automações” (Marketing → Permissões).</p>}
-    {dados && dados.unidades.length > 0 && <div className={styles.filtros}><label>Regras da<select value={unidadeId} onChange={(e) => { setRetorno(null); setUnidadeId(e.target.value); }}><option value="">Empresa (todas as unidades)</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
-      <span className={styles.muted}>Regras da empresa e de cada unidade são independentes.</span></div>}
-    <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
-    {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
-    {dados && <>
-      {dados.regras.map((r) => <CartaoRegra key={`${unidadeId}:${r.tipo}:${r.versao}`} regra={r} catalogo={dados.catalogo[r.tipo]} pode={pode} unidadeId={unidadeId || null}
-        pesquisa={dados.ambiente.pesquisa ?? null}
-        datasVagas={r.tipo === 'DATAS_VAGAS' ? dados.datasVagas : null} retorno={retorno?.chave === `${unidadeId}:${r.tipo}` ? retorno : null}
-        aoMudar={(ret, salva) => {
-          setAviso({ tipo: ret.tipo === 'alerta' ? 'erro' : 'ok', texto: ret.texto }); setRetorno({ ...ret, chave: `${unidadeId}:${r.tipo}` });
-          // Selo e resumo já com a regra devolvida pelo servidor (mesma unidade), sem esperar a releitura.
-          if (salva) setDados((d) => ({ ...d, regras: d.regras.map((x) => (x.tipo === salva.tipo && x.unidadeId === salva.unidadeId ? salva : x)) }));
-          recarregar();
-        }} aoErro={(texto) => { setRetorno(null); setAviso({ tipo: 'erro', texto }); }} />)}
-      {dados.ambiente.pesquisa?.disponivel && <AtalhoRetornos />}
-      <section className={styles.cartao} aria-labelledby="t-tarefas">
-        <h2 id="t-tarefas">Tarefas abertas ({dados.tarefas.length})</h2>
-        <p className={styles.muted}>Criadas pelas regras com a ação “tarefa”. Não dependem de autorização de mensagens.</p>
-        {dados.tarefas.length === 0 ? <p className={styles.vazio}>Nenhuma tarefa aberta.</p> : <ul className={styles.historico}>{dados.tarefas.map((t) => <li key={t.id}>
-          <strong>{t.titulo}</strong> · vence {dataBr(t.vencimento)}{t.descricao ? ` · ${t.descricao}` : ''} · <Link href={`/clientes/${t.cliente_id}`}>cliente</Link>
-          {pode && <> <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'concluir-tarefa', tarefaId: t.id }, () => 'Tarefa concluída.')}>Concluir</button>
-            <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'concluir-tarefa', tarefaId: t.id, cancelar: true }, () => 'Tarefa cancelada.')}>Cancelar</button></>}
-        </li>)}</ul>}
-      </section>
       <Historico execucoes={dados.execucoes} catalogo={dados.catalogo} pode={pode} ocupado={ocupado} acao={acao} />
       <section className={styles.cartao} aria-labelledby="t-saida">
         <h2 id="t-saida">Caixa de saída simulada <span className={styles.seloSimulado}>nada foi enviado</span></h2>
@@ -103,7 +108,8 @@ export default function MarketingAutomacoes() {
         {(dados.caixaEmail ?? []).length === 0 ? <p className={styles.vazio}>Vazia.</p> : <ul className={styles.historico}>{dados.caixaEmail!.map((m) => <li key={m.id}>
           {dataHoraBr(m.aceito_em)} · {m.para_mascarado} · <strong>{m.assunto}</strong><br /><span style={{ whiteSpace: 'pre-line' }}>{m.texto}</span></li>)}</ul>}
       </section>}
-      <Preferencias pode={pode} />
+      </details>
+      <details className={styles.definicoes}><summary>Autorizações de contato</summary><Preferencias pode={pode} /></details>
     </>}
   </main>;
 }
@@ -143,6 +149,7 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
   aoMudar: (r: Retorno, salva?: Regra) => void; aoErro: (t: string) => void;
 }) {
   const [f, setF] = useState(regra);
+  const [ajustando,setAjustando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [simulacao, setSimulacao] = useState<Simulacao | null>(null);
   const sujo = JSON.stringify(f) !== JSON.stringify(regra);
@@ -199,12 +206,14 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
   }
   const acoesVisiveis = catalogo.acoes.filter((a) => a !== 'PESQUISA_SATISFACAO' || pesquisa?.disponivel || regra.acao === a);
   return <section className={styles.cartao} aria-label={catalogo.nome}>
-    <h2>{catalogo.nome} <span className={statusClasse}>{STATUS[regra.status]}</span>{sujo && <> <span className={styles.seloAlerta}>alterações não salvas</span></>}</h2>
-    <p className={au.resumo}><strong>Resumo:</strong> {resumoRegra(f)}</p>
-    <ol className={au.passos}>
+    <div className={styles.topo}><h2>{catalogo.nome} <span className={statusClasse}>{regra.status==='ATIVA'?'Ligada':'Desligada'}</span>{sujo && <span className={styles.seloAlerta}>alterações não salvas</span>}</h2>
+      <div className={styles.acoes}>{pode && regra.id && <button type="button" className={styles.secundario} disabled={ocupado||sujo} onClick={()=>void enviar({acao:regra.status==='ATIVA'?'pausar':'ativar',regraId:regra.id,versao:regra.versao},regra.status==='ATIVA'?'Regra desligada.':'Regra ligada; depende dos ciclos de processamento.')}>{regra.status==='ATIVA'?'Desligar':'Ligar'}</button>}
+      <button type="button" className={styles.secundario} aria-expanded={ajustando} onClick={()=>setAjustando(!ajustando)}>{ajustando?'Recolher':'Ajustar'}</button></div></div>
+    <p className={au.resumo}>{regra.tipo === 'PROPOSTA_PARADA' ? `Proposta parada há ${regra.esperaDias} dias` : regra.tipo === 'POS_FESTA' ? `${regra.esperaDias} ${regra.esperaDias === 1 ? 'dia' : 'dias'} após a festa` : `${regra.esperaDias} dias antes de completar um ano da festa`} → {regra.acao === 'TAREFA_INTERNA' ? 'criar tarefa' : regra.acao === 'PESQUISA_SATISFACAO' ? 'enviar pesquisa (simulada)' : 'mensagem (simulada)'}</p>
+    <div hidden={!ajustando}><p className={au.resumo}>{resumoRegra(f)}</p><ol className={au.passos}>
       <Passo n={1} titulo="Quando acontecer">
         <p>{quandoAcontece(f)}.</p>
-        <p className={styles.muted}>Quem: {catalogo.publico} Se a situação mudar antes da hora (ex.: o contrato foi assinado), nada acontece.</p>
+        <p className={styles.muted}>Quem: {catalogo.publico} {regra.tipo==='PROPOSTA_PARADA'?'Se a proposta deixar de estar parada antes do prazo, nada acontece.':regra.tipo==='POS_FESTA'?'Só acompanha festas realizadas e que continuam elegíveis no momento do processamento.':'A oportunidade é conferida novamente antes de criar o retorno.'}</p>
       </Passo>
       <Passo n={2} titulo="Prazo">
         <label className={styles.campo}>{ROTULO_PRAZO[regra.tipo]}<input disabled={!pode} type="number" min={0} max={400} value={f.esperaDias} onChange={(e) => setF({ ...f, esperaDias: Number(e.target.value) })} /></label>
@@ -284,7 +293,7 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
         {!regra.id && <p className={styles.muted}>Ainda não configurada: salve para poder simular e ativar.</p>}
         {retorno && <p className={retorno.tipo === 'alerta' ? styles.aviso : styles.info} role="status">{retorno.texto}</p>}
       </Passo>
-    </ol>
+    </ol></div>
     {simulacao && <div className={styles.info} role="status">
       <strong>Simulação com a versão salva — nada foi gravado nem enviado.</strong>
       <p style={{ margin: '4px 0' }}>{simulacao.total} cliente(s) atendem à condição agora{simulacao.total > simulacao.alvos.length ? `; mostrando os primeiros ${simulacao.alvos.length} (amostra limitada a ${LIMITE_SIMULACAO})` : ''}.</p>

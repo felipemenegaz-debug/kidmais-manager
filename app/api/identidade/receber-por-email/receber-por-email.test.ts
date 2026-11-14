@@ -39,7 +39,7 @@ function carregar(file: URL, dependencies: Record<string, unknown>, logs: unknow
 const pedido = (body: string, url = "https://local.example/api/identidade/receber-por-email?empresa=buffet") =>
   new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
 
-function rotaIdentidade(opcoes: { limite?: Response | null; erro?: ErroIdentidade } = {}) {
+function rotaIdentidade(opcoes: { limite?: Response | null; limiteBanco?: Response | null; erro?: ErroIdentidade } = {}) {
   const logs: unknown[][] = [];
   const chamadas: unknown[] = [];
   const sender = async () => {};
@@ -61,6 +61,8 @@ function rotaIdentidade(opcoes: { limite?: Response | null; erro?: ErroIdentidad
       },
     },
     "@/lib/http/limite-publico": { limitarPublico: async () => opcoes.limite ?? null },
+    "@/lib/area-familia/limites": { LIMITES: { RESERVA_EMAIL_ORIGEM: {}, CONTRATO_PUBLICO_ORIGEM: {} } },
+    "@/lib/area-familia/http": { limitarRotaPublicaNoBanco: async () => opcoes.limiteBanco ?? null },
   }, logs);
   return { post: route.POST as (r: Request) => Promise<Response>, logs, chamadas };
 }
@@ -96,6 +98,10 @@ test("fechamento: limite público e erros do serviço (aguarde/indisponível) co
   const limitado = rotaIdentidade({ limite: new Response("{}", { status: 429 }) });
   assert.equal((await limitado.post(pedido(JSON.stringify({ validacaoId })))).status, 429);
   assert.deepEqual(limitado.chamadas, []);
+  // 123: o limite no banco (entre réplicas) também barra antes do serviço; falha do banco vira 503.
+  const noBanco = rotaIdentidade({ limiteBanco: new Response("{}", { status: 503 }) });
+  assert.equal((await noBanco.post(pedido(JSON.stringify({ validacaoId })))).status, 503);
+  assert.deepEqual(noBanco.chamadas, []);
 
   const aguarde = rotaIdentidade({ erro: new ErroIdentidade("RESERVA_EMAIL_AGUARDE", 429, { liberaEm: "2026-11-12T12:01:00.000Z" }) });
   const r1 = await aguarde.post(pedido(JSON.stringify({ validacaoId })));
@@ -124,6 +130,8 @@ test("contrato: exige o acesso do desafio e devolve o novo acesso; limite e sche
     },
     "@/lib/identidade/delivery": { enviarOtpComAmbiente: sender },
     "@/lib/http/limite-publico": { limitarPublico: async () => null },
+    "@/lib/area-familia/limites": { LIMITES: { RESERVA_EMAIL_ORIGEM: {}, CONTRATO_PUBLICO_ORIGEM: {} } },
+    "@/lib/area-familia/http": { limitarRotaPublicaNoBanco: async () => null },
     "../../../route-utils": {
       contratoIdDaRota: async (c: { params: Promise<{ contratoId: string }> }) => (await c.params).contratoId,
       erroContratoPublico: () => noStoreContrato(new Response("{}", { status: 500 })),
