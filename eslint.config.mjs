@@ -17,6 +17,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts de evidência da revisão independente do Funil: bytes fixados
+    // em sha256.json do parecer; não podem receber eslint-disable.
+    "docs/evidencias/funil-extra-independente-20261114/*.cjs",
   ]),
 ]);
 
