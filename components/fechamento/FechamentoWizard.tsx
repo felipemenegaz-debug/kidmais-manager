@@ -20,7 +20,7 @@ import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
 import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
 import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
-import { rotuloCanal, textoEnvioCodigo, useReservaEmailLiberada, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
+import { rotuloCanal, textoBotaoReservaEmail, textoEnvioCodigo, useReservaEmailEspera, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
 import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
 import { focarPrimeiroErro, mapaErros, propsCampo, type ErroCampo } from "@/lib/ui/erros-formulario";
 
@@ -332,7 +332,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     useState<CanalIdentidadePublico["canal"] | "">("");
   const [validacaoId, setValidacaoId] = useState<string | null>(null);
   const [envioCodigo, setEnvioCodigo] = useState<EnvioCodigoPublico | null>(null);
-  const reservaEmailLiberada = useReservaEmailLiberada(
+  const { liberada: reservaEmailLiberada, segundosRestantes: reservaEmailSegundos } = useReservaEmailEspera(
     envioCodigo?.canal === "WHATSAPP" ? envioCodigo.reservaEmail?.liberaEm : null,
   );
   const [provaIdentidade, setProvaIdentidade] = useState<string | null>(null);
@@ -2636,9 +2636,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                         onClick={receberCodigoPorEmail}
                         disabled={processandoIdentidade || !reservaEmailLiberada}
                       >
-                        {reservaEmailLiberada
-                          ? `Não recebeu? Receber por e-mail (${envioCodigo.reservaEmail.destinoMascarado})`
-                          : "Não recebeu? Em instantes você poderá receber por e-mail"}
+                        {textoBotaoReservaEmail(reservaEmailLiberada, reservaEmailSegundos, envioCodigo.reservaEmail.destinoMascarado)}
                       </button>
                     )}
                   </div>
