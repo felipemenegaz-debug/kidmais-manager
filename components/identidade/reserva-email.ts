@@ -26,17 +26,53 @@ export function textoEnvioCodigo(envio: EnvioCodigoPublico | null) {
   return `Informe o código de 6 dígitos enviado pelo WhatsApp para ${envio.destinoMascarado}.`;
 }
 
-/** true quando o botão "Receber por e-mail" pode ser usado (a espera mínima depois do WhatsApp já passou). */
-export function useReservaEmailLiberada(liberaEm: string | null | undefined) {
+/** Segundos que faltam até `alvoMs` (arredondados para cima; 0 quando já passou). */
+export function segundosAte(alvoMs: number, agoraMs: number) {
+  if (!Number.isFinite(alvoMs)) return 0;
+  return Math.max(0, Math.ceil((alvoMs - agoraMs) / 1000));
+}
+
+/** "0:45", "1:05". */
+export function formatarCronometro(segundos: number) {
+  const s = Math.max(0, Math.floor(segundos));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Texto do botão "Receber por e-mail". Enquanto a espera mínima do servidor não passou, mostra quanto falta
+ * (o botão continua desabilitado: o servidor recusaria com 429).
+ */
+export function textoBotaoReservaEmail(liberada: boolean, segundosRestantes: number, destinoMascarado: string) {
+  if (liberada) return `Não recebeu? Receber por e-mail (${destinoMascarado})`;
+  if (segundosRestantes > 0) return `Não recebeu? Receber por e-mail em ${formatarCronometro(segundosRestantes)}`;
+  return "Não recebeu? Em instantes você poderá receber por e-mail";
+}
+
+/**
+ * Espera do botão "Receber por e-mail": `liberada` quando a espera mínima depois do WhatsApp já passou e
+ * `segundosRestantes` para o cronômetro (atualizado a cada segundo enquanto falta tempo).
+ */
+export function useReservaEmailEspera(liberaEm: string | null | undefined) {
   const [agora, setAgora] = useState(() => Date.now());
   const alvo = liberaEm ? Date.parse(liberaEm) : Number.NaN;
 
   useEffect(() => {
     if (!Number.isFinite(alvo)) return;
-    const espera = Math.max(0, alvo - Date.now());
-    const timer = setTimeout(() => setAgora(Date.now()), espera + 250);
-    return () => clearTimeout(timer);
+    // Os callbacks só rodam depois que `intervalo` já existe.
+    const atualizar = () => {
+      const atual = Date.now();
+      setAgora(atual);
+      if (atual >= alvo) clearInterval(intervalo);
+    };
+    // Primeira leitura logo em seguida (o "agora" inicial pode ser da montagem da tela), depois a cada segundo.
+    const primeiro = setTimeout(atualizar, 0);
+    const intervalo = setInterval(atualizar, 1000);
+    return () => {
+      clearTimeout(primeiro);
+      clearInterval(intervalo);
+    };
   }, [alvo]);
 
-  return Number.isFinite(alvo) && agora >= alvo;
+  const liberada = Number.isFinite(alvo) && agora >= alvo;
+  return { liberada, segundosRestantes: liberada ? 0 : segundosAte(alvo, agora) };
 }

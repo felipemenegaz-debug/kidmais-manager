@@ -4,7 +4,7 @@ import Image from "next/image";
 import type { MarcaContrato } from "@/lib/contratos/marca-contrato";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ContratoPublico.module.css";
-import { rotuloCanal, textoEnvioCodigo, useReservaEmailLiberada, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
+import { rotuloCanal, textoBotaoReservaEmail, textoEnvioCodigo, useReservaEmailEspera, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
 
 type Canal = {
   canal: "WHATSAPP" | "SMS" | "EMAIL";
@@ -123,7 +123,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
   const [provaToken, setProvaToken] = useState<string | null>(null);
   const [acessoToken, setAcessoToken] = useState<string | null>(null);
   const [envio, setEnvio] = useState<EnvioCodigoPublico | null>(null);
-  const reservaLiberada = useReservaEmailLiberada(envio?.canal === "WHATSAPP" ? envio.reservaEmail?.liberaEm : null);
+  const { liberada: reservaLiberada, segundosRestantes: reservaSegundos } = useReservaEmailEspera(envio?.canal === "WHATSAPP" ? envio.reservaEmail?.liberaEm : null);
   const [contexto, setContexto] = useState<ContextoContrato | null>(null);
   const [resumoPdfUrl, setResumoPdfUrl] = useState<string | null>(null);
   const [contratoPdfUrl, setContratoPdfUrl] = useState<string | null>(null);
@@ -534,9 +534,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
                 {envio?.canal === "WHATSAPP" && envio.reservaEmail && (
                   <div className={styles.actions}>
                     <button className={styles.secondary} disabled={carregando || !reservaLiberada} onClick={receberPorEmail}>
-                      {reservaLiberada
-                        ? `Não recebeu? Receber por e-mail (${envio.reservaEmail.destinoMascarado})`
-                        : "Não recebeu? Em instantes você poderá receber por e-mail"}
+                      {textoBotaoReservaEmail(reservaLiberada, reservaSegundos, envio.reservaEmail.destinoMascarado)}
                     </button>
                   </div>
                 )}
