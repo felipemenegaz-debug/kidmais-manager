@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { carregarModulo } from "../acessos/teste-carregador.ts";
 import { areaFamiliaLigada, lerCorpoJson, origemPublicaValida, pepperIdentidade } from "./regras-http.ts";
 import {
   caminhoArea, cookieApagado, cookieDaSessao, documentoCanonico, FORMATO_TOKEN_AREA, gerarTokenArea, hashCodigoArea,
@@ -124,4 +125,25 @@ test("corpo: só JSON até 4 KB; outro tipo, grande demais ou inválido → null
   assert.equal(await lerCorpoJson(pedido({ "content-type": "application/x-www-form-urlencoded" }, "a=1")), null);
   assert.equal(await lerCorpoJson(pedido({ "content-type": "application/json" }, "{")), null);
   assert.equal(await lerCorpoJson(pedido({ "content-type": "application/json" }, JSON.stringify({ x: "a".repeat(5000) }))), null);
+});
+
+test("limite no banco sem a 123 (42P01): segue pelo limitador em memória; outro erro de banco continua recusando", async () => {
+  // Carregado com next/server dublado (o limitador em memória vive em lib/http/limite-publico.ts, que importa next/server).
+  const mod = carregarModulo("lib/area-familia/limites.ts", { "next/server": { NextResponse: {} } });
+  type Consumir = (conexao: unknown, regra: unknown, origem: string | null, escopo: string, pepper: string) => Promise<number | null>;
+  const consumirLimite = mod.consumirLimite as Consumir;
+  const LIMITES = mod.LIMITES as Record<string, unknown>;
+  const falha = (code: string) => ({
+    query: async () => { throw Object.assign(new Error("falha simulada"), { code }); },
+  });
+  const regra = LIMITES.RESERVA_EMAIL_ORIGEM;
+  // Rotas de contrato e identidade já LIVE chamam este limite: sem a tabela, não podem virar 503.
+  assert.equal(await consumirLimite(falha("42P01"), regra, "203.0.113.9", "teste-sem-123", "p".repeat(32)), null);
+  // O limitador em memória ainda barra o abuso (grupo IDENTIDADE) depois de muitas tentativas da mesma origem.
+  let barrou: number | null = null;
+  for (let i = 0; i < 200 && barrou === null; i++) {
+    barrou = await consumirLimite(falha("42P01"), regra, "203.0.113.10", "teste-sem-123", "p".repeat(32));
+  }
+  assert.ok(typeof barrou === "number" && barrou > 0);
+  await assert.rejects(consumirLimite(falha("57014"), regra, "203.0.113.11", "teste-sem-123", "p".repeat(32)), /falha simulada/);
 });
