@@ -6,6 +6,7 @@ de staging que traz `scripts/migration-123-staging.cjs`. Production fica para o 
 Regras:
 - um bloco por vez, colando a saída inteira no chat;
 - qualquer `codigo=` diferente de 0, ou sha256 que não confere: PARAR (não repetir, não seguir);
+- no bloco 1, as quatro linhas do sha256 precisam dizer `OK`; o CONFERIR só roda se os quatro conferirem (sem isso, `codigo=1`);
 - o APLICAR só com o parecer do Astra e o sim de Felipe;
 - nunca rodar o down (`database/rollback/`), nunca mudar env, nunca em production.
 
@@ -16,13 +17,12 @@ Saídas esperadas: `codigo=0` em todos os blocos; CONFERIR antes = `PRONTA_PARA_
 ## Bloco 1 — CONFERIR (somente leitura)
 
 ```bash
-cd /opt/render/project/src && echo "servico=$RENDER_SERVICE_ID ambiente=$KIDMAIS_DEPLOY_ENV commit=$RENDER_GIT_COMMIT" && sha256sum -c - <<'SHA'
+cd /opt/render/project/src && echo "servico=$RENDER_SERVICE_ID ambiente=$KIDMAIS_DEPLOY_ENV commit=$RENDER_GIT_COMMIT" && sha256sum -c - <<'SHA' && node scripts/migration-123-staging.cjs --conferir-123; echo "codigo=$?"
 a8b9e9963940c82340fa04406cbb42820063f303e69d599ffaa43345db5b38d6  scripts/migration-123-staging.cjs
 cdb1b9f4eaa044cb95081a1fc43611c7db9533784b0024fa291dc99269690bde  scripts/migration-generico-production.cjs
 ce3b584fd02209e9141390dab6610746e7768c4dab593b431e66bcbe38e2b83a  scripts/conexao-staging.cjs
 192aa80ed52fad017072d67d4bcbc3a73e96c875119e39c70c71b598ee4ca49a  scripts/migration-116-staging.cjs
 SHA
-node scripts/migration-123-staging.cjs --conferir-123; echo "codigo=$?"
 ```
 
 O hash dos 3 SQL da 123 (precheck, migration, postcheck) é conferido pelo próprio aplicador (lista fechada do genérico).
