@@ -51,12 +51,11 @@ export async function enviarMarketing<T>(url: string, corpo: unknown): Promise<T
 }
 
 const ABAS = [
-  { href: '/admin/marketing', rotulo: 'Visão geral' },
+  { href: '/admin/marketing', rotulo: 'Resultados' },
   { href: '/admin/marketing/campanhas', rotulo: 'Campanhas' },
-  { href: '/admin/marketing/origens', rotulo: 'Origens dos contatos' },
-  { href: '/admin/marketing/site', rotulo: 'Site e SEO' },
-  { href: '/admin/marketing/automacoes', rotulo: 'Automações' },
-  { href: '/admin/marketing/permissoes', rotulo: 'Permissões' },
+  { href: '/admin/marketing/origens', rotulo: 'Pedidos e contatos' },
+  { href: '/admin/marketing/site', rotulo: 'Site do buffet' },
+  { href: '/admin/marketing/automacoes', rotulo: 'Acompanhamento' },
 ];
 
 export function CabecalhoMarketing({ titulo, descricao, acao }: { titulo: string; descricao: string; acao?: ReactNode }) {
@@ -79,7 +78,7 @@ export function EstadoCarga({ carregando, falha, aoTentar }: { carregando: boole
   }
   if (falha.status === 403) {
     return <section className={styles.cartao} role="alert"><h2>Acesso não liberado</h2><p>{falha.mensagem}</p>
-      <p className={styles.muted}>A Gestão da empresa pode liberar em Marketing → Permissões.</p></section>;
+      <p className={styles.muted}>A Gestão da empresa pode liberar em Configurações → Usuários e acessos.</p></section>;
   }
   if (falha.codigo === 'MARKETING_INDISPONIVEL') {
     return <section className={styles.cartao} role="alert"><h2>Marketing indisponível neste ambiente</h2><p>{falha.mensagem}</p></section>;
