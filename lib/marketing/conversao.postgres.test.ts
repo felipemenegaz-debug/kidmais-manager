@@ -140,6 +140,77 @@ test('conversão automática: criação comercial real, campanha → pedido idem
         assert.equal(p.total.conversao,p.total.contatosComContrato/p.total.contatos);
       } finally { for(const k of Object.keys(env)) { if(anteriores[k]===undefined)delete process.env[k];else process.env[k]=anteriores[k]; } }
     });
+    // Decisão de Felipe (14/11/2026): conversão automática inteira num SAVEPOINT (herança, contato convertido, próxima ação e
+    // responsável); implementação única da herança em lib/marketing/conversao.ts; repetição sem 409 e sem atribuição duplicada.
+    const comProximaAcao = async (nome: string, telefone: string, chave: string) => {
+      const p = await contatos.capturarContatoPublico(tx,{siteId:site,empresaId:A,estabelecimentoId:null},{...entrada,nome,telefone,chave},captura);
+      const clienteId = (await c.query('SELECT cliente_id::text FROM marketing_contatos WHERE id=$1',[p.contatoId])).rows[0].cliente_id as string;
+      const acaoId = (await c.query(`INSERT INTO oportunidades_acoes (empresa_id,contato_id,responsavel_id,tipo,data,criada_por)
+        VALUES ($1,$2,$3,'Ligar',current_date,$3) RETURNING id::text`,[A,p.contatoId,usuario])).rows[0].id as string;
+      return {contatoId: p.contatoId, clienteId, acaoId};
+    };
+    const contar = async (sql: string, v: unknown[]) => Number((await c.query(sql,v)).rows[0].count);
+    const funil = (await c.query("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0].ok ? {} : { skip: 'modelo sem a 122 (Funil)' };
+    for (const [tipo, telefone, data] of [['novo','5511988886541','2027-10-16'],['recorrente','5511988886542','2027-10-23']] as const) {
+      const estado = { contatoId: '', clienteId: '', acaoId: '', negociacao: '' };
+      await t.test(`caminho feliz, cliente ${tipo}: converte o pedido, herda origem e campanha, leva a próxima ação e define o responsável`, funil, async (caso) => {
+        const logs = caso.mock.method(console,'error',()=>{});
+        Object.assign(estado, await comProximaAcao(`Pedido ${tipo} sintético`,telefone,`pedido-${tipo}-sintetico`));
+        const antigo = tipo === 'recorrente' ? await fechamento(c,A,base,estado.clienteId,{data:'2026-03-07',status:'CONFIRMADO',atualizadoHaDias:300}) : null;
+        estado.negociacao = (await criar(data,estado.clienteId)).fechamento.id;
+        const k = (await c.query('SELECT status,fechamento_id::text FROM marketing_contatos WHERE id=$1',[estado.contatoId])).rows[0];
+        assert.deepEqual([k.status,k.fechamento_id],['CONVERTIDO',estado.negociacao]);
+        const herdada = (await c.query("SELECT campanha_id::text,metodo FROM marketing_atribuicoes WHERE alvo_tipo='FECHAMENTO' AND alvo_id=$1",[estado.negociacao])).rows;
+        assert.deepEqual(herdada,[{campanha_id:campanha.id,metodo:'HERDADO'}]);
+        const acao = (await c.query('SELECT contato_id,fechamento_id::text,responsavel_id::text,encerrada_em FROM oportunidades_acoes WHERE id=$1',[estado.acaoId])).rows[0];
+        const dono = (await c.query('SELECT usuario_responsavel_id::text FROM fechamentos WHERE id=$1',[estado.negociacao])).rows[0].usuario_responsavel_id;
+        assert.deepEqual([acao.contato_id,acao.fechamento_id,acao.encerrada_em],[null,estado.negociacao,null],'próxima ação acompanha a negociação');
+        assert.ok(dono); assert.equal(acao.responsavel_id,dono,'regra do responsável');
+        assert.equal(await contar("SELECT count(*) FROM eventos_historico_cliente WHERE cliente_id=$1 AND tipo_evento='CONTATO_MARKETING_VINCULO_FALHOU'",[estado.clienteId]),0);
+        if (antigo) assert.equal((await c.query('SELECT status FROM fechamentos WHERE id=$1',[antigo])).rows[0].status,'CONFIRMADO','histórico do cliente recorrente intocado');
+        assert.equal(logs.mock.callCount(),0);
+      });
+      await t.test(`repetição, cliente ${tipo}: Vincular e conversão de novo sem 409 e sem atribuição, histórico ou ação duplicados`, funil, async () => {
+        const r = await contatos.executarAcaoContato(tx,A,usuario,{acao:'vincular-negociacao',id:estado.contatoId,fechamentoId:estado.negociacao});
+        assert.deepEqual(r,{id:estado.contatoId,origemNegociacaoExistente:true});
+        await conversao.vincularContatoAutomaticamente(tx,estado.negociacao);
+        await contatos.executarAcaoContato(tx,A,usuario,{acao:'vincular-negociacao',id:estado.contatoId,fechamentoId:estado.negociacao});
+        assert.equal(await contar("SELECT count(*) FROM marketing_atribuicoes WHERE alvo_tipo='FECHAMENTO' AND alvo_id=$1",[estado.negociacao]),1);
+        assert.equal(await contar("SELECT count(*) FROM eventos_historico_cliente WHERE entidade_id=$1 AND tipo_evento='CONTATO_MARKETING_NEGOCIACAO'",[estado.negociacao]),1);
+        assert.equal(await contar('SELECT count(*) FROM oportunidades_acoes WHERE fechamento_id=$1 AND encerrada_em IS NULL',[estado.negociacao]),1);
+        assert.equal(await contar("SELECT count(*) FROM eventos_historico_cliente WHERE entidade_id=$1 AND tipo_evento='OPORTUNIDADE_ACAO_CONVERTIDA'",[estado.negociacao]),1);
+      });
+    }
+    await t.test('falha forçada na transferência da próxima ação: venda concluída, contato e ação intactos, falha no histórico; Vincular depois funciona', funil, async (caso) => {
+      const alvo = await comProximaAcao('Pedido falha ação sintético','5511988886543','pedido-falha-acao-sintetico');
+      const contatoAntes = (await c.query('SELECT * FROM marketing_contatos WHERE id=$1',[alvo.contatoId])).rows[0];
+      const acaoAntes = (await c.query('SELECT * FROM oportunidades_acoes WHERE id=$1',[alvo.acaoId])).rows[0];
+      await c.query(`CREATE FUNCTION pg_temp.falha_acao_funil() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.tipo_evento = 'OPORTUNIDADE_ACAO_CONVERTIDA' THEN RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='falha sintética'; END IF;
+        RETURN NEW; END $$`);
+      await c.query('CREATE TRIGGER teste_falha_acao_funil BEFORE INSERT ON eventos_historico_cliente FOR EACH ROW EXECUTE FUNCTION pg_temp.falha_acao_funil()');
+      const logs = caso.mock.method(console,'error',()=>{});
+      let negociacao: string;
+      try {
+        // Sem customDb: passa pela transação real do serviço, representada pelo SAVEPOINT do harness.
+        negociacao = (await comercialReal.criarFechamentoComercial({clienteId:alvo.clienteId,dataEvento:'2027-10-30',horarioInicio:'14:00',horarioFim:'18:00',
+          configuracaoAgendaId:base.agenda,pacoteId:base.pacote,convidados:50,valorProposto:4500,origemFechamento:'ATENDIMENTO_KIDMAIS'})).fechamento.id;
+      } finally { await c.query('DROP TRIGGER teste_falha_acao_funil ON eventos_historico_cliente'); }
+      assert.equal(await contar('SELECT count(*) FROM fechamentos WHERE id=$1',[negociacao]),1,'a venda segue');
+      assert.deepEqual((await c.query('SELECT * FROM marketing_contatos WHERE id=$1',[alvo.contatoId])).rows[0],contatoAntes,'contato continua como Novo contato, sem estado pela metade');
+      assert.deepEqual((await c.query('SELECT * FROM oportunidades_acoes WHERE id=$1',[alvo.acaoId])).rows[0],acaoAntes,'próxima ação continua no contato');
+      assert.equal(await contar("SELECT count(*) FROM marketing_atribuicoes WHERE alvo_tipo='FECHAMENTO' AND alvo_id=$1",[negociacao]),0,'herança desfeita junto');
+      assert.equal(await contar("SELECT count(*) FROM eventos_historico_cliente WHERE entidade_id=$1 AND tipo_evento='CONTATO_MARKETING_NEGOCIACAO'",[negociacao]),0);
+      const falha = (await c.query("SELECT origem,entidade_id::text,metadata FROM eventos_historico_cliente WHERE cliente_id=$1 AND tipo_evento='CONTATO_MARKETING_VINCULO_FALHOU'",[alvo.clienteId])).rows;
+      assert.deepEqual(falha,[{origem:'SISTEMA',entidade_id:negociacao,metadata:{codigo:'P0001'}}],'falha registrada no histórico do cliente');
+      assert.deepEqual(logs.mock.calls.map(l=>l.arguments),[['[Marketing] vínculo automático não concluído',{fechamentoId:negociacao,codigo:'P0001'}]]);
+      // Vinculação manual depois, idempotente: leva a próxima ação e a herança.
+      await contatos.executarAcaoContato(tx,A,usuario,{acao:'vincular-negociacao',id:alvo.contatoId,fechamentoId:negociacao});
+      await contatos.executarAcaoContato(tx,A,usuario,{acao:'vincular-negociacao',id:alvo.contatoId,fechamentoId:negociacao});
+      assert.equal((await c.query('SELECT status FROM marketing_contatos WHERE id=$1',[alvo.contatoId])).rows[0].status,'CONVERTIDO');
+      assert.equal((await c.query('SELECT fechamento_id::text FROM oportunidades_acoes WHERE id=$1',[alvo.acaoId])).rows[0].fechamento_id,negociacao);
+      assert.equal(await contar("SELECT count(*) FROM marketing_atribuicoes WHERE alvo_tipo='FECHAMENTO' AND alvo_id=$1",[negociacao]),1);
+    });
     await t.test('falha injetada no vínculo preserva venda, adicionais, escolhas e fotografia; log só tem id e código', async (caso) => {
       const pedido = await contatos.capturarContatoPublico(tx,{siteId:site,empresaId:A,estabelecimentoId:null},
         {...entrada,nome:'Falha sintética',telefone:'5511988887890',chave:'pedido-falha-sintetico'},captura);
@@ -184,6 +255,9 @@ test('conversão automática: criação comercial real, campanha → pedido idem
         assert.equal(Number((await c.query('SELECT count(*) FROM fechamento_pacote_snapshots WHERE fechamento_id=$1',[n.fechamento.id])).rows[0].count),1);
         assert.equal((await c.query('SELECT 1 AS valido')).rows[0].valido,1,'transação continua utilizável');
         assert.deepEqual(logs.mock.calls.map(l=>l.arguments),[['[Marketing] vínculo automático não concluído',{fechamentoId:n.fechamento.id,codigo:'P0001'}]]);
+        // A falha não passa em silêncio: histórico do cliente, só com o código (sem dado pessoal da mensagem do erro).
+        assert.deepEqual((await c.query("SELECT origem,entidade_id::text,metadata FROM eventos_historico_cliente WHERE cliente_id=$1 AND tipo_evento='CONTATO_MARKETING_VINCULO_FALHOU'",[pessoaFalha])).rows,
+          [{origem:'SISTEMA',entidade_id:n.fechamento.id,metadata:{codigo:'P0001'}}]);
       } finally { await c.query('DROP TRIGGER teste_falha_vinculo_marketing ON eventos_historico_cliente'); }
     });
     await t.test('erro de serialização é recuperado e propagado para o dono da transação, sem log de vínculo', async (caso) => {

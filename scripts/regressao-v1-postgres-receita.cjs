@@ -51,6 +51,7 @@ const CLUSTER = "kidmais_descartavel";
 const BANCO_REAL = "kidmais_manager";
 
 const MODELOS = {
+  "122": { banco: "kidmais_v1_modelo_122", ate: "122", sem: ["098"] },
   atual: { banco: "kidmais_v1_modelo_atual", ate: "057", sem: ["055a", "055b", "055c", "055d"] },
   "053": { banco: "kidmais_v1_modelo_053", ate: "053", sem: [] },
   "052": { banco: "kidmais_v1_modelo_052", ate: "052", sem: [] },

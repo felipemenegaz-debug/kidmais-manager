@@ -51,6 +51,8 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
 // Liberar agenda com mais de um salão (F5): as suítes funcionais da agenda por salão no modelo 108/109 rodam também no
 // 114 (gatilhos da 019 com a verificação da trava da configuração); o classificador dos combinados quebrava só lá.
 const ESTADO_POSTGRES = {
+  "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
+    "lib/oportunidades/atribuicao.postgres.test.ts": { descartavel: "122" },
   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
@@ -216,7 +218,8 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 30/10/2026: primeira negociação sem origem própria conta pela origem do cliente (painel e API), sem gravar nada.
   "lib/marketing/origem-negociacao.postgres.test.ts": { descartavel: "086" },
-  "lib/marketing/conversao.postgres.test.ts": { descartavel: "086" },
+  // Funil (122, 14/11/2026): a conversão automática também leva a próxima ação e o responsável; sem a 122 esses casos pulam.
+  "lib/marketing/conversao.postgres.test.ts": { descartavel: "086", tambem: ["122"] },
   "lib/marketing/pedidos-acoes.postgres.test.ts": { descartavel: "086" },
   // Pesquisa de satisfação (110, PS-1, 30/10/2026): esquema, serviço público, supressões, frequência e bloqueio do
   // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).

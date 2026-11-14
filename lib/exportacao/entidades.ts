@@ -294,6 +294,8 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'marketing/automacao_execucoes', tabela: 'marketing_automacao_execucoes', grupo: 'Marketing', descricao: 'Execuções das automações.', onde: EMP },
     { arquivo: 'marketing/automacao_eventos', tabela: 'marketing_automacao_eventos', grupo: 'Marketing', descricao: 'Eventos das execuções.', onde: EMP },
     { arquivo: 'marketing/tarefas', tabela: 'marketing_tarefas', grupo: 'Marketing', descricao: 'Tarefas de Marketing.', onde: EMP },
+    { arquivo: 'oportunidades/acoes', tabela: 'oportunidades_acoes', grupo: 'Oportunidades', descricao: 'Próximas ações e conclusões comerciais.', onde: EMP, migracao: '122' },
+    { arquivo: 'oportunidades/marcos', tabela: 'oportunidades_marcos', grupo: 'Oportunidades', descricao: 'Etapas observadas das negociações.', onde: EMP, migracao: '122' },
 
     // Pesquisa de satisfação (110, PS-1). O hash do link (token_hash) e a posse do envio (posse_token) caem no SEGREDO.
     { arquivo: 'satisfacao/envios', tabela: 'satisfacao_envios', grupo: 'Pesquisa de satisfação', descricao: 'Pesquisas enviadas após a festa (estado, prazos; sem o link).', onde: EMP, migracao: '110' },
@@ -386,6 +388,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
     marketing_dns_simulado: 'Simulação técnica local de DNS.',
+    oportunidades_resumos: 'Controle técnico de idempotência de e-mail diário; conteúdo já representado nas ações exportadas.',
     marketing_transporte_simulado: 'Simulação técnica local de envio.',
     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',

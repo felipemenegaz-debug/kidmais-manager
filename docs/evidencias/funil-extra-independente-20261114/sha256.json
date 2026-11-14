@@ -1,0 +1,212 @@
+{
+  "data": "2026-11-14T19:18:58.796Z",
+  "algoritmo": "SHA-256",
+  "excluiSomenteProprioManifesto": true,
+  "evidencias": [
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/ambiente.cjs",
+      "bytes": 4054,
+      "sha256": "f9215cc524bc6fc4da946d65874d139bddc0ac4d06daa3118d912f916918a174"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/cluster-limpeza.json",
+      "bytes": 259,
+      "sha256": "8b58736d3d95b2e4ff7e0d05f751be99b20c6bc0cbd0ab78f607a6aef30235d4"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/cluster.json",
+      "bytes": 184,
+      "sha256": "3e7c5c11b843055c9e3d5a3ab06d083b62bc4b478df3bf2994c5a34133a6f2e6"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/conversao-r2-extraida.txt",
+      "bytes": 3159,
+      "sha256": "5c5727406b4c1388d9022645a15af3555e244d9450b8be4311c60e6b6d5e0ad9"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/fechar.cjs",
+      "bytes": 3514,
+      "sha256": "01078fe4360504a58c0da591b5ae4bea46ed1fb5d7c8adce7ee00bbddec244a6"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-bruta/0.jsonl",
+      "bytes": 2463,
+      "sha256": "a591ad091c793cc90e12f6db2c42ec49b628175d754fb00de3d399a9f2c90be6"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-bruta/1.jsonl",
+      "bytes": 560,
+      "sha256": "21eed3088343385ad30b728232fdba1890d34e17945bdfbd7499d86cb9b0a2af"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-bruta/2.jsonl",
+      "bytes": 971,
+      "sha256": "af393a9599584f2b536ebdc5827f2403d3c7d53669e9e0d90716c512f100d4b3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-bruta/3.jsonl",
+      "bytes": 62,
+      "sha256": "37668c6a31ad2e4b7decb43783e0b6f20901a4b1ba3a9e6275a5325385049f79"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-bruta/4.jsonl",
+      "bytes": 62,
+      "sha256": "509faa34dee75d5edd4b2a338b63f4ad6bfbd49458d081bd0fced5a19bae7dfe"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/guarda-regressao.json",
+      "bytes": 4902,
+      "sha256": "67b9841317c19ef6ca4fd728a4380fd5f70fdc9473e267831ff1be9cc7af8e8e"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/identidade.json",
+      "bytes": 260,
+      "sha256": "2e3d75e47a22a628d33153aa63a181417db4be318952524451c2b97cfecd15bc"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/initdb.log",
+      "bytes": 1182,
+      "sha256": "5de3535281a7ea127b7c0e512e0967729bc26ed60f901f0c7150e430e979fd94"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/integridade-final.json",
+      "bytes": 517762,
+      "sha256": "4d946441089775728c5e179718d6059a9a5ba692e0a155402f92df0ab6cfecde"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/integridade-inicial.json",
+      "bytes": 517736,
+      "sha256": "5891cceebee4f1b7d824d5e2d876315db9192dd9984cb531486a05e3adb117b2"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/integridade.cjs",
+      "bytes": 2423,
+      "sha256": "bd699fcb93e477fba0f56f498f7e25174c8e751d5adbae769188d7217122baf2"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/limpeza-aplicada.log",
+      "bytes": 124,
+      "sha256": "9122f11c68b7f4e897fdff8aee5daccf96c4c1c60237d3d65fc764114aab3c6e"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/limpeza-simulada.log",
+      "bytes": 125,
+      "sha256": "026ddf52904624f92171323392b0ed6a8735237da2867b21495287c34fd5dc21"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/limpeza-temporario.log",
+      "bytes": 60,
+      "sha256": "5d63262b44090c2ed9dc53f6f70f7cb87a6cd0e43350edff3d13e330047808ee"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/npm-ci-autorizado.log",
+      "bytes": 412,
+      "sha256": "d1e3b3a1e3428242b032505a2dd7e715315ef09cea6b912ee54b855c8ae8a6b3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/npm-ci.log",
+      "bytes": 992,
+      "sha256": "a1c98bed7fecc6dda44fdb5b8e4af34aa83c110bb25679fd91c44daa85fd1d68"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/pg-ctl.log",
+      "bytes": 121,
+      "sha256": "d03235d6e9e7085e26ae9273566c98a4d351a40d89b55bff40710e083a01bab4"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/postgres-regressao-autorizada.log",
+      "bytes": 10923,
+      "sha256": "d33cfc16a04758e89a660f329c172e7cc25e5754d9c9531a2b1e2817dfa86da4"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/postgres-regressao.log",
+      "bytes": 77,
+      "sha256": "fc069a0db95233d8505960d6508a0939f0c6c2add708293b6dca31e5e0ebe88e"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/provas-fixture-inicial.log",
+      "bytes": 11404,
+      "sha256": "8ec71e312f24f862a4e4f093ce67f5a3ffe9ffcfb39518e0b2d294be65aa529f"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/provas-fixture-meio.log",
+      "bytes": 11376,
+      "sha256": "dbae9379b2c547746abf8aca67eac492107139e925a1353e47d4538c01703c46"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/provas-fixture-trava.log",
+      "bytes": 3864,
+      "sha256": "388b58cf0aefa3f2930465d7e70e2f73de815b1a705b0340b9e087491bd80960"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/provas.log",
+      "bytes": 1296,
+      "sha256": "2f37e138234b688706db56e26c6bfa1e54febdb8de9f513e312e6cc2e728bbb0"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/provas.mjs",
+      "bytes": 13648,
+      "sha256": "479e0c5137ee2326a8a31a0e51bd7532f493e6a45803af91a552ee245a552ac7"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/registrar-documentacao.cjs",
+      "bytes": 6181,
+      "sha256": "dd23368455e4a3cb57542bec473ea859b750ece5646d87b1e29493a9c8c0f257"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/regressao.cjs",
+      "bytes": 452,
+      "sha256": "01b43eb2c41ed3c1ac9b422324354ce18cf63b5b38ab26d65164bf7637cf7462"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/restaurar.cjs",
+      "bytes": 356,
+      "sha256": "a1ac2b925c6cb3bef8ee547e38ee59abf7b4cdc2baed0c1ba610ea903415108d"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/restaurar.log",
+      "bytes": 52,
+      "sha256": "b5ff7756be0493f4802faa249649018c11746da8b164f56fb2e581d5d479b7c4"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/resultado-fixture-inicial.json",
+      "bytes": 11650,
+      "sha256": "48ded0ddaed59537ad98aa6233423dff61915ba3a1be07ce4e8139e4a4e733e3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/resultado-fixture-meio.json",
+      "bytes": 11623,
+      "sha256": "0518655dd2880ac640651f9fa6b42dd2ccc471d0f552f03c186829fe443e00ca"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/resultado-fixture-trava.json",
+      "bytes": 3871,
+      "sha256": "152fbfc32c6dceb72cd19cd7a83ffb9953dbe775b3bccbc3fa130dd8bb7f9d89"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/resultado.json",
+      "bytes": 1218,
+      "sha256": "7e9b7b27e13d971dbfad23ec317a026afb1d8514ec46bb4e47d98c4aad5a65d1"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/servidor.log",
+      "bytes": 24344,
+      "sha256": "d5b5fb06393f44e7f6d75485eac5534bd32fd7ff67764e64f5094f31b60b7d5b"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/typescript.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-independente-20261114/unitarios.log",
+      "bytes": 6257,
+      "sha256": "114f5c27ef2c72586ef37afbd8ccb36b1815bf44a4c8697c7081285af3c16e23"
+    },
+    {
+      "arquivo": "docs/PARECER_ASTRA_FUNIL_EXTRA_INDEPENDENTE_20261114.md",
+      "bytes": 9533,
+      "sha256": "a729c380fa672bf2a1f888372e57e033b47bf23e627cb910fa7ea3103d8d3ca7"
+    }
+  ]
+}

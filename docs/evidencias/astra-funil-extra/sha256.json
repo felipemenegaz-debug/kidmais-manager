@@ -1,0 +1,14 @@
+[
+  {
+    "arquivo": "docs/PARECER_ASTRA_FUNIL_EXTRA_20261114.md",
+    "sha256": "d538bd7a6579336940ed05865e8a54e23670876904fe7a4750f75ff6caa3322d"
+  },
+  {
+    "arquivo": "docs/evidencias/astra-funil-extra/provas.mjs",
+    "sha256": "ab9452c6726128ed56ffd1aa0e2c16d7c34f08ab0054e0d1771392dadd63b0e6"
+  },
+  {
+    "arquivo": "docs/evidencias/astra-funil-extra/resultado.json",
+    "sha256": "c0948e19dca61a22845bd7025f11f27ff3a3baaa10eaef79ff55922620d685ce"
+  }
+]

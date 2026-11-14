@@ -65,6 +65,8 @@ const ORDEM = Object.freeze([
   generico('111', 'pesquisa de satisfação: links de avaliação e auditoria; exige a 110'),
   generico('115', 'índice (empresa_id, data_evento) em fechamentos no lugar do índice da 054'),
   generico('123', 'área da família F1: pessoas, links e sessões da área "Minha festa"; exige a 112'),
+  // 122 (Funil de oportunidades) DEPOIS da 123 por decisão de Felipe (14/11/2026): Área da família antes do Funil.
+  doMeuLote('122', 'funil de oportunidades: ações comerciais, marcos de etapa, resumos diários e perdas; trava marketing_contatos e fechamentos por instantes'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

@@ -174,6 +174,7 @@ async function criarFechamentoComercialNaTransacao(
     tx,
   );
 
+  // Vínculo do pedido, herança e próxima ação do Funil num SAVEPOINT: falha do Marketing não derruba a venda.
   await vincularContatoAutomaticamente(tx, fechamento.id);
 
   const adicionais: FechamentoAdicionalRecord[] = [];

@@ -269,6 +269,15 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 123 <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
+### 25. 122 — funil de oportunidades: ações comerciais, marcos de etapa, resumos diários e perdas; trava marketing_contatos e fechamentos por instantes
+
+- Aplicador: `scripts/migration-122-production.cjs`
+- CONFERIR: `node scripts/migration-122-production.cjs --conferir-122`
+- APLICAR: `node scripts/migration-122-production.cjs --aplicar-122-autorizado --backup "<registro-do-backup>"`
+- CONFERIR de novo: `node scripts/migration-122-production.cjs --conferir-122`
+- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 122 <CONFERIR|APLICAR> <rotulo>`
+- Volta: restaurar o backup ou corrigir para a frente
+
 ## Pendências conhecidas deste roteiro
 
 - Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.

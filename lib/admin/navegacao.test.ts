@@ -8,6 +8,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.deepEqual(operacao.map((item) => item.href), [
         '/admin/dashboard',
         '/clientes',
+        '/admin/oportunidades',
         '/admin/contratos',
         '/admin/festas',
         '/admin/convites',

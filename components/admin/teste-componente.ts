@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as jsx from 'react/jsx-runtime';
+import * as modeloOportunidades from '../../lib/oportunidades/modelo.ts';
 
 /**
  * Renderiza um componente TSX real com hooks isolados, sem DOM (mesma técnica de criacao-financeira.test.ts).
@@ -75,6 +76,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText)((id: string) => { assert(id === 'react', `dependência não prevista: ${id}`); return hooks; }, reservaEmail);
   const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
+  todos['@/lib/oportunidades/modelo'] ??= modeloOportunidades;
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 
   return {

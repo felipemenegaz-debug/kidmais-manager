@@ -123,7 +123,7 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
                 {f.vinculadoAOutroContato && <span className={styles.muted}> · vinculada a outro contato</span>}</li>)}</ul>}
         {podeEditar && c.status !== 'CONVERTIDO' && <div className={styles.acoes}>
           {c.status !== 'EM_ATENDIMENTO' && <button type="button" className={styles.secundario} onClick={() => void acao({ acao: 'status', id: c.id, status: 'EM_ATENDIMENTO' })}>Marcar em atendimento</button>}
-          {c.status !== 'DESCARTADO' && <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'status', id: c.id, status: 'DESCARTADO' })}>Descartar</button>}
+          {c.status !== 'DESCARTADO' && <Link href="/admin/oportunidades">Próxima ação ou perda</Link>}
         </div>}
         {aviso && <p className={styles.aviso} role="status">{aviso}</p>}
       </>}

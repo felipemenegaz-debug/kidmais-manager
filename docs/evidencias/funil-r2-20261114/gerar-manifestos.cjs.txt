@@ -1,0 +1,22 @@
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
+const pasta='docs/evidencias/funil-r2-20261114';
+const sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+const anterior=JSON.parse(fs.readFileSync(`${pasta}/manifesto-anterior.json`));
+const extras=['components/admin/oportunidades/oportunidades.test.ts','docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md','docs/PARECER_ASTRA_FUNIL_20261114_R1.md','docs/evidencias/astra-funil-r1/provas.cjs',`${pasta}/VALIDACAO.md`];
+const nomes=[...new Set([...anterior.arquivos.map(a=>a.arquivo),...extras])].sort();
+const arquivos=nomes.map(arquivo=>({arquivo,sha256:sha(arquivo)}));
+const delta=anterior.arquivos.filter(a=>sha(a.arquivo)!==a.sha256).map(a=>a.arquivo);
+const intocados=['app/api/integracoes/oportunidades/resumo/route.ts','lib/exportacao/entidades.ts','scripts/production/check-migrations.mjs','scripts/regressao-v1-postgres-receita.cjs','scripts/oportunidades-resumo-diario.mjs',...anterior.arquivos.map(a=>a.arquivo).filter(a=>a.startsWith('database/')||a.startsWith('scripts/migration-122'))];
+if(intocados.some(f=>delta.includes(f)))throw new Error('Escopo congelado alterado');
+fs.writeFileSync('docs/evidencias/funil-20261114/manifesto.json',JSON.stringify({base:anterior.base,branch:anterior.branch,estado:'LOCAL_R1_CORRIGIDA_AGUARDA_ASTRA_R2_ULTIMA',geradoEm:new Date().toISOString(),arquivos,deltaR1:delta,adicionadosAoManifesto:extras,intocadosConferidos:intocados},null,2)+'\n');
+const exec=args=>cp.execFileSync('git',args,{encoding:'utf8',maxBuffer:10*1024*1024});
+let diff=exec(['diff','--binary','--no-ext-diff']);
+for(const f of nomes){let rastreado=true;try{cp.execFileSync('git',['ls-files','--error-unmatch','--',f],{stdio:'ignore'});}catch{rastreado=false;}if(!rastreado){try{diff+=exec(['diff','--no-index','--binary','--','/dev/null',f]);}catch(e){if(e.status!==1)throw e;diff+=e.stdout;}}}
+fs.writeFileSync(`${pasta}/diff-completo.patch`,diff);
+const roots=['docs/evidencias/funil-20261114','docs/evidencias/astra-funil-r1',pasta];
+function listar(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?listar(dir+'/'+e.name):[dir+'/'+e.name]);}
+const evidencias=roots.flatMap(listar).filter(f=>f!==`${pasta}/sha256.json`).sort().map(arquivo=>({arquivo,bytes:fs.statSync(arquivo).size,sha256:sha(arquivo)}));
+fs.writeFileSync(`${pasta}/sha256.json`,JSON.stringify({geradoEm:new Date().toISOString(),algoritmo:'SHA-256',excluiApenasSiProprio:true,evidencias},null,2)+'\n');
+for(const a of arquivos)if(sha(a.arquivo)!==a.sha256)throw new Error('Hash fonte divergiu');
+for(const a of evidencias)if(sha(a.arquivo)!==a.sha256)throw new Error('Hash evidência divergiu');
+console.log(JSON.stringify({fontes:arquivos.length,evidencias:evidencias.length,deltaR1:delta,adicionadosAoManifesto:extras,congeladosIntactos:intocados.length,patchBytes:Buffer.byteLength(diff),hashes:'PASS'},null,2));

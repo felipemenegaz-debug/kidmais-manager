@@ -1,5 +1,6 @@
 'use client';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
+import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
 import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
 import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
 import { classePrimaria } from './AdminPrimaryButton';
@@ -254,10 +255,14 @@ export default function ContratoAdmin() {
     }
     async function cancelarContratacao(){
         if(!v||!data)return;
-        const motivo=window.prompt('Por que esta contratação será cancelada? O histórico e os documentos serão preservados.');
-        if(!motivo||motivo.trim().length<3)return;
+        const escolha=window.prompt('Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'));
+        const perdaMotivo=MOTIVOS_PERDA[Number(escolha)-1];
+        if(!perdaMotivo)return;
+        const observacao=window.prompt('Observação (opcional). O histórico e os documentos serão preservados.');
+        if(observacao===null)return;
+        const motivo=observacao.trim()||perdaMotivo;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
-        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
+        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim(),perda:{motivo:perdaMotivo,observacao:observacao.trim()}})){
             if(enderecoFinal())return;
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
