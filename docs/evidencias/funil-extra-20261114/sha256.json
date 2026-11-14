@@ -1,0 +1,392 @@
+{
+  "geradoEm": "2026-11-14T18:46:43.431Z",
+  "algoritmo": "SHA-256",
+  "excluiApenasSiProprio": true,
+  "evidencias": [
+    {
+      "arquivo": "docs/evidencias/astra-funil-r1/limpeza-simulada.log",
+      "bytes": 20,
+      "sha256": "452df390d7952c17628f2be3e1652092662ed5d2ab7fb64509e26d7b99c3333c"
+    },
+    {
+      "arquivo": "docs/evidencias/astra-funil-r1/provas.cjs",
+      "bytes": 9172,
+      "sha256": "0661abca5d11dc7d2c828d98a32a735f9350569c162381c87d953d5059f45191"
+    },
+    {
+      "arquivo": "docs/evidencias/astra-funil-r1/resultado.json",
+      "bytes": 7102,
+      "sha256": "c657e77b44c948f85e135e6bda71e5dca04e8fac72b740ebc7f7bc9730f52bdc"
+    },
+    {
+      "arquivo": "docs/evidencias/astra-funil-r2/provas.mjs",
+      "bytes": 2600,
+      "sha256": "7514bbb939fd2b3ca2c60d223d5dd68d15042ea2cc9b669485d6a459c4009a79"
+    },
+    {
+      "arquivo": "docs/evidencias/astra-funil-r2/resultado.json",
+      "bytes": 573,
+      "sha256": "876caaa314bacbab0c54e640740cfef66e4985d25bf9ac28ab27cec61243fdb4"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/01-funil.jpg",
+      "bytes": 122168,
+      "sha256": "0f35d373c10b5c83c4f15c6b176dc24fe39e81dd3b526cd2ec493189f95ae19c"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/02-perda.jpg",
+      "bytes": 56787,
+      "sha256": "5aff75a7ccdb02fb876efbf611d4ea1c87b5586ddde08315e835614c1f97e1fb"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/03-relatorio.jpg",
+      "bytes": 110308,
+      "sha256": "d2e5faddca0bb9a675645d0a35cc51ef45217ba2d3d2dfc9dc7ee1fdcc009763"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/04-celular.jpg",
+      "bytes": 81787,
+      "sha256": "c679528472136656f33ead3c9f49077ef56fcfbf8e16a8a60900e3818b0f2c02"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/demo-ambiente.json",
+      "bytes": 2029,
+      "sha256": "19735c8712873eed4a6ad2b51dc94afdea8754b3473ce0f69c7b736772244546"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/demo-servidor.log",
+      "bytes": 20041,
+      "sha256": "07fdfdbd36b9ff58461d830caa75ec9cf6c72bb58f53523ff60d45faaa236444"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/limpeza-aplicada.log",
+      "bytes": 216,
+      "sha256": "7819a04a18e23139a9b50f032ef2d02a50007cb56693d0dcf868678d3903e4bd"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/limpeza-demo-aplicada.log",
+      "bytes": 114,
+      "sha256": "deb8a387a5243122fca55aa3fe7dbe51b51db6bb8e1780987ad36538a628c76a"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/limpeza-demo-simulada.log",
+      "bytes": 115,
+      "sha256": "369344b0cead0e05fcf52dde8c1f196f6e9f394aa61a4146f313254c8ba860d5"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/limpeza-simulada.log",
+      "bytes": 217,
+      "sha256": "0fc15116e328c39ea0baef68c5e0b71da94f6a7b64b42dfc535f9db7f327b9d3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/manifesto.json",
+      "bytes": 10082,
+      "sha256": "fd47d4119f71ae95244c2a39ada7927a05f57f0303b1b73672590d0fe4f46355"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/postgres-direto.log",
+      "bytes": 757,
+      "sha256": "6554741e7ebe563154f53b67161339a62956aed84bbb610ba667f01f2ce0a3ef"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/postgres-runner.log",
+      "bytes": 1706,
+      "sha256": "6f754aa46e1e074f33aa3cb96c575b968135d9143295712eda0611b1bcf15215"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/postgres-servidor.log",
+      "bytes": 22290,
+      "sha256": "05103df0b1db77782f8169e2b18a0c8d01d533d86cf1edd5b74974118f8559b6"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-20261114/static-completo.log",
+      "bytes": 875792,
+      "sha256": "07e74cd3b543433c2a1ab2b3cfe87296e1bac4d8507ca3f22bc4ce059918170f"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/VALIDACAO.md",
+      "bytes": 4471,
+      "sha256": "74ce397d4db5aeae914bf8a0f79f49fa6735be5f7d90c40df318d1d1d828d98a"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/antes.log",
+      "bytes": 3674,
+      "sha256": "76bfb91846228f06de12f35c89caaf8d48c11da77d1b1ad4eb36316ffa2dc26b"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/cluster-limpeza.json",
+      "bytes": 111,
+      "sha256": "f88e51323f941ca604330c34fa715bb3927905e60b7698231b5dc5be21a53037"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/depois.log",
+      "bytes": 154,
+      "sha256": "1c230af1cbe7749af6393a530c13d654a0e2990ddd3b3e8dc88e7ff71335fa1d"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/diff-completo.patch",
+      "bytes": 221834,
+      "sha256": "b8af5d20cd9a3cb56e18dd553835088d56be4dbf5224cf996935d020701f365d"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/fixture-inicial.log",
+      "bytes": 3452,
+      "sha256": "576e3f077e7a305633ba7b13119fb5977a8364a015766bfc4d983fd7cfb2e6c3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/limpeza-final.log",
+      "bytes": 216,
+      "sha256": "5865732b8becb717da13af78407523ee16a8207acb95b8a15a58eae1162717e8"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/limpeza-simulacao.log",
+      "bytes": 217,
+      "sha256": "848991e5445dae213cbef3e004190268a3a6bf757926e46131b1f9e6e7f11f0a"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/manifesto-anterior.json",
+      "bytes": 9347,
+      "sha256": "bea4b7588028b2225c2d5c50044514d713ea2c02de7d49b4de54d677e9251f38"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/marketing-final.log",
+      "bytes": 2828,
+      "sha256": "0b27b5a7b470160d1b8c888fbbc53aefd53cb47a85a67afd13707e011a0cd1d3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/npm-ci.log",
+      "bytes": 1224,
+      "sha256": "04a22aabd2ddfd3f23f77bfc9f3f5e33e74affd143e309f163c5b02a92c92719"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/pg-final.log",
+      "bytes": 12011,
+      "sha256": "306be6c2bbadfe32ca58470a1415e604e72290813134cc3340883819d0239c2a"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/static.log",
+      "bytes": 876166,
+      "sha256": "c1c4ead9f73f2ac98001336713fa5a69dd61450048ae1ca7aecf36f94ef27906"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-extra-20261114/unitarios.log",
+      "bytes": 6257,
+      "sha256": "b3ea859bb8d7fc43536c19aa14355e8f73ae3799406990d1002742f5ac2d40f6"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/01-p2-cartoes.ax.txt",
+      "bytes": 6197,
+      "sha256": "9c67031a0ec0b556a5750ece22f8fceb69bada5094ed679661f4a0dc6852fe1d"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/01-p2-cartoes.jpg",
+      "bytes": 138742,
+      "sha256": "4de042ff7802683d11dada9de66709e6b0cde577b540341ec50f616d4652838d"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/02-p2-filtro-b.ax.txt",
+      "bytes": 5739,
+      "sha256": "cd4dbc82776c3c862056a66ba47207746bbaa340257d6503a5ce24a7fbeaf57f"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/02-p2-filtro-b.jpg",
+      "bytes": 108779,
+      "sha256": "d744789162ca1c130d9d9a2095c97fbcc6d0d448d049e9c84f37d2484169ce27"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/03-retorno-acao-salva.ax.txt",
+      "bytes": 5701,
+      "sha256": "eb8dae968d5240935445ac7047188ad60a4edcdd320ad76d567e9df74f62ea57"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/03-retorno-acao-salva.jpg",
+      "bytes": 109767,
+      "sha256": "87a5670de6905f3c877f961ece93032282131aed6a137c870f454750b26b2828"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/04-leitor-sem-edicao.ax.txt",
+      "bytes": 4901,
+      "sha256": "22326b04f9542317dbb588aed5bff177034c0bbcf1991455f0bab27858b5a9b9"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/04-leitor-sem-edicao.jpg",
+      "bytes": 127885,
+      "sha256": "ad1d4a733f664e021bc4980bf3e6f5ed9f422bcf1cc7e5baca72bbc6c6de0fab"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/05-retorno-perda.ax.txt",
+      "bytes": 5666,
+      "sha256": "07673df8136fc35cb57dd3a714aaeadb1709d9099eff245063f37958ba225ab8"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/05-retorno-perda.jpg",
+      "bytes": 119769,
+      "sha256": "efc7346a03ec63979edfba57335902a7d45d5dfcb4d7b1ae358e2f3184dac974"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/06-p2-perda-a.ax.txt",
+      "bytes": 4835,
+      "sha256": "c512c6a293f8f07332225263edcbcd7428c9a10536a74a311139e311292281e3"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/06-p2-perda-a.jpg",
+      "bytes": 67397,
+      "sha256": "ad2bb926b59819683e30228d0b322612a140b9bfde0476e7a4fec6a704c25d37"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/VALIDACAO.md",
+      "bytes": 8732,
+      "sha256": "39092124876d27c8674d2a096cd19fa9fdafb9ec9647fe75f0a11981a29d3da1"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/cluster-limpeza.json",
+      "bytes": 176,
+      "sha256": "714c7bac75b84143e07a4b659e82c610112c547a0f26f230f8c6206330da1dd5"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-ambiente.json",
+      "bytes": 2029,
+      "sha256": "0000e1e79249294b679a69c0c8e5fcfc458c41c080baa3d23ace66c3b8dd37ff"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-confirmar-b.cjs.txt",
+      "bytes": 2348,
+      "sha256": "60615b49aae4e8428f59af227f590c5acef8e9c5e23138ef1284b1592a137c01"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-porta-final.json",
+      "bytes": 171,
+      "sha256": "a78b1b1044a55d94e4518108f02599072cac60bb630734b504f856b780f77a48"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-resultados-tentativa1.log",
+      "bytes": 649,
+      "sha256": "b5b779876b4433b5f45bd98bde1cee577b9aac7ae0a023c37e34bfaf133c9934"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-resultados.json",
+      "bytes": 983,
+      "sha256": "ccce49b0f2d7a52927d2d3888bbe94a3c850758a2af32bceb87002eedfdc538c"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-resultados.log",
+      "bytes": 690,
+      "sha256": "63209f68ad1f77954563aa1cfedd7734d68a8b0dd34d751ef0dde1b5a9e3de71"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-seed.cjs.txt",
+      "bytes": 3858,
+      "sha256": "1c17892e4be3dd0a14b3d1f8329695626662b9ca34311953776a3390ccf5b622"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-seed.json",
+      "bytes": 813,
+      "sha256": "71730a645f0b6349a62672c41fae300d2cade0b358c5f07bdce9cf3d3614d174"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-seed.log",
+      "bytes": 628,
+      "sha256": "7213400445761eb91be23f435c3c41a7da0081b648084746cfef95fe9ca43b51"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-servidor-fim.log",
+      "bytes": 96,
+      "sha256": "4e3085b5f01ef2357278cbf0dcd62f4ae645a6f004c040a1393314f964ffc25e"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/demo-servidor-inicio.log",
+      "bytes": 989,
+      "sha256": "79228090deb8c420d67f793c1866b955aa1df43c4bc4ec439cc16d85071079ea"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/diff-completo.patch",
+      "bytes": 193046,
+      "sha256": "88453e61cbe00664473a2e218a9d6fdb4d0dee5f68fc05c2bd86d011850f4b17"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/estado-final.json",
+      "bytes": 358,
+      "sha256": "32fd91cb188d31c04429ba9c67084c8edf811232d3079258d8bfc89b26569be0"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/funil-unitarios.log",
+      "bytes": 2187,
+      "sha256": "deb52c2902ae19e24a8a46bcfbddb1a807fd4a5702f8ecffbf5c9b5552baa81f"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/gerar-manifestos.cjs.txt",
+      "bytes": 2972,
+      "sha256": "f1cbb9a16e9922c10ed1157dd6340a4eca65d0f94a4cacfd692e70596cd859ca"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/limpeza-aplicada.log",
+      "bytes": 216,
+      "sha256": "5865732b8becb717da13af78407523ee16a8207acb95b8a15a58eae1162717e8"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/limpeza-demo-aplicada.log",
+      "bytes": 114,
+      "sha256": "1e0a9a5b0fcf820747b20834a68d88e7a4967a6bc49c29d6d198a82f23fd00e9"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/limpeza-demo-simulada.log",
+      "bytes": 115,
+      "sha256": "f08abaf3283355816f6673d2da16d3ca231948792b147ac1fe5f676c7c39a0d5"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/limpeza-simulada.log",
+      "bytes": 217,
+      "sha256": "848991e5445dae213cbef3e004190268a3a6bf757926e46131b1f9e6e7f11f0a"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/manifesto-anterior.json",
+      "bytes": 7159,
+      "sha256": "d85dbaf7d15bc1d46df1cacbec063763b7f7658b280a0acd2a788e7a317618bb"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/npm-ci.log",
+      "bytes": 1224,
+      "sha256": "e86e4503d607cc7c1e8bc6786d30a50e9ae5349c4d0d690508efcf4b35bf05c1"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/postgres-antes.log",
+      "bytes": 4364,
+      "sha256": "e97cbf3b71fc3cae9743a3b6243a75e7a48f55fc062ab107802fb169ad0af01b"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/postgres-depois.log",
+      "bytes": 1861,
+      "sha256": "6917bd01b710572399b42b744249cc0aad8fc49843cd6a64d2e4077314e2dd2b"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/postgres-final.log",
+      "bytes": 1870,
+      "sha256": "1c25edff8111e72ecb0af50cfcc61dd5dbd9f85fc0735bd6f40dd7e79708602c"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/provas-r1-original.cjs.txt",
+      "bytes": 9050,
+      "sha256": "03d70f1c9323fbb3e61172ebde89d0f8b98a80b45e9bd3bcda82ddfd047a8f40"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/sha256.json",
+      "bytes": 11555,
+      "sha256": "645e49ffb98d3660f56d57da4850925add304dc570622f5ad6f3bb6d29f1a297"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/static-completo.log",
+      "bytes": 864539,
+      "sha256": "d085f54215fac9e3dca0750852e18cc8071de2518c76373fcfecf852fce9e9fb"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/static-final.log",
+      "bytes": 876338,
+      "sha256": "9456908a640ce9b6642033a3ffde52b9863c0994e52c00563bc6285fad82ec27"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/ui-antes.log",
+      "bytes": 1652,
+      "sha256": "b703840cc747ed9fd6e5edcca75ed9625b0ff380003f527b19ed382131eda682"
+    }
+  ]
+}

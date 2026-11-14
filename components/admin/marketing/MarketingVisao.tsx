@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import RelatorioFunil from '../oportunidades/RelatorioFunil';
 import { useState } from 'react';
 import type { PainelMarketing, LinhaPainel } from '@/lib/marketing/metricas';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
@@ -88,6 +89,7 @@ export default function MarketingVisao() {
         </details>
         <AtribuicaoExplicada />
       </section>
+      <RelatorioFunil consulta={consulta} origens={dados.origens}/>
       <section className={styles.cartao} aria-labelledby="t-datas">
         <h2 id="t-datas">Datas vagas para divulgar <span className={styles.selo}>sugestão</span></h2>
         <p className={styles.muted}>Lido da agenda atual{dados.sugestoes.escopo === 'EMPRESA' && unidadeId ? ' (agenda da empresa: esta unidade não tem agenda própria)' : ''}. Nada é reservado, bloqueado ou precificado por aqui.</p>

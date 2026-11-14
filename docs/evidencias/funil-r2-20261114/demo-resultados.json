@@ -1,0 +1,37 @@
+{
+  "sintetico": true,
+  "confirmacaoB": "fixture SQL, não fluxo de contratação",
+  "antes": [
+    {
+      "id": "9d1f6907-dc76-4a31-91e8-2e2479120444",
+      "status": "RASCUNHO",
+      "usuario_responsavel_id": "892d5527-c6fb-4667-84bc-3534012cb6ac"
+    },
+    {
+      "id": "b2541994-d1fb-4433-beaf-1452b869adae",
+      "status": "CANCELADO",
+      "usuario_responsavel_id": "baab3c08-14c0-4bc6-93f5-202e7b141425"
+    }
+  ],
+  "depois": [
+    {
+      "id": "9d1f6907-dc76-4a31-91e8-2e2479120444",
+      "status": "CONFIRMADO",
+      "usuario_responsavel_id": "892d5527-c6fb-4667-84bc-3534012cb6ac",
+      "confirmada_em": "2026-11-14T17:32:45.768Z"
+    },
+    {
+      "id": "b2541994-d1fb-4433-beaf-1452b869adae",
+      "status": "CANCELADO",
+      "usuario_responsavel_id": "baab3c08-14c0-4bc6-93f5-202e7b141425",
+      "confirmada_em": null
+    }
+  ],
+  "retorno": {
+    "status": "DESCARTADO",
+    "perda_motivo": "Preço"
+  },
+  "antigo": {
+    "status": "CONFIRMADO"
+  }
+}

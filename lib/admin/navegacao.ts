@@ -12,6 +12,7 @@ const PRINCIPAL: ItemNavegacao[] = [
 
 const OPERACAO: ItemNavegacao[] = [
     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
+    { href: '/admin/oportunidades', rotulo: 'Oportunidades', grupo: 'Operação' },
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/convites', rotulo: 'Convites', grupo: 'Operação' },
@@ -93,7 +94,8 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
     const financeiro = p.financeiroCompleto === false
         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
         : FINANCEIRO;
-    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...itensSatisfacao(p.satisfacao), ...financeiro];
+    const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false);
+    const base = [...PRINCIPAL, ...operacao, ...(p.marketing === false ? [] : MARKETING), ...itensSatisfacao(p.satisfacao), ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

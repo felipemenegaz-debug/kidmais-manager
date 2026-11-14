@@ -1,4 +1,5 @@
 import { buscarClientePorId } from "../../clientes/repositories";
+import { herdarAcoesDoContato } from '../../oportunidades/conversao';
 import { calcularResumoComercial } from "../../comercial/services";
 import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
@@ -196,6 +197,7 @@ async function criarFechamentoComercialNaTransacao(
   }
 
   await gravarFotografiaPacoteFechamento(tx, fechamento, resumoComercial);
+  await herdarAcoesDoContato(tx,fechamento.id);
 
   const aprovacaoNegociacao = revisaoNecessaria
     ? await criarAprovacaoNegociacao(

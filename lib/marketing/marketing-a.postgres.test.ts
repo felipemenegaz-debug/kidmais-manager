@@ -151,7 +151,8 @@ test("Entrega A: site, formulário com campanha, atribuição até contrato, pai
       assert.equal(origemNeg.length, 2);
       assert.ok(origemNeg.every((o) => o.metodo === "HERDADO" && o.campanha_id === campanhaId), "negociação recebe a nova origem (campanha)");
       const repetido = await chamar(contatos, "POST", "/api/admin/marketing/contatos", { acao: "vincular-negociacao", id: nina.id, fechamentoId: fechNina });
-      assert.equal(repetido.status, 409);
+      assert.equal(repetido.status, 200, "repetir o mesmo vínculo é idempotente");
+      assert.equal((await c.query("SELECT count(*)::int AS n FROM marketing_atribuicoes WHERE alvo_tipo='FECHAMENTO' AND alvo_id=$1", [fechNina])).rows[0].n, 1, "sem atribuição duplicada");
       await contratoAssinado(c, fechNina, 4500, 1000);
       const painel = (await ok(resumo, "GET", "/api/admin/marketing/resumo?de=2026-01-01&ate=2026-12-31")).painel;
       const linha = painel.linhas.find((l: { campanhaId: string }) => l.campanhaId === campanhaId);

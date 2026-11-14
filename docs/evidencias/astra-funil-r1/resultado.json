@@ -1,0 +1,254 @@
+{
+  "utc": "2026-11-14T15:55:30.885Z",
+  "runtime": "v24.20.0",
+  "rede": false,
+  "postgres": false,
+  "resultados": [
+    {
+      "name": "manifesto",
+      "arquivos": [
+        {
+          "arquivo": "app/admin/oportunidades/page.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "app/api/admin/marketing/funil/route.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "app/api/admin/oportunidades/route.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "app/api/integracoes/oportunidades/resumo/route.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/ContratoAdmin.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/marketing/MarketingOrigens.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/marketing/MarketingVisao.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/oportunidades/Oportunidades.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/oportunidades/RelatorioFunil.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/oportunidades/oportunidades.module.css",
+          "igual": true
+        },
+        {
+          "arquivo": "components/admin/teste-componente.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "components/festas/FestaConsole.tsx",
+          "igual": true
+        },
+        {
+          "arquivo": "database/checks/20261114_122_postcheck.sql",
+          "igual": true
+        },
+        {
+          "arquivo": "database/checks/20261114_122_precheck.sql",
+          "igual": true
+        },
+        {
+          "arquivo": "database/migrations/20261114_122_oportunidades.sql",
+          "igual": true
+        },
+        {
+          "arquivo": "database/rollback/20261114_122_oportunidades_down.sql",
+          "igual": true
+        },
+        {
+          "arquivo": "docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md",
+          "igual": true
+        },
+        {
+          "arquivo": "docs/PEDIDO_ASTRA_FUNIL_20261114.md",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/acessos/teste-carregador.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/admin/navegacao.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/admin/navegacao.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/contratos/services/administrativo.service.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/contratos/services/cancelamento-pre-assinatura.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/exportacao/entidades.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/fechamentos/contratacoes.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/fechamentos/services/fechamento.service.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/marketing/contatos.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/aplicador.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/consultas.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/conversao.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/funil.postgres.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/modelo.test.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/modelo.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/perda.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/resumo.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "lib/oportunidades/service.ts",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/guarda-salao-excecoes.cjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/migration-122-comum.cjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/migration-122-hashes.json",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/migration-122-production.cjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/migration-122-staging.cjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/oportunidades-resumo-diario.mjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/production/check-migrations.mjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/regressao-v1-postgres-receita.cjs",
+          "igual": true
+        },
+        {
+          "arquivo": "scripts/regressao-v1-selecao.cjs",
+          "igual": true
+        }
+      ]
+    },
+    {
+      "name": "ordem-inventario",
+      "areaSem122": [],
+      "finalArea": [
+        "20261031_111_satisfacao_links_auditoria.sql",
+        "20261103_115_fechamentos_empresa_data.sql",
+        "20261114_123_area_familia.sql"
+      ],
+      "integracaoAppend": [
+        "20261103_115_fechamentos_empresa_data.sql",
+        "20261114_123_area_familia.sql",
+        "20261114_122_oportunidades.sql"
+      ],
+      "modelo122Inclui123": true
+    },
+    {
+      "name": "retorno-cliente",
+      "sql": "\n SELECT k.id,k.empresa_id,'CONTATO' AS tipo,k.nome,k.cliente_id,k.status,NULL AS valor,k.data_desejada AS data_evento,\n k.responsavel_id,k.recebido_em AS criada_em FROM marketing_contatos k WHERE k.empresa_id=$1 AND k.status IN ('NOVO','EM_ATENDIMENTO')\n AND k.fechamento_id IS NULL AND NOT EXISTS(SELECT 1 FROM fechamentos f WHERE f.empresa_id=k.empresa_id AND f.cliente_id=k.cliente_id)\n",
+      "cartoesObservados": 0,
+      "contatosSemVinculo": 1,
+      "estadoNegociacaoAnterior": "CONFIRMADO",
+      "anterior": "2025-01-01",
+      "novo": "2026-11-14"
+    },
+    {
+      "name": "responsavel-conversao",
+      "writes": [
+        "UPDATE oportunidades_acoes SET contato_id=NULL,fechamento_id=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid"
+      ],
+      "responsavelCartao": "vendedor-b",
+      "responsavelContadorMensal": "vendedor-a"
+    },
+    {
+      "name": "worker-default-concorrencia",
+      "desligadoConsultas": 0,
+      "duasInvocacoesEnvios": 1,
+      "limite": "serialização transacional em memória; não prova locks PostgreSQL"
+    },
+    {
+      "name": "worker-falha",
+      "envios": 1,
+      "estado": "FALHOU"
+    },
+    {
+      "name": "worker-crash",
+      "tentativas": 2,
+      "mesmaChaveEConteudo": true,
+      "limite": "deduplicação do provedor não executada"
+    },
+    {
+      "name": "marcador-existente",
+      "codigo": 1,
+      "preservado": true,
+      "transacaoEscrita": false
+    },
+    {
+      "name": "commit-incerto",
+      "codigo": 2,
+      "commit": "INDETERMINADO",
+      "marcadorPreservado": true
+    }
+  ]
+}

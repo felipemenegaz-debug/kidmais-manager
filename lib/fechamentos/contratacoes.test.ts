@@ -95,12 +95,11 @@ test('DTO não vaza documentos ou credenciais extras do executor', () => {
     const item = classificarContratacao({ ...fechamento, senha: 'sentinela-nao-real', snapshot: { cpf: 'sentinela-cpf' } } as ContratacaoRow);
     assert.doesNotMatch(JSON.stringify(item), /sentinela|snapshot|senha/);
 });
-test('CRM e Central usam mesma fila; quatro abas continuam isoladas', () => {
+test('CRM mantém cartões; Em contratação da Central aponta para Oportunidades', () => {
     const crm = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');
     const central = readFileSync('components/festas/FestaConsole.tsx', 'utf8');
     assert.match(crm, /<Contratacoes key=\{cliente.id\} clienteId=\{cliente.id\}/);
-    assert.match(central, /\['Em contratação','Hoje','Próximas','Pendências','Histórico'\]/);
-    assert.match(central, /central!=='Em contratação'&&<>/);
-    assert.match(central, /onTotal=\{setTotalContratacoes\}/);
+    assert.match(central, /href="\/admin\/oportunidades">Em contratação/);
+    assert.match(central, /\['Hoje','Próximas','Pendências','Histórico'\]/);
     assert.match(central, /pertenceVisao\(estadoDerivado/);
 });

@@ -1,0 +1,20 @@
+{
+  "utc": "2026-11-14T17:41:01.682Z",
+  "artefatos": [
+    {
+      "nome": "node_modules",
+      "presente": false
+    },
+    {
+      "nome": ".next",
+      "presente": false
+    },
+    {
+      "nome": ".next-festa-manual",
+      "presente": false
+    }
+  ],
+  "clusterPresente": false,
+  "base": "2133d398f02f519170b443b5702c6b23b9da41b7",
+  "staged": ""
+}

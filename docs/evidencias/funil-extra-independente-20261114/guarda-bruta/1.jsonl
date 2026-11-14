@@ -1,0 +1,3 @@
+{"tipo":"PRELOAD","pid":43728}
+{"tipo":"PRELOAD","pid":39144}
+{"tipo":"ORDEM","producao":false,"emissor":"TESTE","origem":"lib/marketing/harness-postgres.ts:37","pilha":["lib/marketing/harness-postgres.ts:37","lib/marketing/harness-postgres.ts:72","lib/marketing/marketing-a.postgres.test.ts:146","lib/marketing/marketing-a.postgres.test.ts:143"],"motivo":"LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho","pid":39144}
