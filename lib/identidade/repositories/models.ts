@@ -1,6 +1,13 @@
+/** Finalidades que o serviço genérico de identidade emite e confirma (fechamento público e aceite do contrato). */
 export type ValidacaoIdentidadeFinalidade =
   | "FECHAMENTO_PUBLICO"
   | "CONTRATO_ACEITE";
+
+/**
+ * Finalidade gravada no banco. AREA_FAMILIA (123) é emitida e confirmada só por lib/area-familia: o serviço genérico
+ * lê a linha mas recusa a área como "não encontrada" (nunca confirma nem reenvia por e-mail).
+ */
+export type ValidacaoIdentidadeFinalidadeRegistrada = ValidacaoIdentidadeFinalidade | "AREA_FAMILIA";
 
 export type ValidacaoIdentidadeCanal =
   | "WHATSAPP"
@@ -19,7 +26,7 @@ export type ValidacaoIdentidadeStatus =
 export type ValidacaoIdentidadeRecord = {
   id: string;
   clienteId: string;
-  finalidade: ValidacaoIdentidadeFinalidade;
+  finalidade: ValidacaoIdentidadeFinalidadeRegistrada;
   canal: ValidacaoIdentidadeCanal | null;
   status: ValidacaoIdentidadeStatus;
 

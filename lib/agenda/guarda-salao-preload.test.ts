@@ -92,6 +92,15 @@ test("rodada 2: FOR UPDATE trava só o FROM do próprio nível — subconsulta E
   assert.equal(classificarComando(`SELECT f.id FROM fechamentos f JOIN (SELECT 1 AS x) y ON true WHERE f.id = $1 FOR UPDATE OF f`), "LINHA");
   assert.equal(classificarComando(`SELECT id FROM agenda_saloes WHERE empresa_id = $1 AND (ativo OR true) FOR SHARE`), "AGENDA");
   assert.equal(classificarComando(`UPDATE fechamentos SET status = $1 WHERE id = (SELECT id FROM pacotes LIMIT 1)`), "LINHA");
+  // AF-R2-OBS1: FOR UPDATE/SHARE OF só trava os aliases listados. Alvos fora do inventário não são LINHA; alvo do
+  // inventário, cláusula sem OF ou alvo que não se resolve continuam LINHA.
+  assert.equal(classificarComando(`SELECT p.id FROM festa_links_area l JOIN festa_pessoas p ON p.id = l.pessoa_id JOIN festas f ON f.id = p.festa_id JOIN contratos c ON c.id = f.contrato_id JOIN fechamentos fe ON fe.id = c.fechamento_id JOIN clientes cl ON cl.id = fe.cliente_id WHERE l.token_hash = $1 FOR UPDATE OF p FOR SHARE OF cl`), null);
+  assert.equal(classificarComando(`SELECT v.id FROM validacoes_identidade_cliente v JOIN festa_pessoas p ON p.id = v.festa_pessoa_id JOIN festas f ON f.id = p.festa_id JOIN contratos c ON c.id = f.contrato_id WHERE v.id = $1 FOR UPDATE OF v`), null);
+  assert.equal(classificarComando(`SELECT p.id FROM festa_pessoas p JOIN fechamentos fe ON fe.id = p.fechamento_id FOR UPDATE OF p FOR SHARE OF fe`), "LINHA");
+  assert.equal(classificarComando(`SELECT p.id FROM festa_pessoas p JOIN contratos AS c ON c.id = p.contrato_id FOR UPDATE OF c`), "LINHA");
+  assert.equal(classificarComando(`SELECT p.id FROM festa_pessoas p JOIN fechamentos fe ON true FOR UPDATE OF p FOR SHARE`), "LINHA");
+  assert.equal(classificarComando(`SELECT p.id FROM fechamentos f2 JOIN festa_pessoas p ON true FOR UPDATE OF zz`), "LINHA");
+  assert.equal(classificarComando(`SELECT x.id FROM fechamentos JOIN festa_pessoas x ON true FOR UPDATE OF fechamentos`), "LINHA");
 });
 
 test("rodada 2: nome de função de agenda só conta fora de literal (catálogo); chave advisory no literal continua AGENDA", async () => {

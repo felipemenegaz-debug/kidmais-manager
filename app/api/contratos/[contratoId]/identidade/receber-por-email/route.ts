@@ -3,6 +3,8 @@ import { z } from "zod";
 import { receberCodigoContratoPorEmail } from "@/lib/contratos/services";
 import { enviarOtpComAmbiente } from "@/lib/identidade/delivery";
 import { limitarPublico } from "@/lib/http/limite-publico";
+import { LIMITES } from "@/lib/area-familia/limites";
+import { limitarRotaPublicaNoBanco } from "@/lib/area-familia/http";
 import {
   contratoIdDaRota,
   erroContratoPublico,
@@ -21,6 +23,8 @@ const schema = z.object({
 export async function POST(request: NextRequest, context: ContratoRouteContext) {
   const limite = await limitarPublico(request, "IDENTIDADE");
   if (limite) return noStoreContrato(limite);
+  const limiteBanco = await limitarRotaPublicaNoBanco(request, LIMITES.RESERVA_EMAIL_ORIGEM, "contrato:reserva-email");
+  if (limiteBanco) return noStoreContrato(limiteBanco);
   try {
     const contratoId = z.string().uuid().parse(await contratoIdDaRota(context));
     let json: unknown;
