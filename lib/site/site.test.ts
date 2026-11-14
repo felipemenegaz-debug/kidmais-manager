@@ -186,9 +186,11 @@ test('planos iA.Fest (01/11): IA assistiva em todos os planos; WhatsApp.IA inclu
     assert.equal(excluido('essencial', 'walle_whatsapp').length, 1);
     assert.equal(incluido('essencial', 'walle_whatsapp').length, 0);
     assert.match(incluido('profissional', 'walle_whatsapp')[0].texto, /adicional/);
-    assert.match(incluido('premium', 'walle_whatsapp').find(i => /franquia/.test(i.texto))!.texto, /incluída/);
+    // D-OF-1 (13/11): Premium incluído com uso justo, sem número de conversas.
+    const premiumWalle = incluido('premium', 'walle_whatsapp').find(i => /uso justo/.test(i.texto))!.texto;
+    assert.match(premiumWalle, /incluído/); assert.doesNotMatch(premiumWalle, /\d|franquia/);
     const adicional = adicionais.find(a => a.recursos.includes('walle_whatsapp'))!;
-    assert.match(adicional.descricao, /Para o Profissional/);
+    assert.match(adicional.descricao, /Para o Profissional/); assert.match(adicional.descricao, /uso justo/); assert.doesNotMatch(adicional.descricao, /franquia|pacote/);
     assert.doesNotMatch(adicional.descricao, /cobrado por uso\./, 'nenhum excedente cobrado automaticamente (D-C6)');
     // D-LOTE-6: 5 na implantação, 10/mês, 30/mês — nada de "sem cota".
     const importacao = (id: string) => incluido(id, 'importacao_contratos')[0].texto;
