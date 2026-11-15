@@ -1,5 +1,6 @@
 import type { ClienteFormData } from "@/components/clientes/types";
 import { adminFetch } from "@/lib/http/admin-fetch";
+import { patchDeEdicaoCliente } from "@/lib/clientes/edicao-cpf";
 
 export type ClienteApiStatus = "ATIVO" | "INATIVO" | "MESCLADO";
 
@@ -279,14 +280,12 @@ export function cadastrarClienteApi(form: ClienteFormData) {
   });
 }
 
-export function atualizarClienteApi(clienteId: string, form: ClienteFormData) {
-  const payload = formParaPayload(form);
+export function atualizarClienteApi(clienteId: string, form: ClienteFormData, cpfSalvo: string | null | undefined) {
   // Troca de CPF/contratante exige o fluxo específico de identidade, fora deste bloco. Na PJ o CPF vai nulo
-  // (é assim que PF→PJ remove o CPF da pessoa; numa PJ já existente ele já é nulo).
-  const { cpf: _cpf, ...patchSemCpf } = payload;
-  void _cpf;
+  // (é assim que PF→PJ remove o CPF da pessoa; numa PJ já existente ele já é nulo). Completar um CPF ausente é
+  // permitido (15/11/2026): o servidor valida, deduplica no tenant e audita.
   return requestJson<ClienteMutacaoApi>(`/api/admin/clientes/${encodeURIComponent(clienteId)}`, {
     method: "PATCH",
-    body: JSON.stringify(payload.tipoPessoa === "PJ" ? payload : patchSemCpf),
+    body: JSON.stringify(patchDeEdicaoCliente(formParaPayload(form), cpfSalvo)),
   });
 }
