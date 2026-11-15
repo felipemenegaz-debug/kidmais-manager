@@ -16,6 +16,7 @@ import { registrarAutorizacaoDoFormulario, type ResultadoFormulario } from "./au
 import { perdaSchema } from '../oportunidades/modelo.ts';
 import { gravarPerda } from '../oportunidades/perda.ts';
 import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
+import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 
 export const ORIGEM_SITE = "SITE_PUBLICO";
 export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
@@ -278,6 +279,9 @@ export async function executarAcaoContato(
     }
     return { id, repetido: false };
   }
+  // O vínculo manual a uma negociação herda o responsável do próximo passo em fechamentos: a 114 exige a configuração
+  // da agenda travada antes de qualquer linha (a entrada administrativa já tem a empresa em FOR UPDATE).
+  if (acao.acao === 'vincular-negociacao') await travarConfiguracaoAgenda(tx, empresaId, { modo: 'COMPARTILHADA', linha: 'JA_TRAVADA' });
   const atual = await tx.query<{ status: StatusContato; cliente_id: string | null; fechamento_id: string | null }>(
     `SELECT status, cliente_id::text, fechamento_id::text FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
     [acao.id, empresaId],
