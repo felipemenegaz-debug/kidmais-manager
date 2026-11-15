@@ -5,6 +5,7 @@ import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites
 import { useId } from 'react';
 import { modeloBiblioteca, modeloComFoto, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
+import { FUNDO_FAIXA_LOGO, LINHA_FAIXA_LOGO, medidasFaixaLogo } from '@/lib/convites/faixa-logo';
 import styles from './convites.module.css';
 export function dataBonita(data: string) {
   return data ? new Date(`${data}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Data da festa';
@@ -25,9 +26,9 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
   </article>;
 }
 
-/** Exportação local, sem chamada à IA: textos ficam independentes da arte. */
-export async function baixarConvite(c: Conteudo, arte?: string) {
-  if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte);
+/** Exportação local, sem chamada à IA: textos ficam independentes da arte. `logo` (data URL ou mesma origem) acrescenta a faixa do buffet. */
+export async function baixarConvite(c: Conteudo, arte?: string, logo?: string | null) {
+  if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte, logo);
   const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
   const ctx = canvas.getContext('2d'); if (!ctx) return;
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
@@ -73,13 +74,33 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
   linhas(c.mensagem, 850, 30, 4); texto(`${dataBonita(c.data)} · ${c.horario}`, 1090, 40, true);
   texto(localDoConvite(c), 1200, 38, true); linhas(enderecoDoConvite(c), 1260, 27, 3);
   }
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+  const blob = await pngComFaixa(canvas, logo);
   if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Arte intacta em cima; faixa clara com a logo embaixo. Se a logo não carregar, baixa a arte sem a faixa. */
+async function pngComFaixa(arte: HTMLCanvasElement, logo?: string | null) {
+  let final = arte;
+  if (logo) {
+    const img = new Image(); img.src = logo;
+    const carregou = await img.decode().then(() => true, () => false);
+    const m = carregou ? medidasFaixaLogo(arte.width, arte.height, img.naturalWidth, img.naturalHeight) : null;
+    const canvas = m ? document.createElement('canvas') : null, ctx = canvas?.getContext('2d');
+    if (m && canvas && ctx) {
+      canvas.width = arte.width; canvas.height = m.alturaTotal;
+      ctx.drawImage(arte, 0, 0);
+      ctx.fillStyle = FUNDO_FAIXA_LOGO; ctx.fillRect(0, arte.height, arte.width, m.faixa);
+      ctx.fillStyle = LINHA_FAIXA_LOGO; ctx.fillRect(0, arte.height, arte.width, Math.max(2, Math.round(m.faixa / 80)));
+      ctx.drawImage(img, m.x, m.y, m.largura, m.altura);
+      final = canvas;
+    }
+  }
+  return new Promise<Blob | null>(resolve => final.toBlob(resolve, 'image/png'));
+}
+
 /** SVG exportado com imagens embutidas: navegador não descarta recursos externos. */
-async function baixarModelo(c: Conteudo, arte?: string) {
+async function baixarModelo(c: Conteudo, arte?: string, logo?: string | null) {
   const embutir = async (url: string) => {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error('Não foi possível carregar a arte.');
@@ -100,7 +121,7 @@ async function baixarModelo(c: Conteudo, arte?: string) {
     const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = arte && !modeloComFoto(c.tema) && c.visual?.posicao !== 'topo' ? 1440 : 1800;
     const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas indisponível.');
     ctx.drawImage(img, 0, 0);
-    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    const blob = await pngComFaixa(canvas, logo);
     if (!blob) throw new Error('Não foi possível exportar.');
     const png = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = png; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(png), 1000);

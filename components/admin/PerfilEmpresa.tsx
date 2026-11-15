@@ -607,7 +607,7 @@ export default function PerfilEmpresa() {
                     {/* Padrão do buffet para a logo no rodapé da página do convite; cada convite pode mudar no editor. */}
                     <div className={styles.marcaBloco} data-logo-convites><h3>Convites</h3>
                         <label className={styles.marca}><input type="checkbox" checked={form.logoNosConvites !== false} disabled={!podeEditar || ocupado || !form.logoDataUrl} aria-describedby="logo-convites-nota" onChange={(evento) => atualizar({ logoNosConvites: evento.target.checked })} /><span>Mostrar a logo do buffet nos convites</span></label>
-                        <p id="logo-convites-nota" className={styles.marcaNota}>{form.logoDataUrl ? 'A logo aparece no rodapé da página do convite, fora da arte. Vale para os convites criados depois de aplicar; em cada convite dá para mudar no editor.' : 'Envie uma logo para mostrar nos convites.'}</p>
+                        <p id="logo-convites-nota" className={styles.marcaNota}>{form.logoDataUrl ? 'A logo aparece no rodapé da página do convite e numa faixa abaixo da arte na imagem baixada, sem mudar a arte. Vale para os convites criados depois de aplicar; em cada convite dá para mudar no editor.' : 'Envie uma logo para mostrar nos convites.'}</p>
                     </div>
                 </details>
             <section className={`${styles.card} ${styles.historico}`}>
