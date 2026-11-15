@@ -4,6 +4,7 @@ import { conexaoDescartavelDoPool } from "@/lib/db/postgres";
 import { lerMarcaComPrazo } from "@/lib/contratos/marca-com-prazo";
 import { marcaDaEmpresa } from "@/lib/contratos/marca-contrato";
 import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
+import { datasPapelClienteDoContrato } from "@/lib/contratos/services/assinatura-papel-cliente.service";
 import { ResumoTenantError, resumoContratacaoDoTenant } from "@/lib/contratos/services/resumo-tenant";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
@@ -27,7 +28,8 @@ export async function GET(request: NextRequest) {
     if (!contratoId.success) return NextResponse.json(NAO_ENCONTRADO, { status: 404, headers: { "Cache-Control": "no-store" } });
     const data = await resumoContratacaoDoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), contratoId.data, {
       withTenantTransaction,
-      painel: detalheAdministrativo,
+      // 124: só a data declarada do papel do cliente (o contrato já foi provado na empresa, no mesmo tx).
+      painel: async (id, tx) => ({ ...await detalheAdministrativo(id, tx), papelCliente: await datasPapelClienteDoContrato(tx, id) }),
       financeiro: consultarPainelFinanceiro,
       marca: (empresaId) => lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDaEmpresa(tx, empresaId)),
     });

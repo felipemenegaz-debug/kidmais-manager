@@ -120,7 +120,7 @@ function ambiente(o: Opcoes = {}) {
     "./politica": { politicaOperacao: () => ({ corrigir: false, motivoObrigatorio: false }) },
     "node:crypto": { createHash, randomUUID }, "./domain": domain, "./schema": schema,
     "./repository": {
-      formalizacaoElegivelSql: "TRUE", filhos: async () => ({}), contagens: async () => ({}),
+      sqlFormalizacaoElegivel: async () => "TRUE", filhos: async () => ({}), contagens: async () => ({}),
       contrato: async (_t: unknown, id: string, lock: boolean) => { log.push(`contrato(${id},${lock})`); return { id, versao_id: VERSAO, status: "ASSINADO", snapshot: { evento: { convidados: 10 } } }; },
     },
     "../contratos/services/cancelamento.service": { cancelarContratacaoDaFesta: async () => undefined },

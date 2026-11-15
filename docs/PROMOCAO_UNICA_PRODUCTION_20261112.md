@@ -278,6 +278,15 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 122 <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
+### 26. 124 — assinatura do cliente em papel (PAPEL_CLIENTE): tabela contrato_assinaturas_papel; troca o CHECK de método de aceite e dois corpos da 061
+
+- Aplicador: `scripts/migration-generico-production.cjs` (genérico, lista fechada)
+- CONFERIR: `node scripts/migration-generico-production.cjs --conferir 124`
+- APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 124 --backup "<registro-do-backup>"`
+- CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 124`
+- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 124 <CONFERIR|APLICAR> <rotulo>`
+- Volta: restaurar o backup ou corrigir para a frente
+
 ## Pendências conhecidas deste roteiro
 
 - Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.

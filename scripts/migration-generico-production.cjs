@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115 e 123 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123 e 124 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -14,7 +14,7 @@
 //   - APLICAR: exige o registro de backup; marcador exclusivo no disco persistente (migration-<id>.json); UMA transação:
 //     precheck → corpo da migration (sem o BEGIN e sem o COMMIT do arquivo) → postcheck → COMMIT só com tudo PASS → estado
 //     relido (presente) → postcheck de novo em READ ONLY;
-//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121 e 123
+//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121, 123 e 124
 //     terminam com uma linha `aprovado`: se vier diferente de true, também é falha), como no precedente por manifesto
 //     (scripts/migrations-lancamento-production.cjs), que roda os checks e deixa a exceção abortar a transação;
 //   - situação do COMMIT como nos aplicadores recentes (regra da 109–118, a função é a do núcleo da 118): falha antes do
@@ -100,9 +100,17 @@ const MIGRATIONS = Object.freeze({
     // Gatilhos em clientes e contratos e ALTER/índices/gatilho em validacoes_identidade_cliente exigem a posse dessas tabelas.
     privilegios: {criaNoSchema: true, alteradas: ['clientes', 'contratos', 'validacoes_identidade_cliente'], funcoes: [],
       referenciadas: ['clientes', 'empresas', 'festas', 'usuarios_administrativos', 'validacoes_identidade_cliente']}}),
+  '124': congelar({escopo: 'assinatura do cliente em papel: contrato_assinaturas_papel, método PAPEL_CLIENTE e formalização/validação da 061 ampliadas (aditiva; exige 061, 122 e 123)',
+    arquivos: [['precheck', 'database/checks/20261115_124_precheck.sql', '43cb4b3cc846b9e58dace6ca9da281a7437359adaba847a9b2cf32a4bc1cd237'],
+      ['migration', 'database/migrations/20261115_124_assinatura_papel_cliente.sql', 'a54c30c1f18200c8f1724334a961a8444f1cbe6f1d1f0ffd0fb53cefcadff8d9'],
+      ['postcheck', 'database/checks/20261115_124_postcheck.sql', 'e6d9cf8f3be17db9252451266bb8dcd0bcf2a119de5ad55a825ecfb37fa9e684']],
+    criados: [tabela('contrato_assinaturas_papel'), funcao('kidmais124_papel_cliente(uuid,uuid)'), funcao('kidmais124_validar_registro_papel()')],
+    // Troca do CHECK de método em contrato_versoes exige a posse dela; CREATE OR REPLACE das duas funções da 061 exige a posse delas.
+    privilegios: {criaNoSchema: true, alteradas: ['contrato_versoes'], funcoes: ['kidmais019_formalizacao(uuid,uuid)', 'kidmais_validar_fluxo_contrato()'],
+      referenciadas: ['contrato_versoes', 'contratos', 'empresas', 'memberships', 'usuarios_administrativos']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);

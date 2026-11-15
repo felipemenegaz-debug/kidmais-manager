@@ -81,7 +81,11 @@ export async function concluirFluxoCliente(tx: DbExecutor, v: ContratoVersaoReco
     const preparacao=await buscarRevisaoDaVersao(v.id,tx,true);
     if(preparacao)await concluirPreparacao(tx,preparacao,{...context,usuarioId:null,validacaoIdentidadeId:validacaoId});
     else if(e.dados_fonte.revisaoInicial)await aplicarRevisaoInicial(tx,v,e.dados_fonte.revisaoInicial);
-    await registrarPendenciasDaVigencia(tx, v, f.versao_vigente_id);
+    await promoverVigencia(tx, v, f.versao_vigente_id);
+}
+/** Promove a versão assinada a vigente (OTP e, na 124, papel do cliente): pendências, edição, fluxo e contrato. */
+export async function promoverVigencia(tx: DbExecutor, v: ContratoVersaoRecord, anteriorVigente: string | null) {
+    await registrarPendenciasDaVigencia(tx, v, anteriorVigente);
     await tx.query("UPDATE contrato_edicoes SET estado='CONCLUIDA' WHERE contrato_versao_id=$1", [v.id]);
     await tx.query('UPDATE contrato_fluxos SET versao_vigente_id=$2,versao_em_preparacao_id=NULL WHERE contrato_id=$1', [v.contratoId, v.id]);
     await tx.query("UPDATE contratos SET status='ASSINADO',versao_atual=$2,assinado_em=COALESCE(assinado_em,$3::timestamptz) WHERE id=$1", [v.contratoId, v.numeroVersao, v.assinadoEm]);

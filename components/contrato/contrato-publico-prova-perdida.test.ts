@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elemento } from '../admin/teste-componente.ts';
+import * as assinaturaPapel from '../../lib/contratos/assinatura-papel.ts';
 
 /**
  * Página pública real com APIs simuladas. Ao perder a prova (qualquer das cinco rotas), somem a marca, os PDFs e os tokens,
@@ -59,7 +60,7 @@ async function abrir(respostas: Respostas = {}, ate4 = true) {
     sinais.push({ rota, signal: init?.signal ?? undefined });
     return responder(rota);
   }) as typeof fetch;
-  const tela = carregarComponente('components/contrato/ContratoPublico.tsx', { 'next/image': { default: 'img' }, './ContratoPublico.module.css': cssFalso });
+  const tela = carregarComponente('components/contrato/ContratoPublico.tsx', { 'next/image': { default: 'img' }, './ContratoPublico.module.css': cssFalso, '@/lib/contratos/assinatura-papel': assinaturaPapel });
   let id = CONTRATO;
   const ver = () => { const a = tela.render('default', { contratoId: id }); tela.efeitos(); return a; };
   const clicar = async (rotulo: string | RegExp) => { (achar(ver(), 'button', rotulo).props.onClick as () => void)(); await esperar(); };

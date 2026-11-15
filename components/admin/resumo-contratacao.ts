@@ -1,6 +1,6 @@
 import { salaoDoSnapshot, type ContratoSnapshot, type ContratoSnapshotV1 } from '../../lib/contratos/repositories/models.ts';
 import { formatarMoeda, formatarFormaPagamento, formatarCondicaoPix, formatarDataContrato, formatarHorarioContrato } from '../../lib/contratos/documento/formatters.ts';
-import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../../lib/contratos/assinatura-papel.ts';
+import { TEXTO_ASSINADO_EM_PAPEL, dataCivilBr, versaoConferenciaImportada } from '../../lib/contratos/assinatura-papel.ts';
 import type { MarcaContrato } from '../../lib/contratos/marca-contrato.ts';
 
 export type VersaoResumo = {
@@ -13,6 +13,8 @@ export type PainelResumo = {
   versoes: VersaoResumo[];
   assinaturas: Array<{ contrato_versao_id: string; parte: string; assinado_em: string; identidade_snapshot: { nome: string } }>;
   financeiro: Array<{ id: string }>;
+  /** 124: versões em que o CLIENTE assinou o papel — só a data civil declarada (nunca hora). */
+  papelCliente?: Array<{ versaoId: string; dataDeclarada: string }>;
 };
 export type FinanceiroResumo = {
   contrato: { id: string };
@@ -36,7 +38,7 @@ export function selecionarVersaoResumo(painel: PainelResumo, id?: string | null)
 /** Apresentação apenas: valores comerciais vêm integralmente do snapshot selecionado. */
 export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: FinanceiroResumo | null) {
   const v = selecionarVersaoResumo(p, id), s = v.snapshot;
-  const papel = versaoAssinadaEmPapel(v);
+  const papel = versaoConferenciaImportada(v);
   const vigente = p.fluxo?.versao_vigente_id === v.id;
   const classificacao = vigente ? 'Versão vigente' : p.fluxo?.versao_em_preparacao_id === v.id ? 'Versão em preparação — não vigente' : 'Versão histórica';
   const secoes: SecaoResumo[] = [];
@@ -87,6 +89,8 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   if (papel) secao('Assinatura desta versão', [['Forma', 'Assinado em papel'], ['Observação', TEXTO_ASSINADO_EM_PAPEL]]);
   else secao('Assinaturas desta versão', ['KIDMAIS', 'CLIENTE'].map(parte => {
     const assinatura = assinaturas.find(a => a.parte === parte);
+    const papelCliente = parte === 'CLIENTE' && !assinatura ? p.papelCliente?.find(r => r.versaoId === v.id) : undefined;
+    if (papelCliente) return ['Cliente', `Assinado em papel em ${dataCivilBr(papelCliente.dataDeclarada)}`];
     return [parte === 'KIDMAIS' ? 'Buffet' : 'Cliente', assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
   }));
   // `arquivo` só nomeia o PDF baixado; o conteúdo continua vindo de `secoes`/`parcelas`.
