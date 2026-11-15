@@ -53,6 +53,8 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
 const ESTADO_POSTGRES = {
   "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
     "lib/oportunidades/atribuicao.postgres.test.ts": { descartavel: "122" },
+  // Postcheck da 122 reprova os CHECKs de perda ausentes, NOT VALID ou trocados (Astra, 15/11/2026, P2).
+  "lib/oportunidades/postcheck-122.postgres.test.ts": { descartavel: "122" },
   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
@@ -299,6 +301,7 @@ const ESTADO_POSTGRES = {
   "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
   // 14/11/2026 (LOCAL): área "Minha festa" F1 (123): entrada, recusas, limites, sair, painel do buffet e travas do banco.
   "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123" },
+  "lib/area-familia/leitura.postgres.test.ts": { descartavel: "123" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.

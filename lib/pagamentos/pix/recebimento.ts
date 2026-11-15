@@ -3,7 +3,7 @@ import type { DbExecutor } from '../../db/contracts';
 import type { SessaoAdmin } from '../../autenticacao/service.ts';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../../clientes/repositories/auditoria.repository';
 import { PacoteAdminError } from '../../comercial/pacotes-admin.ts';
-import { listarRecebiveis } from '../../financeiro/servico.ts';
+import { listarRecebiveis, listarRecebiveisDoContrato, type Recebivel } from '../../financeiro/servico.ts';
 import { exigirReautenticacaoPerfil } from '../../perfil/reautenticacao.ts';
 import type { TenantComprovado } from '../../saas/provar-tenant.ts';
 import { perfilDoTenantOuNulo } from '../../perfil/tenant.ts';
@@ -180,23 +180,55 @@ export async function pixDaParcela(tx: DbExecutor, tenant: TenantComprovado, par
     // Parcela de outra empresa, entrada manual ou inexistente: mesma resposta.
     if (!parcela)
         erro('PARCELA_NAO_ENCONTRADA', 'Parcela não encontrada.', 404);
-    if (parcela.saldoCentavos <= 0 || parcela.status === 'Cancelado' || parcela.status === 'Reembolsado' || parcela.status === 'Pago')
+    if (semSaldo(parcela))
         erro('PARCELA_SEM_SALDO', 'Esta parcela não tem saldo em aberto.', 409);
+    return { ...await pixDoRecebivel(tx, tenant.empresaComprovada, config, parcela), parcela: { id: parcela.id, numero: parcela.parcela, vencimento: parcela.vencimento, cliente: parcela.cliente } };
+}
+
+/** Núcleo comum: BR Code estático do saldo em aberto do título, com o recebedor do Perfil atual. Não grava nada. */
+async function pixDoRecebivel(tx: DbExecutor, empresaId: string, config: Linha, parcela: Recebivel) {
     const txid = txidDaParcela(parcela.id);
     // Perfil atual tem prioridade (nome ou cidade alterados depois); o gravado na chave é a reserva.
-    const atual = await recebedorDoPerfil(tx, tenant.empresaComprovada);
-    config.nome_recebedor = atual.nome || config.nome_recebedor;
-    config.cidade_recebedor = atual.cidade || config.cidade_recebedor;
-    const copiaECola = montarBrCodeEstatico({
-        chave: config.chave, nomeRecebedor: config.nome_recebedor, cidadeRecebedor: config.cidade_recebedor,
-        valorCentavos: parcela.saldoCentavos, txid,
-    });
+    const atual = await recebedorDoPerfil(tx, empresaId);
+    const nome = atual.nome || config.nome_recebedor;
+    const cidade = atual.cidade || config.cidade_recebedor;
+    const copiaECola = montarBrCodeEstatico({ chave: config.chave, nomeRecebedor: nome, cidadeRecebedor: cidade, valorCentavos: parcela.saldoCentavos, txid });
     return {
         copiaECola,
         qrSvg: qrSvg(copiaECola),
         valorCentavos: parcela.saldoCentavos,
         txid,
-        parcela: { id: parcela.id, numero: parcela.parcela, vencimento: parcela.vencimento, cliente: parcela.cliente },
-        recebedor: { nome: config.nome_recebedor, cidade: config.cidade_recebedor, tipoChave: config.tipo_chave, chaveMascarada: mascararChavePix(config.tipo_chave, config.chave) },
+        recebedor: { nome, cidade, tipoChave: config.tipo_chave, chaveMascarada: mascararChavePix(config.tipo_chave, config.chave) },
+    };
+}
+
+function semSaldo(parcela: Recebivel) {
+    return parcela.saldoCentavos <= 0 || parcela.status === 'Cancelado' || parcela.status === 'Reembolsado' || parcela.status === 'Pago';
+}
+
+export type PixDaFamilia =
+    | { ok: true; copiaECola: string; qrSvg: string; valorCentavos: number; parcela: { numero: number; vencimento: string }; recebedor: { nome: string; tipoChave: TipoChavePix; chaveMascarada: string } }
+    | { ok: false; motivo: 'PIX_INDISPONIVEL' | 'PIX_NAO_CONFIGURADO' | 'PARCELA_NAO_ENCONTRADA' | 'PARCELA_SEM_SALDO' };
+
+/**
+ * Pix de uma parcela para a área da família (123/F2). Empresa e contrato vêm da SESSÃO da área, nunca do pedido; a
+ * parcela só é achada entre as do próprio contrato (listarRecebiveisDoContrato). Parcela de outro contrato, da mesma
+ * empresa ou não, responde igual a parcela inexistente. Devolve só o necessário para pagar (sem cliente nem txid).
+ */
+export async function pixDaParcelaDoContrato(tx: DbExecutor, empresaId: string, contratoId: string, parcelaIdRaw: string, hoje: string): Promise<PixDaFamilia> {
+    const lida = z.string().uuid().safeParse(parcelaIdRaw);
+    if (!lida.success) return { ok: false, motivo: 'PARCELA_NAO_ENCONTRADA' };
+    const parcelaId = lida.data.toLowerCase();
+    if (!await pixInstalado(tx)) return { ok: false, motivo: 'PIX_INDISPONIVEL' };
+    const config = await linhaDaEmpresa(tx, empresaId);
+    if (!config) return { ok: false, motivo: 'PIX_NAO_CONFIGURADO' };
+    const parcela = (await listarRecebiveisDoContrato(tx, empresaId, contratoId, hoje)).find((r) => r.id === parcelaId);
+    if (!parcela) return { ok: false, motivo: 'PARCELA_NAO_ENCONTRADA' };
+    if (semSaldo(parcela)) return { ok: false, motivo: 'PARCELA_SEM_SALDO' };
+    const pix = await pixDoRecebivel(tx, empresaId, config, parcela);
+    return {
+        ok: true, copiaECola: pix.copiaECola, qrSvg: pix.qrSvg, valorCentavos: pix.valorCentavos,
+        parcela: { numero: parcela.parcela, vencimento: parcela.vencimento },
+        recebedor: { nome: pix.recebedor.nome, tipoChave: pix.recebedor.tipoChave, chaveMascarada: pix.recebedor.chaveMascarada },
     };
 }
