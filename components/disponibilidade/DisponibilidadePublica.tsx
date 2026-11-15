@@ -290,6 +290,9 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
           )}
         </section>
 
+        {/* Pacotes e preços desde a abertura: antes dos convidados fica sob este cartão; depois, ao lado da agenda. */}
+        {!convidados && !empresa ? <div className={styles.pacotesAntes}><PacotesPdf /></div> : null}
+
         {convidados ? (
         <section className={styles.card}>
           <div className={styles.calendarColumn}>
