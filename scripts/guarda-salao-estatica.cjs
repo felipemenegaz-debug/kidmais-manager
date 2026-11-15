@@ -167,15 +167,32 @@ function uniao(lista) {
   return v.length > LIMITE_VALORES ? VAL([v.join(" ")], true) : VAL(v, ap);
 }
 
+// Memória (15/11/2026): o programa carregava também os tipos das bibliotecas importadas (655 .d.ts de node_modules) e o
+// teste da guarda passou do heap de 2 GB no build do Render (dep-dbsf3c3l550s7389mdl0). A guarda só olha arquivos nossos;
+// o que ela pergunta ao verificador de tipos são literais e tipos simples. Ficam o lib.d.ts do TypeScript e o @types/node
+// (process, Buffer etc., com o undici-types que ele referencia); os demais .d.ts de node_modules não são lidos e os
+// imports deles resolvem como any. O relatório do repositório ficou idêntico e o pico caiu cerca de 16%.
+function hospedeiroSemTiposDeBibliotecas(opcoes) {
+  const hospedeiro = ts.createCompilerHost(opcoes);
+  const ler = hospedeiro.getSourceFile.bind(hospedeiro);
+  const barra = (p) => p.replace(/\\/g, "/");
+  const pastaDaLib = barra(path.dirname(ts.getDefaultLibFilePath(opcoes)));
+  const permitido = (n) => !n.includes("/node_modules/") || n.startsWith(`${pastaDaLib}/`)
+    || n.includes("/node_modules/@types/node/") || n.includes("/node_modules/undici-types/");
+  hospedeiro.getSourceFile = (arquivo, ...resto) => (permitido(barra(arquivo)) ? ler(arquivo, ...resto) : undefined);
+  return hospedeiro;
+}
+
 function analisar({ raiz, arquivos, excecoes = [] } = {}) {
   raiz = path.resolve(raiz);
   arquivos = arquivos ?? arquivosDoRepositorio(raiz);
-  const programa = ts.createProgram(arquivos, {
+  const opcoes = {
     allowJs: true, checkJs: false, noEmit: true, skipLibCheck: true, strict: false, target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true,
     jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true, resolveJsonModule: true, baseUrl: raiz, paths: { "@/*": ["./*"] },
-    types: [], noLib: false,
-  });
+    types: ["node"], noLib: false,
+  };
+  const programa = ts.createProgram(arquivos, opcoes, hospedeiroSemTiposDeBibliotecas(opcoes));
   const checker = programa.getTypeChecker();
   const relativo = (sf) => path.relative(raiz, sf.fileName).replace(/\\/g, "/");
   const nossos = programa.getSourceFiles().filter((sf) => !sf.isDeclarationFile && !/node_modules/.test(sf.fileName)
@@ -1158,7 +1175,10 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
   }
 
   const excecoesAplicadas = excecoes.filter((x) => excecoesUsadas.has(x)).map((x) => ({ ...x, chamadores: [...chamadoresDaExcecao.get(x)].sort() }));
-  return { arquivos: nossos.length, escritas, naoResolvidos, derivados, comoValor, sql, excecoesAplicadas, excecoesNaoUsadas: excecoes.filter((x) => !excecoesUsadas.has(x)) };
+  // Tamanho do que ficou na memória (todos os arquivos do programa, nossos e de tipos), para o aviso antes do teto de
+  // heap no teste da guarda.
+  const caracteresDoPrograma = programa.getSourceFiles().reduce((soma, sf) => soma + sf.text.length, 0);
+  return { arquivos: nossos.length, caracteresDoPrograma, escritas, naoResolvidos, derivados, comoValor, sql, excecoesAplicadas, excecoesNaoUsadas: excecoes.filter((x) => !excecoesUsadas.has(x)) };
 }
 
 module.exports = { analisar, escritasDeSalao, escritasEmSql, limparSql, arquivosDoRepositorio, ARQUIVO_DE_TESTE };

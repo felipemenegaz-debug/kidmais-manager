@@ -27,7 +27,7 @@ const { EXCECOES } = exigir("../../scripts/guarda-salao-excecoes.cjs") as { EXCE
 type Escrita = { arquivo: string; funcao: string; teste: boolean; via: string; escritor: string | null; tabelas: string[] };
 type NaoResolvido = { arquivo: string; funcao: string; teste: boolean; motivo: string; arquivoOrigem: string; funcaoOrigem: string };
 type Relatorio = {
-  escritas: Escrita[]; naoResolvidos: NaoResolvido[]; sql: { arquivo: string; escritas: string[] }[];
+  caracteresDoPrograma: number; escritas: Escrita[]; naoResolvidos: NaoResolvido[]; sql: { arquivo: string; escritas: string[] }[];
   comoValor: { arquivo: string; teste: boolean }[]; excecoesNaoUsadas: unknown[];
 };
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -366,4 +366,23 @@ test("repositório: SQL não resolvido fora de teste só nas exceções declarad
 test("repositório: nenhum .sql escreve salão; .query como valor só em teste", () => {
   assert.deepEqual(repositorio.sql, []);
   assert.deepEqual(repositorio.comoValor.filter((x) => !x.teste && !COMO_VALOR_DECLARADO.includes(x.arquivo)).map((x) => x.arquivo), []);
+});
+
+// Aviso antes do teto (15/11/2026). O build do Render caiu sem memória neste teste (dep-dbsf3c3l550s7389mdl0) e o
+// runner subiu o heap dos testes para HEAP_DOS_TESTES_MB. O pico da análise acompanha o tamanho do programa montado:
+// medido em 14–15/11, cerca de 58 bytes de heap por caractere (1,97 GB para 33,9 milhões; 2,1–2,4 GB para 41,1 milhões
+// antes de tirar os tipos das bibliotecas). Este teste falha quando a estimativa passa de 75% do teto, semanas antes de
+// o build cair, para dar tempo de enxugar a guarda ou rever o teto com calma.
+const BYTES_DE_HEAP_POR_CARACTERE = 60;
+const FRACAO_DE_AVISO = 0.75;
+test("memória: o programa da guarda fica abaixo de 75% do heap dos testes", () => {
+  const { HEAP_DOS_TESTES_MB } = exigir("../../scripts/regressao-v1-estatica.cjs") as { HEAP_DOS_TESTES_MB: number };
+  const estimativaMb = (repositorio.caracteresDoPrograma * BYTES_DE_HEAP_POR_CARACTERE) / 2 ** 20;
+  const avisoMb = HEAP_DOS_TESTES_MB * FRACAO_DE_AVISO;
+  assert.ok(repositorio.caracteresDoPrograma > 10_000_000, "o programa da guarda precisa conter o repositório");
+  assert.ok(
+    estimativaMb <= avisoMb,
+    `pico estimado da guarda ${Math.round(estimativaMb)} MB passou de 75% do heap dos testes (${avisoMb} de ${HEAP_DOS_TESTES_MB} MB). ` +
+      "Enxugar a guarda ou rever HEAP_DOS_TESTES_MB em scripts/regressao-v1-estatica.cjs antes que o build do Render fique sem memória.",
+  );
 });
