@@ -28,6 +28,7 @@ const endereco = z.object({
 
 const cadastro = z.object({
     logoDataUrl: z.string().max(LOGO_MAX_DATA_URL).nullable().optional(),
+    logoNosConvites: z.boolean().optional(),
     nomeComercial: z.string().max(160).optional(),
     razaoSocial: z.string().max(160).optional(),
     cnpj: z.string().max(32).optional(),

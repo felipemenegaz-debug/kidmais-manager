@@ -29,7 +29,7 @@ type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | '
 const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não precisa tentar novamente.';
 const ROTULOS_HISTORICO: Record<string, string> = { IA_RESERVADA: 'geração de arte solicitada', IA_CONCLUIDA: 'arte gerada', IA_EM_VERIFICACAO: 'geração em verificação',
   IA_NAO_INICIADA: 'geração não iniciada; crédito devolvido', IA_VERIFICACAO_CONCLUIDA: 'verificação da geração concluída',
-  AUTORIZACAO_IA_REGISTRADA: 'autorização de IA do responsável registrada', AUTORIZACAO_IA_REVOGADA: 'autorização de IA revogada' };
+  AUTORIZACAO_IA_REGISTRADA: 'autorização de IA do responsável registrada', AUTORIZACAO_IA_REVOGADA: 'autorização de IA revogada', LOGO_BUFFET: 'logo do buffet no convite alterada' };
 const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'iA.Fest' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
@@ -39,6 +39,7 @@ type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Co
   creditos?: { motor: 'LEGADO' } | { motor: 'CREDITOS'; disponivel: number; reservado: number; consumoAtivo: boolean } | null;
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
   trabalhosLocais?: { id: string; estado: string; tipo: string; criadoEm: string; erro?: string }[];
+  logoBuffet?: { mostrar: boolean; logoDataUrl: string | null } | null;
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
 // Biblioteca de molduras temporariamente desativada no editor; modelos e convites existentes continuam renderizando.
 const MOLDURAS_NO_EDITOR = false;
@@ -138,6 +139,16 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     setBusy(true); setErro(''); setAviso('');
     try { const r = await api(body); await carregar(false, preservar); setAviso(mensagem); return r; }
     catch (e) { setErro((e as Error).message); return null; } finally { setBusy(false); }
+  }
+  // Logo do buffet no rodapé da página pública: vale na hora (inclusive publicado) e não recarrega o que está sendo editado.
+  async function mudarLogoBuffet(mostrar: boolean) {
+    // Muda na hora e volta ao valor anterior se o servidor recusar.
+    const trocar = (valor: boolean) => setDados(d => d?.logoBuffet ? { ...d, logoBuffet: { ...d.logoBuffet, mostrar: valor } } : d);
+    setBusy(true); setErro(''); setAviso(''); trocar(mostrar);
+    try {
+      await api({ acao: 'logo_buffet', mostrar });
+      setAviso(mostrar ? 'A logo do buffet vai aparecer no rodapé deste convite.' : 'A logo do buffet não vai aparecer neste convite.');
+    } catch (e) { trocar(!mostrar); setErro((e as Error).message); } finally { setBusy(false); }
   }
   function campo<K extends keyof Conteudo>(k: K, value: Conteudo[K]) { setConteudo(c => c ? { ...c, [k]: value } : c); }
   async function extrairCores() {
@@ -433,6 +444,12 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           <small>{conviteProprioPronto ? 'Sua imagem aparece como está. Os dados abaixo continuam valendo para a página do convite e a confirmação de presença.' : conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
         </fieldset>
       </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} />
+        {admin && dados.logoBuffet && <div className={ui.logoBuffet} data-logo-buffet>
+          {dados.logoBuffet.mostrar && dados.logoBuffet.logoDataUrl && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={dados.logoBuffet.logoDataUrl} alt="Logo do buffet" /></div>}
+          <label className={ui.check}><input type="checkbox" checked={dados.logoBuffet.mostrar && !!dados.logoBuffet.logoDataUrl} disabled={busy || !dados.logoBuffet.logoDataUrl} aria-describedby="logo-buffet-nota" onChange={e => void mudarLogoBuffet(e.target.checked)} />
+            Mostrar a logo do buffet neste convite</label>
+          <small id="logo-buffet-nota">{dados.logoBuffet.logoDataUrl ? 'Aparece no rodapé da página do convite, fora da arte. Vale na hora, mesmo depois de publicado.' : <>Envie uma logo no <Link href="/admin/configuracoes/perfil-empresa">Perfil da empresa</Link> para mostrar neste convite.</>}</small>
+        </div>}
         {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
           {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
         <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>

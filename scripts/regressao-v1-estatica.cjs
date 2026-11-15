@@ -16,10 +16,20 @@ const TRAVAS_FORA_DOS_TESTES = Object.freeze(["ASSINATURA_AVISOS_EMAIL", "IDENTI
 // exercitam a cobrança com banco simulado recebiam COBRANCA_TRAVADA e o deploy dep-dbqtpqmtlv9c739hcr4g falhou
 // (12/11/2026). Os testes da trava passam o ambiente explicitamente. Só os testes perdem essas chaves; o build não.
 const IDENTIDADE_DO_DEPLOY = Object.freeze(["RENDER", "RENDER_SERVICE_ID", "KIDMAIS_DEPLOY_ENV"]);
+// Heap dos processos de teste (15/11/2026): a guarda estática de salão (lib/agenda/guarda-salao-estatica.test.ts) monta o
+// programa TypeScript do repositório inteiro e passou de 2 GB; no build do Render o heap padrão do Node é 2 GB e o teste caiu
+// com "JavaScript heap out of memory" (dep-dbse5agae00c73es56i0, dep-dbsf3c3l550s7389mdl0, dep-dbsfa48n74is739n2pr0).
+// Só o limite sobe; quem usa pouco continua usando pouco. Um NODE_OPTIONS já existente é preservado.
+const HEAP_DOS_TESTES_MB = 3072;
+function comHeap(nodeOptions = "") {
+  if (/--max-old-space-size=/.test(nodeOptions)) return nodeOptions;
+  return `${nodeOptions} --max-old-space-size=${HEAP_DOS_TESTES_MB}`.trim();
+}
 function ambienteDosTestes(base = process.env, { semIdentidadeDoDeploy = false } = {}) {
   const env = { ...base, NEXT_TELEMETRY_DISABLED: "1" };
   for (const chave of TRAVAS_FORA_DOS_TESTES) delete env[chave];
   if (semIdentidadeDoDeploy) for (const chave of IDENTIDADE_DO_DEPLOY) delete env[chave];
+  if (semIdentidadeDoDeploy) env.NODE_OPTIONS = comHeap(env.NODE_OPTIONS);
   return env;
 }
 

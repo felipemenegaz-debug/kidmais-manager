@@ -108,3 +108,4 @@
   .primario:hover:not(:disabled) { transform: none; }
   .controleEfeitos { display: none; }
 }
+.logoBuffet { display: block; margin: 0 auto 12px; max-height: 56px; max-width: 180px; object-fit: contain; }

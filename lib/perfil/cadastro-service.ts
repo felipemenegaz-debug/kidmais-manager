@@ -207,11 +207,16 @@ function conflito(versao: number, edicao: number | null, numero: number | null) 
 }
 
 async function logoAplicada(tx: DbExecutor, empresaId: string): Promise<string | null> {
-    const linha = (await tx.query<{ logo: string | null }>(
-        `SELECT conteudo->>'logoDataUrl' AS logo FROM public.perfil_empresa_revisoes
+    return (await marcaAplicada(tx, empresaId)).logo;
+}
+
+/** Logo e padrão da logo nos convites da última revisão aplicada (padrão ausente = ligado). */
+async function marcaAplicada(tx: DbExecutor, empresaId: string): Promise<{ logo: string | null; logoNosConvites: boolean }> {
+    const linha = (await tx.query<{ logo: string | null; convites: unknown }>(
+        `SELECT conteudo->>'logoDataUrl' AS logo, conteudo->'logoNosConvites' AS convites FROM public.perfil_empresa_revisoes
          WHERE empresa_id=$1 AND estado='APLICADA' ORDER BY numero DESC LIMIT 1`, [empresaId],
     )).rows[0];
-    return linha?.logo ?? null;
+    return { logo: linha?.logo ?? null, logoNosConvites: linha?.convites !== false };
 }
 
 export async function consultarLogoPerfil(tx: DbExecutor, usuarioId: string, editar = false, perfilDoServidor?: string) {
@@ -231,7 +236,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
     if (!unico)
         return { estruturaInstalada: true as const, vazio: true, contexto: null as ContextoCadastro | null };
     await exigirCapacidadePerfil(tx, unico.empresa.id, usuarioId, 'PERFIL_CONSULTAR');
-    const logo = await logoAplicada(tx, unico.empresa.id);
+    const marca = await marcaAplicada(tx, unico.empresa.id);
     const rascunho = (await tx.query<{ numero: number; edicao: number; versao_base: number; conteudo: CadastroPerfil }>(
         `SELECT numero, edicao, versao_base, conteudo
          FROM public.perfil_empresa_revisoes
@@ -247,7 +252,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
             codigoEmpresa: unico.empresa.codigo,
             codigoUnidade: unico.unidade.codigo,
             versao: unico.empresa.versao,
-            cadastro: { ...cadastroDe(unico.empresa, unico.unidade), logoDataUrl: logo },
+            cadastro: { ...cadastroDe(unico.empresa, unico.unidade), logoDataUrl: marca.logo, logoNosConvites: marca.logoNosConvites },
             pessoaFisica: await contratantePessoaFisica(tx, unico.empresa.id),
             rascunho: rascunho
                 ? { numero: rascunho.numero, edicao: rascunho.edicao, versaoBase: rascunho.versao_base, conteudo: rascunho.conteudo }
@@ -278,12 +283,16 @@ export async function salvarRascunhoPerfil(tx: DbExecutor, input: {
     await exigirCapacidadePerfil(tx, unico.empresa.id, input.usuarioId, 'PERFIL_EDITAR_RASCUNHO');
     // Imagens passam pelo mesmo controle de versão e auditoria do rascunho.
     // Clientes anteriores, sem esse campo, preservam a logo vigente/rascunhada.
-    if (input.cadastro.logoDataUrl === undefined) {
+    if (input.cadastro.logoDataUrl === undefined || input.cadastro.logoNosConvites === undefined) {
         const anterior = (await tx.query<{ conteudo: CadastroPerfil }>(
             `SELECT conteudo FROM public.perfil_empresa_revisoes WHERE empresa_id=$1
              ORDER BY (estado='RASCUNHO') DESC, numero DESC LIMIT 1`, [unico.empresa.id],
         )).rows[0];
-        validacao.cadastro.logoDataUrl = anterior?.conteudo.logoDataUrl ?? null;
+        if (input.cadastro.logoDataUrl === undefined)
+            validacao.cadastro.logoDataUrl = anterior?.conteudo.logoDataUrl ?? null;
+        // Telas anteriores, sem o campo, preservam o padrão vigente/rascunhado da logo nos convites.
+        if (input.cadastro.logoNosConvites === undefined)
+            validacao.cadastro.logoNosConvites = anterior?.conteudo.logoNosConvites !== false;
     }
     validacao.cadastro.logoDataUrl = await conferirLogoSalva(validacao.cadastro.logoDataUrl);
     if (Number(unico.empresa.versao) !== input.versaoBase)
