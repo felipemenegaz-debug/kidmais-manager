@@ -91,6 +91,9 @@ jobs:
       - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
         run: node --test scripts/convites-exportacao-completa.test.cjs
 
+      - name: Convites — imagem baixada com a faixa da logo do buffet abaixo da arte, sem mudar a arte
+        run: node --test scripts/convites-exportacao-logo.test.cjs
+
       - name: Aplicador manual da 083 em staging — alvo, hashes, privilégio de DDL e tentativa única (cliente simulado)
         run: node --test scripts/migration-083-staging.test.cjs
 
