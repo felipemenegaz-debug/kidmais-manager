@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { ipDaRequisicao } from "../acessos/http.ts";
 import { db } from "../db/postgres.ts";
 import { otpDesabilitadoNoStaging } from "../identidade/configuracao-otp.ts";
-import { consumirLimite, type RegraLimite } from "./limites.ts";
+import { consumirLimite, consumirLimiteDaSessao, LIMITES, type RegraLimite } from "./limites.ts";
 import { pepperIdentidade } from "./regras-http.ts";
 
-export { areaFamiliaLigada, lerCorpoJson, origemPublicaValida, pepperIdentidade } from "./regras-http.ts";
+export { areaFamiliaLigada, leituraPermitida, lerCorpoJson, origemPublicaValida, pepperIdentidade } from "./regras-http.ts";
 
 /**
  * Borda HTTP da área "Minha festa". Desligada por padrão: só abre com AREA_FAMILIA_ENABLED=true (senão 404, como
@@ -55,4 +55,10 @@ export async function limitarRotaPublicaNoBanco(request: Request, regra: RegraLi
     console.error("[limite no banco] falha ao contar", error instanceof Error ? error.name : "erro");
     return responderArea({ ok: false, erro: "Não foi possível continuar agora.", codigo: "LIMITE_INDISPONIVEL" }, 503);
   }
+}
+
+/** Leitura pesada (PDF, Pix) da sessão: null = segue; senão 429. Conta fora da transação do pedido (autocommit). */
+export async function limitarLeituraDaSessao(sessaoId: string, pepper: string) {
+  const espera = await consumirLimiteDaSessao(db(), LIMITES.AREA_LEITURA_SESSAO, sessaoId, pepper);
+  return espera === null ? null : muitasTentativas(espera);
 }

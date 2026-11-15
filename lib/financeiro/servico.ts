@@ -392,6 +392,25 @@ export async function listarRecebiveis(tx: DbExecutor, empresaId: string, hoje: 
 }
 
 /**
+ * Parcelas de UM contrato, no mesmo cálculo de listarRecebiveis (mesmo RECEBER_SQL, mesma consolidação por pagamento),
+ * sem as entradas manuais. Usada pela área da família (123/F2): a família só vê o próprio contrato, nunca a lista da
+ * empresa. Empresa e contrato vão juntos: um contrato de outra empresa não devolve nada (RECEBER_SQL prende o pacote
+ * à empresa $1). Todas as parcelas de cada pagamento do contrato entram juntas, então a posição do motor é a mesma.
+ */
+export async function listarRecebiveisDoContrato(tx: DbExecutor, empresaId: string, contratoId: string, hoje: string) {
+  const resultado = await tx.query<LinhaReceber>(
+    `SELECT t.* FROM (${RECEBER_SQL}) t
+      WHERE t.pagamento_id IN (
+        SELECT pag_c.id::text FROM pagamentos pag_c
+          JOIN contrato_versoes ver_c ON ver_c.id = pag_c.contrato_versao_id
+         WHERE ver_c.contrato_id = $2::uuid)`,
+    [empresaId, contratoId],
+  );
+  return consolidarTitulos(resultado.rows, hoje)
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.parcela - b.parcela);
+}
+
+/**
  * Quantas linhas `listarRecebiveis` devolveria, contando no banco e parando em `teto` + 1 (trabalho e memória limitados).
  * Usa a mesma seleção de títulos da lista e conta uma linha por entrada manual. Quem precisa recusar volumes grandes
  * chama antes de materializar a lista.
