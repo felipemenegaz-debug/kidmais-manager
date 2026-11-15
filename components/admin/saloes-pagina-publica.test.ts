@@ -19,7 +19,7 @@ test('aviso: desligada; ligada diz só a regra (agenda por salão e 2 prontos na
 test('rota devolve só o booleano da flag; tela usa o aviso e não tem mais o texto fixo', () => {
   const rota = readFileSync('app/api/admin/configuracoes/saloes/route.ts', 'utf8');
   assert.match(rota, /const paginaPublica = saloesPublicosLigados\(\);/);
-  assert.match(rota, /return \{ instalacao, gestao, paginaPublica, saloes: \[\] \};/, 'também sem a 102 instalada');
+  assert.match(rota, /return \{ instalacao, gestao, paginaPublica, cadastroNaAgenda: maisDeUmSalaoLiberado\(\), saloes: \[\] \};/, 'também sem a 102 instalada');
   assert.doesNotMatch(rota, /SALOES_PUBLICOS\s*[:=]/, 'nenhum valor de env devolvido além do booleano');
   const tela = readFileSync('components/admin/SaloesApresentacaoLista.tsx', 'utf8');
   assert.doesNotMatch(tela, /ainda não está ligada/);
