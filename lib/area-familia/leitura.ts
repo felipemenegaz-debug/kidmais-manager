@@ -1,5 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
-import { versaoAssinadaEmPapel } from "../contratos/assinatura-papel.ts";
+import { versaoConferenciaImportada } from "../contratos/assinatura-papel.ts";
 import { rotuloSalao, salaoDoSnapshot, type ContratoSnapshot, type ContratoVersaoRecord } from "../contratos/repositories/models.ts";
 import { buscarVersaoPorId } from "../contratos/repositories/contrato.repository.ts";
 import { listarRecebiveisDoContrato, type Recebivel } from "../financeiro/servico.ts";
@@ -139,7 +139,7 @@ export async function lerMinhaFesta(tx: DbExecutor, sessao: SessaoArea, hoje: st
   if (!alvo) return null;
   const { versao, contratoId } = alvo;
   const s = versao.snapshot;
-  const papel = versaoAssinadaEmPapel(versao);
+  const papel = versaoConferenciaImportada(versao);
   const salao = salaoDoSnapshot(s);
   const documentos: DocumentoFamilia[] = [];
   if (!papel) documentos.push({ tipo: "contrato", titulo: "Contrato assinado" });
@@ -188,7 +188,7 @@ export async function adquirirDocumentoFamilia(tx: DbExecutor, sessao: SessaoAre
   const { versao, contratoId } = alvo;
   if (pedido.tipo === "resumo") return { ok: true, tipo: "resumo", versao, marca: await marcaDoContratoNaTransacao(tx, contratoId) };
   // Contrato em papel: sem PDF oficial nem comprovante digital (a prova é o original importado).
-  if (versaoAssinadaEmPapel(versao)) return { ok: false, motivo: "NAO_ENCONTRADO" };
+  if (versaoConferenciaImportada(versao)) return { ok: false, motivo: "NAO_ENCONTRADO" };
   if (pedido.tipo === "contrato") {
     try {
       return { ok: true, tipo: "contrato", documento: await adquirirDocumentoParaLeitura(versao, tx) };
