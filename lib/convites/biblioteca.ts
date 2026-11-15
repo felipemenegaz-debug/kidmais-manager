@@ -10,6 +10,7 @@ import { contrato } from '../festas/repository';
 import { exigir, inicioConteudo, type Conteudo } from './domain';
 import { habilitado } from './service';
 import { revogarAutorizacao } from './consentimento';
+import { marcaDoBuffet } from './logo-buffet';
 
 export const consultaBiblioteca = z.object({ filtro: z.enum(['todos', 'avulsos', 'vinculados']).default('todos'), pagina: z.coerce.number().int().min(1).max(10000).default(1) });
 export const comandoBiblioteca = z.discriminatedUnion('acao', [
@@ -85,7 +86,9 @@ export function operarBiblioteca(sessao: SessaoAdmin, raw: unknown) {
       if (existente) return existente;
       exigir(Number((await tx.query<{ n: string }>('SELECT count(*) n FROM convites WHERE empresa_id=$1 AND festa_id IS NULL', [t.empresaComprovada])).rows[0].n) < 1000, 'Limite de convites avulsos atingido.', 409);
       await tx.query(`INSERT INTO convites(id,empresa_id,publico_token,rascunho,limite_festa,limite_cliente)
-        VALUES($1,$2,$3,$4,3,2)`, [i.id, t.empresaComprovada, randomBytes(32).toString('base64url'), inicioConteudo(null)]);
+        VALUES($1,$2,$3,$4,3,2)`, [i.id, t.empresaComprovada, randomBytes(32).toString('base64url'),
+        // Padrão do buffet para a logo no rodapé, copiado só na criação (mesma regra do convite da festa).
+        { ...inicioConteudo(null), logoBuffet: (await marcaDoBuffet(tx, t.empresaComprovada)).padrao }]);
       await tx.query(`INSERT INTO convite_eventos(convite_id,ator,acao) VALUES($1,$2,'CONVITE_AVULSO_CRIADO')`, [i.id, `USUARIO:${sessao.usuario_id}`]);
       return { id: i.id };
     }

@@ -46,6 +46,8 @@ export const conteudoSchema = z.object({
   blocoLocal: blocoLocalSchema.optional(),
   arteId: z.uuid().nullable(),
   confirmarPresenca: z.boolean(),
+  // Logo do buffet no rodapé da página pública (ausente = ligado). Só o buffet muda, pela ação 'logo_buffet'.
+  logoBuffet: z.boolean().optional(),
   visual: z.object({
     modo: z.enum(['modelo', 'completa']),
     posicao: z.enum(['fundo', 'topo']).optional(),
@@ -66,6 +68,7 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('publicar'), revisao: z.int().positive(), conteudo: conteudoSchema }).strict(),
   z.object({ acao: z.literal('despublicar'), revisao: z.int().positive() }).strict(),
   z.object({ acao: z.literal('acesso'), habilitado: z.boolean() }).strict(),
+  z.object({ acao: z.literal('logo_buffet'), mostrar: z.boolean() }).strict(),
   z.object({ acao: z.literal('cotas'), festa: z.int().min(0).max(100), cliente: z.int().min(0).max(100) }).strict(),
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
   z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
