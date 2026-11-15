@@ -16,6 +16,15 @@ export function origemPublicaValida(request: Request, env: Record<string, string
   return request.headers.get("origin") === esperada;
 }
 
+/**
+ * Leituras (GET) da área: recusa pedido vindo de outro site (Sec-Fetch-Site cross-site ou same-site). Abrir o PDF numa
+ * aba nova é same-origin; navegação direta é "none"; navegador antigo sem o cabeçalho segue (o cookie é só da área).
+ */
+export function leituraPermitida(request: Request) {
+  const site = request.headers.get("sec-fetch-site");
+  return !site || site === "same-origin" || site === "none";
+}
+
 export async function lerCorpoJson(request: Request): Promise<unknown | null> {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return null;
   const texto = await request.text();
