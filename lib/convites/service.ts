@@ -13,6 +13,7 @@ import { AUTORIZACAO_AINDA_VIGENTE, autorizacaoVigente, conferirImagens, MENSAGE
 import { ehProvedorIA, VERSAO_TEXTOS_IA, type ProvedorIA } from './consentimento-textos';
 import { adicionarReferenciaEstilo, orientacaoFoto, prepararConviteCompleto, type ConviteCompletoPreparado } from './estilos';
 import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
+import { bytesDaLogo, marcaDoBuffet, mostrarLogoBuffet, preservarLogoBuffet, semLogoBuffet } from './logo-buffet';
 import { disponivelConvites, encerrarGeracao, infoCreditosConvites, motorConvites, reservarGeracao } from '../creditos/convites.ts';
 import { flagsCreditos } from '../creditos/config.ts';
 
@@ -85,7 +86,9 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
       // O cliente pode consumir no máximo duas gerações; a terceira fica reservada
       // para o buffet ajustar a arte final, se necessário.
       c = (await tx.query<Convite>(`INSERT INTO convites(empresa_id,festa_id,cliente_id,estabelecimento_id,publico_token,rascunho,versao_contrato_id,limite_festa,limite_cliente)
-        VALUES($1,$2,$3,$4,$5,$6,$7,3,2) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(), inicioConteudo(co.snapshot, bloco), co.versao_id])).rows[0];
+        VALUES($1,$2,$3,$4,$5,$6,$7,3,2) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(),
+        // Padrão do buffet (Perfil da empresa) só no nascimento do convite; mudar o padrão depois não altera este.
+        { ...inicioConteudo(co.snapshot, bloco), logoBuffet: (await marcaDoBuffet(tx, empresa)).padrao }, co.versao_id])).rows[0];
       await evento(tx, c, a, 'CONVITE_CRIADO');
     }
     exigir(c, 'Crie o convite para começar.', 404);
@@ -173,7 +176,9 @@ export async function consultar(a: Acesso, criar = false) {
     // Aviso e autorização (088): textos com o provedor real, hashes do texto exibido e situação, sem o nome do responsável.
     const provedor = provedorAtual();
     const autorizacaoIA = provedor ? { ...textosParaTela(provedor, operadorIA(a)), ...await resumoTolerante(tx, c, provedor) } : null;
-    return { id: c.id, festaId: c.festa_id, conteudo: comBlocoLocal(c.rascunho, bloco), avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
+    // Logo do buffet no rodapé: controle e prévia só para o buffet; a família não recebe nem o campo.
+    const logoBuffet = a.tipo === 'admin' ? { mostrar: mostrarLogoBuffet(c.rascunho), logoDataUrl: (await marcaDoBuffet(tx, c.empresa_id)).logoDataUrl } : null;
+    return { id: c.id, festaId: c.festa_id, conteudo: a.tipo === 'admin' ? comBlocoLocal(c.rascunho, bloco) : semLogoBuffet(comBlocoLocal(c.rascunho, bloco)), logoBuffet, avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
@@ -237,6 +242,15 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
       await evento(tx, c, a, i.habilitado ? 'ACESSO_RENOVADO' : 'ACESSO_REVOGADO');
       return { linkCliente: novo ? `/convites/criar#${novo}` : null };
     }
+    if (i.acao === 'logo_buffet') {
+      exigir(a.tipo === 'admin', 'Somente o buffet pode mudar a logo do convite.', 403);
+      // Vale na hora, inclusive no convite já publicado: grava rascunho e publicado juntos, sem mexer na revisão
+      // (quem está editando não perde o que digitou; salvar e publicar preservam este valor).
+      await tx.query(`UPDATE convites SET rascunho=jsonb_set(rascunho,'{logoBuffet}',to_jsonb($2::boolean)),
+        publicado=CASE WHEN publicado IS NULL THEN NULL ELSE jsonb_set(publicado,'{logoBuffet}',to_jsonb($2::boolean)) END,atualizado_em=now() WHERE id=$1`, [c.id, i.mostrar]);
+      await evento(tx, c, a, 'LOGO_BUFFET', { mostrar: i.mostrar });
+      return { logoBuffet: i.mostrar };
+    }
     if (i.acao === 'cotas') {
       exigir(a.tipo === 'admin', 'Somente o buffet pode distribuir créditos.', 403);
       const tenant = await provarTenant(tx, a.sessao);
@@ -267,7 +281,8 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
       if (i.acao === 'despublicar') await tx.query('UPDATE convites SET publicado=NULL,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id]);
       else {
         // D-LIB-3/5: o bloco enviado pela tela é descartado; vale o recalculado da versão gravada em versao_contrato_id.
-        const conteudo = comBlocoLocal(i.conteudo, bloco);
+        // A escolha da logo do buffet é a gravada; a tela (da família ou do buffet) não a altera por aqui.
+        const conteudo = preservarLogoBuffet(comBlocoLocal(i.conteudo, bloco), c.rascunho);
         if (i.acao === 'publicar') exigir(localDoConvite(conteudo), 'Informe o local da festa.', 400);
         if (conteudo.arteId) exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows.length, 'Arte não pertence a este convite.', 400);
         await tx.query(`UPDATE convites SET rascunho=$2,publicado=CASE WHEN $3 THEN $2::jsonb ELSE publicado END,
@@ -684,9 +699,19 @@ export async function artePublica(tokenPublico: string) {
   const arte = (await db().query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows[0];
   exigir(arte, 'Arte não encontrada.', 404); return arte.imagem;
 }
+/** Mostra a logo quando o convite publicado pede e o buffet tem logo aplicada no Perfil (lida na hora). */
+async function logoDoConvitePublico(c: Convite, conteudo: Conteudo) {
+  return mostrarLogoBuffet(conteudo) ? (await marcaDoBuffet(db(), c.empresa_id)).logoDataUrl : null;
+}
+export async function logoPublica(tokenPublico: string) {
+  const { c, conteudo } = await publico(tokenPublico);
+  const logo = bytesDaLogo(await logoDoConvitePublico(c, conteudo));
+  exigir(logo, 'Logo não encontrada.', 404);
+  return logo;
+}
 export async function consultarPublico(tokenPublico: string, tokenFamilia: string | null) {
   const { c, conteudo, marcaKidmais } = await publico(tokenPublico);
-  return { conteudo, marcaKidmais, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+  return { conteudo: semLogoBuffet(conteudo), marcaKidmais, logoBuffet: !!(await logoDoConvitePublico(c, conteudo)), familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
 }
 export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);

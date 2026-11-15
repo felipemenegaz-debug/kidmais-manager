@@ -604,6 +604,11 @@ export default function PerfilEmpresa() {
                         {form.logoDataUrl ? <span className={styles.marcaMenuLogo}><img src={form.logoDataUrl} alt="Prévia da logo no menu" /></span> : <span className={`${styles.marcaMenuLogo} ${styles.marcaMenuIniciais}`} aria-hidden="true">{iniciaisEmpresa(form.nomeComercial || 'Empresa')}</span>}
                         <span className={styles.marcaMenuTexto}><strong>{form.nomeComercial || 'Nome comercial'}</strong><small>Cartão da conta</small></span>
                     </div><p className={styles.previaNota}>A logo aparece num quadrado pequeno no rodapé do menu e no Dashboard. Prefira o símbolo da marca, quadrado; logos deitadas ficam pequenas. Muda após aplicar o rascunho.</p></div>
+                    {/* Padrão do buffet para a logo no rodapé da página do convite; cada convite pode mudar no editor. */}
+                    <div className={styles.marcaBloco} data-logo-convites><h3>Convites</h3>
+                        <label className={styles.marca}><input type="checkbox" checked={form.logoNosConvites !== false} disabled={!podeEditar || ocupado || !form.logoDataUrl} aria-describedby="logo-convites-nota" onChange={(evento) => atualizar({ logoNosConvites: evento.target.checked })} /><span>Mostrar a logo do buffet nos convites</span></label>
+                        <p id="logo-convites-nota" className={styles.marcaNota}>{form.logoDataUrl ? 'A logo aparece no rodapé da página do convite, fora da arte. Vale para os convites criados depois de aplicar; em cada convite dá para mudar no editor.' : 'Envie uma logo para mostrar nos convites.'}</p>
+                    </div>
                 </details>
             <section className={`${styles.card} ${styles.historico}`}>
                 <h2 className={styles.titulo}><AdminIcon name="history" size={12} />Histórico</h2>
