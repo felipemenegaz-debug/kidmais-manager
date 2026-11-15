@@ -64,10 +64,11 @@ function criarAplicador(amb){
    await db.query('BEGIN');await db.query("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='60s'");
    amb.identidade((await db.query(amb.SQL_IDENTIDADE)).rows[0],env);await privilegios(db);
    for(let i=0;i<sql.length;i++){etapa=['PRECHECK','MIGRATION','POSTCHECK'][i];await db.query(corpo(sql[i]));}
-   etapa='COMMIT';const r=await db.query('COMMIT');assert.notEqual(r.command,'ROLLBACK','COMMIT_RESPONDEU_ROLLBACK');commit='CONFIRMADO';
+   // COMMIT numa transação abortada volta como ROLLBACK sem erro: nada confirmado (Astra 15/11/2026, P3; igual ao genérico).
+   etapa='COMMIT';const r=await db.query('COMMIT');if(r?.command==='ROLLBACK'){commit='DESFEITA_PELO_SERVIDOR';assert.fail('COMMIT_RESPONDEU_ROLLBACK');}commit='CONFIRMADO';
    etapa='RECONFERIR';await conferirCliente(db,env);fs.writeFileSync(arquivo,JSON.stringify({...registro,etapa:'PASS',commit}));
    return {codigo:0,saida:{resultado:'APLICADA_POSTCHECK_PASS',commit}};
-  }catch(e){if(etapa==='COMMIT')commit=commitNaFalha(e);await db.query('ROLLBACK').catch(()=>{});
+  }catch(e){if(etapa==='COMMIT'&&commit==='NAO_COMMITADA')commit=commitNaFalha(e);await db.query('ROLLBACK').catch(()=>{});
    const saida={resultado:'FALHA',commit,falha:{etapa,mensagem:mensagem(e)},codigoSql:sqlstate(e)};
    try{fs.writeFileSync(arquivo,JSON.stringify({...registro,etapa,commit,falha:saida.falha,codigoSql:saida.codigoSql}));}catch{saida.marcadorDesatualizado=true;}
    return {codigo:2,saida};

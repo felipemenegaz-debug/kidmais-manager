@@ -53,6 +53,8 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
 const ESTADO_POSTGRES = {
   "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
     "lib/oportunidades/atribuicao.postgres.test.ts": { descartavel: "122" },
+  // Postcheck da 122 reprova os CHECKs de perda ausentes, NOT VALID ou trocados (Astra, 15/11/2026, P2).
+  "lib/oportunidades/postcheck-122.postgres.test.ts": { descartavel: "122" },
   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
