@@ -1,0 +1,1816 @@
+diff --git a/components/admin/ContratoAdmin.tsx b/components/admin/ContratoAdmin.tsx
+index 3ac40672..b85c00c2 100644
+--- a/components/admin/ContratoAdmin.tsx
++++ b/components/admin/ContratoAdmin.tsx
+@@ -1,5 +1,6 @@
+ 'use client';
+ import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
++import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
+ import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
+ import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
+ import { classePrimaria } from './AdminPrimaryButton';
+@@ -254,10 +255,14 @@ export default function ContratoAdmin() {
+     }
+     async function cancelarContratacao(){
+         if(!v||!data)return;
+-        const motivo=window.prompt('Por que esta contratação será cancelada? O histórico e os documentos serão preservados.');
+-        if(!motivo||motivo.trim().length<3)return;
++        const escolha=window.prompt('Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'));
++        const perdaMotivo=MOTIVOS_PERDA[Number(escolha)-1];
++        if(!perdaMotivo)return;
++        const observacao=window.prompt('Observação (opcional). O histórico e os documentos serão preservados.');
++        if(observacao===null)return;
++        const motivo=observacao.trim()||perdaMotivo;
+         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
+-        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
++        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim(),perda:{motivo:perdaMotivo,observacao:observacao.trim()}})){
+             if(enderecoFinal())return;
+             setCid('');setData(null);
+             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
+diff --git a/components/admin/marketing/MarketingOrigens.tsx b/components/admin/marketing/MarketingOrigens.tsx
+index 69ca34db..d0f6337d 100644
+--- a/components/admin/marketing/MarketingOrigens.tsx
++++ b/components/admin/marketing/MarketingOrigens.tsx
+@@ -119,7 +119,7 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar:
+                 {f.vinculadoAOutroContato && <span className={styles.muted}> · vinculada a outro contato</span>}</li>)}</ul>}
+         {podeEditar && c.status !== 'CONVERTIDO' && <div className={styles.acoes}>
+           {c.status !== 'EM_ATENDIMENTO' && <button type="button" className={styles.secundario} onClick={() => void acao({ acao: 'status', id: c.id, status: 'EM_ATENDIMENTO' })}>Marcar em atendimento</button>}
+-          {c.status !== 'DESCARTADO' && <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'status', id: c.id, status: 'DESCARTADO' })}>Descartar</button>}
++          {c.status !== 'DESCARTADO' && <Link href="/admin/oportunidades">Próxima ação ou perda</Link>}
+         </div>}
+         {aviso && <p className={styles.aviso} role="status">{aviso}</p>}
+       </>}
+diff --git a/components/admin/marketing/MarketingVisao.tsx b/components/admin/marketing/MarketingVisao.tsx
+index 14ec96b8..d893f50d 100644
+--- a/components/admin/marketing/MarketingVisao.tsx
++++ b/components/admin/marketing/MarketingVisao.tsx
+@@ -1,5 +1,6 @@
+ 'use client';
+ import Link from 'next/link';
++import RelatorioFunil from '../oportunidades/RelatorioFunil';
+ import { useState } from 'react';
+ import type { PainelMarketing, LinhaPainel } from '@/lib/marketing/metricas';
+ import type { OpcaoOrigem } from '@/lib/marketing/origens';
+@@ -88,6 +89,7 @@ export default function MarketingVisao() {
+         </details>
+         <AtribuicaoExplicada />
+       </section>
++      <RelatorioFunil consulta={consulta} origens={dados.origens}/>
+       <section className={styles.cartao} aria-labelledby="t-datas">
+         <h2 id="t-datas">Datas vagas para divulgar <span className={styles.selo}>sugestão</span></h2>
+         <p className={styles.muted}>Lido da agenda atual{dados.sugestoes.escopo === 'EMPRESA' && unidadeId ? ' (agenda da empresa: esta unidade não tem agenda própria)' : ''}. Nada é reservado, bloqueado ou precificado por aqui.</p>
+diff --git a/components/admin/teste-componente.ts b/components/admin/teste-componente.ts
+index 7f06b2bd..1d3ace36 100644
+--- a/components/admin/teste-componente.ts
++++ b/components/admin/teste-componente.ts
+@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
+ import { readFileSync } from 'node:fs';
+ import ts from 'typescript';
+ import * as jsx from 'react/jsx-runtime';
++import * as modeloOportunidades from '../../lib/oportunidades/modelo.ts';
+ 
+ /**
+  * Renderiza um componente TSX real com hooks isolados, sem DOM (mesma técnica de criacao-financeira.test.ts).
+@@ -75,6 +76,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
+     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+   }).outputText)((id: string) => { assert(id === 'react', `dependência não prevista: ${id}`); return hooks; }, reservaEmail);
+   const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
++  todos['@/lib/oportunidades/modelo'] ??= modeloOportunidades;
+   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
+ 
+   return {
+diff --git a/components/festas/FestaConsole.tsx b/components/festas/FestaConsole.tsx
+index bd98874f..88bccee6 100644
+--- a/components/festas/FestaConsole.tsx
++++ b/components/festas/FestaConsole.tsx
+@@ -10,7 +10,6 @@ import {estadoDerivado,pertenceVisao} from '@/lib/festas/domain';
+ import {nomeComIdade,rotulosBuffet,type EscolhaBuffet} from '@/lib/festas/buffet';
+ import type {ContratoSnapshotV1} from '@/lib/contratos/repositories/models';
+ import styles from './festa.module.css';
+-import Contratacoes from './Contratacoes';
+ import RevisaoPendente from './RevisaoPendente';
+ import {linksContratoDaFesta,apresentarEventoFesta} from '@/lib/festas/apresentacao';
+ import FestaFinanceiro from './FestaFinanceiro';
+@@ -24,9 +23,9 @@ const text=(v:unknown)=>String(v??'');
+ const instante=(v:unknown)=>v?new Date(String(v)).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'Não informado';
+ const dia=(v:unknown)=>v?new Date(String(v).slice(0,10)+'T12:00:00Z').toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}):'Data não informada';
+ export default function FestaConsole({festaId,convitesEnabled=false}:{festaId?:string;convitesEnabled?:boolean}){
+- const router=useRouter();const [data,setData]=useState<Data|null>(null),[erro,setErro]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[central,setCentral]=useState('Em contratação'),[filtro,setFiltro]=useState('Todas'),[aba,setAba]=useState('Visão geral');
++ const router=useRouter();const [data,setData]=useState<Data|null>(null),[erro,setErro]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[central,setCentral]=useState('Hoje'),[filtro,setFiltro]=useState('Todas'),[aba,setAba]=useState('Visão geral');
+  useEffect(()=>{if(new URLSearchParams(window.location.search).get('visao')==='proximas')setCentral('Próximas');},[]);
+- const [totalContratacoes,setTotalContratacoes]=useState<number|null>(null);
++
+  const [mode,setMode]=useState(''),[draft,setDraft]=useState<Record<string,unknown>>({}),[before,setBefore]=useState<Row|null>(null),[conflito,setConflito]=useState(false),[atualizado,setAtualizado]=useState(false),[agora,setAgora]=useState<Date|null>(null);
+  const [editorAba,setEditorAba]=useState('Visão geral'),[abaDestino,setAbaDestino]=useState('');const initialDraft=useRef('');
+  function fechar(){setMode('');setBefore(null);setDraft({});setConflito(false);setErro('');}
+@@ -79,7 +78,7 @@ export default function FestaConsole({festaId,convitesEnabled=false}:{festaId?:s
+  const botoesRegistro=<div className={styles.actions}><button onClick={()=>abrir('convidados')}>Convidados</button><button onClick={()=>abrir('hora',{minutos:30})}>Hora extra</button><button onClick={()=>abrir('adicional')}>Adicionar item</button><button onClick={()=>abrir('observacao')}>Observação</button></div>;
+  return <main className={styles.page}>{!festaId?<><div className={styles.tituloFestas}><h1>Festas</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato de festa</Link></div><p>Preparação e registros importantes de cada festa.</p></>:<><Link href="/admin/festas">Voltar às festas</Link><header className={styles.identity}><span className={styles.identityLabel}>Contratante</span><div className={styles.identityTop}><h1>{snapshot?.contratante?.nomeCompleto||'Não informado'}</h1>{data&&f&&gestao&&!leitura&&<button className={styles.identityAction} onClick={()=>abrir('cancelar_contratacao')}>Cancelar contrato</button>}</div><p className={styles.birthday}>{nomeComIdade(snapshot,data?.nascimentoCrm)}</p><p>{evento?.pacote?.nome}</p></header></>}
+  {erro&&<div role="alert" className={styles.warning}><p>{erro}</p>{conflito&&<><button onClick={async()=>{if(await carregar())setAtualizado(true);}}>Ver informação atual</button>{atualizado&&<button onClick={()=>{setConflito(false);setErro('');}}>Revisar minha alteração</button>}</>}</div>}{notice&&<p role="status" className={styles.success}>{notice}</p>}{!data&&!erro&&<p>Carregando festas…</p>}
+- {data&&!festaId&&<><nav aria-label="Central de Festas" className={styles.tabs}>{['Em contratação','Hoje','Próximas','Pendências','Histórico'].map(t=><button key={t} aria-pressed={central===t} onClick={()=>{setCentral(t);if(t!=='Em contratação')void carregar().catch(()=>setErro('Não foi possível atualizar as festas.'));}}>{t}{t==='Em contratação'&&totalContratacoes!==null?` (${totalContratacoes})`:''}</button>)}</nav><div hidden={central!=='Em contratação'}><h2>Em contratação</h2><Contratacoes clienteId={typeof window!=='undefined'?new URLSearchParams(window.location.search).get('clienteId')??undefined:undefined} onTotal={setTotalContratacoes}/></div>{central!=='Em contratação'&&<>{central==='Histórico'&&<nav aria-label="Filtro do histórico" className={styles.tabs}>{['Todas','Realizadas','Canceladas'].map(t=><button key={t} aria-pressed={filtro===t} onClick={()=>setFiltro(t)}>{t}</button>)}</nav>}<h2>{central}</h2>{!festas.length&&<p>Nenhuma festa nesta visão.</p>}<div className={styles.grid}>{festas.map(r=>{const s=r.snapshot as Snapshot;return <section className={styles.card} key={(r.origem==='IMPORTACAO'?'importacao-':'')+r.id}>{r.origem==='IMPORTACAO'&&<p>Contrato importado</p>}<p className={styles.customer}><span className={styles.identityLabel}>Contratante</span>{s.contratante?.nomeCompleto||'Não informado'}</p><h2>{nomeComIdade(s,text(r.nascimento_crm))}</h2><p>{dia(s.evento?.data)} • {horarioResumo(s)}</p><p>{s.evento?.pacote?.nome} • {s.evento?.convidados} convidados</p><strong>{amigavel(estadoDerivado(s,r.contrato_status==='CANCELADO',false,agora??new Date()))}</strong>{r.contrato_status==='CANCELADO'&&<><p>Motivo: {text(r.motivo_cancelamento)}</p><p>Cancelada em: {instante(r.cancelado_em)}</p></>}<p>{r.origem==='IMPORTACAO'?<Link href={'/admin/contratos?importacaoId='+r.id}>Ver contrato importado</Link>:<Link href={'/admin/festas/'+r.id}>Ver detalhes</Link>}</p></section>;})}</div><p>Festas são adicionadas automaticamente após as assinaturas do buffet e do cliente, ou na integração de contrato assinado em papel. Contratos importados com data passada aparecem no Histórico; com data futura, no bloco de eventos a integrar.</p>{central==='Próximas'&&aIntegrar.length>0&&<section id="importados-a-integrar" className={styles.card} aria-labelledby="importados-a-integrar-titulo"><h2 id="importados-a-integrar-titulo">Eventos importados a integrar</h2><p>Contratos históricos importados com data futura. Enquanto não forem integrados, não são festas operacionais, não reservam agenda e não entram nas contagens. Abra o contrato importado e use “Integrar ao sistema”.</p><div className={styles.grid}>{aIntegrar.map(r=>{const s=r.snapshot as Snapshot;return <section className={styles.card} key={'integrar-'+r.id}><p><strong>Evento importado — ainda não integrado à agenda</strong></p><p className={styles.customer}><span className={styles.identityLabel}>Contratante</span>{s.contratante?.nomeCompleto||'Não informado'}</p><h2>{nomeComIdade(s,text(r.nascimento_crm))}</h2><p>{dia(s.evento?.data)} • {horarioResumo(s)||'Horário não informado'}</p><p>{s.evento?.pacote?.nome} • {s.evento?.convidados==null?'convidados não informados':`${s.evento.convidados} convidados`}</p><p><Link href={'/admin/contratos?importacaoId='+r.id}>Abrir contrato importado</Link></p></section>;})}</div></section>}{!!data.elegiveis?.length&&<p role="status">Há contratações anteriores sem Festa. Solicite reconciliação autorizada; não conclua a preparação de production enquanto houver pendências.</p>}</>}</>}
++ {data&&!festaId&&<><nav aria-label="Central de Festas" className={styles.tabs}><Link href="/admin/oportunidades">Em contratação</Link>{['Hoje','Próximas','Pendências','Histórico'].map(t=><button key={t} aria-pressed={central===t} onClick={()=>{setCentral(t);if(t!=='Em contratação')void carregar().catch(()=>setErro('Não foi possível atualizar as festas.'));}}>{t}</button>)}</nav>{central!=='Em contratação'&&<>{central==='Histórico'&&<nav aria-label="Filtro do histórico" className={styles.tabs}>{['Todas','Realizadas','Canceladas'].map(t=><button key={t} aria-pressed={filtro===t} onClick={()=>setFiltro(t)}>{t}</button>)}</nav>}<h2>{central}</h2>{!festas.length&&<p>Nenhuma festa nesta visão.</p>}<div className={styles.grid}>{festas.map(r=>{const s=r.snapshot as Snapshot;return <section className={styles.card} key={(r.origem==='IMPORTACAO'?'importacao-':'')+r.id}>{r.origem==='IMPORTACAO'&&<p>Contrato importado</p>}<p className={styles.customer}><span className={styles.identityLabel}>Contratante</span>{s.contratante?.nomeCompleto||'Não informado'}</p><h2>{nomeComIdade(s,text(r.nascimento_crm))}</h2><p>{dia(s.evento?.data)} • {horarioResumo(s)}</p><p>{s.evento?.pacote?.nome} • {s.evento?.convidados} convidados</p><strong>{amigavel(estadoDerivado(s,r.contrato_status==='CANCELADO',false,agora??new Date()))}</strong>{r.contrato_status==='CANCELADO'&&<><p>Motivo: {text(r.motivo_cancelamento)}</p><p>Cancelada em: {instante(r.cancelado_em)}</p></>}<p>{r.origem==='IMPORTACAO'?<Link href={'/admin/contratos?importacaoId='+r.id}>Ver contrato importado</Link>:<Link href={'/admin/festas/'+r.id}>Ver detalhes</Link>}</p></section>;})}</div><p>Festas são adicionadas automaticamente após as assinaturas do buffet e do cliente, ou na integração de contrato assinado em papel. Contratos importados com data passada aparecem no Histórico; com data futura, no bloco de eventos a integrar.</p>{central==='Próximas'&&aIntegrar.length>0&&<section id="importados-a-integrar" className={styles.card} aria-labelledby="importados-a-integrar-titulo"><h2 id="importados-a-integrar-titulo">Eventos importados a integrar</h2><p>Contratos históricos importados com data futura. Enquanto não forem integrados, não são festas operacionais, não reservam agenda e não entram nas contagens. Abra o contrato importado e use “Integrar ao sistema”.</p><div className={styles.grid}>{aIntegrar.map(r=>{const s=r.snapshot as Snapshot;return <section className={styles.card} key={'integrar-'+r.id}><p><strong>Evento importado — ainda não integrado à agenda</strong></p><p className={styles.customer}><span className={styles.identityLabel}>Contratante</span>{s.contratante?.nomeCompleto||'Não informado'}</p><h2>{nomeComIdade(s,text(r.nascimento_crm))}</h2><p>{dia(s.evento?.data)} • {horarioResumo(s)||'Horário não informado'}</p><p>{s.evento?.pacote?.nome} • {s.evento?.convidados==null?'convidados não informados':`${s.evento.convidados} convidados`}</p><p><Link href={'/admin/contratos?importacaoId='+r.id}>Abrir contrato importado</Link></p></section>;})}</div></section>}{!!data.elegiveis?.length&&<p role="status">Há contratações anteriores sem Festa. Solicite reconciliação autorizada; não conclua a preparação de production enquanto houver pendências.</p>}</>}</>}
+  {data&&festaId&&f&&<><RevisaoPendente contratoId={data.contrato?.id??''} festaId={festaId} cancelado={leitura} versoes={data.versoes??[]}/>{!leitura&&data.contrato?.fechamento_id&&<SalaoDaFesta key={data.contrato.fechamento_id} fechamentoId={data.contrato.fechamento_id}/>}<section className={styles.card}><p>{dia(evento?.data)} • {horarioResumo(snapshot)}</p><p>{evento?.convidados} convidados</p><strong>{amigavel(estado)}</strong>{estado==='REMOVIDA'&&<p>Esta Festa foi removida por engano e permanece para consulta. Motivo: {text(f.motivo_invalidacao)} Os registros da festa ficam preservados; a origem comercial da negociação ainda pode ser corrigida.</p>}{estado==='CANCELADA'&&<><p>Motivo: {data.cancelamento?.motivo}</p><p>Cancelada em: {instante(data.cancelamento?.cancelado_em)}</p><p>As tarefas futuras não são mais exigidas. Os registros anteriores estão preservados.</p>{data.financeiro&&<p>Existe uma situação financeira para revisar. <Link href={linksContrato.pagamentos} scroll={false}>Ver pagamentos</Link></p>}</>}{gestao&&!leitura&&<details><summary>Mais ações</summary><div className={styles.actions}><button onClick={()=>abrir('remarcar')}>Remarcar festa</button><button onClick={()=>abrir('invalidar')}>Remover festa criada por engano</button></div><p>Remarcar: o evento vai acontecer em outra data.</p><p>Cancelar: o cliente não realizará mais esta festa. O histórico e os valores serão preservados.</p><p>Remover por engano: o contrato não será cancelado. Somente sem atividades registradas.</p></details>}<p><Link href={contratoUrl}>Ver contratação</Link> • <Link href={linksContrato.pagamentos} scroll={false}>Ver pagamentos</Link></p></section>
+  {data.contratoAtualizado&&!leitura&&<div className={styles.warning}><p>A contratação desta festa foi atualizada.</p><button onClick={()=>abrir('alteracoes')}>Ver alterações</button></div>}
+  
+diff --git a/lib/acessos/teste-carregador.ts b/lib/acessos/teste-carregador.ts
+index 1efcd1dc..e7a673c6 100644
+--- a/lib/acessos/teste-carregador.ts
++++ b/lib/acessos/teste-carregador.ts
+@@ -18,6 +18,7 @@ export function carregarModulo(arquivo: string, dubles: Record<string, unknown>,
+     const exports: Record<string, unknown> = {};
+     cache.set(absoluto, exports);
+     const code = ts.transpileModule(readFileSync(absoluto, 'utf8'), {
++        fileName: absoluto,
+         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
+     }).outputText;
+     const dir = path.dirname(absoluto);
+diff --git a/lib/admin/navegacao.test.ts b/lib/admin/navegacao.test.ts
+index fa600f9f..ad3a21ac 100644
+--- a/lib/admin/navegacao.test.ts
++++ b/lib/admin/navegacao.test.ts
+@@ -8,6 +8,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
+     assert.deepEqual(operacao.map((item) => item.href), [
+         '/admin/dashboard',
+         '/clientes',
++        '/admin/oportunidades',
+         '/admin/contratos',
+         '/admin/festas',
+         '/admin/convites',
+diff --git a/lib/admin/navegacao.ts b/lib/admin/navegacao.ts
+index 7a22ac7f..9373bd64 100644
+--- a/lib/admin/navegacao.ts
++++ b/lib/admin/navegacao.ts
+@@ -12,6 +12,7 @@ const PRINCIPAL: ItemNavegacao[] = [
+ 
+ const OPERACAO: ItemNavegacao[] = [
+     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
++    { href: '/admin/oportunidades', rotulo: 'Oportunidades', grupo: 'Operação' },
+     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
+     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
+     { href: '/admin/convites', rotulo: 'Convites', grupo: 'Operação' },
+@@ -93,7 +94,8 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
+     const financeiro = p.financeiroCompleto === false
+         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
+         : FINANCEIRO;
+-    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...itensSatisfacao(p.satisfacao), ...financeiro];
++    const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false);
++    const base = [...PRINCIPAL, ...operacao, ...(p.marketing === false ? [] : MARKETING), ...itensSatisfacao(p.satisfacao), ...financeiro];
+     const config = CONFIGURACAO
+         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
+         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });
+diff --git a/lib/contratos/services/administrativo.service.ts b/lib/contratos/services/administrativo.service.ts
+index 5ebbfc7b..30b5a9d9 100644
+--- a/lib/contratos/services/administrativo.service.ts
++++ b/lib/contratos/services/administrativo.service.ts
+@@ -29,6 +29,8 @@ import { atualizarAniversarianteInterno } from '../../clientes/services/aniversa
+ import { diferencasContratuais } from './alteracoes';
+ import { exigirVersaoEditavel, fonteDaRevisaoInicial, prepararEdicaoInicial, type RevisaoInicial } from './revisao-inicial';
+ import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
++import { perdaSchema } from '../../oportunidades/modelo';
++import { gravarPerda } from '../../oportunidades/perda';
+ const uuid=z.string().uuid().transform(value=>value.toLowerCase());
+ export const acaoContratoSchema = z.discriminatedUnion('acao', [
+     edicaoFestaSchema,
+@@ -36,7 +38,7 @@ export const acaoContratoSchema = z.discriminatedUnion('acao', [
+     // S-E restante ("Desistir da troca", P1-3): esperado = o que o card leu; cancela só a troca observada (comparação atômica).
+     z.object({ acao: z.literal('cancelar_revisao'), revisao: z.number().int().positive(), motivo: z.string().trim().min(3).max(500),
+         esperado: z.object({ revisaoId: uuid, revisaoOperacional: z.number().int().positive(), estado: z.enum(['EM_ELABORACAO', 'CONGELADA']), salaoDestinoId: uuid }).strict().optional() }).strict(),
+-    z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500) }).strict(),
++    z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500), perda: z.object({motivo:z.enum(['Preço','Data ocupada','Fechou com outro buffet','Desistiu da festa','Parou de responder','Outro']),observacao:z.string().trim().max(1000).optional()}).strict().optional() }).strict(),
+     z.object({ acao: z.literal('revalidar_destino'), revisao: z.number().int().positive() }).strict(),
+     z.object({ acao: z.literal('salvar'), revisao: z.number().int().positive(), observacoesDocumentais: z.string().trim().max(2000) }).strict(),
+     z.object({ acao: z.literal('gerar_pdf'), revisao: z.number().int().positive() }).strict(),
+@@ -203,6 +205,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
+         if (hashSnapshotContrato(v.snapshot) !== v.snapshotHash)
+             conflito('O snapshot da versão não corresponde ao hash preservado.');
+         if(input.acao==='cancelar_contratacao') {
++            const perda=perdaSchema.parse(input.perda);
+             if(statusAtual!=='AGUARDANDO_ASSINATURA'||f?.versao_vigente_id)
+                 conflito('Esta contratação já foi assinada pelas duas partes. Use o fluxo de cancelamento da Festa.');
+             if(!(await tx.query("SELECT 1 FROM festa_membership_capacidades WHERE membership_id=$1 AND empresa_id=$2 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[tenant.membershipId,tenant.empresaComprovada])).rows.length)
+@@ -216,6 +219,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
+             if(aberta && ['EM_ELABORACAO','CONGELADA'].includes(aberta.estado))await cancelarPreparacao(tx,aberta,rc,input.motivo);
+             await tx.query("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1",[c.id]);
+             await tx.query("UPDATE fechamentos SET status='CANCELADO' WHERE id=$1",[c.fechamento_id]);
++            await gravarPerda(tx,empresaAutorizada,s.usuario_id,{tipo:'FECHAMENTO',id:c.fechamento_id},v.snapshot.contratante.clienteId,perda);
+             await evento(tx,v,s,'CONTRATO_CANCELADO_ANTES_DA_FORMALIZACAO',{contratoId:c.id,motivo:input.motivo,...context});
+             return {cancelada:true};
+         }
+diff --git a/lib/contratos/services/cancelamento-pre-assinatura.test.ts b/lib/contratos/services/cancelamento-pre-assinatura.test.ts
+index aa074159..a3a6f688 100644
+--- a/lib/contratos/services/cancelamento-pre-assinatura.test.ts
++++ b/lib/contratos/services/cancelamento-pre-assinatura.test.ts
+@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
+ import ts from 'typescript';
+ import { hashSnapshotContrato } from './snapshot-core.ts';
+ import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
++import { perdaSchema } from '../../oportunidades/modelo.ts';
+ 
+ const require = createRequire(import.meta.url);
+ function carregar(mocks: Record<string, unknown>) {
+@@ -33,6 +34,8 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
+         return { rows };
+     } };
+     const operar = carregar({
++        '../../oportunidades/modelo': {perdaSchema},
++        '../../oportunidades/perda': {gravarPerda:async()=>{}},
+         '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },
+         // Rev. 3: trava real da configuração da agenda (lock e set_config caem na resposta vazia).
+         '../../agenda/trava-configuracao': travaConfiguracao,
+@@ -47,7 +50,7 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
+         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
+         '../../clientes/repositories': { registrarAuditoria: async (value: unknown) => { auditoria.push(value); }, registrarEventoHistorico: async () => {} },
+     });
+-    return { operar: () => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu' }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
++    return { operar: () => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu',perda:{motivo:'Desistiu da festa'} }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
+ }
+ 
+ test('cancelamento antes da formalização registra motivo e encerra contrato e fechamento', async () => {
+diff --git a/lib/exportacao/entidades.ts b/lib/exportacao/entidades.ts
+index 1ce369f2..2699835a 100644
+--- a/lib/exportacao/entidades.ts
++++ b/lib/exportacao/entidades.ts
+@@ -294,6 +294,8 @@ const BASE: readonly Entidade[] = [
+     { arquivo: 'marketing/automacao_execucoes', tabela: 'marketing_automacao_execucoes', grupo: 'Marketing', descricao: 'Execuções das automações.', onde: EMP },
+     { arquivo: 'marketing/automacao_eventos', tabela: 'marketing_automacao_eventos', grupo: 'Marketing', descricao: 'Eventos das execuções.', onde: EMP },
+     { arquivo: 'marketing/tarefas', tabela: 'marketing_tarefas', grupo: 'Marketing', descricao: 'Tarefas de Marketing.', onde: EMP },
++    { arquivo: 'oportunidades/acoes', tabela: 'oportunidades_acoes', grupo: 'Oportunidades', descricao: 'Próximas ações e conclusões comerciais.', onde: EMP, migracao: '122' },
++    { arquivo: 'oportunidades/marcos', tabela: 'oportunidades_marcos', grupo: 'Oportunidades', descricao: 'Etapas observadas das negociações.', onde: EMP, migracao: '122' },
+ 
+     // Pesquisa de satisfação (110, PS-1). O hash do link (token_hash) e a posse do envio (posse_token) caem no SEGREDO.
+     { arquivo: 'satisfacao/envios', tabela: 'satisfacao_envios', grupo: 'Pesquisa de satisfação', descricao: 'Pesquisas enviadas após a festa (estado, prazos; sem o link).', onde: EMP, migracao: '110' },
+@@ -380,6 +382,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
+     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
+     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
+     marketing_dns_simulado: 'Simulação técnica local de DNS.',
++    oportunidades_resumos: 'Controle técnico de idempotência de e-mail diário; conteúdo já representado nas ações exportadas.',
+     marketing_transporte_simulado: 'Simulação técnica local de envio.',
+     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
+     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',
+diff --git a/lib/fechamentos/contratacoes.test.ts b/lib/fechamentos/contratacoes.test.ts
+index 1c4520a2..67a572c9 100644
+--- a/lib/fechamentos/contratacoes.test.ts
++++ b/lib/fechamentos/contratacoes.test.ts
+@@ -95,12 +95,11 @@ test('DTO não vaza documentos ou credenciais extras do executor', () => {
+     const item = classificarContratacao({ ...fechamento, senha: 'sentinela-nao-real', snapshot: { cpf: 'sentinela-cpf' } } as ContratacaoRow);
+     assert.doesNotMatch(JSON.stringify(item), /sentinela|snapshot|senha/);
+ });
+-test('CRM e Central usam mesma fila; quatro abas continuam isoladas', () => {
++test('CRM mantém cartões; Em contratação da Central aponta para Oportunidades', () => {
+     const crm = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');
+     const central = readFileSync('components/festas/FestaConsole.tsx', 'utf8');
+     assert.match(crm, /<Contratacoes key=\{cliente.id\} clienteId=\{cliente.id\}/);
+-    assert.match(central, /\['Em contratação','Hoje','Próximas','Pendências','Histórico'\]/);
+-    assert.match(central, /central!=='Em contratação'&&<>/);
+-    assert.match(central, /onTotal=\{setTotalContratacoes\}/);
++    assert.match(central, /href="\/admin\/oportunidades">Em contratação/);
++    assert.match(central, /\['Hoje','Próximas','Pendências','Histórico'\]/);
+     assert.match(central, /pertenceVisao\(estadoDerivado/);
+ });
+diff --git a/lib/fechamentos/services/fechamento.service.ts b/lib/fechamentos/services/fechamento.service.ts
+index a8a3553a..7abf3442 100644
+--- a/lib/fechamentos/services/fechamento.service.ts
++++ b/lib/fechamentos/services/fechamento.service.ts
+@@ -1,4 +1,5 @@
+ import { buscarClientePorId } from "../../clientes/repositories";
++import { herdarAcoesDoContato } from '../../oportunidades/conversao';
+ import { calcularResumoComercial } from "../../comercial/services";
+ import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
+ import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
+@@ -196,6 +197,7 @@ async function criarFechamentoComercialNaTransacao(
+   }
+ 
+   await gravarFotografiaPacoteFechamento(tx, fechamento, resumoComercial);
++  await herdarAcoesDoContato(tx,fechamento.id);
+ 
+   const aprovacaoNegociacao = revisaoNecessaria
+     ? await criarAprovacaoNegociacao(
+diff --git a/lib/marketing/contatos.ts b/lib/marketing/contatos.ts
+index 76e05646..83fc8a44 100644
+--- a/lib/marketing/contatos.ts
++++ b/lib/marketing/contatos.ts
+@@ -12,6 +12,9 @@ import { campanhaPorCodigo, exigirUnidadeDaEmpresa } from "./campanhas.ts";
+ import { CANAIS_ATENDIMENTO, CODIGO_ORIGEM, exigirOrigemValida, type CanalAtendimento } from "./origens.ts";
+ import type { CapturaCampanha } from "./utm.ts";
+ import { registrarAutorizacaoDoFormulario, type ResultadoFormulario } from "./automacoes/preferencias.ts";
++import { perdaSchema } from '../oportunidades/modelo.ts';
++import { gravarPerda } from '../oportunidades/perda.ts';
++import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
+ 
+ export const ORIGEM_SITE = "SITE_PUBLICO";
+ export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
+@@ -117,7 +120,7 @@ async function clientesPorTelefone(tx: DbExecutor, empresaId: string, telefone:
+   return [...vistos.values()];
+ }
+ 
+-async function clienteDoContato(
++export async function clienteDoContato(
+   tx: DbExecutor, empresaId: string, entrada: { nome: string; telefone: string | null; email: string | null },
+ ): Promise<{ clienteId: string; novo: boolean }> {
+   const porTelefone = entrada.telefone ? await clientesPorTelefone(tx, empresaId, entrada.telefone) : [];
+@@ -228,7 +231,7 @@ export const esquemaAcaoContato = z.discriminatedUnion("acao", [
+     unidadeId: z.string().uuid().nullable().optional(),
+     chave: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+   }).strict(),
+-  z.object({ acao: z.literal("status"), id: z.string().uuid(), status: z.enum(["NOVO", "EM_ATENDIMENTO", "DESCARTADO"]) }).strict(),
++  z.object({ acao: z.literal("status"), id: z.string().uuid(), status: z.enum(["NOVO", "EM_ATENDIMENTO", "DESCARTADO"]), perda: perdaSchema.optional() }).strict(),
+   z.object({ acao: z.literal("vincular-cliente"), id: z.string().uuid(), clienteId: z.string().uuid() }).strict(),
+   z.object({ acao: z.literal("vincular-negociacao"), id: z.string().uuid(), fechamentoId: z.string().uuid() }).strict(),
+ ]);
+@@ -277,6 +280,21 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
+   if (!contato) naoEncontrado("Contato não encontrado nesta empresa.");
+   if (acao.acao === "status") {
+     if (contato.status === "CONVERTIDO") throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
++    if (contato.status === 'DESCARTADO') throw new MarketingError('CONTATO_ENCERRADO','Este contato já foi encerrado.',409);
++    if (acao.status === 'DESCARTADO') {
++      const perda=perdaSchema.parse(acao.perda);
++      if (contato.fechamento_id)
++        throw new MarketingError('CONTATO_COM_NEGOCIACAO','Registre a perda na negociação deste cliente.',409);
++      let clienteId=contato.cliente_id;
++      if (!clienteId) {
++        const dados=(await tx.query<{nome:string;telefone:string|null;email:string|null}>('SELECT nome,telefone,email FROM marketing_contatos WHERE empresa_id=$1::uuid AND id=$2::uuid',[empresaId,acao.id])).rows[0];
++        clienteId=(await clienteDoContato(tx,empresaId,dados)).clienteId;
++        await tx.query("UPDATE marketing_contatos SET cliente_id=$3::uuid,vinculo_cliente='MANUAL' WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,acao.id,clienteId]);
++      }
++      await tx.query("UPDATE marketing_contatos SET status='DESCARTADO',atualizado_por=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,acao.id,usuarioId]);
++      await gravarPerda(tx,empresaId,usuarioId,{tipo:'CONTATO',id:acao.id},clienteId,perda);
++      return {id:acao.id};
++    }
+     await tx.query(`UPDATE marketing_contatos SET status = $2, atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid`,
+       [acao.id, acao.status, usuarioId]);
+     return { id: acao.id };
+@@ -323,6 +341,7 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
+     clienteId: contato.cliente_id, tipoEvento: "CONTATO_MARKETING_NEGOCIACAO", origem: "CRM_INTERNO", entidadeTipo: "FECHAMENTO", entidadeId: acao.fechamentoId,
+     usuarioId, metadata: { contatoMarketingId: acao.id, origemHerdada: Boolean(herdada) },
+   }, tx);
++  await herdarAcoesDoContato(tx,acao.fechamentoId);
+   return { id: acao.id, origemNegociacaoExistente: !herdada };
+ }
+ 
+diff --git a/scripts/guarda-salao-excecoes.cjs b/scripts/guarda-salao-excecoes.cjs
+index 5459647b..b0e97206 100644
+--- a/scripts/guarda-salao-excecoes.cjs
++++ b/scripts/guarda-salao-excecoes.cjs
+@@ -6,6 +6,8 @@
+  * Medição da fase 0 (01/11/2026): 6 origens em lib/ e app/ (por função) e 58 arquivos de scripts/ (por arquivo, abaixo).
+  */
+ const EXCECOES = [
++  {arquivo:'scripts/migration-122-comum.cjs',funcao:'conferirCliente',motivo:'Aplicador 122: SQL fixado por SHA-256 do precheck/postcheck e identidade do adaptador de ambiente; conferência somente em READ ONLY.'},
++  {arquivo:'scripts/migration-122-comum.cjs',funcao:'principal',motivo:'Aplicador 122: SQL da migration revisado por SHA-256, corpo sem BEGIN/COMMIT, executado em transação única com postcheck antes do COMMIT.'},
+   {
+     arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerBanco",
+     motivo: "Conferidor G-VAZIO (B-26): SELECT count, hash e situação em public.<objeto>, com objeto e colunas só das listas " +
+diff --git a/scripts/production/check-migrations.mjs b/scripts/production/check-migrations.mjs
+index 8cbb48b0..27226c62 100644
+--- a/scripts/production/check-migrations.mjs
++++ b/scripts/production/check-migrations.mjs
+@@ -239,6 +239,7 @@ const approvedFiles = [
+   // por outros trabalhos locais; na sincronização com staging (12/11/2026) 110/111/115 entram no fim do inventário aprovado, depois da 120 e da 121
+   // (que staging já havia publicado depois da 118); a lista ordenada por nome, `files`, continua com a 121 como última; 115 conferida livre em 03/11 (refs do GitHub, clones, vault), número proposto.
+   '20261103_115_fechamentos_empresa_data.sql',
++  '20261114_122_oportunidades.sql',
+ ];
+ // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
+ // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
+@@ -267,7 +268,7 @@ const checkFiles = {
+   '081': ['20261011_081_postcheck.sql'],
+   '082': ['20261011_082_postcheck.sql'],
+ };
+-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115'];
++const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115', '122'];
+ const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
+ const requiredChecks = file => {
+   const id = file.split('_')[1];
+diff --git a/scripts/regressao-v1-postgres-receita.cjs b/scripts/regressao-v1-postgres-receita.cjs
+index 7e6c39b3..24b3e131 100644
+--- a/scripts/regressao-v1-postgres-receita.cjs
++++ b/scripts/regressao-v1-postgres-receita.cjs
+@@ -51,6 +51,7 @@ const CLUSTER = "kidmais_descartavel";
+ const BANCO_REAL = "kidmais_manager";
+ 
+ const MODELOS = {
++  "122": { banco: "kidmais_v1_modelo_122", ate: "122", sem: ["098"] },
+   atual: { banco: "kidmais_v1_modelo_atual", ate: "057", sem: ["055a", "055b", "055c", "055d"] },
+   "053": { banco: "kidmais_v1_modelo_053", ate: "053", sem: [] },
+   "052": { banco: "kidmais_v1_modelo_052", ate: "052", sem: [] },
+diff --git a/scripts/regressao-v1-selecao.cjs b/scripts/regressao-v1-selecao.cjs
+index b5a22638..3479bee2 100644
+--- a/scripts/regressao-v1-selecao.cjs
++++ b/scripts/regressao-v1-selecao.cjs
+@@ -51,6 +51,7 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
+ // Liberar agenda com mais de um salão (F5): as suítes funcionais da agenda por salão no modelo 108/109 rodam também no
+ // 114 (gatilhos da 019 com a verificação da trava da configuração); o classificador dos combinados quebrava só lá.
+ const ESTADO_POSTGRES = {
++  "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
+   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
+   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
+   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
+diff --git a/app/admin/oportunidades/page.tsx b/app/admin/oportunidades/page.tsx
+new file mode 100644
+index 00000000..8fbc0521
+--- /dev/null
++++ b/app/admin/oportunidades/page.tsx
+@@ -0,0 +1,2 @@
++import Oportunidades from '@/components/admin/oportunidades/Oportunidades';
++export default function Page(){return <Oportunidades/>;}
+diff --git a/app/api/admin/marketing/funil/route.ts b/app/api/admin/marketing/funil/route.ts
+new file mode 100644
+index 00000000..64ddbbba
+--- /dev/null
++++ b/app/api/admin/marketing/funil/route.ts
+@@ -0,0 +1,18 @@
++import type { NextRequest } from 'next/server';
++import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
++import { parametroData,parametroUuid,rotaMarketing } from '@/lib/marketing/http';
++import { exigirUnidadeDaEmpresa } from '@/lib/marketing/campanhas';
++import { periodoPadrao,validarPeriodo } from '@/lib/marketing/metricas';
++import { hojeSaoPaulo } from '@/lib/marketing/utm';
++import { MarketingError } from '@/lib/marketing/erros';
++import { relatorioFunil } from '@/lib/oportunidades/consultas';
++export const runtime='nodejs';
++export const dynamic='force-dynamic';
++export async function GET(request:NextRequest){
++ return rotaMarketing(request,exigirApiAdminCrmDisponivel,{capacidade:'MARKETING_VISUALIZAR'},async({tx,tenant})=>{
++  const q=request.nextUrl.searchParams,p=periodoPadrao(hojeSaoPaulo()),de=parametroData(q.get('de'))??p.de,ate=parametroData(q.get('ate'))??p.ate;
++  if(!validarPeriodo(de,ate))throw new MarketingError('PERIODO_INVALIDO','Período inválido.',400);
++  const unidade=await exigirUnidadeDaEmpresa(tx,tenant.empresaComprovada,parametroUuid(q.get('unidadeId')));
++  return relatorioFunil(tx,tenant.empresaComprovada,de,ate,unidade);
++ });
++}
+diff --git a/app/api/admin/oportunidades/route.ts b/app/api/admin/oportunidades/route.ts
+new file mode 100644
+index 00000000..83372aea
+--- /dev/null
++++ b/app/api/admin/oportunidades/route.ts
+@@ -0,0 +1,35 @@
++import type { NextRequest } from 'next/server';
++import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
++import { rotaMarketing, lerCorpo, parametroUuid } from '@/lib/marketing/http';
++import { esquemaAcaoContato, executarAcaoContato } from '@/lib/marketing/contatos';
++import { hojeSaoPaulo } from '@/lib/marketing/utm';
++import { comandoSchema } from '@/lib/oportunidades/modelo';
++import { executarOportunidade, clienteDoAlvo, exigirSchema } from '@/lib/oportunidades/service';
++import { contadoresMes, listarOportunidades, responsaveis } from '@/lib/oportunidades/consultas';
++import { MarketingError } from '@/lib/marketing/erros';
++
++export const runtime = 'nodejs';
++export const dynamic = 'force-dynamic';
++// Reutiliza as permissões e o plano do Marketing: contatos são dados pessoais já protegidos por essa barreira.
++export async function GET(request: NextRequest) {
++  return rotaMarketing(request,exigirApiAdminCrmDisponivel,{capacidade:'MARKETING_VISUALIZAR'},async({tx,tenant,capacidades})=>{
++    const responsavelId=parametroUuid(request.nextUrl.searchParams.get('responsavelId'));
++    if (request.nextUrl.searchParams.has('responsavelId') && !responsavelId) throw new MarketingError('FILTRO_INVALIDO','Responsável inválido.',400);
++    const empresaId=tenant.empresaComprovada,hoje=hojeSaoPaulo();
++    return {hoje,usuarioId:tenant.usuarioId,podeEditar:capacidades.includes('MARKETING_CAMPANHAS_EDITAR'),itens:await listarOportunidades(tx,empresaId,responsavelId),responsaveis:await responsaveis(tx,empresaId),contadores:await contadoresMes(tx,empresaId,hoje,responsavelId)};
++  });
++}
++export async function POST(request: NextRequest) {
++  return rotaMarketing(request,exigirApiAdminCrmDisponivel,{capacidade:'MARKETING_CAMPANHAS_EDITAR'},async({tx,tenant})=>{
++    const entrada=await lerCorpo(request);
++    await exigirSchema(tx);
++    if (typeof entrada==='object' && entrada!==null && 'acao' in entrada && entrada.acao==='registrar') {
++      const acao=esquemaAcaoContato.parse(entrada);
++      if (acao.acao!=='registrar') throw new Error('Ação inválida');
++      const resultado=await executarAcaoContato(tx,tenant.empresaComprovada,tenant.usuarioId,acao);
++      await clienteDoAlvo(tx,tenant.empresaComprovada,{tipo:'CONTATO',id:resultado.id});
++      return resultado;
++    }
++    return executarOportunidade(tx,tenant.empresaComprovada,tenant.usuarioId,comandoSchema.parse(entrada),tenant.papelAtual==='REPRESENTANTE_AUTORIZADO',tenant.membershipId);
++  });
++}
+diff --git a/app/api/integracoes/oportunidades/resumo/route.ts b/app/api/integracoes/oportunidades/resumo/route.ts
+new file mode 100644
+index 00000000..99d01c94
+--- /dev/null
++++ b/app/api/integracoes/oportunidades/resumo/route.ts
+@@ -0,0 +1,15 @@
++import { NextResponse,type NextRequest } from 'next/server';
++import { withTransaction } from '@/lib/db/postgres';
++import { criarEnviarEmail } from '@/lib/acessos/email';
++import { secretMatches } from '@/lib/integracoes/gupshup/webhook';
++import { enviarResumosDiarios } from '@/lib/oportunidades/resumo';
++export const runtime='nodejs';
++export const dynamic='force-dynamic';
++export async function POST(request:NextRequest){
++ const responder=(corpo:unknown,status=200)=>NextResponse.json(corpo,{status,headers:{'Cache-Control':'no-store'}});
++ const segredo=process.env.OPORTUNIDADES_RESUMO_SECRET;
++ if(!segredo||segredo.length<32||!secretMatches(request.headers.get('x-kidmais-worker-secret')??'',segredo))return responder({ok:false,codigo:'NAO_AUTORIZADO'},401);
++ if(process.env.OPORTUNIDADES_RESUMO_EMAIL!=='true')return responder({ok:false,codigo:'RESUMO_DESLIGADO'},409);
++ try{return responder({ok:true,data:await enviarResumosDiarios({transacao:withTransaction,enviar:criarEnviarEmail(),env:process.env})});}
++ catch{return responder({ok:false,codigo:'RESUMO_FALHOU'},500);}
++}
+diff --git a/components/admin/oportunidades/Oportunidades.tsx b/components/admin/oportunidades/Oportunidades.tsx
+new file mode 100644
+index 00000000..51dc9903
+--- /dev/null
++++ b/components/admin/oportunidades/Oportunidades.tsx
+@@ -0,0 +1,67 @@
++'use client';
++import Link from 'next/link';
++import { useEffect, useRef, useState, type ReactNode } from 'react';
++import { ETAPAS, TIPOS_ACAO, MOTIVOS_PERDA, type Oportunidade } from '@/lib/oportunidades/modelo';
++import { EstadoCarga, enviarMarketing, useMarketing } from '../marketing/comum';
++import styles from './oportunidades.module.css';
++
++type Dados = {podeEditar:boolean;hoje:string;usuarioId:string;itens:Oportunidade[];responsaveis:Array<{id:string;nome:string}>;contadores:{fechadas:number;perdidas:number;fechadasSemData:number}};
++const moeda=(valor:string|null)=>valor===null?'Valor a definir':Number(valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
++const dia=(valor:string)=>valor.split('-').reverse().join('/');
++export default function Oportunidades() {
++  const [responsavel,setResponsavel]=useState(''),[janela,setJanela]=useState<{item:Oportunidade;feito:boolean}|null>(null),[novo,setNovo]=useState(false);
++  const url='/api/admin/oportunidades'+(responsavel?'?responsavelId='+encodeURIComponent(responsavel):'');
++  const {dados,falha,carregando,recarregar,dadosDe}=useMarketing<Dados>(url);
++  const pronta=!!dados && !carregando && dadosDe===url && !falha;
++  useEffect(()=>{const atualizar=()=>recarregar();window.addEventListener('focus',atualizar);return()=>window.removeEventListener('focus',atualizar);},[recarregar]);
++  const podeEditar=!!dados?.podeEditar;
++  const hoje=dados?.itens.filter(i=>i.proxima && i.proxima.data<=dados.hoje)??[];
++  return <main className={styles.pagina}>
++    <header className={styles.cabecalho}><div><p className={styles.marca}>iA.Fest · Comercial</p><h1>Oportunidades</h1><p>Um próximo passo para cada festa que pode acontecer.</p></div>{podeEditar&&<button disabled={!pronta} onClick={()=>setNovo(true)}>Novo contato</button>}</header>
++    <div className={styles.filtros}><label>Responsável<select value={responsavel} onChange={e=>setResponsavel(e.target.value)}><option value="">Todos</option>{dados?.responsaveis.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}</select></label><button className={styles.secundario} onClick={recarregar}>Atualizar</button></div>
++    <EstadoCarga carregando={carregando} falha={falha} aoTentar={recarregar}/>
++    {dados && !falha && <>
++      <section className={styles.hoje} aria-labelledby="para-hoje"><header><h2 id="para-hoje">Para hoje</h2><span>{hoje.length} {hoje.length===1?'ação':'ações'}</span></header>
++        {!hoje.length?<p>Nenhuma ação para hoje. Confira as oportunidades sem próximo passo.</p>:<ul>{hoje.map(i=><li key={i.tipo+i.id}><div><strong>{i.nome}</strong><p>{i.proxima!.tipo} · <span className={i.proxima!.data<dados.hoje?styles.alerta:''}>{dia(i.proxima!.data)}{i.proxima!.data<dados.hoje?' · atrasada':''}</span> · {dados.responsaveis.find(r=>r.id===i.responsavelId)?.nome??'Responsável indisponível'}</p></div>{podeEditar&&<button disabled={!pronta} onClick={()=>setJanela({item:i,feito:true})}>Feito</button>}</li>)}</ul>}
++      </section>
++      <div className={styles.funil}>{ETAPAS.map(etapa=>{
++        const itens=dados.itens.filter(i=>i.etapa===etapa),conhecidos=itens.filter(i=>i.valor!==null);
++        return <section className={styles.coluna} key={etapa} aria-label={etapa}><header><h2>{etapa} <span>{itens.length}</span></h2><p>{moeda(conhecidos.reduce((s,i)=>s+Number(i.valor),0).toFixed(2))}{conhecidos.length<itens.length?' + valores a definir':''}</p></header>
++          {!itens.length&&<p className={styles.vazio}>Nenhuma oportunidade aqui.</p>}{itens.map(i=><article key={i.tipo+i.id} className={styles.cartao}><h3>{i.nome}</h3><p>{i.dataEvento?dia(i.dataEvento):'Data a combinar'}</p><strong>{moeda(i.valor)}</strong>
++            <p>{dados.responsaveis.find(r=>r.id===i.responsavelId)?.nome??'Sem responsável'}</p>
++            {i.proxima?<div className={styles.proxima}><strong>{i.proxima.tipo}</strong><p>{dia(i.proxima.data)}</p>{i.proxima.observacao&&<p>{i.proxima.observacao}</p>}</div>:<p className={styles.alerta}>Sem próxima ação</p>}
++            {i.sugerirPerda&&<p className={styles.sugestao}>14 dias sem ação concluída. Sugestão: “Parou de responder”. Confirme antes de encerrar.</p>}
++            {podeEditar&&<button disabled={!pronta} className={styles.secundario} onClick={()=>setJanela({item:i,feito:false})}>{i.proxima?'Ação ou perda':'Definir próxima ação'}</button>}
++            <Link href={i.href}>{i.tipo==='CONTATO'?(i.clienteId?'Ver cliente':'Ver contatos'):'Abrir negociação'}</Link>
++          </article>)}
++        </section>;
++      })}</div>
++      <footer className={styles.contadores}><p><strong>{dados.contadores.fechadas}</strong> fechadas no mês</p><Link href="/admin/marketing#funil"><strong>{dados.contadores.perdidas}</strong> perdidas no mês · Ver motivos</Link>{dados.contadores.fechadasSemData>0&&<small>{dados.contadores.fechadasSemData} confirmação(ões) anterior(es) sem data conhecida, fora do contador mensal.</small>}</footer>
++    </>}
++    {podeEditar && janela && dados && <JanelaAcao key={janela.item.id} item={janela.item} feito={janela.feito} dados={dados} fechar={()=>setJanela(null)} salvo={()=>{setJanela(null);recarregar();}}/>}
++    {podeEditar && novo&&<NovoContato fechar={()=>setNovo(false)} salvo={()=>{setNovo(false);recarregar();}}/>}
++  </main>;
++}
++function Modal({titulo,fechar,children,busy=false}:{titulo:string;fechar:()=>void;children:ReactNode;busy?:boolean}) {
++  const ref=useRef<HTMLDialogElement>(null);
++  useEffect(()=>{ref.current?.showModal();},[]);
++  return <dialog ref={ref} className={styles.modal} aria-label={titulo} onCancel={e=>{e.preventDefault();if(!busy)fechar();}}><header><h2>{titulo}</h2><button type="button" aria-label="Fechar" disabled={busy} className={styles.secundario} onClick={fechar}>×</button></header>{children}</dialog>;
++}
++function JanelaAcao({item,feito,dados,fechar,salvo}:{item:Oportunidade;feito:boolean;dados:Dados;fechar:()=>void;salvo:()=>void}) {
++  const [perder,setPerder]=useState(false),[tipo,setTipo]=useState<string>(item.proxima?.tipo??TIPOS_ACAO[0]),[data,setData]=useState(feito?dados.hoje:(item.proxima?.data??dados.hoje)),[observacao,setObservacao]=useState(feito?'':(item.proxima?.observacao??'')),[responsavelId,setResponsavelId]=useState(item.responsavelId??dados.usuarioId),[motivo,setMotivo]=useState<string>(item.sugerirPerda?'Parou de responder':''),[erro,setErro]=useState(''),[busy,setBusy]=useState(false);
++  async function salvar(e:React.FormEvent){e.preventDefault();setBusy(true);setErro('');try{
++    await enviarMarketing('/api/admin/oportunidades',{alvo:{tipo:item.tipo,id:item.id},esperada:item.proxima?.id??null,...(perder?{acao:'perder',perda:{motivo,observacao},concluir:feito}:{acao:feito?'concluir':'agendar',proxima:{tipo,data,observacao,responsavelId}})});salvo();
++  }catch(e){setErro(e instanceof Error?e.message:'Não foi possível salvar.');}finally{setBusy(false);}}
++  return <Modal titulo={feito?'Ação feita. Qual é o próximo passo?':'Próximo passo'} fechar={fechar} busy={busy}><p>{item.nome}</p><div className={styles.filtros}><button type="button" className={!perder?'':styles.secundario} disabled={busy} onClick={()=>setPerder(false)}>Próxima ação</button><button type="button" className={perder?'':styles.secundario} disabled={busy} onClick={()=>setPerder(true)}>Registrar perda</button></div>
++    <form onSubmit={salvar}>{perder?<><label>Motivo da perda<select required value={motivo} disabled={busy} onChange={e=>setMotivo(e.target.value)}><option value="">Selecione o motivo</option>{MOTIVOS_PERDA.map(m=><option key={m}>{m}</option>)}</select></label><p>Ao confirmar, a oportunidade será encerrada. Contrato já assinado segue pelo cancelamento do contrato.</p></>:<><label>Ação<select value={tipo} disabled={busy} onChange={e=>setTipo(e.target.value)}>{TIPOS_ACAO.map(t=><option key={t}>{t}</option>)}</select></label><label>Data<input type="date" required value={data} disabled={busy} onChange={e=>setData(e.target.value)}/></label><label>Responsável<select required value={responsavelId} disabled={busy} onChange={e=>setResponsavelId(e.target.value)}><option value="">Selecione</option>{dados.responsaveis.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}</select></label></>}
++      <label>Observação (opcional)<textarea maxLength={1000} value={observacao} disabled={busy} onChange={e=>setObservacao(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy}>{busy?'Salvando…':perder?'Confirmar perda':feito?'Concluir e agendar':'Salvar próxima ação'}</button>
++    </form></Modal>;
++}
++function NovoContato({fechar,salvo}:{fechar:()=>void;salvo:()=>void}) {
++  const [nome,setNome]=useState(''),[telefone,setTelefone]=useState(''),[mensagem,setMensagem]=useState(''),[busy,setBusy]=useState(false),[erro,setErro]=useState('');
++  const chave=useRef<string>('');
++  async function salvar(e:React.FormEvent){e.preventDefault();setBusy(true);setErro('');if(!chave.current)chave.current=crypto.randomUUID();try{
++    await enviarMarketing('/api/admin/oportunidades',{acao:'registrar',nome,telefone:telefone.replace(/\D/g,''),canal:'TELEFONE',mensagem,chave:chave.current});salvo();
++  }catch(e){setErro(e instanceof Error?e.message:'Não foi possível registrar.');}finally{setBusy(false);}}
++  return <Modal titulo="Novo contato" fechar={fechar} busy={busy}><form onSubmit={salvar}><label>Nome<input autoFocus required minLength={2} maxLength={120} value={nome} disabled={busy} onChange={e=>setNome(e.target.value)}/></label><label>Telefone com DDD<input required type="tel" maxLength={25} value={telefone} disabled={busy} onChange={e=>setTelefone(e.target.value)}/></label><label>Observação (opcional)<textarea maxLength={1000} value={mensagem} disabled={busy} onChange={e=>setMensagem(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy}>{busy?'Registrando…':'Registrar contato'}</button></form></Modal>;
++}
+diff --git a/components/admin/oportunidades/RelatorioFunil.tsx b/components/admin/oportunidades/RelatorioFunil.tsx
+new file mode 100644
+index 00000000..2bc659bc
+--- /dev/null
++++ b/components/admin/oportunidades/RelatorioFunil.tsx
+@@ -0,0 +1,11 @@
++'use client';
++import type { RelatorioFunil as Dados } from '@/lib/oportunidades/consultas';
++import {useEffect,useRef} from 'react';
++import { EstadoCarga,useMarketing } from '../marketing/comum';
++import styles from './oportunidades.module.css';
++export default function RelatorioFunil({consulta,origens}:{consulta:string;origens:Array<{codigo:string;rotulo:string}>}){
++ const {dados,falha,carregando,recarregar}=useMarketing<Dados>('/api/admin/marketing/funil'+(consulta?'?'+consulta:''));
++ const ref=useRef<HTMLElement>(null);
++ useEffect(()=>{if(dados&&window.location.hash==='#funil')ref.current?.scrollIntoView({block:'start'});},[dados]);
++ return <section ref={ref} id="funil" className={styles.relatorio}><h2>Oportunidades: perdas e conversão</h2><EstadoCarga carregando={carregando} falha={falha} aoTentar={recarregar}/>{dados&&!falha&&<div className={styles.tabelas}><div><h3>Perdas por motivo e origem</h3>{!dados.perdas.length?<p>Nenhuma perda registrada no período.</p>:<table><thead><tr><th>Motivo</th><th>Origem</th><th>Perdas</th></tr></thead><tbody>{dados.perdas.map(p=><tr key={p.motivo+p.origem}><td>{p.motivo}</td><td>{p.origem==='SEM_REGISTRO'?'Não registrada':origens.find(o=>o.codigo===p.origem)?.rotulo??(p.origem==='DESCONHECIDA'?'Desconhecida':p.origem)}</td><td>{p.quantidade}</td></tr>)}</tbody></table>}</div><div><h3>Conversão entre etapas</h3><table><thead><tr><th>Passagem</th><th>Resultado</th></tr></thead><tbody>{dados.conversoes.map(c=><tr key={c.de}><td>{c.de} → {c.para}</td><td>{c.convertidas} de {c.base} · {c.percentual===null?'Sem base':c.percentual.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%'}</td></tr>)}</tbody></table><p>Contatos recebidos e entradas na etapa no período, acompanhados até hoje. As passagens de negociação são observadas desde a instalação do funil. Etapas anteriores e datas de confirmação antigas não são presumidas.</p></div></div>}</section>;
++}
+diff --git a/components/admin/oportunidades/oportunidades.module.css b/components/admin/oportunidades/oportunidades.module.css
+new file mode 100644
+index 00000000..dd944335
+--- /dev/null
++++ b/components/admin/oportunidades/oportunidades.module.css
+@@ -0,0 +1 @@
++.pagina{padding:28px;max-width:1600px;margin:auto;color:#eeeafc;background:#090D1B;min-height:100vh}.pagina h1{font-size:32px;letter-spacing:-1px;margin:4px 0 10px}.pagina p{line-height:1.55;color:#bcb6d2}.marca{color:#c4a5ff!important;font-size:12px;letter-spacing:1px}.cabecalho,.hoje header,.coluna header h2,.modal header{display:flex;justify-content:space-between;align-items:center;gap:16px}.pagina button,.modal button{border:1px solid #a78bfa;background:#8b5cf6;color:white;border-radius:9px;padding:10px 15px;font-weight:600;cursor:pointer}.pagina button:disabled,.modal button:disabled{opacity:.5;cursor:wait}.pagina button.secundario,.modal button.secundario{background:transparent;border-color:#47405f;color:#e3d6ff}.pagina a{color:#ceb4ff}.filtros{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:20px 0}.pagina label,.modal label{display:flex;flex-direction:column;gap:7px;font-size:13px;color:#d6cce9}.pagina select,.modal input,.modal select,.modal textarea{padding:11px;border:1px solid #48415f;background:#090D1B;border-radius:8px;color:#f4efff;font:inherit}.hoje{background:#151B2E;border:1px solid #35304d;border-radius:14px;padding:20px;margin:24px 0}.hoje h2{margin:0}.hoje ul{list-style:none;padding:0;margin-bottom:0}.hoje li{display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid #302c43;padding:14px 0}.hoje li p{margin:4px 0}.funil{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.coluna{background:#101526;border-radius:12px;padding:14px;min-width:0}.coluna header{border-top:3px solid #9e75e9;padding-top:10px}.coluna h2{font-size:16px;margin:0}.coluna header span{background:#2c2445;padding:4px 8px;border-radius:7px;color:#d5baff}.coluna header p{font-size:13px;margin:8px 0 16px}.cartao{background:#151B2E;border:1px solid #34304d;border-radius:10px;padding:16px;margin-bottom:12px;overflow-wrap:anywhere}.cartao h3{font-size:16px;margin:0 0 8px}.cartao p{font-size:13px;margin:8px 0}.cartao>a{display:block;margin-top:14px;font-size:13px}.cartao button{width:100%;margin-top:8px}.proxima{background:#211c38;border-left:2px solid #b69ae7;border-radius:6px;padding:10px;margin:14px 0;font-size:13px}.alerta{color:#f6a6b7!important}.sugestao{color:#ddc798!important}.vazio{font-size:13px;min-height:80px}.contadores{display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:18px 0}.contadores strong{font-size:24px;color:#ede2ff}.contadores small{color:#ada8bd;width:100%}.modal{max-width:480px;width:calc(100% - 32px);max-height:90vh;overflow:auto;border:1px solid #544368;border-radius:16px;background:#151B2E;color:#f0e9ff;padding:24px;box-shadow:0 20px 100px #0008}.modal::backdrop{background:#050816c9}.modal h2{font-size:21px;margin:0}.modal p{font-size:14px;line-height:1.6;color:#bfb6d2}.modal form{display:grid;gap:16px}.modal textarea{min-height:80px;resize:vertical}.modal input:focus,.modal select:focus,.pagina select:focus{outline:2px solid #a78bfa;outline-offset:2px}.relatorio{background:#151B2E;border:1px solid #39314f;border-radius:14px;padding:20px;margin:20px 0;scroll-margin-top:20px}.relatorio table{width:100%;border-collapse:collapse;font-size:13px}.relatorio th,.relatorio td{text-align:left;padding:12px 6px;border-bottom:1px solid #39314f}.relatorio p{color:#bfb6d2;font-size:13px;line-height:1.6}.tabelas{display:grid;grid-template-columns:1fr 1fr;gap:28px}.tabelas>div{overflow:auto}@media(max-width:1100px){.funil{grid-template-columns:repeat(2,minmax(0,1fr))}.tabelas{grid-template-columns:1fr}}@media(max-width:600px){.pagina{padding:18px 12px}.cabecalho{align-items:start;flex-direction:column}.funil{grid-template-columns:1fr}.hoje{padding:14px}.hoje li p{font-size:12px}.hoje li button{padding:9px}.filtros select{max-width:90vw}}
+diff --git a/components/admin/oportunidades/oportunidades.test.ts b/components/admin/oportunidades/oportunidades.test.ts
+new file mode 100644
+index 00000000..885ed759
+--- /dev/null
++++ b/components/admin/oportunidades/oportunidades.test.ts
+@@ -0,0 +1,18 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {carregarComponente,cssFalso,elementos,texto} from '../teste-componente.ts';
++
++for(const podeEditar of [false,true]) test(`funil: edição ${podeEditar?'disponível para editor':'oculta para leitor'}`,()=>{
++ const dados={podeEditar,hoje:'2026-11-14',usuarioId:'B',responsaveis:[{id:'B',nome:'Pessoa B'}],contadores:{fechadas:0,perdidas:0,fechadasSemData:0},itens:[
++  {id:'contato',tipo:'CONTATO',nome:'Contato recorrente',etapa:'Novo contato',valor:null,responsavelId:'B',href:'/clientes/sintetico',proxima:{id:'acao',tipo:'Ligar',data:'2026-11-14'},sugerirPerda:false},
++  {id:'negociacao',tipo:'FECHAMENTO',nome:'Proposta sintética',etapa:'Proposta',valor:'4500',responsavelId:'B',href:'/admin/fechamentos/sintetico/revisao',proxima:null,sugerirPerda:false},
++ ]};
++ const c=carregarComponente('components/admin/oportunidades/Oportunidades.tsx',{
++  'next/link':{default:'a'},'./oportunidades.module.css':cssFalso,
++  '../marketing/comum':{EstadoCarga:()=>null,useMarketing:()=>({dados,dadosDe:'/api/admin/oportunidades',carregando:false,falha:null,recarregar:()=>{}})},
++ });
++ const arvore=c.render(),botoes=elementos(arvore).filter(e=>e.type==='button').map(texto);
++ assert(texto(arvore).includes('Contato recorrente'));assert(texto(arvore).includes('Proposta sintética'));
++ assert(botoes.includes('Atualizar'));
++ for(const rotulo of ['Novo contato','Feito','Ação ou perda','Definir próxima ação']) assert.equal(botoes.includes(rotulo),podeEditar,rotulo);
++});
+diff --git a/database/checks/20261114_122_postcheck.sql b/database/checks/20261114_122_postcheck.sql
+new file mode 100644
+index 00000000..74cbde57
+--- /dev/null
++++ b/database/checks/20261114_122_postcheck.sql
+@@ -0,0 +1,8 @@
++DO $$ BEGIN
++ IF (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND ((table_name='marketing_contatos' AND column_name IN ('responsavel_id','perda_motivo','perda_observacao','perdida_em')) OR (table_name='fechamentos' AND column_name IN ('perda_motivo','perda_observacao','perdida_em','confirmada_em'))))<>8 THEN RAISE EXCEPTION '122: colunas divergentes'; END IF;
++ IF to_regclass('public.oportunidades_acoes') IS NULL OR to_regclass('public.oportunidades_marcos') IS NULL OR to_regclass('public.oportunidades_resumos') IS NULL THEN RAISE EXCEPTION '122: tabelas ausentes'; END IF;
++ IF (SELECT count(*) FROM pg_trigger WHERE tgname IN ('oportunidades_acoes_integridade','oportunidades_etapa','oportunidades_confirmada') AND tgenabled='O')<>3 THEN RAISE EXCEPTION '122: gatilhos divergentes'; END IF;
++ IF (SELECT count(*) FROM pg_index WHERE indexrelid IN ('public.oportunidades_acao_contato_aberta'::regclass,'public.oportunidades_acao_fechamento_aberta'::regclass,'public.oportunidades_acoes_dia'::regclass) AND indisvalid AND indisready)<>3 THEN RAISE EXCEPTION '122: índices divergentes'; END IF;
++ IF EXISTS(SELECT 1 FROM oportunidades_acoes a LEFT JOIN marketing_contatos k ON k.id=a.contato_id AND k.empresa_id=a.empresa_id LEFT JOIN fechamentos f ON f.id=a.fechamento_id AND f.empresa_id=a.empresa_id WHERE (a.contato_id IS NOT NULL AND k.id IS NULL) OR (a.fechamento_id IS NOT NULL AND f.id IS NULL)) THEN RAISE EXCEPTION '122: vínculo fora da empresa'; END IF;
++END $$;
++SELECT true AS aprovado;
+diff --git a/database/checks/20261114_122_precheck.sql b/database/checks/20261114_122_precheck.sql
+new file mode 100644
+index 00000000..c6ead5c7
+--- /dev/null
++++ b/database/checks/20261114_122_precheck.sql
+@@ -0,0 +1,7 @@
++DO $$ BEGIN
++ IF to_regclass('public.marketing_contatos') IS NULL OR to_regclass('public.memberships') IS NULL OR to_regclass('public.fechamentos') IS NULL THEN RAISE EXCEPTION '122: dependências ausentes'; END IF;
++ IF to_regclass('public.oportunidades_acoes') IS NOT NULL OR to_regclass('public.oportunidades_marcos') IS NOT NULL OR to_regclass('public.oportunidades_resumos') IS NOT NULL
++ OR EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('marketing_contatos','fechamentos') AND column_name IN ('perda_motivo','perdida_em','confirmada_em'))
++ THEN RAISE EXCEPTION '122 já presente ou parcial: conferir postcheck'; END IF;
++END $$;
++SELECT true AS aprovado;
+diff --git a/database/migrations/20261114_122_oportunidades.sql b/database/migrations/20261114_122_oportunidades.sql
+new file mode 100644
+index 00000000..a69fbe33
+--- /dev/null
++++ b/database/migrations/20261114_122_oportunidades.sql
+@@ -0,0 +1,77 @@
++-- 122: funil derivado dos estados, ações comerciais manuais e perdas.
++-- Só aplicar em ambiente autorizado. Não altera cancelamento de contrato assinado.
++BEGIN;
++SET LOCAL lock_timeout = '5s';
++SET LOCAL statement_timeout = '60s';
++ALTER TABLE marketing_contatos ADD COLUMN responsavel_id uuid REFERENCES usuarios_administrativos(id),
++  ADD COLUMN perda_motivo text, ADD COLUMN perda_observacao text, ADD COLUMN perdida_em timestamptz;
++ALTER TABLE fechamentos ADD COLUMN perda_motivo text, ADD COLUMN perda_observacao text, ADD COLUMN perdida_em timestamptz,
++  ADD COLUMN confirmada_em timestamptz;
++ALTER TABLE marketing_contatos ADD CONSTRAINT oportunidades_contato_perda_ck CHECK (
++  (perda_motivo IS NULL AND perdida_em IS NULL AND perda_observacao IS NULL) OR
++  (status='DESCARTADO' AND perdida_em IS NOT NULL AND perda_motivo IN ('Preço','Data ocupada','Fechou com outro buffet','Desistiu da festa','Parou de responder','Outro')));
++ALTER TABLE fechamentos ADD CONSTRAINT oportunidades_fechamento_perda_ck CHECK (
++  (perda_motivo IS NULL AND perdida_em IS NULL AND perda_observacao IS NULL) OR
++  (status IN ('CANCELADO','RECUSADO','EXPIRADO') AND perdida_em IS NOT NULL AND perda_motivo IN ('Preço','Data ocupada','Fechou com outro buffet','Desistiu da festa','Parou de responder','Outro')));
++CREATE TABLE oportunidades_acoes (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), empresa_id uuid NOT NULL REFERENCES empresas(id),
++  contato_id uuid REFERENCES marketing_contatos(id), fechamento_id uuid REFERENCES fechamentos(id),
++  responsavel_id uuid NOT NULL REFERENCES usuarios_administrativos(id),
++  tipo text NOT NULL CHECK (tipo IN ('Ligar','WhatsApp','Enviar proposta','Visita','Cobrar')),
++  data date NOT NULL, observacao text CHECK (length(observacao)<=1000),
++  criada_em timestamptz NOT NULL DEFAULT clock_timestamp(), criada_por uuid NOT NULL REFERENCES usuarios_administrativos(id),
++  encerrada_em timestamptz, resultado text CHECK (resultado IN ('FEITA','SUBSTITUIDA','PERDIDA','CONVERTIDA')),
++  CHECK (num_nonnulls(contato_id,fechamento_id)=1), CHECK ((encerrada_em IS NULL)=(resultado IS NULL))
++);
++CREATE UNIQUE INDEX oportunidades_acao_contato_aberta ON oportunidades_acoes(empresa_id,contato_id) WHERE encerrada_em IS NULL;
++CREATE UNIQUE INDEX oportunidades_acao_fechamento_aberta ON oportunidades_acoes(empresa_id,fechamento_id) WHERE encerrada_em IS NULL;
++CREATE INDEX oportunidades_acoes_dia ON oportunidades_acoes(empresa_id,responsavel_id,data) WHERE encerrada_em IS NULL;
++-- Marcos observados, sem inferir passagem por uma etapa a partir de uma etapa posterior.
++CREATE TABLE oportunidades_marcos (
++  empresa_id uuid NOT NULL REFERENCES empresas(id), fechamento_id uuid NOT NULL REFERENCES fechamentos(id),
++  etapa text NOT NULL CHECK (etapa IN ('Proposta','Contrato','Sinal','Fechada')),
++  ocorrido_em timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(empresa_id,fechamento_id,etapa)
++);
++CREATE FUNCTION oportunidades_integridade() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++  IF NEW.contato_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM marketing_contatos WHERE id=NEW.contato_id AND empresa_id=NEW.empresa_id) THEN
++    RAISE EXCEPTION 'Contato fora da empresa' USING ERRCODE='23514';
++  END IF;
++  IF NEW.fechamento_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM fechamentos WHERE id=NEW.fechamento_id AND empresa_id=NEW.empresa_id) THEN
++    RAISE EXCEPTION 'Negociação fora da empresa' USING ERRCODE='23514';
++  END IF;
++  IF (TG_OP='INSERT' OR NEW.responsavel_id IS DISTINCT FROM OLD.responsavel_id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id) AND NOT EXISTS (SELECT 1 FROM memberships WHERE empresa_id=NEW.empresa_id AND usuario_id=NEW.responsavel_id AND status='ATIVA') THEN
++    RAISE EXCEPTION 'Responsável fora da empresa' USING ERRCODE='23514';
++  END IF;
++  RETURN NEW;
++END $$;
++CREATE TRIGGER oportunidades_acoes_integridade BEFORE INSERT OR UPDATE ON oportunidades_acoes FOR EACH ROW EXECUTE FUNCTION oportunidades_integridade();
++CREATE FUNCTION oportunidades_marcar_etapa() RETURNS trigger LANGUAGE plpgsql AS $$
++DECLARE etapa_atual text;
++BEGIN
++  etapa_atual := CASE WHEN NEW.status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO') THEN 'Proposta'
++    WHEN NEW.status='AGUARDANDO_CONTRATO' THEN 'Contrato'
++    WHEN NEW.status IN ('CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO') THEN 'Sinal'
++    WHEN NEW.status='CONFIRMADO' THEN 'Fechada' END;
++  IF NEW.empresa_id IS NOT NULL AND etapa_atual IS NOT NULL THEN
++    INSERT INTO oportunidades_marcos(empresa_id,fechamento_id,etapa) VALUES(NEW.empresa_id,NEW.id,etapa_atual) ON CONFLICT DO NOTHING;
++  END IF;
++  RETURN NEW;
++END $$;
++CREATE TRIGGER oportunidades_etapa AFTER INSERT OR UPDATE OF status ON fechamentos FOR EACH ROW EXECUTE FUNCTION oportunidades_marcar_etapa();
++CREATE FUNCTION oportunidades_confirmar() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++  IF NEW.status='CONFIRMADO' AND OLD.status IS DISTINCT FROM 'CONFIRMADO' THEN NEW.confirmada_em=clock_timestamp(); END IF;
++  RETURN NEW;
++END $$;
++CREATE TRIGGER oportunidades_confirmada BEFORE UPDATE OF status ON fechamentos FOR EACH ROW EXECUTE FUNCTION oportunidades_confirmar();
++-- Estado inicial conhecido; a data histórica de confirmação não é inventada.
++INSERT INTO oportunidades_marcos(empresa_id,fechamento_id,etapa)
++SELECT empresa_id,id,CASE WHEN status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO') THEN 'Proposta'
++ WHEN status='AGUARDANDO_CONTRATO' THEN 'Contrato' WHEN status IN ('CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO') THEN 'Sinal' ELSE 'Fechada' END
++FROM fechamentos WHERE empresa_id IS NOT NULL AND status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO','AGUARDANDO_CONTRATO','CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO','CONFIRMADO');
++CREATE TABLE oportunidades_resumos (
++ empresa_id uuid NOT NULL REFERENCES empresas(id), usuario_id uuid NOT NULL REFERENCES usuarios_administrativos(id), dia date NOT NULL,
++ mensagem jsonb NOT NULL, estado text NOT NULL DEFAULT 'PENDENTE' CHECK (estado IN ('PENDENTE','ENVIADO','FALHOU','OBSOLETO')), enviado_em timestamptz, PRIMARY KEY(empresa_id,usuario_id,dia)
++);
++COMMIT;
+diff --git a/database/rollback/20261114_122_oportunidades_down.sql b/database/rollback/20261114_122_oportunidades_down.sql
+new file mode 100644
+index 00000000..ebe74ca5
+--- /dev/null
++++ b/database/rollback/20261114_122_oportunidades_down.sql
+@@ -0,0 +1,14 @@
++-- Só com autorização específica; nunca apagar histórico comercial.
++BEGIN;
++DO $$ BEGIN
++ IF EXISTS(SELECT 1 FROM oportunidades_acoes) OR EXISTS(SELECT 1 FROM oportunidades_marcos) OR EXISTS(SELECT 1 FROM oportunidades_resumos)
++ OR EXISTS(SELECT 1 FROM marketing_contatos WHERE perdida_em IS NOT NULL OR responsavel_id IS NOT NULL)
++ OR EXISTS(SELECT 1 FROM fechamentos WHERE perdida_em IS NOT NULL OR confirmada_em IS NOT NULL) THEN RAISE EXCEPTION '122 tem evidência: preservar dados e reverter somente código'; END IF;
++END $$;
++DROP TRIGGER oportunidades_etapa ON fechamentos;
++DROP TRIGGER oportunidades_confirmada ON fechamentos;
++DROP TABLE oportunidades_acoes, oportunidades_marcos, oportunidades_resumos;
++DROP FUNCTION oportunidades_integridade(), oportunidades_marcar_etapa(), oportunidades_confirmar();
++ALTER TABLE marketing_contatos DROP CONSTRAINT oportunidades_contato_perda_ck, DROP COLUMN responsavel_id, DROP COLUMN perda_motivo, DROP COLUMN perda_observacao, DROP COLUMN perdida_em;
++ALTER TABLE fechamentos DROP CONSTRAINT oportunidades_fechamento_perda_ck, DROP COLUMN perda_motivo, DROP COLUMN perda_observacao, DROP COLUMN perdida_em, DROP COLUMN confirmada_em;
++COMMIT;
+diff --git a/docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md b/docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md
+new file mode 100644
+index 00000000..662185f2
+--- /dev/null
++++ b/docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md
+@@ -0,0 +1,95 @@
++# Funil de oportunidades — implementação local (14/11/2026)
++
++Estado atual: correções dos **P2-1, P2-2, P3-3 e P3-4 da R1 implementadas LOCALMENTE**, aguardando a rodada 2 (última da classe A). A reprovação da R1 permanece como registro histórico; esta correção não constitui aprovação independente. Base `2133d398f02f519170b443b5702c6b23b9da41b7`, branch `codex/funil-oportunidades-20261114`. Nenhum commit, push, PR, merge, deploy, acesso aos serviços/bancos reais ou envio real nesta correção. A reconferência remota citada nas validações originais pertence à implementação anterior, não foi repetida nesta rodada.
++
++Correção atual e provas: [registro da rodada](evidencias/funil-r2-20261114/VALIDACAO.md). [Prompt pronto da última revisão](PEDIDO_ASTRA_FUNIL_20261114_R2.md). As seções de validação original abaixo preservam o histórico da primeira implementação.
++
++Especificação: nota aprovada `Funil de oportunidades proposta 20261114.md`, no Obsidian. A aprovação do topo incorpora responsável, resumo por e-mail e sugestão após 14 dias; prevalece sobre o trecho histórico da proposta que excluía e-mail. A fila recebeu durante a tarefa a decisão de priorizar Área da família antes do Funil: esta entrega permanece local e atrás dela para a integração.
++
++## Entrega
++
++- `/admin/oportunidades`, item próprio de Operação: quatro colunas derivadas dos estados persistidos, quantidades e valores, lista de hoje/atrasadas, filtro por responsável, alerta sem ação, sugestão de perda sem encerramento automático e contadores do mês.
++- Ações manuais: Ligar, WhatsApp, Enviar proposta, Visita e Cobrar, data, responsável e observação opcional. Índices parciais permitem uma ação pendente por alvo. Trocar a ação preserva a anterior; concluir só acontece junto de outra ação ou de perda, na mesma transação. ID esperado impede sobrescrever uma alteração concorrente.
++- Perda exige motivo fixo e grava observação opcional/data. Contato sem cliente é vinculado/criado pelo mecanismo de deduplicação já existente antes de registrar o histórico. O descarte antigo e o cancelamento contratual antes da formalização também exigem a classificação.
++- Negociação com contrato não assinado repete as proteções do fluxo existente: Gestão, `FESTA_CORRIGIR`, ausência de assinatura do cliente, versão vigente, Festa e pagamento; preparação aberta é cancelada pelo serviço existente. Contrato assinado continua no cancelamento de contrato/Festa. A ação de perda do funil recusa estados de Sinal e qualquer assinatura/financeiro incompatível.
++- A ação do contato acompanha a negociação na criação/vinculação pelos serviços alterados. A vinculação explícita seleciona somente aquele contato; na criação sem contato vinculado, a ação mais recente identifica o contato convertido, que recebe `fechamento_id` e status CONVERTIDO. Outros contatos sem vínculo do mesmo cliente continuam independentes. A negociação define o responsável após a conversão (herda o da ação apenas se estiver sem responsável), com registro dos responsáveis anterior/final no histórico. Nenhum cartão é arrastável.
++- Histórico por `registrarEventoHistorico`: agendamento/substituição, conclusão, conversão da ação e perda.
++- Marketing recebeu bloco de perdas agrupadas por motivo e origem e conversão de cada etapa. Contagem sem denominador aparece como “Sem base”.
++- “Em contratação” da Central de Festas agora é link para Oportunidades; os cartões no perfil do cliente continuam existindo.
++
++## Banco e segurança
++
++Migration candidata **122**, nova, com precheck/postcheck/down, incluída no inventário e no modelo descartável. Na abertura e no encerramento, staging continuava em `2133d398`; PRs abertas #383 e #389 não contêm SQL novo. A busca dos clones na abertura não encontrou 122; a frente Área da família anunciou 123 depois. Isso é uma conferência datada, não uma reserva global: repetir antes de integrar/aplicar.
++
++Decisão (duas linhas): `oportunidades_acoes` separa tarefa comercial manual do ciclo de automações, sem tornar `execucao_id` opcional nem mudar seus invariantes.
++Preserva as ações encerradas e usa unicidade parcial por contato/negociação para manter somente o próximo passo pendente.
++
++As demais estruturas são `oportunidades_marcos` (primeira observação de cada etapa real) e `oportunidades_resumos` (fotografia/idempotência técnica do e-mail). Colunas de perda nas duas entidades e responsável no contato; negociação reutiliza `usuario_responsavel_id`. Leituras e escritas filtram o tenant comprovado; gatilho rejeita ação vinculada a contato/negociação de outra empresa e responsável sem membership ativa. Ações e marcos entram na exportação por empresa; o controle técnico dos e-mails fica explicitamente fora do pacote.
++
++Permissões e plano do Marketing foram reutilizados: visualizar exige `MARKETING_VISUALIZAR`, escrever exige `MARKETING_CAMPANHAS_EDITAR`; Gestão continua sujeita ao tenant. A tela não amplia o acesso de Equipe aos contatos protegidos. Responsáveis selecionáveis também precisam de acesso ao Marketing. Cancelamento de negociação exige Gestão; com contrato, exige ainda a capacidade do cancelamento existente.
++
++## Sem inventar passado
++
++- A etapa atual é derivada do estado, sem coluna editável de etapa.
++- A instalação registra somente a etapa atualmente comprovada; mudanças futuras registram os novos marcos. Não presume que uma negociação importada passou por todas as etapas anteriores.
++- Conversões de negociação: entradas observadas na etapa de origem dentro do período, acompanhadas até a consulta. Só conta o destino observado depois da origem; etapas puladas não são inventadas. Contato → proposta usa vínculo explícito ou negociação posterior do mesmo cliente/empresa.
++- `confirmada_em` é gravada quando o estado muda para `CONFIRMADO`. Confirmações antigas sem data conhecida são mostradas separadamente e não atribuídas a um mês arbitrário.
++- Perdas históricas sem classificação não recebem motivo inventado. O relatório inclui as perdas registradas com data/motivo a partir desta entrega.
++
++## Resumo diário por e-mail
++
++Chave `OPORTUNIDADES_RESUMO_EMAIL=true`; ausente/desligada não consulta nem envia. Transporte é `criarEnviarEmail`, já existente. Endpoint POST `/api/integracoes/oportunidades/resumo` exige `OPORTUNIDADES_RESUMO_SECRET` próprio (32+ caracteres) em `x-kidmais-worker-secret`.
++
++Entrada para um agendador diário: `node scripts/oportunidades-resumo-diario.mjs`, com a mesma chave e `OPORTUNIDADES_RESUMO_URL` apontando para esse endpoint. O script exige HTTPS fora de loopback, recusa redirecionamento e não abre rede com a chave desligada. **Nenhum agendador, segredo ou variável real foi configurado.**
++
++A fotografia fica persistida antes do envio e a chave é empresa/usuário/dia em São Paulo. Tenant, usuário, plano, permissão e ações atribuídas são revalidados antes de enviar; fotografia obsoleta é suprimida. O mesmo conteúdo usa a mesma chave do provedor. Falha do transporte fica `FALHOU`, sem repetição automática naquele dia; conferir o provedor antes de decidir qualquer reenvio, pois aceitação pode ser incerta. Não há WhatsApp real nem lembrete por WhatsApp.
++
++## Aplicadores preparados, não executados remotamente
++
++- `scripts/migration-122-comum.cjs` e adaptadores `migration-122-staging.cjs` / `migration-122-production.cjs`.
++- Sem argumentos: plano offline, verificando os três hashes em `migration-122-hashes.json`.
++- `--conferir-122`: conexão no alvo fixo do adaptador e checks em READ ONLY.
++- `--aplicar-122-autorizado --backup <registro>`: exige alvo/TLS/identidade/disco do padrão existente, backup e marcador exclusivo; precheck → corpo → postcheck → COMMIT → reconferência. Nunca executa down.
++- Código de saída 0 sucesso; 1 recusa anterior ao marcador; 2 falha registrada. COMMIT incerto é `INDETERMINADO`: preservar marcador/saída e reconciliar; não repetir por tentativa.
++- Implantação futura precisa coordenar banco/código: os fluxos antigos de descarte e cancelamento antes da formalização também usam a 122. O down recusa quando existe evidência nas estruturas/colunas novas. Reversão operacional preserva o histórico; não apaga dados comerciais.
++
++O genérico atual de production tem lista fechada para outras migrations; portanto não foi estendido para esta entrega. Os adaptadores novos reutilizam as guardas de conexão existentes.
++
++## Validações executadas
++
++Runtime observado: Node 24.20.0 e npm 11.19.0; o package.json declara Node 22.23.2, e o npm avisou essa diferença. Esta rodada não reproduziu as provas no Node 22.23.2.
++
++Todos os comandos de aplicação/teste foram iniciados com `env -u DATABASE_URL -u KIDMAIS_HOMOLOGACAO_DATABASE_URL`; a demo monta o ambiente filho por lista explícita, injeta exclusivamente a conexão sintética e confere a identidade do servidor. Não foram lidos `.env*` reais.
++
++1. `npm run check:v1:static` **completo, versão final**: 5.015/5.015 testes unitários, 103/103 do harness staging sem rede/banco, ESLint sem erros (4 avisos existentes), TypeScript, build e leitura do worker PDF aprovado. [Log](evidencias/funil-20261114/static-completo.log).
++2. `check:v1:postgres`, selecionando a suíte `lib/oportunidades/funil.postgres.test.ts` no modelo 122: a receita construiu o schema com pre/postchecks; suíte aprovada, nenhuma ordem fora do padrão na guarda de escritores e nenhuma falha no encerramento. **Não foi executada a suíte PostgreSQL inteira do repositório.** [Log](evidencias/funil-20261114/postgres-runner.log).
++3. Provas PG: A/B não veem nem alteram oportunidade/ação/motivo um do outro; responsável de B recusado em A; papel global não contorna concessão na empresa; FK/gatilho contra vínculo cruzado; unicidade de ação; conflito de ID esperado; conclusão sem próxima ação recusada; perda sem motivo recusada; eventos de histórico; sugestão de 14 dias; mudanças de etapa e confirmação mensal; assinatura real bloqueia a perda; contrato ainda sem assinatura pode ser cancelado com motivo; transferência da ação e supressão do cartão convertido; e-mail injetado simulado com isolamento e idempotência diária.
++4. Aplicadores: plano offline/hashes e recusa de alvo local antes da conexão. Aplicadores de staging/production não conectaram a ambientes remotos; o SQL novo foi validado pela receita sintética.
++5. Navegador real em `localhost:3794`: login fictício, criar “Família Girassol (teste)”, agendar ligação, “Feito” com WhatsApp seguinte, registrar “Preço”, conferir 1 perda no relatório. Desktop e 390 px; capturas só do conteúdo da demo. [Funil](evidencias/funil-20261114/01-funil.jpg), [perda](evidencias/funil-20261114/02-perda.jpg), [relatório](evidencias/funil-20261114/03-relatorio.jpg), [celular](evidencias/funil-20261114/04-celular.jpg).
++
++Cluster PostgreSQL 18 exclusivamente em `E:/kidmais-pg-descartavel/funil-oportunidades`, porta **55814**. Servidor da demo encerrado e cluster apagado após guardar evidência. Nenhuma porta 5432/5433 usada. [Ambiente da demo](evidencias/funil-20261114/demo-ambiente.json).
++
++## Falhas encontradas e tratadas
++
++- Porta inicial 55714 ocupada: não tocada; cluster desta tarefa iniciado em 55814.
++- CRLF do clone fez o postcheck antigo da 116 e checksums de assets falharem. Conteúdo local convertido para LF, sem delta semântico fora dos arquivos da tarefa; `core.autocrlf=input` somente neste clone.
++- Testes antigos pressupunham a aba de cartões na Central e não conheciam a nova dependência da lista de motivos; contratos de teste atualizados. O carregador de testes passou a informar `fileName` ao TypeScript para não interpretar genéricos de `.ts` como JSX ao carregar os serviços reais.
++- Consulta inicial de destinatários usava DISTINCT com ORDER BY de outro tipo; corrigida. Pasta do marcador de production passou a respeitar o sufixo `-producao` exigido pelo helper.
++- Duas rodadas estáticas iniciais falharam durante a implementação; as rodadas completas posteriores e a final passaram.
++- O navegador integrado teve timeouts de criação/navegação e a sessão de desenvolvimento foi refeita após atualização do código; a recarga completa estabilizou a conferência. O fluxo funcional foi observado e capturado. Não foi alterada autenticação para contornar isso.
++
++Não há falha obrigatória de validação em aberto. Revisão independente classe A continua pendente. Não foram executados testes de carga, matriz completa de planos/unidades, mutantes, agendador real ou entrega real de e-mail. Não se declara homologação/publicação.
++
++## Integração com a outra frente
++
++O clone `kidmais-manager-marketing-simplificacoes-20261114` foi apenas lido e preservado. Sobreposição comunicada antes de implementar: `lib/admin/navegacao.ts` e teste, `lib/marketing/contatos.ts`, `lib/fechamentos/services/fechamento.service.ts`, `components/admin/marketing/MarketingOrigens.tsx`, `MarketingVisao.tsx` e seleção de testes. A transferência da próxima ação deve ser conservada ao integrar a conversão automática dos contatos da outra frente. A maior parte da interface, consultas e relatório do funil está em arquivos novos para reduzir conflitos.
++
++## Próximos passos
++
++Revisão do Astra com todos os achados de uma vez, no máximo duas rodadas; somente P1/P2 reproduzíveis bloqueiam. P3 vira pendência. Depois, integração local com as simplificações/Área da família conforme a fila. Commit, PR, migrations em ambientes reais, deploy e ativação/agendamento de e-mail dependem de instrução específica posterior de Felipe.
++
++Limpeza final e manifesto de arquivos são registrados nas evidências e na nota do vault. Reabrir após a limpeza exige `npm ci` e build; o código, Git e provas são preservados.
++
++## Limpeza concluída
++
++Limpeza concluída: servidor localhost:3794 encerrado (porta livre), cluster E:/kidmais-pg-descartavel/funil-oportunidades parado/apagado, node_modules e os dois builds removidos pela rotina oficial (0,74 + 0,29 = 1,03 GB em dependências/builds, além do cluster). Credencial sintética removida. Código, Git, scripts de reprodução e relatórios/capturas preservados; npm ci/build serão necessários para retomar.
+diff --git a/docs/PARECER_ASTRA_FUNIL_20261114_R1.md b/docs/PARECER_ASTRA_FUNIL_20261114_R1.md
+new file mode 100644
+index 00000000..7ab19d50
+--- /dev/null
++++ b/docs/PARECER_ASTRA_FUNIL_20261114_R1.md
+@@ -0,0 +1,89 @@
++# Parecer independente — Funil de oportunidades — rodada 1
++
++Data: 14/11/2026. Revisor: Astra (agente independente da implementação). Classe A, somente LOCAL.
++
++**Resultado: REPROVADO nesta rodada por dois P2 reproduzíveis. Nenhum P1 identificado. Dois P3 não bloqueantes.** Todos os achados desta rodada estão abaixo; não houve correção da implementação, commit, push, PR, merge, conexão remota ou banco real. Este parecer não autoriza publicação.
++
++Base examinada: `2133d398f02f519170b443b5702c6b23b9da41b7`, branch `codex/funil-oportunidades-20261114`. Diff rastreado e arquivos novos incluídos; cobertura dos 45 itens do manifesto, incluindo SQL/checks/down, aplicadores, serviços, rotas, UI, testes e documentação. Conferência independente: **45/45 SHA-256 iguais** ao manifesto. As mudanças existentes não foram sobrescritas. Instruções do workspace/checkout, política operacional, proposta aprovada e fila vigente consultadas. Área da família permanece antes do Funil.
++
++## Achados bloqueantes
++
++### P2-1 — Um novo contato de cliente antigo desaparece do funil
++
++Local principal: `lib/oportunidades/consultas.ts:9`. O bloqueio equivalente está em `lib/oportunidades/service.ts:38` (consulta de contato com qualquer negociação); a API nova vincula o cliente em `app/api/admin/oportunidades/route.ts:30` usando a identificação por telefone/e-mail existente.
++
++Reprodução concreta: cliente A tem uma negociação CONFIRMADO iniciada em 01/01/2025. Em 14/11/2026, registrar novo contato para outra festa, usando seu telefone. O contato novo fica EM_ATENDIMENTO, `cliente_id=A`, `fechamento_id=NULL`. Consultar Oportunidades.
++
++Esperado: o contato da nova oportunidade aparece até ser convertido/vinculado a uma negociação correspondente. Observado: zero cartões desse contato, porque o `NOT EXISTS` considera **qualquer** fechamento do cliente, mesmo antigo e encerrado. O fechamento CONFIRMADO também não aparece nas colunas abertas. Tentar agendar diretamente no contato é recusado pela mesma premissa no serviço. A conversão do relatório, ao contrário, já exige negociação posterior ao recebimento para o vínculo inferido.
++
++Consequência: retorno de cliente desaparece imediatamente após cadastro; não se consegue trabalhar sua próxima ação/perda pela tela solicitada. Não é apenas duplicidade visual. A correção precisa alinhar leitura, mutação e herança com a identidade/temporalidade da oportunidade, preservando negociações de festas anteriores.
++
++Prova própria `retorno-cliente`: executa o primeiro braço **extraído do SQL real**, retirando apenas casts PostgreSQL, no SQLite em memória. Resultado: um contato sem vínculo explícito, zero cartões. Não é prova PostgreSQL; a falha depende apenas de igualdade/EXISTS, sem diferença de dialeto relevante.
++
++### P2-2 — A conversão transfere a ação, mas troca o responsável nos resultados mensais
++
++Local principal: `lib/oportunidades/conversao.ts:15`. Consumidores inconsistentes: `lib/oportunidades/consultas.ts:17`, `:42` e `:46`.
++
++Reprodução concreta: contato tem próxima ação atribuída ao vendedor B; criar/vincular negociação cujo `usuario_responsavel_id` é A (ou NULL). A herança transfere a ação para o fechamento. Sem reagendar a ação, registrar perda ou confirmar essa negociação e consultar os contadores com filtro de B.
++
++Esperado: o responsável apresentado no cartão e usado no filtro continua coerente com a atribuição dos resultados, ou o produto distingue explicitamente responsável da negociação e executor da ação. Observado: enquanto aberta, a oportunidade aparece para B por `coalesce(p.responsavel_id,a.responsavel_id)`; a herança só muda contato/fechamento da ação e conserva `usuario_responsavel_id=A`. Depois da perda/fechamento, os contadores usam exclusivamente A (ou NULL): B recebe zero, A recebe um. O agendamento normal atualiza ambos, mas a herança não.
++
++Consequência: vendas/perdas aparecem atribuídas a pessoa diferente da apresentada no funil, sem intervenção do usuário. Com responsável NULL, desaparecem de todos os filtros individuais.
++
++Prova própria `responsavel-conversao`: executa `herdarAcoesDoContato` real, removendo somente tipos/imports e injetando executor/histórico falsos. Única escrita comercial observada: UPDATE da ação; responsável da ação B e da negociação A permanecem distintos. A consequência nos contadores é demonstrada pelos predicados SQL citados, não por execução PostgreSQL.
++
++## Pendências não bloqueantes
++
++### P3-1 — Usuário somente leitor recebe botões de edição que sempre falham
++
++Local: `components/admin/oportunidades/Oportunidades.tsx:19`, `:24` e `:33`; contrato GET em `app/api/admin/oportunidades/route.ts:18` não devolve capacidades.
++
++Reprodução: membership Equipe com apenas MARKETING_VISUALIZAR, plano habilitado. GET funciona; “Novo contato”, “Feito” e “Ação ou perda” são habilitados por `pronta`, sem capacidade de escrita. Preencher e enviar termina em 403 no POST, que exige MARKETING_CAMPANHAS_EDITAR. Esperado: ações indisponíveis/omitidas para leitura, antes de preencher. Consequência: trabalho perdido e interface enganosa; **a autorização do backend está preservada**. Prova por fluxo de código, sem navegador nesta revisão.
++
++### P3-2 — Resumos de empresas diferentes não identificam a empresa ao destinatário
++
++Local: `lib/oportunidades/resumo.ts:12–13`.
++
++Reprodução: mesmo usuário tem ações atribuídas em duas empresas. São geradas mensagens separadas com chaves distintas por empresa, mas assunto/cabeçalho não contêm nome/identificador da empresa e o texto remete genericamente ao painel. Com nomes/tipos/datas iguais, os corpos são idênticos. Esperado: identificar a empresa e orientar a abertura no contexto correto. Consequência: aparência de duplicidade e risco operacional de procurar a ação na empresa errada. Não constitui vazamento cross-tenant: o destinatário precisa de acesso em cada empresa.
++
++## Ordem 123 → 122: conclusão por camada
++
++**Não é necessário trocar os números antes do PR para tornar a Área independente.** O número maior não exige os menores neste projeto. É necessário preservar e documentar a ordem real de integração/aplicação, e validar a candidata combinada depois da integração.
++
++1. **Schema SQL:** a 123 atual do clone `kidmais-manager-area-familia-20261114` cria pessoas/links/sessões/eventos/limites e amplia `validacoes_identidade_cliente`. Seus pré-requisitos são estruturas anteriores, inclusive a 112; precheck e corpo não referenciam tabelas/colunas/funções da 122. A 122 tampouco depende da 123. Assim, por análise das dependências SQL, 123 pode ser aplicada sem 122. Não executei essas migrations nesta revisão.
++2. **Inventário:** `scripts/production/check-migrations.mjs:278–294` valida pertencimento/unicidade na lista explícita `approvedFiles`; não exige sequência numérica contígua. O inventário atual da Área inclui 123, não inclui 122 e passou `inspectInventory` com **zero blockers** em prova própria. `latest` é o último nome ordenado, não versão aplicada no banco; `appliedState` permanece unknown.
++3. **Receita:** `scripts/regressao-v1-postgres-receita.cjs:282–289` escolhe o **prefixo pela posição em approvedFiles**, não `id <= alvo`. A Área tem modelo 123 sem 122. Ao integrar Área primeiro, conservar append 123 → 122 faz o modelo 123 continuar sem 122 e o modelo 122 incluir ambas. Reordenar por número muda a composição dos modelos e exige rever testes; não basta resolver o conflito alfabeticamente. A prova registra ambos os arrays/prefixos sem criar banco.
++4. **Aplicadores/ferramentas:** o aplicador dedicado 122 confere somente dependências/estado da própria 122, alvo, hashes, privilégios e marcador. Não recusa 123 já presente. Os aplicadores genéricos antigos têm lista fechada; não passam a executar 122/123 porque o inventário mudou. Não há aplicador dedicado 123 no checkout da Área inspecionado: sua futura operação ainda precisa de roteiro/ferramenta próprios e autorização. Nenhum adaptador remoto foi executado.
++5. **Exportação:** `migracao:'122'` é metadado de entidade posterior/ausente, não uma condição “versão máxima >= 122”. A exportação lê tabelas reais, inclui ações/marcos por empresa e exclui o controle técnico dos resumos. A Área atual tem decisões explícitas para suas cinco tabelas novas em FORA_DO_ESCOPO. Na integração, preservar as decisões de **ambos** os inventários; se perder uma, a guarda de tabela desconhecida pode recusar o pacote. Nenhuma exigência numérica da exportação força renomear.
++
++Manter 123 para Área e 122 para Funil é tecnicamente possível. Trocar números seria uma opção de organização, com atualização de SQL/checks/down/hashes/adaptadores/receita/documentação, não correção obrigatória desta revisão. Nenhuma integração foi realizada aqui.
++
++## Endpoint de resumo: autoridade, isolamento e entrega
++
++- POST `/api/integracoes/oportunidades/resumo` é um endpoint de worker: **quem possui o segredo dedicado válido pode acioná-lo para todas as empresas elegíveis**. Não exige sessão de usuário nem papel Gestão; isso é intencional no desenho. Sem segredo de 32+ caracteres ou com header incorreto retorna 401. Usa comparação de SHA-256 em tempo constante de `secretMatches`. Não aceita tenant/destinatário do corpo.
++- Flag ausente/diferente de `true`: rota retorna 409 após autenticação, serviço não consulta nem envia e script diário não abre rede. Prova própria confirmou zero chamadas no serviço desligado. Nenhum segredo/agendador foi configurado.
++- Candidatos vêm de ações em empresas ATIVA; `withTenantTransaction` comprova usuário ativo, empresa e membership, relê papel persistido, trava usuário/empresa/membership e revalida no fim. Plano MARKETING e capacidade VISUALIZAR são exigidos nas duas transações. Consultas usam empresa comprovada e responsável, não papel global fictício usado na estrutura de sessão do worker.
++- Uma mesma caixa postal pode legitimamente receber um resumo **por empresa**: PK e chave de provedor são empresa/usuário/dia em São Paulo. Não se deve deduplicar entre tenants pelo e-mail. A ambiguidade visual está no P3-2, não na chave de idempotência.
++- Fotografia persistida em uma transação; envio em outra sob lock da linha de resumo. Revalida e-mail, plano, permissões e conjunto dos IDs das ações. Mudança de ação/atribuição remove o ID elegível e torna a fotografia OBSOLETO. A checagem não compara todos os textos (por exemplo, renomear cliente conserva a fotografia); não considero isso bloqueante para uma fotografia diária.
++- Duas execuções concorrentes não devem enviar duas vezes após commit normal: PK + locks do tenant/registro serializam o consumo. Prova própria com transações serializadas em memória deu um envio em duas invocações; **não é ensaio de concorrência PostgreSQL**.
++- Transporte falhou: FALHOU fica persistido, sem retry automático naquele dia. Prova própria: uma tentativa em duas invocações. Isso pode perder o lembrete em falha transitória, mas corresponde ao contrato documentado de não reenviar com aceitação incerta.
++- Crash/rollback após aceite: pode haver nova chamada ao transporte, com a mesma chave e conteúdo persistido. Prova própria simulou rollback após envio e mostrou duas chamadas idênticas. A proteção contra duas entregas depende da idempotência do provedor existente; **não há garantia de exactly-once no banco**, nem entrega real validada nesta rodada. O transporte existente passa Idempotency-Key ao Resend; não foi invocado nem pesquisado remotamente.
++- O envio ocorre segurando a transação e locks de tenant; transporte possui timeout. Não houve prova de carga/latência. Nenhum novo achado P1/P2 do endpoint foi reproduzido nesta rodada.
++
++## Demais verificações
++
++Próxima ação: comparação do ID esperado sob trava do alvo, unicidade parcial de ação aberta, conclusão atômica com próxima ação/perda e validação de responsável. Perda: lista fixa, observação limitada, encerramento de ações e eventos; caminhos alterados de descarte e cancelamento pré-assinatura requerem motivo. Cancelamento do funil exige Gestão, recusa Sinal, trava contrato/fluxo e rejeita assinatura do cliente/Festa/financeiro; capacidade FESTA_CORRIGIR é mantida quando existe contrato. Histórico usa o repositório comum; conversão preserva ações encerradas e escolhe a mais recente. Nenhum bypass cross-tenant foi encontrado por leitura dos serviços e suas guardas. Isso não substitui prova PG independente de toda a matriz.
++
++Etapas são derivadas; marcos não inventam passagens anteriores. Relatório acompanha entradas observadas até a consulta, com destino posterior à origem; confirmações antigas sem data ficam separadas. Os dois P2 acima são as inconsistências de oportunidade/responsável reproduzidas nesta rodada.
++
++Migration/checks/down examinados: mudanças aditivas; índice parcial e gatilho de vínculo/tenant; rollback recusa evidência comercial. SQL revisado por hashes. Aplicador usa marcador exclusivo `wx`; prova com filesystem e Client falsos mostrou marcador anterior inalterado, saída 1 e nenhuma transação de escrita. Outra prova simulou desconexão no COMMIT: saída 2, INDETERMINADO preservado no marcador. Não houve escrita em disco de marcador operacional nem conexão.
++
++## Provas próprias, limites e encerramento
++
++Comando: `node docs/evidencias/astra-funil-r1/provas.cjs` — **PASS, 9 provas/grupos**, Node 24.20.0. [Código](evidencias/astra-funil-r1/provas.cjs) e [resultados](evidencias/astra-funil-r1/resultado.json). O script remove DATABASE_URL e KIDMAIS_HOMOLOGACAO_DATABASE_URL antes das cargas; só dados sintéticos. A primeira execução do harness falhou por import ESM de caminho Windows; corrigido para file URL no próprio harness, sem alteração da implementação; reexecução passou. `git diff --check` passou.
++
++Não reinstalei dependências, não executei build/static integral, suíte PG ou navegador. Os logs e capturas do implementador foram considerados evidência dele, **não execução minha**. Não executei Node 22.23.2 declarado pelo projeto; runtime próprio foi 24.20.0. SQL portável em SQLite e executores falsos não validam gatilhos, locks, constraints ou planos PostgreSQL. A Área foi inspecionada somente para a questão de dependências/ordem, sem parecer de segurança de sua F1.
++
++Limpeza: nenhuma dependência, build, servidor, cluster ou pasta temporária foi criada. Somente este parecer e provas/resultados preserváveis foram acrescentados; nada a remover. A regra/skill de limpeza foi consultada, sem aplicar remoção sobre artefatos alheios.
++
++Próximo passo: corrigir P2-1/P2-2 localmente, acrescentar regressões pertinentes e reapresentar rodada 2 com novo manifesto. P3 pode ficar registrado como pendência. Vault/relato serão consolidados uma vez pelo agente pai, conforme coordenação; não foram duplicados nesta revisão.
+diff --git a/docs/PEDIDO_ASTRA_FUNIL_20261114.md b/docs/PEDIDO_ASTRA_FUNIL_20261114.md
+new file mode 100644
+index 00000000..eb3c967e
+--- /dev/null
++++ b/docs/PEDIDO_ASTRA_FUNIL_20261114.md
+@@ -0,0 +1,15 @@
++# Revisão independente classe A — Funil de oportunidades
++
++Revise somente LOCAL, sem corrigir silenciosamente, commit, push, PR, staging ou production.
++
++Checkout: `D:/glass/KidMais Manager/kidmais-manager-funil-oportunidades-20261114`, branch `codex/funil-oportunidades-20261114`, base `2133d398f02f519170b443b5702c6b23b9da41b7`. O diff está sem commit; **inclua os arquivos novos não rastreados**, além de `git diff`. O manifesto está em `docs/evidencias/funil-20261114/manifesto.json`.
++
++Leia AGENTS/CLAUDE e `docs/OPERACAO_AGENTES.md`, a proposta aprovada no vault (`Funil de oportunidades proposta 20261114.md`) e `docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md`. A Área da família está antes do Funil na fila; isso não autoriza integrar ou publicar nenhum dos dois.
++
++Focos: isolamento A/B e permissões; concorrência/ID esperado e ação única; perda obrigatória nos três caminhos; assinatura/financeiro impedindo cancelamento indevido; histórico; transferência do próximo passo; estados derivados; verdade temporal dos contadores e conversões; fotografia/idempotência/permissões do e-mail; migration 122, checks, exportação, aplicadores e preservação de marcador/COMMIT incerto. Considere os pontos compartilhados com `kidmais-manager-marketing-simplificacoes-20261114`, que foi preservado.
++
++Provas do implementador: check estático inteiro aprovado (5.015 + 103 testes, lint 0 erros, tsc, build, worker PDF), receita PostgreSQL e suíte do funil no modelo 122 aprovadas; navegador real com dados fictícios e capturas desktop/390 px. Não houve e-mail real nem acesso a ambiente real. Limites e falhas intermediárias constam do relatório; mutantes e matriz completa de planos/unidades não foram executados.
++
++Caso reproduza os testes, remova as variáveis herdadas `DATABASE_URL` e `KIDMAIS_HOMOLOGACAO_DATABASE_URL`. Use exclusivamente PostgreSQL descartável novo em `E:/kidmais-pg-descartavel/funil-oportunidades`, porta livre diferente de 5432/5433, identidade `kidmais_descartavel`, dados sintéticos e transportes falsos. O cluster da implementação foi apagado. Consulte a política e tenha autorização específica vigente para criá-lo; preparar a revisão não autoriza banco real. Não execute os adaptadores remotos.
++
++Entregue todos os achados de uma vez, com prioridade, arquivo/linha, reprodução, comportamento esperado/observado e consequência. Só P1 e P2 reproduzíveis bloqueiam; P3 vai para pendências. Máximo de duas rodadas conforme a classe A; na terceira, parar e levar a Felipe. Declare testes próprios e limitações, sem tratar os logs do implementador como sua própria execução. Atualize a nota pertinente e o relato de cinco linhas ao finalizar. Limpe somente os artefatos que criar, preservando evidências.
+diff --git a/docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md b/docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md
+new file mode 100644
+index 00000000..f21ce483
+--- /dev/null
++++ b/docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md
+@@ -0,0 +1,20 @@
++# Pedido pronto — Astra R2 — Funil de oportunidades
++
++Astra, execute a **rodada 2 e última da classe A** no checkout `D:/glass/KidMais Manager/kidmais-manager-funil-oportunidades-20261114`, base `2133d398f02f519170b443b5702c6b23b9da41b7`. Somente LOCAL. Não corrija, não faça commit/push/PR, não acesse ambientes reais. Respeite as instruções do workspace/checkout, política operacional, nota aprovada no vault e fila única. Área da família continua antes do Funil.
++
++Leia integralmente `docs/PARECER_ASTRA_FUNIL_20261114_R1.md`, o relatório atualizado `docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md` e a seção de correções na nota `Funil de oportunidades proposta 20261114.md` do vault. Confira `docs/evidencias/funil-20261114/manifesto.json` e os hashes em `docs/evidencias/funil-r2-20261114/sha256.json`. Inclua o diff rastreado e todos os arquivos novos do manifesto; o patch completo preservado está em `docs/evidencias/funil-r2-20261114/diff-completo.patch`. O manifesto anterior está preservado para identificar o delta da correção.
++
++**Escopo fechado desta rodada:** conferir os dois P2, os dois P3 abaixo e regressões nos pontos tocados. Não reabrir a análise geral já entregue nem inventar terceira rodada. Entregue todos os achados de uma vez com reprodução e arquivo/linha; somente P1/P2 reproduzíveis bloqueiam; P3 vira pendência. Se restar bloqueante, encaminhe a Felipe conforme o teto da classe A.
++
++1. **P2-1:** cliente com fechamento CONFIRMADO antigo + contato novo sem `marketing_contatos.fechamento_id`: aparece em Novo contato, aceita próxima ação, perda com motivo e conversão em negociação nova. Um fechamento histórico não elimina outra oportunidade. Leitura/edição/descarte antigo/herança coerentes; vincular um contato não consome outro contato sem vínculo do mesmo cliente. Na criação, a ação escolhida precisa deixar vínculo explícito no contato convertido.
++2. **P2-2 (decisão de produto):** após existir negociação, a fonte é `fechamentos.usuario_responsavel_id` para cartão, filtro, Para hoje, resumo por e-mail e contadores mensais. B no contato + negociação sem responsável → B herdado. B no contato + negociação de A → ação transferida para A. Histórico identifica responsáveis anterior/final. Cartão e resultados fechada/perdida atribuem a mesma pessoa, inclusive leitura diante de ação antiga divergente.
++3. **P3-3** (chamado P3-1 no parecer): leitor apenas MARKETING_VISUALIZAR enxerga o funil sem Novo contato/Feito/próxima ação/perda. GET comunica capacidade comprovada; POST mantém a mesma guarda.
++4. **P3-4** (P3-2 no parecer): assunto e cabeçalho do e-mail identificam a empresa; HTML continua escapado, destinatário/fotografia/idempotência por empresa/usuário/dia preservados. Somente transporte falso em testes.
++
++Não alterar números ou ordem de migrations: 122 permanece; na futura integração o inventário deve preservar 123 → 122. A rota `app/api/integracoes/oportunidades/resumo/route.ts`, scripts/aplicadores/SQL/exportação estão intactos nesta correção; não repetir operações nem reabrir essas decisões salvo regressão diretamente introduzida nos pontos tocados.
++
++Provas do implementador em `docs/evidencias/funil-r2-20261114/`: logs antes/depois (os três casos PG e o leitor falham antes), suíte inteira do funil, static completo, capturas/AX somente da demo e resultados sintéticos. Conferência do contador de B usa confirmação montada por fixture SQL, explicitamente identificada; não é prova do fluxo inteiro de contratação. Runtime usado Node 24.20.0/npm 11.19.0; o projeto declara 22.23.2. Não confunda evidência do implementador com execução sua.
++
++Se executar testes: remova DATABASE_URL e KIDMAIS_HOMOLOGACAO_DATABASE_URL com `env -u` em todos os comandos. Qualquer PG da revisão deve ser um cluster **novo e descartável**, exclusivamente `E:/kidmais-pg-descartavel/funil-oportunidades`, porta livre diferente de 5432/5433 (implementação usou 55814). Use conector/receita de segurança do projeto e apague ao fim. O cluster/servidor/dependências desta implementação foram removidos; retomar exige npm ci. Não ler `.env*` reais nem enviar e-mail real. Não operar banco real.
++
++Registrar parecer em `docs/PARECER_ASTRA_FUNIL_20261114_R2.md`, distinguindo testes próprios, evidências lidas e limites. Atualizar a nota pertinente do vault/relato sem duplicar registros e limpar somente seus próprios artefatos.
+diff --git a/docs/evidencias/astra-funil-r1/provas.cjs b/docs/evidencias/astra-funil-r1/provas.cjs
+new file mode 100644
+index 00000000..1f1cd7d4
+--- /dev/null
++++ b/docs/evidencias/astra-funil-r1/provas.cjs
+@@ -0,0 +1,74 @@
++/* eslint-disable @typescript-eslint/no-require-imports -- Prova offline CJS da revisão R1; comportamento preservado. */
++/* Provas independentes locais. Sem pg, rede, dependências ou leitura de .env. */
++const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
++const {createHash}=require('node:crypto'),{stripTypeScriptTypes}=require('node:module');
++const {DatabaseSync}=require('node:sqlite');
++delete process.env.DATABASE_URL;delete process.env.KIDMAIS_HOMOLOGACAO_DATABASE_URL;
++const root=path.resolve(__dirname,'../../..');process.chdir(root);
++const read=p=>fs.readFileSync(p,'utf8');
++function load(file,deps,names){let js=stripTypeScriptTypes(read(file));js=js.replace(/^import .*?;\s*$/gm,'').replace(/\bexport /g,'');return new Function(...Object.keys(deps),js+'\nreturn {'+names.join(',')+'};')(...Object.values(deps));}
++const results=[];const note=(name,data)=>results.push({name,...data});
++(async()=>{
++ const manifest=JSON.parse(read('docs/evidencias/funil-20261114/manifesto.json'));
++ const hashes=manifest.arquivos.map(x=>({arquivo:x.arquivo,igual:createHash('sha256').update(fs.readFileSync(x.arquivo)).digest('hex')===x.sha256}));
++ assert.equal(hashes.length,45);assert(hashes.every(x=>x.igual));note('manifesto',{arquivos:hashes});
++ const inv=await import(require('node:url').pathToFileURL(path.join(root,'scripts/production/check-migrations.mjs')).href);
++ const area=path.resolve(root,'../kidmais-manager-area-familia-20261114');
++ const invArea=await import(require('node:url').pathToFileURL(path.join(area,'scripts/production/check-migrations.mjs')).href);
++ const r=invArea.inspectInventory(fs.readdirSync(path.join(area,'database/migrations')),f=>fs.existsSync(path.join(area,'database/checks',f)));
++ assert.deepEqual(r.blockers,[]);assert(!invArea.approvedFiles.some(f=>f.includes('_122_')));assert(invArea.approvedFiles.some(f=>f.includes('_123_')));
++ const combined=[...invArea.approvedFiles,...inv.approvedFiles.filter(f=>f.includes('_122_'))];
++ note('ordem-inventario',{areaSem122:r.blockers,finalArea:invArea.approvedFiles.slice(-3),integracaoAppend:combined.slice(-3),modelo122Inclui123:combined.slice(0,combined.findIndex(f=>f.includes('_122_'))+1).some(f=>f.includes('_123_'))});
++ const db=new DatabaseSync(':memory:');
++ db.exec(`CREATE TABLE marketing_contatos(id TEXT,empresa_id TEXT,nome TEXT,cliente_id TEXT,status TEXT,data_desejada TEXT,responsavel_id TEXT,recebido_em TEXT,fechamento_id TEXT);
++ CREATE TABLE fechamentos(id TEXT,empresa_id TEXT,cliente_id TEXT,status TEXT,iniciado_em TEXT);
++ INSERT INTO fechamentos VALUES('f-antigo','empresa-a','cliente-a','CONFIRMADO','2025-01-01');
++ INSERT INTO marketing_contatos VALUES('contato-novo','empresa-a','Família sintética','cliente-a','EM_ATENDIMENTO',NULL,NULL,'2026-11-14',NULL);`);
++ // Primeiro braço real da CTE, somente retirando casts de PostgreSQL.
++ const sql=read('lib/oportunidades/consultas.ts').match(/const BASE = `WITH alvos AS \(([\s\S]*?) UNION ALL/)[1].replace(/::(?:text|numeric|uuid)/g,'');
++ const observed=db.prepare(sql).all({$1:'empresa-a'});assert.equal(observed.length,0);
++ const explicit=db.prepare('SELECT id FROM marketing_contatos WHERE fechamento_id IS NULL').all();assert.equal(explicit.length,1);
++ note('retorno-cliente',{sql,cartoesObservados:observed.length,contatosSemVinculo:explicit.length,estadoNegociacaoAnterior:'CONFIRMADO',anterior:'2025-01-01',novo:'2026-11-14'});db.close();
++ let action={id:'acao',contato_id:'contato',criada_por:'autor',responsavel_id:'vendedor-b'},f={empresa_id:'empresa',cliente_id:'cliente',usuario_responsavel_id:'vendedor-a'};const writes=[];
++ const conversion=load('lib/oportunidades/conversao.ts',{registrarEventoHistorico:async()=>{}},['herdarAcoesDoContato']);
++ await conversion.herdarAcoesDoContato({query:async(sql,args)=>{
++  if(sql.includes('to_regclass'))return {rows:[{ok:true}]};
++  if(sql.startsWith('SELECT empresa_id'))return {rows:[f]};
++  if(sql.includes('JOIN marketing_contatos'))return {rows:[action]};
++  if(sql.startsWith('SELECT 1'))return {rows:[]};
++  writes.push(sql);if(sql.startsWith('UPDATE oportunidades_acoes'))action={...action,contato_id:null,fechamento_id:args[2]};
++  return {rows:[]};
++ }},'fechamento');
++ assert.equal(action.fechamento_id,'fechamento');assert.equal(f.usuario_responsavel_id,'vendedor-a');
++ note('responsavel-conversao',{writes,responsavelCartao:action.responsavel_id,responsavelContadorMensal:f.usuario_responsavel_id});
++ let rows=new Map(),calls=0,sends=[],fail=false,crash=false;
++ const item={id:'contato',nome:'Sintético',proxima:{id:'acao',tipo:'Ligar',data:'2026-11-14'}};
++ const tx={query:async(sql,args)=>{
++  calls++;
++  if(sql.startsWith('SELECT email'))return {rows:[{email:'sintetico@example.test'}]};
++  if(sql.startsWith('INSERT INTO oportunidades_resumos')){const k=args.slice(0,3).join('/');if(!rows.has(k))rows.set(k,{estado:'PENDENTE',mensagem:JSON.parse(args[3])});return {rows:[]};}
++  if(sql.startsWith('SELECT mensagem'))return {rows:[rows.get(args.slice(0,3).join('/'))].filter(Boolean)};
++  if(sql.startsWith('UPDATE oportunidades_resumos')){rows.get(args.slice(0,3).join('/')).estado=args[3];return {rows:[]};}
++  throw Error('SQL inesperado: '+sql);
++ }};
++ const worker=load('lib/oportunidades/resumo.ts',{withTenantTransaction:null,hojeSaoPaulo:()=> '2026-11-14',listarOportunidades:async()=>[item],exigirRecursoPlano:async()=>{},exigirCapacidadeMarketing:async()=>{}},['enviarResumosDiarios','mensagemResumo']);
++ let queue=Promise.resolve();
++ const tenant=async(sessao,_,fn)=>{let release;const previous=queue;queue=new Promise(r=>release=r);await previous;const before=structuredClone(rows);try{const out=await fn(tx,{empresaComprovada:sessao.empresa_ativa_id,usuarioId:sessao.usuario_id});if(crash&&[...rows.values()].some(x=>x.estado==='ENVIADO')){crash=false;throw Error('commit perdido sintético');}return out;}catch(e){rows=before;throw e;}finally{release();}};
++ const deps={env:{OPORTUNIDADES_RESUMO_EMAIL:'true'},tenant,transacao:async(fn)=>fn({query:async()=>({rows:[{empresa_id:'empresa-a',usuario_id:'usuario-a'}]})}),enviar:async(m)=>{sends.push(m);if(fail)throw Error('transporte sintético');return {};}};
++ await worker.enviarResumosDiarios({...deps,env:{}});assert.equal(calls,0);assert.equal(sends.length,0);
++ await Promise.all([worker.enviarResumosDiarios(deps),worker.enviarResumosDiarios(deps)]);assert.equal(sends.length,1);
++ note('worker-default-concorrencia',{desligadoConsultas:0,duasInvocacoesEnvios:sends.length,limite:'serialização transacional em memória; não prova locks PostgreSQL'});
++ rows.clear();sends=[];fail=true;await worker.enviarResumosDiarios(deps);await worker.enviarResumosDiarios(deps);assert.equal(sends.length,1);assert.equal([...rows.values()][0].estado,'FALHOU');note('worker-falha',{envios:sends.length,estado:'FALHOU'});
++ rows.clear();sends=[];fail=false;crash=true;await worker.enviarResumosDiarios(deps);await worker.enviarResumosDiarios(deps);assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);note('worker-crash',{tentativas:2,mesmaChaveEConteudo:true,limite:'deduplicação do provedor não executada'});
++ const {criarAplicador}=require(path.join(root,'scripts/migration-122-comum.cjs'));
++ // filesystem inteiramente falso: nenhum marcador real, pasta ou conexão.
++ const original={mkdirSync:fs.mkdirSync,writeFileSync:fs.writeFileSync};let marker='MARCADOR_ANTERIOR',queries=[];
++ try{
++ fs.mkdirSync=()=>{};fs.writeFileSync=(_p,body,options)=>{if(options?.flag==='wx'&&marker!==null)throw Object.assign(Error('existe'),{code:'EEXIST'});marker=body;};
++ let commitLost=false;const amb={nome:'fake',DIR:'fake',SQL_IDENTIDADE:'IDENTIDADE',identidade:()=>{},alvo:()=>({}),exigirDisco:()=>{}};
++ class Client {async connect(){}async end(){}async query(sql){queries.push(sql);if(sql.includes('has_schema_privilege'))return {rows:[{uso:true,criar:true,dono:true,referencias:true}]};if(sql.includes("AS a,"))return {rows:[{a:false,m:false,r:false,f:false,c:false}]};if(sql==='COMMIT'&&commitLost&&queries.includes('BEGIN'))throw Object.assign(Error('conexão caiu'),{code:'ECONNRESET'});return {rows:[{}],command:sql==='COMMIT'?'COMMIT':''};}}
++ const app=criarAplicador(amb);let out=await app.principal(['--aplicar-122-autorizado','--backup','backup-falso'],{},{Client});assert.equal(out.codigo,1);assert.equal(marker,'MARCADOR_ANTERIOR');assert(!queries.includes('BEGIN'));note('marcador-existente',{codigo:out.codigo,preservado:true,transacaoEscrita:false});
++ marker=null;queries=[];commitLost=true;out=await app.principal(['--aplicar-122-autorizado','--backup','backup-falso'],{},{Client});assert.equal(out.codigo,2);assert.equal(out.saida.commit,'INDETERMINADO');assert.equal(JSON.parse(marker).commit,'INDETERMINADO');note('commit-incerto',{codigo:out.codigo,commit:out.saida.commit,marcadorPreservado:true});
++ }finally{Object.assign(fs,original);}
++ fs.writeFileSync(path.join(__dirname,'resultado.json'),JSON.stringify({utc:new Date().toISOString(),runtime:process.version,rede:false,postgres:false,resultados:results},null,2)+'\n');console.log(JSON.stringify({PASS:true,provas:results.length}));
++})().catch(e=>{console.error(e);process.exitCode=1;});
+diff --git a/docs/evidencias/funil-r2-20261114/VALIDACAO.md b/docs/evidencias/funil-r2-20261114/VALIDACAO.md
+new file mode 100644
+index 00000000..f693be2a
+--- /dev/null
++++ b/docs/evidencias/funil-r2-20261114/VALIDACAO.md
+@@ -0,0 +1,47 @@
++# Correção da R1 — 14/11/2026 — somente LOCAL
++
++Estado: quatro achados corrigidos e provas do implementador aprovadas; **aguarda Astra R2, última rodada classe A**. Base `2133d398f02f519170b443b5702c6b23b9da41b7`, mesmo clone/branch, sem commit/push/PR/operação real. P3-3/P3-4 do pedido correspondem a P3-1/P3-2 do parecer histórico.
++
++## Mudanças por achado
++
++| Achado | Arquivo/linha | Comportamento corrigido |
++| --- | --- | --- |
++| P2-1 | `lib/oportunidades/consultas.ts:9`, `service.ts:38`, `lib/marketing/contatos.ts:286` | Contato sem vínculo próprio continua visível/editável/descartável mesmo com fechamento histórico do cliente. Motivo obrigatório preservado. |
++| P2-1, herança | `lib/oportunidades/conversao.ts:9`, `:24` | Vínculo explícito seleciona aquele contato. Na criação, a ação mais recente identifica um contato e grava seu vínculo com a negociação. Não encerra outras oportunidades independentes do cliente. |
++| P2-2 | `lib/oportunidades/conversao.ts:17`, `:25` | Sem responsável no fechamento: herda B; com A: ação transferida para A. Histórico conserva responsáveis da ação/negociação anteriores e o final. |
++| P2-2, consumidores | `lib/oportunidades/consultas.ts:17`, `:23`, `:38`; `resumo.ts:19` | Fechamento define cartão/filtro/Para hoje/e-mail e os contadores que já usavam o fechamento. Ação antiga divergente não muda a pessoa da oportunidade. |
++| P3-3 | `app/api/admin/oportunidades/route.ts:19`; `components/admin/oportunidades/Oportunidades.tsx:17`, `:20`, `:25`, `:34`, `:41` | GET informa edição conforme capacidade comprovada. Leitor não recebe botões nem janelas de edição. Guarda POST intacta e recusa403 coberta no PG. |
++| P3-4 | `lib/oportunidades/resumo.ts:11`, `:35` | Nome lido na empresa comprovada, assunto/cabeçalho com nome e HTML escapado. Chave por empresa/usuário/dia preservada. |
++
++Migration122 (SQL/checks/down/hashes/aplicadores), inventário/receita/exportação, script diário e **rota de resumo** continuam byte a byte iguais ao manifesto anterior. Nenhuma mudança da ordem 123→122, que pertence à futura integração, com Área da família antes do Funil.
++
++## Reprodução e resultados
++
++1. Antes de alterar a implementação, acrescentados os três casos PG em `lib/oportunidades/funil.postgres.test.ts:13`: cliente com CONFIRMADO antigo + contato novo, B→negociação sem responsável e B→negociação de A. [Log antes](postgres-antes.log): os três falham nos defeitos corretos, respectivamente contato oculto, fechamento NULL e ação ainda B. O ciclo original passa. O [teste de UI antes](ui-antes.log) falha no botão Novo contato indevido para leitor.
++2. [PostgreSQL final](postgres-final.log): **4/4 grupos PASS**, sem skip, modelo122 com receita completa e pre/postchecks, mais guarda de escritores sem ordem inválida e encerramento sem falhas. Todos os cenários anteriores e o ciclo inteiro do funil. Novo contato recorrente agenda/perde com motivo, descarte pelo serviço antigo, outro retorno converte em negociação nova com vínculo explícito e fechamento histórico preservado. Os dois cenários de responsáveis conferem cartão/ação/filtro/Para hoje, histórico, e-mail simulado, fechadas e perdidas para a mesma pessoa, inclusive ação divergente. Outra ação de contato do mesmo cliente continua aberta. Leitor GET permitido e POST403. Não é a suíte PG inteira do repositório.
++3. [Suíte unitária inteira do funil e UI](funil-unitarios.log): **6/6 PASS** (modelo3, aplicador1, UI2). Leitor não tem quatro controles de edição; editor continua tendo. E-mail inclui empresa no assunto/cabeçalho, escapa cliente/empresa no HTML e conserva chave; flag desligada não consulta/envia.
++4. [`npm run check:v1:static` inteiro](static-final.log): **5.017/5.017 + 103/103**, lint 0 erros (4 avisos preexistentes), TypeScript, build e worker PDF PASS. Runtime **Node24.20.0/npm11.19.0**; projeto declara Node22.23.2, não repetido nele.
++
++Comando da suíte PG: `env -u DATABASE_URL -u KIDMAIS_HOMOLOGACAO_DATABASE_URL KIDMAIS_POSTGRES_DESCARTAVEL=kidmais_pacotes_v1_descartavel KIDMAIS_DESCARTAVEL_PORTA=55814 KIDMAIS_DESCARTAVEL_AUTORIZACAO=127.0.0.1:55814/kidmais_pacotes_v1_descartavel KIDMAIS_POSTGRES_SOMENTE=lib/oportunidades/funil.postgres.test.ts npm run check:v1:postgres`. Unitários/static/npm ci/demo também lançados com as duas variáveis removidas. Nenhum `.env*` real lido. Cluster novo PostgreSQL18 em `E:/kidmais-pg-descartavel/funil-oportunidades`, porta55814; não foram usadas5432/5433.
++
++## Navegador localhost:3794, somente dados fictícios
++
++- [Cartões e Para hoje](01-p2-cartoes.jpg): contato com festa antiga aparece; as duas negociações convertidas exibem B herdado e A prevalecendo. [Filtro B](02-p2-filtro-b.jpg): só retorno/B herdado. Conversões montadas pelo serviço real no seed sintético; não são conversões clicadas na interface.
++- [Próxima ação salva](03-retorno-acao-salva.jpg): retorno alterado pela interface de Ligar para WhatsApp; [perda com Preço](05-retorno-perda.jpg) aceita e contabilizada, com CONFIRMADO antigo intacto, conferido em [resultados PG da demo](demo-resultados.json).
++- [Leitor sem edição](04-leitor-sem-edicao.jpg): login próprio com somente MARKETING_VISUALIZAR; três ações do dia e três cartões, nenhum Novo contato/Feito/próxima ação/perda. Asserção sobre botões reais do DOM e AX preservados ao lado das capturas. Atualizar, filtros e links de leitura continuam.
++- [Negociação de A perdida](06-p2-perda-a.jpg): perda Outro pela interface, filtroA mostra1 perdida. Depois, filtroB observado com1 fechada e1 perdida (a do retorno). **A confirmação de B foi montada por fixture SQL**, respeitando trava de agenda; não é prova da contratação completa pela interface. A suíte PG testa fechada/perdida em ambos os cenários.
++- Capturas apenas do conteúdo da aba da demo, sem desktop/outras janelas. Seed/fixture reproduzíveis preservados como `.cjs.txt`; não contêm credencial real. E-mail desativado, automações desligadas, transporte simulado; [autoverificação](demo-ambiente.json).
++
++## Falhas intermediárias e limites
++
++- As quatro regressões falham antes como esperado; logs preservados, não são falhas atuais.
++- Primeiro static passou5.017+103 mas parou no lint: nove erros `no-require-imports` no artefato CJS da revisão AstraR1. Original preservado em `provas-r1-original.cjs.txt`; foi acrescentada só uma anotação ESLint de formato CommonJS em `docs/evidencias/astra-funil-r1/provas.cjs:1`, sem mudar a prova. Segundo static completo PASS. O relatório/resultado histórico da R1 não foi reescrito nem executado como teste da correção.
++- Primeira montagem da confirmação sintética de B recusada por falta de trava de agenda; transação revertida, sem escrita. Script auxiliar corrigido para usar `travarConfiguracaoAgenda`, repetição PASS. [Tentativa recusada](demo-resultados-tentativa1.log).
++- Ao encerrar a demo, taskkill terminou a árvore, mas a checagem imediata de bind ainda indicou porta ocupada e o helper saiu com erro. A reconferência posterior mostrou3794 livre emIPv4/IPv6 e nenhum processo da aplicação; o registro de processos foi encerrado após essa prova. [Conferência final](demo-porta-final.json). Nenhum servidor foi reiniciado.
++- Nenhuma prova obrigatória falhando no encerramento. Sem envio real, carga, nova bateria de mutantes ou validação independente nesta correção. As provas positivas não autorizam publicação. Revisor precisa distinguir evidência lida de execução própria.
++
++## Encerramento
++
++Servidor3794 encerrado/porta livre; PostgreSQL parado e diretório apagado ([registro](cluster-limpeza.json),130.464.256 bytes). Dependências/builds desta tarefa removidos pela rotina oficial após simulação:0,73GB principal+0,23GB demo, além do cluster; logs de limpeza preservados. O build isolado `.next-festa-manual` foi movido para `.next` (caminhos absolutos verificados) e passou por nova simulação/aplicação da rotina, que reconhece esse nome. Clone, código, Git, capturas, relatórios e vault mantidos para a última revisão; retomar exige `npm ci` e build. Nenhum artefato de outra tarefa foi removido.
++
++Manifesto atualizado inclui os arquivos novos; `manifesto-anterior.json` permite conferir o delta. `diff-completo.patch` reúne diff rastreado e arquivos novos de código/documentação do manifesto. `sha256.json` confere evidências atuais e as anteriores; não inclui seu próprio hash. Documentação técnica, nota existente do vault e fila atualizadas; um relato resumido acrescentado a `orquestracao/relatos.md`. Próximo: usar `docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md`, sem terceira rodada automática.
+diff --git a/lib/oportunidades/aplicador.test.ts b/lib/oportunidades/aplicador.test.ts
+new file mode 100644
+index 00000000..c5798b24
+--- /dev/null
++++ b/lib/oportunidades/aplicador.test.ts
+@@ -0,0 +1,14 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {createRequire} from 'node:module';
++const require=createRequire(import.meta.url);
++test('aplicadores 122 conferem hashes offline e recusam aplicação local sem conectar',async()=>{
++ for(const nome of ['staging','production']){
++  const app=require(`../../scripts/migration-122-${nome}.cjs`);
++  let conexoes=0;const deps={Client:class{constructor(){conexoes++;}}};
++  const plano=await app.principal([],{},deps);assert.equal(plano.codigo,0);assert.equal(plano.saida.conecta,false);assert.equal(plano.saida.arquivos.length,3);
++  await assert.rejects(app.principal(['--aplicar-122-autorizado','--backup','sintetico-20261114'],{},deps));assert.equal(conexoes,0);
++ }
++ const {modo,estado}=require('../../scripts/migration-122-comum.cjs');
++ assert.throws(()=>modo(['--aplicar-122-autorizado']));assert.throws(()=>estado({a:true,m:false,r:false,f:false,c:false}));
++});
+diff --git a/lib/oportunidades/consultas.ts b/lib/oportunidades/consultas.ts
+new file mode 100644
+index 00000000..de9509a9
+--- /dev/null
++++ b/lib/oportunidades/consultas.ts
+@@ -0,0 +1,76 @@
++import type { DbExecutor } from '../db/contracts.ts';
++import { SQL_ORIGEM_NEGOCIACAO } from '../marketing/atribuicao.ts';
++import { etapaDoEstado, type Oportunidade } from './modelo.ts';
++import { exigirSchema } from './service.ts';
++
++const BASE = `WITH alvos AS (
++ SELECT k.id,k.empresa_id,'CONTATO'::text AS tipo,k.nome,k.cliente_id,k.status,NULL::numeric AS valor,k.data_desejada AS data_evento,
++ k.responsavel_id,k.recebido_em AS criada_em FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.status IN ('NOVO','EM_ATENDIMENTO')
++ AND k.fechamento_id IS NULL
++ UNION ALL
++ SELECT f.id,f.empresa_id,'FECHAMENTO',coalesce(c.nome_completo,'Cliente não vinculado'),f.cliente_id,f.status,
++ coalesce(f.valor_aprovado,f.valor_negociado,f.valor_tabela),f.data_evento,f.usuario_responsavel_id,f.iniciado_em
++ FROM fechamentos f LEFT JOIN clientes c ON c.empresa_id=f.empresa_id AND c.id=f.cliente_id WHERE f.empresa_id=$1::uuid
++ AND f.status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO','AGUARDANDO_CONTRATO','CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO')
++)
++ SELECT a.id::text,a.tipo,a.nome,a.cliente_id::text AS "clienteId",a.status,a.valor::text,a.data_evento::text AS "dataEvento",
++ (CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE coalesce(p.responsavel_id,a.responsavel_id) END)::text AS "responsavelId",
++ CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object('id',p.id,'tipo',p.tipo,'data',p.data::text,'observacao',p.observacao,'responsavelId',CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE p.responsavel_id END) END AS proxima,
++ clock_timestamp()-coalesce((SELECT max(x.encerrada_em) FROM oportunidades_acoes x WHERE x.empresa_id=a.empresa_id AND x.resultado='FEITA'
++ AND ((a.tipo='CONTATO' AND x.contato_id=a.id) OR (a.tipo='FECHAMENTO' AND x.fechamento_id=a.id))),a.criada_em)>=interval '14 days' AS "sugerirPerda"
++ FROM alvos a LEFT JOIN oportunidades_acoes p ON p.empresa_id=a.empresa_id AND p.encerrada_em IS NULL
++ AND ((a.tipo='CONTATO' AND p.contato_id=a.id) OR (a.tipo='FECHAMENTO' AND p.fechamento_id=a.id))
++ WHERE ($2::uuid IS NULL OR (CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE coalesce(p.responsavel_id,a.responsavel_id) END)=$2::uuid)
++ ORDER BY p.data NULLS FIRST,a.criada_em,a.id`;
++
++export async function listarOportunidades(tx: DbExecutor,empresaId: string,responsavelId: string | null = null): Promise<Oportunidade[]> {
++  await exigirSchema(tx);
++  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(BASE,[empresaId,responsavelId]);
++  return r.rows.map(v=>({...v,etapa:etapaDoEstado(v.status,v.tipo==='CONTATO')!,href:v.tipo==='CONTATO'
++    ? (v.clienteId ? `/clientes/${v.clienteId}` : '/admin/marketing/origens') : `/admin/fechamentos/${v.id}/revisao`}));
++}
++export async function responsaveis(tx: DbExecutor,empresaId: string) {
++  return (await tx.query<{id: string; nome: string}>(`SELECT u.id::text,u.nome FROM memberships m JOIN usuarios_administrativos u ON u.id=m.usuario_id
++   WHERE m.empresa_id=$1::uuid AND m.status='ATIVA' AND u.ativo
++   AND (m.papel='REPRESENTANTE_AUTORIZADO' OR EXISTS(SELECT 1 FROM marketing_membership_capacidades cap WHERE cap.empresa_id=m.empresa_id AND cap.membership_id=m.id AND cap.revogado_em IS NULL))
++   ORDER BY u.nome,u.id`,[empresaId])).rows;
++}
++export async function contadoresMes(tx: DbExecutor,empresaId: string,hoje: string,responsavelId: string | null) {
++  const r = await tx.query<{fechadas: number; perdidas: number; fechadasSemData: number}>(`SELECT
++   (SELECT count(*)::int FROM fechamentos f WHERE f.empresa_id=$1::uuid AND f.status='CONFIRMADO'
++    AND f.confirmada_em>=date_trunc('month',$2::date::timestamp) AT TIME ZONE 'America/Sao_Paulo'
++    AND f.confirmada_em<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($3::uuid IS NULL OR f.usuario_responsavel_id=$3::uuid)) AS fechadas,
++   (SELECT count(*)::int FROM fechamentos f WHERE f.empresa_id=$1::uuid AND f.status='CONFIRMADO' AND f.confirmada_em IS NULL AND ($3::uuid IS NULL OR f.usuario_responsavel_id=$3::uuid)) AS "fechadasSemData",
++   (SELECT count(*)::int FROM (
++    SELECT perdida_em,responsavel_id FROM marketing_contatos WHERE empresa_id=$1::uuid
++    UNION ALL SELECT perdida_em,usuario_responsavel_id FROM fechamentos WHERE empresa_id=$1::uuid) x
++    WHERE perdida_em>=date_trunc('month',$2::date::timestamp) AT TIME ZONE 'America/Sao_Paulo'
++    AND perdida_em<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($3::uuid IS NULL OR responsavel_id=$3::uuid)) AS perdidas`,[empresaId,hoje,responsavelId]);
++  return r.rows[0];
++}
++export type RelatorioFunil = { perdas: Array<{motivo: string; origem: string; quantidade: number}>; conversoes: Array<{de: string; para: string; base: number; convertidas: number; percentual: number | null}> };
++export async function relatorioFunil(tx: DbExecutor,empresaId: string,de: string,ate: string,unidadeId: string | null): Promise<RelatorioFunil> {
++  await exigirSchema(tx);
++  const perdas = (await tx.query<{motivo: string; origem: string; quantidade: number}>(`WITH perdas AS (
++   SELECT k.perda_motivo AS motivo,k.perdida_em,k.estabelecimento_id,coalesce(a.origem_codigo,'SEM_REGISTRO') AS origem
++   FROM marketing_contatos k LEFT JOIN marketing_atribuicoes a ON a.empresa_id=k.empresa_id AND a.alvo_tipo='CONTATO' AND a.alvo_id=k.id AND a.vigente WHERE k.empresa_id=$1::uuid
++   UNION ALL
++   SELECT f.perda_motivo,f.perdida_em,f.estabelecimento_id,coalesce(a.origem_codigo,'SEM_REGISTRO') FROM fechamentos f
++   LEFT JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a ON true WHERE f.empresa_id=$1::uuid)
++   SELECT motivo,origem,count(*)::int AS quantidade FROM perdas WHERE perdida_em>=($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
++   AND perdida_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR estabelecimento_id=$4::uuid) GROUP BY motivo,origem ORDER BY quantidade DESC,motivo,origem`,[empresaId,de,ate,unidadeId])).rows;
++  const contato = (await tx.query<{base: number; convertidas: number}>(`SELECT count(*)::int AS base,count(*) FILTER(WHERE k.fechamento_id IS NOT NULL OR EXISTS
++    (SELECT 1 FROM fechamentos f WHERE f.empresa_id=k.empresa_id AND f.cliente_id=k.cliente_id AND f.iniciado_em>=k.recebido_em))::int AS convertidas
++    FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.recebido_em>=($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
++    AND k.recebido_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR k.estabelecimento_id=$4::uuid)`,[empresaId,de,ate,unidadeId])).rows[0];
++  const conversoes: RelatorioFunil['conversoes'] = [{de:'Novo contato',para:'Proposta',...contato,percentual:contato.base ? contato.convertidas/contato.base*100 : null}];
++  for (const [origem,destino] of [['Proposta','Contrato'],['Contrato','Sinal'],['Sinal','Fechada']]) {
++    const linha = (await tx.query<{base: number; convertidas: number}>(`SELECT count(*)::int AS base,count(*) FILTER(WHERE EXISTS(
++     SELECT 1 FROM oportunidades_marcos n WHERE n.empresa_id=m.empresa_id AND n.fechamento_id=m.fechamento_id AND n.etapa=$6 AND n.ocorrido_em>=m.ocorrido_em))::int AS convertidas
++     FROM oportunidades_marcos m JOIN fechamentos f ON f.empresa_id=m.empresa_id AND f.id=m.fechamento_id WHERE m.empresa_id=$1::uuid AND m.etapa=$5
++     AND m.ocorrido_em>=($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AND m.ocorrido_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
++     AND ($4::uuid IS NULL OR f.estabelecimento_id=$4::uuid)`,[empresaId,de,ate,unidadeId,origem,destino])).rows[0];
++    conversoes.push({de:origem,para:destino,...linha,percentual:linha.base ? linha.convertidas/linha.base*100 : null});
++  }
++  return {perdas,conversoes};
++}
+diff --git a/lib/oportunidades/conversao.ts b/lib/oportunidades/conversao.ts
+new file mode 100644
+index 00000000..f8f440da
+--- /dev/null
++++ b/lib/oportunidades/conversao.ts
+@@ -0,0 +1,27 @@
++import type { DbExecutor } from '../db/contracts.ts';
++import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
++
++/** Compatível com os modelos anteriores à 122; executado na transação que cria/vincula a negociação. */
++export async function herdarAcoesDoContato(tx: DbExecutor,fechamentoId: string) {
++  if (!(await tx.query<{ok:boolean}>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0]?.ok) return;
++  const f=(await tx.query<{empresa_id:string;cliente_id:string|null;usuario_responsavel_id:string|null}>('SELECT empresa_id::text,cliente_id::text,usuario_responsavel_id::text FROM fechamentos WHERE id=$1::uuid FOR UPDATE',[fechamentoId])).rows[0];
++  if (!f?.empresa_id || !f.cliente_id) return;
++  const acoes=(await tx.query<{id:string;contato_id:string;criada_por:string;responsavel_id:string}>(`SELECT a.id::text,a.contato_id::text,a.criada_por::text,a.responsavel_id::text FROM oportunidades_acoes a
++    JOIN marketing_contatos k ON k.empresa_id=a.empresa_id AND k.id=a.contato_id WHERE a.empresa_id=$1::uuid AND k.cliente_id=$2::uuid
++    AND a.encerrada_em IS NULL AND (k.fechamento_id=$3::uuid OR (k.fechamento_id IS NULL AND NOT EXISTS(
++      SELECT 1 FROM marketing_contatos vinculado WHERE vinculado.empresa_id=k.empresa_id AND vinculado.fechamento_id=$3::uuid)))
++    AND k.status IN ('NOVO','EM_ATENDIMENTO','CONVERTIDO') ORDER BY a.criada_em DESC,a.id LIMIT 1 FOR UPDATE OF a,k`,[f.empresa_id,f.cliente_id,fechamentoId])).rows;
++  const tem=(await tx.query('SELECT 1 FROM oportunidades_acoes WHERE empresa_id=$1::uuid AND fechamento_id=$2::uuid AND encerrada_em IS NULL',[f.empresa_id,fechamentoId])).rows.length>0;
++  for (let i=0;i<acoes.length;i++) {
++    const a=acoes[i],transferir=i===0 && !tem;
++    const responsavelId=f.usuario_responsavel_id??a.responsavel_id;
++    if (transferir) {
++      await tx.query('UPDATE fechamentos SET usuario_responsavel_id=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid',[f.empresa_id,fechamentoId,responsavelId]);
++      await tx.query('UPDATE oportunidades_acoes SET contato_id=NULL,fechamento_id=$3::uuid,responsavel_id=$4::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid',[f.empresa_id,a.id,fechamentoId,responsavelId]);
++    }
++    else await tx.query("UPDATE oportunidades_acoes SET resultado='CONVERTIDA',encerrada_em=clock_timestamp() WHERE empresa_id=$1::uuid AND id=$2::uuid",[f.empresa_id,a.id]);
++    // A conversão identifica o contato, sem encerrar outros retornos do mesmo cliente.
++    await tx.query("UPDATE marketing_contatos SET fechamento_id=$3::uuid,status='CONVERTIDO',atualizado_em=clock_timestamp() WHERE empresa_id=$1::uuid AND id=$2::uuid",[f.empresa_id,a.contato_id,fechamentoId]);
++    await registrarEventoHistorico({clienteId:f.cliente_id,usuarioId:a.criada_por,tipoEvento:'OPORTUNIDADE_ACAO_CONVERTIDA',origem:'CRM_INTERNO',entidadeTipo:'FECHAMENTO',entidadeId:fechamentoId,metadata:{acaoId:a.id,contatoId:a.contato_id,transferida:transferir,responsavelAcaoAnterior:a.responsavel_id,responsavelNegociacaoAnterior:f.usuario_responsavel_id,responsavelId:transferir?responsavelId:f.usuario_responsavel_id}},tx);
++  }
++}
+diff --git a/lib/oportunidades/funil.postgres.test.ts b/lib/oportunidades/funil.postgres.test.ts
+new file mode 100644
+index 00000000..dc043346
+--- /dev/null
++++ b/lib/oportunidades/funil.postgres.test.ts
+@@ -0,0 +1,175 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {randomUUID} from 'node:crypto';
++import {conectarDescartavel,encerrarDescartavel} from '../comercial/postgres-descartavel.ts';
++import {empresa,cliente,comercial,fechamento,contratoAssinado,vincular,SENHA_FALSA,carregarComBanco,pedido,type Resposta,executor} from '../marketing/harness-postgres.ts';
++import type {Oportunidade,Comando} from './modelo.ts';
++import type {RelatorioFunil} from './consultas.ts';
++import type {MensagemEmail} from '../acessos/email.ts';
++import {travarConfiguracaoAgenda} from '../agenda/trava-configuracao.ts';
++
++type Rota={GET:(r:unknown)=>Promise<Resposta>;POST:(r:unknown)=>Promise<Resposta>};
++// Regressões da revisão Astra R1: dados reais no PostgreSQL autorizado, sem transporte externo.
++for (const caso of ['contato recorrente','conversão sem responsável','conversão com responsável A'] as const) {
++ test(`Astra R1: ${caso}`,{timeout:180000},async(t)=>{
++  if(process.env.KIDMAIS_POSTGRES_DESCARTAVEL!=='kidmais_pacotes_v1_descartavel'){t.skip('postgres-descartavel: opt-in ausente');return;}
++  const c=await conectarDescartavel();
++  try {
++   await c.query('BEGIN');
++   const e=await empresa(c,'Empresa R1 sintética'),tx=executor(c);
++   const pessoa=async(nome:string,papel:'REPRESENTANTE_AUTORIZADO'|'ADMINISTRATIVO'='REPRESENTANTE_AUTORIZADO')=>{
++    const u=(await c.query<{id:string}>("INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel,ativo) VALUES($1,$2,$3,$4,true) RETURNING id::text",[randomUUID()+'@funil.test',nome,SENHA_FALSA,papel])).rows[0].id;
++    return vincular(c,e,u,papel);
++   };
++   const a=await pessoa('A'),b=await pessoa('B'),leitor=await pessoa('Leitor','ADMINISTRATIVO');
++   await c.query("INSERT INTO marketing_membership_capacidades(empresa_id,membership_id,capacidade,concedido_por,motivo) VALUES($1,$2,'MARKETING_VISUALIZAR',$3,'Teste leitor')",[e,leitor.membership,a.usuario]);
++   let sessao=a.sessao;
++   const cache=new Map(),carregar=<T,>(p:string)=>carregarComBanco(p,c,()=>sessao,{},cache) as T;
++   const rota=carregar<Rota>('app/api/admin/oportunidades/route.ts');
++   type Dados={id:string;hoje:string;podeEditar:boolean;itens:Oportunidade[];contadores:{fechadas:number;perdidas:number}};
++   const chamar=async(body?:unknown,responsavel?:string)=>{
++    const r=await (body?rota.POST:rota.GET)(pedido('http://127.0.0.1:3000/api/admin/oportunidades'+(responsavel?'?responsavelId='+responsavel:''),body));
++    return {status:r.status,j:await r.json()};
++   };
++   const ok=async(body?:unknown,responsavel?:string)=>{const r=await chamar(body,responsavel);assert.equal(r.status,200,JSON.stringify(r.j));return r.j.data as Dados;};
++   const cli=await cliente(c,e,'Cliente recorrente sintético','11988880999'),base=await comercial(c,e);
++   await travarConfiguracaoAgenda(tx,e,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
++   const antigo=caso==='contato recorrente'?await fechamento(c,e,base,cli,{data:'2025-01-01',status:'CONFIRMADO',atualizadoHaDias:600}):null;
++   if(antigo) await c.query("UPDATE fechamentos SET confirmada_em='2025-01-01' WHERE id=$1",[antigo]);
++   const novo=async()=> (await ok({acao:'registrar',nome:'Contato recorrente sintético',telefone:'11988880999',canal:'TELEFONE',chave:randomUUID()})).id;
++   const k=await novo(),hoje=(await ok()).hoje;
++   if(caso==='contato recorrente') assert((await ok()).itens.some(i=>i.id===k),'histórico confirmado não oculta o contato sem vínculo');
++   const acao=(await ok({acao:'agendar',alvo:{tipo:'CONTATO',id:k},esperada:null,proxima:{tipo:'Ligar',data:hoje,responsavelId:b.usuario}})).id;
++   if(caso==='contato recorrente') {
++    await ok({acao:'perder',alvo:{tipo:'CONTATO',id:k},esperada:acao,perda:{motivo:'Preço'}});
++    assert.equal((await ok(undefined,b.usuario)).contadores.perdidas,1);
++    assert.equal((await c.query('SELECT status FROM fechamentos WHERE id=$1',[antigo])).rows[0].status,'CONFIRMADO');
++    // O caminho antigo de descarte também permite o retorno sem vínculo.
++    const outro=await novo();
++    const contatos=carregar<{executarAcaoContato(tx:unknown,e:string,u:string,v:unknown):Promise<unknown>}>('lib/marketing/contatos.ts');
++    await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'status',id:outro,status:'DESCARTADO',perda:{motivo:'Outro'}});
++    const retorno=await novo(),proxima=(await ok({acao:'agendar',alvo:{tipo:'CONTATO',id:retorno},esperada:null,proxima:{tipo:'WhatsApp',data:hoje,responsavelId:b.usuario}})).id;
++    const novaNegociacao=await fechamento(c,e,base,cli,{data:'2027-09-02'});
++    const conversao=carregar<{herdarAcoesDoContato(tx:unknown,f:string):Promise<void>}>('lib/oportunidades/conversao.ts');
++    await conversao.herdarAcoesDoContato(tx,novaNegociacao);
++    assert.equal((await c.query('SELECT fechamento_id FROM marketing_contatos WHERE id=$1',[retorno])).rows[0].fechamento_id,novaNegociacao,'retorno convertido fica vinculado à negociação nova');
++    assert.equal((await ok()).itens.find(i=>i.id===novaNegociacao)?.proxima?.id,proxima);
++    assert(!(await ok()).itens.some(i=>i.id===retorno));
++    assert.equal((await c.query('SELECT status FROM fechamentos WHERE id=$1',[antigo])).rows[0].status,'CONFIRMADO');
++   } else {
++    const outroContato=await novo(),outraAcao=(await ok({acao:'agendar',alvo:{tipo:'CONTATO',id:outroContato},esperada:null,proxima:{tipo:'WhatsApp',data:'2099-01-01',responsavelId:b.usuario}})).id;
++    const f=await fechamento(c,e,base,cli,{data:'2027-09-01'});
++    if(caso==='conversão com responsável A') await c.query('UPDATE fechamentos SET usuario_responsavel_id=$2 WHERE id=$1',[f,a.usuario]);
++    const contatos=carregar<{executarAcaoContato(tx:unknown,e:string,u:string,v:unknown):Promise<unknown>}>('lib/marketing/contatos.ts');
++    await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'vincular-negociacao',id:k,fechamentoId:f});
++    const dono=caso==='conversão sem responsável'?b.usuario:a.usuario;
++    assert.equal((await c.query('SELECT usuario_responsavel_id FROM fechamentos WHERE id=$1',[f])).rows[0].usuario_responsavel_id,dono,'negociação define responsável após conversão');
++    assert.equal((await c.query('SELECT responsavel_id FROM oportunidades_acoes WHERE id=$1',[acao])).rows[0].responsavel_id,dono,'ação transferida acompanha a negociação');
++    const dados=await ok(undefined,dono),item=dados.itens.find(i=>i.id===f)!;
++    assert(item);assert.equal(item.responsavelId,dono);assert.equal(item.proxima?.responsavelId,dono);assert.equal(item.proxima?.data,hoje,'Para hoje usa o mesmo cartão');
++    assert(!dados.itens.some(i=>i.id===k),'vínculo explícito retira o contato');
++    assert.equal((await ok()).itens.find(i=>i.id===outroContato)?.proxima?.id,outraAcao,'conversão não encerra outro contato sem vínculo do mesmo cliente');
++    const outroDono=dono===b.usuario?a.usuario:b.usuario;
++    assert(!(await ok(undefined,outroDono)).itens.some(i=>i.id===f));
++    const evento=(await c.query("SELECT metadata FROM eventos_historico_cliente WHERE cliente_id=$1 AND tipo_evento='OPORTUNIDADE_ACAO_CONVERTIDA'",[cli])).rows[0].metadata;
++    assert.equal(evento.responsavelAcaoAnterior,b.usuario);assert.equal(evento.responsavelNegociacaoAnterior,caso==='conversão sem responsável'?null:a.usuario);assert.equal(evento.responsavelId,dono);
++    // Mesmo com uma ação antiga divergente, leitura e destinatário seguem o fechamento.
++    await c.query('UPDATE oportunidades_acoes SET responsavel_id=$2 WHERE id=$1',[acao,outroDono]);
++    assert.equal((await ok(undefined,dono)).itens.find(i=>i.id===f)?.responsavelId,dono);
++    const resumo=carregar<{enviarResumosDiarios(d:unknown):Promise<{enviados:number;falhas:number}>}>('lib/oportunidades/resumo.ts'),enviados:MensagemEmail[]=[];
++    const resultado=await resumo.enviarResumosDiarios({transacao:async<T,>(fn:(x:unknown)=>Promise<T>)=>fn(tx),env:{OPORTUNIDADES_RESUMO_EMAIL:'true'},enviar:async(m:MensagemEmail)=>{enviados.push(m);return {provedor:'arquivo',idExterno:null};}});
++    assert.equal(resultado.falhas,0);assert.equal(enviados.length,1);assert(enviados[0].idempotencia?.includes(dono));
++    assert(enviados[0].assunto.includes('Empresa R1 sintética'));assert(enviados[0].texto.startsWith('iA.Fest — Empresa R1 sintética'));
++    await c.query("UPDATE fechamentos SET status='CONFIRMADO' WHERE id=$1",[f]);
++    assert.equal((await ok(undefined,dono)).contadores.fechadas,1);assert.equal((await ok(undefined,outroDono)).contadores.fechadas,0);
++    await c.query("UPDATE fechamentos SET status='RASCUNHO' WHERE id=$1",[f]);
++    await ok({acao:'perder',alvo:{tipo:'FECHAMENTO',id:f},esperada:acao,perda:{motivo:'Outro'}});
++    assert.equal((await ok(undefined,dono)).contadores.perdidas,1);assert.equal((await ok(undefined,outroDono)).contadores.perdidas,0);
++   }
++   sessao=leitor.sessao;assert.equal((await ok()).podeEditar,false);assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:k},esperada:null,perda:{motivo:'Outro'}})).status,403);
++   await c.query('ROLLBACK');
++  } finally {await encerrarDescartavel(c);}
++ });
++}
++test('funil real: ciclo, isolamento A/B, perdas, histórico, relatórios e assinatura', {timeout:180000},async(t)=>{
++ if(process.env.KIDMAIS_POSTGRES_DESCARTAVEL!=='kidmais_pacotes_v1_descartavel'){t.skip('postgres-descartavel: opt-in ausente');return;}
++ const c=await conectarDescartavel();
++ try{
++  await c.query('BEGIN');
++  const a=await empresa(c,'Funil A sintética'),b=await empresa(c,'Funil B sintética');
++  const pessoa=async(e:string,papel:'REPRESENTANTE_AUTORIZADO'|'ADMINISTRATIVO'='REPRESENTANTE_AUTORIZADO')=>{
++   const u=(await c.query<{id:string}>("INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel,ativo) VALUES($1,'Responsável sintético',$2,'REPRESENTANTE_AUTORIZADO',true) RETURNING id::text",[randomUUID()+'@funil.test',SENHA_FALSA])).rows[0].id;
++   return vincular(c,e,u,papel);
++  };
++  const pa=await pessoa(a),pb=await pessoa(b);let sessao=pa.sessao;
++  const cache=new Map(),carregar=<T,>(p:string)=>carregarComBanco(p,c,()=>sessao,{},cache) as T;
++  const rota=carregar<Rota>('app/api/admin/oportunidades/route.ts');
++  const consultas=carregar<{relatorioFunil(tx:unknown,e:string,de:string,ate:string,u:null):Promise<RelatorioFunil>}>('lib/oportunidades/consultas.ts');
++  async function chamar(body?:unknown){const r=await (body?rota.POST:rota.GET)(pedido('http://127.0.0.1:3000/api/admin/oportunidades',body));return {status:r.status,j:await r.json()};}
++  async function ok(body?:unknown){const r=await chamar(body);assert.equal(r.status,200,JSON.stringify(r.j));return r.j.data as {id:string;itens:Oportunidade[];hoje:string;contadores:{perdidas:number;fechadas:number}};}
++  const semAcesso=await pessoa(a,'ADMINISTRATIVO');sessao=semAcesso.sessao;assert.equal((await chamar()).status,403,'papel global não contorna permissão na empresa');sessao=pa.sessao;
++  const novo=async(nome:string)=>(await ok({acao:'registrar',nome,telefone:'11988880001',canal:'TELEFONE',chave:randomUUID()})).id;
++  const ca=await novo('Contato A sintético');sessao=pb.sessao;const cb=await novo('Contato B sintético');
++  const dadosB=await ok();assert.equal(dadosB.itens.length,1);assert.equal(dadosB.itens[0].id,cb);assert(!JSON.stringify(dadosB).includes(ca));
++  const hoje=dadosB.hoje;
++  const agendar=(id:string,u:string,esperada:string|null=null):Comando=>({acao:'agendar',alvo:{tipo:'CONTATO',id},esperada,proxima:{tipo:'Ligar',data:hoje,responsavelId:u}});
++  const ab=(await ok(agendar(cb,pb.usuario))).id;
++  sessao=pa.sessao;
++  assert.equal((await chamar(agendar(cb,pa.usuario))).status,404,'A não edita oportunidade B');
++  assert.equal((await chamar(agendar(ca,pb.usuario))).status,404,'responsável B recusado');
++  const aa=(await ok(agendar(ca,pa.usuario))).id;
++  assert.equal((await chamar(agendar(ca,pa.usuario))).status,409,'concorrência otimista');
++  assert.equal((await chamar({acao:'concluir',alvo:{tipo:'CONTATO',id:ca},esperada:aa})).status,400,'Feito exige próximo passo');
++  const seguinte=(await ok({acao:'concluir',alvo:{tipo:'CONTATO',id:ca},esperada:aa,proxima:{tipo:'WhatsApp',data:hoje,responsavelId:pa.usuario}})).id;
++  const concluidas=(await c.query("SELECT count(*)::int AS n FROM oportunidades_acoes WHERE empresa_id=$1 AND resultado='FEITA'",[a])).rows[0].n;assert.equal(concluidas,1);
++  assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:seguinte,perda:{motivo:''}})).status,400);
++  await ok({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:seguinte,perda:{motivo:'Preço',observacao:'Dado sintético'}});
++  assert.equal((await ok()).contadores.perdidas,1);
++  const perdasA=await consultas.relatorioFunil(executor(c),a,hoje,hoje,null);assert.equal(perdasA.perdas[0].motivo,'Preço');assert.equal(perdasA.perdas[0].quantidade,1);
++  const perdasB=await consultas.relatorioFunil(executor(c),b,hoje,hoje,null);assert.equal(perdasB.perdas.length,0,'motivo não vaza para B');
++  const resumo=carregar<{enviarResumosDiarios(d:unknown):Promise<{enviados:number;falhas:number}>}>('lib/oportunidades/resumo.ts');
++  const enviados:MensagemEmail[]=[];
++  const deps={transacao:async<T,>(fn:(tx:unknown)=>Promise<T>)=>fn(executor(c)),env:{OPORTUNIDADES_RESUMO_EMAIL:'true'},enviar:async(m:MensagemEmail)=>{enviados.push(m);return {provedor:'arquivo',idExterno:null};}};
++  assert.equal((await resumo.enviarResumosDiarios(deps)).enviados,1);assert.equal(enviados.length,1);
++  assert(enviados[0].texto.includes('Contato B sintético'));assert(!enviados[0].texto.includes('Contato A sintético'));
++  assert.equal((await resumo.enviarResumosDiarios(deps)).enviados,0,'resumo é diário e idempotente');
++  sessao=pb.sessao;const bDepois=await ok();assert.equal(bDepois.itens[0].proxima?.id,ab,'ação B preservada');assert.equal(bDepois.contadores.perdidas,0);
++  assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:null,perda:{motivo:'Outro'}})).status,404);
++  await c.query('SAVEPOINT fk');
++  await assert.rejects(c.query("INSERT INTO oportunidades_acoes(empresa_id,contato_id,responsavel_id,tipo,data,criada_por) VALUES($1,$2,$3,'Ligar',current_date,$3)",[b,ca,pb.usuario]),/fora da empresa/);await c.query('ROLLBACK TO SAVEPOINT fk');
++  sessao=pa.sessao;
++  const cli=await cliente(c,a,'Negociação sintética','11988880004'),base=await comercial(c,a);
++  await travarConfiguracaoAgenda(executor(c),a,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
++  const f=await fechamento(c,a,base,cli,{data:'2027-06-01',atualizadoHaDias:15});
++  let item=(await ok()).itens.find(i=>i.id===f)!;assert(item.sugerirPerda);assert.equal(item.etapa,'Proposta');
++  await c.query("UPDATE fechamentos SET status='AGUARDANDO_CONTRATO' WHERE id=$1",[f]);
++  await c.query("UPDATE fechamentos SET status='CONTRATO_ASSINADO' WHERE id=$1",[f]);
++  await c.query("UPDATE fechamentos SET status='CONFIRMADO' WHERE id=$1",[f]);
++  assert.equal((await ok()).contadores.fechadas,1);
++  const rel=await consultas.relatorioFunil(executor(c),a,hoje,hoje,null);for(const l of rel.conversoes.slice(1)){assert.equal(l.base,1);assert.equal(l.convertidas,1);}
++  const assinado=await fechamento(c,a,base,cli,{data:'2027-06-02',status:'AGUARDANDO_CONTRATO'});await contratoAssinado(c,assinado,4500,null);
++  assert.equal((await chamar({acao:'perder',alvo:{tipo:'FECHAMENTO',id:assinado},esperada:null,perda:{motivo:'Outro'}})).status,409,'assinatura real bloqueia mesmo com fechamento em estado antigo');
++  const n=(await c.query("SELECT count(*)::int AS n FROM eventos_historico_cliente WHERE cliente_id=(SELECT cliente_id FROM marketing_contatos WHERE id=$1) AND tipo_evento LIKE 'OPORTUNIDADE_%'",[ca])).rows[0].n;assert.equal(n,4,'2 mudanças + conclusão + perda');
++  item=(await ok()).itens.find(i=>i.id===assinado)!;assert(item);
++  const contatoTransferir=await novo('Contato que virou proposta');
++  const acaoTransferir=(await ok(agendar(contatoTransferir,pa.usuario))).id;
++  const clienteTransferir=(await c.query<{cliente_id:string}>('SELECT cliente_id FROM marketing_contatos WHERE id=$1',[contatoTransferir])).rows[0].cliente_id;
++  await travarConfiguracaoAgenda(executor(c),a,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
++  const novaNegociacao=await fechamento(c,a,base,clienteTransferir,{data:'2027-07-01'});
++  const conversao=carregar<{herdarAcoesDoContato(tx:unknown,f:string):Promise<void>}>('lib/oportunidades/conversao.ts');
++  await conversao.herdarAcoesDoContato(executor(c),novaNegociacao);
++  const novoItem=(await ok()).itens.find(i=>i.id===novaNegociacao)!;assert.equal(novoItem.proxima?.id,acaoTransferir,'próximo passo acompanha a negociação');
++  assert(!(await ok()).itens.some(i=>i.id===contatoTransferir),'contato convertido não duplica cartão');
++  await c.query('SAVEPOINT unica');
++  await assert.rejects(c.query("INSERT INTO oportunidades_acoes(empresa_id,fechamento_id,responsavel_id,tipo,data,criada_por) VALUES($1,$2,$3,'Ligar',current_date,$3)",[a,novaNegociacao,pa.usuario]),/duplicate key/);await c.query('ROLLBACK TO SAVEPOINT unica');
++  await c.query(`INSERT INTO festa_membership_capacidades(empresa_id,membership_id,capacidade,concedido_por,motivo)
++   SELECT $1,$2,'FESTA_CORRIGIR',$3,'Fixture de cancelamento' WHERE NOT EXISTS(SELECT 1 FROM festa_membership_capacidades WHERE empresa_id=$1 AND membership_id=$2 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL)`,[a,pa.membership,pa.usuario]);
++  await travarConfiguracaoAgenda(executor(c),a,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
++  const antesAssinatura=await fechamento(c,a,base,cli,{data:'2027-08-01',status:'AGUARDANDO_CONTRATO'});
++  const contratoAberto=(await c.query<{id:string}>("INSERT INTO contratos(fechamento_id,status) VALUES($1,'AGUARDANDO_ASSINATURA') RETURNING id::text",[antesAssinatura])).rows[0].id;
++  await ok({acao:'perder',alvo:{tipo:'FECHAMENTO',id:antesAssinatura},esperada:null,perda:{motivo:'Data ocupada'}});
++  assert.equal((await c.query('SELECT status FROM contratos WHERE id=$1',[contratoAberto])).rows[0].status,'CANCELADO');
++  assert.equal((await c.query('SELECT perda_motivo FROM fechamentos WHERE id=$1',[antesAssinatura])).rows[0].perda_motivo,'Data ocupada');
++  await c.query('ROLLBACK');
++ }finally{await encerrarDescartavel(c);}
++});
+diff --git a/lib/oportunidades/modelo.test.ts b/lib/oportunidades/modelo.test.ts
+new file mode 100644
+index 00000000..24c90e33
+--- /dev/null
++++ b/lib/oportunidades/modelo.test.ts
+@@ -0,0 +1,31 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {comandoSchema,etapaDoEstado,perdaSchema} from './modelo.ts';
++import {carregarModulo} from '../acessos/teste-carregador.ts';
++const id='00000000-0000-4000-8000-000000000001';
++test('etapas seguem exclusivamente o estado real',()=>{
++ for(const s of ['NOVO','EM_ATENDIMENTO'])assert.equal(etapaDoEstado(s,true),'Novo contato');
++ for(const s of ['RASCUNHO','AGUARDANDO_APROVACAO','APROVADO'])assert.equal(etapaDoEstado(s),'Proposta');
++ assert.equal(etapaDoEstado('AGUARDANDO_CONTRATO'),'Contrato');
++ for(const s of ['CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO'])assert.equal(etapaDoEstado(s),'Sinal');
++ for(const s of ['CONFIRMADO','CANCELADO','RECUSADO','EXPIRADO'])assert.equal(etapaDoEstado(s),null);
++});
++test('conclusão pede ação seguinte; perda exige motivo fixo e data válida',()=>{
++ const base={acao:'concluir',alvo:{tipo:'CONTATO',id},esperada:id};
++ assert.equal(comandoSchema.safeParse(base).success,false);
++ assert.equal(comandoSchema.safeParse({...base,proxima:{tipo:'Ligar',data:'2026-02-30',responsavelId:id}}).success,false);
++ assert.equal(comandoSchema.safeParse({...base,proxima:{tipo:'Ligar',data:'2026-11-14',responsavelId:id}}).success,true);
++ for(const entrada of [{},{motivo:'Porque sim'},{motivo:''}])assert.equal(perdaSchema.safeParse(entrada).success,false);
++ assert.equal(perdaSchema.safeParse({motivo:'Preço'}).success,true);
++});
++test('resumo desligado não consulta nem envia; mensagem escapa texto do cliente',async()=>{
++ const mod=carregarModulo('lib/oportunidades/resumo.ts',{'saas/provar-tenant':{},'oportunidades/consultas':{},'assinatura/recursos-plano':{},'marketing/capacidades':{}}) as {
++ enviarResumosDiarios(d:unknown):Promise<unknown>;mensagemResumo(...a:unknown[]):{html:string;texto:string;assunto:string;idempotencia:string};};
++ let chamadas=0;
++ assert.deepEqual(await mod.enviarResumosDiarios({env:{},transacao:()=>{chamadas++;},enviar:()=>{chamadas++;}}),{desligado:true,enviados:0,falhas:0});
++ assert.equal(chamadas,0);
++ const m=mod.mensagemResumo('sintetico@example.test',id,id,'2026-11-14',[{nome:'<img src=x>',proxima:{data:'2026-11-13',tipo:'Ligar'}}],'Buffet <Aurora>');
++ assert(m.texto.includes('Atrasada'));assert(!m.html.includes('<img'));assert(m.html.includes('&lt;img'));
++ assert(m.assunto.includes('Buffet <Aurora>'));assert(m.texto.startsWith('iA.Fest — Buffet <Aurora>'));assert(m.html.includes('Buffet &lt;Aurora&gt;'));
++ assert.equal(m.idempotencia,`oportunidades/${id}/${id}/2026-11-14`);
++});
+diff --git a/lib/oportunidades/modelo.ts b/lib/oportunidades/modelo.ts
+new file mode 100644
+index 00000000..5bc8efc5
+--- /dev/null
++++ b/lib/oportunidades/modelo.ts
+@@ -0,0 +1,25 @@
++import { z } from 'zod';
++
++export const TIPOS_ACAO = ['Ligar', 'WhatsApp', 'Enviar proposta', 'Visita', 'Cobrar'] as const;
++export const MOTIVOS_PERDA = ['Preço', 'Data ocupada', 'Fechou com outro buffet', 'Desistiu da festa', 'Parou de responder', 'Outro'] as const;
++export const ETAPAS = ['Novo contato', 'Proposta', 'Contrato', 'Sinal'] as const;
++export function etapaDoEstado(status: string, contato = false): typeof ETAPAS[number] | null {
++  if (contato) return ['NOVO', 'EM_ATENDIMENTO'].includes(status) ? 'Novo contato' : null;
++  if (['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO'].includes(status)) return 'Proposta';
++  if (status === 'AGUARDANDO_CONTRATO') return 'Contrato';
++  if (['CONTRATO_ASSINADO', 'AGUARDANDO_PAGAMENTO'].includes(status)) return 'Sinal';
++  return null;
++}
++export const alvoSchema = z.object({ tipo: z.enum(['CONTATO', 'FECHAMENTO']), id: z.string().uuid() }).strict();
++const data = z.iso.date();
++export const proximaSchema = z.object({ tipo: z.enum(TIPOS_ACAO), data, observacao: z.string().trim().max(1000).optional(), responsavelId: z.string().uuid() }).strict();
++export const perdaSchema = z.object({ motivo: z.enum(MOTIVOS_PERDA), observacao: z.string().trim().max(1000).optional() }).strict();
++export const comandoSchema = z.discriminatedUnion('acao', [
++  z.object({ acao: z.literal('agendar'), alvo: alvoSchema, esperada: z.string().uuid().nullable(), proxima: proximaSchema }).strict(),
++  z.object({ acao: z.literal('concluir'), alvo: alvoSchema, esperada: z.string().uuid(), proxima: proximaSchema }).strict(),
++  z.object({ acao: z.literal('perder'), alvo: alvoSchema, esperada: z.string().uuid().nullable(), perda: perdaSchema, concluir: z.boolean().optional() }).strict(),
++]);
++export type Alvo = z.infer<typeof alvoSchema>;
++export type Comando = z.infer<typeof comandoSchema>;
++export type Acao = { id: string; tipo: string; data: string; observacao: string | null; responsavelId: string };
++export type Oportunidade = { id: string; tipo: Alvo['tipo']; nome: string; clienteId: string | null; status: string; etapa: string; valor: string | null; dataEvento: string | null; responsavelId: string | null; proxima: Acao | null; sugerirPerda: boolean; href: string };
+diff --git a/lib/oportunidades/perda.ts b/lib/oportunidades/perda.ts
+new file mode 100644
+index 00000000..79302e8e
+--- /dev/null
++++ b/lib/oportunidades/perda.ts
+@@ -0,0 +1,15 @@
++import type { DbExecutor } from '../db/contracts.ts';
++import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
++import { perdaSchema, type Alvo } from './modelo.ts';
++
++/** Chamador trava o alvo, prova o tenant e valida o cancelamento antes de entrar aqui. */
++export async function gravarPerda(tx: DbExecutor, empresaId: string, usuarioId: string, alvo: Alvo, clienteId: string, entrada: unknown) {
++  const perda = perdaSchema.parse(entrada);
++  const tabela = alvo.tipo === 'CONTATO' ? 'marketing_contatos' : 'fechamentos';
++  await tx.query(`UPDATE ${tabela} SET perda_motivo=$3, perda_observacao=$4, perdida_em=clock_timestamp() WHERE empresa_id=$1::uuid AND id=$2::uuid`,
++    [empresaId, alvo.id, perda.motivo, perda.observacao || null]);
++  await tx.query(`UPDATE oportunidades_acoes SET encerrada_em=clock_timestamp(),resultado='PERDIDA'
++    WHERE empresa_id=$1::uuid AND ${alvo.tipo === 'CONTATO' ? 'contato_id' : 'fechamento_id'}=$2::uuid AND encerrada_em IS NULL`, [empresaId, alvo.id]);
++  await registrarEventoHistorico({ clienteId, usuarioId, tipoEvento: 'OPORTUNIDADE_PERDIDA', origem: 'CRM_INTERNO',
++    entidadeTipo: alvo.tipo, entidadeId: alvo.id, detalhe: perda.motivo, metadata: { motivo: perda.motivo, observacao: perda.observacao || null } }, tx);
++}
+diff --git a/lib/oportunidades/resumo.ts b/lib/oportunidades/resumo.ts
+new file mode 100644
+index 00000000..146fd242
+--- /dev/null
++++ b/lib/oportunidades/resumo.ts
+@@ -0,0 +1,57 @@
++import type { DbExecutor } from '../db/contracts.ts';
++import type { EnviarEmail, MensagemEmail } from '../acessos/email.ts';
++import { withTenantTransaction } from '../saas/provar-tenant.ts';
++import { hojeSaoPaulo } from '../marketing/utm.ts';
++import { listarOportunidades } from './consultas.ts';
++import type { Oportunidade } from './modelo.ts';
++import { exigirRecursoPlano } from '../assinatura/recursos-plano.ts';
++import { exigirCapacidadeMarketing } from '../marketing/capacidades.ts';
++
++type Transacao = <T>(work:(tx:DbExecutor)=>Promise<T>)=>Promise<T>;
++export function mensagemResumo(para:string,empresaId:string,usuarioId:string,hoje:string,itens:Oportunidade[],empresaNome:string):MensagemEmail {
++  const texto=`iA.Fest — ${empresaNome} — ações para ${hoje.split('-').reverse().join('/')}\n\n`+itens.map(i=>`${i.proxima!.data<hoje?'Atrasada':'Hoje'} · ${i.proxima!.tipo} · ${i.nome} · ${i.proxima!.data}`).join('\n')+'\n\nConfira os próximos passos em Oportunidades no painel.';
++  return {para,assunto:`iA.Fest · ${empresaNome}: suas ações de hoje`,texto,html:'<pre>'+texto.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')+'</pre>',idempotencia:`oportunidades/${empresaId}/${usuarioId}/${hoje}`};
++}
++/** Só faz consultas se a chave estiver explicitamente ligada. Provedor é injetável, como nos demais e-mails. */
++export async function enviarResumosDiarios(deps:{transacao:Transacao;enviar:EnviarEmail;env:Record<string,string|undefined>;tenant?:typeof withTenantTransaction}) {
++  if (deps.env.OPORTUNIDADES_RESUMO_EMAIL!=='true') return {desligado:true,enviados:0,falhas:0};
++  const hoje=hojeSaoPaulo(),tenantTx=deps.tenant??withTenantTransaction;
++  const candidatos=await deps.transacao(async tx=>(await tx.query<{empresa_id:string;usuario_id:string}>(`SELECT DISTINCT a.empresa_id::text,(CASE WHEN a.fechamento_id IS NOT NULL THEN f.usuario_responsavel_id ELSE a.responsavel_id END)::text AS usuario_id
++    FROM oportunidades_acoes a JOIN empresas e ON e.id=a.empresa_id AND e.status='ATIVA'
++    LEFT JOIN fechamentos f ON f.empresa_id=a.empresa_id AND f.id=a.fechamento_id
++    WHERE a.encerrada_em IS NULL AND a.data<=$1::date
++    AND (CASE WHEN a.fechamento_id IS NOT NULL THEN f.usuario_responsavel_id ELSE a.responsavel_id END) IS NOT NULL ORDER BY 1,2`,[hoje])).rows);
++  let enviados=0,falhas=0;
++  for (const c of candidatos) {
++    try {
++      const sessao={usuario_id:c.usuario_id,empresa_ativa_id:c.empresa_id,papel:'ADMINISTRATIVO'};
++      await tenantTx(sessao,null,async(tx,tenant)=>{
++        await exigirRecursoPlano(tx,tenant.empresaComprovada,'MARKETING');
++        await exigirCapacidadeMarketing(tx,tenant,'MARKETING_VISUALIZAR');
++        const u=(await tx.query<{email:string}>('SELECT email FROM usuarios_administrativos WHERE id=$1::uuid AND ativo',[tenant.usuarioId])).rows[0];
++        if (!u) return;
++        const itens=(await listarOportunidades(tx,tenant.empresaComprovada,tenant.usuarioId)).filter(i=>i.proxima&&i.proxima.data<=hoje);
++        if (!itens.length) return;
++        const empresa=(await tx.query<{nome:string}>('SELECT nome FROM empresas WHERE id=$1::uuid',[tenant.empresaComprovada])).rows[0];
++        const mensagem=mensagemResumo(u.email,tenant.empresaComprovada,tenant.usuarioId,hoje,itens,empresa.nome);
++        const acoes=itens.map(i=>i.proxima!.id).sort();
++        await tx.query(`INSERT INTO oportunidades_resumos(empresa_id,usuario_id,dia,mensagem) VALUES($1::uuid,$2::uuid,$3::date,$4::jsonb) ON CONFLICT DO NOTHING`,[tenant.empresaComprovada,tenant.usuarioId,hoje,JSON.stringify({mensagem,acoes})]);
++      });
++      // Fotografia já persistida: chave e conteúdo são os mesmos mesmo se o processo cair após o aceite do provedor.
++      await tenantTx(sessao,null,async(tx,tenant)=>{
++        await exigirRecursoPlano(tx,tenant.empresaComprovada,'MARKETING');
++        await exigirCapacidadeMarketing(tx,tenant,'MARKETING_VISUALIZAR');
++        const registro=(await tx.query<{mensagem:{mensagem:MensagemEmail;acoes:string[]};estado:string}>('SELECT mensagem,estado FROM oportunidades_resumos WHERE empresa_id=$1::uuid AND usuario_id=$2::uuid AND dia=$3::date FOR UPDATE',[tenant.empresaComprovada,tenant.usuarioId,hoje])).rows[0];
++        if (!registro || registro.estado!=='PENDENTE') return;
++        const itens=(await listarOportunidades(tx,tenant.empresaComprovada,tenant.usuarioId)).filter(i=>i.proxima&&i.proxima.data<=hoje);
++        const email=(await tx.query<{email:string}>('SELECT email FROM usuarios_administrativos WHERE id=$1::uuid AND ativo',[tenant.usuarioId])).rows[0]?.email;
++        let estado='OBSOLETO';
++        if (email===registro.mensagem.mensagem.para && JSON.stringify(itens.map(i=>i.proxima!.id).sort())===JSON.stringify(registro.mensagem.acoes)) {
++          try {await deps.enviar(registro.mensagem.mensagem);estado='ENVIADO';enviados++;} catch {estado='FALHOU';falhas++;}
++        }
++        await tx.query("UPDATE oportunidades_resumos SET estado=$4,enviado_em=CASE WHEN $4='ENVIADO' THEN clock_timestamp() END WHERE empresa_id=$1::uuid AND usuario_id=$2::uuid AND dia=$3::date",[tenant.empresaComprovada,tenant.usuarioId,hoje,estado]);
++      });
++    } catch {falhas++;}
++  }
++  return {desligado:false,enviados,falhas};
++}
+diff --git a/lib/oportunidades/service.ts b/lib/oportunidades/service.ts
+new file mode 100644
+index 00000000..5f5c0341
+--- /dev/null
++++ b/lib/oportunidades/service.ts
+@@ -0,0 +1,87 @@
++import type { DbExecutor } from '../db/contracts.ts';
++import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
++import { registrarAuditoria } from '../clientes/repositories/auditoria.repository.ts';
++import { buscarRevisaoDaVersao } from '../fechamentos/repositories/revisao.repository.ts';
++import { cancelarPreparacao } from '../fechamentos/services/revisao-operacional.service.ts';
++import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
++import { clienteDoContato } from '../marketing/contatos.ts';
++import { conflito, MarketingError, naoEncontrado } from '../marketing/erros.ts';
++import { gravarPerda } from './perda.ts';
++import { comandoSchema, etapaDoEstado, type Alvo, type Comando } from './modelo.ts';
++
++export async function exigirSchema(tx: DbExecutor) {
++  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0]?.ok)
++    throw new MarketingError('OPORTUNIDADES_INDISPONIVEIS', 'Oportunidades indisponíveis neste ambiente.', 503);
++}
++
++export async function clienteDoAlvo(tx: DbExecutor, empresaId: string, alvo: Alvo) {
++  const contato = alvo.tipo === 'CONTATO';
++  const r = (await tx.query<{ cliente_id: string | null; status: string; nome?: string; telefone?: string | null; email?: string | null }>(
++    `SELECT cliente_id::text,status${contato ? ',nome,telefone,email' : ''} FROM ${contato ? 'marketing_contatos' : 'fechamentos'} WHERE empresa_id=$1::uuid AND id=$2::uuid FOR UPDATE`, [empresaId, alvo.id])).rows[0];
++  if (!r) naoEncontrado();
++  if (!r.cliente_id && contato) {
++    const cliente = await clienteDoContato(tx, empresaId, { nome: r.nome!, telefone: r.telefone ?? null, email: r.email ?? null });
++    r.cliente_id = cliente.clienteId;
++    await tx.query("UPDATE marketing_contatos SET cliente_id=$3::uuid,vinculo_cliente='MANUAL' WHERE empresa_id=$1::uuid AND id=$2::uuid", [empresaId, alvo.id, r.cliente_id]);
++  }
++  if (!r.cliente_id) throw new MarketingError('OPORTUNIDADE_SEM_CLIENTE', 'Vincule a negociação a um cliente primeiro.', 409);
++  return r as typeof r & { cliente_id: string };
++}
++
++export async function executarOportunidade(tx: DbExecutor, empresaId: string, usuarioId: string, entrada: Comando, gestao: boolean, membershipId?: string) {
++  const cmd = comandoSchema.parse(entrada);
++  await exigirSchema(tx);
++  if (cmd.acao==='perder' && cmd.alvo.tipo==='FECHAMENTO') await travarConfiguracaoAgenda(tx,empresaId,{modo:'COMPARTILHADA',linha:'JA_TRAVADA'});
++  const atual = await clienteDoAlvo(tx, empresaId, cmd.alvo);
++  if (!etapaDoEstado(atual.status, cmd.alvo.tipo === 'CONTATO')) conflito('Esta oportunidade já foi encerrada. Atualize a tela.');
++  if (cmd.alvo.tipo === 'CONTATO' && (await tx.query(`SELECT 1 FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.id=$2::uuid AND
++    k.fechamento_id IS NOT NULL`, [empresaId,cmd.alvo.id])).rows.length)
++    conflito('Este contato já tem negociação. Abra a negociação.');
++  const coluna = cmd.alvo.tipo === 'CONTATO' ? 'contato_id' : 'fechamento_id';
++  const aberta = (await tx.query<{ id: string }>(`SELECT id::text FROM oportunidades_acoes WHERE empresa_id=$1::uuid AND ${coluna}=$2::uuid AND encerrada_em IS NULL FOR UPDATE`, [empresaId,cmd.alvo.id])).rows[0];
++  if ((aberta?.id ?? null) !== cmd.esperada) conflito('A próxima ação mudou. Atualize a tela antes de salvar.');
++  if (cmd.acao === 'perder') {
++    if (cmd.alvo.tipo === 'FECHAMENTO') {
++      if (!gestao) throw new MarketingError('OPORTUNIDADE_SEM_PERMISSAO','Somente a Gestão pode cancelar a negociação.',403);
++      if (['CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO'].includes(atual.status)) conflito('Use o cancelamento de contrato na tela do contrato.');
++      // O fluxo contratual existente preserva preparação, assinaturas e financeiro; nunca o contornar.
++      const contrato = (await tx.query<{id: string; status: string}>('SELECT id::text,status FROM contratos WHERE fechamento_id=$1::uuid FOR UPDATE',[cmd.alvo.id])).rows[0];
++      if (contrato) {
++        const fluxo = (await tx.query<{versao_vigente_id: string | null; versao_em_preparacao_id: string | null}>('SELECT * FROM contrato_fluxos WHERE contrato_id=$1::uuid FOR UPDATE',[contrato.id])).rows[0];
++        if (contrato.status!=='AGUARDANDO_ASSINATURA' || fluxo?.versao_vigente_id) conflito('Use o cancelamento da Festa para este contrato.');
++        if (!(await tx.query("SELECT 1 FROM festa_membership_capacidades WHERE membership_id=$1::uuid AND empresa_id=$2::uuid AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[membershipId ?? null,empresaId])).rows.length)
++          throw new MarketingError('OPORTUNIDADE_SEM_PERMISSAO','Somente a Gestão com acesso ao contrato pode cancelar a contratação.',403);
++        if ((await tx.query("SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1::uuid) AND parte='CLIENTE' LIMIT 1",[contrato.id])).rows.length ||
++          (await tx.query('SELECT 1 FROM festas WHERE contrato_id=$1::uuid UNION ALL SELECT 1 FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1::uuid LIMIT 1',[contrato.id])).rows.length)
++          conflito('Há assinatura, Festa ou plano financeiro. Use o fluxo de cancelamento do contrato.');
++        const preparacao = fluxo?.versao_em_preparacao_id ? await buscarRevisaoDaVersao(fluxo.versao_em_preparacao_id,tx,true) : null;
++        if (preparacao && ['EM_ELABORACAO','CONGELADA'].includes(preparacao.estado)) await cancelarPreparacao(tx,preparacao,{usuarioId,requestId:null,ip:null,userAgent:null},cmd.perda.motivo);
++        await tx.query("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1::uuid",[contrato.id]);
++        await registrarAuditoria({clienteId:atual.cliente_id,usuarioId,atorTipo:'USUARIO',acao:'CONTRATO_CANCELADO_ANTES_DA_FORMALIZACAO',entidadeTipo:'CONTRATO',entidadeId:contrato.id,dadosDepois:{motivo:cmd.perda.motivo},origem:'CRM_INTERNO'},tx);
++      }
++    }
++    if (cmd.concluir && aberta) await concluirAcao(tx,empresaId,usuarioId,atual.cliente_id,cmd.alvo,aberta.id);
++    await tx.query(`UPDATE ${cmd.alvo.tipo === 'CONTATO' ? 'marketing_contatos' : 'fechamentos'} SET status=$3 WHERE empresa_id=$1::uuid AND id=$2::uuid`,[empresaId,cmd.alvo.id,cmd.alvo.tipo === 'CONTATO' ? 'DESCARTADO' : 'CANCELADO']);
++    await gravarPerda(tx,empresaId,usuarioId,cmd.alvo,atual.cliente_id,cmd.perda);
++    return { perdida: true };
++  }
++  const responsavel = await tx.query(`SELECT 1 FROM memberships m JOIN usuarios_administrativos u ON u.id=m.usuario_id
++    WHERE m.empresa_id=$1::uuid AND m.usuario_id=$2::uuid AND m.status='ATIVA' AND u.ativo
++    AND (m.papel='REPRESENTANTE_AUTORIZADO' OR EXISTS(SELECT 1 FROM marketing_membership_capacidades cap WHERE cap.empresa_id=m.empresa_id AND cap.membership_id=m.id AND cap.revogado_em IS NULL))
++    FOR SHARE OF m,u`,[empresaId,cmd.proxima.responsavelId]);
++  if (!responsavel.rows.length) naoEncontrado('Responsável indisponível nesta empresa.');
++  if (aberta) {
++    if (cmd.acao === 'concluir') await concluirAcao(tx,empresaId,usuarioId,atual.cliente_id,cmd.alvo,aberta.id);
++    else await tx.query("UPDATE oportunidades_acoes SET encerrada_em=clock_timestamp(),resultado='SUBSTITUIDA' WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,aberta.id]);
++  }
++  const nova = (await tx.query<{ id: string }>(`INSERT INTO oportunidades_acoes(empresa_id,${coluna},responsavel_id,tipo,data,observacao,criada_por)
++    VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5::date,$6,$7::uuid) RETURNING id::text`,[empresaId,cmd.alvo.id,cmd.proxima.responsavelId,cmd.proxima.tipo,cmd.proxima.data,cmd.proxima.observacao || null,usuarioId])).rows[0];
++  await tx.query(`UPDATE ${cmd.alvo.tipo === 'CONTATO' ? 'marketing_contatos' : 'fechamentos'} SET ${cmd.alvo.tipo === 'CONTATO' ? 'responsavel_id' : 'usuario_responsavel_id'}=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid`,[empresaId,cmd.alvo.id,cmd.proxima.responsavelId]);
++  await registrarEventoHistorico({clienteId:atual.cliente_id,usuarioId,tipoEvento:'OPORTUNIDADE_PROXIMA_ACAO',origem:'CRM_INTERNO',entidadeTipo:cmd.alvo.tipo,entidadeId:cmd.alvo.id,
++    metadata:{anteriorId:aberta?.id ?? null,acaoId:nova.id,...cmd.proxima}},tx);
++  return { id: nova.id };
++}
++async function concluirAcao(tx: DbExecutor,empresaId: string,usuarioId: string,clienteId: string,alvo: Alvo,id: string) {
++  await tx.query("UPDATE oportunidades_acoes SET encerrada_em=clock_timestamp(),resultado='FEITA' WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,id]);
++  await registrarEventoHistorico({clienteId,usuarioId,tipoEvento:'OPORTUNIDADE_ACAO_FEITA',origem:'CRM_INTERNO',entidadeTipo:alvo.tipo,entidadeId:alvo.id,metadata:{acaoId:id}},tx);
++}
+diff --git a/scripts/migration-122-comum.cjs b/scripts/migration-122-comum.cjs
+new file mode 100644
+index 00000000..660e6599
+--- /dev/null
++++ b/scripts/migration-122-comum.cjs
+@@ -0,0 +1,65 @@
++/* eslint-disable @typescript-eslint/no-require-imports */
++// Aplicador manual: hash revisado, alvo dos adaptadores existentes, conferência READ ONLY,
++// marcador exclusivo no disco persistente e precheck → migration → postcheck → COMMIT.
++const assert=require('node:assert/strict');
++const fs=require('node:fs');
++const path=require('node:path');
++const {lerRevisado}=require('./migration-092-094-comum.cjs');
++const {commitNaFalha}=require('./migration-118-comum.cjs');
++const HASHES=require('./migration-122-hashes.json');
++const arquivos=['database/checks/20261114_122_precheck.sql','database/migrations/20261114_122_oportunidades.sql','database/checks/20261114_122_postcheck.sql'];
++const raiz=path.resolve(__dirname,'..');
++function corpos(){return arquivos.map((a,i)=>lerRevisado(raiz,a,HASHES[i]));}
++function modo(argv){
++ if(!argv.length)return 'plano';
++ if(argv.length===1&&argv[0]==='--conferir-122')return 'conferir';
++ if(argv.length===3&&argv[0]==='--aplicar-122-autorizado'&&argv[1]==='--backup'&&/^[A-Za-z0-9:._/ -]{6,120}$/.test(argv[2]))return 'aplicar';
++ throw Error('ARGUMENTOS_OU_BACKUP_RECUSADOS');
++}
++const SQL_ESTADO=`SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS a,
++ to_regclass('public.oportunidades_marcos') IS NOT NULL AS m,to_regclass('public.oportunidades_resumos') IS NOT NULL AS r,
++ EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='fechamentos' AND column_name='perdida_em') AS f,
++ EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='marketing_contatos' AND column_name='perdida_em') AS c`;
++function estado(linha){const n=Object.values(linha).filter(Boolean).length;if(n===0)return 'ausente';if(n===5)return 'presente';throw Error('ESTADO_PARCIAL');}
++function corpo(sql){return sql.split(/\r?\n/).filter(l=>!/^\s*(BEGIN|COMMIT);\s*$/i.test(l)).join('\n');}
++async function privilegios(db){
++ const l=(await db.query(`SELECT has_schema_privilege(current_user,'public','USAGE') AS uso,
++ has_schema_privilege(current_user,'public','CREATE') AS criar,
++ (SELECT bool_and(pg_has_role(current_user,c.relowner,'MEMBER')) FROM pg_class c WHERE c.oid IN ('public.fechamentos'::regclass,'public.marketing_contatos'::regclass)) AS dono,
++ has_table_privilege(current_user,'public.empresas','REFERENCES') AND has_table_privilege(current_user,'public.usuarios_administrativos','REFERENCES') AS referencias`)).rows[0];
++ assert.ok(l?.uso&&l?.criar&&l?.dono&&l?.referencias,'PRIVILEGIOS_INSUFICIENTES');
++}
++function criarAplicador(amb){
++ async function conferirCliente(db,env){
++  await db.query('BEGIN TRANSACTION READ ONLY');
++  try{await db.query("SET LOCAL lock_timeout='5s'");amb.identidade((await db.query(amb.SQL_IDENTIDADE)).rows[0],env);await privilegios(db);
++   const s=estado((await db.query(SQL_ESTADO)).rows[0]),sql=corpos();await db.query(corpo(s==='ausente'?sql[0]:sql[2]));await db.query('COMMIT');return s;
++  }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}
++ }
++ async function principal(argv,env,deps={}){
++  const m=modo(argv),sql=corpos();
++  if(m==='plano')return {codigo:0,saida:{resultado:'PLANO',conecta:false,ambiente:amb.nome,arquivos:arquivos.map((arquivo,i)=>({arquivo,sha256:HASHES[i]}))}};
++  const cfg=amb.alvo(env),Client=deps.Client??require('pg').Client;
++  const db=new Client(cfg);let registro=null,arquivo=null,commit='NAO_COMMITADA',etapa='CONECTAR';
++  try{await db.connect();const s=await conferirCliente(db,env);
++   if(m==='conferir')return {codigo:0,saida:{resultado:s==='presente'?'JA_APLICADA_POSTCHECK_PASS':'PRONTA_PARA_APLICAR'}};
++   assert.equal(s,'ausente','JA_PRESENTE_NAO_REAPLICAR');amb.exigirDisco();
++   fs.mkdirSync(amb.DIR,{recursive:true,mode:0o700});arquivo=path.join(amb.DIR,'migration-122.json');
++   const inicial={ambiente:amb.nome,inicio:new Date().toISOString(),backup:argv[2],etapa:'INICIADA',commit};
++   fs.writeFileSync(arquivo,JSON.stringify(inicial),{flag:'wx',mode:0o600});registro=inicial;
++   await db.query('BEGIN');await db.query("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='60s'");
++   amb.identidade((await db.query(amb.SQL_IDENTIDADE)).rows[0],env);await privilegios(db);
++   for(let i=0;i<sql.length;i++){etapa=['PRECHECK','MIGRATION','POSTCHECK'][i];await db.query(corpo(sql[i]));}
++   etapa='COMMIT';const r=await db.query('COMMIT');assert.notEqual(r.command,'ROLLBACK','COMMIT_RESPONDEU_ROLLBACK');commit='CONFIRMADO';
++   etapa='RECONFERIR';await conferirCliente(db,env);registro={...registro,etapa:'PASS',commit};fs.writeFileSync(arquivo,JSON.stringify(registro));return {codigo:0,saida:{resultado:'APLICADA_POSTCHECK_PASS',commit}};
++  }catch(e){if(etapa==='COMMIT')commit=commitNaFalha(e);await db.query('ROLLBACK').catch(()=>{});
++   const saida={resultado:'RECUSADA_OU_FALHA',etapa,commit,codigoSql:/^[A-Z0-9]{5}$/.test(e.code??'')?e.code:null};
++   // Não ecoa mensagens do driver: podem conter credencial ou dado comercial.
++   if(registro&&arquivo)try{fs.writeFileSync(arquivo,JSON.stringify({...registro,...saida}));}catch{saida.marcadorDesatualizado=true;}
++   return {codigo:registro?2:1,saida};
++  }finally{await db.end().catch(()=>{});}
++ }
++ function cli(){principal(process.argv.slice(2),process.env).then(r=>{console.log(JSON.stringify(r.saida));process.exitCode=r.codigo;}).catch(()=>{console.error('RECUSADO_ANTES_DE_CONECTAR');process.exitCode=1;});}
++ return {principal,cli,conferirCliente};
++}
++module.exports={criarAplicador,modo,corpo,SQL_ESTADO,estado,arquivos};
+diff --git a/scripts/migration-122-hashes.json b/scripts/migration-122-hashes.json
+new file mode 100644
+index 00000000..8c3deafa
+--- /dev/null
++++ b/scripts/migration-122-hashes.json
+@@ -0,0 +1,5 @@
++[
++  "39979791e82df497ba9d427a021ababa6cf2f4c383b9beeb0111ad27c19c7451",
++  "986adac802724db7893b2715eec7df586a381f8bcd164bf976c97a3c716dffe5",
++  "b9061b4fc2d05ef3b41daf9870215a9731dacbfb339fec50e12e546c8ab5b809"
++]
+diff --git a/scripts/migration-122-production.cjs b/scripts/migration-122-production.cjs
+new file mode 100644
+index 00000000..5d266f47
+--- /dev/null
++++ b/scripts/migration-122-production.cjs
+@@ -0,0 +1,7 @@
++/* eslint-disable @typescript-eslint/no-require-imports */
++const conexao=require('./conexao-production.cjs');
++const {criarAplicador}=require('./migration-122-comum.cjs');
++const amb={...conexao,nome:'production',DIR:conexao.pastaRegistro('oportunidades-122-producao'),alvo:env=>conexao.alvoRigido(env,'kidmais-migration-122-production')};
++const aplicador=criarAplicador(amb);
++if(require.main===module)aplicador.cli();
++module.exports={...amb,...aplicador};
+diff --git a/scripts/migration-122-staging.cjs b/scripts/migration-122-staging.cjs
+new file mode 100644
+index 00000000..d2f437fe
+--- /dev/null
++++ b/scripts/migration-122-staging.cjs
+@@ -0,0 +1,7 @@
++/* eslint-disable @typescript-eslint/no-require-imports */
++const anterior=require('./migration-118-staging.cjs');
++const {criarAplicador}=require('./migration-122-comum.cjs');
++const amb={...anterior,nome:'staging',DIR:'/opt/render/project/src/data/oportunidades-122-staging'};
++const aplicador=criarAplicador(amb);
++if(require.main===module)aplicador.cli();
++module.exports={...amb,...aplicador};
+diff --git a/scripts/oportunidades-resumo-diario.mjs b/scripts/oportunidades-resumo-diario.mjs
+new file mode 100644
+index 00000000..f4379848
+--- /dev/null
++++ b/scripts/oportunidades-resumo-diario.mjs
+@@ -0,0 +1,13 @@
++// Entrada para agendamento diário externo. Sem configuração e chave ligadas, não abre rede.
++import {pathToFileURL} from 'node:url';
++export async function executarResumo(env,fetcher=fetch){
++ if(env.OPORTUNIDADES_RESUMO_EMAIL!=='true')return {desligado:true};
++ const url=new URL(env.OPORTUNIDADES_RESUMO_URL??'');
++ if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash||url.pathname!=='/api/integracoes/oportunidades/resumo')throw Error('URL_RECUSADA');
++ if(url.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('HTTPS_OBRIGATORIO');
++ if(!/^[\x21-\x7e]{32,256}$/.test(env.OPORTUNIDADES_RESUMO_SECRET??''))throw Error('SEGREDO_INVALIDO');
++ const r=await fetcher(url,{method:'POST',redirect:'error',headers:{'x-kidmais-worker-secret':env.OPORTUNIDADES_RESUMO_SECRET},signal:AbortSignal.timeout(120000)});
++ if(!r.ok)throw Error('RESUMO_RECUSADO_'+r.status);
++ const j=await r.json();return j.data;
++}
++if(import.meta.url===pathToFileURL(process.argv[1]??'').href)executarResumo(process.env).then(r=>console.log(JSON.stringify(r))).catch(()=>{console.error('RESUMO_FALHOU');process.exitCode=1;});

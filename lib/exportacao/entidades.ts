@@ -167,6 +167,9 @@ const BASE: readonly Entidade[] = [
         onde: em(VERSOES, 'contrato_versao_id'), arquivoBinario: { coluna: 'conteudo_pdf', pasta: 'arquivos/contratos', extensao: 'pdf' },
     },
     { arquivo: 'contratos/contrato_assinaturas', tabela: 'contrato_assinaturas', grupo: 'Contratos', descricao: 'Assinaturas e aceites (evidência: método, data, IP e navegador).', onde: em(VERSOES, 'contrato_versao_id') },
+    // 124: assinatura do cliente em papel (data declarada, quem registrou, observação). A cópia digitalizada sai como
+    // tamanho + SHA-256, como os demais anexos; só o PDF dos contratos entra como arquivo do pacote.
+    { arquivo: 'contratos/contrato_assinaturas_papel', tabela: 'contrato_assinaturas_papel', grupo: 'Contratos', descricao: 'Assinaturas do cliente em papel registradas pela Gestão (data declarada, registro e SHA-256 da cópia).', onde: EMP, migracao: '124' },
     { arquivo: 'contratos/contrato_edicoes', tabela: 'contrato_edicoes', grupo: 'Contratos', descricao: 'Edições de versão.', onde: em(VERSOES, 'contrato_versao_id') },
     { arquivo: 'contratos/contrato_fluxos', tabela: 'contrato_fluxos', grupo: 'Contratos', descricao: 'Versão vigente e em preparação.', onde: em(CONTRATOS, 'contrato_id') },
     { arquivo: 'contratos/contrato_pendencias_financeiras', tabela: 'contrato_pendencias_financeiras', grupo: 'Contratos', descricao: 'Pendências financeiras entre versões.', onde: em(CONTRATOS, 'contrato_id') },
@@ -294,6 +297,8 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'marketing/automacao_execucoes', tabela: 'marketing_automacao_execucoes', grupo: 'Marketing', descricao: 'Execuções das automações.', onde: EMP },
     { arquivo: 'marketing/automacao_eventos', tabela: 'marketing_automacao_eventos', grupo: 'Marketing', descricao: 'Eventos das execuções.', onde: EMP },
     { arquivo: 'marketing/tarefas', tabela: 'marketing_tarefas', grupo: 'Marketing', descricao: 'Tarefas de Marketing.', onde: EMP },
+    { arquivo: 'oportunidades/acoes', tabela: 'oportunidades_acoes', grupo: 'Oportunidades', descricao: 'Próximas ações e conclusões comerciais.', onde: EMP, migracao: '122' },
+    { arquivo: 'oportunidades/marcos', tabela: 'oportunidades_marcos', grupo: 'Oportunidades', descricao: 'Etapas observadas das negociações.', onde: EMP, migracao: '122' },
 
     // Pesquisa de satisfação (110, PS-1). O hash do link (token_hash) e a posse do envio (posse_token) caem no SEGREDO.
     { arquivo: 'satisfacao/envios', tabela: 'satisfacao_envios', grupo: 'Pesquisa de satisfação', descricao: 'Pesquisas enviadas após a festa (estado, prazos; sem o link).', onde: EMP, migracao: '110' },
@@ -342,6 +347,12 @@ export const ENTIDADES: readonly Entidade[] = BASE.map((e) => ({ ...e, excluir: 
 export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     auditoria: 'Auditoria geral da plataforma (segurança e prova de operações, com IP); atendida por pedido específico.',
     sessoes_administrativas: 'Sessões de login: credenciais (hashes de token) e dados de segurança.',
+    // 123 (área Minha festa, F1, 14/11/2026): acesso da família. Decisão provisória da F1, a rever com o Astra (pessoas e eventos podem entrar no pacote).
+    festa_links_area: 'Área da família: links de acesso (hash do token, prazo e revogação); credencial, não dado da festa.',
+    area_familia_sessoes: 'Área da família: sessões de login (hash do cookie, aparelho); mesmo critério das sessões administrativas.',
+    limites_contadores: 'Contadores técnicos de limite por origem (chaves HMAC, janela); não é dado da empresa.',
+    festa_pessoas: 'Área da família: quem tem acesso à festa (contratante e segundo responsável, com WhatsApp e HMAC do CPF); controle de acesso.',
+    area_familia_eventos: 'Área da família: registro de segurança das entradas, links e desconexões; atendido por pedido específico.',
     // 107 (reparo da deriva da agenda): registro técnico global da migration, sem dado de empresa.
     // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
     satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
@@ -380,6 +391,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
     marketing_dns_simulado: 'Simulação técnica local de DNS.',
+    oportunidades_resumos: 'Controle técnico de idempotência de e-mail diário; conteúdo já representado nas ações exportadas.',
     marketing_transporte_simulado: 'Simulação técnica local de envio.',
     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',

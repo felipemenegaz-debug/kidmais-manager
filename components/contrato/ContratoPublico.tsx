@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import type { MarcaContrato } from "@/lib/contratos/marca-contrato";
+import { dataCivilBr } from "@/lib/contratos/assinatura-papel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ContratoPublico.module.css";
 import { rotuloCanal, textoBotaoReservaEmail, textoEnvioCodigo, useReservaEmailEspera, type EnvioCodigoPublico } from "@/components/identidade/reserva-email";
@@ -51,7 +52,9 @@ type ContextoContrato = {
     salao?: string | null;
   };
   /** PAPEL: contrato histórico assinado em papel — sem aceite eletrônico, sem documento e sem comprovante. */
-  assinatura?: { tipo: "PAPEL" | "ELETRONICA"; texto: string | null };
+  /** PAPEL_CLIENTE (124): o cliente assinou o papel; documento e comprovante do buffet continuam. Só a data civil vem. */
+  assinatura?: { tipo: "PAPEL" | "PAPEL_CLIENTE" | "ELETRONICA"; texto: string | null };
+  assinaturaPapelCliente?: { data: string } | null;
   /** Só existe depois da prova de identidade. */
   marca?: MarcaContrato;
   aceitePermitido: boolean;
@@ -552,7 +555,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               {contexto.evento.salao && <div><span>Salão</span><strong>{contexto.evento.salao}</strong></div>}
               <div><span>Valor</span><strong>{moeda(contexto.evento.valorFinalContrato)}</strong></div>
               <div><span>Versão</span><strong>V{contexto.versao.numero}</strong></div>
-              <div><span>Status</span><strong>{contexto.assinatura?.tipo === "PAPEL" ? "Assinado em papel" : contexto.contrato.status === "ASSINADO" ? "Assinado" : "Aguardando assinatura"}</strong></div>
+              <div><span>Status</span><strong>{contexto.assinatura?.tipo === "PAPEL" ? "Assinado em papel" : contexto.assinaturaPapelCliente ? `Assinado em papel em ${dataCivilBr(contexto.assinaturaPapelCliente.data)}` : contexto.contrato.status === "ASSINADO" ? "Assinado" : "Aguardando assinatura"}</strong></div>
             </section>
 
             {contexto.versao.contratoOficial.disponivel && !contexto.versao.contratoOficial.homologadoParaProducao && (

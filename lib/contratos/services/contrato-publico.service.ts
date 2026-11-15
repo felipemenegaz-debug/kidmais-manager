@@ -1,5 +1,5 @@
 import { MARCA_CONTRATO_NEUTRA, marcaDoContratoNaTransacao, type MarcaContrato } from '../marca-contrato';
-import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../assinatura-papel';
+import { TEXTO_ASSINADO_EM_PAPEL, textoClienteAssinouEmPapel, versaoClienteAssinouEmPapel, versaoConferenciaImportada } from '../assinatura-papel';
 import { lerMarcaComPrazo } from '../marca-com-prazo';
 import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
 import { validarAmbienteFesta } from '../../festas/ambiente';
@@ -311,7 +311,18 @@ export async function obterContextoContratoPublico(input: {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
   const comprovantes = (await db().query<{id:string;parte:string;nome:string;assinado_em:string}>(`SELECT a.comprovante_documento_id AS id,a.parte,a.identidade_snapshot->>'nome' AS nome,a.assinado_em::text FROM contrato_assinaturas a WHERE a.contrato_versao_id=$1 ORDER BY assinado_em`,[versao.id])).rows;
-  return montarContextoContratoPublico(contrato, versao, comprovantes, documentoParaLeitura, await lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDoContratoNaTransacao(tx, contrato.id)));
+  return montarContextoContratoPublico(contrato, versao, comprovantes, documentoParaLeitura, await lerMarcaComPrazo(conexaoDescartavelDoPool, (tx) => marcaDoContratoNaTransacao(tx, contrato.id)),
+    await assinaturaPapelClientePublica(versao));
+}
+
+/**
+ * 124 — DTO público do papel assinado pelo cliente: SÓ a data civil declarada (coluna explícita). Nunca bytes, sha,
+ * tamanho, tipo, observação nem quem registrou; a cópia só sai pela rota administrativa da Gestão.
+ */
+export async function assinaturaPapelClientePublica(versao: { id: string; aceiteMetodo?: string | null }): Promise<{ data: string } | null> {
+  if (!versaoClienteAssinouEmPapel(versao)) return null;
+  const linha = (await db().query<{ data_declarada: string }>('SELECT data_declarada::text FROM contrato_assinaturas_papel WHERE contrato_versao_id=$1', [versao.id])).rows[0];
+  return linha ? { data: linha.data_declarada } : null;
 }
 
 /**
@@ -324,10 +335,11 @@ export async function montarContextoContratoPublico(
   comprovantes: Array<{ id: string; parte: string; nome: string; assinado_em: string }>,
   lerDocumento: typeof documentoParaLeitura = documentoParaLeitura,
   marca: MarcaContrato = MARCA_CONTRATO_NEUTRA,
+  assinaturaPapelCliente: { data: string } | null = null,
 ) {
   const resumo = gerarResumoContratacaoPdfDaVersao(versao, marca);
   // Contrato histórico assinado em papel: sem documento eletrônico, sem aceite e sem comprovante (nada fictício).
-  const papel = versaoAssinadaEmPapel(versao);
+  const papel = versaoConferenciaImportada(versao);
   const oficial = papel ? { disponivel: false, modeloCodigo: null, templateVersao: null, homologadoParaProducao: false } : contratoOficialDisponivelParaVersao(versao);
   let contratoOficial = oficial.disponivel
     ? await lerDocumento(versao)
@@ -379,7 +391,13 @@ export async function montarContextoContratoPublico(
       // S-E (plano S-E/S-D rev. 4.1): só o NOME do salão fixado (V3); id e configuração da agenda não vão à página.
       salao: salaoDoSnapshot(versao.snapshot)?.nome ?? null,
     },
-    assinatura: papel ? { tipo: 'PAPEL' as const, texto: TEXTO_ASSINADO_EM_PAPEL } : { tipo: 'ELETRONICA' as const, texto: null },
+    // 124: papel do cliente mantém documento e comprovante do buffet; só acrescenta a data civil declarada.
+    assinatura: papel
+      ? { tipo: 'PAPEL' as const, texto: TEXTO_ASSINADO_EM_PAPEL }
+      : assinaturaPapelCliente
+        ? { tipo: 'PAPEL_CLIENTE' as const, texto: textoClienteAssinouEmPapel(assinaturaPapelCliente.data) }
+        : { tipo: 'ELETRONICA' as const, texto: null },
+    assinaturaPapelCliente: assinaturaPapelCliente ? { data: assinaturaPapelCliente.data } : null,
     marca,
     aceitePermitido:
       !papel &&
@@ -399,7 +417,7 @@ export async function gerarPdfContratoPublico(input: {
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
-  if (versaoAssinadaEmPapel(versao)) contratoEmPapel();
+  if (versaoConferenciaImportada(versao)) contratoEmPapel();
   const documento = await documentoParaLeitura(versao);
 
   return {
@@ -495,7 +513,7 @@ export async function assinarContratoPublico(
       input.acessoToken,
     );
 
-    if (versaoAssinadaEmPapel(versao)) contratoEmPapel();
+    if (versaoConferenciaImportada(versao)) contratoEmPapel();
     if (
       versao.id !== input.versaoId ||
       versao.snapshotHash !== input.snapshotHash

@@ -1,0 +1,28 @@
+import { vincularContatoNegociacao } from '../marketing/conversao.ts';
+import type { DbExecutor } from '../db/contracts.ts';
+import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
+
+/** Compatível com os modelos anteriores à 122; executado na transação que cria/vincula a negociação. */
+export async function herdarAcoesDoContato(tx: DbExecutor,fechamentoId: string) {
+  if (!(await tx.query<{ok:boolean}>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0]?.ok) return;
+  const f=(await tx.query<{empresa_id:string;cliente_id:string|null;usuario_responsavel_id:string|null}>('SELECT empresa_id::text,cliente_id::text,usuario_responsavel_id::text FROM fechamentos WHERE id=$1::uuid FOR UPDATE',[fechamentoId])).rows[0];
+  if (!f?.empresa_id || !f.cliente_id) return;
+  const acoes=(await tx.query<{id:string;contato_id:string;criada_por:string;responsavel_id:string}>(`SELECT a.id::text,a.contato_id::text,a.criada_por::text,a.responsavel_id::text FROM oportunidades_acoes a
+    JOIN marketing_contatos k ON k.empresa_id=a.empresa_id AND k.id=a.contato_id WHERE a.empresa_id=$1::uuid AND k.cliente_id=$2::uuid
+    AND a.encerrada_em IS NULL AND (k.fechamento_id=$3::uuid OR (k.fechamento_id IS NULL AND NOT EXISTS(
+      SELECT 1 FROM marketing_contatos vinculado WHERE vinculado.empresa_id=k.empresa_id AND vinculado.fechamento_id=$3::uuid)))
+    AND k.status IN ('NOVO','EM_ATENDIMENTO','CONVERTIDO') ORDER BY a.criada_em DESC,a.id LIMIT 1 FOR UPDATE OF a,k`,[f.empresa_id,f.cliente_id,fechamentoId])).rows;
+  const tem=(await tx.query('SELECT 1 FROM oportunidades_acoes WHERE empresa_id=$1::uuid AND fechamento_id=$2::uuid AND encerrada_em IS NULL',[f.empresa_id,fechamentoId])).rows.length>0;
+  for (let i=0;i<acoes.length;i++) {
+    const a=acoes[i],transferir=i===0 && !tem;
+    const responsavelId=f.usuario_responsavel_id??a.responsavel_id;
+    if (transferir) {
+      await tx.query('UPDATE fechamentos SET usuario_responsavel_id=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid',[f.empresa_id,fechamentoId,responsavelId]);
+      await tx.query('UPDATE oportunidades_acoes SET contato_id=NULL,fechamento_id=$3::uuid,responsavel_id=$4::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid',[f.empresa_id,a.id,fechamentoId,responsavelId]);
+    }
+    else await tx.query("UPDATE oportunidades_acoes SET resultado='CONVERTIDA',encerrada_em=clock_timestamp() WHERE empresa_id=$1::uuid AND id=$2::uuid",[f.empresa_id,a.id]);
+    // A conversão identifica o contato, sem encerrar outros retornos do mesmo cliente.
+    await vincularContatoNegociacao(tx,f.empresa_id,a.criada_por,{id:a.contato_id,fechamentoId});
+    await registrarEventoHistorico({clienteId:f.cliente_id,usuarioId:a.criada_por,tipoEvento:'OPORTUNIDADE_ACAO_CONVERTIDA',origem:'CRM_INTERNO',entidadeTipo:'FECHAMENTO',entidadeId:fechamentoId,metadata:{acaoId:a.id,contatoId:a.contato_id,transferida:transferir,responsavelAcaoAnterior:a.responsavel_id,responsavelNegociacaoAnterior:f.usuario_responsavel_id,responsavelId:transferir?responsavelId:f.usuario_responsavel_id}},tx);
+  }
+}

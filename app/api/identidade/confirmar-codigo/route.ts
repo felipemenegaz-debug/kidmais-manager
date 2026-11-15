@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { enviarOtpComAmbiente } from "@/lib/identidade/delivery";
+import { LIMITES } from "@/lib/area-familia/limites";
+import { limitarRotaPublicaNoBanco } from "@/lib/area-familia/http";
 import {
   criarIdentityServiceComAmbiente,
   isIdentityServiceError,
@@ -22,6 +24,10 @@ function noStore(response: NextResponse) {
 }
 
 export async function POST(request: NextRequest) {
+  // Limite por origem entre réplicas (123): antes não havia nenhum nesta rota.
+  const limite = await limitarRotaPublicaNoBanco(request, LIMITES.IDENTIDADE_CONFIRMAR_ORIGEM, "identidade:confirmar");
+  if (limite) return noStore(limite);
+
   let body: unknown;
 
   try {

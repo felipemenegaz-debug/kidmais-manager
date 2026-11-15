@@ -6,6 +6,8 @@
  * Medição da fase 0 (01/11/2026): 6 origens em lib/ e app/ (por função) e 58 arquivos de scripts/ (por arquivo, abaixo).
  */
 const EXCECOES = [
+  {arquivo:'scripts/migration-122-comum.cjs',funcao:'conferirCliente',motivo:'Aplicador 122: SQL fixado por SHA-256 do precheck/postcheck e identidade do adaptador de ambiente; conferência somente em READ ONLY.'},
+  {arquivo:'scripts/migration-122-comum.cjs',funcao:'principal',motivo:'Aplicador 122: SQL da migration revisado por SHA-256, corpo sem BEGIN/COMMIT, executado em transação única com postcheck antes do COMMIT.'},
   {
     arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerBanco",
     motivo: "Conferidor G-VAZIO (B-26): SELECT count, hash e situação em public.<objeto>, com objeto e colunas só das listas " +

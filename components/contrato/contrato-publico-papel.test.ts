@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elemento } from '../admin/teste-componente.ts';
+import * as assinaturaPapel from '../../lib/contratos/assinatura-papel.ts';
 
 /**
  * Página pública do contrato HISTÓRICO (assinado em papel), renderizada de verdade com as APIs simuladas: CPF → código →
@@ -32,7 +33,7 @@ function montar() {
     if (url.endsWith('/resumo')) return new Response(new Blob(['%PDF-resumo'], { type: 'application/pdf' }), { status: 200 });
     throw new Error(`chamada não prevista na página histórica: ${url}`);
   }) as typeof fetch;
-  const tela = carregarComponente('components/contrato/ContratoPublico.tsx', { 'next/image': { default: 'img' }, './ContratoPublico.module.css': cssFalso });
+  const tela = carregarComponente('components/contrato/ContratoPublico.tsx', { 'next/image': { default: 'img' }, './ContratoPublico.module.css': cssFalso, '@/lib/contratos/assinatura-papel': assinaturaPapel });
   return { tela, chamadas };
 }
 

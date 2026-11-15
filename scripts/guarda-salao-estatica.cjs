@@ -1158,7 +1158,10 @@ function analisar({ raiz, arquivos, excecoes = [] } = {}) {
   }
 
   const excecoesAplicadas = excecoes.filter((x) => excecoesUsadas.has(x)).map((x) => ({ ...x, chamadores: [...chamadoresDaExcecao.get(x)].sort() }));
-  return { arquivos: nossos.length, escritas, naoResolvidos, derivados, comoValor, sql, excecoesAplicadas, excecoesNaoUsadas: excecoes.filter((x) => !excecoesUsadas.has(x)) };
+  // Tamanho do que ficou na memória (todos os arquivos do programa, nossos e de tipos), para o aviso antes do teto de
+  // heap no teste da guarda.
+  const caracteresDoPrograma = programa.getSourceFiles().reduce((soma, sf) => soma + sf.text.length, 0);
+  return { arquivos: nossos.length, caracteresDoPrograma, escritas, naoResolvidos, derivados, comoValor, sql, excecoesAplicadas, excecoesNaoUsadas: excecoes.filter((x) => !excecoesUsadas.has(x)) };
 }
 
 module.exports = { analisar, escritasDeSalao, escritasEmSql, limparSql, arquivosDoRepositorio, ARQUIVO_DE_TESTE };

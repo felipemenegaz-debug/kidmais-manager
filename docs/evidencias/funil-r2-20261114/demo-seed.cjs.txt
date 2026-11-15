@@ -1,0 +1,32 @@
+const fs=require('node:fs');
+const {randomUUID}=require('node:crypto');
+const {conectarDescartavel,encerrarDescartavel}=require('../lib/comercial/postgres-descartavel.ts');
+const {comercial,cliente,fechamento,vincular,executor,carregarComBanco}=require('../lib/marketing/harness-postgres.ts');
+const {criarHashSenha}=require('../lib/autenticacao/senha.ts');
+const {travarConfiguracaoAgenda}=require('../lib/agenda/trava-configuracao.ts');
+async function main(){
+ const c=await conectarDescartavel();
+ try{
+  await c.query('BEGIN');const tx=executor(c);
+  const empresa=async(codigo,nome)=>{const id=(await c.query("INSERT INTO empresas(codigo,nome,status) VALUES($1,$2,'PROVISIONAMENTO') RETURNING id::text",[codigo,nome])).rows[0].id;await c.query("UPDATE empresas SET status='ATIVA' WHERE id=$1",[id]);return id;};
+  const e=await empresa('ux-alegria','Buffet Aurora · demonstração');await empresa('ux-brincar','Buffet Horizonte · demonstração');
+  const pessoa=async(email,nome,papel)=>{const u=(await c.query('INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel,ativo) VALUES($1,$2,$3,$4,true) RETURNING id::text',[email,nome,await criarHashSenha('DemoFunilLocal2026!'),papel])).rows[0].id;return vincular(c,e,u,papel,nome);};
+  const a=await pessoa('gestao@funil.example.test','Responsável A (demo)','REPRESENTANTE_AUTORIZADO'),b=await pessoa('b@funil.example.test','Responsável B (demo)','REPRESENTANTE_AUTORIZADO'),leitor=await pessoa('leitor@funil.example.test','Leitor (demo)','ADMINISTRATIVO');
+  await c.query("INSERT INTO marketing_membership_capacidades(empresa_id,membership_id,capacidade,concedido_por,motivo) VALUES($1,$2,'MARKETING_VISUALIZAR',$3,'Demo sintética R2')",[e,leitor.membership,a.usuario]);
+  const cache=new Map(),load=p=>carregarComBanco(p,c,()=>a.sessao,{},cache),contatos=load('lib/marketing/contatos.ts'),servico=load('lib/oportunidades/service.ts');
+  const hoje=load('lib/marketing/utm.ts').hojeSaoPaulo(),base=await comercial(c,e);await travarConfiguracaoAgenda(tx,e,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+  const registrar=async(cli,nome,telefone)=>{const k=(await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'registrar',nome,telefone,canal:'TELEFONE',chave:randomUUID(),clienteId:cli})).id;await servico.executarOportunidade(tx,e,a.usuario,{acao:'agendar',alvo:{tipo:'CONTATO',id:k},esperada:null,proxima:{tipo:'Ligar',data:hoje,responsavelId:b.usuario}},true,a.membership);return k;};
+  const cli=await cliente(c,e,'Retorno de cliente (demo)','11988880991'),antigo=await fechamento(c,e,base,cli,{data:'2025-01-01',status:'CONFIRMADO',atualizadoHaDias:600});
+  await c.query("UPDATE fechamentos SET confirmada_em='2025-01-01' WHERE id=$1",[antigo]);
+  const recorrente=await registrar(cli,'P2-1 · Retorno com festa antiga (demo)','11988880991');
+  const casos=[];
+  for(const [nome,dono,telefone,dia] of [['P2-2 · B herdado (demo)',null,'11988880992','2027-10-01'],['P2-2 · A prevalece (demo)',a.usuario,'11988880993','2027-10-02']]){
+   const cli=await cliente(c,e,nome,telefone),k=await registrar(cli,nome,telefone),f=await fechamento(c,e,base,cli,{data:dia});
+   if(dono)await c.query('UPDATE fechamentos SET usuario_responsavel_id=$2 WHERE id=$1',[f,dono]);
+   await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'vincular-negociacao',id:k,fechamentoId:f});
+   casos.push({nome,contato:k,fechamento:f,responsavel:dono??b.usuario});
+  }
+  await c.query('COMMIT');fs.writeFileSync('docs/evidencias/funil-r2-20261114/demo-seed.json',JSON.stringify({sintetico:true,empresa:e,a:a.usuario,b:b.usuario,leitor:leitor.usuario,recorrente,antigo,casos},null,2));console.log('Seed R2 PASS: 2 empresas sintéticas, A/B/leitor e os dois P2; e-mail real desligado.');
+ }finally{await encerrarDescartavel(c);}
+}
+main().catch(e=>{console.error(e.code??e.name,e.message);process.exitCode=1;});

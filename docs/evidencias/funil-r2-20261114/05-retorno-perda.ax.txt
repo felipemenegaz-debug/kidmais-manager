@@ -1,0 +1,114 @@
+Browser tab: 1, Title: "iA.Fest", URL: "http://localhost:3794/admin/oportunidades".
+1 AXWebArea iA.Fest, URL: localhost:3794/admin/oportunidades
+	2 container menu-admin
+		3 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+		4 container Menu administrativo
+			5 text PRINCIPAL
+			6 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+			7 text OPERAÇÃO
+			8 link Description: Clientes, Value: localhost:3794/clientes
+			9 link Description: Oportunidades, Value: localhost:3794/admin/oportunidades
+			10 link Description: Contratos, Value: localhost:3794/admin/contratos
+			11 link Description: Festas, Value: localhost:3794/admin/festas
+			12 link Description: Convites, Value: localhost:3794/admin/convites
+			13 link Description: Agenda, Value: localhost:3794/admin/disponibilidade
+			14 link Description: Atendimento WhatsApp, Value: localhost:3794/admin/atendimento
+			15 text MARKETING
+			16 link Description: Visão geral, Value: localhost:3794/admin/marketing
+			17 link Description: Campanhas, Value: localhost:3794/admin/marketing/campanhas
+			18 link Description: Origens dos contatos, Value: localhost:3794/admin/marketing/origens
+			19 link Description: Site e SEO, Value: localhost:3794/admin/marketing/site
+			20 link Description: Automações, Value: localhost:3794/admin/marketing/automacoes
+			21 text SATISFAÇÃO
+			22 link Description: Resultados, Value: localhost:3794/admin/satisfacao
+			23 link Description: Retornos, Value: localhost:3794/admin/satisfacao/retornos
+			24 text FINANCEIRO
+			25 link Description: Visão geral, Value: localhost:3794/admin/financeiro
+			26 link Description: Contas a receber, Value: localhost:3794/admin/financeiro/contas-receber
+			27 link Description: Contas a pagar, Value: localhost:3794/admin/financeiro/contas-pagar
+			28 link Description: Fluxo de caixa, Value: localhost:3794/admin/financeiro/fluxo-caixa
+			29 link Description: Relatórios, Value: localhost:3794/admin/financeiro/relatorios
+			30 link Description: CONFIGURAÇÕES, Value: localhost:3794/admin/configuracoes
+			31 link Description: Perfil da empresa, Value: localhost:3794/admin/configuracoes/perfil-empresa
+			32 link Description: Agenda, Value: localhost:3794/admin/configuracoes/agenda
+			33 link Description: Salões, Value: localhost:3794/admin/configuracoes/saloes
+			34 link Description: Pacotes, Value: localhost:3794/admin/configuracoes/pacotes
+			35 link Description: Itens do Buffet, Value: localhost:3794/admin/configuracoes/catalogo
+			36 link Description: Importar documentos, Value: localhost:3794/admin/configuracoes/importar-documentos
+			37 link Description: Usuários e acessos, Value: localhost:3794/admin/configuracoes/acessos
+			38 link Description: WhatsApp, Value: localhost:3794/admin/configuracoes/whatsapp
+			39 link Description: IA e créditos, Value: localhost:3794/admin/configuracoes/creditos
+		40 pop up button Perguntar ao Copiloto
+		41 button (collapsed) Description: Conta de Responsável A (demo): abrir menu, Secondary Actions: Expand
+			42 text Buffet Aurora · demonstração
+			43 container
+				44 text Responsável A (demo)  ·  Gestão
+	45 container
+		46 text iA.Fest · Comercial
+		47 heading Oportunidades, Value: 1
+			48 text Oportunidades
+		49 text Um próximo passo para cada festa que pode acontecer.
+		50 button Novo contato
+		51 text Responsável
+		52 pop up button (collapsed, settable) Responsável, Value: Todos, Secondary Actions: Expand
+			53 menu
+				54 (selected) Todos
+				55 Leitor (demo)
+				56 Responsável A (demo)
+				57 Responsável B (demo)
+		58 button Atualizar
+		59 container Para hoje
+			60 container
+				61 heading Para hoje, Value: 2, ID: para-hoje
+					62 text Para hoje
+				63 text 2 ações
+			64 content list
+				65 container
+					66 text P2-2 · B herdado (demo) Ligar  ·  14/11/2026  ·  Responsável B (demo)
+					67 button Feito
+				68 container
+					69 text P2-2 · A prevalece (demo) Ligar  ·  14/11/2026  ·  Responsável A (demo)
+					70 button Feito
+		71 container Novo contato
+			72 container
+				73 heading Novo contato 0, Value: 2
+					74 text Novo contato 0
+				75 text R$ 0,00
+			76 text Nenhuma oportunidade aqui.
+		77 container Proposta
+			78 container
+				79 heading Proposta 2, Value: 2
+					80 text Proposta
+				81 text R$ 9.000,00
+			82 container
+				83 heading P2-2 · B herdado (demo), Value: 3
+					84 text P2-2 · B herdado (demo)
+				85 text 01/10/2027 R$ 4.500,00 Responsável B (demo) Ligar 14/11/2026
+				86 button Ação ou perda
+				87 link Description: Abrir negociação, Value: localhost:3794/admin/fechamentos/9d1f6907-dc76-4a31-91e8-2e2479120444/revisao
+			88 container
+				89 heading P2-2 · A prevalece (demo), Value: 3
+					90 text P2-2 · A prevalece (demo)
+				91 text 02/10/2027 R$ 4.500,00 Responsável A (demo) Ligar 14/11/2026
+				92 button Ação ou perda
+				93 link Description: Abrir negociação, Value: localhost:3794/admin/fechamentos/b2541994-d1fb-4433-beaf-1452b869adae/revisao
+		94 container Contrato
+			95 container
+				96 heading Contrato 0, Value: 2
+					97 text Contrato 0
+				98 text R$ 0,00
+			99 text Nenhuma oportunidade aqui.
+		100 container Sinal
+			101 container
+				102 heading Sinal 0, Value: 2
+					103 text Sinal 0
+				104 text R$ 0,00
+			105 text Nenhuma oportunidade aqui.
+		106 container
+			107 text 0  fechadas no mês
+		108 link Description: 1 perdidas no mês · Ver motivos, Value: localhost:3794/admin/marketing#funil
+	109 pop up button (collapsed) Description: Open Next.js Dev Tools, ID: next-logo, Secondary Actions: Expand
+		110 image
+	111 text iA.Fest
+
+The focused UI element is 1 AXWebArea iA.Fest, URL: localhost:3794/admin/oportunidades

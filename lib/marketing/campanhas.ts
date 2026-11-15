@@ -110,7 +110,10 @@ export async function lerCampanha(tx: DbExecutor, empresaId: string, id: string)
   return r.rows[0] ? mapear(r.rows[0]) : null;
 }
 
-/** Campanha por código dentro da empresa do site (captura pública). Arquivada não atribui. */
+/**
+ * Campanha por código dentro da empresa do site (captura pública). Arquivada não atribui. Pausada e fora do período
+ * continuam atribuindo (decisão de 30/10/2026): quem guardou o link ou o panfleto ainda veio por aquela campanha.
+ */
 export async function campanhaPorCodigo(tx: DbExecutor, empresaId: string, codigo: string) {
   const r = await tx.query<Linha>(
     `SELECT ${COLUNAS} FROM marketing_campanhas WHERE empresa_id = $1::uuid AND codigo = $2 AND status <> 'ARQUIVADA'`,

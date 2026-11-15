@@ -1,0 +1,18 @@
+const fs=require('node:fs');
+const {conectarDescartavel,encerrarDescartavel}=require('../lib/comercial/postgres-descartavel.ts');
+const {travarConfiguracaoAgenda}=require('../lib/agenda/trava-configuracao.ts');
+const {executor}=require('../lib/marketing/harness-postgres.ts');
+const seed=JSON.parse(fs.readFileSync('docs/evidencias/funil-r2-20261114/demo-seed.json','utf8'));
+(async()=>{const c=await conectarDescartavel();try{
+ await c.query('BEGIN');
+ const antes=(await c.query('SELECT id,status,usuario_responsavel_id FROM fechamentos WHERE empresa_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[seed.empresa,seed.casos.map(x=>x.fechamento)])).rows;
+ if(antes.length!==2||antes.find(x=>x.id===seed.casos[0].fechamento)?.usuario_responsavel_id!==seed.b||antes.find(x=>x.id===seed.casos[1].fechamento)?.usuario_responsavel_id!==seed.a)throw new Error('Fixture inesperada');
+ const retorno=(await c.query('SELECT status,perda_motivo FROM marketing_contatos WHERE empresa_id=$1 AND id=$2',[seed.empresa,seed.recorrente])).rows[0];
+ const antigo=(await c.query('SELECT status FROM fechamentos WHERE empresa_id=$1 AND id=$2',[seed.empresa,seed.antigo])).rows[0];
+ if(retorno.status!=='DESCARTADO'||retorno.perda_motivo!=='Preço'||antigo.status!=='CONFIRMADO')throw new Error('Perda recorrente inesperada');
+ // Montagem sintética do resultado mensal; a confirmação comercial completa não é simulada na interface.
+ await travarConfiguracaoAgenda(executor(c),seed.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+ await c.query("UPDATE fechamentos SET status='CONFIRMADO' WHERE empresa_id=$1 AND id=$2",[seed.empresa,seed.casos[0].fechamento]);
+ const depois=(await c.query('SELECT id,status,usuario_responsavel_id,confirmada_em FROM fechamentos WHERE empresa_id=$1 AND id=ANY($2::uuid[]) ORDER BY id',[seed.empresa,seed.casos.map(x=>x.fechamento)])).rows;
+ await c.query('COMMIT');fs.writeFileSync('docs/evidencias/funil-r2-20261114/demo-resultados.json',JSON.stringify({sintetico:true,confirmacaoB:'fixture SQL, não fluxo de contratação',antes,depois,retorno,antigo},null,2));console.log('PASS: responsáveis A/B preservados, perda do retorno registrada, fechamento antigo confirmado intacto; resultado B montado por fixture sintética.');
+ }finally{await encerrarDescartavel(c);}})().catch(e=>{console.error(e.message);process.exitCode=1;});

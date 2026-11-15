@@ -51,6 +51,8 @@ function ambiente() {
     '@/lib/contratos/services': services,
     '@/lib/identidade/delivery': { enviarOtpComAmbiente: sender },
     '../../../route-utils': utils,
+    '@/lib/area-familia/limites': { LIMITES: { CONTRATO_PUBLICO_ORIGEM: {}, IDENTIDADE_CONFIRMAR_ORIGEM: {}, RESERVA_EMAIL_ORIGEM: {} } },
+    '@/lib/area-familia/http': { limitarRotaPublicaNoBanco: async () => null },
   });
   return { post: route.POST as Post, logs, calls, sender };
 }

@@ -49,14 +49,24 @@ export async function garantirFestaFormalizada(
     if (ativa) return { festaId: ativa.id, reutilizado: true };
     if (existentes.length) throw new FestaError('Festa invalidada: reconciliação explícita necessária.');
     if (modo === 'RETRY') throw new FestaError('Contrato anterior sem Festa. Reconciliação explícita necessária.');
-    // Entrada 5 (CRIAR, aceite público) ou 16 (RECONCILIAR, ferramenta operacional): a origem vem do modo.
+    // 124: cliente assinou em papel (registro da Gestão). O método é lido antes, numa consulta própria: o PostgreSQL resolve
+    // as tabelas antes do filtro, então a tabela da 124 só é citada quando o método é PAPEL_CLIENTE (que a CHECK da 124
+    // só aceita com ela instalada). Sem a 124 a formalização OTP não toca a tabela nova.
+    const metodo = (await tx.query<{ aceite_metodo: string | null }>(
+        'SELECT aceite_metodo FROM public.contrato_versoes WHERE id=$1', [versaoId])).rows[0]?.aceite_metodo ?? null;
+    const papelClienteId = metodo === 'PAPEL_CLIENTE' ? (await tx.query<{ id: string }>(
+        'SELECT id::text FROM public.contrato_assinaturas_papel WHERE contrato_versao_id=$1', [versaoId])).rows[0]?.id ?? null : null;
+    // Entrada 5 (CRIAR, aceite público ou registro do papel pela equipe) ou 16 (RECONCILIAR, ferramenta operacional).
     await bloquearAgendaFormalizacao(tx, contratoId, versaoId, {
-        caminho: 'FORMALIZACAO_POS_ASSINATURA', origem: modo === 'RECONCILIAR' ? 'RECONCILIACAO_OPERACIONAL' : 'ACEITE_PUBLICO' });
+        caminho: 'FORMALIZACAO_POS_ASSINATURA',
+        origem: modo === 'RECONCILIAR' ? 'RECONCILIACAO_OPERACIONAL' : papelClienteId ? 'EQUIPE' : 'ACEITE_PUBLICO' });
     const assinaturas = (await tx.query<{ id: string; parte: string }>(
         'SELECT id,parte FROM public.contrato_assinaturas WHERE contrato_versao_id=$1 ORDER BY parte', [versaoId],
     )).rows;
     const chave = randomUUID(), requestId = context.requestId ?? randomUUID();
-    const causa = { origem: 'AUTOMATICA_FORMALIZACAO', ator: 'SISTEMA', contratoId, versaoId, assinaturas, requestId, modo };
+    const causa = { origem: 'AUTOMATICA_FORMALIZACAO', ator: 'SISTEMA', contratoId, versaoId, assinaturas, requestId, modo,
+        ...(papelClienteId ? { papelClienteId } : {}) };
+    const partes = papelClienteId ? 'do buffet e do cliente (papel)' : 'das duas partes';
     const payloadHash = createHash('sha256').update(JSON.stringify(causa)).digest('hex');
     const f = (await tx.query<{ id: string }>(`INSERT INTO public.festas
         (contrato_id,versao_contratual_criacao_id,chave_criacao,payload_hash,criado_por,origem_criacao)
@@ -66,18 +76,18 @@ export async function garantirFestaFormalizada(
         (festa_id,tipo,entidade_id,usuario_id,identidade_snapshot,request_id,chave_idempotencia,
          payload_hash,versao_contratual_id,dados_antes,dados_depois,motivo,ocorrido_em,ator_tipo,origem_iniciadora)
         VALUES($1,'FESTA_CRIADA',$1,NULL,$2::jsonb,$3,$4,$5,$6,NULL,$2::jsonb,
-         'Criação automática após formalização das duas partes',clock_timestamp(),'SISTEMA','CONTRATO')`,
-    [f.id, JSON.stringify(causa), requestId, chave, payloadHash, versaoId]);
+         'Criação automática após formalização ' || $7,clock_timestamp(),'SISTEMA','CONTRATO')`,
+    [f.id, JSON.stringify(causa), requestId, chave, payloadHash, versaoId, partes]);
     await tx.query(`INSERT INTO public.auditoria
         (ator_tipo,acao,entidade_tipo,entidade_id,dados_depois,justificativa,origem,request_id,user_agent)
         VALUES('SISTEMA','FESTA_CRIADA','FESTA',$1,$2::jsonb,
-        'Formalização contratual das duas partes','FESTA',$3,$4)`,
-    [f.id, JSON.stringify(causa), requestId, context.userAgent ?? null]);
+        'Formalização contratual ' || $5,'FESTA',$3,$4)`,
+    [f.id, JSON.stringify(causa), requestId, context.userAgent ?? null, partes]);
     await tx.query(`INSERT INTO public.eventos_historico_cliente
         (cliente_id,tipo_evento,origem,entidade_tipo,entidade_id,detalhe,metadata)
         SELECT f.cliente_id,'FESTA_CRIADA','CONTRATO','FESTA',$2,
-        'Festa criada automaticamente após as duas assinaturas',$3::jsonb
+        CASE WHEN $4 THEN 'Festa criada automaticamente após as assinaturas do buffet e do cliente (papel)' ELSE 'Festa criada automaticamente após as duas assinaturas' END,$3::jsonb
         FROM public.contratos c JOIN public.fechamentos f ON f.id=c.fechamento_id WHERE c.id=$1`,
-    [contratoId, f.id, JSON.stringify(causa)]);
+    [contratoId, f.id, JSON.stringify(causa), papelClienteId !== null]);
     return { festaId: f.id, reutilizado: false };
 }

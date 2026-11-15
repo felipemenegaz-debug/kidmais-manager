@@ -50,8 +50,8 @@ async function painel(tx: DbExecutor, empresaId: string, unidadeId: string | nul
        JOIN clientes c ON c.id = e.cliente_id
       WHERE e.empresa_id = $1::uuid AND r.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
       ORDER BY e.atualizado_em DESC LIMIT 100`, [empresaId, unidadeId]);
-  const tarefas = await tx.query<{ id: string; titulo: string; descricao: string | null; vencimento: string; status: string; cliente_id: string }>(
-    `SELECT t.id::text, t.titulo, t.descricao, t.vencimento::text, t.status, t.cliente_id::text FROM marketing_tarefas t
+  const tarefas = await tx.query<{ id: string; titulo: string; descricao: string | null; vencimento: string; status: string; cliente_id: string; cliente_nome:string; telefone:string|null }>(
+    `SELECT t.id::text, t.titulo, t.descricao, t.vencimento::text, t.status, t.cliente_id::text, c.nome_completo AS cliente_nome, COALESCE(c.whatsapp,c.telefone) AS telefone FROM marketing_tarefas t JOIN clientes c ON c.id=t.cliente_id AND c.empresa_id=t.empresa_id
       WHERE t.empresa_id = $1::uuid AND t.status = 'ABERTA' ORDER BY t.vencimento, t.criado_em LIMIT 100`, [empresaId]);
   const saida = await tx.query<{ id: string; destinatario_mascarado: string; template_provedor: string; texto: string; status: string; aceito_em: string; provedor_mensagem_id: string }>(
     `SELECT id::text, destinatario_mascarado, template_provedor, texto, status, aceito_em::text, provedor_mensagem_id FROM marketing_transporte_simulado

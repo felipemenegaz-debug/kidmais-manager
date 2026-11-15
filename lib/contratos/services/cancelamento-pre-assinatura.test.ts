@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { hashSnapshotContrato } from './snapshot-core.ts';
 import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
+import { perdaSchema } from '../../oportunidades/modelo.ts';
 
 const require = createRequire(import.meta.url);
 function carregar(mocks: Record<string, unknown>) {
@@ -33,6 +34,8 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
         return { rows };
     } };
     const operar = carregar({
+        '../../oportunidades/modelo': {perdaSchema},
+        '../../oportunidades/perda': {gravarPerda:async()=>{}},
         '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },
         // Rev. 3: trava real da configuração da agenda (lock e set_config caem na resposta vazia).
         '../../agenda/trava-configuracao': travaConfiguracao,
@@ -47,7 +50,7 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
         '../../clientes/repositories': { registrarAuditoria: async (value: unknown) => { auditoria.push(value); }, registrarEventoHistorico: async () => {} },
     });
-    return { operar: () => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu' }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
+    return { operar: () => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu',perda:{motivo:'Desistiu da festa'} }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
 }
 
 test('cancelamento antes da formalização registra motivo e encerra contrato e fechamento', async () => {

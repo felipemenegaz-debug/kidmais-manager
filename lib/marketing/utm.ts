@@ -3,8 +3,9 @@
  *
  * Link gerado: <base>/s/<site>/c/<código da campanha>. O servidor registra o CLIQUE (evento próprio) e redireciona para
  * a página do site com utm_source/utm_medium/utm_campaign e `kc` (identificador estável da campanha). Só `kc` decide a
- * campanha, e só se for de uma campanha da MESMA empresa do site, ativa no dia; UTM solta (sem `kc` válido) é guardada
- * como informação, nunca vira atribuição automática.
+ * campanha, e só se for de uma campanha da MESMA empresa do site e não arquivada (pausa e período não limitam:
+ * decisão de 30/10/2026, ver `campanhaPorCodigo`); UTM solta (sem `kc` válido) é guardada como informação, nunca vira
+ * atribuição automática.
  *
  * Valores aceitos: minúsculas, dígitos, ponto, hífen e sublinhado (até 60). Qualquer outro valor é DESCARTADO (nem
  * gravado, nem refletido na página). Parâmetro repetido conta como inválido (ambíguo).
@@ -69,11 +70,6 @@ export function destinoComUtm(baseSite: string, campanha: CampanhaParaLink) {
   url.searchParams.set("utm_campaign", campanha.codigo);
   url.searchParams.set("kc", campanha.codigo);
   return url;
-}
-
-/** Campanha atende no dia (America/Sao_Paulo): ATIVA e dentro do período. */
-export function campanhaVigente(c: { status: string; inicio: string; fim: string | null }, hojeIso: string) {
-  return c.status === "ATIVA" && c.inicio <= hojeIso && (c.fim === null || c.fim >= hojeIso);
 }
 
 export function hojeSaoPaulo(agora: Date = new Date()) {

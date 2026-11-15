@@ -138,3 +138,14 @@ test('P3-R2: a tela pede até o fim do mês seguinte', () => {
     assert.match(fonte, /fimDoMesSeguinte\(ano, mes\)/);
     assert.match(fonte, /doMes\(porData, ano, mes\)\.some/);
 });
+
+test('Pacotes e preços desde a abertura: antes dos convidados e depois, só pela instalação', () => {
+    const fonte = readFileSync('components/disponibilidade/DisponibilidadePublica.tsx', 'utf8');
+    const ocorrencias = fonte.match(/<PacotesPdf \/>/g) ?? [];
+    assert.equal(ocorrencias.length, 2, 'um lugar antes e outro depois dos convidados');
+    const antes = fonte.indexOf('{!convidados && !empresa ? <div className={styles.pacotesAntes}><PacotesPdf /></div> : null}');
+    const fimCartao = fonte.indexOf('aria-labelledby="convidados-titulo"');
+    const agenda = fonte.search(/\{convidados \? \(\r?\n\s*<section className=\{styles\.card\}>/);
+    assert.ok(antes > fimCartao && agenda > antes, 'logo depois do cartão de convidados e antes da agenda');
+    assert.match(fonte, /\{!empresa && <PacotesPdf \/>\}/, 'endereço de outra empresa continua sem o PDF');
+});

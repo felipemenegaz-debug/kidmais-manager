@@ -1,0 +1,102 @@
+Browser tab: 1, Title: "iA.Fest", URL: "http://localhost:3794/admin/oportunidades".
+1 AXWebArea iA.Fest, URL: localhost:3794/admin/oportunidades
+	20 container menu-admin
+		21 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+		22 container Menu administrativo
+			23 text PRINCIPAL
+			24 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+			25 text OPERAÇÃO
+			26 link Description: Clientes, Value: localhost:3794/clientes
+			27 link Description: Oportunidades, Value: localhost:3794/admin/oportunidades
+			28 link Description: Contratos, Value: localhost:3794/admin/contratos
+			29 link Description: Festas, Value: localhost:3794/admin/festas
+			30 link Description: Convites, Value: localhost:3794/admin/convites
+			31 link Description: Agenda, Value: localhost:3794/admin/disponibilidade
+			32 link Description: Atendimento WhatsApp, Value: localhost:3794/admin/atendimento
+			33 text MARKETING
+			34 link Description: Visão geral, Value: localhost:3794/admin/marketing
+			35 link Description: Campanhas, Value: localhost:3794/admin/marketing/campanhas
+			36 link Description: Origens dos contatos, Value: localhost:3794/admin/marketing/origens
+			37 link Description: Site e SEO, Value: localhost:3794/admin/marketing/site
+			38 link Description: Automações, Value: localhost:3794/admin/marketing/automacoes
+			39 text FINANCEIRO
+			40 link Description: Visão geral, Value: localhost:3794/admin/financeiro
+			41 link Description: Contas a receber, Value: localhost:3794/admin/financeiro/contas-receber
+			42 link Description: Contas a pagar, Value: localhost:3794/admin/financeiro/contas-pagar
+			43 link Description: Fluxo de caixa, Value: localhost:3794/admin/financeiro/fluxo-caixa
+			44 link Description: Relatórios, Value: localhost:3794/admin/financeiro/relatorios
+		45 pop up button Perguntar ao Copiloto
+		46 button (collapsed) Description: Conta de Leitor (demo): abrir menu, Secondary Actions: Expand
+			47 text Buffet Aurora · demonstração
+			48 container
+				49 text Leitor (demo)  ·  Equipe
+	50 container
+		51 text iA.Fest · Comercial
+		52 heading Oportunidades, Value: 1
+			53 text Oportunidades
+		54 text Um próximo passo para cada festa que pode acontecer.
+		55 text Responsável
+		56 pop up button (collapsed, settable) Responsável, Value: Todos, Secondary Actions: Expand
+			57 menu
+				58 (selected) Todos
+				62 Leitor (demo)
+				63 Responsável A (demo)
+				64 Responsável B (demo)
+		59 button Atualizar
+		65 container Para hoje
+			66 container
+				67 heading Para hoje, Value: 2, ID: para-hoje
+					68 text Para hoje
+				69 text 3 ações
+			70 content list
+				71 container
+					72 text P2-2 · B herdado (demo) Ligar  ·  14/11/2026  ·  Responsável B (demo)
+				73 container
+					74 text P2-2 · A prevalece (demo) Ligar  ·  14/11/2026  ·  Responsável A (demo)
+				75 container
+					76 text P2-1 · Retorno com festa antiga (demo) WhatsApp  ·  14/11/2026  ·  Responsável B (demo)
+		77 container Novo contato
+			78 container
+				79 heading Novo contato 1, Value: 2
+					80 text Novo contato 1
+				81 text R$ 0,00  + valores a definir
+			82 container
+				83 heading P2-1 · Retorno com festa antiga (demo), Value: 3
+					84 text P2-1 · Retorno com festa antiga (demo)
+				85 text Data a combinar Valor a definir Responsável B (demo) WhatsApp 14/11/2026
+				86 link Description: Ver cliente, Value: localhost:3794/clientes/23f9acc4-d5a6-474f-8d80-b4daa6c66ac4
+		87 container Proposta
+			88 container
+				89 heading Proposta 2, Value: 2
+					90 text Proposta
+				91 text R$ 9.000,00
+			92 container
+				93 heading P2-2 · B herdado (demo), Value: 3
+					94 text P2-2 · B herdado (demo)
+				95 text 01/10/2027 R$ 4.500,00 Responsável B (demo) Ligar 14/11/2026
+				96 link Description: Abrir negociação, Value: localhost:3794/admin/fechamentos/9d1f6907-dc76-4a31-91e8-2e2479120444/revisao
+			97 container
+				98 heading P2-2 · A prevalece (demo), Value: 3
+					99 text P2-2 · A prevalece (demo)
+				100 text 02/10/2027 R$ 4.500,00 Responsável A (demo) Ligar 14/11/2026
+				101 link Description: Abrir negociação, Value: localhost:3794/admin/fechamentos/b2541994-d1fb-4433-beaf-1452b869adae/revisao
+		102 container Contrato
+			103 container
+				104 heading Contrato 0, Value: 2
+					105 text Contrato 0
+				106 text R$ 0,00
+			107 text Nenhuma oportunidade aqui.
+		108 container Sinal
+			109 container
+				110 heading Sinal 0, Value: 2
+					111 text Sinal 0
+				112 text R$ 0,00
+			113 text Nenhuma oportunidade aqui.
+		114 container
+			115 text 0  fechadas no mês
+		116 link Description: 0 perdidas no mês · Ver motivos, Value: localhost:3794/admin/marketing#funil
+	18 pop up button (collapsed) Description: Open Next.js Dev Tools, ID: next-logo, Secondary Actions: Expand
+		19 image
+	61 text iA.Fest
+
+The focused UI element is 27 link Description: Oportunidades, URL: localhost:3794/admin/oportunidades

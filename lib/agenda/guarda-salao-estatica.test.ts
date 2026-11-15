@@ -27,7 +27,7 @@ const { EXCECOES } = exigir("../../scripts/guarda-salao-excecoes.cjs") as { EXCE
 type Escrita = { arquivo: string; funcao: string; teste: boolean; via: string; escritor: string | null; tabelas: string[] };
 type NaoResolvido = { arquivo: string; funcao: string; teste: boolean; motivo: string; arquivoOrigem: string; funcaoOrigem: string };
 type Relatorio = {
-  escritas: Escrita[]; naoResolvidos: NaoResolvido[]; sql: { arquivo: string; escritas: string[] }[];
+  caracteresDoPrograma: number; escritas: Escrita[]; naoResolvidos: NaoResolvido[]; sql: { arquivo: string; escritas: string[] }[];
   comoValor: { arquivo: string; teste: boolean }[]; excecoesNaoUsadas: unknown[];
 };
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -366,4 +366,26 @@ test("repositório: SQL não resolvido fora de teste só nas exceções declarad
 test("repositório: nenhum .sql escreve salão; .query como valor só em teste", () => {
   assert.deepEqual(repositorio.sql, []);
   assert.deepEqual(repositorio.comoValor.filter((x) => !x.teste && !COMO_VALOR_DECLARADO.includes(x.arquivo)).map((x) => x.arquivo), []);
+});
+
+// Aviso antes do teto (15/11/2026). O build do Render caiu sem memória neste teste (dep-dbsf3c3l550s7389mdl0) e o
+// runner subiu o heap dos testes para HEAP_DOS_TESTES_MB. É um alarme de crescimento, não uma medida do pico: a
+// estimativa usa o tamanho do programa montado (nossos arquivos e os tipos das bibliotecas) e cerca de 58 MiB de heap
+// por milhão de caracteres, medido em 14–15/11 no Node 24 (o Render usa o Node 22) com --trace-gc: 2,1–2,4 GiB para
+// 41,1 milhões. Não mede RSS, concorrência nem um NODE_OPTIONS que sobrescreva o teto. A guarda precisa dos tipos das
+// bibliotecas (revisão da #423: sem eles, um tipo local pode virar valor simples e esconder uma escrita), então o pico
+// só cai com redesenho da guarda ou com teto maior. Recalibrar: medir o pico da análise com --trace-gc, dividir por
+// caracteresDoPrograma e ajustar BYTES_DE_HEAP_POR_CARACTERE; ao mudar o teto, rever FRACAO_DE_AVISO.
+const BYTES_DE_HEAP_POR_CARACTERE = 60;
+const FRACAO_DE_AVISO = 0.85;
+test("memória: o programa da guarda fica abaixo de 85% do heap dos testes", () => {
+  const { HEAP_DOS_TESTES_MB } = exigir("../../scripts/regressao-v1-estatica.cjs") as { HEAP_DOS_TESTES_MB: number };
+  const estimativaMb = (repositorio.caracteresDoPrograma * BYTES_DE_HEAP_POR_CARACTERE) / 2 ** 20;
+  const avisoMb = Math.round(HEAP_DOS_TESTES_MB * FRACAO_DE_AVISO);
+  assert.ok(repositorio.caracteresDoPrograma > 10_000_000, "o programa da guarda precisa conter o repositório");
+  assert.ok(
+    estimativaMb <= avisoMb,
+    `pico estimado da guarda ${Math.round(estimativaMb)} MiB passou de 85% do heap dos testes (${avisoMb} de ${HEAP_DOS_TESTES_MB} MiB). ` +
+      "Enxugar a guarda ou rever HEAP_DOS_TESTES_MB em scripts/regressao-v1-estatica.cjs antes que o build do Render fique sem memória.",
+  );
 });

@@ -1,0 +1,242 @@
+{
+  "base": "2133d398f02f519170b443b5702c6b23b9da41b7",
+  "branch": "codex/funil-oportunidades-20261114",
+  "estado": "LOCAL_R1_CORRIGIDA_AGUARDA_ASTRA_R2_ULTIMA",
+  "geradoEm": "2026-11-14T17:42:14.251Z",
+  "arquivos": [
+    {
+      "arquivo": "app/admin/oportunidades/page.tsx",
+      "sha256": "5f4c107e59798d0463d8ef39096cdcef31e7c14eb1a1dfbf3bbba44bb7dcbc76"
+    },
+    {
+      "arquivo": "app/api/admin/marketing/funil/route.ts",
+      "sha256": "6729364b5ff68bf54360b24a6c8bec7954741f1e03d50b1db27bcad22f3e79f2"
+    },
+    {
+      "arquivo": "app/api/admin/oportunidades/route.ts",
+      "sha256": "408e47b313725f6677f66c8341dfff5375df5ead148cb537c68260ceb8cef315"
+    },
+    {
+      "arquivo": "app/api/integracoes/oportunidades/resumo/route.ts",
+      "sha256": "905bc860458b969b52510ddc9774413513c6fdd8012d1a2f8f16a1b218f87468"
+    },
+    {
+      "arquivo": "components/admin/ContratoAdmin.tsx",
+      "sha256": "af451f3dea9c34f389afa1e67439e099c87aa95f4413055c9f7aa854a1717b73"
+    },
+    {
+      "arquivo": "components/admin/marketing/MarketingOrigens.tsx",
+      "sha256": "fa07fcccac12f0ca1dcdf2dcf1e76059f60b541095538a9e03b0ec550a449329"
+    },
+    {
+      "arquivo": "components/admin/marketing/MarketingVisao.tsx",
+      "sha256": "925ec245571117126a8d5a822f17491e74194d69944afee2802f9125c5825253"
+    },
+    {
+      "arquivo": "components/admin/oportunidades/Oportunidades.tsx",
+      "sha256": "e3b2557515c40168ce946cd0ee4bf239cb052d3bb4d5e8429b1306f98d96cf4f"
+    },
+    {
+      "arquivo": "components/admin/oportunidades/RelatorioFunil.tsx",
+      "sha256": "67f55a2a6de41f83e7bab784c2f72371c2482e178a4a8760e85929ab43e2ff11"
+    },
+    {
+      "arquivo": "components/admin/oportunidades/oportunidades.module.css",
+      "sha256": "1b7f71e78073ce0eb7692c8c8bfde4060bedf8e64bbae41b2a45d9e90b5f530c"
+    },
+    {
+      "arquivo": "components/admin/oportunidades/oportunidades.test.ts",
+      "sha256": "ea636026ff9f61ae480f5d641325df11efa4a9dccb69a8e8c0efca89c5a3581e"
+    },
+    {
+      "arquivo": "components/admin/teste-componente.ts",
+      "sha256": "6ef6b192839687ffb03c99e2d85e1bae1fe7ed5c8ef70d699d42efe39cd806f7"
+    },
+    {
+      "arquivo": "components/festas/FestaConsole.tsx",
+      "sha256": "91ad2b8edf8ca08f9ef9150e11ff523d1c4dc8970248cd2337ea8c5f99e50515"
+    },
+    {
+      "arquivo": "database/checks/20261114_122_postcheck.sql",
+      "sha256": "b9061b4fc2d05ef3b41daf9870215a9731dacbfb339fec50e12e546c8ab5b809"
+    },
+    {
+      "arquivo": "database/checks/20261114_122_precheck.sql",
+      "sha256": "39979791e82df497ba9d427a021ababa6cf2f4c383b9beeb0111ad27c19c7451"
+    },
+    {
+      "arquivo": "database/migrations/20261114_122_oportunidades.sql",
+      "sha256": "986adac802724db7893b2715eec7df586a381f8bcd164bf976c97a3c716dffe5"
+    },
+    {
+      "arquivo": "database/rollback/20261114_122_oportunidades_down.sql",
+      "sha256": "088c4fbaca5134b70c80e32d206131b4480d983d48260e328035ebe667efdabd"
+    },
+    {
+      "arquivo": "docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md",
+      "sha256": "50f3f91cf92375a8eca1df1498721a622175636ac6abf383b7c682081431b106"
+    },
+    {
+      "arquivo": "docs/PARECER_ASTRA_FUNIL_20261114_R1.md",
+      "sha256": "f44e66b160ab15a10cd22fe26ae421610f329159838fb9416e6fc67431526688"
+    },
+    {
+      "arquivo": "docs/PEDIDO_ASTRA_FUNIL_20261114.md",
+      "sha256": "ea19c9111dda92c9896b3a31a624cfbabd66015ae7541c3f5fba246d7a388ac4"
+    },
+    {
+      "arquivo": "docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md",
+      "sha256": "ac160351fc54597b4e184ec96348b128414edff91751ac406574045bbddc8e80"
+    },
+    {
+      "arquivo": "docs/evidencias/astra-funil-r1/provas.cjs",
+      "sha256": "0661abca5d11dc7d2c828d98a32a735f9350569c162381c87d953d5059f45191"
+    },
+    {
+      "arquivo": "docs/evidencias/funil-r2-20261114/VALIDACAO.md",
+      "sha256": "39092124876d27c8674d2a096cd19fa9fdafb9ec9647fe75f0a11981a29d3da1"
+    },
+    {
+      "arquivo": "lib/acessos/teste-carregador.ts",
+      "sha256": "00d94f6c00f2a3681489db7b776bbfb79d58eb5d0b4f7794e593292d15f1f6e4"
+    },
+    {
+      "arquivo": "lib/admin/navegacao.test.ts",
+      "sha256": "b93af19bf60295ea9fd72376336188b735037db2922167ba0f74f0e1a1014b87"
+    },
+    {
+      "arquivo": "lib/admin/navegacao.ts",
+      "sha256": "c4d12e5d2f1de2785b77f1015520edbc2ec8ab88d182d9c5d8509897ebeef956"
+    },
+    {
+      "arquivo": "lib/contratos/services/administrativo.service.ts",
+      "sha256": "f816bf6b059b9252f4b949c21248fa9e7158595703c301e67e64452f16b85d1a"
+    },
+    {
+      "arquivo": "lib/contratos/services/cancelamento-pre-assinatura.test.ts",
+      "sha256": "2cafe15cf49d2430d926ff5aece916d27539f7b8e1e3fcff308ace81a2f8775b"
+    },
+    {
+      "arquivo": "lib/exportacao/entidades.ts",
+      "sha256": "d735c918b1447edeb537de722d943d75013628fa826266e56e91ada8d4bcb5b8"
+    },
+    {
+      "arquivo": "lib/fechamentos/contratacoes.test.ts",
+      "sha256": "8aa26fd9618ade189cab74474e1b587d1f693421a0dcad33d165fd67206f7e9c"
+    },
+    {
+      "arquivo": "lib/fechamentos/services/fechamento.service.ts",
+      "sha256": "0d7674f32d80599514c692a6166269c633e054b0c554179abbac494e65a52aa1"
+    },
+    {
+      "arquivo": "lib/marketing/contatos.ts",
+      "sha256": "6ccb57ffb6d1c9801c2908c3db33459d125610071bd715f3ac1e2e01375f78de"
+    },
+    {
+      "arquivo": "lib/oportunidades/aplicador.test.ts",
+      "sha256": "0a81dc86f8509f897e4c5b528e458e2be0c3cc6701b70a12ebff14e5991d96cf"
+    },
+    {
+      "arquivo": "lib/oportunidades/consultas.ts",
+      "sha256": "aad6d61e75b270a27a3eb1aae9edd869307b0e02a754b145116d48fc1d1612cf"
+    },
+    {
+      "arquivo": "lib/oportunidades/conversao.ts",
+      "sha256": "5c5727406b4c1388d9022645a15af3555e244d9450b8be4311c60e6b6d5e0ad9"
+    },
+    {
+      "arquivo": "lib/oportunidades/funil.postgres.test.ts",
+      "sha256": "caf005cdb0ceec828adafa0a96da6b72e7b818fe108c262030d11ba3474dc0a8"
+    },
+    {
+      "arquivo": "lib/oportunidades/modelo.test.ts",
+      "sha256": "998d66dd71891bf9c012c995344121620f0c51cba0ee391e7dc2781660a891e2"
+    },
+    {
+      "arquivo": "lib/oportunidades/modelo.ts",
+      "sha256": "6870ab418b6893fc9526ade5b7a4b4089aee4ca724ff6476fd4a2e333f1d8d1a"
+    },
+    {
+      "arquivo": "lib/oportunidades/perda.ts",
+      "sha256": "97debf57d6f9b1a9a402393f88f59927d012b8063710bf7ed9ec674e2b6811fa"
+    },
+    {
+      "arquivo": "lib/oportunidades/resumo.ts",
+      "sha256": "22422d64c72915c28e5caa024f0e6a9557027fe17e06a82e8bbc8de752dbcf3c"
+    },
+    {
+      "arquivo": "lib/oportunidades/service.ts",
+      "sha256": "e37f8fa92027e72b54cf89077fdf736c6aba565c5d7d5d8384b88baed0292629"
+    },
+    {
+      "arquivo": "scripts/guarda-salao-excecoes.cjs",
+      "sha256": "a539041a80f66b98a876be0797e84fa5b4f73def4cf2582c76fe863e1363e510"
+    },
+    {
+      "arquivo": "scripts/migration-122-comum.cjs",
+      "sha256": "2871a97cc581da2e33850441218d96f8774bdeb6502999a2807dd8619c8e54c7"
+    },
+    {
+      "arquivo": "scripts/migration-122-hashes.json",
+      "sha256": "2f775f63b88359abfade829c0638548d8dc0c1b4573b606a4fe403f850991d82"
+    },
+    {
+      "arquivo": "scripts/migration-122-production.cjs",
+      "sha256": "9e525d18c9efa30e3e4ba41a9efc0a6897e0b4ac710984f0cc0fe89919e56dd3"
+    },
+    {
+      "arquivo": "scripts/migration-122-staging.cjs",
+      "sha256": "e82ed7914f0c4a46835d9267ce6e8cff2ed825adab2e6ca0771faa617f3a362a"
+    },
+    {
+      "arquivo": "scripts/oportunidades-resumo-diario.mjs",
+      "sha256": "d2e82e1e3b1d5800dad9807af366254eb7cdc55cf09f1e30197d4fa6a6d583b5"
+    },
+    {
+      "arquivo": "scripts/production/check-migrations.mjs",
+      "sha256": "6128d605ee1cb3297fb8ee03d997ebe0b6f0e191e60b0aaede708f81bffd9331"
+    },
+    {
+      "arquivo": "scripts/regressao-v1-postgres-receita.cjs",
+      "sha256": "6b971d0fe55ad559d96fb36801ea29f16f3cd47b3ca20533040baf957560270c"
+    },
+    {
+      "arquivo": "scripts/regressao-v1-selecao.cjs",
+      "sha256": "920e43cbcadaab96a64db952d8d64e551b7000d3db681e03d496d48981f9f311"
+    }
+  ],
+  "deltaR1": [
+    "app/api/admin/oportunidades/route.ts",
+    "components/admin/oportunidades/Oportunidades.tsx",
+    "docs/FUNIL_OPORTUNIDADES_LOCAL_20261114.md",
+    "lib/marketing/contatos.ts",
+    "lib/oportunidades/consultas.ts",
+    "lib/oportunidades/conversao.ts",
+    "lib/oportunidades/funil.postgres.test.ts",
+    "lib/oportunidades/modelo.test.ts",
+    "lib/oportunidades/resumo.ts",
+    "lib/oportunidades/service.ts"
+  ],
+  "adicionadosAoManifesto": [
+    "components/admin/oportunidades/oportunidades.test.ts",
+    "docs/PEDIDO_ASTRA_FUNIL_20261114_R2.md",
+    "docs/PARECER_ASTRA_FUNIL_20261114_R1.md",
+    "docs/evidencias/astra-funil-r1/provas.cjs",
+    "docs/evidencias/funil-r2-20261114/VALIDACAO.md"
+  ],
+  "intocadosConferidos": [
+    "app/api/integracoes/oportunidades/resumo/route.ts",
+    "lib/exportacao/entidades.ts",
+    "scripts/production/check-migrations.mjs",
+    "scripts/regressao-v1-postgres-receita.cjs",
+    "scripts/oportunidades-resumo-diario.mjs",
+    "database/checks/20261114_122_postcheck.sql",
+    "database/checks/20261114_122_precheck.sql",
+    "database/migrations/20261114_122_oportunidades.sql",
+    "database/rollback/20261114_122_oportunidades_down.sql",
+    "scripts/migration-122-comum.cjs",
+    "scripts/migration-122-hashes.json",
+    "scripts/migration-122-production.cjs",
+    "scripts/migration-122-staging.cjs"
+  ]
+}

@@ -1,4 +1,4 @@
-import { versaoAssinadaEmPapel } from "../assinatura-papel.ts";
+import { versaoConferenciaImportada } from "../assinatura-papel.ts";
 import type { DbExecutor } from "../../db/contracts.ts";
 
 /**
@@ -115,7 +115,7 @@ export async function resumoContratoDoTenant(tx: DbExecutor, empresaId: string, 
     formaPagamento: s.comercial?.condicaoPagamento?.forma ?? s.comercial?.formaPagamentoPretendida ?? null,
     buffetStatus: s.contratacao?.buffet?.status ?? null,
     assinaturas,
-    assinadoEmPapel: versaoAssinadaEmPapel({ aceite_metodo: linha.aceite_metodo, snapshot: linha.snapshot }),
+    assinadoEmPapel: versaoConferenciaImportada({ aceite_metodo: linha.aceite_metodo, snapshot: linha.snapshot }),
     canceladoEm: linha.cancelado_em,
   };
 }
