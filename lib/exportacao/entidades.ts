@@ -167,6 +167,9 @@ const BASE: readonly Entidade[] = [
         onde: em(VERSOES, 'contrato_versao_id'), arquivoBinario: { coluna: 'conteudo_pdf', pasta: 'arquivos/contratos', extensao: 'pdf' },
     },
     { arquivo: 'contratos/contrato_assinaturas', tabela: 'contrato_assinaturas', grupo: 'Contratos', descricao: 'Assinaturas e aceites (evidência: método, data, IP e navegador).', onde: em(VERSOES, 'contrato_versao_id') },
+    // 124: assinatura do cliente em papel (data declarada, quem registrou, observação). A cópia digitalizada sai como
+    // tamanho + SHA-256, como os demais anexos; só o PDF dos contratos entra como arquivo do pacote.
+    { arquivo: 'contratos/contrato_assinaturas_papel', tabela: 'contrato_assinaturas_papel', grupo: 'Contratos', descricao: 'Assinaturas do cliente em papel registradas pela Gestão (data declarada, registro e SHA-256 da cópia).', onde: EMP, migracao: '124' },
     { arquivo: 'contratos/contrato_edicoes', tabela: 'contrato_edicoes', grupo: 'Contratos', descricao: 'Edições de versão.', onde: em(VERSOES, 'contrato_versao_id') },
     { arquivo: 'contratos/contrato_fluxos', tabela: 'contrato_fluxos', grupo: 'Contratos', descricao: 'Versão vigente e em preparação.', onde: em(CONTRATOS, 'contrato_id') },
     { arquivo: 'contratos/contrato_pendencias_financeiras', tabela: 'contrato_pendencias_financeiras', grupo: 'Contratos', descricao: 'Pendências financeiras entre versões.', onde: em(CONTRATOS, 'contrato_id') },

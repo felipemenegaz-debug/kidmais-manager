@@ -29,11 +29,13 @@ function montar(url: { q: string }, fetchFalso: (u: string, init?: RequestInit) 
     'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
     '@/lib/http/admin-fetch': { adminFetch: fetchFalso, reautenticarSessao: async () => ({ ok: true }) },
     '@/lib/contratos/services/alteracoes': { analisarRevisao: (a: { evento: { pacote: { nome: string } } }, b: { evento: { pacote: { nome: string } } }) => ({ natureza: 'MATERIAL', campos: [{ campo: 'evento.pacote.nome', antes: a.evento.pacote.nome, depois: b.evento.pacote.nome }] }) },
-    '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => false, TEXTO_ASSINADO_EM_PAPEL: '' },
+    '@/lib/contratos/assinatura-papel': { versaoConferenciaImportada: () => false, TEXTO_ASSINADO_EM_PAPEL: '' },
     // Aviso da fonte do PDF (plano UX achados Frente C): função real; o botão principal recebe a classe visual.
     '../../lib/contratos/documento/fonte': fonteDocumento, './AdminPrimaryButton': { classePrimaria: 'primario' },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
     '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
+    // 124: registro da assinatura do cliente em papel (componente filho, não expandido).
+    './RegistrarPapelCliente': { default: Filho, LinhaPapelCliente: Filho },
     './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Filho },
     './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './PagamentosResumo': { default: Filho },
     './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },

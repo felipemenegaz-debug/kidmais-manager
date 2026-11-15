@@ -406,7 +406,7 @@ function festas(tenant: string) {
         'lib/clientes/repositories/auditoria.repository.ts': { registrarAuditoria: async () => undefined },
         'lib/pagamentos/services/financeiro-consulta.service.ts': { consultarPainelFinanceiro: async () => null },
         'lib/contratos/services/cancelamento.service.ts': { cancelarContratacaoDaFesta: async () => undefined },
-        'lib/festas/repository.ts': { formalizacaoElegivelSql: 'TRUE', contrato: async () => ({ id: 'c', snapshot: { evento: {} } }), filhos: async () => ({ solicitacoes: [] }), contagens: async () => ({}) },
+        'lib/festas/repository.ts': { sqlFormalizacaoElegivel: async () => 'TRUE', contrato: async () => ({ id: 'c', snapshot: { evento: {} } }), filhos: async () => ({ solicitacoes: [] }), contagens: async () => ({}) },
     }) as any;
     const ctx = { token: 't', requestId: 'r', userAgent: null, empresaSolicitada: null };
     return { mod, consultas, ctx };

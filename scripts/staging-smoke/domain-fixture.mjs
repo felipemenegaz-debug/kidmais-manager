@@ -45,6 +45,8 @@ export function fixture(root, env, smokeId) {
     else if (q.startsWith('SELECT empresa_id::text AS empresa, estabelecimento_id::text AS unidade FROM fechamentos')) rows = [{ empresa: 'empresa', unidade: null }];
     // S-E (salão exigido pela versão): o snapshot do smoke é V1, sem salão fixado; formalização como antes.
     else if (q.startsWith('SELECT v.snapshot, b.snapshot AS base FROM contrato_versoes v')) rows = [{ snapshot: state.version.snapshot, base: null }];
+    // 124 (assinatura do cliente em papel): o smoke assina por OTP; o método é lido antes e a tabela da 124 nunca é citada.
+    else if (q.startsWith('SELECT aceite_metodo FROM public.contrato_versoes WHERE id=$1')) rows = [{ aceite_metodo: 'OTP' }];
     else if (q.startsWith('SELECT id,parte FROM public.contrato_assinaturas')) rows = state.signatures;
     else if (q.startsWith('INSERT INTO public.festas')) { state.calls.push('automatic-party'); state.parties.push({ id: 'party', invalidada_em: null, origem: 'AUTOMATICA_FORMALIZACAO' }); rows = [{ id: 'party' }]; }
     else if (q.startsWith('INSERT INTO public.festa_eventos')) state.events.push('FESTA_CRIADA');

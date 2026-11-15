@@ -61,6 +61,7 @@ test('rota do Resumo: a marca opcional passa pelo orçamento curto com conexão 
     '@/lib/contratos/marca-com-prazo': { lerMarcaComPrazo: async (...args: unknown[]) => { chamadas.push(args); return { kidmais: false, nome: 'Buffet X' }; } },
     '@/lib/contratos/marca-contrato': { marcaDaEmpresa: async () => ({ kidmais: false, nome: 'Buffet X' }) },
     '@/lib/contratos/services/administrativo.service': { detalheAdministrativo: async () => null },
+    '@/lib/contratos/services/assinatura-papel-cliente.service': { datasPapelClienteDoContrato: async () => [] },
     '@/lib/contratos/services/resumo-tenant': {
       ResumoTenantError: class extends Error {},
       resumoContratacaoDoTenant: async (_s: unknown, _e: unknown, _c: unknown, deps: { marca: (id: string) => Promise<unknown> }) => { capturado.marca = deps.marca; return {}; },

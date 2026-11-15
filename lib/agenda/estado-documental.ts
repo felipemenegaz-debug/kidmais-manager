@@ -11,7 +11,9 @@ import type { CaminhoSalao } from "./escrever-salao.ts";
  * é INCONSISTENTE qualquer que seja o ponteiro; só depois o papel. O leitor não trava: as travas são as do chamador.
  */
 export type PapelVersao = "VIGENTE" | "ASSINADA_EM_APLICACAO" | "EM_PREPARACAO" | "EMITIDA_AGUARDANDO" | "INCONSISTENTE";
-export type ProvaAssinatura = "NATIVA_DUPLA" | "CONFERENCIA_PAPEL" | "INCOMPLETA";
+// KIDMAIS_PAPEL_CLIENTE (124): V1 nativa assinada eletronicamente pelo buffet e em papel pelo cliente, com o registro
+// da Gestão em contrato_assinaturas_papel. Nunca é NATIVA_DUPLA nem CONFERENCIA_PAPEL.
+export type ProvaAssinatura = "NATIVA_DUPLA" | "CONFERENCIA_PAPEL" | "KIDMAIS_PAPEL_CLIENTE" | "INCOMPLETA";
 
 export type VersaoDocumental = {
   id: string;
@@ -95,6 +97,14 @@ export async function estadoDocumental(tx: DbExecutor, alvo: { fechamentoId: str
       [c.contrato_id, v.id, c.empresa, alvo.fechamentoId],
     )).rows[0]?.ok === true;
     if (vinculo) assinatura = "CONFERENCIA_PAPEL";
+  } else if (partes.size === 1 && partes.has("KIDMAIS") && v.status === "ASSINADA" && v.aceite === "PAPEL_CLIENTE" && Number(v.numero) === 1) {
+    // Só consulta a tabela da 124 quando o método é PAPEL_CLIENTE (que a CHECK só aceita com a 124 aplicada).
+    const registro = (await tx.query<{ ok: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM contrato_assinaturas_papel p WHERE p.contrato_versao_id = $1::uuid AND p.contrato_id = $2::uuid
+                         AND p.empresa_id = $3::uuid) AS ok`,
+      [v.id, c.contrato_id, c.empresa],
+    )).rows[0]?.ok === true;
+    if (registro) assinatura = "KIDMAIS_PAPEL_CLIENTE";
   }
   const edicaoAguardandoCliente = (await tx.query<{ estado: string }>(
     `SELECT estado FROM contrato_edicoes WHERE contrato_versao_id = $1::uuid`, [v.id],
@@ -161,7 +171,7 @@ export function estadoNaoServe(e: EstadoDocumental, caminho: CaminhoSalao): stri
     case "APLICACAO_REVISAO_OPERACIONAL":
       return v?.papel === "ASSINADA_EM_APLICACAO" && v.assinatura === "NATIVA_DUPLA" ? null : "ESTADO_DIFERENTE";
     case "FORMALIZACAO_POS_ASSINATURA":
-      return v?.papel === "VIGENTE" && v.assinatura === "NATIVA_DUPLA" ? null : "ESTADO_DIFERENTE";
+      return v?.papel === "VIGENTE" && (v.assinatura === "NATIVA_DUPLA" || v.assinatura === "KIDMAIS_PAPEL_CLIENTE") ? null : "ESTADO_DIFERENTE";
     case "CONFIRMACAO_PAGAMENTO":
       // Vigente com qualquer prova válida; contrato ainda sem vigente não decide salão (curinga, declarado no pacote).
       return !v || v.papel === "VIGENTE" || !e.vigenteId ? null : "ESTADO_DIFERENTE";

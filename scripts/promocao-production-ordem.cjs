@@ -67,6 +67,8 @@ const ORDEM = Object.freeze([
   generico('123', 'área da família F1: pessoas, links e sessões da área "Minha festa"; exige a 112'),
   // 122 (Funil de oportunidades) DEPOIS da 123 por decisão de Felipe (14/11/2026): Área da família antes do Funil.
   doMeuLote('122', 'funil de oportunidades: ações comerciais, marcos de etapa, resumos diários e perdas; trava marketing_contatos e fechamentos por instantes'),
+  // 124 (assinatura do cliente em papel) DEPOIS da 122: substitui dois corpos da 061 (o precheck confere os hashes); cadeia 123 → 122 → 124.
+  generico('124', 'assinatura do cliente em papel (PAPEL_CLIENTE): tabela contrato_assinaturas_papel; troca o CHECK de método de aceite e dois corpos da 061'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */
