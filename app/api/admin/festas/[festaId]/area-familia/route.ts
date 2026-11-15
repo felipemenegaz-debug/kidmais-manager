@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import {
-  AreaFamiliaError, cadastrarSegundo, desconectarTodos, gerarLinkArea, removerSegundo, resumoAreaFamilia,
+  AreaFamiliaError, cadastrarSegundo, configurarPendenciaFamilia, desconectarTodos, devolverPendenciaFamilia, gerarLinkArea, removerSegundo,
+  resumoAreaFamilia, salvarAvisoFixo, tratarAvisoPagamento,
 } from "@/lib/area-familia/admin";
 import { areaFamiliaLigada, pepperIdentidade } from "@/lib/area-familia/http";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -22,6 +23,11 @@ const acao = z.discriminatedUnion("acao", [
     documento: z.string().trim().max(20).optional().nullable(),
   }).strict(),
   z.object({ acao: z.literal("REMOVER_SEGUNDO"), pessoaId: z.string().uuid() }).strict(),
+  // F3 (125)
+  z.object({ acao: z.literal("TRATAR_AVISO_PAGAMENTO"), avisoId: z.string().uuid(), decisao: z.enum(["CONFERIDO", "DESCARTADO"]) }).strict(),
+  z.object({ acao: z.literal("PENDENCIA_FAMILIA"), pendenciaId: z.string().uuid(), visivel: z.boolean(), texto: z.string().max(280) }).strict(),
+  z.object({ acao: z.literal("DEVOLVER_PENDENCIA"), pendenciaId: z.string().uuid() }).strict(),
+  z.object({ acao: z.literal("AVISO_FIXO"), texto: z.string().max(500).nullable() }).strict(),
 ]);
 
 function erro(error: unknown) {
@@ -64,6 +70,10 @@ export async function POST(request: NextRequest, contexto: { params: Promise<{ f
         case "DESCONECTAR_TODOS": return desconectarTodos(tx, ctx, festaId);
         case "CADASTRAR_SEGUNDO": return cadastrarSegundo(tx, ctx, festaId, input, pepper);
         case "REMOVER_SEGUNDO": return removerSegundo(tx, ctx, festaId, input.pessoaId);
+        case "TRATAR_AVISO_PAGAMENTO": return tratarAvisoPagamento(tx, ctx, festaId, input.avisoId, input.decisao);
+        case "PENDENCIA_FAMILIA": return configurarPendenciaFamilia(tx, ctx, festaId, input.pendenciaId, input);
+        case "DEVOLVER_PENDENCIA": return devolverPendenciaFamilia(tx, ctx, festaId, input.pendenciaId);
+        case "AVISO_FIXO": return salvarAvisoFixo(tx, ctx, festaId, input.texto);
       }
     });
     return jsonNoStore({ ok: true, data });

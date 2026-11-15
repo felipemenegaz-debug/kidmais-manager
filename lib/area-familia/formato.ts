@@ -30,3 +30,27 @@ export function contagem(dias: number) {
 export const ROTULO_ESTADO = {
   PAGA: "Paga", EM_ABERTO: "Em aberto", VENCIDA: "Vencida", FUTURA: "Futura", CANCELADA: "Cancelada",
 } as const;
+
+// F3 (125): abas da área e texto livre da família.
+export const ABAS = [
+  { id: "inicio", rotulo: "Início" },
+  { id: "festa", rotulo: "Festa" },
+  { id: "pagamentos", rotulo: "Pagamentos" },
+  { id: "pendencias", rotulo: "Pendências" },
+  { id: "documentos", rotulo: "Documentos" },
+  { id: "pessoas", rotulo: "Pessoas" },
+] as const;
+export type Aba = (typeof ABAS)[number]["id"];
+
+/** Abas visíveis: Pendências só com a 125; Pessoas só para quem contratou (o segundo responsável não convida ninguém). */
+export function abasVisiveis(dados: { papel: "CONTRATANTE" | "SEGUNDO_RESPONSAVEL"; acoes: { disponivel: boolean } }) {
+  return ABAS.filter((a) => (a.id !== "pendencias" && a.id !== "pessoas")
+    || (dados.acoes.disponivel && (a.id === "pendencias" || dados.papel === "CONTRATANTE")));
+}
+
+/** Texto livre da família: espaços nas pontas fora; vazio vira null; acima do limite é recusado. */
+export function textoLivre(valor: string | null | undefined, max: number): string | null | false {
+  const t = (valor ?? "").trim();
+  if (!t) return null;
+  return t.length > max ? false : t;
+}

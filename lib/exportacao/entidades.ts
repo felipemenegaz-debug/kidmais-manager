@@ -353,6 +353,10 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     limites_contadores: 'Contadores técnicos de limite por origem (chaves HMAC, janela); não é dado da empresa.',
     festa_pessoas: 'Área da família: quem tem acesso à festa (contratante e segundo responsável, com WhatsApp e HMAC do CPF); controle de acesso.',
     area_familia_eventos: 'Área da família: registro de segurança das entradas, links e desconexões; atendido por pedido específico.',
+    // 125 (área Minha festa, F3, 15/11/2026): ações da família. Mesmo critério provisório da F1, a rever com o Astra.
+    area_familia_avisos_pagamento: 'Área da família: avisos "Já paguei" (só aviso; o pagamento real fica em recebíveis e entra no pacote).',
+    festa_pendencias_familia: 'Área da família: o que a família vê de uma pendência e se marcou feito (a pendência em si entra no pacote).',
+    area_familia_aviso_empresa: 'Área da família: aviso fixo da empresa mostrado às famílias; texto de comunicação, não dado da festa.',
     // 107 (reparo da deriva da agenda): registro técnico global da migration, sem dado de empresa.
     // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
     satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
