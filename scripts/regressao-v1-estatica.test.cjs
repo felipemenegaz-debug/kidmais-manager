@@ -234,11 +234,30 @@ test("heap: os passos de teste sobem o teto para HEAP_DOS_TESTES_MB e preservam 
   assert.ok(fonte.includes("if (require.main === module) principal();"), "o check só roda como programa principal");
 });
 
-test("heap: o processo filho do node --test recebe o teto de verdade", () => {
+test("heap: o arquivo de teste que o node --test executa recebe o teto de verdade", () => {
+  // O runner chama `node --test`, que roda cada arquivo de teste num processo próprio (neto do runner). O teto precisa
+  // chegar a esse processo, onde a guarda roda.
   const runner = require("./regressao-v1-estatica.cjs");
-  const env = runner.ambienteDosTestes({ PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "" }, { semIdentidadeDoDeploy: true });
-  const filho = spawnSync(process.execPath, ["-e", "process.stdout.write(String(require('node:v8').getHeapStatistics().heap_size_limit))"], { env, encoding: "utf8" });
-  assert.equal(filho.status, 0, filho.stderr);
-  const limiteMb = Number(filho.stdout) / 2 ** 20;
-  assert.ok(limiteMb >= runner.HEAP_DOS_TESTES_MB, `limite do filho ${Math.round(limiteMb)} MB abaixo de ${runner.HEAP_DOS_TESTES_MB} MB`);
+  const pasta = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "kidmais-heap-"));
+  try {
+    const saida = path.join(pasta, "limite.txt");
+    const arquivo = path.join(pasta, "limite.test.cjs");
+    fs.writeFileSync(arquivo, [
+      "const fs = require(\"node:fs\");",
+      "const test = require(\"node:test\");",
+      "test(\"limite\", () => fs.writeFileSync(process.env.LIMITE_SAIDA, String(require(\"node:v8\").getHeapStatistics().heap_size_limit)));",
+      "",
+    ].join("\n"));
+    const base = { PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "", LIMITE_SAIDA: saida };
+    const env = runner.ambienteDosTestes(base, { semIdentidadeDoDeploy: true });
+    const filho = spawnSync(process.execPath, ["--test", arquivo], { env, encoding: "utf8" });
+    assert.equal(filho.status, 0, filho.stdout + filho.stderr);
+    const limiteMb = Number(fs.readFileSync(saida, "utf8")) / 2 ** 20;
+    // heap_size_limit = old space (o teto) + young generation (~192 MiB no Node 24). A faixa estreita impede que o heap
+    // padrão da máquina (4 GiB aqui, 2 GiB no Render) passe por acaso.
+    assert.ok(limiteMb >= runner.HEAP_DOS_TESTES_MB && limiteMb <= runner.HEAP_DOS_TESTES_MB + 512,
+      `limite no arquivo de teste ${Math.round(limiteMb)} MiB fora do teto de ${runner.HEAP_DOS_TESTES_MB} MiB`);
+  } finally {
+    fs.rmSync(pasta, { recursive: true, force: true });
+  }
 });

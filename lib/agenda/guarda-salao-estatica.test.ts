@@ -369,20 +369,23 @@ test("repositório: nenhum .sql escreve salão; .query como valor só em teste",
 });
 
 // Aviso antes do teto (15/11/2026). O build do Render caiu sem memória neste teste (dep-dbsf3c3l550s7389mdl0) e o
-// runner subiu o heap dos testes para HEAP_DOS_TESTES_MB. O pico da análise acompanha o tamanho do programa montado:
-// medido em 14–15/11, cerca de 58 bytes de heap por caractere (1,97 GB para 33,9 milhões; 2,1–2,4 GB para 41,1 milhões
-// antes de tirar os tipos das bibliotecas). Este teste falha quando a estimativa passa de 75% do teto, semanas antes de
-// o build cair, para dar tempo de enxugar a guarda ou rever o teto com calma.
+// runner subiu o heap dos testes para HEAP_DOS_TESTES_MB. É um alarme de crescimento, não uma medida do pico: a
+// estimativa usa o tamanho do programa montado (nossos arquivos e os tipos das bibliotecas) e cerca de 58 MiB de heap
+// por milhão de caracteres, medido em 14–15/11 no Node 24 (o Render usa o Node 22) com --trace-gc: 2,1–2,4 GiB para
+// 41,1 milhões. Não mede RSS, concorrência nem um NODE_OPTIONS que sobrescreva o teto. A guarda precisa dos tipos das
+// bibliotecas (revisão da #423: sem eles, um tipo local pode virar valor simples e esconder uma escrita), então o pico
+// só cai com redesenho da guarda ou com teto maior. Recalibrar: medir o pico da análise com --trace-gc, dividir por
+// caracteresDoPrograma e ajustar BYTES_DE_HEAP_POR_CARACTERE; ao mudar o teto, rever FRACAO_DE_AVISO.
 const BYTES_DE_HEAP_POR_CARACTERE = 60;
-const FRACAO_DE_AVISO = 0.75;
-test("memória: o programa da guarda fica abaixo de 75% do heap dos testes", () => {
+const FRACAO_DE_AVISO = 0.85;
+test("memória: o programa da guarda fica abaixo de 85% do heap dos testes", () => {
   const { HEAP_DOS_TESTES_MB } = exigir("../../scripts/regressao-v1-estatica.cjs") as { HEAP_DOS_TESTES_MB: number };
   const estimativaMb = (repositorio.caracteresDoPrograma * BYTES_DE_HEAP_POR_CARACTERE) / 2 ** 20;
-  const avisoMb = HEAP_DOS_TESTES_MB * FRACAO_DE_AVISO;
+  const avisoMb = Math.round(HEAP_DOS_TESTES_MB * FRACAO_DE_AVISO);
   assert.ok(repositorio.caracteresDoPrograma > 10_000_000, "o programa da guarda precisa conter o repositório");
   assert.ok(
     estimativaMb <= avisoMb,
-    `pico estimado da guarda ${Math.round(estimativaMb)} MB passou de 75% do heap dos testes (${avisoMb} de ${HEAP_DOS_TESTES_MB} MB). ` +
+    `pico estimado da guarda ${Math.round(estimativaMb)} MiB passou de 85% do heap dos testes (${avisoMb} de ${HEAP_DOS_TESTES_MB} MiB). ` +
       "Enxugar a guarda ou rever HEAP_DOS_TESTES_MB em scripts/regressao-v1-estatica.cjs antes que o build do Render fique sem memória.",
   );
 });
