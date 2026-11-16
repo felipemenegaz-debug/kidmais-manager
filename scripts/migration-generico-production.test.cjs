@@ -424,6 +424,25 @@ test('executadasDoSql: qualquer outra forma de EXECUTE reprova (comentário, \\r
     'GRANT EXECUTE ON FUNCTION f() TO x',
   ]) assert.throws(() => executadasDoSql(sql, new Set(), 's'), /EXECUTE em formato não reconhecido/, sql);
 });
+// Dependências de EXECUTE de uma migration (P3 do Astra em c93ee9dc), ambas do lado conservador:
+// - a busca de EXECUTE vê o SQL bruto: o filtro de linhas `--` apagaria `-- nota\rCREATE TRIGGER … EXECUTE FUNCTION f()`,
+//   que o PostgreSQL executa (o comentário acaba no \r);
+// - só dispensa `f()` quando a migration cria exatamente `[public.]f()` sem argumentos, fora de linha `--`;
+//   criar `f(integer)` não cobre o gatilho que chama a `f()` já existente.
+function dependenciasExecute(sqlBruto, id) {
+  const semLinhasComentadas = sqlBruto.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  const criadasSemArgumentos = new Set(nomes(semLinhasComentadas, /^\s*CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?([a-z0-9_]+)\(\s*\)/gim));
+  return executadasDoSql(sqlBruto, criadasSemArgumentos, id);
+}
+test('dependenciasExecute: SQL bruto (linha -- com \\r), criação só de f() sem argumentos, criação comentada não conta', () => {
+  const g1 = 'CREATE TRIGGER g BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f();';
+  assert.deepEqual([...dependenciasExecute('-- nota\r' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('CREATE FUNCTION public.f(integer) RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('-- CREATE FUNCTION f() RETURNS trigger\n' + g1, 's')], ['f()']);
+  // Linha física com -- não conta como criação, nem depois de \r: erra para o lado conservador (dependência a mais).
+  assert.deepEqual([...dependenciasExecute('-- nota\rCREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('CREATE OR REPLACE FUNCTION public.f( ) RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], []);
+});
 test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas, EXECUTE e CREATE no schema)', () => {
   for (const id of g.IDS) {
     const p = g.MIGRATIONS[id].privilegios, sql = lf(arquivo(id, 'migration')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
@@ -441,8 +460,7 @@ test('privilégios declarados por id batem com o SQL da migration (tabelas alter
       .map(m => m[1].toLowerCase() + '(' + m[2].split(',').map(a => a.trim().split(/\s+/).pop()).filter(Boolean).join(',') + ')');
     assert.deepEqual([...p.funcoes].sort(), funcoesSubstituidas.sort(), id + ': funções substituídas');
     // Gatilho novo em função que a migration NÃO cria (nem substitui) exige EXECUTE nela: declarada em `executadas`.
-    const criadas = new Set(nomes(sql, /^\s*CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?([a-z0-9_]+)\(/gim));
-    const executadas = executadasDoSql(sql, criadas, id);
+    const executadas = dependenciasExecute(lf(arquivo(id, 'migration')), id);
     assert.deepEqual([...p.executadas].sort(), [...executadas].sort(), id + ': funções existentes chamadas por gatilhos novos (EXECUTE)');
     assert.equal(/has_function_privilege\(current_user, to_regprocedure\('public\.' \|\| f\), 'EXECUTE'\)/.test(g.sqlPrivilegios(id)), true, id);
     assert.equal(p.criaNoSchema, novas.size > 0 || /^\s*CREATE FUNCTION /im.test(sql), id + ': CREATE no schema');
