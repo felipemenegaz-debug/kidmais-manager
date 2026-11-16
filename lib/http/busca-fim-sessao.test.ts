@@ -68,6 +68,30 @@ const travada = (a: ReturnType<typeof ambiente>) => {
     a.aba.guardarBuscaNaAba('contratos', 'Theo');
     assert.equal(a.armazenado.has(CHAVE), false, 'e não pode ser gravada de novo');
 };
+/**
+ * 3ª revisão do merge (855e8df8, P3): rastreia a marca da leitura de fim (a última criada antes do GET; `capturar` vai
+ * dentro da leitura simulada) e diz se a MESMA marca foi vista vigente (classificação) e depois obsoleta (consumo): a
+ * janela exata, e não só a resposta que já nasceu obsoleta.
+ */
+function rastrearMarca(a: ReturnType<typeof ambiente>) {
+    let ultima: unknown = null, daLeitura: unknown = null;
+    const historico = new Map<unknown, boolean[]>();
+    const marcaOriginal = a.ctx.marcaDaSessao, obsoletaOriginal = a.ctx.sessaoObsoletaDesde;
+    a.ctx.marcaDaSessao = () => (ultima = marcaOriginal());
+    a.ctx.sessaoObsoletaDesde = (m: unknown) => {
+        const r = obsoletaOriginal(m) as boolean;
+        historico.set(m, [...(historico.get(m) ?? []), r]);
+        return r;
+    };
+    return {
+        capturar: () => { daLeitura = ultima; },
+        janelaExata: () => {
+            const h = historico.get(daLeitura) ?? [];
+            const i = h.indexOf(false);
+            return i >= 0 && h.indexOf(true, i + 1) > i;
+        },
+    };
+}
 
 for (const [rotulo, fim] of [['401', 401], ['200 sem usuário (controle)', 'sem-usuario']] as const) {
     test(`prévia da lista com ${rotulo}: trava e apaga a busca e vai ao login, sem esperar o ciclo do painel`, async () => {
@@ -340,13 +364,15 @@ test('teto de releituras esgotado com nova troca desta página em curso: nada en
 
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
     test(`pós-confirmação de fim (${rotulo}) com a troca começando k microtarefas depois: nunca trava com a troca já iniciada`, async () => {
-        const regimes = { travou: 0, preservou: 0 };
+        const regimes = { travou: 0, preservou: 0, janelaExata: 0 };
         for (let k = 0; k < 8; k++) {
             let disparo: Promise<void> = Promise.resolve();
             const a = ambiente([S1, async () => {
+                marca.capturar();
                 disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); })();
                 return fim;
             }, S1]);
+            const marca = rastrearMarca(a);
             (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
             const travas: boolean[] = [];
             const original = a.ctx.encerrarBuscasDaAba;
@@ -358,12 +384,14 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
                 if (travas.length) { regimes.travou += 1; travada(a); }
                 else {
                     regimes.preservou += 1;
+                    if (marca.janelaExata()) regimes.janelaExata += 1;
                     assert.deepEqual(a.navegacoes, [], `k=${k}: sem trava, nada navega`);
                     assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
                 }
             } finally { a.ctx.encerrarTrocaDeEmpresa(); }
         }
         assert.ok(regimes.travou > 0 && regimes.preservou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+        assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
     });
 
     test(`fluxo real: pós-confirmação de fim (${rotulo}) e trocarEmpresaAtiva começando antes do consumo, recusada (403): lista entregue, busca mantida`, async () => {
@@ -414,14 +442,16 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
     for (const consumidor of ['trocarEmpresaAtiva', 'reautenticarSessao'] as const) {
         test(`${consumidor}: prévia de fim (${rotulo}) com outra troca começando k microtarefas depois: sem login, envio nem trava se a troca veio antes do consumo`, async () => {
-            const regimes = { fim: 0, cruzou: 0 };
+            const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
             for (let k = 0; k < 8; k++) {
                 let disparo: Promise<void> = Promise.resolve();
                 let trocaIniciada = false;
                 const a = ambiente([async () => {
+                    marca.capturar();
                     disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })();
                     return fim;
                 }]);
+                const marca = rastrearMarca(a);
                 const travas: boolean[] = [];
                 const original = a.ctx.encerrarBuscasDaAba;
                 a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
@@ -441,6 +471,7 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
                         travada(a);
                     } else {
                         regimes.cruzou += 1;
+                        if (marca.janelaExata()) regimes.janelaExata += 1;
                         assert.ok(iniciadaNoConsumo, `k=${k}: sem trava só quando a troca começou antes do consumo`);
                         assert.match(texto, /Não foi possível confirmar a sessão/, `k=${k}: resposta antiga não decide`);
                         assert.deepEqual(a.navegacoes, [], `k=${k}: sem login`);
@@ -449,20 +480,23 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
                 } finally { a.ctx.encerrarTrocaDeEmpresa(); }
             }
             assert.ok(regimes.fim > 0 && regimes.cruzou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+            assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
         });
     }
 }
 
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
     test(`confirmarRenovacao: confirmação de fim (${rotulo}) com outra troca começando k microtarefas depois: em verificação, sem trava nem login se a troca veio antes do consumo`, async () => {
-        const regimes = { fim: 0, cruzou: 0 };
+        const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
         for (let k = 0; k < 8; k++) {
             let disparo: Promise<void> = Promise.resolve();
             let trocaIniciada = false;
             const a = ambiente([async () => {
+                marca.capturar();
                 disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })();
                 return fim;
             }]);
+            const marca = rastrearMarca(a);
             const travas: boolean[] = [];
             const original = a.ctx.encerrarBuscasDaAba;
             a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
@@ -475,6 +509,7 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
                 if (travas.length) { regimes.fim += 1; travada(a); }
                 else {
                     regimes.cruzou += 1;
+                    if (marca.janelaExata()) regimes.janelaExata += 1;
                     assert.equal(r.erro, a.mod.AVISO_RENOVACAO_EM_VERIFICACAO, `k=${k}: resposta antiga deixa o resultado em verificação`);
                     assert.equal(a.navegacoes.some((n) => n.includes('/admin/login')), false, `k=${k}: sem login`);
                     assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
@@ -482,5 +517,31 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
             } finally { a.ctx.encerrarTrocaDeEmpresa(); }
         }
         assert.ok(regimes.fim > 0 && regimes.cruzou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+        assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
     });
 }
+
+// ---------------------------------------------------------------- 3ª revisão do merge (855e8df8, P2)
+// GET da renovação traz usuário, mas a marca ficou obsoleta (outra troca desta página começou) e a troca não termina no
+// prazo: a confirmação é falha decidida localmente. A senha já foi aceita: o resultado fica em verificação, a renovação
+// pendente é cancelada e nada é concluído, descartado, enviado ou travado.
+test('confirmarRenovacao: GET com usuário e troca pendente além do prazo: em verificação, sem concluir a renovação', async () => {
+    const a = ambiente([async () => { a.ctx.iniciarTrocaDeEmpresa(); return S1; }]);
+    (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
+    const chamadas: string[] = [];
+    const cancelar = a.ctx.cancelarRenovacaoDeSessao, concluir = a.ctx.concluirRenovacaoDeSessao;
+    a.ctx.cancelarRenovacaoDeSessao = () => { chamadas.push('cancelar'); return cancelar(); };
+    a.ctx.concluirRenovacaoDeSessao = (...args: unknown[]) => { chamadas.push('concluir'); return concluir(...args); };
+    a.ctx.iniciarRenovacaoDeSessao();
+    try {
+        const r = await a.mod.confirmarRenovacao({ anterior: 's1', atual: 's1b' }) as { ok: boolean; erro?: string };
+        assert.notEqual(a.ctx.fimDaTrocaEmCurso(), null, 'premissa: a troca segue pendente depois do prazo');
+        assert.equal(a.leiturasFeitas(), 1, 'uma leitura, com usuário, sem releitura');
+        assert.equal(r.ok, false);
+        assert.equal(r.erro, a.mod.AVISO_RENOVACAO_EM_VERIFICACAO, 'falha local deixa o resultado em verificação');
+        assert.deepEqual(chamadas, ['cancelar'], 'a renovação pendente é cancelada, nunca concluída com sessão nula');
+        assert.equal(a.posts(), 0, 'nada é enviado');
+        assert.deepEqual(a.navegacoes, [], 'sem login nem descarte');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
+    } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+});

@@ -574,7 +574,9 @@ export async function confirmarRenovacao(renovacao: { anterior: string; atual: s
     // A renovação pendente é cancelada: se a sessão voltar diferente, ela cai na regra normal de contexto mudou.
     // 2ª revisão do merge (c72b9251, P2): resposta que cruzou uma troca desta página não conclui nem recusa a renovação;
     // o resultado fica em verificação, como na confirmação indisponível, e a própria troca decide a página.
-    let manter = enderecoFinal() || cruzouTroca(confirmada);
+    // 3ª revisão (855e8df8, P2): falha decidida localmente (troca sem resultado no prazo, releitura que cruzou outra
+    // troca) também não prova nada: a senha já foi aceita, o resultado fica em verificação, sem repetir o POST.
+    let manter = enderecoFinal() || cruzouTroca(confirmada) || falhaLocal(confirmada);
     if (!manter && falhaDoServidor(confirmada)) {
         const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(confirmada.status), telaCarregada: true, aindaValida });
         manter = enderecoFinal() || decisao !== 'COMO_HOJE';
