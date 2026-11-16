@@ -380,60 +380,49 @@ test('antes de conectar: backup obrigatório, disco exigido, SQL divergente e id
 
 // ---- Privilégios (P3): lista declarada por id, conferida contra o SQL; CONFERIR recusa (3); APLICAR recusa antes do marcador ----
 const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
-// Funções que já existem e que gatilhos novos chamam: toda `EXECUTE FUNCTION|PROCEDURE <nome>(<argumentos>)`, com qualquer
-// espaço ou argumento (os argumentos do gatilho vão em TG_ARGV; a função é sempre `<nome>()`), menos as que a própria
-// migration cria. Nome entre aspas, de outro schema ou sem "(" reconhecível não tem regra aqui: o teste falha.
-// Comentários valem como espaço no PostgreSQL (`EXECUTE/**/FUNCTION f()`): saem antes da busca, trocados por um espaço,
-// com /* */ aninhado e sem tocar em literais ('...', "...", $tag$...$tag$), onde "--" e "/*" não abrem comentário.
-function semComentariosSql(sql) {
-  let o = '', i = 0;
-  while (i < sql.length) {
-    const c = sql[i], d = sql[i + 1];
-    if (c === "'" || c === '"') {
-      let j = i + 1;
-      while (j < sql.length && !(sql[j] === c && sql[j + 1] !== c)) j += sql[j] === c ? 2 : 1;
-      o += sql.slice(i, j + 1); i = j + 1; continue;
-    }
-    const dolar = c === '$' ? /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i)) : null;
-    if (dolar) {
-      const fim = sql.indexOf(dolar[0], i + dolar[0].length), j = fim < 0 ? sql.length : fim + dolar[0].length;
-      o += sql.slice(i, j); i = j; continue;
-    }
-    if (c === '-' && d === '-') { const j = sql.indexOf('\n', i); o += ' '; i = j < 0 ? sql.length : j; continue; }
-    if (c === '/' && d === '*') {
-      let n = 1, j = i + 2;
-      while (j < sql.length && n > 0) {
-        if (sql[j] === '/' && sql[j + 1] === '*') { n++; j += 2; } else if (sql[j] === '*' && sql[j + 1] === '/') { n--; j += 2; } else j++;
-      }
-      o += ' '; i = j; continue;
-    }
-    o += c; i++;
+// Funções que já existem e que gatilhos novos chamam (exigem EXECUTE), menos as que a própria migration cria.
+// Regra falha-fechada, sem parser de SQL (P3 do Astra em 3e619d69 e de689910): toda palavra EXECUTE do SQL bruto, inclusive
+// dentro de literais, blocos DO e format(), tem de estar numa destas formas, as únicas usadas pelas migrations:
+//   EXECUTE FUNCTION|PROCEDURE [public.]<nome>(        → dependência <nome>() (argumentos vão em TG_ARGV)
+//   EXECUTE format(   ou   EXECUTE '                    → SQL dinâmico; um EXECUTE FUNCTION dentro dele é lido à parte
+// Entre as palavras, só espaço, tab ou \n. Qualquer outra forma (comentário, \r, aspas no nome, outro schema, sem "(",
+// GRANT EXECUTE…) reprova o teste: uma dependência pode sobrar, nunca sumir em silêncio.
+const EXECUTE_FUNCAO = /^EXECUTE[ \t\n]+(?:FUNCTION|PROCEDURE)[ \t\n]+(?:public\.)?([a-z0-9_]+)[ \t\n]*\(/i;
+const EXECUTE_DINAMICO = /^EXECUTE[ \t\n]+(?:format\(|')/i;
+function executadasDoSql(sql, criadas, id) {
+  const chamadas = [];
+  for (const m of sql.matchAll(/\bEXECUTE\b/gi)) {
+    const resto = sql.slice(m.index), f = EXECUTE_FUNCAO.exec(resto);
+    if (f) chamadas.push(f[1].toLowerCase());
+    else assert.match(resto, EXECUTE_DINAMICO, id + ': EXECUTE em formato não reconhecido: ' + JSON.stringify(resto.slice(0, 50)));
   }
-  return o;
+  return new Set(chamadas.filter(f => !criadas.has(f)).map(f => f + '()'));
 }
-function executadasDoSql(sqlOriginal, criadas, id) {
-  const sql = semComentariosSql(sqlOriginal);
-  const chamadas = [...sql.matchAll(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([^\s(]+)\s*\(/gi)].map(m => m[1]);
-  assert.equal(chamadas.length, (sql.match(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b/gi) || []).length, id + ': EXECUTE FUNCTION sem "(" reconhecível');
-  for (const c of chamadas) assert.match(c, /^(?:public\.)?[a-z0-9_]+$/i, id + ': formato de EXECUTE FUNCTION não reconhecido: ' + c);
-  return new Set(chamadas.map(c => c.replace(/^public\./i, '').toLowerCase()).filter(f => !criadas.has(f)).map(f => f + '()'));
-}
-test('executadasDoSql: argumentos, espaços, PROCEDURE e public. entram; aspas, outro schema e formato sem "(" falham', () => {
+test('executadasDoSql: formas conhecidas entram (argumentos, espaços, \\n, PROCEDURE, public., bloco DO, SQL dinâmico)', () => {
   const sql = "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION kidmais_set_atualizado_em('x', 2);\n"
     + 'CREATE TRIGGER b AFTER INSERT ON t FOR EACH ROW EXECUTE  PROCEDURE public.Outra_Existente ();\n'
-    + 'CREATE TRIGGER c BEFORE DELETE ON t FOR EACH ROW EXECUTE FUNCTION criada_aqui();';
-  assert.deepEqual([...executadasDoSql(sql, new Set(['criada_aqui']), 's')].sort(), ['kidmais_set_atualizado_em()', 'outra_existente()']);
-  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION "Citada"();', new Set(), 's'), /não reconhecido: "Citada"/);
-  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION outro.f();', new Set(), 's'), /não reconhecido: outro\.f/);
-  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION\n;', new Set(), 's'), /sem "\(" reconhecível/);
+    + 'CREATE TRIGGER c BEFORE DELETE ON t FOR EACH ROW EXECUTE FUNCTION criada_aqui();\n'
+    + 'DO $estrutura$ BEGIN CREATE TRIGGER d BEFORE UPDATE ON t FOR EACH ROW EXECUTE\n  FUNCTION no_bloco_do(); END $estrutura$;\n'
+    + "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ENABLE TRIGGER x', 't'); EXECUTE 'ALTER TABLE t DISABLE TRIGGER x'; END $$;";
+  assert.deepEqual([...executadasDoSql(sql, new Set(['criada_aqui']), 's')].sort(), ['kidmais_set_atualizado_em()', 'no_bloco_do()', 'outra_existente()']);
 });
-test('executadasDoSql: comentário entre as palavras vale como espaço (/* */, aninhado, --); literais não abrem comentário', () => {
-  assert.deepEqual([...executadasDoSql('EXECUTE/**/FUNCTION public.existente()', new Set(), 's')], ['existente()']);
-  const sql = 'CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE /* um /* aninhado */ dois */ FUNCTION f2();\n'
-    + 'CREATE TRIGGER b BEFORE UPDATE ON t FOR EACH ROW EXECUTE -- linha\n  PROCEDURE/*x*/public.f3/**/(\'a\');\n'
-    + "SELECT '/* não é comentário', \"--nome\", $q$ /* $q$;\n"
-    + 'CREATE TRIGGER c BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f4();';
-  assert.deepEqual([...executadasDoSql(sql, new Set(), 's')].sort(), ['f2()', 'f3()', 'f4()']);
+test('executadasDoSql: qualquer outra forma de EXECUTE reprova (comentário, \\r, E-string, cifrão, bloco DO, aspas, outro schema, sem "(")', () => {
+  const gatilho = 'CREATE TRIGGER g BEFORE UPDATE ON t FOR EACH ROW ';
+  for (const sql of [
+    'EXECUTE/**/FUNCTION public.existente()',
+    "SELECT E'it\\'s';\n" + gatilho + 'EXECUTE/**/FUNCTION f()',
+    'SELECT 1 AS a$b$;\n' + gatilho + 'EXECUTE/**/FUNCTION f()',
+    'DO $tag$ BEGIN ' + gatilho + 'EXECUTE/**/FUNCTION f(); END $tag$;',
+    gatilho + 'EXECUTE -- nota\rFUNCTION f()',
+    gatilho + 'EXECUTE -- nota\nFUNCTION f()',
+    gatilho + 'EXECUTE /* a /* b */ c */ FUNCTION f()',
+    gatilho + 'EXECUTE\rFUNCTION f()',
+    gatilho + 'EXECUTE FUNCTION f/**/()',
+    gatilho + 'EXECUTE FUNCTION "Citada"()',
+    gatilho + 'EXECUTE FUNCTION outro.f()',
+    gatilho + 'EXECUTE FUNCTION\n;',
+    'GRANT EXECUTE ON FUNCTION f() TO x',
+  ]) assert.throws(() => executadasDoSql(sql, new Set(), 's'), /EXECUTE em formato não reconhecido/, sql);
 });
 test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas, EXECUTE e CREATE no schema)', () => {
   for (const id of g.IDS) {
