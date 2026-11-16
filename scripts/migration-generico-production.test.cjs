@@ -383,7 +383,36 @@ const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
 // Funções que já existem e que gatilhos novos chamam: toda `EXECUTE FUNCTION|PROCEDURE <nome>(<argumentos>)`, com qualquer
 // espaço ou argumento (os argumentos do gatilho vão em TG_ARGV; a função é sempre `<nome>()`), menos as que a própria
 // migration cria. Nome entre aspas, de outro schema ou sem "(" reconhecível não tem regra aqui: o teste falha.
-function executadasDoSql(sql, criadas, id) {
+// Comentários valem como espaço no PostgreSQL (`EXECUTE/**/FUNCTION f()`): saem antes da busca, trocados por um espaço,
+// com /* */ aninhado e sem tocar em literais ('...', "...", $tag$...$tag$), onde "--" e "/*" não abrem comentário.
+function semComentariosSql(sql) {
+  let o = '', i = 0;
+  while (i < sql.length) {
+    const c = sql[i], d = sql[i + 1];
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < sql.length && !(sql[j] === c && sql[j + 1] !== c)) j += sql[j] === c ? 2 : 1;
+      o += sql.slice(i, j + 1); i = j + 1; continue;
+    }
+    const dolar = c === '$' ? /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i)) : null;
+    if (dolar) {
+      const fim = sql.indexOf(dolar[0], i + dolar[0].length), j = fim < 0 ? sql.length : fim + dolar[0].length;
+      o += sql.slice(i, j); i = j; continue;
+    }
+    if (c === '-' && d === '-') { const j = sql.indexOf('\n', i); o += ' '; i = j < 0 ? sql.length : j; continue; }
+    if (c === '/' && d === '*') {
+      let n = 1, j = i + 2;
+      while (j < sql.length && n > 0) {
+        if (sql[j] === '/' && sql[j + 1] === '*') { n++; j += 2; } else if (sql[j] === '*' && sql[j + 1] === '/') { n--; j += 2; } else j++;
+      }
+      o += ' '; i = j; continue;
+    }
+    o += c; i++;
+  }
+  return o;
+}
+function executadasDoSql(sqlOriginal, criadas, id) {
+  const sql = semComentariosSql(sqlOriginal);
   const chamadas = [...sql.matchAll(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([^\s(]+)\s*\(/gi)].map(m => m[1]);
   assert.equal(chamadas.length, (sql.match(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b/gi) || []).length, id + ': EXECUTE FUNCTION sem "(" reconhecível');
   for (const c of chamadas) assert.match(c, /^(?:public\.)?[a-z0-9_]+$/i, id + ': formato de EXECUTE FUNCTION não reconhecido: ' + c);
@@ -397,6 +426,14 @@ test('executadasDoSql: argumentos, espaços, PROCEDURE e public. entram; aspas, 
   assert.throws(() => executadasDoSql('... EXECUTE FUNCTION "Citada"();', new Set(), 's'), /não reconhecido: "Citada"/);
   assert.throws(() => executadasDoSql('... EXECUTE FUNCTION outro.f();', new Set(), 's'), /não reconhecido: outro\.f/);
   assert.throws(() => executadasDoSql('... EXECUTE FUNCTION\n;', new Set(), 's'), /sem "\(" reconhecível/);
+});
+test('executadasDoSql: comentário entre as palavras vale como espaço (/* */, aninhado, --); literais não abrem comentário', () => {
+  assert.deepEqual([...executadasDoSql('EXECUTE/**/FUNCTION public.existente()', new Set(), 's')], ['existente()']);
+  const sql = 'CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE /* um /* aninhado */ dois */ FUNCTION f2();\n'
+    + 'CREATE TRIGGER b BEFORE UPDATE ON t FOR EACH ROW EXECUTE -- linha\n  PROCEDURE/*x*/public.f3/**/(\'a\');\n'
+    + "SELECT '/* não é comentário', \"--nome\", $q$ /* $q$;\n"
+    + 'CREATE TRIGGER c BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f4();';
+  assert.deepEqual([...executadasDoSql(sql, new Set(), 's')].sort(), ['f2()', 'f3()', 'f4()']);
 });
 test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas, EXECUTE e CREATE no schema)', () => {
   for (const id of g.IDS) {
