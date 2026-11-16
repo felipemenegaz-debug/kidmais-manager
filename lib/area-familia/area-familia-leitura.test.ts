@@ -12,6 +12,7 @@ const { diasEntre, estadoDaParcela, resumoDosPagamentos } = carregarModulo("lib/
   "contratos/assinatura-papel": vazio, "contratos/repositories/models": vazio, "contratos/repositories/contrato.repository": vazio,
   "financeiro/servico": vazio, "festas/buffet": vazio, "contratos/marca-contrato": vazio, "contratos/services/documento.service": vazio,
   "contratos/services/errors": vazio, "contratos/services/fluxo-publico": vazio, "contratos/storage/postgres": vazio, "area-familia/acoes": vazio,
+  "contratos/services/contrato-publico.service": vazio,
 }) as unknown as typeof Leitura;
 
 // Área "Minha festa" F2 (telas de leitura): partes sem banco. As regras com banco estão em leitura.postgres.test.ts.
