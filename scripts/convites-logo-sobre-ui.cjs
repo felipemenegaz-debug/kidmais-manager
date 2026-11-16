@@ -31,7 +31,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   const resumo = [];
 
-  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false } = {}) {
+  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false, arteAtrasada = false } = {}) {
     const dados = {
       id: id(1), festaId: id(5),
       conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília',
@@ -40,20 +40,31 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       revisao: 3, publicado: true, desatualizado: false, linkPublico: `/convite/${TOKEN}`, clienteHabilitado: false, convidadosContratados: 40, familias: [],
       disponiveis: 3, iaDisponivel: true, completoDisponivel: true, geracaoIncerta: false, geracaoEmAndamento: null,
       cotas: admin ? { festa: 3, festaUsado: 1, cliente: 2, clienteUsado: 0, empresa: 60, empresaUsado: 1 } : { festa: 3, festaUsado: 1, cliente: 2, clienteUsado: 0 },
-      artes: [{ id: ARTE, origem: 'IA', completo: true, url: dataUrl(arte, 'image/webp') }], respostas: [], historico: [],
+      artes: [{ id: ARTE, origem: 'IA', completo: true, url: arteAtrasada ? `${base}/__arte-atrasada.webp` : dataUrl(arte, 'image/webp') }], respostas: [], historico: [],
     };
     // Servidor simulado: sessões por id, seq por sessão, comandos em voo, falhas e retenção sob demanda.
-    const estado = { posts: [], logo: [], sessoes: new Map(), emVoo: 0, maxEmVoo: 0, erros: [], segurar: false, presos: [], falharProximo: null, expirarProximo: false, outras: new Set() };
+    const estado = { posts: [], logo: [], sessoes: new Map(), emVoo: 0, maxEmVoo: 0, erros: [], segurar: false, presos: [], falharProximo: null, expirarProximo: false, outras: new Set(),
+      // r3 (Astra r2): GETs contados; leitura segurada (devolve o JSON do momento do pedido) e falhas de leitura em fila.
+      gets: 0, segurarGet: false, getsPresos: [], falharGets: [], liberarArte: null };
     const context = await browser.newContext({ viewport, hasTouch, acceptDownloads: true });
     await context.route('**/*', async route => {
       const request = route.request(), url = new URL(request.url());
       if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
+      if (url.pathname === '/__arte-atrasada.webp') { await new Promise(r => { estado.liberarArte = r; }); return route.fulfill({ status: 200, contentType: 'image/webp', body: arte }); }
       if (!url.pathname.startsWith('/api/')) return route.continue();
       const json = (data, status = 200, extra = {}) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(status < 300 ? { ok: true, data } : { ok: false, erro: data, ...extra }) });
       if (url.pathname === '/api/admin/autenticacao') return json({ usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null });
       if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return json({ logoDataUrl: logoUrl });
       if (!['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) { estado.outras.add(url.pathname); return json(null); }
-      if (request.method() === 'GET') return json(JSON.parse(JSON.stringify(dados)));
+      if (request.method() === 'GET') {
+        estado.gets++;
+        const foto = JSON.parse(JSON.stringify(dados));
+        if (estado.segurarGet) await new Promise(r => estado.getsPresos.push(r));
+        const falha = estado.falharGets.shift();
+        if (falha === 'sem-logo') { delete foto.logoBuffet; return json(foto); }
+        if (falha) return json('Falha simulada da leitura.', falha);
+        return json(foto);
+      }
       const b = request.postDataJSON(); estado.posts.push(b);
       // r2 (Astra r1, P1): todo comando da logo vai para a URL com o UUID deste convite na query, desde a primeira abertura.
       if (['logo_sessao', 'logo_buffet'].includes(b.acao) && url.searchParams.get('conviteId') !== dados.id) estado.erros.push(`comando ${b.acao} sem o conviteId na query: ${url.search}`);
@@ -279,6 +290,70 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await context.close();
     }
 
+    // 16. r3 (Astra r2, P2): leitura segurada até a confirmação. O JSON chega velho depois do comando confirmado:
+    // a tela não volta para a posição antiga e o editor lê uma vez de novo (marca das filas mudou). Antes da nova leitura,
+    // outra aba muda a posição no servidor: a tela tem de mostrar essa (prova que a releitura foi aplicada).
+    {
+      const { page, context, estado, dados } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' }); await controle.waitFor();
+      const lugar = page.getByRole('button', { name: 'Em cima, à esquerda', exact: true });
+      await ate(async () => !(await lugar.isDisabled()), 'lugar habilitado com a caixa pronta');
+      estado.segurarGet = true; const g0 = estado.gets;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await ate(async () => estado.getsPresos.length === 1, 'GET de releitura preso');
+      await lugar.click(); await salvo(page);
+      const nova = ultimaPosicao(estado); assert.ok(nova.x < 20 && nova.y < 20, 'comando confirmado no canto');
+      const outraAba = { ...nova, x: 70, y: 75 }; dados.conteudo.logoPosicoes[ARTE] = { ...outraAba };
+      estado.segurarGet = false; estado.getsPresos.splice(0).forEach(r => r());
+      await ate(async () => estado.gets === g0 + 2, 'uma nova leitura depois do JSON velho');
+      await esperar(800);
+      assert.equal(estado.gets, g0 + 2, 'só uma nova leitura');
+      await noLugar(page, outraAba, [70, 75], 'JSON velho descartado; a releitura vale');
+      assert.equal(await page.locator('[data-falha-leitura-logo]').count(), 0, 'sem aviso de falha');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'leitura-segurada', gets: estado.gets - g0 });
+      await context.close();
+    }
+    // 17. r3 (Astra r2, P2): leitura com 500 e depois sem os campos da logo: uma nova tentativa, depois para e avisa;
+    // nada de GETs sem fim. "Ler de novo" lê uma vez e tira o aviso.
+    {
+      const { page, context, estado } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      await page.getByRole('button', { name: 'Logo do buffet sobre a arte' }).waitFor();
+      const g0 = estado.gets; estado.falharGets.push(500, 'sem-logo');
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      const aviso = page.locator('[data-falha-leitura-logo]'); await aviso.waitFor({ timeout: 8000 });
+      await esperar(3000);
+      assert.equal(estado.gets - g0, 2, `duas leituras e para (${estado.gets - g0})`);
+      await page.screenshot({ path: path.join(out, '13-falha-leitura-logo.png') });
+      await aviso.getByRole('button', { name: 'Ler de novo' }).click();
+      await ate(async () => (await aviso.count()) === 0, 'aviso some depois da leitura boa');
+      await esperar(500);
+      assert.equal(estado.gets - g0, 3, 'Ler de novo faz uma leitura');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'falha-leitura', gets: estado.gets - g0 });
+      await context.close();
+    }
+    // 18. r3 (Astra r2, P3): arte atrasada. Lugares e setas ficam desligados até a caixa da arte existir; nada grava 0/0.
+    {
+      const { page, context, estado } = await abrirEditor({ arteAtrasada: true, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const campo = page.getByRole('group', { name: 'Posição da logo sobre a arte' }); await campo.waitFor();
+      const lugar = page.getByRole('button', { name: 'Em cima, à esquerda', exact: true }), seta = page.getByRole('button', { name: 'Mover para a direita' });
+      await ate(async () => estado.liberarArte !== null, 'arte pedida e presa');
+      assert.ok(await lugar.isDisabled(), 'lugar desligado sem caixa'); assert.ok(await seta.isDisabled(), 'seta desligada sem caixa');
+      assert.equal(await page.getByRole('button', { name: 'Logo do buffet sobre a arte' }).count(), 0, 'sem controle de arraste sem caixa');
+      await page.screenshot({ path: path.join(out, '14-arte-atrasada-sem-caixa.png') });
+      const n0 = estado.logo.length;
+      estado.liberarArte();
+      await ate(async () => !(await lugar.isDisabled()) && !(await seta.isDisabled()), 'liga com a caixa pronta');
+      assert.equal(estado.logo.length, n0, 'nada gravado antes da caixa');
+      await lugar.click(); await salvo(page);
+      const pos = ultimaPosicao(estado);
+      assert.ok(pos.x > 0 && pos.y > 0, `canto grava o centro exibido, não 0/0 (${pos.x},${pos.y})`);
+      await noLugar(page, pos, [0, 0], 'canto com a caixa pronta');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'arte-atrasada', posicao: [pos.x, pos.y] });
+      await context.close();
+    }
     // 13–15. Página pública: logo sobre a arte; 409 na arte → relê uma vez; segunda divergência → logo no rodapé.
     // r2 (Astra r1, P2): troca A → B com a releitura do JSON atrasada; a arte A não é pedida de novo enquanto o JSON
     // não chega, e a arte B (outro id) entra com a logo sobre ela, sem cair no rodapé.

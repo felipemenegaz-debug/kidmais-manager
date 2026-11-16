@@ -944,11 +944,19 @@ test('transporte real: adminFetch com POST, keepalive e os dois cabeçalhos; ses
         const cache = new Map();
         carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, cache);
         const M = carregarModulo('lib/convites/fila-logo.ts', {}, cache) as unknown as typeof F;
+        assert.equal(M.marcaDasFilas(), 0, 'r3: sem fila, marca zero');
         const fila = M.filaDaLogo('conv');
         assert.equal(M.filaDaLogo('conv'), fila, 'uma instância por convite no documento');
         assert.equal(posts.length, 0);
+        assert.equal(M.marcaDasFilas(), 0, 'r3: fila nova não muda a marca');
         fila.posicao(P('A', 10));
+        const mIntencao = M.marcaDasFilas();
+        assert.ok(mIntencao > 0, 'r3: a intenção sobe a marca');
         for (let i = 0; i < 20 && fila.temPendencia(); i++) await esvaziar();
+        const mConfirmada = M.marcaDasFilas();
+        assert.ok(mConfirmada > mIntencao, 'r3: a confirmação sobe a marca (leitura em voo é descartada)');
+        M.filaDaLogo('outro');
+        assert.equal(M.marcaDasFilas(), mConfirmada, 'r3: outra fila nova não muda a marca');
         assert.deepEqual(posts.map((p) => p.corpo.acao), ['logo_sessao', 'logo_buffet']);
         for (const { init } of posts) {
             const h = new Headers(init.headers);

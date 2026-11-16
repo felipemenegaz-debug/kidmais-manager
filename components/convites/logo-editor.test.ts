@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   TAMANHOS_LOGO, LUGARES_LOGO, moverLogo, passoDaTecla, arrastarLogo, anuncioPosicao, logoEfetiva, avisoOrigem,
   avisoSemNome, logoLigadaParaGerar, ESPERA_MOSTRAR_MS, PASSO_SETA, PASSO_SETA_SHIFT, limitarAoExibido, incorporarConfirmados,
+  decidirLeitura, comLimite, chaveDaCaixa, TENTATIVAS_LEITURA_LOGO, LIMITE_LEITURA_LOGO_MS,
 } from './logo-editor.ts';
 import type { LogoLocal } from './logo-editor.ts';
 
@@ -106,4 +107,39 @@ test('r2 P2: a base só recebe os campos confirmados depois do número já incor
   assert.equal(incorporarConfirmados(base, conf, 2).mostrar, true, 'mostrar já incorporado (n 2) não volta');
   // Intenção pendente que a fila descartou não está em `confirmados`: a base não muda.
   assert.deepEqual(incorporarConfirmados(base, { n: 0, posicoes: {} }, 0), base);
+});
+
+test('r3 P2: leitura só vale com a fila vazia e sem mudança durante ela; nunca mistura leituras', () => {
+  assert.equal(decidirLeitura({ pendente: false, marcaAntes: 4, marcaAgora: 4 }), 'aplicar');
+  assert.equal(decidirLeitura({ pendente: true, marcaAntes: 4, marcaAgora: 4 }), 'esperar', 'comando pendente: espera esvaziar');
+  assert.equal(decidirLeitura({ pendente: true, marcaAntes: 4, marcaAgora: 5 }), 'esperar');
+  assert.equal(decidirLeitura({ pendente: false, marcaAntes: 4, marcaAgora: 5 }), 'reler', 'confirmação chegou antes do JSON: lê de novo');
+  assert.equal(TENTATIVAS_LEITURA_LOGO, 2, 'uma nova tentativa, depois para');
+  assert.ok(LIMITE_LEITURA_LOGO_MS > 0 && LIMITE_LEITURA_LOGO_MS <= 15000);
+});
+
+test('r3 P2: comLimite rejeita no tempo e limpa o relógio nos dois caminhos', async () => {
+  const ativos = new Set<number>(); let id = 0; const pendentes = new Map<number, () => void>();
+  const relogio = {
+    set: (fn: () => void) => { const i = ++id; ativos.add(i); pendentes.set(i, fn); return i; },
+    clear: (i: unknown) => { ativos.delete(i as number); pendentes.delete(i as number); },
+  };
+  // Relógio padrão (setTimeout real, sem "this" de outro objeto): resolve e rejeita no tempo.
+  assert.equal(await comLimite(Promise.resolve(1), 50), 1);
+  await assert.rejects(comLimite(new Promise<number>(() => undefined), 5), /Tempo esgotado/);
+  assert.equal(await comLimite(Promise.resolve(7), 10, relogio), 7);
+  assert.equal(ativos.size, 0);
+  await assert.rejects(comLimite(Promise.reject(new Error('403')), 10, relogio), /403/);
+  assert.equal(ativos.size, 0);
+  const nunca = comLimite(new Promise<number>(() => undefined), 10, relogio);
+  const [i, fn] = [...pendentes][0]; ativos.delete(i); fn();
+  await assert.rejects(nunca, /Tempo esgotado/);
+});
+
+test('r3 P3: a chave da caixa muda com arte, largura e fundo, não com a posição', () => {
+  const outroLugar = { ...p, x: 10, y: 90 };
+  assert.equal(chaveDaCaixa(p), chaveDaCaixa(outroLugar));
+  assert.notEqual(chaveDaCaixa(p), chaveDaCaixa({ ...p, largura: 24 }));
+  assert.notEqual(chaveDaCaixa(p), chaveDaCaixa({ ...p, fundo: true }));
+  assert.notEqual(chaveDaCaixa(p), chaveDaCaixa({ ...p, arteId: 'b' }));
 });

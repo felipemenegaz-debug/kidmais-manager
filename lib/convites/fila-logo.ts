@@ -434,6 +434,15 @@ async function transporteAdmin(endpoint: string, corpo: object) {
 export const endpointDaLogo = (conviteId: string) => `/api/admin/convites?conviteId=${encodeURIComponent(conviteId)}`;
 
 const instancias = new Map<string, FilaLogo>();
+/**
+ * r3 (Astra r2, P2): marca de todas as filas deste documento (soma das épocas; só cresce, porque a época só sobe e
+ * nenhuma fila sai do mapa). Não depende do id do convite, então vale antes da primeira leitura.
+ */
+export function marcaDasFilas(): number {
+    let soma = 0;
+    for (const f of instancias.values()) soma += f.epoca();
+    return soma;
+}
 /** Uma instância por convite neste documento; sobrevive à desmontagem do editor numa navegação interna. */
 export function filaDaLogo(conviteId: string): FilaLogo {
     if (!conviteId) throw new Error('Fila da logo sem convite.');

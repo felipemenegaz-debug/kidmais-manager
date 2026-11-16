@@ -24,6 +24,7 @@ import { opcoesComposicao } from './composicao';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 import VincularFesta from './VincularFesta';
 import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
+import { marcaDasFilas } from '@/lib/convites/fila-logo';
 import { TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
@@ -118,9 +119,10 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   // Logo do buffet (etapa 3): ref para a leitura não depender da fila, que só existe depois da primeira carga.
   const logoRef = useRef<LogoNoConvite | null>(null);
   const carregar = useCallback(async (criar = false, preservar = false) => {
-    const epoca = logoRef.current?.marcarLeitura();
+    // r3 (Astra r2, P2): a marca não depende da fila deste convite, que só existe depois da primeira carga.
+    const marca = marcaDasFilas();
     const d = await api(criar ? { acao: 'criar' } : undefined) as Dados;
-    logoRef.current?.aplicarLeitura(d, epoca);
+    logoRef.current?.aplicarLeitura(d, marca);
     setDados(d); if (!preservar) setConteudo(d.conteudo); setCotaFesta(d.cotas.festa); setCotaCliente(d.cotas.cliente);
   }, [api, setCotaFesta, setCotaCliente]);
   useEffect(() => {

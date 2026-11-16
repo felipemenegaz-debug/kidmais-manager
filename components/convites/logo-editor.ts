@@ -68,7 +68,38 @@ export function incorporarConfirmados<T extends LogoLocal>(base: T, conf: Confir
   return { ...base, mostrar, posicoes };
 }
 
-export const anuncioPosicao = (p: { x: number; y: number }) => `Logo a ${Math.round(p.x)}% da esquerda e ${Math.round(p.y)}% do topo.`;
+/**
+ * r3 (Astra r2, P2): uma leitura só troca a logo da tela se nenhuma fila do documento mudou entre o início e a chegada
+ * (`marcaDasFilas`) e a fila do convite está vazia. Com comando pendente, espera a fila esvaziar e lê uma vez; se a marca
+ * mudou com a fila vazia, lê de novo. Nunca mistura duas leituras.
+ */
+export type DecisaoLeitura = 'aplicar' | 'esperar' | 'reler';
+export function decidirLeitura(o: { pendente: boolean; marcaAntes: number; marcaAgora: number }): DecisaoLeitura {
+  if (o.pendente) return 'esperar';
+  return o.marcaAgora === o.marcaAntes ? 'aplicar' : 'reler';
+}
+
+/** r3: limite da leitura da logo; uma nova tentativa depois da espera; na segunda falha, para e mostra o aviso. */
+export const LIMITE_LEITURA_LOGO_MS = 10000;
+export const ESPERA_NOVA_LEITURA_LOGO_MS = 1500;
+export const TENTATIVAS_LEITURA_LOGO = 2;
+export const AVISO_FALHA_LEITURA_LOGO = 'Não foi possível conferir a logo gravada.';
+
+export type RelogioLimite = { set(fn: () => void, ms: number): unknown; clear(t: unknown): void };
+// setTimeout chamado como método de outro objeto dá "Illegal invocation" no navegador: sempre por função própria.
+const RELOGIO_PADRAO: RelogioLimite = { set: (fn, ms) => setTimeout(fn, ms), clear: t => clearTimeout(t as ReturnType<typeof setTimeout>) };
+/** Rejeita se `p` não terminar em `ms`; o relógio é sempre limpo e a rejeição de `p` sempre tem quem a trate. */
+export function comLimite<T>(p: Promise<T>, ms: number, relogio: RelogioLimite = RELOGIO_PADRAO): Promise<T> {
+  return new Promise<T>((ok, falha) => {
+    const t = relogio.set(() => falha(new Error('Tempo esgotado.')), ms);
+    p.then(v => { relogio.clear(t); ok(v); }, e => { relogio.clear(t); falha(e); });
+  });
+}
+
+/** r3 (Astra r2, P3): chave da caixa exibida; ações de posição só valem com a caixa desta arte, largura e fundo. */
+export const chaveDaCaixa = (p: { arteId: string; largura: number; fundo: boolean }) => `${p.arteId}|${p.largura}|${p.fundo ? 1 : 0}`;
+
+export const anuncioPosicao =(p: { x: number; y: number }) => `Logo a ${Math.round(p.x)}% da esquerda e ${Math.round(p.y)}% do topo.`;
 
 /** §5: a tela mostra a última intenção (pendente ou em voo) por cima do que veio gravado. */
 export function logoEfetiva(gravada: LogoLocal, fila: { mostrar?: boolean; posicoes: Record<string, PosicaoLogoEnvio> } | null): LogoLocal {

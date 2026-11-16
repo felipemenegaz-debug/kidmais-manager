@@ -2,7 +2,7 @@
 // Artes já são reencodadas no servidor; URLs privadas não devem passar pelo cache do otimizador Next.
 /* eslint-disable @next/next/no-img-element */
 import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useState, type ReactNode } from 'react';
 import { modeloBiblioteca, modeloComFoto, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
 import { FUNDO_FAIXA_LOGO, LINHA_FAIXA_LOGO, medidasFaixaLogo } from '@/lib/convites/faixa-logo';
@@ -23,6 +23,8 @@ export type SobreArte = {
   logo: string; posicao: PosicaoSobre;
   /** Controle do editor desenhado na camada (alvo de toque, arraste); recebe a caixa final em % da arte. */
   controle?: (caixa: CaixaPct) => ReactNode;
+  /** r3 (Astra r2, P3): a camada informa a caixa final depois do commit (null enquanto não há caixa) sob `chave`. */
+  chave?: string; aoCaixa?: (chave: string, caixa: CaixaPct | null) => void;
   aoCarregarArte?: (src: string) => void; aoFalharArte?: (src: string) => void; aoFalharLogo?: () => void;
 };
 export default function ConviteArte({ conteudo: c, arte, sobre }: { conteudo: Conteudo; arte?: string; sobre?: SobreArte | null }) {
@@ -53,6 +55,14 @@ function CamadaLogo({ sobre, arte, logo, aoCarregarLogo }: { sobre: SobreArte; a
   const pct = (b: CaixaDaLogo['logo'] | null | undefined): CaixaPct | null => b && arte ? caixaEmPorcento(b, arte) : null;
   const css = (b: CaixaPct) => ({ left: `${b.left}%`, top: `${b.top}%`, width: `${b.width}%`, height: `${b.height}%` });
   const logoPct = pct(caixa?.logo), pilulaPct = pct(caixa?.pilula), finalPct = pct(caixa?.final);
+  const { chave, aoCaixa } = sobre;
+  const l = finalPct?.left ?? null, t = finalPct?.top ?? null, w = finalPct?.width ?? null, h = finalPct?.height ?? null;
+  // A geometria muda (arte, logo, tamanho, fundo, posição): a caixa é registrada de novo; sem caixa, registra null.
+  useLayoutEffect(() => {
+    if (!aoCaixa || !chave) return;
+    aoCaixa(chave, l === null || t === null || w === null || h === null ? null : { left: l, top: t, width: w, height: h });
+  }, [aoCaixa, chave, l, t, w, h]);
+  useLayoutEffect(() => () => { if (aoCaixa && chave) aoCaixa(chave, null); }, [aoCaixa, chave]);
   return <div className={styles.camadaLogo} data-camada-logo={caixa ? 'pronta' : 'carregando'}>
     {pilulaPct && <span className={styles.pilulaLogo} style={css(pilulaPct)} aria-hidden="true" />}
     <img src={sobre.logo} alt="Logo do buffet" className={styles.logoSobre} style={logoPct ? css(logoPct) : { visibility: 'hidden', width: 1, height: 1 }}
