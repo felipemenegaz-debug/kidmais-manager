@@ -1,0 +1,19 @@
+Termos de uso do Kidmais Manager
+Versão 2026-10-20-minuta
+Minuta
+Este texto é uma minuta para homologação e será substituído pela versão revisada juridicamente antes da publicação.
+O serviço
+O Kidmais Manager é um sistema de gestão para buffets infantis, contratado por empresa (CNPJ).
+Conta e responsável
+Quem cria a conta declara agir em nome da empresa cadastrada. A validação dos dígitos do CNPJ não comprova a existência da empresa nem a autoridade de quem a cadastra.
+O responsável pelo uso pode ser diferente dos sócios. Ações com terceiros podem depender de aprovação da representação pela Kidmais.
+Teste grátis e assinatura
+A empresa recebe um período de teste sem cartão e sem cobrança automática, com duração informada no cadastro. Cada CNPJ tem um único teste.
+Os planos, preços e ciclos (mensal ou anual) são os exibidos na página de planos no momento da contratação. A assinatura renova ao fim de cada ciclo pelo meio de pagamento escolhido.
+Sem pagamento, a empresa tem 7 dias para regularizar, com acesso completo; depois, passa a somente leitura por 60 dias e, em seguida, tem o acesso suspenso.
+O cancelamento pode ser pedido a qualquer momento pelo canal de atendimento: a renovação é interrompida e o acesso continua até o fim do período já pago. Devolução de valores: [A DEFINIR].
+Depois do teste ou da assinatura
+Ao fim do teste sem assinatura, ao fim do período já pago de uma assinatura cancelada ou depois dos 7 dias para regularizar um pagamento, a empresa passa a somente leitura por 60 dias e, depois, tem o acesso suspenso. Os dados não são apagados por vencimento e podem ser exportados.
+Prazo de retenção após o encerramento: [A DEFINIR].
+Contato
+Canal de atendimento, inclusive para cancelamento: contato@demerzellabs.com.br.

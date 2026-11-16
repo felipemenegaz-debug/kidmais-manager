@@ -23,7 +23,7 @@ export type PortaWallE = { responder(entrada: { empresa: string; ambiente: strin
  * ambiente diferente do processo.
  */
 export type AlvoEnvio = { empresaId: string; ambiente: string; conversaId: string; saidaId: string; piloto: boolean };
-export type DependenciasWorker = { interpretar: ((empresa: string, texto: string, config: ConfiguracaoAtendimento) => Promise<Interpretacao>) | null; enviar(contato: string, conteudo: ConteudoSaida, alvo: AlvoEnvio): Promise<string>; wallE?: PortaWallE };
+export type DependenciasWorker = { interpretar: ((empresa: string, texto: string, config: ConfiguracaoAtendimento) => Promise<Interpretacao>) | null; enviar(contato: string, conteudo: ConteudoSaida, alvo: AlvoEnvio): Promise<string>; wallE?: PortaWallE; direitoModelo?: (empresa: string) => Promise<boolean> };
 /**
  * Saída parada na fila além deste prazo (automação, chave da IA ou empresa desligadas e religadas depois) não sai mais:
  * uma resposta de horas atrás chegaria fora de contexto. O atendente vê "Não enviada" e pode responder de novo.
@@ -258,6 +258,8 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       if (!comando && (entendimentoSoRegras() || !deps.interpretar)) return await encaminharSemModelo(mensagem, 'PROCESSADA', opera);
       // D1: dado de saúde na mensagem atual nunca vai ao modelo; a equipe recebe com o texto fixo de encaminhamento.
       if (!comando && dadoSensivel(atual)) return await encaminharSemModelo(mensagem, 'PROCESSADA', opera);
+      // Astra r3 (R-5, P2-2): sem direito comercial ao atendimento (a piloto também), a fase B não chama o modelo.
+      if (!comando && deps.direitoModelo && !(await deps.direitoModelo(empresa))) return await encaminharSemModelo(mensagem, 'PROCESSADA', opera);
       let plano: Interpretacao;
       try { plano = comando ?? await deps.interpretar!(empresa, entradaFaseB(historico.map(m => m.texto), atual, conversa.interesse), vigente); }
       catch { return await encaminharSemModelo(mensagem, 'FALHOU', opera); }

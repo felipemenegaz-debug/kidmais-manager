@@ -28,7 +28,7 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     './transporte.ts':{...transporte,enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
   }).modulo as {
     mensagemAindaValida(m:Mensagem,c:Conversa,agora?:Date):boolean;
-    processarAtendimento(deps: {interpretar:()=>Promise<core.Interpretacao>;enviar:()=>Promise<string>}):Promise<string>;
+    processarAtendimento(deps: {interpretar:()=>Promise<core.Interpretacao>;enviar:()=>Promise<string>;direitoModelo?:(empresa:string)=>Promise<boolean>}):Promise<string>;
     processarLote(deps: {interpretar:()=>Promise<core.Interpretacao>;enviar:()=>Promise<string>},opcoes?:{maxTarefas?:number;prazoMs?:number;relogio?:()=>number}):Promise<{estado:string;tarefas:number}>;
   };
 }
@@ -109,6 +109,36 @@ test('orçamento esgotado ou modelo indisponível: equipe assume e o contato rec
   assert.deepEqual(comandos.find(c=>c.sql.includes("SET estado='AGUARDANDO_HUMANO',versao=$2"))?.args,['c',4]);
   const fixa=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
   assert.deepEqual(fixa?.args,['c','e','staging','m',core.MENSAGEM_ENCAMINHAMENTO,4],'só o texto fixo, na nova versão da conversa');
+});
+test('Astra r3 (R-5, P2-2): sem direito comercial, a piloto não chama o modelo na fase B',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Qual o horário de vocês?'};
+  let modelo=0,envios=0; const consultados:string[]=[]; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    return {rows:[]};
+  });
+  const deps={interpretar:async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>{envios++;return 'id';},direitoModelo:async(empresa:string)=>{consultados.push(empresa);return false;}};
+  assert.equal(await worker.processarAtendimento(deps),'ENCAMINHADA');
+  assert.equal(modelo,0,'sem direito: modelo não chamado');
+  assert.deepEqual(consultados,['e'],'a piloto (e) também passa pelo direito comercial');
+  assert.equal(envios,0);
+  const fixa=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
+  assert.equal(fixa?.args?.[4],core.MENSAGEM_ENCAMINHAMENTO,'segue o caminho fixo de encaminhamento');
+});
+test('Astra r3 (R-5, P2-2): com direito comercial, a piloto segue chamando o modelo na fase B',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Qual o horário de vocês?'};
+  let modelo=0;
+  const worker=carregar(async(sql)=>{
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    return {rows:[]};
+  });
+  await worker.processarAtendimento({interpretar:async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>'id',direitoModelo:async()=>true});
+  assert.equal(modelo,1,'com direito: modelo chamado');
 });
 test('falha do modelo depois que um atendente assumiu não cria mensagem automática',async()=>{
   const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Quanto custa?'};
@@ -499,11 +529,13 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const worker=readFileSync('lib/whatsapp/atendimento/worker.ts','utf8');
   assert.match(worker,/if \(!comando && \(entendimentoSoRegras\(\) \|\| !deps\.interpretar\)\) return await encaminharSemModelo/);
   const porta=readFileSync('lib/whatsapp/atendimento/walle/porta.ts','utf8');
-  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) \? entender : null;/);
+  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) && \(!opcoes\.direitoModelo \|\| await opcoes\.direitoModelo\(e\.empresa\)\) \? entender : null;/);
+  // Astra r3 (R-5, P2-2): direito comercial antes do modelo, inclusive para a piloto; leitura que falha nega o modelo.
+  assert.match(porta,/return direitoAtendimentoWhatsApp\(db\(\), empresaId\)\.catch\(\(\) => false\);/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento\}/);
 });
 
 // Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.
