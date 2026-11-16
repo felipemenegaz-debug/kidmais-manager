@@ -30,7 +30,7 @@ export const ERRO_SESSOES_DIFERENTES = 'A conta ou a empresa mudou enquanto o pe
 type Empresa = { id: string; nome: string };
 
 export const DADOS_QUE_SAEM: Readonly<Record<string, string>> = {
-    'agenda:read': 'horários das festas de hoje e amanhã, totais de festas e convidados e quantos contratos estão pendentes',
+    'agenda:read': 'horários, convidados e situação do contrato (assinado ou pendente) de cada festa, dia a dia, até 62 dias por consulta, de até 1 ano atrás a 2 anos à frente; datas e horários livres; e o total de contratos aguardando assinatura, com até 100 deles detalhados em dias desde a criação e dias até a festa ou desde que ela passou. Sem nomes de clientes nem pacotes',
     'financeiro:read': 'totais de contas a receber em aberto, vencidos por faixa de atraso e a vencer',
     'conhecimento:read': 'trechos da documentação aprovada do iA.Fest',
 };
