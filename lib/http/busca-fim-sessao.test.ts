@@ -71,16 +71,19 @@ const travada = (a: ReturnType<typeof ambiente>) => {
 /**
  * 3ª revisão do merge (855e8df8, P3): rastreia a marca da leitura de fim (a última criada antes do GET; `capturar` vai
  * dentro da leitura simulada) e diz se a MESMA marca foi vista vigente (classificação) e depois obsoleta (consumo): a
- * janela exata, e não só a resposta que já nasceu obsoleta.
+ * janela exata, e não só a resposta que já nasceu obsoleta. `aoClassificar` roda uma vez, quando essa marca é vista
+ * vigente pela primeira vez (a classificação): as varreduras contam as microtarefas a partir dali, e não do GET, porque
+ * o tempo do corpo da resposta muda entre versões do Node (no 22 do CI o json() passa por uma macrotarefa).
  */
-function rastrearMarca(a: ReturnType<typeof ambiente>) {
-    let ultima: unknown = null, daLeitura: unknown = null;
+function rastrearMarca(a: ReturnType<typeof ambiente>, aoClassificar: () => void = () => {}) {
+    let ultima: unknown = null, daLeitura: unknown = null, classificada = false;
     const historico = new Map<unknown, boolean[]>();
     const marcaOriginal = a.ctx.marcaDaSessao, obsoletaOriginal = a.ctx.sessaoObsoletaDesde;
     a.ctx.marcaDaSessao = () => (ultima = marcaOriginal());
     a.ctx.sessaoObsoletaDesde = (m: unknown) => {
         const r = obsoletaOriginal(m) as boolean;
         historico.set(m, [...(historico.get(m) ?? []), r]);
+        if (m === daLeitura && !r && !classificada) { classificada = true; aoClassificar(); }
         return r;
     };
     return {
@@ -363,16 +366,15 @@ test('teto de releituras esgotado com nova troca desta página em curso: nada en
 // decidida no consumo, com a marca conferida ali: resposta que uma troca já tornou antiga não trava nada.
 
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
-    test(`pós-confirmação de fim (${rotulo}) com a troca começando k microtarefas depois: nunca trava com a troca já iniciada`, async () => {
+    test(`pós-confirmação de fim (${rotulo}) com a troca começando k microtarefas depois da classificação: nunca trava com a troca já iniciada`, async () => {
         const regimes = { travou: 0, preservou: 0, janelaExata: 0 };
         for (let k = 0; k < 8; k++) {
             let disparo: Promise<void> = Promise.resolve();
             const a = ambiente([S1, async () => {
                 marca.capturar();
-                disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); })();
                 return fim;
             }, S1]);
-            const marca = rastrearMarca(a);
+            const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); })(); });
             (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
             const travas: boolean[] = [];
             const original = a.ctx.encerrarBuscasDaAba;
@@ -441,17 +443,16 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
 
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
     for (const consumidor of ['trocarEmpresaAtiva', 'reautenticarSessao'] as const) {
-        test(`${consumidor}: prévia de fim (${rotulo}) com outra troca começando k microtarefas depois: sem login, envio nem trava se a troca veio antes do consumo`, async () => {
+        test(`${consumidor}: prévia de fim (${rotulo}) com outra troca começando k microtarefas depois da classificação: sem login, envio nem trava se a troca veio antes do consumo`, async () => {
             const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
             for (let k = 0; k < 8; k++) {
                 let disparo: Promise<void> = Promise.resolve();
                 let trocaIniciada = false;
                 const a = ambiente([async () => {
                     marca.capturar();
-                    disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })();
                     return fim;
                 }]);
-                const marca = rastrearMarca(a);
+                const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })(); });
                 const travas: boolean[] = [];
                 const original = a.ctx.encerrarBuscasDaAba;
                 a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
@@ -486,17 +487,16 @@ for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as c
 }
 
 for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
-    test(`confirmarRenovacao: confirmação de fim (${rotulo}) com outra troca começando k microtarefas depois: em verificação, sem trava nem login se a troca veio antes do consumo`, async () => {
+    test(`confirmarRenovacao: confirmação de fim (${rotulo}) com outra troca começando k microtarefas depois da classificação: em verificação, sem trava nem login se a troca veio antes do consumo`, async () => {
         const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
         for (let k = 0; k < 8; k++) {
             let disparo: Promise<void> = Promise.resolve();
             let trocaIniciada = false;
             const a = ambiente([async () => {
                 marca.capturar();
-                disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })();
                 return fim;
             }]);
-            const marca = rastrearMarca(a);
+            const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })(); });
             const travas: boolean[] = [];
             const original = a.ctx.encerrarBuscasDaAba;
             a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
