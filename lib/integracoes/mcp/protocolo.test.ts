@@ -7,6 +7,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { RepositorioOAuthMemoria } from "../oauth/memoria-teste.ts";
 import type { BuscaDocumento } from "../oauth/cimd.ts";
 import { conexoesDaPessoa } from "../oauth/conexoes.ts";
+import { situacaoDaConexao } from "../oauth/situacao-conexao.ts";
 import { LimitadorPublicoOAuth, atenderAutorizacao, atenderToken } from "../oauth/rotas.ts";
 import { concluirConsentimento, lerPedidoParaConsentimento, metadadosRecurso, metadadosServidor, type DependenciasConsentimento } from "../oauth/servico.ts";
 import { instalarDetector } from "./detector-rede-teste.ts";
@@ -687,5 +688,326 @@ test("log do teste real (28/10): o aviso de responseMode json do SDK não chega 
     assert.ok(vistos.includes(AVISO_RESPOSTA_JSON), "controle: sem o filtro, o SDK avisa com o texto EXATO filtrado");
   } finally {
     console.warn = original;
+  }
+});
+
+// ---------------------------------------------------------------- experiência de conexão (situação baseada em evidência)
+
+/** Mesma regra da composição real (app/api/mcp/dependencias.ts): audita e só marca "ferramenta" em OK/SEM_DADOS. */
+async function subirComRegistro() {
+  const ref: { a?: Ambiente; pendentes: Promise<unknown>[] } = { pendentes: [] };
+  ref.a = await subir({ agendaExtra: {
+    registrar(e) {
+      ref.pendentes.push(ref.a!.repo.auditar({ evento: "FERRAMENTA", ...e }).then(() => (e.resultado === "OK" || e.resultado === "SEM_DADOS" ? ref.a!.repo.marcarUso(e.concessaoId, true) : undefined)));
+    },
+  } });
+  return { a: ref.a, assentar: async () => { await Promise.all(ref.pendentes); } };
+}
+
+async function situacaoAtual(a: Ambiente, usuario = UA) {
+  const tela = await conexoesDaPessoa(a.env, a.repo, usuario);
+  return tela.conexoes.map((c) => ({ ...situacaoDaConexao(c), id: c.id, revogadaEm: c.revogadaEm, ultimaFalha: c.evidencias.ultimaFalha, escopos: c.escopos, empresaId: c.empresaId, empresaNoPiloto: c.empresaNoPiloto }));
+}
+
+test("experiência: só a chamada de ferramenta real confirma a consulta; tools/list e autorização não confirmam", async () => {
+  const { a, assentar } = await subirComRegistro();
+  try {
+    const t = await conectar(a, { escopos: ["conhecimento:read"] });
+    assert.equal((await situacaoAtual(a))[0].codigo, "AUTORIZADA_SEM_CONSULTA");
+    const c = await clienteMcp(a, t.acesso);
+    await c.listTools();
+    await assentar();
+    assert.equal((await situacaoAtual(a))[0].codigo, "AUTORIZADA_SEM_CONSULTA", "listar ferramentas não é consulta");
+    await c.callTool({ name: "kidmais_buscar_conhecimento", arguments: { consulta: "contas a receber", limite: 1 } });
+    await assentar();
+    const depois = (await situacaoAtual(a))[0];
+    assert.equal(depois.codigo, "CONSULTA_OK");
+    assert.match(depois.detalhe, /Última consulta bem-sucedida em \d{2}\/\d{2}\/\d{4}/);
+    await c.close();
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: permissão não concedida vira erro explícito e evidência, sem dados, e não pede reconexão geral", async () => {
+  const { a, assentar } = await subirComRegistro();
+  try {
+    const t = await conectar(a, { escopos: ["conhecimento:read"] });
+    const c = await clienteMcp(a, t.acesso);
+    await c.callTool({ name: "kidmais_buscar_conhecimento", arguments: { consulta: "contas a receber", limite: 1 } });
+    await assentar();
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 1000);
+    const r = await c.callTool({ name: "kidmais_consultar_recebiveis_resumo", arguments: {} }) as { isError?: boolean; content: Array<{ text: string }>; structuredContent?: unknown };
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /^ESCOPO_INSUFICIENTE: /);
+    assert.match(r.content[0].text, /falta de permissão, não ausência de dados/);
+    assert.equal(r.structuredContent, undefined, "nenhum dado financeiro");
+    await assentar();
+    const s = (await situacaoAtual(a))[0];
+    assert.equal(s.codigo, "CONSULTA_OK", "a conexão continua saudável");
+    assert.equal(s.ultimaFalha?.codigo, "ESCOPO_INSUFICIENTE");
+    assert.equal(s.ultimaFalha?.capacidade, "kidmais_consultar_recebiveis_resumo");
+    assert.doesNotMatch(JSON.stringify(s.ultimaFalha), /contas|consulta a receber|Bearer|kma_/);
+    await c.close();
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: sucesso depois da falha limpa a falha registrada", async () => {
+  const { a, assentar } = await subirComRegistro();
+  try {
+    const t = await conectar(a, { escopos: ["conhecimento:read"] });
+    const c = await clienteMcp(a, t.acesso);
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 1000);
+    await c.callTool({ name: "kidmais_consultar_agenda", arguments: {} });
+    await assentar();
+    assert.equal((await situacaoAtual(a))[0].ultimaFalha?.codigo, "ESCOPO_INSUFICIENTE");
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 1000);
+    await c.callTool({ name: "kidmais_buscar_conhecimento", arguments: { consulta: "contas a receber", limite: 1 } });
+    await assentar();
+    assert.equal((await situacaoAtual(a))[0].ultimaFalha, null);
+    await c.close();
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: revogar mostra desconectada e bloqueia; reconectar cria outra concessão, sem ressuscitar a antiga", async () => {
+  const { a, assentar } = await subirComRegistro();
+  try {
+    const t = await conectar(a, { escopos: ["conhecimento:read"] });
+    const antes = (await situacaoAtual(a))[0];
+    assert.equal(await a.repo.revogarConcessao(antes.id, "USUARIO", UA), true);
+    assert.equal((await situacaoAtual(a))[0].codigo, "DESCONECTADA");
+    assert.equal((await postMcp(a, t.acesso, LISTAR)).status, 401);
+    const novo = await conectar(a, { escopos: ["conhecimento:read", "agenda:read"] });
+    await assentar();
+    const lista = await situacaoAtual(a);
+    assert.equal(lista.filter((c) => !c.revogadaEm).length, 1);
+    assert.notEqual(lista.find((c) => !c.revogadaEm)?.id, antes.id);
+    assert.equal(lista.find((c) => c.id === antes.id)?.codigo, "DESCONECTADA");
+    assert.equal((await postMcp(a, t.acesso, LISTAR)).status, 401, "o token antigo segue recusado");
+    assert.equal((await postMcp(a, novo.acesso, LISTAR)).status, 200);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: nova autorização substitui a anterior sem aparecer como problema", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    const t1 = await conectar(a, { escopos: ["conhecimento:read"] });
+    await conectar(a, { escopos: ["conhecimento:read", "agenda:read"] });
+    const lista = await situacaoAtual(a);
+    assert.deepEqual(lista.map((c) => c.codigo).sort(), ["AUTORIZADA_SEM_CONSULTA", "SUBSTITUIDA"]);
+    assert.equal((await postMcp(a, t1.acesso, LISTAR)).status, 401);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: tempo sem uso não desconecta; só o fim da renovação pede reconexão", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 2 * 3_600_000);
+    assert.equal((await situacaoAtual(a))[0].codigo, "AUTORIZADA_SEM_CONSULTA", "acesso vencido com renovação válida não é problema");
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 29 * 86_400_000);
+    assert.equal((await situacaoAtual(a))[0].codigo, "AUTORIZADA_SEM_CONSULTA", "29 dias sem uso continua conectada");
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 2 * 86_400_000);
+    const s = (await situacaoAtual(a))[0];
+    assert.equal(s.codigo, "PRECISA_RECONECTAR");
+    assert.match(s.causa ?? "", /renovação automática/);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: assistente que não troca o código no prazo pede reconexão; dentro do prazo, não", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    const { location } = await autorizar(a);
+    const pedido = new URL(location!).searchParams.get("pedido")!;
+    await concluirConsentimento({ pedido, empresaId: A, escopos: ["conhecimento:read"], decisao: "PERMITIR" }, { usuario_id: UA, papel: "ADMINISTRATIVO" }, consentimentoDeps(a));
+    const pendente = (await situacaoAtual(a))[0];
+    assert.equal(pendente.codigo, "AUTORIZADA_SEM_CONSULTA");
+    assert.match(pendente.detalhe, /Volte ao assistente/);
+    a.relogio.agora = new Date(a.relogio.agora.getTime() + 120_000);
+    const vencido = (await situacaoAtual(a))[0];
+    assert.equal(vencido.codigo, "PRECISA_RECONECTAR");
+    assert.match(vencido.causa ?? "", /não concluiu/);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: reuso de credencial e senha trocada pedem reconexão com a causa", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    const t = await conectar(a, { escopos: ["conhecimento:read"] });
+    a.repo.usuarios.set(UA, { ativo: true, papel: "ADMINISTRATIVO", senhaAlteradaEm: new Date(a.relogio.agora.getTime() + 1000) });
+    assert.match((await situacaoAtual(a))[0].causa ?? "", /senha/);
+    a.repo.usuarios.set(UA, { ativo: true, papel: "ADMINISTRATIVO", senhaAlteradaEm: new Date("2026-01-01T00:00:00Z") });
+    const r1 = await trocar(a, { grant_type: "refresh_token", refresh_token: t.atualizacao, client_id: CHATGPT });
+    assert.equal(r1.status, 200);
+    await trocar(a, { grant_type: "refresh_token", refresh_token: t.atualizacao, client_id: CHATGPT });
+    const s = (await situacaoAtual(a))[0];
+    assert.equal(s.codigo, "PRECISA_RECONECTAR");
+    assert.match(s.causa ?? "", /por segurança/);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("troca de conta: ler o pedido não o consome e a concessão nasce só com quem decide; nada passa para outra pessoa", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    const { location, p } = await autorizar(a);
+    const pedido = new URL(location!).searchParams.get("pedido")!;
+    // A pessoa A abre a tela (usuário errado) e não decide.
+    assert.ok(await lerPedidoParaConsentimento(pedido, consentimentoDeps(a), A));
+    assert.equal((await situacaoAtual(a, UA)).length, 0);
+    // Depois de trocar de conta, a pessoa B lê o MESMO pedido e autoriza na empresa dela.
+    assert.ok(await lerPedidoParaConsentimento(pedido, consentimentoDeps(a), B));
+    const { destino } = await concluirConsentimento({ pedido, empresaId: B, escopos: ["conhecimento:read"], decisao: "PERMITIR" }, { usuario_id: UB, papel: "REPRESENTANTE_AUTORIZADO" }, consentimentoDeps(a));
+    assert.equal((await situacaoAtual(a, UA)).length, 0, "a pessoa A continua sem concessão");
+    const deB = await situacaoAtual(a, UB);
+    assert.equal(deB.length, 1);
+    assert.equal(deB[0].empresaId, B);
+    assert.deepEqual(deB[0].escopos, ["conhecimento:read"]);
+    // Uso único: A não reaproveita o pedido, nem para outra empresa.
+    await assert.rejects(concluirConsentimento({ pedido, empresaId: A, escopos: ["conhecimento:read"], decisao: "PERMITIR" }, { usuario_id: UA, papel: "ADMINISTRATIVO" }, consentimentoDeps(a)));
+    assert.equal((await situacaoAtual(a, UA)).length, 0);
+    const code = new URL(destino).searchParams.get("code")!;
+    const token = await trocar(a, { grant_type: "authorization_code", code, code_verifier: p.verifier, redirect_uri: CALLBACK, client_id: CHATGPT, resource: `${a.url}/api/mcp` });
+    assert.equal(token.status, 200);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("troca de conta: usuário sem vínculo com a empresa não autoriza, mesmo com o pedido em mãos", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    const { location } = await autorizar(a);
+    const pedido = new URL(location!).searchParams.get("pedido")!;
+    await assert.rejects(concluirConsentimento({ pedido, empresaId: B, escopos: ["conhecimento:read"], decisao: "PERMITIR" }, { usuario_id: UA, papel: "ADMINISTRATIVO" }, consentimentoDeps(a)));
+    assert.equal((await situacaoAtual(a, UA)).length, 0);
+    assert.equal((await situacaoAtual(a, UB)).length, 0);
+    // O pedido sobrevive à recusa: o usuário certo ainda consegue decidir.
+    assert.ok(await lerPedidoParaConsentimento(pedido, consentimentoDeps(a), A));
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: empresa que sai do piloto aparece como tal, sem virar desconexão", async () => {
+  const { a } = await subirComRegistro();
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    assert.equal((await situacaoAtual(a))[0].empresaNoPiloto, true);
+    a.env.MCP_TENANT_ALLOWLIST = B;
+    const s = (await situacaoAtual(a))[0];
+    assert.equal(s.empresaNoPiloto, false);
+    assert.equal(s.codigo, "AUTORIZADA_SEM_CONSULTA");
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: descrições dizem quando usar e o que não fazem; leitura preservada; nenhuma ferramenta nova", async () => {
+  const a = await subir();
+  try {
+    const t = await conectar(a);
+    const c = await clienteMcp(a, t.acesso);
+    const { tools } = await c.listTools();
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
+    for (const x of tools) {
+      assert.match(x.description ?? "", /Use /, x.name);
+      assert.equal(x.annotations?.readOnlyHint, true, x.name);
+      assert.equal(x.annotations?.destructiveHint, false, x.name);
+      assert.ok((x.description ?? "").length < 1024, x.name);
+    }
+    assert.match(tools.find((x) => x.name === "kidmais_consultar_agenda")?.description ?? "", /não indica disponibilidade/);
+    assert.match(tools.find((x) => x.name === "kidmais_consultar_recebiveis_resumo")?.description ?? "", /ESCOPO_INSUFICIENTE/);
+    await c.close();
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: falha é a última pelo horário, por conexão; mais de 30 dias não aparece; a lista traz no máximo 50", async () => {
+  const a = await subir();
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    const [c] = await a.repo.listarConcessoes(UA);
+    const falha = (codigo: string) => a.repo.auditar({ evento: "FERRAMENTA", resultado: "NEGADO", codigo, concessaoId: c.id, usuarioId: UA, empresaId: A, clientId: c.clientId, capacidade: "kidmais_consultar_agenda", itens: 0, duracaoMs: 1 });
+    const t0 = a.relogio.agora.getTime();
+    a.relogio.agora = new Date(t0 + 10_000);
+    await falha("MAIS_NOVA");
+    a.relogio.agora = new Date(t0 + 5_000);
+    await falha("MAIS_ANTIGA");
+    assert.equal((await a.repo.lerUltimasFalhas(UA)).get(c.id)?.codigo, "MAIS_NOVA", "gravada antes, mas com horário maior");
+    a.relogio.agora = new Date(t0 + 31 * 86_400_000);
+    assert.equal((await a.repo.lerUltimasFalhas(UA)).has(c.id), false);
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: a lista traz no máximo 50, ativa primeiro e encerradas da mais nova para a mais antiga", async () => {
+  const a = await subir();
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    const [c] = await a.repo.listarConcessoes(UA);
+    for (let i = 0; i < 60; i += 1) {
+      a.relogio.agora = new Date(a.relogio.agora.getTime() + 1000);
+      await a.repo.criarConcessaoComCodigo({ usuarioId: UA, empresaId: A, clientId: c.clientId, clienteNome: c.clienteNome, redirectUri: CALLBACK, escopos: ["conhecimento:read"], recurso: `${a.url}/api/mcp` }, `codigo-${i}`, new Date(a.relogio.agora.getTime() + 60_000), "A".repeat(43));
+    }
+    const lista = await a.repo.listarConcessoes(UA);
+    assert.equal(lista.length, 50);
+    assert.equal(lista[0].revogadaEm, null);
+    assert.equal(lista.filter((x) => !x.revogadaEm).length, 1);
+    const encerradas = lista.slice(1).map((x) => x.criadaEm);
+    assert.deepEqual(encerradas, [...encerradas].sort().reverse());
+  } finally {
+    await descer(a);
+  }
+});
+
+test("experiência: leitura das falhas que falha não derruba a lista; revogar segue funcionando", async () => {
+  const a = await subir();
+  const avisos: string[] = [];
+  const aviso = console.warn;
+  console.warn = (m: string) => { avisos.push(m); };
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    const quebrado = { async lerUltimasFalhas(): Promise<never> { const e = new Error("segredo-na-mensagem"); e.name = "PrazoDaTransacaoVencido"; throw e; } };
+    const tela = await conexoesDaPessoa(a.env, a.repo, UA, quebrado);
+    assert.equal(tela.falhasDisponiveis, false);
+    assert.equal(tela.conexoes.length, 1);
+    assert.equal(tela.conexoes[0].evidencias.ultimaFalha, null);
+    assert.equal(situacaoDaConexao(tela.conexoes[0]).codigo, "AUTORIZADA_SEM_CONSULTA");
+    assert.deepEqual(avisos, ["[Kidmais MCP] falhas registradas indisponíveis: PRAZO_DA_APLICACAO"]);
+    assert.equal(await a.repo.revogarConcessao(tela.conexoes[0].id, "USUARIO", UA), true);
+    // Sem conexão ativa, nem tenta ler a auditoria.
+    avisos.length = 0;
+    const depois = await conexoesDaPessoa(a.env, a.repo, UA, quebrado);
+    assert.equal(depois.falhasDisponiveis, true);
+    assert.deepEqual(avisos, []);
+  } finally {
+    console.warn = aviso;
+    await descer(a);
+  }
+});
+
+test("experiência: leitura normal das falhas informa disponibilidade", async () => {
+  const a = await subir();
+  try {
+    await conectar(a, { escopos: ["conhecimento:read"] });
+    assert.equal((await conexoesDaPessoa(a.env, a.repo, UA)).falhasDisponiveis, true);
+  } finally {
+    await descer(a);
   }
 });

@@ -68,6 +68,33 @@ const travada = (a: ReturnType<typeof ambiente>) => {
     a.aba.guardarBuscaNaAba('contratos', 'Theo');
     assert.equal(a.armazenado.has(CHAVE), false, 'e não pode ser gravada de novo');
 };
+/**
+ * 3ª revisão do merge (855e8df8, P3): rastreia a marca da leitura de fim (a última criada antes do GET; `capturar` vai
+ * dentro da leitura simulada) e diz se a MESMA marca foi vista vigente (classificação) e depois obsoleta (consumo): a
+ * janela exata, e não só a resposta que já nasceu obsoleta. `aoClassificar` roda uma vez, quando essa marca é vista
+ * vigente pela primeira vez (a classificação): as varreduras contam as microtarefas a partir dali, e não do GET, porque
+ * o tempo do corpo da resposta muda entre versões do Node (no 22 do CI o json() passa por uma macrotarefa).
+ */
+function rastrearMarca(a: ReturnType<typeof ambiente>, aoClassificar: () => void = () => {}) {
+    let ultima: unknown = null, daLeitura: unknown = null, classificada = false;
+    const historico = new Map<unknown, boolean[]>();
+    const marcaOriginal = a.ctx.marcaDaSessao, obsoletaOriginal = a.ctx.sessaoObsoletaDesde;
+    a.ctx.marcaDaSessao = () => (ultima = marcaOriginal());
+    a.ctx.sessaoObsoletaDesde = (m: unknown) => {
+        const r = obsoletaOriginal(m) as boolean;
+        historico.set(m, [...(historico.get(m) ?? []), r]);
+        if (m === daLeitura && !r && !classificada) { classificada = true; aoClassificar(); }
+        return r;
+    };
+    return {
+        capturar: () => { daLeitura = ultima; },
+        janelaExata: () => {
+            const h = historico.get(daLeitura) ?? [];
+            const i = h.indexOf(false);
+            return i >= 0 && h.indexOf(true, i + 1) > i;
+        },
+    };
+}
 
 for (const [rotulo, fim] of [['401', 401], ['200 sem usuário (controle)', 'sem-usuario']] as const) {
     test(`prévia da lista com ${rotulo}: trava e apaga a busca e vai ao login, sem esperar o ciclo do painel`, async () => {
@@ -313,21 +340,207 @@ for (const natureza of ['leitura', 'escrita'] as const) {
 test('teto de releituras esgotado com nova troca desta página em curso: nada entregue nem decidido pela resposta antiga', async () => {
     const r = retida();
     let trocas = 0;
-    // Cada releitura sai antes de uma nova troca desta página e volta antiga; as duas primeiras trocas terminam logo, a última não.
+    // PR #389 (merge da staging): a releitura é única. A pós-confirmação sai antes de uma troca que termina logo;
+    // a releitura sai antes de uma nova troca desta página que não termina e volta antiga.
     const gira = async (): Promise<Leitura> => {
         a.ctx.iniciarTrocaDeEmpresa();
-        if (++trocas < 3) setImmediate(() => a.ctx.encerrarTrocaDeEmpresa());
+        if (++trocas < 2) setImmediate(() => a.ctx.encerrarTrocaDeEmpresa());
         return 'sem-usuario';
     };
-    const a = ambiente([S1, r.passo, gira, gira, gira]);
+    const a = ambiente([S1, r.passo, gira, gira]);
     try {
         const pedido = erroDe(a.mod.adminFetch(LISTA));
         await r.pedida;
         a.ctx.iniciarTrocaDeEmpresa(); a.ctx.encerrarTrocaDeEmpresa();
         r.soltar('sem-usuario');
         const e = await pedido;
-        assert.equal(a.leiturasFeitas(), 5, 'pós-confirmação e três releituras');
+        assert.equal(a.leiturasFeitas(), 3, 'pós-confirmação e uma releitura');
         assert.equal(e?.tipo, 'SESSAO_NAO_CONFIRMADA');
+        assert.deepEqual(a.navegacoes, [], 'sem login nem descarte');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
+    } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+});
+
+// ---------------------------------------------------------------- revisão do merge a6c070f1 (P2)
+// A troca desta página pode começar entre a resposta de fim (401 ou sem usuário) chegar e o chamador consumi-la. A trava é
+// decidida no consumo, com a marca conferida ali: resposta que uma troca já tornou antiga não trava nada.
+
+for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
+    test(`pós-confirmação de fim (${rotulo}) com a troca começando k microtarefas depois da classificação: nunca trava com a troca já iniciada`, async () => {
+        const regimes = { travou: 0, preservou: 0, janelaExata: 0 };
+        for (let k = 0; k < 8; k++) {
+            let disparo: Promise<void> = Promise.resolve();
+            const a = ambiente([S1, async () => {
+                marca.capturar();
+                return fim;
+            }, S1]);
+            const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); })(); });
+            (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
+            const travas: boolean[] = [];
+            const original = a.ctx.encerrarBuscasDaAba;
+            a.ctx.encerrarBuscasDaAba = () => { travas.push(a.ctx.fimDaTrocaEmCurso() !== null); return original(); };
+            try {
+                await erroDe(a.mod.adminFetch(LISTA));
+                await disparo;
+                assert.deepEqual(travas.filter(Boolean), [], `k=${k}: nenhuma trava depois de a troca começar`);
+                if (travas.length) { regimes.travou += 1; travada(a); }
+                else {
+                    regimes.preservou += 1;
+                    if (marca.janelaExata()) regimes.janelaExata += 1;
+                    assert.deepEqual(a.navegacoes, [], `k=${k}: sem trava, nada navega`);
+                    assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
+                }
+            } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+        }
+        assert.ok(regimes.travou > 0 && regimes.preservou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+        assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
+    });
+
+    test(`fluxo real: pós-confirmação de fim (${rotulo}) e trocarEmpresaAtiva começando antes do consumo, recusada (403): lista entregue, busca mantida`, async () => {
+        // Como na reprodução do Astra: a prévia da troca recebe o cabeçalho e fica com o corpo retido; a pós-confirmação da
+        // lista devolve o fim e solta esse corpo no mesmo instante. A troca começa depois de a resposta de fim ser
+        // classificada e antes de a lista consumi-la. Demais leituras = sessão vigente S1.
+        let soltarTroca!: (v: unknown) => void, avisarTroca!: () => void;
+        const corpoDaTroca = new Promise((r) => { soltarTroca = r; });
+        const trocaPedida = new Promise<void>((r) => { avisarTroca = r; });
+        let soltarPost!: () => void, avisarPost!: () => void;
+        const segurar = new Promise<void>((r) => { soltarPost = r; });
+        const corpoS1 = { ok: true, data: { usuarioId: 'u', sessaoId: 's1', csrf: 'c', contexto: { empresaAtual: { id: 'A' } } } };
+        const a = ambiente([S1, async () => { soltarTroca(corpoS1); return fim; }, S1], { status: 403, segurar });
+        (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 200;
+        const postPedido = new Promise<void>((r) => { avisarPost = r; });
+        const fetchBase = (globalThis as unknown as { fetch: Fn }).fetch;
+        let primeira = true;
+        (globalThis as unknown as { fetch: (input: unknown, init?: RequestInit) => unknown }).fetch = (input: unknown, init: RequestInit = {}) => {
+            const metodo = (init.method ?? 'GET').toUpperCase();
+            if (metodo === 'POST') avisarPost();
+            if (primeira && metodo === 'GET' && String(input) === '/api/admin/autenticacao') {
+                primeira = false; avisarTroca();
+                return Promise.resolve({ ok: true, status: 200, json: () => corpoDaTroca });
+            }
+            return fetchBase(input, init);
+        };
+        const troca = a.mod.trocarEmpresaAtiva('B') as Promise<Response>;
+        await trocaPedida;
+        const pedido = (a.mod.adminFetch(LISTA) as Promise<Response>).then((r) => r.ok ? 'entregue' : 'recusada', (e: { tipo?: string }) => e.tipo);
+        await postPedido;
+        for (let j = 0; j < 20; j++) await Promise.resolve();
+        assert.notEqual(a.ctx.fimDaTrocaEmCurso(), null, 'premissa: troca pendente durante a resposta de fim');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'com a troca pendente, nada travou');
+        soltarPost();
+        assert.equal((await troca).status, 403, 'a troca é recusada pelo servidor');
+        assert.equal(await pedido, 'entregue', 'troca recusada + releitura da mesma sessão: a lista é entregue');
+        assert.deepEqual(a.navegacoes, [], 'sem login nem descarte');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
+        a.aba.guardarBuscaNaAba('contratos', 'Theo');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Theo', 'e continua gravável');
+    });
+}
+
+// ---------------------------------------------------------------- 2ª revisão do merge (c72b9251, P2)
+// Prévia da troca de empresa (e da reautenticação) cuja resposta de fim cruza OUTRA troca desta página que começa antes
+// do consumo: nada vai ao login, nada é enviado, nada trava. Com a troca começando depois do consumo, o fim vigente segue.
+
+for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
+    for (const consumidor of ['trocarEmpresaAtiva', 'reautenticarSessao'] as const) {
+        test(`${consumidor}: prévia de fim (${rotulo}) com outra troca começando k microtarefas depois da classificação: sem login, envio nem trava se a troca veio antes do consumo`, async () => {
+            const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
+            for (let k = 0; k < 8; k++) {
+                let disparo: Promise<void> = Promise.resolve();
+                let trocaIniciada = false;
+                const a = ambiente([async () => {
+                    marca.capturar();
+                    return fim;
+                }]);
+                const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })(); });
+                const travas: boolean[] = [];
+                const original = a.ctx.encerrarBuscasDaAba;
+                a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
+                let iniciadaNoConsumo = false;
+                const consumo = consumidor === 'trocarEmpresaAtiva'
+                    ? erroDe((a.mod.trocarEmpresaAtiva('B') as Promise<unknown>).finally(() => { iniciadaNoConsumo = trocaIniciada; }))
+                    : (a.mod.reautenticarSessao('senha') as Promise<{ ok: boolean; erro?: string }>).finally(() => { iniciadaNoConsumo = trocaIniciada; });
+                try {
+                    const r = await consumo as { message?: string; erro?: string } | null;
+                    await disparo;
+                    const texto = String(r?.message ?? r?.erro);
+                    assert.equal(a.posts(), 0, `k=${k}: nada é enviado`);
+                    assert.deepEqual(travas.filter(Boolean), [], `k=${k}: nenhuma trava depois de a troca começar`);
+                    if (travas.length) {
+                        regimes.fim += 1;
+                        assert.match(texto, consumidor === 'trocarEmpresaAtiva' ? /Faça login/ : /sessão terminou/, `k=${k}: fim vigente`);
+                        travada(a);
+                    } else {
+                        regimes.cruzou += 1;
+                        if (marca.janelaExata()) regimes.janelaExata += 1;
+                        assert.ok(iniciadaNoConsumo, `k=${k}: sem trava só quando a troca começou antes do consumo`);
+                        assert.match(texto, /Não foi possível confirmar a sessão/, `k=${k}: resposta antiga não decide`);
+                        assert.deepEqual(a.navegacoes, [], `k=${k}: sem login`);
+                        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
+                    }
+                } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+            }
+            assert.ok(regimes.fim > 0 && regimes.cruzou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+            assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
+        });
+    }
+}
+
+for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
+    test(`confirmarRenovacao: confirmação de fim (${rotulo}) com outra troca começando k microtarefas depois da classificação: em verificação, sem trava nem login se a troca veio antes do consumo`, async () => {
+        const regimes = { fim: 0, cruzou: 0, janelaExata: 0 };
+        for (let k = 0; k < 8; k++) {
+            let disparo: Promise<void> = Promise.resolve();
+            let trocaIniciada = false;
+            const a = ambiente([async () => {
+                marca.capturar();
+                return fim;
+            }]);
+            const marca = rastrearMarca(a, () => { disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); trocaIniciada = true; })(); });
+            const travas: boolean[] = [];
+            const original = a.ctx.encerrarBuscasDaAba;
+            a.ctx.encerrarBuscasDaAba = () => { travas.push(trocaIniciada); return original(); };
+            try {
+                const r = await a.mod.confirmarRenovacao({ anterior: 's1', atual: 's1b' }) as { ok: boolean; erro?: string };
+                await disparo;
+                assert.equal(r.ok, false, `k=${k}: renovação não concluída`);
+                assert.deepEqual(travas.filter(Boolean), [], `k=${k}: nenhuma trava depois de a troca começar`);
+                assert.equal(a.posts(), 0, `k=${k}: nada é enviado`);
+                if (travas.length) { regimes.fim += 1; travada(a); }
+                else {
+                    regimes.cruzou += 1;
+                    if (marca.janelaExata()) regimes.janelaExata += 1;
+                    assert.equal(r.erro, a.mod.AVISO_RENOVACAO_EM_VERIFICACAO, `k=${k}: resposta antiga deixa o resultado em verificação`);
+                    assert.equal(a.navegacoes.some((n) => n.includes('/admin/login')), false, `k=${k}: sem login`);
+                    assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
+                }
+            } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+        }
+        assert.ok(regimes.fim > 0 && regimes.cruzou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+        assert.ok(regimes.janelaExata > 0, `a mesma marca vigente na classificação e obsoleta no consumo: ${JSON.stringify(regimes)}`);
+    });
+}
+
+// ---------------------------------------------------------------- 3ª revisão do merge (855e8df8, P2)
+// GET da renovação traz usuário, mas a marca ficou obsoleta (outra troca desta página começou) e a troca não termina no
+// prazo: a confirmação é falha decidida localmente. A senha já foi aceita: o resultado fica em verificação, a renovação
+// pendente é cancelada e nada é concluído, descartado, enviado ou travado.
+test('confirmarRenovacao: GET com usuário e troca pendente além do prazo: em verificação, sem concluir a renovação', async () => {
+    const a = ambiente([async () => { a.ctx.iniciarTrocaDeEmpresa(); return S1; }]);
+    (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
+    const chamadas: string[] = [];
+    const cancelar = a.ctx.cancelarRenovacaoDeSessao, concluir = a.ctx.concluirRenovacaoDeSessao;
+    a.ctx.cancelarRenovacaoDeSessao = () => { chamadas.push('cancelar'); return cancelar(); };
+    a.ctx.concluirRenovacaoDeSessao = (...args: unknown[]) => { chamadas.push('concluir'); return concluir(...args); };
+    a.ctx.iniciarRenovacaoDeSessao();
+    try {
+        const r = await a.mod.confirmarRenovacao({ anterior: 's1', atual: 's1b' }) as { ok: boolean; erro?: string };
+        assert.notEqual(a.ctx.fimDaTrocaEmCurso(), null, 'premissa: a troca segue pendente depois do prazo');
+        assert.equal(a.leiturasFeitas(), 1, 'uma leitura, com usuário, sem releitura');
+        assert.equal(r.ok, false);
+        assert.equal(r.erro, a.mod.AVISO_RENOVACAO_EM_VERIFICACAO, 'falha local deixa o resultado em verificação');
+        assert.deepEqual(chamadas, ['cancelar'], 'a renovação pendente é cancelada, nunca concluída com sessão nula');
+        assert.equal(a.posts(), 0, 'nada é enviado');
         assert.deepEqual(a.navegacoes, [], 'sem login nem descarte');
         assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
     } finally { a.ctx.encerrarTrocaDeEmpresa(); }

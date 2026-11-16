@@ -80,7 +80,7 @@ test("105: postcheck passa, gatilho impede reativar concessão revogada", async 
     await assert.rejects(db.query(`UPDATE mcp_oauth_concessoes SET revogada_em = NULL, motivo_revogacao = NULL WHERE id = $1`, [id]), (e: { code?: string }) => e.code === "23514");
     await assert.rejects(db.query(`UPDATE mcp_oauth_concessoes SET empresa_id = gen_random_uuid() WHERE id = $1`, [id]));
   } finally {
-    await encerrarDescartavel(db, true);
+    await encerrarDescartavel(db);
   }
 });
 
@@ -266,7 +266,7 @@ test("105 (rodada 2, achados 3 e 4): retenção na gravação, teto duro de emis
     await assert.rejects(repo.salvarTokens(id, ["agenda:read"], par().acesso, null), (e: { name?: string }) => e.name === "temporarily_unavailable");
     assert.equal(await repo.emissoesRecentes(id), 60);
   } finally {
-    await encerrarDescartavel(db, true);
+    await encerrarDescartavel(db);
   }
 });
 
@@ -292,7 +292,7 @@ test("105 (rodada 2, achados 3 e 4): expurgo drena em lotes e preserva a evidên
     assert.equal(lido?.usado, true, "código usado de concessão ativa fica (reapresentação ainda revoga)");
     assert.equal(lido?.concessaoId, ativa);
   } finally {
-    await encerrarDescartavel(db, true);
+    await encerrarDescartavel(db);
   }
 });
 
@@ -360,5 +360,79 @@ test("105 (rodada 3, achado 1): expurgo pula linha travada (SKIP LOCKED) e não 
   } finally {
     await encerrarDescartavel(d2, false);
     await encerrarDescartavel(d1, true);
+  }
+});
+
+// ---------------------------------------------------------------- experiência de conexão — NÃO EXECUTADO (aguarda autorização do cluster)
+
+test("experiência: listarConcessoes devolve as evidências; sem migration; só a própria pessoa; nenhum hash", async (t) => {
+  const db = await conectarDescartavel();
+  try {
+    if (!(await instalada(db))) return t.skip("estado sem 105");
+    const s = await semear(db);
+    const outro = await semear(db);
+    const repo = criarRepositorioOAuthPostgres(() => executor(db), (w) => transacao(db, w));
+    await repo.guardarCliente(CLIENTE);
+    const nova = (usuarioId: string, empresaId: string, codigo: string, expira = new Date(Date.now() + 60_000)) => repo.criarConcessaoComCodigo(
+      { usuarioId, empresaId, clientId: CLIENTE.clientId, clienteNome: "ChatGPT", redirectUri: CLIENTE.redirectUris[0], escopos: ["conhecimento:read"], recurso: RECURSO }, codigo, expira, CHALLENGE);
+    const codigo = hashSegredo(novoSegredo("kmc"));
+    const id = await nova(s.usuario, s.empresa, codigo);
+    const lerMinha = async () => (await repo.listarConcessoes(s.usuario)).find((c) => c.id === id)!;
+    const falhaMinha = async () => (await repo.lerUltimasFalhas(s.usuario)).get(id) ?? null;
+
+    let c = await lerMinha();
+    assert.deepEqual({ ...c.evidencias }, { motivoRevogacao: null, credencialInvalida: false, codigoUsado: false, codigoPendente: true, tokenVigente: false });
+
+    assert.equal(await repo.consumirCodigo(codigo), true);
+    await repo.salvarTokens(id, ["conhecimento:read"], { hash: hashSegredo(novoSegredo("kma")), expiraEm: new Date(Date.now() + 3_600_000) }, { hash: hashSegredo(novoSegredo("kmr")), expiraEm: new Date(Date.now() + 86_400_000) });
+    c = await lerMinha();
+    assert.equal(c.evidencias.codigoUsado, true);
+    assert.equal(c.evidencias.codigoPendente, false);
+    assert.equal(c.evidencias.tokenVigente, true);
+
+    // Falha depois da criação aparece; sucesso posterior a esconde; falha de outra empresa/concessão nunca aparece.
+    await repo.auditar({ evento: "FERRAMENTA", resultado: "NEGADO", codigo: "ESCOPO_INSUFICIENTE", concessaoId: id, usuarioId: s.usuario, empresaId: s.empresa, clientId: CLIENTE.clientId, capacidade: "kidmais_consultar_agenda", itens: 0, duracaoMs: 1 });
+    const registrada = await falhaMinha();
+    assert.equal(registrada?.codigo, "ESCOPO_INSUFICIENTE");
+    assert.equal(registrada?.capacidade, "kidmais_consultar_agenda");
+    await repo.marcarUso(id, true);
+    assert.equal(await falhaMinha(), null);
+    await repo.auditar({ evento: "FERRAMENTA", resultado: "NEGADO", codigo: "ACESSO_NEGADO", concessaoId: id, usuarioId: s.usuario, empresaId: outro.empresa, clientId: CLIENTE.clientId, capacidade: "kidmais_consultar_agenda", itens: 0, duracaoMs: 1 });
+    assert.equal(await falhaMinha(), null, "só auditoria da própria empresa");
+
+    // Senha trocada e vencimento dos tokens, pelo relógio do banco.
+    await db.query(`UPDATE usuarios_administrativos SET senha_alterada_em = clock_timestamp() + interval '1 minute' WHERE id = $1`, [s.usuario]);
+    assert.equal((await lerMinha()).evidencias.credencialInvalida, true);
+    await db.query(`UPDATE usuarios_administrativos SET senha_alterada_em = clock_timestamp() - interval '1 day' WHERE id = $1`, [s.usuario]);
+    assert.equal((await lerMinha()).evidencias.credencialInvalida, false);
+    await db.query(`UPDATE mcp_oauth_tokens SET criado_em = clock_timestamp() - interval '2 hours', expira_em = clock_timestamp() - interval '1 hour' WHERE concessao_id = $1`, [id]);
+    assert.equal((await lerMinha()).evidencias.tokenVigente, false);
+
+    // Isolamento: a outra pessoa não vê; nenhum hash ou segredo sai.
+    const deOutro = await nova(outro.usuario, outro.empresa, hashSegredo(novoSegredo("kmc")));
+    const minhas = await repo.listarConcessoes(s.usuario);
+    assert.ok(minhas.every((x) => x.id !== deOutro));
+    assert.doesNotMatch(JSON.stringify(minhas), /[0-9a-f]{64}/);
+
+    // Lote: duas concessões da mesma empresa; cada falha só na sua, e só a última por horário.
+    const CLIENTE2 = { ...CLIENTE, clientId: "https://claude.ai/oauth/client.json", nome: "Claude" };
+    await repo.guardarCliente(CLIENTE2);
+    const segunda = await repo.criarConcessaoComCodigo({ usuarioId: s.usuario, empresaId: s.empresa, clientId: CLIENTE2.clientId, clienteNome: "Claude", redirectUri: CLIENTE2.redirectUris[0], escopos: ["conhecimento:read"], recurso: RECURSO }, hashSegredo(novoSegredo("kmc")), new Date(Date.now() + 60_000), CHALLENGE);
+    const falhaNa = (concessaoId: string, codigo: string) => repo.auditar({ evento: "FERRAMENTA", resultado: "NEGADO", codigo, concessaoId, usuarioId: s.usuario, empresaId: s.empresa, clientId: CLIENTE2.clientId, capacidade: "kidmais_consultar_agenda", itens: 0, duracaoMs: 1 });
+    await falhaNa(segunda, "ACESSO_NEGADO");
+    await falhaNa(segunda, "ESCOPO_INSUFICIENTE");
+    const lote = await repo.lerUltimasFalhas(s.usuario);
+    assert.equal(lote.get(segunda)?.codigo, "ESCOPO_INSUFICIENTE");
+    assert.equal(lote.has(id), false);
+
+    // Revogação pela pessoa: motivo sai; falha deixa de ser calculada; tokens não contam mais.
+    assert.equal(await repo.revogarConcessao(id, "USUARIO", s.usuario), true);
+    c = await lerMinha();
+    assert.equal(c.evidencias.motivoRevogacao, "USUARIO");
+    assert.equal(await falhaMinha(), null);
+    assert.equal(c.evidencias.tokenVigente, false);
+    assert.doesNotMatch(c.revogadaEm ?? "", /Invalid/);
+  } finally {
+    await encerrarDescartavel(db);
   }
 });

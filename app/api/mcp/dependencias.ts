@@ -34,6 +34,13 @@ type GlobalMcp = typeof globalThis & { __kidmaisMcpLimitador?: LimitadorMcp; __k
 const VAGAS_BANCO_CANAL = new Vagas(12);
 /** Reserva própria para a pessoa VER e DESCONECTAR as conexões: a revogação não disputa vaga com o tráfego externo. */
 const VAGAS_BANCO_PESSOA = new Vagas(2);
+/** As falhas da tela são opcionais e podem ser caras: vaga própria, para nunca tirar a de ver e desconectar. */
+const VAGAS_BANCO_FALHAS = new Vagas(1);
+/**
+ * A identidade (quem está autorizando) também é opcional na tela: vaga própria e prazo curto (9º parecer, P2). Leituras de
+ * identidade presas nunca ocupam as vagas de VER e DESCONECTAR; sem vaga, a tela sai com identidade nula.
+ */
+const VAGAS_BANCO_IDENTIDADE = new Vagas(1);
 
 /**
  * Transação do canal: vaga + prazo do lado da aplicação (conexão descartada ao vencer) + statement_timeout/lock_timeout no
@@ -70,12 +77,33 @@ function repositorio(): RepositorioOAuth {
   return criarRepositorioOAuthPostgres(() => executorOAuth, transacaoOAuth);
 }
 
-function transacaoDaPessoa<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
+/**
+ * A ajuda e documentação aprovada carrega agora? Mesmo leitor da execução (`corpus` abaixo): a tela não oferece a pergunta
+ * pronta quando a busca responderia INDISPONIVEL (12º parecer, P2). Só informativo; a execução confere de novo.
+ */
+export function ajudaDisponivel(): boolean {
+  return carregarCorpusAprovado() !== null;
+}
+
+export function transacaoDaPessoa<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
   return transacaoDoCanal(PRAZO_OAUTH_MS, 2500, 1000, work, VAGAS_BANCO_PESSOA);
+}
+/** Só para identidadeOuNulo na tela de conexões: vaga própria (VAGAS_BANCO_IDENTIDADE) e prazo curto. */
+export function transacaoDaIdentidade<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
+  return transacaoDoCanal(1500, 1200, 500, work, VAGAS_BANCO_IDENTIDADE);
 }
 const executorDaPessoa: DbExecutor = {
   query: ((sql: string, valores?: readonly unknown[]) => transacaoDaPessoa((tx) => tx.query(sql, valores))) as DbExecutor["query"],
 };
+
+const executorDeFalhas: DbExecutor = {
+  query: ((sql: string, valores?: readonly unknown[]) => transacaoDoCanal(1500, 1200, 500, (tx) => tx.query(sql, valores), VAGAS_BANCO_FALHAS)) as DbExecutor["query"],
+};
+
+/** Só para lerUltimasFalhas: prazo curto e vaga própria. Vencido o prazo, a tela sai sem as falhas e avisa. */
+export function leitorDeFalhasDaPessoa(): Pick<RepositorioOAuth, "lerUltimasFalhas"> {
+  return criarRepositorioOAuthPostgres(() => executorDeFalhas, transacaoDaPessoa);
+}
 
 /** Repositório da tela da própria pessoa (listar e desconectar), com reserva de vagas separada do tráfego externo. */
 export function repositorioDaPessoa(): RepositorioOAuth {

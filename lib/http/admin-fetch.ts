@@ -2,7 +2,7 @@
 import {
     cancelarRenovacaoDeSessao, concluirRenovacaoDeSessao, contextoMudou, encerrarBuscasDaAba, guardarAvisoDeContexto, iniciarRenovacaoDeSessao,
     encerrarTrocaDeEmpresa, fimDaTrocaEmCurso, iniciarTrocaDeEmpresa, marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento,
-    sessaoObsoletaDesde,
+    sessaoObsoletaDesde, type MarcaDaSessao,
 } from './contexto-empresa-cliente';
 import { conversaSoLeu, dependeDaResposta, ehConsulta } from './consultas-admin';
 import { loginDestaPagina } from './retorno-login';
@@ -32,62 +32,130 @@ export const AVISO_RESULTADO_INCERTO = 'Resultado incerto: a operação pode ou 
  * na própria confirmação (rede, HTTP não-2xx ou corpo inválido): na falha o contexto é desconhecido.
  * "Encerrada" de uma leitura que saiu antes de uma troca de empresa desta página é OBSOLETA (sessão anterior, já
  * revogada pela troca): não vale como fim da sessão nova (lib/http/contexto-empresa-cliente.ts, iniciarTrocaDeEmpresa).
+ * Leitura VÁLIDA nas mesmas condições também pode ser da sessão anterior (10º parecer, P2): ela não é usada. A confirmação
+ * espera a troca terminar e lê de novo uma vez; troca concluída aparece como outra sessão ou empresa, troca recusada
+ * como a mesma (11º parecer):
+ *   - a espera tem prazo próprio (ESPERA_DA_TROCA.prazoMs) e termina com o cancelamento do sinal, quando houver;
+ *   - prazo vencido, cancelamento ou nova troca durante a releitura → FALHA (contexto indeterminado), nunca "mudou":
+ *     leitura descartada sem afirmar troca, escrita ainda não enviada não sai, escrita respondida mantém o aviso do
+ *     resultado conhecido (AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO, incerto ou recusada).
+ *   - toda releitura que também cruzou uma troca é FALHA, com ou sem usuário (12º parecer): nunca "mudou" nem "encerrada".
+ * A confirmação válida devolve a marca usada; adminFetch a confere de novo, sem await, imediatamente antes do envio.
  * O 401 continua uma falha com status (a decisão da troca de host e o descarte pós-resposta dependem disso), mas leva
- * `fimDaSessao`: true quando é da geração vigente (fim real), false quando é obsoleto como o "encerrada" acima.
+ * `fimDaSessao`: true quando é da geração vigente (fim real), false quando é obsoleto como o "encerrada" acima (Recorte 5,
+ * r12). O 401 obsoleto também cruzou uma troca desta página: segue a mesma espera e releitura da "obsoleta".
  */
-type Confirmacao = { estado: 'valida'; info: InfoSessao } | { estado: 'encerrada' } | { estado: 'obsoleta' } | { estado: 'falha'; status?: number; fimDaSessao?: boolean };
-/** Fim da sessão confirmado ANTES do envio: resposta válida sem usuário ou 401, ambos da geração vigente. */
-const fimConfirmado = (c: Confirmacao) => c.estado === 'encerrada' || (c.estado === 'falha' && c.fimDaSessao === true);
-/** Resposta da sessão anterior a uma troca desta página: não fala pela sessão vigente. */
-const respostaAntiga = (c: Confirmacao) => c.estado === 'obsoleta' || (c.estado === 'falha' && c.fimDaSessao === false);
-async function lerSessao(): Promise<Confirmacao> {
+/**
+ * Prazo da espera pelo fim da troca de empresa desta página (Recorte 5, r12: 15 s). Esgotado com a troca ainda pendente,
+ * nada é entregue, descartado, travado nem navegado: a própria troca, se concluir, descarta a página.
+ * `ESPERA_DA_TROCA.prazoMs` é o mesmo valor, ajustável nos testes.
+ */
+export const PRAZO_ESPERA_DA_TROCA_MS = 15_000;
+export const ESPERA_DA_TROCA = { prazoMs: PRAZO_ESPERA_DA_TROCA_MS };
+
+/** Espera a troca em curso nesta página terminar, com prazo e cancelamento. 'terminou' também quando não há troca. */
+function esperarFimDaTroca(signal?: AbortSignal | null): Promise<'terminou' | 'prazo' | 'cancelada'> {
+    const fim = fimDaTrocaEmCurso();
+    if (!fim) return Promise.resolve('terminou');
+    if (signal?.aborted) return Promise.resolve('cancelada');
+    return new Promise((resolver) => {
+        let encerrado = false;
+        const concluir = (r: 'terminou' | 'prazo' | 'cancelada') => {
+            if (encerrado) return;
+            encerrado = true;
+            clearTimeout(prazo);
+            signal?.removeEventListener('abort', aoCancelar);
+            resolver(r);
+        };
+        const aoCancelar = () => concluir('cancelada');
+        const prazo = setTimeout(() => concluir('prazo'), ESPERA_DA_TROCA.prazoMs);
+        signal?.addEventListener('abort', aoCancelar, { once: true });
+        fim.then(() => concluir('terminou'), () => concluir('terminou'));
+    });
+}
+// 15º parecer, P2: "encerrada" também leva a marca que a classificou; quem retoma o await a confere de novo.
+// Falha com `status` = HTTP não-2xx da leitura da sessão (troca de host, F2a). `local` = decidida aqui (troca desta página
+// pendente, prazo da espera ou cancelamento pelo sinal): não diz nada do servidor e não alimenta a troca de host.
+// O 401 também leva a marca que o classificou (revisão do merge a6c070f1, P2): `fimDaSessao` diz só o que valia na
+// chegada da resposta; quem usa a confirmação depois de um await confere a marca de novo (fimConfirmado/cruzouTroca).
+type Confirmacao = { estado: 'valida'; info: InfoSessao; marca: MarcaDaSessao } | { estado: 'encerrada'; marca: MarcaDaSessao } | { estado: 'obsoleta' } | { estado: 'falha'; status?: number; local?: true; fimDaSessao?: boolean; marca?: MarcaDaSessao };
+const FALHA_LOCAL: Confirmacao = { estado: 'falha', local: true };
+/** Falha que vale como indício de troca de host: não 401 (fim real) e não decidida localmente. */
+const falhaDoServidor = (c: Confirmacao): c is { estado: 'falha'; status?: number } => c.estado === 'falha' && !('local' in c && c.local) && c.status !== 401;
+/** Falha decidida aqui (troca desta página pendente, prazo da espera, releitura cruzada ou cancelamento). */
+const falhaLocal = (c: Confirmacao) => c.estado === 'falha' && c.local === true;
+/**
+ * Fim da sessão confirmado: resposta válida sem usuário ou 401, ambos da geração vigente (Recorte 5, r11/r12) AGORA.
+ * A marca é conferida no momento da pergunta, não só na chegada da resposta: uma troca desta página que começou entre a
+ * classificação e quem a consome (o wrapper que trava a busca, ou o chamador depois de um await) torna a resposta antiga,
+ * e resposta antiga não trava nem encerra nada (revisão do merge a6c070f1, P2).
+ */
+const fimConfirmado = (c: Confirmacao) => (c.estado === 'encerrada' && !sessaoObsoletaDesde(c.marca))
+    || (c.estado === 'falha' && c.fimDaSessao === true && c.marca !== undefined && !sessaoObsoletaDesde(c.marca));
+/**
+ * A confirmação cruzou uma troca desta página: obsoleta, 401 da sessão anterior (Recorte 5, r12) ou cuja marca deixou de
+ * valer depois, ou válida/encerrada cuja marca deixou de valer na volta do await.
+ */
+function cruzouTroca(c: Confirmacao): boolean {
+    return c.estado === 'obsoleta'
+        || (c.estado === 'falha' && c.status === 401 && (c.fimDaSessao === false || (c.marca !== undefined && sessaoObsoletaDesde(c.marca))))
+        || ((c.estado === 'valida' || c.estado === 'encerrada') && sessaoObsoletaDesde(c.marca));
+}
+/**
+ * 14º e 15º pareceres, P2: todo descarte com navegação do adminFetch passa por aqui. Com a troca desta página pendente,
+ * a navegação é dela (aceita → painel; recusada → a página fica): nada navega daqui; a escrita guarda o aviso do
+ * resultado conhecido para a próxima tela. O helper global de contexto não muda.
+ */
+function descartarPagina(aviso: string | undefined, destino: string | undefined, origem: 'escrita' | 'descarte'): void {
+    if (fimDaTrocaEmCurso()) {
+        if (origem === 'escrita' && aviso) guardarAvisoDeContexto(aviso, 'escrita');
+        return;
+    }
+    reiniciarContextoEmpresa(aviso, destino, origem);
+}
+async function confirmarSessao(signal?: AbortSignal | null, releitura = false): Promise<Confirmacao> {
     const marca = marcaDaSessao();
     try {
-        const r = await fetch('/api/admin/autenticacao', { cache: 'no-store' });
-        if (r.status === 401) return { estado: 'falha', status: 401, fimDaSessao: !sessaoObsoletaDesde(marca) };
+        const r = await fetch('/api/admin/autenticacao', { cache: 'no-store', signal });
+        if (r.status === 401) return { estado: 'falha', status: 401, fimDaSessao: !sessaoObsoletaDesde(marca), marca };
         if (!r.ok) return { estado: 'falha', status: r.status };
         const info = await r.json() as InfoSessao;
         if (!info?.ok) return { estado: 'falha' };
-        if (info.data?.usuarioId) return { estado: 'valida', info };
-        return sessaoObsoletaDesde(marca) ? { estado: 'obsoleta' } : { estado: 'encerrada' };
+        if (info.data?.usuarioId) {
+            if (!sessaoObsoletaDesde(marca)) return { estado: 'valida', info, marca };
+            // Releitura também cruzou uma troca: o contexto segue indeterminado (não é mudança confirmada).
+            if (releitura) return FALHA_LOCAL;
+            if (await esperarFimDaTroca(signal) !== 'terminou') return FALHA_LOCAL;
+            return confirmarSessao(signal, true);
+        }
+        if (!sessaoObsoletaDesde(marca)) return { estado: 'encerrada', marca };
+        return releitura ? FALHA_LOCAL : { estado: 'obsoleta' };
     }
     catch {
-        return { estado: 'falha' };
+        return signal?.aborted ? FALHA_LOCAL : { estado: 'falha' };
     }
 }
 
 /**
- * Toda confirmação da sessão passa por aqui. O fim vigente (sem usuário ou 401 da geração atual) trava e apaga a busca da
- * aba NO MOMENTO em que chega, antes de qualquer ramo, inclusive o do estado final da troca de host (rodada 12 de "Guardar
- * na aba"): a tela e o resultado da escrita continuam preservados, mas a busca não fica gravável. Nada navega aqui.
- * Resposta obsoleta (anterior a uma troca desta página) não trava nada.
+ * Fim vigente trava e apaga a busca guardada na aba (Recorte 5, r12), decidido NO PONTO DE CONSUMO: todo chamador passa
+ * o resultado do await de confirmarSessao por esta função, sem outro await no meio, antes de qualquer ramo (inclusive o
+ * do estado final do endereço). A marca é conferida no mesmo instante síncrono em que o chamador decide entre "fim" e "cruzou uma
+ * troca": uma troca desta página que começou depois de a resposta chegar torna a resposta antiga, e resposta antiga não
+ * trava nada (revisão do merge a6c070f1, P2). Busca travada pelo adminFetch = o chamador decidiu fim da sessão. Nada navega.
  */
-async function confirmarSessao(): Promise<Confirmacao> {
-    const confirmacao = await lerSessao();
+function travarNoFim(confirmacao: Confirmacao): Confirmacao {
     if (fimConfirmado(confirmacao)) encerrarBuscasDaAba();
     return confirmacao;
-}
-
-/**
- * Prazo da espera pelo fim da troca de empresa desta página quando a confirmação posterior é antiga (rodada 12). Esgotado,
- * nada é entregue, descartado, travado nem navegado: a própria troca, se concluir, descarta a página.
- */
-export const PRAZO_ESPERA_DA_TROCA_MS = 15_000;
-async function trocaTerminou(fim: Promise<void>) {
-    let relogio: ReturnType<typeof setTimeout> | undefined;
-    const prazo = new Promise<false>((r) => { relogio = setTimeout(() => r(false), PRAZO_ESPERA_DA_TROCA_MS); });
-    try {
-        return await Promise.race([fim.then(() => true as const), prazo]);
-    }
-    finally {
-        clearTimeout(relogio);
-    }
 }
 
 export const AVISO_LEITURA_NAO_CONFIRMADA = 'Não foi possível confirmar a empresa ativa depois da leitura. Os dados recebidos foram descartados por segurança.';
 export const AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO = 'A operação foi concluída, mas não foi possível confirmar a empresa ativa em seguida. A tela foi recarregada; confira o resultado.';
 export const AVISO_RECUSADA_SEM_CONTEXTO = 'A operação não foi concluída: o servidor recusou. Os dados da tela anterior foram descartados.';
 const empresaDe = (info: InfoSessao) => info.data?.contexto?.empresaAtual?.id ?? null;
+/** Troca desta página começou depois de a confirmação prévia validar a sessão: nada foi enviado. */
+const erroDaTrocaAntesDoEnvio = (escrita: boolean) => new ErroContextoAdmin('SESSAO_NAO_CONFIRMADA', escrita
+    ? 'A empresa ativa pode estar mudando. Nada foi enviado; confira e tente de novo.'
+    : 'A empresa ativa pode estar mudando. Tente novamente.', false);
 
 /** Tipo de falha para a decisão da troca de host; 401 é fim real e nunca consulta (plano D4, H23). */
 const tipoDaFalha = (status?: number) => status === 403 ? '403' as const : 'falha' as const;
@@ -273,6 +341,11 @@ function pararAntesDoEnvio(escrita: boolean) {
  *   - escrita sem resposta (conexão) ou erro 5xx → resultado incerto;
  *   - falha na confirmação da sessão depois da resposta → nada é entregue ao componente: leitura descartada;
  *     escrita confirmada continua "concluída", 5xx continua incerto, recusa continua recusa.
+ * `init.signal` vale para a confirmação prévia, para o pedido e, só em leitura, para a confirmação posterior. Escrita já
+ * enviada sempre conclui a confirmação posterior sem o sinal: cancelar a espera nunca descarta a página nem muda o aviso
+ * do resultado (9º parecer, P2). Evidência já obtida (sessão encerrada, obsoleta ou outra
+ * empresa) segue a regra normal mesmo com o sinal abortado. Sem evidência, a confirmação interrompida termina com o motivo
+ * do cancelamento e não descarta a página: nada se sabe sobre a sessão, só que ninguém espera mais a resposta.
  */
 export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {}, avisoDeSucesso = AVISO_ESCRITA_EM_VERIFICACAO) {
     const escrita = !['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
@@ -286,11 +359,19 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     pararAntesDoEnvio(escrita);
     const marcaOperacao = marcaDaSessao();
     const aindaValida = () => !sessaoObsoletaDesde(marcaOperacao) && !saidaDaSessaoEmAndamento();
-    const previa = await confirmarSessao();
-    // O estado final vale antes de qualquer ramo: nada sai, e nada navega nem descarta.
+    const lidaPrevia = travarNoFim(await confirmarSessao(init.signal));
+    // 15º parecer, P2: "encerrada" cuja marca deixou de valer na volta do await é resposta da sessão anterior a uma troca
+    // desta página (obsoleta): nada é enviado e nada vai ao login; a troca decide.
+    const previa: Confirmacao = lidaPrevia.estado === 'encerrada' && sessaoObsoletaDesde(lidaPrevia.marca) ? { estado: 'obsoleta' } : lidaPrevia;
+    // O estado final do endereço vale antes de qualquer ramo: nada sai, e nada navega nem descarta.
     pararAntesDoEnvio(escrita);
-    // Nada navega aqui: só alimenta o estado da aba (403 em aba não armada, ou falha em aba armada).
-    if (previa.estado === 'falha' && previa.status !== 401)
+    if (previa.estado === 'falha' && init.signal?.aborted) throw init.signal.reason;
+    // A saída começou durante a confirmação prévia: ela tem precedência sobre qualquer outro resultado (12º parecer).
+    if (saidaDaSessaoEmAndamento())
+        throw new ErroContextoAdmin('SESSAO_ENCERRADA', escrita ? 'Saindo da sessão. Nada foi enviado.' : 'Saindo da sessão.', false);
+    // Nada navega aqui: só alimenta o estado da aba (403 em aba não armada, ou falha em aba armada). Falha decidida
+    // localmente (troca desta página ou cancelamento) não é indício de troca de host.
+    if (falhaDoServidor(previa))
         void decidirFalhaSessao({ tipo: tipoDaFalha(previa.status), telaCarregada: true, aindaValida });
     if (previa.estado === 'falha' && !fimConfirmado(previa))
         // Nada foi pedido ao servidor e nada é entregue: o componente só recebe o erro.
@@ -309,17 +390,31 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         // Durante a saída iniciada pela própria tela (components/admin/sair.ts) nada é sobreposto: ela já navega.
         if (!saidaDaSessaoEmAndamento()) {
             if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.', 'escrita');
-            // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
-            window.location.assign(loginDestaPagina());
+            // Limpa a página administrativa em memória quando a sessão expira; helper fora de React. Com a troca desta
+            // página pendente, quem navega é ela (15º parecer).
+            if (!fimDaTrocaEmCurso()) window.location.assign(loginDestaPagina());
         }
         throw new ErroContextoAdmin('SESSAO_ENCERRADA', 'Faça login para continuar.', false);
     }
+    // 16º parecer, P2: registrarContextoEmpresa navega quando o contexto registrado difere (ex.: sessão renovada noutra
+    // aba). Uma troca desta página que começou entre a validação da confirmação prévia e a retomada desta função é
+    // conferida ANTES desse registro: nada é enviado e nada navega; a troca decide. A conferência imediatamente anterior
+    // ao envio continua como defesa.
+    if (cruzouTroca(previa)) throw erroDaTrocaAntesDoEnvio(escrita);
     if (!registrarContextoEmpresa(info.data.sessaoId!, empresaDe(info), escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : undefined, origem))
         throw new ErroContextoAdmin('CONTEXTO_MUDOU', 'A empresa ou a sessão mudou. Atualizando a página.', false);
     sessaoValida();
+    // Sessão confirmada e cancelada antes do envio: nada sai para o servidor, em leitura ou escrita.
+    init.signal?.throwIfAborted();
     const headers = new Headers(init.headers);
     headers.set('x-kidmais-sessao', info.data.sessaoId!);
     headers.set('x-csrf-token', info.data.csrf ?? '');
+    // Última conferência, SEM await daqui até o fetch (12º parecer, P2): uma troca de empresa que começou depois de a
+    // confirmação prévia validar a marca (inclusive entre a validação e a retomada desta função) impede o envio. A saída
+    // já foi conferida logo depois da retomada, e entre lá e aqui não há await. A reserva da ordem dos envios (F2a) vem
+    // depois, para um pedido barrado não ocupar posição.
+    if (previa.estado === 'valida' && sessaoObsoletaDesde(previa.marca))
+        throw erroDaTrocaAntesDoEnvio(escrita);
     const posicaoDaConversa = conversa ? reservarEnvio() : 0;
     let envio: Envio | null = natureza !== 'escrita' || conversa ? null : renovacao ? ENVIO_DE_RENOVACAO : novoEnvio();
     let resposta: Response;
@@ -352,36 +447,41 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
         if (corpo?.codigo === 'AUTENTICACAO_ADMINISTRATIVA') {
             // O servidor recusou ANTES de executar: a página usava uma sessão/empresa que já não é a atual.
-            reiniciarContextoEmpresa('A empresa ativa ou a sessão mudou antes de a operação ser processada. Nada foi alterado.', undefined, origemDoResultado);
+            // 15º parecer, P2: com a troca desta página pendente, a recusa é devolvida sem navegar.
+            descartarPagina('A empresa ativa ou a sessão mudou antes de a operação ser processada. Nada foi alterado.', undefined, origemDoResultado);
             throw new ErroContextoAdmin('RECUSADA_PELO_CONTEXTO', 'A empresa ou a sessão mudou. Nada foi alterado.', true);
         }
     }
     if (renovacao) return protegerResposta(natureza, resposta, situacao, avisoDeSucesso);
     // Nenhum dado chega ao componente sem confirmar que a empresa/sessão continuam as mesmas.
-    let lida = await confirmarSessao();
-    // Resposta que saiu antes ou durante uma troca de empresa desta página (inclusive 401 ou "sem usuário" da sessão
-    // anterior) não fala pela sessão vigente, e nada é decidido com ela. Com a troca ainda em curso, o resultado dela é
-    // desconhecido (pode ser recusada): espera o fim, com prazo, e só então confirma de novo (rodada 12). Com a troca já
-    // encerrada, confirma de novo direto. Cada passo respeita o estado final, preservando o aviso de escrita.
-    for (let tentativa = 0; tentativa < 3 && respostaAntiga(lida); tentativa++) {
-        const troca = fimDaTrocaEmCurso();
-        const terminou = troca === null || await trocaTerminou(troca);
-        pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
-        if (!terminou) throw semConfirmacaoNaTroca(natureza, situacao, avisoDeSucesso, envio);
-        lida = await confirmarSessao();
+    // Escrita já respondida: a confirmação posterior não é cancelável (igual à base), para o cancelamento da espera não
+    // descartar a página. Leitura: cancelável; sem evidência, termina com o motivo do cancelamento.
+    const sinalDepois = escrita ? undefined : init.signal;
+    let depois = travarNoFim(await confirmarSessao(sinalDepois));
+    // 13º parecer: ao retomar o await, a marca que validou a sessão é conferida de novo, sem outro await no meio.
+    // 14º parecer, P2: uma troca desta página que começou depois da validação (ou que tornou obsoleta a leitura sem
+    // usuário) ainda não diz se foi aceita. Nada é decidido com ela pendente: espera a troca terminar (com prazo e, na
+    // leitura, cancelamento) e lê a sessão uma vez. Troca aceita aparece como outra sessão/empresa; recusada, como a
+    // mesma sessão (resposta entregue). Releitura que também cruza uma troca, prazo ou cancelamento = falha.
+    // 15º parecer, P2: vale também para "encerrada" cuja marca deixou de valer na volta do await.
+    if (cruzouTroca(depois)) {
+        depois = await esperarFimDaTroca(sinalDepois) === 'terminou' ? travarNoFim(await confirmarSessao(sinalDepois, true)) : FALHA_LOCAL;
+        if (cruzouTroca(depois)) depois = FALHA_LOCAL;
     }
-    // Teto de releituras esgotado com outra troca desta página já em curso: também não decide pela resposta antiga.
-    if (respostaAntiga(lida) && fimDaTrocaEmCurso() !== null) {
-        pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
-        throw semConfirmacaoNaTroca(natureza, situacao, avisoDeSucesso, envio);
-    }
-    const depois = lida;
-    // Estado final antes de qualquer ramo, inclusive 401 e sessão encerrada: resultado real, sem navegar nem descartar.
+    // Estado final do endereço antes de qualquer ramo, inclusive 401 e sessão encerrada: resultado real, sem navegar nem descartar.
     pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
+    if (!escrita && depois.estado === 'falha' && init.signal?.aborted) throw init.signal.reason;
+    // Recorte 5, r12: sem resultado da troca desta página (prazo da espera ou releitura que cruzou outra troca, com uma
+    // troca ainda pendente), nada é entregue, descartado, travado nem navegado com base nessa resposta; o resultado real
+    // da escrita fica registrado com o texto da tela mantida. A própria troca decide a página.
+    if (falhaLocal(depois) && fimDaTrocaEmCurso() !== null) throw semConfirmacaoNaTroca(natureza, situacao, avisoDeSucesso, envio);
     if (depois.estado === 'falha') {
-        if (depois.status !== 401) {
+        if (falhaDoServidor(depois)) {
             const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(depois.status), telaCarregada: true, aindaValida });
             pararSeEnderecoFinal(natureza, situacao, avisoDeSucesso);
+            // 20º parecer, P2: leitura cancelada durante a decisão do endereço termina com o motivo, sem descartar a página.
+            // Depois do estado final (que tem precedência); a escrita já enviada não é cancelável.
+            if (!escrita) init.signal?.throwIfAborted();
             if (decisao !== 'COMO_HOJE') {
                 // Tela mantida, leitura não entregue, escrita não repetida: sem reiniciar o contexto.
                 envio?.anotar(avisoEmVerificacao(natureza, situacao, AVISO_ULTIMA_ESCRITA_CONCLUIDA));
@@ -391,19 +491,23 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         // Contexto desconhecido: descarta a tela. Escrita já respondida com sucesso continua "concluída" (não vira
         // incerta só porque a confirmação falhou); 5xx continua incerto; recusa continua recusa.
         const aviso = avisoDoDescarte(natureza, situacao, AVISO_LEITURA_NAO_CONFIRMADA, AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO);
-        reiniciarContextoEmpresa(aviso, undefined, origemDoResultado);
+        // 14º parecer, P2: com a troca desta página ainda pendente, a navegação é dela; os dados não são entregues e o
+        // resultado da escrita fica guardado (descartarPagina).
+        descartarPagina(aviso, undefined, origemDoResultado);
         throw new ErroContextoAdmin('SESSAO_NAO_CONFIRMADA', aviso, true);
     }
     const encerrada = depois.estado === 'encerrada';
     // Obsoleta (troca de empresa desta página em curso) = contexto mudou, sem ir ao login: o resultado da escrita é avisado.
-    if (encerrada || depois.estado === 'obsoleta' || contextoMudou(depois.info.data!.sessaoId!, empresaDe(depois.info))) {
+    if (depois.estado === 'encerrada' || depois.estado === 'obsoleta' || contextoMudou(depois.info.data!.sessaoId!, empresaDe(depois.info))) {
         const aviso = avisoDoDescarte(natureza, situacao,
             'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.',
             'A operação foi concluída antes da mudança de empresa ou de sessão. Os dados da tela anterior foram descartados; confira o resultado.');
-        reiniciarContextoEmpresa(aviso, encerrada ? loginDestaPagina() : undefined, origemDoResultado);
+        descartarPagina(aviso, encerrada ? loginDestaPagina() : undefined, origemDoResultado);
         throw new ErroContextoAdmin(encerrada ? 'SESSAO_ENCERRADA' : 'CONTEXTO_MUDOU', aviso, true);
     }
     sessaoValida();
+    // Leitura cancelada depois de confirmada: nada é entregue (a sessão válida já contou para a troca de host).
+    if (!escrita) init.signal?.throwIfAborted();
     if (natureza !== 'escrita') return protegerResposta(natureza, resposta, situacao, avisoDeSucesso);
     // Escrita entregue: o resultado continua valendo se a aba chegar ao estado final depois, por qualquer caminho.
     envio?.anotar(avisoEmVerificacao(natureza, situacao, AVISO_ULTIMA_ESCRITA_CONCLUIDA));
@@ -420,14 +524,16 @@ export type ResultadoReautenticacao = { ok: true } | { ok: false; erro: string; 
  * então aceita a sessão nova. Senha incorreta mantém sessão, contexto e formulário intactos.
  */
 export async function reautenticarSessao(senha: string): Promise<ResultadoReautenticacao> {
-    const confirmada = await confirmarSessao();
+    const confirmada = travarNoFim(await confirmarSessao());
     if (enderecoFinal()) return { ok: false, erro: ENDERECO_MUDOU_NADA_ENVIADO, senhaIncorreta: false };
-    if (confirmada.estado === 'falha' && !fimConfirmado(confirmada))
+    // 2ª revisão do merge (c72b9251, P2): resposta que cruzou uma troca desta página (obsoleta, 401 antigo, ou válida/
+    // encerrada cuja marca envelheceu antes deste ponto) não decide nada: nem "sessão terminou", nem contexto, nem envio.
+    if ((confirmada.estado === 'falha' && !fimConfirmado(confirmada)) || cruzouTroca(confirmada))
         return { ok: false, erro: 'Não foi possível confirmar a sessão. Tente novamente.', senhaIncorreta: false };
     const inicial: InfoSessao = confirmada.estado === 'valida' ? confirmada.info : {};
     if (!inicial.data?.usuarioId) {
-        // Fim da sessão confirmado (ou resposta obsoleta de uma troca em curso, que a própria troca descarta). Com o fim
-        // vigente, a busca guardada na aba já saiu em confirmarSessao; a tela segue como está, com o aviso.
+        // Fim da sessão vigente (a resposta que cruzou uma troca já saiu acima): a busca guardada na aba já saiu em
+        // travarNoFim; a tela segue como está, com o aviso.
         return { ok: false, erro: 'Sua sessão terminou. Entre novamente.', senhaIncorreta: false };
     }
     if (!registrarContextoEmpresa(inicial.data.sessaoId!, empresaDe(inicial)))
@@ -463,11 +569,15 @@ export async function reautenticarSessao(senha: string): Promise<ResultadoReaute
 export async function confirmarRenovacao(renovacao: { anterior: string; atual: string } | null | undefined): Promise<ResultadoReautenticacao> {
     const marca = marcaDaSessao();
     const aindaValida = () => !sessaoObsoletaDesde(marca) && !saidaDaSessaoEmAndamento();
-    const confirmada = await confirmarSessao();
+    const confirmada = travarNoFim(await confirmarSessao());
     // Confirmação indisponível não prova divergência: a decisão da troca de host vem antes do descarte, sem repetir o POST.
     // A renovação pendente é cancelada: se a sessão voltar diferente, ela cai na regra normal de contexto mudou.
-    let manter = enderecoFinal();
-    if (!manter && confirmada.estado === 'falha' && confirmada.status !== 401) {
+    // 2ª revisão do merge (c72b9251, P2): resposta que cruzou uma troca desta página não conclui nem recusa a renovação;
+    // o resultado fica em verificação, como na confirmação indisponível, e a própria troca decide a página.
+    // 3ª revisão (855e8df8, P2): falha decidida localmente (troca sem resultado no prazo, releitura que cruzou outra
+    // troca) também não prova nada: a senha já foi aceita, o resultado fica em verificação, sem repetir o POST.
+    let manter = enderecoFinal() || cruzouTroca(confirmada) || falhaLocal(confirmada);
+    if (!manter && falhaDoServidor(confirmada)) {
         const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(confirmada.status), telaCarregada: true, aindaValida });
         manter = enderecoFinal() || decisao !== 'COMO_HOJE';
     }
@@ -499,12 +609,14 @@ export const AVISO_ESCRITA_NAO_ENVIADA_NA_TROCA = 'A empresa ativa mudou antes d
  */
 export async function trocarEmpresaAtiva(empresaId: string): Promise<Response> {
     if (enderecoFinal()) throw Error(ENDERECO_MUDOU_NADA_ALTERADO);
-    const previa = await confirmarSessao();
+    const previa = travarNoFim(await confirmarSessao());
     if (enderecoFinal()) throw Error(ENDERECO_MUDOU_NADA_ALTERADO);
-    if ((previa.estado === 'falha' && !fimConfirmado(previa)) || previa.estado === 'obsoleta')
+    // 2ª revisão do merge (c72b9251, P2): qualquer resposta que cruzou outra troca desta página (obsoleta, 401 antigo, ou
+    // válida/encerrada cuja marca envelheceu na volta do await) é rejeitada antes do login e do registro de contexto.
+    if ((previa.estado === 'falha' && !fimConfirmado(previa)) || cruzouTroca(previa))
         throw Error('Não foi possível confirmar a sessão. Nada foi alterado; tente novamente.');
     if (fimConfirmado(previa) || previa.estado !== 'valida' || !previa.info.data?.usuarioId) {
-        // A busca guardada na aba já saiu em confirmarSessao.
+        // A busca guardada na aba já saiu em travarNoFim.
         if (!saidaDaSessaoEmAndamento())
             window.location.assign(loginDestaPagina());
         throw Error('Faça login para continuar.');
