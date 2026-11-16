@@ -3,6 +3,7 @@ import { db, withTransaction } from "@/lib/db/postgres";
 import { secretMatches } from "@/lib/integracoes/gupshup/webhook";
 import { executarCiclo } from "@/lib/marketing/automacoes/motor";
 import { automacoesHabilitadas, transporteDoAmbiente } from "@/lib/marketing/automacoes/transporte";
+import { contextoPesquisaDoAmbiente } from "@/lib/satisfacao/despacho";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ const responder = (corpo: unknown, status = 200) => NextResponse.json(corpo, { s
 /**
  * Ciclo das automações para o processador local (scripts/marketing-automacoes-worker.mjs). Exige segredo próprio
  * (MARKETING_AUTOMACOES_WORKER_SECRET, comparação em tempo constante) e o interruptor MARKETING_AUTOMACOES_ENABLED=true.
- * Transporte: só o simulado. Log com código fixo, sem dado pessoal.
+ * Transporte: só o simulado. Com SATISFACAO_PESQUISA_ENABLED=true, o ciclo também cria e despacha a pesquisa de satisfação. Log com código fixo, sem dado pessoal.
  */
 export async function POST(request: NextRequest) {
   const segredo = process.env.MARKETING_AUTOMACOES_WORKER_SECRET;
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
   }
   if (!automacoesHabilitadas()) return responder({ ok: false, codigo: "AUTOMACOES_DESLIGADAS" }, 409);
   try {
-    const resultado = await executarCiclo({ transacao: withTransaction }, transporteDoAmbiente(db), new Date(), { limite: 100 });
+    const resultado = await executarCiclo({ transacao: withTransaction }, transporteDoAmbiente(db), new Date(), { limite: 100, pesquisa: contextoPesquisaDoAmbiente(db) });
     return responder({ ok: true, data: resultado });
   } catch (error) {
     console.error("[marketing-automacoes] ciclo falhou", error instanceof Error ? error.name : typeof error);

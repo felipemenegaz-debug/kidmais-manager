@@ -1,277 +1,121 @@
+/**
+ * Seções do /conheca (servidor). Cada bloco que depende de um recurso lê o catálogo (lib/site/catalogo.ts):
+ * sem evidência de LIVE em production, o bloco não aparece. Não existe selo "Em breve".
+ */
+import type { ReactNode } from 'react';
 import { cx } from './estilos';
-import { Recurso, Cadastro, Contato } from './elementos';
-import { comercial, adicionais, precoExibido } from '@/lib/site/catalogo';
+import { Cadastro, Contato } from './elementos';
+import { comercial, confianca, filtrar, modulos, paineis, passos, perguntas, roteiroWallE, tituloFluxo, visivel, type PainelId, type RecursoId } from '@/lib/site/catalogo';
 import type { ConfiguracaoSite } from '@/lib/site/configuracao';
 import { dias } from '@/lib/assinatura/texto';
 import { textoFundador, type TextoFundador } from '@/lib/site/fundador';
+import { AbasModulos, ChatWallE, Comparador, DemoFesta, Ficticio, PainelAssinatura, PainelConvite, PainelMarca, PainelParcelas } from './interativos';
 
-export function Hero({ aberto, config }: { aberto: boolean; config: ConfiguracaoSite }) { return (<section className={cx('hero')} aria-labelledby="t-hero">
-    <div className={cx('wrap')}>
-      <div className={cx('hero-grid')}>
-        <div className={cx('hero-copy')} data-fundo-proteger>
-          <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
-          <h1 id="t-hero">Seu buffet organizado,<br />da data à festa.<br /><em>Sem planilha.</em></h1>
-          <p className={cx('lead')}>Agenda com as datas livres, clientes, orçamentos com o seu preço, contratos, festas e parcelas com Pix copia e cola, tudo no mesmo lugar. O dinheiro das festas cai direto na conta da sua empresa.</p>
-          <div className={cx('actions')}>
-            <Cadastro aberto={aberto} />
-            <Contato config={config} />
-          </div>
-          <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão de crédito</span><span>Implantação guiada</span></div>
-        </div>
-        <div className={cx('halo')} data-fundo-proteger><div className={cx('app')} role="img" aria-label="Tela de exemplo do iA.Fest com as próximas festas">
-          <div className={cx('app-bar')}><i></i><i></i><i></i><span>iafest.demerzellabs.com.br/admin/festas</span></div>
-          <div className={cx('app-body')}>
-            <div className={cx('app-head')}><strong>Próximas festas</strong><small>OUTUBRO</small></div>
-            <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>17</span>SÁB</span><span><b>Sofia · 6 anos</b><small>15h · Horário nobre · 60 convidados</small></span><span className={cx('pill ok')}>Contrato assinado</span></div>
-            <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>18</span>DOM</span><span><b>Miguel · 4 anos</b><small>Contrato enviado hoje · 40 convidados</small></span><span className={cx('pill wait')}>Aguardando assinatura</span></div>
-            <div className={cx('row')}><span className={cx('date')}><span className={cx('dateNumber')}>24</span>SÁB</span><span><b>Helena · 8 anos</b><small>14h · Espaço jardim · 80 convidados</small></span><span className={cx('pill info')}>2ª parcela vence 20/10</span></div>
-            <div className={cx('hero-stats')}>
-              <div><b>R$ 18.400</b><small>a receber no mês</small></div>
-              <div><b>3</b><small>datas livres em outubro</small></div>
-              <div><b>4</b><small>contratos fechados na semana</small></div>
+function Cabecalho({ olho, id, titulo, texto }: { olho: string; id: string; titulo: ReactNode; texto?: ReactNode }) {
+    return <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>{olho}</div><h2 id={id}>{titulo}</h2>{texto && <p className={cx('lead')}>{texto}</p>}</div>;
+}
+
+/** Junta "a", "a e b", "a, b e c". */
+function lista(itens: string[]) { return itens.length < 2 ? itens.join('') : `${itens.slice(0, -1).join(', ')} e ${itens.at(-1)}`; }
+export function Hero({ aberto, config }: { aberto: boolean; config: ConfiguracaoSite }) {
+    // A demo do topo é a história "data → pacote → contrato": sem um desses recursos, o topo vira institucional e a demo some.
+    const demo = visivel(['agenda', 'festas', 'contratos']);
+    const juntos = lista([visivel(['agenda']) && 'agenda', visivel(['contratos']) && 'contrato', visivel(['pix']) && 'parcelas com Pix'].filter((x): x is string => Boolean(x)));
+    return <section className={cx('hero')} aria-labelledby="t-hero"><div className={cx('wrap')}>
+        <div className={cx('hero-grid')}>
+            <div className={cx('hero-copy')} data-fundo-proteger>
+                <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
+                {demo ? <h1 id="t-hero">Monte uma festa agora.<br /><em>O contrato sai pronto.</em></h1> : <h1 id="t-hero">O sistema do seu<br /><em>buffet infantil.</em></h1>}
+                <p className={cx('lead')}>{demo ? `Escolha a data, o pacote${visivel(['horarios']) ? ' e o horário' : ''} aqui ao lado. ` : ''}{juntos ? `No iA.Fest, você tem ${juntos} no mesmo lugar.` : 'Feito dentro de um buffet infantil, para a rotina de quem vende festas.'}</p>
+                <div className={cx('actions')}><Cadastro aberto={aberto} /><Contato config={config} /></div>
+                <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão</span>{visivel(['implantacao']) && <span>Implantação guiada incluída</span>}</div>
             </div>
-            <div className={cx('caption')}>Dados fictícios</div>
-          </div>
-        </div></div>
-      </div>
-      <div className={cx('ribbon')} data-fundo-proteger><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O iA.Fest não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">Entenda →</a></div>
-    </div>
-  </section>); }
-
-export function AntesDepois() { return (<section className={cx('block')} aria-labelledby="t-dor">
-    <div className={cx('wrap')}>
-      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
-      <div className={cx('pain')}>
-        <article data-fundo-proteger><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Contrato digitado à mão, um por um</span><h3>Contrato pronto com os dados da festa</h3><p>O contrato sai preenchido com o seu modelo, o pacote e os valores combinados. O cliente confere tudo pelo link no celular.</p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Orçamento na calculadora</span><h3>Orçamento com o seu preço</h3><p>Pacote, horário nobre ou promocional e adicionais somados na hora, com a sua tabela. Sem conta de cabeça.</p></article>
-        <article data-fundo-proteger><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3>Parcelas com Pix copia e cola</h3><p>Cada parcela sai com o Pix da chave da sua empresa. Você sabe o que entrou, o que vence e o que atrasou.</p></article>
-      </div>
-    </div>
-  </section>); }
-
-export function Diferenciais() { return (<section className={cx('block')} id="diferenciais" aria-labelledby="t-diff">
-    <div className={cx('wrap')}>
-      <div className={cx('head')}><div className={cx('eyebrow')}>Diferenciais</div><h2 id="t-diff">O que o iA.Fest faz<br /><em>e uma planilha não faz.</em></h2></div>
-      <div className={cx('diff')}>
-        <article className={cx('hero-card')}>
-          <span className={cx('n')}>01 · DA DATA AO CONTRATO</span>
-          <h3>Da data livre ao contrato em poucos minutos.</h3>
-          <p>Escolha uma data que está mesmo livre, monte a festa com o seu preço oficial e gere o contrato com o seu modelo. Sem vender a mesma data duas vezes e sem copiar dados de uma planilha para outra.</p>
-          <div className={cx('quote-steps')}>
-            <div><b>Data</b>Só aparecem as livres</div>
-            <div><b>Pacote</b>Com o seu preço</div>
-            <div><b>Horário</b>Nobre ou promocional</div>
-            <div><b>Adicionais</b>Somados na hora</div>
-          </div>
-        </article>
-        <article className={cx('money')}>
-          <span className={cx('n')}>02 · SEU DINHEIRO</span>
-          <div className={cx('big-num')}>0%</div>
-          <h3>do valor das festas fica com o iA.Fest.</h3>
-          <p>Pix copia e cola com a chave da sua empresa. Tudo cai direto na sua conta.</p>
-        </article>
-        <article>
-          <span className={cx('n')}>03 · A FESTA INTEIRA</span>
-          <h3>Contrato, festa e fechamento ligados</h3>
-          <p>Cada festa reúne contrato, buffet, checklist, parcelas e histórico. No fechamento, recebimentos, adicionais e pendências daquele evento aparecem juntos.</p>
-        </article>
-        <article>
-          <span className={cx('n')}>04 · IA QUE IMPLANTA</span>
-          <h3><Recurso ids={["importacao_contratos","importacao_precos"]}>Mande o PDF. A IA monta o sistema.</Recurso></h3>
-          <p><Recurso ids={["importacao_contratos","importacao_precos"]}>A IA lê sua tabela de preços e seus contratos antigos em PDF e prepara os pacotes. Você revisa antes de publicar.</Recurso></p>
-        </article>
-        <article>
-          <span className={cx('n')}>05 · WALL-E</span>
-          <h3><Recurso ids={["walle_whatsapp"]}>Atendimento com IA</Recurso></h3>
-          <p><Recurso ids={["walle_whatsapp"]}>O Wall-e responde seus clientes no WhatsApp usando a agenda e os preços do seu buffet. <a href="#wall-e" style={{"color":"var(--lilac)"}}>Conheça →</a></Recurso></p>
-        </article>
-      </div>
-    </div>
-  </section>); }
-
-export function ImportacaoDocumentos() { return (<section className={cx('block')} id="importacao" aria-labelledby="t-importacao">
-    <div className={cx('wrap')}>
-      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Importação de documentos</div><h2 id="t-importacao">Seu buffet já tem história.<br /><em>Traga ela para o iA.Fest.</em></h2><p className={cx('lead')}>Modelo jurídico, festas já fechadas e tabela de preços: cada documento tem um caminho de importação, sempre com revisão antes de aplicar.</p></div>
-      <div className={cx('detailGrid')}>
-        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Seu modelo jurídico de contrato</Recurso></h3><p>Envie o PDF do contrato usado pela empresa. A IA prepara as cláusulas e os campos automáticos de cliente, data e valores. Revise o texto e a prévia antes de aprovar o modelo.</p><p>A revisão jurídica continua com a sua empresa.</p></article>
-        <article data-fundo-proteger><h3><Recurso ids={["importacao_contratos"]}>Festas que você já vendeu</Recurso></h3><p>Importe os contratos das festas já fechadas e confira cliente, evento e valores. Depois, revise a integração com a festa, a agenda e as contas a receber, incluindo os pagamentos já realizados.</p><p>O documento original fica preservado para consulta.</p></article>
-        <article data-fundo-proteger><h3><Recurso ids={["importacao_precos"]}>Sua tabela de preços</Recurso></h3><p>A IA lê o PDF e prepara pacotes, faixas de convidados, grades de horário e adicionais. Você confere os valores e corrige o que precisar antes de publicar.</p><p>Seus preços continuam sendo a referência.</p></article>
-      </div>
-    </div>
-  </section>); }
-
-export function FinanceiroDetalhes() { return (<section className={cx('block')} id="financeiro" aria-labelledby="t-financeiro">
-    <div className={cx('wrap')}>
-      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Módulo financeiro</div><h2 id="t-financeiro">Da parcela do cliente<br /><em>ao caixa do buffet.</em></h2><p className={cx('lead')}>Veja o que entrou, o que falta receber e o que precisa pagar. Contratos, parcelas e movimentações ficam ligados à operação da sua empresa.</p></div>
-      <div className={cx('pain')}>
-        <article data-fundo-proteger><h3>Contas a receber</h3><p>Acompanhe parcelas, vencimentos, atrasos e saldos. Registre recebimentos, confira o histórico e disponibilize Pix copia e cola com a chave da sua empresa.</p></article>
-        <article data-fundo-proteger><h3>Contas a pagar</h3><p>Organize despesas por categoria e favorecido, acompanhe vencimentos e registre pagamentos para saber o que ainda está em aberto.</p></article>
-        <article data-fundo-proteger><h3>Fluxo de caixa e relatórios</h3><p>Consulte entradas, saídas e saldos por período. Veja os recebimentos e as despesas para acompanhar o movimento financeiro do buffet.</p></article>
-        <article data-fundo-proteger><h3>Financeiro de cada festa</h3><p>Reúna parcelas, recebimentos, adicionais e despesas do evento. Confira custos e pendências para concluir o fechamento com os valores registrados.</p></article>
-      </div>
-      <p className={cx('marketingNota')} data-fundo-texto>Contas a pagar, fluxo de caixa, relatórios e visão de custos fazem parte do financeiro completo dos planos Profissional e Premium. O Essencial mantém contas a receber e Pix. O dinheiro das festas vai direto para a conta do buffet.</p>
-    </div>
-  </section>); }
-
-export function AgendaSaloes() { return (<section className={cx('block')} id="saloes" aria-labelledby="t-saloes">
-    <div className={cx('wrap')}>
-      <div className={cx('head')} data-fundo-texto><div className={cx('eyebrow')}>Agenda por salão</div><h2 id="t-saloes">Mais de um salão.<br /><em>A mesma unidade, organizada.</em></h2><p className={cx('lead')}>Organize os espaços do seu buffet na mesma unidade. Na configuração por salão, cada espaço recebe uma festa por vez, respeitando os horários e intervalos definidos.</p></div>
-      <div className={cx('detailGrid')}>
-        <article data-fundo-proteger><h3>Disponibilidade por espaço</h3><p>Associe cada festa ao seu salão e acompanhe a ocupação. Salões diferentes podem receber festas no mesmo horário, conforme a configuração da agenda.</p></article>
-        <article data-fundo-proteger><h3>Horários e intervalos</h3><p>Defina os períodos de funcionamento e o intervalo mínimo entre festas, considerando o tempo necessário para preparar o espaço.</p></article>
-        <article data-fundo-proteger><h3>Bloqueios e organização</h3><p>Registre bloqueios e confira conflitos antes de confirmar a data. Festas sem salão definido protegem a disponibilidade até a equipe escolher o espaço.</p></article>
-      </div>
-      <p className={cx('marketingNota')} data-fundo-texto>Vários salões na mesma unidade são espaços da mesma operação. A contratação de outra unidade é uma condição separada.</p>
-    </div>
-  </section>); }
-
-export function Marketing() { return (<section className={cx('block')} id="marketing" aria-labelledby="t-marketing">
-    <div className={cx('wrap')}>
-      <div className={cx('head')} data-fundo-texto>
-        <div className={cx('eyebrow')}>Marketing · Campanhas e automação</div>
-        <h2 id="t-marketing">Da campanha nas redes<br /><em>à próxima festa.</em></h2>
-        <p className={cx('lead')}>Seu site, suas campanhas e o relacionamento com os clientes no mesmo módulo. Conecte a divulgação à gestão do buffet e acompanhe o caminho até o contrato.</p>
-      </div>
-      <article className={cx('marketingSite')} data-fundo-proteger><div><span className={cx('marketingKicker')}>Site do buffet · dentro do Marketing</span><h3>Uma vitrine com a identidade da sua unidade.</h3><p>Monte o site com sua marca, fotos, pacotes e contatos. Edite o conteúdo, confira a prévia e escolha quando publicar.</p></div><ul className={cx('checks')}><li>Galeria de fotos e apresentação dos pacotes</li><li>Formulário para pedidos de orçamento e contato pelo WhatsApp</li><li>Título e descrição para mecanismos de busca (SEO)</li><li>Links de campanhas ligados à origem dos contatos</li></ul></article>
-      <div className={cx('pain')}>
-        <article data-fundo-proteger><span className={cx('marketingKicker')}>Instagram, Facebook, Google e WhatsApp</span><h3>Um link para cada campanha</h3><p>Use links rastreáveis nos seus anúncios e publicações. Quem chega ao site do buffet e pede orçamento pode ser associado à campanha de origem.</p></article>
-        <article data-fundo-proteger><span className={cx('marketingKicker')}>Da origem ao contrato</span><h3>Saiba o que chega pela divulgação</h3><p>Acompanhe cliques, contatos, negociações, contratos e receitas por origem e campanha, com filtros de período.</p></article>
-        <article data-fundo-proteger><span className={cx('marketingKicker')}>Relacionamento com o cliente</span><h3>Automação para acompanhar oportunidades</h3><p>Configure regras para retomar propostas paradas, organizar o pós-festa e lembrar oportunidades de recompra, com tarefas para a equipe.</p></article>
-        <article data-fundo-proteger><span className={cx('marketingKicker')}>Agenda e divulgação juntas</span><h3>Encontre datas para divulgar</h3><p>Consulte sugestões de horários livres na agenda e revise as oportunidades antes de montar sua próxima campanha.</p></article>
-      </div>
-      <p className={cx('marketingNota')} data-fundo-texto>A conexão com as redes sociais é feita por links rastreáveis. A publicação de posts e a gestão dos anúncios continuam nas plataformas. O envio automático de mensagens está em validação, ainda sem disparos reais pelo módulo.</p>
-      <div className={cx('actions')} data-fundo-proteger><a href="#demonstracao" className={cx('btn', 'btn-secondary')}>Conhecer o módulo de Marketing →</a></div>
-    </div>
-  </section>); }
-
-export function WallE() { return (<section className={cx('block')} id="wall-e" aria-labelledby="t-walle">
-    <div className={cx('wrap')}>
-      <div className={cx('head')}>
-        <div className={cx('eyebrow')}>Wall-e · Inteligência artificial do iA.Fest</div>
-        <h2 id="t-walle"><Recurso ids={["walle_whatsapp"]}>Um atendente para o seu buffet<br /><em>que não tira folga.</em></Recurso></h2>
-        <p className={cx('lead')}><Recurso ids={["walle_whatsapp"]}>O Wall-e trabalha com os dados que já estão no iA.Fest: sua agenda, seus pacotes e seus preços oficiais. Ele consulta as informações do buffet antes de responder e passa a conversa para a sua equipe quando precisa.</Recurso></p>
-      </div>
-      <div className={cx('walle')}>
-        <article aria-labelledby="t-w1">
-          <div className={cx('tag')}><span className={cx('bot')}>W</span><b><Recurso ids={["walle_whatsapp"]}>Wall-e no WhatsApp</Recurso></b></div>
-          <h3 id="t-w1"><Recurso ids={["walle_whatsapp"]}>Responde o cliente na hora, até no domingo à noite.</Recurso></h3>
-          <div className={cx('phone')} role="img" aria-label="Exemplo de conversa do Wall-e no WhatsApp">
-            <div className={cx('top')}><span className={cx('bot')} style={{"width":"28px","height":"28px","fontSize":"12px"}}>K</span><span>Buffet Kidmais<small>Wall-e · atendimento automático</small></span></div>
-            <div className={cx('msg in')}>Oi! Vocês têm data dia 24/10 à tarde?<time>21:42</time></div>
-            <div className={cx('msg out')}>Oi, Juliana! Dia 24/10 está livre das 14h às 18h no Espaço Jardim. Para quantas crianças é a festa?<time>21:42</time></div>
-            <div className={cx('msg in')}>Umas 40<time>21:43</time></div>
-            <div className={cx('msg out')}>O Pacote Diversão atende até 40 convidados. Montei o orçamento com a data:<span className={cx('lnk')}>Orçamento 24/10 · R$ 5.200,00 · abrir</span><time>21:43</time></div>
-            <div className={cx('msg in')}>Dá pra visitar o espaço?<time>21:44</time></div>
-            <div className={cx('handoff')}>Wall-e passou a conversa para Carla, do atendimento</div>
-          <div className={cx('caption')}>Dados fictícios</div></div>
-          <ul className={cx('checks')}>
-            {['Consulta a agenda e os preços oficiais antes de responder', 'Envia o orçamento e o link do contrato', 'Passa a conversa para a sua equipe quando precisa', 'Mostra quantas conversas viraram festa']
-              .map(texto => <li key={texto}><Recurso ids={["walle_whatsapp"]}>{texto}</Recurso></li>)}
-          </ul>
-        </article>
-      </div>
-    </div>
-  </section>); }
-
-export function Convite() { return (<section className={cx('block')} id="convite" aria-labelledby="t-convite">
-    <div className={cx('wrap convite')}>
-      <div className={cx('convite-copy')}>
-        <div className={cx('eyebrow')}><Recurso ids={["convite"]}>Convite da festa</Recurso></div>
-        <h2 id="t-convite">O convite da festa,<br /><em>do seu jeito.</em></h2>
-        <p className={cx('lead')}><Recurso ids={["convite"]}>A família personaliza o convite com modelos prontos, uma imagem própria ou arte criada por IA. Compartilha por link ou imagem, e as confirmações de presença chegam para a família e para o buffet.</Recurso></p>
-        <ol className={cx('passos')}>
-          <li><span><b><Recurso ids={["convite"]}>O buffet cria o convite na festa</Recurso></b> e libera um link exclusivo de edição para a família.</span></li>
-          <li><span><Recurso ids={["convite"]}><b>A família escolhe o modelo</b>, envia uma foto ou descreve a arte para a IA, e ajusta nome, data, horário e local.</Recurso></span></li>
-          <li><span><Recurso ids={["convite"]}><b>Publica e compartilha</b> pelo WhatsApp, pelo link ou baixando a imagem do convite.</Recurso></span></li>
-          <li><span><Recurso ids={["convite"]}><b>Os convidados confirmam presença</b> sem criar conta, informando adultos e crianças.</Recurso></span></li>
-        </ol>
-        <ul className={cx('checks')}>
-          {['Textos separados da arte: corrigir horário ou endereço não gasta crédito de IA', 'Limites de geração por festa e por cliente protegem a franquia do buffet', 'Tudo ligado à festa no iA.Fest, com histórico do que cada um fez']
-            .map(texto => <li key={texto}><Recurso ids={["convite"]}>{texto}</Recurso></li>)}
-        </ul>
-      </div>
-      <div className={cx('convite-mock')}>
-        <div className={cx('app')} role="img" aria-label="Exemplo do editor de convite com o modelo Uma aventura espacial">
-          <div className={cx('app-bar')}><i></i><i></i><i></i><span>Convite da Sofia</span></div>
-          <div className={cx('app-body')}>
-            <div className={cx('modelos')}><span>Dia de celebrar</span><span>Jardim encantado</span><span className={cx('on')}>Uma aventura espacial</span></div>
-            <div className={cx('invite')}>
-              <div className={cx('t1')}>Você está convidado</div>
-              <div><div className={cx('t2')}>Sofia<br />faz 6 anos!</div></div>
-              <div className={cx('t3')}>Sábado, 17 de outubro · 15h<br />Buffet Kidmais · Salão principal</div>
-              <div className={cx('acts')}><span className={cx('a1')}>Confirmar presença</span><span className={cx('a2')}>Como chegar</span></div>
-            </div>
-            <div className={cx('caption')}>Prévia · dados fictícios</div>
-          </div>
+            {demo && <div className={cx('halo')} data-fundo-proteger><div className={cx('app', 'demoCaixa')}><DemoFesta horarios={visivel(['horarios'])} pix={visivel(['pix'])} /></div></div>}
         </div>
-        <div className={cx('app')} role="img" aria-label="Exemplo da lista de confirmações de presença">
-          <div className={cx('app-bar')}><i></i><i></i><i></i><span>Confirmações</span></div>
-          <div className={cx('app-body')}>
-            <div className={cx('rsvp-tot')}><div><b>14</b><small>famílias vão</small></div><div><b>26</b><small>adultos</small></div><div><b>19</b><small>crianças</small></div></div>
-            <div className={cx('row')} style={{"gridTemplateColumns":"1fr auto"}}><span><b>Família Andrade</b><small>2 adultos · 2 crianças</small></span><span className={cx('pill ok')}>Vai</span></div>
-            <div className={cx('row')} style={{"gridTemplateColumns":"1fr auto"}}><span><b>Família Lima</b><small>1 adulto · 1 criança</small></span><span className={cx('pill ok')}>Vai</span></div>
-            <div className={cx('row')} style={{"gridTemplateColumns":"1fr auto"}}><span><b>Família Costa</b><small>Avisou que não vem</small></span><span className={cx('pill mute')}>Não vai</span></div>
-            <p className={cx('note-sm')} style={{"marginTop":"10px"}}>Só a família e o buffet veem esta lista.</p><div className={cx('caption')}>Dados fictícios</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>); }
+        {visivel(['pix']) && <div className={cx('ribbon')} data-fundo-proteger><span><strong>O dinheiro das festas cai direto na sua conta.</strong> O iA.Fest não intermedia pagamentos nem fica com parte do valor.</span><a href="#confianca">0% sobre as festas →</a></div>}
+    </div></section>;
+}
 
-export function ComoFunciona() { return (<section className={cx('block')} id="como-funciona" aria-labelledby="t-fluxo">
-    <div className={cx('wrap')}>
-      <div className={cx('head')}>
-        <div className={cx('eyebrow')}>Como funciona</div>
-        <h2 id="t-fluxo">Uma festa, do pedido ao fechamento.</h2>
-        <p className={cx('lead')}>Cada etapa usa o que foi registrado na anterior. Nada de copiar dados de um caderno para uma planilha.</p>
-      </div>
-      <ol className={cx('flow')}>
-        <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Confere a data</h3><p>A agenda mostra as datas e horários livres de cada espaço.</p></li>
-        <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Monta o orçamento</h3><p>Pacote, horário e adicionais com o total calculado pelos seus preços.</p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Confere o contrato</h3><p>O contrato sai preenchido com o seu modelo e o cliente confere pelo link no celular.</p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Paga as parcelas</h3><p>Pix copia e cola em cada parcela, direto na conta do buffet.</p></li>
-        <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Fecha a festa</h3><p>O fechamento reúne recebimentos, adicionais e pendências daquele evento.</p></li>
-      </ol>
-      <p className={cx('flow-note')}><Recurso ids={["orcamento"]}>Em seguida, o próprio cliente poderá consultar a data e montar o orçamento pela página do seu buffet.</Recurso></p>
-    </div>
-  </section>); }
+/** Cada linha do comparador promete um recurso: some junto com ele. */
+const semana: { antes: string; depois: [string, string]; recursos: RecursoId[] }[] = [
+    { antes: 'Sofia sáb 15h?? confirmar c/ Carla', depois: ['Sofia', 'sáb 15h · contrato assinado'], recursos: ['agenda', 'contratos', 'assinatura_codigo'] },
+    { antes: 'Miguel: contrato no Word, falta o valor', depois: ['Miguel', 'contrato enviado · aguardando assinatura'], recursos: ['contratos', 'assinatura_codigo'] },
+    { antes: 'Helena 2ª parcela… pagou? ver extrato', depois: ['Helena', '2ª parcela · vence dia 20, Pix enviado'], recursos: ['pix', 'financeiro'] },
+    { antes: 'dia 24 já tinha festa!!! ligar pra mãe', depois: ['Dia 24', 'ocupado, não aparece para vender'], recursos: ['agenda'] },
+    { antes: 'orçamento Juliana: refazer conta do adicional', depois: ['Juliana', 'orçamento R$ 5.650,00 calculado'], recursos: ['festas', 'horarios'] },
+];
+export function AntesDepois() {
+    const linhas = filtrar(semana);
+    if (linhas.length < 2) return null;
+    const antes = linhas.map(l => l.antes); const depois = linhas.map(l => l.depois);
+    return <section className={cx('block')} id="antes-depois" aria-labelledby="t-dor"><div className={cx('wrap')}>
+        <Cabecalho olho="Antes e depois" id="t-dor" titulo="Arraste e veja a mesma semana dos dois jeitos." />
+        <div data-fundo-proteger><Comparador antes={antes} depois={depois} /><Ficticio /></div>
+    </div></section>;
+}
 
-export function Confianca() { return (<section className={cx('block')} id="confianca" aria-labelledby="t-confianca">
-    <div className={cx('wrap')}>
-      <div className={cx('head')}><div className={cx('eyebrow')}>Por que confiar</div><h2 id="t-confianca">Seu dinheiro, seus clientes,<br /><em>seus dados.</em></h2></div>
-      <div className={cx('trust')}>
-        <article className={cx('wide')}>
-          <div className={cx('big')}>Feito dentro de um buffet</div>
-          <p>O iA.Fest nasceu para organizar a operação da Kidmais Festas, que usa o sistema todos os dias. Cada tela foi construída com quem atende, organiza e recebe.</p>
-        </article>
-        <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo iA.Fest</h3><p>O Pix usa a chave da sua empresa. O iA.Fest não intermedia o pagamento nem fica com parte do valor.</p></article>
-        <article><div className={cx('big')}>CSV · PDF</div><h3>Exportação a qualquer hora</h3><p>Clientes e contas a receber em CSV e cada contrato em PDF saem do sistema quando você quiser, conforme as condições de acesso e exportação dos termos de uso.</p></article>
-        <article><div className={cx('big')}>Gestão e equipe</div><h3>Cada um no seu papel</h3><p>A Gestão cuida da empresa, dos usuários e das configurações. A equipe opera o dia a dia com o próprio acesso.</p></article>
-      </div>
-    </div>
-  </section>); }
+/** Vídeos piloto da central de ajuda; cada título fala de um recurso e some com ele. */
+const videosAjuda: { titulo: string; recursos: RecursoId[] }[] = [
+    { titulo: 'Como cadastrar e acompanhar clientes', recursos: ['clientes'] },
+    { titulo: 'Como fazer o fechamento de uma festa', recursos: ['festas'] },
+    { titulo: 'Do fechamento ao contrato assinado', recursos: ['contratos', 'assinatura_codigo'] },
+];
+const conteudoPainel: Record<PainelId, { titulo: string; texto: string; largura: string; corpo: ReactNode }> = {
+    orcamento: { titulo: 'Orçamento online', texto: 'O cliente escolhe a data livre e o número de convidados na página do buffet.', largura: 'g2', corpo: null },
+    assinatura: { titulo: 'Assinatura por código', texto: 'O cliente confere o contrato no celular e assina com um código, sem aplicativo.', largura: 'g2', corpo: <PainelAssinatura /> },
+    convite: { titulo: 'Convite da festa com IA', texto: 'A família descreve o tema e a IA cria a arte do convite.', largura: 'g6', corpo: <PainelConvite /> },
+    parcelas: { titulo: 'Parcelas e recebimentos', texto: 'Toque numa parcela para dar baixa. Dá para registrar recebimento parcial e a data real do pagamento.', largura: 'g2', corpo: <PainelParcelas /> },
+    ajuda: { titulo: 'Central de ajuda', texto: 'Ajuda escrita e vídeos curtos dentro do sistema, para a equipe aprender sozinha.', largura: 'g2', corpo: <ul className={cx('lista')}>{filtrar(videosAjuda).map(v => <li key={v.titulo}>{v.titulo}</li>)}</ul> },
+    marca: { titulo: 'A marca do seu buffet', texto: 'A logo e as cores do buffet nas telas do cliente e nos documentos.', largura: 'g2', corpo: <PainelMarca /> },
+};
+export function Paineis() {
+    const visiveis = filtrar(paineis);
+    if (!visiveis.length) return null;
+    return <section className={cx('block')} id="recursos" aria-labelledby="t-paineis"><div className={cx('wrap')}>
+        <Cabecalho olho="Recursos" id="t-paineis" titulo="Toque e veja como funciona." texto="Simulações com dados fictícios, do jeito que aparecem para você e para o seu cliente." />
+        <div className={cx('bento')}>{visiveis.map(({ id }) => { const p = conteudoPainel[id]; return <article key={id} className={cx('bentoItem', p.largura)} aria-labelledby={`painel-t-${id}`} data-painel={id}>
+            <h3 id={`painel-t-${id}`}>{p.titulo}</h3><p>{p.texto}</p>{p.corpo}
+        </article>; })}</div>
+    </div></section>;
+}
 
-export function Duvidas({ config, fundador = textoFundador({ fase: 'LEGADO' }) }: { config: ConfiguracaoSite; fundador?: TextoFundador }) { return (<section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas">
-    <div className={cx('wrap')}>
-      <div className={cx('head')}><div className={cx('eyebrow')}>Dúvidas</div><h2 id="t-duvidas">Perguntas de quem está decidindo.</h2></div>
-      <div className={cx('faq')}>
-        <div>
-          <details><summary>Preciso cadastrar cartão para testar?</summary><p>Não. O teste de {dias(comercial.testeDias)} começa sem cartão e nada é cobrado automaticamente quando ele termina.</p></details>
-          <details><summary>O iA.Fest recebe o pagamento dos meus clientes?</summary><p>Não. O Pix usa a chave da sua empresa e o dinheiro vai direto para você.</p></details>
-          <details><summary>Meu cliente pode pagar no cartão?</summary><p><Recurso ids={["cartao"]}>O cartão nas parcelas está em preparação e depende da conexão da conta de pagamento do buffet. O Pix copia e cola usa a chave da empresa. As taxas do cartão são as da conta de pagamento da sua empresa.</Recurso></p></details>
-          <details><summary>Meu cliente precisa instalar algum aplicativo?</summary><p>Não. Ele abre o link do contrato no celular e confere tudo por ali.</p></details>
-          <details><summary>A família consegue fazer o convite sozinha?</summary><p><Recurso ids={["convite"]}>O buffet libera um link de edição e a família escolhe o modelo, troca a imagem e publica. O buffet acompanha e pode ajudar quando precisar.</Recurso></p></details>
-          <details><summary>Já tenho tabela de preços e contratos em PDF. Perco o que fiz?</summary><p><Recurso ids={["importacao_contratos","importacao_precos"]}>Não. A IA lê seus PDFs e prepara os pacotes e contratos. Você confere antes de publicar.</Recurso></p></details>
-        </div>
-        <div>
-          <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp"]}>É a inteligência artificial do iA.Fest. Ele atende seus clientes no WhatsApp, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
-          <details><summary>O que é o copiloto?</summary><p><Recurso ids={["copiloto"]}>É a parte da IA que trabalha dentro do sistema. Ele mostra o que precisa da sua atenção e prepara cadastros a partir de um pedido escrito. Você sempre revisa e confirma antes de gravar.</Recurso></p></details>
-          <details><summary>Posso mudar de plano depois?</summary><p>As condições para mudar entre os planos estão em definição. O teste começa pelo mesmo cadastro; fale com a equipe para conhecer a oferta.</p></details>
-          <details><summary>O que é o Plano Fundador?</summary><p>{fundador.faq}</p></details>
-          <details><summary>Posso cancelar quando quiser?</summary><p>O cancelamento é solicitado pelos canais de atendimento. Consulte os termos para as condições de acesso, exportação e retenção de dados.</p></details>
-          <details><summary>Tenho mais de uma unidade. Como fica?</summary><p>Cada unidade é uma empresa com CNPJ próprio. <Recurso ids={["multiunidade"]}>A contratação de unidade extra, por {precoExibido(adicionais[0].centavos, config.precosPublicados)}{config.precosPublicados ? "/mês" : ""} a mais, ainda não está aberta; fale com a equipe.</Recurso></p></details>
-        </div>
-      </div>
-    </div>
-  </section>); }
+export function Modulos() {
+    const visiveis = filtrar(modulos);
+    if (!visiveis.length) return null;
+    return <section className={cx('block')} id="modulos" aria-labelledby="t-modulos"><div className={cx('wrap')}>
+        <Cabecalho olho="Por dentro do sistema" id="t-modulos" titulo="Tudo o que o buffet usa no dia a dia." />
+        <div data-fundo-proteger><AbasModulos modulos={visiveis} /></div>
+    </div></section>;
+}
+
+export function WallE() {
+    if (!visivel(['walle_whatsapp'])) return null;
+    return <section className={cx('block')} id="wall-e" aria-labelledby="t-walle"><div className={cx('wrap')}>
+        <Cabecalho olho="Wall-e no WhatsApp" id="t-walle" titulo="Escolha a pergunta. Veja o Wall-e responder." texto="Conversa de exemplo com roteiro fixo. No seu buffet, ele responde com a sua agenda e os seus preços e chama a equipe quando precisa." />
+        <div data-fundo-proteger><ChatWallE roteiro={roteiroWallE} /><Ficticio /></div>
+    </div></section>;
+}
+
+export function ComoFunciona() {
+    const visiveis = filtrar(passos);
+    return <section className={cx('block')} id="como-funciona" aria-labelledby="t-fluxo"><div className={cx('wrap')}>
+        <Cabecalho olho="Como funciona" id="t-fluxo" titulo={tituloFluxo()} />
+        <ol className={cx('fluxoPassos')}>{visiveis.map(p => <li key={p.titulo} className={cx('passoCard')}><span className={cx('quem')}>{p.quem}</span><h3>{p.titulo}</h3><p>{p.texto}</p></li>)}</ol>
+    </div></section>;
+}
+
+export function Confianca() {
+    return <section className={cx('block')} id="confianca" aria-labelledby="t-confianca"><div className={cx('wrap')}>
+        <Cabecalho olho="Confiança" id="t-confianca" titulo="Seu dinheiro, seus clientes, seus dados." />
+        <div className={cx('quatro')}>{filtrar(confianca).map(c => <article key={c.titulo}><h3>{c.titulo}</h3><p>{c.texto}</p></article>)}</div>
+    </div></section>;
+}
+
+export function Duvidas({ fundador = textoFundador({ fase: 'LEGADO' }) }: { config?: ConfiguracaoSite; fundador?: TextoFundador }) {
+    const lista = [...filtrar(perguntas(dias(comercial.testeDias))), { pergunta: 'O que é o Plano Fundador?', resposta: fundador.faq, recursos: [] }];
+    const metade = Math.ceil(lista.length / 2);
+    return <section className={cx('block')} id="duvidas" aria-labelledby="t-duvidas"><div className={cx('wrap')}>
+        <Cabecalho olho="Dúvidas" id="t-duvidas" titulo="Perguntas de quem está decidindo." />
+        <div className={cx('faq')}>{[lista.slice(0, metade), lista.slice(metade)].map((coluna, i) => <div key={i}>{coluna.map(p => <details key={p.pergunta}><summary>{p.pergunta}</summary><p>{p.resposta}</p></details>)}</div>)}</div>
+    </div></section>;
+}

@@ -1,6 +1,9 @@
 'use client';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { statusFechamentoLabel } from '@/lib/clientes/utils';
+import { linkChamar, linkNegociacao } from '@/lib/marketing/acoes-ui';
 import type { ContatoLista, DetalheContato } from '@/lib/marketing/contatos';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -34,7 +37,7 @@ export default function MarketingOrigens() {
   const [registrando, setRegistrando] = useState(false);
   const podeEditar = dados?.capacidades.includes('MARKETING_CAMPANHAS_EDITAR') ?? false;
   return <main className={styles.pagina}>
-    <CabecalhoMarketing titulo="Origens dos contatos" descricao="Pedidos do site e contatos registrados, com a origem de cada um. Vincule à negociação para acompanhar até o contrato."
+    <CabecalhoMarketing titulo="Pedidos e contatos" descricao="Responda aos pedidos de orçamento e acompanhe cada cliente até o contrato."
       acao={podeEditar ? <AdminPrimaryButton type="button" onClick={() => setRegistrando(true)}>+ Registrar contato</AdminPrimaryButton> : undefined} />
     {dados && <form className={styles.filtros} onSubmit={(e) => e.preventDefault()} aria-label="Filtros">
       <label>Situação<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Todas</option>{Object.entries(ROTULO_STATUS_CONTATO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
@@ -52,17 +55,17 @@ export default function MarketingOrigens() {
               <td>{dataHoraBr(c.recebidoEm)}</td><td>{c.nome}</td><td>{CANAL[c.canal] ?? c.canal}</td><td>{origemTexto(c, dados.origens)}</td>
               <td><span className={c.status === 'CONVERTIDO' ? styles.seloAtivo : c.status === 'NOVO' ? styles.seloVioleta : styles.selo}>{ROTULO_STATUS_CONTATO[c.status]}</span></td>
               <td>{c.clienteId ? <Link href={`/clientes/${c.clienteId}`}>{c.clienteNome ?? 'Abrir'}</Link> : <span className={styles.muted}>—</span>}</td>
-              <td><button type="button" className={styles.fantasma} onClick={() => setAbertoId(c.id)}>Detalhes</button></td>
+              <td><div className={styles.acoesPedido}><AcoesPedido contato={c} podeEditar={podeEditar} /><button type="button" className={styles.fantasma} onClick={() => setAbertoId(c.id)}>Detalhes</button></div></td>
             </tr>)}</tbody>
           </table></div>
           <div className={styles.cards}>{dados.contatos.map((c) => <article key={c.id} className={styles.card}>
-            <strong>{c.nome}</strong><p className={styles.muted}>{dataHoraBr(c.recebidoEm)} · {CANAL[c.canal] ?? c.canal}</p>
+            <strong>{c.nome}</strong><AcoesPedido contato={c} podeEditar={podeEditar} /><p className={styles.muted}>{dataHoraBr(c.recebidoEm)} · {CANAL[c.canal] ?? c.canal}</p>
             <p>{origemTexto(c, dados.origens)}</p><p>{ROTULO_STATUS_CONTATO[c.status]}</p>
             <button type="button" className={styles.secundario} onClick={() => setAbertoId(c.id)}>Detalhes</button>
           </article>)}</div>
         </>}
       </section>
-      <ListaOrigens origens={dados.origens} gestao={dados.gestao} aoSalvar={recarregar} />
+
     </>}
     {abertoId && <DetalheDialogo id={abertoId} podeEditar={podeEditar} aoFechar={() => { setAbertoId(null); recarregar(); }} />}
     {registrando && dados && <RegistroDialogo dados={dados} aoFechar={(salvou) => { setRegistrando(false); if (salvou) recarregar(); }} />}
@@ -89,6 +92,7 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
       setResultados(clientesDaBusca(corpo).map((c) => ({ id: c.id, nomeCompleto: c.nome })));
     } catch { setResultados([]); }
   }
+  useEffect(() => { const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') aoFechar(); }; document.addEventListener('keydown', fechar); return () => document.removeEventListener('keydown', fechar); }, [aoFechar]);
   const c = dados?.contato;
   return <div className={styles.dialogo} role="dialog" aria-modal="true" aria-labelledby="t-detalhe">
     <div>
@@ -110,16 +114,16 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
           <button type="button" className={styles.secundario} onClick={() => void buscar()}>Buscar</button>
           {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'vincular-cliente', id: c.id, clienteId: r.id })}>Vincular {r.nomeCompleto}</button>)}
         </div>}
-        <h3>Negociação</h3>
+        <h3>Negociação</h3><AcoesPedido contato={c} podeEditar={podeEditar} />
         {c.fechamentoId ? <p className={styles.ok}>Vinculado a uma negociação — o contrato dela herda esta origem.</p>
           : !c.clienteId ? <p className={styles.muted}>Vincule a um cliente primeiro.</p>
-            : c.fechamentosDoCliente.length === 0 ? <p className={styles.muted}>O cliente ainda não tem negociação. <Link href={`/admin/clientes/${c.clienteId}/fechamento`}>Iniciar fechamento</Link> e depois volte para vincular.</p>
-              : <ul className={styles.historico}>{c.fechamentosDoCliente.map((f) => <li key={f.id}>{dataBr(f.dataEvento)} · {f.status}{f.origemDefinida ? ' · já tem origem' : ''}
+            : c.fechamentosDoCliente.length === 0 ? <p className={styles.muted}>O cliente ainda não tem negociação. <Link href={`/admin/clientes/${c.clienteId}/fechamento`}>Abrir negociação</Link>. O pedido mais recente será vinculado automaticamente.</p>
+              : <ul className={styles.historico}>{c.fechamentosDoCliente.map((f) => <li key={f.id}>{dataBr(f.dataEvento)} · {statusFechamentoLabel(f.status as Parameters<typeof statusFechamentoLabel>[0]) ?? 'Em andamento'}{f.origemDefinida ? ' · já tem origem' : ''}
                 {podeEditar && !f.vinculadoAOutroContato && <> <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'vincular-negociacao', id: c.id, fechamentoId: f.id })}>Vincular</button></>}
                 {f.vinculadoAOutroContato && <span className={styles.muted}> · vinculada a outro contato</span>}</li>)}</ul>}
         {podeEditar && c.status !== 'CONVERTIDO' && <div className={styles.acoes}>
           {c.status !== 'EM_ATENDIMENTO' && <button type="button" className={styles.secundario} onClick={() => void acao({ acao: 'status', id: c.id, status: 'EM_ATENDIMENTO' })}>Marcar em atendimento</button>}
-          {c.status !== 'DESCARTADO' && <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'status', id: c.id, status: 'DESCARTADO' })}>Descartar</button>}
+          {c.status !== 'DESCARTADO' && <Link href="/admin/oportunidades">Próxima ação ou perda</Link>}
         </div>}
         {aviso && <p className={styles.aviso} role="status">{aviso}</p>}
       </>}
@@ -133,6 +137,7 @@ function RegistroDialogo({ dados, aoFechar }: { dados: Dados; aoFechar: (salvou:
   const [f, setF] = useState({ nome: '', telefone: '', email: '', canal: 'WHATSAPP', origemCodigo: '', campanhaId: '', detalhe: '', dataDesejada: '', convidados: '', mensagem: '', unidadeId: '' });
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
+  useEffect(() => { const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape' && !enviando) aoFechar(false); }; document.addEventListener('keydown', fechar); return () => document.removeEventListener('keydown', fechar); }, [aoFechar, enviando]);
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true); setAviso('');
@@ -152,40 +157,32 @@ function RegistroDialogo({ dados, aoFechar }: { dados: Dados; aoFechar: (salvou:
       <p className={styles.muted}>Para quem chegou por WhatsApp, telefone ou visita. Sem origem informada, ela fica desconhecida.</p>
       <div className={styles.grade2}>
         <label>Nome<input required minLength={2} maxLength={120} value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} /></label>
-        <label>Canal<select value={f.canal} onChange={(e) => setF({ ...f, canal: e.target.value })}>{Object.entries(CANAL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label>Telefone<input inputMode="tel" value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} /></label>
+        <label>Como conheceu<select value={f.origemCodigo} onChange={(e) => setF({ ...f, origemCodigo: e.target.value })}><option value="">Não sei / não perguntado</option>{dados.origens.filter((o) => o.ativa).map((o) => <option key={o.codigo} value={o.codigo}>{o.rotulo}</option>)}</select></label>
+      </div>
+      <label>Observação<textarea maxLength={1000} value={f.mensagem} onChange={(e) => setF({ ...f, mensagem: e.target.value })} /></label>
+      <details className={styles.definicoes}><summary>Mais opções</summary><div className={styles.grade2}>
+        <label>Canal<select value={f.canal} onChange={(e) => setF({ ...f, canal: e.target.value })}>{Object.entries(CANAL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label>E-mail<input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
-        <label>Origem<select value={f.origemCodigo} onChange={(e) => setF({ ...f, origemCodigo: e.target.value })}><option value="">Não sei / não perguntado</option>{dados.origens.filter((o) => o.ativa).map((o) => <option key={o.codigo} value={o.codigo}>{o.rotulo}</option>)}</select></label>
         {dados.campanhas.length > 0 && <label>Campanha (opcional)<select value={f.campanhaId} onChange={(e) => setF({ ...f, campanhaId: e.target.value })}><option value="">Nenhuma</option>{dados.campanhas.filter((c) => c.status !== 'ARQUIVADA').map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
         <label>Detalhe (indicador…)<input maxLength={200} value={f.detalhe} onChange={(e) => setF({ ...f, detalhe: e.target.value })} /></label>
         <label>Data desejada<input type="date" value={f.dataDesejada} onChange={(e) => setF({ ...f, dataDesejada: e.target.value })} /></label>
         <label>Convidados<input type="number" min={1} max={5000} value={f.convidados} onChange={(e) => setF({ ...f, convidados: e.target.value })} /></label>
         {dados.unidades.length > 0 && <label>Unidade<select value={f.unidadeId} onChange={(e) => setF({ ...f, unidadeId: e.target.value })}><option value="">Empresa</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
-      </div>
-      <label>Observação<textarea maxLength={1000} value={f.mensagem} onChange={(e) => setF({ ...f, mensagem: e.target.value })} /></label>
+      </div></details>
       {aviso && <p className={styles.erro} role="alert">{aviso}</p>}
       <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => aoFechar(false)} disabled={enviando}>Cancelar</button><AdminPrimaryButton type="submit" carregando={enviando}>Registrar</AdminPrimaryButton></div>
     </form>
   </div>;
 }
 
-function ListaOrigens({ origens, gestao, aoSalvar }: { origens: OpcaoOrigem[]; gestao: boolean; aoSalvar: () => void }) {
-  const [novo, setNovo] = useState('');
-  const [aviso, setAviso] = useState('');
-  async function salvar(corpo: Record<string, unknown>) {
-    setAviso('');
-    try { await enviarMarketing('/api/admin/marketing/origens', corpo); setNovo(''); aoSalvar(); }
-    catch (e) { setAviso(e instanceof Error ? e.message : 'Não foi possível salvar.'); }
-  }
-  return <section className={styles.cartao} aria-labelledby="t-opcoes">
-    <h2 id="t-opcoes">Opções de origem</h2>
-    <p className={styles.muted}>Usadas no CRM para informar como o cliente conheceu o buffet. Desativar esconde de novos registros; o histórico continua legível.</p>
-    <ul className={styles.datas}>{origens.map((o) => <li key={o.codigo}>{o.rotulo}{!o.ativa && ' (inativa)'}
-      {gestao && <> <button type="button" className={styles.fantasma} style={{ minHeight: 28, padding: '0 8px' }} onClick={() => void salvar({ codigo: o.codigo, rotulo: o.rotulo, ativa: !o.ativa, ordem: o.ordem })}>{o.ativa ? 'Desativar' : 'Ativar'}</button></>}</li>)}</ul>
-    {gestao && <form className={styles.filtros} style={{ marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); if (novo.trim()) void salvar({ rotulo: novo.trim(), ativa: true }); }}>
-      <label>Nova origem<input value={novo} maxLength={60} onChange={(e) => setNovo(e.target.value)} placeholder="ex.: Feira de noivas" /></label>
-      <button type="submit" className={styles.secundario}>Adicionar</button>
-    </form>}
-    {aviso && <p className={styles.erro} role="alert">{aviso}</p>}
-  </section>;
+function AcoesPedido({ contato: c, podeEditar }: { contato: ContatoLista; podeEditar: boolean }) {
+  const router = useRouter(); const [erro,setErro] = useState(''); const [abrindo,setAbrindo] = useState(false);
+  async function abrir() { setAbrindo(true); setErro(''); try {
+    const clienteId = c.clienteId ?? (await enviarMarketing<{clienteId: string}>('/api/admin/marketing/contatos',{acao:'preparar-negociacao',id:c.id})).clienteId;
+    router.push(linkNegociacao({...c,clienteId}));
+  } catch(e) {setErro(e instanceof Error?e.message:'Não foi possível abrir.');setAbrindo(false);} }
+  const chamar=linkChamar(c.telefone,c.nome);
+  return <div className={styles.acoes}>{podeEditar && !c.fechamentoId && c.status !== 'DESCARTADO' && <button className={styles.secundario} disabled={abrindo} type="button" onClick={()=>void abrir()}>Abrir negociação</button>}
+    {chamar && <a className={styles.secundario} href={chamar} target="_blank" rel="noopener noreferrer">Chamar</a>}{erro && <p role="alert">{erro}</p>}</div>;
 }

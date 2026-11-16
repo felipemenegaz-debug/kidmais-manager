@@ -54,12 +54,14 @@ test('contrato importado com V2 aberta: cancelamento fica só no menu "Mais", ab
         'next/link': { default: Filho }, './contratos-ux.module.css': cssFalso,
         '@/lib/http/admin-fetch': { adminFetch: async (url: string) => Response.json({ ok: true, data: url.includes('contratoId=') ? dados : [] }) },
         '@/lib/contratos/services/alteracoes': { analisarRevisao: () => null },
-        '@/lib/contratos/assinatura-papel': { versaoAssinadaEmPapel: () => true },
+        '@/lib/contratos/assinatura-papel': { versaoConferenciaImportada: () => true },
         // Aviso da fonte do PDF (plano UX achados Frente C): função real; o botão principal recebe a classe visual.
         '../../lib/contratos/documento/fonte': fonteDocumento, './AdminPrimaryButton': { classePrimaria: 'primario' },
         '@/lib/contratos/documento/formatters': { formatarMoeda: String, formatarFormaPagamento: () => 'A definir', formatarCondicaoPix: String },
         '@/lib/festas/apresentacao': { retornoFestaSeguro: () => null },
         './EdicaoFesta': { default: Filho }, './CancelarContratoFesta': { default: Cancelar },
+        // 124: registro da assinatura do cliente em papel (componente filho, não expandido).
+        './RegistrarPapelCliente': { default: Filho, LinhaPapelCliente: Filho },
         './inteligencia/PerguntarKidmais': { ContextoKidmais: Filho }, './PagamentosResumo': { default: Filho },
         './CriarPlanoFinanceiro': { default: Filho }, './criacao-financeira': { contextoCriacao: () => null },
         './ListaContratos': { default: Lista },

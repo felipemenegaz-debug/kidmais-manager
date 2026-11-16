@@ -117,7 +117,8 @@ test("rota e tela: o Resumo (e o PDF) só leem pela rota com Tenant Context, nun
   const rota = readFileSync("app/api/admin/contratos/resumo-contratacao/route.ts", "utf8");
   assert.match(rota, /exigirApiAdminCrmDisponivel\(request\)/);
   assert.match(rota, /withTenantTransaction,/);
-  assert.match(rota, /painel: detalheAdministrativo,\s+financeiro: consultarPainelFinanceiro,/);
+  // 124: o painel junta a data do papel do cliente lida no mesmo tx.
+  assert.match(rota, /painel: async \(id, tx\) => \(\{ \.\.\.await detalheAdministrativo\(id, tx\), papelCliente: await datasPapelClienteDoContrato\(tx, id\) \}\),\s+financeiro: consultarPainelFinanceiro,/);
   assert.match(rota, /searchParams\.get\("empresaId"\)/);
   assert.doesNotMatch(rota, /export async function (POST|PUT|PATCH|DELETE)/);
   const tela = readFileSync("components/admin/ResumoContratacao.tsx", "utf8");

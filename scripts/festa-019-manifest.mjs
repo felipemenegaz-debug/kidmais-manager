@@ -31,7 +31,8 @@ SELECT
 //   062 — 061 com destino, contrato, bloqueio e agenda da revisão da 062 (agenda por empresa e unidade);
 //   094 — 062 com destino, contrato e agenda da revisão da 094 (capacidade, limite do dia e intervalo);
 //   098 — 094 com contrato e agenda da revisão da 098 (invariante de elegibilidade do salão combinado);
-//   114 — 098 com lock_ocupacao e agenda da revisão verificando a trava da configuração da agenda (D-LIB-6).
+//   114 — 098 com lock_ocupacao e agenda da revisão verificando a trava da configuração da agenda (D-LIB-6);
+//   124 — 114 com a formalização aceitando a assinatura do cliente em papel (PAPEL_CLIENTE).
 // kidmais019_ocupa, bloquear_contrato, lock_ocupacao e proteger_invalidacao são da 019 nos três. O postcheck da 019
 // continua exigindo exatamente a 019.
 const corpos = (arquivo, nomes) => {
@@ -53,6 +54,9 @@ const de098 = de094.length ? corpos('database/migrations/20261023_098_saloes_com
 // 114 (31/10/2026, D-LIB-6 do plano "liberar agenda com mais de um salão"): lock_ocupacao e agenda da revisão verificam a
 // trava da configuração da empresa antes das datas; o resto fica como na 098 (cadeia 108/109).
 const de114 = de098.length ? corpos('database/migrations/20261031_114_trava_configuracao_gatilhos.sql', ['kidmais019_lock_ocupacao', 'kidmais_validar_agenda_revisao']) : [];
+// 124 (15/11/2026, assinatura do cliente em papel): a formalização passa a aceitar PAPEL_CLIENTE (kidmais124_papel_cliente);
+// o resto fica como na 114.
+const de124 = de114.length ? corpos('database/migrations/20261115_124_assinatura_papel_cliente.sql', ['kidmais019_formalizacao']) : [];
 const sobre = (base, novos) => base.map(([n, h]) => novos.find(([x]) => x === n) ?? [n, h]);
 const conjuntos = [['019', functions]];
 if (de061.length) conjuntos.push(['061', sobre(functions, de061)]);
@@ -60,6 +64,7 @@ if (de062.length) conjuntos.push(['062', sobre(sobre(functions, de061), de062)])
 if (de094.length) conjuntos.push(['094', sobre(sobre(sobre(functions, de061), de062), de094)]);
 if (de098.length) conjuntos.push(['098', sobre(sobre(sobre(sobre(functions, de061), de062), de094), de098)]);
 if (de114.length) conjuntos.push(['114', sobre(sobre(sobre(sobre(sobre(functions, de061), de062), de094), de098), de114)]);
+if (de124.length) conjuntos.push(['124', sobre(sobre(sobre(sobre(sobre(sobre(functions, de061), de062), de094), de098), de114), de124)]);
 for (const [, lista] of conjuntos) if (lista.length !== 10) throw Error('Conjunto incompleto');
 const estrito = ` NOT EXISTS(SELECT 1 FROM esperadas e WHERE NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='public' AND p.proname=e.nome AND NOT p.prosecdef

@@ -15,12 +15,14 @@ iniciar P1/P2 locais.
 | `scripts/migration-105-production-nucleo.cjs` | Núcleo de produção: conferência com cinco estados, transação única, marcador, PITR, códigos |
 | `scripts/migration-105-definicoes.cjs` | Inventário esperado (145 definições) e comparação exata |
 | `database/checks/20261029_105_definicoes.sql` | Inventário das definições no catálogo (só leitura) |
-| `scripts/bloco-shell-105.cjs` | Ganha o ambiente `production`. Os blocos de staging ficam **byte a byte iguais** |
+| `scripts/bloco-shell-105.cjs` | Ganha o ambiente `production`. Os blocos de staging ficaram byte a byte iguais até 09/11; desde 10/11 conferem também os 5 SQL e os módulos de definições e relações |
 | `scripts/migration-105-production.test.cjs`, `scripts/bloco-shell-105-production.test.cjs` | Suítes novas (24 + 8), no `ci.yml` |
 | `lib/integracoes/oauth/aplicador-105-production.postgres.test.ts` | Suíte PG opt-in, registrada em `scripts/regressao-v1-selecao.cjs` (b14-P11 + 103) |
 
-O núcleo de staging (`migration-105-comum.cjs`), o adaptador de staging e os 4 SQL da 105 **não mudam**. O núcleo de
-produção reaproveita deles só o que é leitura pura: hashes, `SQL_ESTADO`/`lerEstado`/`exigirCatalogo` e `commitNaFalha`.
+Os 4 SQL da 105 **não mudam**. O núcleo de produção reaproveita do núcleo de staging (`migration-105-comum.cjs`) só o que é
+leitura pura: hashes, `SQL_ESTADO`/`lerEstado`/`exigirCatalogo` e `commitNaFalha`. Desde 10/11/2026 (follow-up do parecer r1
+do Astra, LOCAL) o núcleo de staging também confere pela definição, com o mesmo SQL de definições e o mesmo módulo de
+relações: ver `docs/MCP_ASSINATURAS_APLICADOR_105.md`, bloco de 10/11/2026.
 
 ## O que muda em relação ao aplicador de staging
 
@@ -85,7 +87,9 @@ transação. Assim o deparse sempre qualifica `public.` e o intervalo sai em for
   `proconfig` e dono.
 
 A comparação é exata, sem faltar nem sobrar (FALTA, SOBRA, DIFERENTE, REPETIDA, ILEGIVEL). Nenhum texto do catálogo é
-executado e a saída traz só as chaves. Há uma única alternativa aceita: o DEFAULT das chaves uuid pode sair como
+executado e a saída traz só as chaves do inventário. Uma chave lida que não está no inventário (SOBRA ou REPETIDA)
+sai só com partes de listas fechadas: `<tipo>:<tabela da 105>:DESCONHECIDA`, `<tipo>:DESCONHECIDA` ou `DESCONHECIDA` (rodada 3;
+nenhum nome de índice, restrição ou gatilho lido do catálogo chega ao CONFERIR nem ao marcador). Há uma única alternativa aceita: o DEFAULT das chaves uuid pode sair como
 `gen_random_uuid()` (pg_catalog) ou como `public.gen_random_uuid()`.
 
 - A forma qualificada só vale se `public.gen_random_uuid()` for o **pgcrypto genuíno** (rodada 2). A linha
@@ -138,6 +142,19 @@ aceita com a integridade antiga. Isso fica como passo próprio.
     é o único registro do COMMIT.
 - O marcador antigo continua no disco e impede a repetição. A retomada exige decisão de Felipe e renomear o marcador
   (nunca apagar).
+- **Diagnóstico de erro em vocabulário fechado** (rodada 4, Astra r3, P2-3). `motivo` do CONFERIR, `conferencia.motivo`
+  e `conferenciaDepois.motivo` do marcador, `falha.mensagem`, `erroMarcador` e a linha `RECUSADO` da CLI nunca copiam
+  `message`, `detail`, `hint`, `where` nem nomes de um erro. Saem, nesta ordem:
+  - a 1ª linha de uma asserção própria (`ERR_ASSERTION` com mensagem escrita pelo aplicador) quando ela inteira está na
+    lista fechada `MOTIVOS_PROPRIOS` (o diff de valores que o `assert/strict` acrescenta depois dela nunca sai);
+  - só o código, se o 1º termo for um código próprio e o complemento estiver fora da lista (ex.: `TENTATIVA_ANTERIOR_REVISAR`);
+  - `ERRO_SERVIDOR <SQLSTATE>` (5 caracteres `[0-9A-Z]` com ao menos um dígito);
+  - `ERRO_SISTEMA <código>` (código do Node, `E…`, ex.: `ECONNREFUSED`, `ENOSPC`);
+  - `ERRO_NAO_CLASSIFICADO`.
+  - O CONFERIR que falha traz também a `fase` (`CONEXAO`, `ARQUIVOS`, `IDENTIDADE`, `ESTADO`, `CATALOGO`, `PRECHECK`,
+    `INTEGRIDADE`, `CONTAGENS`); a transação registra `faseDaFalha` (`verificacao`, `corpo` ou `commit`).
+  - As contagens informativas só são lidas com a integridade íntegra: deriva de RLS ou de política nem chega a executá-las.
+  - Para o texto completo do erro, reproduzir no PG descartável; ele nunca é guardado na saída nem no marcador.
 
 ### PITR como gate operacional
 

@@ -54,7 +54,8 @@ export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toS
 
 /**
  * O filtro da lista fica na URL (`?filtro=todas`); o termo de busca, não: ele pode ser o nome de uma pessoa ou de uma
- * criança, e fica só na memória de `ContratoAdmin`. Abrir um contrato preserva o filtro (via `urlDaSelecao`), e
+ * criança, e fica na memória de `ContratoAdmin` e na aba (lib/http/busca-na-aba.ts, presa à sessão e com prazo), nunca no
+ * histórico. Abrir um contrato preserva o filtro (via `urlDaSelecao`), e
  * "← Contratos" ou voltar do navegador reabrem a lista como estava. Valor desconhecido cai no padrão.
  *
  * `filtro` também marca a lista em uso: com busca ativa ele é gravado mesmo no padrão (`filtro=proximas`), e a URL sem

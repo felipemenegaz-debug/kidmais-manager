@@ -26,6 +26,8 @@
 .sidebar nav a[aria-current=page] { color:var(--km-text); background:var(--km-violet-soft); font-weight:600; border-right-color:transparent; box-shadow:inset 0 0 0 1px rgba(124,58,237,.18), 0 0 18px -6px rgba(124,58,237,.50); }
 .sidebar nav a[aria-current=page]::before { content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:3px; background:linear-gradient(var(--km-violet), var(--km-teal), var(--km-violet)); background-size:100% 300%; animation:kmGradientMoveV 8s ease infinite; pointer-events:none; }
 .navIcon { width:20px; display:inline-flex; flex:none; justify-content:center; color:var(--lilac-accent); }
+/* PS-4: número de retornos abertos ao lado do item (Satisfação › Retornos). */
+.contador { margin-left:auto; min-width:20px; padding:0 6px; border-radius:10px; background:rgba(124,58,237,.35); color:#fff; font-size:12px; font-weight:700; line-height:20px; text-align:center; }
 .conta { padding:24px 32px; border-top:1px solid var(--border-navy); }
 .identidade { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
 .avatar { width:36px; height:36px; border-radius:50%; background:rgba(124,58,237,.15); color:var(--lilac-accent); display:grid; place-items:center; font-weight:800; }

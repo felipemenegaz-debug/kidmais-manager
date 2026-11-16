@@ -54,7 +54,7 @@ export async function consultarCreditos(sessao: SessaoAdmin, empresaSolicitada: 
         if (!gestao) return base;
         const pedidos = (await tx.query<Record<string, unknown>>(`SELECT p.protocolo, p.estado, p.recurso, p.oferta_codigo, p.oferta, p.preco_centavos, p.forma,
                 ${ISO('p.criado_em')} AS criado, to_char(p.vencimento_pagamento, 'YYYY-MM-DD') AS vencimento, ${ISO('p.creditado_em')} AS creditado,
-                c.url_fatura, c.disputa, d.protocolo AS devolucao_protocolo, d.estado AS devolucao_estado, d.valor_centavos AS devolucao_valor, to_char(d.prazo, 'YYYY-MM-DD') AS devolucao_prazo,
+                c.url_fatura, c.disputa, c.perda_definitiva_em IS NOT NULL AS saldo_cancelado, d.protocolo AS devolucao_protocolo, d.estado AS devolucao_estado, d.valor_centavos AS devolucao_valor, to_char(d.prazo, 'YYYY-MM-DD') AS devolucao_prazo,
                 d.tipo AS devolucao_tipo
             FROM ia_credito_pedidos p LEFT JOIN ia_credito_cobrancas c ON c.pedido_id = p.id AND c.canonica
             LEFT JOIN ia_credito_devolucoes d ON d.pedido_id = p.id AND d.empresa_id = p.empresa_id
@@ -69,6 +69,8 @@ export async function consultarCreditos(sessao: SessaoAdmin, empresaSolicitada: 
                 criadoEm: p.criado, vencimentoPagamento: p.vencimento, creditadoEm: p.creditado,
                 urlPagamento: ['AGUARDANDO_PAGAMENTO', 'VENCIDO'].includes(String(p.estado)) && typeof p.url_fatura === 'string' && urlDeFaturaValida(p.url_fatura) ? p.url_fatura : null,
                 emDisputa: p.disputa === 'ABERTA',
+                // R4: pagamento revertido no Asaas sem devolução nossa (perda definitiva): o saldo restante foi cancelado.
+                saldoCancelado: p.saldo_cancelado === true,
                 devolucao: p.devolucao_protocolo ? { protocolo: p.devolucao_protocolo, estado: p.devolucao_estado, tipo: p.devolucao_tipo, valorCentavos: Number(p.devolucao_valor),
                     prazo: p.devolucao_prazo } : null,
                 opcaoDevolucao: opcao && opcao.disponivel ? { tipo: opcao.calculo.tipo, valorCentavos: opcao.calculo.valorCentavos, quantidadeCancelada: exibir(recurso, opcao.calculo.quantidadeCancelada),

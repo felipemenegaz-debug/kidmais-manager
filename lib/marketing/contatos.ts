@@ -1,3 +1,4 @@
+import { vincularContatoNegociacao } from './conversao.ts';
 import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import { buscarClientesPorContatoExato, buscarClientesPorEmailExato, criarCliente } from "../clientes/repositories/cliente.repository.ts";
@@ -12,6 +13,10 @@ import { campanhaPorCodigo, exigirUnidadeDaEmpresa } from "./campanhas.ts";
 import { CANAIS_ATENDIMENTO, CODIGO_ORIGEM, exigirOrigemValida, type CanalAtendimento } from "./origens.ts";
 import type { CapturaCampanha } from "./utm.ts";
 import { registrarAutorizacaoDoFormulario, type ResultadoFormulario } from "./automacoes/preferencias.ts";
+import { perdaSchema } from '../oportunidades/modelo.ts';
+import { gravarPerda } from '../oportunidades/perda.ts';
+import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
+import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 
 export const ORIGEM_SITE = "SITE_PUBLICO";
 export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
@@ -117,7 +122,7 @@ async function clientesPorTelefone(tx: DbExecutor, empresaId: string, telefone: 
   return [...vistos.values()];
 }
 
-async function clienteDoContato(
+export async function clienteDoContato(
   tx: DbExecutor, empresaId: string, entrada: { nome: string; telefone: string | null; email: string | null },
 ): Promise<{ clienteId: string; novo: boolean }> {
   const porTelefone = entrada.telefone ? await clientesPorTelefone(tx, empresaId, entrada.telefone) : [];
@@ -212,6 +217,7 @@ async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId:
 }
 
 export const esquemaAcaoContato = z.discriminatedUnion("acao", [
+  z.object({ acao: z.literal("preparar-negociacao"), id: z.string().uuid() }).strict(),
   z.object({
     acao: z.literal("registrar"),
     nome: z.string().trim().min(2).max(120),
@@ -228,13 +234,17 @@ export const esquemaAcaoContato = z.discriminatedUnion("acao", [
     unidadeId: z.string().uuid().nullable().optional(),
     chave: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
   }).strict(),
-  z.object({ acao: z.literal("status"), id: z.string().uuid(), status: z.enum(["NOVO", "EM_ATENDIMENTO", "DESCARTADO"]) }).strict(),
+  z.object({ acao: z.literal("status"), id: z.string().uuid(), status: z.enum(["NOVO", "EM_ATENDIMENTO", "DESCARTADO"]), perda: perdaSchema.optional() }).strict(),
   z.object({ acao: z.literal("vincular-cliente"), id: z.string().uuid(), clienteId: z.string().uuid() }).strict(),
   z.object({ acao: z.literal("vincular-negociacao"), id: z.string().uuid(), fechamentoId: z.string().uuid() }).strict(),
 ]);
 export type AcaoContato = z.infer<typeof esquemaAcaoContato>;
 
-export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usuarioId: string, acao: AcaoContato) {
+export async function executarAcaoContato(
+  tx: DbExecutor, empresaId: string, usuarioId: string | null, acao: AcaoContato,
+  // Contexto interno do chamador, nunca aceito no corpo da API de ações manuais.
+  contexto: { origemVinculo?: 'CRM_INTERNO' | 'FECHAMENTO_PUBLICO' } = {},
+) {
   if (acao.acao === "registrar") {
     if (!acao.telefone && !acao.email) throw new MarketingError("MARKETING_CONTATO_SEM_MEIO", "Informe telefone ou e-mail.", 400);
     const unidade = await exigirUnidadeDaEmpresa(tx, empresaId, acao.unidadeId);
@@ -269,6 +279,9 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
     }
     return { id, repetido: false };
   }
+  // O vínculo manual a uma negociação herda o responsável do próximo passo em fechamentos: a 114 exige a configuração
+  // da agenda travada antes de qualquer linha (a entrada administrativa já tem a empresa em FOR UPDATE).
+  if (acao.acao === 'vincular-negociacao') await travarConfiguracaoAgenda(tx, empresaId, { modo: 'COMPARTILHADA', linha: 'JA_TRAVADA' });
   const atual = await tx.query<{ status: StatusContato; cliente_id: string | null; fechamento_id: string | null }>(
     `SELECT status, cliente_id::text, fechamento_id::text FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
     [acao.id, empresaId],
@@ -277,6 +290,23 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
   if (!contato) naoEncontrado("Contato não encontrado nesta empresa.");
   if (acao.acao === "status") {
     if (contato.status === "CONVERTIDO") throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
+    if (contato.status === 'DESCARTADO') throw new MarketingError('CONTATO_ENCERRADO','Este contato já foi encerrado.',409);
+    if (acao.status === 'DESCARTADO') {
+      const perda=perdaSchema.parse(acao.perda);
+      // Perda é sempre registrada por uma pessoa (a conversão automática, sem usuário, nunca descarta).
+      if (!usuarioId) throw new MarketingError('MARKETING_PERDA_SEM_USUARIO','Registre a perda com um usuário identificado.',403);
+      if (contato.fechamento_id)
+        throw new MarketingError('CONTATO_COM_NEGOCIACAO','Registre a perda na negociação deste cliente.',409);
+      let clienteId=contato.cliente_id;
+      if (!clienteId) {
+        const dados=(await tx.query<{nome:string;telefone:string|null;email:string|null}>('SELECT nome,telefone,email FROM marketing_contatos WHERE empresa_id=$1::uuid AND id=$2::uuid',[empresaId,acao.id])).rows[0];
+        clienteId=(await clienteDoContato(tx,empresaId,dados)).clienteId;
+        await tx.query("UPDATE marketing_contatos SET cliente_id=$3::uuid,vinculo_cliente='MANUAL' WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,acao.id,clienteId]);
+      }
+      await tx.query("UPDATE marketing_contatos SET status='DESCARTADO',atualizado_por=$3::uuid WHERE empresa_id=$1::uuid AND id=$2::uuid",[empresaId,acao.id,usuarioId]);
+      await gravarPerda(tx,empresaId,usuarioId,{tipo:'CONTATO',id:acao.id},clienteId,perda);
+      return {id:acao.id};
+    }
     await tx.query(`UPDATE marketing_contatos SET status = $2, atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid`,
       [acao.id, acao.status, usuarioId]);
     return { id: acao.id };
@@ -293,37 +323,22 @@ export async function executarAcaoContato(tx: DbExecutor, empresaId: string, usu
     }, tx);
     return { id: acao.id };
   }
-  // vincular-negociacao: a negociação herda a origem do contato (se ainda não tiver uma). Contrato herda da negociação.
-  if (contato.fechamento_id) throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
-  if (!contato.cliente_id) throw new MarketingError("MARKETING_CONTATO_SEM_CLIENTE", "Vincule o contato a um cliente antes da negociação.", 409);
-  const fechamento = await tx.query<{ id: string }>(
-    `SELECT id::text FROM fechamentos WHERE id = $1::uuid AND empresa_id = $2::uuid AND cliente_id = $3::uuid`,
-    [acao.fechamentoId, empresaId, contato.cliente_id],
-  );
-  if (fechamento.rows.length !== 1) throw new MarketingError("MARKETING_NAO_ENCONTRADO", "Negociação não encontrada para este cliente.", 404);
-  try {
-    await tx.query(
-      `UPDATE marketing_contatos SET fechamento_id = $2::uuid, status = 'CONVERTIDO', atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid`,
-      [acao.id, acao.fechamentoId, usuarioId],
-    );
-  } catch (error) {
-    if ((error as { constraint?: string }).constraint === "marketing_contatos_fechamento_uk") {
-      throw new MarketingError("MARKETING_NEGOCIACAO_JA_VINCULADA", "Esta negociação já está vinculada a outro contato.", 409);
-    }
-    throw error;
+  if (acao.acao === 'preparar-negociacao') {
+    if (contato.status === 'DESCARTADO') throw new MarketingError('MARKETING_CONTATO_DESCARTADO','Este pedido foi descartado.',409);
+    if (contato.cliente_id) return {id: acao.id, clienteId: contato.cliente_id};
+    const dados = (await tx.query<{nome:string;telefone:string|null;email:string|null}>(
+      'SELECT nome,telefone,email FROM marketing_contatos WHERE id=$1::uuid AND empresa_id=$2::uuid',[acao.id,empresaId])).rows[0];
+    const {clienteId,novo} = await clienteDoContato(tx,empresaId,dados);
+    await tx.query("UPDATE marketing_contatos SET cliente_id=$2::uuid,vinculo_cliente='MANUAL',atualizado_por=$3::uuid,atualizado_em=clock_timestamp() WHERE id=$1::uuid AND empresa_id=$4::uuid",[acao.id,clienteId,usuarioId,empresaId]);
+    const origem = await atribuicaoVigente(tx,empresaId,'CONTATO',acao.id);
+    if(novo && origem) await registrarSeAusente(tx,empresaId,{...origem,alvoTipo:'CLIENTE',alvoId:clienteId,registradoPor:usuarioId});
+    await registrarEventoHistorico({clienteId,tipoEvento:'CONTATO_MARKETING_VINCULADO',origem:'CRM_INTERNO',entidadeTipo:'MARKETING_CONTATO',entidadeId:acao.id,usuarioId},tx);
+    return {id:acao.id,clienteId};
   }
-  const origemContato = await atribuicaoVigente(tx, empresaId, "CONTATO", acao.id);
-  const herdada = origemContato ? await registrarSeAusente(tx, empresaId, {
-    alvoTipo: "FECHAMENTO", alvoId: acao.fechamentoId,
-    origemCodigo: origemContato.origemCodigo, canalAtendimento: origemContato.canalAtendimento, campanhaId: origemContato.campanhaId,
-    metodo: origemContato.metodo === "DESCONHECIDO" ? "DESCONHECIDO" : "HERDADO", detalhe: origemContato.detalhe, utm: origemContato.utm,
-    contatoId: acao.id, registradoPor: usuarioId,
-  }) : null;
-  await registrarEventoHistorico({
-    clienteId: contato.cliente_id, tipoEvento: "CONTATO_MARKETING_NEGOCIACAO", origem: "CRM_INTERNO", entidadeTipo: "FECHAMENTO", entidadeId: acao.fechamentoId,
-    usuarioId, metadata: { contatoMarketingId: acao.id, origemHerdada: Boolean(herdada) },
-  }, tx);
-  return { id: acao.id, origemNegociacaoExistente: !herdada };
+  // vincular-negociacao: implementação única em ./conversao.ts (herança idempotente) + próxima ação do Funil.
+  const resultado = await vincularContatoNegociacao(tx,empresaId,usuarioId,acao,{origemVinculo:contexto.origemVinculo});
+  await herdarAcoesDoContato(tx,acao.fechamentoId);
+  return { id: resultado.id, origemNegociacaoExistente: resultado.origemNegociacaoExistente };
 }
 
 async function exigirClienteAtivo(tx: DbExecutor, empresaId: string, clienteId: string) {

@@ -16,7 +16,7 @@
 import type { DbExecutor } from '../db/contracts';
 import { AsaasFalhou, type CobrancaProvedor, type ProvedorCreditos } from '../assinatura/asaas.ts';
 import { dataDoPagamento } from '../assinatura/ofertas.ts';
-import { decidirPagamento, lerReferenciaExterna, proporcionalCentavos, referenciaExterna, STATUS_LIBERA, vencimentoEmDias, type Forma } from './dominio.ts';
+import { decidirPagamento, lerReferenciaExterna, proporcionalCentavos, referenciaExterna, situacaoDaLeitura, STATUS_LIBERA, vencimentoEmDias, type Forma } from './dominio.ts';
 import { abrirCarteira, bloquearDisponivel, cancelarBloqueado, creditarLote, desbloquear, lerCarteira } from './ledger.ts';
 import { enfileirarNotificacao } from './notificacoes.ts';
 import type { Recurso } from './catalogo.ts';
@@ -262,7 +262,13 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     if (p.estado === 'ENCERRADO') {
         if (!c || p.creditado_em) return { resultado: 'JA_CONCLUIDO' };
         const lidoEncerrado = await ctx.provedor.obterCobranca(c.pagamento_id);
-        if (!lidoEncerrado || !STATUS_LIBERA.has(lidoEncerrado.status)) return { resultado: 'JA_CONCLUIDO' };
+        if (!lidoEncerrado || !STATUS_LIBERA.has(lidoEncerrado.status)) {
+            // R5: o encerrado converge a situação lida (cobrança removida → DELETED), inclusive o encerrado antes desta correção.
+            // Sem mudança, nenhuma escrita (a 2ª leitura continua sem efeito).
+            if (lidoEncerrado && lidoEncerrado.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lidoEncerrado.status))
+                await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, situacaoDaLeitura(lidoEncerrado)]);
+            return { resultado: 'JA_CONCLUIDO' };
+        }
         await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2, revisao_motivo = $3 WHERE id = $1::uuid AND (situacao_provedor, revisao_motivo) IS DISTINCT FROM ($2, $3)',
             [c.id, lidoEncerrado.status, 'PAGO_APOS_CANCELAMENTO']);
         await mudarEstado(tx, p, 'REVISAO', 'PAGO_APOS_CANCELAMENTO');
@@ -293,7 +299,7 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
     await tx.query('UPDATE ia_credito_cobrancas SET conferida_em = clock_timestamp() WHERE id = $1::uuid', [c.id]);
     if (p.estado === 'REVISAO' && !p.creditado_em && p.revisao_motivo && REVISOES_DA_PESSOA.has(p.revisao_motivo)) {
         if (lido && lido.id === c.pagamento_id && /^[A-Z_]{1,40}$/.test(lido.status))
-            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, lido.status]);
+            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, situacaoDaLeitura(lido)]);
         return { resultado: 'REVISAO', motivo: p.revisao_motivo };
     }
     const cliente = await clienteDaEmpresa(tx, p.empresa_id);
@@ -345,6 +351,8 @@ export async function processarPedido(tx: DbExecutor, pedidoId: string, ctx: Con
             if (p.estado === 'AGUARDANDO_PAGAMENTO') await mudarEstado(tx, p, 'VENCIDO');
             return { resultado: 'VENCIDO' };
         case 'CANCELADO':
+            // R5: grava a remoção (antes ficava o status anterior, PENDING, com o pedido já ENCERRADO).
+            await tx.query('UPDATE ia_credito_cobrancas SET situacao_provedor = $2 WHERE id = $1::uuid AND situacao_provedor IS DISTINCT FROM $2', [c.id, situacaoDaLeitura(lido!)]);
             if (!p.creditado_em) await mudarEstado(tx, p, 'ENCERRADO');
             return { resultado: 'ENCERRADO' };
         case 'ESTORNO':

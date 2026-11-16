@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { MarketingError } from "../erros.ts";
+import { suprimirPesquisas } from "../../satisfacao/supressao.ts";
 
 /**
  * Descadastro e autorização de mensagens do Marketing (086, com a correção R1 de 15/10/2026).
@@ -15,7 +16,8 @@ import { MarketingError } from "../erros.ts";
  *   - reaproveitar cadastro sem o número informado (ex.: mesmo e-mail, outro telefone) NÃO prova o destino: a autorização
  *     fica PENDENTE até a equipe confirmar; o CRM não é alterado e o número fica guardado no contato e na autorização;
  *   - descadastro é do cliente inteiro, prevalece sobre tudo e revoga as autorizações vivas (histórico mantido);
- *   - o controle "não contatar" do atendimento WhatsApp (082), quando existe, também bloqueia;
+ *   - o PARAR do atendimento WhatsApp também bloqueia: `nao_contatar` nos controles (082) OU em qualquer conversa (060) do
+ *     número, de qualquer ambiente, lidos numa ÚNICA instrução (bloqueioWhatsappDoDestino, plano da pesquisa rev. 6 K1/K2);
  *   - tudo é revalidado imediatamente antes do envio. Não há autorização sem destino: nada é presumido.
  * Limite conhecido: o formulário é "opt-in simples" (sem código de confirmação no número); ver docs/MARKETING_LOCAL_20261014.md.
  *
@@ -155,6 +157,8 @@ export async function alterarPreferencia(tx: DbExecutor, empresaId: string, usua
          observacao = $4, atualizado_por = $3::uuid, atualizado_em = clock_timestamp()`, [empresaId, input.clienteId, usuarioId, input.confirmacao]);
     await revogarVivas(tx, empresaId, input.clienteId, usuarioId, "DESCADASTRO: " + input.confirmacao);
     canceladas = await suprimirAgendadasDoCliente(tx, empresaId, input.clienteId, "DESCADASTRADO");
+    // Pesquisa de satisfação (110): o descadastro geral alcança também as pesquisas, nos dois canais (M3).
+    await suprimirPesquisas(tx, empresaId, input.clienteId, { canal: "TODOS", motivo: "DESCADASTRADO" });
   } else if (input.operacao === "reativar") {
     if (!descadastro.descadastradoEm) throw new MarketingError("MARKETING_NAO_DESCADASTRADO", "O cliente não está descadastrado.", 409);
     await tx.query(
@@ -188,6 +192,9 @@ export async function alterarPreferencia(tx: DbExecutor, empresaId: string, usua
            atualizado_em = clock_timestamp() WHERE id = $1::uuid AND empresa_id = $2::uuid AND cliente_id = $3::uuid AND estado <> 'REVOGADA' RETURNING id::text`,
         [input.autorizacaoId, empresaId, input.clienteId, usuarioId, input.confirmacao]);
       if (!r.rows[0]) throw new MarketingError("MARKETING_NAO_ENCONTRADO", "Autorização não encontrada ou já revogada.", 404);
+      // Pesquisa (110, M3): só o WhatsApp, e só se o cliente ficou sem destino elegível (o e-mail não é afetado).
+      await suprimirPesquisas(tx, empresaId, input.clienteId, { canal: "WHATSAPP", motivo: "AUTORIZACAO_REVOGADA",
+        aindaElegivel: async () => (await elegivelParaMensagem(tx, empresaId, input.clienteId)).ok });
     }
   }
   return { preferencia: await lerPreferencia(tx, empresaId, input.clienteId), canceladas };
@@ -243,13 +250,31 @@ export async function elegivelParaMensagem(tx: DbExecutor, empresaId: string, cl
   if (confirmadas.rows.length === 0) return { ok: false, motivo: "SEM_AUTORIZACAO" };
   const escolhido = destinos.map((d) => confirmadas.rows.find((a) => a.destino === d)).find(Boolean);
   if (!escolhido) return { ok: false, motivo: "SEM_AUTORIZACAO_DESTINO" };
-  const controle = await tx.query<{ existe: string | null }>(`SELECT to_regclass('public.whatsapp_atendimento_controles_contato')::text AS existe`);
-  if (controle.rows[0]?.existe) {
-    const nacional = escolhido.destino.startsWith("55") ? escolhido.destino.slice(2) : escolhido.destino;
-    const bloqueio = await tx.query<{ ok: boolean }>(
-      `SELECT true AS ok FROM whatsapp_atendimento_controles_contato WHERE empresa_id = $1::uuid AND nao_contatar AND contato IN ($2, $3) LIMIT 1`,
-      [empresaId, escolhido.destino, nacional]);
-    if (bloqueio.rows.length > 0) return { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" };
-  }
+  if (await bloqueioWhatsappDoDestino(tx, empresaId, escolhido.destino)) return { ok: false, motivo: "NAO_CONTATAR_ATENDIMENTO" };
   return { ok: true, telefone: escolhido.destino, autorizacaoId: escolhido.id };
+}
+
+/**
+ * PARAR do atendimento para um destino da empresa (plano da pesquisa rev. 6, K1/K2). O bloqueio é transferido entre
+ * controles (082) e conversa (060) nos dois sentidos (recriação da conversa; expurgo da privacidade), então os dois são
+ * lidos numa ÚNICA instrução — um só snapshot em READ COMMITTED, sem a lacuna de dois SELECTs. Sem filtro de ambiente
+ * (o predicado antigo dos controles não filtrava): bloqueio de qualquer ambiente bloqueia — a mudança só bloqueia mais.
+ * Destino com e sem DDI, como antes. Não depende de a conversa já ter cliente identificado.
+ * O catálogo (to_regclass) só escolhe as tabelas presentes; erro de catálogo ou de consulta SOBE (falha fechada): nunca
+ * vira "liberado".
+ */
+export async function bloqueioWhatsappDoDestino(tx: DbExecutor, empresaId: string, destino: string): Promise<boolean> {
+  const t = (await tx.query<{ controles: boolean; conversas: boolean }>(
+    `SELECT to_regclass('public.whatsapp_atendimento_controles_contato') IS NOT NULL AS controles,
+            to_regclass('public.whatsapp_atendimento_conversas') IS NOT NULL AS conversas`)).rows[0];
+  if (!t) throw new Error("catálogo do atendimento ilegível");
+  const partes = [
+    ...(t.controles ? ["EXISTS (SELECT 1 FROM whatsapp_atendimento_controles_contato WHERE empresa_id = $1::uuid AND nao_contatar AND contato IN ($2, $3))"] : []),
+    ...(t.conversas ? ["EXISTS (SELECT 1 FROM whatsapp_atendimento_conversas WHERE empresa_id = $1::uuid AND nao_contatar AND contato IN ($2, $3))"] : []),
+  ];
+  if (partes.length === 0) return false;
+  const nacional = destino.startsWith("55") ? destino.slice(2) : destino;
+  const r = await tx.query<{ bloqueado: boolean }>(`/* marketing:bloqueio-whatsapp */ SELECT ${partes.join(" OR ")} AS bloqueado`, [empresaId, destino, nacional]);
+  if (typeof r.rows[0]?.bloqueado !== "boolean") throw new Error("consulta de bloqueio sem resultado");
+  return r.rows[0].bloqueado;
 }

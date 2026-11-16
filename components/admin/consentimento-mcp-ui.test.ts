@@ -22,7 +22,7 @@ test('teste real (28/10): a tela diz que a conexão vale só para a empresa ativ
     const html = tela(true);
     assert.match(html, /data-empresa="true">Buffet Sintético/);
     assert.match(html, /data-aviso-empresa/);
-    assert.match(html, /troque a empresa ativa no menu do KidMais e recarregue esta página/);
+    assert.match(html, /troque a empresa ativa no menu do iA\.Fest e recarregue esta página/);
     assert.match(html, /data-permitir/);
     assert.doesNotMatch(html, /data-fora-do-piloto/);
 });

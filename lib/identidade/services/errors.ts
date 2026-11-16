@@ -14,6 +14,9 @@ export type IdentityServiceErrorCode =
   | "PROVA_FINALIDADE_INVALIDA"
   | "CONFIGURACAO_IDENTIDADE_INVALIDA"
   | "OTP_INDISPONIVEL"
+  | "RESERVA_EMAIL_INDISPONIVEL"
+  | "RESERVA_EMAIL_AGUARDE"
+  | "LIMITE_ENVIOS_OTP"
   | "FALHA_ENVIO_OTP";
 
 export class IdentityServiceError extends Error {

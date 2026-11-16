@@ -3,6 +3,8 @@ import { z } from "zod";
 import { camposDocumentoPublico, documentoInformado, MENSAGEM_SEM_DOCUMENTO, temDocumento } from "@/lib/identidade/documento-rota";
 import { iniciarDesafioContrato } from "@/lib/contratos/services";
 import { enviarOtpComAmbiente } from "@/lib/identidade/delivery";
+import { LIMITES } from "@/lib/area-familia/limites";
+import { limitarRotaPublicaNoBanco } from "@/lib/area-familia/http";
 import {
   contratoIdDaRota,
   erroContratoPublico,
@@ -15,10 +17,13 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   ...camposDocumentoPublico,
-  canal: z.literal("WHATSAPP"),
+  // EMAIL só é aceito pelo serviço quando a reserva está ligada e o cliente não tem WhatsApp.
+  canal: z.enum(["WHATSAPP", "EMAIL"]),
 }).strict().refine(temDocumento, MENSAGEM_SEM_DOCUMENTO);
 
 export async function POST(request: NextRequest, context: ContratoRouteContext) {
+  const limite = await limitarRotaPublicaNoBanco(request, LIMITES.CONTRATO_PUBLICO_ORIGEM, "contrato:iniciar");
+  if (limite) return noStoreContrato(limite);
   try {
     const contratoId = z.string().uuid().parse(await contratoIdDaRota(context));
     let json: unknown;

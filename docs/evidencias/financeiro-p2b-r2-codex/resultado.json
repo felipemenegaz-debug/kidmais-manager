@@ -1,0 +1,59 @@
+{
+  "results": [
+    {
+      "name": "controle-direcionado",
+      "exit": 0
+    },
+    {
+      "name": "mutante-sem-bloqueio",
+      "exit": 1
+    },
+    {
+      "name": "mutante-sem-descarte",
+      "exit": 1
+    },
+    {
+      "name": "mutante-sem-renovacao",
+      "exit": 1
+    },
+    {
+      "name": "mutante-sem-comparacao-lote",
+      "exit": 1
+    },
+    {
+      "name": "contraprovas-extras",
+      "exit": 1
+    },
+    {
+      "name": "controle-final",
+      "exit": 0
+    }
+  ],
+  "hashes": [
+    {
+      "file": "components/admin/FinanceiroTelas.tsx",
+      "before": "6caa7cb2da6c51fbc50a75a2d76e388aab678cbdfdefbdf67cc509ded70f2982",
+      "after": "6caa7cb2da6c51fbc50a75a2d76e388aab678cbdfdefbdf67cc509ded70f2982"
+    },
+    {
+      "file": "lib/financeiro/escritor-p2.ts",
+      "before": "caf211d93eb1452497911f00a6293d6b3dbdc4e9a9e0edd851a05a58f364a9c0",
+      "after": "caf211d93eb1452497911f00a6293d6b3dbdc4e9a9e0edd851a05a58f364a9c0"
+    },
+    {
+      "file": "lib/financeiro/submissao.ts",
+      "before": "d6d20e865892614b613a28887cf0bd416ea810346627d333424ad9d2fb0ca232",
+      "after": "d6d20e865892614b613a28887cf0bd416ea810346627d333424ad9d2fb0ca232"
+    },
+    {
+      "file": "components/admin/financeiro-p2b-acoes.test.ts",
+      "before": "2dd3641eb91e111b789195baea234d751f5eb007588f22491532e83ba622a45d",
+      "after": "2dd3641eb91e111b789195baea234d751f5eb007588f22491532e83ba622a45d"
+    },
+    {
+      "file": "lib/financeiro/escritor-p2.test.ts",
+      "before": "3f708911d31b42c1dd018347db799db41693e7d7ce54ad5d6ca45bced99b89ee",
+      "after": "3f708911d31b42c1dd018347db799db41693e7d7ce54ad5d6ca45bced99b89ee"
+    }
+  ]
+}

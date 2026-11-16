@@ -1,0 +1,23 @@
+{
+  "sintetico": true,
+  "empresa": "a887891b-6dcd-4f00-b01e-ec03b961b695",
+  "a": "baab3c08-14c0-4bc6-93f5-202e7b141425",
+  "b": "892d5527-c6fb-4667-84bc-3534012cb6ac",
+  "leitor": "ef963e11-8b66-44ba-a06a-0265b4c463b9",
+  "recorrente": "d62adf92-8392-467e-9755-1154d78d21e6",
+  "antigo": "bff2c284-2f53-44ab-953b-e7908b0d57eb",
+  "casos": [
+    {
+      "nome": "P2-2 · B herdado (demo)",
+      "contato": "2955b975-775a-4e65-acb3-d8e032166a8d",
+      "fechamento": "9d1f6907-dc76-4a31-91e8-2e2479120444",
+      "responsavel": "892d5527-c6fb-4667-84bc-3534012cb6ac"
+    },
+    {
+      "nome": "P2-2 · A prevalece (demo)",
+      "contato": "6a3beb83-5041-4e40-abdd-06bff8acf84e",
+      "fechamento": "b2541994-d1fb-4433-beaf-1452b869adae",
+      "responsavel": "baab3c08-14c0-4bc6-93f5-202e7b141425"
+    }
+  ]
+}

@@ -57,14 +57,14 @@
       "arquivo": "assinatura-e-plano.md",
       "id": "assinatura-e-plano",
       "titulo": "Assinatura e plano",
-      "versao": 2,
-      "vigenteDesde": "2026-11-07",
+      "versao": 5,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "f6400d6da30c0ecf466b38db591c14d32d26a6b11e3428f8c367851e255ed047"
+      "sha256": "da89cba2c671cc216731c1a111ad45652a73d83216a3f91b07b9d639c46de649"
     },
     {
       "arquivo": "atendimento-whatsapp.md",
@@ -83,14 +83,14 @@
       "arquivo": "clientes.md",
       "id": "clientes",
       "titulo": "Clientes",
-      "versao": 1,
+      "versao": 2,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "d4394afb5d2358135e360ba9767c0961f65a790f1e573ce42c54eb195d846c2a"
+      "sha256": "0a47f8e84d84104980cec6339e23c10d2b1983ac8928a53db86e447862332137"
     },
     {
       "arquivo": "conectar-whatsapp.md",
@@ -161,40 +161,40 @@
       "arquivo": "fechamento-de-festa.md",
       "id": "fechamento-de-festa",
       "titulo": "Fechamento de festa",
-      "versao": 1,
+      "versao": 4,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "8466add17a8ab0a6b7c5af11d2a8fd1ca473b52f4b9f9cd644358119cab1e1f9"
+      "sha256": "69a45c552d3c5ca0e8b1460acc43adbb99a1d55a7f10f805f7310bcf2d154231"
     },
     {
       "arquivo": "festas.md",
       "id": "festas",
       "titulo": "Festas",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 4,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "3dcaa0d2ceece4295dcf282eeafcd92a3444ac45ad0baa37d3800453bdca369e"
+      "sha256": "14a96be857a47b179723a3c256e4d07478ce136511560bced41162c197674ee3"
     },
     {
       "arquivo": "financeiro-recebimentos.md",
       "id": "financeiro-recebimentos",
       "titulo": "Recebimentos e parcelas",
-      "versao": 1,
-      "vigenteDesde": "2026-11-01",
+      "versao": 3,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "1548c93b9eec5a081921816647bbdf92bcd6f51e81d57306b757e5b331d87b58"
+      "sha256": "f7500f5c4f9e687141894c4c650e42f64cda9224595f10504fb2b20923ca4d72"
     },
     {
       "arquivo": "importar-documentos.md",
@@ -226,14 +226,14 @@
       "arquivo": "perfil-da-empresa.md",
       "id": "perfil-da-empresa",
       "titulo": "Perfil da empresa",
-      "versao": 1,
+      "versao": 4,
       "vigenteDesde": "2026-11-01",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "1a60c7737afcb854fa25bdf4db0ff41db05476572104ee3fd6ca138badb6a8d2"
+      "sha256": "ab7c7829a4d0d59580c0658d9820f5872506d5d7de3024d1894aed17d189d7f9"
     },
     {
       "arquivo": "perfil-e-senha.md",
@@ -252,14 +252,14 @@
       "arquivo": "primeiros-passos.md",
       "id": "primeiros-passos",
       "titulo": "Primeiros passos",
-      "versao": 2,
-      "vigenteDesde": "2026-11-07",
+      "versao": 5,
+      "vigenteDesde": "2026-11-09",
       "vigenteAte": null,
       "situacao": "APROVADO",
       "acl": {
         "tipo": "PLATAFORMA"
       },
-      "sha256": "34996b03a309e504e698eb04c70a62c0bbe9764880b47cb2dfc5d099d6e8a2e6"
+      "sha256": "1f556d22f3bb1ac4a36049baa67d4c05d93651b05f318d3488e08d10ed56fac9"
     },
     {
       "arquivo": "privacidade-e-exportacao.md",

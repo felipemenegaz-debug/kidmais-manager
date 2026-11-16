@@ -6,7 +6,7 @@ import { criarProvedorFake, respostaFake } from "./fake.ts";
 import { PERFIL_DEEPSEEK, PERFIL_OPENAI, criarAdaptadorOpenAICompativel } from "./openai-compativel.ts";
 import { ESTIMATIVA_PADRAO, TTL_RESERVA_MS, criarRegistroUsoEmMemoria, estimarTokensEntrada, orcamentoDoAmbiente } from "./orcamento.ts";
 import { custoEstimado, tabelaDoAmbiente } from "./precos.ts";
-import { RoteadorModelos, criarAdaptadores, politicaDoAmbiente, type DependenciasRoteador } from "./roteador.ts";
+import { RoteadorModelos, criarAdaptadores, ordemProvedores, politicaDoAmbiente, type DependenciasRoteador } from "./roteador.ts";
 import { ErroModelo, type AdaptadorProvedor, type PedidoModelo } from "./tipos.ts";
 
 const CHAVE = "sk-teste-0000000000000000000000000000";
@@ -504,4 +504,13 @@ test("PDF anexo vai como parte \"file\" só para provedor com visão; o prazo do
   await assert.rejects(deepseek.gerar(comArquivo, "ds", new AbortController().signal));
   const base = estimarTokensEntrada(pedido("EXTRACAO_CONTRATO"));
   assert.equal(estimarTokensEntrada(comArquivo) - base, 6 * ESTIMATIVA_PADRAO.tokensPorImagem);
+});
+
+test("ordemProvedores: ECONOMY tenta o econômico e o primário; fallback acrescenta OpenAI e DeepSeek sem repetir; sem fallback só o primeiro", () => {
+  const p = (env: Record<string, string>) => politicaDoAmbiente(env);
+  assert.deepEqual(ordemProvedores(p({ AI_PROVIDER_PRIMARY: "OPENAI" }), "FAQ"), ["OPENAI"]);
+  assert.deepEqual(ordemProvedores(p({ AI_PROVIDER_PRIMARY: "OPENAI", AI_PROVIDER_ECONOMY: "DEEPSEEK" }), "FAQ"), ["DEEPSEEK"]);
+  assert.deepEqual(ordemProvedores(p({ AI_PROVIDER_PRIMARY: "OPENAI", AI_PROVIDER_ECONOMY: "DEEPSEEK", AI_FALLBACK_ENABLED: "true" }), "FAQ"), ["DEEPSEEK", "OPENAI"]);
+  assert.deepEqual(ordemProvedores(p({ AI_PROVIDER_PRIMARY: "OPENAI", AI_FALLBACK_ENABLED: "true" }), "FAQ", (id) => id === "OPENAI"), ["OPENAI"], "só os configurados");
+  assert.deepEqual(ordemProvedores(p({}), "FAQ"), []);
 });

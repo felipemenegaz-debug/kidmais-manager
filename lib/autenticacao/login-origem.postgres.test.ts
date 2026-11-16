@@ -21,7 +21,11 @@ let admin: pg.Client;
 let pool: pg.Pool;
 let auth: { loginAdmin: Login; REGRA_ORIGEM_LOGIN: { namespace: string; janelaSegundos: number; limite: number }; consumirLimite: (tx: ReturnType<typeof executor>, t: 'IDENTIFICADOR' | 'ORIGEM', v: string, r: { janelaSegundos: number; limite: number }) => Promise<boolean> };
 let maxEmUso = 0;
-const contexto = new AsyncLocalStorage<{ abertas: number; duranteScrypt: number[] }>();
+// transacaoAntiga (Recorte 4, P2-2 do Astra na candidata): a PRIMEIRA transação deste login usa um cliente cuja
+// transação já foi aberta antes pelo teste (BEGIN + now() fixado), para reproduzir de forma determinística a fase 1
+// que começou antes de outra transação abrir a janela da origem.
+type TransacaoAntiga = { client: pg.PoolClient; usada: boolean };
+const contexto = new AsyncLocalStorage<{ abertas: number; duranteScrypt: number[]; aoConferir?: () => Promise<void>; transacaoAntiga?: TransacaoAntiga }>();
 const duranteScrypt: number[] = [];
 
 function executor(c: pg.Pool | pg.PoolClient) {
@@ -30,12 +34,16 @@ function executor(c: pg.Pool | pg.PoolClient) {
 const emUso = () => pool.totalCount - pool.idleCount;
 async function withTransaction<T>(work: (tx: ReturnType<typeof executor>) => Promise<T>): Promise<T> {
     const estado = contexto.getStore();
-    const client = await pool.connect();
+    const antiga = estado?.transacaoAntiga && !estado.transacaoAntiga.usada ? estado.transacaoAntiga : null;
+    if (antiga)
+        antiga.usada = true;
+    const client = antiga ? antiga.client : await pool.connect();
     maxEmUso = Math.max(maxEmUso, emUso());
     if (estado)
         estado.abertas++;
     try {
-        await client.query('BEGIN');
+        if (!antiga)
+            await client.query('BEGIN');
         const r = await work(executor(client));
         await client.query('COMMIT');
         return r;
@@ -45,7 +53,8 @@ async function withTransaction<T>(work: (tx: ReturnType<typeof executor>) => Pro
         throw error;
     }
     finally {
-        client.release();
+        if (!antiga)
+            client.release();
         if (estado)
             estado.abertas--;
     }
@@ -74,11 +83,16 @@ async function linhaOrigem(ip: string) {
     return (await admin.query<{ tentativas: number; bloqueado: boolean }>('SELECT tentativas, COALESCE(bloqueado_ate > clock_timestamp(), false) AS bloqueado FROM limites_autenticacao WHERE chave_hash=$1', [chaveOrigem(ip)])).rows[0] ?? null;
 }
 const usuarios: string[] = [];
+const POOL_MAX = Number(process.env.KIDMAIS_TESTE_POOL_MAX ?? 10);
+const POOL_ESPERA_MS = Number(process.env.KIDMAIS_TESTE_POOL_ESPERA_MS ?? 10_000);
+let criarHash: (s: string) => Promise<string>;
 
 test.before(async () => {
     admin = await conectarDescartavel();
     const porta = portaDescartavel();
-    pool = new pg.Pool({ host: '127.0.0.1', port: porta, user: 'kidmais_descartavel', database: 'kidmais_pacotes_v1_descartavel', password: senhaRecusada, application_name: 'kidmais-login-origem', max: 10, connectionTimeoutMillis: 10_000 });
+    // Recorte 4 para production (D-R4-2): a prova também roda com os parâmetros que production terá.
+    // KIDMAIS_TESTE_POOL_MAX / KIDMAIS_TESTE_POOL_ESPERA_MS; sem elas, o padrão do teste (10 / 10 s).
+    pool = new pg.Pool({ host: '127.0.0.1', port: porta, user: 'kidmais_descartavel', database: 'kidmais_pacotes_v1_descartavel', password: senhaRecusada, application_name: 'kidmais-login-origem', max: POOL_MAX, connectionTimeoutMillis: POOL_ESPERA_MS });
     const id = (await pool.query<{ db: string; cluster: string; addr: string }>("SELECT current_database() AS db, current_setting('cluster_name') AS cluster, host(inet_server_addr()) AS addr")).rows[0];
     assert.deepEqual(id, { db: 'kidmais_pacotes_v1_descartavel', cluster: 'kidmais_descartavel', addr: '127.0.0.1' });
     const cache = new Map<string, Record<string, unknown>>();
@@ -86,9 +100,11 @@ test.before(async () => {
     // Dublê fino de senha.ts: o scrypt é o real; só registra quantas transações DESTE login estão abertas ao conferir.
     const conferirSenha = async (s: string, h: string | null) => {
         duranteScrypt.push(contexto.getStore()?.abertas ?? -1);
+        await contexto.getStore()?.aoConferir?.();
         return senha.conferirSenha(s, h);
     };
     auth = carregarModulo('lib/autenticacao/service.ts', { 'db/postgres': { db: () => executor(pool), withTransaction }, 'autenticacao/senha': { ...senha, conferirSenha } }, cache) as unknown as typeof auth;
+    criarHash = senha.criarHashSenha;
     const hash = await senha.criarHashSenha(SENHA);
     for (let i = 0; i < 55; i++)
         usuarios.push((await admin.query<{ email: string }>("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel) VALUES ($1, $2, $3, 'REPRESENTANTE_AUTORIZADO') RETURNING email", [email(`p${i}`), `Pessoa ${i}`, hash])).rows[0].email);
@@ -111,7 +127,7 @@ test('50 logins simultâneos do MESMO IP com a senha certa: nenhum 429, nenhuma 
     assert.deepEqual(await linhaOrigem(EMPRESA_IP), { tentativas: 0, bloqueado: false });
     assert.equal(duranteScrypt.length, 50);
     assert.deepEqual([...new Set(duranteScrypt)], [0], `transações abertas durante o scrypt: ${JSON.stringify(contagem(duranteScrypt.map(String)))}`);
-    console.log(`[evidência] 50 logins em ${ms} ms com pool max 10 / espera 10 s; pico de conexões em uso ${maxEmUso}; transações abertas no scrypt: ${JSON.stringify(contagem(duranteScrypt.map(String)))}`);
+    console.log(`[evidência] 50 logins em ${ms} ms com pool max ${POOL_MAX} / espera ${POOL_ESPERA_MS} ms; pico de conexões em uso ${maxEmUso}; transações abertas no scrypt: ${JSON.stringify(contagem(duranteScrypt.map(String)))}`);
     // E a rajada se repete (sem acumular nada): mais 50 seguidos, ainda sem 429.
     const r2 = await Promise.all(usuarios.slice(0, 50).map((u) => tentar(u, SENHA, EMPRESA_IP)));
     assert.deepEqual(contagem(r2), { OK: 50 });
@@ -211,4 +227,100 @@ test('o limite por conta vale por IP também: 5 falhas em uma conta não afetam 
     assert.equal(await tentar(alvo, SENHA, OUTRA_IP), '429');
     assert.equal(await tentar(usuarios[50], SENHA, OUTRA_IP), 'OK');
     assert.deepEqual(await linhaOrigem(OUTRA_IP), { tentativas: 8, bloqueado: false }, '3 + 5 falhas reais; o 429 da conta devolve a vaga');
+});
+
+/**
+ * Recorte 4 para production (P2-2 do Astra): a conta muda DURANTE o scrypt, depois da leitura da fase 2 e antes da
+ * fase 3. O gancho roda no instante da conferência da senha (o mesmo dublê que mede as transações abertas) e grava
+ * pela conexão administrativa, fora do login. A fase 3 relê a conta com FOR UPDATE e compara ativo e senha_hash.
+ */
+async function loginComMudancaNoScrypt(conta: string, mudanca: (() => Promise<unknown>) | null) {
+    let chamadas = 0;
+    const aoConferir = async () => { chamadas++; if (mudanca) await mudanca(); };
+    let resultado: string;
+    try {
+        await contexto.run({ abertas: 0, duranteScrypt, aoConferir }, () => auth.loginAdmin(conta, SENHA, randomUUID(), OUTRA_IP, 'teste-corrida-scrypt'));
+        resultado = 'OK';
+    }
+    catch (error) {
+        const e = error as { httpStatus?: number; message?: string };
+        resultado = e.httpStatus ? String(e.httpStatus) : `ERRO ${e.message}`;
+    }
+    assert.equal(chamadas, 1, 'o gancho rodou uma vez, no scrypt');
+    return resultado;
+}
+async function sessoesDe(conta: string) {
+    return Number((await admin.query<{ n: number }>('SELECT count(*)::int AS n FROM sessoes_administrativas s JOIN usuarios_administrativos u ON u.id = s.usuario_id WHERE u.email = $1', [conta])).rows[0].n);
+}
+
+test('corrida durante o scrypt: troca de senha e desativação recusam com 401 e não criam sessão; sem mudança, entra', async () => {
+    const hash = (await admin.query<{ senha_hash: string }>('SELECT senha_hash FROM usuarios_administrativos WHERE email=$1', [usuarios[0]])).rows[0].senha_hash;
+    const [troca, desativa, controle] = await Promise.all(['corrida-troca', 'corrida-desativa', 'corrida-controle'].map(async (nome) =>
+        (await admin.query<{ email: string }>("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel) VALUES ($1, $2, $3, 'REPRESENTANTE_AUTORIZADO') RETURNING email", [email(nome), nome, hash])).rows[0].email));
+    const outraSenha = await criarHash('outra-senha-depois-da-troca');
+
+    // (a) Troca de senha entre a leitura e a fase 3: a senha antiga conferiu contra o hash lido, mas a fase 3 vê o novo.
+    assert.equal(await loginComMudancaNoScrypt(troca, () => admin.query('UPDATE usuarios_administrativos SET senha_hash=$2 WHERE email=$1', [troca, outraSenha])), '401');
+    assert.equal(await sessoesDe(troca), 0, 'nenhuma sessão com a senha antiga');
+    assert.equal(await tentar(troca, SENHA, OUTRA_IP), '401', 'e a senha antiga continua recusada depois');
+
+    // (b) Desativação no mesmo intervalo.
+    assert.equal(await loginComMudancaNoScrypt(desativa, () => admin.query('UPDATE usuarios_administrativos SET ativo=false WHERE email=$1', [desativa])), '401');
+    assert.equal(await sessoesDe(desativa), 0, 'nenhuma sessão para a conta desativada');
+
+    // (c) Controle: o gancho roda, mas nada muda.
+    assert.equal(await loginComMudancaNoScrypt(controle, null), 'OK');
+    assert.equal(await sessoesDe(controle), 1, 'uma sessão criada');
+
+    // A recusa fica auditada como ADMIN_LOGIN_RECUSADO (a auditoria não guarda a conta; conta-se pelo user agent do teste).
+    const recusas = Number((await admin.query<{ n: number }>("SELECT count(*)::int AS n FROM auditoria WHERE acao='ADMIN_LOGIN_RECUSADO' AND user_agent='teste-corrida-scrypt'")).rows[0].n);
+    assert.equal(recusas, 2);
+});
+
+/**
+ * Recorte 4 para production (P2-2 do Astra na candidata, M4): prova pequena e sem concorrência de que o scrypt roda
+ * sem transação aberta deste login. Chega direto à asserção de transações abertas (sem fila do pool nem timeout).
+ */
+test('um login isolado, sem concorrência: nenhuma transação aberta no instante do scrypt (aceito e recusado)', async () => {
+    const hash = (await admin.query<{ senha_hash: string }>('SELECT senha_hash FROM usuarios_administrativos WHERE email=$1', [usuarios[0]])).rows[0].senha_hash;
+    const conta = (await admin.query<{ email: string }>("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel) VALUES ($1, 'isolado', $2, 'REPRESENTANTE_AUTORIZADO') RETURNING email", [email('isolado'), hash])).rows[0].email;
+    duranteScrypt.length = 0;
+    assert.equal(await tentar(conta, SENHA, '187.50.0.9'), 'OK');
+    assert.equal(await tentar(conta, 'errada', '187.50.0.9'), '401');
+    assert.deepEqual(duranteScrypt, [0, 0], `transações abertas deste login no scrypt: ${JSON.stringify(duranteScrypt)}`);
+});
+
+/**
+ * Recorte 4 para production (P2-2 do Astra na candidata, M7b): a reserva de origem do login com a janela invertida,
+ * em ordem controlada. A fase 1 do login B roda numa transação aberta ANTES de o login A abrir a janela do IP (o now()
+ * de B é anterior ao início da janela). Sem o LEAST da reserva, o gatilho grava atualizado_em < janela_iniciada_em e a
+ * CHECK limites_autenticacao_datas_check derruba a fase 1. A conta de B é nova (o limite da conta não inverte nada).
+ */
+test('determinístico da reserva de origem: fase 1 que começou ANTES de outra abrir a janela do IP reserva sem 500 da CHECK', async () => {
+    const ip = '187.60.0.9';
+    const antiga = await pool.connect();
+    const transacaoAntiga = { client: antiga, usada: false };
+    try {
+        await antiga.query('BEGIN');
+        await antiga.query('SELECT now()'); // fixa o now() desta transação antes da janela do IP existir
+        await new Promise((fim) => setTimeout(fim, 20));
+        assert.equal(await tentar(email('reserva-a'), 'errada', ip), '401'); // A abre a janela do IP e confirma
+        assert.deepEqual(await linhaOrigem(ip), { tentativas: 1, bloqueado: false });
+        let resultado: string;
+        try {
+            await contexto.run({ abertas: 0, duranteScrypt, transacaoAntiga }, () => auth.loginAdmin(email('reserva-b'), 'errada', randomUUID(), ip, 'teste-reserva-origem'));
+            resultado = 'OK';
+        }
+        catch (error) {
+            const e = error as { httpStatus?: number; message?: string };
+            resultado = e.httpStatus ? String(e.httpStatus) : `ERRO ${e.message}`;
+        }
+        assert.equal(transacaoAntiga.usada, true, 'a fase 1 de B rodou na transação antiga');
+        assert.equal(resultado, '401', `a reserva com a janela invertida não pode derrubar o login: ${resultado}`);
+        assert.deepEqual(await linhaOrigem(ip), { tentativas: 2, bloqueado: false });
+    }
+    finally {
+        await antiga.query('ROLLBACK').catch(() => undefined);
+        antiga.release();
+    }
 });

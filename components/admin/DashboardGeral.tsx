@@ -18,6 +18,8 @@ export type PainelDashboard = {
   /** false quando o plano não inclui contas a pagar; ausente nas amostras = incluído. */
   financeiroCompleto?: boolean;
   numeros: { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; aPagar30DiasCentavos: number; emAtrasoReceberCentavos: number; emAtrasoPagarCentavos: number; movimentoPeriodoCentavos: number | null; versao?: number };
+  /** P2: saldo só com abertura; ausente nas amostras e sem plano completo. */
+  caixa?: { saldoCentavos: number | null; abertura: { dataBase: string } | null; pendencias: { quantidade: number; centavos: number } } | null;
   agenda: Festa[];
   proximas: Festa[];
   /** Eventos de contratos importados com data futura, ainda não integrados à agenda. Não são festas operacionais. */
@@ -161,6 +163,8 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <div className={styles.resumoLinha}><span>A receber total</span><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong></div>
         {painel.financeiroCompleto !== false && <><div className={styles.resumoLinha}><span>A pagar em 30 dias</span><strong>{reaisDe(painel.numeros.aPagar30DiasCentavos ?? 0)}</strong></div><div className={styles.resumoLinha}><span>A pagar vencido</span><strong>{reaisDe(painel.numeros.emAtrasoPagarCentavos ?? 0)}</strong></div></>}
         {painel.numeros.movimentoPeriodoCentavos != null && <div className={`${styles.resumoLinha} ${styles.saldo}`}><span className={styles.verde}>Movimento do mês</span><strong>{reaisDe(painel.numeros.movimentoPeriodoCentavos)}</strong></div>}
+        {painel.caixa?.abertura && painel.caixa.saldoCentavos != null && <div className={styles.resumoLinha}><span>Saldo em caixa</span><strong>{reaisDe(painel.caixa.saldoCentavos)}</strong></div>}
+        {painel.caixa?.abertura && painel.caixa.pendencias.quantidade > 0 && <div className={styles.resumoLinha}><span>A conferir no caixa</span><strong>{painel.caixa.pendencias.quantidade === 1 ? '1 movimento' : `${painel.caixa.pendencias.quantidade} movimentos`} · {reaisDe(painel.caixa.pendencias.centavos)}</strong></div>}
         <Link className={styles.botao} href="/admin/financeiro">Ver financeiro</Link>
       </section>
 

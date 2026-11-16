@@ -240,7 +240,7 @@ test("envio aceito pela Cloud API não registra falha", async (t) => {
   assert.equal(doEnvio.length, 0);
 });
 
-test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
+test("rotas públicas aceitam WHATSAPP e EMAIL (reserva), nunca SMS", () => {
   const identidadeRoute = readFileSync(
     new URL("../../../app/api/identidade/iniciar-desafio/route.ts", import.meta.url),
     "utf8",
@@ -257,10 +257,12 @@ test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
     "utf8",
   );
 
-  assert.match(identidadeRoute, /canal: z\.literal\("WHATSAPP"\)/);
-  assert.match(contratoRoute, /canal: z\.literal\("WHATSAPP"\)/);
+  assert.match(identidadeRoute, /canal: z\.enum\(\["WHATSAPP", "EMAIL"\]\)/);
+  assert.match(contratoRoute, /canal: z\.enum\(\["WHATSAPP", "EMAIL"\]\)/);
+  assert.doesNotMatch(identidadeRoute + contratoRoute, /SMS/);
   assert.doesNotMatch(identityService, /canal: "SMS",/);
-  assert.doesNotMatch(identityService, /canal: "EMAIL",/);
+  // EMAIL só nasce pela reserva: canal inicial sem WhatsApp ou troca do desafio do WhatsApp.
+  assert.match(identityService, /reservaEmail/);
 });
 
 test("console e disabled são protegidos e WhatsApp Cloud continua válido em produção", () => {

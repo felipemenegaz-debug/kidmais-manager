@@ -2,6 +2,7 @@ import CartoesConfiguracoes, { type CartaoConfiguracao } from '@/components/admi
 import styles from '@/components/admin/workspace.module.css';
 
 const cards: CartaoConfiguracao[] = [
+  { route:'origens', title:'Opções de origem', text:'Como os clientes conheceram o buffet.', icon:'contact' },
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
   { route:'agenda', title:'Agenda', text:'Horários de festa, salões, quantas festas por dia e o intervalo entre elas, por unidade.', icon:'calendar' },
   { route:'saloes', title:'Salões', text:'Como cada salão aparece para o cliente: fotos, capacidade, o que tem e o que é só da festa.', icon:'calendar' },

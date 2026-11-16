@@ -9,6 +9,7 @@ import { lerBaseDocumentoContrato } from '@/lib/contratos/documento/base-documen
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { apiErrorResponse } from '@/lib/http/api-response';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
+import { assinaturasPapelDoPainel } from '@/lib/contratos/services/assinatura-papel-cliente.service';
 const semCache = { 'Cache-Control': 'no-store' } as const;
 export async function GET(request: NextRequest) {
     try {
@@ -32,6 +33,8 @@ export async function GET(request: NextRequest) {
                 // baseDocumento: o que decide a fonte do PDF (três booleanos, sem conteúdo nem versão do modelo); a tela
                 // aplica fonteDoDocumentoContrato ao pacote do alvo de ação para avisar antes do "Preparar documento".
                 tela: { ...await leiturasDaTela(tx, id, tenant.empresaComprovada), baseDocumento: (await lerBaseDocumentoContrato(tx, tenant.empresaComprovada)).base },
+                // 124: assinatura do cliente em papel — data para o painel; detalhes e o direito de registrar só para a Gestão.
+                assinaturaPapel: await assinaturasPapelDoPainel(tx, id, tenant.empresaComprovada, tenant.papelAtual),
             }));
         }
         else if (importacaoId) {

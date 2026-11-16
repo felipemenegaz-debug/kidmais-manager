@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
 import { configuracaoSite, ROTA_SITE } from './configuracao';
-import { comercial, statusDosRecursos } from './catalogo';
+import { comercial, visivel } from './catalogo';
 export function metadataSite(rota = ROTA_SITE): Metadata {
     const { origem } = configuracaoSite();
     const planos = rota === '/planos';
     const title = planos ? 'Planos do iA.Fest — Essencial, Profissional e Premium' : 'iA.Fest — gestão para buffet infantil';
     // A descrição para buscadores não tem selo "Em breve": só cita o que está disponível.
-    const modulos = statusDosRecursos(['orcamento']) === 'disponivel' ? 'Agenda, orçamento online, contratos e recebimentos' : 'Agenda, clientes, contratos e recebimentos';
+    const itens = ([['agenda', 'agenda'], ['orcamento', 'orçamento online'], ['clientes', 'clientes'], ['contratos', 'contratos'], ['financeiro', 'recebimentos']] as const).filter(([id]) => visivel([id])).map(([, texto]) => texto);
+    const juntos = itens.length < 2 ? itens.join('') : `${itens.slice(0, -1).join(', ')} e ${itens.at(-1)}`;
+    const modulos = juntos ? juntos[0].toUpperCase() + juntos.slice(1) : 'Gestão';
     const description = planos
         ? `Compare os planos Essencial, Profissional e Premium do iA.Fest para buffet infantil, com teste de ${comercial.testeDias} dias e condição de fundador.`
         : `${modulos} para organizar seu buffet infantil. Conheça os recursos disponíveis e comece seu teste de ${comercial.testeDias} dias.`;

@@ -117,6 +117,15 @@ test('créditos sem crédito: AGUARDANDO/PENDING, VENCIDO/OVERDUE e ENCERRADO/re
     assert.equal(sem('AGUARDANDO_PAGAMENTO', 'PENDING').classe, 'RECONCILIADA');
     assert.equal(sem('VENCIDO', 'OVERDUE').classe, 'RECONCILIADA');
     assert.equal(sem('ENCERRADO', 'PENDING', true).classe, 'RECONCILIADA');
+    // R5 (09/11/2026): a cobrança removida agora fica gravada como DELETED; com a leitura "removida" segue coerente.
+    const removida = (local: string, deleted: boolean) => {
+        const f = creditado();
+        return classificar(pedido({ resultado: { resultado: 'SEM_MUDANCA' }, leituras: [lidaCobranca('PENDING', { deleted })],
+            antes: { ...f, ia_credito_pedidos: [{ ...f.ia_credito_pedidos[0], estado: 'ENCERRADO', creditado_em: null }], ia_credito_cobrancas: [{ ...f.ia_credito_cobrancas[0], situacao_provedor: local }],
+                ia_credito_lotes: f.ia_credito_lotes.slice(1) } }), CTX);
+    };
+    assert.equal(removida('DELETED', true).classe, 'RECONCILIADA');
+    assert.equal(removida('DELETED', false).motivo, 'NAO_COMPROVADO:STATUS_LOCAL_DIVERGENTE', 'DELETED local com a cobrança viva no Asaas não é coerente');
     assert.equal(sem('AGUARDANDO_PAGAMENTO', 'OVERDUE').motivo, 'NAO_COMPROVADO:AGUARDANDO_INCOERENTE');
     assert.equal(sem('REVISAO', 'RECEIVED').motivo, 'NAO_COMPROVADO:ESTADO_NAO_COMPROVAVEL_REVISAO');
 });

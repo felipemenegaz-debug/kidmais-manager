@@ -167,6 +167,9 @@ const BASE: readonly Entidade[] = [
         onde: em(VERSOES, 'contrato_versao_id'), arquivoBinario: { coluna: 'conteudo_pdf', pasta: 'arquivos/contratos', extensao: 'pdf' },
     },
     { arquivo: 'contratos/contrato_assinaturas', tabela: 'contrato_assinaturas', grupo: 'Contratos', descricao: 'Assinaturas e aceites (evidência: método, data, IP e navegador).', onde: em(VERSOES, 'contrato_versao_id') },
+    // 124: assinatura do cliente em papel (data declarada, quem registrou, observação). A cópia digitalizada sai como
+    // tamanho + SHA-256, como os demais anexos; só o PDF dos contratos entra como arquivo do pacote.
+    { arquivo: 'contratos/contrato_assinaturas_papel', tabela: 'contrato_assinaturas_papel', grupo: 'Contratos', descricao: 'Assinaturas do cliente em papel registradas pela Gestão (data declarada, registro e SHA-256 da cópia).', onde: EMP, migracao: '124' },
     { arquivo: 'contratos/contrato_edicoes', tabela: 'contrato_edicoes', grupo: 'Contratos', descricao: 'Edições de versão.', onde: em(VERSOES, 'contrato_versao_id') },
     { arquivo: 'contratos/contrato_fluxos', tabela: 'contrato_fluxos', grupo: 'Contratos', descricao: 'Versão vigente e em preparação.', onde: em(CONTRATOS, 'contrato_id') },
     { arquivo: 'contratos/contrato_pendencias_financeiras', tabela: 'contrato_pendencias_financeiras', grupo: 'Contratos', descricao: 'Pendências financeiras entre versões.', onde: em(CONTRATOS, 'contrato_id') },
@@ -208,6 +211,10 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'financeiro/saidas', tabela: 'financeiro_saidas', grupo: 'Financeiro', descricao: 'Pagamentos das contas (saídas).', onde: EMP },
     { arquivo: 'financeiro/recorrencias', tabela: 'financeiro_recorrencias', grupo: 'Financeiro', descricao: 'Recorrências do contas a pagar.', onde: EMP },
     { arquivo: 'financeiro/entradas_manuais', tabela: 'financeiro_entradas_manuais', grupo: 'Financeiro', descricao: 'Entradas manuais.', onde: EMP },
+    { arquivo: 'financeiro/entradas_liquidacoes', tabela: 'financeiro_entradas_liquidacoes', grupo: 'Financeiro', descricao: 'Recebimentos parciais ou totais das entradas manuais.', onde: EMP, migracao: '120' },
+    { arquivo: 'financeiro/saidas_reversoes', tabela: 'financeiro_saidas_reversoes', grupo: 'Financeiro', descricao: 'Reversões de pagamentos de contas (valor, data e motivo).', onde: EMP, migracao: '120' },
+    { arquivo: 'financeiro/aberturas', tabela: 'financeiro_aberturas', grupo: 'Financeiro', descricao: 'Abertura de saldo: todas as revisões (data-base, saldo, justificativa e autoria).', onde: EMP, migracao: '121' },
+    { arquivo: 'financeiro/abertura_conferencias', tabela: 'financeiro_abertura_conferencias', grupo: 'Financeiro', descricao: 'Movimentos conferidos em cada revisão da abertura.', onde: EMP, migracao: '121' },
     { arquivo: 'financeiro/auditoria_financeira', tabela: 'financeiro_auditoria', grupo: 'Financeiro', descricao: 'Auditoria do financeiro da empresa.', onde: EMP },
 
     // Agenda
@@ -290,6 +297,24 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'marketing/automacao_execucoes', tabela: 'marketing_automacao_execucoes', grupo: 'Marketing', descricao: 'Execuções das automações.', onde: EMP },
     { arquivo: 'marketing/automacao_eventos', tabela: 'marketing_automacao_eventos', grupo: 'Marketing', descricao: 'Eventos das execuções.', onde: EMP },
     { arquivo: 'marketing/tarefas', tabela: 'marketing_tarefas', grupo: 'Marketing', descricao: 'Tarefas de Marketing.', onde: EMP },
+    { arquivo: 'oportunidades/acoes', tabela: 'oportunidades_acoes', grupo: 'Oportunidades', descricao: 'Próximas ações e conclusões comerciais.', onde: EMP, migracao: '122' },
+    { arquivo: 'oportunidades/marcos', tabela: 'oportunidades_marcos', grupo: 'Oportunidades', descricao: 'Etapas observadas das negociações.', onde: EMP, migracao: '122' },
+
+    // Pesquisa de satisfação (110, PS-1). O hash do link (token_hash) e a posse do envio (posse_token) caem no SEGREDO.
+    { arquivo: 'satisfacao/envios', tabela: 'satisfacao_envios', grupo: 'Pesquisa de satisfação', descricao: 'Pesquisas enviadas após a festa (estado, prazos; sem o link).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/respostas', tabela: 'satisfacao_respostas', grupo: 'Pesquisa de satisfação', descricao: 'Respostas (nota de indicação, notas dos aspectos e comentário).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/tarefas', tabela: 'satisfacao_tarefas', grupo: 'Pesquisa de satisfação', descricao: 'Tarefas de retorno abertas pelas notas baixas.', onde: EMP, migracao: '110' },
+    {
+        arquivo: 'satisfacao/entregas', tabela: 'satisfacao_entregas', grupo: 'Pesquisa de satisfação', descricao: 'Entregas por canal (WhatsApp, e-mail), tentativas e motivos.', onde: EMP, migracao: '110',
+        excluir: { conteudo: 'Texto enviado ao cliente: contém o link da pesquisa (credencial de resposta).' },
+    },
+    { arquivo: 'satisfacao/saidas', tabela: 'satisfacao_saidas', grupo: 'Pesquisa de satisfação', descricao: 'Clientes que pediram para não receber pesquisas.', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/capacidades', tabela: 'satisfacao_capacidades', grupo: 'Pesquisa de satisfação', descricao: 'Quem pode ver as respostas por unidade (concessão e revogação).', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/agregados_mensais', tabela: 'satisfacao_agregados_mensais', grupo: 'Pesquisa de satisfação', descricao: 'Totais mensais das respostas.', onde: EMP, migracao: '110' },
+    { arquivo: 'satisfacao/expurgos', tabela: 'satisfacao_expurgos', grupo: 'Pesquisa de satisfação', descricao: 'Expurgos mensais das respostas antigas (contagens).', onde: EMP, migracao: '110' },
+    // Pesquisa de satisfação PS-3 (111): link de avaliação do Google por empresa/unidade e auditoria só de acréscimo.
+    { arquivo: 'satisfacao/links_avaliacao', tabela: 'satisfacao_links_avaliacao', grupo: 'Pesquisa de satisfação', descricao: 'Link de avaliação do Google da empresa e de cada unidade.', onde: EMP, migracao: '111' },
+    { arquivo: 'satisfacao/auditoria', tabela: 'satisfacao_auditoria', grupo: 'Pesquisa de satisfação', descricao: 'Histórico de inclusão, troca e remoção dos links e de conclusão dos retornos.', onde: EMP, migracao: '111' },
 
     // Atendimento WhatsApp
     { arquivo: 'whatsapp/conexoes', tabela: 'whatsapp_conexoes', grupo: 'WhatsApp', descricao: 'Conexões do número (sem credenciais).', onde: EMP },
@@ -322,7 +347,19 @@ export const ENTIDADES: readonly Entidade[] = BASE.map((e) => ({ ...e, excluir: 
 export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     auditoria: 'Auditoria geral da plataforma (segurança e prova de operações, com IP); atendida por pedido específico.',
     sessoes_administrativas: 'Sessões de login: credenciais (hashes de token) e dados de segurança.',
+    // 123 (área Minha festa, F1, 14/11/2026): acesso da família. Decisão provisória da F1, a rever com o Astra (pessoas e eventos podem entrar no pacote).
+    festa_links_area: 'Área da família: links de acesso (hash do token, prazo e revogação); credencial, não dado da festa.',
+    area_familia_sessoes: 'Área da família: sessões de login (hash do cookie, aparelho); mesmo critério das sessões administrativas.',
+    limites_contadores: 'Contadores técnicos de limite por origem (chaves HMAC, janela); não é dado da empresa.',
+    festa_pessoas: 'Área da família: quem tem acesso à festa (contratante e segundo responsável, com WhatsApp e HMAC do CPF); controle de acesso.',
+    area_familia_eventos: 'Área da família: registro de segurança das entradas, links e desconexões; atendido por pedido específico.',
+    // 125 (área Minha festa, F3, 15/11/2026): ações da família. Mesmo critério provisório da F1, a rever com o Astra.
+    area_familia_avisos_pagamento: 'Área da família: avisos "Já paguei" (só aviso; o pagamento real fica em recebíveis e entra no pacote).',
+    festa_pendencias_familia: 'Área da família: o que a família vê de uma pendência e se marcou feito (a pendência em si entra no pacote).',
+    area_familia_aviso_empresa: 'Área da família: aviso fixo da empresa mostrado às famílias; texto de comunicação, não dado da festa.',
     // 107 (reparo da deriva da agenda): registro técnico global da migration, sem dado de empresa.
+    // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
+    satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
     kidmais107_reparos: 'Registro técnico da migration 107 (nomes de índices, CHECKs e gatilhos reparados); não é dado da empresa.',
     // Canal MCP (105): delegação OAuth a assistentes externos — mesmo critério das sessões (credenciais e segurança).
     mcp_oauth_clientes: 'Canal MCP: cache global dos metadados públicos dos aplicativos (ChatGPT, Claude); não é dado da empresa.',
@@ -358,6 +395,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
     marketing_dns_simulado: 'Simulação técnica local de DNS.',
+    oportunidades_resumos: 'Controle técnico de idempotência de e-mail diário; conteúdo já representado nas ações exportadas.',
     marketing_transporte_simulado: 'Simulação técnica local de envio.',
     whatsapp_atendimento_status: 'Recibos técnicos de entrega do provedor.',
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',

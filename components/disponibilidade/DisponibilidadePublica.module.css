@@ -327,6 +327,9 @@
   backdrop-filter: blur(12px);
   box-shadow: 0 16px 42px rgba(49, 54, 108, .08), inset 0 1px 0 #fff;
 }
+/* Pacotes e preços antes de informar os convidados: mesmo cartão, largura contida. */
+.pacotesAntes { max-width: 420px; margin: 0 0 18px; }
+@media (max-width: 620px) { .pacotesAntes { max-width: none; } }
 .guestForm { display: grid; gap: 14px; }
 .guestShortcuts { display: flex; flex-wrap: wrap; gap: 8px; }
 .guestShortcuts button,

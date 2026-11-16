@@ -11,6 +11,9 @@ import * as prontas from "./prontas.ts";
 import * as prontasLink from "./prontas-link.ts";
 import * as arquivos from "./arquivos.ts";
 import * as reautenticacao from "../../perfil/reautenticacao.ts";
+// Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
+import * as supressao from "../../satisfacao/supressao.ts";
+import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as entendimento from "./walle/entendimento.ts";
 import * as contextoWallE from "./walle/contexto.ts";
 import * as fontesWallE from "./walle/fontes-postgres.ts";
@@ -115,6 +118,7 @@ export function carregarMultiempresa() {
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa,
+    "../../satisfacao/supressao.ts": supressao, "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as typeof import("./service.ts");
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
     "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "../../perfil/reautenticacao.ts": reautenticacao,

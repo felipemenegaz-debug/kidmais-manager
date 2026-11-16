@@ -13,6 +13,21 @@ const headersSeguranca = [
     : []),
 ];
 
+// 'unsafe-inline' em script/style: o App Router injeta scripts e estilos inline de hidratação (sem nonce). 'unsafe-eval'
+// só no next dev (React Refresh). Nenhuma origem de terceiros em nenhuma diretiva.
+const cspPesquisa = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   distDir: process.env.KIDMAIS_FESTA_ISOLADO === 'true'
@@ -31,6 +46,17 @@ const nextConfig: NextConfig = {
           headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }],
         }),
       ),
+      // Pesquisa pública de satisfação (110, PS-1): sem cache, sem indexação, sem Referer e sem nada de terceiros (o token
+      // fica no fragmento; a CSP limita scripts, estilos, fontes e conexões à própria origem).
+      {
+        source: "/p/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Content-Security-Policy", value: cspPesquisa },
+        ],
+      },
     ];
   },
 };

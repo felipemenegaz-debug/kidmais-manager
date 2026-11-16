@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +22,12 @@ import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgr
  *      da função trocado, RLS, RULE) → DIVERGENTE; restaurados → JA_APLICADA;
  *   4b. gatilhos das FKs (revisão do Astra, rodada 1, P2-1): O→R em mcp_oauth_tokens e desabilitado em empresas (lado
  *      referenciado) → DIVERGENTE com a integridade antiga PASS; restaurados → JA_APLICADA;
+ *   4c. RELAÇÕES (09/11): NOT NULL NOT VALID, FK de entrada de fora da 105, proconfig, FK adiável, herança, RLS forçada,
+ *      política e gatilho extra → DIVERGENTE com a integridade antiga PASS (as duas primeiras com definições PASS);
+ *      r2 (Astra r1, P2-1): FK externa com LF no nome → DIVERGENTE, sem o texto do nome no CONFERIR, no APLICAR e no marcador;
+ *   4d. CHAVES DESCONHECIDAS (10/11): índice e gatilho com LF no nome dão <tipo>:<tabela>:DESCONHECIDA, sem o nome.
+ *   4e. ERROS DO SERVIDOR (10/11, P2-3): RLS forçada com política que falha (P0001, marcador no texto) → DIVERGENTE sem executar
+ *      as contagens; erro real 22P02 com o marcador nas contagens → FALHA_DE_CONFERENCIA/CONTAGENS/ERRO_SERVIDOR 22P02, sem o texto.
  *   5. marcador impede a repetição; com a 105 completa o APLICAR não escreve; down → impressão inicial;
  *   6. falha real (lock_timeout na FK dentro da transação única) → NAO_COMMITADA, nada criado; retomada pelo marcador renomeado;
  *   7. public.gen_random_uuid() (rodada 1, P2-2). Os modelos (o schema real da aplicação) já têm o pgcrypto em public:
@@ -179,6 +185,151 @@ test("aplicador 105 de PRODUÇÃO real: papel com SET ROLE, deparse das definiç
         } finally { await c.query(`ALTER TABLE ${tabela} ${restaurar} ${n}`); }
         assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: " + nome);
       }
+
+      // 4c. RELAÇÕES pela definição (09/11): derivas reais que a integridade antiga não pega e, nas duas primeiras, nem o
+      // definicoes.sql (attnotnull fica true com NOT NULL NOT VALID; FK vinda de fora da 105). A relação pega todas.
+      const relacoes: Record<string, unknown> = {};
+      for (const [nome, derivar, restaurar, definicoesEsperada] of [
+        ["NOT NULL NOT VALID (PG 18)",
+          "ALTER TABLE public.mcp_oauth_codigos ALTER COLUMN concessao_id DROP NOT NULL; ALTER TABLE public.mcp_oauth_codigos ADD CONSTRAINT mcp_oauth_codigos_concessao_id_not_null NOT NULL concessao_id NOT VALID",
+          "ALTER TABLE public.mcp_oauth_codigos VALIDATE CONSTRAINT mcp_oauth_codigos_concessao_id_not_null", "PASS"],
+        ["FK de entrada vinda de fora da 105",
+          "CREATE TABLE public.mcp_teste_externa (token_id uuid REFERENCES public.mcp_oauth_tokens (id))", "DROP TABLE public.mcp_teste_externa", "PASS"],
+        // Astra r1, P2-1: nome de FK externa com LF (identificador entre aspas) gera uma "linha" que começa com texto do banco.
+        ["LF no nome de FK de entrada externa",
+          "CREATE TABLE public.mcp_teste_externa (token_id uuid, CONSTRAINT \"nome_fk\nMARCADOR_PRIVADO_SINTETICO restante\" FOREIGN KEY (token_id) REFERENCES public.mcp_oauth_tokens (id))",
+          "DROP TABLE public.mcp_teste_externa", "PASS"],
+        ["proconfig da função (search_path)",
+          "ALTER FUNCTION public.mcp_oauth_concessao_revogacao_imutavel() SET search_path = public", "ALTER FUNCTION public.mcp_oauth_concessao_revogacao_imutavel() RESET search_path", "FALHOU"],
+        ["FK adiável", "ALTER TABLE public.mcp_oauth_codigos ALTER CONSTRAINT mcp_oauth_codigos_concessao_id_fkey DEFERRABLE INITIALLY DEFERRED",
+          "ALTER TABLE public.mcp_oauth_codigos ALTER CONSTRAINT mcp_oauth_codigos_concessao_id_fkey NOT DEFERRABLE INITIALLY IMMEDIATE", "FALHOU"],
+        ["herança", "CREATE TABLE public.mcp_teste_filha () INHERITS (public.mcp_auditoria)", "DROP TABLE public.mcp_teste_filha", "FALHOU"],
+        ["RLS forçada", "ALTER TABLE public.mcp_oauth_pedidos FORCE ROW LEVEL SECURITY", "ALTER TABLE public.mcp_oauth_pedidos NO FORCE ROW LEVEL SECURITY", "FALHOU"],
+        ["política criada", "CREATE POLICY mcp_politica_teste ON public.mcp_oauth_clientes USING (true)", "DROP POLICY mcp_politica_teste ON public.mcp_oauth_clientes", "FALHOU"],
+        ["gatilho de usuário extra",
+          "CREATE TRIGGER mcp_gatilho_teste BEFORE UPDATE ON public.mcp_oauth_tokens FOR EACH ROW EXECUTE FUNCTION public.mcp_oauth_concessao_revogacao_imutavel()",
+          "DROP TRIGGER mcp_gatilho_teste ON public.mcp_oauth_tokens", "FALHOU"],
+      ] as const) {
+        await c.query(`SET ROLE ${DONO}`); await c.query(derivar); await c.query("RESET ROLE");
+        try {
+          const d = await conferir();
+          relacoes[nome] = { integridade: d.checks?.integridade, definicoes: d.checks?.definicoes, relacoes: d.checks?.relacoes, divergencias: d.checks?.divergenciasRelacoes };
+          assert.equal(d.resultado, "DIVERGENTE", nome + JSON.stringify(d));
+          assert.equal(d.checks!.integridade, "PASS", nome + ": a integridade antiga não pega");
+          assert.equal(d.checks!.relacoes, "FALHOU", nome);
+          assert.equal(d.checks!.definicoes, definicoesEsperada, nome + ": definicoes.sql");
+          assert.doesNotMatch(JSON.stringify(d.checks!.divergenciasRelacoes), /mcp_teste_externa|mcp_teste_filha|mcp_politica_teste|mcp_gatilho_teste|search_path/, nome + ": relações sem texto do banco");
+          assert.doesNotMatch(JSON.stringify(d), /MARCADOR_PRIVADO|restante/, nome + ": saída do CONFERIR sem texto do nome");
+          const dirE = novoDir();
+          const e = await executar(dirE);
+          assert.equal(e.resultado, "FALHA", nome); assert.match(e.falha!.mensagem, /JA_APLICADA_SEM_INTEGRIDADE_105 DIVERGENTE/);
+          assert.doesNotMatch(JSON.stringify(e), /MARCADOR_PRIVADO/, nome + ": resultado do APLICAR sem texto do nome");
+          for (const f of readdirSync(dirE, { withFileTypes: true }).filter((x) => x.isFile())) {
+            assert.doesNotMatch(readFileSync(join(dirE, f.name), "utf8"), /MARCADOR_PRIVADO/, nome + ": " + f.name);
+          }
+        } finally { await c.query(`SET ROLE ${DONO}`); await c.query(restaurar); await c.query("RESET ROLE"); }
+        assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: " + nome);
+      }
+      t.diagnostic("relacoes 4c " + JSON.stringify(relacoes));
+
+      // 4d. CHAVES DESCONHECIDAS no definicoes.sql (10/11, Astra r2, P2-2): índice e gatilho extras numa tabela da 105, com
+      // LF e o marcador no nome. A divergência sai só como <tipo>:<tabela da 105>:DESCONHECIDA; nenhum nome lido aparece.
+      const desconhecidas: Record<string, unknown> = {};
+      for (const [nome, derivar, restaurar, rotulo] of [
+        ["índice com LF no nome",
+          "CREATE INDEX \"idx\nMARCADOR_PRIVADO_SINTETICO restante\" ON public.mcp_oauth_codigos (concessao_id)",
+          "DROP INDEX public.\"idx\nMARCADOR_PRIVADO_SINTETICO restante\"", "indice:mcp_oauth_codigos:DESCONHECIDA"],
+        ["gatilho com LF no nome",
+          "CREATE TRIGGER \"g\nMARCADOR_PRIVADO_SINTETICO restante\" BEFORE UPDATE ON public.mcp_oauth_tokens FOR EACH ROW EXECUTE FUNCTION public.mcp_oauth_concessao_revogacao_imutavel()",
+          "DROP TRIGGER \"g\nMARCADOR_PRIVADO_SINTETICO restante\" ON public.mcp_oauth_tokens", "gatilho:mcp_oauth_tokens:DESCONHECIDA"],
+      ] as const) {
+        await c.query(`SET ROLE ${DONO}`); await c.query(derivar); await c.query("RESET ROLE");
+        try {
+          const d = await conferir();
+          desconhecidas[nome] = { definicoes: d.checks?.definicoes, divergencias: d.checks?.divergencias };
+          assert.equal(d.resultado, "DIVERGENTE", nome + JSON.stringify(d));
+          assert.equal(d.checks!.definicoes, "FALHOU", nome);
+          assert.ok(d.checks!.divergencias!.some(x => x.chave === rotulo && x.tipo === "SOBRA"), nome + JSON.stringify(d.checks!.divergencias));
+          assert.doesNotMatch(JSON.stringify(d), /MARCADOR_PRIVADO|restante/, nome + ": saída do CONFERIR sem texto do nome");
+          const dirE = novoDir();
+          const e = await executar(dirE);
+          assert.equal(e.resultado, "FALHA", nome); assert.match(e.falha!.mensagem, /JA_APLICADA_SEM_INTEGRIDADE_105 DIVERGENTE/);
+          assert.doesNotMatch(JSON.stringify(e), /MARCADOR_PRIVADO|restante/, nome + ": resultado do APLICAR sem texto do nome");
+          for (const f of readdirSync(dirE, { withFileTypes: true }).filter((x) => x.isFile())) {
+            assert.doesNotMatch(readFileSync(join(dirE, f.name), "utf8"), /MARCADOR_PRIVADO|restante/, nome + ": " + f.name);
+          }
+        } finally { await c.query(`SET ROLE ${DONO}`); await c.query(restaurar); await c.query("RESET ROLE"); }
+        assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: " + nome);
+      }
+      t.diagnostic("desconhecidas 4d " + JSON.stringify(desconhecidas));
+
+      // 4e. ERROS DO SERVIDOR COM TEXTO DO CATÁLOGO (10/11, Astra r3, P2-3). (a) RLS forçada em mcp_oauth_clientes com
+      // política cuja expressão falha com o marcador no texto: um count direto prova que o erro REAL do PG traz o marcador
+      // na mensagem; o aplicador vê a deriva nas relações, NÃO executa as contagens e sai DIVERGENTE sem o texto.
+      // (b) erro REAL do PG (22P02 com o marcador) na fase de contagens com a integridade PASS: FALHA_DE_CONFERENCIA com
+      // fase CONTAGENS e só o SQLSTATE, no CONFERIR, no APLICAR e no marcador.
+      const errosServidor: Record<string, unknown> = {};
+      const semMarcador = (v: unknown, dir: string | null, nome: string) => {
+        assert.doesNotMatch(JSON.stringify(v), /MARCADOR_PRIVADO|restante/, nome + ": saída sem o texto do erro");
+        if (dir) for (const f of readdirSync(dir, { withFileTypes: true }).filter((x) => x.isFile())) {
+          assert.doesNotMatch(readFileSync(join(dir, f.name), "utf8"), /MARCADOR_PRIVADO|restante/, nome + ": " + f.name);
+        }
+      };
+      try {
+        // Uma linha sintética: a política é qual por linha, então só falha com a tabela não vazia.
+        await c.query("INSERT INTO public.mcp_oauth_clientes (client_id, nome, redirect_uris, valido_ate) VALUES ('https://teste-4e.invalid/c', 'teste 4e', ARRAY['https://teste-4e.invalid/cb'], now() + interval '1 day')");
+        await c.query(`SET ROLE ${DONO}`);
+        await c.query("ALTER TABLE public.mcp_oauth_clientes ENABLE ROW LEVEL SECURITY");
+        await c.query("ALTER TABLE public.mcp_oauth_clientes FORCE ROW LEVEL SECURITY");
+        // Função STABLE que lança: um cast constante seria avaliado já no CREATE POLICY.
+        await c.query("CREATE FUNCTION public.mcp_teste_falha() RETURNS boolean LANGUAGE plpgsql STABLE AS 'BEGIN RAISE EXCEPTION ''MARCADOR_PRIVADO_SINTETICO restante''; END'");
+        await c.query("CREATE POLICY mcp_teste_falha ON public.mcp_oauth_clientes USING (public.mcp_teste_falha())");
+        await c.query("RESET ROLE");
+        const bruto = await c.query(`SET ROLE ${DONO}`).then(() => c.query("SELECT count(*) FROM public.mcp_oauth_clientes")).then(
+          () => null, (e: { code?: string; message?: string }) => e);
+        await c.query("RESET ROLE");
+        assert.ok(bruto, "a política falha de verdade no count");
+        assert.equal(bruto!.code, "P0001"); assert.match(String(bruto!.message), /MARCADOR_PRIVADO_SINTETICO/, "o erro real traz o texto do catálogo");
+        const d = await conferir();
+        errosServidor["RLS forçada + política que falha"] = { resultado: d.resultado, relacoes: d.checks?.relacoes, contagens: (d as Record<string, unknown>).contagens ?? null };
+        assert.equal(d.resultado, "DIVERGENTE", JSON.stringify(d)); assert.equal(d.checks!.relacoes, "FALHOU");
+        assert.equal((d as Record<string, unknown>).contagens, undefined, "contagens não executadas com a integridade divergente");
+        semMarcador(d, null, "4e(a) CONFERIR");
+        const dirE = novoDir();
+        const e = await executar(dirE);
+        assert.equal(e.resultado, "FALHA"); assert.equal(e.falha!.mensagem, "JA_APLICADA_SEM_INTEGRIDADE_105 DIVERGENTE");
+        semMarcador(e, dirE, "4e(a) APLICAR");
+      } finally {
+        await c.query(`SET ROLE ${DONO}`);
+        await c.query("DROP POLICY IF EXISTS mcp_teste_falha ON public.mcp_oauth_clientes");
+        await c.query("DROP FUNCTION IF EXISTS public.mcp_teste_falha()");
+        await c.query("ALTER TABLE public.mcp_oauth_clientes NO FORCE ROW LEVEL SECURITY");
+        await c.query("ALTER TABLE public.mcp_oauth_clientes DISABLE ROW LEVEL SECURITY");
+        await c.query("RESET ROLE");
+        await c.query("DELETE FROM public.mcp_oauth_clientes WHERE client_id = 'https://teste-4e.invalid/c'");
+      }
+      assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: 4e(a)");
+      {
+        const Base = cliente(DONO);
+        // Só a consulta de contagens é trocada por uma que o PG recusa com o marcador na mensagem (erro real, 22P02).
+        const ComErroReal = class extends Base {
+          async query(q: string) {
+            if (q.includes("AS concessoes_ativas")) return this.c!.query("SELECT ('MARCADOR_PRIVADO_SINTETICO restante')::int AS x");
+            return super.query(q);
+          }
+        };
+        const d = await prod.conferir({ env: ENV, raiz, Client: ComErroReal }) as Resultado & { fase?: string };
+        errosServidor["erro real nas contagens"] = { resultado: d.resultado, fase: d.fase, motivo: d.motivo };
+        assert.equal(d.resultado, "FALHA_DE_CONFERENCIA"); assert.equal(d.fase, "CONTAGENS"); assert.equal(d.motivo, "ERRO_SERVIDOR 22P02");
+        semMarcador(d, null, "4e(b) CONFERIR");
+        const dirE = novoDir();
+        const e = await prod.executar({ env: ENV, backup: agoraPitr(), dir: dirE, raiz, disco: () => {}, Client: ComErroReal });
+        assert.equal(e.resultado, "FALHA"); assert.equal(e.falha!.mensagem, "JA_APLICADA_SEM_INTEGRIDADE_105 FALHA_DE_CONFERENCIA");
+        const m = JSON.parse(readFileSync(join(dirE, "migration-105.json"), "utf8"));
+        assert.deepEqual([m.conferencia.fase, m.conferencia.motivo], ["CONTAGENS", "ERRO_SERVIDOR 22P02"]);
+        semMarcador(e, dirE, "4e(b) APLICAR");
+      }
+      t.diagnostic("erros do servidor 4e " + JSON.stringify(errosServidor));
 
       // 5. Marcador e reaplicação sem DDL; down.
       await assert.rejects(executar(dir), /TENTATIVA_ANTERIOR_REVISAR/);

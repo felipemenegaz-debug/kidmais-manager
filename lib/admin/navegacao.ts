@@ -1,7 +1,9 @@
 export type ItemNavegacao = {
     href: string;
     rotulo: string;
-    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Financeiro' | 'Configurações';
+    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Satisfação' | 'Financeiro' | 'Configurações';
+    /** Número ao lado do item (ex.: retornos abertos); ausente ou 0 = sem número. */
+    contador?: number;
 };
 
 const PRINCIPAL: ItemNavegacao[] = [
@@ -10,6 +12,7 @@ const PRINCIPAL: ItemNavegacao[] = [
 
 const OPERACAO: ItemNavegacao[] = [
     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
+    { href: '/admin/oportunidades', rotulo: 'Oportunidades', grupo: 'Operação' },
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/convites', rotulo: 'Convites', grupo: 'Operação' },
@@ -22,12 +25,24 @@ const OPERACAO: ItemNavegacao[] = [
  * empresa (Gestão tem todas). A barreira está nas APIs (lib/marketing/http.ts); o menu só acompanha.
  */
 const MARKETING: ItemNavegacao[] = [
-    { href: '/admin/marketing', rotulo: 'Visão geral', grupo: 'Marketing' },
-    { href: '/admin/marketing/campanhas', rotulo: 'Campanhas', grupo: 'Marketing' },
-    { href: '/admin/marketing/origens', rotulo: 'Origens dos contatos', grupo: 'Marketing' },
-    { href: '/admin/marketing/site', rotulo: 'Site e SEO', grupo: 'Marketing' },
-    { href: '/admin/marketing/automacoes', rotulo: 'Automações', grupo: 'Marketing' },
+    { href: '/admin/marketing', rotulo: 'Resultados', grupo: 'Marketing' },
+    { href: '/admin/marketing/origens', rotulo: 'Pedidos e contatos', grupo: 'Marketing' },
+    { href: '/admin/marketing/site', rotulo: 'Site do buffet', grupo: 'Marketing' },
+    { href: '/admin/marketing/automacoes', rotulo: 'Acompanhamento', grupo: 'Marketing' },
 ];
+
+/**
+ * Satisfação (PS-4): cada item pela própria permissão devolvida pelo servidor (`recursos.satisfacao`): Resultados por VER,
+ * Retornos por TRATAR, com o número de retornos abertos do escopo TRATAR. Ausente ou null = grupo oculto (falha fechada,
+ * diferente do Marketing). A barreira está nas APIs; o menu só acompanha.
+ */
+function itensSatisfacao(s: MenuSatisfacaoNavegacao | null | undefined): ItemNavegacao[] {
+    if (!s) return [];
+    return [
+        ...(s.ver ? [{ href: '/admin/satisfacao', rotulo: 'Resultados', grupo: 'Satisfação' as const }] : []),
+        ...(s.tratar ? [{ href: '/admin/satisfacao/retornos', rotulo: 'Retornos', grupo: 'Satisfação' as const, contador: s.retornosAbertos }] : []),
+    ];
+}
 
 const FINANCEIRO: ItemNavegacao[] = [
     { href: '/admin/financeiro', rotulo: 'Visão geral', grupo: 'Financeiro' },
@@ -44,6 +59,7 @@ const FINANCEIRO: ItemNavegacao[] = [
  *   - `plataforma`: recurso da instalação inteira (temAutoridadeDePlataforma, F1) — nunca o papel de empresa.
  */
 const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma' }> = [
+    { href: '/admin/configuracoes/origens', rotulo: 'Opções de origem', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações', autoridade: 'empresa' },
     // 093: a agenda da unidade. O assistente da primeira entrada é de qualquer usuário; a tela, de Gestão.
     { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
@@ -65,7 +81,9 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
 
 /** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */
 /** `marketing: false` = plano sem Marketing ou pessoa sem capacidade nesta empresa. Ausente = mostrado (compatibilidade). */
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean };
+export type MenuSatisfacaoNavegacao = { ver: boolean; tratar: boolean; retornosAbertos: number };
+/** `satisfacao`: permissões do menu Satisfação devolvidas pelo servidor; ausente ou null = grupo oculto. */
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean; pedidosNovos?:number; satisfacao?: MenuSatisfacaoNavegacao | null };
 
 /** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
 export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
@@ -76,7 +94,8 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
     const financeiro = p.financeiroCompleto === false
         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
         : FINANCEIRO;
-    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...financeiro];
+    const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false);
+    const base = [...PRINCIPAL, ...operacao, ...(p.marketing === false ? [] : MARKETING.map(i=>i.href==='/admin/marketing/origens'?{...i,contador:p.pedidosNovos??0}:i)), ...itensSatisfacao(p.satisfacao), ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

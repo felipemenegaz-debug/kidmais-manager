@@ -39,7 +39,7 @@ function montar(opcoes: Opcoes = {}) {
     // Orçamento curto da marca: aqui só confere que a leitura passa pela conexão descartável.
     '../marca-com-prazo': { lerMarcaComPrazo: async (abrir: unknown, ler: (tx: unknown) => Promise<unknown>) => { assert.equal(abrir, conexaoDescartavelDoPool); prazos.push(abrir); return ler({}); } },
     '../storage/postgres': { lerDocumento: async (id: string) => { lidos.push(id); return { id }; } },
-    '../assinatura-papel': { TEXTO_ASSINADO_EM_PAPEL: 'papel', versaoAssinadaEmPapel: () => false },
+    '../assinatura-papel': { TEXTO_ASSINADO_EM_PAPEL: 'papel', versaoConferenciaImportada: () => false, versaoClienteAssinouEmPapel: () => false, textoClienteAssinouEmPapel: String },
     '../../db/postgres': { conexaoDescartavelDoPool, db: () => ({ query: async (sql: string) => { consultas.push(sql); return /contrato_assinaturas/.test(sql) && opcoes.vinculo ? { rows: [{ id: 's' }], rowCount: 1 } : { rows: [], rowCount: 0 }; } }), withTransaction: async () => { throw new Error('sem transação aqui'); } },
     './administrativo.service': { edicaoDaVersao: async () => null },
     './fluxo-publico': { documentoParaLeitura: async () => null, adquirirDocumentoParaLeitura: async () => null, materializarDocumento: async () => null, versaoPublicaId: async () => 'v1', concluirFluxoCliente: async () => null },

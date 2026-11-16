@@ -1,0 +1,122 @@
+{
+ "escritas": {},
+ "ordensDeTeste": [
+  {
+   "suite": "lib/marketing/correcoes-r1-r4.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:93",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:109",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:102"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39228
+  },
+  {
+   "suite": "lib/marketing/correcoes-r1-r4.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:206",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:229",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:228"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39228
+  },
+  {
+   "suite": "lib/marketing/correcoes-r1-r4.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:292",
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:295"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39228
+  },
+  {
+   "suite": "lib/marketing/correcoes-r1-r4.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/correcoes-r1-r4.postgres.test.ts:336",
+   "pilha": [
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:336"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39228
+  },
+  {
+   "suite": "lib/marketing/correcoes-r1-r4.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/correcoes-r1-r4.postgres.test.ts:425",
+   "pilha": [
+    "lib/marketing/correcoes-r1-r4.postgres.test.ts:425"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39228
+  },
+  {
+   "suite": "lib/marketing/marketing-a.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/marketing-a.postgres.test.ts:146",
+    "lib/marketing/marketing-a.postgres.test.ts:143"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 39144
+  },
+  {
+   "suite": "lib/marketing/origem-negociacao.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/origem-negociacao.postgres.test.ts:58"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 38504
+  },
+  {
+   "suite": "lib/marketing/origem-negociacao.postgres.test.ts",
+   "tipo": "ORDEM",
+   "producao": false,
+   "emissor": "TESTE",
+   "origem": "lib/marketing/harness-postgres.ts:37",
+   "pilha": [
+    "lib/marketing/harness-postgres.ts:37",
+    "lib/marketing/harness-postgres.ts:72",
+    "lib/marketing/origem-negociacao.postgres.test.ts:158"
+   ],
+   "motivo": "LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho",
+   "pid": 38504
+  }
+ ],
+ "ordensDeAplicador": [],
+ "semGuardaSalao": [],
+ "ordensOk": {}
+}

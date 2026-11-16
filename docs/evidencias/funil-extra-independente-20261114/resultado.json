@@ -1,0 +1,42 @@
+{
+  "data": "2026-11-14T19:12:27.224Z",
+  "runtime": "v24.20.0",
+  "resultados": [
+    {
+      "nome": "controle anterior R2: vínculo existe, atribuição da negociação ausente",
+      "ok": true
+    },
+    {
+      "nome": "automática novo/B herdado: origem completa, relatório e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "automática recorrente/A prevalece: origem completa, relatório e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "automática: origem própria e primeira origem do cliente preservadas",
+      "ok": true
+    },
+    {
+      "nome": "manual: origem própria e primeira origem do cliente preservadas",
+      "ok": true
+    },
+    {
+      "nome": "manual: herança antes da transferência, repetição sem escritas e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "recusas: outra negociação, outro cliente, outra empresa e contato sem cliente",
+      "ok": true
+    },
+    {
+      "nome": "atomicidade: falha injetada em atribuicao desfaz vínculo/ação/responsável/atribuição/histórico",
+      "ok": true
+    },
+    {
+      "nome": "atomicidade: falha injetada em historico desfaz vínculo/ação/responsável/atribuição/histórico",
+      "ok": true
+    }
+  ]
+}

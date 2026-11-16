@@ -6,9 +6,10 @@ export const IMPLANTACAO_FINANCEIRO = "2026-09-27";
 
 /**
  * Versão do contrato do resumo financeiro (KPIs do financeiro e do Dashboard). A 2 retirou "Saldo previsto" e o atraso
- * somado. Tela e servidor de versões diferentes não mostram números: pedem para recarregar a página.
+ * somado. A 3 (P2) tira o saldo absoluto sem abertura (`null` com motivo), traz o status "Parcialmente paga" das contas
+ * e o pago líquido das reversões. Tela e servidor de versões diferentes não mostram números: pedem para recarregar.
  */
-export const VERSAO_RESUMO_FINANCEIRO = 2;
+export const VERSAO_RESUMO_FINANCEIRO = 3;
 
 /**
  * Aba aberta antes do primeiro rollout: o JavaScript antigo não lê `versao` e mostraria número de outro contrato
@@ -18,7 +19,15 @@ export const VERSAO_RESUMO_FINANCEIRO = 2;
 export const CABECALHO_VERSAO_FINANCEIRO = "x-kidmais-financeiro-versao";
 export const MENSAGEM_RECARREGAR_FINANCEIRO = "O financeiro foi atualizado. Recarregue a página para ver os números certos.";
 /** Toda rota que devolve o resumo, o painel ou o relatório (teste em titulos-motor.test.ts confere pelas fontes). */
-export const ROTAS_COM_VERSAO_FINANCEIRA = ["/api/admin/financeiro", "/api/admin/financeiro/contas-receber", "/api/admin/financeiro/relatorios", "/api/admin/dashboard"] as const;
+export const ROTAS_COM_VERSAO_FINANCEIRA = ["/api/admin/financeiro", "/api/admin/financeiro/contas-receber", "/api/admin/financeiro/relatorios", "/api/admin/dashboard", "/api/admin/financeiro/fluxo-caixa", "/api/admin/financeiro/contas-pagar"] as const;
+/**
+ * Tela nova com servidor antigo: o cabeçalho só protege o servidor; a tela também precisa recusar a resposta. Resposta
+ * sem `versao` (servidor anterior à P2 no fluxo de caixa, que mandava saldo absoluto sem abertura) ou de outra versão
+ * não é mostrada. `null`/`undefined` = resposta ainda não carregada ou de outra aba.
+ */
+export function respostaFinanceiraDesatualizada(...respostas: Array<object | null | undefined>) {
+  return respostas.some((resposta) => resposta != null && (resposta as { versao?: unknown }).versao !== VERSAO_RESUMO_FINANCEIRO);
+}
 export const cabecalhoVersaoFinanceira = () => ({ [CABECALHO_VERSAO_FINANCEIRO]: String(VERSAO_RESUMO_FINANCEIRO) });
 export function versaoFinanceiraRecusada(caminho: string, cabecalho: string | null) {
   const rota = caminho.length > 1 ? caminho.replace(/\/+$/, "") : caminho;
@@ -41,7 +50,9 @@ export const CATEGORIAS_DESPESA = [
 ] as const;
 
 export type StatusReceber = "A receber" | "Parcialmente pago" | "Pago" | "Vencido" | "Cancelado" | "Reembolsado";
-export type StatusPagar = "A pagar" | "Pago" | "Vencido" | "Cancelado";
+export type StatusPagar = "A pagar" | "Parcialmente paga" | "Pago" | "Vencido" | "Cancelado";
+/** Conta com saldo a pagar: a pagar, parcialmente paga ou vencida. */
+export const PAGAR_EM_ABERTO: ReadonlySet<StatusPagar> = new Set(["A pagar", "Parcialmente paga", "Vencido"]);
 
 export function centavosDe(valor: string | number) {
   const texto = String(valor).trim().replace(",", ".");
@@ -89,6 +100,7 @@ export function statusPagar(input: {
   if (input.cancelado) return "Cancelado";
   if (input.pagoCentavos >= input.valorCentavos) return "Pago";
   if (input.vencimento < input.hoje) return "Vencido";
+  if (input.pagoCentavos > 0) return "Parcialmente paga";
   return "A pagar";
 }
 

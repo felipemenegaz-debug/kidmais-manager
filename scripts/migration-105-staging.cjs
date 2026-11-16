@@ -30,11 +30,20 @@ function alvo(env) {
   return {connectionString: env.DATABASE_URL, ssl: tls ? {rejectUnauthorized: true, minVersion: 'TLSv1.2'} : undefined,
     application_name: 'kidmais-migration-105-staging', connectionTimeoutMillis: 10000};
 }
+/** Causas conhecidas de conferirIdentidade (conexao-staging.cjs); qualquer outra sai como OUTRA (vocabulário fechado). */
+const CAUSAS_IDENTIDADE = Object.freeze(['BANCO', 'TLS', 'REDE_PRIVADA', 'SSL_CONFIGURACAO_RECUSADA', 'CERTIFICADO_SEM_VERIFICACAO_RECUSADO', 'OUTRA']);
 /** Banco exato e TLS conforme DATABASE_SSL; sem TLS, só com o servidor em endereço privado (conexao-staging.cjs). */
 function identidade(id, env) {
-  try { return conferirIdentidade(id, env); } catch (e) { assert.fail('IDENTIDADE_RECUSADA ' + String(e?.message ?? '').slice(0, 40)); }
+  try { return conferirIdentidade(id, env); } catch (e) {
+    const causa = e?.code === 'ERR_ASSERTION' && e.generatedMessage === false ? String(e.message).split(String.fromCharCode(10), 1)[0] : '';
+    assert.fail('IDENTIDADE_RECUSADA ' + (CAUSAS_IDENTIDADE.includes(causa) ? causa : 'OUTRA'));
+  }
 }
+/** Motivos próprios deste adaptador, para o diagnóstico em vocabulário fechado do núcleo. */
+const MOTIVOS = Object.freeze(['FORA_DO_RENDER', 'SERVICO_RECUSADO', 'AMBIENTE_RECUSADO', 'TLS_CONFIGURACAO_RECUSADA', 'URL_RECUSADA',
+  'HOST_RECUSADO', 'BANCO_RECUSADO', 'PORTA_RECUSADA', 'CONNECTION_QUERY_REJECTED', 'DISCO_PERSISTENTE_AUSENTE',
+  ...CAUSAS_IDENTIDADE.map(c => 'IDENTIDADE_RECUSADA ' + c)]);
 
-const aplicador = criarAplicador({nome: 'staging', ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco: () => exigirDisco()});
+const aplicador = criarAplicador({nome: 'staging', ALVO, DIR, SQL_IDENTIDADE, MOTIVOS, alvo, identidade, exigirDisco: () => exigirDisco()});
 if (require.main === module) aplicador.cli();
-module.exports = {ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco, ...aplicador};
+module.exports = {ALVO, DIR, SQL_IDENTIDADE, MOTIVOS, CAUSAS_IDENTIDADE, alvo, identidade, exigirDisco, ...aplicador};

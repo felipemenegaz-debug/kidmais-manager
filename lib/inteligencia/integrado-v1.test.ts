@@ -51,6 +51,7 @@ function banco(estado: { papel: string }) {
           { id: "p1", pagamento_id: "pg1", numero: 1, valor: "3000.00", vencimento: "2026-09-01", status_gravado: "PENDENTE", ...posicaoSimulada(), cliente: `Mariana Souza ${CPF}`, festa_id: null, pacote: "P", data_evento: "2026-10-10", recebido: "0", forma: "PIX" },
         ] : []);
       }
+      if (sql.includes("to_regclass('public.financeiro_entradas_liquidacoes')")) return r([{ movimentos: false, abertura: false }]); // P2: banco sem a 120/121
       if (sql.includes("FROM financeiro_entradas_manuais")) return r([]);
       if (sql.includes("m.status AS membership")) return r(values[0] === MEMBERSHIP_A.id ? [{ membership: "ATIVA" }] : []);
       if (sql.includes("SELECT DISTINCT m.empresa_id")) return r([{ id: EMPRESA_A }]);

@@ -117,7 +117,9 @@ export async function criarDesafioIdentidade(
        codigo_hash,
        codigo_expira_em,
        max_tentativas,
-       max_envios
+       max_envios,
+       tentativas,
+       envios
      ) VALUES (
        $1::uuid,
        $2,
@@ -126,7 +128,9 @@ export async function criarDesafioIdentidade(
        $4,
        $5::timestamptz,
        $6,
-       $7
+       $7,
+       $8,
+       $9
      )
      RETURNING ${validacaoColumns}`,
     [
@@ -137,6 +141,8 @@ export async function criarDesafioIdentidade(
       input.codigoExpiraEm,
       input.maxTentativas ?? 5,
       input.maxEnvios ?? 3,
+      input.tentativas ?? 0,
+      input.envios ?? 0,
     ],
   );
 
@@ -154,6 +160,51 @@ export async function registrarEnvioOtp(
       WHERE id = $1::uuid
         AND status = 'PENDENTE'
         AND envios < max_envios
+      RETURNING ${validacaoColumns}`,
+    [validacaoId],
+  );
+
+  return result.rows[0] ? mapValidacao(result.rows[0]) : null;
+}
+
+/**
+ * Encerra um desafio ainda pendente (reserva por e-mail): o código do WhatsApp deixa de valer quando o do e-mail nasce.
+ * Só sai de PENDENTE; confirmado, consumido ou bloqueado não muda. Concorrência: só uma chamada vence.
+ */
+export async function cancelarValidacaoPendente(
+  validacaoId: string,
+  customDb?: DbExecutor,
+): Promise<ValidacaoIdentidadeRecord | null> {
+  const result = await executor(customDb).query<ValidacaoIdentidadeRow>(
+    `UPDATE validacoes_identidade_cliente
+        SET status = 'CANCELADA'
+      WHERE id = $1::uuid
+        AND status = 'PENDENTE'
+      RETURNING ${validacaoColumns}`,
+    [validacaoId],
+  );
+
+  return result.rows[0] ? mapValidacao(result.rows[0]) : null;
+}
+
+/**
+ * Reserva por e-mail (P2 do Astra, 12/11): quando o envio pelo e-mail falha, o desafio do WhatsApp que acabou de ser
+ * cancelado volta a valer. Só reabre o que ainda pode ser pendente (sem prova, sem consumo, código não expirado).
+ */
+export async function reabrirValidacaoCancelada(
+  validacaoId: string,
+  customDb?: DbExecutor,
+): Promise<ValidacaoIdentidadeRecord | null> {
+  const result = await executor(customDb).query<ValidacaoIdentidadeRow>(
+    `UPDATE validacoes_identidade_cliente
+        SET status = 'PENDENTE'
+      WHERE id = $1::uuid
+        AND status = 'CANCELADA'
+        AND codigo_expira_em > now()
+        AND confirmado_em IS NULL
+        AND token_prova_hash IS NULL
+        AND consumido_em IS NULL
+        AND recuperacao_solicitada_em IS NULL
       RETURNING ${validacaoColumns}`,
     [validacaoId],
   );

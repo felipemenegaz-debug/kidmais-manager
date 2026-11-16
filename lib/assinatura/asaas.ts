@@ -430,7 +430,7 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         },
         // POST /v3/customers — https://docs.asaas.com/reference/criar-novo-cliente
         // notificationDisabled: true — em qualquer ambiente o provedor não envia e-mail/SMS ao cliente: a fatura e os avisos
-        // são mostrados pelo próprio Kidmais Manager (nenhum contato é enviado ao provedor).
+        // são mostrados pelo próprio iA.Fest (nenhum contato é enviado ao provedor).
         async criarCliente(input) {
             const r = await chamar('criar cliente', 'POST', '/customers', { name: input.nome.slice(0, 200), cpfCnpj: input.cpfCnpj, externalReference: input.referencia, notificationDisabled: true });
             return { id: idValido(r?.id, 'criar cliente'), externalReference: input.referencia };

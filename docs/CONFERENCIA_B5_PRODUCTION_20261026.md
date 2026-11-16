@@ -16,6 +16,8 @@ Estado: **implementação LOCAL**, sem commit. Clone `kidmais-manager-b5-pos-e3-
 
 Validação local (09/11): agregador 43/43 (4 testes novos), blocos em Git Bash 13/13 (a rodada completa deu 12/13: a contagem de blocos do `TODOS` estava fixa em `N + 4`; passou a `N + CURTOS.length + 1` e o teste foi repetido sozinho, 1/1), ESLint; sonda PG 18 descartável (`E:/kidmais-pg-descartavel/b5-pos-e3-20261109`, porta 55791) 9 execuções, nenhuma fora de READ ONLY e nenhuma escrita: antes do E3 (E2c 0, E5b 3 só pelas três do E3), depois do E3 (E5b 0, E2c e E1 3 só pelas três), depois do E3 + 118 (E5b 3, `118:presente`), + 094 (E5b 3), + 091 (E5b 3), E3 sem a 093 (E5b 3). 16 mutantes em cópia isolada, 16 mortos. Revisão do Astra (10/11): aprovado com 1 P3, porque faltava um cenário negativo da matriz no E5b (o mutante "E5b ignora a matriz" sobrevivia). Acrescentado o caso `MATRIZ_VAZIA_COM_LINHAS` (empresa_assinaturas 1, assinatura_avisos 7) no teste do E5b. Agregador 43/43, ESLint 0, 17 mutantes (P17 novo), 17 mortos. Evidências em `ambientes-locais/b5-pos-e3-20261109/`.
 
+**Atualização com a staging (16/11/2026, merge de `origin/staging` `d1a0f6f5`).** Único conflito em `scripts/conferencia-b5-producao.cjs`, onde a staging trouxe a leitura de 110, 111 e 115 (pesquisa de satisfação, por catálogo) e as pôs em `ESPERADO_ANTES_DO_E3` como `ausente`. Resolução: ficam as duas coisas. A leitura de satisfação roda antes da conferência do prefixo, e o prefixo continua escolhido por modo (`PREFIXOS`). Como `ESPERADO_POS_E3 = ESPERADO_ANTES_DO_E3`, o E5b passa a exigir também 110, 111 e 115 `ausente` (o E3 só aplica 089, 092 e 093). O teste do E5b ganhou esses casos: presente, parcial (115) e ilegível dão PARAR. O pacote do bloco já tem 31 arquivos, com `conferencia-b5-satisfacao.cjs` e os módulos da 105 vindos da staging, e o teste dos blocos conta `N + CURTOS.length + 1`.
+
 ## B-5 ampliado (08/11/2026) — prevalece sobre o texto abaixo
 
 Estado: **implementação LOCAL**, sem commit. Clone `kidmais-manager-b5-ampliado-20261108`, branch `codex/b5-ampliado-20261108`, sobre staging `9691392c`. Fonte: plano de promoção rodada 34, §9.2.2 (G-VAZIO), §9.2.4 (L1) e §9.2.7 (B-5 ampliado + B-15 reescopado). Nenhum Shell, banco real, Asaas, env ou production foi tocado. Onde as seções antigas deste documento falam em leitura do Asaas, valem as regras abaixo.
@@ -337,3 +339,9 @@ Amplia o agregador sem bloco novo: os mesmos `CONFERIR-B5` (E1) e `CONFERIR-B5-E
 - Mutantes em cópia isolada (controle 18/18), todos derrubados: fórmula antiga (−44), margem zero, −46, `>=` no lugar de `>` e janela antecipada de 2 dias.
 - Isso fecha a pendência "B-5 reportar −47" da rodada 14 do plano. A observação "−44 × −47" da re-revisão fica resolvida pela D-COM-5.
 - Suítes depois do ajuste: blocos 13/13; aplicadores compostos 178/178; ESLint e `git diff --check` limpos; `npm run check:v1:static` código 0 (3654 + 103 testes; 2 avisos preexistentes; build compilado). Mudaram os blocos que carregam a conferência (PARTE-1, CONFERIR-B5, CONFERIR-B5-ESTADO, LIMPEZA).
+
+## Pacote com os módulos de definições e relações da 105 (10/11/2026)
+
+- Desde a rodada staging-r1 do aplicador da 105, `scripts/migration-105-comum.cjs` carrega no `require` `scripts/migration-105-definicoes.cjs` e `scripts/migration-105-relacoes.cjs`. O pacote do B-5 não os levava, e o núcleo da 105 falhava com `MODULE_NOT_FOUND` na pasta própria (CI da PR #384, passo do B-5).
+- O pacote passa a ter **30 arquivos** (os 28 de antes mais esses 2 módulos). O teste fixa a lista e `ARQUIVOS_OK 30`.
+- Suítes: `bloco-shell-conferencia-b5-producao.test.cjs` 13/13 e `conferencia-b5-producao.test.cjs` 39/39. Mudam os blocos que carregam a conferência; regenerar quando a candidata for congelada.

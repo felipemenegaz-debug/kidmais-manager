@@ -12,9 +12,11 @@ import { hojeSaoPaulo } from "@/lib/marketing/utm";
 import { acaoManualExecucao, executarCiclo, simularEmpresa } from "@/lib/marketing/automacoes/motor";
 import { alterarPreferencia, destinosDoCadastro, esquemaPreferencia, lerPreferencia } from "@/lib/marketing/automacoes/preferencias";
 import {
-  CATALOGO_REGRAS, ativarRegra, esquemaSalvarRegra, listarRegras, pararTudo, pausarRegra, regraDaEmpresa, revisarModelo, salvarRegra,
+  CATALOGO_REGRAS, TEXTO_LEMBRETE_PESQUISA, TEXTO_PESQUISA, ativarRegra, esquemaSalvarRegra, listarRegras, pararTudo, pausarRegra, regraDaEmpresa, revisarModelo, salvarRegra,
 } from "@/lib/marketing/automacoes/regras";
+import { pesquisaInstalada } from "@/lib/satisfacao/supressao";
 import { automacoesHabilitadas, transporteDoAmbiente } from "@/lib/marketing/automacoes/transporte";
+import { contextoPesquisaDoAmbiente } from "@/lib/satisfacao/despacho";
 import type { DbExecutor } from "@/lib/db/contracts";
 
 export const runtime = "nodejs";
@@ -48,20 +50,29 @@ async function painel(tx: DbExecutor, empresaId: string, unidadeId: string | nul
        JOIN clientes c ON c.id = e.cliente_id
       WHERE e.empresa_id = $1::uuid AND r.estabelecimento_id IS NOT DISTINCT FROM $2::uuid
       ORDER BY e.atualizado_em DESC LIMIT 100`, [empresaId, unidadeId]);
-  const tarefas = await tx.query<{ id: string; titulo: string; descricao: string | null; vencimento: string; status: string; cliente_id: string }>(
-    `SELECT t.id::text, t.titulo, t.descricao, t.vencimento::text, t.status, t.cliente_id::text FROM marketing_tarefas t
+  const tarefas = await tx.query<{ id: string; titulo: string; descricao: string | null; vencimento: string; status: string; cliente_id: string; cliente_nome:string; telefone:string|null }>(
+    `SELECT t.id::text, t.titulo, t.descricao, t.vencimento::text, t.status, t.cliente_id::text, c.nome_completo AS cliente_nome, COALESCE(c.whatsapp,c.telefone) AS telefone FROM marketing_tarefas t JOIN clientes c ON c.id=t.cliente_id AND c.empresa_id=t.empresa_id
       WHERE t.empresa_id = $1::uuid AND t.status = 'ABERTA' ORDER BY t.vencimento, t.criado_em LIMIT 100`, [empresaId]);
   const saida = await tx.query<{ id: string; destinatario_mascarado: string; template_provedor: string; texto: string; status: string; aceito_em: string; provedor_mensagem_id: string }>(
     `SELECT id::text, destinatario_mascarado, template_provedor, texto, status, aceito_em::text, provedor_mensagem_id FROM marketing_transporte_simulado
       WHERE empresa_id = $1::uuid ORDER BY aceito_em DESC LIMIT 30`, [empresaId]);
+  // Pesquisa de satisfação (110): disponível só com a migration; a caixa de e-mail simulada guarda o texto sem o link.
+  const pesquisaDisponivel = await pesquisaInstalada(tx);
+  const caixaEmail = pesquisaDisponivel ? (await tx.query<{ id: string; para_mascarado: string; assunto: string; texto: string; aceito_em: string }>(
+    `SELECT id::text, para_mascarado, assunto, texto, aceito_em::text FROM satisfacao_email_simulado WHERE empresa_id = $1::uuid ORDER BY aceito_em DESC LIMIT 30`,
+    [empresaId])).rows : [];
   return {
     regras: await listarRegras(tx, empresaId, unidadeId),
     catalogo: CATALOGO_REGRAS,
     execucoes: execucoes.rows,
     tarefas: tarefas.rows,
     caixaSimulada: saida.rows,
+    caixaEmail,
     datasVagas: await sugerirDatasVagas(tx, empresaId, unidadeId, hojeSaoPaulo()),
-    ambiente: { processamentoLigado: automacoesHabilitadas(), transporte: "SIMULADO" },
+    ambiente: {
+      processamentoLigado: automacoesHabilitadas(), transporte: "SIMULADO",
+      pesquisa: { disponivel: pesquisaDisponivel, ligada: process.env.SATISFACAO_PESQUISA_ENABLED === "true", textoPadrao: TEXTO_PESQUISA, lembretePadrao: TEXTO_LEMBRETE_PESQUISA },
+    },
   };
 }
 
@@ -121,7 +132,7 @@ export async function POST(request: NextRequest) {
   // Processamento local da empresa comprovada: fora da transação da tela (cada execução tem as suas), transporte simulado.
   const { data } = await resposta.json() as { data: { empresaId: string } };
   try {
-    const resultado = await executarCiclo({ transacao: withTransaction }, transporteDoAmbiente(db), new Date(), { empresaId: data.empresaId });
+    const resultado = await executarCiclo({ transacao: withTransaction }, transporteDoAmbiente(db), new Date(), { empresaId: data.empresaId, pesquisa: contextoPesquisaDoAmbiente(db) });
     return jsonNoStore({ ok: true, data: resultado });
   } catch (error) {
     return apiErrorResponse(error);

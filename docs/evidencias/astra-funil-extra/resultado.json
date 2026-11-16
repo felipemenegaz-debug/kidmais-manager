@@ -1,0 +1,17 @@
+{
+  "data": "2026-11-14T18:58:04.801Z",
+  "hashes": {
+    "fontes": 56,
+    "evidencias": 77
+  },
+  "resultados": [
+    "heranca e repeticao; responsavel B herdado",
+    "heranca e repeticao; responsavel A",
+    "origem propria preservada",
+    "recusa sem escrita {\"bound\":\"OUTRA\"}",
+    "recusa sem escrita {\"missingContact\":true}",
+    "recusa sem escrita {\"wrongTarget\":true}",
+    "falha de heranca propaga ao chamador; rollback depende da transacao real"
+  ],
+  "limite": "Funcoes reais com tipos/imports removidos, SQL e dependencias falsos. Sem PostgreSQL, navegador ou build próprios. Sem prova de concorrencia/rollback real."
+}

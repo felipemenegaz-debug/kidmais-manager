@@ -11,6 +11,25 @@
 > - **Produção:** nada aplicado nem ligado. Pede aplicador 105 próprio + PITR, candidata validada no Node 22.23.2, env
 >   própria, monitoramento/desligamento e as decisões D3/RET-1/D-EXP (lista em MCP_ASSINATURAS_V1.md §21).
 
+> **10/11/2026 — conferência pela definição também em staging (LOCAL, sem commit; follow-up do parecer r1 do Astra sobre o
+> aplicador de produção).** O núcleo de staging podia declarar íntegro um catálogo que a verificação de produção recusaria
+> (RLS ligada, dono diferente, restrição NOT VALID, FK de entrada vinda de fora da 105, política criada). Agora:
+> - **CONFERIR** com a 105 completa lê integridade, definições (`database/checks/20261029_105_definicoes.sql`, o mesmo SQL
+>   e hash de produção) e relações (`scripts/migration-105-relacoes.cjs`, referência só do PG 18) numa única fotografia
+>   `REPEATABLE READ READ ONLY`; qualquer divergência → `RECUSARIA` (código 3) com `DEFINICOES_105 DIVERGENTE` ou
+>   `RELACOES_105 DIVERGENTE`, checks por item e as divergências em vocabulário fechado. As contagens só são lidas com tudo PASS.
+> - **Guarda de reaplicação** (APLICAR com a 105 completa): a mesma conferência; divergência → `FALHA` (código 2) sem escrita,
+>   sem COMMIT e sem contagens.
+> - **Antes do COMMIT:** postcheck, integridade, definições e relações na mesma transação; qualquer divergência → ROLLBACK,
+>   `NAO_COMMITADA`, `faseDaFalha` = `verificacao`. Depois do COMMIT, a conferência relida em leitura.
+> - **Dono:** as definições exigem que tabelas e função pertençam ao dono de `public.empresas`. Aplicar com um papel que não é
+>   o dono falha antes do COMMIT (`DEFINICOES_105 DIVERGENTE`, `NAO_COMMITADA`).
+> - **Diagnóstico em vocabulário fechado** (como produção r4): motivo próprio da lista, `ERRO_SERVIDOR <SQLSTATE>`,
+>   `ERRO_SISTEMA <código>` ou `ERRO_NAO_CLASSIFICADO`; nunca a mensagem livre do erro, nem no marcador nem na linha `RECUSADO`.
+>   A recusa de identidade sai como `IDENTIDADE_RECUSADA <causa>`.
+> - O bloco de shell de staging passa a conferir o sha256 de 12 arquivos (5 SQL + definições, relações, `conferencia-b5-105.cjs`).
+> - **Fora do PG 18 a conferência recusa** (`SEM_REFERENCIA_PG <n>`): staging roda PG 18.
+
 Histórico: preparado em 27/10/2026, **LOCAL e sem commit** (PostgreSQL descartável aprovado); depois mergeado (#256) e **executado em staging** (APLICADA_POSTCHECK_PASS, depois JA_APLICADA_INTEGRIDADE_PASS). **É de staging: não serve para produção**, na branch `codex/aplicador-105-staging-20261027` sobre o staging `dfb872a8`. Nada foi executado em staging. Mesmo desenho dos aplicadores da 092–094, 100 e 102/103.
 
 A 105 é aplicada **sozinha**. O aplicador conjunto da 104/106 (outra sessão, `Plano aplicador 104 106 staging 20261027`) deixa a 105 de fora de propósito (decisão D2 daquele plano). As três são independentes entre si.
@@ -50,7 +69,7 @@ A 105 é aplicada **sozinha**. O aplicador conjunto da 104/106 (outra sessão, `
   4. estado relido (`completa`);
   5. integridade (READ ONLY).
 - **Situação do COMMIT:** `NAO_COMMITADA`, `CONFIRMADO`, `DESFEITA_PELO_SERVIDOR` ou `INDETERMINADO` (40003, classes 08/57/58/XX ou sem SQLSTATE). O resultado fica registrado no marcador.
-- **Sem trava de versão do PostgreSQL:** a integridade usa contagens e `prosrc`, não o deparse da versão.
+- **Conferência pela definição (10/11/2026):** integridade + definições + relações (referência do PG 18; outra versão recusa). Até 09/11 não havia trava de versão: a integridade usava só contagens e `prosrc`.
 - **Saída:** nomes de etapas, booleanos, a versão do servidor e contagens (clientes, concessões, ativas, tokens, auditoria). Sem ids, tokens ou URL.
 - **Nunca executa:** down, env (inclusive `MCP_ENABLED`), deploy, restart, escrita nas tabelas `mcp_*`.
 - **Códigos:** 0 (plano, pronta, aplicada ou já aplicada); 1 (recusa antes de conectar); 2 (FALHA registrada); 3 (conferência RECUSARIA). O bloco usa 4 para as recusas dele.

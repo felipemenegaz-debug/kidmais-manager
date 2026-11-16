@@ -1,5 +1,12 @@
 import type { IdentityOtpSender, OtpDelivery } from "../services";
-import { modoOtpAmbiente, otpDesabilitadoNoStaging } from "../configuracao-otp.ts";
+import { criarEnviarEmail } from "../../acessos/email.ts";
+import {
+  modoOtpAmbiente,
+  otpDesabilitadoNoStaging,
+  reservaEmailOtpDisponivel,
+  reservaEmailOtpLigada,
+} from "../configuracao-otp.ts";
+import { criarEmailOtpSender } from "./email.sender.ts";
 import { carregarGupshupConfig, criarGupshupSender, type GupshupConfig } from "./gupshup.sender.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -29,6 +36,8 @@ export type StatusOtpAmbiente = {
   configured?: boolean;
   enabled?: boolean;
   reason?: "staging_disabled";
+  /** Reserva por e-mail: `ready` só com a trava ligada e o e-mail configurado; sem valores de configuração. */
+  emailFallback?: "ready" | "unavailable";
 };
 
 function envObrigatoria(nome: string) {
@@ -96,7 +105,18 @@ function carregarOtpProviderConfig(): OtpProviderConfig {
   return { provider, whatsapp: carregarWhatsappCloudConfig() };
 }
 
-export function validarConfiguracaoOtpAmbiente() {
+function statusReservaEmail(): Pick<StatusOtpAmbiente, "emailFallback"> {
+  // Desligada: o health continua idêntico ao de antes da reserva existir.
+  if (!reservaEmailOtpLigada()) return {};
+  return { emailFallback: reservaEmailOtpDisponivel() ? "ready" : "unavailable" };
+}
+
+export function validarConfiguracaoOtpAmbiente(): StatusOtpAmbiente {
+  const provedor = validarProvedorOtpAmbiente();
+  return { ...provedor, ...statusReservaEmail() };
+}
+
+function validarProvedorOtpAmbiente(): StatusOtpAmbiente {
   const config = carregarOtpProviderConfig();
   if (config.provider === "gupshup") {
     const enabled = !otpDesabilitadoNoStaging();
@@ -254,6 +274,14 @@ export function criarWhatsappCloudSender(
  * mesmo quando o transporte estiver bloqueado.
  */
 export const enviarOtpComAmbiente: IdentityOtpSender = async (delivery) => {
+  if (delivery.canal === "EMAIL") {
+    // Reserva por e-mail: independe do provedor do WhatsApp, mas exige a trava ligada e o e-mail configurado.
+    if (!reservaEmailOtpDisponivel()) {
+      throw new Error("Envio do código por e-mail indisponível neste ambiente.");
+    }
+    return criarEmailOtpSender(criarEnviarEmail())(delivery);
+  }
+
   const config = carregarOtpProviderConfig();
 
   if (config.provider === "console") {

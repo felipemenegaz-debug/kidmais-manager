@@ -17,7 +17,7 @@ type Empresa = { id: string; nome: string };
 export const DADOS_QUE_SAEM: Readonly<Record<string, string>> = {
     'agenda:read': 'horários das festas de hoje e amanhã, totais de festas e convidados e quantos contratos estão pendentes',
     'financeiro:read': 'totais de contas a receber em aberto, vencidos por faixa de atraso e a vencer',
-    'conhecimento:read': 'trechos da documentação aprovada do KidMais',
+    'conhecimento:read': 'trechos da documentação aprovada do iA.Fest',
 };
 
 export function FormularioConsentimento({ pedido, empresa, enviar, ocupado }: {
@@ -26,22 +26,22 @@ export function FormularioConsentimento({ pedido, empresa, enviar, ocupado }: {
 }) {
     const [marcados, setMarcados] = useState<string[]>([...pedido.escopos]);
     return <section className={workspace.card} aria-labelledby="t-consentimento" style={{ maxWidth: 760 }} data-consentimento>
-        <h2 id="t-consentimento">{pedido.clienteNome} quer acessar o KidMais</h2>
+        <h2 id="t-consentimento">{pedido.clienteNome} quer acessar o iA.Fest</h2>
         <p>Aplicativo: <strong data-client-host>{pedido.clientHost}</strong> · retorno para <strong data-redirect-host>{pedido.redirectHost}</strong></p>
         <p>Empresa: <strong data-empresa>{empresa.nome}</strong></p>
         {/* Teste real de 28/10/2026: a sessão estava noutra empresa e a tela não deixava isso claro. */}
-        <p className={workspace.muted} data-aviso-empresa>A conexão vale só para esta empresa. Para conectar outra, troque a empresa ativa no menu do KidMais e recarregue esta página.</p>
+        <p className={workspace.muted} data-aviso-empresa>A conexão vale só para esta empresa. Para conectar outra, troque a empresa ativa no menu do iA.Fest e recarregue esta página.</p>
         {!pedido.empresaNoPiloto && <p role="alert" data-fora-do-piloto>Esta empresa ainda não participa do piloto de conexões com assistentes. Troque a empresa ativa no menu e recarregue esta página, ou recuse o pedido.</p>}
         <fieldset style={{ border: 0, padding: 0, margin: '16px 0' }}>
             <legend style={{ fontWeight: 800 }}>Permitir somente leitura de:</legend>
             {pedido.escopos.map((e) => <label key={e} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <input type="checkbox" checked={marcados.includes(e)} data-escopo={e} style={{ flexShrink: 0, marginTop: 2 }}
                     onChange={(ev) => setMarcados((m) => ev.target.checked ? [...m, e] : m.filter((x) => x !== e))} />
-                <span><strong>{ROTULO_ESCOPO[e] ?? e}</strong><br /><span className={workspace.muted}>Sai do KidMais: {DADOS_QUE_SAEM[e] ?? 'dados desta permissão'}.</span></span>
+                <span><strong>{ROTULO_ESCOPO[e] ?? e}</strong><br /><span className={workspace.muted}>Sai do iA.Fest: {DADOS_QUE_SAEM[e] ?? 'dados desta permissão'}.</span></span>
             </label>)}
         </fieldset>
         <ul className={workspace.muted}>
-            <li>Nada é alterado no KidMais: sem envio de mensagens, cobranças, contratos ou cadastros.</li>
+            <li>Nada é alterado no iA.Fest: sem envio de mensagens, cobranças, contratos ou cadastros.</li>
             <li>Nomes, contatos, documentos e dados de crianças não são enviados.</li>
             <li>O acesso vale enquanto você não desconectar (renovação automática por até 30 dias sem uso). Desconecte quando quiser em Assistentes conectados.</li>
             <li>O que o assistente já recebeu fica no histórico dele, conforme as regras do fabricante.</li>
@@ -81,7 +81,7 @@ export async function carregarPedido(deps: {
             const cs = await rs.json().catch(() => null) as { data?: { contexto?: { empresaAtual?: Empresa | null } } } | null;
             if (!rp.ok || !cp?.ok || !cp.data) return { ok: false, erro: cp?.erro ?? 'Pedido de conexão inválido ou expirado.', recuperavel: rp.status >= 500 };
             const atual = cs?.data?.contexto?.empresaAtual ?? null;
-            if (!atual) return { ok: false, erro: 'Escolha a empresa no menu do KidMais e abra o link de conexão novamente.', recuperavel: false };
+            if (!atual) return { ok: false, erro: 'Escolha a empresa no menu do iA.Fest e abra o link de conexão novamente.', recuperavel: false };
             return { ok: true, pedido: cp.data, empresa: atual };
         } catch {
             return { ok: false, erro: 'Falha de conexão ao abrir o pedido.', recuperavel: true };

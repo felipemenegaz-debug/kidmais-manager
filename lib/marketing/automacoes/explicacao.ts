@@ -36,6 +36,7 @@ export function quandoAcontece(r: Pick<RegraExplicavel, "tipo" | "esperaDias">) 
 export function oQueFaz(acao: AcaoRegra) {
   if (acao === "TAREFA_INTERNA") return "criar uma tarefa para a equipe";
   if (acao === "MENSAGEM_WHATSAPP") return "enviar uma mensagem de WhatsApp para o número autorizado do cliente";
+  if (acao === "PESQUISA_SATISFACAO") return "enviar a pesquisa de satisfação pelos canais escolhidos (WhatsApp autorizado e/ou e-mail do cadastro)";
   return "mostrar a sugestão para a equipe revisar";
 }
 
@@ -52,13 +53,16 @@ export function resumoRegra(r: RegraExplicavel) {
     return "Mostra datas com horários livres para a equipe revisar e divulgar em uma campanha. Nada é enviado, reservado ou descontado automaticamente.";
   }
   const base = `${quandoAcontece(r)}, ${oQueFaz(r.acao)}, ${horarioPermitido(r)}.`;
+  if (r.acao === "PESQUISA_SATISFACAO") {
+    return `${base} Uma pesquisa por festa; o link vale 30 dias. Se não houver resposta, um único lembrete sai 3 dias depois do primeiro envio aceito. A pesquisa conta como uma mensagem automática no limite de ${dias(r.limiteFrequenciaDias)} (o lembrete não conta).`;
+  }
   if (r.acao !== "MENSAGEM_WHATSAPP") return base;
   return `${base} No máximo uma mensagem automática por cliente a cada ${dias(r.limiteFrequenciaDias)} (somando todas as regras); até ${r.maxTentativas} tentativa${r.maxTentativas === 1 ? "" : "s"} se o provedor estiver temporariamente indisponível.`;
 }
 
 /** Situações das execuções (histórico). “Aceita” não é “entregue”: só o provedor confirma entrega. */
 export const ROTULO_ESTADO: Record<string, string> = {
-  AGENDADA: "Agendada", PROCESSANDO: "Processando", ENVIANDO: "Enviando", TAREFA_CRIADA: "Tarefa criada",
+  AGENDADA: "Agendada", PROCESSANDO: "Processando", ENVIANDO: "Enviando", TAREFA_CRIADA: "Tarefa criada", PESQUISA_CRIADA: "Pesquisa criada (envio por canal)",
   ACEITA: "Mensagem aceita pelo transporte simulado (não é confirmação de entrega)", ENTREGUE: "Entregue (confirmado pelo provedor)",
   FALHOU: "Falhou", INCERTA: "Resultado incerto (conferir antes de repetir)", SUPRIMIDA: "Não enviada (impedimento)", CANCELADA: "Cancelada",
 };
@@ -76,6 +80,10 @@ export const ROTULO_MOTIVO: Record<string, string> = {
   REGRA_INATIVA: "regra pausada", REGRA_PAUSADA: "regra pausada", INTERRUPCAO_DA_EMPRESA: "interrupção geral (Parar tudo)",
   ACAO_ALTERADA: "a ação da regra mudou", TEXTO_ALTERADO_SEM_REVISAO: "o texto mudou e precisa de nova revisão",
   MODELO_NAO_REVISADO: "texto sem revisão humana", RETORNO: "falha informada pelo provedor", EMPRESA_INAPTA: "empresa sem acesso ao Marketing no momento",
+  PESQUISA_JA_EXISTE: "a festa já tem pesquisa de satisfação", CONTATO_POS_FESTA_JA_FEITO: "a festa já recebeu a mensagem pós-festa",
+  PESQUISA_DESLIGADA: "pesquisa de satisfação desligada neste servidor", LINK_NAO_CONFIGURADO: "link da pesquisa não configurado neste servidor",
+  PESQUISA_NAO_DISPONIVEL: "pesquisa de satisfação indisponível", PAIS_OCUPADOS: "festa em alteração no momento; nova tentativa em seguida",
+  FESTA_CANCELADA: "festa cancelada", CONTRATO_NAO_ASSINADO: "contrato não está assinado", EXECUCAO_INVALIDA: "execução inválida",
 };
 
 /** Motivo legível; o prefixo `EMPRESA_INAPTA: <detalhe>` do motor vira o rótulo geral + detalhe técnico. */
@@ -97,7 +105,7 @@ export const QUEM_RECEBE = [
 /** Dados FICTÍCIOS da prévia da mensagem (identificados como tal na tela). */
 export const EXEMPLO_FICTICIO = { nome: "Ana Exemplo", buffet: "Seu Buffet", dataFesta: "2027-03-20" };
 
-type RegraSalva = { status: "RASCUNHO" | "ATIVA" | "PAUSADA" | "NAO_CONFIGURADA"; acao: AcaoRegra; templateRevisadoEm: string | null };
+type RegraSalva = { status: "RASCUNHO" | "ATIVA" | "PAUSADA" | "NAO_CONFIGURADA"; acao: AcaoRegra; templateRevisadoEm: string | null; canais?: readonly string[] };
 
 /**
  * Retorno de "salvar regra" a partir da regra DEVOLVIDA pelo servidor (não do estado anterior da tela). `salvarRegra`
@@ -105,7 +113,8 @@ type RegraSalva = { status: "RASCUNHO" | "ATIVA" | "PAUSADA" | "NAO_CONFIGURADA"
  * cancela o que estava agendado; prazo, horários e tarefa mantêm a regra ativa.
  */
 export function retornoAoSalvarRegra(antes: Pick<RegraSalva, "status">, salva: RegraSalva): { tipo: "ok" | "alerta"; texto: string } {
-  const precisaRevisao = salva.acao === "MENSAGEM_WHATSAPP" && !salva.templateRevisadoEm;
+  const comWhatsapp = salva.acao === "MENSAGEM_WHATSAPP" || (salva.acao === "PESQUISA_SATISFACAO" && (salva.canais ?? []).includes("WHATSAPP"));
+  const precisaRevisao = comWhatsapp && !salva.templateRevisadoEm;
   if (salva.status === "ATIVA") return { tipo: "ok", texto: "Regra salva e continua ativa. O que já estava agendado é conferido de novo com a regra atual antes de agir." };
   if (salva.status === "PAUSADA" && antes.status === "ATIVA") {
     return { tipo: "alerta", texto: "Regra salva e PAUSADA: o texto da mensagem precisa de uma nova revisão. As mensagens que estavam agendadas foram canceladas. Revise o texto e ative de novo." };

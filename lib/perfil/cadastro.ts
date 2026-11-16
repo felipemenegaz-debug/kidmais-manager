@@ -14,6 +14,8 @@ export type EnderecoCadastro = {
 
 export type CadastroPerfil = {
     logoDataUrl?: string | null;
+    /** Padrão do buffet para a logo no rodapé dos convites criados depois (ausente = ligado). */
+    logoNosConvites?: boolean;
     nomeComercial: string;
     razaoSocial: string;
     cnpj: string;
@@ -66,6 +68,7 @@ export function cadastroVazio(): CadastroPerfil {
         site: '',
         instagram: '',
         logoDataUrl: null,
+        logoNosConvites: true,
     };
 }
 
@@ -92,6 +95,7 @@ export function normalizarCadastro(valor: Partial<CadastroPerfil>): CadastroPerf
         site: texto(valor.site, 200),
         instagram: texto(valor.instagram, 200),
         logoDataUrl: valor.logoDataUrl ?? null,
+        logoNosConvites: valor.logoNosConvites !== false,
     };
 }
 

@@ -18,7 +18,7 @@ type Estado = { canal: { ativo: boolean; urlServidor: string | null }; conexoes:
 export const ROTULO_ESCOPO: Readonly<Record<string, string>> = {
     'agenda:read': 'Agenda do dia (horários e totais, sem nomes)',
     'financeiro:read': 'Resumo de contas a receber (totais, sem clientes)',
-    'conhecimento:read': 'Documentação do KidMais',
+    'conhecimento:read': 'Documentação do iA.Fest',
 };
 
 const data = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -58,14 +58,14 @@ export function ListaConexoes({ estado, revogar, ocupado }: { estado: Estado; re
                 ? <p>Endereço do servidor: <code data-url-servidor>{estado.canal.urlServidor}</code></p>
                 : <p className={workspace.muted}>O endereço do servidor aparece aqui quando o recurso estiver liberado para a sua empresa.</p>}
             {/* Sem caminho de menu: os dois fabricantes mudaram os menus entre o plano e o teste real (28/10/2026). */}
-            <p>Antes de conectar, confira se a empresa ativa no menu do KidMais é a que você quer conectar: a conexão vale só para ela.</p>
+            <p>Antes de conectar, confira se a empresa ativa no menu do iA.Fest é a que você quer conectar: a conexão vale só para ela.</p>
             <h3>ChatGPT</h3>
-            <p>Disponível conforme o plano e o espaço de trabalho do ChatGPT. Nas configurações do ChatGPT, adicione um servidor MCP personalizado com o endereço acima e entre com a sua conta KidMais quando o ChatGPT pedir. Confira na ajuda do ChatGPT se o seu plano permite.</p>
+            <p>Disponível conforme o plano e o espaço de trabalho do ChatGPT. Nas configurações do ChatGPT, adicione um servidor MCP personalizado com o endereço acima e entre com a sua conta iA.Fest quando o ChatGPT pedir. Confira na ajuda do ChatGPT se o seu plano permite.</p>
             <h3>Claude</h3>
-            <p>Nas configurações do Claude, adicione um conector personalizado com o endereço acima e entre com a sua conta KidMais. Planos gratuitos podem ter limite de conectores.</p>
+            <p>Nas configurações do Claude, adicione um conector personalizado com o endereço acima e entre com a sua conta iA.Fest. Planos gratuitos podem ter limite de conectores.</p>
             <h3>Gemini</h3>
             <p>A conexão de aplicativos personalizados no Gemini depende de regras do Google (país, idade, idioma e tipo de conta) que hoje não incluem o Brasil. Não use VPN nem troque o país da conta para isso.</p>
-            <p className={workspace.muted}>O KidMais nunca pede a senha, o login ou a chave da sua assinatura de ChatGPT, Claude ou Gemini.</p>
+            <p className={workspace.muted}>O iA.Fest nunca pede a senha, o login ou a chave da sua assinatura de ChatGPT, Claude ou Gemini.</p>
         </section>
     </>;
 }
@@ -107,7 +107,7 @@ export default function ConexoesAssistentes() {
     };
     return <main className={admin.page} data-conexoes-ia>
         <h1>Assistentes conectados</h1>
-        <p className={workspace.muted} style={{ maxWidth: 760 }}>Converse com o ChatGPT ou o Claude da sua própria assinatura sobre a agenda, o resumo de contas a receber e a documentação do KidMais. O assistente só consulta: não envia mensagens, não altera cadastros e não vê nomes de clientes nem dados de crianças.</p>
+        <p className={workspace.muted} style={{ maxWidth: 760 }}>Converse com o ChatGPT ou o Claude da sua própria assinatura sobre a agenda, o resumo de contas a receber e a documentação do iA.Fest. O assistente só consulta: não envia mensagens, não altera cadastros e não vê nomes de clientes nem dados de crianças.</p>
         <p role="alert">{erro}</p>
         {estado ? <ListaConexoes estado={estado} revogar={revogar} ocupado={ocupado} /> : !erro && <p className={workspace.muted}>Carregando…</p>}
     </main>;

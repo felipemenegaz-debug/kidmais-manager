@@ -1,0 +1,97 @@
+Browser tab: 1, Title: "iA.Fest", URL: "http://localhost:3794/admin/oportunidades".
+1 AXWebArea iA.Fest, URL: localhost:3794/admin/oportunidades
+	2 container menu-admin
+		3 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+		4 container Menu administrativo
+			5 text PRINCIPAL
+			6 link Description: Dashboard, Value: localhost:3794/admin/dashboard
+			7 text OPERAÇÃO
+			8 link Description: Clientes, Value: localhost:3794/clientes
+			9 link Description: Oportunidades, Value: localhost:3794/admin/oportunidades
+			10 link Description: Contratos, Value: localhost:3794/admin/contratos
+			11 link Description: Festas, Value: localhost:3794/admin/festas
+			12 link Description: Convites, Value: localhost:3794/admin/convites
+			13 link Description: Agenda, Value: localhost:3794/admin/disponibilidade
+			14 link Description: Atendimento WhatsApp, Value: localhost:3794/admin/atendimento
+			15 text MARKETING
+			16 link Description: Visão geral, Value: localhost:3794/admin/marketing
+			17 link Description: Campanhas, Value: localhost:3794/admin/marketing/campanhas
+			18 link Description: Origens dos contatos, Value: localhost:3794/admin/marketing/origens
+			19 link Description: Site e SEO, Value: localhost:3794/admin/marketing/site
+			20 link Description: Automações, Value: localhost:3794/admin/marketing/automacoes
+			21 text SATISFAÇÃO
+			22 link Description: Resultados, Value: localhost:3794/admin/satisfacao
+			23 link Description: Retornos, Value: localhost:3794/admin/satisfacao/retornos
+			24 text FINANCEIRO
+			25 link Description: Visão geral, Value: localhost:3794/admin/financeiro
+			26 link Description: Contas a receber, Value: localhost:3794/admin/financeiro/contas-receber
+			27 link Description: Contas a pagar, Value: localhost:3794/admin/financeiro/contas-pagar
+			28 link Description: Fluxo de caixa, Value: localhost:3794/admin/financeiro/fluxo-caixa
+			29 link Description: Relatórios, Value: localhost:3794/admin/financeiro/relatorios
+			30 link Description: CONFIGURAÇÕES, Value: localhost:3794/admin/configuracoes
+			31 link Description: Perfil da empresa, Value: localhost:3794/admin/configuracoes/perfil-empresa
+			32 link Description: Agenda, Value: localhost:3794/admin/configuracoes/agenda
+			33 link Description: Salões, Value: localhost:3794/admin/configuracoes/saloes
+			34 link Description: Pacotes, Value: localhost:3794/admin/configuracoes/pacotes
+			35 link Description: Itens do Buffet, Value: localhost:3794/admin/configuracoes/catalogo
+			36 link Description: Importar documentos, Value: localhost:3794/admin/configuracoes/importar-documentos
+			37 link Description: Usuários e acessos, Value: localhost:3794/admin/configuracoes/acessos
+			38 link Description: WhatsApp, Value: localhost:3794/admin/configuracoes/whatsapp
+			39 link Description: IA e créditos, Value: localhost:3794/admin/configuracoes/creditos
+		40 pop up button Perguntar ao Copiloto
+		41 button (collapsed) Description: Conta de Responsável A (demo): abrir menu, Secondary Actions: Expand
+			42 text Buffet Aurora · demonstração
+			43 container
+				44 text Responsável A (demo)  ·  Gestão
+	45 container
+		46 text iA.Fest · Comercial
+		47 heading Oportunidades, Value: 1
+			48 text Oportunidades
+		49 text Um próximo passo para cada festa que pode acontecer.
+		50 button Novo contato
+		51 text Responsável
+		52 pop up button (collapsed, settable) Responsável, Value: Responsável A (demo), Secondary Actions: Expand
+			53 menu
+				54 Todos
+				55 Leitor (demo)
+				56 (selected) Responsável A (demo)
+				57 Responsável B (demo)
+		58 button Atualizar
+		59 container Para hoje
+			60 container
+				61 heading Para hoje, Value: 2, ID: para-hoje
+					62 text Para hoje
+				63 text 0 ações
+			64 text Nenhuma ação para hoje. Confira as oportunidades sem próximo passo.
+		65 container Novo contato
+			66 container
+				67 heading Novo contato 0, Value: 2
+					68 text Novo contato 0
+				69 text R$ 0,00
+			70 text Nenhuma oportunidade aqui.
+		71 container Proposta
+			72 container
+				73 heading Proposta 0, Value: 2
+					74 text Proposta 0
+				75 text R$ 0,00
+			76 text Nenhuma oportunidade aqui.
+		77 container Contrato
+			78 container
+				79 heading Contrato 0, Value: 2
+					80 text Contrato 0
+				81 text R$ 0,00
+			82 text Nenhuma oportunidade aqui.
+		83 container Sinal
+			84 container
+				85 heading Sinal 0, Value: 2
+					86 text Sinal 0
+				87 text R$ 0,00
+			88 text Nenhuma oportunidade aqui.
+		89 container
+			90 text 0  fechadas no mês
+		91 link Description: 1 perdidas no mês · Ver motivos, Value: localhost:3794/admin/marketing#funil
+	92 pop up button (collapsed) Description: Open Next.js Dev Tools, ID: next-logo, Secondary Actions: Expand
+		93 image
+	94 text iA.Fest
+
+The focused UI element is 1 AXWebArea iA.Fest, URL: localhost:3794/admin/oportunidades
