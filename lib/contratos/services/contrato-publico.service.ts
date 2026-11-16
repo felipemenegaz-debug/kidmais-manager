@@ -1,6 +1,7 @@
 import { MARCA_CONTRATO_NEUTRA, marcaDoContratoNaTransacao, type MarcaContrato } from '../marca-contrato';
 import { TEXTO_ASSINADO_EM_PAPEL, textoClienteAssinouEmPapel, versaoClienteAssinouEmPapel, versaoConferenciaImportada } from '../assinatura-papel';
 import { lerMarcaComPrazo } from '../marca-com-prazo';
+import { papelClienteInstalado } from '../papel-cliente-instalado';
 import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
 import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
@@ -317,11 +318,13 @@ export async function obterContextoContratoPublico(input: {
 
 /**
  * 124 — DTO público do papel assinado pelo cliente: SÓ a data civil declarada (coluna explícita). Nunca bytes, sha,
- * tamanho, tipo, observação nem quem registrou; a cópia só sai pela rota administrativa da Gestão.
+ * tamanho, tipo, observação nem quem registrou; a cópia só sai pela rota administrativa da Gestão. Também é a fonte da
+ * área da família (lib/area-familia/leitura.ts), na transação dela. Sem a 124 aplicada a tabela não é citada.
  */
-export async function assinaturaPapelClientePublica(versao: { id: string; aceiteMetodo?: string | null }): Promise<{ data: string } | null> {
+export async function assinaturaPapelClientePublica(versao: { id: string; aceiteMetodo?: string | null }, exec: DbExecutor = db()): Promise<{ data: string } | null> {
   if (!versaoClienteAssinouEmPapel(versao)) return null;
-  const linha = (await db().query<{ data_declarada: string }>('SELECT data_declarada::text FROM contrato_assinaturas_papel WHERE contrato_versao_id=$1', [versao.id])).rows[0];
+  if (!await papelClienteInstalado(exec)) return null;
+  const linha = (await exec.query<{ data_declarada: string }>('SELECT data_declarada::text FROM contrato_assinaturas_papel WHERE contrato_versao_id=$1', [versao.id])).rows[0];
   return linha ? { data: linha.data_declarada } : null;
 }
 

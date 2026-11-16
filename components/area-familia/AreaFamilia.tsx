@@ -375,6 +375,7 @@ function Documentos({ base, dados }: { base: string; dados: MinhaFesta }) {
   return (
     <div className={styles.secao}>
       {dados.assinadoEmPapel ? <p className={styles.texto}>Seu contrato foi assinado em papel. O original fica com você e com o buffet.</p> : null}
+      {dados.assinadoPeloClienteEmPapel ? <p className={styles.texto} data-testid="papel-cliente">{dados.assinadoPeloClienteEmPapel}</p> : null}
       <ul className={styles.parcelas}>
         {dados.documentos.map((d) => (
           <li key={d.tipo === "comprovante" ? d.id : d.tipo}>
