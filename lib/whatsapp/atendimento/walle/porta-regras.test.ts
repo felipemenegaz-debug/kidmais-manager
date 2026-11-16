@@ -15,6 +15,7 @@ function carregarPorta(regras: () => boolean) {
     '../../../fechamentos/contratacoes.ts': { listarContratacoes: async () => [] },
     '../core.ts': { ocultarDadosPessoais: (t: string) => t, dadoSensivel: (t: string) => /alergia/.test(t) },
     '../configuracao.ts': { entendimentoSoRegras: regras },
+    '../multiempresa.ts': { direitoAtendimentoWhatsApp: async () => { throw new Error('banco proibido no teste'); } },
     '../prontas-link.ts': { resolverLinkFechamento: async () => ({ ok: false }) },
     './contexto.ts': { lerContexto: (c: unknown) => (c ?? {}) },
     './entendimento.ts': {
@@ -53,4 +54,28 @@ test('modo regras: a porta do Wall-e ignora o modelo montado; fora do modo regra
   await porta.responder({ ...(entrada as object), texto: 'meu filho tem alergia a amendoim, o bolo tem?' } as never);
   assert.equal(chamadas, 1, 'saúde: nenhuma chamada nova');
   assert.deepEqual(registro.origem, ['regras', 'modelo', 'regras', 'regras']);
+});
+
+test('Astra r3 (R-5, P2-2): sem direito comercial (inclusive a piloto) a porta não chama o modelo; com direito, chama', async () => {
+  const { modulo, registro } = carregarPorta(() => false);
+  let chamadas = 0; const consultados: string[] = []; let direito = false;
+  const entender = async () => { chamadas++; return {} as never; };
+  const porta = modulo.criarPortaWallE(entender, { direitoModelo: async (empresa) => { consultados.push(empresa); return direito; } });
+  await porta.responder(entrada);
+  assert.equal(chamadas, 0, 'sem direito: modelo não chamado');
+  assert.deepEqual(registro.origem, ['regras']);
+  direito = true;
+  await porta.responder(entrada);
+  assert.equal(chamadas, 1, 'com direito: modelo chamado');
+  assert.deepEqual(registro.origem, ['regras', 'modelo']);
+  assert.deepEqual(consultados, ['e', 'e'], 'o direito é conferido a cada mensagem, da empresa dona');
+  // Saúde continua fora do modelo antes de qualquer consulta ao direito.
+  await porta.responder({ ...(entrada as object), texto: 'tem alergia a amendoim?' } as never);
+  assert.equal(chamadas, 1);
+  assert.deepEqual(consultados, ['e', 'e']);
+});
+
+test('Astra r3 (R-5, P2-2): direitoModeloAtendimento nega o modelo quando a leitura comercial falha', async () => {
+  const { modulo } = carregarPorta(() => false);
+  assert.equal(await modulo.direitoModeloAtendimento('e'), false);
 });
