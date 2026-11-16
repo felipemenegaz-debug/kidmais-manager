@@ -167,8 +167,11 @@ test("sem DDL em request: nenhum CREATE/ALTER/DROP fora da migration", () => {
   }
 });
 
-test("lista fechada: exatamente quatro ferramentas, todas de leitura (A8)", () => {
-  assert.deepEqual([...FERRAMENTAS_MCP], ["kidmais_consultar_agenda", "kidmais_consultar_recebiveis_resumo", "kidmais_buscar_conhecimento", "kidmais_obter_trecho"]);
+test("lista fechada: exatamente sete ferramentas (4 do MVP + 3 da etapa 0a), todas de leitura (A8)", () => {
+  assert.deepEqual([...FERRAMENTAS_MCP], [
+    "kidmais_consultar_agenda", "kidmais_consultar_recebiveis_resumo", "kidmais_buscar_conhecimento", "kidmais_obter_trecho",
+    "kidmais_consultar_agenda_periodo", "kidmais_consultar_datas_livres", "kidmais_consultar_contratos_pendentes",
+  ]);
   assert.ok(FERRAMENTAS_MCP.every((n) => /^kidmais_(consultar|buscar|obter)_/.test(n)));
   assert.ok(!FERRAMENTAS_MCP.some((n) => /(sql|shell|exec|enviar|criar|alterar|excluir|pagar|baixa)/.test(n)));
 });

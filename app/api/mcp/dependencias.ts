@@ -1,11 +1,15 @@
 import { decidirPaywall } from "@/lib/assinatura/paywall";
 import { lerEstadoComercial } from "@/lib/assinatura/estado";
 import { carregarCorpusAprovado } from "@/lib/conhecimento/carregar";
+import { contratosAguardandoAssinatura } from "@/lib/contratos/services/leitura-tenant";
+import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
+import { consultarDisponibilidadePeriodo } from "@/lib/disponibilidade/services/availability.service";
+import { AvailabilityServiceError } from "@/lib/disponibilidade/services/errors";
 import type { DbExecutor } from "@/lib/db/contracts";
 import { conexaoDescartavelDoPool } from "@/lib/db/postgres";
 import { transacaoComPrazo, type AbrirConexao } from "@/lib/db/transacao-com-prazo";
 import { CanalOcupado, Vagas } from "@/lib/integracoes/mcp/admissao";
-import { agendaDoTenant } from "@/lib/festas/leitura-tenant";
+import { agendaDoTenant, festasDoTenant } from "@/lib/festas/leitura-tenant";
 import { contarRecebiveis, listarRecebiveis } from "@/lib/financeiro/servico";
 import type { DependenciasFerramentasMcp } from "@/lib/integracoes/mcp/ferramentas";
 import { LimitadorMcp } from "@/lib/integracoes/mcp/limites";
@@ -145,6 +149,23 @@ function dependenciasFerramentas(repo: RepositorioOAuth): DependenciasFerramenta
     agenda: (tx, empresaId, dia, limite) => agendaDoTenant(tx, empresaId, dia, dia, limite),
     contarRecebiveis: (tx, empresaId, teto) => contarRecebiveis(tx, empresaId, teto),
     recebiveis: (tx, empresaId, hoje) => listarRecebiveis(tx, empresaId, hoje),
+    // r1 P2-3: canceladas saem no banco, antes do LIMIT (fonte das relações de festas, ASC e desempate por festa).
+    agendaPeriodo: (tx, empresaId, inicio, fim, limite) => festasDoTenant(tx, empresaId, { ordem: "ASC", inicio, fim, limite, incluirCanceladas: false }),
+    // Etapa 0a: mesma leitura do painel (app/api/admin/disponibilidade): escopo da empresa COMPROVADA (nunca undefined),
+    // sem pacote escolhido (duração = a padrão da fonte, como no painel sem `?pacote=`) e salões combinados.
+    // Agenda sem horários ⇒ { configurada: false } (INDISPONIVEL).
+    async disponibilidade(tx, empresaId, inicio, fim, convidados) {
+      const escopo = await escopoDaEmpresa(tx, empresaId);
+      try {
+        const dias = await consultarDisponibilidadePeriodo(inicio, fim, tx, undefined, escopo, { duracaoMinutos: null, convidados, incluirCombinados: true });
+        // r1 P2-2: com uma única unidade elegível o escopo é dela; a saída declara isso em vez de dizer "empresa inteira".
+        return { configurada: true as const, alcance: escopo.estabelecimentoId ? "UNIDADE_UNICA" as const : "EMPRESA" as const, dias };
+      } catch (error) {
+        if (error instanceof AvailabilityServiceError && error.code === "AGENDA_NAO_CONFIGURADA") return { configurada: false as const };
+        throw error;
+      }
+    },
+    contratosPendentes: (tx, empresaId, limite, hoje) => contratosAguardandoAssinatura(tx, empresaId, limite, { proximasDe: hoje }),
     corpus: () => carregarCorpusAprovado(),
     registrar(evento) {
       repo.auditar({ evento: "FERRAMENTA", ...evento })

@@ -127,6 +127,9 @@ export type FalhaExplicada = { titulo: string; acao: string };
 
 const ROTULO_CAPACIDADE: Readonly<Record<string, string>> = {
   kidmais_consultar_agenda: "resumo da agenda",
+  kidmais_consultar_agenda_periodo: "agenda por período",
+  kidmais_consultar_datas_livres: "datas livres",
+  kidmais_consultar_contratos_pendentes: "contratos pendentes",
   kidmais_consultar_recebiveis_resumo: "resumo dos recebíveis",
   kidmais_buscar_conhecimento: "ajuda e documentação",
   kidmais_obter_trecho: "ajuda e documentação",

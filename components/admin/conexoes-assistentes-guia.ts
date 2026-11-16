@@ -68,9 +68,15 @@ export const LISTA_ASSISTENTES: readonly AssistenteId[] = ['chatgpt', 'claude'];
 /** Só leitura. A ordem coloca a ajuda primeiro; financeiro nunca começa marcado (ESCOPOS_INICIAIS). */
 export const ROTULO_ESCOPO: Readonly<Record<string, string>> = {
     'conhecimento:read': 'Consultar ajuda e documentação',
-    'agenda:read': 'Consultar resumo da agenda',
+    'agenda:read': 'Consultar agenda, datas livres e contratos pendentes (sem nomes)',
     'financeiro:read': 'Consultar resumo dos recebíveis',
 };
+
+/**
+ * Revisão r1, P2-5: a permissão de agenda passou a cobrir mais dados e vale também para conexões autorizadas antes.
+ * O cartão diz isso com todas as letras, em vez de só trocar o rótulo.
+ */
+export const AVISO_AGENDA_AMPLIADA = 'A permissão de agenda foi ampliada e vale também para conexões autorizadas antes: além do resumo do dia, o assistente pode consultar horários, convidados e situação do contrato de cada festa por período (até 62 dias por consulta, de até 1 ano atrás a 2 anos à frente), datas livres e o total de contratos aguardando assinatura, com até 100 deles detalhados em dias desde a criação e dias até a festa ou desde que ela passou. Sem nomes de clientes nem pacotes. Se não quiser, desconecte e reconecte sem marcar a agenda.';
 
 export const ORDEM_ESCOPOS: readonly string[] = ['conhecimento:read', 'agenda:read', 'financeiro:read'];
 
@@ -89,6 +95,8 @@ export const EXEMPLOS_POR_ESCOPO: Readonly<Record<string, readonly string[]>> = 
     'agenda:read': [
         'Quantas festas tenho hoje no iA.Fest e em quais horários? Diga a data consultada.',
         'Quantos contratos estão pendentes nas festas de amanhã?',
+        'Quantas festas tenho de 1 a 31 de dezembro no iA.Fest, dia a dia?',
+        'Quais sábados de dezembro estão livres para 80 convidados no iA.Fest?',
     ],
     'financeiro:read': [
         'Qual o resumo de contas a receber no iA.Fest: em aberto, vencido e vencendo em 7 dias? Diga a data de referência.',

@@ -182,7 +182,7 @@ test("A1: cliente MCP oficial inicializa, lista exatamente as 4 ferramentas e ch
     const c = await clienteMcp(a, t.acesso);
     assert.equal(c.getServerVersion()?.name, "kidmais-manager");
     const { tools } = await c.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
     for (const tool of tools) {
       assert.equal(tool.annotations?.readOnlyHint, true);
       assert.equal(tool.annotations?.destructiveHint, false);
@@ -922,7 +922,7 @@ test("experiência: descrições dizem quando usar e o que não fazem; leitura p
     const t = await conectar(a);
     const c = await clienteMcp(a, t.acesso);
     const { tools } = await c.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
     for (const x of tools) {
       assert.match(x.description ?? "", /Use /, x.name);
       assert.equal(x.annotations?.readOnlyHint, true, x.name);

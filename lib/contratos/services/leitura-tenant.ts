@@ -18,7 +18,11 @@ export type ContratoPendente = {
   criadoEm: string;
 };
 
-export async function contratosAguardandoAssinatura(tx: DbExecutor, empresaId: string, limite = 20) {
+/**
+ * Sem `proximasDe`: ordem cronológica da festa (comportamento original). Com `proximasDe` (AAAA-MM-DD): festas a partir
+ * dessa data primeiro, da mais próxima, depois as já passadas, da mais recente — ordem aplicada ANTES do LIMIT.
+ */
+export async function contratosAguardandoAssinatura(tx: DbExecutor, empresaId: string, limite = 20, opcoes: { proximasDe?: string } = {}) {
   const total = await tx.query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM contratos contrato
@@ -35,9 +39,11 @@ export async function contratosAguardandoAssinatura(tx: DbExecutor, empresaId: s
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
        LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
       WHERE contrato.status = 'AGUARDANDO_ASSINATURA'
-      ORDER BY fech.data_evento, contrato.criado_em
+      ORDER BY ($3::date IS NOT NULL AND fech.data_evento < $3::date),
+               CASE WHEN $3::date IS NULL OR fech.data_evento >= $3::date THEN fech.data_evento END ASC,
+               fech.data_evento DESC, contrato.criado_em, contrato.id
       LIMIT $2`,
-    [empresaId, Math.max(1, Math.min(limite, 100))],
+    [empresaId, Math.max(1, Math.min(limite, 100)), opcoes.proximasDe ?? null],
   );
   return {
     total: Number(total.rows[0]?.n ?? 0),

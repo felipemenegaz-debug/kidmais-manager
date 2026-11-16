@@ -236,7 +236,7 @@ test('consentimento: só mostra as permissões pedidas e nunca amplia', () => {
 test('consentimento: permissões em linguagem simples, ajuda primeiro', () => {
     const h = formulario();
     const ajuda = h.indexOf('Consultar ajuda e documentação');
-    assert.ok(ajuda >= 0 && ajuda < h.indexOf('Consultar resumo da agenda') && h.indexOf('Consultar resumo da agenda') < h.indexOf('Consultar resumo dos recebíveis'));
+    assert.ok(ajuda >= 0 && ajuda < h.indexOf('Consultar agenda, datas livres') && h.indexOf('Consultar agenda, datas livres') < h.indexOf('Consultar resumo dos recebíveis'));
 });
 
 test('consentimento: usuário e empresa em destaque, com troca de conta e aviso sobre e-mails', () => {
@@ -324,4 +324,24 @@ test('guia: ajuda e documentação indisponível (ou campo ausente) bloqueia a p
     }
     assert.match(passo(estado([conexao()]), 5), /data-pergunta/);
     assert.match(modulo.bloqueioDaPrimeiraConsulta({ ativa: conexao(), situacao: { codigo: 'AUTORIZADA_SEM_CONSULTA' } }, true, 'ChatGPT', false) ?? '', /indisponível agora/);
+});
+
+test('r1 P2-5: conexão com agenda avisa a ampliação da permissão; sem agenda, não avisa', () => {
+    const com = html(estado([conexao({ escopos: ['conhecimento:read', 'agenda:read'] })]));
+    assert.match(com, /data-agenda-ampliada/);
+    assert.match(com, /vale também para conexões autorizadas antes/);
+    assert.match(com, /até 1 ano atrás a 2 anos à frente/);
+    assert.match(com, /total de contratos aguardando assinatura, com até 100 deles/);
+    assert.match(com, /dias até a festa ou desde que ela passou/);
+    assert.match(com, /desconecte e reconecte sem marcar a agenda/);
+    assert.doesNotMatch(html(estado([conexao()])), /data-agenda-ampliada/);
+});
+
+test('r1 P2-5: consentimento da agenda informa janela histórica, situação por festa e dias até a festa', () => {
+    const h = formulario();
+    assert.match(h, /situação do contrato \(assinado ou pendente\) de cada festa/);
+    assert.match(h, /de até 1 ano atrás a 2 anos à frente/);
+    assert.match(h, /total de contratos aguardando assinatura, com até 100 deles/);
+    assert.match(h, /dias até a festa ou desde que ela passou/);
+    assert.match(h, /Sem nomes de clientes nem pacotes/);
 });

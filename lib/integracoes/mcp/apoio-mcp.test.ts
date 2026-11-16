@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { DbExecutor } from "../../db/contracts.ts";
 import type { FestaAgenda } from "../../festas/leitura-tenant.ts";
 import type { Recebivel } from "../../financeiro/servico.ts";
+import type { ContratoPendente } from "../../contratos/services/leitura-tenant.ts";
+import type { DisponibilidadeDataPublica, PeriodoDisponibilidadePublica } from "../../disponibilidade/services/models.ts";
 import { montarCorpus } from "../../conhecimento/corpus.ts";
 import type { SessaoParaTenant, TenantComprovado } from "../../saas/provar-tenant.ts";
 import { type DependenciasFerramentasMcp, type EventoFerramenta, type PrincipalMcp } from "./ferramentas.ts";
@@ -46,6 +48,31 @@ export const RECEBIVEIS: Record<string, Recebivel[]> = {
     rec({ id: "7", saldoCentavos: 99999, status: "Cancelado" }),
   ],
   [B]: [rec({ id: "b", saldoCentavos: 777777, status: "Vencido", diasAtraso: 5, cliente: "Devedor da Empresa B" })],
+};
+
+/** Etapa 0a: disponibilidade com texto livre do painel (nome/código do período, id de configuração) que não pode sair. */
+const periodo = (nome: string, inicio: string, fim: string, livres: string[], ocupados: string[] = []): PeriodoDisponibilidadePublica => ({
+  configuracaoId: "cfg-0000-segredo", codigo: `COD_${nome.toUpperCase().replace(/\W/g, "_")}`, nome, horarioInicioPadrao: inicio, horarioFimPadrao: fim,
+  status: livres.length ? "DISPONIVEL" : "INDISPONIVEL",
+  horarios: [...livres.map((h) => ({ inicio: h, fim: "23:00", ajusteMinutos: 0, status: "DISPONIVEL" as const })), ...ocupados.map((h) => ({ inicio: h, fim: "23:00", ajusteMinutos: 0, status: "INDISPONIVEL" as const }))]
+    .sort((x, y) => x.inicio.localeCompare(y.inicio)),
+});
+export const DISPONIBILIDADE: Record<string, (inicio: string) => DisponibilidadeDataPublica[]> = {
+  [A]: (inicio) => [
+    { data: inicio, periodos: [periodo("Tarde da Maria Aparecida", "13:00", "17:00", ["13:00", "13:30"], ["14:00"]), periodo("Noite", "18:00", "22:00", [], ["18:00"])] },
+    { data: "2026-10-28", periodos: [periodo("Tarde", "13:00", "17:00", [], ["13:00"])] },
+  ],
+  [B]: (inicio) => [{ data: inicio, periodos: [periodo("Período secreto da empresa B", "09:00", "12:00", ["09:00"])] }],
+};
+export const PENDENTES: Record<string, { total: number; contratos: ContratoPendente[] }> = {
+  [A]: {
+    total: 2,
+    contratos: [
+      { contratoId: "ct-a-1", dataEvento: "2026-11-05", pacote: "Pacote Ouro Princesas", cliente: "Maria Aparecida da Silva", criadoEm: "2026-10-20 13:00:00.123456+00" },
+      { contratoId: "ct-a-2", dataEvento: "2026-10-20", pacote: "Pacote Prata", cliente: "João Pedro (11) 98888-7777", criadoEm: "2026-10-01 01:30:00-03" },
+    ],
+  },
+  [B]: { total: 1, contratos: [{ contratoId: "ct-b-1", dataEvento: "2026-12-01", pacote: "Pacote B", cliente: "Cliente Secreto da Empresa B", criadoEm: "2026-10-26 12:00:00+00" }] },
 };
 
 type Membro = { empresa: string; papel: string; ativa: boolean };
@@ -103,6 +130,12 @@ export function deps(m: Mundo, env: Record<string, string | undefined> = ENV_OK,
     async agenda(_tx, empresa, dia, limite) { m.leituras.push(`agenda:${empresa}:${dia}:${limite}`); return FESTAS[empresa] ?? []; },
     async contarRecebiveis(_tx, empresa) { return (RECEBIVEIS[empresa] ?? []).length; },
     async recebiveis(_tx, empresa) { m.leituras.push(`recebiveis:${empresa}`); return RECEBIVEIS[empresa] ?? []; },
+    async agendaPeriodo(_tx, empresa, inicio, fim, limite) { m.leituras.push(`agendaPeriodo:${empresa}:${inicio}:${fim}:${limite}`); return FESTAS[empresa] ?? []; },
+    async disponibilidade(_tx, empresa, inicio, fim, convidados) {
+      m.leituras.push(`disponibilidade:${empresa}:${inicio}:${fim}:${convidados}`);
+      return { configurada: true, alcance: "EMPRESA", dias: DISPONIBILIDADE[empresa]?.(inicio) ?? [] };
+    },
+    async contratosPendentes(_tx, empresa, limite, hoje) { m.leituras.push(`contratosPendentes:${empresa}:${limite}:${hoje}`); return PENDENTES[empresa] ?? { total: 0, contratos: [] }; },
     corpus: () => CORPUS,
     registrar: (e) => { eventos.push(e); },
     ...extra,
