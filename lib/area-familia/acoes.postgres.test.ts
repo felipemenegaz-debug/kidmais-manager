@@ -216,7 +216,10 @@ test("F3: pendência do cliente — visível com texto próprio, feito pela fam�
     const vista = (await acoes().lerAcoesDaFamilia(executor(a), segundo)).pendencias;
     assert.equal(vista.length, 1);
     assert.equal(vista[0].texto, "Enviar a lista de convidados", "a família vê o texto para ela, nunca a descrição interna");
-    assert.equal(vista[0].prazo, dia(10));
+    // O prazo é a data CIVIL de São Paulo (now() + 10 dias); entre 21h e 24h de Brasília o dia UTC já é o seguinte.
+    const instante = (await a.query<{ prazo: Date }>("SELECT prazo FROM festa_pendencias WHERE id = $1::uuid", [cliente])).rows[0].prazo;
+    const prazoSp = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(instante);
+    assert.equal(vista[0].prazo, prazoSp);
     assert.ok(!JSON.stringify(vista).includes("Descrição interna"));
 
     assert.deepEqual(await agir(segundo, { acao: "PENDENCIA_FEITA", pendencia: oculta }), { ok: false, motivo: "NAO_ENCONTRADO" }, "oculta");
