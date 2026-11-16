@@ -8,6 +8,7 @@ import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
 import { BOM, linhaCsv } from '../assinatura/csv.ts';
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO, type Entidade } from './entidades.ts';
 import { crc32, escreverZip, MAXIMO_ENTRADAS_ZIP, type EntradaArquivo } from './zip.ts';
+import { estadoInstalacao111 } from '../satisfacao/instalacao.ts';
 
 /**
  * Pacote completo e verificável dos dados de UMA empresa (formato 1), montado em FLUXO:
@@ -306,6 +307,13 @@ export async function lerDados(tx: DbExecutor, empresaId: string, dir: string, o
         console.error(`[exportacao] tabelas públicas não classificadas no inventário: ${semDecisao.join(', ')}`);
         throw new PacoteAdminError('EXPORTACAO_INVENTARIO_DESATUALIZADO',
             'A exportação completa está temporariamente indisponível: há dados novos que ainda não entraram no pacote. A equipe foi avisada; tente de novo mais tarde ou fale com o suporte.', 503);
+    }
+    // 111 (PS-3, plano F'): no MESMO snapshot da leitura. AUSENTE = pacote do schema 110 (tabelas da 111 em
+    // entidadesAusentes); PARCIAL recusa o pacote inteiro — uma instalação incompleta nunca vira "migration não aplicada".
+    if (await estadoInstalacao111(tx) === 'PARCIAL') {
+        console.error('[exportacao] 111 parcial: exportação recusada');
+        throw new PacoteAdminError('EXPORTACAO_INSTALACAO_INCOMPLETA',
+            'A exportação completa está temporariamente indisponível: uma atualização do sistema não terminou. A equipe foi avisada; tente de novo mais tarde ou fale com o suporte.', 503);
     }
 
     const arquivos: ArquivoManifesto[] = [];

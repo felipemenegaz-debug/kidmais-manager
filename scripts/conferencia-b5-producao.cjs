@@ -6,8 +6,8 @@
 //     a 092–094 pelo núcleo do B-1, a 099 pelo do B-2, a 100 pelo do B-3). A 098 não tem núcleo (PAUSADA): o estado dela
 //     sai da classificação dos combinados abaixo;
 //   - B-5 ampliado (§9.2.7): estado de 102–109, 112, 114, 116 e 117 pelos núcleos dos aplicadores de staging (mesma régua do
-//     CONFERIR de cada um; a 109 pelo contrato do cron, lib/assinatura/renovacao-schema.ts) e da 118 por catálogo. 110, 111,
-//     113 e 115 não existem na árvore. Prefixo esperado ANTES DO E3 (§9.2.2): só 099 e 105 além da base; qualquer outro estado
+//     CONFERIR de cada um; a 109 pelo contrato do cron, lib/assinatura/renovacao-schema.ts) e da 118 por catálogo; 110, 111 e
+//     115 (pesquisa de satisfação, sem aplicador) também por catálogo. A 113 não existe na árvore. Prefixo esperado ANTES DO E3 (§9.2.2): só 099 e 105 além da base; qualquer outro estado
 //     = PARAR (a candidata roda sem elas; B-19);
 //   - B-21 (rodada 19 do plano): estado dos salões combinados pelo MESMO critério da candidata (lib/agenda/estado-combinados.ts:
 //     mesmo SQL de catálogo, mesma classificação). Esperado AUSENTE; ANTIGA (098 histórica), PARCIAL, NOVA (108, fora desta
@@ -53,9 +53,9 @@ const AMPLIADAS = Object.freeze([
   ['105', './migration-105-comum.cjs', ['m105']], ['107-108', './migration-107-108-comum.cjs', ['m107', 'm108']],
   ['109', './migration-109-comum.cjs', ['m109']], ['112', './migration-112-comum.cjs', ['m112']], ['114', './migration-114-comum.cjs', ['m114']],
   ['116', './migration-116-comum.cjs', ['m116']], ['117', './migration-117-comum.cjs', ['m117']]]);
-/** Números da faixa 106–117 sem migration na árvore (nada a ler). */
-const SEM_MIGRATION = Object.freeze({'110': 'SEM_MIGRATION_NA_ARVORE', '111': 'SEM_MIGRATION_NA_ARVORE', '113': 'SEM_MIGRATION_NA_ARVORE',
-  '115': 'SEM_MIGRATION_NA_ARVORE'});
+/** Números da faixa 106–117 sem migration na árvore (nada a ler). 110, 111 e 115 entraram com a pesquisa de satisfação
+ *  (sincronização com staging em 10/11/2026) e são lidas pelo catálogo (SQL_ESTADO_SATISFACAO). */
+const SEM_MIGRATION = Object.freeze({'113': 'SEM_MIGRATION_NA_ARVORE'});
 /**
  * Prefixo efetivo ANTES DO E3 (§9.2.2, linha "Antes do E3, ou F-A": nada além de 099 e 105). Valores = vocabulário de cada
  * núcleo (a 108 em maiúsculas, como classificar108). A 118 está na árvore (staging 9691392c) mas fora do plano r34: detectada
@@ -76,7 +76,8 @@ const ESPERADO_BASE_ANTES_DO_E3 = Object.freeze({'089': 'ausente', '090': 'ausen
 const CORPOS_114_ANTES_DO_E3 = Object.freeze({lock: 'eb5f187f7ef5e7a499413d71cc1a0c5023d65080920997248a7f5d1947460880',
   revisao: '830dd6a376f1dceadab9f20ad606665ec7b4692bfd531881c3da42f1e3d0b2ad'});
 const ESPERADO_ANTES_DO_E3 = Object.freeze({'102': 'ausente', '103': 'ausente', '104': 'ausente', '105': 'completa', '106': 'ausente', '107': 'ausente',
-  '108': 'AUSENTE', '109': 'ausente', '112': 'ausente', '114': 'ausente', '116': 'ausente', '117': 'ausente', '118': 'ausente'});
+  '108': 'AUSENTE', '109': 'ausente', '110': 'ausente', '111': 'ausente', '112': 'ausente', '114': 'ausente', '115': 'ausente', '116': 'ausente',
+  '117': 'ausente', '118': 'ausente'});
 const RAMOS_PROVEDOR = Object.freeze({'sem-conta': 'SEM_CONTA', 'com-conta': 'COM_CONTA'});
 /**
  * Únicas variáveis de ambiente lidas (alvo do B-1, previsão do papel trocado, ramo do provedor). Nenhuma ASAAS_*: o
@@ -103,7 +104,7 @@ const CODIGOS_PUBLICOS = Object.freeze(new Set([
   'PORTA_RECUSADA', 'CONNECTION_QUERY_REJECTED', 'BANCO_DIVERGENTE', 'SEM_TLS', 'TLS_VERSAO_RECUSADA', 'SERVIDOR_FORA_DA_REDE_PRIVADA',
   // este agregador
   'ARGUMENTOS_RECUSADOS', 'RAMO_PROVEDOR_NAO_DECLARADO', 'FUNDADOR_TOTAL_ILEGIVEL', 'ORIGEM_INESPERADA', 'MATRIZ_ILEGIVEL', 'B15_CATALOGO_ILEGIVEL',
-  'CONTRATO_109_DIVERGENTE', 'CONTRATO_109_INDISPONIVEL', 'ESTADO_118_ILEGIVEL', 'INTEGRIDADE_105_DIVERGENTE']));
+  'CONTRATO_109_DIVERGENTE', 'CONTRATO_109_INDISPONIVEL', 'ESTADO_118_ILEGIVEL', 'ESTADO_SATISFACAO_ILEGIVEL', 'INTEGRIDADE_105_DIVERGENTE']));
 function curta(e) {
   const m = String(e?.message ?? '');
   if (CODIGOS_PUBLICOS.has(m)) return m;
@@ -287,6 +288,9 @@ function lerEstado118(l) {
   return n === 0 ? 'ausente' : n === OBJETOS_118 ? 'presente' : 'parcial';
 }
 
+/** 110, 111 e 115 (pesquisa de satisfação): leitura por objeto no módulo próprio (cabe numa parte do bloco shell). */
+const {SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO, FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao} = require('./conferencia-b5-satisfacao.cjs');
+
 /**
  * Estado de cada migration pelo núcleo do aplicador; "parcial", ilegível ou 100 "divergente" = parar.
  * `papel_trocado` (session_user <> current_user, que todos os núcleos devolvem; revisão do B-5, P2-1) é preservado:
@@ -310,6 +314,8 @@ async function estados(db, carregar = m => require(m), env = {}, ctx = {contrato
   if (base.r['100'] === 'divergente') motivos.push('CORPO_DIVERGENTE 100 (098 presente ou deriva)');
   try { amp.r['118'] = lerEstado118((await somenteLeitura(db, SQL_ESTADO_118)).rows[0]); }
   catch (e) { if (String(e?.message) !== 'ESTADO_118_ILEGIVEL') throw e; amp.r['118'] = 'ILEGIVEL'; }
+  try { Object.assign(amp.r, lerEstadoSatisfacao((await somenteLeitura(db, SQL_ESTADO_SATISFACAO)).rows[0])); }
+  catch (e) { if (String(e?.message) !== 'ESTADO_SATISFACAO_ILEGIVEL') throw e; Object.assign(amp.r, {'110': 'ILEGIVEL', '111': 'ILEGIVEL', '115': 'ILEGIVEL'}); }
   for (const [id, esperado] of Object.entries(ESPERADO_BASE_ANTES_DO_E3)) {
     if (base.r[id] !== esperado) motivos.push(`PREFIXO_DIVERGENTE ${id}:${base.r[id]} (esperado ${esperado})`);
   }
@@ -727,7 +733,8 @@ function modo(argv) {
 function plano() {
   return {resultado: 'PLANO', conecta: false, alvo: prod.ALVO, modos: {E1: FLAG_COMPLETO, E2c: FLAG_ESTADO},
     migracoes: MIGRACOES.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), excluidas: EXCLUIDAS,
-    ampliadas: [...AMPLIADAS.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), {migration: '118', nucleo: 'catalogo (SQL_ESTADO_118)'}],
+    ampliadas: [...AMPLIADAS.map(([m, n]) => ({migration: m, nucleo: n.replace('./', 'scripts/')})), {migration: '118', nucleo: 'catalogo (SQL_ESTADO_118)'},
+      {migration: '110-111-115', nucleo: 'catalogo (SQL_ESTADO_SATISFACAO)'}],
     semMigration: SEM_MIGRATION, prefixoEsperadoAntesDoE3: {...ESPERADO_BASE_ANTES_DO_E3, ...ESPERADO_ANTES_DO_E3}, matriz: MATRIZ.map(([o, m, g, e]) => ({objeto: o, migracao: m, grupo: g, estrutura: e})),
     ambiente: {lidas: ENV_LIDAS, E1: 'KIDMAIS_B5_RAMO_PROVEDOR=sem-conta|com-conta obrigatoria; nenhuma ASAAS_* e lida'},
     leituras: ['banco: BEGIN TRANSACTION READ ONLY (lock_timeout 5s, statement_timeout 30s; documentos 60s)', 'matriz: uma fotografia REPEATABLE READ READ ONLY',
@@ -792,7 +799,8 @@ if (require.main === module) {
 }
 module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, AMPLIADAS, SEM_MIGRATION, ESPERADO_ANTES_DO_E3, RAMOS_PROVEDOR, ENV_LIDAS,
   envLido, AVISO_DIAS, ANTECIPADO_DIAS, MARGEM_B9_DIAS, SQL_DOCUMENTOS, SQL_TOTAL_CONFIRMADAS, SQL_RENOVACAO_INSTALADA, sqlConcessoes, documentoValido091, formato091,
-  dataValida, diasAntes, diaBrasil, somenteLeitura, carregarContrato109, lerNucleo, lerLista, SQL_ESTADO_118, lerEstado118, estados, presentes, inventarioDocumentos,
+  dataValida, diasAntes, diaBrasil, somenteLeitura, carregarContrato109, lerNucleo, lerLista, SQL_ESTADO_118, lerEstado118, SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO,
+  FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao, estados, presentes, inventarioDocumentos,
   CHECKS_091, TABELAS_091, SQL_COMPATIBILIDADE_091, SQL_ORIGENS_091, ORIGENS_091, inventarioOrigens, b15, MATRIZ, GRUPOS_VAZIOS, SQL_MATRIZ_CATALOGO, SQL_MATRIZ_PAPEL,
   sqlContagem, matriz, fundador, provedor, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
   MOTIVO_COMBINADOS, combinados, REVISAO_114, ESPERADO_BASE_ANTES_DO_E3, CORPOS_114_ANTES_DO_E3, CONTAGEM_EXTRA, estado114, CHECKS_BASE_091, SQL_CHECKS_091,

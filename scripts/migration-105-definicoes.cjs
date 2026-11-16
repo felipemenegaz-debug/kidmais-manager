@@ -176,16 +176,34 @@ const ESPERADO = Object.freeze({
 });
 
 /**
+ * 10/11/2026 r3 (Astra r2, P2-2): rótulo de saída de uma chave lida do catálogo. A chave completa só sai quando é uma
+ * chave do inventário (ESPERADO). Uma chave desconhecida (SOBRA, REPETIDA) sai só com partes de listas FECHADAS: o tipo
+ * (prefixo das chaves de ESPERADO) e a tabela da 105 (chaves tabela:*), mais o rótulo fixo DESCONHECIDA. Nenhum nome livre
+ * lido do catálogo (índice, restrição, gatilho, texto com quebra de linha) chega às divergências, ao CONFERIR ou ao marcador.
+ */
+const PREFIXOS = Object.freeze([...new Set(Object.keys(ESPERADO).map(k => k.split(':', 1)[0]))]);
+const TABELAS_105 = Object.freeze(Object.keys(ESPERADO).filter(k => k.startsWith('tabela:')).map(k => k.slice('tabela:'.length)));
+function rotuloChave(chave) {
+  if (Object.hasOwn(ESPERADO, chave)) return chave;
+  const i = chave.indexOf(':');
+  const prefixo = i > 0 ? chave.slice(0, i) : '';
+  if (!PREFIXOS.includes(prefixo)) return 'DESCONHECIDA';
+  const tabela = chave.slice(i + 1).split('.', 1)[0];
+  return TABELAS_105.includes(tabela) ? prefixo + ':' + tabela + ':DESCONHECIDA' : prefixo + ':DESCONHECIDA';
+}
+
+/**
  * Compara as linhas do catálogo com o esperado: {integra, total, divergencias: [{chave, tipo: FALTA|SOBRA|DIFERENTE|REPETIDA|INCOERENTE}]}.
- * Linha ilegível (sem chave/definição em texto) = divergência ILEGIVEL. Nunca devolve a definição lida (só a chave).
+ * Linha ilegível (sem chave/definição em texto) = divergência ILEGIVEL. Nunca devolve a definição lida. A chave sai
+ * completa só quando é do inventário; desconhecida sai pelo rotuloChave (listas fechadas). A comparação usa a chave lida.
  */
 function compararDefinicoes(linhas) {
   const divergencias = [], vistas = new Set();
   for (const l of Array.isArray(linhas) ? linhas : []) {
     if (typeof l?.chave !== 'string' || typeof l?.definicao !== 'string') { divergencias.push({chave: '?', tipo: 'ILEGIVEL'}); continue; }
-    if (vistas.has(l.chave)) { divergencias.push({chave: l.chave, tipo: 'REPETIDA'}); continue; }
+    if (vistas.has(l.chave)) { divergencias.push({chave: rotuloChave(l.chave), tipo: 'REPETIDA'}); continue; }
     vistas.add(l.chave);
-    if (!Object.hasOwn(ESPERADO, l.chave)) { divergencias.push({chave: l.chave, tipo: 'SOBRA'}); continue; }
+    if (!Object.hasOwn(ESPERADO, l.chave)) { divergencias.push({chave: rotuloChave(l.chave), tipo: 'SOBRA'}); continue; }
     const aceitas = [ESPERADO[l.chave]].flat();
     if (!aceitas.includes(l.definicao)) divergencias.push({chave: l.chave, tipo: 'DIFERENTE'});
   }
@@ -204,4 +222,4 @@ function compararDefinicoes(linhas) {
 /** Comandos que fixam o deparse (dentro de uma transação já aberta). */
 const SET_DEPARSE = Object.freeze(["SET LOCAL search_path = pg_catalog, pg_temp", "SET LOCAL IntervalStyle = 'postgres'"]);
 
-module.exports = {SQL_ARQUIVO, ESPERADO, UUID_PGCRYPTO, FKS, SET_DEPARSE, compararDefinicoes};
+module.exports = {SQL_ARQUIVO, ESPERADO, UUID_PGCRYPTO, FKS, SET_DEPARSE, PREFIXOS, TABELAS_105, rotuloChave, compararDefinicoes};

@@ -51,6 +51,10 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
 // Liberar agenda com mais de um salão (F5): as suítes funcionais da agenda por salão no modelo 108/109 rodam também no
 // 114 (gatilhos da 019 com a verificação da trava da configuração); o classificador dos combinados quebrava só lá.
 const ESTADO_POSTGRES = {
+  "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
+    "lib/oportunidades/atribuicao.postgres.test.ts": { descartavel: "122" },
+  // Postcheck da 122 reprova os CHECKs de perda ausentes, NOT VALID ou trocados (Astra, 15/11/2026, P2).
+  "lib/oportunidades/postcheck-122.postgres.test.ts": { descartavel: "122" },
   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
@@ -78,11 +82,13 @@ const ESTADO_POSTGRES = {
   "lib/disponibilidade/agenda-062.postgres.test.ts": { descartavel: "atual" },
   "lib/fechamentos/migration-054.postgres.test.ts": { descartavel: "053", alvo054: true },
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
-  "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
+  "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual", tambem: ["121"] },
+  // P2 fase B: concorrência do escritor (liquidação, reversão, abertura); precisa das tabelas da 120 e da 121.
+  "lib/financeiro/escritor-p2.postgres.test.ts": { descartavel: "121" },
   // 062: menor modelo em que o aceite real da V2 roda (concluirFluxoCliente → aplicarRevisaoInicial → referenciaParaCaminho
   // lê fechamentos.estabelecimento_id, criada na 062; no "atual", até a 057, o teste 3 caía em 42703). Sem a 066, instalada
   // pela própria suíte na transação. 114: 066 presente e gatilhos da 019 com KD114.
-  "lib/financeiro/titulos-motor.postgres.test.ts": { descartavel: "062", tambem: ["114"] },
+  "lib/financeiro/titulos-motor.postgres.test.ts": { descartavel: "062", tambem: ["114", "121"] },
   "lib/pagamentos/pix/pix.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },
@@ -214,6 +220,26 @@ const ESTADO_POSTGRES = {
   "lib/marketing/composicao-convites-085-086.postgres.test.ts": { descartavel: "086" },
   // 30/10/2026: primeira negociação sem origem própria conta pela origem do cliente (painel e API), sem gravar nada.
   "lib/marketing/origem-negociacao.postgres.test.ts": { descartavel: "086" },
+  // Funil (122, 14/11/2026): a conversão automática também leva a próxima ação e o responsável; sem a 122 esses casos pulam.
+  "lib/marketing/conversao.postgres.test.ts": { descartavel: "086", tambem: ["122"] },
+  "lib/marketing/pedidos-acoes.postgres.test.ts": { descartavel: "086" },
+  // Pesquisa de satisfação (110, PS-1, 30/10/2026): esquema, serviço público, supressões, frequência e bloqueio do
+  // WhatsApp; e a concorrência (duas a três conexões: travas NOWAIT × cancelamento, corridas de resposta e de link).
+  "lib/satisfacao/satisfacao.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-concorrencia.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-parar.postgres.test.ts": { descartavel: "110" },
+  "lib/satisfacao/satisfacao-cancelamento.postgres.test.ts": { descartavel: "110" },
+  // PS-2 (30/10/2026): criação pelo motor e despacho por entrega (dois workers, posse vencida, prazos, consentimento).
+  "lib/satisfacao/satisfacao-despacho.postgres.test.ts": { descartavel: "110" },
+  // PS-3 (31/10/2026): links de avaliação, retornos das notas baixas, auditoria e instalação da 111 (inclui o ciclo down/111).
+  "lib/satisfacao/satisfacao-ps3.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/satisfacao-ps3-rotas.postgres.test.ts": { descartavel: "111" },
+  // PS-4 (01/11/2026): resultados, menu e retornos pelas rotas reais (métricas, população, escopos, cursor, período).
+  // PS-4 rodada 4 (03/11/2026): sobre o modelo 115 (índice das festas por período), como a medição de desempenho.
+  "lib/satisfacao/satisfacao-ps4.postgres.test.ts": { descartavel: "115" },
+  // 115: subida, reaplicação neutra, homônimo divergente recusado, pré/pós-check, down e nova subida.
+  "lib/satisfacao/migration-115.postgres.test.ts": { descartavel: "111" },
+  "lib/satisfacao/b5-catalogo-satisfacao.postgres.test.ts": { descartavel: "109", tambem: ["110", "111", "115"] },
   // 21/10/2026: autorização do responsável para Convites com IA (088), aplicada pela suíte sobre o modelo 086 (a 087 é
   // de outro trabalho local, ainda não integrado): checks, isolamento por empresa, imutabilidade, revogação, rollback.
   "lib/convites/avulsos-099.postgres.test.ts": { descartavel: "098" },
@@ -271,6 +297,18 @@ const ESTADO_POSTGRES = {
   "lib/importacao-contrato/cota.postgres.test.ts": { descartavel: "112" },
   // Entrega B: identidade pública e assinatura de PJ (R2-1); no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/identidade/identidade-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
+  // 12/11/2026 (LOCAL): reserva por e-mail do código OTP contra as CHECKs da 008/010 (sem migration), corridas reais do botão.
+  "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
+  // 14/11/2026 (LOCAL): área "Minha festa" F1 (123): entrada, recusas, limites, sair, painel do buffet e travas do banco.
+  "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123", tambem: ["125"] },
+  "lib/area-familia/leitura.postgres.test.ts": { descartavel: "123", tambem: ["125"] },
+  // 15/11/2026 (LOCAL): área "Minha festa" F3 (125): ações da família e do painel, travas do banco, down com dados e ciclo.
+  "lib/area-familia/acoes.postgres.test.ts": { descartavel: "125", tambem: ["123"] },
+  "lib/area-familia/migration-125.postgres.test.ts": { descartavel: "125" },
+  // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
+  "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
+  // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.
+  "lib/contratos/migration-124.postgres.test.ts": { descartavel: "124" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
@@ -325,7 +363,7 @@ const ESTADO_POSTGRES = {
   // o inventário inteiro vai até a 098 (retrato com combinado e membros).
   // 28/10/2026 (retomada 098): também no modelo 108 (cadeia até a 106 + 107 + 108, sem a 098 histórica), com o retrato
   // colunas-esperadas-108.json e o pacote dos salões combinados (membros uuid[] em array JSON).
-  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "114"] },
+  "lib/exportacao/exportacao.postgres.test.ts": { descartavel: "098", tambem: ["103", "108", "109", "114", "110", "111", "115"] },
   // Revisão independente de 21/10 incorporada (P2-4) + provas da rodada 2: 3 empresas, guarda adversarial, fotografia RR,
   // FK no catálogo, inventário em execução, limite de uso e auditoria das recusas.
   "lib/exportacao/exportacao-adversarial.postgres.test.ts": { descartavel: "098" },
@@ -350,14 +388,14 @@ const ESTADO_POSTGRES = {
   "lib/agenda/agenda-versao-100.postgres.test.ts": { descartavel: "097" },
   // 23/10/2026: salão combinado (098, fase 1 dos salões) aplicado pela suíte sobre o modelo 097 (inventário inteiro antes dela): SQL direto, guardas,
   // concorrência real nas duas ordens, paridade SQL × Core, faixa de 21h–24h de São Paulo, rollback e manifesto.
-  "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097", semGuardaSalao: { modelos: ["097"], motivo: RETRATO_COM_GATILHOS } },
+  "lib/agenda/saloes-combinados-098.postgres.test.ts": { descartavel: "097-sem-087", semGuardaSalao: { modelos: ["097-sem-087"], motivo: RETRATO_COM_GATILHOS } },
   // Decisão de Felipe (29/10/2026, P2-1b): o código só suporta a 108; a 098 histórica é recusada. As suítes de serviço
   // com combinado saíram do modelo 098 para o 108.
   // Caminhos de serviço com combinado (formalização, pagamento, hold, remarcação, edição, proposta, troca, importação).
   "lib/agenda/saloes-caminhos-098.postgres.test.ts": { descartavel: "108", tambem: ["114"] },
   // 23/10/2026: aplicador REAL da 098 para staging (retrato, papéis, parcial, deriva, falhas desfeita/indeterminada, retomada, uso legítimo).
   // Plano E4 (E4-6, 29/10/2026): no modelo 108, COM_108 nos três modos (completa e parcial), sem retrato nem escrita.
-  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097", tambem: ["108"], semGuardaSalao: { modelos: ["097"], motivo: RETRATO_COM_GATILHOS } },
+  "lib/agenda/aplicador-098.postgres.test.ts": { descartavel: "097-sem-087", tambem: ["108"], semGuardaSalao: { modelos: ["097-sem-087"], motivo: RETRATO_COM_GATILHOS } },
   // 25/10/2026: apresentação do salão (102). Comportamento no modelo 102 (sem a 098, com 099/100/102); aplicação, reaplicação
   // e rollback neutro/com conteúdo no 097; recusa no 098.
   "lib/agenda/saloes-apresentacao-102.postgres.test.ts": { descartavel: "102", tambem: ["097", "098"] },
@@ -488,6 +526,9 @@ const ESTADO_POSTGRES = {
   "lib/inteligencia/acoes/pacotes-1d.postgres.test.ts": { descartavel: "089" },
   // Avisos por e-mail da assinatura (087, local 20/10/2026): a suíte aplica e desfaz a 087 sobre o modelo 086.
   "lib/assinatura/avisos-087.postgres.test.ts": { descartavel: "086" },
+  // B-26 r5 (R4-01): a assinatura de estrutura do conferidor mede os gatilhos de fechamentos/fechamento_revisoes como em production,
+  // sem a guarda de teste; a própria suíte instala a guarda num negativo e exige FALHA. Usa o banco _rollback como destino de pg_restore.
+  "lib/assinatura/conferidor-g-vazio.postgres.test.ts": { descartavel: "b14-P0a", semGuardaSalao: { modelos: ["b14-P0a"], motivo: "assinatura de estrutura do conferidor G-VAZIO (gatilhos de fechamentos) medida como em production, sem a guarda de teste" } },
   // Recorte de production (02/11/2026): aplicadores reais da 087 (staging e produção) no modelo 086 (087 ausente), derivados dos da 089.
   "lib/assinatura/aplicador-087.postgres.test.ts": { descartavel: "086" },
 };

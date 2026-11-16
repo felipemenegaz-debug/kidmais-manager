@@ -132,6 +132,28 @@ const RE_AGENDA = /\bagenda_saloes\b[\s\S]*\bFOR\s+(NO\s+KEY\s+)?(UPDATE|SHARE|K
 const RE_TRAVA_LINHA = new RegExp(`\\b(FROM|JOIN)\\s+(public\\.)?(${TABELAS})\\b[\\s\\S]*\\bFOR\\s+(NO\\s+KEY\\s+)?(UPDATE|SHARE)\\b`, "i");
 const RE_DML = new RegExp(`^\\s*(WITH[\\s\\S]*?\\)\\s*)?(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(public\\.)?(${TABELAS})\\b`, "i");
 
+/**
+ * AF-R2-OBS1 (área da família): `FOR UPDATE/SHARE OF a, b` trava só as linhas dos aliases listados (regra do PostgreSQL),
+ * não as demais tabelas do FROM. Se TODA cláusula de trava do nível tem OF e todos os alvos resolvem para tabelas fora do
+ * inventário, o nível não é LINHA. Qualquer cláusula sem OF, ou alvo que não se resolve pelo FROM/JOIN, mantém a regra
+ * antiga (conservadora). Um alvo do inventário continua LINHA.
+ */
+const RE_CLAUSULA_TRAVA = /\bFOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE)\b(?:\s+OF\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*))?/gi;
+const RE_ORIGEM = /\b(?:FROM|JOIN)\s+(?:public\.)?([A-Za-z_]\w*)(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?/gi;
+const NAO_ALIAS = /^(ON|USING|WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|LATERAL|GROUP|ORDER|LIMIT|OFFSET|FOR|UNION|EXCEPT|INTERSECT|HAVING|WINDOW)$/i;
+const RE_TABELA_INVENTARIO = new RegExp(`^(${TABELAS})$`, "i");
+function travaLinha(parte) {
+  if (!RE_TRAVA_LINHA.test(parte)) return false;
+  const clausulas = [...parte.matchAll(RE_CLAUSULA_TRAVA)];
+  if (!clausulas.length || clausulas.some((c) => !c[1])) return true;
+  const tabelaDe = new Map();
+  for (const [, tabela, alias] of parte.matchAll(RE_ORIGEM)) {
+    tabelaDe.set(tabela.toLowerCase(), tabela);
+    if (alias && !NAO_ALIAS.test(alias)) tabelaDe.set(alias.toLowerCase(), tabela);
+  }
+  const alvos = clausulas.flatMap((c) => c[1].split(",").map((a) => a.trim().toLowerCase()));
+  return alvos.some((a) => !tabelaDe.has(a) || RE_TABELA_INVENTARIO.test(tabelaDe.get(a)));
+}
 // A chave advisory vem num literal ('kidmais:agenda:' || …); os nomes das funções só contam FORA de literais (consultas de catálogo
 // que listam nomes, como lib/festas/ambiente.ts, não travam nada).
 const RE_CHAVE_AGENDA = /kidmais:agenda:/;
@@ -157,7 +179,7 @@ function classificarComando(texto) {
   if (RE_CONFIG.test(texto)) return "CONFIG";
   const partes = niveis(texto);
   if (RE_CHAVE_AGENDA.test(texto) || RE_FUNCAO_AGENDA.test(semLiterais(texto)) || partes.some((p) => RE_AGENDA.test(p))) return "AGENDA";
-  if (partes.some((p) => RE_TRAVA_LINHA.test(p)) || RE_DML.test(texto)) return "LINHA";
+  if (partes.some(travaLinha) || RE_DML.test(texto)) return "LINHA";
   return null;
 }
 

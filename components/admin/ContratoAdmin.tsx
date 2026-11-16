@@ -1,6 +1,7 @@
 'use client';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
-import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
+import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
+import { TEXTO_ASSINADO_EM_PAPEL, dataCivilBr, versaoConferenciaImportada } from '@/lib/contratos/assinatura-papel';
 import { fonteDoDocumentoContrato, MENSAGEM_SEM_MODELO_EMPRESA, type BaseDocumentoContrato } from '../../lib/contratos/documento/fonte';
 import { classePrimaria } from './AdminPrimaryButton';
 import { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
@@ -8,6 +9,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import { enderecoFinal } from '@/lib/enderecos/cliente';
+import { guardarBuscaNaAba, lerBuscaDaAba } from '@/lib/http/busca-na-aba';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
 import styles from './contratos-ux.module.css';
 import Link from 'next/link';
@@ -23,6 +25,7 @@ import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, listaDaUrl, m
 import { ETAPAS, chaveConferencia, dataPorExtenso, etapaAtual, faixaHorario, predicados, proximoPasso, referenciasDaTela, rotuloContrato, rotuloVersao, saidaPagamentos, situacaoReserva, tituloFesta } from './contrato-tela';
 import { referenciaVigente } from '@/lib/contratos/versao-referencia';
 import ContratoImportado from './ContratoImportado';
+import RegistrarPapelCliente, { LinhaPapelCliente, type RegistroPapelPainel } from './RegistrarPapelCliente';
 import OrigemHistoricaContrato from './OrigemHistoricaContrato';
 import IntegracaoContrato from './importacao/IntegracaoContrato';
 import type { OrigemHistoricaContrato as OrigemHistorica } from '@/lib/contratos/importados';
@@ -61,6 +64,8 @@ type Painel = {
     revisoesOperacionais:Array<{id:string;contrato_versao_id:string;estado:string;hold_destino_adquirido_em:string|null;status_fechamento:string;ocupa_vigente:boolean;data_evento:string;data_vigente:string;horario_inicio:string;horario_fim:string;slot_alterado:boolean}>;
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
+    /** 124: assinatura do cliente em papel. Detalhes e `podeRegistrar` só para a Gestão; sem os bytes. */
+    assinaturaPapel?: { podeRegistrar: boolean; registros: RegistroPapelPainel[] };
     contrato: {
         fechamento_id: string;
         versao_atual: number;
@@ -102,13 +107,18 @@ function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodi
   return null;
 }
 
+const TELA_BUSCA = 'contratos';
+
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
     const [retorno,setRetorno]=useState<string|null>(null),[destino,setDestino]=useState(''),[financeiroPronto,setFinanceiroPronto]=useState('');
-    // Termo da busca da lista: só em memória, nunca na URL nem no armazenamento do navegador (ver contrato-url.ts). O filtro
-    // vai à URL pela API nativa de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos"
-    // do menu sempre encontra a URL já atualizada, mesmo logo depois da primeira busca.
-    const [buscaLista,setBuscaLista]=useState('');
+    // Termo da busca da lista: nunca na URL nem no histórico (ver contrato-url.ts). Fica em memória e, para voltar no F5 e no
+    // Voltar depois de sair da tela, também na aba, preso à sessão e à empresa e com prazo (lib/http/busca-na-aba.ts). Esta tela
+    // só monta depois de o painel confirmar a sessão, então o contexto já existe na leitura. Cada retorno à lista em uso relê
+    // a aba (abaixo): a memória sozinha não restaura, então o prazo e a trava da saída valem também nesta instância. O filtro vai à URL pela API nativa
+    // de histórico, integrada ao roteador: muda na hora, sem pedido ao servidor, e o item "Contratos" do menu sempre encontra
+    // a URL já atualizada, mesmo logo depois da primeira busca.
+    const [buscaLista,setBuscaLista]=useState(()=>lerBuscaDaAba(TELA_BUSCA));
     const posicionado=useRef('');
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
@@ -136,6 +146,15 @@ export default function ContratoAdmin() {
     const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
     // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
     const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
+    // Retorno à lista em uso ("← Contratos", Voltar depois do menu ou de um contrato): a busca vem da aba, já com prazo,
+    // contexto e trava conferidos; vencida, bloqueada ou sem armazenamento, a lista volta limpa. A transição causada pela
+    // própria busca (primeira busca grava `filtro` na URL) não relê: o termo acabou de ser digitado.
+    const listaComBusca = !urlContrato && !urlImportacao && lista.emUso;
+    const [listaComBuscaAplicada, setListaComBuscaAplicada] = useState(listaComBusca), [usoProprio, setUsoProprio] = useState(false);
+    if (listaComBuscaAplicada !== listaComBusca) {
+        setListaComBuscaAplicada(listaComBusca); setUsoProprio(false);
+        if (listaComBusca && !usoProprio) setBuscaLista(lerBuscaDaAba(TELA_BUSCA));
+    }
     const sequencia = useRef(criarSequenciador());
     // Só a resposta do último pedido é aplicada: um contrato clicado antes não substitui o atual quando responde atrasado.
     const load = useCallback(async (id: string): Promise<boolean> => { const pedido = sequencia.current.iniciar(); let res: Response, b: { ok: boolean; data?: unknown; erro?: string };
@@ -239,10 +258,14 @@ export default function ContratoAdmin() {
     }
     async function cancelarContratacao(){
         if(!v||!data)return;
-        const motivo=window.prompt('Por que esta contratação será cancelada? O histórico e os documentos serão preservados.');
-        if(!motivo||motivo.trim().length<3)return;
+        const escolha=window.prompt('Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'));
+        const perdaMotivo=MOTIVOS_PERDA[Number(escolha)-1];
+        if(!perdaMotivo)return;
+        const observacao=window.prompt('Observação (opcional). O histórico e os documentos serão preservados.');
+        if(observacao===null)return;
+        const motivo=observacao.trim()||perdaMotivo;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
-        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim()})){
+        if(await action({acao:'cancelar_contratacao',motivo:motivo.trim(),perda:{motivo:perdaMotivo,observacao:observacao.trim()}})){
             if(enderecoFinal())return;
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
@@ -312,10 +335,10 @@ export default function ContratoAdmin() {
     const saida = data ? saidaPagamentos(data.financeiro.length, data.origemHistorica?.caminhoFinanceiro) : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert" className={styles.erroFixo}>{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
+ {!urlContrato && !urlImportacao ? <ListaContratos filtroInicial={lista.aba} buscaInicial={lista.emUso ? buscaLista : ''} onFiltro={(aba, busca) => { setBuscaLista(busca); setUsoProprio(true); guardarBuscaNaAba(TELA_BUSCA, busca); window.history.replaceState(null, '', urlDaLista(pathname, params, aba, Boolean(busca))); }} onAbrir={selecao => trocarSelecao(selecao)} /> : <button type="button" className={styles.voltarLista} onClick={() => trocarSelecao('')}>← Contratos</button>}
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {data && ref && snap && titulo && pred && <><header className={styles.overview}><div className={styles.hero}><div>
- <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>
+ <div className={styles.chips}><span className={styles.badge}>{rotuloContrato(data.contrato.status)}</span>{data.origemHistorica && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{!data.origemHistorica && data.assinaturaPapel?.registros.some(r => r.versaoId === ref.id) && <a className={styles.chip} href="#historico" onClick={e=>{e.preventDefault();abrirAba('#historico');}}>Assinado em papel</a>}{referencia?.diagnostico && <span className={styles.chipAlerta}>Conferir</span>}</div>
  <h2>{titulo.titulo}{titulo.idade ? ` · ${titulo.idade}` : ''}</h2>
  <p>{[titulo.aniversariante ? snap.contratante.nomeCompleto : null, dataPorExtenso(snap.evento.data), faixaHorario(snap.evento.horarioInicio, snap.evento.horarioFim), titulo.tema ? `Tema ${titulo.tema}` : null].filter(Boolean).join(' · ')}</p></div>
  <div className={styles.total}><span>{temVigente ? 'Valor do contrato' : 'Valor proposto'}</span><strong>{formatarMoeda(snap.comercial.valorFinalContrato)}</strong>
@@ -344,6 +367,7 @@ export default function ContratoAdmin() {
  {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario className={classePrimaria} disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pelo buffet</button></>}
  {pred.podeLiberar && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
  {pred.podeAbrirPublico && <a className={styles.documentButton} href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir página do cliente ↗</a>}
+ {!alteracao && data.assinaturaPapel?.podeRegistrar && v.numero_versao === 1 && v.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' && <RegistrarPapelCliente key={v.id} versaoId={v.id} onRegistrado={() => load(cid)} />}
  {pred.podeEditar && <button type="button" disabled={busy} onClick={() => { invalidarConferencia(); setEditando(!editando); }}>{editando ? 'Fechar edição' : 'Editar dados desta revisão'}</button>}
  {pred.podeRevalidar && <button type="button" disabled={busy} onClick={() => void revalidar()}>Revalidar destino</button>}
  {pred.podeRecusarComercial && <button type="button" disabled={busy} onClick={() => { const m = window.prompt('Motivo da recusa comercial. A reserva e a preparação serão mantidas.'); if (m && m.trim().length >= 3) action({ acao: 'recusar_comercial', revisao: v.revisao, motivo: m, chaveDecisao: crypto.randomUUID() }); }}>Recusar condição comercial</button>}
@@ -360,7 +384,7 @@ export default function ContratoAdmin() {
  <p>{dataPorExtenso(consultada.snapshot.evento.data)} · {faixaHorario(consultada.snapshot.evento.horarioInicio, consultada.snapshot.evento.horarioFim)} · {consultada.snapshot.evento.pacote.nome} · {consultada.snapshot.evento.convidados} convidados · {formatarMoeda(consultada.snapshot.comercial.valorFinalContrato)}</p>
  {consultada.motivo_nova_versao && <p className={styles.discreto}>Motivo: {consultada.motivo_nova_versao}</p>}
  <ListaDocumentos docs={data.documentos.filter(d => d.contrato_versao_id === consultada.id)} vazio="Nenhum documento gerado nesta versão." docUrl={docUrl} />
- <Comprovantes v={consultada} assinaturas={data.assinaturas.filter(s => s.contrato_versao_id === consultada.id)} docUrl={docUrl} />
+ <Comprovantes v={consultada} assinaturas={data.assinaturas.filter(s => s.contrato_versao_id === consultada.id)} docUrl={docUrl} papel={data.assinaturaPapel?.registros.find(r => r.versaoId === consultada.id)} />
  <DiferencasDaVersao versao={consultada} origem={data.versoes.find(x => x.id === consultada.origem_versao_id) ?? null} />
  </section>}
  <nav className={styles.tabs} role="tablist" aria-label="Conteúdo do contrato">{abas.map((item, indice) => <button key={item.id} type="button" role="tab" id={`aba-${item.id}`} aria-controls={`painel-${item.id}`} aria-selected={aba === item.id} tabIndex={aba === item.id ? 0 : -1} onClick={() => abrirAba(item.hash)} onKeyDown={e => { const alvo = e.key === 'ArrowRight' ? (indice + 1) % abas.length : e.key === 'ArrowLeft' ? (indice + abas.length - 1) % abas.length : e.key === 'Home' ? 0 : e.key === 'End' ? abas.length - 1 : null; if (alvo !== null) { e.preventDefault(); abrirAba(abas[alvo].hash); document.getElementById(`aba-${abas[alvo].id}`)?.focus(); } }}>{item.rotulo}</button>)}</nav>
@@ -384,10 +408,10 @@ export default function ContratoAdmin() {
  <h2 id="documentacao">Documentos</h2>
  {v && avisoFonteDocumento(data.tela?.baseDocumento, v.snapshot.evento.pacote.codigo)}
  {v?.estado_edicao === 'EM_ELABORACAO' && <details className={styles.documentDetails} open><summary>Observações do documento</summary><label>Observações exclusivamente documentais<textarea value={note} maxLength={2000} onChange={e => { setNote(e.target.value); invalidarConferencia(); }} style={{ width: '100%', minHeight: 90 }}/></label><p>Não use observações para mudar valores, datas, partes ou obrigações operacionais.</p><button type="button" disabled={busy} onClick={() => action({ acao: 'salvar', revisao: v.revisao, observacoesDocumentais: note })}>Salvar revisão</button> <button type="button" disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Gerar PDF da revisão</button></details>}
- {faixa && v && v.id !== ref.id && <><h3>Da alteração · {rotuloVersao(v)}</h3><ListaDocumentos docs={docs} vazio="Nenhum documento gerado nesta alteração." docUrl={docUrl} /><Comprovantes v={v} assinaturas={signatures} docUrl={docUrl} /></>}
+ {faixa && v && v.id !== ref.id && <><h3>Da alteração · {rotuloVersao(v)}</h3><ListaDocumentos docs={docs} vazio="Nenhum documento gerado nesta alteração." docUrl={docUrl} /><Comprovantes v={v} assinaturas={signatures} docUrl={docUrl} papel={data.assinaturaPapel?.registros.find(r => r.versaoId === v.id)} /></>}
  <h3>{temVigente ? `Contrato que vale hoje · V${ref.numero_versao}` : `Contrato em preparação · V${ref.numero_versao}`}</h3>
  <ListaDocumentos docs={data.documentos.filter(d => d.contrato_versao_id === ref.id)} vazio={ref.estado_edicao ? 'Nenhum documento gerado.' : 'Documento anterior disponível no arquivo preservado. Ainda não importado para impressão nesta tela.'} docUrl={docUrl} />
- <Comprovantes v={ref} assinaturas={data.assinaturas.filter(s => s.contrato_versao_id === ref.id)} docUrl={docUrl} />
+ <Comprovantes v={ref} assinaturas={data.assinaturas.filter(s => s.contrato_versao_id === ref.id)} docUrl={docUrl} papel={data.assinaturaPapel?.registros.find(r => r.versaoId === ref.id)} />
  <div className={styles.documentList}><article className={styles.documentRow} aria-label="Resumo da contratação"><div><h3>Resumo da contratação</h3><p>Informações comerciais e operacionais</p></div><div className={styles.documentActions}><a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/resumo?contratoId=${cid}&versaoId=${ref.id}`}>Visualizar resumo</a><a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/resumo?contratoId=${cid}&versaoId=${ref.id}&baixar=1`}>Baixar PDF do resumo</a><a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/resumo?contratoId=${cid}&versaoId=${ref.id}&imprimir=1`}>Imprimir resumo</a></div></article></div>
  {ref.documento_revisado_id && <a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/imprimir?contratoId=${cid}&versaoId=${ref.id}`}>Imprimir contrato completo — V{ref.numero_versao}</a>}
  </section>
@@ -396,7 +420,8 @@ export default function ContratoAdmin() {
  <div className={styles.chips} role="group" aria-label="Filtrar histórico">{([['TUDO','Tudo'],['VERSOES','Versões do contrato'],['ASSINATURAS','Assinaturas']] as const).map(([id, rotulo]) => <button key={id} type="button" aria-pressed={filtroHistorico === id} onClick={() => setFiltroHistorico(id)}>{rotulo}</button>)}</div>
  {data.origemHistorica && filtroHistorico !== 'ASSINATURAS' && <OrigemHistoricaContrato origem={data.origemHistorica} />}
  <ol className={styles.linhaTempo}>{[...(filtroHistorico === 'ASSINATURAS' ? [] : data.versoes.map(x => ({ em: x.criado_em, id: 'v' + x.id, conteudo: <><strong>V{x.numero_versao} · {rotuloVersao(x)}</strong>{x.id === ref.id ? ' · vale hoje' : x.id === vid && faixa ? ' · em andamento' : ''}<span className={styles.discreto}> {instante(x.criado_em)}{x.motivo_nova_versao ? ` · motivo: ${x.motivo_nova_versao}` : ''}</span>{x.id !== ref.id && x.id !== vid && <button type="button" onClick={() => abrirVersao(x.id)}>Ver esta versão</button>}</> }))),
- ...(filtroHistorico === 'VERSOES' ? [] : data.assinaturas.map(s => ({ em: s.assinado_em, id: 's' + s.id, conteudo: <><strong>{s.parte === 'CLIENTE' ? 'Cliente' : s.parte === 'KIDMAIS' ? 'Buffet' : s.parte} assinou V{data.versoes.find(x => x.id === s.contrato_versao_id)?.numero_versao}</strong><span className={styles.discreto}> {s.identidade_snapshot.nome} · {instante(s.assinado_em)}</span> <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></> })))]
+ ...(filtroHistorico === 'VERSOES' ? [] : data.assinaturas.map(s => ({ em: s.assinado_em, id: 's' + s.id, conteudo: <><strong>{s.parte === 'CLIENTE' ? 'Cliente' : s.parte === 'KIDMAIS' ? 'Buffet' : s.parte} assinou V{data.versoes.find(x => x.id === s.contrato_versao_id)?.numero_versao}</strong><span className={styles.discreto}> {s.identidade_snapshot.nome} · {instante(s.assinado_em)}</span> <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></> }))),
+ ...(filtroHistorico === 'VERSOES' ? [] : (data.assinaturaPapel?.registros ?? []).map(p => ({ em: p.registradoEm ?? `${p.dataDeclarada}T15:00:00Z`, id: 'p' + p.versaoId, conteudo: <><strong>Cliente assinou V{data.versoes.find(x => x.id === p.versaoId)?.numero_versao} em papel</strong><span className={styles.discreto}> em {dataCivilBr(p.dataDeclarada)}</span></> })))]
  .sort((a, b) => b.em.localeCompare(a.em)).map(item => <li key={item.id}>{item.conteudo}</li>)}</ol></section>
  </>}
  </main>;
@@ -405,8 +430,8 @@ function ListaDocumentos({ docs, vazio, docUrl }: { docs: Doc[]; vazio: string; 
     if (!docs.length) return <p className={styles.discreto}>{vazio}</p>;
     return <div className={styles.documentList}>{docs.map(d => <article key={d.id} className={styles.documentRow}><div><h3>{tituloDocumento(d.categoria)}</h3><p>Revisão {d.revisao}</p></div><div className={styles.documentActions}><a className={styles.documentButton} href={docUrl(d.id)} target="_blank" rel="noreferrer">Visualizar</a><a className={styles.documentButton} href={`${docUrl(d.id)}?baixar=1`}>Baixar PDF</a><a className={styles.documentButton} href={docUrl(d.id)} target="_blank" rel="noreferrer">Abrir para imprimir</a></div></article>)}</div>;
 }
-function Comprovantes({ v, assinaturas, docUrl }: { v: Versao; assinaturas: Painel['assinaturas']; docUrl: (id: string) => string }) {
-    return <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({assinaturas.length})</summary>{assinaturas.length === 0 && <p>{versaoAssinadaEmPapel(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{assinaturas.map(s => <p key={s.id}>{s.parte === 'KIDMAIS' ? 'Buffet' : 'Cliente'}: {s.identidade_snapshot.nome} · {instante(s.assinado_em)} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>;
+function Comprovantes({ v, assinaturas, docUrl, papel }: { v: Versao; assinaturas: Painel['assinaturas']; docUrl: (id: string) => string; papel?: RegistroPapelPainel }) {
+    return <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({assinaturas.length + (papel ? 1 : 0)})</summary>{assinaturas.length === 0 && <p>{versaoConferenciaImportada(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{assinaturas.map(s => <p key={s.id}>{s.parte === 'KIDMAIS' ? 'Buffet' : 'Cliente'}: {s.identidade_snapshot.nome} · {instante(s.assinado_em)} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}{papel && <LinhaPapelCliente registro={papel} instante={instante} />}</details>;
 }
 /** Diferenças de uma versão consultada em relação à própria origem — só leitura, sem nenhum controle. */
 function DiferencasDaVersao({ versao, origem }: { versao: Versao; origem: Versao | null }) {

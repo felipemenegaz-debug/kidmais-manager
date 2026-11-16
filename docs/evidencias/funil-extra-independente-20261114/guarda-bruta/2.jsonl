@@ -1,0 +1,4 @@
+{"tipo":"PRELOAD","pid":42820}
+{"tipo":"PRELOAD","pid":38504}
+{"tipo":"ORDEM","producao":false,"emissor":"TESTE","origem":"lib/marketing/harness-postgres.ts:37","pilha":["lib/marketing/harness-postgres.ts:37","lib/marketing/harness-postgres.ts:72","lib/marketing/origem-negociacao.postgres.test.ts:58"],"motivo":"LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho","pid":38504}
+{"tipo":"ORDEM","producao":false,"emissor":"TESTE","origem":"lib/marketing/harness-postgres.ts:37","pilha":["lib/marketing/harness-postgres.ts:37","lib/marketing/harness-postgres.ts:72","lib/marketing/origem-negociacao.postgres.test.ts:158"],"motivo":"LINHA sem a configuração: INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id, categoria_ho","pid":38504}

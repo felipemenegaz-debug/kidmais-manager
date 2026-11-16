@@ -19,7 +19,7 @@ type Carteira = { recurso: Recurso; disponivel: number; reservado: number; bloqu
 type Oferta = { codigo: string; recurso: Recurso; nome: string; quantidadeExibida: number; precoCentavos: number; validadeDias: number };
 type OpcaoDev = { tipo: 'ARREPENDIMENTO_7_DIAS' | 'SALDO_NAO_UTILIZADO'; valorCentavos: number; quantidadeCancelada: number; prazo: string; garantiaAte: string } | { indisponivel: string };
 type Pedido = { protocolo: string; estado: string; recurso: Recurso; nome: string; quantidadeExibida: number; precoCentavos: number; forma: Forma; criadoEm: string;
-    vencimentoPagamento: string; creditadoEm: string | null; urlPagamento: string | null; emDisputa: boolean;
+    vencimentoPagamento: string; creditadoEm: string | null; urlPagamento: string | null; emDisputa: boolean; saldoCancelado?: boolean;
     devolucao: { protocolo: string; estado: string; tipo: string; valorCentavos: number; prazo: string } | null; opcaoDevolucao: OpcaoDev | null };
 type Consulta = {
     instalado: boolean; gestao: boolean; walleDisponivel: boolean; consumoConvitesAtivo?: boolean;
@@ -41,6 +41,18 @@ const DEVOLUCAO: Record<string, string> = {
     AGUARDANDO_MANUAL: 'registrada: em processamento pela equipe iA.Fest', EM_CURSO: 'em andamento', SOLICITADO: 'enviada ao Asaas',
     SEM_CONFIRMACAO: 'em conferência pela equipe iA.Fest', RECUSADO: 'em processamento pela equipe iA.Fest', CONCLUIDO: 'concluída',
 };
+/**
+ * R4 (janela sandbox de 09/11/2026): situação do pedido na lista. Com devolução registrada o saldo restante do pacote já
+ * foi cancelado, então "Créditos liberados" não vale mais. O mesmo vale para o pedido creditado cujo pagamento foi
+ * revertido no Asaas sem devolução nossa (estorno feito fora, disputa perdida, estorno parcial cancelado pelo operador):
+ * o pedido continua CREDITADO, mas a perda definitiva cancelou o saldo restante (`saldoCancelado`, lib/creditos/servico.ts).
+ * O `data-estado` continua sendo o estado técnico do pedido.
+ */
+export function situacaoDoPedido(p: { estado: string; devolucao: { estado: string } | null; saldoCancelado?: boolean }) {
+    if (p.devolucao) return p.devolucao.estado === 'CONCLUIDO' ? 'Devolvido: saldo restante cancelado' : 'Devolução em andamento: saldo restante cancelado';
+    if (p.estado === 'CREDITADO' && p.saldoCancelado) return 'Pagamento revertido no Asaas: saldo restante cancelado';
+    return ESTADO[p.estado] ?? p.estado;
+}
 const ORIGEM: Record<string, string> = { FRANQUIA: 'Franquia do mês', COMPRA: 'Pacote comprado', CORTESIA: 'Cortesia', LEGADO: 'Saldo do mês (modelo anterior)' };
 const TIPO_EXTRATO: Record<string, string> = { CREDITO: 'Entrada', RESERVA: 'Reservado', LIBERACAO: 'Devolvido ao saldo', CONSUMO: 'Usado', BLOQUEIO: 'Bloqueado',
     DESBLOQUEIO: 'Desbloqueado', EXPIRACAO: 'Vencido', REVERSAO: 'Cancelado (devolução/estorno)' };
@@ -221,8 +233,8 @@ export function CreditosIA({ recurso, children }: { recurso: Recurso; children?:
             </form>}
             {pedidos.length > 0 && <div data-pedidos-creditos>
                 <h3>Pedidos</h3>
-                <ul>{pedidos.map((p) => <li key={p.protocolo} data-pedido={p.protocolo} data-estado={p.estado}>
-                    <strong>{p.protocolo}</strong> — {p.nome}, {reais(p.precoCentavos)}, {FORMA[p.forma] ?? p.forma}, {dataCurta(p.criadoEm)}. {ESTADO[p.estado] ?? p.estado}.
+                <ul>{pedidos.map((p) => <li key={p.protocolo} data-pedido={p.protocolo} data-estado={p.estado} data-devolucao-estado={p.devolucao?.estado}>
+                    <strong>{p.protocolo}</strong> — {p.nome}, {reais(p.precoCentavos)}, {FORMA[p.forma] ?? p.forma}, {dataCurta(p.criadoEm)}. {situacaoDoPedido(p)}.
                     {p.urlPagamento && <> <a href={p.urlPagamento} target="_blank" rel="noopener noreferrer">Pagar</a> (vence {dataIso(p.vencimentoPagamento)}).</>}
                     {p.emDisputa && <> Pagamento em contestação: o saldo restante deste pacote está bloqueado.</>}
                     {p.devolucao && <> Devolução {p.devolucao.protocolo} ({reais(p.devolucao.valorCentavos)}): {DEVOLUCAO[p.devolucao.estado] ?? p.devolucao.estado}.</>}

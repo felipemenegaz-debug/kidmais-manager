@@ -53,6 +53,11 @@ function ambiente() {
         encerrarTroca: () => { ctx.encerrarTrocaDeEmpresa?.(); },
         trocarNoServidor: () => { vigente = SESSAO_B; },
         encerrarNoServidor: () => { vigente = null; },
+        /**
+         * A troca termina logo depois, concluída na sessão Beta, como a troca real termina quando o POST responde. Desde a
+         * rodada 12 de "Guardar na aba", a confirmação antiga espera o resultado da troca antes de decidir.
+         */
+        concluirTrocaEmSeguida: () => { setTimeout(() => { vigente = SESSAO_B; ctx.encerrarTrocaDeEmpresa?.(); }, 5); },
         /** A próxima leitura GET da sessão fica presa até `liberar` e responde com a sessão vigente ao ser liberada. */
         prenderLeitura: (comSessaoAnterior = false) => { const s = segurarProximaLeitura(); leituraPresa = s.p; presaComSessaoAnterior = comSessaoAnterior; return s.abrir; },
         /**
@@ -177,7 +182,8 @@ test('AdminShell: leituras do shell que saíram antes ou durante a troca ignoram
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /const carregar = \(\) => \{ const marca = marcaDaSessao\(\); return fetch\('\/api\/admin\/autenticacao'[\s\S]*?if \(sessaoObsoletaDesde\(marca\)\)\s*return;\s*if \(!b\.ok \|\| !b\.data\.usuarioId\) \{/);
     // Revisão do Astra (28/10/2026, P2-2): o login guarda o retorno ao consentimento MCP (loginDestaPagina); a guarda continua.
-    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) router\.replace\(loginDestaPagina\(\)\); \}\);/);
+    // A busca guardada na aba sai junto com a ida ao login (rodada 10 de "Guardar na aba"); resposta obsoleta não faz nenhum dos dois.
+    assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) \{ encerrarBuscasDaAba\(\); router\.replace\(loginDestaPagina\(\)\); \} \}\);/);
 });
 
 // ---------------------------------------------------------------- B1, B2 e aviso perdido (parecer de 11/10/2026)

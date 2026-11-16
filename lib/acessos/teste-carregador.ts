@@ -18,6 +18,7 @@ export function carregarModulo(arquivo: string, dubles: Record<string, unknown>,
     const exports: Record<string, unknown> = {};
     cache.set(absoluto, exports);
     const code = ts.transpileModule(readFileSync(absoluto, 'utf8'), {
+        fileName: absoluto,
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText;
     const dir = path.dirname(absoluto);

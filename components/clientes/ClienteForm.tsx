@@ -15,6 +15,7 @@ import {
   type ClienteDetalheApi,
 } from "@/lib/clientes/api-client";
 import { cpfValido } from "@/lib/clientes/utils";
+import { cpfEditavelNaEdicao } from "@/lib/clientes/edicao-cpf";
 import { cnpjRaizPlaceholder, cnpjValido } from "@/lib/cadastro/cnpj";
 import ProdutoBrand from "@/components/layout/ProdutoBrand";
 import { AvisoGlobal, MensagemCampo, ResumoErros } from "@/components/ui/ErrosFormulario";
@@ -163,6 +164,9 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
   const pj = form.tipoPessoa === "PJ";
   const tipoOriginal = detalheInicial?.cliente.tipoPessoa === "PJ" ? "PJ" : "PF";
   const trocandoTipo = mode === "edit" && form.tipoPessoa !== tipoOriginal;
+  // Completar o CPF de um cadastro que ainda não tem um é permitido; trocar um CPF salvo segue bloqueado.
+  const cpfBloqueado = mode === "edit" && !cpfEditavelNaEdicao(detalheInicial?.cliente.cpf, trocandoTipo);
+  const conferirCpfDuplicado = mode === "create" || (mode === "edit" && !cpfBloqueado);
   // Sem a 112, PJ não é oferecida (uma PJ só existe com ela; a edição de uma PJ existente segue normal).
   const pjIndisponivel = analise?.pessoaJuridicaDisponivel === false && tipoOriginal !== "PJ";
   const cnpjExistente = pj ? analise?.cnpjExistente ?? null : null;
@@ -204,7 +208,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       if (form.representanteCpf.trim() && !cpfValido(form.representanteCpf)) erros.push({ campo: idCampo("representanteCpf"), mensagem: "Informe um CPF válido para o representante." });
       if (form.representanteCpf.trim() && !form.representanteNome.trim()) erros.push({ campo: idCampo("representanteNome"), mensagem: "Informe o nome do representante." });
     } else if (form.cpf.trim() && !cpfValido(form.cpf)) erros.push({ campo: idCampo("cpf"), mensagem: "Informe um CPF válido." });
-    else if (mode === "create" && analise?.cpfExistente) erros.push({ campo: idCampo("cpf"), mensagem: `Este CPF já pertence a ${analise.cpfExistente.nomeCompleto}. Use o cadastro existente.` });
+    else if (conferirCpfDuplicado && analise?.cpfExistente) erros.push({ campo: idCampo("cpf"), mensagem: `Este CPF já pertence a ${analise.cpfExistente.nomeCompleto}. Use o cadastro existente.` });
     return erros;
   }
 
@@ -292,7 +296,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
     try {
       const resultado = mode === "create"
         ? await cadastrarClienteApi(form)
-        : await atualizarClienteApi(clienteId!, form);
+        : await atualizarClienteApi(clienteId!, form, detalheInicial?.cliente.cpf);
       setSalvoId(resultado.cliente.id);
       setDetalheInicial((atual) => atual ? { ...atual, cliente: resultado.cliente, cadastro: resultado.cadastro } : atual);
       if (mode === "edit") setForm(clienteParaForm(resultado.cliente));
@@ -314,7 +318,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
   const errosPorCampo = mapaErros(errosCampo);
   const campo = (k: keyof ClienteFormData) => propsCampo(idCampo(k), errosPorCampo[idCampo(k)]);
   const mensagem = (k: keyof ClienteFormData) => <MensagemCampo id={idCampo(k)} mensagem={errosPorCampo[idCampo(k)]} />;
-  const cpfExistente = mode === "create" && !pj ? analise?.cpfExistente ?? null : null;
+  const cpfExistente = conferirCpfDuplicado && !pj ? analise?.cpfExistente ?? null : null;
 
   if (carregando) {
     return (
@@ -407,9 +411,9 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
                 <>
                   <label>
                     <span>CPF</span>
-                    <input {...campo("cpf")} value={form.cpf} disabled={mode === "edit" && !trocandoTipo} onChange={(e) => update("cpf", e.target.value)} placeholder="000.000.000-00" />
+                    <input {...campo("cpf")} value={form.cpf} disabled={cpfBloqueado} onChange={(e) => update("cpf", e.target.value)} placeholder="000.000.000-00" />
                     {mensagem("cpf")}
-                    {mode === "edit" && !trocandoTipo && <small className={styles.fieldHelp}>Alteração de CPF será habilitada com autenticação/permissões reais.</small>}
+                    {cpfBloqueado && <small className={styles.fieldHelp}>Alteração de CPF será habilitada com autenticação/permissões reais.</small>}
                   </label>
                   <label><span>RG</span><input {...campo("rg")} value={form.rg} onChange={(e) => update("rg", e.target.value)} placeholder="Opcional" />{mensagem("rg")}</label>
                 </>

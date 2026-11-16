@@ -4,7 +4,7 @@ export type ContratoStatus =
   | "CANCELADO";
 
 /** `CONFERENCIA_PAPEL`: contrato histórico assinado em papel (061); nunca é aceite eletrônico. */
-export type ContratoAceiteMetodo = "OTP" | "CONFERENCIA_PAPEL";
+export type ContratoAceiteMetodo = "OTP" | "CONFERENCIA_PAPEL" | "PAPEL_CLIENTE";
 
 export type ContratoVersaoStatus =
   | "ATIVA"

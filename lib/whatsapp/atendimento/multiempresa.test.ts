@@ -45,11 +45,13 @@ function comercial(op: { schema?: boolean; isenta?: boolean; plano?: string | nu
     return [];
   });
 }
-test('8: direito comercial na ordem fixa (§2.3) com D-ME-1', async () => {
+test('8: direito comercial na ordem fixa (§2.3) com D-ME-1 e D-OF-1', async () => {
   const casos: [Parameters<typeof comercial>[0], me.SituacaoDireito, boolean][] = [
     [{ isenta: true, plano: 'essencial' }, 'ISENCAO', true],
-    [{ plano: 'essencial' }, 'PLANO_INCLUI', true],
-    [{ plano: 'PROFISSIONAL' }, 'PLANO_INCLUI', true],
+    [{ plano: 'essencial' }, 'PLANO_NAO_INCLUI', false],
+    [{ plano: 'PROFISSIONAL' }, 'PLANO_NAO_INCLUI', false],
+    [{ plano: 'PREMIUM' }, 'PLANO_INCLUI', true],
+    [{ plano: 'profissional', assinatura: { teste: true } }, 'PLANO_NAO_INCLUI', false],
     [{ plano: 'premium', assinatura: { teste: true } }, 'PLANO_INCLUI', true],
     [{ assinatura: { teste: true } }, 'TESTE', true],
     [{ assinatura: { teste: false } }, 'LEGADO', false],
@@ -59,7 +61,7 @@ test('8: direito comercial na ordem fixa (§2.3) com D-ME-1', async () => {
     assert.equal(await me.situacaoDireitoAtendimento(comercial(op).tx, 'b'), situacao, JSON.stringify(op));
     assert.equal(await me.direitoAtendimentoWhatsApp(comercial(op).tx, 'b'), direito, JSON.stringify(op));
   }
-  assert.deepEqual([...me.PLANOS_ATENDIMENTO_WHATSAPP].sort(), ['essencial', 'premium', 'profissional'], 'D-ME-1: todos os planos do catálogo');
+  assert.deepEqual([...me.PLANOS_ATENDIMENTO_WHATSAPP].sort(), ['premium'], 'D-OF-1: só o Premium');
 });
 
 test('8b/7: schema comercial ausente, plano desconhecido ou erro de leitura = transitório (nunca SIM nem NÃO)', async () => {

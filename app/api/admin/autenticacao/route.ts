@@ -14,6 +14,7 @@ import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
 import { recursoIncluido } from '@/lib/assinatura/recursos-plano';
 import { menuMarketingVisivel } from '@/lib/marketing/capacidades';
+import { menuSatisfacao } from '@/lib/satisfacao/escopo';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
@@ -54,10 +55,14 @@ export async function GET(request: NextRequest) {
             // E4: situação comercial da empresa selecionada, só para a tela (a barreira está na guarda das APIs).
             const comercial = contexto.empresaAtual ? await resumoComercialDaEmpresa(db(), contexto.empresaAtual.id) : null;
             // Recursos do plano, só para o menu (a barreira está nas APIs). Falha de leitura esconde o item, não derruba a sessão.
+            const marketingVisivel = contexto.empresaAtual ? await menuMarketingVisivel(db(),contexto.empresaAtual.id,session.usuario_id,contexto.gestaoNaEmpresa,recursoIncluido) : false;
+            const pedidosNovos = marketingVisivel && contexto.empresaAtual ? await db().query<{n:number}>("SELECT count(*)::int AS n FROM marketing_contatos WHERE empresa_id=$1::uuid AND status='NOVO'",[contexto.empresaAtual.id]).then(r=>r.rows[0]?.n??0).catch(()=>0) : 0;
             const recursos = contexto.empresaAtual
                 ? {
                     financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false),
-                    marketing: await menuMarketingVisivel(db(), contexto.empresaAtual.id, session.usuario_id, contexto.gestaoNaEmpresa, recursoIncluido),
+                    marketing: marketingVisivel, pedidosNovos,
+                    // PS-4: menu Satisfação relido numa instrução (membership, vigência, papel e concessões); erro → null (oculto).
+                    satisfacao: await menuSatisfacao(db(), contexto.empresaAtual.id, session.usuario_id),
                 }
                 : null;
             return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, recursos, cadastroAberto: situacaoCadastro().ativo } });

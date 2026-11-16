@@ -23,7 +23,7 @@ function ambiente(roteiro: { sessoes: Sessao[]; aoLer?: (n: number, ctx: Ctx) =>
     g.window = { addEventListener() {}, removeEventListener() {}, location: { pathname: '/admin/configuracoes', search: '', replace: (u: string) => navegacoes.push(`replace:${u}`), assign: (u: string) => navegacoes.push(`assign:${u}`) } };
     g.sessionStorage = { getItem: (k: string) => armazenado.get(k) ?? null, setItem: (k: string, v: string) => armazenado.set(k, v), removeItem: (k: string) => armazenado.delete(k) };
     const cache = new Map();
-    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, cache) as unknown as { adminFetch: (u: string, i?: RequestInit) => Promise<Response>; ESPERA_DA_TROCA: { prazoMs: number }; AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO: string };
+    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, cache) as unknown as { adminFetch: (u: string, i?: RequestInit) => Promise<Response>; ESPERA_DA_TROCA: { prazoMs: number }; AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO: string; AVISO_ESCRITA_EM_VERIFICACAO: string };
     const ctx = carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, cache) as unknown as Ctx & { registrarContextoEmpresa: (s: string, e: string | null) => boolean };
     const cli = carregarModulo('lib/enderecos/cliente.ts', {}, cache) as unknown as { iniciarAcompanhamento: () => () => void; enderecoFinal: () => boolean };
     g.fetch = async (input: string, init: RequestInit = {}) => {
@@ -89,7 +89,8 @@ test('aba armada, troca de empresa desta página pendente vence o prazo depois d
     assert.deepEqual([e.tipo, e.enviado], ['SESSAO_NAO_CONFIRMADA', true]);
     assert.equal(a.consultas(), antes, 'prazo da troca de empresa não é indício de troca de host');
     assert.equal(a.cli.enderecoFinal(), false);
-    assert.equal(a.ctx.lerAvisoDeContexto(), a.mod.AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO, 'o resultado conhecido da escrita fica guardado');
+    // Merge da staging (Recorte 5 r12): troca ainda pendente no fim = nada recarregado; o aviso da escrita é o EM_VERIFICACAO.
+    assert.equal(a.ctx.lerAvisoDeContexto(), a.mod.AVISO_ESCRITA_EM_VERIFICACAO, 'o resultado conhecido da escrita fica guardado');
     assert.deepEqual(a.navegacoes, [], 'com a troca pendente, a navegação é dela');
     assert.equal(a.envios(), 1);
     a.ctx.encerrarTrocaDeEmpresa();

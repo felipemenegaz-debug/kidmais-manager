@@ -1,5 +1,7 @@
 # Recebimentos e parcelas
 
+!video[Vídeo: recebimentos e parcelas, passo a passo](/ajuda/videos/recebimentos-e-parcelas.mp4)
+
 ## O que a Visão geral do Financeiro mostra
 
 Abra [Financeiro, Visão geral](/admin/financeiro). No topo aparecem:

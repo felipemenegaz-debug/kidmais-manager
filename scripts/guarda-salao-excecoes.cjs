@@ -6,6 +6,18 @@
  * Medição da fase 0 (01/11/2026): 6 origens em lib/ e app/ (por função) e 58 arquivos de scripts/ (por arquivo, abaixo).
  */
 const EXCECOES = [
+  {arquivo:'scripts/migration-122-comum.cjs',funcao:'conferirCliente',motivo:'Aplicador 122: SQL fixado por SHA-256 do precheck/postcheck e identidade do adaptador de ambiente; conferência somente em READ ONLY.'},
+  {arquivo:'scripts/migration-122-comum.cjs',funcao:'principal',motivo:'Aplicador 122: SQL da migration revisado por SHA-256, corpo sem BEGIN/COMMIT, executado em transação única com postcheck antes do COMMIT.'},
+  {
+    arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerBanco",
+    motivo: "Conferidor G-VAZIO (B-26): SELECT count, hash e situação em public.<objeto>, com objeto e colunas só das listas " +
+      "fechadas MATRIZ, COLUNAS_HASH e SITUACAO do próprio arquivo, numa transação REPEATABLE READ READ ONLY. Só leitura.",
+  },
+  {
+    arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerAncoras",
+    motivo: "Conferidor G-VAZIO (B-26): SELECT do hash de pg_get_functiondef das funções da lista fechada ANCORAS do próprio " +
+      "arquivo (sqlAncoras), na transação REPEATABLE READ READ ONLY de quem chama. Só leitura.",
+  },
   {
     arquivo: "lib/comercial/pacotes-admin.ts", funcao: "excluirPacoteArquivadoAdmin",
     motivo: "SELECT count(*) FROM <tabela> WHERE <coluna> = $1: tabela e coluna vêm do catálogo de FKs (pg_constraint) " +
@@ -82,6 +94,13 @@ const APLICADORES = [
   // Aplicador da 118 (cota de leitura da importação, L2; 08/11/2026), mesma forma do 117: as origens do wrapper -staging
   // nascem no -comum (sem exceção própria).
   "migration-118-comum.cjs",
+  // Promoção única de production (12/11/2026): aplicador genérico da 120, 121, 110, 111 e 115, que não têm aplicador
+  // próprio. Mesma forma dos demais: o SQL é o texto de database/*.sql (lista fechada, sha256 fixado no próprio arquivo).
+  // Os adaptadores -production novos só herdam a origem do respectivo -comum (sem exceção própria).
+  "migration-generico-production.cjs",
+  // Ensaio local da promoção (12/11/2026), modo --retrato-da-copia (D-ENS-1): CREATE/DROP DATABASE dos gêmeos num cluster local
+  // descartável e um cliente que só repassa as consultas dos núcleos. Mesma forma de ensaio-lancamento-local.cjs.
+  "ensaio-promocao-local.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",

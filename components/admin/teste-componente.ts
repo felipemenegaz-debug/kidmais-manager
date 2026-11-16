@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as jsx from 'react/jsx-runtime';
+import * as modeloOportunidades from '../../lib/oportunidades/modelo.ts';
 
 /**
  * Renderiza um componente TSX real com hooks isolados, sem DOM (mesma técnica de criacao-financeira.test.ts).
@@ -68,8 +69,14 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
   const js = ts.transpileModule(readFileSync(arquivo, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
-  // Aba fora da troca de host, salvo se o teste disser outra coisa.
-  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, ...deps };
+  // Aba fora da troca de host e sem busca guardada na aba, salvo se o teste disser outra coisa.
+  // Reserva por e-mail do código (12/11/2026): módulo real, com os mesmos hooks isolados do componente.
+  const reservaEmail: Record<string, unknown> = {};
+  new Function('require', 'exports', ts.transpileModule(readFileSync('components/identidade/reserva-email.ts', 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText)((id: string) => { assert(id === 'react', `dependência não prevista: ${id}`); return hooks; }, reservaEmail);
+  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
+  todos['@/lib/oportunidades/modelo'] ??= modeloOportunidades;
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 
   return {

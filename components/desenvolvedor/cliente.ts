@@ -151,6 +151,9 @@ const ACOES: Record<string, string> = {
     ASSINATURA_DUPLICADA_REMOVIDA: 'Assinatura duplicada removida no provedor',
     CONVITE_GERACAO_RESOLVIDA: 'Geração de convite sem resultado decidida',
     CONVITE_GERACAO_CONCLUIDA_COM_IMAGEM: 'Geração de convite concluída com a imagem retida',
+    CREDITOS_CORTESIA: 'Cortesia de créditos de IA concedida',
+    CREDITOS_DEVOLUCAO_ATENDIMENTO: 'Devolução de créditos de IA registrada pelo atendimento',
+    CREDITOS_DEVOLUCAO_CONCLUIDA: 'Devolução de créditos de IA concluída (restituição conferida no Asaas)',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

@@ -1,5 +1,7 @@
 # Clientes
 
+!video[Vídeo: como cadastrar e acompanhar clientes, passo a passo](/ajuda/videos/cadastrar-clientes.mp4)
+
 ## Onde ficam os clientes
 
 Os clientes ficam em [Clientes](/clientes), no menu Operação. A lista mostra o nome, o WhatsApp ou telefone e a situação de cada família. O aviso **Cadastro incompleto** indica que ainda faltam dados para o contrato.
@@ -13,7 +15,7 @@ Os clientes ficam em [Clientes](/clientes), no menu Operação. A lista mostra o
 3. Se já tiver, informe CPF, RG, e-mail e endereço. Ao digitar os 8 números do CEP, o endereço é preenchido sozinho.
 4. Clique em **Salvar cliente** e depois em **Abrir perfil do cliente**.
 
-CPF e endereço podem ficar para depois, mas são necessários antes do contrato. Se o CPF já for de outro cliente, o cadastro é bloqueado e aparece o link para o cadastro existente. Se o contato ou o nome parecerem repetidos, o sistema só avisa.
+CPF, e-mail e endereço podem ficar para depois, mas são necessários antes do fechamento e do contrato. Se o CPF já for de outro cliente, o cadastro é bloqueado e aparece o link para o cadastro existente. Se o contato ou o nome parecerem repetidos, o sistema só avisa.
 
 ## Como buscar um cliente
 

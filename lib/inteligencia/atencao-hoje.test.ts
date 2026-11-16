@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ZodError } from "zod";
 import type { Recebivel } from "../financeiro/servico.ts";
-import { atencaoHoje, montarAtencaoHoje } from "./atencao-hoje.ts";
+import { atencaoHoje, lerAtencaoHoje, montarAtencaoHoje } from "./atencao-hoje.ts";
+import { saidaAtencaoSchema } from "./registro-ferramentas.ts";
 import { SEM_PORTAS } from "./ferramentas.ts";
 
 const contexto = { hoje: "2026-09-28", geradoEm: "2026-09-28T15:00:00.000Z", portas: SEM_PORTAS };
@@ -105,4 +106,45 @@ test("a ferramenta aceita somente parâmetros vazios e nunca uma empresa", () =>
   for (const invalido of [{ empresaId: "22222222-2222-4222-8222-222222222222" }, { hoje: "2020-01-01" }, "texto", null, []]) {
     assert.throws(() => atencaoHoje.preparar(invalido), ZodError, JSON.stringify(invalido));
   }
+});
+
+test("P2: pendências do caixa entram com quantidade e centavos, prioridade média e destino no fluxo", () => {
+  const caixa = { quantidade: 3, centavos: 123_450 };
+  const emDia = [recebivel({ id: "r1", status: "A receber", vencimento: "2026-10-20", saldoCentavos: 10_000 })];
+  const resultado = montarAtencaoHoje(emDia, contexto, caixa);
+  assert.equal(resultado.estado, "atencao", "conferência pendente pede atenção");
+  const item = resultado.itens.find((i) => i.tipo === "CAIXA_A_CONFERIR");
+  assert.ok(item);
+  assert.equal(item.prioridade, "media");
+  assert.equal(item.destino, "/admin/financeiro/fluxo-caixa");
+  assert.deepEqual(item.evidencia, { fonte: "financeiro.caixa.abertura", quantidade: 3, valorCentavos: 123_450 });
+  assert.match(item.detalhe, /R\$\s?1\.234,50/);
+  assert.match(resultado.resumo, /3 movimentos desde a abertura precisam ser conferidos/);
+  assert.deepEqual(resultado.itens.map((i) => i.tipo), ["CAIXA_A_CONFERIR", "A_RECEBER_EM_ABERTO"]);
+  assert.equal(saidaAtencaoSchema.safeParse(resultado).success, true, "o registro de ferramentas aceita o tipo novo");
+});
+
+test("P2: sem recebíveis mas com caixa a conferir não é sem_dados; sem pendência nada muda", () => {
+  const so = montarAtencaoHoje([], contexto, { quantidade: 1, centavos: 5_000 });
+  assert.equal(so.estado, "atencao");
+  assert.deepEqual(so.itens.map((i) => [i.tipo, i.evidencia.quantidade, i.evidencia.valorCentavos]), [["CAIXA_A_CONFERIR", 1, 5_000]]);
+  assert.match(so.resumo, /1 movimento desde a abertura precisa ser conferido/);
+  assert.equal(montarAtencaoHoje([], contexto, { quantidade: 0, centavos: 0 }).estado, "sem_dados");
+  assert.equal(montarAtencaoHoje([], contexto, null).estado, "sem_dados");
+});
+
+test("P2: a ferramenta só lê o caixa com financeiro completo confirmado pela porta do plano", async () => {
+  const tx = {} as never;
+  const chamadas: string[] = [];
+  const leituras = {
+    recebiveis: async () => [],
+    pendenciasCaixa: async (_tx: unknown, empresa: string) => { chamadas.push(empresa); return { quantidade: 2, centavos: 70_000 }; },
+  };
+  const comPlano = (completo: boolean) => ({ ...contexto, portas: { ...SEM_PORTAS, recursos: { financeiroCompleto: async () => completo } } });
+  const completo = await lerAtencaoHoje(tx, "empresa-a", comPlano(true), leituras);
+  assert.deepEqual(completo.itens.map((i) => [i.tipo, i.evidencia.quantidade, i.evidencia.valorCentavos]), [["CAIXA_A_CONFERIR", 2, 70_000]]);
+  assert.deepEqual(chamadas, ["empresa-a"], "lê só a empresa comprovada");
+  assert.equal((await lerAtencaoHoje(tx, "empresa-a", comPlano(false), leituras)).estado, "sem_dados");
+  assert.equal((await lerAtencaoHoje(tx, "empresa-a", contexto, leituras)).estado, "sem_dados", "sem porta, não lê o caixa");
+  assert.deepEqual(chamadas, ["empresa-a"]);
 });

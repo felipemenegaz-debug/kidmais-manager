@@ -8,6 +8,11 @@
 //     JA_APLICADA_INTEGRIDADE_PASS (código 0); DIVERGENTE, PARCIAL e FALHA_DE_CONFERENCIA (código 3: parar e analisar);
 //   - integridade REFORÇADA por definições (database/checks/20261029_105_definicoes.sql + scripts/migration-105-definicoes.cjs)
 //     além da integridade antiga (contagens e nomes), na conferência e na aplicação;
+//   - 09/11/2026: e pela DEFINIÇÃO do catálogo das seis tabelas (scripts/migration-105-relacoes.cjs, o SQL_RELACAO_105 do
+//     B-5 por tabela): NOT NULL validado (PG 18, contype 'n'), FKs de entrada de qualquer tabela, adiamento/local/sem
+//     herança/aplicada de toda restrição, gatilhos internos pelo vínculo, classe, RLS, políticas, herança, índices, colunas
+//     e a configuração (proconfig) da função. As três leituras ficam na MESMA fotografia (REPEATABLE READ na conferência;
+//     a transação única na aplicação);
 //   - APLICAR numa ÚNICA transação: trava consultiva, estado relido com as guardas, precheck, DDL (o arquivo sem o
 //     BEGIN e sem o COMMIT finais), postcheck, integridade, definições e estado completo, tudo ANTES do COMMIT;
 //   - marcador: o estado do COMMIT fica em memória (`ultimo`) e é a fonte da saída. Gravação atômica (arquivo .tmp +
@@ -26,6 +31,7 @@ const path = require('node:path');
 const comum = require('./migration-105-comum.cjs');
 const {lerRevisado} = require('./migration-092-094-comum.cjs');
 const {ESPERADO, SET_DEPARSE, compararDefinicoes} = require('./migration-105-definicoes.cjs');
+const {SQL_RELACOES, REFERENCIAS, compararRelacoes} = require('./migration-105-relacoes.cjs');
 
 const {FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR, SQL_ESTADO, lerEstado, exigirCatalogo, commitNaFalha} = comum;
 const ETAPAS = Object.freeze([...comum.ETAPAS,
@@ -36,7 +42,50 @@ const PITR = /^PITR (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) ([A-Za-z0-9:._/ -]{3,80})$/
 const PITR_IDADE_MAXIMA_MIN = 120, PITR_FUTURO_MAXIMO_MIN = 5;
 const CODIGO = Object.freeze({PLANO: 0, PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0, APLICADA_POSTCHECK_PASS: 0,
   FALHA: 2, DIVERGENTE: 3, PARCIAL: 3, FALHA_DE_CONFERENCIA: 3, FALHA_MARCADOR_DESATUALIZADO: 5});
-const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 160);
+/**
+ * Diagnóstico de erro em VOCABULÁRIO FECHADO (revisão do Astra r3, P2-3): nunca devolve message, detail, hint, where nem
+ * nomes livres de erros externos. Ordem:
+ *   1. asserção própria (ERR_ASSERTION com mensagem escrita aqui, não gerada pelo assert) cuja 1ª linha INTEIRA está em
+ *      MOTIVOS_PROPRIOS: sai essa linha (o diff de valores que o assert/strict acrescenta depois dela nunca sai);
+ *   2. asserção própria cujo primeiro termo é um código de CODIGOS_PROPRIOS (complemento fora da lista): sai só o código;
+ *   3. SQLSTATE (5 caracteres [0-9A-Z] com ao menos um dígito): ERRO_SERVIDOR <SQLSTATE>;
+ *   4. código de sistema do Node (E + maiúsculas/dígitos/_): ERRO_SISTEMA <código>;
+ *   5. o resto: ERRO_NAO_CLASSIFICADO.
+ */
+const FASES_CONFERENCIA = Object.freeze(['CONEXAO', 'ARQUIVOS', 'IDENTIDADE', 'ESTADO', 'CATALOGO', 'PRECHECK', 'INTEGRIDADE', 'CONTAGENS']);
+const MOTIVOS_SIMPLES = ['APLICACAO_CONCORRENTE_105', 'INTEGRIDADE_105_ANTES_DO_COMMIT', 'ESTADO_ANTES_DO_COMMIT_105',
+  'COMMIT_RESPONDIDO_COMO_ROLLBACK_105', 'APLICACAO_PARCIAL_105', 'SEM_PRIVILEGIO_LEITURA USAGE_PUBLIC', 'TRANSACAO_INESPERADA migration 105',
+  'DEPENDENCIA_AUSENTE_105 (usuarios_administrativos, empresas, memberships, gen_random_uuid)',
+  'UUID_PUBLICO_HOMONIMO (public.gen_random_uuid() não é o pgcrypto genuíno, ou há objeto da 105 fora do estado)',
+  'PITR_REFERENCIA_INVALIDA use "PITR <AAAA-MM-DDTHH:MMZ> <referencia>"', 'PITR_HORARIO_INVALIDO', 'PITR_CONFERENCIA_NO_FUTURO',
+  'PITR_CONFERENCIA_ANTIGA conferir de novo no painel do Render', 'BACKUP_OBRIGATORIO', 'ARGUMENTOS_RECUSADOS',
+  // adaptador de produção (scripts/migration-105-production.cjs)
+  'FORA_DO_RENDER', 'SERVICO_RECUSADO', 'AMBIENTE_RECUSADO', 'TLS_OBRIGATORIO', 'URL_RECUSADA', 'HOST_RECUSADO', 'BANCO_RECUSADO',
+  'PORTA_RECUSADA', 'CONNECTION_QUERY_REJECTED', 'BANCO_DIVERGENTE', 'SEM_TLS', 'TLS_VERSAO_RECUSADA', 'SERVIDOR_FORA_DA_REDE_PRIVADA',
+  'PAPEL_ILEGIVEL', 'SESSAO_FORA_DO_PAPEL', 'SUPERUSUARIO_RECUSADO', 'PAPEL_NAO_E_DONO_DA_APLICACAO', 'DISCO_PERSISTENTE_AUSENTE'];
+const FALTAS_105 = ['CREATE', 'REFERENCES', 'LINGUAGEM', 'GEN_RANDOM_UUID'];
+const subconjuntos = l => l.reduce((acc, x) => [...acc, ...acc.map(a => [...a, x])], [[]]).filter(a => a.length > 0);
+const MOTIVOS_PROPRIOS = Object.freeze(new Set([...MOTIVOS_SIMPLES,
+  ...['ausente', 'parcial', 'completa'].map(m => 'ESTADO_MUDOU_105 ' + m),
+  ...Object.keys(CODIGO).flatMap(c => ['JA_APLICADA_SEM_INTEGRIDADE_105 ' + c, 'CONFERENCIA_DEPOIS_DO_COMMIT_105 ' + c]),
+  ...['d105', 'usar_public', 'pode_criar', 'referencias_105', 'plpgsql', 'gerar_uuid', 'ler_105', 'papel_trocado', 'versao_pg',
+    'm105_tabelas', 'm105_funcao', 'm105_gatilho'].map(k => 'ESTADO_ILEGIVEL ' + k),
+  ...subconjuntos(FALTAS_105).map(f => 'SEM_PRIVILEGIO_105 ' + f.join(' ')), 'SEM_PRIVILEGIO_105 SELECT_TABELAS',
+  ...ETAPAS.map(([, arquivo]) => 'ARQUIVO_DIVERGENTE ' + arquivo)]));
+const CODIGOS_PROPRIOS = Object.freeze(new Set([...MOTIVOS_PROPRIOS].map(m => m.split(' ', 1)[0]).concat(['TENTATIVA_ANTERIOR_REVISAR'])));
+function diagnostico(e) {
+  const codigo = typeof e?.code === 'string' ? e.code : '';
+  if (codigo === 'ERR_ASSERTION' && e.generatedMessage === false && typeof e.message === 'string') {
+    // assert/strict pode acrescentar, depois de uma linha em branco, o diff com os valores comparados: só a 1ª linha é nossa.
+    const propria = e.message.split(String.fromCharCode(10), 1)[0];
+    if (MOTIVOS_PROPRIOS.has(propria)) return propria;
+    const primeiro = propria.split(' ', 1)[0];
+    if (CODIGOS_PROPRIOS.has(primeiro)) return primeiro;
+  }
+  if (/^(?=[0-9A-Z]*[0-9])[0-9A-Z]{5}$/.test(codigo)) return 'ERRO_SERVIDOR ' + codigo;
+  if (/^E[A-Z0-9_]{2,40}$/.test(codigo)) return 'ERRO_SISTEMA ' + codigo;
+  return 'ERRO_NAO_CLASSIFICADO';
+}
 const sqlsRevisados = raiz => new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
 
 /** O arquivo revisado sem o BEGIN e sem o COMMIT finais: o corpo entra na transação única do aplicador. */
@@ -65,9 +114,12 @@ function modo(argv, agora = Date.now()) {
   assert.fail(argv.includes(FLAG_APLICAR) ? 'BACKUP_OBRIGATORIO' : 'ARGUMENTOS_RECUSADOS');
 }
 
-/** Uma transação READ ONLY com lock_timeout, statement_timeout e search_path fixos; `corpo(q)` faz as consultas. */
+/**
+ * Uma transação REPEATABLE READ READ ONLY (uma fotografia: integridade, definições e relações leem o mesmo catálogo) com
+ * lock_timeout, statement_timeout e search_path fixos; `corpo(q)` faz as consultas.
+ */
 async function emLeitura(db, corpo) {
-  await db.query('BEGIN TRANSACTION READ ONLY');
+  await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
   try {
     await db.query("SET LOCAL lock_timeout = '5s'");
     await db.query("SET LOCAL statement_timeout = '60s'");
@@ -77,16 +129,22 @@ async function emLeitura(db, corpo) {
     return r;
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
-/** Integridade antiga (contagens/nomes) e definições, na transação corrente. Devolve {antiga, definicoes}. */
+/**
+ * Integridade antiga (contagens/nomes), definições e relações (catálogo das seis tabelas pela definição), na transação
+ * corrente e com o search_path do deparse (pg_catalog, pg_temp). Devolve {antiga, definicoes, relacoes}.
+ */
 async function integridadeCompleta(q, sqls) {
   const antiga = (await q(sqls.get('integridade 105'))).rows?.[0]?.integra_105 === true;
   for (const s of SET_DEPARSE) await q(s);
   const definicoes = compararDefinicoes((await q(sqls.get('definicoes 105'))).rows);
-  return {antiga, definicoes};
+  const relacoes = compararRelacoes((await q(SQL_RELACOES)).rows?.[0]);
+  return {antiga, definicoes, relacoes};
 }
-const integra = i => i.antiga && i.definicoes.integra;
+const integra = i => i.antiga && i.definicoes.integra && i.relacoes.integra;
 const resumo = i => ({integridade: i.antiga ? 'PASS' : 'FALHOU', definicoes: i.definicoes.integra ? 'PASS' : 'FALHOU',
-  definicoesLidas: i.definicoes.total, definicoesEsperadas: i.definicoes.esperado, divergencias: i.definicoes.divergencias.slice(0, 40)});
+  definicoesLidas: i.definicoes.total, definicoesEsperadas: i.definicoes.esperado, divergencias: i.definicoes.divergencias.slice(0, 40),
+  relacoes: i.relacoes.integra ? 'PASS' : 'FALHOU', relacoesVersaoPg: i.relacoes.versaoPg, relacoesTabelas: i.relacoes.tabelas,
+  divergenciasRelacoes: i.relacoes.divergencias.slice(0, 40)});
 
 /** Contagens informativas (sem ids), só com a 105 completa. */
 const SQL_CONTAGENS = `SELECT (SELECT count(*) FROM public.mcp_oauth_clientes)::int AS clientes,
@@ -96,17 +154,22 @@ const SQL_CONTAGENS = `SELECT (SELECT count(*) FROM public.mcp_oauth_clientes)::
 
 /**
  * Conferência somente leitura. Nunca lança: qualquer erro (conexão, identidade, consulta, guarda) vira
- * FALHA_DE_CONFERENCIA com o motivo curto.
+ * FALHA_DE_CONFERENCIA com a fase (FASES_CONFERENCIA) e o motivo em vocabulário fechado (diagnostico).
  */
 async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
   const r = {modo: 'conferencia'};
+  let fase = 'ARQUIVOS';
   try {
     const sqls = sqlsRevisados(raiz);
+    fase = 'IDENTIDADE';
     r.conexao = identidade((await emLeitura(db, q => q(sqlIdentidade))).rows[0]);
+    fase = 'ESTADO';
     r.estado = lerEstado((await emLeitura(db, q => q(SQL_ESTADO))).rows[0]);
     if (r.estado.m105 === 'parcial') return {...r, resultado: 'PARCIAL', motivo: 'APLICACAO_PARCIAL_105'};
+    fase = 'CATALOGO';
     exigirCatalogo(r.estado);
     if (r.estado.m105 === 'ausente') {
+      fase = 'PRECHECK';
       // Com a 105 ausente, o inventário só pode trazer a linha do public.gen_random_uuid(): ausente ou o pgcrypto
       // genuíno. Um homônimo seria resolvido pelo DEFAULT das chaves na aplicação (revisão do Astra, rodada 1, P2-2).
       const uuid = await emLeitura(db, async q => {
@@ -119,10 +182,18 @@ async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
         'UUID_PUBLICO_HOMONIMO (public.gen_random_uuid() não é o pgcrypto genuíno, ou há objeto da 105 fora do estado)');
       return {...r, checks: {'precheck 105': 'PASS', 'uuid publico': linhaUuid.definicao === 'ausente' ? 'AUSENTE' : 'PGCRYPTO'}, resultado: 'PRONTA_PARA_APLICAR'};
     }
-    const i = await emLeitura(db, async q => ({...await integridadeCompleta(q, sqls), contagens: (await q(SQL_CONTAGENS)).rows[0]}));
-    r.contagens = i.contagens; r.checks = resumo(i);
+    // Contagens só com a integridade íntegra (P2-3: deriva de RLS/políticas não chega a executar a contagem).
+    fase = 'INTEGRIDADE';
+    const i = await emLeitura(db, async q => {
+      const ii = await integridadeCompleta(q, sqls);
+      if (!integra(ii)) return ii;
+      fase = 'CONTAGENS';
+      return {...ii, contagens: (await q(SQL_CONTAGENS)).rows[0]};
+    });
+    if (i.contagens) r.contagens = i.contagens;
+    r.checks = resumo(i);
     return {...r, resultado: integra(i) ? 'JA_APLICADA_INTEGRIDADE_PASS' : 'DIVERGENTE'};
-  } catch (e) { return {...r, resultado: 'FALHA_DE_CONFERENCIA', motivo: curta(e)}; }
+  } catch (e) { return {...r, resultado: 'FALHA_DE_CONFERENCIA', fase, motivo: diagnostico(e)}; }
 }
 
 /**
@@ -160,6 +231,7 @@ async function transacaoUnica(db, sqls, passo, registrar) {
     if (c?.command === 'ROLLBACK') { passo.commit = 'DESFEITA_PELO_SERVIDOR'; assert.fail('COMMIT_RESPONDIDO_COMO_ROLLBACK_105'); }
   } catch (e) {
     if (!passo.commit) passo.commit = fase === 'commit' ? commitNaFalha(e) : 'NAO_COMMITADA';
+    passo.faseDaFalha = fase;
     if (fase !== 'commit') await db.query('ROLLBACK').catch(() => {});
     try { registrar(); } catch { /* o estado do COMMIT segue em memória; a saída o informa */ }
     throw e;
@@ -178,7 +250,7 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   exigirCatalogo(r.estadoAntes);
   if (r.estadoAntes.m105 === 'completa') {
     const c = await conferirNoCliente(db, {raiz, sqlIdentidade, identidade});
-    r.conferencia = {resultado: c.resultado, checks: c.checks, motivo: c.motivo}; registrar(r);
+    r.conferencia = {resultado: c.resultado, checks: c.checks, fase: c.fase, motivo: c.motivo}; registrar(r);
     assert.equal(c.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', 'JA_APLICADA_SEM_INTEGRIDADE_105 ' + c.resultado);
     r.resultado = 'JA_APLICADA_INTEGRIDADE_PASS'; registrar(r);
     return r;
@@ -188,7 +260,7 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
   await transacaoUnica(db, sqls, passo, () => registrar(r));
   Object.assign(passo, {ok: true, fim: new Date().toISOString()}); registrar(r);
   const depois = await conferirNoCliente(db, {raiz, sqlIdentidade, identidade});
-  r.conferenciaDepois = {resultado: depois.resultado, checks: depois.checks, motivo: depois.motivo}; r.contagensDepois = depois.contagens;
+  r.conferenciaDepois = {resultado: depois.resultado, checks: depois.checks, fase: depois.fase, motivo: depois.motivo}; r.contagensDepois = depois.contagens;
   registrar(r);
   assert.equal(depois.resultado, 'JA_APLICADA_INTEGRIDADE_PASS', 'CONFERENCIA_DEPOIS_DO_COMMIT_105 ' + depois.resultado);
   r.resultado = 'APLICADA_POSTCHECK_PASS'; registrar(r);
@@ -203,7 +275,8 @@ function criarAplicador(amb) {
     return {resultado: 'PLANO', conecta: false, ambiente: amb.nome, alvo: amb.ALVO,
       arquivos: ETAPAS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
       definicoesEsperadas: Object.keys(ESPERADO).length,
-      provaNoAlvo: 'uma transação: trava, estado, precheck, DDL, postcheck, integridade, definições e estado completo ANTES do COMMIT; depois, CONFERIR em READ ONLY',
+      relacoesEsperadas: Object.fromEntries(Object.entries(REFERENCIAS).map(([t, r]) => [t, r.split(String.fromCharCode(10)).length])),
+      provaNoAlvo: 'uma transação: trava, estado, precheck, DDL, postcheck, integridade, definições, relações e estado completo ANTES do COMMIT; depois, CONFERIR em REPEATABLE READ READ ONLY',
       modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} "PITR <AAAA-MM-DDTHH:MMZ> <referencia>"`}, registro: amb.DIR,
       estadosDaConferencia: {PRONTA_PARA_APLICAR: 0, JA_APLICADA_INTEGRIDADE_PASS: 0, DIVERGENTE: 3, PARCIAL: 3, FALHA_DE_CONFERENCIA: 3},
       ordem: amb.ordem,
@@ -221,7 +294,7 @@ function criarAplicador(amb) {
     const opts = amb.alvo(env);
     const db = new Client(opts); db.on?.('error', () => undefined);
     try {
-      try { await db.connect(); } catch (e) { return {modo: 'conferencia', resultado: 'FALHA_DE_CONFERENCIA', motivo: 'CONEXAO ' + curta(e)}; }
+      try { await db.connect(); } catch (e) { return {modo: 'conferencia', resultado: 'FALHA_DE_CONFERENCIA', fase: 'CONEXAO', motivo: diagnostico(e)}; }
       return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env)});
     } finally { await db.end().catch(() => {}); }
   }
@@ -249,11 +322,11 @@ function criarAplicador(amb) {
         contagensDepois: r.contagensDepois, etapas: r.etapas.map(e => e.nome), commit: commitDe(r), pitr: gate};
     } catch (e) {
       // Já conectou: o estado do COMMIT vem da memória (`ultimo`), nunca do disco. Parecer B-3 (P2) e plano P1 (P2-4).
-      const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? (ultimo.conexao ? 'ESTADO' : 'CONEXAO'), mensagem: curta(e)};
+      const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? (ultimo.conexao ? 'ESTADO' : 'CONEXAO'), mensagem: diagnostico(e)};
       const situacao = {commit: commitDe(ultimo), reconciliar: `${FLAG_CONFERIR} antes de qualquer decisão; não repetir`};
       try { salvar({...ultimo, situacao: 'FALHA', falha, ...situacao}); }
       catch (e2) {
-        return {resultado: 'FALHA_MARCADOR_DESATUALIZADO', marcador, falha, ...situacao, marcadorAtualizado: false, erroMarcador: curta(e2),
+        return {resultado: 'FALHA_MARCADOR_DESATUALIZADO', marcador, falha, ...situacao, marcadorAtualizado: false, erroMarcador: diagnostico(e2),
           aviso: 'MARCADOR_DESATUALIZADO: esta saída é o único registro do COMMIT; copiá-la; não repetir'};
       }
       return {resultado: 'FALHA', marcador, falha, ...situacao, marcadorAtualizado: true};
@@ -268,10 +341,10 @@ function criarAplicador(amb) {
   function cli() {
     principal(process.argv.slice(2), process.env).then(({codigo, saida}) => {
       (codigo === 0 ? console.log : console.error)(JSON.stringify(saida)); process.exitCode = codigo;
-    }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
+    }).catch(e => { console.error('RECUSADO ' + diagnostico(e)); process.exitCode = 1; });
   }
   return {plano, conferir, executar, principal, cli, CODIGO};
 }
 
-module.exports = {ETAPAS, TRAVA, CODIGO, PITR_IDADE_MAXIMA_MIN, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
+module.exports = {ETAPAS, TRAVA, CODIGO, FASES_CONFERENCIA, MOTIVOS_PROPRIOS, CODIGOS_PROPRIOS, diagnostico, PITR_IDADE_MAXIMA_MIN, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
   corpoDaMigration, lerPitr, modo, conferirNoCliente, aplicarNoCliente, transacaoUnica, criarAplicador};

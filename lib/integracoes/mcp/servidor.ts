@@ -87,7 +87,7 @@ export function fabricaServidor(deps: DependenciasTransporte) {
           const dados = await executarFerramentaMcp(nome, args, principal, deps.ferramentas);
           return { content: [{ type: "text", text: JSON.stringify(dados) }], structuredContent: dados as unknown as Record<string, unknown> };
         } catch (error) {
-          return resultadoErro(error instanceof ErroCanalMcp ? error : new ErroCanalMcp("INDISPONIVEL", "Não foi possível consultar o KidMais agora.", "INDISPONIVEL"), desafio);
+          return resultadoErro(error instanceof ErroCanalMcp ? error : new ErroCanalMcp("INDISPONIVEL", "Não foi possível consultar o iA.Fest agora.", "INDISPONIVEL"), desafio);
         }
       }) as never);
     }

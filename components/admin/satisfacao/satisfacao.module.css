@@ -1,0 +1,25 @@
+/* PS-4: telas da Satisfação no padrão escuro do painel (violeta/lilás; laranja só para alerta; listas sem fundo branco). */
+.cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.cartoes > a { text-decoration: none; color: inherit; }
+.aviso { display: block; margin-top: 6px; color: #fdba74; }
+.histograma { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; align-items: end; height: 140px; }
+.histograma li { display: grid; grid-template-rows: 1fr auto auto; justify-items: center; height: 100%; min-width: 0; font-size: 12px; color: var(--km-text-2); }
+.histograma b { color: var(--km-text); }
+.barra { align-self: end; width: 100%; max-width: 28px; border-radius: 6px 6px 2px 2px; background: rgba(124, 58, 237, 0.75); }
+.barra[data-faixa="detrator"] { background: rgba(249, 115, 22, 0.75); }
+.barra[data-faixa="neutro"] { background: rgba(201, 182, 255, 0.55); }
+.lista { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.lista > li { padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); min-width: 0; }
+.lista > li[data-destaque] { border-color: rgba(201, 182, 255, 0.8); box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.35); }
+.linhaTopo { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-width: 0; }
+.linhaTopo span { color: var(--km-text-2); overflow-wrap: anywhere; }
+.linhaTopo [data-nota-faixa="detrator"] { color: #fdba74; }
+.aspectos { margin: 6px 0 0; font-size: 13px; color: var(--km-text-2); }
+.comentario { margin: 6px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.check { display: flex !important; align-items: center; gap: 8px; }
+.abas { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.abas button[aria-pressed="true"] { border-color: rgba(201, 182, 255, 0.8); color: #fff; }
+@media (max-width: 520px) {
+  .histograma { gap: 3px; height: 120px; }
+  .histograma small { font-size: 10px; }
+}

@@ -1,5 +1,6 @@
 import type {DbExecutor} from '../db/contracts';
 import {travarConfiguracaoAgenda} from '../agenda/trava-configuracao';
+import {papelClienteInstalado} from '../contratos/papel-cliente-instalado';
 export type Registro={id:string;[key:string]:unknown};
 export type Festa=Registro & {contrato_id:string;revisao:number;versao_contratual_criacao_id:string};
 export type Contrato={id:string;fechamento_id:string;status:string;cancelado_em:string|null;versao_id:string;estado:string;status_versao:string;numero_versao:number;snapshot:{evento:{convidados:number;data:string};[key:string]:unknown}};
@@ -22,5 +23,12 @@ export async function contagens(tx:DbExecutor,f:Festa){
  return {atual:atuais};
 }
 
-export const formalizacaoElegivelSql="c.status='ASSINADO' AND v.status='ASSINADA' AND e.estado='CONCLUIDA' AND (SELECT count(DISTINCT a.parte) FROM contrato_assinaturas a WHERE a.contrato_versao_id=v.id AND a.parte IN ('KIDMAIS','CLIENTE'))=2";
-export async function formalizacaoCompleta(tx:DbExecutor,versaoId:string){return (await tx.query(`SELECT v.id FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id=c.id JOIN contrato_versoes v ON v.id=cf.versao_vigente_id JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.id=$1 AND ${formalizacaoElegivelSql}`,[versaoId])).rows.length>0;}
+// 124 (PAPEL_CLIENTE): também é elegível a versão assinada eletronicamente SÓ pelo buffet e em papel pelo cliente, com o
+// registro da Gestão. O PostgreSQL resolve contrato_assinaturas_papel antes de avaliar o filtro do método (42P01 sem a 124,
+// achado do Astra), então o ramo papel só entra no SQL quando a tabela existe; sem a 124 fica o predicado anterior, intacto.
+const elegivelBase="c.status='ASSINADO' AND v.status='ASSINADA' AND e.estado='CONCLUIDA' AND ";
+const duasDigitais="(SELECT count(DISTINCT a.parte) FROM contrato_assinaturas a WHERE a.contrato_versao_id=v.id AND a.parte IN ('KIDMAIS','CLIENTE'))=2";
+const ramoPapel="(v.aceite_metodo='PAPEL_CLIENTE' AND EXISTS(SELECT 1 FROM contrato_assinaturas_papel p WHERE p.contrato_versao_id=v.id AND p.contrato_id=c.id) AND (SELECT array_agg(DISTINCT a.parte::text) FROM contrato_assinaturas a WHERE a.contrato_versao_id=v.id)=ARRAY['KIDMAIS'])";
+export function formalizacaoElegivelSql(com124:boolean){return com124?elegivelBase+'('+duasDigitais+' OR '+ramoPapel+')':elegivelBase+duasDigitais;}
+export async function sqlFormalizacaoElegivel(tx:DbExecutor){return formalizacaoElegivelSql(await papelClienteInstalado(tx));}
+export async function formalizacaoCompleta(tx:DbExecutor,versaoId:string){return (await tx.query(`SELECT v.id FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id=c.id JOIN contrato_versoes v ON v.id=cf.versao_vigente_id JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.id=$1 AND ${await sqlFormalizacaoElegivel(tx)}`,[versaoId])).rows.length>0;}

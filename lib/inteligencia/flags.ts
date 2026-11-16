@@ -117,3 +117,13 @@ export function cotaImportacaoDispensada(env: Ambiente) {
   const servico = env.RENDER_SERVICE_ID?.trim();
   return env.RENDER === "true" && !!servico && env.IMPORTACAO_COTA_DISPENSADA === servico && SERVICOS_DISPENSA_COTA_IMPORTACAO.includes(servico);
 }
+
+/**
+ * R-5 (textos legais): o texto publicado afirma que assistente administrativo, importação por IA, operacional e
+ * Demerzel estão fora da contratação. A conferência pré-publicação (scripts/conferir-publicacao-textos-legais.mjs)
+ * pergunta aqui, para que só este arquivo leia as flags da IA.
+ */
+export function capacidadeForaDaContratacaoAtiva(env: Ambiente) {
+  return grupoAtivo(env, "READ") || grupoAtivo(env, "ADMIN_ACTIONS") || grupoAtivo(env, "CONTRACT_IMPORT")
+    || operacionalAtivo(env) || demerzelAtivo(env);
+}

@@ -1,10 +1,14 @@
 import type { PainelDashboard } from "@/components/admin/DashboardGeral";
 import type { AmostraFinanceira } from "@/components/admin/FinanceiroTelas";
+import { VERSAO_RESUMO_FINANCEIRO } from "./calculos.ts";
+
+// Amostras do /preview-ux: seguem o contrato atual (versão e semântica da abertura), senão a tela pede para recarregar.
 
 export const painelVitrine: PainelDashboard = {
   empresa: "Kidmais",
   hoje: "2026-03-17",
-  numeros: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, versao: 2 },
+  numeros: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, versao: VERSAO_RESUMO_FINANCEIRO },
+  caixa: { saldoCentavos: 5850000, abertura: { dataBase: "2026-03-01" }, pendencias: { quantidade: 1, centavos: 200000 } },
   agenda: [
     { id: "1", data: "2026-03-17", hora: "14:00", cliente: "Maria Silva", pacote: "Festa Premium", convidados: 45, status: "ASSINADO" },
     { id: "2", data: "2026-03-17", hora: "18:30", cliente: "João Souza", pacote: "Festa Completa", convidados: 60, status: "AGUARDANDO_ASSINATURA" },
@@ -26,7 +30,7 @@ export const painelVitrine: PainelDashboard = {
 };
 
 export const financeiroVitrine: AmostraFinanceira = {
-  resumo: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, pagoMesCentavos: 1200000, versao: 2 },
+  resumo: { recebidoMesCentavos: 6240000, aReceberCentavos: 4730000, aPagarCentavos: 1890000, aPagar30DiasCentavos: 1090000, emAtrasoReceberCentavos: 320000, emAtrasoPagarCentavos: 800000, movimentoPeriodoCentavos: 5040000, pagoMesCentavos: 1200000, versao: VERSAO_RESUMO_FINANCEIRO },
   recebiveis: [
     { id: "r1", cliente: "Roberto Lima", pacote: "Festa Premium", festaId: "f1", parcela: 2, vencimento: "2026-03-12", valorCentavos: 320000, recebidoCentavos: 0, saldoCentavos: 320000, forma: "PIX", status: "Vencido", diasAtraso: 5 },
     { id: "r2", cliente: "Maria Silva", pacote: "Festa Completa", festaId: "f2", parcela: 1, vencimento: "2026-03-28", valorCentavos: 1500000, recebidoCentavos: 500000, saldoCentavos: 1000000, forma: "PIX", status: "Parcialmente pago", diasAtraso: 0 },
@@ -36,18 +40,24 @@ export const financeiroVitrine: AmostraFinanceira = {
   ],
   categorias: [{ id: "cat", nome: "Aluguel" }],
   alertas: ["Roberto Lima está em atraso"],
+  // Período do mês começando em D0 (01/03): parte do saldo de abertura; o previsto não tem saldo.
   fluxo: {
-    saldoInicialCentavos: 0,
+    versao: VERSAO_RESUMO_FINANCEIRO,
+    saldoInicialCentavos: 1500000,
     entradasCentavos: 6240000,
     saidasCentavos: 1890000,
-    saldoFinalCentavos: 4350000,
+    saldoFinalCentavos: 5850000,
+    movimentoPeriodoCentavos: 4350000,
+    motivoSaldo: null,
+    abertura: { versao: 1, dataBase: "2026-03-01", saldoCentavos: 1500000 },
+    pendencias: { quantidade: 1, centavos: 200000 },
     linhas: [
-      { data: "2026-03-05", descricao: "Recebimento", entrada: 2000000, saida: 0, saldo: 2000000, tipo: "realizado" },
-      { data: "2026-03-10", descricao: "Aluguel", entrada: 0, saida: 800000, saldo: 1200000, tipo: "previsto" },
+      { data: "2026-03-05", descricao: "Recebimento", entrada: 2000000, saida: 0, saldo: 3500000, tipo: "realizado" },
+      { data: "2026-03-10", descricao: "Aluguel", entrada: 0, saida: 800000, saldo: null, tipo: "previsto" },
     ],
   },
   relatorio: {
-    versao: 2,
+    versao: VERSAO_RESUMO_FINANCEIRO,
     faturamentoCentavos: 9000000,
     recebidoCentavos: 6240000,
     aReceberCentavos: 4730000,

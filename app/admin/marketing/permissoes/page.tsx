@@ -1,5 +1,2 @@
-import MarketingPermissoes from '@/components/admin/marketing/MarketingPermissoes';
-
-export default function Page() {
-  return <MarketingPermissoes />;
-}
+import {redirect} from 'next/navigation';
+export default function Page(){redirect('/admin/configuracoes/acessos#marketing');}

@@ -8,8 +8,15 @@
 //     (escritas nelas esperam no máximo o lock_timeout de 5 s da migration);
 //   - estado SÓ pelo catálogo e privilégios (nenhuma tabela de dados é lida antes do plano): 105 ausente | completa |
 //     parcial pelos objetos (6 tabelas, a função e o gatilho). Parcial recusa (APLICACAO_PARCIAL_105);
-//   - sem trava de versão do PostgreSQL: a integridade confere contagens no catálogo e o corpo da função pelo prosrc
-//     (texto da função), que não dependem do deparse da versão; a prova no próprio alvo vem na aplicação;
+//   - conferência pela DEFINIÇÃO (follow-up do parecer do Astra r1 do aplicador de produção, 10/11/2026): a 105
+//     completa só passa com a integridade antiga (contagens e corpo da função pelo prosrc) E as definições
+//     (database/checks/20261029_105_definicoes.sql contra scripts/migration-105-definicoes.cjs) E as relações das seis
+//     tabelas (scripts/migration-105-relacoes.cjs), lidas numa só fotografia (REPEATABLE READ READ ONLY). Vale no
+//     CONFERIR, na guarda de reaplicação (105 já completa), dentro da transação antes do COMMIT e na conferência depois
+//     dele. As relações têm referência só para o PostgreSQL 18 (outra versão maior = RELACOES_105 DIVERGENTE);
+//   - contagens informativas só com a conferência íntegra, na mesma fotografia;
+//   - erros saem em vocabulário fechado (`diagnostico`): motivo próprio da lista, ERRO_SERVIDOR <SQLSTATE>,
+//     ERRO_SISTEMA <código> ou ERRO_NAO_CLASSIFICADO; nunca a mensagem livre do erro;
 //   - aplicação: precheck (READ ONLY) → migration SEM o COMMIT final do arquivo → postcheck e integridade DENTRO da
 //     mesma transação → COMMIT só com tudo PASS → estado completo → integridade (READ ONLY). O postcheck exige as
 //     tabelas vazias e por isso só vale nessa hora; depois (conferência de uma 105 completa) só a integridade, que é
@@ -17,7 +24,7 @@
 //   - situação do COMMIT: falha no corpo ou nas verificações antes do COMMIT = NAO_COMMITADA (o COMMIT nunca foi
 //     enviado); falha NO COMMIT = DESFEITA_PELO_SERVIDOR com SQLSTATE fora de 08/57/58/XX e diferente de 40003, senão
 //     INDETERMINADO (reconciliar pela conferência); COMMIT respondido como ROLLBACK = DESFEITA_PELO_SERVIDOR;
-//   - toda leitura: BEGIN TRANSACTION READ ONLY, lock_timeout 5s e search_path = public, pg_catalog; a conferência não
+//   - toda leitura: BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY, lock_timeout 5s e search_path = public, pg_catalog; a conferência não
 //     grava no banco nem no disco.
 // Ordem: o CÓDIGO com este aplicador, a integridade e os SQL é publicado ANTES (a #252 já publicou a migration e o
 // código do canal, que funciona sem a 105: rotas 503 e persistência falha fechada). Depois: --conferir-105 → ponto de
@@ -35,6 +42,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {lerRevisado} = require('./migration-092-094-comum.cjs');
+// Sem ciclo: definições e relações não dependem deste núcleo (o núcleo de produção é que depende dele).
+const {SET_DEPARSE, compararDefinicoes} = require('./migration-105-definicoes.cjs');
+const {SQL_RELACOES, compararRelacoes} = require('./migration-105-relacoes.cjs');
 
 const FLAG_CONFERIR = '--conferir-105';
 const FLAG_APLICAR = '--aplicar-105-autorizado';
@@ -46,9 +56,17 @@ const ETAPAS = Object.freeze([
   ['postcheck 105', 'database/checks/20261027_105_postcheck.sql', '97d49a638b830c3d0d59db1371754dbc4913217e3becd301420056e10c8290d3'],
   ['integridade 105', 'database/checks/20261027_105_integridade.sql', 'eccd6bf66c47235063228074f0b2b93c685406f828483f0b6b6ec527b67209b2'],
 ]);
-const etapa = nome => ETAPAS.find(e => e[0] === nome);
-/** Verificações dentro da transação da migration, antes do COMMIT. Depois do COMMIT (e numa 105 completa) só a integridade. */
-const VERIFICACOES_NA_TRANSACAO = Object.freeze(['postcheck 105', 'integridade 105']);
+/** SQL das definições (o mesmo do aplicador de produção); fora de ETAPAS, que outros scripts leem como "os 4 SQL da 105". */
+const DEFINICOES_105 = Object.freeze(['definicoes 105', 'database/checks/20261029_105_definicoes.sql', '6d044c5275dffe080982323955a75f7d3cc1beece63b47995c34fe235a083778']);
+/** Todos os arquivos que o aplicador de staging lê, cada um com o hash fixado. */
+const ARQUIVOS = Object.freeze([...ETAPAS, DEFINICOES_105]);
+const sqlsRevisados = raiz => new Map(ARQUIVOS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
+/**
+ * Verificações dentro da transação da migration, antes do COMMIT: o postcheck (tabelas vazias) e a conferência completa
+ * (integridade, definições e relações). Depois do COMMIT (e numa 105 completa) só a conferência completa.
+ */
+const VERIFICACOES_NA_TRANSACAO = Object.freeze(['postcheck 105', 'integridade 105', 'definicoes 105', 'relacoes 105']);
+const CONFERENCIA_COMPLETA = Object.freeze(['integridade 105', 'definicoes 105', 'relacoes 105']);
 
 const reg = t => `to_regclass('public.${t}')`;
 const TABELAS_105 = Object.freeze(['mcp_oauth_clientes', 'mcp_oauth_pedidos', 'mcp_oauth_concessoes', 'mcp_oauth_codigos', 'mcp_oauth_tokens', 'mcp_auditoria']);
@@ -73,7 +91,49 @@ const SQL_ESTADO = `SELECT
   (session_user <> current_user) AS papel_trocado`;
 
 const BOOLEANOS = Object.freeze(['d105', 'usar_public', 'pode_criar', 'referencias_105', 'plpgsql', 'gerar_uuid', 'ler_105', 'papel_trocado']);
-const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 160);
+
+/**
+ * Diagnóstico de erro em VOCABULÁRIO FECHADO (mesma regra do aplicador de produção, revisão do Astra r3, P2-3): nunca
+ * devolve message, detail, hint, where nem nomes livres de erros externos. Ordem:
+ *   1. asserção própria (ERR_ASSERTION com mensagem escrita aqui, não gerada pelo assert) cuja 1ª linha INTEIRA está na
+ *      lista de motivos: sai essa linha (o diff de valores que o assert/strict acrescenta depois dela nunca sai);
+ *   2. asserção própria cujo primeiro termo é um código da lista (complemento fora dela): sai só o código;
+ *   3. SQLSTATE (5 caracteres [0-9A-Z] com ao menos um dígito): ERRO_SERVIDOR <SQLSTATE>;
+ *   4. código de sistema do Node (E + maiúsculas/dígitos/_): ERRO_SISTEMA <código>;
+ *   5. o resto: ERRO_NAO_CLASSIFICADO.
+ * Os motivos do núcleo ficam em MOTIVOS_NUCLEO; cada adaptador acrescenta os dele (`amb.MOTIVOS`).
+ */
+const FALTAS_105 = ['CREATE', 'REFERENCES', 'LINGUAGEM', 'GEN_RANDOM_UUID'];
+const subconjuntos = l => l.reduce((acc, x) => [...acc, ...acc.map(a => [...a, x])], [[]]).filter(a => a.length > 0);
+const MOTIVOS_NUCLEO = Object.freeze([
+  'APLICACAO_PARCIAL_105', 'SEM_PRIVILEGIO_LEITURA USAGE_PUBLIC', 'TRANSACAO_INESPERADA migration 105',
+  'DEPENDENCIA_AUSENTE_105 (usuarios_administrativos, empresas, memberships, gen_random_uuid)',
+  ...subconjuntos(FALTAS_105).map(f => 'SEM_PRIVILEGIO_105 ' + f.join(' ')), 'SEM_PRIVILEGIO_105 SELECT_TABELAS',
+  ...[...BOOLEANOS, 'versao_pg', 'm105_tabelas', 'm105_funcao', 'm105_gatilho'].map(k => 'ESTADO_ILEGIVEL ' + k),
+  'INTEGRIDADE_105 false', 'DEFINICOES_105 DIVERGENTE', 'RELACOES_105 DIVERGENTE',
+  'COMMIT_RESPONDIDO_COMO_ROLLBACK_105', 'ESTADO_DEPOIS_105', 'ESTADO_FINAL_105',
+  'BACKUP_OBRIGATORIO', 'BACKUP_INVALIDO', 'ARGUMENTOS_RECUSADOS',
+  ...ARQUIVOS.map(([, arquivo]) => 'ARQUIVO_DIVERGENTE ' + arquivo)]);
+/** Códigos sem complemento livre: o marcador anterior (caminho) sai só pelo código. */
+const CODIGOS_EXTRAS = Object.freeze(['TENTATIVA_ANTERIOR_REVISAR']);
+function criarDiagnostico(motivosAdaptador = []) {
+  const motivos = new Set([...MOTIVOS_NUCLEO, ...motivosAdaptador]);
+  const codigos = new Set([...[...motivos].map(m => m.split(' ', 1)[0]), ...CODIGOS_EXTRAS]);
+  const diagnostico = e => {
+    const codigo = typeof e?.code === 'string' ? e.code : '';
+    if (codigo === 'ERR_ASSERTION' && e.generatedMessage === false && typeof e.message === 'string') {
+      const propria = e.message.split(String.fromCharCode(10), 1)[0];
+      if (motivos.has(propria)) return propria;
+      const primeiro = propria.split(' ', 1)[0];
+      if (codigos.has(primeiro)) return primeiro;
+    }
+    if (/^(?=[0-9A-Z]*[0-9])[0-9A-Z]{5}$/.test(codigo)) return 'ERRO_SERVIDOR ' + codigo;
+    if (/^E[A-Z0-9_]{2,40}$/.test(codigo)) return 'ERRO_SISTEMA ' + codigo;
+    return 'ERRO_NAO_CLASSIFICADO';
+  };
+  return Object.assign(diagnostico, {motivos, codigos});
+}
+const diagnosticoNucleo = criarDiagnostico();
 
 /** Estado lido: m105 ausente/completa/parcial pelos objetos. */
 function lerEstado(e) {
@@ -119,16 +179,51 @@ function semCommitFinal(sql, nome) {
   return sql.slice(0, -'COMMIT;\n'.length);
 }
 
-async function somenteLeitura(db, sql) {
-  await db.query('BEGIN TRANSACTION READ ONLY');
+/**
+ * Uma transação REPEATABLE READ READ ONLY (uma fotografia: integridade, definições, relações e contagens leem o mesmo
+ * catálogo) com lock_timeout, statement_timeout e search_path fixos; `corpo(q)` faz as consultas.
+ */
+const BEGIN_LEITURA = 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY';
+async function emLeitura(db, corpo) {
+  await db.query(BEGIN_LEITURA);
   try {
     await db.query("SET LOCAL lock_timeout = '5s'");
     await db.query("SET LOCAL statement_timeout = '60s'");
     await db.query('SET LOCAL search_path = public, pg_catalog');
-    const r = await db.query(sql);
+    const r = await corpo(sql => db.query(sql));
     await db.query('ROLLBACK');
     return r;
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
+}
+const somenteLeitura = (db, sql) => emLeitura(db, q => q(sql));
+/**
+ * Conferência completa na transação corrente: integridade antiga, definições e relações (o deparse roda com o search_path
+ * pg_catalog, pg_temp e depois volta a public, pg_catalog). Devolve {checks, detalhes, motivo}; motivo null = íntegra.
+ * `detalhes` só traz contagens e divergências em vocabulário fechado (chaves conhecidas ou rotuladas, categorias fixas).
+ */
+async function conferenciaCompleta(q, sqls) {
+  const antiga = (await q(sqls.get('integridade 105'))).rows?.[0]?.integra_105 === true;
+  for (const s of SET_DEPARSE) await q(s);
+  const definicoes = compararDefinicoes((await q(sqls.get('definicoes 105'))).rows);
+  const relacoes = compararRelacoes((await q(SQL_RELACOES)).rows?.[0]);
+  await q('SET LOCAL search_path = public, pg_catalog');
+  const estado = ok => ok ? 'PASS' : 'FALHOU';
+  return {
+    checks: {'integridade 105': estado(antiga), 'definicoes 105': estado(definicoes.integra), 'relacoes 105': estado(relacoes.integra)},
+    detalhes: {definicoesLidas: definicoes.total, definicoesEsperadas: definicoes.esperado, divergencias: definicoes.divergencias.slice(0, 40),
+      relacoesVersaoPg: relacoes.versaoPg, relacoesTabelas: relacoes.tabelas, divergenciasRelacoes: relacoes.divergencias.slice(0, 40)},
+    motivo: !antiga ? 'INTEGRIDADE_105 false' : !definicoes.integra ? 'DEFINICOES_105 DIVERGENTE' : !relacoes.integra ? 'RELACOES_105 DIVERGENTE' : null,
+  };
+}
+/** Conferência completa + contagens (só se íntegra) numa fotografia; `fase` informa onde parou se lançar. */
+async function conferirCompleta(db, sqls, fase = {}) {
+  return emLeitura(db, async q => {
+    fase.atual = 'INTEGRIDADE';
+    const c = await conferenciaCompleta(q, sqls);
+    if (c.motivo) return c;
+    fase.atual = 'CONTAGENS';
+    return {...c, contagens: (await q(SQL_CONTAGENS)).rows[0]};
+  });
 }
 /** Estado → guardas. Sem guardas (`guardar` false) só para a releitura depois de um COMMIT. */
 async function estadoAtual(db, {guardar = true} = {}) {
@@ -136,37 +231,38 @@ async function estadoAtual(db, {guardar = true} = {}) {
   if (guardar) exigirCatalogo(s);
   return s;
 }
-/** Uma verificação: a integridade exige integra_105 = true; precheck/postcheck são blocos que recusam com exceção. */
-async function verificar(executar, nome, sql) {
-  const r = await executar(sql);
-  if (nome === 'integridade 105') assert.equal(r.rows?.[0]?.integra_105, true, 'INTEGRIDADE_105 ' + String(r.rows?.[0]?.integra_105));
-  return 'PASS';
-}
-/** Contagens informativas (sem ids), só com a 105 completa: clientes, concessões (ativas), tokens e auditoria. */
-async function contagens(db) {
-  return (await somenteLeitura(db, `SELECT (SELECT count(*) FROM public.mcp_oauth_clientes)::int AS clientes,
+/** Contagens informativas (sem ids), só com a 105 completa e a conferência íntegra: clientes, concessões (ativas), tokens e auditoria. */
+const SQL_CONTAGENS = `SELECT (SELECT count(*) FROM public.mcp_oauth_clientes)::int AS clientes,
     (SELECT count(*) FROM public.mcp_oauth_concessoes)::int AS concessoes,
     (SELECT count(*) FROM public.mcp_oauth_concessoes WHERE revogada_em IS NULL)::int AS concessoes_ativas,
-    (SELECT count(*) FROM public.mcp_oauth_tokens)::int AS tokens, (SELECT count(*) FROM public.mcp_auditoria)::int AS auditoria`)).rows[0];
-}
+    (SELECT count(*) FROM public.mcp_oauth_tokens)::int AS tokens, (SELECT count(*) FROM public.mcp_auditoria)::int AS auditoria`;
 
 /**
- * Conferência (nenhuma escrita no banco nem no disco): identidade, estado, guardas, plano e, em READ ONLY, o precheck
- * (105 ausente) ou a integridade (105 completa, com as contagens).
+ * Conferência (nenhuma escrita no banco nem no disco): arquivos, identidade, estado, guardas, plano e, em leitura, o
+ * precheck (105 ausente) ou a conferência completa (105 completa; contagens só se íntegra). Recusa = RECUSARIA com
+ * motivo em vocabulário fechado; na conferência completa, `fase` (INTEGRIDADE ou CONTAGENS) diz onde um erro parou.
  */
-async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade}) {
+async function conferirNoCliente(db, {raiz, sqlIdentidade, identidade, diagnostico = diagnosticoNucleo}) {
   const r = {modo: 'conferencia'};
+  const sqls = sqlsRevisados(raiz);
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]);
   r.estado = lerEstado((await somenteLeitura(db, SQL_ESTADO)).rows[0]);
-  try { r.plano = planoEtapas(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
-  const completa = r.estado.m105 === 'completa';
-  if (completa) r.contagens = await contagens(db);
-  const nome = completa ? 'integridade 105' : 'precheck 105';
-  const [, arquivo, hash] = etapa(nome);
-  r.checks = {};
-  try { r.checks[nome] = await verificar(sql => somenteLeitura(db, sql), nome, lerRevisado(raiz, arquivo, hash)); }
-  catch (e) { r.checks[nome] = 'FALHOU'; r.resultado = 'RECUSARIA'; r.motivo = curta(e); return r; }
-  r.resultado = completa ? 'JA_APLICADA_INTEGRIDADE_PASS' : 'PRONTA_PARA_APLICAR';
+  try { r.plano = planoEtapas(r.estado); } catch (e) { r.resultado = 'RECUSARIA'; r.motivo = diagnostico(e); return r; }
+  if (r.estado.m105 !== 'completa') {
+    r.checks = {};
+    try { await somenteLeitura(db, sqls.get('precheck 105')); r.checks['precheck 105'] = 'PASS'; }
+    catch (e) { r.checks['precheck 105'] = 'FALHOU'; r.resultado = 'RECUSARIA'; r.motivo = diagnostico(e); return r; }
+    r.resultado = 'PRONTA_PARA_APLICAR';
+    return r;
+  }
+  const fase = {};
+  let c;
+  try { c = await conferirCompleta(db, sqls, fase); }
+  catch (e) { return {...r, checks: Object.fromEntries(CONFERENCIA_COMPLETA.map(n => [n, 'NAO_CONCLUIDA'])), resultado: 'RECUSARIA', fase: fase.atual, motivo: diagnostico(e)}; }
+  r.checks = c.checks; r.detalhes = c.detalhes;
+  if (c.motivo) return {...r, resultado: 'RECUSARIA', motivo: c.motivo};
+  r.contagens = c.contagens;
+  r.resultado = 'JA_APLICADA_INTEGRIDADE_PASS';
   return r;
 }
 
@@ -180,14 +276,19 @@ async function migrarComVerificacao(db, sqls, passo, registrar) {
     await db.query(semCommitFinal(sqls.get('migration 105'), 'migration 105'));
     fase = 'verificacao';
     passo.antesDoCommit = {};
-    for (const nome of VERIFICACOES_NA_TRANSACAO) passo.antesDoCommit[nome] = await verificar(sql => db.query(sql), nome, sqls.get(nome));
+    await db.query(sqls.get('postcheck 105')); passo.antesDoCommit['postcheck 105'] = 'PASS';
+    const conf = await conferenciaCompleta(q => db.query(q), sqls);
+    Object.assign(passo.antesDoCommit, conf.checks);
+    if (conf.motivo) passo.divergenciasAntesDoCommit = conf.detalhes;
     registrar();
+    if (conf.motivo) assert.fail(conf.motivo);
     fase = 'commit';
     const c = await db.query('COMMIT');
     // COMMIT numa transação abortada volta como ROLLBACK sem erro: nada confirmado.
     if (c?.command === 'ROLLBACK') { passo.commit = 'DESFEITA_PELO_SERVIDOR'; registrar(); assert.fail('COMMIT_RESPONDIDO_COMO_ROLLBACK_105'); }
   } catch (e) {
     if (!passo.commit) passo.commit = fase === 'commit' ? commitNaFalha(e) : 'NAO_COMMITADA';
+    passo.faseDaFalha = fase;
     registrar();
     await db.query('ROLLBACK').catch(() => {}); throw e;
   }
@@ -195,17 +296,18 @@ async function migrarComVerificacao(db, sqls, passo, registrar) {
 }
 
 /**
- * Aplicação, na ordem do plano: precheck (READ ONLY) → migration sem COMMIT → verificações na transação → COMMIT →
- * estado completo → integridade (READ ONLY). O estado é relido aqui, imediatamente antes.
+ * Aplicação, na ordem do plano: precheck (leitura) → migration sem COMMIT → verificações na transação (postcheck e
+ * conferência completa) → COMMIT → estado completo → conferência completa (leitura). Com a 105 já completa, o plano é só
+ * a conferência completa: a guarda de reaplicação recusa o que o CONFERIR recusaria. O estado é relido aqui,
+ * imediatamente antes. Contagens só depois de uma conferência íntegra, na mesma fotografia.
  */
 async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar = () => {}}) {
-  const sqls = new Map(ETAPAS.map(([nome, arquivo, hash]) => [nome, lerRevisado(raiz, arquivo, hash)]));
+  const sqls = sqlsRevisados(raiz);
   semCommitFinal(sqls.get('migration 105'), 'migration 105');
   const r = {etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
   r.estadoAntes = await estadoAtual(db);
   r.plano = planoEtapas(r.estadoAntes);
-  if (r.estadoAntes.m105 === 'completa') r.contagensAntes = await contagens(db);
   registrar(r);
   for (const nome of r.plano) {
     const passo = {nome, inicio: new Date().toISOString()};
@@ -213,12 +315,21 @@ async function aplicarNoCliente(db, {raiz, sqlIdentidade, identidade, registrar 
     if (nome === 'migration 105') {
       await migrarComVerificacao(db, sqls, passo, () => registrar(r));
       assert.equal((await estadoAtual(db, {guardar: false})).m105, 'completa', 'ESTADO_DEPOIS_105');
-    } else await verificar(sql => somenteLeitura(db, sql), nome, sqls.get(nome));
+    } else if (nome === 'precheck 105') await somenteLeitura(db, sqls.get(nome));
+    else {
+      const fase = {};
+      try {
+        const c = await conferirCompleta(db, sqls, fase);
+        passo.checks = c.checks;
+        if (c.motivo) { passo.divergencias = c.detalhes; registrar(r); assert.fail(c.motivo); }
+        if (r.estadoAntes.m105 === 'completa') r.contagensAntes = c.contagens;
+        r.contagensDepois = c.contagens;
+      } catch (e) { passo.fase = fase.atual; registrar(r); throw e; }
+    }
     Object.assign(passo, {ok: true, fim: new Date().toISOString()}); registrar(r);
   }
   r.estadoDepois = await estadoAtual(db, {guardar: false});
   assert.equal(r.estadoDepois.m105, 'completa', 'ESTADO_FINAL_105');
-  r.contagensDepois = await contagens(db);
   r.resultado = r.plano.includes('migration 105') ? 'APLICADA_POSTCHECK_PASS' : 'JA_APLICADA_INTEGRIDADE_PASS';
   registrar(r);
   return r;
@@ -239,10 +350,11 @@ function modo(argv) {
 /** Fábrica do aplicador de um ambiente (mesmo contrato da 092–094, 100 e 102/103: nome, ALVO, DIR, SQL_IDENTIDADE, alvo, identidade, exigirDisco). */
 function criarAplicador(amb) {
   const raizPadrao = path.resolve(__dirname, '..');
+  const diagnostico = criarDiagnostico(amb.MOTIVOS ?? []);
   function plano({raiz = raizPadrao} = {}) {
     return {resultado: 'PLANO', conecta: false, ambiente: amb.nome, alvo: amb.ALVO,
-      arquivos: ETAPAS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
-      provaNoAlvo: 'postcheck e integridade DENTRO da transação da 105, antes do COMMIT; depois, a integridade (só catálogo) em READ ONLY',
+      arquivos: ARQUIVOS.map(([nome, arquivo, hash]) => { lerRevisado(raiz, arquivo, hash); return {nome, arquivo, sha256: hash}; }),
+      provaNoAlvo: 'postcheck e conferência completa (integridade, definições e relações) DENTRO da transação da 105, antes do COMMIT; depois, a conferência completa (só catálogo) numa fotografia REPEATABLE READ READ ONLY',
       modos: {conferir: FLAG_CONFERIR, aplicar: `${FLAG_APLICAR} ${FLAG_BACKUP} <registro-do-backup>`}, registro: amb.DIR,
       preRequisitos: ['105: usuarios_administrativos, empresas e memberships presentes e gen_random_uuid() disponível; nenhum objeto da 105 (parcial recusa)',
         '105: current_user com USAGE e CREATE em public, REFERENCES em usuarios_administrativos e empresas, USAGE em plpgsql e EXECUTE em gen_random_uuid()',
@@ -264,14 +376,14 @@ function criarAplicador(amb) {
   async function conferir({env, raiz = raizPadrao, Client = require('pg').Client}) {
     const opts = amb.alvo(env);
     const db = new Client(opts); db.on?.('error', () => undefined);
-    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env)}); }
-    catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', resultado: 'FALHA', mensagem: curta(e)}; }
+    try { await db.connect(); return await conferirNoCliente(db, {raiz, sqlIdentidade: amb.SQL_IDENTIDADE, identidade: l => amb.identidade(l, env), diagnostico}); }
+    catch (e) { await db.query('ROLLBACK').catch(() => {}); return {modo: 'conferencia', resultado: 'FALHA', mensagem: diagnostico(e)}; }
     finally { await db.end().catch(() => {}); }
   }
   async function executar({env, backup, dir = amb.DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => amb.exigirDisco()}) {
     const opts = amb.alvo(env); disco();
     assert.match(String(backup ?? ''), /^[A-Za-z0-9:._/ -]{6,120}$/, 'BACKUP_OBRIGATORIO');
-    for (const [, arquivo, hash] of ETAPAS) lerRevisado(raiz, arquivo, hash);
+    for (const [, arquivo, hash] of ARQUIVOS) lerRevisado(raiz, arquivo, hash);
     fs.mkdirSync(dir, {recursive: true, mode: 0o700});
     const marcador = path.join(dir, MARCADOR);
     const anteriores = fs.readdirSync(dir).filter(n => /^migration-105\..+\.json$/.test(n)).sort();
@@ -289,7 +401,7 @@ function criarAplicador(amb) {
       return {resultado: r.resultado, marcador, conexao: r.conexao, estadoAntes: r.estadoAntes, estadoDepois: r.estadoDepois,
         contagensAntes: r.contagensAntes, contagensDepois: r.contagensDepois, etapas: r.etapas.map(e => e.nome), commits: situacoes(r), commitadas: commitadas(r)};
     } catch (e) {
-      const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: curta(e)};
+      const falha = {etapa: ultimo.etapas?.at(-1)?.nome ?? 'CONEXAO', mensagem: diagnostico(e)};
       const situacao = {commits: situacoes(ultimo), commitadas: commitadas(ultimo), reconciliar: `${FLAG_CONFERIR} antes de qualquer decisão; não repetir`};
       salvar({...ultimo, situacao: 'FALHA', falha, ...situacao});
       return {resultado: 'FALHA', marcador, falha, ...situacao};
@@ -306,10 +418,10 @@ function criarAplicador(amb) {
   function cli() {
     principal(process.argv.slice(2), process.env).then(({codigo, saida}) => {
       (codigo === 0 ? console.log : console.error)(JSON.stringify(saida)); process.exitCode = codigo;
-    }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
+    }).catch(e => { console.error('RECUSADO ' + diagnostico(e)); process.exitCode = 1; });
   }
-  return {plano, conferir, executar, principal, cli, CODIGO};
+  return {plano, conferir, executar, principal, cli, CODIGO, diagnostico};
 }
 
-module.exports = {ETAPAS, VERIFICACOES_NA_TRANSACAO, TABELAS_105, FUNCAO_105, GATILHO_105, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
+module.exports = {ETAPAS, DEFINICOES_105, ARQUIVOS, VERIFICACOES_NA_TRANSACAO, CONFERENCIA_COMPLETA, BEGIN_LEITURA, SQL_CONTAGENS, MOTIVOS_NUCLEO, criarDiagnostico, TABELAS_105, FUNCAO_105, GATILHO_105, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, MARCADOR,
   SQL_ESTADO, lerEstado, exigirCatalogo, planoEtapas, commitNaFalha, semCommitFinal, conferirNoCliente, aplicarNoCliente, modo, criarAplicador};

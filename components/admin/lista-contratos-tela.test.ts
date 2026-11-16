@@ -179,12 +179,19 @@ test('O-1: a primeira busca na lista padrão não se perde enquanto a URL muda, 
   assert.equal(trocas.length, 1, 'mudança externa não regrava a URL');
 });
 
-test('O-1: o termo da busca não vai para a URL da página nem para o armazenamento do navegador', () => {
+test('O-1: o termo da busca não vai para a URL da página nem para o histórico; na aba, só pelo módulo com sessão e prazo', () => {
   for (const arquivo of ['components/admin/ListaContratos.tsx', 'components/admin/ContratoAdmin.tsx', 'components/admin/contrato-url.ts']) {
     const fonte = readFileSync(arquivo, 'utf8');
+    // Acesso direto ao armazenamento fica proibido aqui: a aba é usada só por lib/http/busca-na-aba.ts (decisão de 08/11/2026).
     assert.doesNotMatch(fonte, /sessionStorage|localStorage|indexedDB/, arquivo);
     assert.equal(fonte.includes("params.set('busca'"), false, arquivo);
   }
+  const contrato = readFileSync('components/admin/ContratoAdmin.tsx', 'utf8');
+  assert.match(contrato, /useState\(\(\)=>lerBuscaDaAba\(TELA_BUSCA\)\)/, 'lido ao montar a tela');
+  assert.match(contrato, /if \(listaComBusca && !usoProprio\) setBuscaLista\(lerBuscaDaAba\(TELA_BUSCA\)\);/, 'relido a cada retorno à lista em uso');
+  assert.equal((contrato.match(/lerBuscaDaAba\(/g) ?? []).length, 2, 'só esses dois pontos de leitura');
+  assert.match(contrato, /setBuscaLista\(busca\); setUsoProprio\(true\); guardarBuscaNaAba\(TELA_BUSCA, busca\); window\.history\.replaceState\(null, /, 'gravado junto com a memória; o estado do histórico fica nulo');
+  assert.equal((contrato.match(/guardarBuscaNaAba\(/g) ?? []).length, 1, 'um único ponto de gravação');
 });
 
 test('O-1: a recarga do bfcache fica só na tela de contratos', () => {

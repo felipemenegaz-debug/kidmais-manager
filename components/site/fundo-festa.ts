@@ -81,7 +81,7 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     camada.querySelector('[data-gradiente-container]')!.appendChild(gradiente);
     const ctx = contexto, wet = agua;
     const reduzir = matchMedia('(prefers-reduced-motion: reduce)');
-    let pausado = reduzir.matches || (pausaInicial ?? false), visivel = true, encerrado = false;
+    let pausado = pausaInicial ?? reduzir.matches, visivel = true, encerrado = false;
     let quadro = 0, ultimo = 0, tempo = 0, largura = 0, altura = 0, atualizar = true;
     let shader = criarShader(gradiente);
     camada.dataset.ativo = 'true';
@@ -222,6 +222,8 @@ export function iniciarFundo(camada: HTMLDivElement, informarPausa: (pausado: bo
     dimensionar(); sincronizar();
     return {
         alternar() { pausado = !pausado; gotas = []; sincronizar(); },
+        /** Pausa única da página (PausaGlobal): o mesmo estado vale para todas as seções. */
+        definir(valor: boolean) { if (valor !== pausado) { pausado = valor; gotas = []; sincronizar(); } },
         destruir() {
             encerrado = true; cancelAnimationFrame(quadro); resize.disconnect(); intersecao.disconnect(); mutacoes.disconnect();
             raiz.removeEventListener('pointerdown', clicar); reduzir.removeEventListener('change', preferencia);

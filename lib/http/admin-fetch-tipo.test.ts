@@ -360,7 +360,7 @@ function comRoteiro(roteiro: (leitura: number, ctx: Ctx, a: ReturnType<typeof am
         if (ativo && String(input) === '/api/admin/autenticacao' && (init.method ?? 'GET') === 'GET') roteiro(++leituras, ctx, a);
         return resposta;
     };
-    const mod = a.mod as typeof a.mod & { ESPERA_DA_TROCA: { prazoMs: number }; AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO: string };
+    const mod = a.mod as typeof a.mod & { ESPERA_DA_TROCA: { prazoMs: number }; AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO: string; AVISO_ESCRITA_EM_VERIFICACAO: string };
     return { a, ctx, mod, navegacoes, ligar: async () => { await a.mod.adminFetch(URL_LEITURA); ativo = true; }, leituras: () => leituras };
 }
 
@@ -386,7 +386,8 @@ test('troca pendurada: POST respondido 200 sai no prazo da espera com o resultad
     const e = await dentroDe(falha(r.mod.adminFetch(URL_ESCRITA, POST)), 2000, 'POST com troca pendurada');
     assert.ok(Date.now() - inicio < 2000);
     assert.deepEqual([e.tipo, e.enviado], ['SESSAO_NAO_CONFIRMADA', true]);
-    assert.equal(r.ctx.lerAvisoDeContexto(), r.mod.AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO);
+    // Merge da staging (Recorte 5 r12): troca ainda pendente no fim = nada recarregado; o aviso da escrita é o EM_VERIFICACAO.
+    assert.equal(r.ctx.lerAvisoDeContexto(), r.mod.AVISO_ESCRITA_EM_VERIFICACAO);
     // 14º parecer, P2: a troca segue pendente; a navegação é dela, não do adminFetch.
     assert.deepEqual(r.navegacoes, []);
     assert.equal(r.leituras(), 2, 'prazo vencido não vale como troca terminada: nenhuma releitura');
@@ -441,7 +442,8 @@ test('releitura que também cruzou uma troca e veio sem usuário: falha (context
     await r.ligar();
     const e = await falha(r.mod.adminFetch(URL_ESCRITA, POST));
     assert.deepEqual([e.tipo, e.enviado], ['SESSAO_NAO_CONFIRMADA', true]);
-    assert.equal(r.ctx.lerAvisoDeContexto(), r.mod.AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO);
+    // Merge da staging (Recorte 5 r12): troca ainda pendente no fim = nada recarregado; o aviso da escrita é o EM_VERIFICACAO.
+    assert.equal(r.ctx.lerAvisoDeContexto(), r.mod.AVISO_ESCRITA_EM_VERIFICACAO);
     assert.equal(r.leituras(), 3);
 });
 

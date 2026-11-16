@@ -8,7 +8,7 @@ import { interpretacaoSchema, ESQUEMA_INTERPRETACAO, ocultarDadosPessoais, type 
 import { inteligenciaAtiva } from '@/lib/inteligencia/flags';
 import { processarLote } from '@/lib/whatsapp/atendimento/worker';
 import { enviarPelaEmpresa } from '@/lib/whatsapp/atendimento/meta';
-import { criarPortaWallE, modoEfetivoWallE, modoEntendimentoWallE, pedidoEntendimentoWallE } from '@/lib/whatsapp/atendimento/walle/porta';
+import { criarPortaWallE, direitoModeloAtendimento, modoEfetivoWallE, modoEntendimentoWallE, pedidoEntendimentoWallE } from '@/lib/whatsapp/atendimento/walle/porta';
 import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
 
 /**
@@ -47,7 +47,7 @@ export async function processarFilaAtendimento() {
   // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
   const portas = portasDeModeloAtendimento(process.env);
   // E-ME1: o envio recebe a empresa dona da saída (não piloto: só a conexão Meta dela).
-  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev })},
+  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev, direitoModelo: direitoModeloAtendimento }),direitoModelo:direitoModeloAtendimento},
     { semAutomacao: !inteligenciaAtiva(process.env) });
 }
 

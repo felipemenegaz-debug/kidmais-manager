@@ -1,0 +1,9 @@
+process.env.KIDMAIS_POSTGRES_SOMENTE=[
+ 'lib/oportunidades/atribuicao.postgres.test.ts',
+ 'lib/oportunidades/funil.postgres.test.ts',
+ 'lib/marketing/origem-negociacao.postgres.test.ts',
+ 'lib/marketing/correcoes-r1-r4.postgres.test.ts',
+ 'lib/marketing/marketing-a.postgres.test.ts',
+].join(',');
+process.env.KIDMAIS_GUARDA_RELATORIO=require('node:path').join(__dirname,'guarda-regressao.json');
+require('../../../scripts/regressao-v1-postgres.cjs');

@@ -1,2 +1,4 @@
 conhecimento/*.md text eol=lf
 conhecimento/manifesto.json text eol=lf
+# Textos canônicos dos documentos legais: o SHA-256 cobre os bytes exatos (LF). Sem conversão de fim de linha.
+lib/cadastro/textos-legais/*.txt -text

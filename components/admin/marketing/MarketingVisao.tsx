@@ -1,5 +1,7 @@
 'use client';
 import Link from 'next/link';
+import RelatorioFunil from '../oportunidades/RelatorioFunil';
+import {finsDeSemanaLivres,custoEstimadoPorContrato} from '@/lib/marketing/resultados-ui';
 import { useState } from 'react';
 import type { PainelMarketing, LinhaPainel } from '@/lib/marketing/metricas';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
@@ -31,7 +33,7 @@ export default function MarketingVisao() {
   const { dados, falha, carregando, recarregar } = useMarketing<Dados>(`/api/admin/marketing/resumo${consulta ? `?${consulta}` : ''}`);
   const p = dados?.painel;
   return <main className={styles.pagina}>
-    <CabecalhoMarketing titulo="Marketing" descricao="Da divulgação ao contrato: contatos, negociações e receita por campanha e origem, com as regras de contagem à vista." />
+    <CabecalhoMarketing titulo="Resultados" descricao="Veja de onde vieram os pedidos e quais divulgações renderam contratos." acao={<Link className={styles.secundario} href="/admin/marketing/campanhas">Campanhas</Link>} />
     <form className={styles.filtros} onSubmit={(e) => e.preventDefault()} aria-label="Filtros do período">
       <label>De<input type="date" value={de || p?.periodo.de || ''} onChange={(e) => setDe(e.target.value)} /></label>
       <label>Até<input type="date" value={ate || p?.periodo.ate || ''} onChange={(e) => setAte(e.target.value)} /></label>
@@ -42,39 +44,31 @@ export default function MarketingVisao() {
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {dados && p && <>
       <div className={styles.kpis}>
-        <Kpi rotulo="Contatos recebidos" valor={String(p.total.contatos)} detalhe="pelo site e registrados" />
+        <Kpi rotulo="Pedidos" valor={String(p.total.contatos)} detalhe="pelo site e registrados" />
         <Kpi rotulo="Negociações" valor={String(p.total.negociacoes)} detalhe="iniciadas no período" />
         <Kpi rotulo="Contratos assinados" valor={String(p.total.contratos)} detalhe={p.total.cancelamentos ? `${p.total.cancelamentos} cancelado(s) no período` : 'no período'} />
         <Kpi rotulo="Receita contratada" valor={p.total.receitaContratadaSituacao === 'INDISPONIVEL' ? 'indisponível' : reais(p.total.receitaContratadaCentavos)}
           detalhe={p.total.contratosSemValor ? `${p.total.receitaContratadaSituacao === 'PARCIAL' ? 'subtotal conhecido; ' : ''}${p.total.contratosSemValor} contrato(s) sem valor` : 'contratos assinados no período'} />
-        <Kpi rotulo="Receita recebida" valor={reais(p.total.receitaRecebidaCentavos)} detalhe="já descontados estornos e devoluções" />
-        <Kpi rotulo="Conversão contato → contrato" valor={percentual(p.total.conversao)} detalhe={p.total.contatos ? `${p.total.contatosComContrato} de ${p.total.contatos}` : 'sem contatos no período'} />
       </div>
-      {p.negociacoesSemOrigem > 0 && <p className={styles.aviso} role="status">{p.negociacoesSemOrigem} negociação(ões) do período sem origem registrada. <Link href="/admin/marketing/origens">Ver origens dos contatos</Link> — a origem pode ser informada na própria negociação.</p>}
-      {p.negociacoesHerdadas > 0 && <p className={styles.muted} role="status">{p.negociacoesHerdadas} negociação(ões) do período contada(s) pela origem do cliente: é a primeira negociação dele e ela não tem origem própria.</p>}
       <section className={styles.cartao} aria-labelledby="t-campanhas">
         <h2 id="t-campanhas">Por campanha e origem</h2>
         {p.linhas.length === 0 ? <p className={styles.vazio}>Nada registrado no período. Crie uma campanha ou informe a origem nas negociações.</p> : <>
           <div className={`${styles.tabelaWrap} ${styles.responsiva}`}><table className={styles.tabela}>
-            <thead><tr><th>Campanha / origem</th><th className={styles.num}>Cliques no link</th><th className={styles.num}>Cliques WhatsApp</th><th className={styles.num}>Contatos</th><th className={styles.num}>Negociações</th><th className={styles.num}>Contratos</th><th className={styles.num}>Conversão</th><th className={styles.num}>Receita contratada</th><th className={styles.num}>Receita recebida</th><th className={styles.num}>Orçamento informado</th></tr></thead>
-            <tbody>{p.linhas.map((l) => <tr key={l.chave}>
-              <td>{nomeDaLinha(l, dados.origens)}{l.campanhaId && <> <span className={styles.seloVioleta}>campanha</span></>}</td>
-              <td className={styles.num}>{l.cliquesLink}</td><td className={styles.num}>{l.cliquesWhatsapp}</td><td className={styles.num}>{l.contatos}</td>
-              <td className={styles.num}>{l.negociacoes}</td><td className={styles.num}>{l.contratos}{l.cancelamentos ? ` (−${l.cancelamentos} canc.)` : ''}</td>
-              <td className={styles.num}>{percentual(l.conversao)}</td><td className={styles.num}>{receitaContratadaTexto(l)}</td><td className={styles.num}>{reais(l.receitaRecebidaCentavos)}</td>
-              <td className={styles.num}>{l.orcamentoCentavos === null ? '—' : reais(l.orcamentoCentavos)}</td>
-            </tr>)}</tbody>
+            <thead><tr><th>Origem</th><th className={styles.num}>Pedidos</th><th className={styles.num}>Contratos</th><th className={styles.num}>Receita</th><th className={styles.num}>Custo por contrato*</th></tr></thead>
+            <tbody>{p.linhas.map(l=><tr key={l.chave}><td>{nomeDaLinha(l,dados.origens)}</td><td className={styles.num}>{l.contatos}</td><td className={styles.num}>{l.contratos}</td><td className={styles.num}>{receitaContratadaTexto(l)}</td><td className={styles.num}>{custoEstimadoPorContrato(l)===null?'—':reais(custoEstimadoPorContrato(l))}</td></tr>)}</tbody>
           </table></div>
           <div className={styles.cards}>{p.linhas.map((l) => <article key={l.chave} className={styles.card}>
             <strong>{nomeDaLinha(l, dados.origens)}</strong>
             <p className={styles.muted}>{l.contatos} contato(s) · {l.negociacoes} negociação(ões) · {l.contratos} contrato(s)</p>
-            <p>Contratada {receitaContratadaTexto(l)} · Recebida {reais(l.receitaRecebidaCentavos)}</p>
-            <p className={styles.muted}>Conversão {percentual(l.conversao)} · cliques {l.cliquesLink} link / {l.cliquesWhatsapp} WhatsApp</p>
+            <p>Receita contratada: {receitaContratadaTexto(l)}</p><p>Custo por contrato*: {custoEstimadoPorContrato(l)===null?"—":reais(custoEstimadoPorContrato(l))}</p>
+
           </article>)}</div>
         </>}
+        <p className={styles.muted}>* Estimativa: orçamento total da campanha dividido pelos contratos do período. Não representa gasto realizado.</p>
+        <details className={styles.definicoes}><summary>Ver mais</summary><p>Conversão pedido → contrato: {percentual(p.total.conversao)} ({p.total.contatosComContrato} de {p.total.contatos})</p><p>Receita recebida: {reais(p.total.receitaRecebidaCentavos)}</p>{p.linhas.map(l=><p key={l.chave}><strong>{nomeDaLinha(l,dados.origens)}</strong>: {l.cliquesLink} cliques no link · {l.cliquesWhatsapp} cliques no WhatsApp · Receita recebida {reais(l.receitaRecebidaCentavos)}</p>)}</details>
         <details className={styles.definicoes}>
           <summary>Como estes números são contados</summary>
-          <dl>
+          <p>Negociações sem origem própria contam pela origem do cliente quando são a primeira negociação dele. {p.negociacoesHerdadas} neste período. {p.negociacoesSemOrigem} sem origem registrada.</p><dl>
             <dt>Atribuição</dt><dd>Toque único: cada negociação (e o contrato dela) conta para uma só campanha ou origem — a vigente na negociação. Sem origem própria, a primeira negociação cadastrada do cliente (qualquer situação, inclusive cancelada) conta pela origem vigente do cliente — exceto “desconhecida”; as seguintes ficam em “Origem não registrada”. Essa herança é recalculada a cada consulta: corrigir a origem do cliente reclassifica também os números de períodos passados. Receita nunca é repetida entre campanhas. Atribuição registra de onde o contato veio; não prova que a campanha causou a venda.</dd>
             <dt>Cliques</dt><dd>Clique no link da campanha e no botão de WhatsApp são eventos separados. Clique não é contato nem conversa.</dd>
             <dt>Contatos</dt><dd>Pedidos recebidos pelo site e registros manuais com data de recebimento no período.</dd>
@@ -88,13 +82,14 @@ export default function MarketingVisao() {
         </details>
         <AtribuicaoExplicada />
       </section>
+      <RelatorioFunil consulta={consulta} origens={dados.origens}/>
       <section className={styles.cartao} aria-labelledby="t-datas">
         <h2 id="t-datas">Datas vagas para divulgar <span className={styles.selo}>sugestão</span></h2>
         <p className={styles.muted}>Lido da agenda atual{dados.sugestoes.escopo === 'EMPRESA' && unidadeId ? ' (agenda da empresa: esta unidade não tem agenda própria)' : ''}. Nada é reservado, bloqueado ou precificado por aqui.</p>
         {!dados.sugestoes.disponivel ? <p className={styles.vazio}>{dados.sugestoes.motivo}</p>
           : dados.sugestoes.datas.length === 0 ? <p className={styles.vazio}>{dados.sugestoes.motivo ?? 'Nenhuma data livre nos próximos dias.'}</p>
-            : <><ul className={styles.datas}>{dados.sugestoes.datas.slice(0, 24).map((d) => <li key={d.data} data-fds={d.fimDeSemana}>{DIAS[d.diaSemana]} {dataBr(d.data)} · {d.horariosLivres} horário(s)</li>)}</ul>
-              <p className={styles.muted}>Fins de semana em destaque. Para divulgar, <Link href="/admin/marketing/campanhas">crie uma campanha</Link> com o período desejado.</p></>}
+            : <ul className={styles.datas}>{finsDeSemanaLivres(dados.sugestoes.datas).map(fds=><li key={fds[0].data} data-fds="true">{fds.map(d=>DIAS[d.diaSemana]+' '+dataBr(d.data)).join(' · ')} <Link href={'/admin/marketing/campanhas?data='+fds[0].data}>Divulgar esta data</Link></li>)}</ul>}
+
       </section>
     </>}
   </main>;

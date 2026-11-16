@@ -197,3 +197,7 @@
 .alternativaSemIA { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent); }
 .confirmacaoImagens { margin: 12px 0; padding: 12px 16px; border: 1px solid #a998dc; border-radius: 12px; background: #201e36; }
 .editor .confirmacaoImagens .check { align-items: flex-start; font-size: 13px; line-height: 1.5; }
+
+.logoBuffet { margin: 16px auto 0; max-width: 440px; text-align: left; }
+.logoBuffetPrevia { display: flex; justify-content: center; padding: 14px 12px 4px; }
+.logoBuffetPrevia img { max-height: 48px; max-width: 160px; object-fit: contain; }

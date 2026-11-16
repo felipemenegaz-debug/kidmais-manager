@@ -22,7 +22,8 @@ test('tela: a mensagem só vem depois do sucesso do primeiro POST; retomada e re
     const reaut = fonte.indexOf("codigo === 'REAUTENTICACAO'");
     const cnpj = fonte.indexOf("codigo === 'CNPJ_EXISTENTE'");
     const falhou = fonte.indexOf('!r.corpo?.ok || !r.corpo.data?.empresaId');
-    const abre = fonte.indexOf('await abrirEmpresaCriada(postar');
+    // A página usa o resultado: seleção sem sucesso confirmado para no aviso de empresa criada, sem navegar.
+    const abre = fonte.indexOf('if (!await abrirEmpresaCriada(postar, r.corpo.data.empresaId)) { setOcupado(false); setCriadaSemAbrir(true); return; }');
     const vai = fonte.indexOf("window.location.replace('/admin/inicio')");
     assert.ok(reaut > 0 && reaut < cnpj && cnpj < falhou && falhou < abre && abre < vai);
     assert.match(fonte, /Sua empresa foi criada, mas não conseguimos abri-la\. Entre com seu login para continuar\./);

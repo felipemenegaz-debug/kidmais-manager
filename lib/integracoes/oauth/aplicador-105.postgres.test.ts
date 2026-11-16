@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -16,11 +16,18 @@ import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgr
  *   1. conferência só leitura → PRONTA, nada muda;
  *   2. 105 parcial (uma tabela mcp_* criada à mão) → RECUSARIA/FALHA sem escrever;
  *   3. papel NÃO superusuário com exatamente o mínimo (USAGE/CREATE em public, REFERENCES em usuarios_administrativos e
- *      empresas): cada privilégio retirado ISOLADAMENTE gera a recusa nomeada dele; com o mínimo, APLICA;
+ *      empresas): cada privilégio retirado ISOLADAMENTE gera a recusa nomeada dele. Desde 10/11 (conferência pela
+ *      definição) as tabelas da 105 têm de pertencer ao dono de public.empresas: sem ser o dono, a aplicação falha ANTES do
+ *      COMMIT (DEFINICOES_105 DIVERGENTE, NAO_COMMITADA, nada criado); como dono de empresas e usuarios_administrativos
+ *      (o papel do Render em staging), APLICA;
  *   4. depois da aplicação: conferência JA_APLICADA com a integridade PASS no catálogo REAL (prova as contagens do SQL
  *      de integridade) e segunda tentativa recusada pelo marcador;
  *   5. deriva: corpo da função trocado, um índice removido ou o gatilho desabilitado → RECUSARIA (INTEGRIDADE_105 false);
  *      restaurado → JA_APLICADA;
+ *   5b. (10/11) derivas que a integridade antiga NÃO pega — RLS, dono, NOT NULL NOT VALID, FK de entrada vinda de fora
+ *      (inclusive com LF e o marcador no nome), proconfig, FK adiável, herança, RLS forçada, política, gatilho extra —
+ *      → CONFERIR RECUSARIA (DEFINICOES_105/RELACOES_105 DIVERGENTE) e a guarda de reaplicação FALHA sem escrever;
+ *      nenhuma saída nem marcador traz texto do banco;
  *   6. down (só no descartável) volta à impressão inicial;
  *   7. falha REAL: outra sessão segura empresas (ACCESS EXCLUSIVE) → a FK da 105 estoura o lock_timeout → NAO_COMMITADA,
  *      nada criado; marcador renomeado → retomada aplica.
@@ -28,6 +35,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgr
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const exigir = createRequire(import.meta.url);
 type Resultado = { resultado: string; motivo?: string; mensagem?: string; falha?: { etapa: string; mensagem: string }; etapas?: string[];
+  detalhes?: { divergencias: string[]; divergenciasRelacoes: string[] }; fase?: string;
   estado?: Record<string, unknown>; checks?: Record<string, string>; commits?: Record<string, string>; commitadas?: string[]; marcador?: string };
 type Aplicador = { SQL_IDENTIDADE: string; conferir(o: unknown): Promise<Resultado>; executar(o: unknown): Promise<Resultado> };
 const stg = exigir(join(raiz, "scripts/migration-105-staging.cjs")) as Aplicador;
@@ -85,6 +93,15 @@ test("aplicador 105 real: recusas nomeadas, papel mínimo não superusuário, in
     assert.equal(await impressao(), antes, "nada mudou: " + motivo.source);
   };
   const admin = (await c.query<{ u: string }>("SELECT current_user AS u")).rows[0].u.replace(/"/g, '""');
+  const donos = (await c.query<{ e: string; u: string }>(`SELECT pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid = 'public.empresas'::regclass)) AS e,
+    pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid = 'public.usuarios_administrativos'::regclass)) AS u`)).rows[0];
+  const q = (x: string) => `"${x.replace(/"/g, '""')}"`;
+  const COMPLETA_PASS = { "integridade 105": "PASS", "definicoes 105": "PASS", "relacoes 105": "PASS" };
+  const MARCADOR = /MARCADOR_PRIVADO|restante|mcp_teste_externa|mcp_teste_filha|mcp_politica_teste|mcp_gatilho_teste/;
+  const semTextoDoBanco = (nome: string, x: unknown, dir?: string) => {
+    assert.doesNotMatch(JSON.stringify(x), MARCADOR, nome + ": saída sem texto do banco");
+    if (dir) for (const n of readdirSync(dir)) assert.doesNotMatch(readFileSync(join(dir, n), "utf8"), MARCADOR, nome + ": marcador em disco sem texto do banco");
+  };
   try {
     assert.equal(await instalada(), false, "modelo sem a 105");
     // 1. Conferência só leitura.
@@ -117,7 +134,15 @@ test("aplicador 105 real: recusas nomeadas, papel mínimo não superusuário, in
         await c.query(revogar);
         try { await recusa(motivo, MINIMO); } finally { await c.query(conceder); }
       }
-      // Com o mínimo, o papel não superusuário aplica.
+      // Com o mínimo mas SEM ser o dono de empresas: a conferência pela definição recusa antes do COMMIT (dono_da_aplicacao).
+      const semDono = await impressao();
+      const nd = await executar(novoDir(), MINIMO);
+      assert.equal(nd.resultado, "FALHA", JSON.stringify(nd)); assert.equal(nd.falha!.mensagem, "DEFINICOES_105 DIVERGENTE");
+      assert.deepEqual(nd.commits, { 105: "NAO_COMMITADA" }); assert.equal(nd.falha!.etapa, "migration 105");
+      assert.equal(await instalada(), false, "nada criado"); assert.equal(await impressao(), semDono);
+      // Como dono de empresas e usuarios_administrativos (o papel do Render em staging), o papel não superusuário aplica.
+      await c.query(`ALTER TABLE public.empresas OWNER TO ${MINIMO}`);
+      await c.query(`ALTER TABLE public.usuarios_administrativos OWNER TO ${MINIMO}`);
       const dirMin = novoDir();
       const ap = await executar(dirMin, MINIMO);
       assert.equal(ap.resultado, "APLICADA_POSTCHECK_PASS", JSON.stringify(ap));
@@ -126,7 +151,8 @@ test("aplicador 105 real: recusas nomeadas, papel mínimo não superusuário, in
       // 4. Integridade no catálogo real (como o próprio dono e como admin) e marcador anti-repetição.
       const ja = await conferir(MINIMO);
       assert.equal(ja.resultado, "JA_APLICADA_INTEGRIDADE_PASS", JSON.stringify(ja));
-      assert.deepEqual(ja.checks, { "integridade 105": "PASS" });
+      assert.deepEqual(ja.checks, COMPLETA_PASS);
+      assert.deepEqual(ja.detalhes!.divergencias, []); assert.deepEqual(ja.detalhes!.divergenciasRelacoes, []);
       assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS");
       await assert.rejects(executar(dirMin, MINIMO), /TENTATIVA_ANTERIOR_REVISAR/);
 
@@ -148,11 +174,60 @@ test("aplicador 105 real: recusas nomeadas, papel mínimo não superusuário, in
         assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: " + derivar);
       }
 
+      // 5b. Derivas que a integridade antiga não pega (como superusuário): a definição ou a relação recusa no CONFERIR e
+      // na guarda de reaplicação, sem escrever e sem texto do banco.
+      const resumo5b: Record<string, unknown> = {};
+      for (const [nome, derivar, restaurar, definicoes] of [
+        ["RLS ligada", "ALTER TABLE public.mcp_auditoria ENABLE ROW LEVEL SECURITY", "ALTER TABLE public.mcp_auditoria DISABLE ROW LEVEL SECURITY", "FALHOU"],
+        ["dono diferente", `ALTER TABLE public.mcp_oauth_tokens OWNER TO "${admin}"`, `ALTER TABLE public.mcp_oauth_tokens OWNER TO ${MINIMO}`, "FALHOU"],
+        ["NOT NULL NOT VALID (PG 18)",
+          "ALTER TABLE public.mcp_oauth_codigos ALTER COLUMN concessao_id DROP NOT NULL; ALTER TABLE public.mcp_oauth_codigos ADD CONSTRAINT mcp_oauth_codigos_concessao_id_not_null NOT NULL concessao_id NOT VALID",
+          "ALTER TABLE public.mcp_oauth_codigos VALIDATE CONSTRAINT mcp_oauth_codigos_concessao_id_not_null", "PASS"],
+        ["FK de entrada vinda de fora da 105",
+          "CREATE TABLE public.mcp_teste_externa (token_id uuid REFERENCES public.mcp_oauth_tokens (id))", "DROP TABLE public.mcp_teste_externa", "PASS"],
+        ["LF no nome de FK de entrada externa",
+          "CREATE TABLE public.mcp_teste_externa (token_id uuid, CONSTRAINT \"nome_fk\nMARCADOR_PRIVADO_SINTETICO restante\" FOREIGN KEY (token_id) REFERENCES public.mcp_oauth_tokens (id))",
+          "DROP TABLE public.mcp_teste_externa", "PASS"],
+        ["proconfig da função (search_path)",
+          "ALTER FUNCTION public.mcp_oauth_concessao_revogacao_imutavel() SET search_path = public", "ALTER FUNCTION public.mcp_oauth_concessao_revogacao_imutavel() RESET search_path", "FALHOU"],
+        ["FK adiável", "ALTER TABLE public.mcp_oauth_codigos ALTER CONSTRAINT mcp_oauth_codigos_concessao_id_fkey DEFERRABLE INITIALLY DEFERRED",
+          "ALTER TABLE public.mcp_oauth_codigos ALTER CONSTRAINT mcp_oauth_codigos_concessao_id_fkey NOT DEFERRABLE INITIALLY IMMEDIATE", "FALHOU"],
+        ["herança", "CREATE TABLE public.mcp_teste_filha () INHERITS (public.mcp_auditoria)", "DROP TABLE public.mcp_teste_filha", "FALHOU"],
+        ["RLS forçada", "ALTER TABLE public.mcp_oauth_pedidos FORCE ROW LEVEL SECURITY", "ALTER TABLE public.mcp_oauth_pedidos NO FORCE ROW LEVEL SECURITY", "FALHOU"],
+        ["política criada", "CREATE POLICY mcp_politica_teste ON public.mcp_oauth_clientes USING (true)", "DROP POLICY mcp_politica_teste ON public.mcp_oauth_clientes", "FALHOU"],
+        ["gatilho de usuário extra",
+          "CREATE TRIGGER mcp_gatilho_teste BEFORE UPDATE ON public.mcp_oauth_tokens FOR EACH ROW EXECUTE FUNCTION public.mcp_oauth_concessao_revogacao_imutavel()",
+          "DROP TRIGGER mcp_gatilho_teste ON public.mcp_oauth_tokens", "FALHOU"],
+      ] as const) {
+        await c.query(derivar);
+        try {
+          const d = await conferir();
+          const motivo = definicoes === "FALHOU" ? "DEFINICOES_105 DIVERGENTE" : "RELACOES_105 DIVERGENTE";
+          resumo5b[nome] = { checks: d.checks, motivo: d.motivo, divergenciasRelacoes: d.detalhes?.divergenciasRelacoes };
+          assert.equal(d.resultado, "RECUSARIA", nome + JSON.stringify(d)); assert.equal(d.motivo, motivo, nome);
+          assert.equal(d.checks!["integridade 105"], "PASS", nome + ": a integridade antiga não pega");
+          assert.equal(d.checks!["definicoes 105"], definicoes, nome + ": definições");
+          if (definicoes === "PASS") assert.equal(d.checks!["relacoes 105"], "FALHOU", nome + ": relações");
+          assert.equal((d as { contagens?: unknown }).contagens, undefined, nome + ": sem contagens");
+          semTextoDoBanco(nome, d);
+          const antesGuarda = await impressao(), dirG = novoDir();
+          const g = await executar(dirG);
+          assert.equal(g.resultado, "FALHA", nome + JSON.stringify(g)); assert.equal(g.falha!.mensagem, motivo, nome);
+          assert.equal(g.falha!.etapa, "integridade 105", nome); assert.deepEqual(g.commits, {}, nome);
+          assert.equal(await impressao(), antesGuarda, nome + ": a guarda não escreve");
+          semTextoDoBanco(nome, g, dirG);
+        } finally { await c.query(restaurar); }
+        assert.equal((await conferir()).resultado, "JA_APLICADA_INTEGRIDADE_PASS", "restaurado: " + nome);
+      }
+      console.log("5b " + JSON.stringify(resumo5b));
+
       // 6. Down (só no descartável).
       await c.query(`SET ROLE ${MINIMO}`); await c.query(sql(DOWN105)); await c.query("RESET ROLE");
     } finally {
       await c.query("ROLLBACK").catch(() => undefined);
       await c.query("RESET ROLE").catch(() => undefined);
+      await c.query(`ALTER TABLE public.empresas OWNER TO ${q(donos.e)}`);
+      await c.query(`ALTER TABLE public.usuarios_administrativos OWNER TO ${q(donos.u)}`);
       await c.query(`REASSIGN OWNED BY ${MINIMO} TO "${admin}"`); await c.query(`DROP OWNED BY ${MINIMO}`); await c.query(`DROP ROLE ${MINIMO}`);
     }
     assert.equal(await instalada(), false, "down voltou ao estado inicial");

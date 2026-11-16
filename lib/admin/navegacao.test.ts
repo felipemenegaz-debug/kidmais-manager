@@ -8,13 +8,13 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.deepEqual(operacao.map((item) => item.href), [
         '/admin/dashboard',
         '/clientes',
+        '/admin/oportunidades',
         '/admin/contratos',
         '/admin/festas',
         '/admin/convites',
         '/admin/disponibilidade',
         '/admin/atendimento',
         '/admin/marketing',
-        '/admin/marketing/campanhas',
         '/admin/marketing/origens',
         '/admin/marketing/site',
         '/admin/marketing/automacoes',
@@ -31,6 +31,7 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.equal(gestao.some((item) => item.rotulo === 'Tabelas de Preços' || item.href.includes('tabelas-preco')), false);
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
+        'Opções de origem',
         'Perfil da empresa',
         'Agenda',
         'Salões',
@@ -59,7 +60,7 @@ test('plano sem financeiro completo esconde contas a pagar, fluxo e relatórios;
 test('Marketing: some sem o recurso/capacidade (marketing: false); aparece no menu principal quando liberado', () => {
     const marketing = (valor?: boolean) => itensNavegacao({ gestaoEmpresa: false, plataforma: false, marketing: valor }).filter((i) => i.grupo === 'Marketing').map((i) => i.rotulo);
     assert.deepEqual(marketing(false), []);
-    assert.deepEqual(marketing(true), ['Visão geral', 'Campanhas', 'Origens dos contatos', 'Site e SEO', 'Automações']);
+    assert.deepEqual(marketing(true), ['Resultados', 'Pedidos e contatos', 'Site do buffet', 'Acompanhamento']);
     assert.equal(itemAtivo('/admin/marketing/site/previa', '/admin/marketing/site', itensNavegacao(true)), true);
     assert.equal(itemAtivo('/admin/marketing/site', '/admin/marketing', itensNavegacao(true)), false);
 });
@@ -118,11 +119,28 @@ test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configur
     assert.equal(gestao.some((item) => item.href.includes('tabela-pacotes')), false);
     const documentos = gestao.find((item) => item.href === '/admin/configuracoes/importar-documentos');
     assert.deepEqual(documentos, { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações' });
-    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'IA e créditos']);
+    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Opções de origem', 'Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'WhatsApp', 'IA e créditos']);
     const hub = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
     assert.doesNotMatch(hub, /tabela-pacotes|PDF de Pacotes/);
     assert.match(hub, /route:'importar-documentos'/);
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /href\.includes\('importar-documentos'\)\) return 'pdf'/);
     assert.doesNotMatch(shell, /contratos\/importar/);
+});
+
+test('PS-4: grupo Satisfação só com recursos.satisfacao do servidor; Resultados por VER, Retornos por TRATAR com o número', () => {
+    const base = { gestaoEmpresa: true, plataforma: false };
+    const satisfacao = (p: Parameters<typeof itensNavegacao>[0]) => itensNavegacao(p).filter((i) => i.grupo === 'Satisfação').map((i) => [i.href, i.contador ?? null]);
+    assert.deepEqual(satisfacao(base), [], 'ausente: grupo oculto (falha fechada)');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: null }), [], 'null: grupo oculto');
+    assert.deepEqual(satisfacao(false), [], 'chamada antiga (boolean): grupo oculto');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: false, retornosAbertos: 0 } }), [['/admin/satisfacao', null]], 'só VER');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: false, tratar: true, retornosAbertos: 3 } }), [['/admin/satisfacao/retornos', 3]], 'só TRATAR');
+    assert.deepEqual(satisfacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 2 } }), [['/admin/satisfacao', null], ['/admin/satisfacao/retornos', 2]], 'as duas');
+    const itens = itensNavegacao({ ...base, satisfacao: { ver: true, tratar: true, retornosAbertos: 0 } });
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao/retornos', itens), true);
+    assert.equal(itemAtivo('/admin/satisfacao/retornos', '/admin/satisfacao', itens), false, 'Retornos não acende Resultados');
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /'Marketing', 'Satisfação', 'Financeiro'/, 'o shell renderiza o grupo');
+    assert.match(shell, /satisfacao: menuSatisfacaoDe\(b\.data\.recursos\?\.satisfacao\)/, 'o shell lê recursos.satisfacao com validação de formato');
 });

@@ -57,6 +57,33 @@ function executor(db: Client): DbExecutor {
   };
 }
 
+/**
+ * P2 (D-FIN-9): saldo absoluto só com abertura. Os cenários conferem primeiro o caso sem abertura (null) e depois abrem
+ * o caixa explicitamente em D0, antes de todo movimento, com saldo zero: os números a partir daí são os de antes da P2.
+ * A suíte roda nos modelos 062 e 114 (sem a 121: o leitor só pode dar null, e os oráculos de saldo absoluto ficam de fora)
+ * e no 121, onde a tabela é obrigatória e todos os oráculos rodam. Devolve se abriu.
+ */
+const MODELO_COM_ABERTURA = process.env.KIDMAIS_POSTGRES_MODELO === "121";
+async function abrirCaixa(db: Client, empresaId: string, ator: string, dataBase = "2026-03-01"): Promise<boolean> {
+  const tem = (await db.query<{ ok: boolean }>("SELECT to_regclass('public.financeiro_aberturas') IS NOT NULL AS ok")).rows[0]?.ok;
+  if (!tem) {
+    if (MODELO_COM_ABERTURA) throw new Error("o modelo 121 precisa de financeiro_aberturas");
+    return false;
+  }
+  await db.query(
+    `INSERT INTO financeiro_aberturas (empresa_id, versao, data_base, saldo, justificativa, conjunto_hash, chave_idempotencia, criado_por)
+     VALUES ($1::uuid, 1, $2::date, 0, 'Abertura do teste', repeat('0', 64), $3, $4::uuid)`,
+    [empresaId, dataBase, `teste-${codigo()}`, ator]);
+  return true;
+}
+
+async function semAbertura(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
+  const fluxo = await fluxoCaixa(tx, empresaId, inicio, fim, HOJE);
+  assert.deepEqual([fluxo.saldoInicialCentavos, fluxo.saldoFinalCentavos, fluxo.motivoSaldo], [null, null, "SEM_ABERTURA"], "sem abertura não há saldo absoluto");
+  assert.equal(fluxo.movimentoPeriodoCentavos, fluxo.entradasCentavos - fluxo.saidasCentavos);
+  return fluxo;
+}
+
 async function umId(db: Client, sql: string, valores: unknown[] = []) {
   return (await db.query<{ id: string }>(sql, valores)).rows[0].id;
 }
@@ -338,13 +365,18 @@ test("as leituras gerenciais seguem o motor: estorno, devolução, alocação, d
       // O estorno sai na data dele, sem mudar o mês do recebimento.
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-03-01", "2026-03-31"), 100000);
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-04-01", "2026-04-30"), -40000);
+      assert.equal((await semAbertura(tx, id, "2026-04-01", "2026-04-30")).movimentoPeriodoCentavos, -40000);
       const abril = await fluxoCaixa(tx, id, "2026-04-01", "2026-04-30", HOJE);
-      assert.equal(abril.saldoInicialCentavos, 100000);
       assert.equal(abril.saidasCentavos, 40000);
-      assert.equal(abril.saldoFinalCentavos, 60000);
       assert.ok(abril.linhas.some((linha) => linha.descricao === "Estorno de recebimento" && linha.saida === 40000));
-      const maio = await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE);
-      assert.equal(maio.saldoInicialCentavos, abril.saldoFinalCentavos, "o saldo final de um período é o inicial do seguinte");
+      if (await abrirCaixa(db, id, ator)) {
+        const abrilComSaldo = await fluxoCaixa(tx, id, "2026-04-01", "2026-04-30", HOJE);
+        assert.equal(abrilComSaldo.motivoSaldo, null);
+        assert.equal(abrilComSaldo.saldoInicialCentavos, 100000);
+        assert.equal(abrilComSaldo.saldoFinalCentavos, 60000);
+        const maio = await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE);
+        assert.equal(maio.saldoInicialCentavos, abrilComSaldo.saldoFinalCentavos, "o saldo final de um período é o inicial do seguinte");
+      }
       assert.equal((await liquidoRecebidoPorFesta(tx, id, c.festa)).get(c.festa), 60000);
       assert.equal((await financeiroDaFesta(tx, id, c.festa, HOJE)).resultadoCaixaCentavos, 60000);
       const rel = await relatorio(tx, id, "2026-04-01", "2026-04-30", HOJE);
@@ -402,7 +434,9 @@ test("as leituras gerenciais seguem o motor: estorno, devolução, alocação, d
       await db.query(`INSERT INTO pagamento_devolucao_alocacoes (devolucao_id, recebimento_alocacao_id, valor_centavos) VALUES ($1::uuid, $2::uuid, 40000)`, [devolucao, alocacao]);
       assert.equal((await listarRecebiveis(tx, id, HOJE))[0].saldoCentavos, 0);
       await paridadeComMotor(tx, c.contrato, id);
-      assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 100000, "pendente não sai do caixa");
+      await semAbertura(tx, id, "2026-05-01", "2026-05-31");
+      const comSaldo = await abrirCaixa(db, id, ator);
+      if (comSaldo) assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 100000, "pendente não sai do caixa");
       // A 015 também no estado intermediário (devolução PENDENTE, reserva ATIVA); depois volta a diferir para a transição.
       await db.query("SET CONSTRAINTS p015_validar, p015_validar_movimento IMMEDIATE");
       await db.query("SET CONSTRAINTS p015_validar, p015_validar_movimento DEFERRED");
@@ -418,7 +452,7 @@ test("as leituras gerenciais seguem o motor: estorno, devolução, alocação, d
       // Devolvida em 31/03 às 21:00 de Brasília (gravada 01/04 00:00Z): é março, não abril.
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-03-01", "2026-03-31"), 60000);
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-04-01", "2026-04-30"), 0);
-      assert.equal((await fluxoCaixa(tx, id, "2026-04-01", "2026-04-30", HOJE)).saldoInicialCentavos, 60000);
+      if (comSaldo) assert.equal((await fluxoCaixa(tx, id, "2026-04-01", "2026-04-30", HOJE)).saldoInicialCentavos, 60000);
       assert.ok((await fluxoCaixa(tx, id, "2026-03-01", "2026-03-31", HOJE)).linhas.some((linha) => linha.descricao === "Devolução ao cliente" && linha.saida === 40000));
     }
 
@@ -1057,7 +1091,9 @@ test("Pix, pré-validação, confirmação do motor, MCP e CSV concordam em cada
       const pendente = await lerPosicaoFinanceira(tx, c.contrato);
       assert.deepEqual([pendente.posicao.obrigacao, pendente.posicao.liquido, pendente.posicao.saldo, pendente.posicao.credito, pendente.posicao.reservado, pendente.posicao.disponivel], [60000n, 100000n, 0n, 40000n, 40000n, 0n], "pendente: reserva o crédito");
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-03-01", "2026-03-31"), 100000);
-      assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 100000, "pendente não sai do caixa");
+      await semAbertura(tx, id, "2026-05-01", "2026-05-31");
+      const comSaldo = await abrirCaixa(db, id, atorA);
+      if (comSaldo) assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 100000, "pendente não sai do caixa");
       assert.deepEqual(await motorDaLista(), [{ obrigacaoCentavos: 60000, liquidoCentavos: 100000, cronograma: true }]);
       await paridadeComMotor(tx, c.contrato, id);
       await confrontar("obrigação reduzida, devolução pendente", id, titulos, { emAberto: zero, vencidos: zero, aVencer: zero });
@@ -1074,7 +1110,7 @@ test("Pix, pré-validação, confirmação do motor, MCP e CSV concordam em cada
       assert.deepEqual([concluida.posicao.obrigacao, concluida.posicao.devolvido, concluida.posicao.liquido, concluida.posicao.saldo, concluida.posicao.credito, concluida.posicao.reservado], [60000n, 40000n, 60000n, 0n, 0n, 0n], "concluída: sai do caixa, nada a cobrar");
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-03-01", "2026-03-31"), 100000);
       assert.equal(await recebidoNoPeriodo(tx, id, "2026-04-01", "2026-04-30"), -40000, "a devolução sai na data dela");
-      assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 60000);
+      if (comSaldo) assert.equal((await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos, 60000);
       assert.deepEqual(await motorDaLista(), [{ obrigacaoCentavos: 60000, liquidoCentavos: 60000, cronograma: true }]);
       await paridadeComMotor(tx, c.contrato, id);
       await confrontar("obrigação reduzida, devolução concluída", id, titulos, { emAberto: zero, vencidos: zero, aVencer: zero });
@@ -1110,12 +1146,14 @@ test("Pix, pré-validação, confirmação do motor, MCP e CSV concordam em cada
       const { pendencia, motivos } = await promoverVersao2(c, { valorFinalContrato: 1000, formaPagamentoPretendida: "PIX_AVISTA" }, "Condição de pagamento");
       assert.deepEqual(motivos, ["CONDICAO"]);
       await regularizar(c.contrato, pendencia, { modo: "PERSONALIZADO", parcelas: [{ parcelaId: a, valorCentavos: "40000", vencimento: "2026-03-05" }], credito: "NAO_SE_APLICA", justificativa: "Mantém A" });
+      await semAbertura(tx, id, "2026-05-01", "2026-05-31");
+      const comSaldo = await abrirCaixa(db, id, atorA);
       const caixa = async () => [
         await recebidoNoPeriodo(tx, id, "2026-03-01", "2026-03-31"),
         (await fluxoCaixa(tx, id, "2026-05-01", "2026-05-31", HOJE)).saldoInicialCentavos,
       ];
       const caixaAntes = await caixa();
-      assert.deepEqual(caixaAntes, [60000, 60000]);
+      assert.deepEqual(caixaAntes, [60000, comSaldo ? 60000 : null]);
       await paridadeComMotor(tx, c.contrato, id);
       await confrontar("transferência: antes, A cobra 400", id, [{ parcela: a, csv: ["2026-03-05", "1000,00", "600,00", "400,00", "Vencido"], pix: "400.00" }],
         { emAberto: umTitulo(40000), vencidos: umTitulo(40000), aVencer: zero });

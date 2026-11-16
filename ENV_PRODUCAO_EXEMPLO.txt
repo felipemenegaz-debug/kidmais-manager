@@ -72,7 +72,62 @@ AI_PRICING_JSON=
 # Ex.: {"moeda":"USD","porEmpresa":{"custoDiario":2,"tokensDiario":200000}}
 # Estimativa conservadora da reserva (opcional; padrão abaixo):
 # "estimativa":{"overheadTokens":512,"tokensPorMensagem":16,"tokensPorImagem":6000}
+# "porEmpresa" limita TODA a IA de cada empresa (painel e WhatsApp), não só o atendimento. Com
+# WHATSAPP_ATENDIMENTO_MULTIEMPRESA=true o modelo do atendimento só é chamado com um teto positivo em "porEmpresa".
+# Teto só em tokens não depende de AI_PRICING_JSON. Ex. (proposta de 13/11/2026, ~3.750 mensagens/mês por empresa):
+# {"porEmpresa":{"tokensDiario":1000000,"tokensMensal":10000000}}
+# Ao mudar, MESCLAR no JSON existente (não substituir). JSON inválido = nenhuma chamada de modelo no sistema todo.
+# Se estava ausente, definir este JSON também pode liberar chamadas de IA do painel; decidir separadamente.
 AI_BUDGET_JSON=
+
+# Atendimento WhatsApp multiempresa (Cloud API da Meta, migration 117). Ausente = desligado.
+# Bloco de ativação: aplicar só após homologação e autorização de production; não importar o arquivo inteiro.
+# Requer INTELIGENCIA_ENABLED=true no web; o padrão conservador deste modelo acima permanece false.
+# Liga só com o valor exato "true". Nada liga sem RECEPTOR igual a KIDMAIS_DEPLOY_ENV.
+KIDMAIS_DEPLOY_ENV=production
+WHATSAPP_ATENDIMENTO_RECEPTOR=production
+WHATSAPP_ATENDIMENTO_ENABLED=true
+WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED=true
+WHATSAPP_ATENDIMENTO_CANAL_ENVIO=meta
+WHATSAPP_ATENDIMENTO_RECEPCAO_META=true
+WHATSAPP_ATENDIMENTO_MULTIEMPRESA=true
+# Mesmo valor no web e no worker (scripts/whatsapp-atendimento-worker.mjs). 32 a 256 caracteres, sem espaço.
+WHATSAPP_ATENDIMENTO_WORKER_SECRET=<SEGREDO_ALEATORIO_EXCLUSIVO_DESTE_AMBIENTE>
+# Sem empresa piloto em multiempresa: deixar AUSENTE (cada empresa responde pela própria conexão Meta).
+# WHATSAPP_ATENDIMENTO_EMPRESA_ID=
+# Se preenchida, limita TODAS as empresas a esses números. Em production: AUSENTE.
+# WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS=
+# Entendimento por modelo: ausente = só regras (sem custo de modelo; infraestrutura/Meta são separados).
+# "modelo" exige também a referência da decisão R6
+# (formato R6-...) e o teto "porEmpresa" em AI_BUDGET_JSON. Ver docs/PRIVACIDADE_ATENDIMENTO_D1_D4.md.
+# WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo
+# WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO=R6-<REFERENCIA_DA_DECISAO>
+# Origem dos arquivos enviados ao cliente; ausente = ADMIN_AUTH_ORIGIN.
+# WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM=
+# Rotina de retenção (scripts/whatsapp-atendimento-retencao.mjs, cron): segredo próprio, mesmo valor no web e no cron.
+# WHATSAPP_ATENDIMENTO_RETENCAO_SECRET=<SEGREDO_ALEATORIO_PROPRIO>
+
+# App Meta (cadastro incorporado e webhook /api/integracoes/meta/webhook). Um webhook por app: aponta para um ambiente só.
+META_APP_ID=<ID_NUMERICO_DO_APP>
+META_APP_SECRET=<SEGREDO_DO_APP_EM_SECRET_MANAGER>
+# Token que a Meta envia no GET de verificação. Exclusivo deste ambiente, 16 a 1024 caracteres, sem espaço.
+META_WEBHOOK_VERIFY_TOKEN=<SEGREDO_ALEATORIO_EXCLUSIVO_DESTE_AMBIENTE>
+META_GRAPH_API_VERSION=<VERSAO_GRAPH_ATIVA_EX_VXX.X>
+META_EMBEDDED_SIGNUP_CONFIG_ID=<ID_NUMERICO_DA_CONFIGURACAO>
+META_EMBEDDED_SIGNUP_EVENT_NAME=FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
+# Exige response_type=code e override_default_response_type=true; sem chaves com nome sensível.
+META_EMBEDDED_SIGNUP_OPTIONS_JSON={"response_type":"code","override_default_response_type":true,"extras":{"setup":{}}}
+META_EMBEDDED_SIGNUP_MESSAGE_ORIGINS=https://www.facebook.com,https://web.facebook.com
+# Precisa constar nas URIs de redirecionamento do login do app na Meta.
+META_OAUTH_REDIRECT_URI=https://manager.seudominio.com.br/admin/configuracoes/whatsapp
+# Cifra das credenciais das conexões: 32 bytes em base64, própria deste ambiente. Trocar exige recifrar; não apagar.
+WHATSAPP_CREDENTIAL_ENCRYPTION_KEY=<32_BYTES_EM_BASE64>
+WHATSAPP_CREDENTIAL_KEY_VERSION=1
+
+# Worker do atendimento (serviço Background Worker separado; só estas chaves):
+# WHATSAPP_ATENDIMENTO_WORKER_URL=https://<host-do-web>/api/integracoes/gupshup/atendimento/processar
+# WHATSAPP_ATENDIMENTO_WORKER_SECRET=<o mesmo do web>
+# NODE_VERSION=22.23.2
 
 # Opções de build/runtime.
 NEXT_TELEMETRY_DISABLED=1

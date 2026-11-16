@@ -12,6 +12,9 @@ import * as transporte from "./transporte.ts";
 import * as arquivos from "./arquivos.ts";
 import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
+// Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
+import * as supressao from "../../satisfacao/supressao.ts";
+import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as multiempresa from "./multiempresa.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
@@ -52,6 +55,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa,
+    "../../satisfacao/supressao.ts": supressao, "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as typeof import("./service.ts");
   // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.
   // 12/10: a privacidade comprova a empresa ATIVA da sessão (não a piloto) pelo mesmo Tenant Context, na conexão do harness.

@@ -92,6 +92,15 @@ O helper compartilhado da reconciliação continua intacto (recomendação à pa
 
 Validação da rodada 4 (árvore final): job + reconciliação 33/33; mutantes 27/27 (24 + 3 novos); tsc, ESLint e diff-check limpos; `check:v1:static` 3333/3333 + 103/103, código 0; build código 0.
 
+## Rodada 4.1 (03/11/2026) — parecer r4 do Astra: APROVADO COM RESSALVAS (#7 e #2 FECHADOS); 2 P3 fechados aqui
+
+| Achado | Tratamento |
+|---|---|
+| **P3 #8** — porta `0` explícita passa pela validação, mas o driver a trata como ausente e cai em `PGPORT` (local/simulação) | `recusarParametrosDeDestino` exige porta inteira em 1..65535 (portas acima disso nem passam pelo parser de URL do Node); `parametrosDeConexao` confere a faixa de novo no alvo (defesa em profundidade). Testes: porta `0`/`00` recusada em local, simulação remota e alvo adulterado. |
+| **P3 #9** — o parser do driver recebia a URL bruta e lia `sslcert`/`sslkey`/`sslrootcert` do disco ou exigia CA em `verify-ca`+`uselibpqcompat`, parâmetros que a política já descarta | `parametrosDeConexao` passa ao parser só a URL sanitizada devolvida por `opcoesConexao` (sem parâmetros TLS); o `ssl` continua vindo da política. Nomes TLS só em minúsculas (coerência com `opcoesConexao`); caixa alta é recusada como parâmetro desconhecido. Testes: caminhos inexistentes em `sslcert`/`sslkey`/`sslrootcert` e `verify-ca+uselibpqcompat` não lançam, devolvem os mesmos parâmetros e o `ssl` da política; local idem. |
+
+Validação da rodada 4.1 (árvore final): job + reconciliação 34/34; mutantes 30/30 (27 + 3 novos); tsc, ESLint e diff-check limpos; `check:v1:static` 3333/3333 + 103/103, código 0; build código 0.
+
 ## Validação da rodada 2 (03/11/2026, árvore final)
 
 | Prova | Resultado |

@@ -29,6 +29,8 @@ import { atualizarAniversarianteInterno } from '../../clientes/services/aniversa
 import { diferencasContratuais } from './alteracoes';
 import { exigirVersaoEditavel, fonteDaRevisaoInicial, prepararEdicaoInicial, type RevisaoInicial } from './revisao-inicial';
 import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
+import { perdaSchema } from '../../oportunidades/modelo';
+import { gravarPerda } from '../../oportunidades/perda';
 const uuid=z.string().uuid().transform(value=>value.toLowerCase());
 export const acaoContratoSchema = z.discriminatedUnion('acao', [
     edicaoFestaSchema,
@@ -36,7 +38,7 @@ export const acaoContratoSchema = z.discriminatedUnion('acao', [
     // S-E restante ("Desistir da troca", P1-3): esperado = o que o card leu; cancela só a troca observada (comparação atômica).
     z.object({ acao: z.literal('cancelar_revisao'), revisao: z.number().int().positive(), motivo: z.string().trim().min(3).max(500),
         esperado: z.object({ revisaoId: uuid, revisaoOperacional: z.number().int().positive(), estado: z.enum(['EM_ELABORACAO', 'CONGELADA']), salaoDestinoId: uuid }).strict().optional() }).strict(),
-    z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500) }).strict(),
+    z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500), perda: z.object({motivo:z.enum(['Preço','Data ocupada','Fechou com outro buffet','Desistiu da festa','Parou de responder','Outro']),observacao:z.string().trim().max(1000).optional()}).strict().optional() }).strict(),
     z.object({ acao: z.literal('revalidar_destino'), revisao: z.number().int().positive() }).strict(),
     z.object({ acao: z.literal('salvar'), revisao: z.number().int().positive(), observacoesDocumentais: z.string().trim().max(2000) }).strict(),
     z.object({ acao: z.literal('gerar_pdf'), revisao: z.number().int().positive() }).strict(),
@@ -205,6 +207,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         if(input.acao==='cancelar_contratacao') {
             if(statusAtual!=='AGUARDANDO_ASSINATURA'||f?.versao_vigente_id)
                 conflito('Esta contratação já foi assinada pelas duas partes. Use o fluxo de cancelamento da Festa.');
+            // Motivo da perda (Funil) só depois da recusa do contrato assinado: quem está no fluxo errado recebe a orientação certa.
+            const perda=perdaSchema.parse(input.perda);
             if(!(await tx.query("SELECT 1 FROM festa_membership_capacidades WHERE membership_id=$1 AND empresa_id=$2 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[tenant.membershipId,tenant.empresaComprovada])).rows.length)
                 throw authError('Somente a Gestão pode cancelar a contratação.',403);
             if((await tx.query("SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) AND parte='CLIENTE' LIMIT 1",[c.id])).rows.length)
@@ -216,6 +220,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if(aberta && ['EM_ELABORACAO','CONGELADA'].includes(aberta.estado))await cancelarPreparacao(tx,aberta,rc,input.motivo);
             await tx.query("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1",[c.id]);
             await tx.query("UPDATE fechamentos SET status='CANCELADO' WHERE id=$1",[c.fechamento_id]);
+            await gravarPerda(tx,empresaAutorizada,s.usuario_id,{tipo:'FECHAMENTO',id:c.fechamento_id},v.snapshot.contratante.clienteId,perda);
             await evento(tx,v,s,'CONTRATO_CANCELADO_ANTES_DA_FORMALIZACAO',{contratoId:c.id,motivo:input.motivo,...context});
             return {cancelada:true};
         }

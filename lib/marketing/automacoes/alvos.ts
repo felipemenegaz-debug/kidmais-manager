@@ -49,7 +49,11 @@ function base(tipo: Regra["tipo"]): string | null {
          JOIN clientes c ON c.id = f.cliente_id AND c.empresa_id = f.empresa_id AND c.status = 'ATIVO'
         WHERE f.empresa_id = $1::uuid AND ($2::uuid IS NULL OR f.estabelecimento_id = $2::uuid) AND f.status <> 'CANCELADO'
           AND f.data_evento <= ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date - $4::int
-          AND f.data_evento > ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date - $4::int - 14`;
+          AND f.data_evento > ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date - $4::int - 14
+          -- Plano da pesquisa R5: a regra Pós-festa DA UNIDADE prevalece; a da empresa (todas as unidades) ignora as festas
+          -- de unidade com regra Pós-festa ATIVA. Vale no planejamento, na prévia e na revalidação antes de agir.
+          AND ($2::uuid IS NOT NULL OR NOT EXISTS (SELECT 1 FROM marketing_automacao_regras ru
+                WHERE ru.empresa_id = $1::uuid AND ru.tipo = 'POS_FESTA' AND ru.status = 'ATIVA' AND ru.estabelecimento_id = f.estabelecimento_id))`;
   }
   if (tipo === "RECOMPRA") {
     // Última festa assinada do cliente faz um ano em até `espera` dias (janela de 30 dias para não perder).

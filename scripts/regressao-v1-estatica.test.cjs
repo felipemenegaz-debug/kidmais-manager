@@ -211,3 +211,53 @@ test("isolamento: o conector exige opt-in antes de abrir conexão e confere a id
   const env = require("./regressao-v1-selecao.cjs").ambienteDaSuite({ KIDMAIS_HOMOLOGACAO_DATABASE_URL: "x" }, {}, 55498, "kidmais_pacotes_v1_descartavel");
   assert.equal(env.KIDMAIS_POSTGRES_DESCARTAVEL, "kidmais_pacotes_v1_descartavel", "opt-in explícito por suíte");
 });
+
+// Heap dos testes (15/11/2026): a guarda estática de salão passou de 2 GB e o build do Render caiu sem memória
+// (dep-dbsf3c3l550s7389mdl0). O teto está no runner; estes testes impedem que uma refatoração o tire sem ninguém ver.
+test("heap: os passos de teste sobem o teto para HEAP_DOS_TESTES_MB e preservam um NODE_OPTIONS explícito", () => {
+  const runner = require("./regressao-v1-estatica.cjs");
+  assert.ok(runner.HEAP_DOS_TESTES_MB >= 3072, "o teto não pode voltar abaixo de 3 GB");
+  const teto = `--max-old-space-size=${runner.HEAP_DOS_TESTES_MB}`;
+  assert.equal(runner.ambienteDosTestes({}, { semIdentidadeDoDeploy: true }).NODE_OPTIONS, teto);
+  assert.equal(runner.ambienteDosTestes({ NODE_OPTIONS: "--enable-source-maps" }, { semIdentidadeDoDeploy: true }).NODE_OPTIONS, `--enable-source-maps ${teto}`);
+  assert.equal(runner.ambienteDosTestes({ NODE_OPTIONS: "--max-old-space-size=4096" }, { semIdentidadeDoDeploy: true }).NODE_OPTIONS, "--max-old-space-size=4096");
+  // Lint, TypeScript e build não recebem o teto.
+  assert.equal(runner.ambienteDosTestes({}).NODE_OPTIONS, undefined);
+  // Os dois passos de teste do check usam o ambiente com o teto.
+  const fonte = fs.readFileSync(path.join(raiz, "scripts", "regressao-v1-estatica.cjs"), "utf8");
+  const passos = fonte.split(/\r?\n/).filter((linha) => linha.trim().startsWith("executar("));
+  const comTeto = passos.filter((linha) => linha.includes("{ semIdentidadeDoDeploy: true }"));
+  assert.deepEqual(comTeto.map((linha) => linha.trim().match(/^executar\("([^"]+)"/)[1]), [
+    "Testes unitários V1",
+    "Harness staging — somente mocks, sem rede/banco",
+  ]);
+  assert.ok(fonte.includes("if (require.main === module) principal();"), "o check só roda como programa principal");
+});
+
+test("heap: o arquivo de teste que o node --test executa recebe o teto de verdade", () => {
+  // O runner chama `node --test`, que roda cada arquivo de teste num processo próprio (neto do runner). O teto precisa
+  // chegar a esse processo, onde a guarda roda.
+  const runner = require("./regressao-v1-estatica.cjs");
+  const pasta = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "kidmais-heap-"));
+  try {
+    const saida = path.join(pasta, "limite.txt");
+    const arquivo = path.join(pasta, "limite.test.cjs");
+    fs.writeFileSync(arquivo, [
+      "const fs = require(\"node:fs\");",
+      "const test = require(\"node:test\");",
+      "test(\"limite\", () => fs.writeFileSync(process.env.LIMITE_SAIDA, String(require(\"node:v8\").getHeapStatistics().heap_size_limit)));",
+      "",
+    ].join("\n"));
+    const base = { PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "", LIMITE_SAIDA: saida };
+    const env = runner.ambienteDosTestes(base, { semIdentidadeDoDeploy: true });
+    const filho = spawnSync(process.execPath, ["--test", arquivo], { env, encoding: "utf8" });
+    assert.equal(filho.status, 0, filho.stdout + filho.stderr);
+    const limiteMb = Number(fs.readFileSync(saida, "utf8")) / 2 ** 20;
+    // heap_size_limit = old space (o teto) + young generation (~192 MiB no Node 24). A faixa estreita impede que o heap
+    // padrão da máquina (4 GiB aqui, 2 GiB no Render) passe por acaso.
+    assert.ok(limiteMb >= runner.HEAP_DOS_TESTES_MB && limiteMb <= runner.HEAP_DOS_TESTES_MB + 512,
+      `limite no arquivo de teste ${Math.round(limiteMb)} MiB fora do teto de ${runner.HEAP_DOS_TESTES_MB} MiB`);
+  } finally {
+    fs.rmSync(pasta, { recursive: true, force: true });
+  }
+});

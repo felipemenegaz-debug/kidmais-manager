@@ -9,7 +9,7 @@ import { provarTenantParaExportacao, empresasSuspensasExportaveis } from "./guar
 import { ENTIDADES, FORA_DO_ESCOPO, SEGREDO } from "./entidades.ts";
 import { lerZip } from "./zip.ts";
 import type { Client } from "pg";
-import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, RETRATO_102, RETRATO_108, RETRATO_109, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
+import { abrir, lido, cod, id, lerCsv, montarEmpresaCom, opt, RETRATO, RETRATO_102, RETRATO_108, RETRATO_109, RETRATO_110, RETRATO_111, SENHA_FALSA, sessaoDe, sha, transacaoAninhada, transacaoDo, type CriarIdentidade } from "./fixture.postgres.test-apoio.ts";
 
 /** Identidade sintética da suíte (senha em formato válido que não autentica). */
 const criarIdentidade: CriarIdentidade = (db, email, nome) =>
@@ -144,7 +144,9 @@ test("exportação: completude do inventário e retrato das colunas no schema 09
     // da 108; um banco com a 107 e sem a 108 não é modelo registrado e falha contra o retrato 108, como deve).
     // A 109 não cria tabela: é reconhecida pela coluna substitui_id (modelo 109 = cadeia da 108 + 109).
     const tem109 = (await c.query("SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.assinatura_renovacoes') AND attname = 'substitui_id' AND NOT attisdropped")).rowCount === 1;
-    const retrato = tem109 ? RETRATO_109 : tabelas.includes("kidmais107_reparos") ? RETRATO_108 : tabelas.includes("agenda_salao_fotos") ? RETRATO_102 : RETRATO;
+    // A 110 cria satisfacao_envios (modelo 110 = cadeia da 109 + 110); a 111 (PS-3) cria satisfacao_links_avaliacao e é
+    // detectada ANTES da 110 (o schema 111 também tem satisfacao_envios).
+    const retrato = tabelas.includes("satisfacao_links_avaliacao") ? RETRATO_111 : tabelas.includes("satisfacao_envios") ? RETRATO_110 : tem109 ? RETRATO_109 : tabelas.includes("kidmais107_reparos") ? RETRATO_108 : tabelas.includes("agenda_salao_fotos") ? RETRATO_102 : RETRATO;
     if (process.env.KIDMAIS_EXPORTACAO_ATUALIZAR_RETRATO === "1") writeFileSync(retrato, `${JSON.stringify(colunas, null, 2)}\n`);
     assert.deepEqual(colunas, JSON.parse(readFileSync(retrato, "utf8")), "colunas exportadas mudaram: revise segredos e atualize o retrato");
     // Só as entidades de migrations posteriores à 089 ficam ausentes, com o motivo no manifesto.

@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { MarketingError, conflito, naoEncontrado } from "../erros.ts";
 import { exigirUnidadeDaEmpresa } from "../campanhas.ts";
+import { pesquisaInstalada, suprimirEntregasDaRegra } from "../../satisfacao/supressao.ts";
 import { fusoValido } from "./janela.ts";
-import { validarModelo } from "./modelo.ts";
+import { validarModelo, validarModeloPesquisa } from "./modelo.ts";
 
 /**
  * Regras PRÉ-DEFINIDAS (sem construtor genérico de fluxos). Cada tipo tem gatilho e condições fixos no código; a
@@ -11,7 +12,15 @@ import { validarModelo } from "./modelo.ts";
  */
 export const TIPOS_REGRA = ["PROPOSTA_PARADA", "POS_FESTA", "RECOMPRA", "DATAS_VAGAS"] as const;
 export type TipoRegra = (typeof TIPOS_REGRA)[number];
-export type AcaoRegra = "TAREFA_INTERNA" | "MENSAGEM_WHATSAPP" | "SUGESTAO";
+export type AcaoRegra = "TAREFA_INTERNA" | "MENSAGEM_WHATSAPP" | "SUGESTAO" | "PESQUISA_SATISFACAO";
+export const ACOES_REGRA = ["TAREFA_INTERNA", "MENSAGEM_WHATSAPP", "SUGESTAO", "PESQUISA_SATISFACAO"] as const;
+export type CanalRegra = "WHATSAPP" | "EMAIL";
+
+/** Textos padrão da pesquisa de satisfação (só no Pós-festa; migration 110). Revisados por uma pessoa antes do WhatsApp. */
+export const TEXTO_PESQUISA =
+  "Olá, {{nome}}! Obrigado por celebrar com o {{buffet}}. Conta pra gente como foi a festa? Leva 1 minuto: {{link_pesquisa}} Responda PARAR para não receber mais mensagens.";
+export const TEXTO_LEMBRETE_PESQUISA =
+  "Olá, {{nome}}! Sua opinião sobre a festa no {{buffet}} ainda pode ajudar muito. A pesquisa fica aberta por pouco tempo: {{link_pesquisa}} Responda PARAR para não receber mais mensagens.";
 
 export const CATALOGO_REGRAS: Record<TipoRegra, {
   nome: string; gatilho: string; condicoes: string; publico: string; esperaPadrao: number; acoes: AcaoRegra[]; acaoPadrao: AcaoRegra; texto: string | null;
@@ -29,7 +38,7 @@ export const CATALOGO_REGRAS: Record<TipoRegra, {
     gatilho: "Festa com contrato assinado realizada há X dias.",
     condicoes: "Contrato assinado e não cancelado; janela de 14 dias para não perder festas antigas.",
     publico: "Cliente da festa.",
-    esperaPadrao: 1, acoes: ["TAREFA_INTERNA", "MENSAGEM_WHATSAPP"], acaoPadrao: "TAREFA_INTERNA",
+    esperaPadrao: 1, acoes: ["TAREFA_INTERNA", "MENSAGEM_WHATSAPP", "PESQUISA_SATISFACAO"], acaoPadrao: "TAREFA_INTERNA",
     texto: "Olá, {{nome}}! Obrigado por celebrar com o {{buffet}}. Se puder, conte como foi a festa — sua opinião ajuda muito. Responda PARAR para não receber mais mensagens.",
   },
   RECOMPRA: {
@@ -53,21 +62,32 @@ export type Regra = {
   id: string | null; tipo: TipoRegra; unidadeId: string | null; status: "RASCUNHO" | "ATIVA" | "PAUSADA" | "NAO_CONFIGURADA"; acao: AcaoRegra;
   esperaDias: number; janelaInicio: string; janelaFim: string; fuso: string; fimDeSemana: boolean; limiteFrequenciaDias: number; maxTentativas: number;
   templateTexto: string | null; templateProvedor: string | null; templateRevisadoEm: string | null; versao: number; ativadaEm: string | null; pausadaEm: string | null;
+  /** Pesquisa de satisfação (110): canais e o modelo do lembrete. Vazios nas outras ações e sem a 110. */
+  canais: CanalRegra[]; templateLembreteTexto: string | null; templateLembreteProvedor: string | null;
 };
 
 type Linha = {
   id: string; tipo: TipoRegra; estabelecimento_id: string | null; status: Regra["status"]; acao: AcaoRegra; espera_dias: number; janela_inicio: string; janela_fim: string;
   fuso: string; fim_de_semana: boolean; limite_frequencia_dias: number; max_tentativas: number; template_texto: string | null; template_provedor: string | null;
   template_revisado_em: string | null; versao: number; ativada_em: string | null; pausada_em: string | null;
+  canais: CanalRegra[] | null; template_lembrete_texto: string | null; template_lembrete_provedor: string | null;
 };
-const COLUNAS = `id::text, tipo, estabelecimento_id::text, status, acao, espera_dias, to_char(janela_inicio, 'HH24:MI') AS janela_inicio, to_char(janela_fim, 'HH24:MI') AS janela_fim,
-  fuso, fim_de_semana, limite_frequencia_dias, max_tentativas, template_texto, template_provedor, template_revisado_em::text, versao, ativada_em::text, pausada_em::text`;
+/**
+ * Colunas da regra. As da 110 (canais e lembrete) são lidas pela linha em JSON: sem a 110 instalada vêm nulas, e o
+ * mesmo código serve antes e depois da migration (a ordem de implantação é código → 110).
+ */
+export const COLUNAS = `id::text, tipo, estabelecimento_id::text, status, acao, espera_dias, to_char(janela_inicio, 'HH24:MI') AS janela_inicio, to_char(janela_fim, 'HH24:MI') AS janela_fim,
+  fuso, fim_de_semana, limite_frequencia_dias, max_tentativas, template_texto, template_provedor, template_revisado_em::text, versao, ativada_em::text, pausada_em::text,
+  ARRAY(SELECT jsonb_array_elements_text(COALESCE(to_jsonb(marketing_automacao_regras) -> 'canais', '[]'::jsonb))) AS canais,
+  to_jsonb(marketing_automacao_regras) ->> 'template_lembrete_texto' AS template_lembrete_texto,
+  to_jsonb(marketing_automacao_regras) ->> 'template_lembrete_provedor' AS template_lembrete_provedor`;
 
 export function mapearRegra(l: Linha): Regra {
   return {
     id: l.id, tipo: l.tipo, unidadeId: l.estabelecimento_id, status: l.status, acao: l.acao, esperaDias: l.espera_dias, janelaInicio: l.janela_inicio, janelaFim: l.janela_fim,
     fuso: l.fuso, fimDeSemana: l.fim_de_semana, limiteFrequenciaDias: l.limite_frequencia_dias, maxTentativas: l.max_tentativas, templateTexto: l.template_texto,
     templateProvedor: l.template_provedor, templateRevisadoEm: l.template_revisado_em, versao: l.versao, ativadaEm: l.ativada_em, pausadaEm: l.pausada_em,
+    canais: l.canais ?? [], templateLembreteTexto: l.template_lembrete_texto, templateLembreteProvedor: l.template_lembrete_provedor,
   };
 }
 
@@ -76,6 +96,7 @@ export function regraPadrao(tipo: TipoRegra, unidadeId: string | null): Regra {
   return {
     id: null, tipo, unidadeId, status: "NAO_CONFIGURADA", acao: c.acaoPadrao, esperaDias: c.esperaPadrao, janelaInicio: "09:00", janelaFim: "18:00", fuso: "America/Sao_Paulo",
     fimDeSemana: false, limiteFrequenciaDias: 30, maxTentativas: 3, templateTexto: c.texto, templateProvedor: null, templateRevisadoEm: null, versao: 0, ativadaEm: null, pausadaEm: null,
+    canais: [], templateLembreteTexto: null, templateLembreteProvedor: null,
   };
 }
 
@@ -101,7 +122,7 @@ export const esquemaSalvarRegra = z.object({
   tipo: z.enum(TIPOS_REGRA),
   unidadeId: z.string().uuid().nullable().optional(),
   versao: z.number().int().min(0),
-  acaoRegra: z.enum(["TAREFA_INTERNA", "MENSAGEM_WHATSAPP", "SUGESTAO"]),
+  acaoRegra: z.enum(ACOES_REGRA),
   esperaDias: z.number().int().min(0).max(400),
   janelaInicio: hora,
   janelaFim: hora,
@@ -111,6 +132,9 @@ export const esquemaSalvarRegra = z.object({
   maxTentativas: z.number().int().min(1).max(5),
   templateTexto: z.string().trim().max(1000).nullable().optional(),
   templateProvedor: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,64}$/, "Nome do modelo do provedor: minúsculas, números e _.").nullable().optional(),
+  canais: z.array(z.enum(["WHATSAPP", "EMAIL"])).max(2).optional(),
+  templateLembreteTexto: z.string().trim().max(1000).nullable().optional(),
+  templateLembreteProvedor: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,64}$/, "Nome do modelo do provedor: minúsculas, números e _.").nullable().optional(),
 }).strict();
 export type SalvarRegra = z.infer<typeof esquemaSalvarRegra>;
 
@@ -123,9 +147,25 @@ export async function salvarRegra(tx: DbExecutor, empresaId: string, usuarioId: 
   if (!catalogo.acoes.includes(input.acaoRegra)) throw new MarketingError("MARKETING_REGRA_INVALIDA", "Ação não disponível para esta regra.", 400);
   if (input.janelaInicio >= input.janelaFim) throw new MarketingError("MARKETING_REGRA_INVALIDA", "A janela precisa começar antes de terminar.", 400);
   if (!fusoValido(input.fuso)) throw new MarketingError("MARKETING_REGRA_INVALIDA", "Fuso horário inválido.", 400);
-  if (input.templateTexto) {
-    const problemas = validarModelo(input.templateTexto);
-    if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", problemas.join(" "), 400, { problemas });
+  const pesquisa = input.acaoRegra === "PESQUISA_SATISFACAO";
+  const canais = pesquisa ? [...new Set(input.canais ?? [])] : [];
+  if (pesquisa) {
+    if (!(await pesquisaInstalada(tx))) throw new MarketingError("MARKETING_PESQUISA_INDISPONIVEL", "A pesquisa de satisfação ainda não está disponível neste ambiente.", 409);
+    if (canais.length === 0) throw new MarketingError("MARKETING_REGRA_INVALIDA", "Escolha ao menos um canal para a pesquisa.", 400);
+    const whatsapp = canais.includes("WHATSAPP");
+    for (const [rotulo, texto] of [["Pesquisa", input.templateTexto], ["Lembrete", input.templateLembreteTexto]] as const) {
+      if (!texto) throw new MarketingError("MARKETING_MODELO_INVALIDO", `${rotulo}: informe o texto.`, 400);
+      const problemas = validarModeloPesquisa(texto, { whatsapp });
+      if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", `${rotulo}: ${problemas.join(" ")}`, 400, { problemas });
+    }
+  } else {
+    if ((input.canais?.length ?? 0) > 0 || input.templateLembreteTexto || input.templateLembreteProvedor) {
+      throw new MarketingError("MARKETING_REGRA_INVALIDA", "Canais e lembrete são só da pesquisa de satisfação.", 400);
+    }
+    if (input.templateTexto) {
+      const problemas = validarModelo(input.templateTexto);
+      if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", problemas.join(" "), 400, { problemas });
+    }
   }
   const unidade = await exigirUnidadeDaEmpresa(tx, empresaId, input.unidadeId);
   const atual = await tx.query<Linha>(
@@ -133,30 +173,43 @@ export async function salvarRegra(tx: DbExecutor, empresaId: string, usuarioId: 
     [empresaId, input.tipo, unidade]);
   const params = [input.acaoRegra, input.esperaDias, input.janelaInicio, input.janelaFim, input.fuso, input.fimDeSemana, input.limiteFrequenciaDias, input.maxTentativas,
     input.templateTexto || null, input.templateProvedor || null];
+  const lembrete = pesquisa ? { texto: input.templateLembreteTexto || null, provedor: input.templateLembreteProvedor || null } : { texto: null, provedor: null };
+  // Colunas da 110 só são escritas com ela instalada (sem ela, nenhuma regra tem pesquisa, canais ou lembrete).
+  const comPesquisa = pesquisa || (await pesquisaInstalada(tx));
   if (!atual.rows[0]) {
     if (input.versao !== 0) conflito();
     const r = await tx.query<Linha>(
       `INSERT INTO marketing_automacao_regras (empresa_id, estabelecimento_id, tipo, acao, espera_dias, janela_inicio, janela_fim, fuso, fim_de_semana, limite_frequencia_dias,
-         max_tentativas, template_texto, template_provedor, criado_por, atualizado_por)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::time, $7::time, $8, $9, $10, $11, $12, $13, $14::uuid, $14::uuid) RETURNING ${COLUNAS}`,
-      [empresaId, unidade, input.tipo, ...params, usuarioId]);
+         max_tentativas, template_texto, template_provedor, criado_por, atualizado_por${comPesquisa ? ", canais, template_lembrete_texto, template_lembrete_provedor" : ""})
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::time, $7::time, $8, $9, $10, $11, $12, $13, $14::uuid, $14::uuid${comPesquisa ? ", $15::text[], $16, $17" : ""}) RETURNING ${COLUNAS}`,
+      [empresaId, unidade, input.tipo, ...params, usuarioId, ...(comPesquisa ? [canais, lembrete.texto, lembrete.provedor] : [])]);
     return mapearRegra(r.rows[0]);
   }
   const anterior = mapearRegra(atual.rows[0]);
   if (anterior.versao !== input.versao) conflito();
-  const textoMudou = (anterior.templateTexto ?? null) !== (input.templateTexto || null) || (anterior.templateProvedor ?? null) !== (input.templateProvedor || null);
-  // Mensagem precisa de texto revisado: texto/modelo alterado, ou ação trocada para mensagem sem revisão anterior.
-  const precisaRevisao = input.acaoRegra === "MENSAGEM_WHATSAPP" && (textoMudou || !anterior.templateRevisadoEm);
+  const textoMudou = (anterior.templateTexto ?? null) !== (input.templateTexto || null) || (anterior.templateProvedor ?? null) !== (input.templateProvedor || null)
+    || (anterior.templateLembreteTexto ?? null) !== lembrete.texto || (anterior.templateLembreteProvedor ?? null) !== lembrete.provedor;
+  // Mensagem precisa de texto revisado: texto/modelo alterado, ou ação trocada para mensagem sem revisão anterior. A
+  // pesquisa com WhatsApp também (os dois modelos da Meta); passar a incluir o WhatsApp pede revisão nova.
+  const whatsappNovo = canais.includes("WHATSAPP") && !anterior.canais.includes("WHATSAPP");
+  const acaoMudou = anterior.acao !== input.acaoRegra;
+  const precisaRevisao = (input.acaoRegra === "MENSAGEM_WHATSAPP" && (textoMudou || !anterior.templateRevisadoEm))
+    || (pesquisa && canais.includes("WHATSAPP") && (textoMudou || whatsappNovo || acaoMudou || !anterior.templateRevisadoEm));
   const r = await tx.query<Linha>(
     `UPDATE marketing_automacao_regras SET acao = $3, espera_dias = $4, janela_inicio = $5::time, janela_fim = $6::time, fuso = $7, fim_de_semana = $8,
        limite_frequencia_dias = $9, max_tentativas = $10, template_texto = $11, template_provedor = $12,
        template_revisado_em = CASE WHEN $13 THEN NULL ELSE template_revisado_em END, template_revisado_por = CASE WHEN $13 THEN NULL ELSE template_revisado_por END,
        status = CASE WHEN $13 AND status = 'ATIVA' THEN 'PAUSADA' ELSE status END,
        pausada_em = CASE WHEN $13 AND status = 'ATIVA' THEN clock_timestamp() ELSE pausada_em END,
-       versao = versao + 1, atualizado_por = $14::uuid, atualizado_em = clock_timestamp()
+       versao = versao + 1, atualizado_por = $14::uuid, atualizado_em = clock_timestamp()${comPesquisa ? ", canais = $15::text[], template_lembrete_texto = $16, template_lembrete_provedor = $17" : ""}
      WHERE id = $1::uuid AND empresa_id = $2::uuid RETURNING ${COLUNAS}`,
-    [anterior.id, empresaId, ...params, precisaRevisao, usuarioId]);
-  if (precisaRevisao && anterior.status === "ATIVA") await cancelarPendentes(tx, empresaId, anterior.id!, "TEXTO_ALTERADO_SEM_REVISAO");
+    [anterior.id, empresaId, ...params, precisaRevisao, usuarioId, ...(comPesquisa ? [canais, lembrete.texto, lembrete.provedor] : [])]);
+  // Plano R5: trocar a ação cancela o que ainda estava agendado dela; o que já saiu ou foi criado fica como está.
+  if (acaoMudou) await cancelarPendentes(tx, empresaId, anterior.id!, "ACAO_ALTERADA");
+  else if (precisaRevisao && anterior.status === "ATIVA") await cancelarPendentes(tx, empresaId, anterior.id!, "TEXTO_ALTERADO_SEM_REVISAO");
+  if (precisaRevisao && anterior.status === "ATIVA" && anterior.acao === "PESQUISA_SATISFACAO") {
+    await suprimirEntregasDaRegra(tx, empresaId, anterior.id!, "REGRA_PAUSADA");
+  }
   return mapearRegra(r.rows[0]);
 }
 
@@ -165,8 +218,18 @@ export async function revisarModelo(tx: DbExecutor, empresaId: string, usuarioId
   const regra = await regraDaEmpresa(tx, empresaId, regraId, true);
   if (regra.versao !== versao) conflito("O texto mudou desde que você abriu. Revise de novo.");
   if (!regra.templateTexto || !regra.templateProvedor) throw new MarketingError("MARKETING_MODELO_INCOMPLETO", "Informe o texto e o nome do modelo aprovado no provedor.", 400);
-  const problemas = validarModelo(regra.templateTexto);
-  if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", problemas.join(" "), 400, { problemas });
+  if (regra.acao === "PESQUISA_SATISFACAO") {
+    // Pesquisa: os dois modelos da Meta (inicial e lembrete), porque as mensagens saem fora da janela de 24 h.
+    if (!regra.templateLembreteTexto || !regra.templateLembreteProvedor) {
+      throw new MarketingError("MARKETING_MODELO_INCOMPLETO", "Informe o texto e o nome do modelo aprovado no provedor para a pesquisa e para o lembrete.", 400);
+    }
+    const whatsapp = regra.canais.includes("WHATSAPP");
+    const problemas = [...validarModeloPesquisa(regra.templateTexto, { whatsapp }), ...validarModeloPesquisa(regra.templateLembreteTexto, { whatsapp })];
+    if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", problemas.join(" "), 400, { problemas });
+  } else {
+    const problemas = validarModelo(regra.templateTexto);
+    if (problemas.length) throw new MarketingError("MARKETING_MODELO_INVALIDO", problemas.join(" "), 400, { problemas });
+  }
   await tx.query(`UPDATE marketing_automacao_regras SET template_revisado_em = clock_timestamp(), template_revisado_por = $3::uuid, versao = versao + 1,
     atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid AND empresa_id = $2::uuid`, [regraId, empresaId, usuarioId]);
   return regraDaEmpresa(tx, empresaId, regraId);
@@ -178,6 +241,12 @@ export async function ativarRegra(tx: DbExecutor, empresaId: string, usuarioId: 
   if (regra.acao === "SUGESTAO") throw new MarketingError("MARKETING_REGRA_INVALIDA", "Datas vagas é só sugestão: não há o que ativar.", 409);
   if (regra.acao === "MENSAGEM_WHATSAPP" && (!regra.templateRevisadoEm || !regra.templateProvedor)) {
     throw new MarketingError("MARKETING_MODELO_NAO_REVISADO", "Revise e aprove o texto (com o nome do modelo do provedor) antes de ativar mensagens.", 409);
+  }
+  if (regra.acao === "PESQUISA_SATISFACAO") {
+    if (!(await pesquisaInstalada(tx))) throw new MarketingError("MARKETING_PESQUISA_INDISPONIVEL", "A pesquisa de satisfação ainda não está disponível neste ambiente.", 409);
+    if (regra.canais.includes("WHATSAPP") && (!regra.templateRevisadoEm || !regra.templateProvedor || !regra.templateLembreteProvedor || !regra.templateLembreteTexto)) {
+      throw new MarketingError("MARKETING_MODELO_NAO_REVISADO", "Revise e aprove os dois textos do WhatsApp (pesquisa e lembrete, com os nomes dos modelos) antes de ativar.", 409);
+    }
   }
   await tx.query(`UPDATE marketing_automacao_regras SET status = 'ATIVA', ativada_em = clock_timestamp(), pausada_em = NULL, versao = versao + 1,
     atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid AND empresa_id = $2::uuid`, [regraId, empresaId, usuarioId]);
@@ -191,6 +260,8 @@ export async function pausarRegra(tx: DbExecutor, empresaId: string, usuarioId: 
   await tx.query(`UPDATE marketing_automacao_regras SET status = 'PAUSADA', pausada_em = clock_timestamp(), versao = versao + 1,
     atualizado_por = $3::uuid, atualizado_em = clock_timestamp() WHERE id = $1::uuid AND empresa_id = $2::uuid`, [regraId, empresaId, usuarioId]);
   const canceladas = await cancelarPendentes(tx, empresaId, regraId, "REGRA_PAUSADA");
+  // Pesquisa: entregas que ainda não saíram (inicial e lembrete) ficam SUPRIMIDA; o link continua respondível até expirar.
+  await suprimirEntregasDaRegra(tx, empresaId, regraId, "REGRA_PAUSADA");
   return { regra: await regraDaEmpresa(tx, empresaId, regraId), canceladas };
 }
 
@@ -202,6 +273,7 @@ export async function pararTudo(tx: DbExecutor, empresaId: string, usuarioId: st
     await tx.query(`UPDATE marketing_automacao_regras SET status = 'PAUSADA', pausada_em = clock_timestamp(), versao = versao + 1, atualizado_por = $2::uuid,
       atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [id, usuarioId]);
     canceladas += await cancelarPendentes(tx, empresaId, id, "INTERRUPCAO_DA_EMPRESA");
+    await suprimirEntregasDaRegra(tx, empresaId, id, "INTERRUPCAO_DA_EMPRESA");
   }
   return { regrasPausadas: ativas.rows.length, canceladas };
 }

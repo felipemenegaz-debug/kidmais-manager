@@ -38,6 +38,13 @@ export type DesafioIdentidadePublico = {
   canal: ValidacaoIdentidadeCanal;
   destinoMascarado: string;
   expiraEm: string;
+  /**
+   * Presente quando o código foi para o e-mail como reserva: na hora, porque o WhatsApp falhou,
+   * ou a pedido do cliente que não recebeu o WhatsApp.
+   */
+  reserva?: "FALHA_WHATSAPP" | "PEDIDO_CLIENTE";
+  /** Desafio por WhatsApp com reserva por e-mail disponível: e-mail mascarado e quando o pedido é aceito. */
+  reservaEmail?: { destinoMascarado: string; liberaEm: string };
 };
 
 export type ConfirmarCodigoIdentidadeInput = {
@@ -84,6 +91,10 @@ export type IdentityServiceOptions = {
   provaTtlMs?: number;
   maxTentativas?: number;
   maxEnvios?: number;
+  /** Reserva por e-mail do código (trava + e-mail configurado). Padrão: desligada. */
+  reservaEmail?: boolean;
+  /** Espera mínima, depois do envio pelo WhatsApp, para o cliente pedir o código por e-mail. Padrão: 60 s. */
+  reservaEmailEsperaMs?: number;
 
   /** Dependências substituíveis apenas para testes. */
   now?: () => Date;
@@ -111,4 +122,6 @@ export type ProvaIdentidadeContratoConsumida = {
   validacaoId: string;
   clienteId: string;
   contratoVersaoId: string;
+  /** Canal por onde foi o código que provou a identidade (auditoria do aceite). */
+  canal: ValidacaoIdentidadeCanal | null;
 };

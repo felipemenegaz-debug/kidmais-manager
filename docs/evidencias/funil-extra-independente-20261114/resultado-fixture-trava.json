@@ -1,0 +1,45 @@
+{
+  "data": "2026-11-14T19:11:42.262Z",
+  "runtime": "v24.20.0",
+  "resultados": [
+    {
+      "nome": "controle anterior R2: vínculo existe, atribuição da negociação ausente",
+      "ok": true
+    },
+    {
+      "nome": "automática novo/B herdado: origem completa, relatório e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "automática recorrente/A prevalece: origem completa, relatório e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "automática: origem própria e primeira origem do cliente preservadas",
+      "ok": true
+    },
+    {
+      "nome": "manual: origem própria e primeira origem do cliente preservadas",
+      "ok": true
+    },
+    {
+      "nome": "manual: herança antes da transferência, repetição sem escritas e COMMIT",
+      "ok": true
+    },
+    {
+      "nome": "recusas: outra negociação, outro cliente, outra empresa e contato sem cliente",
+      "ok": false,
+      "erro": "error: null value in column \"vinculo_cliente\" of relation \"marketing_contatos\" violates not-null constraint\n    at D:\\glass\\KidMais Manager\\kidmais-manager-funil-oportunidades-20261114\\node_modules\\pg\\lib\\client.js:694:17\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async id (file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:18:28)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:104:13\n    at async caso (file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:20:34)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:96:2"
+    },
+    {
+      "nome": "atomicidade: falha injetada em atribuicao desfaz vínculo/ação/responsável/atribuição/histórico",
+      "ok": false,
+      "erro": "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /FALHA_SINTETICA_atribuicao/. Input:\n\n'error: Trava da configuração da agenda ausente nesta transação (empresa 6fd97b52-b0c7-4b6b-b399-7ad8fcb7854e)'\n\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:110:26\n    at async caso (file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:20:34)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:107:48"
+    },
+    {
+      "nome": "atomicidade: falha injetada em historico desfaz vínculo/ação/responsável/atribuição/histórico",
+      "ok": false,
+      "erro": "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /FALHA_SINTETICA_historico/. Input:\n\n'error: Trava da configuração da agenda ausente nesta transação (empresa b6d68dc5-4c6b-4d88-ab21-1c798380a46c)'\n\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:110:26\n    at async caso (file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:20:34)\n    at async file:///D:/glass/KidMais%20Manager/kidmais-manager-funil-oportunidades-20261114/docs/evidencias/funil-extra-independente-20261114/provas.mjs:107:48"
+    }
+  ]
+}

@@ -193,6 +193,34 @@ test('situação do COMMIT: 40003 e classes 08/57/58/XX ou sem SQLSTATE de respo
   }
 });
 
+/**
+ * Inventário conservador das variáveis de ambiente lidas por pg/lib/connection-parameters.js (parecer r1 da 116/117, P3).
+ * Classifica: `process.env.NOME`, `process.env['NOME']` e os dois acessos dinâmicos do helper `val` (`'PG' + key` e
+ * `envVar`, cujos nomes vêm das chamadas `val(...)`). Qualquer outra menção a `process`/`env` como acesso ao ambiente
+ * (colchete dinâmico, `process[...]`, desestruturação, `require(process)`, enumeração) lança AMBIENTE_NAO_CLASSIFICADO.
+ */
+function inventarioAmbientePg(fonte) {
+  const lidas = new Set();
+  const DINAMICOS = ["process.env['PG' + key.toUpperCase()]", 'process.env[envVar]'];
+  let resto = fonte; // fonte cru, sem remover comentários: menção em comentário reprova (fail-closed)
+  for (const d of DINAMICOS) {
+    const n = resto.split(d).length - 1;
+    assert.ok(n <= 1, 'AMBIENTE_NAO_CLASSIFICADO acesso dinâmico repetido: ' + d);
+    resto = resto.split(d).join(' ');
+  }
+  resto = resto.replace(/\bprocess\s*\.\s*env\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\2\s*\])/g, (_, a, __, b) => {
+    lidas.add(a ?? b); return ' ';
+  });
+  const sobra = resto.match(/\bprocess\b|\benv\b/);
+  assert.ok(!sobra, 'AMBIENTE_NAO_CLASSIFICADO ' + (sobra ? resto.slice(Math.max(0, sobra.index - 30), sobra.index + 40) : ''));
+  for (const [, chave, terceiro] of fonte.matchAll(/val\('([a-z_]+)', config(?:, ([^)]+))?\)/g)) {
+    if (terceiro === undefined) lidas.add('PG' + chave.toUpperCase());
+    else if (/^'[A-Z_]+'$/.test(terceiro.trim())) lidas.add(terceiro.trim().slice(1, -1));
+    else assert.equal(terceiro.trim(), 'false', 'val com terceiro argumento desconhecido: ' + terceiro);
+  }
+  return lidas;
+}
+
 test('trava de alvo de staging e identidade: serviço, ambiente, host, banco, porta, URL sem query; mensagem sem segredos', async () => {
   assert.equal(stg.alvo(ENV_STG).application_name, 'kidmais-migration-118-staging');
   assert.equal(stg.alvo({...ENV_STG, DATABASE_SSL: 'true'}).ssl.rejectUnauthorized, true);
@@ -213,14 +241,22 @@ test('trava de alvo de staging e identidade: serviço, ambiente, host, banco, po
   // Parecer r2, P3: a lista é conferida contra o FONTE do pg instalado. Toda variável que connection-parameters.js lê do
   // ambiente é anulada pela configuração explícita (abaixo, com valor hostil) ou está na lista de recusa.
   const fonte = fs.readFileSync(require.resolve('pg/lib/connection-parameters'), 'utf8');
-  const lidas = new Set();
-  for (const [, chave, terceiro] of fonte.matchAll(/val\('([a-z_]+)', config(?:, ([^)]+))?\)/g)) {
-    if (terceiro === undefined) lidas.add('PG' + chave.toUpperCase());
-    else if (/^'[A-Z_]+'$/.test(terceiro.trim())) lidas.add(terceiro.trim().slice(1, -1));
-    else assert.equal(terceiro.trim(), 'false', 'val com terceiro argumento desconhecido: ' + terceiro);
-  }
-  for (const [, nome] of fonte.matchAll(/process\.env\.([A-Z_]+)/g)) lidas.add(nome);
+  // Parecer r1 da 116/117, P3: toda leitura de ambiente no fonte precisa ser classificada; acesso não reconhecido reprova.
+  const lidas = inventarioAmbientePg(fonte);
   assert.ok(lidas.has('PGCLIENT_ENCODING') && lidas.has('PGOPTIONS') && lidas.has('PGSSLMODE'), 'leitura do fonte: ' + [...lidas]);
+  // O inventário pega leitura nova por ponto ou por colchete com nome literal e reprova acesso dinâmico ou indireto.
+  for (const [injecao, nome] of [["process.env['PGFUTURE_OPTIONS']", 'PGFUTURE_OPTIONS'], ['process.env["PGFUTURO"]', 'PGFUTURO'],
+    ['process.env.PGFUTURO_PONTO', 'PGFUTURO_PONTO'], ['process . env [ \'PGESPACOS\' ]', 'PGESPACOS'],
+    ['globalThis.process.env.PGGLOBAL', 'PGGLOBAL']]) {
+    const alterado = fonte.split('  switch (process.env.PGSSLMODE) {').join('  void ' + injecao + '\n  switch (process.env.PGSSLMODE) {');
+    assert.notEqual(alterado, fonte, 'âncora da injeção');
+    assert.ok(inventarioAmbientePg(alterado).has(nome), 'injeção não detectada: ' + injecao);
+  }
+  for (const injecao of ['process.env[outra]', "process.env['PG' + x]", "process['env'].PGX", 'const {env} = process', "require('node:process')",
+    'Object.keys(process.env)', 'env.PGSOLTO', 'process.env[envVar]']) {
+    const alterado = fonte.split('  switch (process.env.PGSSLMODE) {').join('  void ' + injecao + '\n  switch (process.env.PGSSLMODE) {');
+    assert.throws(() => inventarioAmbientePg(alterado), /AMBIENTE_NAO_CLASSIFICADO/, injecao);
+  }
   const ANULADAS = ['PGUSER', 'PGDATABASE', 'PGPORT', 'PGHOST', 'PGPASSWORD', 'PGSSLMODE', 'PGAPPNAME', 'PGCONNECT_TIMEOUT'];
   for (const nome of lidas) assert.ok(ANULADAS.includes(nome) || stg.PG_HERDADAS_RECUSADAS.includes(nome), 'variável do pg sem tratamento: ' + nome);
   // NUL e controles no usuário ou na senha (parecer r2, P2): recusa ANTES de instanciar o cliente.

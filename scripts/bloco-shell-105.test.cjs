@@ -37,8 +37,9 @@ const codigo = s => Number((/^CODIGO_SAIDA_BLOCO=(\d+)$/m.exec(s) || [])[1]);
 const linhas = (s, re) => s.split(/\r?\n/).filter(l => re.test(l)).length;
 
 test('arquivos conferidos: aplicador de staging, os dois núcleos (105 e 092–094), conexão de staging e os 4 SQL revisados; só staging', () => {
-  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-105-staging.cjs', 'scripts/migration-105-comum.cjs', 'scripts/migration-092-094-comum.cjs',
-    'scripts/conexao-staging.cjs', ...ETAPAS.map(e => e[1])]);
+  assert.deepEqual(b.arquivos('staging'), ['scripts/migration-105-staging.cjs', 'scripts/migration-105-comum.cjs', 'scripts/migration-105-definicoes.cjs',
+    'scripts/migration-105-relacoes.cjs', 'scripts/conferencia-b5-105.cjs', 'scripts/migration-092-094-comum.cjs', 'scripts/conexao-staging.cjs',
+    ...ETAPAS.map(e => e[1]), 'database/checks/20261029_105_definicoes.sql']);
   assert.deepEqual(ETAPAS.map(e => e[0]), ['precheck 105', 'migration 105', 'postcheck 105', 'integridade 105']);
   for (const [, a, h] of ETAPAS) assert.equal(sha(lf(a)), h, a);
   assert.equal(b.DESTINO, '/opt/render/project/src'); assert.equal(b.AMBIENTES.staging.servico, SERVICO);

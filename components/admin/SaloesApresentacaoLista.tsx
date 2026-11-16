@@ -10,7 +10,10 @@ import ws from './workspace.module.css';
 
 /** Configurações › Salões (102): salões ativos da empresa e se cada um já está pronto para aparecer ao cliente. */
 type Salao = { id: string; nome: string; unidade: string | null; capacidadeConvidados: number | null; fotos: number; pronto: boolean; pendencias: number };
-type Dados = { instalacao: 'AUSENTE' | 'COMPLETA' | 'PARCIAL'; gestao: boolean; paginaPublica?: boolean; saloes: Salao[] };
+type Dados = { instalacao: 'AUSENTE' | 'COMPLETA' | 'PARCIAL'; gestao: boolean; paginaPublica?: boolean; cadastroNaAgenda?: boolean; saloes: Salao[] };
+
+/** Agenda com um salão e cadastro de mais de um salão desligado (D-LIB-1): ainda não há onde cadastrar salões. */
+export const TEXTO_UM_SALAO = 'Sua agenda funciona com um salão só. O cadastro de mais de um salão ainda não está disponível.';
 
 export default function SaloesApresentacaoLista() {
   const [dados, setDados] = useState<Dados | null>(null);
@@ -38,7 +41,9 @@ export default function SaloesApresentacaoLista() {
       {dados?.instalacao === 'COMPLETA' && <section className={ws.card} aria-labelledby="lista-saloes">
         <h2 id="lista-saloes">Salões ativos</h2>
         {dados.saloes.length === 0
-          ? <p className={ws.muted}>Nenhum salão cadastrado. Cadastre os salões em <Link href="/admin/configuracoes/agenda">Configurações › Agenda</Link>.</p>
+          ? (dados.cadastroNaAgenda === false
+            ? <p className={ws.muted} data-saloes-um-salao>{TEXTO_UM_SALAO}</p>
+            : <p className={ws.muted}>Nenhum salão cadastrado. Cadastre os salões em <Link href="/admin/configuracoes/agenda">Configurações › Agenda</Link>.</p>)
           : <div className={css.lista}>
             {dados.saloes.map((s) => <div className={css.salaoLinha} key={s.id}>
               <span><strong>{s.nome}</strong>{s.unidade ? ` · ${s.unidade}` : ''}<br />
@@ -47,7 +52,7 @@ export default function SaloesApresentacaoLista() {
               <Link href={`/admin/configuracoes/saloes/${s.id}`}>{dados.gestao ? 'Editar' : 'Ver'}</Link>
             </div>)}
           </div>}
-        <p className={ws.muted}>Nome, máximo de convidados e salões novos são cadastrados em <Link href="/admin/configuracoes/agenda">Configurações › Agenda</Link>.</p>
+        {dados.cadastroNaAgenda !== false && <p className={ws.muted}>Nome, máximo de convidados e salões novos são cadastrados em <Link href="/admin/configuracoes/agenda">Configurações › Agenda</Link>.</p>}
       </section>}
     </div>
   </main>;
