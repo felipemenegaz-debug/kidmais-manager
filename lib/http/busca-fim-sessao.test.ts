@@ -333,3 +333,76 @@ test('teto de releituras esgotado com nova troca desta página em curso: nada en
         assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
     } finally { a.ctx.encerrarTrocaDeEmpresa(); }
 });
+
+// ---------------------------------------------------------------- revisão do merge a6c070f1 (P2)
+// A troca desta página pode começar entre a resposta de fim (401 ou sem usuário) chegar e o chamador consumi-la. A trava é
+// decidida no consumo, com a marca conferida ali: resposta que uma troca já tornou antiga não trava nada.
+
+for (const [rotulo, fim] of [['401', 401], ['sem usuário', 'sem-usuario']] as const) {
+    test(`pós-confirmação de fim (${rotulo}) com a troca começando k microtarefas depois: nunca trava com a troca já iniciada`, async () => {
+        const regimes = { travou: 0, preservou: 0 };
+        for (let k = 0; k < 8; k++) {
+            let disparo: Promise<void> = Promise.resolve();
+            const a = ambiente([S1, async () => {
+                disparo = (async () => { for (let j = 0; j < k; j++) await Promise.resolve(); a.ctx.iniciarTrocaDeEmpresa(); })();
+                return fim;
+            }, S1]);
+            (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 5;
+            const travas: boolean[] = [];
+            const original = a.ctx.encerrarBuscasDaAba;
+            a.ctx.encerrarBuscasDaAba = () => { travas.push(a.ctx.fimDaTrocaEmCurso() !== null); return original(); };
+            try {
+                await erroDe(a.mod.adminFetch(LISTA));
+                await disparo;
+                assert.deepEqual(travas.filter(Boolean), [], `k=${k}: nenhuma trava depois de a troca começar`);
+                if (travas.length) { regimes.travou += 1; travada(a); }
+                else {
+                    regimes.preservou += 1;
+                    assert.deepEqual(a.navegacoes, [], `k=${k}: sem trava, nada navega`);
+                    assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', `k=${k}: a busca continua`);
+                }
+            } finally { a.ctx.encerrarTrocaDeEmpresa(); }
+        }
+        assert.ok(regimes.travou > 0 && regimes.preservou > 0, `os dois regimes exercitados: ${JSON.stringify(regimes)}`);
+    });
+
+    test(`fluxo real: pós-confirmação de fim (${rotulo}) e trocarEmpresaAtiva começando antes do consumo, recusada (403): lista entregue, busca mantida`, async () => {
+        // Como na reprodução do Astra: a prévia da troca recebe o cabeçalho e fica com o corpo retido; a pós-confirmação da
+        // lista devolve o fim e solta esse corpo no mesmo instante. A troca começa depois de a resposta de fim ser
+        // classificada e antes de a lista consumi-la. Demais leituras = sessão vigente S1.
+        let soltarTroca!: (v: unknown) => void, avisarTroca!: () => void;
+        const corpoDaTroca = new Promise((r) => { soltarTroca = r; });
+        const trocaPedida = new Promise<void>((r) => { avisarTroca = r; });
+        let soltarPost!: () => void, avisarPost!: () => void;
+        const segurar = new Promise<void>((r) => { soltarPost = r; });
+        const corpoS1 = { ok: true, data: { usuarioId: 'u', sessaoId: 's1', csrf: 'c', contexto: { empresaAtual: { id: 'A' } } } };
+        const a = ambiente([S1, async () => { soltarTroca(corpoS1); return fim; }, S1], { status: 403, segurar });
+        (a.mod.ESPERA_DA_TROCA as unknown as { prazoMs: number }).prazoMs = 200;
+        const postPedido = new Promise<void>((r) => { avisarPost = r; });
+        const fetchBase = (globalThis as unknown as { fetch: Fn }).fetch;
+        let primeira = true;
+        (globalThis as unknown as { fetch: (input: unknown, init?: RequestInit) => unknown }).fetch = (input: unknown, init: RequestInit = {}) => {
+            const metodo = (init.method ?? 'GET').toUpperCase();
+            if (metodo === 'POST') avisarPost();
+            if (primeira && metodo === 'GET' && String(input) === '/api/admin/autenticacao') {
+                primeira = false; avisarTroca();
+                return Promise.resolve({ ok: true, status: 200, json: () => corpoDaTroca });
+            }
+            return fetchBase(input, init);
+        };
+        const troca = a.mod.trocarEmpresaAtiva('B') as Promise<Response>;
+        await trocaPedida;
+        const pedido = (a.mod.adminFetch(LISTA) as Promise<Response>).then((r) => r.ok ? 'entregue' : 'recusada', (e: { tipo?: string }) => e.tipo);
+        await postPedido;
+        for (let j = 0; j < 20; j++) await Promise.resolve();
+        assert.notEqual(a.ctx.fimDaTrocaEmCurso(), null, 'premissa: troca pendente durante a resposta de fim');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'com a troca pendente, nada travou');
+        soltarPost();
+        assert.equal((await troca).status, 403, 'a troca é recusada pelo servidor');
+        assert.equal(await pedido, 'entregue', 'troca recusada + releitura da mesma sessão: a lista é entregue');
+        assert.deepEqual(a.navegacoes, [], 'sem login nem descarte');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Helena', 'a busca continua');
+        a.aba.guardarBuscaNaAba('contratos', 'Theo');
+        assert.equal(a.aba.lerBuscaDaAba('contratos'), 'Theo', 'e continua gravável');
+    });
+}
