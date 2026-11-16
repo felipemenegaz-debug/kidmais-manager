@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   TAMANHOS_LOGO, LUGARES_LOGO, moverLogo, passoDaTecla, arrastarLogo, anuncioPosicao, logoEfetiva, avisoOrigem,
-  avisoSemNome, logoLigadaParaGerar, ESPERA_MOSTRAR_MS, PASSO_SETA, PASSO_SETA_SHIFT,
+  avisoSemNome, logoLigadaParaGerar, ESPERA_MOSTRAR_MS, PASSO_SETA, PASSO_SETA_SHIFT, limitarAoExibido, incorporarConfirmados,
 } from './logo-editor.ts';
+import type { LogoLocal } from './logo-editor.ts';
 
 const p = { modo: 'sobre' as const, arteId: 'a', x: 50, y: 50, largura: 18, fundo: false };
 
@@ -74,4 +75,35 @@ test('gerar: espera o mostrar só quando há espera; erro ou tempo bloqueiam', a
   let lido = 0;
   await logoLigadaParaGerar(fila('ok', true), () => { lido++; return true; });
   assert.equal(lido, 1, 'valor lido depois da espera');
+});
+
+test('r2 P3: depois de um canto, cada seta move o centro exibido (sem zona morta)', () => {
+  const caixa = { width: 26, height: 10 };
+  const canto = limitarAoExibido({ ...p, x: 0, y: 0, largura: 26 }, caixa);
+  assert.deepEqual([canto.x, canto.y], [13, 5], 'canto gravado já no centro exibido');
+  const direita = limitarAoExibido(moverLogo(canto, PASSO_SETA, 0), caixa);
+  assert.equal(direita.x, 14, 'o primeiro toque já move');
+  // Posição legada (x=0 gravado antes da r2): a seta parte do centro exibido.
+  const legado = limitarAoExibido(moverLogo(limitarAoExibido({ ...p, x: 0, y: 50 }, caixa), PASSO_SETA, 0), caixa);
+  assert.equal(legado.x, 14);
+  const borda = limitarAoExibido(moverLogo(limitarAoExibido({ ...p, x: 100 }, caixa), PASSO_SETA_SHIFT, 0), caixa);
+  assert.equal(borda.x, 87, 'empurrar além da borda não acumula');
+  assert.equal(limitarAoExibido(p, null), p, 'sem caixa exibida fica como está');
+  assert.equal(limitarAoExibido({ ...p, x: 0 }, { width: 7.333, height: 4 }).x, 3.67, 'centro arredondado a 2 casas');
+  assert.equal(anuncioPosicao(canto), 'Logo a 13% da esquerda e 5% do topo.');
+});
+
+test('r2 P2: a base só recebe os campos confirmados depois do número já incorporado', () => {
+  const base: LogoLocal & { extra: number } = { mostrar: true, posicoes: { a: { ...p, x: 10 } }, extra: 1 };
+  const conf = { n: 3, mostrar: { valor: false, n: 2 }, posicoes: { a: { valor: { ...p, x: 40 }, n: 3 }, b: { valor: { ...p, arteId: 'b' }, n: 1 } } };
+  const r = incorporarConfirmados(base, conf, 1);
+  assert.equal(r.mostrar, false);
+  assert.equal(r.posicoes.a.x, 40);
+  assert.equal(r.posicoes.a.origem, 'buffet');
+  assert.equal(r.posicoes.b, undefined, 'confirmação já incorporada não volta');
+  assert.equal(r.extra, 1, 'preserva os outros campos da base');
+  assert.equal(incorporarConfirmados(base, conf, 3), base, 'nada novo: mesma base');
+  assert.equal(incorporarConfirmados(base, conf, 2).mostrar, true, 'mostrar já incorporado (n 2) não volta');
+  // Intenção pendente que a fila descartou não está em `confirmados`: a base não muda.
+  assert.deepEqual(incorporarConfirmados(base, { n: 0, posicoes: {} }, 0), base);
 });

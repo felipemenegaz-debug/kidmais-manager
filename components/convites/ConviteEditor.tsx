@@ -132,7 +132,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   }, [carregar]);
   const alterado = !!dados && !!conteudo && JSON.stringify(semCamposLogo(conteudo)) !== JSON.stringify(semCamposLogo(dados.conteudo));
   const logo = useLogoNoConvite({
-    ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id, endpointAdmin: `/api/admin/convites?conviteId=${dados?.id ?? ''}`,
+    ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id,
     logoDataUrl: dados?.logoBuffet?.logoDataUrl ?? null, publicado: !!dados?.publicado, conteudo, arteUrl: dados?.artes.find(a => a.id === conteudo?.arteId)?.url,
     ler: () => api() as Promise<Dados>, busy, ui,
   });

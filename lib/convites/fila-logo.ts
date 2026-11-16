@@ -22,7 +22,13 @@ export type EstadoFilaLogo = {
     mostrar?: boolean;
     /** Intenções pendentes ou em voo, por arte (o que a tela deve mostrar no lugar do gravado). */
     posicoes: Record<string, PosicaoLogoEnvio>;
+    /**
+     * r2 (Astra r1, P2): só o que o servidor marcou como aplicado, com o número da confirmação. A tela incorpora à base
+     * gravada apenas estes campos; intenção descartada (superada, arte ausente, seq velha) nunca vira "gravada".
+     */
+    confirmados: ConfirmadosLogo;
 };
+export type ConfirmadosLogo = { n: number; mostrar?: { valor: boolean; n: number }; posicoes: Record<string, { valor: PosicaoLogoEnvio; n: number }> };
 /** Lança em erro de rede ou de contexto administrativo; senão devolve o status e o corpo lido. */
 export type Transporte = (corpo: object) => Promise<{ status: number; codigo?: string; data?: unknown }>;
 export type ArmazenamentoAba = { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void };
@@ -92,6 +98,7 @@ export function criarFilaLogo(op: {
     const esquecidas = new Set<string>();
     const ouvintes = new Set<(e: EstadoFilaLogo) => void>();
     const esperas = new Set<() => void>();
+    const confirmados: ConfirmadosLogo = { n: 0, posicoes: {} };
 
     function estado(): EstadoFilaLogo {
         const posicoes: Record<string, PosicaoLogoEnvio> = {};
@@ -106,7 +113,8 @@ export function criarFilaLogo(op: {
             }
         }
         const situacao = superada ? 'superada' : ciclo.ativo || adiados.size > 0 ? 'salvando' : parado ? 'erro' : jaSalvou ? 'salvo' : 'ocioso';
-        return { situacao, pendente: temPendencia(), epoca, ...(mostrar === undefined ? {} : { mostrar }), posicoes };
+        const conf: ConfirmadosLogo = { n: confirmados.n, ...(confirmados.mostrar ? { mostrar: { ...confirmados.mostrar } } : {}), posicoes: { ...confirmados.posicoes } };
+        return { situacao, pendente: temPendencia(), epoca, ...(mostrar === undefined ? {} : { mostrar }), posicoes, confirmados: conf };
     }
     function temPendencia() { return !superada && (adiados.size > 0 || pendente.size > 0 || emVoo !== null); }
     function notificar() {
@@ -180,7 +188,9 @@ export function criarFilaLogo(op: {
 
     function aoAbrir(r: Awaited<ReturnType<Transporte>>) {
         emVoo = null;
-        if (superada || !conferir()) return;
+        // Já superada: avisa a tela para tirar a intenção que estava em voo.
+        if (superada) { notificar(); return; }
+        if (!conferir()) return;
         const id = (r.data as { logoSessao?: unknown } | undefined)?.logoSessao;
         if (r.status >= 200 && r.status < 300 && typeof id === 'string') {
             if (!semPersistencia) {
@@ -225,10 +235,14 @@ export function criarFilaLogo(op: {
 
     function aoBuffet(r: Awaited<ReturnType<Transporte>>, campos: Map<string, Intencao>) {
         emVoo = null;
-        if (superada || !conferir()) return;
+        // Já superada: avisa a tela para tirar a intenção que estava em voo.
+        if (superada) { notificar(); return; }
+        if (!conferir()) return;
         if (r.status >= 200 && r.status < 300) {
-            const ausentes = (r.data as { artesAusentes?: unknown } | undefined)?.artesAusentes;
-            if (Array.isArray(ausentes)) for (const id of ausentes) if (typeof id === 'string') esquecer(id);
+            const dados = r.data as { artesAusentes?: unknown; aplicado?: { mostrar?: unknown; posicoes?: Record<string, unknown> } } | undefined;
+            const ausentes = new Set(Array.isArray(dados?.artesAusentes) ? dados.artesAusentes.filter((id): id is string => typeof id === 'string') : []);
+            for (const id of ausentes) esquecer(id);
+            confirmar(campos, dados?.aplicado, ausentes);
             bombear();
             notificar();
             return;
@@ -250,7 +264,9 @@ export function criarFilaLogo(op: {
 
     function aoFalhar(e: unknown, campos: Map<string, Intencao> | null) {
         emVoo = null;
-        if (superada || !conferir()) return;
+        // Já superada: avisa a tela para tirar a intenção que estava em voo.
+        if (superada) { notificar(); return; }
+        if (!conferir()) return;
         falhou(null, e, campos);
     }
 
@@ -274,6 +290,23 @@ export function criarFilaLogo(op: {
             if (pendente.has(c)) continue;
             pendente.set(c, i);
         }
+    }
+
+    /** Registra só os campos que a resposta marcou como aplicados; a confirmação conta como mudança para a regra da época. */
+    function confirmar(campos: Map<string, Intencao>, aplicado: { mostrar?: unknown; posicoes?: Record<string, unknown> } | undefined, ausentes: Set<string>) {
+        let houve = false;
+        for (const [c, i] of campos) {
+            const arte = arteDoCampo(c);
+            if (arte === null) {
+                if (aplicado?.mostrar !== true) continue;
+                confirmados.mostrar = { valor: i.valor as boolean, n: confirmados.n + 1 };
+            } else {
+                if (ausentes.has(arte) || esquecidas.has(arte) || aplicado?.posicoes?.[arte] !== true) continue;
+                confirmados.posicoes[arte] = { valor: { ...(i.valor as PosicaoLogoEnvio) }, n: confirmados.n + 1 };
+            }
+            houve = true;
+        }
+        if (houve) { confirmados.n += 1; epoca += 1; }
     }
 
     function esquecer(arteId: string) {
@@ -397,11 +430,16 @@ async function transporteAdmin(endpoint: string, corpo: object) {
     return { status: r.status, ...(typeof j?.codigo === 'string' ? { codigo: j.codigo } : {}), data: j?.data };
 }
 
+/** Rota administrativa do convite (r2, Astra r1 P1): o endereço nasce do id, nunca de um valor montado antes da leitura. */
+export const endpointDaLogo = (conviteId: string) => `/api/admin/convites?conviteId=${encodeURIComponent(conviteId)}`;
+
 const instancias = new Map<string, FilaLogo>();
 /** Uma instância por convite neste documento; sobrevive à desmontagem do editor numa navegação interna. */
-export function filaDaLogo(conviteId: string, endpoint: string): FilaLogo {
+export function filaDaLogo(conviteId: string): FilaLogo {
+    if (!conviteId) throw new Error('Fila da logo sem convite.');
     const existente = instancias.get(conviteId);
     if (existente) return existente;
+    const endpoint = endpointDaLogo(conviteId);
     const armazenamento: ArmazenamentoAba = {
         getItem: (k) => globalThis.sessionStorage.getItem(k),
         setItem: (k, v) => globalThis.sessionStorage.setItem(k, v),

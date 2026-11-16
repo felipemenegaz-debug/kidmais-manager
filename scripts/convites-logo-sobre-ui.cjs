@@ -13,7 +13,7 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const out = path.resolve('.local-convites-qa/logo-sobre'); fs.mkdirSync(out, { recursive: true });
 const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
 const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Teste' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
-const ARTE = id(50), TOKEN = 'p'.repeat(43);
+const ARTE = id(50), ARTE_B = id(51), TOKEN = 'p'.repeat(43);
 const esperar = ms => new Promise(r => setTimeout(r, ms));
 async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (Date.now() < fim) { if (await cond()) return; await esperar(50); } throw new Error(`tempo esgotado: ${msg}`); }
 
@@ -31,7 +31,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   const resumo = [];
 
-  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 } } = {}) {
+  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false } = {}) {
     const dados = {
       id: id(1), festaId: id(5),
       conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília',
@@ -44,7 +44,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
     };
     // Servidor simulado: sessões por id, seq por sessão, comandos em voo, falhas e retenção sob demanda.
     const estado = { posts: [], logo: [], sessoes: new Map(), emVoo: 0, maxEmVoo: 0, erros: [], segurar: false, presos: [], falharProximo: null, expirarProximo: false, outras: new Set() };
-    const context = await browser.newContext({ viewport });
+    const context = await browser.newContext({ viewport, hasTouch, acceptDownloads: true });
     await context.route('**/*', async route => {
       const request = route.request(), url = new URL(request.url());
       if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
@@ -55,6 +55,8 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       if (!['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) { estado.outras.add(url.pathname); return json(null); }
       if (request.method() === 'GET') return json(JSON.parse(JSON.stringify(dados)));
       const b = request.postDataJSON(); estado.posts.push(b);
+      // r2 (Astra r1, P1): todo comando da logo vai para a URL com o UUID deste convite na query, desde a primeira abertura.
+      if (['logo_sessao', 'logo_buffet'].includes(b.acao) && url.searchParams.get('conviteId') !== dados.id) estado.erros.push(`comando ${b.acao} sem o conviteId na query: ${url.search}`);
       if (b.acao === 'salvar') { dados.revisao++; return json({ salvo: true }); }
       if (b.acao === 'logo_sessao') {
         assert.ok(admin, 'família nunca abre sessão da logo');
@@ -72,7 +74,11 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
         assert.ok(b.seq > estado.sessoes.get(b.sessao), `seq cresce por sessão (${b.seq})`); estado.sessoes.set(b.sessao, b.seq);
         if (typeof b.mostrar === 'boolean') dados.logoBuffet.mostrar = b.mostrar;
         for (const p of b.posicoes ?? []) dados.conteudo.logoPosicoes[p.arteId] = { ...p };
-        return json({ gravado: true });
+        // Mesmo formato do servidor (service.ts): o que foi aplicado por campo e as artes ausentes.
+        const aplicado = {};
+        if (typeof b.mostrar === 'boolean') aplicado.mostrar = true;
+        if (b.posicoes?.length) aplicado.posicoes = Object.fromEntries(b.posicoes.map(p => [p.arteId, true]));
+        return json({ aplicado, artesAusentes: [] });
       } finally { estado.emVoo--; }
     });
     const page = await context.newPage(); page.on('pageerror', e => estado.erros.push(e.message));
@@ -82,6 +88,16 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
   }
   const ultimaPosicao = estado => [...estado.logo].reverse().find(b => b.acao === 'logo_buffet' && b.posicoes?.length)?.posicoes.at(-1);
   const salvo = page => page.locator('[data-situacao-logo="salvo"]').waitFor({ timeout: 8000 });
+  // r2 (Astra r1, P3): o lugar escolhido grava o centro que aparece na tela (sem zona morta perto da borda).
+  // Confere o canto aproximado e que a posição gravada é o centro exibido do controle (±0,6%).
+  async function noLugar(page, pos, [ex, ey], msg) {
+    const perto = (v, e) => (e === 0 ? v < 20 : e === 100 ? v > 80 : Math.abs(v - e) < 0.6);
+    assert.ok(perto(pos.x, ex) && perto(pos.y, ey), `${msg}: (${pos.x},${pos.y}) perto de (${ex},${ey})`);
+    await ate(async () => {
+      const c = await page.evaluate(() => { const b = document.querySelector('[aria-label="Logo do buffet sobre a arte"]'); if (!b) return null; const r = b.getBoundingClientRect(), p = b.parentElement.getBoundingClientRect(); return { x: ((r.left + r.width / 2 - p.left) / p.width) * 100, y: ((r.top + r.height / 2 - p.top) / p.height) * 100 }; });
+      return c && Math.abs(c.x - pos.x) < 0.6 && Math.abs(c.y - pos.y) < 0.6;
+    }, `${msg}: centro exibido = posição gravada (${pos.x},${pos.y})`, 3000);
+  }
 
   try {
     // 1. Convite completo antigo (sem entrada de posição): abrir não grava nada; logo no rodapé e oferta de colocar sobre a arte.
@@ -140,7 +156,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
 
       // 6. Os 9 lugares, tamanho e fundo.
       await page.getByRole('button', { name: 'Embaixo, à direita', exact: true }).click(); await salvo(page);
-      assert.deepEqual([ultimaPosicao(estado).x, ultimaPosicao(estado).y], [100, 100]);
+      await noLugar(page, ultimaPosicao(estado), [100, 100], 'embaixo à direita');
       await page.getByRole('radio', { name: 'Grande' }).check(); await salvo(page);
       assert.equal(ultimaPosicao(estado).largura, 26);
       const fundo = page.getByRole('checkbox', { name: 'Fundo claro atrás da logo' }), tinhaFundo = await fundo.isChecked();
@@ -161,8 +177,8 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await salvo(page);
       assert.equal(estado.maxEmVoo, 1, 'no máximo um comando em voo');
       assert.ok(estado.logo.length <= n2 + 2, 'intermediária absorvida');
-      assert.deepEqual([ultimaPosicao(estado).x, ultimaPosicao(estado).y], [50, 100]);
-      assert.deepEqual([dados.conteudo.logoPosicoes[ARTE].x, dados.conteudo.logoPosicoes[ARTE].y], [50, 100], 'gravado = último');
+      await noLugar(page, ultimaPosicao(estado), [50, 100], 'embaixo no centro');
+      assert.deepEqual(dados.conteudo.logoPosicoes[ARTE], ultimaPosicao(estado), 'gravado = último');
 
       // 8. Erro → "Tentar de novo" reenviando a mesma intenção.
       estado.falharProximo = 400;
@@ -170,17 +186,37 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await page.locator('[data-situacao-logo="erro"]').waitFor();
       await page.screenshot({ path: path.join(out, '05-erro-tentar-de-novo.png') });
       await page.getByRole('button', { name: 'Tentar de novo' }).click(); await salvo(page);
-      assert.deepEqual([dados.conteudo.logoPosicoes[ARTE].x, dados.conteudo.logoPosicoes[ARTE].y], [0, 50]);
+      await noLugar(page, dados.conteudo.logoPosicoes[ARTE], [0, 50], 'meio à esquerda');
 
       // 9. Sessão expirada: renova uma vez (nova logo_sessao) e grava.
       estado.expirarProximo = true; const abrirSessao = () => estado.logo.filter(b => b.acao === 'logo_sessao').length, sessoesAntes = abrirSessao();
       await page.getByRole('button', { name: 'Em cima, à direita', exact: true }).click(); await salvo(page);
       assert.equal(abrirSessao(), sessoesAntes + 1, 'abriu uma sessão nova');
-      assert.deepEqual([dados.conteudo.logoPosicoes[ARTE].x, dados.conteudo.logoPosicoes[ARTE].y], [100, 0]);
+      await noLugar(page, dados.conteudo.logoPosicoes[ARTE], [100, 0], 'em cima à direita');
 
-      // 10. Voltar para a faixa.
-      await page.getByRole('button', { name: 'Voltar para a faixa' }).click(); await salvo(page);
-      assert.equal(dados.conteudo.logoPosicoes[ARTE].modo, 'faixa');
+      // 9b. PNG baixado (Astra r1, validação pendente): a logo vermelha aparece no canto de cima à direita da arte
+      // e não no canto de cima à esquerda; a faixa lisa de cima da arte segue com a cor dela fora da logo.
+      {
+        const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar imagem' }).click()]);
+        const arquivo = path.join(out, '10-baixado-logo-sobre.png'); await download.saveAs(arquivo);
+        const { data, info } = await sharp(arquivo).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        const vermelhos = (x0, x1, y0, y1) => { let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * info.width + x) * 3; if (data[i] > 190 && data[i + 1] < 90 && data[i + 2] < 110) n++; } return n; };
+        const q = Math.round(info.width / 2), alto = Math.round(info.height * 0.18); // só a faixa lisa (a textura começa em 300/1536)
+        const direita = vermelhos(q, info.width, 0, alto), esquerda = vermelhos(0, q, 0, alto);
+        assert.ok(direita > 2000, `logo no PNG em cima à direita (${direita} px vermelhos)`);
+        assert.ok(esquerda < direita / 20, `nada da logo em cima à esquerda (${esquerda} px)`);
+        resumo.push({ cenario: 'png-baixado', largura: info.width, altura: info.height, vermelhosDireita: direita, vermelhosEsquerda: esquerda });
+      }
+
+      // 10. "Sugerir lugar" e, no mesmo instante, "Voltar para a faixa" (r2, Astra r1 P2): a sugestão que termina
+      // depois não desfaz a faixa; nenhum comando "sobre" sai depois do "faixa".
+      await page.evaluate(() => {
+        const botao = nome => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === nome);
+        botao('Sugerir lugar').click(); botao('Voltar para a faixa').click();
+      });
+      await salvo(page); await esperar(2000); await salvo(page);
+      assert.equal(dados.conteudo.logoPosicoes[ARTE].modo, 'faixa', 'a faixa vence a sugestão atrasada');
+      assert.equal(ultimaPosicao(estado).modo, 'faixa', 'o último comando enviado é a faixa');
       await page.getByRole('button', { name: 'Colocar a logo sobre a arte' }).waitFor();
       assert.equal(await controle.count(), 0);
 
@@ -202,6 +238,35 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await context.close();
     }
 
+    // 11b. Toque (Astra r1, validação pendente): arrastar com o dedo grava um comando ao soltar; touchcancel
+    // (pointercancel no controle) descarta o arraste sem enviar nada e a logo volta para onde estava.
+    {
+      const { page, context, estado } = await abrirEditor({ hasTouch: true, viewport: { width: 390, height: 844 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' });
+      await controle.waitFor(); await controle.scrollIntoViewIfNeeded(); await page.locator('[data-camada-logo="pronta"]').first().waitFor();
+      const cdp = await context.newCDPSession(page);
+      const toque = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x, y, id: 1 }] });
+      await page.evaluate(() => { window.__cancel = 0; document.addEventListener('pointercancel', e => { if (e.pointerType === 'touch') window.__cancel++; }, true); });
+      let c = await controle.boundingBox(); const cx = c.x + c.width / 2, cy = c.y + c.height / 2;
+      await toque('touchStart', cx, cy); for (let i = 1; i <= 5; i++) await toque('touchMove', cx + i * 8, cy - i * 20);
+      assert.equal(estado.logo.length, 0, 'nada é enviado durante o arraste com o dedo');
+      await toque('touchEnd'); await salvo(page);
+      const comToque = ultimaPosicao(estado);
+      assert.ok(comToque && comToque.x > 50 && comToque.y < 50, `toque moveu a logo (${comToque?.x},${comToque?.y})`);
+      const n = estado.logo.length; c = await controle.boundingBox();
+      const tx = c.x + c.width / 2, ty = c.y + c.height / 2;
+      await toque('touchStart', tx, ty); for (let i = 1; i <= 4; i++) await toque('touchMove', tx - i * 15, ty + i * 25);
+      await toque('touchCancel'); await esperar(900);
+      assert.ok(await page.evaluate(() => window.__cancel) >= 1, 'o navegador disparou pointercancel de toque');
+      assert.equal(estado.logo.length, n, 'pointercancel não envia');
+      const depois = await controle.boundingBox();
+      assert.ok(Math.abs(depois.x - c.x) < 2 && Math.abs(depois.y - c.y) < 2, 'controle voltou ao lugar gravado depois do pointercancel');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'toque', comandos: estado.logo.length, pointercancel: await page.evaluate(() => window.__cancel) });
+      await page.screenshot({ path: path.join(out, '11-toque-celular.png') });
+      await context.close();
+    }
+
     // 12. Editor da família: sem controles da logo e sem comandos da logo.
     {
       const { page, context, estado } = await abrirEditor({ admin: false });
@@ -214,8 +279,10 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await context.close();
     }
 
-    // 13–14. Página pública: logo sobre a arte; 409 na arte → relê uma vez; segunda divergência → logo no rodapé.
-    for (const modo of ['uma-divergencia', 'duas-divergencias']) {
+    // 13–15. Página pública: logo sobre a arte; 409 na arte → relê uma vez; segunda divergência → logo no rodapé.
+    // r2 (Astra r1, P2): troca A → B com a releitura do JSON atrasada; a arte A não é pedida de novo enquanto o JSON
+    // não chega, e a arte B (outro id) entra com a logo sobre ela, sem cair no rodapé.
+    for (const modo of ['uma-divergencia', 'duas-divergencias', 'a-para-b-atrasado']) {
       const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
       const pub = { gets: 0, releituras: 0, conflitos: 0, artes: [], logos: 0, outras: [] };
       await context.route('**/*', async route => {
@@ -227,13 +294,15 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
         const a = url.searchParams.get('arte');
         if (a) {
           pub.artes.push(a);
-          const conflito = a !== '1' && (modo === 'duas-divergencias' || pub.artes.filter(x => x !== '1').length === 1);
+          const conflito = modo === 'a-para-b-atrasado' ? a === ARTE : a !== '1' && (modo === 'duas-divergencias' || pub.artes.filter(x => x !== '1').length === 1);
           if (conflito) pub.conflitos++;
           return conflito ? route.fulfill({ status: 409, body: '' }) : route.fulfill({ contentType: 'image/webp', body: arte });
         }
         pub.gets++; if (pub.conflitos > 0) pub.releituras++;
+        const trocou = modo === 'a-para-b-atrasado' && pub.conflitos > 0; // só a releitura depois do 409 (o modo dev pede o JSON duas vezes ao montar)
+        if (trocou) await esperar(1800);
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: {
-          conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: ARTE, visual: { modo: 'completa', ajuste: 'conter', x: 50, y: 50 }, confirmarPresenca: true },
+          conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: trocou ? ARTE_B : ARTE, visual: { modo: 'completa', ajuste: 'conter', x: 50, y: 50 }, confirmarPresenca: true },
           marcaKidmais: false, logoBuffet: true, logoSobre: { x: 80, y: 8, largura: 18, fundo: true }, buffet: 'Buffet Teste', familia: null } }) });
       });
       const page = await context.newPage(); const erros = []; page.on('pageerror', e => erros.push(e.message));
@@ -246,6 +315,13 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
         assert.equal(await rodape.count(), 0, 'rodapé sem logo com a logo sobre a arte');
         assert.ok(pub.artes.every(a => a === ARTE), 'pede a arte pelo id');
         await page.screenshot({ path: path.join(out, '08-publico-logo-sobre.png') });
+      } else if (modo === 'a-para-b-atrasado') {
+        await page.locator('[data-camada-logo="pronta"]').waitFor({ timeout: 10000 });
+        await esperar(600);
+        assert.deepEqual(pub.artes, [ARTE, ARTE_B], `A uma vez, depois B (${pub.artes.join(',')})`);
+        assert.equal(pub.releituras, 1, 'uma releitura'); assert.equal(pub.conflitos, 1, 'uma divergência');
+        assert.equal(await rodape.count(), 0, 'logo segue sobre a arte B');
+        await page.screenshot({ path: path.join(out, '12-publico-a-para-b.png') });
       } else {
         await rodape.waitFor({ timeout: 10000 });
         assert.equal(await page.locator('[data-camada-logo]').count(), 0, 'sem sobreposição na segunda divergência');

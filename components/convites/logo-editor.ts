@@ -2,7 +2,7 @@
  * Regras puras da logo sobre a arte no editor do buffet (plano etapa 3 r15.1, §4, §5 e §6).
  * Sem React e sem navegador: os textos e as decisões ficam aqui para os testes da tela.
  */
-import type { PosicaoLogoEnvio } from '@/lib/convites/fila-logo';
+import type { ConfirmadosLogo, PosicaoLogoEnvio } from '@/lib/convites/fila-logo';
 import type { OrigemLogo } from '@/lib/convites/posicao-logo';
 
 export type EntradaLogo = PosicaoLogoEnvio & { origem?: OrigemLogo };
@@ -43,6 +43,29 @@ export function passoDaTecla(tecla: string, shift: boolean): { dx: number; dy: n
 export function arrastarLogo(inicio: PosicaoLogoEnvio, dxPx: number, dyPx: number, larguraPx: number, alturaPx: number): PosicaoLogoEnvio {
   if (!(larguraPx > 0) || !(alturaPx > 0)) return inicio;
   return moverLogo(inicio, dxPx / larguraPx * 100, dyPx / alturaPx * 100);
+}
+
+/**
+ * r2 (Astra r1, P3): a geometria limita o centro à metade da caixa da logo. Setas, arraste, lugares e anúncio partem do
+ * centro exibido, para não haver toques sem movimento depois de escolher um canto. `caixa` = caixa final em % da arte.
+ */
+export function limitarAoExibido(p: PosicaoLogoEnvio, caixa: { width: number; height: number } | null): PosicaoLogoEnvio {
+  if (!caixa) return p;
+  const mx = Math.min(50, caixa.width / 2), my = Math.min(50, caixa.height / 2);
+  const dentro = (v: number, m: number) => Math.min(100 - m, Math.max(m, v));
+  return { ...p, x: Math.round(dentro(p.x, mx) * 100) / 100, y: Math.round(dentro(p.y, my) * 100) / 100 };
+}
+
+/**
+ * r2 (Astra r1, P2): a base gravada só recebe o que o servidor confirmou depois de `desde` (número da confirmação já
+ * incorporada). Intenção descartada pela fila nunca entra na base.
+ */
+export function incorporarConfirmados<T extends LogoLocal>(base: T, conf: ConfirmadosLogo, desde: number): T {
+  if (conf.n <= desde) return base;
+  const posicoes = { ...base.posicoes };
+  for (const [id, c] of Object.entries(conf.posicoes)) if (c.n > desde) posicoes[id] = { ...c.valor, origem: 'buffet' };
+  const mostrar = conf.mostrar && conf.mostrar.n > desde ? conf.mostrar.valor : base.mostrar;
+  return { ...base, mostrar, posicoes };
 }
 
 export const anuncioPosicao = (p: { x: number; y: number }) => `Logo a ${Math.round(p.x)}% da esquerda e ${Math.round(p.y)}% do topo.`;

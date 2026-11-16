@@ -17,6 +17,9 @@ export default function ConvitePublico({ token }: { token: string }) {
   // 2 = mostra a arte sem a logo por cima e a logo volta ao rodapé.
   const [logoSobre, setLogoSobre] = useState<PosicaoSobre | null>(null), [divergencia, setDivergencia] = useState(0), [logoSobreFalhou, setLogoSobreFalhou] = useState(false);
   const releitura = useRef<(() => void) | null>(null);
+  // r2 (Astra r1, P2): enquanto a releitura do JSON está em voo, a arte não é pedida de novo e um erro dela não conta;
+  // a remontagem da arte acontece só quando o JSON chega (`tentativaArte`), com o id novo ou o mesmo.
+  const relendo = useRef(false), [tentativaArte, setTentativaArte] = useState(0);
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
   useEffect(() => {
     let controller: AbortController | undefined, anterior: string | null | undefined;
@@ -25,6 +28,7 @@ export default function ConvitePublico({ token }: { token: string }) {
       if (anterior === acesso) return;
       anterior = acesso; controller?.abort(); const atual = new AbortController(); controller = atual;
       acessoFamilia.current = acesso;
+      relendo.current = false;
       setConteudo(null); setLogoSobre(null); setDivergencia(0); setLogoSobreFalhou(false); setFamilia(null); setErro(''); setAviso(''); setNome(''); setPresenca(true); setAdultos(1); setCriancas(0);
       try { const k = `convite-rsvp:${token}`; chave.current = acesso != null ? crypto.randomUUID() : localStorage.getItem(k) || crypto.randomUUID(); if (acesso == null) localStorage.setItem(k, chave.current); }
       catch { chave.current = crypto.randomUUID(); }
@@ -39,8 +43,9 @@ export default function ConvitePublico({ token }: { token: string }) {
       const atual = controller; const acesso = acessoFamilia.current;
       void fetch(endpoint, { cache: 'no-store', signal: atual?.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
         const j = await r.json(); if (atual?.signal.aborted) return; if (!r.ok) throw new Error(j.erro);
-        setConteudo(j.data.conteudo); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null);
-      }).catch(() => { if (!atual?.signal.aborted) setDivergencia(2); });
+        relendo.current = false;
+        setConteudo(j.data.conteudo); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null); setTentativaArte(n => n + 1);
+      }).catch(() => { if (!atual?.signal.aborted) { relendo.current = false; setDivergencia(2); } });
     };
     carregar(); window.addEventListener('hashchange', carregar);
     return () => { controller?.abort(); window.removeEventListener('hashchange', carregar); };
@@ -49,7 +54,10 @@ export default function ConvitePublico({ token }: { token: string }) {
   // D-L3-2: com a logo sobre a arte valendo, o rodapé fica sem logo.
   const sobreAtiva = !!conteudo?.arteId && conteudo.visual?.modo === 'completa' && !!logoSobre && logoBuffet && divergencia < 2 && !logoSobreFalhou;
   const arteSrc = conteudo?.arteId ? (sobreAtiva ? `${endpoint}?arte=${encodeURIComponent(conteudo.arteId)}` : `${endpoint}?arte=1`) : undefined;
-  const aoFalharArte = () => { if (!sobreAtiva) return; if (divergencia === 0) { setDivergencia(1); releitura.current?.(); } else setDivergencia(2); };
+  const aoFalharArte = () => {
+    if (!sobreAtiva || relendo.current) return;
+    if (divergencia === 0) { relendo.current = true; setDivergencia(1); releitura.current?.(); } else setDivergencia(2);
+  };
   const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque, '--botao-tinta': tintaLegivel(tema.destaque), '--brilho-fundo': contraste(tema.fundo, tema.tinta) < 10 ? 0 : 1, colorScheme: luminancia(tema.fundo) < .18 ? 'dark' : 'light' } as CSSProperties : undefined;
   return <main className={styles.publico} data-tema={conteudo?.tema} data-cores-proprias={!!conteudo?.visual?.cores} data-efeitos-pausados={efeitosPausados} style={cores}>
     {!conteudo && <div className={styles.estado}>{erro ? <p role="alert" className={styles.erro}>{erro}</p> : <p role="status">Preparando um convite especial…</p>}</div>}
@@ -60,7 +68,7 @@ export default function ConvitePublico({ token }: { token: string }) {
         <button type="button" className={styles.controleEfeitos} aria-pressed={efeitosPausados} onClick={() => setEfeitosPausados(v => !v)}>{efeitosPausados ? 'Ativar efeitos' : 'Pausar efeitos'}</button>
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
-      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte key={`${arteSrc ?? 'sem-arte'}|${divergencia}`} conteudo={conteudo} arte={arteSrc}
+      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte key={`${arteSrc ?? 'sem-arte'}|${tentativaArte}`} conteudo={conteudo} arte={arteSrc}
         sobre={sobreAtiva && logoSobre ? { logo: `${endpoint}?logo=1`, posicao: logoSobre, aoFalharArte, aoFalharLogo: () => setLogoSobreFalhou(true) } : null} /></div>
       {/* D-LIB-3/5: o bloco "Local" fica visível na página mesmo quando a arte completa traz os textos na imagem. */}
       {conteudo.blocoLocal && <p className={styles.localFixo} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local</strong> {localDoConvite(conteudo)}{enderecoDoConvite(conteudo) ? <span>{enderecoDoConvite(conteudo)}</span> : null}</p>}

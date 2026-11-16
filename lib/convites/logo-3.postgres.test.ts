@@ -624,8 +624,8 @@ test("etapa 3 no PG descartável: sessões, ordem, intercalação, rotas reais, 
         assert.equal(init.keepalive, true); assert.equal(h.get("x-csrf-token"), sA.csrf);
         return r as unknown as Response;
       };
-      const F = carregar<{ filaDaLogo(conviteId: string, endpoint: string): { posicao(p: Posicao): void; temPendencia(): boolean; estado(): { situacao: string } } }>("lib/convites/fila-logo.ts");
-      const fila = F.filaDaLogo(cv.id, ENDPOINT);
+      const F = carregar<{ filaDaLogo(conviteId: string): { posicao(p: Posicao): void; temPendencia(): boolean; estado(): { situacao: string } } }>("lib/convites/fila-logo.ts");
+      const fila = F.filaDaLogo(cv.id);
       const esvaziar = async () => { for (let i = 0; i < 400 && fila.temPendencia(); i++) await dormir(10); };
       fila.posicao(P(cv.x, 10));
       await esvaziar();

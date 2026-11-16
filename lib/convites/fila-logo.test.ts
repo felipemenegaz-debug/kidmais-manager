@@ -944,8 +944,8 @@ test('transporte real: adminFetch com POST, keepalive e os dois cabeçalhos; ses
         const cache = new Map();
         carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, cache);
         const M = carregarModulo('lib/convites/fila-logo.ts', {}, cache) as unknown as typeof F;
-        const fila = M.filaDaLogo('conv', ENDPOINT);
-        assert.equal(M.filaDaLogo('conv', ENDPOINT), fila, 'uma instância por convite no documento');
+        const fila = M.filaDaLogo('conv');
+        assert.equal(M.filaDaLogo('conv'), fila, 'uma instância por convite no documento');
         assert.equal(posts.length, 0);
         fila.posicao(P('A', 10));
         for (let i = 0; i < 20 && fila.temPendencia(); i++) await esvaziar();
@@ -967,4 +967,61 @@ test('transporte real: adminFetch com POST, keepalive e os dois cabeçalhos; ses
     finally {
         Object.assign(g, antes);
     }
+});
+
+test('r2 confirmados: só o que a resposta marcou como aplicado; arte ausente e seq velha não confirmam; a confirmação sobe a época', async () => {
+    const { rede, fila } = await preparada();
+    const c0 = fila.estado().confirmados;
+    assert.equal(c0.n, 1, 'a preparação confirmou F');
+    assert.deepEqual(c0.posicoes.F?.valor, P('F', 1));
+    rede.servidor.artes.delete('B');
+    const ep = fila.epoca();
+    fila.mostrar(false); fila.posicao(P('A', 40)); fila.posicao(P('B', 60));
+    const depoisDaIntencao = fila.epoca();
+    assert.ok(depoisDaIntencao > ep);
+    await esvaziar();
+    const c = fila.estado().confirmados;
+    assert.equal(c.n, 3, 'mostrar sai sozinho; A e B no comando seguinte');
+    assert.deepEqual(c.mostrar, { valor: false, n: 2 });
+    assert.deepEqual(c.posicoes.A, { valor: P('A', 40), n: 3 });
+    assert.equal(c.posicoes.B, undefined, 'arte ausente nunca é confirmada');
+    assert.ok(fila.epoca() > depoisDaIntencao, 'a confirmação conta para a regra da época');
+    // Resposta sem `aplicado` verdadeiro (seq velha): não confirma.
+    rede.regra('X', { status: 200, data: { aplicado: { posicoes: { A: false } }, artesAusentes: [] } });
+    fila.posicao(P('A', 70));
+    await esvaziar();
+    assert.equal(fila.estado().confirmados.n, 3);
+    assert.deepEqual(fila.estado().confirmados.posicoes.A.valor, P('A', 40));
+    // Resposta sem `aplicado.mostrar` verdadeiro: o mostrar não é confirmado.
+    rede.regra('X', { status: 200, data: { aplicado: {}, artesAusentes: [] } });
+    fila.mostrar(true);
+    await esvaziar();
+    assert.deepEqual(fila.estado().confirmados.mostrar, { valor: false, n: 2 });
+    // Arte esquecida (excluída) com o comando em voo: o servidor ainda responde aplicado, mas não confirma.
+    rede.regra('X', 'segurar');
+    fila.posicao(P('A', 55));
+    await esvaziar();
+    fila.esquecerArte('A');
+    rede.ultima('X').entregar();
+    await esvaziar();
+    assert.deepEqual(fila.estado().confirmados.posicoes.A.valor, P('A', 40), 'arte esquecida não é confirmada');
+});
+
+test('r2 confirmados: superada e erro terminal não confirmam a intenção descartada', async () => {
+    const { rede, fila, aba } = await preparada();
+    rede.regra('X', 'segurar');
+    fila.posicao(P('A', 33));
+    await esvaziar();
+    aba.mapa.set(CHAVE, JSON.stringify({ id: 'S9', dono: 'Y' }));
+    rede.ultima('X').entregar();
+    await esvaziar();
+    assert.equal(fila.estado().situacao, 'superada');
+    assert.equal(fila.estado().confirmados.posicoes.A, undefined);
+    assert.deepEqual(fila.estado().posicoes, {}, 'a intenção some da fila');
+});
+
+test('r2 endpoint da fila nasce do id do convite', () => {
+    const M = modulo();
+    assert.equal(M.endpointDaLogo('a b'), '/api/admin/convites?conviteId=a%20b');
+    assert.throws(() => M.filaDaLogo(''), /sem convite/);
 });
